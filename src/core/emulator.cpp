@@ -1,7 +1,7 @@
 #include "core/emulator.h"
 
+#include "core/log.h"
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -122,9 +122,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Failure is non-fatal; the machine will not boot to BASIC but the
     // emulator can still run (useful for testing without a ROM file).
     if (!rom_.load(0, "roms/48.rom")) {
-        std::fprintf(stderr,
-            "[emulator] Warning: could not load roms/48.rom — "
-            "continuing without ROM (BASIC will not boot)\n");
+        Log::emulator()->warn("could not load roms/48.rom — continuing without ROM (BASIC will not boot)");
     }
 
     // Default border: white (ZX colour index 7).

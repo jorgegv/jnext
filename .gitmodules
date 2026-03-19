@@ -1,3 +1,6 @@
 [submodule "third_party/libz80"]
 	path = third_party/libz80
 	url = https://github.com/anotherlin/z80emu
+[submodule "third_party/spdlog"]
+	path = third_party/spdlog
+	url = https://github.com/gabime/spdlog.git

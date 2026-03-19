@@ -25,6 +25,9 @@ option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 
 find_package(SDL2 REQUIRED)
 
+# spdlog — vendored as git submodule, header-only mode.
+add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
+
 # input must come before core: emulator.h includes input/keyboard.h and
 # zxnext_core explicitly links zxnext_input.
 add_subdirectory(src/input)

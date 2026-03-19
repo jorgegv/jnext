@@ -1,5 +1,5 @@
 #include "sdl_display.h"
-#include <cstdio>
+#include "core/log.h"
 
 bool SdlDisplay::init(const char* title, int native_w, int native_h) {
     native_w_ = native_w;
@@ -10,14 +10,14 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
         native_w * scale_, native_h * scale_,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
     if (!window_) {
-        fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        Log::platform()->error("SDL_CreateWindow: {}", SDL_GetError());
         return false;
     }
 
     renderer_ = SDL_CreateRenderer(window_, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer_) {
-        fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
+        Log::platform()->error("SDL_CreateRenderer: {}", SDL_GetError());
         return false;
     }
 
@@ -27,7 +27,7 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
         SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
         native_w, native_h);
     if (!texture_) {
-        fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
+        Log::platform()->error("SDL_CreateTexture: {}", SDL_GetError());
         return false;
     }
 

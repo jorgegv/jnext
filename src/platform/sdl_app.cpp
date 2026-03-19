@@ -1,10 +1,10 @@
 #include "sdl_app.h"
 #include "core/emulator_config.h"
-#include <cstdio>
+#include "core/log.h"
 
 bool SdlApp::init(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
     }
     if (!display_.init("ZX Spectrum Next", NATIVE_W, NATIVE_H)) return false;
@@ -12,7 +12,7 @@ bool SdlApp::init(int argc, char* argv[]) {
     // Initialise the emulator with default config.
     EmulatorConfig cfg;
     if (!emulator_.init(cfg)) {
-        fprintf(stderr, "[SdlApp] Emulator init failed\n");
+        Log::platform()->error("Emulator init failed");
         return false;
     }
 

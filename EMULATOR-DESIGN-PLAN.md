@@ -38,10 +38,11 @@
 - [9. Implementation Roadmap](#9-implementation-roadmap)
   - [Phase 1 — Skeleton \& CPU (target: boots to BASIC) ✓ COMPLETE](#phase-1--skeleton--cpu-target-boots-to-basic--complete)
   - [Phase 2 — Full ULA Video ✓ COMPLETE](#phase-2--full-ula-video--complete)
+  - [Phase 2.5 — Logging \& Debugging](#phase-25--logging--debugging)
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 4 — Audio](#phase-4--audio)
   - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
-  - [Phase 6 — Usability](#phase-6--usability)
+  - [Phase 6 — Native UI \& Usability](#phase-6--native-ui--usability)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
@@ -88,6 +89,7 @@ Full cycle-accurate mode (28 MHz reference) is a future optional build flag.
 | **Display/Input**  | SDL2 (SDL3 migration later)                                | Mature, cross-platform, hardware-accelerated renderer          |
 | **Audio output**   | SDL_AudioStream (SDL2 ≥ 2.0.18)                            | Flexible buffer; avoids callback latency                       |
 | **Debugger UI**    | Qt 6 *(recommended)* or wxWidgets — see §2.1               | Native OS look-and-feel; proper widgets, not SDL-drawn text    |
+| **Logging**        | spdlog                                                     | MIT licence; named loggers per subsystem; inline level check; fmt-style API; `SPDLOG_ACTIVE_LEVEL` strips trace/debug in release builds |
 | **Testing**        | Google Test or Catch2                                      | Standard; integrates with CMake CTest                          |
 | **Packaging**      | vcpkg or Conan                                             | Handles SDL2 + GUI library + dependencies on all platforms     |
 
@@ -707,6 +709,18 @@ endif()
 - [x] SDL texture upload pipeline + integer scaling — ARGB8888, 2× scaling, SDL logical size
 - [x] Window scaling 1x/2x/3x selectable by user via F2 key
 - [x] **Milestone**: BASIC screen rendered correctly at 50 Hz
+
+### Phase 2.5 — Logging & Debugging
+
+- [x] Integrate spdlog (vendored `third_party/spdlog` v1.17.0 as git submodule)
+- [x] Logging wrapper (`src/core/log.h`) creating one named spdlog logger per subsystem (cpu, memory, ula, video, audio, port, nextreg, dma, copper, uart, input, platform, emulator)
+- [x] Runtime toggle of debug sections via command-line flags (`--log-level cpu=trace,video=warn`)
+- [x] Configurable output: stderr (default; coloured)
+- [x] Log levels per section (error, warn, info, debug, trace) — default: info
+- [x] Minimal overhead when disabled: runtime check is inline integer compare
+- [x] Replace all ad-hoc fprintf(stderr) calls with structured log calls
+- [ ] Add logging calls to existing subsystems (CPU, MMU, ULA, port dispatch, keyboard)
+- [ ] **Milestone**: Selective debug output available for any subsystem without recompilation
 
 ### Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)
 
