@@ -84,7 +84,7 @@ Full cycle-accurate mode (28 MHz reference) is a future optional build flag.
 |--------------------|------------------------------------------------------------|----------------------------------------------------------------|
 | **Language**       | C++17                                                      | Lambdas, `std::variant`, structured bindings; no overhead      |
 | **Build**          | CMake ≥ 3.16                                               | Universal; vcpkg integration; cross-platform                   |
-| **Z80 core**       | **[libz80](https://github.com/anotherlin/z80emu)** (chosen) | BSD licence, clean C API, easy to vendor; isolated behind `Z80Cpu` wrapper so it can be swapped later |
+| **Z80 core**       | **[FUSE Z80](https://fuse-emulator.sourceforge.net/)** (extracted from FUSE 1.6.0) | GPLv2; battle-tested, accurate; opcode files vendored in `third_party/fuse-z80/` with shim layer; isolated behind `Z80Cpu` wrapper |
 | **AY/YM2149**      | AYemu (C library) or inline custom                         | AYemu is compact and accurate; easy to integrate               |
 | **Display/Input**  | SDL2 (SDL3 migration later)                                | Mature, cross-platform, hardware-accelerated renderer          |
 | **Audio output**   | SDL_AudioStream (SDL2 ≥ 2.0.18)                            | Flexible buffer; avoids callback latency                       |
@@ -172,7 +172,7 @@ zxnext-emulator/
 │   │   ├── clock.h / .cpp         28 MHz master clock + derived enables
 │   │   └── scheduler.h / .cpp     priority-queue event scheduler
 │   ├── cpu/
-│   │   ├── z80_cpu.h / .cpp       Z80 core wrapper (libz80 backend; swap-friendly interface)
+│   │   ├── z80_cpu.h / .cpp       Z80 core wrapper (FUSE Z80 backend; swap-friendly interface)
 │   │   ├── z80n_ext.h / .cpp      26 Z80N extension opcodes
 │   │   └── im2.h / .cpp           IM2 interrupt controller + daisy-chain
 │   ├── memory/
@@ -232,7 +232,7 @@ zxnext-emulator/
 │       ├── nextreg_panel.h / .cpp QWidget: NextREG table (editable)
 │       └── emulator_view.h / .cpp QOpenGLWidget embedding the SDL framebuffer
 ├── third_party/
-│   ├── libz80/                    (git submodule — chosen Z80 backend, BSD licence)
+│   ├── fuse-z80/                  (vendored — FUSE Z80 core, GPLv2 licence)
 │   └── ayemu/                     (git submodule)
 ├── test/
 │   ├── unit/                      per-module unit tests
@@ -271,13 +271,14 @@ run_frame():
 ### 5.2 CPU — Z80N
 
 **Z80 core wrapper** (`src/cpu/z80_cpu.h`)
-- **Chosen backend: libz80** (`third_party/libz80/`, git submodule, BSD licence)
-- The wrapper owns all libz80 state; the rest of the emulator only sees `Z80Cpu` — libz80 is never included outside `z80_cpu.cpp`
+- **Chosen backend: FUSE Z80** (`third_party/fuse-z80/`, vendored from FUSE 1.6.0, GPLv2)
+- Opcode files extracted with a shim layer (`fuse_z80_shim.h`) that stubs all FUSE emulator dependencies
+- The wrapper provides `fuse_z80_readbyte/writebyte/readport/writeport` callbacks that dispatch to `Mmu::read/write` and `PortDispatch::read/write`
+- The rest of the emulator only sees `Z80Cpu` — FUSE internals are never included outside `z80_cpu.cpp`
 - To swap the backend in the future: rewrite only `z80_cpu.cpp`; all call sites remain unchanged
-- libz80 memory/IO callbacks dispatch to `Mmu::read/write` and `PortDispatch::read/write`
-- Contention delay applied inside the memory callback via `ContentionModel::delay(addr, cycle)`
+- Contention is currently a no-op in the FUSE shim (tstates += base time only); the emulator handles contention at a higher level
 - `WAIT_n` modeled as additional T-states returned
-- Z80N `ED`-prefix opcodes intercepted before libz80 sees them; dispatched to `z80n_ext.cpp`
+- Z80N `ED`-prefix opcodes intercepted before FUSE sees them; dispatched to `z80n_ext.cpp`
 
 **Z80N extensions** (`src/cpu/z80n_ext.h`)
 - 26 new instructions (e.g., `SWAPNIB`, `MIRROR`, `PIXELAD`, `PIXELDN`, `NEXTREG nn,n`, `NEXTREG nn,A`, `TEST n`, `BSLA/BSRA/BSRL/BSRF/BRLC DE,B`, `MUL D,E`, `ADD HL,A`, `ADD DE,A`, `ADD BC,A`, `OUTINB`, `LDPIRX`, `LDIRX`, `LDDX`, `LDDRX`, `LDIRSCALE`, `PUSH nn`, `POP nn`, `LOOP`)
@@ -691,8 +692,8 @@ endif()
 - [x] CMake project skeleton, CI pipeline (GitHub Actions: Linux + macOS + Windows)
 - [x] `Clock` and `Scheduler` stubs
 - [x] `Mmu` with 768K RAM + 48K ROM loading + fast dispatch tables
-- [x] Add libz80 as `third_party/libz80` git submodule
-- [x] Wire libz80 into `z80_cpu.cpp` behind the existing `Z80Cpu` wrapper interface
+- [x] ~~Add libz80 as `third_party/libz80` git submodule~~ → Replaced by FUSE Z80 core (`third_party/fuse-z80/`)
+- [x] Wire FUSE Z80 core into `z80_cpu.cpp` behind the existing `Z80Cpu` wrapper interface
 - [x] Connect `MemoryInterface` and `IoInterface` callbacks to `Mmu` and `PortDispatch`
 - [x] Port dispatch: `0xFE`, `0x7FFD` only
 - [x] SDL window: display raw framebuffer (all black is fine)
@@ -855,8 +856,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 | **SDL audio stutter**           | Emulator produces exactly 882 samples/frame at 50 Hz; SDL wants continuous stream | Use SDL_AudioStream with 3-frame buffer; accept minor latency                  |
 | **Cross-platform pixel format** | SDL texture format varies by platform GPU                                         | Always use `SDL_PIXELFORMAT_RGB565`; let SDL handle conversion                 |
 | **DMA mid-instruction**         | DMA can legally take the bus between T-states                                     | In line-accurate mode, stall CPU at instruction boundary; document limitation  |
-| **Z80N opcode conflicts**       | Some Z80N opcodes reuse `ED xx` space; must not mis-decode                        | Intercept `ED` prefix in `z80_cpu.cpp` before libz80 sees it; dispatch to `z80n_ext`; unmapped `ED xx` fall through to libz80 |
-| **libz80 swap path**            | Future need for higher accuracy may require replacing libz80 with FUSE or redcode/Z80 | All libz80 usage confined to `z80_cpu.cpp`; `Z80Cpu` interface is the only public API — swap is a single-file rewrite |
+| **Z80N opcode conflicts**       | Some Z80N opcodes reuse `ED xx` space; must not mis-decode                        | Intercept `ED` prefix in `z80_cpu.cpp` before FUSE core sees it; dispatch to `z80n_ext`; unmapped `ED xx` fall through to FUSE |
 
 ---
 

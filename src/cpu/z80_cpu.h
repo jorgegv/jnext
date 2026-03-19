@@ -25,8 +25,7 @@ public:
     virtual void out(uint16_t port, uint8_t val) = 0;
 };
 
-// Z80 CPU wrapper stub — pending libz80 / FUSE z80 integration
-// TODO: integrate libz80 (https://github.com/anotherlin/z80emu) or FUSE z80 core
+// Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:
     Z80Cpu(MemoryInterface& mem, IoInterface& io);

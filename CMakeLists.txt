@@ -3,7 +3,7 @@ project(jnext VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Initialize git submodules (e.g. third_party/libz80) if not already present
+# Initialize git submodules (e.g. third_party/spdlog) if not already present
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
     option(GIT_SUBMODULE "Update submodules during build" ON)
