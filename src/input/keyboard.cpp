@@ -71,8 +71,10 @@ static void init_map() {
     s_map[SDL_SCANCODE_Y]      = {5, 4};
 
     // Row 6: ENTER  L  K  J  H
-    s_map[SDL_SCANCODE_RETURN] = {6, 0};
-    s_map[SDL_SCANCODE_L]      = {6, 1};
+    s_map[SDL_SCANCODE_RETURN]   = {6, 0};
+    s_map[SDL_SCANCODE_RETURN2]  = {6, 0};
+    s_map[SDL_SCANCODE_KP_ENTER] = {6, 0};
+    s_map[SDL_SCANCODE_L]        = {6, 1};
     s_map[SDL_SCANCODE_K]      = {6, 2};
     s_map[SDL_SCANCODE_J]      = {6, 3};
     s_map[SDL_SCANCODE_H]      = {6, 4};
