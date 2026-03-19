@@ -27,17 +27,14 @@ bool SdlApp::init(int argc, char* argv[]) {
 }
 
 void SdlApp::run() {
-    // Placeholder framebuffer — all black
-    static uint16_t fb[NATIVE_W * NATIVE_H] = {};
-
     while (running_) {
         uint32_t frame_start = SDL_GetTicks();
 
         if (!input_.poll()) break;
 
-        // TODO: emulator_.run_frame();
-        // TODO: copy emulator framebuffer to fb
+        emulator_.run_frame();
 
+        const uint32_t* fb = emulator_.get_framebuffer();
         display_.upload_frame(fb, NATIVE_W, NATIVE_H);
         display_.present();
 

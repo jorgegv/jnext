@@ -10,6 +10,8 @@
 #ifndef __Z80USER_INCLUDED__
 #define __Z80USER_INCLUDED__
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,17 +68,28 @@ struct Z80CpuContext;
 
 /* ── I/O ────────────────────────────────────────────────────────────────── */
 
-#define Z80_INPUT_BYTE(port, x)                                         \
-{                                                                       \
-    (x) = z80ctx_io_in((struct Z80CpuContext *)(context),              \
-                        (uint16_t)((port) & 0xffff));                  \
+/* libz80 passes only the low byte (C register) for IN A,(C) and OUT (C),x.
+ * Reconstruct the full 16-bit port by supplying B from the Z80 state so that
+ * row-selecting keyboard reads (e.g. IN A,(C) with BC=$FEFE) work correctly.
+ * z80ctx_b_reg() is a thin C helper defined in z80_cpu.cpp that reads the B
+ * register from the context without exposing Z80CpuContext's layout here.
+ */
+#define Z80_INPUT_BYTE(port, x)                                                 \
+{                                                                               \
+    uint16_t _full_port = (uint16_t)(                                           \
+        ((uint16_t)z80ctx_b_reg((struct Z80CpuContext *)(context)) << 8)        \
+        | ((port) & 0x00FF));                                                   \
+    (x) = z80ctx_io_in((struct Z80CpuContext *)(context), _full_port);          \
 }
 
-#define Z80_OUTPUT_BYTE(port, x)                                        \
-{                                                                       \
-    z80ctx_io_out((struct Z80CpuContext *)(context),                   \
-                  (uint16_t)((port) & 0xffff),                         \
-                  (uint8_t)((x) & 0xff));                              \
+#define Z80_OUTPUT_BYTE(port, x)                                                \
+{                                                                               \
+    uint16_t _full_port = (uint16_t)(                                           \
+        ((uint16_t)z80ctx_b_reg((struct Z80CpuContext *)(context)) << 8)        \
+        | ((port) & 0x00FF));                                                   \
+    z80ctx_io_out((struct Z80CpuContext *)(context),                            \
+                  _full_port,                                                    \
+                  (uint8_t)((x) & 0xff));                                       \
 }
 
 /* ── C helper function declarations ─────────────────────────────────────── */
@@ -88,6 +101,7 @@ extern uint8_t  z80ctx_mem_read (struct Z80CpuContext *ctx, uint16_t addr);
 extern void     z80ctx_mem_write(struct Z80CpuContext *ctx, uint16_t addr, uint8_t val);
 extern uint8_t  z80ctx_io_in    (struct Z80CpuContext *ctx, uint16_t port);
 extern void     z80ctx_io_out   (struct Z80CpuContext *ctx, uint16_t port, uint8_t val);
+extern uint8_t  z80ctx_b_reg    (struct Z80CpuContext *ctx);
 
 #ifdef __cplusplus
 }

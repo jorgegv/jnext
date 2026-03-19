@@ -48,6 +48,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <unordered_map>
 #include <functional>
 
@@ -94,6 +95,15 @@ uint8_t z80ctx_io_in(Z80CpuContext *ctx, uint16_t port) {
 
 void z80ctx_io_out(Z80CpuContext *ctx, uint16_t port, uint8_t val) {
     ctx->io->out(port, val);
+}
+
+uint8_t z80ctx_b_reg(Z80CpuContext *ctx) {
+    /* Returns the B register (high byte of BC) from the live Z80 state.
+     * Used by the Z80_INPUT_BYTE / Z80_OUTPUT_BYTE macros to reconstruct the
+     * full 16-bit port address for IN A,(C) and OUT (C),x instructions, since
+     * libz80 only passes the low byte (C) to those macros.
+     */
+    return static_cast<uint8_t>(ctx->state.registers.word[Z80_BC] >> 8);
 }
 
 } // extern "C"

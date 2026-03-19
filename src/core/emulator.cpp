@@ -83,8 +83,6 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0x00FF, 0x00FE,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
-            // Bits 7-5: always 1.  Bit 6: EAR (1 = no signal).
-            // Bits 4-0: keyboard (active-low) for selected rows.
             return 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
         },
         [this](uint16_t, uint8_t val) {
@@ -112,6 +110,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
+
+    // Fire the ULA frame interrupt once per frame.
+    // In hardware this fires when the raster reaches line 1 (after vsync).
+    // The 48K ROM runs in IM1; the interrupt calls RST 0x38 which scans the
+    // keyboard and drives the BASIC main loop.  Without this the ROM spins
+    // forever and keypresses are never processed.
+    cpu_.request_interrupt(0xFF);
 
     while (clock_.get() < frame_end) {
         // Execute one CPU instruction; returns T-states consumed.
