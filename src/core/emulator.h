@@ -13,6 +13,8 @@
 #include "memory/contention.h"
 #include "port/port_dispatch.h"
 #include "port/nextreg.h"
+#include "video/renderer.h"
+#include "input/keyboard.h"
 
 /// Top-level machine class.
 ///
@@ -75,6 +77,7 @@ public:
     PortDispatch& port()      { return port_; }
     NextReg&      nextreg()   { return nextreg_; }
     Z80Cpu&       cpu()       { return cpu_; }
+    Keyboard&     keyboard()  { return keyboard_; }
 
     const EmulatorConfig& config() const { return config_; }
 
@@ -96,6 +99,8 @@ private:
     NextReg        nextreg_;
     Z80Cpu         cpu_;
     ContentionModel contention_;
+    Renderer        renderer_;
+    Keyboard        keyboard_;
 
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;

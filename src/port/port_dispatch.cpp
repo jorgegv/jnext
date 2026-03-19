@@ -2,11 +2,8 @@
 #include <cstdio>
 
 PortDispatch::PortDispatch() {
-    // Register stub handlers for known ZX Spectrum / ZX Next ports
-    // ULA: port 0xFE (mask 0x00FF, value 0x00FE)
-    register_handler(0x00FF, 0x00FE,
-        [](uint16_t p) -> uint8_t { return 0xFF; },          // keyboard rows (stub)
-        [](uint16_t p, uint8_t v) {});                        // border/beeper (stub)
+    // Note: port 0xFE (ULA/keyboard) handler is registered by Emulator::init()
+    // so it can capture the live Keyboard instance.  No stub is needed here.
 
     // AY data: 0xBFFD (mask 0xC002, value 0xC000)
     register_handler(0xC002, 0xC000,

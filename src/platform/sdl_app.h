@@ -2,6 +2,7 @@
 #include <SDL2/SDL.h>
 #include "sdl_display.h"
 #include "sdl_input.h"
+#include "core/emulator.h"
 
 class SdlApp {
 public:
@@ -12,6 +13,7 @@ public:
 private:
     SdlDisplay display_;
     SdlInput   input_;
+    Emulator   emulator_;
     bool       running_ = false;
 
     static constexpr int NATIVE_W = 320;

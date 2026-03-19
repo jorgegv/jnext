@@ -25,6 +25,9 @@ option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 
 find_package(SDL2 REQUIRED)
 
+# input must come before core: emulator.h includes input/keyboard.h and
+# zxnext_core explicitly links zxnext_input.
+add_subdirectory(src/input)
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)
 add_subdirectory(src/memory)
@@ -32,7 +35,6 @@ add_subdirectory(src/video)
 add_subdirectory(src/audio)
 add_subdirectory(src/port)
 add_subdirectory(src/peripheral)
-add_subdirectory(src/input)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
 

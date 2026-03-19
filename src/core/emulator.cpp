@@ -37,6 +37,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     mmu_.reset();
     nextreg_.reset();
     cpu_.reset();
+    keyboard_.reset();
 
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
@@ -75,6 +76,22 @@ bool Emulator::init(const EmulatorConfig& cfg)
         [this](uint16_t) -> uint8_t { return nextreg_.read_selected(); },
         [this](uint16_t, uint8_t v)  { nextreg_.write_selected(v); });
 
+    // ULA — port 0xFE (mask 0x00FF, value 0x00FE).
+    // Read: bits 7-5 always 1; bit 6 = EAR input (1 = no tape signal);
+    //       bits 4-0 = keyboard rows for selected addresses (active-low).
+    // Write: bits 2-0 = border colour; bit 4 = MIC; bit 3 = EAR/beeper.
+    port_.register_handler(0x00FF, 0x00FE,
+        [this](uint16_t port) -> uint8_t {
+            uint8_t addr_high = static_cast<uint8_t>(port >> 8);
+            // Bits 7-5: always 1.  Bit 6: EAR (1 = no signal).
+            // Bits 4-0: keyboard (active-low) for selected rows.
+            return 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
+        },
+        [this](uint16_t, uint8_t val) {
+            renderer_.ula().set_border(val & 0x07);
+            // TODO Phase 4: beeper EAR out = (val >> 4) & 1, MIC = (val >> 3) & 1
+        });
+
     // --- ROM loading ---
 
     // Attempt to load the 48K ROM into ROM slot 0 from the standard path.
@@ -85,6 +102,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
             "[emulator] Warning: could not load roms/48.rom — "
             "continuing without ROM (BASIC will not boot)\n");
     }
+
+    // Default border: white (ZX colour index 7).
+    renderer_.ula().set_border(7);
 
     return true;
 }
@@ -104,6 +124,9 @@ void Emulator::run_frame()
     }
 
     frame_cycle_ = frame_end;
+
+    // Render the completed frame into the ARGB8888 framebuffer.
+    renderer_.render_frame(framebuffer_.data(), mmu_);
 }
 
 void Emulator::reset()
@@ -116,6 +139,7 @@ void Emulator::reset()
     mmu_.reset();
     nextreg_.reset();
     cpu_.reset();
+    keyboard_.reset();
 
     // Clear framebuffer to black.
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
@@ -148,19 +172,11 @@ void Emulator::schedule_frame_events()
 
 void Emulator::on_scanline(int line)
 {
-    // Stub: fill the scanline with solid black so the host can verify the
-    // framebuffer is being written.
-    //
-    // Real implementation (Phase 2+):
-    //   1. Composite ULA → LoRes → Layer2 → Tilemap → Sprites.
-    //   2. Accumulate audio samples for the line period.
-    //   3. Check / fire IM2 frame interrupt at line 1.
-
-    if (line < FRAMEBUFFER_HEIGHT) {
-        const uint32_t color = 0xFF000000u;
-        uint32_t* row = framebuffer_.data() + line * FRAMEBUFFER_WIDTH;
-        std::fill(row, row + FRAMEBUFFER_WIDTH, color);
-    }
+    // Phase 2: full-frame rendering is done in run_frame() via renderer_.render_frame().
+    // Per-scanline hooks reserved for future use:
+    //   - Accumulate audio samples for the line period (Phase 4).
+    //   - Fire IM2 frame interrupt at line 1 (Phase 5).
+    (void)line;
 }
 
 void Emulator::on_vsync()

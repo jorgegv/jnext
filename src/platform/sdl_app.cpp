@@ -1,4 +1,5 @@
 #include "sdl_app.h"
+#include "core/emulator_config.h"
 #include <cstdio>
 
 bool SdlApp::init(int argc, char* argv[]) {
@@ -8,10 +9,17 @@ bool SdlApp::init(int argc, char* argv[]) {
     }
     if (!display_.init("ZX Spectrum Next", NATIVE_W, NATIVE_H)) return false;
 
+    // Initialise the emulator with default config.
+    EmulatorConfig cfg;
+    if (!emulator_.init(cfg)) {
+        fprintf(stderr, "[SdlApp] Emulator init failed\n");
+        return false;
+    }
+
     input_.on_quit = [this]() { running_ = false; };
-    input_.on_key  = [](SDL_Scancode sc, bool pressed) {
-        // TODO: route to Keyboard::set_key(sc, pressed)
-        (void)sc; (void)pressed;
+    // Route SDL key events directly into the emulator keyboard matrix.
+    input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
+        emulator_.keyboard().set_key(sc, pressed);
     };
 
     running_ = true;
