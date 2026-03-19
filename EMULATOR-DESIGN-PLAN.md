@@ -729,7 +729,7 @@ endif()
 - [x] Layer 2 bitmap renderer (256×192 @ 8-bit) — reads from physical RAM banks with X/Y scroll wrapping; palette offset; transparency; NextREG 0x12/0x13/0x16/0x17/0x70/0x71 + port 0x123B wired; verified against VHDL layer2.vhd
 - [x] Sprite engine (128 sprites, 8-bit colour, scale ×1) — 128 sprites, 16×16, 8-bit and 4-bit colour; VHDL-verified 5-byte attribute format; port 0x303B/0x57/0x5B; pattern RAM 16KB; rotation/mirror; collision detection; clip window; NextREG 0x34/0x75-0x79
 - [x] Tilemap (40×32 mode) — 40×32 and 80×32 modes; 4bpp patterns + text mode (1bpp); 512-tile mode; force-attribute; ULA-over-tilemap per-tile priority; X/Y scroll; base address decoding (bank 5/7); NextREG 0x6B/0x6C/0x6E/0x6F/0x2F/0x30/0x31
-- [ ] Layer compositor with NextREG priority control
+- [x] Layer compositor with NextREG priority control — per-scanline compositing of ULA+Tilemap/Layer2/Sprites; 6 priority modes (SLU/LSU/SUL/LUS/USL/ULS); all sprite/tilemap/copper port+NextREG handlers wired; copper executes per CPU instruction
 - [x] Copper co-processor — 1K×16-bit instruction RAM; WAIT (vc==vpos && hc>=(hpos<<3)+12) and MOVE; HALT/NOP; mode edge detection; 2-cycle MOVE timing; NextREG 0x60/0x61/0x62/0x63 write paths with MSB/LSB pairing
 - [ ] **Milestone**: Next-specific games render correctly
 
