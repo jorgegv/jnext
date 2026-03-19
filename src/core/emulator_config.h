@@ -2,16 +2,9 @@
 
 #include <cstdint>
 
-// ---------------------------------------------------------------------------
-// Machine type
-// ---------------------------------------------------------------------------
-
-enum class MachineType {
-    ZXN_ISSUE2,   // ZX Spectrum Next (Issue 2 / Spartan 6) — primary target
-    ZX48K,        // 48K legacy mode
-    ZX128K,       // 128K / +3 legacy mode
-    PENTAGON,     // Pentagon timing mode
-};
+// MachineType is the canonical shared enum; defined once in contention.h.
+// All emulator modules that need the machine type include this header.
+#include "memory/contention.h"
 
 // ---------------------------------------------------------------------------
 // Emulator configuration

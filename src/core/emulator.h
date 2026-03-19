@@ -6,10 +6,17 @@
 #include "core/clock.h"
 #include "core/emulator_config.h"
 #include "core/scheduler.h"
+#include "cpu/z80_cpu.h"
+#include "memory/ram.h"
+#include "memory/rom.h"
+#include "memory/mmu.h"
+#include "memory/contention.h"
+#include "port/port_dispatch.h"
+#include "port/nextreg.h"
 
 /// Top-level machine class.
 ///
-/// Owns the Clock, Scheduler, and (eventually) all subsystems.
+/// Owns the Clock, Scheduler, and all core subsystems.
 /// The host loop calls run_frame() once per display frame.
 ///
 /// Subsystem stubs will be filled in by later phases:
@@ -20,7 +27,7 @@
 ///   Phase 5 — DivMMC, CTC, UART, DMA, full NextREG file
 class Emulator {
 public:
-    explicit Emulator() = default;
+    Emulator();
 
     // Non-copyable, non-movable (owns large state).
     Emulator(const Emulator&)            = delete;
@@ -34,9 +41,8 @@ public:
     /// Advance emulation by exactly one video frame.
     ///
     /// Internally:
-    ///   - Runs the Scheduler for MASTER_CYCLES_PER_FRAME master cycles.
-    ///   - Between scheduler events the CPU executes instructions
-    ///     (stub: no-op until Phase 1 CPU integration).
+    ///   - Runs the CPU for MASTER_CYCLES_PER_FRAME master cycles.
+    ///   - Between scheduler events the CPU executes instructions.
     ///   - At each scanline boundary: renders the scanline, accumulates
     ///     audio samples, checks interrupts.
     void run_frame();
@@ -63,8 +69,13 @@ public:
     // Accessors (used by the debugger interface)
     // -----------------------------------------------------------------------
 
-    Clock&     clock()     { return clock_; }
-    Scheduler& scheduler() { return scheduler_; }
+    Clock&        clock()     { return clock_; }
+    Scheduler&    scheduler() { return scheduler_; }
+    Mmu&          mmu()       { return mmu_; }
+    PortDispatch& port()      { return port_; }
+    NextReg&      nextreg()   { return nextreg_; }
+    Z80Cpu&       cpu()       { return cpu_; }
+
     const EmulatorConfig& config() const { return config_; }
 
 private:
@@ -76,11 +87,21 @@ private:
     Clock          clock_;
     Scheduler      scheduler_;
 
+    // Subsystem members — declaration order matters for initializer list:
+    // ram_ and rom_ must come before mmu_, and mmu_+port_ before cpu_.
+    Ram            ram_;
+    Rom            rom_;
+    Mmu            mmu_;
+    PortDispatch   port_;
+    NextReg        nextreg_;
+    Z80Cpu         cpu_;
+    ContentionModel contention_;
+
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;
 
     /// Master cycle counter at which the current frame started.
-    uint64_t frame_start_cycle_ = 0;
+    uint64_t frame_cycle_ = 0;
 
     // -----------------------------------------------------------------------
     // Private helpers
