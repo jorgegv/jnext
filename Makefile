@@ -30,7 +30,7 @@ debug:
 
 # Run the emulator (debug build)
 debug-run: debug
-	$(BUILD_DIR_DEBUG)/zxnext
+	$(BUILD_DIR_DEBUG)/jnext
 
 # Remove debug build directory
 debug-clean:
@@ -48,7 +48,7 @@ release:
 
 # Run the emulator (release build)
 release-run: release
-	$(BUILD_DIR_RELEASE)/zxnext
+	$(BUILD_DIR_RELEASE)/jnext
 
 # Remove release build directory
 release-clean:

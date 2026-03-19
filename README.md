@@ -58,7 +58,7 @@ JNEXT does not include ROM files. Place a 48K Spectrum ROM as `roms/48.rom` in t
 ## Usage
 
 ```
-./build/zxnext [options]
+./build/jnext [options]
 ```
 
 ### Command-line options
@@ -76,13 +76,13 @@ Available subsystems: `cpu`, `memory`, `ula`, `video`, `audio`, `port`, `nextreg
 **Examples:**
 ```sh
 # Trace CPU activity, warn-only for video
-./build/zxnext --log-level cpu=trace,video=warn
+./build/jnext --log-level cpu=trace,video=warn
 
 # Debug port I/O
-./build/zxnext --log-level port=debug
+./build/jnext --log-level port=debug
 
 # Silence all logging
-./build/zxnext --log-level emulator=off,platform=off
+./build/jnext --log-level emulator=off,platform=off
 ```
 
 ### Keyboard shortcuts
