@@ -51,3 +51,12 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
         }
     }
 }
+
+// IoInterface implementation
+uint8_t PortDispatch::in(uint16_t port) {
+    return read(port);
+}
+
+void PortDispatch::out(uint16_t port, uint8_t val) {
+    write(port, val);
+}

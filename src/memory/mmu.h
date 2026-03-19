@@ -2,8 +2,9 @@
 #include <cstdint>
 #include "ram.h"
 #include "rom.h"
+#include "cpu/z80_cpu.h"
 
-class Mmu {
+class Mmu : public MemoryInterface {
 public:
     Mmu(Ram& ram, Rom& rom);
 
@@ -15,14 +16,14 @@ public:
     uint8_t get_page(int slot) const { return slots_[slot]; }
 
     // Hot-path memory access (inline for performance)
-    inline uint8_t read(uint16_t addr) const {
+    inline uint8_t read(uint16_t addr) override {
         int slot = addr >> 13;
         const uint8_t* ptr = read_ptr_[slot];
         if (!ptr) return 0xFF;
         return ptr[addr & 0x1FFF];
     }
 
-    inline void write(uint16_t addr, uint8_t val) {
+    inline void write(uint16_t addr, uint8_t val) override {
         int slot = addr >> 13;
         if (read_only_[slot]) return;
         uint8_t* ptr = write_ptr_[slot];
