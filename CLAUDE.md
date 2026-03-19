@@ -16,3 +16,4 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - Do not include Co-Authored-by headers in commit messages
 - Keep commit messages terse but insightful
 - When reading daily prompt files (in directory `.prompts`, they contains tasks for the daily work), always keep a Task Completion Status section in each of them. Update this section whenever a task is finished.
+- When launching Agent Teams, the Manager agent should NOT write or touch any code
