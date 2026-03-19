@@ -9,7 +9,7 @@ BOLD  := \033[1m
 CYAN  := \033[36m
 RESET := \033[0m
 
-.PHONY: default debug release clean clean-debug clean-release run-debug run-release
+.PHONY: default debug release clean debug-clean release-clean debug-run release-run
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -28,6 +28,14 @@ debug:
 		-DENABLE_TESTS=ON
 	$(CMAKE) --build $(BUILD_DIR_DEBUG) -j$(JOBS)
 
+# Run the emulator (debug build)
+debug-run: debug
+	$(BUILD_DIR_DEBUG)/zxnext
+
+# Remove debug build directory
+debug-clean:
+	rm -rf $(BUILD_DIR_DEBUG)
+
 # Configure and build in Release mode (optimized, no sanitizers)
 release:
 	$(CMAKE) -B $(BUILD_DIR_RELEASE) \
@@ -38,21 +46,13 @@ release:
 		-DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_RELEASE) -j$(JOBS)
 
-# Run the emulator (debug build)
-run-debug: debug
-	$(BUILD_DIR_DEBUG)/zxnext
-
 # Run the emulator (release build)
-run-release: release
+release-run: release
 	$(BUILD_DIR_RELEASE)/zxnext
 
-# Remove debug build directory
-clean-debug:
-	rm -rf $(BUILD_DIR_DEBUG)
-
 # Remove release build directory
-clean-release:
+release-clean:
 	rm -rf $(BUILD_DIR_RELEASE)
 
 # Remove all build directories
-clean: clean-debug clean-release
+clean: debug-clean release-clean
