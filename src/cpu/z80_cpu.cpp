@@ -1,46 +1,20 @@
-/* z80_cpu.cpp — Z80Cpu wrapper backed by libz80 (z80emu).
+/* z80_cpu.cpp — Z80Cpu wrapper backed by FUSE Z80 core.
  *
  * Design notes
  * ────────────
- * z80_cpu.h is left unchanged (no libz80 types may appear there).  We need a
- * Z80_STATE and a back-pointer to the Z80Cpu for each instance.  Because the
- * header has no `void* ctx_` slot and adding one would violate the "do not
- * modify z80_cpu.h" constraint, we keep a file-static map:
+ * z80_cpu.h is left unchanged (no FUSE types may appear there).  The FUSE Z80
+ * core uses a global `processor z80` struct and global `tstates` counter.
+ * We provide the memory/IO callback functions that the FUSE opcode files call
+ * via macros defined in fuse_z80_shim.h.
  *
- *     static std::unordered_map<Z80Cpu*, Z80CpuContext*> g_ctx;
- *
- * This is safe as long as Z80Cpu objects are not copied (they hold references,
- * so the implicit copy constructor is already deleted by the compiler).
- *
- * libz80 macro mechanism
- * ──────────────────────
- * libz80 (z80emu) does not use callbacks.  Memory and I/O access is performed
- * via macros defined in z80user.h which receive a `void *context` argument
- * that is threaded through every public API call (Z80Emulate, Z80Interrupt,
- * Z80NonMaskableInterrupt).  We ship a custom z80user.h next to this file that
- * routes every access through four plain-C helper functions whose signatures
- * are:
- *
- *   uint8_t z80ctx_mem_read (Z80CpuContext*, uint16_t);
- *   void    z80ctx_mem_write(Z80CpuContext*, uint16_t, uint8_t);
- *   uint8_t z80ctx_io_in    (Z80CpuContext*, uint16_t);
- *   void    z80ctx_io_out   (Z80CpuContext*, uint16_t, uint8_t);
- *
- * z80emu.c includes z80user.h; because our custom z80user.h lives in
- * src/cpu/ and that directory is listed first in the include path (see
- * CMakeLists.txt), the compiler picks it up instead of the one in
- * third_party/libz80/.
+ * The FUSE core is inherently single-instance (global state).  This matches
+ * our emulator's single-CPU architecture.
  *
  * Z80N opcode interception
  * ────────────────────────
- * libz80 treats undefined ED-prefixed opcodes as NOPs.  Before calling
- * Z80Emulate we peek at the opcode at PC.  If it is 0xED followed by a Z80N-
- * specific byte we dispatch to execute_z80n() and advance PC ourselves.
- *
- * Interrupts / NMI
- * ────────────────
- * libz80 provides Z80Interrupt(state, data_on_bus, ctx) and
- * Z80NonMaskableInterrupt(state, ctx).  Both return T-states consumed.
+ * FUSE's Z80 core treats undefined ED-prefixed opcodes as NOPs.  Before calling
+ * fuse_z80_execute_one() we peek at the opcode at PC.  If it is 0xED followed
+ * by a Z80N-specific byte we dispatch to execute_z80n() and advance PC ourselves.
  */
 
 #include "z80_cpu.h"
@@ -49,76 +23,43 @@
 
 #include <cstdint>
 #include <cstring>
-#include <unordered_map>
-#include <functional>
 
-/* ── libz80 headers (C linkage) ─────────────────────────────────────────── */
-/* Including z80emu.h here causes it to pull in z80config.h only (it does NOT
- * include z80user.h itself — that is included by z80emu.c during compilation
- * of the C translation unit).  We still need the Z80_STATE type and the three
- * API function declarations.
- */
+/* ── FUSE Z80 core (C linkage) ─────────────────────────────────────────── */
+
 extern "C" {
-#include "z80emu.h"
+#include "fuse_z80_shim.h"
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * Internal context type
- * ══════════════════════════════════════════════════════════════════════════ */
+/* ── Memory/IO callback state ──────────────────────────────────────────── */
 
-/* This struct is also forward-declared in our z80user.h so that the macros
- * can cast context to Z80CpuContext*.
+/* The FUSE opcode files call readbyte/writebyte/readport/writeport which
+ * are macros that expand to fuse_z80_readbyte() etc.  These C functions
+ * dispatch through the active Z80Cpu instance's MemoryInterface/IoInterface.
  */
-struct Z80CpuContext {
-    Z80_STATE        state;
-    MemoryInterface *mem = nullptr;
-    IoInterface     *io  = nullptr;
-    /* on_m1 is copied from Z80Cpu::on_m1_cycle before each execute() call */
-    std::function<void(uint16_t, uint8_t)> on_m1;
-};
-
-/* ── Plain-C helpers called by the macros in z80user.h ─────────────────── */
+static MemoryInterface* s_mem = nullptr;
+static IoInterface*     s_io  = nullptr;
 
 extern "C" {
 
-uint8_t z80ctx_mem_read(Z80CpuContext *ctx, uint16_t addr) {
-    return ctx->mem->read(addr);
+libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
+    return s_mem->read(address);
 }
 
-void z80ctx_mem_write(Z80CpuContext *ctx, uint16_t addr, uint8_t val) {
-    ctx->mem->write(addr, val);
+void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
+    s_mem->write(address, b);
 }
 
-uint8_t z80ctx_io_in(Z80CpuContext *ctx, uint16_t port) {
-    return ctx->io->in(port);
+libspectrum_byte fuse_z80_readport(libspectrum_word port) {
+    return s_io->in(port);
 }
 
-void z80ctx_io_out(Z80CpuContext *ctx, uint16_t port, uint8_t val) {
-    ctx->io->out(port, val);
-}
-
-uint8_t z80ctx_b_reg(Z80CpuContext *ctx) {
-    /* Returns the B register (high byte of BC) from the live Z80 state.
-     * Used by the Z80_INPUT_BYTE / Z80_OUTPUT_BYTE macros to reconstruct the
-     * full 16-bit port address for IN A,(C) and OUT (C),x instructions, since
-     * libz80 only passes the low byte (C) to those macros.
-     */
-    return static_cast<uint8_t>(ctx->state.registers.word[Z80_BC] >> 8);
+void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
+    s_io->out(port, b);
 }
 
 } // extern "C"
 
-/* ── File-static context registry ──────────────────────────────────────── */
-
-static std::unordered_map<Z80Cpu*, Z80CpuContext*> g_ctx;
-
-static Z80CpuContext* get_ctx(Z80Cpu* cpu) {
-    auto it = g_ctx.find(cpu);
-    if (it != g_ctx.end()) return it->second;
-    return nullptr;
-}
-
-/* ── Z80N opcode lookup table ───────────────────────────────────────────── */
+/* ── Z80N opcode lookup table ──────────────────────────────────────────── */
 
 static bool kZ80NOpcodeTable[256] = {};
 
@@ -152,133 +93,119 @@ static bool init_z80n_table() {
 }
 static bool z80n_table_initialized = init_z80n_table();
 
-/* ── Register sync helpers ──────────────────────────────────────────────── */
+/* ── Register sync helpers ─────────────────────────────────────────────── */
 
-static void sync_regs_from_state(Z80Registers& r, const Z80_STATE& s) {
-    r.AF  = s.registers.word[Z80_AF];
-    r.BC  = s.registers.word[Z80_BC];
-    r.DE  = s.registers.word[Z80_DE];
-    r.HL  = s.registers.word[Z80_HL];
-    r.IX  = s.registers.word[Z80_IX];
-    r.IY  = s.registers.word[Z80_IY];
-    r.SP  = s.registers.word[Z80_SP];
-    r.PC  = static_cast<uint16_t>(s.pc);
-
-    r.AF2 = s.alternates[Z80_AF];
-    r.BC2 = s.alternates[Z80_BC];
-    r.DE2 = s.alternates[Z80_DE];
-    r.HL2 = s.alternates[Z80_HL];
-
-    r.I    = static_cast<uint8_t>(s.i);
-    r.R    = static_cast<uint8_t>(s.r);
-    r.IFF1 = static_cast<uint8_t>(s.iff1);
-    r.IFF2 = static_cast<uint8_t>(s.iff2);
-    r.IM   = static_cast<uint8_t>(s.im);
-    r.halted = (s.status == Z80_STATUS_HALT);
+static void sync_regs_from_fuse(Z80Registers& r) {
+    r.AF  = z80.af.w;
+    r.BC  = z80.bc.w;
+    r.DE  = z80.de.w;
+    r.HL  = z80.hl.w;
+    r.AF2 = z80.af_.w;
+    r.BC2 = z80.bc_.w;
+    r.DE2 = z80.de_.w;
+    r.HL2 = z80.hl_.w;
+    r.IX  = z80.ix.w;
+    r.IY  = z80.iy.w;
+    r.SP  = z80.sp.w;
+    r.PC  = z80.pc.w;
+    r.I   = z80.i;
+    r.R   = (z80.r7 & 0x80) | (z80.r & 0x7f);
+    r.IFF1 = z80.iff1;
+    r.IFF2 = z80.iff2;
+    r.IM   = z80.im;
+    r.halted = (z80.halted != 0);
 }
 
-static void sync_state_from_regs(Z80_STATE& s, const Z80Registers& r) {
-    s.registers.word[Z80_AF] = r.AF;
-    s.registers.word[Z80_BC] = r.BC;
-    s.registers.word[Z80_DE] = r.DE;
-    s.registers.word[Z80_HL] = r.HL;
-    s.registers.word[Z80_IX] = r.IX;
-    s.registers.word[Z80_IY] = r.IY;
-    s.registers.word[Z80_SP] = r.SP;
-    s.pc  = r.PC;
-
-    s.alternates[Z80_AF] = r.AF2;
-    s.alternates[Z80_BC] = r.BC2;
-    s.alternates[Z80_DE] = r.DE2;
-    s.alternates[Z80_HL] = r.HL2;
-
-    s.i    = r.I;
-    s.r    = r.R;
-    s.iff1 = r.IFF1;
-    s.iff2 = r.IFF2;
-    s.im   = r.IM;
+static void sync_fuse_from_regs(const Z80Registers& r) {
+    z80.af.w  = r.AF;
+    z80.bc.w  = r.BC;
+    z80.de.w  = r.DE;
+    z80.hl.w  = r.HL;
+    z80.af_.w = r.AF2;
+    z80.bc_.w = r.BC2;
+    z80.de_.w = r.DE2;
+    z80.hl_.w = r.HL2;
+    z80.ix.w  = r.IX;
+    z80.iy.w  = r.IY;
+    z80.sp.w  = r.SP;
+    z80.pc.w  = r.PC;
+    z80.i     = r.I;
+    z80.r     = r.R & 0x7f;
+    z80.r7    = r.R & 0x80;
+    z80.iff1  = r.IFF1;
+    z80.iff2  = r.IFF2;
+    z80.im    = r.IM;
+    z80.halted = r.halted ? 1 : 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Z80Cpu — public implementation
  * ══════════════════════════════════════════════════════════════════════════ */
 
+static bool s_tables_initialized = false;
+
 Z80Cpu::Z80Cpu(MemoryInterface& mem, IoInterface& io)
     : mem_(mem), io_(io)
 {
-    auto *ctx = new Z80CpuContext();
-    ctx->mem = &mem_;
-    ctx->io  = &io_;
-    g_ctx[this] = ctx;
+    s_mem = &mem_;
+    s_io  = &io_;
+
+    if (!s_tables_initialized) {
+        fuse_z80_init_tables();
+        s_tables_initialized = true;
+    }
+
     reset();
 }
 
-/* We need a destructor to clean up the heap-allocated context.
- * The destructor is NOT declared in z80_cpu.h, so we rely on the compiler-
- * generated one.  That is fine: the compiler generates `~Z80Cpu()` inline in
- * the header (it calls the trivial destructors of all members).  We can still
- * perform cleanup inside the constructor's RAII alternative — but without a
- * declared destructor we must leak unless we hook cleanup differently.
- *
- * Solution: use a static helper called from reset() is not viable.
- * Instead we register a custom deleter via the existing nmi_pending_ field as
- * a sentinel — but that is fragile.
- *
- * The cleanest approach without touching z80_cpu.h: rely on the fact that
- * g_ctx holds the only reference and accept that the Z80CpuContext is freed
- * when the process exits (acceptable for an emulator).  In production code
- * we would add `~Z80Cpu()` to the header.
- *
- * For correctness in tests where Z80Cpu is created and destroyed many times,
- * we install an atexit handler once per Z80Cpu instance that cleans up the
- * matching entry.  A simpler alternative is to use a shared_ptr in g_ctx.
- */
-
 void Z80Cpu::reset() {
-    Z80CpuContext *ctx = get_ctx(this);
-    if (!ctx) return;
+    s_mem = &mem_;
+    s_io  = &io_;
 
-    Z80Reset(&ctx->state);
+    fuse_z80_reset(1); /* hard reset */
+    tstates = 0;
 
     nmi_pending_ = false;
     int_pending_ = false;
     int_vector_  = 0xFF;
 
-    /* Populate the public register mirror */
-    sync_regs_from_state(regs_, ctx->state);
-    regs_.halted = false;
+    sync_regs_from_fuse(regs_);
 }
 
 int Z80Cpu::execute() {
-    Z80CpuContext *ctx = get_ctx(this);
-    if (!ctx) return 4;
+    s_mem = &mem_;
+    s_io  = &io_;
 
-    /* Push any externally set registers into libz80's state */
-    sync_state_from_regs(ctx->state, regs_);
-    ctx->on_m1 = on_m1_cycle;
+    /* Push any externally set registers into FUSE state */
+    sync_fuse_from_regs(regs_);
 
     /* ── NMI ──────────────────────────────────────────────────────────── */
     if (nmi_pending_) {
         nmi_pending_ = false;
-        Log::cpu()->debug("NMI at PC={:#06x}", static_cast<uint16_t>(ctx->state.pc));
-        int cycles = Z80NonMaskableInterrupt(&ctx->state, ctx);
-        sync_regs_from_state(regs_, ctx->state);
+        Log::cpu()->debug("NMI at PC={:#06x}", z80.pc.w);
+        libspectrum_dword before = tstates;
+        fuse_z80_nmi();
+        sync_regs_from_fuse(regs_);
+        int cycles = (int)(tstates - before);
         return (cycles > 0) ? cycles : 11;
     }
 
     /* ── INT ──────────────────────────────────────────────────────────── */
-    if (int_pending_ && ctx->state.iff1) {
+    if (int_pending_ && z80.iff1) {
         int_pending_ = false;
-        Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, static_cast<uint16_t>(ctx->state.pc));
-        int cycles = Z80Interrupt(&ctx->state,
-                                  static_cast<int>(int_vector_),
-                                  ctx);
-        sync_regs_from_state(regs_, ctx->state);
-        return (cycles > 0) ? cycles : 0;
+        Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
+        libspectrum_dword before = tstates;
+        int accepted = fuse_z80_interrupt(int_vector_);
+        sync_regs_from_fuse(regs_);
+        if (accepted) {
+            return (int)(tstates - before);
+        }
+        /* If not accepted (e.g. interrupts_enabled_at == tstates), fall
+         * through to execute one instruction */
     }
 
     /* ── Z80N interception ────────────────────────────────────────────── */
-    uint16_t pc     = static_cast<uint16_t>(ctx->state.pc);
+    uint16_t pc = z80.pc.w;
     uint8_t  opcode = mem_.read(pc);
 
     if (opcode == 0xED) {
@@ -289,27 +216,23 @@ int Z80Cpu::execute() {
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
 
             /* Advance PC past ED + ext byte; execute_z80n reads any operands */
-            ctx->state.pc = (pc + 2) & 0xFFFF;
-            sync_regs_from_state(regs_, ctx->state);
+            z80.pc.w = (pc + 2) & 0xFFFF;
+            sync_regs_from_fuse(regs_);
 
-            int tstates = execute_z80n(ext, *this);
-            if (tstates < 0) tstates = 8;
+            int t = execute_z80n(ext, *this);
+            if (t < 0) t = 8;
 
-            sync_state_from_regs(ctx->state, regs_);
-            return tstates;
+            sync_fuse_from_regs(regs_);
+            return t;
         }
     }
 
     /* ── Normal Z80 instruction ───────────────────────────────────────── */
     if (on_m1_cycle) on_m1_cycle(pc, opcode);
 
-    /* Pass number_cycles=1 so libz80 executes exactly one instruction and
-     * returns.  libz80 guarantees it always executes at least one full
-     * instruction before checking the elapsed >= requested condition.
-     */
-    int cycles = Z80Emulate(&ctx->state, 1, ctx);
+    int cycles = fuse_z80_execute_one();
 
-    sync_regs_from_state(regs_, ctx->state);
+    sync_regs_from_fuse(regs_);
     return (cycles > 0) ? cycles : 4;
 }
 
