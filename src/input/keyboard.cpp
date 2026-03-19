@@ -85,9 +85,9 @@ static void init_map() {
     s_map[SDL_SCANCODE_N]      = {7, 3};
     s_map[SDL_SCANCODE_B]      = {7, 4};
 
-    // Compound keys: DELETE = Caps Shift (row 0, col 0) + 0 (row 4, col 0)
+    // Compound keys: BACKSPACE = Caps Shift (row 0, col 0) + 0 (row 4, col 0)
     // This produces the ZX Spectrum RUBOUT/DELETE function.
-    s_compound[SDL_SCANCODE_DELETE] = {{0, 0}, {4, 0}};
+    s_compound[SDL_SCANCODE_BACKSPACE] = {{0, 0}, {4, 0}};
 
     s_map_init = true;
 }
