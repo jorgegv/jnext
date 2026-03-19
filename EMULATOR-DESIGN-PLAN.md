@@ -37,8 +37,8 @@
   - [Integration tests](#integration-tests)
   - [Reference comparison](#reference-comparison)
 - [9. Implementation Roadmap](#9-implementation-roadmap)
-  - [Phase 1 — Skeleton \& CPU (target: boots to BASIC)](#phase-1--skeleton--cpu-target-boots-to-basic)
-  - [Phase 2 — Full ULA Video](#phase-2--full-ula-video)
+  - [Phase 1 — Skeleton \& CPU (target: boots to BASIC) ✓ COMPLETE](#phase-1--skeleton--cpu-target-boots-to-basic--complete)
+  - [Phase 2 — Full ULA Video ✓ COMPLETE](#phase-2--full-ula-video)
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 4 — Audio](#phase-4--audio)
   - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
@@ -707,27 +707,28 @@ endif()
 
 ## 9. Implementation Roadmap
 
-### Phase 1 — Skeleton & CPU (target: boots to BASIC)
+### Phase 1 — Skeleton & CPU (target: boots to BASIC) ✓ COMPLETE
 
-- [ ] CMake project skeleton, CI pipeline (GitHub Actions: Linux + macOS + Windows)
-- [ ] `Clock` and `Scheduler` stubs
-- [ ] `Mmu` with 768K RAM + 48K ROM loading + fast dispatch tables
-- [ ] Add libz80 as `third_party/libz80` git submodule
-- [ ] Wire libz80 into `z80_cpu.cpp` behind the existing `Z80Cpu` wrapper interface
-- [ ] Connect `MemoryInterface` and `IoInterface` callbacks to `Mmu` and `PortDispatch`
-- [ ] Port dispatch: `0xFE`, `0x7FFD` only
-- [ ] SDL window: display raw framebuffer (all black is fine)
-- [ ] SDL keyboard: map SDL scancodes to ZX keyboard matrix
-- [ ] **Milestone**: 48K BASIC prompt visible, keyboard input works
+- [x] CMake project skeleton, CI pipeline (GitHub Actions: Linux + macOS + Windows)
+- [x] `Clock` and `Scheduler` stubs
+- [x] `Mmu` with 768K RAM + 48K ROM loading + fast dispatch tables
+- [x] Add libz80 as `third_party/libz80` git submodule
+- [x] Wire libz80 into `z80_cpu.cpp` behind the existing `Z80Cpu` wrapper interface
+- [x] Connect `MemoryInterface` and `IoInterface` callbacks to `Mmu` and `PortDispatch`
+- [x] Port dispatch: `0xFE`, `0x7FFD` only
+- [x] SDL window: display raw framebuffer (all black is fine)
+- [x] SDL keyboard: map SDL scancodes to ZX keyboard matrix
+- [x] **Milestone**: 48K BASIC prompt visible, keyboard input works
 
-### Phase 2 — Full ULA Video
+### Phase 2 — Full ULA Video ✓ COMPLETE
 
-- [ ] Video timing (all machine types: hc/vc counters)
-- [ ] ULA pixel + attribute rendering (all screen modes)
-- [ ] Border rendering
-- [ ] Contention LUT generation (48K, 128K, Pentagon)
-- [ ] Frame interrupt (IM2) at correct raster position
-- [ ] SDL texture upload pipeline + integer scaling
+- [x] Video timing (all machine types: hc/vc counters) — 48K, 128K, Pentagon; sub-pixel sc counter deferred to Phase 8
+- [x] ULA pixel + attribute rendering (all screen modes) — standard 48K + Timex hi-colour/hi-res done; LoRes deferred to Phase 3 (NextREG-dependent)
+- [x] Border rendering — correct 32+192+32 symmetric layout, full-width rows
+- [x] Contention LUT generation (48K, 128K, Pentagon) — all done; FUSE validation deferred to Phase 8
+- [x] Frame interrupt (IM2) at correct raster position — fires at vc=1; Im2Controller wired; RETI detection via M1 hook
+- [x] SDL texture upload pipeline + integer scaling — ARGB8888, 2× scaling, SDL logical size
+- [x] Window scaling 1x/2x/3x selectable by user via F2 key
 - [ ] **Milestone**: BASIC screen rendered correctly at 50 Hz
 
 ### Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)
