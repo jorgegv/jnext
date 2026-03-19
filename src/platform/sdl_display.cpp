@@ -7,7 +7,7 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
 
     window_ = SDL_CreateWindow(title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        native_w * 2, native_h * 2,
+        native_w * scale_, native_h * scale_,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
     if (!window_) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
@@ -48,6 +48,16 @@ void SdlDisplay::toggle_fullscreen() {
     fullscreen_ = !fullscreen_;
     SDL_SetWindowFullscreen(window_,
         fullscreen_ ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+}
+
+void SdlDisplay::set_scale(int scale) {
+    if (scale < 1) scale = 1;
+    if (scale > 3) scale = 3;
+    scale_ = scale;
+    // Only resize if not in fullscreen; fullscreen ignores scale.
+    if (!fullscreen_) {
+        SDL_SetWindowSize(window_, native_w_ * scale_, native_h_ * scale_);
+    }
 }
 
 void SdlDisplay::shutdown() {

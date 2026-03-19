@@ -17,8 +17,19 @@ bool SdlApp::init(int argc, char* argv[]) {
     }
 
     input_.on_quit = [this]() { running_ = false; };
-    // Route SDL key events directly into the emulator keyboard matrix.
+    // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
     input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
+        if (pressed) {
+            if (sc == SDL_SCANCODE_F11) {
+                display_.toggle_fullscreen();
+                return;
+            }
+            if (sc == SDL_SCANCODE_F2) {
+                int next_scale = (display_.get_scale() % 3) + 1; // 1→2→3→1
+                display_.set_scale(next_scale);
+                return;
+            }
+        }
         emulator_.keyboard().set_key(sc, pressed);
     };
 
