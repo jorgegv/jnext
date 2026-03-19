@@ -5,6 +5,33 @@ void VideoTiming::reset()
     hc_         = 0;
     vc_         = 0;
     frame_done_ = false;
+    // Timing parameters are not reset here; call init() to change machine type.
+}
+
+void VideoTiming::init(MachineType type)
+{
+    switch (type) {
+        case MachineType::ZX128K:
+            // ZX Spectrum 128K PAL: 456 ticks/line, 311 lines/frame.
+            // Same active display window as 48K (hc [128,383], vc [64,255]).
+            hc_max_ = 456;
+            vc_max_ = 311;
+            break;
+        case MachineType::PENTAGON:
+            // Pentagon: 448 ticks/line, 320 lines/frame.
+            // Same active display window as 48K.
+            hc_max_ = 448;
+            vc_max_ = 320;
+            break;
+        case MachineType::ZX48K:
+        case MachineType::ZXN_ISSUE2:
+        default:
+            // 48K PAL / ZX Next Issue 2: 456 ticks/line, 312 lines/frame.
+            hc_max_ = 456;
+            vc_max_ = 312;
+            break;
+    }
+    reset();
 }
 
 void VideoTiming::advance(int tstates)
@@ -15,11 +42,11 @@ void VideoTiming::advance(int tstates)
     hc_ += static_cast<uint16_t>(ticks);
 
     // Wrap horizontal counter into next lines.
-    while (hc_ >= HC_MAX) {
-        hc_ -= static_cast<uint16_t>(HC_MAX);
+    while (hc_ >= static_cast<uint16_t>(hc_max_)) {
+        hc_ -= static_cast<uint16_t>(hc_max_);
         ++vc_;
 
-        if (vc_ >= VC_MAX) {
+        if (vc_ >= static_cast<uint16_t>(vc_max_)) {
             vc_         = 0;
             frame_done_ = true;
         }

@@ -9,6 +9,10 @@ void ContentionModel::build(MachineType type) {
     // Contention pattern: hc_adj = (hc & 0xF) + 1; active when hc_adj[3:2] != 0
     // i.e. hc_adj in 4..15, equivalently (hc & 0xF) in 3..14
     // Delays (hc mod 8 within contended window): {6,5,4,3,2,1,0,0}
+    //
+    // ZX128K: memory contention LUT is identical to 48K.
+    // The additional 128K port 0xFD family contention (which adds ~1 wait state
+    // during active display hc window) is handled in port_dispatch, not here.
     static const uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
     for (int vc = 64; vc <= 255; ++vc) {
         for (int hc = 0; hc <= 255; ++hc) {

@@ -7,6 +7,7 @@
 #include "core/emulator_config.h"
 #include "core/scheduler.h"
 #include "cpu/z80_cpu.h"
+#include "cpu/im2.h"
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "memory/mmu.h"
@@ -97,7 +98,8 @@ private:
     Mmu            mmu_;
     PortDispatch   port_;
     NextReg        nextreg_;
-    Z80Cpu         cpu_;
+    Z80Cpu          cpu_;
+    Im2Controller   im2_;
     ContentionModel contention_;
     Renderer        renderer_;
     Keyboard        keyboard_;
