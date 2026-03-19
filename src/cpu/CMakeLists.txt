@@ -13,8 +13,12 @@ list(FILTER LIBZ80_SOURCES EXCLUDE REGEX "maketables\\.c$")
 
 add_library(zxnext_cpu STATIC ${SOURCES} ${LIBZ80_SOURCES})
 
-# IMPORTANT: CMAKE_CURRENT_SOURCE_DIR must come BEFORE the libz80 directory
-# so that our z80user.h is found instead of the one bundled with libz80.
+# Force-include our custom z80user.h before z80emu.c processes its own
+# #include "z80user.h". The include guard (__Z80USER_INCLUDED__) in our file
+# then prevents the libz80 default z80user.h from being re-included.
+set_source_files_properties(${LIBZ80_SOURCES} PROPERTIES
+    COMPILE_FLAGS "-include ${CMAKE_CURRENT_SOURCE_DIR}/z80user.h")
+
 target_include_directories(zxnext_cpu PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}

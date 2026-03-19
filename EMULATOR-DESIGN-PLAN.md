@@ -84,7 +84,7 @@ Full cycle-accurate mode (28 MHz reference) is a future optional build flag.
 |--------------------|------------------------------------------------------------|----------------------------------------------------------------|
 | **Language**       | C++17                                                      | Lambdas, `std::variant`, structured bindings; no overhead      |
 | **Build**          | CMake ≥ 3.16                                               | Universal; vcpkg integration; cross-platform                   |
-| **Z80 core**       | [libz80](https://github.com/anotherlin/z80emu) or FUSE z80 | libz80: BSD licence, clean C API; FUSE: battle-tested accuracy |
+| **Z80 core**       | **[libz80](https://github.com/anotherlin/z80emu)** (chosen) | BSD licence, clean C API, easy to vendor; isolated behind `Z80Cpu` wrapper so it can be swapped later |
 | **AY/YM2149**      | AYemu (C library) or inline custom                         | AYemu is compact and accurate; easy to integrate               |
 | **Display/Input**  | SDL2 (SDL3 migration later)                                | Mature, cross-platform, hardware-accelerated renderer          |
 | **Audio output**   | SDL_AudioStream (SDL2 ≥ 2.0.18)                            | Flexible buffer; avoids callback latency                       |
@@ -171,7 +171,7 @@ zxnext-emulator/
 │   │   ├── clock.h / .cpp         28 MHz master clock + derived enables
 │   │   └── scheduler.h / .cpp     priority-queue event scheduler
 │   ├── cpu/
-│   │   ├── z80_cpu.h / .cpp       Z80 core wrapper (libz80 / FUSE)
+│   │   ├── z80_cpu.h / .cpp       Z80 core wrapper (libz80 backend; swap-friendly interface)
 │   │   ├── z80n_ext.h / .cpp      26 Z80N extension opcodes
 │   │   └── im2.h / .cpp           IM2 interrupt controller + daisy-chain
 │   ├── memory/
@@ -236,7 +236,7 @@ zxnext-emulator/
 │       ├── nextreg_panel.h / .cpp QWidget: NextREG table (editable)
 │       └── emulator_view.h / .cpp QOpenGLWidget embedding the SDL framebuffer
 ├── third_party/
-│   ├── libz80/                    (git submodule)
+│   ├── libz80/                    (git submodule — chosen Z80 backend, BSD licence)
 │   └── ayemu/                     (git submodule)
 ├── test/
 │   ├── unit/                      per-module unit tests
@@ -275,10 +275,13 @@ run_frame():
 ### 5.2 CPU — Z80N
 
 **Z80 core wrapper** (`src/cpu/z80_cpu.h`)
-- Wraps libz80 (or FUSE z80); exposes `execute_instruction() → uint8_t t_states`
-- Memory/IO callbacks dispatch to `Mmu::read/write` and `PortDispatch::read/write`
+- **Chosen backend: libz80** (`third_party/libz80/`, git submodule, BSD licence)
+- The wrapper owns all libz80 state; the rest of the emulator only sees `Z80Cpu` — libz80 is never included outside `z80_cpu.cpp`
+- To swap the backend in the future: rewrite only `z80_cpu.cpp`; all call sites remain unchanged
+- libz80 memory/IO callbacks dispatch to `Mmu::read/write` and `PortDispatch::read/write`
 - Contention delay applied inside the memory callback via `ContentionModel::delay(addr, cycle)`
 - `WAIT_n` modeled as additional T-states returned
+- Z80N `ED`-prefix opcodes intercepted before libz80 sees them; dispatched to `z80n_ext.cpp`
 
 **Z80N extensions** (`src/cpu/z80n_ext.h`)
 - 26 new instructions (e.g., `SWAPNIB`, `MIRROR`, `PIXELAD`, `PIXELDN`, `NEXTREG nn,n`, `NEXTREG nn,A`, `TEST n`, `BSLA/BSRA/BSRL/BSRF/BRLC DE,B`, `MUL D,E`, `ADD HL,A`, `ADD DE,A`, `ADD BC,A`, `OUTINB`, `LDPIRX`, `LDIRX`, `LDDX`, `LDDRX`, `LDIRSCALE`, `PUSH nn`, `POP nn`, `LOOP`)
@@ -709,7 +712,9 @@ endif()
 - [ ] CMake project skeleton, CI pipeline (GitHub Actions: Linux + macOS + Windows)
 - [ ] `Clock` and `Scheduler` stubs
 - [ ] `Mmu` with 768K RAM + 48K ROM loading + fast dispatch tables
-- [ ] Z80 core integration (libz80); basic instruction execution
+- [ ] Add libz80 as `third_party/libz80` git submodule
+- [ ] Wire libz80 into `z80_cpu.cpp` behind the existing `Z80Cpu` wrapper interface
+- [ ] Connect `MemoryInterface` and `IoInterface` callbacks to `Mmu` and `PortDispatch`
 - [ ] Port dispatch: `0xFE`, `0x7FFD` only
 - [ ] SDL window: display raw framebuffer (all black is fine)
 - [ ] SDL keyboard: map SDL scancodes to ZX keyboard matrix
@@ -856,7 +861,8 @@ A **native Qt 6 application window** providing full introspection into the runni
 | **SDL audio stutter**           | Emulator produces exactly 882 samples/frame at 50 Hz; SDL wants continuous stream | Use SDL_AudioStream with 3-frame buffer; accept minor latency                  |
 | **Cross-platform pixel format** | SDL texture format varies by platform GPU                                         | Always use `SDL_PIXELFORMAT_RGB565`; let SDL handle conversion                 |
 | **DMA mid-instruction**         | DMA can legally take the bus between T-states                                     | In line-accurate mode, stall CPU at instruction boundary; document limitation  |
-| **Z80N opcode conflicts**       | Some Z80N opcodes reuse `ED xx` space; must not mis-decode                        | Maintain explicit Z80N opcode table; decode before falling through to standard |
+| **Z80N opcode conflicts**       | Some Z80N opcodes reuse `ED xx` space; must not mis-decode                        | Intercept `ED` prefix in `z80_cpu.cpp` before libz80 sees it; dispatch to `z80n_ext`; unmapped `ED xx` fall through to libz80 |
+| **libz80 swap path**            | Future need for higher accuracy may require replacing libz80 with FUSE or redcode/Z80 | All libz80 usage confined to `z80_cpu.cpp`; `Z80Cpu` interface is the only public API — swap is a single-file rewrite |
 
 ---
 

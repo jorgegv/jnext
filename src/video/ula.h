@@ -11,17 +11,16 @@ class Mmu;
 /// Layout of the 320×256 output framebuffer:
 ///
 ///   ┌──────────────────────────────────────┐
-///   │         48px top border              │  rows 0–47
+///   │         32px top border              │  rows 0–31
 ///   ├────┬─────────────────────────┬───────┤
-///   │ 32 │  256×192 display area   │  32   │  rows 48–239
+///   │ 32 │  256×192 display area   │  32   │  rows 32–223
 ///   │ px │                         │  px   │
 ///   ├────┴─────────────────────────┴───────┤
-///   │         56px bottom border           │  rows 240–255 (last 16 rows
-///   └──────────────────────────────────────┘  exceed 256 — clipped)
+///   │         32px bottom border           │  rows 224–255
+///   └──────────────────────────────────────┘
 ///
-/// Left/right borders are each 32 pixels wide in the output (the ZX hardware
-/// has 48px physical border but the output framebuffer is only 320 px wide:
-/// 32 + 256 + 32 = 320).
+/// Left/right borders are each 32 pixels wide (32 + 256 + 32 = 320).
+/// Top and bottom borders are each 32 rows (32 + 192 + 32 = 256), symmetric.
 class Ula {
 public:
     // Output framebuffer dimensions
@@ -30,7 +29,7 @@ public:
 
     // Active display area within the framebuffer
     static constexpr int DISP_X     = 32;   // left border width in output pixels
-    static constexpr int DISP_Y     = 48;   // top border height in output pixels
+    static constexpr int DISP_Y     = 32;   // top border height in output pixels
     static constexpr int DISP_W     = 256;
     static constexpr int DISP_H     = 192;
 

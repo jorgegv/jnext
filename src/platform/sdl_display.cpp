@@ -24,7 +24,7 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
     SDL_RenderSetLogicalSize(renderer_, native_w, native_h);
 
     texture_ = SDL_CreateTexture(renderer_,
-        SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING,
+        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
         native_w, native_h);
     if (!texture_) {
         fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
@@ -34,8 +34,8 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
     return true;
 }
 
-void SdlDisplay::upload_frame(const uint16_t* pixels, int w, int h) {
-    SDL_UpdateTexture(texture_, nullptr, pixels, w * sizeof(uint16_t));
+void SdlDisplay::upload_frame(const uint32_t* pixels, int w, int h) {
+    SDL_UpdateTexture(texture_, nullptr, pixels, w * sizeof(uint32_t));
     SDL_RenderClear(renderer_);
     SDL_RenderCopy(renderer_, texture_, nullptr, nullptr);
 }

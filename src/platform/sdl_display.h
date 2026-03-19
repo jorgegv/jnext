@@ -8,7 +8,7 @@ public:
     ~SdlDisplay() { shutdown(); }
 
     bool init(const char* title, int native_w, int native_h);
-    void upload_frame(const uint16_t* pixels, int w, int h);
+    void upload_frame(const uint32_t* pixels, int w, int h);
     void present();
     void toggle_fullscreen();
     void shutdown();

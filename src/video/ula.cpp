@@ -13,13 +13,12 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 {
     // The 320×256 output framebuffer is laid out as follows:
     //
-    //   Rows   0..DISP_Y-1            → top border  (DISP_Y = 48)
+    //   Rows   0..DISP_Y-1            → top border  (DISP_Y = 32)
     //   Rows   DISP_Y..DISP_Y+DISP_H-1 → display area (192 rows)
     //   Rows   DISP_Y+DISP_H..FB_HEIGHT-1 → bottom border
     //
-    // Framebuffer height is exactly 256, so the bottom border is
-    // FB_HEIGHT - (DISP_Y + DISP_H) = 256 - 240 = 16 rows of output
-    // (the physical ZX border has 56 lines but we clip to fit 256 rows).
+    // Framebuffer height is 256, giving symmetric borders:
+    //   top = 32, display = 192, bottom = 256 - 32 - 192 = 32.
 
     const uint32_t border_argb = kUlaPalette[border_colour_];
 

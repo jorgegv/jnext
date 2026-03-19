@@ -4,7 +4,10 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "WebFetch",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(git:*)",
+      "Write"
     ]
   }
 }
