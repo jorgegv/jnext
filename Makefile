@@ -2,6 +2,8 @@ BUILD_DIR_DEBUG   := build/debug
 BUILD_DIR_RELEASE := build/release
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
+CC                := gcc
+CXX               := g++
 
 BOLD  := \033[1m
 CYAN  := \033[36m
@@ -20,6 +22,8 @@ default:
 debug:
 	$(CMAKE) -B $(BUILD_DIR_DEBUG) \
 		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
 		-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
 		-DENABLE_TESTS=ON
@@ -29,6 +33,8 @@ debug:
 release:
 	$(CMAKE) -B $(BUILD_DIR_RELEASE) \
 		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
 		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
 		-DENABLE_TESTS=OFF
 	$(CMAKE) --build $(BUILD_DIR_RELEASE) -j$(JOBS)
