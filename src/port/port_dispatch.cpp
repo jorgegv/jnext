@@ -1,0 +1,53 @@
+#include "port_dispatch.h"
+#include <cstdio>
+
+PortDispatch::PortDispatch() {
+    // Register stub handlers for known ZX Spectrum / ZX Next ports
+    // ULA: port 0xFE (mask 0x00FF, value 0x00FE)
+    register_handler(0x00FF, 0x00FE,
+        [](uint16_t p) -> uint8_t { return 0xFF; },          // keyboard rows (stub)
+        [](uint16_t p, uint8_t v) {});                        // border/beeper (stub)
+
+    // AY data: 0xBFFD (mask 0xC002, value 0xC000)
+    register_handler(0xC002, 0xC000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // AY register select: 0xFFFD (mask 0xC002, value 0x8000)
+    register_handler(0xC002, 0x8000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // 128K bank: 0x7FFD (mask 0xE002, value 0x0000)
+    register_handler(0xE002, 0x0000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // NextREG family: 0x243B / 0x253B (mask 0x00FF, value 0x003B)
+    register_handler(0x00FF, 0x003B,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+}
+
+void PortDispatch::register_handler(uint16_t mask, uint16_t value,
+    std::function<uint8_t(uint16_t)> rd,
+    std::function<void(uint16_t, uint8_t)> wr) {
+    handlers_.push_back({mask, value, std::move(rd), std::move(wr)});
+}
+
+uint8_t PortDispatch::read(uint16_t port) const {
+    for (const auto& h : handlers_) {
+        if ((port & h.mask) == h.value && h.read) {
+            return h.read(port);
+        }
+    }
+    return 0xFF;
+}
+
+void PortDispatch::write(uint16_t port, uint8_t val) {
+    for (const auto& h : handlers_) {
+        if ((port & h.mask) == h.value && h.write) {
+            h.write(port, val);
+        }
+    }
+}

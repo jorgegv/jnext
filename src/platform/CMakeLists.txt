@@ -1,0 +1,5 @@
+file(GLOB_RECURSE SOURCES "*.cpp")
+add_library(zxnext_platform STATIC ${SOURCES})
+find_package(SDL2 REQUIRED)
+target_link_libraries(zxnext_platform PUBLIC SDL2::SDL2)
+target_include_directories(zxnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)
