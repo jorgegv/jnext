@@ -17,6 +17,9 @@
 #include "video/renderer.h"
 #include "video/palette.h"
 #include "video/layer2.h"
+#include "video/sprites.h"
+#include "video/tilemap.h"
+#include "peripheral/copper.h"
 #include "input/keyboard.h"
 
 /// Top-level machine class.
@@ -82,7 +85,10 @@ public:
     Z80Cpu&       cpu()       { return cpu_; }
     Keyboard&     keyboard()  { return keyboard_; }
     PaletteManager& palette() { return palette_; }
-    Layer2&       layer2()  { return layer2_; }
+    Layer2&       layer2()    { return layer2_; }
+    SpriteEngine& sprites()   { return sprites_; }
+    Tilemap&      tilemap()   { return tilemap_; }
+    Copper&       copper()    { return copper_; }
 
     const EmulatorConfig& config() const { return config_; }
 
@@ -107,6 +113,9 @@ private:
     ContentionModel contention_;
     PaletteManager  palette_;
     Layer2          layer2_;
+    SpriteEngine    sprites_;
+    Tilemap         tilemap_;
+    Copper          copper_;
     Renderer        renderer_;
     Keyboard        keyboard_;
 

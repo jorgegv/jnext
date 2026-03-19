@@ -40,6 +40,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.reset();
     palette_.reset();
     layer2_.reset();
+    sprites_.reset();
+    tilemap_.reset();
+    copper_.reset();
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
@@ -139,6 +142,67 @@ bool Emulator::init(const EmulatorConfig& cfg)
         layer2_.set_scroll_x_msb(v);
     });
 
+    // Register 0x09: Peripheral 4 setting (bit 3 = sprites over border)
+    nextreg_.set_write_handler(0x09, [this](uint8_t v) {
+        sprites_.set_over_border((v & 0x08) != 0);
+    });
+
+    // Register 0x15: Sprite and layer system setup
+    //   bit 7 = LoRes enable (deferred)
+    //   bit 6 = sprite priority (0=sprite 0 on top when zero_on_top)
+    //   bit 5 = sprite border clip enable
+    //   bits 4:2 = layer priority (SLU/LSU/SUL/LUS/USL/ULS)
+    //   bit 1 = sprites over border
+    //   bit 0 = sprites visible
+    nextreg_.set_write_handler(0x15, [this](uint8_t v) {
+        sprites_.set_zero_on_top((v & 0x40) != 0);
+        sprites_.set_over_border((v & 0x02) != 0);
+        sprites_.set_sprites_visible((v & 0x01) != 0);
+        renderer_.set_layer_priority((v >> 2) & 0x07);
+    });
+
+    // Registers 0x19-0x1C: Sprite clip window
+    nextreg_.set_write_handler(0x19, [this](uint8_t v) { sprites_.set_clip_x1(v); });
+    nextreg_.set_write_handler(0x1A, [this](uint8_t v) { sprites_.set_clip_x2(v); });
+    nextreg_.set_write_handler(0x1B, [this](uint8_t v) { sprites_.set_clip_y1(v); });
+    nextreg_.set_write_handler(0x1C, [this](uint8_t v) { sprites_.set_clip_y2(v); });
+
+    // Register 0x34: Sprite attribute slot select (alternative to port 0x303B)
+    nextreg_.set_write_handler(0x34, [this](uint8_t v) { sprites_.set_attr_slot(v); });
+
+    // Registers 0x75-0x79: Direct sprite attribute byte writes
+    for (int i = 0; i < 5; ++i) {
+        nextreg_.set_write_handler(static_cast<uint8_t>(0x75 + i),
+            [this, i](uint8_t v) { sprites_.write_attr_byte(static_cast<uint8_t>(i), v); });
+    }
+
+    // Register 0x2F: Tilemap X scroll LSB
+    nextreg_.set_write_handler(0x2F, [this](uint8_t v) { tilemap_.set_scroll_x_lsb(v); });
+
+    // Register 0x30: Tilemap X scroll MSB
+    nextreg_.set_write_handler(0x30, [this](uint8_t v) { tilemap_.set_scroll_x_msb(v); });
+
+    // Register 0x31: Tilemap Y scroll
+    nextreg_.set_write_handler(0x31, [this](uint8_t v) { tilemap_.set_scroll_y(v); });
+
+    // Register 0x6B: Tilemap control
+    nextreg_.set_write_handler(0x6B, [this](uint8_t v) { tilemap_.set_control(v); });
+
+    // Register 0x6C: Tilemap default attribute
+    nextreg_.set_write_handler(0x6C, [this](uint8_t v) { tilemap_.set_default_attr(v); });
+
+    // Register 0x6E: Tilemap base address
+    nextreg_.set_write_handler(0x6E, [this](uint8_t v) { tilemap_.set_map_base(v); });
+
+    // Register 0x6F: Tile definitions base address
+    nextreg_.set_write_handler(0x6F, [this](uint8_t v) { tilemap_.set_def_base(v); });
+
+    // Registers 0x60-0x63: Copper co-processor
+    nextreg_.set_write_handler(0x60, [this](uint8_t v) { copper_.write_reg_0x60(v); });
+    nextreg_.set_write_handler(0x61, [this](uint8_t v) { copper_.write_reg_0x61(v); });
+    nextreg_.set_write_handler(0x62, [this](uint8_t v) { copper_.write_reg_0x62(v); });
+    nextreg_.set_write_handler(0x63, [this](uint8_t v) { copper_.write_reg_0x63(v); });
+
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
     for (int i = 0; i < 8; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
@@ -197,6 +261,21 @@ bool Emulator::init(const EmulatorConfig& cfg)
             renderer_.ula().set_screen_mode(val);
         });
 
+    // Sprite slot select and status — port 0x303B (full 16-bit match).
+    port_.register_handler(0xFFFF, 0x303B,
+        [this](uint16_t) -> uint8_t { return sprites_.read_status(); },
+        [this](uint16_t, uint8_t val) { sprites_.write_slot_select(val); });
+
+    // Sprite attributes — port 0x57 (low byte match).
+    port_.register_handler(0x00FF, 0x0057,
+        nullptr,
+        [this](uint16_t, uint8_t val) { sprites_.write_attribute(val); });
+
+    // Sprite pattern data — port 0x5B (low byte match).
+    port_.register_handler(0x00FF, 0x005B,
+        nullptr,
+        [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
+
     // --- ROM loading ---
 
     // Attempt to load the 48K ROM into ROM slot 0 from the standard path.
@@ -226,12 +305,28 @@ void Emulator::run_frame()
     scheduler_.schedule(frame_cycle_ + INT_FIRE_OFFSET, EventType::CPU_INT,
         [this]() { cpu_.request_interrupt(0xFF); });
 
+    // Notify copper of frame start (resets PC in mode 11).
+    copper_.on_vsync();
+
     while (clock_.get() < frame_end) {
         // Execute one CPU instruction; returns T-states consumed.
         int tstates = cpu_.execute();
         // Convert T-states to 28 MHz master cycles.
         // cpu_divisor() returns 8 at 3.5 MHz, 4 at 7 MHz, 2 at 14 MHz, 1 at 28 MHz.
-        clock_.tick(tstates * clock_.cpu_divisor());
+        uint64_t master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+        clock_.tick(master_cycles);
+
+        // Execute copper at current raster position.
+        // Approximate: compute vc/hc from cycles elapsed within frame.
+        if (copper_.is_running()) {
+            uint64_t elapsed = clock_.get() - frame_cycle_;
+            int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+            int hc = static_cast<int>(elapsed % MASTER_CYCLES_PER_LINE);
+            // hc is in 28 MHz domain (0..MASTER_CYCLES_PER_LINE-1)
+            // Copper uses hc in 28 MHz ticks.
+            copper_.execute(hc, vc, nextreg_);
+        }
+
         // Drain any scheduler events that have become due.
         scheduler_.run_until(clock_.get());
     }
@@ -239,7 +334,8 @@ void Emulator::run_frame()
     frame_cycle_ = frame_end;
 
     // Render the completed frame into the ARGB8888 framebuffer.
-    renderer_.render_frame(framebuffer_.data(), mmu_);
+    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                            layer2_, &sprites_, &tilemap_);
 }
 
 void Emulator::reset()

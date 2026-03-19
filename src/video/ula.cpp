@@ -110,6 +110,51 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
     }
 
     // Advance flash state once per frame.
+    advance_flash();
+}
+
+// ---------------------------------------------------------------------------
+// render_scanline — render a single row for the compositor
+// ---------------------------------------------------------------------------
+
+void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
+{
+    const int screen_row = row - DISP_Y;
+
+    if (screen_row >= 0 && screen_row < DISP_H) {
+        switch (mode_) {
+            case TimexScreenMode::STANDARD: {
+                const uint16_t poff     = pixel_addr_offset(screen_row, 0);
+                const uint16_t attr_row = static_cast<uint16_t>(
+                    0x5800u + (screen_row / 8) * 32);
+                render_display_line(dst, screen_row, poff, attr_row, mmu);
+                break;
+            }
+            case TimexScreenMode::STANDARD_1: {
+                const uint16_t poff     = pixel_addr_offset(screen_row, 0);
+                const uint16_t attr_row = static_cast<uint16_t>(
+                    0x7800u + (screen_row / 8) * 32);
+                render_display_line(dst, screen_row, poff, attr_row, mmu);
+                break;
+            }
+            case TimexScreenMode::HI_COLOUR:
+                render_display_line_hicolour(dst, screen_row, mmu);
+                break;
+            case TimexScreenMode::HI_RES:
+                render_display_line_hires(dst, screen_row, mmu);
+                break;
+        }
+    } else {
+        render_border_line(dst);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// advance_flash — call once per frame after rendering all scanlines
+// ---------------------------------------------------------------------------
+
+void Ula::advance_flash()
+{
     ++flash_counter_;
     if (flash_counter_ >= 16) {
         flash_counter_ = 0;

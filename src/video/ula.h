@@ -68,6 +68,13 @@ public:
     /// @param mmu          MMU for reading VRAM (screen at 0x4000, attrs at 0x5800).
     void render_frame(uint32_t* framebuffer, Mmu& mmu);
 
+    /// Render a single scanline (row 0..FB_HEIGHT-1) into a 320-pixel buffer.
+    /// Used by the compositor for per-scanline rendering.
+    void render_scanline(uint32_t* dst, int row, Mmu& mmu);
+
+    /// Advance flash state (call once per frame after all scanlines rendered).
+    void advance_flash();
+
 private:
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
     int              flash_counter_   = 0;     ///< Incremented once per frame
