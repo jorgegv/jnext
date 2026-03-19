@@ -38,7 +38,7 @@
   - [Reference comparison](#reference-comparison)
 - [9. Implementation Roadmap](#9-implementation-roadmap)
   - [Phase 1 — Skeleton \& CPU (target: boots to BASIC) ✓ COMPLETE](#phase-1--skeleton--cpu-target-boots-to-basic--complete)
-  - [Phase 2 — Full ULA Video ✓ COMPLETE](#phase-2--full-ula-video)
+  - [Phase 2 — Full ULA Video ✓ COMPLETE](#phase-2--full-ula-video--complete)
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 4 — Audio](#phase-4--audio)
   - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
@@ -729,7 +729,7 @@ endif()
 - [x] Frame interrupt (IM2) at correct raster position — fires at vc=1; Im2Controller wired; RETI detection via M1 hook
 - [x] SDL texture upload pipeline + integer scaling — ARGB8888, 2× scaling, SDL logical size
 - [x] Window scaling 1x/2x/3x selectable by user via F2 key
-- [ ] **Milestone**: BASIC screen rendered correctly at 50 Hz
+- [x] **Milestone**: BASIC screen rendered correctly at 50 Hz
 
 ### Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)
 
