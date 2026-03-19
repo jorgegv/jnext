@@ -16,6 +16,7 @@
 #include "port/nextreg.h"
 #include "video/renderer.h"
 #include "video/palette.h"
+#include "video/layer2.h"
 #include "input/keyboard.h"
 
 /// Top-level machine class.
@@ -81,6 +82,7 @@ public:
     Z80Cpu&       cpu()       { return cpu_; }
     Keyboard&     keyboard()  { return keyboard_; }
     PaletteManager& palette() { return palette_; }
+    Layer2&       layer2()  { return layer2_; }
 
     const EmulatorConfig& config() const { return config_; }
 
@@ -104,6 +106,7 @@ private:
     Im2Controller   im2_;
     ContentionModel contention_;
     PaletteManager  palette_;
+    Layer2          layer2_;
     Renderer        renderer_;
     Keyboard        keyboard_;
 

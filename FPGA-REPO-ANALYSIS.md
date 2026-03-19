@@ -2,7 +2,7 @@
 
 ## Repository Purpose
 
-This is documentation for the repository that is at path `../ZX_Spectrum_Next_FPGA` which is a clone of the official ZX Spectrum Next FPGA core repository. The primary goal in this context is to use the VHDL source as a reference specification for writing a software emulator in C/C++. The VHDL is authoritative: when in doubt about hardware behavior, consult the VHDL source. Paths mentioned in this document refer to the original FPGA source repo.
+This is documentation for the repository that is at path `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA` which is a clone of the official ZX Spectrum Next FPGA core repository. The primary goal in this context is to use the VHDL source as a reference specification for writing a software emulator in C/C++. The VHDL is authoritative: when in doubt about hardware behavior, consult the VHDL source. Paths mentioned in this document refer to the original FPGA source repo.
 
 This repository shall contain the generated emulator code.
 

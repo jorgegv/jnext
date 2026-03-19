@@ -39,6 +39,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     mmu_.reset();
     nextreg_.reset();
     palette_.reset();
+    layer2_.reset();
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
@@ -71,6 +72,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
         Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
         clock_.set_cpu_speed(speed);
+    });
+
+    // Register 0x12: Layer 2 active RAM bank
+    nextreg_.set_write_handler(0x12, [this](uint8_t v) {
+        layer2_.set_active_bank(v);
+    });
+
+    // Register 0x13: Layer 2 shadow RAM bank
+    nextreg_.set_write_handler(0x13, [this](uint8_t v) {
+        layer2_.set_shadow_bank(v);
     });
 
     // Register 0x14: Global transparency colour (Layer2/ULA/LoRes)
@@ -108,6 +119,26 @@ bool Emulator::init(const EmulatorConfig& cfg)
         palette_.set_tilemap_transparency(v);
     });
 
+    // Register 0x16: Layer 2 X scroll LSB
+    nextreg_.set_write_handler(0x16, [this](uint8_t v) {
+        layer2_.set_scroll_x_lsb(v);
+    });
+
+    // Register 0x17: Layer 2 Y scroll
+    nextreg_.set_write_handler(0x17, [this](uint8_t v) {
+        layer2_.set_scroll_y(v);
+    });
+
+    // Register 0x70: Layer 2 control (resolution + palette offset)
+    nextreg_.set_write_handler(0x70, [this](uint8_t v) {
+        layer2_.set_control(v);
+    });
+
+    // Register 0x71: Layer 2 X scroll MSB
+    nextreg_.set_write_handler(0x71, [this](uint8_t v) {
+        layer2_.set_scroll_x_msb(v);
+    });
+
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
     for (int i = 0; i < 8; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
@@ -115,6 +146,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
     }
 
     // --- Port dispatch handlers ---
+
+    // Layer 2 control — port 0x123B (full 16-bit match).
+    // Write: bit 1 = Layer 2 visible, bit 0 = write-over enable (CPU writes to L2 RAM).
+    //        bits 4:2 = bank offset, bit 6 = shadow display, bit 7 = reserved.
+    // Read:  returns last written value.
+    port_.register_handler(0xFFFF, 0x123B,
+        nullptr,
+        [this](uint16_t, uint8_t val) {
+            layer2_.set_enabled((val & 0x02) != 0);
+        });
 
     // 128K bank switch — port 0x7FFD decoded by address-line masking.
     // Mask 0xE002 selects A15,A14,A1; match value 0x0000.

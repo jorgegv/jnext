@@ -10,6 +10,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 - Emulator design plan: @EMULATOR-DESIGN-PLAN.md
 - FPGA code analysis: @FPGA-REPO-ANALYSIS.md
+- FPGA VHDL source (authoritative hardware spec): `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/`
 
 ## Constraints for development
 
