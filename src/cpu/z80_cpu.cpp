@@ -110,33 +110,37 @@ static Z80CpuContext* get_ctx(Z80Cpu* cpu) {
 
 /* ── Z80N opcode lookup table ───────────────────────────────────────────── */
 
-static const bool kZ80NOpcodeTable[256] = {
-    [static_cast<uint8_t>(Z80NOpcode::SWAPNIB)]    = true,
-    [static_cast<uint8_t>(Z80NOpcode::MIRROR_A)]   = true,
-    [static_cast<uint8_t>(Z80NOpcode::TEST_N)]     = true,
-    [static_cast<uint8_t>(Z80NOpcode::BSLA_DE_B)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::BSRA_DE_B)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::BSRL_DE_B)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::BSRF_DE_B)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::BRLC_DE_B)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::MUL_DE)]     = true,
-    [static_cast<uint8_t>(Z80NOpcode::ADD_HL_A)]   = true,
-    [static_cast<uint8_t>(Z80NOpcode::ADD_DE_A)]   = true,
-    [static_cast<uint8_t>(Z80NOpcode::ADD_BC_A)]   = true,
-    [static_cast<uint8_t>(Z80NOpcode::OUTINB)]     = true,
-    [static_cast<uint8_t>(Z80NOpcode::NEXTREG_NN)] = true,
-    [static_cast<uint8_t>(Z80NOpcode::NEXTREG_A)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::PIXELDN)]    = true,
-    [static_cast<uint8_t>(Z80NOpcode::PIXELAD)]    = true,
-    [static_cast<uint8_t>(Z80NOpcode::SETAE)]      = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDIX)]       = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDDX)]       = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDIRX)]      = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDIRSCALE)]  = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDPIRX)]     = true,
-    [static_cast<uint8_t>(Z80NOpcode::LDDRX)]      = true,
-    [static_cast<uint8_t>(Z80NOpcode::LOOP)]       = true,
-};
+static bool kZ80NOpcodeTable[256] = {};
+
+static bool init_z80n_table() {
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::SWAPNIB)]    = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::MIRROR_A)]   = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::TEST_N)]     = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::BSLA_DE_B)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::BSRA_DE_B)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::BSRL_DE_B)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::BSRF_DE_B)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::BRLC_DE_B)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::MUL_DE)]     = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_HL_A)]   = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_DE_A)]   = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_BC_A)]   = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::OUTINB)]     = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::NEXTREG_NN)] = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::NEXTREG_A)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::PIXELDN)]    = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::PIXELAD)]    = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::SETAE)]      = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDIX)]       = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDDX)]       = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDIRX)]      = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDIRSCALE)]  = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDPIRX)]     = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LDDRX)]      = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::LOOP)]       = true;
+    return true;
+}
+static bool z80n_table_initialized = init_z80n_table();
 
 /* ── Register sync helpers ──────────────────────────────────────────────── */
 
