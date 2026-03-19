@@ -727,10 +727,10 @@ endif()
 
 - [x] Palette subsystem (ULA + Layer2 + Sprite + Tilemap palettes) — PaletteManager with 2×16 ULA, 2×256 L2/Sprite/Tilemap banks; RGB333 internal, ARGB8888 cached; NextREG 0x40/0x41/0x43/0x44/0x14/0x4B/0x4C wired
 - [x] Layer 2 bitmap renderer (256×192 @ 8-bit) — reads from physical RAM banks with X/Y scroll wrapping; palette offset; transparency; NextREG 0x12/0x13/0x16/0x17/0x70/0x71 + port 0x123B wired; verified against VHDL layer2.vhd
-- [ ] Sprite engine (128 sprites, 8-bit colour, scale ×1)
-- [ ] Tilemap (40×32 mode)
+- [x] Sprite engine (128 sprites, 8-bit colour, scale ×1) — 128 sprites, 16×16, 8-bit and 4-bit colour; VHDL-verified 5-byte attribute format; port 0x303B/0x57/0x5B; pattern RAM 16KB; rotation/mirror; collision detection; clip window; NextREG 0x34/0x75-0x79
+- [x] Tilemap (40×32 mode) — 40×32 and 80×32 modes; 4bpp patterns + text mode (1bpp); 512-tile mode; force-attribute; ULA-over-tilemap per-tile priority; X/Y scroll; base address decoding (bank 5/7); NextREG 0x6B/0x6C/0x6E/0x6F/0x2F/0x30/0x31
 - [ ] Layer compositor with NextREG priority control
-- [ ] Copper co-processor
+- [x] Copper co-processor — 1K×16-bit instruction RAM; WAIT (vc==vpos && hc>=(hpos<<3)+12) and MOVE; HALT/NOP; mode edge detection; 2-cycle MOVE timing; NextREG 0x60/0x61/0x62/0x63 write paths with MSB/LSB pairing
 - [ ] **Milestone**: Next-specific games render correctly
 
 ### Phase 4 — Audio
