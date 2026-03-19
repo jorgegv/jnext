@@ -12,15 +12,23 @@ struct MatrixPos { int8_t row; int8_t col; };
 // SDL_NUM_SCANCODES is 512; we use a flat array indexed by SDL_Scancode.
 // Unrecognised scancodes have row == -1.
 static MatrixPos s_map[SDL_NUM_SCANCODES];
+
+// Compound keys press two matrix positions simultaneously (e.g. DELETE = Caps Shift + 0).
+struct CompoundPos { MatrixPos a; MatrixPos b; };
+static CompoundPos s_compound[SDL_NUM_SCANCODES];
+
 static bool      s_map_init = false;
 
 static void init_map() {
     if (s_map_init) return;
     // Fill all positions as invalid.
-    std::memset(s_map, -1, sizeof(s_map));
+    std::memset(s_map,      -1, sizeof(s_map));
+    std::memset(s_compound, -1, sizeof(s_compound));
 
-    // Row 0: SHIFT  Z  X  C  V
-    s_map[SDL_SCANCODE_LSHIFT] = {0, 0};
+    // Row 0: CAPS-SHIFT  Z  X  C  V
+    // Ctrl keys map to Caps Shift (row 0, col 0).
+    s_map[SDL_SCANCODE_LCTRL]  = {0, 0};
+    s_map[SDL_SCANCODE_RCTRL]  = {0, 0};
     s_map[SDL_SCANCODE_Z]      = {0, 1};
     s_map[SDL_SCANCODE_X]      = {0, 2};
     s_map[SDL_SCANCODE_C]      = {0, 3};
@@ -68,12 +76,18 @@ static void init_map() {
     s_map[SDL_SCANCODE_J]      = {6, 3};
     s_map[SDL_SCANCODE_H]      = {6, 4};
 
-    // Row 7: SPACE  SYM(RSHIFT)  M  N  B
+    // Row 7: SPACE  SYM-SHIFT  M  N  B
+    // Shift keys map to Symbol Shift (row 7, col 1).
     s_map[SDL_SCANCODE_SPACE]  = {7, 0};
+    s_map[SDL_SCANCODE_LSHIFT] = {7, 1};
     s_map[SDL_SCANCODE_RSHIFT] = {7, 1};
     s_map[SDL_SCANCODE_M]      = {7, 2};
     s_map[SDL_SCANCODE_N]      = {7, 3};
     s_map[SDL_SCANCODE_B]      = {7, 4};
+
+    // Compound keys: DELETE = Caps Shift (row 0, col 0) + 0 (row 4, col 0)
+    // This produces the ZX Spectrum RUBOUT/DELETE function.
+    s_compound[SDL_SCANCODE_DELETE] = {{0, 0}, {4, 0}};
 
     s_map_init = true;
 }
@@ -92,6 +106,13 @@ void Keyboard::reset() {
 
 void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
     if (sc < 0 || sc >= SDL_NUM_SCANCODES) return;
+    // Check compound map first (e.g. DELETE = Caps Shift + 0).
+    const CompoundPos& cp = s_compound[sc];
+    if (cp.a.row >= 0) {
+        set_matrix_bit(cp.a.row, cp.a.col, pressed);
+        set_matrix_bit(cp.b.row, cp.b.col, pressed);
+        return;
+    }
     const MatrixPos& pos = s_map[sc];
     if (pos.row < 0) return;   // not mapped
     set_matrix_bit(pos.row, pos.col, pressed);
