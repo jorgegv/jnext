@@ -1,4 +1,5 @@
 #include "input/keyboard.h"
+#include "core/log.h"
 #include <cstring>
 
 // ---------------------------------------------------------------------------
@@ -135,6 +136,7 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
 // ---------------------------------------------------------------------------
 
 void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
+    Log::input()->trace("Key matrix [{},{}] {}", row, col, pressed ? "pressed" : "released");
     if (pressed) {
         // Clear bit: key pressed (active-low)
         matrix_[row] &= ~(1 << col);

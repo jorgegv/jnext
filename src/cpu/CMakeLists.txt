@@ -23,3 +23,4 @@ target_include_directories(zxnext_cpu PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/libz80)
+target_link_libraries(zxnext_cpu PUBLIC spdlog::spdlog)

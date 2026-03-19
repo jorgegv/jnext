@@ -45,10 +45,10 @@
 
 #include "z80_cpu.h"
 #include "z80n_ext.h"
+#include "core/log.h"
 
 #include <cstdint>
 #include <cstring>
-#include <cstdio>
 #include <unordered_map>
 #include <functional>
 
@@ -260,6 +260,7 @@ int Z80Cpu::execute() {
     /* ── NMI ──────────────────────────────────────────────────────────── */
     if (nmi_pending_) {
         nmi_pending_ = false;
+        Log::cpu()->debug("NMI at PC={:#06x}", static_cast<uint16_t>(ctx->state.pc));
         int cycles = Z80NonMaskableInterrupt(&ctx->state, ctx);
         sync_regs_from_state(regs_, ctx->state);
         return (cycles > 0) ? cycles : 11;
@@ -268,6 +269,7 @@ int Z80Cpu::execute() {
     /* ── INT ──────────────────────────────────────────────────────────── */
     if (int_pending_ && ctx->state.iff1) {
         int_pending_ = false;
+        Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, static_cast<uint16_t>(ctx->state.pc));
         int cycles = Z80Interrupt(&ctx->state,
                                   static_cast<int>(int_vector_),
                                   ctx);
@@ -282,6 +284,7 @@ int Z80Cpu::execute() {
     if (opcode == 0xED) {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
         if (kZ80NOpcodeTable[ext]) {
+            Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
             /* Fire M1 callback on the ED prefix byte */
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
 

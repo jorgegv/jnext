@@ -1,5 +1,5 @@
 #include "nextreg.h"
-#include <cstdio>
+#include "core/log.h"
 
 NextReg::NextReg() { reset(); }
 
@@ -22,6 +22,7 @@ void NextReg::write_selected(uint8_t val) { write(selected_, val); }
 uint8_t NextReg::read(uint8_t reg) const { return regs_[reg]; }
 
 void NextReg::write(uint8_t reg, uint8_t val) {
+    Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
     regs_[reg] = val;
     if (write_handlers_[reg]) {
         write_handlers_[reg](val);

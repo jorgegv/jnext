@@ -1,4 +1,5 @@
 #include "mmu.h"
+#include "core/log.h"
 #include <cstring>
 
 // Reset MMU state from VHDL zxnext.vhd lines 4611-4618:
@@ -42,6 +43,7 @@ void Mmu::rebuild_ptr(int slot) {
 
 void Mmu::set_page(int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return;
+    Log::memory()->debug("MMU slot {} → RAM page {:#04x}", slot, page);
     slots_[slot] = page;
     read_only_[slot] = false;
     rebuild_ptr(slot);
@@ -49,6 +51,7 @@ void Mmu::set_page(int slot, uint8_t page) {
 
 void Mmu::map_rom(int slot, uint8_t rom_page) {
     if (slot < 0 || slot > 7) return;
+    Log::memory()->debug("MMU slot {} → ROM page {}", slot, rom_page);
     slots_[slot] = rom_page;
     read_only_[slot] = true;
     read_ptr_[slot] = rom_.page_ptr(rom_page);
@@ -56,7 +59,11 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
-    if (paging_locked_) return;
+    if (paging_locked_) {
+        Log::memory()->trace("128K bank switch ignored (paging locked)");
+        return;
+    }
+    Log::memory()->debug("128K bank switch: port_7ffd={:#04x}", port_7ffd);
     uint8_t bank = port_7ffd & 0x07;
     bool rom_select = (port_7ffd >> 4) & 1;
     paging_locked_ = (port_7ffd >> 5) & 1;

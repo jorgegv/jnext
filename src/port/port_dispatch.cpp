@@ -1,5 +1,5 @@
 #include "port_dispatch.h"
-#include <cstdio>
+#include "core/log.h"
 
 PortDispatch::PortDispatch() {
     // Note: port 0xFE (ULA/keyboard) handler is registered by Emulator::init()
@@ -35,13 +35,17 @@ void PortDispatch::register_handler(uint16_t mask, uint16_t value,
 uint8_t PortDispatch::read(uint16_t port) const {
     for (const auto& h : handlers_) {
         if ((port & h.mask) == h.value && h.read) {
-            return h.read(port);
+            uint8_t val = h.read(port);
+            Log::port()->trace("IN  port={:#06x} → {:#04x}", port, val);
+            return val;
         }
     }
+    Log::port()->trace("IN  port={:#06x} → 0xFF (unhandled)", port);
     return 0xFF;
 }
 
 void PortDispatch::write(uint16_t port, uint8_t val) {
+    Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
     for (const auto& h : handlers_) {
         if ((port & h.mask) == h.value && h.write) {
             h.write(port, val);

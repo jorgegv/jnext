@@ -19,10 +19,12 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {}
 bool Emulator::init(const EmulatorConfig& cfg)
 {
     config_ = cfg;
+    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={}",
+                          static_cast<int>(cfg.type), cpu_speed_str(cfg.cpu_speed));
 
     // Apply CPU speed to the clock.
     clock_.reset();
-    clock_.set_cpu_speed(cfg.cpu_speed_mhz);
+    clock_.set_cpu_speed(cfg.cpu_speed);
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
     framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
@@ -65,7 +67,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Register 0x07: CPU speed selector
     //   0 = 3.5 MHz, 1 = 7 MHz, 2 = 14 MHz, 3 = 28 MHz
     nextreg_.set_write_handler(0x07, [this](uint8_t v) {
-        clock_.set_cpu_speed(v == 0 ? 4 : v == 1 ? 7 : v == 2 ? 14 : 28);
+        CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
+        Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
+        clock_.set_cpu_speed(speed);
     });
 
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)

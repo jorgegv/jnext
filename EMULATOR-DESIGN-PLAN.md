@@ -719,8 +719,8 @@ endif()
 - [x] Log levels per section (error, warn, info, debug, trace) — default: info
 - [x] Minimal overhead when disabled: runtime check is inline integer compare
 - [x] Replace all ad-hoc fprintf(stderr) calls with structured log calls
-- [ ] Add logging calls to existing subsystems (CPU, MMU, ULA, port dispatch, keyboard)
-- [ ] **Milestone**: Selective debug output available for any subsystem without recompilation
+- [x] Add logging calls to existing subsystems (CPU, MMU, ROM, ULA, port dispatch, NextREG, keyboard)
+- [x] **Milestone**: Selective debug output available for any subsystem without recompilation
 
 ### Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)
 

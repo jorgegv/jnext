@@ -28,17 +28,7 @@ bool Clock::pixel_enable() const
     return (cycle_ % 4ULL) == 0;
 }
 
-void Clock::set_cpu_speed(int mhz)
+void Clock::set_cpu_speed(CpuSpeed speed)
 {
-    // Map requested MHz to the nearest valid divisor.
-    if (mhz >= 28) {
-        cpu_divisor_ = 1;
-    } else if (mhz >= 14) {
-        cpu_divisor_ = 2;
-    } else if (mhz >= 7) {
-        cpu_divisor_ = 4;
-    } else {
-        // 3.5 MHz (also handles values of 3 or 4)
-        cpu_divisor_ = 8;
-    }
+    cpu_divisor_ = cpu_speed_divisor(speed);
 }

@@ -10,10 +10,40 @@
 // Emulator configuration
 // ---------------------------------------------------------------------------
 
+/// CPU speed settings — matches NextREG 0x07 values 0–3.
+enum class CpuSpeed : uint8_t {
+    MHZ_3_5 = 0,   // 3.5 MHz (default)
+    MHZ_7   = 1,   // 7 MHz
+    MHZ_14  = 2,   // 14 MHz
+    MHZ_28  = 3,   // 28 MHz
+};
+
+/// Return the display string for a CpuSpeed value (e.g. "3.5 MHz").
+inline const char* cpu_speed_str(CpuSpeed s) {
+    switch (s) {
+        case CpuSpeed::MHZ_3_5: return "3.5 MHz";
+        case CpuSpeed::MHZ_7:   return "7 MHz";
+        case CpuSpeed::MHZ_14:  return "14 MHz";
+        case CpuSpeed::MHZ_28:  return "28 MHz";
+    }
+    return "unknown";
+}
+
+/// Return the 28 MHz master clock divisor for a CpuSpeed value.
+inline int cpu_speed_divisor(CpuSpeed s) {
+    switch (s) {
+        case CpuSpeed::MHZ_3_5: return 8;
+        case CpuSpeed::MHZ_7:   return 4;
+        case CpuSpeed::MHZ_14:  return 2;
+        case CpuSpeed::MHZ_28:  return 1;
+    }
+    return 8;
+}
+
 struct EmulatorConfig {
     MachineType type        = MachineType::ZXN_ISSUE2;
-    bool        turbo_sound = false;   // Enable TurboSound (3× AY chips)
-    int         cpu_speed_mhz = 4;    // Nominal CPU speed in MHz (3.5 → 4, 7, 14, 28)
+    bool        turbo_sound = false;      // Enable TurboSound (3× AY chips)
+    CpuSpeed    cpu_speed   = CpuSpeed::MHZ_3_5;
 };
 
 // ---------------------------------------------------------------------------

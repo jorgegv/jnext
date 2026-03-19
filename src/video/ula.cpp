@@ -1,6 +1,7 @@
 #include "video/ula.h"
 #include "video/palette.h"
 #include "memory/mmu.h"
+#include "core/log.h"
 
 #include <algorithm>
 #include <cstring>
@@ -21,10 +22,11 @@ void Ula::set_screen_mode(uint8_t port_val)
         case 2: mode_ = TimexScreenMode::HI_COLOUR;  break;
         case 6: mode_ = TimexScreenMode::HI_RES;     break;
         default:
-            // Unknown mode: fall back to standard (safe default).
+            Log::ula()->warn("Unknown Timex screen mode bits {:#04x}, defaulting to STANDARD", mode_bits);
             mode_ = TimexScreenMode::STANDARD;
             break;
     }
+    Log::ula()->debug("Screen mode set: port_val={:#04x} mode={}", port_val, static_cast<int>(mode_));
 }
 
 // ---------------------------------------------------------------------------

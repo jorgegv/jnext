@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "core/emulator_config.h"
 
 /// 28 MHz master clock with derived clock-enable signals.
 ///
@@ -35,11 +36,8 @@ public:
     /// True on every 4th master cycle (7 MHz pixel clock enable).
     bool pixel_enable() const;
 
-    /// Set the CPU speed.
-    /// Valid values (MHz): 3 (treated as 3.5), 4 (3.5), 7, 14, 28.
-    /// The divisor from the 28 MHz master clock is set accordingly:
-    ///   3.5 MHz → ÷8, 7 MHz → ÷4, 14 MHz → ÷2, 28 MHz → ÷1.
-    void set_cpu_speed(int mhz);
+    /// Set the CPU speed from a CpuSpeed enum value.
+    void set_cpu_speed(CpuSpeed speed);
 
     /// Return the current CPU divisor (8, 4, 2, or 1).
     int cpu_divisor() const { return cpu_divisor_; }
