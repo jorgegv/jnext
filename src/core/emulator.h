@@ -15,6 +15,7 @@
 #include "port/port_dispatch.h"
 #include "port/nextreg.h"
 #include "video/renderer.h"
+#include "video/palette.h"
 #include "input/keyboard.h"
 
 /// Top-level machine class.
@@ -79,6 +80,7 @@ public:
     NextReg&      nextreg()   { return nextreg_; }
     Z80Cpu&       cpu()       { return cpu_; }
     Keyboard&     keyboard()  { return keyboard_; }
+    PaletteManager& palette() { return palette_; }
 
     const EmulatorConfig& config() const { return config_; }
 
@@ -101,6 +103,7 @@ private:
     Z80Cpu          cpu_;
     Im2Controller   im2_;
     ContentionModel contention_;
+    PaletteManager  palette_;
     Renderer        renderer_;
     Keyboard        keyboard_;
 

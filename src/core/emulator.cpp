@@ -38,6 +38,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     ram_.reset();
     mmu_.reset();
     nextreg_.reset();
+    palette_.reset();
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
@@ -70,6 +71,41 @@ bool Emulator::init(const EmulatorConfig& cfg)
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
         Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
         clock_.set_cpu_speed(speed);
+    });
+
+    // Register 0x14: Global transparency colour (Layer2/ULA/LoRes)
+    nextreg_.set_write_handler(0x14, [this](uint8_t v) {
+        palette_.set_global_transparency(v);
+    });
+
+    // Register 0x40: Palette index
+    nextreg_.set_write_handler(0x40, [this](uint8_t v) {
+        palette_.set_index(v);
+    });
+
+    // Register 0x41: Palette value 8-bit (RRRGGGBB)
+    nextreg_.set_write_handler(0x41, [this](uint8_t v) {
+        palette_.write_8bit(v);
+    });
+
+    // Register 0x43: Palette control
+    nextreg_.set_write_handler(0x43, [this](uint8_t v) {
+        palette_.write_control(v);
+    });
+
+    // Register 0x44: Palette value 9-bit (two consecutive writes)
+    nextreg_.set_write_handler(0x44, [this](uint8_t v) {
+        palette_.write_9bit(v);
+    });
+
+    // Register 0x4B: Sprite transparency index
+    nextreg_.set_write_handler(0x4B, [this](uint8_t v) {
+        palette_.set_sprite_transparency(v);
+    });
+
+    // Register 0x4C: Tilemap transparency index
+    nextreg_.set_write_handler(0x4C, [this](uint8_t v) {
+        palette_.set_tilemap_transparency(v);
     });
 
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
