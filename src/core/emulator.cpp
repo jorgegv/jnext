@@ -37,12 +37,28 @@ bool Emulator::init(const EmulatorConfig& cfg)
     mmu_.reset();
     nextreg_.reset();
     cpu_.reset();
+    im2_.reset();
     keyboard_.reset();
 
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
     contention_.build(cfg.type);
+
+    // Install M1-cycle callback for RETI detection (ED 4D sequence).
+    // When RETI is executed, notify the Im2Controller so it can clear the
+    // active interrupt level in the daisy chain.
+    cpu_.on_m1_cycle = [this](uint16_t /*pc*/, uint8_t opcode) {
+        static bool saw_ed = false;
+        if (opcode == 0xED) {
+            saw_ed = true;
+        } else {
+            if (saw_ed && opcode == 0x4D) {
+                im2_.on_reti();
+            }
+            saw_ed = false;
+        }
+    };
 
     // --- NextREG write handlers ---
 
@@ -121,12 +137,15 @@ void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
 
-    // Fire the ULA frame interrupt once per frame.
-    // In hardware this fires when the raster reaches line 1 (after vsync).
-    // The 48K ROM runs in IM1; the interrupt calls RST 0x38 which scans the
-    // keyboard and drives the BASIC main loop.  Without this the ROM spins
-    // forever and keypresses are never processed.
-    cpu_.request_interrupt(0xFF);
+    // Schedule the ULA frame interrupt at vc=1 (the line immediately after
+    // vsync/sync area).  In 48K timing: vc=1, hc=0 corresponds to 1 line
+    // into the frame.  One line = 228 T-states; at 28 MHz that is
+    // 228 * 8 = 1824 master cycles (cpu_divisor=8 at 3.5 MHz).
+    // The 48K ROM runs in IM1; the vector 0xFF calls RST 0x38 which scans
+    // the keyboard and drives the BASIC main loop.
+    static constexpr uint64_t INT_FIRE_OFFSET = 1ULL * 228 * 8;  // vc=1, hc=0
+    scheduler_.schedule(frame_cycle_ + INT_FIRE_OFFSET, EventType::CPU_INT,
+        [this]() { cpu_.request_interrupt(0xFF); });
 
     while (clock_.get() < frame_end) {
         // Execute one CPU instruction; returns T-states consumed.
@@ -154,6 +173,7 @@ void Emulator::reset()
     mmu_.reset();
     nextreg_.reset();
     cpu_.reset();
+    im2_.reset();
     keyboard_.reset();
 
     // Clear framebuffer to black.

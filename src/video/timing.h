@@ -1,9 +1,10 @@
 #pragma once
 #include <cstdint>
+#include "memory/contention.h"
 
 struct RasterPos { uint16_t hc; uint16_t vc; };
 
-/// Raster counter for the 48K/128K compatible machine.
+/// Raster counter supporting multiple machine timing variants.
 ///
 /// Counters are in the 7 MHz pixel-clock domain.
 /// The CPU runs at 3.5 MHz so each T-state advances hc by 2 pixel ticks.
@@ -13,13 +14,23 @@ struct RasterPos { uint16_t hc; uint16_t vc; };
 ///   - 312 lines per frame
 ///   - Active display: hc [128, 383], vc [64, 255]  → 256×192 pixels
 ///
+/// 128K timing (ZX Spectrum 128K PAL):
+///   - 456 pixel ticks per line
+///   - 311 lines per frame
+///   - Same active display window as 48K
+///
+/// Pentagon timing:
+///   - 448 pixel ticks per line
+///   - 320 lines per frame
+///   - Same active display window
+///
 /// The output framebuffer is 320×256 (48 left/right border + 256 display +
 /// 48 right border; 48 top + 192 display + 56 bottom border ≈ 256 rows).
 class VideoTiming {
 public:
-    // Machine constants (48K / 128K compatible, 7 MHz domain)
-    static constexpr int HC_MAX         = 456;  // pixel ticks per line
-    static constexpr int VC_MAX         = 312;  // total lines per frame (PAL)
+    // Default machine constants (48K, 7 MHz domain) — kept for compatibility.
+    static constexpr int HC_MAX_DEFAULT  = 456;  // pixel ticks per line (48K/128K)
+    static constexpr int VC_MAX_DEFAULT  = 312;  // total lines per frame (48K PAL)
 
     // Active display window (pixel addresses within 7 MHz domain)
     static constexpr int DISPLAY_LEFT   = 128;  // hc where active pixels start
@@ -39,6 +50,10 @@ public:
 
     void reset();
 
+    /// Configure timing for the given machine type.
+    /// Sets hc_max_ and vc_max_ from the machine-specific constants and resets counters.
+    void init(MachineType type);
+
     /// Advance raster counters by the given number of CPU T-states.
     /// Each T-state at 3.5 MHz = 2 pixel ticks at 7 MHz.
     void advance(int tstates);
@@ -52,8 +67,17 @@ public:
     bool frame_complete() const { return frame_done_; }
     void clear_frame_flag()     { frame_done_ = false; }
 
+    /// Active HC_MAX for current machine type.
+    int hc_max() const { return hc_max_; }
+    /// Active VC_MAX for current machine type.
+    int vc_max() const { return vc_max_; }
+
 private:
     uint16_t hc_        = 0;
     uint16_t vc_        = 0;
     bool     frame_done_ = false;
+
+    // Machine-type-dependent timing parameters (defaulting to 48K values).
+    int hc_max_ = HC_MAX_DEFAULT;  // pixel ticks per line
+    int vc_max_ = VC_MAX_DEFAULT;  // total lines per frame
 };
