@@ -26,7 +26,6 @@
   - [5.8 Input Subsystem](#58-input-subsystem)
   - [5.9 SDL Frontend](#59-sdl-frontend)
   - [5.10 Debug \& Introspection](#510-debug--introspection)
-  - [5.11 State Serialization](#511-state-serialization)
 - [6. Emulation Accuracy Model](#6-emulation-accuracy-model)
   - [Pre-computed contention LUT](#pre-computed-contention-lut)
   - [Scanline execution model](#scanline-execution-model)
@@ -42,7 +41,7 @@
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 4 — Audio](#phase-4--audio)
   - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
-  - [Phase 6 — Snapshot \& Usability](#phase-6--snapshot--usability)
+  - [Phase 6 — Usability](#phase-6--usability)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
@@ -213,11 +212,6 @@ zxnext-emulator/
 │   │   ├── sdl_display.h / .cpp   window, renderer, texture pipeline
 │   │   ├── sdl_audio.h / .cpp     SDL_AudioStream integration
 │   │   ├── sdl_input.h / .cpp     SDL scancode → keyboard/joystick
-│   │   ├── sdl_osd.h / .cpp       on-screen display overlay
-│   │   └── sdl_menu.h / .cpp      in-emulator menu (load, settings, reset)
-│   ├── save/
-│   │   ├── snapshot.h / .cpp      .Z80 / .SNA / .NEX snapshot format
-│   │   └── tap.h / .cpp           TAP / TZX tape loader
 │   ├── debug/                     ← pure C++, no GUI dependency
 │   │   ├── disasm.h / .cpp        Z80+Z80N disassembler
 │   │   ├── breakpoints.h / .cpp   execution breakpoints (PC, read/write watchpoints)
@@ -508,15 +502,12 @@ Key port registrations:
   - `SDL_MOUSEMOTION` → `Mouse::move`
   - `SDL_QUIT` → application exit
 
-**OSD** (`src/platform/sdl_osd.h`)
-- Rendered as overlay after emulator framebuffer
-- Shows: FPS, CPU speed, current machine mode, layer enable toggles
-- Toggle with `F10`; minimal font (8×8 built-in bitmap)
-
-**Menu** (`src/platform/sdl_menu.h`)
-- Modal overlay triggered by `F1`
-- Options: Load snapshot, Mount SD image, Machine type, CPU speed, Video filter, Volume, Reset, Quit
-- Rendered with simple SDL rect + bitmap font; no external GUI library dependency
+**Native UI** (Phase 6 — Qt 6)
+- In Phase 6 the raw SDL window is replaced by a Qt 6 `QMainWindow`
+- Menu bar, toolbar, and status bar provide all emulator controls via native OS widgets
+- The emulator framebuffer is displayed inside a `QOpenGLWidget` central widget
+- SDL continues to handle audio output and low-level input; video output is redirected to the Qt widget
+- OSD information (FPS, speed, machine mode) shown in the Qt status bar instead of a bitmap overlay
 
 ---
 
@@ -580,19 +571,6 @@ public:
 
 ---
 
-### 5.11 State Serialization
-
-**Snapshot** (`src/save/snapshot.h`)
-- Load/save `.Z80` v1/v2/v3 (48K and 128K)
-- Load/save `.SNA` (48K standard)
-- Future: `.NEX` ZX Next native snapshot format
-- Full state captured: all CPU registers, all RAM pages, all NextREG values, video state, audio state
-
-**TAP/TZX** (`src/save/tap.h`)
-- TAP: simple block format for virtual tape loading
-- TZX: extended format with timing pulses
-- Injected into EAR port signal at correct bit timing
-
 ---
 
 ## 6. Emulation Accuracy Model
@@ -650,7 +628,6 @@ add_subdirectory(src/port)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/input)
 add_subdirectory(src/platform)
-add_subdirectory(src/save)
 if(ENABLE_DEBUGGER)
     add_subdirectory(src/debugger)
 endif()
@@ -660,7 +637,7 @@ target_link_libraries(zxnext PRIVATE
     zxnext_core zxnext_cpu zxnext_memory
     zxnext_video zxnext_audio zxnext_port
     zxnext_peripheral zxnext_input
-    zxnext_platform zxnext_save
+    zxnext_platform
     SDL2::SDL2)
 
 if(ENABLE_TESTS)
@@ -761,19 +738,21 @@ endif()
 - [ ] Z80N extension opcodes
 - [ ] **Milestone**: NextZXOS boots from SD image
 
-### Phase 6 — Snapshot & Usability
+### Phase 6 — Native UI & Usability
 
-- [ ] `.Z80` v1/v2/v3 snapshot load/save
-- [ ] `.SNA` snapshot load/save
-- [ ] TAP virtual tape loader
-- [ ] OSD overlay (FPS, speed)
-- [ ] In-emulator menu (SDL)
-- [ ] CRT scanline filter (optional)
-- [ ] **Milestone**: Load and play commercial titles from snapshots
+- [ ] Qt 6 `QMainWindow` as the main emulator window (replaces raw SDL window)
+- [ ] Menu bar: **File** (Mount SD image, Quit), **Machine** (Reset, Machine type, CPU speed), **View** (1×/2×/3× scaling, Fullscreen toggle, CRT filter), **Help** (About)
+- [ ] Toolbar: **Reset** button (hard reset, like pressing the Next's reset button); additional buttons as needed
+- [ ] Emulator viewport: `QOpenGLWidget` or `QWidget` embedding the SDL framebuffer as the central widget
+- [ ] Fullscreen mode: toggle between windowed (menu bar + toolbar + viewport) and borderless fullscreen (viewport only); shortcut `F11`
+- [ ] Status bar: FPS, CPU speed, current machine mode
+- [ ] CRT scanline filter (optional, toggled from View menu)
+- [ ] SDL remains for audio output and input event handling; video output rendered into the Qt widget
+- [ ] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
 
 ### Phase 7 — Debugger Window
 
-A **native Qt 6 application window** providing full introspection into the running emulator. Uses real OS widgets (buttons, toolbars, tables, splitters) — not SDL-drawn graphics. Requires Phase 6 complete (stable emulator worth debugging).
+Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing full introspection into the running emulator. Uses real OS widgets (buttons, toolbars, tables, splitters). Requires Phase 6 complete (stable Qt-based emulator).
 
 **Infrastructure**
 - [ ] `DebuggerInterface` API bridging emulator core ↔ Qt UI (mutex-protected, `QueuedConnection` signals)
