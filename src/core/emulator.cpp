@@ -90,6 +90,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
             // TODO Phase 4: beeper EAR out = (val >> 4) & 1, MIC = (val >> 3) & 1
         });
 
+    // Timex screen mode — port 0xFF (full 16-bit match).
+    // Write: bits 5:3 = video mode (0=standard, 1=standard_1, 2=hi-colour, 6=hi-res).
+    //        bits 2:0 = screen bank (0=primary 0x4000, 1=alternate 0x6000).
+    // Read is not implemented on real hardware; omit read handler.
+    port_.register_handler(0xFFFF, 0x00FF,
+        nullptr,
+        [this](uint16_t, uint8_t val) {
+            renderer_.ula().set_screen_mode(val);
+        });
+
     // --- ROM loading ---
 
     // Attempt to load the 48K ROM into ROM slot 0 from the standard path.
