@@ -725,10 +725,10 @@ endif()
 
 ### Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)
 
-- [ ] Layer 2 bitmap renderer (256×192 @ 8-bit first)
+- [x] Palette subsystem (ULA + Layer2 + Sprite + Tilemap palettes) — PaletteManager with 2×16 ULA, 2×256 L2/Sprite/Tilemap banks; RGB333 internal, ARGB8888 cached; NextREG 0x40/0x41/0x43/0x44/0x14/0x4B/0x4C wired
+- [x] Layer 2 bitmap renderer (256×192 @ 8-bit) — reads from physical RAM banks with X/Y scroll wrapping; palette offset; transparency; NextREG 0x12/0x13/0x16/0x17/0x70/0x71 + port 0x123B wired; verified against VHDL layer2.vhd
 - [ ] Sprite engine (128 sprites, 8-bit colour, scale ×1)
 - [ ] Tilemap (40×32 mode)
-- [ ] Palette subsystem (ULA + Layer2 palettes)
 - [ ] Layer compositor with NextREG priority control
 - [ ] Copper co-processor
 - [ ] **Milestone**: Next-specific games render correctly
