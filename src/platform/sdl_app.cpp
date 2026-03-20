@@ -8,6 +8,9 @@ bool SdlApp::init(int argc, char* argv[]) {
         return false;
     }
     if (!display_.init("JNEXT — ZX Spectrum Next Emulator", NATIVE_W, NATIVE_H)) return false;
+    if (!audio_.init()) {
+        Log::platform()->warn("Audio init failed — continuing without sound");
+    }
 
     // Initialise the emulator with default config.
     EmulatorConfig cfg;
@@ -77,6 +80,9 @@ void SdlApp::run() {
 
         emulator_.run_frame();
 
+        // Push audio samples accumulated during this frame to SDL.
+        audio_.push_from_mixer(emulator_.mixer());
+
         const uint32_t* fb = emulator_.get_framebuffer();
         display_.upload_frame(fb, NATIVE_W, NATIVE_H);
         display_.present();
@@ -88,6 +94,7 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    audio_.shutdown();
     display_.shutdown();
     SDL_Quit();
 }

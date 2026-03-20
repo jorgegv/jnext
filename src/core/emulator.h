@@ -21,6 +21,10 @@
 #include "video/tilemap.h"
 #include "peripheral/copper.h"
 #include "input/keyboard.h"
+#include "audio/beeper.h"
+#include "audio/turbosound.h"
+#include "audio/dac.h"
+#include "audio/mixer.h"
 
 /// Top-level machine class.
 ///
@@ -96,6 +100,10 @@ public:
     SpriteEngine& sprites()   { return sprites_; }
     Tilemap&      tilemap()   { return tilemap_; }
     Copper&       copper()    { return copper_; }
+    Beeper&       beeper()    { return beeper_; }
+    TurboSound&   turbosound(){ return turbosound_; }
+    Dac&          dac()       { return dac_; }
+    Mixer&        mixer()     { return mixer_; }
 
     const EmulatorConfig& config() const { return config_; }
 
@@ -125,12 +133,24 @@ private:
     Copper          copper_;
     Renderer        renderer_;
     Keyboard        keyboard_;
+    Beeper          beeper_;
+    TurboSound      turbosound_;
+    Dac             dac_;
+    Mixer           mixer_;
 
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;
 
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
+
+    /// Audio timing: fractional accumulators for PSG ticking and sample generation.
+    /// PSG clock = 28 MHz / 16 = 1.75 MHz.
+    uint64_t psg_accum_ = 0;      ///< Accumulates master cycles for PSG tick timing
+    uint64_t sample_accum_ = 0;   ///< Accumulates master cycles for sample generation
+
+    /// DAC enable flag (NextREG 0x08 bit 3).
+    bool dac_enabled_ = false;
 
     // -----------------------------------------------------------------------
     // Private helpers

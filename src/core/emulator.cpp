@@ -48,6 +48,14 @@ bool Emulator::init(const EmulatorConfig& cfg)
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
+    beeper_.reset();
+    turbosound_.reset();
+    dac_.reset();
+    mixer_.reset();
+
+    psg_accum_ = 0;
+    sample_accum_ = 0;
+    dac_enabled_ = false;
 
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
@@ -252,7 +260,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
         },
         [this](uint16_t, uint8_t val) {
             renderer_.ula().set_border(val & 0x07);
-            // TODO Phase 4: beeper EAR out = (val >> 4) & 1, MIC = (val >> 3) & 1
+            beeper_.set_ear((val >> 4) & 1);
+            beeper_.set_mic((val >> 3) & 1);
         });
 
     // Timex screen mode — port 0xFF (full 16-bit match).
@@ -279,6 +288,84 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0x00FF, 0x005B,
         nullptr,
         [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
+
+    // --- Audio port handlers ---
+
+    // AY register select — port 0xFFFD (mask 0xC002, value 0xC000).
+    // Write: selects AY register or changes active AY chip / panning.
+    // Read: returns selected register contents.
+    port_.register_handler(0xC002, 0xC000,
+        [this](uint16_t) -> uint8_t { return turbosound_.reg_read(false); },
+        [this](uint16_t, uint8_t val) { turbosound_.reg_addr(val); });
+
+    // AY data write — port 0xBFFD (mask 0xC002, value 0x8000).
+    // Write: writes data to selected register on active AY.
+    port_.register_handler(0xC002, 0x8000,
+        nullptr,
+        [this](uint16_t, uint8_t val) { turbosound_.reg_write(val); });
+
+    // DAC ports — Soundrive Mode 1 (most common)
+    // Channel A (left):  port 0x1F
+    // Channel B (left):  port 0x0F
+    // Channel C (right): port 0x4F
+    // Channel D (right): port 0x5F
+    port_.register_handler(0x00FF, 0x001F, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(0, val); });
+    port_.register_handler(0x00FF, 0x000F, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(1, val); });
+    port_.register_handler(0x00FF, 0x004F, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(2, val); });
+
+    // DAC port 0x5F conflicts with sprite patterns (port 0x5B uses 0x00FF mask).
+    // Use full 16-bit match for Soundrive Mode 2 ports instead.
+    // Soundrive Mode 2: 0xF1=A, 0xF3=B, 0xF9=C, 0xFB=D
+    port_.register_handler(0xFFFF, 0x00F1, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(0, val); });
+    port_.register_handler(0xFFFF, 0x00F3, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(1, val); });
+    port_.register_handler(0xFFFF, 0x00F9, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(2, val); });
+    port_.register_handler(0xFFFF, 0x00FB, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(3, val); });
+
+    // Specdrum: port 0xDF → channels A+D
+    port_.register_handler(0x00FF, 0x00DF, nullptr,
+        [this](uint16_t, uint8_t val) {
+            if (dac_enabled_) { dac_.write_channel(0, val); dac_.write_channel(3, val); }
+        });
+
+    // --- Audio NextREG handlers ---
+
+    // Register 0x06: Peripheral 2 — bits 1:0 = PSG mode (00=YM, 01=AY)
+    //   bit 6 = internal speaker beep-only (exclusive mode, not emulated yet)
+    nextreg_.set_write_handler(0x06, [this](uint8_t v) {
+        bool ay_mode = (v & 0x03) == 1;  // 00=YM, 01=AY, others=hold/reset
+        turbosound_.set_ay_mode(ay_mode);
+    });
+
+    // Register 0x08: Peripheral 3
+    //   bit 5 = stereo mode (0=ABC, 1=ACB)
+    //   bit 3 = DAC enable
+    //   bit 1 = TurboSound enable
+    nextreg_.set_write_handler(0x08, [this](uint8_t v) {
+        turbosound_.set_stereo_mode((v >> 5) & 1);
+        dac_enabled_ = (v >> 3) & 1;
+        turbosound_.set_enabled((v >> 1) & 1);
+    });
+
+    // Register 0x09: Peripheral 4
+    //   bits 7:5 = per-chip mono mode (bit 7=AY#2, 6=AY#1, 5=AY#0)
+    //   bit 3 = sprites over border (already handled above)
+    nextreg_.set_write_handler(0x09, [this](uint8_t v) {
+        sprites_.set_over_border((v & 0x08) != 0);
+        // Mono mode: bit 7=AY#2, bit 6=AY#1, bit 5=AY#0
+        // Map to TurboSound: bit 0=AY#0, bit 1=AY#1, bit 2=AY#2
+        uint8_t mono = 0;
+        if (v & 0x20) mono |= 0x01;  // AY#0
+        if (v & 0x40) mono |= 0x02;  // AY#1
+        if (v & 0x80) mono |= 0x04;  // AY#2
+        turbosound_.set_mono_mode(mono);
+    });
 
     // --- ROM loading ---
 
@@ -364,6 +451,13 @@ void Emulator::run_frame()
     // Notify copper of frame start (resets PC in mode 11).
     copper_.on_vsync();
 
+    // Audio timing constants.
+    // PSG clock = 28 MHz / 16 = 1.75 MHz → one PSG tick every 16 master cycles.
+    static constexpr uint64_t PSG_DIVISOR = 16;
+    // Sample generation: 28 MHz / 44100 Hz ≈ 634.92 master cycles per sample.
+    // Use Bresenham-style accumulator: generate sample every time accum >= MASTER_CLOCK_HZ.
+    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
+
     while (clock_.get() < frame_end) {
         // Execute one CPU instruction; returns T-states consumed.
         int tstates = cpu_.execute();
@@ -381,6 +475,20 @@ void Emulator::run_frame()
             // hc is in 28 MHz domain (0..MASTER_CYCLES_PER_LINE-1)
             // Copper uses hc in 28 MHz ticks.
             copper_.execute(hc, vc, nextreg_);
+        }
+
+        // Tick PSG (TurboSound) at 1.75 MHz rate.
+        psg_accum_ += master_cycles;
+        while (psg_accum_ >= PSG_DIVISOR) {
+            psg_accum_ -= PSG_DIVISOR;
+            turbosound_.tick();
+        }
+
+        // Generate audio samples at 44100 Hz using Bresenham accumulator.
+        sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
+        while (sample_accum_ >= SAMPLE_THRESHOLD) {
+            sample_accum_ -= SAMPLE_THRESHOLD;
+            mixer_.generate_sample(beeper_, turbosound_, dac_);
         }
 
         // Drain any scheduler events that have become due.

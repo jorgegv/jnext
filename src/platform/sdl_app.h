@@ -3,6 +3,7 @@
 #include <string>
 #include "sdl_display.h"
 #include "sdl_input.h"
+#include "sdl_audio.h"
 #include "core/emulator.h"
 
 class SdlApp {
@@ -23,6 +24,7 @@ public:
 private:
     SdlDisplay display_;
     SdlInput   input_;
+    SdlAudio   audio_;
     Emulator   emulator_;
     bool       running_ = false;
 
