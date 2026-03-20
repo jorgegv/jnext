@@ -42,6 +42,7 @@ public:
 
     // Public memory access for Z80N instruction implementations
     MemoryInterface& memory() { return mem_; }
+    IoInterface& io() { return io_; }
 
     // Callback fired on M1 cycle — used for RETI detection and IM2
     std::function<void(uint16_t pc, uint8_t opcode)> on_m1_cycle;
