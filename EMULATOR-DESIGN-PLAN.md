@@ -748,14 +748,16 @@ endif()
 - [ ] Wire file loading into the emulator UI (drag-and-drop or File menu in Phase 6)
 - [ ] **Milestone**: Can load and run `.nex` files directly from the command line
 
-### Phase 4 — Audio
+### Phase 4 — Audio ✓ COMPLETE
 
-- [ ] AY-3-8910 × 3 (TurboSound)
-- [ ] DAC × 4
-- [ ] Beeper
-- [ ] Audio mixer → SDL_AudioStream
-- [ ] CTC (drives some AY timing)
-- [ ] **Milestone**: Music and sound effects audible
+- [x] AY-3-8910 × 3 (TurboSound) — YM2149 emulation with 3 tone generators, noise LFSR (17-bit), envelope (16 shapes), AY/YM volume tables; TurboSound wrapper with per-chip stereo/mono mixing and panning; all verified against VHDL ym2149.vhd and turbosound.vhd
+- [x] DAC × 4 — Soundrive 4-channel 8-bit DAC (A+B→L, C+D→R); Soundrive Mode 1+2 ports, Specdrum, Covox aliases; verified against VHDL soundrive.vhd
+- [x] Beeper — EAR/MIC from port 0xFE bits 4/3 with VHDL-matched volume scaling (EAR=256, MIC=32)
+- [x] Audio mixer → SDL_AudioStream — mixer combines all sources with audio_mixer.vhd scaling (13-bit internal); ring buffer at 44100 Hz stereo int16; SDL_AudioStream bridge with overflow protection
+- [x] NextREG audio control — 0x06 (PSG mode AY/YM), 0x08 (stereo mode/DAC enable/TurboSound enable), 0x09 (per-chip mono flags)
+- [x] PSG ticking at 1.75 MHz (28 MHz / 16), sample generation via Bresenham accumulator
+- [ ] CTC (drives some AY timing) — deferred to Phase 5
+- [x] **Milestone**: Music and sound effects audible
 
 ### Phase 5 — Peripherals & Full I/O
 
