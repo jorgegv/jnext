@@ -765,7 +765,7 @@ endif()
 - [ ] SPI + I2C stubs
 - [ ] DMA (Z80-DMA compat + ZXN burst)
 - [ ] IM2 full controller (all 14 levels)
-- [ ] Z80N extension opcodes
+- [x] Z80N extension opcodes — all 23 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
 - [ ] **Milestone**: NextZXOS boots from SD image
 
 ### Phase 6 — Native UI & Usability
