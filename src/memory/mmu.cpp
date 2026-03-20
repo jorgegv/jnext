@@ -13,6 +13,9 @@ Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
 
 void Mmu::reset() {
     paging_locked_ = false;
+    l2_write_enable_ = false;
+    l2_segment_mask_ = 0;
+    l2_bank_ = 8;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
         read_only_[i] = false;
@@ -56,6 +59,20 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
     read_only_[slot] = true;
     read_ptr_[slot] = rom_.page_ptr(rom_page);
     write_ptr_[slot] = nullptr;
+}
+
+void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
+    l2_write_enable_ = (val & 0x01) != 0;
+    l2_bank_ = active_bank;
+    uint8_t seg = (val >> 6) & 0x03;
+    switch (seg) {
+        case 0: l2_segment_mask_ = 0x01; break;  // 0x0000-0x3FFF
+        case 1: l2_segment_mask_ = 0x02; break;  // 0x4000-0x7FFF
+        case 2: l2_segment_mask_ = 0x04; break;  // 0x8000-0xBFFF
+        case 3: l2_segment_mask_ = 0x07; break;  // all three
+    }
+    Log::memory()->debug("L2 write-over: enable={} segment_mask={:#04x} bank={}",
+                          l2_write_enable_, l2_segment_mask_, l2_bank_);
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {

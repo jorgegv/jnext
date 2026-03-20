@@ -213,13 +213,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // --- Port dispatch handlers ---
 
     // Layer 2 control — port 0x123B (full 16-bit match).
-    // Write: bit 1 = Layer 2 visible, bit 0 = write-over enable (CPU writes to L2 RAM).
-    //        bits 4:2 = bank offset, bit 6 = shadow display, bit 7 = reserved.
+    // Write: bit 0 = write-map enable (CPU writes to L2 RAM banks)
+    //        bit 1 = Layer 2 visible
+    //        bits 7:6 = segment select for write-mapping (00/01/10=single, 11=all)
     // Read:  returns last written value.
     port_.register_handler(0xFFFF, 0x123B,
         nullptr,
         [this](uint16_t, uint8_t val) {
             layer2_.set_enabled((val & 0x02) != 0);
+            mmu_.set_l2_write_port(val, layer2_.active_bank());
         });
 
     // 128K bank switch — port 0x7FFD decoded by address-line masking.
