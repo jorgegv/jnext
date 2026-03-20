@@ -1,5 +1,5 @@
 /*
- * ZX Spectrum Next – Layer 2 background + bouncing hardware sprite
+ * ZX Spectrum Next – Layer 2 background + 40 bouncing hardware sprites
  *
  * Build with z88dk (zxn target):
  *
@@ -51,6 +51,31 @@ __sfr __at 0x5B IO_SPRITE_PATT;           /* Sprite pattern   (auto++) */
 
 #define NR_PAL_L2_FIRST  0x10   /* bits[6:4]=001 → Layer2 first pal   */
 #define NR_PAL_SPR_FIRST 0x20   /* bits[6:4]=010 → Sprite first pal   */
+
+/* ------------------------------------------------------------------ *
+ * Number of sprites                                                    *
+ * ------------------------------------------------------------------ */
+#define NUM_SPRITES 40
+
+/* ------------------------------------------------------------------ *
+ * Simple PRNG (16-bit xorshift)                                        *
+ * ------------------------------------------------------------------ */
+static unsigned int rng_state = 0xACE1;
+
+static unsigned int rng_next(void)
+{
+    rng_state ^= rng_state << 7;
+    rng_state ^= rng_state >> 9;
+    rng_state ^= rng_state << 8;
+    return rng_state;
+}
+
+/* Return a value in [lo, hi] inclusive. */
+static int rng_range(int lo, int hi)
+{
+    unsigned int range = (unsigned int)(hi - lo + 1);
+    return lo + (int)(rng_next() % range);
+}
 
 /* ------------------------------------------------------------------ *
  * Palette helper                                                        *
@@ -147,16 +172,17 @@ static void sprite_set_attr(unsigned char slot,
 }
 
 /* ------------------------------------------------------------------ *
+ * Sprite state arrays                                                   *
+ * ------------------------------------------------------------------ */
+static int sx[NUM_SPRITES], sy[NUM_SPRITES];
+static int dx[NUM_SPRITES], dy[NUM_SPRITES];
+
+/* ------------------------------------------------------------------ *
  * main                                                                  *
  * ------------------------------------------------------------------ */
 int main(void)
 {
-    /* Sprite coordinates are in absolute framebuffer space (whc domain):
-     *   X: 0-31 = left border, 32-287 = display area, 288-319 = right border
-     *   Y: 0-31 = top border,  32-223 = display area, 224-255 = bottom border
-     * Start roughly centered in the display area. */
-    int sx = 152, sy = 120;
-    int dx = 1,   dy = 1;
+    unsigned char i;
 
     /* 1. Layer 2: 256×192, palette offset 0. */
     ZXN_WRITE_REG(NR_LAYER2_RES, 0x00);
@@ -185,27 +211,38 @@ int main(void)
     /* 8. Upload sprite pattern to slot 0. */
     sprite_upload_pattern(0, sprite_pat);
 
-    /* 9. Make sprite visible at initial position BEFORE entering the
-     *    loop — don't wait for the first interrupt. */
-    sprite_set_attr(0, (unsigned int)sx, (unsigned char)sy, 0, 1);
+    /* 9. Initialise 40 sprites at random positions with random velocities.
+     *    Sprite coordinates are in absolute framebuffer space:
+     *      X: 32-271 = display area (minus 16px sprite width)
+     *      Y: 32-207 = display area (minus 16px sprite height) */
+    for (i = 0; i < NUM_SPRITES; i++) {
+        sx[i] = rng_range(32, 271);
+        sy[i] = rng_range(32, 207);
+        dx[i] = rng_range(1, 4);
+        if (rng_next() & 1) dx[i] = -dx[i];
+        dy[i] = rng_range(1, 4);
+        if (rng_next() & 1) dy[i] = -dy[i];
+        sprite_set_attr(i, (unsigned int)sx[i], (unsigned char)sy[i], 0, 1);
+    }
 
     /* 10. Ensure IM 1 + EI so HALT can return on the frame interrupt. */
     intrinsic_im_1();
     intrinsic_ei();
 
-    /* 11. Main loop. */
+    /* 11. Main loop — update all 40 sprites each frame. */
     while (1) {
         intrinsic_halt();
 
-        sx += dx;
-        sy += dy;
+        for (i = 0; i < NUM_SPRITES; i++) {
+            sx[i] += dx[i];
+            sy[i] += dy[i];
 
-        /* Bounce within display area (32-287 for X, 32-223 for Y),
-         * minus sprite size (16 pixels). */
-        if (sx <= 32 || sx >= 271) { dx = -dx; sx += dx; }
-        if (sy <= 32 || sy >= 207) { dy = -dy; sy += dy; }
+            /* Bounce within display area. */
+            if (sx[i] <= 32 || sx[i] >= 271) { dx[i] = -dx[i]; sx[i] += dx[i]; }
+            if (sy[i] <= 32 || sy[i] >= 207) { dy[i] = -dy[i]; sy[i] += dy[i]; }
 
-        sprite_set_attr(0, (unsigned int)sx, (unsigned char)sy, 0, 1);
+            sprite_set_attr(i, (unsigned int)sx[i], (unsigned char)sy[i], 0, 1);
+        }
     }
 
     return 0;
