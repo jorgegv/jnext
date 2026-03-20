@@ -732,14 +732,19 @@ endif()
 - [x] Tilemap (40×32 mode) — 40×32 and 80×32 modes; 4bpp patterns + text mode (1bpp); 512-tile mode; force-attribute; ULA-over-tilemap per-tile priority; X/Y scroll; base address decoding (bank 5/7); NextREG 0x6B/0x6C/0x6E/0x6F/0x2F/0x30/0x31
 - [x] Layer compositor with NextREG priority control — per-scanline compositing of ULA+Tilemap/Layer2/Sprites; 6 priority modes (SLU/LSU/SUL/LUS/USL/ULS); all sprite/tilemap/copper port+NextREG handlers wired; copper executes per CPU instruction
 - [x] Copper co-processor — 1K×16-bit instruction RAM; WAIT (vc==vpos && hc>=(hpos<<3)+12) and MOVE; HALT/NOP; mode edge detection; 2-cycle MOVE timing; NextREG 0x60/0x61/0x62/0x63 write paths with MSB/LSB pairing
+- [ ] Verify all works ok:
+  - [x] Layer 2
+  - [x] Sprites
+  - [ ] Tilemap
+  - [ ] Copper
 - [ ] **Milestone**: Next-specific games render correctly
 
 ### Phase 3.5 — Program Loading (NEX + raw binary)
 
 - [x] `--inject FILE` CLI flag with `--inject-org ADDR` (default `0x8000`) and `--inject-pc ADDR` (default = org): loads a raw binary into RAM and jumps to it; useful for quick testing of z88dk-compiled programs without tape/snapshot support
 - [x] Create a demo with sprite and Layer2 rendering that allows testing the emulator and Phase 3 functionality
-- [ ] NEX file loader: parse the NEX v1.3 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure initial CPU speed / Layer 2 / border from header fields
-- [ ] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
+- [x] NEX file loader: parse the NEX V1.0/V1.1/V1.2 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure Layer 2 screen/palette / border / entry bank from header fields — `NexLoader` class in `src/core/nex_loader.h/.cpp`
+- [x] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
 - [ ] Wire file loading into the emulator UI (drag-and-drop or File menu in Phase 6)
 - [ ] **Milestone**: Can load and run `.nex` files directly from the command line
 
