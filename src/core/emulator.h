@@ -62,6 +62,9 @@ public:
     /// Called after init() when --inject is used.  Returns true on success.
     bool inject_binary(const std::string& path, uint16_t org, uint16_t pc);
 
+    /// Load a NEX file into the emulator.  Returns true on success.
+    bool load_nex(const std::string& path);
+
     // -----------------------------------------------------------------------
     // Framebuffer access
     // -----------------------------------------------------------------------

@@ -50,6 +50,9 @@ struct EmulatorConfig {
     std::string inject_file;              // path to raw binary (empty = disabled)
     uint16_t    inject_org  = 0x8000;     // load address (--inject-org)
     uint16_t    inject_pc   = 0x8000;     // entry point  (--inject-pc, default = inject_org)
+
+    // --load: load a file (e.g. .nex) into the emulator.
+    std::string load_file;                // path to .nex file (empty = disabled)
 };
 
 // ---------------------------------------------------------------------------

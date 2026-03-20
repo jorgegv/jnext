@@ -47,6 +47,12 @@ void SdlApp::set_pending_inject(const std::string& file, uint16_t org,
                            file, org, pc, delay_frames);
 }
 
+void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
+    load_file_ = file;
+    load_countdown_ = delay_frames;
+    Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
+}
+
 void SdlApp::run() {
     while (running_) {
         uint32_t frame_start = SDL_GetTicks();
@@ -59,6 +65,14 @@ void SdlApp::run() {
             inject_countdown_ = -1;  // done
         } else if (inject_countdown_ > 0) {
             --inject_countdown_;
+        }
+
+        // Apply pending load when countdown reaches zero.
+        if (load_countdown_ == 0) {
+            emulator_.load_nex(load_file_);
+            load_countdown_ = -1;  // done
+        } else if (load_countdown_ > 0) {
+            --load_countdown_;
         }
 
         emulator_.run_frame();
