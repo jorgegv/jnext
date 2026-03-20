@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 // MachineType is the canonical shared enum; defined once in contention.h.
 // All emulator modules that need the machine type include this header.
@@ -44,6 +45,11 @@ struct EmulatorConfig {
     MachineType type        = MachineType::ZXN_ISSUE2;
     bool        turbo_sound = false;      // Enable TurboSound (3× AY chips)
     CpuSpeed    cpu_speed   = CpuSpeed::MHZ_3_5;
+
+    // --inject: load a raw binary into RAM at a given address, then jump to it.
+    std::string inject_file;              // path to raw binary (empty = disabled)
+    uint16_t    inject_org  = 0x8000;     // load address (--inject-org)
+    uint16_t    inject_pc   = 0x8000;     // entry point  (--inject-pc, default = inject_org)
 };
 
 // ---------------------------------------------------------------------------

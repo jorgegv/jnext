@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 
 // ---------------------------------------------------------------------------
 // Constructor — initializer list for members with non-trivial dependencies.
@@ -288,6 +289,51 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);
 
+    return true;
+}
+
+bool Emulator::inject_binary(const std::string& path, uint16_t org, uint16_t pc)
+{
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) {
+        Log::emulator()->error("--inject: cannot open '{}'", path);
+        return false;
+    }
+
+    auto size = f.tellg();
+    if (size <= 0) {
+        Log::emulator()->error("--inject: file '{}' is empty", path);
+        return false;
+    }
+
+    // Guard against overflowing the 64K address space.
+    if (static_cast<uint32_t>(org) + static_cast<uint32_t>(size) > 0x10000) {
+        Log::emulator()->error("--inject: {} bytes at {:#06x} would exceed 64K", static_cast<int>(size), org);
+        return false;
+    }
+
+    f.seekg(0);
+    std::vector<uint8_t> buf(static_cast<size_t>(size));
+    f.read(reinterpret_cast<char*>(buf.data()), size);
+
+    for (size_t i = 0; i < buf.size(); ++i) {
+        mmu_.write(static_cast<uint16_t>(org + i), buf[i]);
+    }
+
+    // Set PC to the requested entry point.
+    auto regs = cpu_.get_registers();
+    regs.PC = pc;
+    // Set SP to a sensible value if it hasn't been moved.
+    regs.SP = 0xFFFD;
+    // Disable interrupts — the injected binary can enable them itself.
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    cpu_.set_registers(regs);
+
+    Log::emulator()->info("--inject: loaded {} bytes from '{}' at {:#06x}, PC={:#06x}",
+                           static_cast<int>(size), path, org, pc);
+    Log::emulator()->debug("--inject: first bytes at {:#06x}: {:02x} {:02x} {:02x} {:02x}",
+                            org, mmu_.read(org), mmu_.read(org+1), mmu_.read(org+2), mmu_.read(org+3));
     return true;
 }
 

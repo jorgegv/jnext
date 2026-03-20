@@ -37,11 +37,29 @@ bool SdlApp::init(int argc, char* argv[]) {
     return true;
 }
 
+void SdlApp::set_pending_inject(const std::string& file, uint16_t org,
+                                uint16_t pc, int delay_frames) {
+    inject_file_ = file;
+    inject_org_  = org;
+    inject_pc_   = pc;
+    inject_countdown_ = delay_frames;
+    Log::platform()->info("--inject: will load '{}' at {:#06x} (PC={:#06x}) after {} frame(s)",
+                           file, org, pc, delay_frames);
+}
+
 void SdlApp::run() {
     while (running_) {
         uint32_t frame_start = SDL_GetTicks();
 
         if (!input_.poll()) break;
+
+        // Apply pending inject when countdown reaches zero.
+        if (inject_countdown_ == 0) {
+            emulator_.inject_binary(inject_file_, inject_org_, inject_pc_);
+            inject_countdown_ = -1;  // done
+        } else if (inject_countdown_ > 0) {
+            --inject_countdown_;
+        }
 
         emulator_.run_frame();
 

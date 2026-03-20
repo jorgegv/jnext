@@ -58,6 +58,10 @@ public:
     /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
     void reset();
 
+    /// Load a raw binary file into RAM at `org` and set PC to `pc`.
+    /// Called after init() when --inject is used.  Returns true on success.
+    bool inject_binary(const std::string& path, uint16_t org, uint16_t pc);
+
     // -----------------------------------------------------------------------
     // Framebuffer access
     // -----------------------------------------------------------------------
