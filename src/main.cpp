@@ -1,6 +1,7 @@
 #include "core/log.h"
 #include "platform/sdl_app.h"
 #include <csignal>
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <string>
@@ -19,7 +20,9 @@ static void print_usage(const char* prog) {
         "  --inject-org ADDR    Load address for --inject (hex, default 8000)\n"
         "  --inject-pc ADDR     Entry point for --inject (hex, default = --inject-org value)\n"
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
-        "                       binary calls ROM routines that need system variable setup)\n",
+        "                       binary calls ROM routines that need system variable setup)\n"
+        "  --load FILE          Load a program file (auto-detect format by extension)\n"
+        "                       Supported: .nex\n",
         prog);
 }
 
@@ -40,6 +43,7 @@ int main(int argc, char* argv[]) {
     bool     inject_pc_set = false;
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
+    std::string load_file;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -57,6 +61,8 @@ int main(int argc, char* argv[]) {
             inject_pc_set = true;
         } else if (arg == "--inject-delay" && i + 1 < argc) {
             inject_delay = std::stoi(argv[++i]);
+        } else if (arg == "--load" && i + 1 < argc) {
+            load_file = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -71,6 +77,24 @@ int main(int argc, char* argv[]) {
     // Set up pending inject (applied after inject_delay frames in the main loop).
     if (!inject_file.empty()) {
         app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
+    }
+
+    // Set up pending load (auto-detect format by extension).
+    if (!load_file.empty()) {
+        // Check extension to determine format.
+        std::string ext;
+        auto dot = load_file.rfind('.');
+        if (dot != std::string::npos) {
+            ext = load_file.substr(dot);
+            // Convert to lowercase for comparison.
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (ext == ".nex") {
+            app.set_pending_load(load_file, 0);
+        } else {
+            Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex)", ext);
+            return 1;
+        }
     }
 
     app.run();

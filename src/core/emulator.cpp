@@ -1,6 +1,7 @@
 #include "core/emulator.h"
 
 #include "core/log.h"
+#include "core/nex_loader.h"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -337,6 +338,13 @@ bool Emulator::inject_binary(const std::string& path, uint16_t org, uint16_t pc)
     Log::emulator()->debug("--inject: first bytes at {:#06x}: {:02x} {:02x} {:02x} {:02x}",
                             org, mmu_.read(org), mmu_.read(org+1), mmu_.read(org+2), mmu_.read(org+3));
     return true;
+}
+
+bool Emulator::load_nex(const std::string& path)
+{
+    NexLoader loader;
+    if (!loader.load(path)) return false;
+    return loader.apply(*this);
 }
 
 void Emulator::run_frame()

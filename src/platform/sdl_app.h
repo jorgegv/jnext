@@ -17,6 +17,9 @@ public:
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);
 
+    /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
+    void set_pending_load(const std::string& file, int delay_frames);
+
 private:
     SdlDisplay display_;
     SdlInput   input_;
@@ -28,6 +31,10 @@ private:
     uint16_t    inject_org_ = 0;
     uint16_t    inject_pc_  = 0;
     int         inject_countdown_ = -1;  // -1 = no pending inject
+
+    // Pending --load state
+    std::string load_file_;
+    int         load_countdown_ = -1;    // -1 = no pending load
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;
