@@ -76,6 +76,7 @@ static bool init_z80n_table() {
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_HL_A)]   = true;
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_DE_A)]   = true;
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::ADD_BC_A)]   = true;
+    kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::PUSH_NN)]    = true;
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::OUTINB)]     = true;
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::NEXTREG_NN)] = true;
     kZ80NOpcodeTable[static_cast<uint8_t>(Z80NOpcode::NEXTREG_A)]  = true;
@@ -192,16 +193,17 @@ int Z80Cpu::execute() {
 
     /* ── INT ──────────────────────────────────────────────────────────── */
     if (int_pending_ && z80.iff1) {
-        int_pending_ = false;
         Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
         libspectrum_dword before = tstates;
         int accepted = fuse_z80_interrupt(int_vector_);
         sync_regs_from_fuse(regs_);
         if (accepted) {
+            int_pending_ = false;
             return (int)(tstates - before);
         }
-        /* If not accepted (e.g. interrupts_enabled_at == tstates), fall
-         * through to execute one instruction */
+        /* If not accepted (e.g. interrupts_enabled_at == tstates), keep
+         * int_pending_ true so the interrupt is retried next cycle.
+         * Fall through to execute one instruction first. */
     }
 
     /* ── Z80N interception ────────────────────────────────────────────── */

@@ -737,6 +737,7 @@ endif()
 ### Phase 3.5 — Program Loading (NEX + raw binary)
 
 - [x] `--inject FILE` CLI flag with `--inject-org ADDR` (default `0x8000`) and `--inject-pc ADDR` (default = org): loads a raw binary into RAM and jumps to it; useful for quick testing of z88dk-compiled programs without tape/snapshot support
+- [x] Create a demo with sprite and Layer2 rendering that allows testing the emulator and Phase 3 functionality
 - [ ] NEX file loader: parse the NEX v1.3 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure initial CPU speed / Layer 2 / border from header fields
 - [ ] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
 - [ ] Wire file loading into the emulator UI (drag-and-drop or File menu in Phase 6)

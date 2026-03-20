@@ -1,5 +1,6 @@
 #include "video/sprites.h"
 #include "video/palette.h"
+#include "core/log.h"
 
 // ---------------------------------------------------------------------------
 // SpriteAttr::y() — decode 9-bit Y coordinate
@@ -253,33 +254,55 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     uint8_t pal_offset = spr.palette_offset();
     uint8_t transp = palette.sprite_transparency();
 
-    // Determine clip window bounds.
-    // When sprites render over border, clip coordinates map directly to pixel positions:
-    //   x_s = clip_x1 * 2, x_e = clip_x2 * 2 + 1 (but we use pixel coords 0-319)
-    // When not over border, the formula from VHDL shifts the clip region.
-    // For simplicity we use the over-border formula which maps [0,319] and [0,255]:
+    // Determine clip window bounds and border offset.
+    //
+    // VHDL reference (sprites.vhd lines 1048-1059):
+    //   When over_border='1': clip coords map directly to pixel positions.
+    //     x_s = clip_x1 << 1,  x_e = (clip_x2 << 1) | 1
+    //     y_s = clip_y1,        y_e = clip_y2
+    //   When over_border='0': clip coords are shifted by +32 into display area.
+    //     x_s = (('0' & clip_x1(7:5)) + 1) & clip_x1(4:0)  -- adds ~32
+    //     (similarly for x_e, y_s, y_e)
+    //
+    // In non-over-border mode, sprite coordinates are in display space (X=0..255,
+    // Y=0..191), but the framebuffer is 320 pixels wide with 32px borders.  The
+    // VHDL adds a +32 offset to the sprite position internally so that X=0 maps
+    // to the left edge of the display area (hcounter=32).  We replicate this by
+    // adding BORDER_OFFSET to the sprite X when computing buffer positions, and
+    // to the scanline Y when doing the clip check.
+
+    static constexpr int BORDER_OFFSET = 32;
+
     int clip_xs, clip_xe, clip_ys, clip_ye;
+    int x_offset;   // added to sprite X for buffer positioning
+    int y_clip_adj; // added to y for clip check (display→buffer coords)
+
     if (over_border_) {
         clip_xs = clip_x1_ * 2;
         clip_xe = clip_x2_ * 2 + 1;
         clip_ys = clip_y1_;
         clip_ye = clip_y2_;
+        x_offset   = 0;
+        y_clip_adj = 0;
     } else {
-        // Not over border: clip window is shifted into display area.
-        // From VHDL: x_s = ((0 & clip_x1(7:5)) + 1) & clip_x1(4:0)
-        clip_xs = (((clip_x1_ >> 5) + 1) & 0x0F) << 5 | (clip_x1_ & 0x1F);
-        clip_xe = (((clip_x2_ >> 5) + 1) & 0x0F) << 5 | (clip_x2_ & 0x1F);
-        clip_ys = (((clip_y1_ >> 5) + 1) & 0x0F) << 5 | (clip_y1_ & 0x1F);
-        clip_ye = (((clip_y2_ >> 5) + 1) & 0x0F) << 5 | (clip_y2_ & 0x1F);
+        // Non-over-border: clip window shifted into buffer space (+32).
+        // From VHDL: (('0' & val(7:5)) + 1) & val(4:0)
+        clip_xs = ((((clip_x1_ >> 5) & 0x07) + 1) << 5) | (clip_x1_ & 0x1F);
+        clip_xe = ((((clip_x2_ >> 5) & 0x07) + 1) << 5) | (clip_x2_ & 0x1F);
+        clip_ys = ((((clip_y1_ >> 5) & 0x07) + 1) << 5) | (clip_y1_ & 0x1F);
+        clip_ye = ((((clip_y2_ >> 5) & 0x07) + 1) << 5) | (clip_y2_ & 0x1F);
+        // Sprite coords are display-relative; offset to buffer space.
+        x_offset   = BORDER_OFFSET;
+        y_clip_adj = BORDER_OFFSET;
     }
 
-    // Check Y clip
-    if (y < clip_ys || y > clip_ye)
+    // Check Y clip (convert display-space y to buffer-space for comparison)
+    if ((y + y_clip_adj) < clip_ys || (y + y_clip_adj) > clip_ye)
         return;
 
     // Iterate over 16 pixel columns of the sprite.
     for (int col = 0; col < SPRITE_SIZE; ++col) {
-        int screen_x = spr_x + col;
+        int screen_x = spr_x + x_offset + col;
 
         // Wrap X within 9-bit space (0-511), but only draw if on-screen (0-319).
         screen_x &= 0x1FF;
@@ -355,4 +378,14 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
         // Write the pixel to the output buffer.
         dst[screen_x] = palette.sprite_colour(pixel_val);
     }
+}
+
+void SpriteEngine::debug_log_sprite0() const
+{
+    const auto& s = sprites_[0];
+    Log::video()->info("SPR0: x={} y={} vis={} pat={} bytes=[{:02x},{:02x},{:02x},{:02x},{:02x}] "
+                       "global_vis={} over_border={} attr_slot={} attr_byte={}",
+                       s.x(), s.y(), s.visible(), s.pattern_base(),
+                       s.byte0, s.byte1, s.byte2, s.byte3, s.byte4,
+                       sprites_visible_, over_border_, attr_slot_, attr_byte_);
 }

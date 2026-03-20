@@ -40,6 +40,9 @@ public:
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
 
+    // Public memory access for Z80N instruction implementations
+    MemoryInterface& memory() { return mem_; }
+
     // Callback fired on M1 cycle — used for RETI detection and IM2
     std::function<void(uint16_t pc, uint8_t opcode)> on_m1_cycle;
 

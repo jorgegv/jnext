@@ -2,8 +2,24 @@
 #include "z80_cpu.h"
 
 int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
-    // TODO: implement each Z80N opcode
     switch (static_cast<Z80NOpcode>(opcode)) {
+
+        case Z80NOpcode::PUSH_NN: {
+            // ED 8A hh ll — push 16-bit immediate value onto stack.
+            // Instruction stream: high byte first, then low byte (big-endian).
+            // PC already points past ED 8A; read 2 operand bytes.
+            auto regs = cpu.get_registers();
+            uint8_t hh = cpu.memory().read(regs.PC);
+            uint8_t ll = cpu.memory().read(regs.PC + 1);
+            regs.PC = (regs.PC + 2) & 0xFFFF;
+            regs.SP = (regs.SP - 2) & 0xFFFF;
+            cpu.memory().write(regs.SP + 1, hh);
+            cpu.memory().write(regs.SP, ll);
+            cpu.set_registers(regs);
+            return 23;
+        }
+
+        // TODO: implement remaining Z80N opcodes (currently stubs)
         case Z80NOpcode::SWAPNIB:    return 8;
         case Z80NOpcode::MIRROR_A:   return 8;
         case Z80NOpcode::TEST_N:     return 11;
