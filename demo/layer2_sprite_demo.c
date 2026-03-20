@@ -151,8 +151,12 @@ static void sprite_set_attr(unsigned char slot,
  * ------------------------------------------------------------------ */
 int main(void)
 {
-    int sx = 120, sy = 88;
-    int dx = 1,  dy = 1;
+    /* Sprite coordinates are in absolute framebuffer space (whc domain):
+     *   X: 0-31 = left border, 32-287 = display area, 288-319 = right border
+     *   Y: 0-31 = top border,  32-223 = display area, 224-255 = bottom border
+     * Start roughly centered in the display area. */
+    int sx = 152, sy = 120;
+    int dx = 1,   dy = 1;
 
     /* 1. Layer 2: 256×192, palette offset 0. */
     ZXN_WRITE_REG(NR_LAYER2_RES, 0x00);
@@ -196,8 +200,10 @@ int main(void)
         sx += dx;
         sy += dy;
 
-        if (sx <= 0 || sx >= 239) { dx = -dx; sx += dx; }
-        if (sy <= 0 || sy >= 175) { dy = -dy; sy += dy; }
+        /* Bounce within display area (32-287 for X, 32-223 for Y),
+         * minus sprite size (16 pixels). */
+        if (sx <= 32 || sx >= 271) { dx = -dx; sx += dx; }
+        if (sy <= 32 || sy >= 207) { dy = -dy; sy += dy; }
 
         sprite_set_attr(0, (unsigned int)sx, (unsigned char)sy, 0, 1);
     }

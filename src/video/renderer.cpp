@@ -60,9 +60,11 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                                          screen_row, ram, palette);
             }
 
-            // Sprites
+            // Sprites — pass 'row' (framebuffer row 0-255) not 'screen_row',
+            // because sprite Y coordinates are in absolute wvc space where
+            // 0 = top border, 32 = display start (matching framebuffer rows).
             if (sprites && sprites->sprites_visible()) {
-                sprites->render_scanline(sprite_line_.data(), screen_row, palette);
+                sprites->render_scanline(sprite_line_.data(), row, palette);
             }
         }
 
