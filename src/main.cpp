@@ -1,10 +1,15 @@
 #include "core/log.h"
-#include "platform/sdl_app.h"
 #include <csignal>
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <string>
+
+#ifdef ENABLE_QT_UI
+#include "gui/qt_app.h"
+#else
+#include "platform/sdl_app.h"
+#endif
 
 static void crash_handler(int sig) {
     Log::emulator()->critical("signal {} received", sig);
@@ -79,7 +84,11 @@ int main(int argc, char* argv[]) {
 
     if (!inject_pc_set) inject_pc = inject_org;
 
+#ifdef ENABLE_QT_UI
+    QtApp app;
+#else
     SdlApp app;
+#endif
 
     // Configure emulator before init.
     if (!divmmc_rom.empty() || !sd_card_image.empty()) {
@@ -114,8 +123,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#ifdef ENABLE_QT_UI
+    int result = app.run();
+    app.shutdown();
+    spdlog::shutdown();
+    return result;
+#else
     app.run();
     app.shutdown();
     spdlog::shutdown();
     return 0;
+#endif
 }

@@ -21,6 +21,7 @@ endif()
 
 option(ENABLE_TESTS    "Build unit tests"       ON)
 option(ENABLE_DEBUGGER "Include Qt debugger UI" OFF)
+option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 
 find_package(SDL2 REQUIRED)
@@ -41,6 +42,10 @@ add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
 
+if(ENABLE_QT_UI)
+    add_subdirectory(src/gui)
+endif()
+
 add_executable(jnext src/main.cpp)
 target_link_libraries(jnext PRIVATE
     zxnext_core zxnext_cpu zxnext_memory
@@ -49,6 +54,11 @@ target_link_libraries(jnext PRIVATE
     zxnext_platform zxnext_save
     SDL2::SDL2)
 target_include_directories(jnext PRIVATE src)
+
+if(ENABLE_QT_UI)
+    target_link_libraries(jnext PRIVATE zxnext_gui)
+    target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
+endif()
 
 if(ENABLE_TESTS)
     enable_testing()
