@@ -5,7 +5,7 @@
 #include <QStatusBar>
 
 // ---------------------------------------------------------------------------
-// Qt::Key → SDL_Scancode mapping
+// Qt::Key -> SDL_Scancode mapping
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -92,14 +92,13 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
-    setMinimumSize(640, 512);
-    resize(640, 512);
+    setMinimumSize(NATIVE_W, NATIVE_H);
 
     // Central widget: the emulator display.
     emulator_widget_ = new EmulatorWidget(this);
     setCentralWidget(emulator_widget_);
 
-    // Empty menu bar (menus will be added later).
+    // Empty menu bar (menus will be added by Agent C).
     menuBar();
 
     // Empty status bar.
@@ -107,13 +106,93 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
+
+    // Apply default 2x scale.
+    set_scale(current_scale_);
+}
+
+void MainWindow::toggle_fullscreen() {
+    if (is_fullscreen_) {
+        showNormal();
+        // Restore windowed size based on current scale factor.
+        set_scale(current_scale_);
+        is_fullscreen_ = false;
+    } else {
+        showFullScreen();
+        is_fullscreen_ = true;
+    }
+}
+
+void MainWindow::set_scale(int factor) {
+    if (factor < 1) factor = 1;
+    if (factor > 4) factor = 4;
+    current_scale_ = factor;
+
+    if (!is_fullscreen_) {
+        // Resize window to fit the scaled framebuffer plus menu/status bar chrome.
+        // We set a fixed size on the central widget temporarily to force the layout,
+        // then allow it to expand again.
+        int target_w = NATIVE_W * factor;
+        int target_h = NATIVE_H * factor;
+
+        // Account for menu bar and status bar height.
+        int chrome_h = menuBar()->sizeHint().height() + statusBar()->sizeHint().height();
+
+        resize(target_w, target_h + chrome_h);
+    }
+}
+
+void MainWindow::cycle_scale() {
+    if (is_fullscreen_) return;
+    int next = (current_scale_ % 4) + 1;  // 1->2->3->4->1
+    set_scale(next);
+}
+
+void MainWindow::set_scale_mode(ScaleMode mode) {
+    emulator_widget_->set_scale_mode(mode);
+}
+
+ScaleMode MainWindow::scale_mode() const {
+    return emulator_widget_->scale_mode();
+}
+
+void MainWindow::set_crt_filter(bool enabled) {
+    emulator_widget_->set_crt_filter(enabled);
+}
+
+bool MainWindow::crt_filter() const {
+    return emulator_widget_->crt_filter();
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    // Handle emulator UI keys first (F11 fullscreen, F2 scale cycle).
+    if (!event->isAutoRepeat()) {
+        switch (event->key()) {
+        case Qt::Key_F11:
+            toggle_fullscreen();
+            event->accept();
+            return;
+        case Qt::Key_F2:
+            cycle_scale();
+            event->accept();
+            return;
+        default:
+            break;
+        }
+    }
+
     handle_key(event, true);
 }
 
 void MainWindow::keyReleaseEvent(QKeyEvent* event) {
+    // F11 and F2 release events can be silently consumed.
+    if (!event->isAutoRepeat()) {
+        if (event->key() == Qt::Key_F11 || event->key() == Qt::Key_F2) {
+            event->accept();
+            return;
+        }
+    }
+
     handle_key(event, false);
 }
 
