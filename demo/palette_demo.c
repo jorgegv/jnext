@@ -276,8 +276,8 @@ int main(void)
     /* 7. Set up colour bar attributes */
     set_attrs_colour_bars();
 
-    /* 8. Set border to black */
-    ZXN_WRITE_REG(NR_PALETTE_CTRL, PAL_ULA_FIRST);
+    /* 8. Set border to black (colour index 0, which stays black) */
+    __asm__("ld a,0\nout (0xfe),a");
 
     /* 9. Ensure IM 1 + EI so HALT can return on the frame interrupt */
     intrinsic_im_1();

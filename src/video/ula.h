@@ -2,6 +2,8 @@
 #include <cstdint>
 
 class Mmu;
+class Ram;
+class PaletteManager;
 
 /// Timex ULA screen mode, selected via port 0xFF.
 ///
@@ -48,6 +50,12 @@ public:
     static constexpr int DISP_W     = 256;
     static constexpr int DISP_H     = 192;
 
+    /// Set the palette manager reference (must be called before rendering).
+    void set_palette(PaletteManager* pal) { palette_ = pal; }
+
+    /// Set the RAM reference for direct VRAM access (bypasses MMU, like real hardware).
+    void set_ram(Ram* ram) { ram_ = ram; }
+
     /// Set the border colour (bits 2:0 from ULA port 0xFE write).
     void set_border(uint8_t colour) { border_colour_ = colour & 0x07; }
     uint8_t get_border() const { return border_colour_; }
@@ -86,6 +94,8 @@ public:
     void advance_flash();
 
 private:
+    PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kUlaPalette)
+    Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
     uint8_t          clip_x1_        = 0;
     uint8_t          clip_x2_        = 255;
@@ -135,6 +145,16 @@ private:
     /// Fill an entire output row with the border colour.
     /// @param row  Pointer to the start of the output row (FB_WIDTH pixels).
     void render_border_line(uint32_t* row);
+
+    /// Look up a ULA colour by index (0-15). Uses PaletteManager if available.
+    uint32_t lookup_colour(uint8_t idx) const;
+
+    /// Read from ULA VRAM directly from physical bank 5 (or bank 7 for shadow).
+    /// On real hardware, the ULA has a dedicated port to bank 5 RAM, bypassing
+    /// the MMU entirely. The addr parameter is a CPU-space address (0x4000-0x7FFF);
+    /// we convert it to a physical RAM offset in bank 5.
+    /// Falls back to MMU reads if RAM is not wired (backward compat).
+    uint8_t vram_read(uint16_t addr, Mmu& mmu) const;
 
     /// Compute the interleaved pixel address offset for (screen_row, col).
     /// Returns the offset from 0x4000 (or 0x6000) for the given position.

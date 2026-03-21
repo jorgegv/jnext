@@ -156,6 +156,39 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             return 4;
         }
 
+        case Z80NOpcode::ADD_HL_NN: {
+            // ED 34 ll hh — ADD HL, nn (no flags affected)
+            auto regs = cpu.get_registers();
+            uint8_t lo = cpu.memory().read(regs.PC);
+            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            regs.PC = (regs.PC + 2) & 0xFFFF;
+            regs.HL = (regs.HL + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            cpu.set_registers(regs);
+            return 12;
+        }
+
+        case Z80NOpcode::ADD_DE_NN: {
+            // ED 35 ll hh — ADD DE, nn (no flags affected)
+            auto regs = cpu.get_registers();
+            uint8_t lo = cpu.memory().read(regs.PC);
+            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            regs.PC = (regs.PC + 2) & 0xFFFF;
+            regs.DE = (regs.DE + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            cpu.set_registers(regs);
+            return 12;
+        }
+
+        case Z80NOpcode::ADD_BC_NN: {
+            // ED 36 ll hh — ADD BC, nn (no flags affected)
+            auto regs = cpu.get_registers();
+            uint8_t lo = cpu.memory().read(regs.PC);
+            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            regs.PC = (regs.PC + 2) & 0xFFFF;
+            regs.BC = (regs.BC + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            cpu.set_registers(regs);
+            return 12;
+        }
+
         case Z80NOpcode::PUSH_NN: {
             // ED 8A hh ll — push 16-bit immediate value onto stack.
             // Instruction stream: high byte first, then low byte (big-endian).

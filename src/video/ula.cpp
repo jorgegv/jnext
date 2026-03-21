@@ -1,10 +1,57 @@
 #include "video/ula.h"
 #include "video/palette.h"
 #include "memory/mmu.h"
+#include "memory/ram.h"
 #include "core/log.h"
 
 #include <algorithm>
 #include <cstring>
+
+// ---------------------------------------------------------------------------
+// ULA colour lookup — uses PaletteManager if wired, else hardcoded palette
+// ---------------------------------------------------------------------------
+
+inline uint32_t Ula::lookup_colour(uint8_t idx) const
+{
+    if (palette_)
+        return palette_->ula_colour(idx);
+    return kUlaPalette[idx & 0x0F];
+}
+
+// ---------------------------------------------------------------------------
+// vram_read — direct physical bank 5/7 access, bypassing MMU
+// ---------------------------------------------------------------------------
+//
+// On real hardware (VHDL), the ULA reads from a dedicated dual-port RAM for
+// bank 5 (and bank 7 for shadow/alternate screen). The ULA address bus is
+// 14 bits (0x0000-0x3FFF within the bank). The CPU address 0x4000-0x7FFF
+// maps to bank 5 physically, but the ULA ignores the MMU — it always reads
+// from the physical bank.
+//
+// Bank 5 = 16K pages 10 and 11 in physical RAM.
+// Bank 7 = 16K pages 14 and 15 (for alternate screen / hi-colour attr).
+
+uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
+{
+    if (ram_) {
+        // Direct physical access, like real hardware.
+        // addr is in CPU space (0x4000-0x7FFF for bank 5, 0x6000-0x7FFF also bank 5).
+        // Convert to 14-bit offset within a 16K bank.
+        uint16_t offset = addr & 0x3FFF;
+        // Bank 5 starts at page 10 (physical offset = page * 8192).
+        // The shadow screen (bank 7) starts at page 14.
+        bool use_bank7 = (addr >= 0x6000 && addr < 0x8000 &&
+                          mode_ == TimexScreenMode::HI_COLOUR);
+        // Actually, bank selection is simpler: addresses 0x4000-0x7FFF all map to
+        // bank 5 for the ULA. The alternate screen at 0x6000 is at offset 0x2000
+        // within bank 5. Bank 7 is only used via ula_vram_shadow signal.
+        // For now, always read from bank 5.
+        uint32_t phys = static_cast<uint32_t>(10) * 8192u + offset;
+        return ram_->read(phys);
+    }
+    // Fallback: read through MMU (legacy behavior, not hardware-accurate).
+    return mmu.read(addr);
+}
 
 // ---------------------------------------------------------------------------
 // set_screen_mode
@@ -195,14 +242,14 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         : static_cast<uint16_t>(0x4000u | pixel_base_offset);
 
     // Fill left border pixels (DISP_X = 32 pixels).
-    const uint32_t border_argb = kUlaPalette[border_colour_];
+    const uint32_t border_argb = lookup_colour(border_colour_);
     for (int x = 0; x < DISP_X; ++x)
         row[x] = border_argb;
 
     // Render the 256 display pixels (32 columns × 8 bits each).
     for (int col = 0; col < 32; ++col) {
-        const uint8_t pixels = mmu.read(static_cast<uint16_t>(pixel_base + col));
-        const uint8_t attr   = mmu.read(static_cast<uint16_t>(attr_row_base + col));
+        const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
+        const uint8_t attr   = vram_read(static_cast<uint16_t>(attr_row_base + col), mmu);
 
         const bool flash  = (attr & 0x80) != 0;
         const bool bright = (attr & 0x40) != 0;
@@ -218,8 +265,8 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
         const uint8_t paper_idx = paper + (bright ? 8 : 0);
 
-        const uint32_t ink_argb   = kUlaPalette[ink_idx];
-        const uint32_t paper_argb = kUlaPalette[paper_idx];
+        const uint32_t ink_argb   = lookup_colour(ink_idx);
+        const uint32_t paper_argb = lookup_colour(paper_idx);
 
         // Write 8 pixels; pixel bit 7 is the leftmost pixel.
         uint32_t* dst = row + DISP_X + col * 8;
@@ -264,13 +311,13 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
     const uint16_t attr_base  = static_cast<uint16_t>(0x6000u | poff);
 
     // Fill left border.
-    const uint32_t border_argb = kUlaPalette[border_colour_];
+    const uint32_t border_argb = lookup_colour(border_colour_);
     for (int x = 0; x < DISP_X; ++x)
         row[x] = border_argb;
 
     for (int col = 0; col < 32; ++col) {
-        const uint8_t pixels = mmu.read(static_cast<uint16_t>(pixel_base + col));
-        const uint8_t attr   = mmu.read(static_cast<uint16_t>(attr_base  + col));
+        const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
+        const uint8_t attr   = vram_read(static_cast<uint16_t>(attr_base  + col), mmu);
 
         const bool flash  = (attr & 0x80) != 0;
         const bool bright = (attr & 0x40) != 0;
@@ -284,8 +331,8 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
         const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
         const uint8_t paper_idx = paper + (bright ? 8 : 0);
 
-        const uint32_t ink_argb   = kUlaPalette[ink_idx];
-        const uint32_t paper_argb = kUlaPalette[paper_idx];
+        const uint32_t ink_argb   = lookup_colour(ink_idx);
+        const uint32_t paper_argb = lookup_colour(paper_idx);
 
         uint32_t* dst = row + DISP_X + col * 8;
         for (int bit = 7; bit >= 0; --bit) {
@@ -325,9 +372,9 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     const uint8_t ink_idx   = screen_mode_reg_ & 0x07;
     const uint8_t paper_idx = (screen_mode_reg_ >> 3) & 0x07;
 
-    const uint32_t ink_argb   = kUlaPalette[ink_idx];
-    const uint32_t paper_argb = kUlaPalette[paper_idx];
-    const uint32_t border_argb = kUlaPalette[border_colour_];
+    const uint32_t ink_argb   = lookup_colour(ink_idx);
+    const uint32_t paper_argb = lookup_colour(paper_idx);
+    const uint32_t border_argb = lookup_colour(border_colour_);
 
     // The interleaved pixel row offset is the same for both screens.
     const uint16_t poff = pixel_addr_offset(screen_row, 0);
@@ -351,8 +398,8 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     // We output one pixel per pair (the screen-1 pixel = left pixel of pair).
 
     for (int col = 0; col < 32; ++col) {
-        const uint8_t b0 = mmu.read(static_cast<uint16_t>(screen0_base + col));
-        const uint8_t b1 = mmu.read(static_cast<uint16_t>(screen1_base + col));
+        const uint8_t b0 = vram_read(static_cast<uint16_t>(screen0_base + col), mmu);
+        const uint8_t b1 = vram_read(static_cast<uint16_t>(screen1_base + col), mmu);
 
         uint32_t* dst = row + DISP_X + col * 8;
         for (int bit = 7; bit >= 0; --bit) {
@@ -373,7 +420,7 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 
 void Ula::render_border_line(uint32_t* row)
 {
-    const uint32_t border_argb = kUlaPalette[border_colour_];
+    const uint32_t border_argb = lookup_colour(border_colour_);
     for (int x = 0; x < FB_WIDTH; ++x)
         row[x] = border_argb;
 }

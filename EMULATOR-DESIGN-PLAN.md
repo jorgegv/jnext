@@ -42,7 +42,7 @@
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 3.5 — Program Loading (NEX + raw binary)](#phase-35--program-loading-nex--raw-binary)
   - [Phase 4 — Audio ✓ COMPLETE](#phase-4--audio--complete)
-  - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
+  - [Phase 5 — Peripherals \& Full I/O ✓ COMPLETE](#phase-5--peripherals--full-io--complete)
   - [Phase 6 — Native UI \& Usability](#phase-6--native-ui--usability)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
@@ -732,15 +732,15 @@ endif()
 - [x] Tilemap (40×32 mode) — 40×32 and 80×32 modes; 4bpp patterns + text mode (1bpp); 512-tile mode; force-attribute; ULA-over-tilemap per-tile priority; X/Y scroll; base address decoding (bank 5/7); NextREG 0x6B/0x6C/0x6E/0x6F/0x2F/0x30/0x31
 - [x] Layer compositor with NextREG priority control — per-scanline compositing of ULA+Tilemap/Layer2/Sprites; 6 priority modes (SLU/LSU/SUL/LUS/USL/ULS); all sprite/tilemap/copper port+NextREG handlers wired; copper executes per CPU instruction
 - [x] Copper co-processor — 1K×16-bit instruction RAM; WAIT (vc==vpos && hc>=(hpos<<3)+12) and MOVE; HALT/NOP; mode edge detection; 2-cycle MOVE timing; NextREG 0x60/0x61/0x62/0x63 write paths with MSB/LSB pairing
-- [ ] Create Z88DK test programs for different functions (store them in `demo` directory):
+- [x] Create Z88DK test programs for different functions (store them in `demo` directory):
   - [x] Layer2 and sprites
-  - [ ] Tilemap
-  - [ ] Copper
-  - [ ] Palette
+  - [x] Tilemap
+  - [x] Copper
+  - [x] Palette
 - [ ] Verify all works ok:
   - [x] Layer 2
   - [x] Sprites
-  - [ ] Tilemap
+  - [x] Tilemap
   - [ ] Copper
   - [ ] Palette
 - [ ] **Milestone**: Next-specific games render correctly
@@ -786,7 +786,7 @@ endif()
 - [x] DMA — Z80-DMA register protocol (14-state FSM) + ZXN burst mode, bus arbitration; VHDL-verified
 - [x] CTC — 4-channel counter/timer, VHDL state machine, prescaler 16/256, daisy-chain; VHDL-verified
 - [x] IM2 controller (all 14 levels) — wired with CTC, DMA, UART interrupt callbacks
-- [x] Z80N extension opcodes — all 23 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
+- [x] Z80N extension opcodes — all 26 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, ADD rr,nn, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
 - [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
 - [ ] **Milestone**: NextZXOS boots from SD image
 

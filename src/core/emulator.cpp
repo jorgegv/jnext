@@ -701,6 +701,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
         }
     }
 
+    // Wire palette manager and RAM into ULA for enhanced palette and
+    // hardware-accurate VRAM access (ULA reads directly from physical bank 5,
+    // bypassing the MMU, matching the VHDL dual-port RAM architecture).
+    renderer_.ula().set_palette(&palette_);
+    renderer_.ula().set_ram(&ram_);
+
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);
 
