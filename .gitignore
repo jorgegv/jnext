@@ -1,3 +1,6 @@
 roms/
 build/
 .claude/worktrees/
+demo/*_CODE.bin
+demo/*.nex
+demo/*.tap
