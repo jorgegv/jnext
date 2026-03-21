@@ -762,12 +762,16 @@ endif()
 ### Phase 5 — Peripherals & Full I/O
 
 - [ ] NextREG file (all registers)
-- [ ] DivMMC + SD card `.img` mounting
-- [ ] UART (loopback / TCP bridge)
-- [ ] SPI + I2C stubs
-- [ ] DMA (Z80-DMA compat + ZXN burst)
-- [ ] IM2 full controller (all 14 levels)
+- [x] DivMMC — 8K ROM + 128K RAM overlay, auto-map triggers on M1, port 0xE3 control; VHDL-verified
+- [ ] DivMMC SD card `.img` mounting (needs SdCardDevice SPI backend)
+- [x] UART — dual-channel with 512/64-byte FIFOs, 17-bit prescaler, loopback mode; VHDL-verified
+- [x] SPI — byte-level master with SpiDevice virtual interface; VHDL-verified
+- [x] I2C — bit-bang protocol decoder + DS1307 RTC using host clock; VHDL-verified
+- [x] DMA — Z80-DMA register protocol (14-state FSM) + ZXN burst mode, bus arbitration; VHDL-verified
+- [x] CTC — 4-channel counter/timer, VHDL state machine, prescaler 16/256, daisy-chain; VHDL-verified
+- [x] IM2 controller (all 14 levels) — wired with CTC, DMA, UART interrupt callbacks
 - [x] Z80N extension opcodes — all 23 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
+- [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
 - [ ] **Milestone**: NextZXOS boots from SD image
 
 ### Phase 6 — Native UI & Usability
