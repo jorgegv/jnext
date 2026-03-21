@@ -742,7 +742,7 @@ endif()
   - [x] Sprites
   - [x] Tilemap
   - [ ] Copper
-  - [ ] Palette
+  - [x] Palette
 - [ ] **Milestone**: Next-specific games render correctly
 
 ### Phase 3.5 — Program Loading (NEX + raw binary)
