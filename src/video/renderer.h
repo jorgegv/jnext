@@ -46,8 +46,33 @@ public:
 
     /// Set the fallback colour index (NextREG 0x4A).
     /// Used when all layers are transparent at a given pixel.
+    /// In the VHDL, this also replaces the ULA border colour.
     void set_fallback_colour(uint8_t val) { fallback_colour_ = val; }
     uint8_t fallback_colour() const { return fallback_colour_; }
+
+    /// Snapshot the current fallback colour for a given scanline.
+    /// Called during the frame loop so per-line copper changes are preserved.
+    void snapshot_fallback_for_line(int line) {
+        if (line >= 0 && line < 320)
+            fallback_per_line_[line] = fallback_colour_;
+    }
+
+    /// Initialize the entire per-line fallback array to the current value.
+    /// Called at the start of each frame.
+    void init_fallback_per_line() {
+        fallback_per_line_.fill(fallback_colour_);
+    }
+
+    /// Convert an 8-bit RRRGGGBB colour to ARGB8888.
+    static uint32_t rrrgggbb_to_argb(uint8_t c) {
+        uint8_t r3 = (c >> 5) & 0x07;
+        uint8_t g3 = (c >> 2) & 0x07;
+        uint8_t b2 = c & 0x03;
+        uint8_t r8 = (r3 << 5) | (r3 << 2) | (r3 >> 1);
+        uint8_t g8 = (g3 << 5) | (g3 << 2) | (g3 >> 1);
+        uint8_t b8 = (b2 << 6) | (b2 << 4) | (b2 << 2) | b2;
+        return 0xFF000000u | (r8 << 16) | (g8 << 8) | b8;
+    }
 
     /// Render one complete frame into the ARGB8888 framebuffer.
     ///
@@ -68,6 +93,11 @@ private:
     uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
     uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)
 
+    /// Per-scanline fallback colour snapshot.
+    /// Populated during the frame loop by snapshot_fallback_for_line().
+    /// Used during batch rendering so copper per-line changes are visible.
+    std::array<uint8_t, 320> fallback_per_line_{};
+
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;
 
@@ -79,8 +109,8 @@ private:
     std::array<bool, FB_WIDTH>     ula_over_flags_{};  // tilemap per-tile ULA priority
 
     /// Composite one scanline from the layer buffers into the output.
-    /// Applies transparency: a pixel with alpha=0 is transparent.
-    void composite_scanline(uint32_t* dst);
+    /// @param fallback_argb  ARGB8888 fallback colour for when all layers are transparent.
+    void composite_scanline(uint32_t* dst, uint32_t fallback_argb);
 
     /// Check if a pixel is transparent (alpha channel = 0).
     static bool is_transparent(uint32_t argb) { return (argb & 0xFF000000) == 0; }

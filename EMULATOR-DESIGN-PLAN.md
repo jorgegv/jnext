@@ -737,13 +737,13 @@ endif()
   - [x] Tilemap
   - [x] Copper
   - [x] Palette
-- [ ] Verify all works ok:
+- [x] Verify all works ok:
   - [x] Layer 2
   - [x] Sprites
   - [x] Tilemap
-  - [ ] Copper
+  - [x] Copper
   - [x] Palette
-- [ ] **Milestone**: Next-specific games render correctly
+- [x] **Milestone**: Next-specific games render correctly
 
 ### Phase 3.5 — Program Loading (NEX + raw binary)
 

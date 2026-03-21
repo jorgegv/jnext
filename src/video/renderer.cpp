@@ -82,11 +82,20 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // the frame renderer for just this one row.  This is inefficient but
         // correct; we can optimise later.
 
-        // Actually, let's just inline the ULA scanline render here using
-        // the Ula's internal state:
+        // Render ULA scanline.  Always render so border colours are present.
+        // When ULA is disabled (NextREG 0x68 bit 7), only the display-area
+        // pixels become transparent — border pixels stay as the ULA border
+        // colour.  VHDL: ula_en='0' → ula_transparent for display pixels only.
+        const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
         ula_.render_scanline(ula_line_.data(), row, mmu);
+        if (!ula_.ula_enabled() && in_display) {
+            // Clear only the display pixels (DISP_X..DISP_X+DISP_W-1) to
+            // transparent; border pixels at the left/right margins remain.
+            for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
+                ula_line_[x] = TRANSPARENT;
+        }
 
-        composite_scanline(out);
+        composite_scanline(out, fb_argb);
     }
 
     // Advance ULA flash state once per frame.
@@ -110,7 +119,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 //   We combine ULA + Tilemap into a single "U" layer before priority
 //   compositing to match the VHDL behavior.
 
-void Renderer::composite_scanline(uint32_t* dst)
+void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
 {
     for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
@@ -135,8 +144,8 @@ void Renderer::composite_scanline(uint32_t* dst)
         const bool l2_opaque  = !is_transparent(l2_px);
         const bool spr_opaque = !is_transparent(spr_px);
 
-        // Default fallback is ULA (always has a colour — border or display).
-        uint32_t result = u_px;
+        // VHDL: compositor default is the fallback colour (shown when all layers transparent).
+        uint32_t result = fallback_argb;
 
         // Apply priority order: first non-transparent layer wins.
         // The naming convention: S=Sprites, L=Layer2, U=ULA+Tilemap.
@@ -145,13 +154,13 @@ void Renderer::composite_scanline(uint32_t* dst)
             case 0:  // SLU — Sprites on top, then Layer2, then ULA
                 if (spr_opaque)       result = spr_px;
                 else if (l2_opaque)   result = l2_px;
-                else                  result = u_px;
+                else if (u_opaque)    result = u_px;
                 break;
 
             case 1:  // LSU — Layer2 on top, then Sprites, then ULA
                 if (l2_opaque)        result = l2_px;
                 else if (spr_opaque)  result = spr_px;
-                else                  result = u_px;
+                else if (u_opaque)    result = u_px;
                 break;
 
             case 2:  // SUL — Sprites on top, then ULA, then Layer2
@@ -182,7 +191,7 @@ void Renderer::composite_scanline(uint32_t* dst)
                 // Fall back to SLU for now.
                 if (spr_opaque)       result = spr_px;
                 else if (l2_opaque)   result = l2_px;
-                else                  result = u_px;
+                else if (u_opaque)    result = u_px;
                 break;
         }
 

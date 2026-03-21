@@ -799,6 +799,13 @@ void Emulator::run_frame()
     // Notify copper of frame start (resets PC in mode 11).
     copper_.on_vsync();
 
+    // Initialize per-line fallback array to current value.
+    // The copper will update individual lines during execution.
+    renderer_.init_fallback_per_line();
+
+    // Schedule per-scanline callbacks (snapshots fallback colour for copper).
+    schedule_frame_events();
+
     // Audio timing constants.
     // PSG clock = 28 MHz / 16 = 1.75 MHz → one PSG tick every 16 master cycles.
     static constexpr uint64_t PSG_DIVISOR = 16;
@@ -824,14 +831,18 @@ void Emulator::run_frame()
         clock_.tick(master_cycles);
 
         // Execute copper at current raster position.
-        // Approximate: compute vc/hc from cycles elapsed within frame.
+        // Compute raw vc/hc from cycles elapsed within frame, then derive
+        // the copper vertical counter (cvc).  In the VHDL, cvc resets to 0
+        // at the first active display line (c_min_vactive = 64 for 48K),
+        // so copper WAIT vpos=0 means "first display line".  In our frame
+        // layout the active display starts at row DISP_Y (32).
         if (copper_.is_running()) {
             uint64_t elapsed = clock_.get() - frame_cycle_;
             int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
             int hc = static_cast<int>(elapsed % MASTER_CYCLES_PER_LINE);
-            // hc is in 28 MHz domain (0..MASTER_CYCLES_PER_LINE-1)
-            // Copper uses hc in 28 MHz ticks.
-            copper_.execute(hc, vc, nextreg_);
+            // Convert raw vc to copper vc: cvc=0 at first display line.
+            int cvc = (vc - Renderer::DISP_Y + LINES_PER_FRAME) % LINES_PER_FRAME;
+            copper_.execute(hc, cvc, nextreg_);
         }
 
         // Tick CTC and UART at 28 MHz rate.
@@ -857,6 +868,9 @@ void Emulator::run_frame()
     }
 
     frame_cycle_ = frame_end;
+
+    // Snapshot the fallback colour for the last scanline.
+    renderer_.snapshot_fallback_for_line(LINES_PER_FRAME - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
@@ -907,11 +921,12 @@ void Emulator::schedule_frame_events()
 
 void Emulator::on_scanline(int line)
 {
-    // Phase 2: full-frame rendering is done in run_frame() via renderer_.render_frame().
-    // Per-scanline hooks reserved for future use:
-    //   - Accumulate audio samples for the line period (Phase 4).
-    //   - Fire IM2 frame interrupt at line 1 (Phase 5).
-    (void)line;
+    // Snapshot the fallback colour for the previous scanline.
+    // By the time on_scanline(N) fires, the copper has finished executing
+    // for line N-1, so the fallback colour reflects the copper's MOVE writes.
+    if (line > 0) {
+        renderer_.snapshot_fallback_for_line(line - 1);
+    }
 }
 
 void Emulator::on_vsync()

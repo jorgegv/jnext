@@ -137,8 +137,11 @@ int main(void)
 
     IO_LAYER2 = 0x02;   /* display=1, disable write-map */
 
-    /* 4. Black ULA border for contrast. */
-    IO_ULA = 0x00;
+    /* 4. Disable ULA rendering so the fallback colour is visible.
+     *    VHDL: when ula_en = '0', all ULA output is transparent;
+     *    the compositor then uses the fallback colour (NextREG 0x4A). */
+    ZXN_WRITE_REG(0x68, 0x80);   /* NextREG 0x68 bit 7 = 1 → ULA disabled */
+    IO_ULA = 0x00;               /* border colour irrelevant now, but clear it */
 
     /* 5. Start copper: mode 11 = reset PC to 0 at each frame. */
     ZXN_WRITE_REG(NR_COPPER_CTRL, COPPER_FRAME);
