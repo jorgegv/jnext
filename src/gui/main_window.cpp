@@ -1,8 +1,18 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
+#include "core/emulator.h"
+
 #include <QKeyEvent>
 #include <QMenuBar>
 #include <QStatusBar>
+#include <QToolBar>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QLabel>
+#include <QAction>
+#include <QActionGroup>
+#include <QApplication>
+#include <QStyle>
 
 // ---------------------------------------------------------------------------
 // Qt::Key -> SDL_Scancode mapping
@@ -82,6 +92,16 @@ SDL_Scancode qt_key_to_sdl(int key) {
     }
 }
 
+const char* speed_name(int idx) {
+    switch (idx) {
+        case 0: return "3.5 MHz";
+        case 1: return "7 MHz";
+        case 2: return "14 MHz";
+        case 3: return "28 MHz";
+        default: return "?";
+    }
+}
+
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -98,11 +118,10 @@ MainWindow::MainWindow(QWidget* parent)
     emulator_widget_ = new EmulatorWidget(this);
     setCentralWidget(emulator_widget_);
 
-    // Empty menu bar (menus will be added by Agent C).
-    menuBar();
-
-    // Empty status bar.
-    statusBar();
+    // Build UI elements.
+    create_menus();
+    create_toolbar();
+    create_statusbar();
 
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
@@ -121,6 +140,10 @@ void MainWindow::toggle_fullscreen() {
         showFullScreen();
         is_fullscreen_ = true;
     }
+
+    // Sync the fullscreen menu action state.
+    if (fullscreen_action_)
+        fullscreen_action_->setChecked(is_fullscreen_);
 }
 
 void MainWindow::set_scale(int factor) {
@@ -129,16 +152,28 @@ void MainWindow::set_scale(int factor) {
     current_scale_ = factor;
 
     if (!is_fullscreen_) {
-        // Resize window to fit the scaled framebuffer plus menu/status bar chrome.
-        // We set a fixed size on the central widget temporarily to force the layout,
-        // then allow it to expand again.
         int target_w = NATIVE_W * factor;
         int target_h = NATIVE_H * factor;
 
         // Account for menu bar and status bar height.
         int chrome_h = menuBar()->sizeHint().height() + statusBar()->sizeHint().height();
 
+        // Account for toolbar.
+        for (QToolBar* tb : findChildren<QToolBar*>()) {
+            if (tb->isVisible()) chrome_h += tb->sizeHint().height();
+        }
+
         resize(target_w, target_h + chrome_h);
+    }
+
+    // Sync the scale menu action group.
+    if (scale_group_) {
+        for (QAction* a : scale_group_->actions()) {
+            if (a->data().toInt() == factor) {
+                a->setChecked(true);
+                break;
+            }
+        }
     }
 }
 
@@ -150,6 +185,14 @@ void MainWindow::cycle_scale() {
 
 void MainWindow::set_scale_mode(ScaleMode mode) {
     emulator_widget_->set_scale_mode(mode);
+
+    // Sync the scale mode menu action group.
+    if (scale_mode_group_) {
+        int idx = static_cast<int>(mode);
+        auto actions = scale_mode_group_->actions();
+        if (idx >= 0 && idx < actions.size())
+            actions[idx]->setChecked(true);
+    }
 }
 
 ScaleMode MainWindow::scale_mode() const {
@@ -158,11 +201,253 @@ ScaleMode MainWindow::scale_mode() const {
 
 void MainWindow::set_crt_filter(bool enabled) {
     emulator_widget_->set_crt_filter(enabled);
+
+    if (crt_filter_action_)
+        crt_filter_action_->setChecked(enabled);
 }
 
 bool MainWindow::crt_filter() const {
     return emulator_widget_->crt_filter();
 }
+
+// ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+
+void MainWindow::create_menus() {
+    // --- File menu ---
+    QMenu* file_menu = menuBar()->addMenu(tr("&File"));
+
+    QAction* load_nex = file_menu->addAction(tr("Load &NEX File..."));
+    load_nex->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_O));
+    connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
+
+    QAction* mount_sd = file_menu->addAction(tr("&Mount SD Card Image..."));
+    connect(mount_sd, &QAction::triggered, this, &MainWindow::on_mount_sd);
+
+    file_menu->addSeparator();
+
+    QAction* quit = file_menu->addAction(tr("&Quit"));
+    quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
+    connect(quit, &QAction::triggered, qApp, &QApplication::quit);
+
+    // --- Machine menu ---
+    QMenu* machine_menu = menuBar()->addMenu(tr("&Machine"));
+
+    QAction* reset = machine_menu->addAction(tr("&Reset"));
+    reset->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+    connect(reset, &QAction::triggered, this, &MainWindow::on_reset);
+
+    machine_menu->addSeparator();
+
+    QMenu* speed_menu = machine_menu->addMenu(tr("CPU &Speed"));
+    speed_group_ = new QActionGroup(this);
+    speed_group_->setExclusive(true);
+
+    const char* speed_labels[] = {"3.5 MHz", "7 MHz", "14 MHz", "28 MHz"};
+    for (int i = 0; i < 4; ++i) {
+        QAction* a = speed_menu->addAction(tr(speed_labels[i]));
+        a->setCheckable(true);
+        a->setData(i);
+        speed_group_->addAction(a);
+        if (i == 0) a->setChecked(true);  // default: 3.5 MHz
+        connect(a, &QAction::triggered, this, [this, i]() { on_cpu_speed(i); });
+    }
+
+    // --- View menu ---
+    QMenu* view_menu = menuBar()->addMenu(tr("&View"));
+
+    scale_group_ = new QActionGroup(this);
+    scale_group_->setExclusive(true);
+    for (int s = 1; s <= 4; ++s) {
+        QAction* a = view_menu->addAction(tr("Scale %1x").arg(s));
+        a->setCheckable(true);
+        a->setData(s);
+        scale_group_->addAction(a);
+        if (s == 2) a->setChecked(true);  // default: 2x
+        connect(a, &QAction::triggered, this, [this, s]() { on_scale(s); });
+    }
+
+    view_menu->addSeparator();
+
+    fullscreen_action_ = view_menu->addAction(tr("&Fullscreen"));
+    fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
+    fullscreen_action_->setCheckable(true);
+    connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
+
+    view_menu->addSeparator();
+
+    crt_filter_action_ = view_menu->addAction(tr("CRT &Filter"));
+    crt_filter_action_->setCheckable(true);
+    connect(crt_filter_action_, &QAction::triggered, this, [this](bool checked) {
+        emulator_widget_->set_crt_filter(checked);
+    });
+
+    QMenu* scale_mode_menu = view_menu->addMenu(tr("Scale &Mode"));
+    scale_mode_group_ = new QActionGroup(this);
+    scale_mode_group_->setExclusive(true);
+
+    QAction* sm_int = scale_mode_menu->addAction(tr("Integer"));
+    sm_int->setCheckable(true);
+    scale_mode_group_->addAction(sm_int);
+    connect(sm_int, &QAction::triggered, this, [this]() {
+        emulator_widget_->set_scale_mode(ScaleMode::Integer);
+    });
+
+    QAction* sm_aspect = scale_mode_menu->addAction(tr("Aspect Fit"));
+    sm_aspect->setCheckable(true);
+    sm_aspect->setChecked(true);  // default
+    scale_mode_group_->addAction(sm_aspect);
+    connect(sm_aspect, &QAction::triggered, this, [this]() {
+        emulator_widget_->set_scale_mode(ScaleMode::AspectFit);
+    });
+
+    QAction* sm_stretch = scale_mode_menu->addAction(tr("Stretch"));
+    sm_stretch->setCheckable(true);
+    scale_mode_group_->addAction(sm_stretch);
+    connect(sm_stretch, &QAction::triggered, this, [this]() {
+        emulator_widget_->set_scale_mode(ScaleMode::Stretch);
+    });
+
+    // --- Help menu ---
+    QMenu* help_menu = menuBar()->addMenu(tr("&Help"));
+
+    QAction* about = help_menu->addAction(tr("&About JNEXT..."));
+    connect(about, &QAction::triggered, this, &MainWindow::on_about);
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar
+// ---------------------------------------------------------------------------
+
+void MainWindow::create_toolbar() {
+    QToolBar* toolbar = addToolBar(tr("Main"));
+    toolbar->setMovable(false);
+
+    QAction* reset_btn = toolbar->addAction(
+        style()->standardIcon(QStyle::SP_BrowserReload), tr("Reset"));
+    connect(reset_btn, &QAction::triggered, this, &MainWindow::on_reset);
+
+    QAction* load_btn = toolbar->addAction(
+        style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
+    connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
+
+    toolbar->addSeparator();
+
+    toolbar_speed_label_ = new QLabel(tr("  3.5 MHz  "));
+    toolbar->addWidget(toolbar_speed_label_);
+}
+
+// ---------------------------------------------------------------------------
+// Status bar
+// ---------------------------------------------------------------------------
+
+void MainWindow::create_statusbar() {
+    fps_label_ = new QLabel(tr("FPS: --"));
+    fps_label_->setMinimumWidth(100);
+
+    speed_label_ = new QLabel(tr("3.5 MHz"));
+    speed_label_->setMinimumWidth(100);
+    speed_label_->setAlignment(Qt::AlignCenter);
+
+    machine_label_ = new QLabel(tr("ZX Next"));
+    machine_label_->setMinimumWidth(100);
+    machine_label_->setAlignment(Qt::AlignRight);
+
+    statusBar()->addWidget(fps_label_, 1);
+    statusBar()->addWidget(speed_label_, 1);
+    statusBar()->addPermanentWidget(machine_label_);
+}
+
+// ---------------------------------------------------------------------------
+// Status update
+// ---------------------------------------------------------------------------
+
+void MainWindow::update_status(double fps, int cpu_speed_idx) {
+    if (fps_label_)
+        fps_label_->setText(QString("FPS: %1").arg(fps, 0, 'f', 1));
+
+    const char* spd = speed_name(cpu_speed_idx);
+    if (speed_label_)
+        speed_label_->setText(QString(spd));
+    if (toolbar_speed_label_)
+        toolbar_speed_label_->setText(QString("  %1  ").arg(spd));
+
+    // Update the speed radio button to match actual hardware state.
+    if (speed_group_) {
+        for (QAction* a : speed_group_->actions()) {
+            if (a->data().toInt() == cpu_speed_idx) {
+                a->setChecked(true);
+                break;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Menu action handlers
+// ---------------------------------------------------------------------------
+
+void MainWindow::on_load_nex() {
+    QString path = QFileDialog::getOpenFileName(
+        this, tr("Load NEX File"), QString(),
+        tr("NEX Files (*.nex);;All Files (*)"));
+    if (!path.isEmpty()) {
+        if (emulator_) {
+            emulator_->load_nex(path.toStdString());
+        }
+        emit load_nex_requested(path);
+    }
+}
+
+void MainWindow::on_mount_sd() {
+    QString path = QFileDialog::getOpenFileName(
+        this, tr("Mount SD Card Image"), QString(),
+        tr("Disk Images (*.img *.bin);;All Files (*)"));
+    if (!path.isEmpty()) {
+        // SD card mounting requires restart; just store and inform user.
+        QMessageBox::information(this, tr("SD Card"),
+            tr("SD card image selected:\n%1\n\n"
+               "Restart the emulator with --sd-card to use this image.").arg(path));
+        emit sd_card_selected(path);
+    }
+}
+
+void MainWindow::on_reset() {
+    if (emulator_) {
+        emulator_->reset();
+    }
+}
+
+void MainWindow::on_cpu_speed(int speed_idx) {
+    if (emulator_ && speed_idx >= 0 && speed_idx <= 3) {
+        emulator_->nextreg().write(0x07, static_cast<uint8_t>(speed_idx));
+    }
+}
+
+void MainWindow::on_scale(int factor) {
+    set_scale(factor);
+    emit scale_requested(factor);
+}
+
+void MainWindow::on_fullscreen(bool checked) {
+    // Sync toggle_fullscreen state with menu action.
+    if (checked != is_fullscreen_)
+        toggle_fullscreen();
+}
+
+void MainWindow::on_about() {
+    QMessageBox::about(this, tr("About JNEXT"),
+        tr("<h3>JNEXT</h3>"
+           "<p>ZX Spectrum Next Emulator</p>"
+           "<p>A line-accurate emulator of the ZX Spectrum Next computer, "
+           "based on the official FPGA VHDL sources.</p>"
+           "<p>Written in C++17 with Qt 6 and SDL2.</p>"));
+}
+
+// ---------------------------------------------------------------------------
+// Key event handling
+// ---------------------------------------------------------------------------
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     // Handle emulator UI keys first (F11 fullscreen, F2 scale cycle).

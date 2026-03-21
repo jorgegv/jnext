@@ -48,6 +48,7 @@ public:
 
 private:
     void on_frame_tick();
+    void on_status_tick();
 
     Emulator emulator_;
 
@@ -55,6 +56,7 @@ private:
     QApplication* qapp_        = nullptr;
     MainWindow*   main_window_ = nullptr;
     QTimer*       frame_timer_ = nullptr;
+    QTimer*       status_timer_ = nullptr;
     std::unique_ptr<SdlAudio> audio_;
 
     // Pending --inject state
@@ -70,6 +72,9 @@ private:
     // Emulator config
     EmulatorConfig config_;
     bool           config_set_ = false;
+
+    // FPS tracking
+    int frame_count_ = 0;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

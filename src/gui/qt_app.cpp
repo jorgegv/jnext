@@ -53,6 +53,9 @@ bool QtApp::init(int argc, char* argv[]) {
     // Create the main window.
     main_window_ = new MainWindow();
 
+    // Wire emulator pointer so menus can call into it.
+    main_window_->set_emulator(&emulator_);
+
     // Route keyboard events from the Qt window to the emulator keyboard matrix.
     main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
         emulator_.keyboard().set_key(sc, pressed);
@@ -66,6 +69,11 @@ bool QtApp::init(int argc, char* argv[]) {
     QObject::connect(frame_timer_, &QTimer::timeout, [this]() { on_frame_tick(); });
     frame_timer_->start(20);
 
+    // Set up a 1-second timer for status bar updates (FPS counter).
+    status_timer_ = new QTimer(main_window_);
+    QObject::connect(status_timer_, &QTimer::timeout, [this]() { on_status_tick(); });
+    status_timer_->start(1000);
+
     return true;
 }
 
@@ -77,6 +85,9 @@ int QtApp::run() {
 void QtApp::shutdown() {
     if (frame_timer_) {
         frame_timer_->stop();
+    }
+    if (status_timer_) {
+        status_timer_->stop();
     }
 
     audio_.reset();
@@ -108,6 +119,7 @@ void QtApp::on_frame_tick() {
 
     // Run one emulator frame.
     emulator_.run_frame();
+    ++frame_count_;
 
     // Push audio samples to SDL.
     if (audio_) {
@@ -117,4 +129,16 @@ void QtApp::on_frame_tick() {
     // Update the display widget with the new framebuffer.
     main_window_->emulator_widget()->update_frame(
         emulator_.get_framebuffer(), NATIVE_W, NATIVE_H);
+}
+
+void QtApp::on_status_tick() {
+    if (!main_window_) return;
+
+    double fps = static_cast<double>(frame_count_);
+    frame_count_ = 0;
+
+    // Read current CPU speed from NextREG 0x07 (bits 1:0).
+    int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;
+
+    main_window_->update_status(fps, speed_idx);
 }
