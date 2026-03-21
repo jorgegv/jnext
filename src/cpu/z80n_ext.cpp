@@ -280,6 +280,16 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             return 4;
         }
 
+        case Z80NOpcode::JP_C: {
+            // ED 98 — JP (C): read byte from port BC, set PC[13:6] = byte, PC[5:0] = 0
+            // PC[15:14] are preserved (VHDL only writes bits 13:0)
+            auto regs = cpu.get_registers();
+            uint8_t val = cpu.io().in(regs.BC);
+            regs.PC = (regs.PC & 0xC000) | ((uint16_t)val << 6);
+            cpu.set_registers(regs);
+            return 12;
+        }
+
         case Z80NOpcode::LDIX: {
             // ED A4 — single iteration block transfer with transparency
             auto regs = cpu.get_registers();
@@ -293,6 +303,34 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.BC = (regs.BC - 1) & 0xFFFF;
             cpu.set_registers(regs);
             return 13;
+        }
+
+        case Z80NOpcode::LDWS: {
+            // ED A5 — LDWS: copy (HL) to (DE), then increment only L and D
+            // This is a single-byte-at-a-time copy with stride 256 on dest, 1 on source low byte
+            // Flags: same as INC D (S, Z, H, P/V, N=0 from the D increment)
+            auto regs = cpu.get_registers();
+            uint8_t temp = cpu.memory().read(regs.HL);
+            cpu.memory().write(regs.DE, temp);
+            // Increment L only (wrap within low byte)
+            uint8_t L = (regs.HL & 0xFF) + 1;
+            regs.HL = (regs.HL & 0xFF00) | L;
+            // Increment D only (wrap within high byte of DE)
+            uint8_t D = (regs.DE >> 8) + 1;
+            // Set flags from D increment (same as INC r)
+            uint8_t f = regs.AF & 0xFF;
+            f &= FLAG_C;  // preserve carry only
+            if (D == 0)    f |= FLAG_Z;
+            if (D & 0x80)  f |= FLAG_S;
+            if (D & 0x08)  f |= FLAG_X;  // undoc bit 3
+            if (D & 0x20)  f |= FLAG_Y;  // undoc bit 5
+            if (D == 0x80) f |= FLAG_P;  // overflow: 0x7F+1=0x80
+            if ((D & 0x0F) == 0) f |= FLAG_H;  // half carry
+            // N=0 (already cleared)
+            regs.DE = ((uint16_t)D << 8) | (regs.DE & 0xFF);
+            regs.AF = (regs.AF & 0xFF00) | f;
+            cpu.set_registers(regs);
+            return 14;
         }
 
         case Z80NOpcode::LDDX: {
