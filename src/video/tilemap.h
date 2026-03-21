@@ -65,6 +65,12 @@ public:
     void set_enabled(bool en) { enabled_ = en; }
     bool enabled() const { return enabled_; }
 
+    // Clip window (NextREG 0x1B, 4-write cycle)
+    void set_clip_x1(uint8_t v) { clip_x1_ = v; }
+    void set_clip_x2(uint8_t v) { clip_x2_ = v; }
+    void set_clip_y1(uint8_t v) { clip_y1_ = v; }
+    void set_clip_y2(uint8_t v) { clip_y2_ = v; }
+
     // -----------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------
@@ -104,6 +110,12 @@ private:
     // Scroll
     uint16_t scroll_x_       = 0;       // 10-bit X scroll
     uint8_t  scroll_y_       = 0;       // 8-bit Y scroll
+
+    // Clip window
+    uint8_t  clip_x1_        = 0;
+    uint8_t  clip_x2_        = 159;     // tilemap default (X coords internally doubled)
+    uint8_t  clip_y1_        = 0;
+    uint8_t  clip_y2_        = 255;
 
     // Helpers
     static uint32_t decode_base_addr(uint8_t reg_val);

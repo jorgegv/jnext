@@ -63,6 +63,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
     sample_accum_ = 0;
     dac_enabled_ = false;
 
+    // Reset clip window write indices.
+    clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
+
     // Reset line interrupt and IM2 hardware mode state.
     line_int_enabled_ = false;
     ula_int_disabled_ = false;
@@ -192,11 +195,66 @@ bool Emulator::init(const EmulatorConfig& cfg)
         renderer_.set_layer_priority((v >> 2) & 0x07);
     });
 
-    // Registers 0x19-0x1C: Sprite clip window
-    nextreg_.set_write_handler(0x19, [this](uint8_t v) { sprites_.set_clip_x1(v); });
-    nextreg_.set_write_handler(0x1A, [this](uint8_t v) { sprites_.set_clip_x2(v); });
-    nextreg_.set_write_handler(0x1B, [this](uint8_t v) { sprites_.set_clip_y1(v); });
-    nextreg_.set_write_handler(0x1C, [this](uint8_t v) { sprites_.set_clip_y2(v); });
+    // Registers 0x18-0x1B: Clip windows (4-write rotating: X1, X2, Y1, Y2)
+    // Register 0x18: Layer 2 clip window
+    nextreg_.set_write_handler(0x18, [this](uint8_t v) {
+        switch (clip_l2_idx_) {
+            case 0: layer2_.set_clip_x1(v); break;
+            case 1: layer2_.set_clip_x2(v); break;
+            case 2: layer2_.set_clip_y1(v); break;
+            case 3: layer2_.set_clip_y2(v); break;
+        }
+        clip_l2_idx_ = (clip_l2_idx_ + 1) & 0x03;
+    });
+
+    // Register 0x19: Sprite clip window
+    nextreg_.set_write_handler(0x19, [this](uint8_t v) {
+        switch (clip_spr_idx_) {
+            case 0: sprites_.set_clip_x1(v); break;
+            case 1: sprites_.set_clip_x2(v); break;
+            case 2: sprites_.set_clip_y1(v); break;
+            case 3: sprites_.set_clip_y2(v); break;
+        }
+        clip_spr_idx_ = (clip_spr_idx_ + 1) & 0x03;
+    });
+
+    // Register 0x1A: ULA/LoRes clip window
+    nextreg_.set_write_handler(0x1A, [this](uint8_t v) {
+        switch (clip_ula_idx_) {
+            case 0: renderer_.ula().set_clip_x1(v); break;
+            case 1: renderer_.ula().set_clip_x2(v); break;
+            case 2: renderer_.ula().set_clip_y1(v); break;
+            case 3: renderer_.ula().set_clip_y2(v); break;
+        }
+        clip_ula_idx_ = (clip_ula_idx_ + 1) & 0x03;
+    });
+
+    // Register 0x1B: Tilemap clip window
+    nextreg_.set_write_handler(0x1B, [this](uint8_t v) {
+        switch (clip_tm_idx_) {
+            case 0: tilemap_.set_clip_x1(v); break;
+            case 1: tilemap_.set_clip_x2(v); break;
+            case 2: tilemap_.set_clip_y1(v); break;
+            case 3: tilemap_.set_clip_y2(v); break;
+        }
+        clip_tm_idx_ = (clip_tm_idx_ + 1) & 0x03;
+    });
+
+    // Register 0x1C: Clip window control
+    //   Read: bits 7:6=tilemap idx, 5:4=ULA idx, 3:2=sprite idx, 1:0=L2 idx
+    //   Write: bit 3=reset tilemap idx, bit 2=reset ULA idx,
+    //          bit 1=reset sprite idx, bit 0=reset L2 idx
+    nextreg_.set_read_handler(0x1C, [this]() -> uint8_t {
+        return static_cast<uint8_t>(
+            (clip_tm_idx_ << 6) | (clip_ula_idx_ << 4) |
+            (clip_spr_idx_ << 2) | clip_l2_idx_);
+    });
+    nextreg_.set_write_handler(0x1C, [this](uint8_t v) {
+        if (v & 0x01) clip_l2_idx_  = 0;
+        if (v & 0x02) clip_spr_idx_ = 0;
+        if (v & 0x04) clip_ula_idx_ = 0;
+        if (v & 0x08) clip_tm_idx_  = 0;
+    });
 
     // Register 0x34: Sprite attribute slot select (alternative to port 0x303B)
     nextreg_.set_write_handler(0x34, [this](uint8_t v) { sprites_.set_attr_slot(v); });
@@ -609,10 +667,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
         im2_.raise(channel == 0 ? Im2Level::UART_RX_0 : Im2Level::UART_RX_1);
     };
 
-    // --- Phase 5 DivMMC overlay + I2C RTC ---
+    // --- Phase 5 DivMMC overlay + I2C RTC + SD card ---
 
     mmu_.set_divmmc(&divmmc_);
     i2c_.attach_device(0x68, &rtc_);
+    spi_.attach_device(0, &sd_card_);  // SD card on CS0
 
     // --- ROM loading ---
 
@@ -630,6 +689,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
             Log::emulator()->info("DivMMC enabled, ROM loaded from '{}'", cfg.divmmc_rom_path);
         } else {
             Log::emulator()->warn("could not load DivMMC ROM from '{}'", cfg.divmmc_rom_path);
+        }
+    }
+
+    // SD card image mounting
+    if (!cfg.sd_card_image.empty()) {
+        if (sd_card_.mount(cfg.sd_card_image)) {
+            Log::emulator()->info("SD card image mounted: '{}'", cfg.sd_card_image);
+        } else {
+            Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
         }
     }
 

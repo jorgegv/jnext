@@ -22,7 +22,9 @@ static void print_usage(const char* prog) {
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex\n",
+        "                       Supported: .nex\n"
+        "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
+        "  --sd-card FILE       Mount SD card image FILE (.img)\n",
         prog);
 }
 
@@ -44,6 +46,8 @@ int main(int argc, char* argv[]) {
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
     std::string load_file;
+    std::string divmmc_rom;
+    std::string sd_card_image;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -63,6 +67,10 @@ int main(int argc, char* argv[]) {
             inject_delay = std::stoi(argv[++i]);
         } else if (arg == "--load" && i + 1 < argc) {
             load_file = argv[++i];
+        } else if (arg == "--divmmc-rom" && i + 1 < argc) {
+            divmmc_rom = argv[++i];
+        } else if (arg == "--sd-card" && i + 1 < argc) {
+            sd_card_image = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -72,6 +80,15 @@ int main(int argc, char* argv[]) {
     if (!inject_pc_set) inject_pc = inject_org;
 
     SdlApp app;
+
+    // Configure emulator before init.
+    if (!divmmc_rom.empty() || !sd_card_image.empty()) {
+        EmulatorConfig cfg;
+        cfg.divmmc_rom_path = divmmc_rom;
+        cfg.sd_card_image = sd_card_image;
+        app.set_config(cfg);
+    }
+
     if (!app.init(argc, argv)) return 1;
 
     // Set up pending inject (applied after inject_delay frames in the main loop).

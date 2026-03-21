@@ -26,6 +26,7 @@
 #include "peripheral/i2c.h"
 #include "peripheral/uart.h"
 #include "peripheral/divmmc.h"
+#include "peripheral/sd_card.h"
 #include "input/keyboard.h"
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
@@ -150,6 +151,7 @@ private:
     I2cRtc          rtc_;
     Uart            uart_;
     DivMmc          divmmc_;
+    SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
     Beeper          beeper_;
@@ -175,6 +177,13 @@ private:
     bool     line_int_enabled_   = false;  ///< NextREG 0x22 bit 1
     bool     ula_int_disabled_   = false;  ///< NextREG 0x22 bit 2
     uint16_t line_int_value_     = 0;      ///< 9-bit line number (0x22 bit0 + 0x23)
+
+    // --- Clip window rotating write indices (NextREG 0x18/0x19/0x1A/0x1B) ---
+    // Each clip register cycles through X1,X2,Y1,Y2 on successive writes.
+    uint8_t clip_l2_idx_   = 0;   ///< Layer 2 clip write index (0-3)
+    uint8_t clip_spr_idx_  = 0;   ///< Sprite clip write index (0-3)
+    uint8_t clip_ula_idx_  = 0;   ///< ULA/LoRes clip write index (0-3)
+    uint8_t clip_tm_idx_   = 0;   ///< Tilemap clip write index (0-3)
 
     // --- IM2 hardware mode state (NextREG 0xC0–0xCF) ---
     bool     im2_hw_mode_        = false;  ///< NextREG 0xC0 bit 0

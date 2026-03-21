@@ -776,9 +776,10 @@ endif()
 ### Phase 5 — Peripherals & Full I/O
 
 - [x] NextREG file (core registers) — raster position reads (0x1E/0x1F), line interrupt (0x22/0x23), interrupt control (0xC0-0xCA), ULA control (0x68), fallback colour (0x4A), DivMMC automap (0xB8-0xBB), Alt ROM (0x8C), reset (0x02), machine type (0x03), sprite attrs (0x35-0x39); read handler mechanism added
-- [ ] NextREG file (remaining registers) — expansion bus (0x80-0x8F), Pi GPIO (0x90-0xA9), clip windows (0x18/0x1D)
+- [x] NextREG clip windows (0x18-0x1C) — rotating 4-write cycle for Layer2/Sprite/ULA/Tilemap clip windows; clip control register (read indices / reset); fixed incorrect sprite clip wiring
+- [ ] NextREG file (remaining registers) — expansion bus (0x80-0x8F), Pi GPIO (0x90-0xA9) — board-specific stubs, low priority
 - [x] DivMMC — 8K ROM + 128K RAM overlay, auto-map triggers on M1, port 0xE3 control; configurable entry points via NextREG 0xB8-0xBB; VHDL-verified
-- [ ] DivMMC SD card `.img` mounting (needs SdCardDevice SPI backend)
+- [x] DivMMC SD card `.img` mounting — SdCardDevice SPI backend with CMD0/CMD8/CMD17/CMD24/CMD55+ACMD41/CMD58; SDHC byte addressing; `--sd-card` and `--divmmc-rom` CLI options
 - [x] UART — dual-channel with 512/64-byte FIFOs, 17-bit prescaler, loopback mode; VHDL-verified
 - [x] SPI — byte-level master with SpiDevice virtual interface; VHDL-verified
 - [x] I2C — bit-bang protocol decoder + DS1307 RTC using host clock; VHDL-verified

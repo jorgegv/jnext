@@ -12,8 +12,8 @@ bool SdlApp::init(int argc, char* argv[]) {
         Log::platform()->warn("Audio init failed — continuing without sound");
     }
 
-    // Initialise the emulator with default config.
-    EmulatorConfig cfg;
+    // Initialise the emulator with config (use set_config() before init(), or defaults).
+    EmulatorConfig cfg = config_set_ ? config_ : EmulatorConfig{};
     if (!emulator_.init(cfg)) {
         Log::platform()->error("Emulator init failed");
         return false;

@@ -14,6 +14,9 @@ public:
 
     Emulator& emulator() { return emulator_; }
 
+    /// Set emulator config before calling init().
+    void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
+
     /// Schedule a binary injection after `delay_frames` frames.
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);
@@ -37,6 +40,10 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+
+    // Emulator config (set via set_config() before init())
+    EmulatorConfig config_;
+    bool           config_set_ = false;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

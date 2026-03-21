@@ -56,6 +56,12 @@ public:
     void set_ula_enabled(bool enabled) { ula_enabled_ = enabled; }
     bool ula_enabled() const { return ula_enabled_; }
 
+    // Clip window (NextREG 0x1A, 4-write cycle)
+    void set_clip_x1(uint8_t v) { clip_x1_ = v; }
+    void set_clip_x2(uint8_t v) { clip_x2_ = v; }
+    void set_clip_y1(uint8_t v) { clip_y1_ = v; }
+    void set_clip_y2(uint8_t v) { clip_y2_ = v; }
+
     /// Set the Timex screen mode from a port 0xFF write.
     ///
     /// The full byte is stored so callers can read it back (e.g. for
@@ -81,6 +87,10 @@ public:
 
 private:
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
+    uint8_t          clip_x1_        = 0;
+    uint8_t          clip_x2_        = 255;
+    uint8_t          clip_y1_        = 0;
+    uint8_t          clip_y2_        = 191;
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
     int              flash_counter_   = 0;     ///< Incremented once per frame
     bool             flash_phase_     = false; ///< Toggles every 16 frames

@@ -52,6 +52,12 @@ public:
     void set_enabled(bool en) { enabled_ = en; }
     bool enabled() const { return enabled_; }
 
+    // Clip window (NextREG 0x18, 4-write cycle)
+    void set_clip_x1(uint8_t v) { clip_x1_ = v; }
+    void set_clip_x2(uint8_t v) { clip_x2_ = v; }
+    void set_clip_y1(uint8_t v) { clip_y1_ = v; }
+    void set_clip_y2(uint8_t v) { clip_y2_ = v; }
+
     // -----------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------
@@ -73,4 +79,8 @@ private:
     uint8_t  palette_offset_ = 0;     // bits 3:0 of NextREG 0x70
     uint8_t  resolution_     = 0;     // bits 5:4 of NextREG 0x70 (0=256×192)
     bool     enabled_        = false;
+    uint8_t  clip_x1_        = 0;
+    uint8_t  clip_x2_        = 255;
+    uint8_t  clip_y1_        = 0;
+    uint8_t  clip_y2_        = 191;
 };
