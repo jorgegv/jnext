@@ -1,5 +1,5 @@
 roms/
-build/
+build*/
 .claude/worktrees/
 demo/*_CODE.bin
 demo/*.nex
