@@ -4,3 +4,9 @@ build/
 demo/*_CODE.bin
 demo/*.nex
 demo/*.tap
+demo/tilemap_demo
+demo/copper_demo
+demo/palette_demo
+demo/beeper_demo
+demo/ay_demo
+demo/dac_demo
