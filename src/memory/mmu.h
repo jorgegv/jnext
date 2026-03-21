@@ -4,6 +4,8 @@
 #include "rom.h"
 #include "cpu/z80_cpu.h"
 
+class DivMmc;  // forward declaration for overlay
+
 class Mmu : public MemoryInterface {
 public:
     Mmu(Ram& ram, Rom& rom);
@@ -15,8 +17,17 @@ public:
     void set_page(int slot, uint8_t page);
     uint8_t get_page(int slot) const { return slots_[slot]; }
 
+    // DivMMC memory overlay — set by Emulator when DivMMC is initialized.
+    // Kept as raw pointer for zero-overhead hot path.
+    void set_divmmc(DivMmc* d) { divmmc_ = d; }
+
     // Hot-path memory access (inline for performance)
     inline uint8_t read(uint16_t addr) override {
+        // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active
+        if (divmmc_ && addr < 0x4000) {
+            uint8_t val;
+            if (divmmc_read(addr, val)) return val;
+        }
         int slot = addr >> 13;
         const uint8_t* ptr = read_ptr_[slot];
         if (!ptr) return 0xFF;
@@ -24,6 +35,10 @@ public:
     }
 
     inline void write(uint16_t addr, uint8_t val) override {
+        // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active
+        if (divmmc_ && addr < 0x4000) {
+            if (divmmc_write(addr, val)) return;
+        }
         // Layer 2 write-over: redirect writes to L2 RAM banks.
         if (l2_write_enable_ && addr < 0xC000) {
             int segment = addr / 0x4000;  // 0, 1, or 2
@@ -74,4 +89,11 @@ private:
     bool    l2_write_enable_  = false;
     uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
+
+    // DivMMC overlay (non-owning pointer, set by Emulator)
+    DivMmc* divmmc_ = nullptr;
+
+    // Out-of-line DivMMC helpers (defined in mmu.cpp to avoid circular include)
+    bool divmmc_read(uint16_t addr, uint8_t& val) const;
+    bool divmmc_write(uint16_t addr, uint8_t val);
 };

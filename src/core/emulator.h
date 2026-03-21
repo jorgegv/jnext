@@ -20,6 +20,12 @@
 #include "video/sprites.h"
 #include "video/tilemap.h"
 #include "peripheral/copper.h"
+#include "peripheral/ctc.h"
+#include "peripheral/dma.h"
+#include "peripheral/spi.h"
+#include "peripheral/i2c.h"
+#include "peripheral/uart.h"
+#include "peripheral/divmmc.h"
 #include "input/keyboard.h"
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
@@ -100,6 +106,12 @@ public:
     SpriteEngine& sprites()   { return sprites_; }
     Tilemap&      tilemap()   { return tilemap_; }
     Copper&       copper()    { return copper_; }
+    Ctc&          ctc()       { return ctc_; }
+    Dma&          dma()       { return dma_; }
+    SpiMaster&    spi()       { return spi_; }
+    I2cController& i2c()     { return i2c_; }
+    Uart&         uart()      { return uart_; }
+    DivMmc&       divmmc()    { return divmmc_; }
     Beeper&       beeper()    { return beeper_; }
     TurboSound&   turbosound(){ return turbosound_; }
     Dac&          dac()       { return dac_; }
@@ -131,6 +143,13 @@ private:
     SpriteEngine    sprites_;
     Tilemap         tilemap_;
     Copper          copper_;
+    Ctc             ctc_;
+    Dma             dma_;
+    SpiMaster       spi_;
+    I2cController   i2c_;
+    I2cRtc          rtc_;
+    Uart            uart_;
+    DivMmc          divmmc_;
     Renderer        renderer_;
     Keyboard        keyboard_;
     Beeper          beeper_;

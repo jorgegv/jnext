@@ -1,4 +1,5 @@
 #include "mmu.h"
+#include "peripheral/divmmc.h"
 #include "core/log.h"
 #include <cstring>
 
@@ -97,4 +98,20 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
         map_rom(0, 0);
         map_rom(1, 1);
     }
+}
+
+// ---------------------------------------------------------------------------
+// DivMMC overlay helpers (out-of-line to avoid circular include)
+// ---------------------------------------------------------------------------
+
+bool Mmu::divmmc_read(uint16_t addr, uint8_t& val) const {
+    if (!divmmc_->is_active()) return false;
+    val = divmmc_->read(addr);
+    return true;
+}
+
+bool Mmu::divmmc_write(uint16_t addr, uint8_t val) {
+    if (!divmmc_->is_active()) return false;
+    divmmc_->write(addr, val);
+    return true;
 }

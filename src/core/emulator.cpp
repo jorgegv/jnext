@@ -52,6 +52,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     turbosound_.reset();
     dac_.reset();
     mixer_.reset();
+    ctc_.reset();
+    dma_.reset();
+    spi_.reset();
+    i2c_.reset();
+    uart_.reset();
+    divmmc_.reset();
 
     psg_accum_ = 0;
     sample_accum_ = 0;
@@ -65,7 +71,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Install M1-cycle callback for RETI detection (ED 4D sequence).
     // When RETI is executed, notify the Im2Controller so it can clear the
     // active interrupt level in the daisy chain.
-    cpu_.on_m1_cycle = [this](uint16_t /*pc*/, uint8_t opcode) {
+    cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
         static bool saw_ed = false;
         if (opcode == 0xED) {
             saw_ed = true;
@@ -75,6 +81,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
             }
             saw_ed = false;
         }
+        // DivMMC auto-map check on every M1 cycle.
+        divmmc_.check_automap(pc, true);
     };
 
     // --- NextREG write handlers ---
@@ -367,6 +375,91 @@ bool Emulator::init(const EmulatorConfig& cfg)
         turbosound_.set_mono_mode(mono);
     });
 
+    // --- Phase 5 peripheral port handlers ---
+
+    // CTC channels 0-3: ports 0x183B, 0x193B, 0x1A3B, 0x1B3B
+    for (int ch = 0; ch < 4; ++ch) {
+        uint16_t p = static_cast<uint16_t>(0x183B + (ch << 8));
+        port_.register_handler(0xFFFF, p,
+            [this, ch](uint16_t) -> uint8_t { return ctc_.read(ch); },
+            [this, ch](uint16_t, uint8_t val) { ctc_.write(ch, val); });
+    }
+
+    // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat)
+    port_.register_handler(0x00FF, 0x006B,
+        [this](uint16_t) -> uint8_t { return dma_.read(); },
+        [this](uint16_t, uint8_t val) { dma_.write(val, false); });
+    port_.register_handler(0x00FF, 0x000B,
+        [this](uint16_t) -> uint8_t { return dma_.read(); },
+        [this](uint16_t, uint8_t val) { dma_.write(val, true); });
+
+    // SPI chip select (0xE7) and data (0xEB)
+    port_.register_handler(0x00FF, 0x00E7,
+        [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
+        [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
+    port_.register_handler(0x00FF, 0x00EB,
+        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
+        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
+
+    // I2C SCL (0x103B) and SDA (0x113B)
+    port_.register_handler(0xFFFF, 0x103B,
+        [this](uint16_t) -> uint8_t { return i2c_.read_scl(); },
+        [this](uint16_t, uint8_t val) { i2c_.write_scl(val); });
+    port_.register_handler(0xFFFF, 0x113B,
+        [this](uint16_t) -> uint8_t { return i2c_.read_sda(); },
+        [this](uint16_t, uint8_t val) { i2c_.write_sda(val); });
+
+    // UART: Tx (0x133B), Rx (0x143B), Select (0x153B), Frame (0x163B)
+    port_.register_handler(0xFFFF, 0x133B,
+        [this](uint16_t) -> uint8_t { return uart_.read(3); },
+        [this](uint16_t, uint8_t val) { uart_.write(3, val); });
+    port_.register_handler(0xFFFF, 0x143B,
+        [this](uint16_t) -> uint8_t { return uart_.read(0); },
+        [this](uint16_t, uint8_t val) { uart_.write(0, val); });
+    port_.register_handler(0xFFFF, 0x153B,
+        [this](uint16_t) -> uint8_t { return uart_.read(1); },
+        [this](uint16_t, uint8_t val) { uart_.write(1, val); });
+    port_.register_handler(0xFFFF, 0x163B,
+        [this](uint16_t) -> uint8_t { return uart_.read(2); },
+        [this](uint16_t, uint8_t val) { uart_.write(2, val); });
+
+    // DivMMC control — port 0xE3
+    port_.register_handler(0x00FF, 0x00E3,
+        [this](uint16_t) -> uint8_t { return divmmc_.read_control(); },
+        [this](uint16_t, uint8_t val) { divmmc_.write_control(val); });
+
+    // --- Phase 5 DMA memory/IO callbacks ---
+
+    dma_.read_memory  = [this](uint16_t addr) -> uint8_t { return mmu_.read(addr); };
+    dma_.write_memory = [this](uint16_t addr, uint8_t val) { mmu_.write(addr, val); };
+    dma_.read_io      = [this](uint16_t port) -> uint8_t { return port_.read(port); };
+    dma_.write_io     = [this](uint16_t port, uint8_t val) { port_.write(port, val); };
+
+    // --- Phase 5 IM2 interrupt wiring ---
+
+    ctc_.on_interrupt = [this](int channel) {
+        Im2Level level = static_cast<Im2Level>(
+            static_cast<int>(Im2Level::CTC_0) + channel);
+        im2_.raise(level);
+    };
+
+    dma_.on_interrupt = [this]() {
+        im2_.raise(Im2Level::DMA);
+    };
+
+    uart_.on_tx_interrupt = [this](int channel) {
+        im2_.raise(channel == 0 ? Im2Level::UART_TX_0 : Im2Level::UART_TX_1);
+    };
+
+    uart_.on_rx_interrupt = [this](int channel) {
+        im2_.raise(channel == 0 ? Im2Level::UART_RX_0 : Im2Level::UART_RX_1);
+    };
+
+    // --- Phase 5 DivMMC overlay + I2C RTC ---
+
+    mmu_.set_divmmc(&divmmc_);
+    i2c_.attach_device(0x68, &rtc_);
+
     // --- ROM loading ---
 
     // Attempt to load the 48K ROM into ROM slot 0 from the standard path.
@@ -374,6 +467,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // emulator can still run (useful for testing without a ROM file).
     if (!rom_.load(0, "roms/48.rom")) {
         Log::emulator()->warn("could not load roms/48.rom — continuing without ROM (BASIC will not boot)");
+    }
+
+    // DivMMC ROM loading
+    if (!cfg.divmmc_rom_path.empty()) {
+        if (divmmc_.load_rom(cfg.divmmc_rom_path)) {
+            divmmc_.set_enabled(true);
+            Log::emulator()->info("DivMMC enabled, ROM loaded from '{}'", cfg.divmmc_rom_path);
+        } else {
+            Log::emulator()->warn("could not load DivMMC ROM from '{}'", cfg.divmmc_rom_path);
+        }
     }
 
     // Default border: white (ZX colour index 7).
@@ -459,11 +562,20 @@ void Emulator::run_frame()
     static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
     while (clock_.get() < frame_end) {
-        // Execute one CPU instruction; returns T-states consumed.
-        int tstates = cpu_.execute();
-        // Convert T-states to 28 MHz master cycles.
-        // cpu_divisor() returns 8 at 3.5 MHz, 4 at 7 MHz, 2 at 14 MHz, 1 at 28 MHz.
-        uint64_t master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+        uint64_t master_cycles;
+
+        if (dma_.is_active()) {
+            // DMA takes the bus — CPU is stalled.
+            // Execute a burst of transfers; each byte ≈ 2 T-states.
+            int transferred = dma_.execute_burst(16);
+            master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
+            if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
+        } else {
+            // Execute one CPU instruction; returns T-states consumed.
+            int tstates = cpu_.execute();
+            // Convert T-states to 28 MHz master cycles.
+            master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+        }
         clock_.tick(master_cycles);
 
         // Execute copper at current raster position.
@@ -476,6 +588,10 @@ void Emulator::run_frame()
             // Copper uses hc in 28 MHz ticks.
             copper_.execute(hc, vc, nextreg_);
         }
+
+        // Tick CTC and UART at 28 MHz rate.
+        ctc_.tick(static_cast<uint32_t>(master_cycles));
+        uart_.tick(static_cast<uint32_t>(master_cycles));
 
         // Tick PSG (TurboSound) at 1.75 MHz rate.
         psg_accum_ += master_cycles;
