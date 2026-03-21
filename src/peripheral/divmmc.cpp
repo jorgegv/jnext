@@ -29,6 +29,10 @@ void DivMmc::reset() {
     bank_ = 0;
     control_reg_ = 0;
     automap_active_ = false;
+    entry_points_0_ = 0x83;  // soft reset default
+    entry_valid_0_  = 0x01;
+    entry_timing_0_ = 0x00;
+    entry_points_1_ = 0xCD;
     divmmc_log()->debug("reset");
 }
 
@@ -78,26 +82,60 @@ uint8_t DivMmc::read_control() const {
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     if (!is_m1 || !enabled_) return;
 
-    // Auto-map trigger addresses (instruction fetch from these addresses
-    // activates the DivMMC ROM overlay).
-    switch (pc) {
-        case 0x0000:  // RST 0 / power-on
-        case 0x0008:  // RST 8
-        case 0x0038:  // IM1 interrupt handler
-        case 0x0066:  // NMI handler
-        case 0x04C6:  // 48K BASIC tape header
-        case 0x0562:  // 48K BASIC tape load
+    // Auto-map trigger addresses from NextREG 0xB8 (entry_points_0_).
+    // Each bit enables automap on the corresponding RST address.
+    static constexpr uint16_t rst_addrs[8] = {
+        0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
+    };
+    for (int i = 0; i < 8; ++i) {
+        if ((entry_points_0_ & (1 << i)) && pc == rst_addrs[i]) {
             if (!automap_active_) {
                 divmmc_log()->debug("automap ON at PC={:#06x}", pc);
             }
             automap_active_ = true;
             return;
-        default:
-            break;
+        }
     }
 
-    // Auto-unmap: addresses 0x1FF8-0x1FFF (top 8 bytes of 8K ROM page)
-    if (pc >= 0x1FF8 && pc <= 0x1FFF) {
+    // Auto-map trigger from NextREG 0xBB (entry_points_1_).
+    if ((entry_points_1_ & 0x02) && pc == 0x0066) {  // NMI instant
+        if (!automap_active_) {
+            divmmc_log()->debug("automap ON at PC=0x0066 (NMI)");
+        }
+        automap_active_ = true;
+        return;
+    }
+    if ((entry_points_1_ & 0x04) && pc == 0x04C6) {  // tape trap (esxdos)
+        if (!automap_active_) {
+            divmmc_log()->debug("automap ON at PC=0x04C6 (tape trap)");
+        }
+        automap_active_ = true;
+        return;
+    }
+    if ((entry_points_1_ & 0x08) && pc == 0x0562) {  // tape trap (esxdos)
+        if (!automap_active_) {
+            divmmc_log()->debug("automap ON at PC=0x0562 (tape trap)");
+        }
+        automap_active_ = true;
+        return;
+    }
+    if ((entry_points_1_ & 0x10) && pc == 0x04D7) {  // tape trap (nextzxos)
+        if (!automap_active_) {
+            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap)");
+        }
+        automap_active_ = true;
+        return;
+    }
+    if ((entry_points_1_ & 0x20) && pc == 0x056A) {  // tape trap (nextzxos)
+        if (!automap_active_) {
+            divmmc_log()->debug("automap ON at PC=0x056A (tape trap)");
+        }
+        automap_active_ = true;
+        return;
+    }
+
+    // Auto-unmap: addresses 0x1FF8-0x1FFF unless disabled (bit 6 of 0xBB)
+    if (!(entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
         if (automap_active_) {
             divmmc_log()->debug("automap OFF at PC={:#06x}", pc);
         }

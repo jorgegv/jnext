@@ -44,6 +44,11 @@ public:
     void set_layer_priority(uint8_t val) { layer_priority_ = val & 0x07; }
     uint8_t layer_priority() const { return layer_priority_; }
 
+    /// Set the fallback colour index (NextREG 0x4A).
+    /// Used when all layers are transparent at a given pixel.
+    void set_fallback_colour(uint8_t val) { fallback_colour_ = val; }
+    uint8_t fallback_colour() const { return fallback_colour_; }
+
     /// Render one complete frame into the ARGB8888 framebuffer.
     ///
     /// @param framebuffer  Pointer to FB_WIDTH x FB_HEIGHT pixels.
@@ -60,7 +65,8 @@ public:
 
 private:
     Ula ula_;
-    uint8_t layer_priority_ = 0;  // NextREG 0x15 bits 4:2 (default SLU)
+    uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
+    uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)
 
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;

@@ -171,6 +171,17 @@ private:
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
 
+    // --- Line interrupt state (NextREG 0x22/0x23) ---
+    bool     line_int_enabled_   = false;  ///< NextREG 0x22 bit 1
+    bool     ula_int_disabled_   = false;  ///< NextREG 0x22 bit 2
+    uint16_t line_int_value_     = 0;      ///< 9-bit line number (0x22 bit0 + 0x23)
+
+    // --- IM2 hardware mode state (NextREG 0xC0–0xCF) ---
+    bool     im2_hw_mode_        = false;  ///< NextREG 0xC0 bit 0
+    uint8_t  im2_vector_base_    = 0;      ///< NextREG 0xC0 bits 7:5
+    uint8_t  im2_int_enable_[3]  = {0x81, 0, 0};  ///< 0xC4-0xC6 (soft reset defaults)
+    uint8_t  im2_int_status_[3]  = {};     ///< 0xC8-0xCA
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------

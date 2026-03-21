@@ -41,7 +41,7 @@
   - [Phase 2.5 — Logging \& Debugging](#phase-25--logging--debugging)
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
   - [Phase 3.5 — Program Loading (NEX + raw binary)](#phase-35--program-loading-nex--raw-binary)
-  - [Phase 4 — Audio](#phase-4--audio)
+  - [Phase 4 — Audio ✓ COMPLETE](#phase-4--audio--complete)
   - [Phase 5 — Peripherals \& Full I/O](#phase-5--peripherals--full-io)
   - [Phase 6 — Native UI \& Usability](#phase-6--native-ui--usability)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
@@ -709,7 +709,7 @@ endif()
 - [x] Contention LUT generation (48K, 128K, Pentagon) — all done; FUSE validation deferred to Phase 8
 - [x] Frame interrupt (IM2) at correct raster position — fires at vc=1; Im2Controller wired; RETI detection via M1 hook
 - [x] SDL texture upload pipeline + integer scaling — ARGB8888, 2× scaling, SDL logical size
-- [x] Window scaling 1x/2x/3x selectable by user via F2 key
+- [x] Window scaling 1x/2x/3x/4x selectable by user via F2 key
 - [x] **Milestone**: BASIC screen rendered correctly at 50 Hz
 
 ### Phase 2.5 — Logging & Debugging
@@ -732,11 +732,17 @@ endif()
 - [x] Tilemap (40×32 mode) — 40×32 and 80×32 modes; 4bpp patterns + text mode (1bpp); 512-tile mode; force-attribute; ULA-over-tilemap per-tile priority; X/Y scroll; base address decoding (bank 5/7); NextREG 0x6B/0x6C/0x6E/0x6F/0x2F/0x30/0x31
 - [x] Layer compositor with NextREG priority control — per-scanline compositing of ULA+Tilemap/Layer2/Sprites; 6 priority modes (SLU/LSU/SUL/LUS/USL/ULS); all sprite/tilemap/copper port+NextREG handlers wired; copper executes per CPU instruction
 - [x] Copper co-processor — 1K×16-bit instruction RAM; WAIT (vc==vpos && hc>=(hpos<<3)+12) and MOVE; HALT/NOP; mode edge detection; 2-cycle MOVE timing; NextREG 0x60/0x61/0x62/0x63 write paths with MSB/LSB pairing
+- [ ] Create Z88DK test programs for different functions (store them in `demo` directory):
+  - [x] Layer2 and sprites
+  - [ ] Tilemap
+  - [ ] Copper
+  - [ ] Palette
 - [ ] Verify all works ok:
   - [x] Layer 2
   - [x] Sprites
   - [ ] Tilemap
   - [ ] Copper
+  - [ ] Palette
 - [ ] **Milestone**: Next-specific games render correctly
 
 ### Phase 3.5 — Program Loading (NEX + raw binary)
@@ -756,13 +762,22 @@ endif()
 - [x] Audio mixer → SDL_AudioStream — mixer combines all sources with audio_mixer.vhd scaling (13-bit internal); ring buffer at 44100 Hz stereo int16; SDL_AudioStream bridge with overflow protection
 - [x] NextREG audio control — 0x06 (PSG mode AY/YM), 0x08 (stereo mode/DAC enable/TurboSound enable), 0x09 (per-chip mono flags)
 - [x] PSG ticking at 1.75 MHz (28 MHz / 16), sample generation via Bresenham accumulator
-- [ ] CTC (drives some AY timing) — deferred to Phase 5
-- [x] **Milestone**: Music and sound effects audible
+- [x] CTC (drives some AY timing) — implemented in Phase 5 (4-channel counter/timer, VHDL-verified)
+- [ ] Create Z88DK test programs for different functions (store them in `demo` directory):
+  - [ ] YM2149
+  - [ ] DAC
+  - [ ] Beeper
+- [ ] Verify all works ok:
+  - [ ] YM2149
+  - [ ] DAC
+  - [ ] Beeper
+- [ ] **Milestone**: Music and sound effects audible
 
 ### Phase 5 — Peripherals & Full I/O
 
-- [ ] NextREG file (all registers)
-- [x] DivMMC — 8K ROM + 128K RAM overlay, auto-map triggers on M1, port 0xE3 control; VHDL-verified
+- [x] NextREG file (core registers) — raster position reads (0x1E/0x1F), line interrupt (0x22/0x23), interrupt control (0xC0-0xCA), ULA control (0x68), fallback colour (0x4A), DivMMC automap (0xB8-0xBB), Alt ROM (0x8C), reset (0x02), machine type (0x03), sprite attrs (0x35-0x39); read handler mechanism added
+- [ ] NextREG file (remaining registers) — expansion bus (0x80-0x8F), Pi GPIO (0x90-0xA9), clip windows (0x18/0x1D)
+- [x] DivMMC — 8K ROM + 128K RAM overlay, auto-map triggers on M1, port 0xE3 control; configurable entry points via NextREG 0xB8-0xBB; VHDL-verified
 - [ ] DivMMC SD card `.img` mounting (needs SdCardDevice SPI backend)
 - [x] UART — dual-channel with 512/64-byte FIFOs, 17-bit prescaler, loopback mode; VHDL-verified
 - [x] SPI — byte-level master with SpiDevice virtual interface; VHDL-verified

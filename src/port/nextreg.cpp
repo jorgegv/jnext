@@ -15,11 +15,16 @@ void NextReg::reset() {
 
 void NextReg::select(uint8_t reg) { selected_ = reg; }
 
-uint8_t NextReg::read_selected() const { return regs_[selected_]; }
+uint8_t NextReg::read_selected() { return read(selected_); }
 
 void NextReg::write_selected(uint8_t val) { write(selected_, val); }
 
-uint8_t NextReg::read(uint8_t reg) const { return regs_[reg]; }
+uint8_t NextReg::read(uint8_t reg) {
+    if (read_handlers_[reg]) {
+        return read_handlers_[reg]();
+    }
+    return regs_[reg];
+}
 
 void NextReg::write(uint8_t reg, uint8_t val) {
     Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
@@ -31,4 +36,8 @@ void NextReg::write(uint8_t reg, uint8_t val) {
 
 void NextReg::set_write_handler(uint8_t reg, std::function<void(uint8_t)> fn) {
     write_handlers_[reg] = std::move(fn);
+}
+
+void NextReg::set_read_handler(uint8_t reg, std::function<uint8_t()> fn) {
+    read_handlers_[reg] = std::move(fn);
 }

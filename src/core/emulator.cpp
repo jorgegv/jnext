@@ -63,6 +63,19 @@ bool Emulator::init(const EmulatorConfig& cfg)
     sample_accum_ = 0;
     dac_enabled_ = false;
 
+    // Reset line interrupt and IM2 hardware mode state.
+    line_int_enabled_ = false;
+    ula_int_disabled_ = false;
+    line_int_value_ = 0;
+    im2_hw_mode_ = false;
+    im2_vector_base_ = 0;
+    im2_int_enable_[0] = 0x81;  // soft reset default: ULA + expansion bus enabled
+    im2_int_enable_[1] = 0;
+    im2_int_enable_[2] = 0;
+    im2_int_status_[0] = 0;
+    im2_int_status_[1] = 0;
+    im2_int_status_[2] = 0;
+
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
@@ -226,6 +239,147 @@ bool Emulator::init(const EmulatorConfig& cfg)
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
             [this, i](uint8_t v) { mmu_.set_page(i, v); });
     }
+
+    // --- NextREG read handlers (dynamic registers) ---
+
+    // Registers 0x1E/0x1F: Active video line (read-only, computed from cycle count).
+    // Returns the current raster line (vc) relative to display start.
+    nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
+        uint64_t elapsed = clock_.get() - frame_cycle_;
+        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        return static_cast<uint8_t>((vc >> 8) & 0x01);
+    });
+    nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
+        uint64_t elapsed = clock_.get() - frame_cycle_;
+        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        return static_cast<uint8_t>(vc & 0xFF);
+    });
+
+    // Register 0x22: Line interrupt control
+    //   bit 2 = disable ULA interrupt
+    //   bit 1 = enable line interrupt
+    //   bit 0 = MSB of line interrupt value
+    nextreg_.set_write_handler(0x22, [this](uint8_t v) {
+        ula_int_disabled_ = (v & 0x04) != 0;
+        line_int_enabled_ = (v & 0x02) != 0;
+        line_int_value_ = (line_int_value_ & 0xFF) | ((v & 0x01) << 8);
+    });
+
+    // Register 0x23: Line interrupt value LSB
+    nextreg_.set_write_handler(0x23, [this](uint8_t v) {
+        line_int_value_ = (line_int_value_ & 0x100) | v;
+    });
+
+    // Register 0x02: Reset control (soft reset on write)
+    nextreg_.set_write_handler(0x02, [this](uint8_t v) {
+        if (v & 0x01) {
+            Log::emulator()->info("Soft reset triggered via NextREG 0x02");
+            reset();
+        }
+    });
+
+    // Register 0x03: Machine type (bits 2:0 = machine timing)
+    nextreg_.set_write_handler(0x03, [this](uint8_t v) {
+        // Cache the value; timing mode changes are complex and would need
+        // contention LUT rebuild — log for now.
+        Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03", v);
+    });
+
+    // Registers 0x35-0x39: Sprite attribute bytes 0-4 (with auto-increment)
+    for (int i = 0; i < 5; ++i) {
+        nextreg_.set_write_handler(static_cast<uint8_t>(0x35 + i),
+            [this, i](uint8_t v) { sprites_.write_attr_byte(static_cast<uint8_t>(i), v); });
+    }
+
+    // Register 0x4A: Fallback colour (used when all layers are transparent)
+    nextreg_.set_write_handler(0x4A, [this](uint8_t v) {
+        renderer_.set_fallback_colour(v);
+    });
+
+    // Register 0x68: ULA control
+    //   bit 7 = ULA disable (0=enable, 1=disable)
+    //   bit 6:5 = blend mode (00=normal, 01=ULA/tilemap stencil, 10=L2 forced, 11=reserved)
+    //   bit 3 = ULA+ enable
+    //   bits 2:0 = reserved
+    nextreg_.set_write_handler(0x68, [this](uint8_t v) {
+        renderer_.ula().set_ula_enabled((v & 0x80) == 0);
+    });
+
+    // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
+
+    nextreg_.set_write_handler(0xB8, [this](uint8_t v) { divmmc_.set_entry_points_0(v); });
+    nextreg_.set_write_handler(0xB9, [this](uint8_t v) { divmmc_.set_entry_valid_0(v); });
+    nextreg_.set_write_handler(0xBA, [this](uint8_t v) { divmmc_.set_entry_timing_0(v); });
+    nextreg_.set_write_handler(0xBB, [this](uint8_t v) { divmmc_.set_entry_points_1(v); });
+
+    // Register 0x8C: Alternate ROM control
+    //   bit 7 = enable alt rom
+    //   bit 6 = alt rom visible only during writes
+    //   bits 5:4 = lock ROM1/ROM0
+    nextreg_.set_write_handler(0x8C, [this](uint8_t v) {
+        rom_.set_alt_rom_config(v);
+    });
+
+    // --- NextREG interrupt control registers (0xC0-0xCF) ---
+
+    // Register 0xC0: Interrupt control
+    //   bits 7:5 = programmable im2 vector high bits
+    //   bit 0 = hw im2 mode enable
+    nextreg_.set_write_handler(0xC0, [this](uint8_t v) {
+        im2_vector_base_ = v & 0xE0;
+        im2_hw_mode_ = (v & 0x01) != 0;
+    });
+    nextreg_.set_read_handler(0xC0, [this]() -> uint8_t {
+        uint8_t v = im2_vector_base_ & 0xE0;
+        // bits 2:1 = current interrupt mode (read-only)
+        v |= (cpu_.get_registers().IM & 0x03) << 1;
+        if (im2_hw_mode_) v |= 0x01;
+        return v;
+    });
+
+    // Registers 0xC4-0xC6: Interrupt enable
+    nextreg_.set_write_handler(0xC4, [this](uint8_t v) {
+        // bit 0 = ULA, bit 1 = Line
+        im2_int_enable_[0] = v;
+    });
+    nextreg_.set_write_handler(0xC5, [this](uint8_t v) {
+        // bits 7:0 = CTC channels 7:0
+        im2_int_enable_[1] = v;
+    });
+    nextreg_.set_write_handler(0xC6, [this](uint8_t v) {
+        // bit 6=UART1 Tx, bit 4=UART1 Rx, bit 2=UART0 Tx, bit 0=UART0 Rx
+        im2_int_enable_[2] = v;
+    });
+
+    // Registers 0xC8-0xCA: Interrupt status (read=status, write=clear)
+    for (int i = 0; i < 3; ++i) {
+        nextreg_.set_read_handler(static_cast<uint8_t>(0xC8 + i), [this, i]() -> uint8_t {
+            return im2_int_status_[i];
+        });
+        nextreg_.set_write_handler(static_cast<uint8_t>(0xC8 + i), [this, i](uint8_t v) {
+            // Writing set bits clears the corresponding status bits
+            im2_int_status_[i] &= ~v;
+        });
+    }
+
+    // Register 0x20: Generate maskable interrupt / read pending status
+    nextreg_.set_read_handler(0x20, [this]() -> uint8_t {
+        // bit 7=line, bit 6=ula, bits 3:0=ctc 3:0
+        uint8_t v = 0;
+        if (im2_int_status_[0] & 0x02) v |= 0x80;  // line
+        if (im2_int_status_[0] & 0x01) v |= 0x40;  // ula
+        v |= (im2_int_status_[1] & 0x0F);           // ctc 3:0
+        return v;
+    });
+    nextreg_.set_write_handler(0x20, [this](uint8_t v) {
+        // Writing set bits forces immediate interrupt generation
+        if (v & 0x80) im2_.raise(Im2Level::LINE_IRQ);
+        if (v & 0x40) im2_.raise(Im2Level::FRAME_IRQ);
+        if (v & 0x01) im2_.raise(Im2Level::CTC_0);
+        if (v & 0x02) im2_.raise(Im2Level::CTC_1);
+        if (v & 0x04) im2_.raise(Im2Level::CTC_2);
+        if (v & 0x08) im2_.raise(Im2Level::CTC_3);
+    });
 
     // --- Port dispatch handlers ---
 
@@ -548,8 +702,25 @@ void Emulator::run_frame()
     // The 48K ROM runs in IM1; the vector 0xFF calls RST 0x38 which scans
     // the keyboard and drives the BASIC main loop.
     static constexpr uint64_t INT_FIRE_OFFSET = 1ULL * 228 * 8;  // vc=1, hc=0
-    scheduler_.schedule(frame_cycle_ + INT_FIRE_OFFSET, EventType::CPU_INT,
-        [this]() { cpu_.request_interrupt(0xFF); });
+    if (!ula_int_disabled_) {
+        scheduler_.schedule(frame_cycle_ + INT_FIRE_OFFSET, EventType::CPU_INT,
+            [this]() {
+                cpu_.request_interrupt(0xFF);
+                im2_int_status_[0] |= 0x01;  // ULA interrupt status
+            });
+    }
+
+    // Schedule line interrupt if enabled.
+    if (line_int_enabled_ && line_int_value_ < static_cast<uint16_t>(LINES_PER_FRAME)) {
+        uint64_t line_cycle = frame_cycle_ +
+            static_cast<uint64_t>(line_int_value_) * MASTER_CYCLES_PER_LINE;
+        scheduler_.schedule(line_cycle, EventType::CPU_INT,
+            [this]() {
+                im2_.raise(Im2Level::LINE_IRQ);
+                im2_int_status_[0] |= 0x02;  // Line interrupt status
+                cpu_.request_interrupt(0xFF);
+            });
+    }
 
     // Notify copper of frame start (resets PC in mode 11).
     copper_.on_vsync();

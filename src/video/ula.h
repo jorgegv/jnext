@@ -52,6 +52,10 @@ public:
     void set_border(uint8_t colour) { border_colour_ = colour & 0x07; }
     uint8_t get_border() const { return border_colour_; }
 
+    /// Enable/disable ULA rendering (NextREG 0x68 bit 7).
+    void set_ula_enabled(bool enabled) { ula_enabled_ = enabled; }
+    bool ula_enabled() const { return ula_enabled_; }
+
     /// Set the Timex screen mode from a port 0xFF write.
     ///
     /// The full byte is stored so callers can read it back (e.g. for
@@ -76,6 +80,7 @@ public:
     void advance_flash();
 
 private:
+    bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
     int              flash_counter_   = 0;     ///< Incremented once per frame
     bool             flash_phase_     = false; ///< Toggles every 16 frames

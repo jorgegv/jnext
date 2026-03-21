@@ -93,6 +93,17 @@ public:
         return ram_.data() + page * kRamPageSize;
     }
 
+    // ── NextREG automap configuration (0xB8–0xBB) ──────────────────
+    void set_entry_points_0(uint8_t val) { entry_points_0_ = val; }
+    void set_entry_valid_0(uint8_t val)  { entry_valid_0_ = val; }
+    void set_entry_timing_0(uint8_t val) { entry_timing_0_ = val; }
+    void set_entry_points_1(uint8_t val) { entry_points_1_ = val; }
+
+    uint8_t entry_points_0() const { return entry_points_0_; }
+    uint8_t entry_valid_0() const  { return entry_valid_0_; }
+    uint8_t entry_timing_0() const { return entry_timing_0_; }
+    uint8_t entry_points_1() const { return entry_points_1_; }
+
 private:
     bool enabled_ = false;              // DivMMC subsystem enabled
     bool conmem_ = false;               // bit 7 of control register
@@ -101,6 +112,12 @@ private:
     uint8_t control_reg_ = 0;           // raw control register value
 
     bool automap_active_ = false;       // auto-map currently engaged
+
+    // NextREG automap configuration (0xB8–0xBB)
+    uint8_t entry_points_0_ = 0x83;    // soft reset default
+    uint8_t entry_valid_0_  = 0x01;    // soft reset default
+    uint8_t entry_timing_0_ = 0x00;    // soft reset default
+    uint8_t entry_points_1_ = 0xCD;    // soft reset default
 
     std::vector<uint8_t> rom_;          // 8K DivMMC ROM
     std::vector<uint8_t> ram_;          // 128K DivMMC RAM (16 × 8K)
