@@ -792,14 +792,16 @@ endif()
 
 ### Phase 6 — Native UI & Usability
 
-- [ ] Qt 6 `QMainWindow` as the main emulator window (replaces raw SDL window)
-- [ ] Menu bar: **File** (Mount SD image, Quit), **Machine** (Reset, Machine type, CPU speed), **View** (1×/2×/3× scaling, Fullscreen toggle, CRT filter), **Help** (About)
-- [ ] Toolbar: **Reset** button (hard reset, like pressing the Next's reset button); additional buttons as needed
-- [ ] Emulator viewport: `QOpenGLWidget` or `QWidget` embedding the SDL framebuffer as the central widget
-- [ ] Fullscreen mode: toggle between windowed (menu bar + toolbar + viewport) and borderless fullscreen (viewport only); shortcut `F11`
-- [ ] Status bar: FPS, CPU speed, current machine mode
-- [ ] CRT scanline filter (optional, toggled from View menu)
-- [ ] SDL remains for audio output and input event handling; video output rendered into the Qt widget
+- [x] Qt 6 `QMainWindow` as the main emulator window (replaces raw SDL window) — `src/gui/main_window.h/.cpp`, enabled via `-DENABLE_QT_UI=ON`
+- [x] Menu bar: **File** (Load NEX, Mount SD image, Quit), **Machine** (Reset, CPU speed submenu), **View** (1×/2×/3×/4× scaling, Fullscreen, CRT filter, Scale mode), **Help** (About)
+- [x] Toolbar: **Reset** + **Load** buttons with standard icons, CPU speed indicator label
+- [x] Emulator viewport: `EmulatorWidget` (QWidget) with QImage-based ARGB8888 rendering, integer/stretch/aspect-fit scale modes
+- [x] Fullscreen mode: toggle via F11 or View menu; `showFullScreen()`/`showNormal()` with scale restore
+- [x] Status bar: FPS counter (1s timer), CPU speed (from NextREG 0x07), machine mode label
+- [x] CRT scanline filter: semi-transparent dark lines overlay in EmulatorWidget::paintEvent(), toggled from View menu
+- [x] SDL remains for audio output only; keyboard input via Qt key events mapped to SDL scancodes
+- [x] Additional restriction: the final emulator file must be linked statically and have no dynamic library dependencies — `STATIC_BUILD` CMake option added; requires static Qt6/SDL2 builds (system packages are dynamic-only)
+- [ ] Test and debug GUI glitches
 - [ ] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
 
 ### Phase 7 — Debugger Window

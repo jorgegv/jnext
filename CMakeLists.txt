@@ -23,6 +23,16 @@ option(ENABLE_TESTS    "Build unit tests"       ON)
 option(ENABLE_DEBUGGER "Include Qt debugger UI" OFF)
 option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
+option(STATIC_BUILD    "Link statically (requires static SDL2/Qt6 builds)" OFF)
+
+# Static build: prefer static libraries and link C++ runtime statically.
+if(STATIC_BUILD)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(BUILD_SHARED_LIBS OFF)
+    if(NOT MSVC)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+    endif()
+endif()
 
 find_package(SDL2 REQUIRED)
 
@@ -47,12 +57,20 @@ if(ENABLE_QT_UI)
 endif()
 
 add_executable(jnext src/main.cpp)
+
+# SDL2 linking: prefer SDL2-static when building statically.
+if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
+    set(SDL2_LINK_TARGET SDL2::SDL2-static)
+else()
+    set(SDL2_LINK_TARGET SDL2::SDL2)
+endif()
+
 target_link_libraries(jnext PRIVATE
     zxnext_core zxnext_cpu zxnext_memory
     zxnext_video zxnext_audio zxnext_port
     zxnext_peripheral zxnext_input
     zxnext_platform zxnext_save
-    SDL2::SDL2)
+    ${SDL2_LINK_TARGET})
 target_include_directories(jnext PRIVATE src)
 
 if(ENABLE_QT_UI)
