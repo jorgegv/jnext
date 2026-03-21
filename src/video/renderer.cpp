@@ -47,25 +47,21 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // --- Step 3: Render each layer for this scanline ---
         const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
 
-        if (in_display) {
-            // Layer 2
-            if (layer2.enabled()) {
-                layer2.render_scanline(layer2_line_.data(), screen_row, ram, palette);
-            }
+        // Layer 2 — only active in the 192-line display area
+        if (in_display && layer2.enabled()) {
+            layer2.render_scanline(layer2_line_.data(), screen_row, ram, palette);
+        }
 
-            // Tilemap
-            if (tilemap && tilemap->enabled()) {
-                tilemap->render_scanline(tilemap_line_.data(),
-                                         ula_over_flags_.data(),
-                                         screen_row, ram, palette);
-            }
+        // Tilemap — covers the full 320×256 framebuffer (VHDL: vcounter(8)='0')
+        if (tilemap && tilemap->enabled()) {
+            tilemap->render_scanline(tilemap_line_.data(),
+                                     ula_over_flags_.data(),
+                                     row, ram, palette);
+        }
 
-            // Sprites — pass 'row' (framebuffer row 0-255) not 'screen_row',
-            // because sprite Y coordinates are in absolute wvc space where
-            // 0 = top border, 32 = display start (matching framebuffer rows).
-            if (sprites && sprites->sprites_visible()) {
-                sprites->render_scanline(sprite_line_.data(), row, palette);
-            }
+        // Sprites — Y coordinates are in absolute framebuffer space (0-255)
+        if (sprites && sprites->sprites_visible()) {
+            sprites->render_scanline(sprite_line_.data(), row, palette);
         }
 
         // --- Step 4: Composite ---
