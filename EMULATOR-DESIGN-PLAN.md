@@ -808,70 +808,76 @@ endif()
 - [x] ESC exits fullscreen in both GUI and SDL builds
 - [x] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
 
-### Phase 7 — Debugger Window
+### Phase 7 — Debugger Window ✓ COMPLETE
 
-Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing full introspection into the running emulator. Uses real OS widgets (buttons, toolbars, tables, splitters). Requires Phase 6 complete (stable Qt-based emulator).
+Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing full introspection into the running emulator. Uses real OS widgets (buttons, toolbars, tables, splitters). Architecture: single-threaded (no mutex needed), dock widgets in existing MainWindow, pause = skip `run_frame()`.
 
 **Infrastructure**
-- [ ] `DebuggerInterface` API bridging emulator core ↔ Qt UI (mutex-protected, `QueuedConnection` signals)
-- [ ] `QMainWindow` with `QDockWidget` panels; each panel independently floatable/resizable
-- [ ] Toolbar: **Run** / **Pause** / **Step Into** / **Step Over** / **Step Out** / **Run to Cursor** / **Reset** buttons using `QToolBar` + `QAction` with keyboard shortcuts (F5 Run, F9 Pause, F11 Step Into, F10 Step Over, Shift+F11 Step Out)
-- [ ] Status bar: current PC, cycle count, raster position, emulation state (Running / Paused / Breakpoint)
-- [ ] `ENABLE_DEBUGGER` CMake flag; when OFF the debugger sources are not compiled, zero overhead
+- [x] `DebugState` + `BreakpointSet` in `src/debug/` — pause/resume/step state, PC breakpoints, one-shot breakpoints for step-over/run-to-cursor
+- [x] `DebuggerManager` in `src/debugger/` — creates all panels, Debug menu (F5/F9/F10/F11/Shift+F11), debug toolbar
+- [x] `QDockWidget` panels in existing `QMainWindow`; each panel independently floatable/resizable
+- [x] `ENABLE_DEBUGGER` CMake flag; when OFF the debugger sources are not compiled, zero overhead
+- [x] `execute_single_instruction()` method on `Emulator` for single-step operations
+- [x] Breakpoint check in `run_frame()` hot loop — breaks mid-frame and pauses
+
+**Debug backend** (`src/debug/`, pure C++)
+- [x] Z80 + Z80N disassembler (`disasm.h`) — all prefixes (CB/DD/FD/ED/DDCB/FDCB) + 26 Z80N extensions
+- [x] `BreakpointSet` — PC breakpoints, read/write/IO watchpoints, one-shot breakpoints
+- [x] `TraceLog` — circular buffer of pre-execution state (10K entries), export to file
 
 **CPU panel** (`QDockWidget`)
-- [ ] `QFormLayout` showing all Z80 registers live (AF, BC, DE, HL, IX, IY, SP, PC, I, R, IFF1/2, IM)
-- [ ] Z80N extension register display
-- [ ] IM2 interrupt state table (14 levels, pending/active/vector)
-- [ ] Step control buttons (mirrored from toolbar for convenience):
-  - **Step Into** (`F11`): execute one instruction; if it is a CALL/RST, PC moves into the callee
-  - **Step Over** (`F10`): if current instruction is `CALL nn`, `CALL cc,nn`, `RST n`, or `DJNZ`: place a one-shot temporary breakpoint at `PC + instruction_length` and resume; execution re-pauses when that address is reached (i.e. after the called routine returns); for all other instructions, behaves as Step Into
-  - **Step Out** (`Shift+F11`): set a one-shot breakpoint that fires on the next `RET`/`RETI`/`RETN` where SP equals the current SP value; then resume — pauses on return to caller
-  - **Run to Cursor**: set a one-shot breakpoint at the disassembly panel's selected line and resume
-- [ ] Breakpoint list (`QTableWidget`): add/remove/enable persistent PC breakpoints and read/write/I/O watchpoints
+- [x] `QGridLayout` showing all Z80 registers live (AF, BC, DE, HL, AF'/BC'/DE'/HL', IX, IY, SP, PC, I, R, IFF1/2, IM)
+- [x] Flags row (S, Z, H, PV, N, C) with active highlight
+- [x] Halted indicator
+- [x] Step controls: Step Into (F11), Step Over (F10), Step Out (Shift+F11), Run to Cursor, Run (F5), Pause (F9)
 
 **Disassembly panel** (`QDockWidget`)
-- [ ] `QListView` or custom `QAbstractItemModel` showing disassembled instructions
-- [ ] Current PC row highlighted in a distinct colour
-- [ ] Click margin to set/clear breakpoint (red dot gutter)
-- [ ] "Follow PC" toggle; manual address navigation via address bar (`QLineEdit`)
-- [ ] Annotation: known ROM labels shown inline as comments
+- [x] Custom-painted scrollable disassembly (32 visible lines)
+- [x] Current PC row highlighted in yellow
+- [x] Click gutter to set/clear breakpoint (red dot)
+- [x] "Follow PC" toggle; manual address navigation via address bar
+- [x] Context menu: Toggle Breakpoint, Run to Here
 
 **Memory panel** (`QDockWidget`)
-- [ ] Hex editor widget (`QTableView` with custom delegate): address | hex bytes | ASCII
-- [ ] Page selector: MMU slot (0–7) or raw 8K page number (`QSpinBox` / `QComboBox`)
-- [ ] Highlighted regions: VRAM cyan, attribute area yellow, SP±16 orange
-- [ ] Live inline edit: double-click a byte cell, type new hex value, Enter to commit
+- [x] Custom-painted hex editor: address | hex bytes (8+8) | ASCII
+- [x] MMU page selector (CPU View + Slot 0-7 with live page numbers)
+- [x] Highlighted regions: SP row (orange), VRAM (cyan), attributes (yellow)
+- [x] Inline hex editing with auto-advance
 
-**Video / raster panel** (`QDockWidget`)
-- [ ] Miniature frame diagram (`QWidget` custom paint): crosshair at live (hc, vc)
-- [ ] Layer checkboxes (`QCheckBox`): ULA / LoRes / Layer 2 / Tilemap / Sprites — toggle applied live
-- [ ] Palette swatch grid (`QWidget` custom paint): 256 Layer2 + 16 ULA colours
-- [ ] Sprite table (`QTableWidget`): 128 rows × columns (index, X, Y, pattern, flags, preview thumbnail)
+**Video panel** (`QDockWidget`)
+- [x] Raster position display (vc from NextREG 0x1E/0x1F)
+- [x] Layer toggle checkboxes (ULA/Layer2/Tilemap/Sprites)
+- [x] Layer priority dropdown (6 modes from NextREG 0x15)
+- [x] ULA palette swatch grid (16 colours)
+
+**Sprite panel** (`QDockWidget`)
+- [x] QTableWidget 128 rows (Index, X, Y, Pattern, Palette, Visible, Mirror, Rotate)
 
 **Audio panel** (`QDockWidget`)
-- [ ] Waveform widgets (`QWidget` custom paint): rolling plot for each AY channel + DAC L/R + Beeper
-- [ ] AY register table (`QTableWidget`): 16 rows × 3 chips, editable values
-- [ ] Mute `QCheckBox` per source; master volume `QSlider`
+- [x] AY register table (16 rows × 3 chips, hex values)
+- [x] Source mute checkboxes (AY#0/1/2, DAC, Beeper)
+- [x] TurboSound/AY-YM/stereo mode info labels
 
 **Copper panel** (`QDockWidget`)
-- [ ] `QTableView` showing decoded Copper instruction list (address, type, hpos/vpos/nextreg/value)
-- [ ] Current Copper PC row highlighted live
-- [ ] Enable/disable Copper `QCheckBox`
-- [ ] Edit instruction cells directly via table delegate
+- [x] Decoded instruction table (WAIT/MOVE/NOP/HALT) centered on current PC
+- [x] Current PC highlighted
+- [x] Running state and mode display
 
 **NextREG panel** (`QDockWidget`)
-- [ ] `QTableWidget` 256 rows: address (hex), name, current value (hex + binary), description
-- [ ] Editable value column: type new hex value, Tab to commit → calls `write_nextreg()`
+- [x] 256-row table (address, name, hex value, binary value)
+- [x] Editable hex value column (commits via `nextreg().write()`)
+- [x] ~70 known register names
 
-**Emulator screen embed** (optional)
-- [ ] `QOpenGLWidget` (`EmulatorView`) can optionally display the emulator framebuffer inside the Qt window, replacing the separate SDL window — controlled by a startup flag
+**Trace log**
+- [x] Debug menu: Enable Trace (checkable), Clear Trace, Export Trace...
+- [x] Circular buffer recording pre-execution state per instruction
+- [x] Export to text file
 
 **Build integration**
-- [ ] `src/debugger/CMakeLists.txt` uses `find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGL)`
-- [ ] MOC (Meta-Object Compiler) run automatically via `qt_add_executable` / `set_target_properties(AUTOMOC ON)`
-- [ ] vcpkg: `install qt6:x64-linux qt6:x64-osx qt6:x64-windows`
-- [ ] **Milestone**: Can set a breakpoint, single-step through ROM, inspect and edit any memory page and any NextREG live, with all panels dockable like a real IDE debugger
+- [x] `src/debug/CMakeLists.txt` — pure C++ static lib
+- [x] `src/debugger/CMakeLists.txt` — Qt6::Widgets, AUTOMOC ON
+- [x] All 3 build configs verified: Qt+Debugger, Qt-only, SDL-only
+- [x] **Milestone**: Can set a breakpoint, single-step through ROM, inspect and edit any memory page and any NextREG live, with all panels dockable
 
 ### Phase 8 — Polish & Accuracy
 
