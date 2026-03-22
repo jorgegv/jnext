@@ -28,17 +28,25 @@ void CpuPanel::create_ui() {
     top_layout->setSpacing(4);
     top_layout->setContentsMargins(8, 8, 8, 8);
 
-    // --- Top row: 4 register groups side by side ---
+    // --- Top row: 4 register groups side by side, evenly distributed ---
     auto* regs_row = new QHBoxLayout();
-    regs_row->setSpacing(24);
+    regs_row->setSpacing(0);
 
     // Helper: create a QGridLayout group and add register rows to it.
-    // Returns the grid so caller can add more if needed.
     auto make_group = [&]() -> QGridLayout* {
         auto* grid = new QGridLayout();
         grid->setSpacing(2);
-        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setContentsMargins(4, 0, 4, 0);
         return grid;
+    };
+
+    // Helper: create a light vertical separator line.
+    auto make_vsep = [&]() -> QFrame* {
+        auto* line = new QFrame(this);
+        line->setFrameShape(QFrame::VLine);
+        line->setFrameShadow(QFrame::Plain);
+        line->setStyleSheet("color: #C0C0C0;");
+        return line;
     };
 
     int grow; // grid row counter, reused per group
@@ -64,7 +72,9 @@ void CpuPanel::create_ui() {
     add_reg(g1, grow, "BC", reg_bc_);
     add_reg(g1, grow, "DE", reg_de_);
     add_reg(g1, grow, "HL", reg_hl_);
-    regs_row->addLayout(g1);
+    regs_row->addLayout(g1, 1);
+
+    regs_row->addWidget(make_vsep());
 
     // Group 2: AF'/BC'/DE'/HL'
     auto* g2 = make_group();
@@ -73,7 +83,9 @@ void CpuPanel::create_ui() {
     add_reg(g2, grow, "BC'", reg_bc2_);
     add_reg(g2, grow, "DE'", reg_de2_);
     add_reg(g2, grow, "HL'", reg_hl2_);
-    regs_row->addLayout(g2);
+    regs_row->addLayout(g2, 1);
+
+    regs_row->addWidget(make_vsep());
 
     // Group 3: IX/IY/SP/PC
     auto* g3 = make_group();
@@ -82,7 +94,9 @@ void CpuPanel::create_ui() {
     add_reg(g3, grow, "IY", reg_iy_);
     add_reg(g3, grow, "SP", reg_sp_);
     add_reg(g3, grow, "PC", reg_pc_);
-    regs_row->addLayout(g3);
+    regs_row->addLayout(g3, 1);
+
+    regs_row->addWidget(make_vsep());
 
     // Group 4: I/R/IFF/IM
     auto* g4 = make_group();
@@ -91,9 +105,8 @@ void CpuPanel::create_ui() {
     add_reg(g4, grow, "R", reg_r_);
     add_reg(g4, grow, "IFF", reg_iff_);
     add_reg(g4, grow, "IM", reg_im_);
-    regs_row->addLayout(g4);
+    regs_row->addLayout(g4, 1);
 
-    regs_row->addStretch();
     top_layout->addLayout(regs_row);
 
     // --- Separator ---

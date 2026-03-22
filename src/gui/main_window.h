@@ -72,7 +72,7 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
-    void moveEvent(QMoveEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     void handle_key(QKeyEvent* event, bool pressed);
@@ -91,9 +91,6 @@ private:
 
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
-
-    /// Reposition the debugger window to stick to the right of this window.
-    void reposition_debugger_window();
 
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;

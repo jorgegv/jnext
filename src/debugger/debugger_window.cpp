@@ -23,7 +23,7 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     , emulator_(emulator)
 {
     setWindowTitle(tr("JNEXT Debugger"));
-    resize(506, 700);
+    resize(506, 780);
 
     create_panels();
 
@@ -95,23 +95,38 @@ void DebuggerWindow::restore_geometry() {
 
 void DebuggerWindow::position_next_to(QWidget* main_win) {
     if (!main_win) return;
-    QRect mg = main_win->frameGeometry();
-    move(mg.x() + mg.width(), mg.y());
+    QPoint top_right = main_win->mapToGlobal(QPoint(main_win->width(), 0));
+    move(top_right);
 }
 
 void DebuggerWindow::create_panels() {
+    // Static dock features: no close, no float — bold title label.
+    auto static_dock = [](QDockWidget* dock) {
+        dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+        QFont f = dock->font();
+        f.setBold(true);
+        dock->setFont(f);
+    };
+
+    // Light gray separator lines + darker title bar background.
+    setStyleSheet(
+        "QMainWindow::separator { background: #C0C0C0; width: 1px; height: 1px;"
+        "  margin: 3px; }"
+        "QDockWidget::title { background: #D0D0D0; padding: 4px; }"
+    );
+
     // CPU registers panel (right dock area)
     cpu_panel_ = new CpuPanel(emulator_);
     cpu_dock_ = new QDockWidget(tr("CPU Registers"), this);
     cpu_dock_->setWidget(cpu_panel_);
-    cpu_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(cpu_dock_);
     addDockWidget(Qt::RightDockWidgetArea, cpu_dock_);
 
     // Disassembly panel (right dock area, below CPU)
     disasm_panel_ = new DisasmPanel(emulator_);
     disasm_dock_ = new QDockWidget(tr("Disassembly"), this);
     disasm_dock_->setWidget(disasm_panel_);
-    disasm_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(disasm_dock_);
     addDockWidget(Qt::RightDockWidgetArea, disasm_dock_);
 
     // Memory panel (bottom dock area) — tall enough for 16+ rows
@@ -119,21 +134,21 @@ void DebuggerWindow::create_panels() {
     memory_panel_->setMinimumHeight(320);
     memory_dock_ = new QDockWidget(tr("Memory"), this);
     memory_dock_->setWidget(memory_panel_);
-    memory_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
+    static_dock(memory_dock_);
     addDockWidget(Qt::BottomDockWidgetArea, memory_dock_);
 
     // Video panel (left dock area)
     video_panel_ = new VideoPanel(emulator_);
     video_dock_ = new QDockWidget(tr("Video"), this);
     video_dock_->setWidget(video_panel_);
-    video_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(video_dock_);
     addDockWidget(Qt::LeftDockWidgetArea, video_dock_);
 
     // Sprite panel (left dock area, tabified with video)
     sprite_panel_ = new SpritePanel(emulator_);
     sprite_dock_ = new QDockWidget(tr("Sprites"), this);
     sprite_dock_->setWidget(sprite_panel_);
-    sprite_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(sprite_dock_);
     addDockWidget(Qt::LeftDockWidgetArea, sprite_dock_);
     tabifyDockWidget(video_dock_, sprite_dock_);
 
@@ -141,7 +156,7 @@ void DebuggerWindow::create_panels() {
     copper_panel_ = new CopperPanel(emulator_);
     copper_dock_ = new QDockWidget(tr("Copper"), this);
     copper_dock_->setWidget(copper_panel_);
-    copper_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(copper_dock_);
     addDockWidget(Qt::LeftDockWidgetArea, copper_dock_);
     tabifyDockWidget(sprite_dock_, copper_dock_);
 
@@ -149,7 +164,7 @@ void DebuggerWindow::create_panels() {
     nextreg_panel_ = new NextRegPanel(emulator_);
     nextreg_dock_ = new QDockWidget(tr("NextREG"), this);
     nextreg_dock_->setWidget(nextreg_panel_);
-    nextreg_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(nextreg_dock_);
     addDockWidget(Qt::LeftDockWidgetArea, nextreg_dock_);
     tabifyDockWidget(copper_dock_, nextreg_dock_);
 
@@ -157,7 +172,7 @@ void DebuggerWindow::create_panels() {
     audio_panel_ = new AudioPanel(emulator_);
     audio_dock_ = new QDockWidget(tr("Audio"), this);
     audio_dock_->setWidget(audio_panel_);
-    audio_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    static_dock(audio_dock_);
     addDockWidget(Qt::LeftDockWidgetArea, audio_dock_);
     tabifyDockWidget(nextreg_dock_, audio_dock_);
 

@@ -10,6 +10,8 @@
 #include <QToolBar>
 #include <QAction>
 #include <QStyle>
+#include <QTimer>
+#include <QEvent>
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent)
     : QObject(parent)
@@ -19,11 +21,29 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, Q
     // Start with debugger DISABLED — no performance impact.
     emulator_->debug_state().set_active(false);
 
+    // Watch main window move/resize to keep debugger sticky.
+    main_window_->installEventFilter(this);
+
     create_debug_menu();
     create_debug_toolbar();
 
     was_paused_ = false;
     update_actions();
+}
+
+bool DebuggerManager::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == main_window_) {
+        if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
+            reposition_debugger_window();
+        }
+    }
+    return QObject::eventFilter(obj, event);
+}
+
+void DebuggerManager::reposition_debugger_window() {
+    if (!debugger_window_ || !debugger_window_->isVisible())
+        return;
+    debugger_window_->position_next_to(main_window_);
 }
 
 // ---------------------------------------------------------------------------
@@ -42,10 +62,17 @@ void DebuggerManager::set_enabled(bool enabled) {
 
         // Create the debugger window lazily.
         ensure_window();
-        debugger_window_->position_next_to(main_window_);
         debugger_window_->show();
         debugger_window_->raise();
         debugger_window_->activateWindow();
+
+        // Position after show — some window managers ignore move() before show().
+        // Use a short timer to let the WM finish placing the window first.
+        debugger_window_->position_next_to(main_window_);
+        QTimer::singleShot(50, this, [this]() {
+            if (debugger_window_ && debugger_window_->isVisible())
+                debugger_window_->position_next_to(main_window_);
+        });
 
         // Refresh panels immediately.
         debugger_window_->refresh_panels();
@@ -202,16 +229,6 @@ void DebuggerManager::create_debug_toolbar() {
         main_window_->style()->standardIcon(QStyle::SP_MediaPause), QObject::tr("Pause"));
     connect(pause_btn, &QAction::triggered, this, &DebuggerManager::on_pause);
 
-    debug_toolbar_->addSeparator();
-
-    QAction* step_into_btn = debug_toolbar_->addAction(QObject::tr("Into"));
-    connect(step_into_btn, &QAction::triggered, this, &DebuggerManager::on_step_into);
-
-    QAction* step_over_btn = debug_toolbar_->addAction(QObject::tr("Over"));
-    connect(step_over_btn, &QAction::triggered, this, &DebuggerManager::on_step_over);
-
-    QAction* step_out_btn = debug_toolbar_->addAction(QObject::tr("Out"));
-    connect(step_out_btn, &QAction::triggered, this, &DebuggerManager::on_step_out);
 }
 
 // ---------------------------------------------------------------------------

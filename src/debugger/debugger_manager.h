@@ -45,11 +45,15 @@ signals:
     void resumed();
     void enabled_changed(bool enabled);
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
 private:
     void create_debug_menu();
     void create_debug_toolbar();
     void ensure_window();
     void update_actions();
+    void reposition_debugger_window();
 
     QMainWindow* main_window_;
     Emulator* emulator_;

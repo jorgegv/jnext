@@ -7,7 +7,7 @@
 #endif
 
 #include <QKeyEvent>
-#include <QMoveEvent>
+#include <QCloseEvent>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
@@ -584,21 +584,14 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     }
 }
 
-void MainWindow::moveEvent(QMoveEvent* event) {
-    QMainWindow::moveEvent(event);
-    reposition_debugger_window();
-}
-
-void MainWindow::reposition_debugger_window() {
+void MainWindow::closeEvent(QCloseEvent* event) {
 #ifdef ENABLE_DEBUGGER
-    if (!debugger_mgr_)
-        return;
-    auto* dbg_win = debugger_mgr_->debugger_window_ptr();
-    if (!dbg_win || !dbg_win->isVisible())
-        return;
-
-    // Stick the debugger window to the right edge of the main window, top-aligned.
-    QRect mg = frameGeometry();
-    dbg_win->move(mg.x() + mg.width(), mg.y());
+    if (debugger_mgr_) {
+        debugger_mgr_->set_enabled(false);
+        auto* dbg_win = debugger_mgr_->debugger_window_ptr();
+        if (dbg_win)
+            dbg_win->close();
+    }
 #endif
+    QMainWindow::closeEvent(event);
 }
