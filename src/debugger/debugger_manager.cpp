@@ -1,6 +1,10 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/video_panel.h"
+#include "debugger/sprite_panel.h"
+#include "debugger/copper_panel.h"
+#include "debugger/nextreg_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -125,6 +129,40 @@ void DebuggerManager::create_panels() {
         emit resumed();
         update_actions();
     });
+
+    // Video panel (left dock area)
+    video_panel_ = new VideoPanel(emulator_);
+    video_dock_ = new QDockWidget(QObject::tr("Video"), main_window_);
+    video_dock_->setWidget(video_panel_);
+    video_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::LeftDockWidgetArea, video_dock_);
+
+    // Sprite panel (left dock area, tabified with video)
+    sprite_panel_ = new SpritePanel(emulator_);
+    sprite_dock_ = new QDockWidget(QObject::tr("Sprites"), main_window_);
+    sprite_dock_->setWidget(sprite_panel_);
+    sprite_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::LeftDockWidgetArea, sprite_dock_);
+    main_window_->tabifyDockWidget(video_dock_, sprite_dock_);
+
+    // Copper panel (left dock area, tabified)
+    copper_panel_ = new CopperPanel(emulator_);
+    copper_dock_ = new QDockWidget(QObject::tr("Copper"), main_window_);
+    copper_dock_->setWidget(copper_panel_);
+    copper_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::LeftDockWidgetArea, copper_dock_);
+    main_window_->tabifyDockWidget(sprite_dock_, copper_dock_);
+
+    // NextREG panel (left dock area, tabified)
+    nextreg_panel_ = new NextRegPanel(emulator_);
+    nextreg_dock_ = new QDockWidget(QObject::tr("NextREG"), main_window_);
+    nextreg_dock_->setWidget(nextreg_panel_);
+    nextreg_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::LeftDockWidgetArea, nextreg_dock_);
+    main_window_->tabifyDockWidget(copper_dock_, nextreg_dock_);
+
+    // Raise the video panel tab by default
+    video_dock_->raise();
 }
 
 // ---------------------------------------------------------------------------
@@ -205,17 +243,24 @@ void DebuggerManager::on_step_out() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::refresh_panels() {
-    if (emulator_->debug_state().paused()) {
-        // Always refresh when paused.
+    auto do_refresh = [this]() {
         if (cpu_panel_) cpu_panel_->refresh();
         if (disasm_panel_) disasm_panel_->refresh();
+        if (video_panel_) video_panel_->refresh();
+        if (sprite_panel_) sprite_panel_->refresh();
+        if (copper_panel_) copper_panel_->refresh();
+        if (nextreg_panel_) nextreg_panel_->refresh();
+    };
+
+    if (emulator_->debug_state().paused()) {
+        // Always refresh when paused.
+        do_refresh();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
-            if (cpu_panel_) cpu_panel_->refresh();
-            if (disasm_panel_) disasm_panel_->refresh();
+            do_refresh();
         }
     }
 }

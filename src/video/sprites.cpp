@@ -381,3 +381,40 @@ void SpriteEngine::debug_log_sprite0() const
                        s.byte0, s.byte1, s.byte2, s.byte3, s.byte4,
                        sprites_visible_, over_border_, attr_slot_, attr_byte_);
 }
+
+// ---------------------------------------------------------------------------
+// Debug / introspection
+// ---------------------------------------------------------------------------
+
+uint8_t SpriteEngine::read_attr_byte(uint8_t sprite_idx, uint8_t byte_idx) const
+{
+    if (sprite_idx >= NUM_SPRITES || byte_idx >= 5)
+        return 0;
+    const auto& s = sprites_[sprite_idx];
+    switch (byte_idx) {
+        case 0: return s.byte0;
+        case 1: return s.byte1;
+        case 2: return s.byte2;
+        case 3: return s.byte3;
+        case 4: return s.byte4;
+        default: return 0;
+    }
+}
+
+SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
+{
+    SpriteInfo info{};
+    if (idx >= NUM_SPRITES)
+        return info;
+    const auto& s = sprites_[idx];
+    info.x              = s.x();
+    info.y              = s.y();
+    info.pattern        = s.extended() ? s.pattern_7bit() : s.pattern_base();
+    info.palette_offset = s.palette_offset();
+    info.visible        = s.visible();
+    info.x_mirror       = s.x_mirror();
+    info.y_mirror       = s.y_mirror();
+    info.rotate         = s.rotate();
+    info.is_4bit        = s.is_4bit();
+    return info;
+}
