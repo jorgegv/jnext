@@ -57,6 +57,10 @@ if(ENABLE_QT_UI)
     add_subdirectory(src/gui)
 endif()
 
+if(ENABLE_DEBUGGER)
+    add_subdirectory(src/debugger)
+endif()
+
 add_executable(jnext src/main.cpp)
 
 # SDL2 linking: prefer SDL2-static when building statically.
@@ -77,6 +81,11 @@ target_include_directories(jnext PRIVATE src)
 if(ENABLE_QT_UI)
     target_link_libraries(jnext PRIVATE jnext_gui)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
+endif()
+
+if(ENABLE_DEBUGGER)
+    target_link_libraries(jnext PRIVATE jnext_debugger)
+    target_compile_definitions(jnext PRIVATE ENABLE_DEBUGGER)
 endif()
 
 if(ENABLE_TESTS)

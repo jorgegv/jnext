@@ -16,3 +16,8 @@ target_link_libraries(jnext_gui PUBLIC
     jnext_platform jnext_save)
 
 target_include_directories(jnext_gui PUBLIC ${CMAKE_SOURCE_DIR}/src)
+
+if(ENABLE_DEBUGGER)
+    target_link_libraries(jnext_gui PUBLIC jnext_debugger)
+    target_compile_definitions(jnext_gui PUBLIC ENABLE_DEBUGGER)
+endif()
