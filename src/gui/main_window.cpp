@@ -139,12 +139,22 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::toggle_fullscreen() {
     if (is_fullscreen_) {
+        // Restore chrome.
+        menuBar()->show();
+        for (QToolBar* tb : findChildren<QToolBar*>()) tb->show();
+        statusBar()->show();
+
         showNormal();
         is_fullscreen_ = false;
         emulator_widget_->set_fullscreen_mode(false);
         // Restore fixed windowed size.
         apply_fixed_window_size();
     } else {
+        // Hide chrome for true fullscreen.
+        menuBar()->hide();
+        for (QToolBar* tb : findChildren<QToolBar*>()) tb->hide();
+        statusBar()->hide();
+
         // Remove fixed-size constraint so the window can go fullscreen.
         setMinimumSize(0, 0);
         setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
@@ -429,6 +439,13 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             toggle_fullscreen();
             event->accept();
             return;
+        case Qt::Key_Escape:
+            if (is_fullscreen_) {
+                toggle_fullscreen();
+                event->accept();
+                return;
+            }
+            break;
         case Qt::Key_F2:
             cycle_scale();
             event->accept();
@@ -444,7 +461,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     // F11 and F2 release events can be silently consumed.
     if (!event->isAutoRepeat()) {
-        if (event->key() == Qt::Key_F11 || event->key() == Qt::Key_F2) {
+        if (event->key() == Qt::Key_F11 || event->key() == Qt::Key_F2
+            || event->key() == Qt::Key_Escape) {
             event->accept();
             return;
         }

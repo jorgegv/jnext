@@ -11,6 +11,7 @@ public:
     void upload_frame(const uint32_t* pixels, int w, int h);
     void present();
     void toggle_fullscreen();
+    bool is_fullscreen() const { return fullscreen_; }
     void set_scale(int scale);
     int  get_scale() const { return scale_; }
     void shutdown();
