@@ -47,10 +47,18 @@ void SdlAudio::push_from_mixer(Mixer& mixer)
     int avail = mixer.available();
     if (avail <= 0) return;
 
-    // Read all available samples from the mixer
+    // Read all available samples from the mixer ring buffer.
     std::vector<int16_t> buf(avail * 2);
     int got = mixer.read_samples(buf.data(), avail);
     if (got <= 0) return;
+
+    // If the device buffer is already large enough, skip pushing new data
+    // to let it drain naturally.  Never clear the queue — that causes clicks.
+    constexpr uint32_t max_queued = Mixer::SAMPLE_RATE * 2 * sizeof(int16_t) * 120 / 1000;
+    uint32_t queued = SDL_GetQueuedAudioSize(device_);
+    if (queued > max_queued) {
+        return;
+    }
 
     // Put into the audio stream (handles format conversion)
     SDL_AudioStreamPut(stream_, buf.data(), got * 2 * sizeof(int16_t));
@@ -63,12 +71,6 @@ void SdlAudio::push_from_mixer(Mixer& mixer)
         if (read > 0) {
             SDL_QueueAudio(device_, out.data(), read);
         }
-    }
-
-    // Prevent audio buffer from growing too large (more than ~80ms)
-    uint32_t queued = SDL_GetQueuedAudioSize(device_);
-    if (queued > Mixer::SAMPLE_RATE * 2 * sizeof(int16_t) * 80 / 1000) {
-        SDL_ClearQueuedAudio(device_);
     }
 }
 

@@ -36,10 +36,15 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     uint16_t pcm_L = ear + mic + ay_L + dac_L;  // 13-bit unsigned (0-5998 typical)
     uint16_t pcm_R = ear + mic + ay_R + dac_R;
 
-    // Convert 13-bit unsigned (0-8191) to signed 16-bit (-32768..32767).
-    // Center at midpoint: subtract 4096, then scale by 4.
-    int32_t sL = (static_cast<int32_t>(pcm_L) - 4096) * 4;
-    int32_t sR = (static_cast<int32_t>(pcm_R) - 4096) * 4;
+    // Convert to signed 16-bit.  Center at the resting DC level so that
+    // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
+    // all other sources = 0, so resting level is 1024.
+    // The real hardware has AC-coupled output (capacitor blocks DC); we
+    // replicate that by subtracting the resting level instead of the 13-bit
+    // midpoint.  Scale by 4 to use more of the int16 dynamic range.
+    constexpr int32_t DC_REST = 1024;  // DAC silence level in 13-bit space
+    int32_t sL = (static_cast<int32_t>(pcm_L) - DC_REST) * 4;
+    int32_t sR = (static_cast<int32_t>(pcm_R) - DC_REST) * 4;
 
     // Clamp to int16_t range
     sL = std::clamp(sL, static_cast<int32_t>(-32768), static_cast<int32_t>(32767));
