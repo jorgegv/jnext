@@ -33,6 +33,9 @@ public:
     /// Get the currently selected register number.
     uint8_t selected_register() const { return addr_ & 0x0F; }
 
+    /// Read a specific register value (for debugger introspection).
+    uint8_t read_register(uint8_t reg) const { return reg_[reg & 0x0F]; }
+
     /// Set AY mode (true) or YM mode (false).
     void set_ay_mode(bool ay) { ay_mode_ = ay; }
 

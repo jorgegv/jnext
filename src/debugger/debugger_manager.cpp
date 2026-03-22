@@ -6,6 +6,7 @@
 #include "debugger/sprite_panel.h"
 #include "debugger/copper_panel.h"
 #include "debugger/nextreg_panel.h"
+#include "debugger/audio_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -169,6 +170,14 @@ void DebuggerManager::create_panels() {
     main_window_->addDockWidget(Qt::LeftDockWidgetArea, nextreg_dock_);
     main_window_->tabifyDockWidget(copper_dock_, nextreg_dock_);
 
+    // Audio panel (left dock area, tabified)
+    audio_panel_ = new AudioPanel(emulator_);
+    audio_dock_ = new QDockWidget(QObject::tr("Audio"), main_window_);
+    audio_dock_->setWidget(audio_panel_);
+    audio_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::LeftDockWidgetArea, audio_dock_);
+    main_window_->tabifyDockWidget(nextreg_dock_, audio_dock_);
+
     // Raise the video panel tab by default
     video_dock_->raise();
 }
@@ -259,6 +268,7 @@ void DebuggerManager::refresh_panels() {
         if (sprite_panel_) sprite_panel_->refresh();
         if (copper_panel_) copper_panel_->refresh();
         if (nextreg_panel_) nextreg_panel_->refresh();
+        if (audio_panel_) audio_panel_->refresh();
     };
 
     if (emulator_->debug_state().paused()) {

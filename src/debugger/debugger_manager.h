@@ -14,6 +14,7 @@ class VideoPanel;
 class SpritePanel;
 class CopperPanel;
 class NextRegPanel;
+class AudioPanel;
 
 /// Manages all debugger panels, menus, and toolbar.
 /// Created by MainWindow when ENABLE_DEBUGGER is defined.
@@ -74,6 +75,8 @@ private:
     QDockWidget* copper_dock_ = nullptr;
     NextRegPanel* nextreg_panel_ = nullptr;
     QDockWidget* nextreg_dock_ = nullptr;
+    AudioPanel* audio_panel_ = nullptr;
+    QDockWidget* audio_dock_ = nullptr;
 
     // Refresh throttle
     int refresh_counter_ = 0;
