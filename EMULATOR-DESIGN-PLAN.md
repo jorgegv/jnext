@@ -769,7 +769,7 @@ endif()
   - [x] YM2149
   - [x] DAC
   - [x] Beeper
-- [ ] Verify all works ok:
+- [x] Verify all works ok:
   - [x] YM2149
   - [-] DAC - **deferred**
   - [x] Beeper
