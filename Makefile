@@ -12,7 +12,8 @@ CYAN  := \033[36m
 RESET := \033[0m
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
-       gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean
+       gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
+       kloc-count
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -100,3 +101,16 @@ gui-clean: gui-debug-clean gui-release-clean
 
 # Remove all build directories
 clean: debug-clean release-clean gui-clean
+
+# Count lines of code (excluding comments and blanks), per directory and total
+kloc-count:
+	printf "\n$(BOLD)Lines of code (excluding comments and blank lines):$(RESET)\n\n"
+	total=0; \
+	for dir in src/core src/cpu src/memory src/video src/audio src/port src/peripheral src/input src/platform src/debug src/debugger src/gui src/save test; do \
+		if [ -d "$$dir" ]; then \
+			count=$$(find $$dir -name '*.cpp' -o -name '*.h' | xargs grep -v '^\s*$$' | grep -v '^\s*//' | grep -v '^\s*/\*' | grep -v '^\s*\*' | wc -l); \
+			printf "  $(CYAN)$(BOLD)%-30s$(RESET) %6d\n" "$$dir" "$$count"; \
+			total=$$((total + count)); \
+		fi; \
+	done; \
+	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
