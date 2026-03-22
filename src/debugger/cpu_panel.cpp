@@ -4,6 +4,7 @@
 
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QFrame>
 #include <QFont>
 #include <QString>
@@ -23,95 +24,98 @@ void CpuPanel::create_ui() {
     QFont mono_bold = mono;
     mono_bold.setBold(true);
 
-    auto* layout = new QGridLayout(this);
-    layout->setSpacing(4);
-    layout->setContentsMargins(8, 8, 8, 8);
+    auto* top_layout = new QVBoxLayout(this);
+    top_layout->setSpacing(4);
+    top_layout->setContentsMargins(8, 8, 8, 8);
 
-    int row = 0;
+    // --- Top row: 4 register groups side by side ---
+    auto* regs_row = new QHBoxLayout();
+    regs_row->setSpacing(24);
 
-    // Helper to add a register row: name label (bold) + value label.
-    auto add_reg = [&](const char* name, QLabel*& value_label) {
+    // Helper: create a QGridLayout group and add register rows to it.
+    // Returns the grid so caller can add more if needed.
+    auto make_group = [&]() -> QGridLayout* {
+        auto* grid = new QGridLayout();
+        grid->setSpacing(2);
+        grid->setContentsMargins(0, 0, 0, 0);
+        return grid;
+    };
+
+    int grow; // grid row counter, reused per group
+
+    // Helper to add a register row into a specific grid.
+    auto add_reg = [&](QGridLayout* grid, int& r, const char* name, QLabel*& value_label) {
         auto* name_lbl = new QLabel(name, this);
         name_lbl->setFont(mono_bold);
         name_lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        layout->addWidget(name_lbl, row, 0);
+        grid->addWidget(name_lbl, r, 0);
 
         value_label = new QLabel("----", this);
         value_label->setFont(mono);
         value_label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        layout->addWidget(value_label, row, 1);
-        ++row;
+        grid->addWidget(value_label, r, 1);
+        ++r;
     };
 
-    // Main registers
-    add_reg("AF", reg_af_);
-    add_reg("BC", reg_bc_);
-    add_reg("DE", reg_de_);
-    add_reg("HL", reg_hl_);
+    // Group 1: AF/BC/DE/HL
+    auto* g1 = make_group();
+    grow = 0;
+    add_reg(g1, grow, "AF", reg_af_);
+    add_reg(g1, grow, "BC", reg_bc_);
+    add_reg(g1, grow, "DE", reg_de_);
+    add_reg(g1, grow, "HL", reg_hl_);
+    regs_row->addLayout(g1);
 
-    // Separator
-    auto* sep1 = new QFrame(this);
-    sep1->setFrameShape(QFrame::HLine);
-    sep1->setFrameShadow(QFrame::Sunken);
-    layout->addWidget(sep1, row, 0, 1, 2);
-    ++row;
+    // Group 2: AF'/BC'/DE'/HL'
+    auto* g2 = make_group();
+    grow = 0;
+    add_reg(g2, grow, "AF'", reg_af2_);
+    add_reg(g2, grow, "BC'", reg_bc2_);
+    add_reg(g2, grow, "DE'", reg_de2_);
+    add_reg(g2, grow, "HL'", reg_hl2_);
+    regs_row->addLayout(g2);
 
-    // Alternate registers
-    add_reg("AF'", reg_af2_);
-    add_reg("BC'", reg_bc2_);
-    add_reg("DE'", reg_de2_);
-    add_reg("HL'", reg_hl2_);
+    // Group 3: IX/IY/SP/PC
+    auto* g3 = make_group();
+    grow = 0;
+    add_reg(g3, grow, "IX", reg_ix_);
+    add_reg(g3, grow, "IY", reg_iy_);
+    add_reg(g3, grow, "SP", reg_sp_);
+    add_reg(g3, grow, "PC", reg_pc_);
+    regs_row->addLayout(g3);
 
-    // Separator
-    auto* sep2 = new QFrame(this);
-    sep2->setFrameShape(QFrame::HLine);
-    sep2->setFrameShadow(QFrame::Sunken);
-    layout->addWidget(sep2, row, 0, 1, 2);
-    ++row;
+    // Group 4: I/R/IFF/IM
+    auto* g4 = make_group();
+    grow = 0;
+    add_reg(g4, grow, "I", reg_i_);
+    add_reg(g4, grow, "R", reg_r_);
+    add_reg(g4, grow, "IFF", reg_iff_);
+    add_reg(g4, grow, "IM", reg_im_);
+    regs_row->addLayout(g4);
 
-    // Index and pointer registers
-    add_reg("IX", reg_ix_);
-    add_reg("IY", reg_iy_);
-    add_reg("SP", reg_sp_);
-    add_reg("PC", reg_pc_);
+    regs_row->addStretch();
+    top_layout->addLayout(regs_row);
 
-    // Separator
-    auto* sep3 = new QFrame(this);
-    sep3->setFrameShape(QFrame::HLine);
-    sep3->setFrameShadow(QFrame::Sunken);
-    layout->addWidget(sep3, row, 0, 1, 2);
-    ++row;
+    // --- Separator ---
+    auto* sep = new QFrame(this);
+    sep->setFrameShape(QFrame::HLine);
+    sep->setFrameShadow(QFrame::Sunken);
+    top_layout->addWidget(sep);
 
-    // Control registers
-    add_reg("I", reg_i_);
-    add_reg("R", reg_r_);
-    add_reg("IFF", reg_iff_);
-    add_reg("IM", reg_im_);
+    // --- Bottom row: Flags + State ---
+    auto* bottom_row = new QHBoxLayout();
+    bottom_row->setSpacing(6);
 
-    // Separator
-    auto* sep4 = new QFrame(this);
-    sep4->setFrameShape(QFrame::HLine);
-    sep4->setFrameShadow(QFrame::Sunken);
-    layout->addWidget(sep4, row, 0, 1, 2);
-    ++row;
-
-    // Flags row
     auto* flags_lbl = new QLabel("Flags", this);
     flags_lbl->setFont(mono_bold);
-    flags_lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    layout->addWidget(flags_lbl, row, 0);
-
-    auto* flags_container = new QWidget(this);
-    auto* flags_layout = new QHBoxLayout(flags_container);
-    flags_layout->setContentsMargins(0, 0, 0, 0);
-    flags_layout->setSpacing(6);
+    bottom_row->addWidget(flags_lbl);
 
     auto make_flag = [&](const char* name) -> QLabel* {
-        auto* lbl = new QLabel(name, flags_container);
+        auto* lbl = new QLabel(name, this);
         lbl->setFont(mono);
         lbl->setAlignment(Qt::AlignCenter);
         lbl->setMinimumWidth(20);
-        flags_layout->addWidget(lbl);
+        bottom_row->addWidget(lbl);
         return lbl;
     };
 
@@ -121,27 +125,24 @@ void CpuPanel::create_ui() {
     flag_pv_ = make_flag("PV");
     flag_n_  = make_flag("N");
     flag_c_  = make_flag("C");
-    flags_layout->addStretch();
 
-    layout->addWidget(flags_container, row, 1);
-    ++row;
+    bottom_row->addSpacing(20);
 
-    // Halted indicator
-    auto* halt_name = new QLabel("State", this);
-    halt_name->setFont(mono_bold);
-    halt_name->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    layout->addWidget(halt_name, row, 0);
+    auto* state_lbl = new QLabel("State", this);
+    state_lbl->setFont(mono_bold);
+    bottom_row->addWidget(state_lbl);
 
     reg_halted_ = new QLabel("Running", this);
     reg_halted_->setFont(mono);
-    reg_halted_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    layout->addWidget(reg_halted_, row, 1);
-    ++row;
+    bottom_row->addWidget(reg_halted_);
+
+    bottom_row->addStretch();
+    top_layout->addLayout(bottom_row);
 
     // Push everything to the top.
-    layout->setRowStretch(row, 1);
+    top_layout->addStretch();
 
-    setMinimumWidth(200);
+    setMinimumWidth(380);
 }
 
 void CpuPanel::refresh() {

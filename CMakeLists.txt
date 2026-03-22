@@ -20,7 +20,7 @@ if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
 endif()
 
 option(ENABLE_TESTS    "Build unit tests"       ON)
-option(ENABLE_DEBUGGER "Include Qt debugger UI" OFF)
+option(ENABLE_DEBUGGER "Include Qt debugger UI" ON)
 option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
 option(STATIC_BUILD    "Link statically (requires static SDL2/Qt6 builds)" OFF)

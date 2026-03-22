@@ -112,7 +112,7 @@ void MemoryPanel::refresh() {
 }
 
 QSize MemoryPanel::sizeHint() const {
-    return QSize(620, 450);
+    return QSize(620, 550);
 }
 
 // ---------------------------------------------------------------------------

@@ -3,9 +3,11 @@
 #include "core/emulator.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
+#include "debugger/debugger_window.h"
 #endif
 
 #include <QKeyEvent>
+#include <QMoveEvent>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
@@ -145,9 +147,7 @@ void MainWindow::set_emulator(Emulator* emu) {
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, emu, this);
-        // With debugger panels, the window needs to be resizable.
-        setMinimumSize(size());
-        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        // Debugger starts disabled — main window stays fixed-size.
     }
 #endif
 }
@@ -300,12 +300,9 @@ void MainWindow::create_menus() {
     view_menu->addSeparator();
 
     fullscreen_action_ = view_menu->addAction(tr("&Fullscreen"));
-#ifdef ENABLE_DEBUGGER
-    // When debugger is active, F11 = Step Into; use Ctrl+F11 for fullscreen.
-    fullscreen_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F11));
-#else
+    // F11 toggles fullscreen; when debugger is enabled, F11 is intercepted
+    // for Step Into and Ctrl+F11 is used for fullscreen instead (handled in keyPressEvent).
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
-#endif
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
 
@@ -489,8 +486,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         Qt::KeyboardModifiers modifiers = event->modifiers();
 
 #ifdef ENABLE_DEBUGGER
-        // When debugger is active, intercept debug shortcuts.
-        if (debugger_mgr_) {
+        // When debugger is enabled, intercept debug shortcuts.
+        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
             if (key == Qt::Key_F5) {
                 debugger_mgr_->on_run();
                 event->accept();
@@ -512,13 +509,13 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 return;
             }
             if (key == Qt::Key_F11 && (modifiers & Qt::ControlModifier)) {
-                // Ctrl+F11 = Fullscreen when debugger is active.
+                // Ctrl+F11 = Fullscreen when debugger is enabled.
                 toggle_fullscreen();
                 event->accept();
                 return;
             }
             if (key == Qt::Key_F11) {
-                // F11 = Step Into when debugger is active.
+                // F11 = Step Into when debugger is enabled.
                 debugger_mgr_->on_step_into();
                 event->accept();
                 return;
@@ -559,7 +556,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
             return;
         }
 #ifdef ENABLE_DEBUGGER
-        if (debugger_mgr_) {
+        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
             if (key == Qt::Key_F5 || key == Qt::Key_F9 || key == Qt::Key_F10) {
                 event->accept();
                 return;
@@ -585,4 +582,23 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     } else {
         QMainWindow::keyPressEvent(static_cast<QKeyEvent*>(event));
     }
+}
+
+void MainWindow::moveEvent(QMoveEvent* event) {
+    QMainWindow::moveEvent(event);
+    reposition_debugger_window();
+}
+
+void MainWindow::reposition_debugger_window() {
+#ifdef ENABLE_DEBUGGER
+    if (!debugger_mgr_)
+        return;
+    auto* dbg_win = debugger_mgr_->debugger_window_ptr();
+    if (!dbg_win || !dbg_win->isVisible())
+        return;
+
+    // Stick the debugger window to the right edge of the main window, top-aligned.
+    QRect mg = frameGeometry();
+    dbg_win->move(mg.x() + mg.width(), mg.y());
+#endif
 }

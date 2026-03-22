@@ -1,12 +1,6 @@
 #include "debugger/debugger_manager.h"
-#include "debugger/cpu_panel.h"
+#include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
-#include "debugger/memory_panel.h"
-#include "debugger/video_panel.h"
-#include "debugger/sprite_panel.h"
-#include "debugger/copper_panel.h"
-#include "debugger/nextreg_panel.h"
-#include "debugger/audio_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -14,7 +8,6 @@
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QToolBar>
-#include <QDockWidget>
 #include <QAction>
 #include <QStyle>
 
@@ -23,16 +16,84 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, Q
     , main_window_(main_window)
     , emulator_(emulator)
 {
-    // Activate the debug state so breakpoint checks run in the hot loop.
-    emulator_->debug_state().set_active(true);
+    // Start with debugger DISABLED — no performance impact.
+    emulator_->debug_state().set_active(false);
 
     create_debug_menu();
     create_debug_toolbar();
-    create_panels();
 
-    // Start in running state.
     was_paused_ = false;
     update_actions();
+}
+
+// ---------------------------------------------------------------------------
+// Enable / Disable
+// ---------------------------------------------------------------------------
+
+void DebuggerManager::set_enabled(bool enabled) {
+    if (enabled_ == enabled)
+        return;
+
+    enabled_ = enabled;
+
+    if (enabled) {
+        // Activate debug checks in the hot loop.
+        emulator_->debug_state().set_active(true);
+
+        // Create the debugger window lazily.
+        ensure_window();
+        debugger_window_->position_next_to(main_window_);
+        debugger_window_->show();
+        debugger_window_->raise();
+        debugger_window_->activateWindow();
+
+        // Refresh panels immediately.
+        debugger_window_->refresh_panels();
+    } else {
+        // Resume if paused, then deactivate.
+        if (emulator_->debug_state().paused()) {
+            emulator_->debug_state().resume();
+            was_paused_ = false;
+            emit resumed();
+        }
+
+        emulator_->debug_state().set_active(false);
+
+        if (debugger_window_) {
+            debugger_window_->save_position();
+            debugger_window_->hide();
+        }
+    }
+
+    // Sync the menu checkmark.
+    if (enable_action_)
+        enable_action_->setChecked(enabled);
+
+    update_actions();
+    emit enabled_changed(enabled);
+}
+
+void DebuggerManager::ensure_window() {
+    if (debugger_window_)
+        return;
+
+    debugger_window_ = new DebuggerWindow(emulator_, nullptr);
+    debugger_window_->set_debugger_manager(this);
+
+    // Closing the debugger window disables the debugger.
+    connect(debugger_window_, &DebuggerWindow::window_closed, this, [this]() {
+        set_enabled(false);
+    });
+
+    // Wire disasm panel "run to" signal.
+    if (auto* dp = debugger_window_->disasm_panel()) {
+        connect(dp, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
+            emulator_->debug_state().run_to(addr);
+            was_paused_ = false;
+            emit resumed();
+            update_actions();
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -40,41 +101,74 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, Q
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::create_debug_menu() {
-    // Insert Debug menu before the Help menu.
     QMenuBar* bar = main_window_->menuBar();
-    QMenu* debug_menu = new QMenu(QObject::tr("&Debug"), bar);
 
-    // Find the Help menu to insert before it.
-    QAction* before_action = nullptr;
+    // Find the existing Debug menu (created by MainWindow with trace items).
+    QMenu* debug_menu = nullptr;
     for (QAction* a : bar->actions()) {
-        if (a->text().contains("Help", Qt::CaseInsensitive)) {
-            before_action = a;
+        if (a->text().contains("Debug", Qt::CaseInsensitive) && a->menu()) {
+            debug_menu = a->menu();
             break;
         }
     }
-    bar->insertMenu(before_action, debug_menu);
 
-    run_action_ = debug_menu->addAction(QObject::tr("&Run / Continue"));
+    // If no existing Debug menu, create one before Help.
+    if (!debug_menu) {
+        debug_menu = new QMenu(QObject::tr("&Debug"), bar);
+        QAction* before_action = nullptr;
+        for (QAction* a : bar->actions()) {
+            if (a->text().contains("Help", Qt::CaseInsensitive)) {
+                before_action = a;
+                break;
+            }
+        }
+        bar->insertMenu(before_action, debug_menu);
+    }
+
+    // Insert debugger actions at the top of the menu (before existing trace items).
+    QAction* first_action = debug_menu->actions().isEmpty() ? nullptr : debug_menu->actions().first();
+
+    // Enable/Disable Debugger (checkable toggle)
+    enable_action_ = new QAction(QObject::tr("Enable &Debugger"), debug_menu);
+    enable_action_->setCheckable(true);
+    enable_action_->setChecked(false);
+    enable_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    connect(enable_action_, &QAction::triggered, this, [this](bool checked) {
+        set_enabled(checked);
+    });
+    debug_menu->insertAction(first_action, enable_action_);
+
+    debug_menu->insertSeparator(first_action);
+
+    run_action_ = new QAction(QObject::tr("&Run / Continue"), debug_menu);
     run_action_->setShortcut(QKeySequence(Qt::Key_F5));
     connect(run_action_, &QAction::triggered, this, &DebuggerManager::on_run);
+    debug_menu->insertAction(first_action, run_action_);
 
-    pause_action_ = debug_menu->addAction(QObject::tr("&Pause"));
+    pause_action_ = new QAction(QObject::tr("&Pause"), debug_menu);
     pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
     connect(pause_action_, &QAction::triggered, this, &DebuggerManager::on_pause);
+    debug_menu->insertAction(first_action, pause_action_);
 
-    debug_menu->addSeparator();
+    debug_menu->insertSeparator(first_action);
 
-    step_into_action_ = debug_menu->addAction(QObject::tr("Step &Into"));
+    step_into_action_ = new QAction(QObject::tr("Step &Into"), debug_menu);
     step_into_action_->setShortcut(QKeySequence(Qt::Key_F11));
     connect(step_into_action_, &QAction::triggered, this, &DebuggerManager::on_step_into);
+    debug_menu->insertAction(first_action, step_into_action_);
 
-    step_over_action_ = debug_menu->addAction(QObject::tr("Step &Over"));
+    step_over_action_ = new QAction(QObject::tr("Step &Over"), debug_menu);
     step_over_action_->setShortcut(QKeySequence(Qt::Key_F10));
     connect(step_over_action_, &QAction::triggered, this, &DebuggerManager::on_step_over);
+    debug_menu->insertAction(first_action, step_over_action_);
 
-    step_out_action_ = debug_menu->addAction(QObject::tr("Step Ou&t"));
+    step_out_action_ = new QAction(QObject::tr("Step Ou&t"), debug_menu);
     step_out_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11));
     connect(step_out_action_, &QAction::triggered, this, &DebuggerManager::on_step_out);
+    debug_menu->insertAction(first_action, step_out_action_);
+
+    // Separator before trace submenu
+    debug_menu->insertSeparator(first_action);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +178,21 @@ void DebuggerManager::create_debug_menu() {
 void DebuggerManager::create_debug_toolbar() {
     debug_toolbar_ = main_window_->addToolBar(QObject::tr("Debug"));
     debug_toolbar_->setMovable(false);
+
+    // Debugger enable toggle button
+    QAction* dbg_toggle = debug_toolbar_->addAction(
+        main_window_->style()->standardIcon(QStyle::SP_ComputerIcon),
+        QObject::tr("Debugger"));
+    dbg_toggle->setCheckable(true);
+    dbg_toggle->setChecked(false);
+    dbg_toggle->setToolTip(QObject::tr("Enable/Disable Debugger (Ctrl+D)"));
+    connect(dbg_toggle, &QAction::triggered, this, [this](bool checked) {
+        set_enabled(checked);
+    });
+    // Keep in sync with enable_action_
+    connect(this, &DebuggerManager::enabled_changed, dbg_toggle, &QAction::setChecked);
+
+    debug_toolbar_->addSeparator();
 
     QAction* run_btn = debug_toolbar_->addAction(
         main_window_->style()->standardIcon(QStyle::SP_MediaPlay), QObject::tr("Run"));
@@ -106,87 +215,11 @@ void DebuggerManager::create_debug_toolbar() {
 }
 
 // ---------------------------------------------------------------------------
-// Panels
-// ---------------------------------------------------------------------------
-
-void DebuggerManager::create_panels() {
-    // CPU registers panel (right dock area)
-    cpu_panel_ = new CpuPanel(emulator_);
-    cpu_dock_ = new QDockWidget(QObject::tr("CPU Registers"), main_window_);
-    cpu_dock_->setWidget(cpu_panel_);
-    cpu_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::RightDockWidgetArea, cpu_dock_);
-
-    // Disassembly panel (right dock area, below CPU)
-    disasm_panel_ = new DisasmPanel(emulator_);
-    disasm_dock_ = new QDockWidget(QObject::tr("Disassembly"), main_window_);
-    disasm_dock_->setWidget(disasm_panel_);
-    disasm_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::RightDockWidgetArea, disasm_dock_);
-
-    // Memory panel (bottom dock area)
-    memory_panel_ = new MemoryPanel(emulator_);
-    memory_dock_ = new QDockWidget(QObject::tr("Memory"), main_window_);
-    memory_dock_->setWidget(memory_panel_);
-    memory_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
-    main_window_->addDockWidget(Qt::BottomDockWidgetArea, memory_dock_);
-
-    // Connect disasm panel signals
-    connect(disasm_panel_, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
-        emulator_->debug_state().run_to(addr);
-        was_paused_ = false;
-        emit resumed();
-        update_actions();
-    });
-
-    // Video panel (left dock area)
-    video_panel_ = new VideoPanel(emulator_);
-    video_dock_ = new QDockWidget(QObject::tr("Video"), main_window_);
-    video_dock_->setWidget(video_panel_);
-    video_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::LeftDockWidgetArea, video_dock_);
-
-    // Sprite panel (left dock area, tabified with video)
-    sprite_panel_ = new SpritePanel(emulator_);
-    sprite_dock_ = new QDockWidget(QObject::tr("Sprites"), main_window_);
-    sprite_dock_->setWidget(sprite_panel_);
-    sprite_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::LeftDockWidgetArea, sprite_dock_);
-    main_window_->tabifyDockWidget(video_dock_, sprite_dock_);
-
-    // Copper panel (left dock area, tabified)
-    copper_panel_ = new CopperPanel(emulator_);
-    copper_dock_ = new QDockWidget(QObject::tr("Copper"), main_window_);
-    copper_dock_->setWidget(copper_panel_);
-    copper_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::LeftDockWidgetArea, copper_dock_);
-    main_window_->tabifyDockWidget(sprite_dock_, copper_dock_);
-
-    // NextREG panel (left dock area, tabified)
-    nextreg_panel_ = new NextRegPanel(emulator_);
-    nextreg_dock_ = new QDockWidget(QObject::tr("NextREG"), main_window_);
-    nextreg_dock_->setWidget(nextreg_panel_);
-    nextreg_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::LeftDockWidgetArea, nextreg_dock_);
-    main_window_->tabifyDockWidget(copper_dock_, nextreg_dock_);
-
-    // Audio panel (left dock area, tabified)
-    audio_panel_ = new AudioPanel(emulator_);
-    audio_dock_ = new QDockWidget(QObject::tr("Audio"), main_window_);
-    audio_dock_->setWidget(audio_panel_);
-    audio_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    main_window_->addDockWidget(Qt::LeftDockWidgetArea, audio_dock_);
-    main_window_->tabifyDockWidget(nextreg_dock_, audio_dock_);
-
-    // Raise the video panel tab by default
-    video_dock_->raise();
-}
-
-// ---------------------------------------------------------------------------
 // Debug control slots
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::on_run() {
+    if (!enabled_) return;
     emulator_->debug_state().resume();
     was_paused_ = false;
     emit resumed();
@@ -194,30 +227,39 @@ void DebuggerManager::on_run() {
 }
 
 void DebuggerManager::on_pause() {
+    if (!enabled_) return;
     emulator_->debug_state().pause();
     was_paused_ = true;
     emit paused();
-    refresh_panels();
+    if (debugger_window_) {
+        debugger_window_->activate_follow_pc();
+        debugger_window_->refresh_panels();
+    }
     update_actions();
 }
 
 void DebuggerManager::on_step_into() {
-    // Ensure paused first.
+    if (!enabled_) return;
+
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
     }
 
     emulator_->execute_single_instruction();
 
-    // Re-pause after the single step.
     emulator_->debug_state().pause();
     was_paused_ = true;
     emit paused();
-    refresh_panels();
+    if (debugger_window_) {
+        debugger_window_->activate_follow_pc();
+        debugger_window_->refresh_panels();
+    }
     update_actions();
 }
 
 void DebuggerManager::on_step_over() {
+    if (!enabled_) return;
+
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
     }
@@ -225,7 +267,6 @@ void DebuggerManager::on_step_over() {
     auto regs = emulator_->cpu().get_registers();
     uint16_t pc = regs.PC;
 
-    // Read memory via the MMU for disassembly.
     auto read_fn = [this](uint16_t addr) -> uint8_t {
         return emulator_->mmu().read(addr);
     };
@@ -238,12 +279,13 @@ void DebuggerManager::on_step_over() {
         emit resumed();
         update_actions();
     } else {
-        // Not a call — just step into.
         on_step_into();
     }
 }
 
 void DebuggerManager::on_step_out() {
+    if (!enabled_) return;
+
     if (!emulator_->debug_state().paused()) {
         emulator_->debug_state().pause();
     }
@@ -260,38 +302,35 @@ void DebuggerManager::on_step_out() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::refresh_panels() {
-    auto do_refresh = [this]() {
-        if (cpu_panel_) cpu_panel_->refresh();
-        if (disasm_panel_) disasm_panel_->refresh();
-        if (memory_panel_) memory_panel_->refresh();
-        if (video_panel_) video_panel_->refresh();
-        if (sprite_panel_) sprite_panel_->refresh();
-        if (copper_panel_) copper_panel_->refresh();
-        if (nextreg_panel_) nextreg_panel_->refresh();
-        if (audio_panel_) audio_panel_->refresh();
-    };
+    if (!enabled_ || !debugger_window_)
+        return;
 
     if (emulator_->debug_state().paused()) {
-        // Always refresh when paused.
-        do_refresh();
+        debugger_window_->refresh_panels();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
-            do_refresh();
+            debugger_window_->refresh_panels();
         }
     }
 }
 
 void DebuggerManager::check_breakpoint_hit() {
+    if (!enabled_)
+        return;
+
     bool is_paused = emulator_->debug_state().paused();
 
     // Detect transition from running to paused (breakpoint hit during run_frame).
     if (is_paused && !was_paused_) {
         was_paused_ = true;
         emit paused();
-        refresh_panels();
+        if (debugger_window_) {
+            debugger_window_->activate_follow_pc();
+            debugger_window_->refresh_panels();
+        }
         update_actions();
     }
 }
@@ -301,11 +340,12 @@ void DebuggerManager::check_breakpoint_hit() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::update_actions() {
-    bool is_paused = emulator_->debug_state().paused();
+    bool is_paused = enabled_ && emulator_->debug_state().paused();
 
-    if (run_action_)       run_action_->setEnabled(is_paused);
-    if (pause_action_)     pause_action_->setEnabled(!is_paused);
-    if (step_into_action_) step_into_action_->setEnabled(is_paused);
-    if (step_over_action_) step_over_action_->setEnabled(is_paused);
-    if (step_out_action_)  step_out_action_->setEnabled(is_paused);
+    // Debug control actions only available when debugger is enabled.
+    if (run_action_)       run_action_->setEnabled(enabled_ && is_paused);
+    if (pause_action_)     pause_action_->setEnabled(enabled_ && !is_paused);
+    if (step_into_action_) step_into_action_->setEnabled(enabled_ && is_paused);
+    if (step_over_action_) step_over_action_->setEnabled(enabled_ && is_paused);
+    if (step_out_action_)  step_out_action_->setEnabled(enabled_ && is_paused);
 }

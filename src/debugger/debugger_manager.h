@@ -1,35 +1,37 @@
 #pragma once
 
 #include <QObject>
-#include <QDockWidget>
 #include <QAction>
 #include <QToolBar>
 
 class Emulator;
 class QMainWindow;
-class CpuPanel;
-class DisasmPanel;
-class MemoryPanel;
-class VideoPanel;
-class SpritePanel;
-class CopperPanel;
-class NextRegPanel;
-class AudioPanel;
+class DebuggerWindow;
 
-/// Manages all debugger panels, menus, and toolbar.
+/// Manages the debugger enable/disable state, debug menu actions, toolbar,
+/// and the separate debugger window with all panels.
 /// Created by MainWindow when ENABLE_DEBUGGER is defined.
 class DebuggerManager : public QObject {
     Q_OBJECT
 public:
     explicit DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent = nullptr);
 
+    /// Is the debugger currently enabled (window visible, breakpoint checks active)?
+    bool is_enabled() const { return enabled_; }
+
+    /// Enable or disable the debugger at runtime.
+    void set_enabled(bool enabled);
+
     /// Refresh all visible panels with current emulator state.
-    /// Called from on_frame_tick() at ~4Hz during run, immediately on step/breakpoint.
+    /// Called from on_frame_tick() — does nothing when debugger is disabled.
     void refresh_panels();
 
     /// Check if debugger has caused a pause (breakpoint hit etc.)
-    /// and emit appropriate signals.
+    /// and emit appropriate signals. Does nothing when disabled.
     void check_breakpoint_hit();
+
+    /// Access the debugger window (may be null if not yet created).
+    DebuggerWindow* debugger_window_ptr() const { return debugger_window_; }
 
 public slots:
     void on_run();
@@ -41,17 +43,26 @@ public slots:
 signals:
     void paused();
     void resumed();
+    void enabled_changed(bool enabled);
 
 private:
     void create_debug_menu();
     void create_debug_toolbar();
-    void create_panels();
-    void update_actions(); // enable/disable actions based on pause state
+    void ensure_window();
+    void update_actions();
 
     QMainWindow* main_window_;
     Emulator* emulator_;
 
-    // Actions
+    bool enabled_ = false;
+
+    // The separate debugger window (created lazily on first enable)
+    DebuggerWindow* debugger_window_ = nullptr;
+
+    // Enable/disable action
+    QAction* enable_action_ = nullptr;
+
+    // Debug control actions (in the main window's Debug menu)
     QAction* run_action_ = nullptr;
     QAction* pause_action_ = nullptr;
     QAction* step_into_action_ = nullptr;
@@ -60,27 +71,9 @@ private:
 
     QToolBar* debug_toolbar_ = nullptr;
 
-    // Panels
-    CpuPanel* cpu_panel_ = nullptr;
-    QDockWidget* cpu_dock_ = nullptr;
-    DisasmPanel* disasm_panel_ = nullptr;
-    QDockWidget* disasm_dock_ = nullptr;
-    MemoryPanel* memory_panel_ = nullptr;
-    QDockWidget* memory_dock_ = nullptr;
-    VideoPanel* video_panel_ = nullptr;
-    QDockWidget* video_dock_ = nullptr;
-    SpritePanel* sprite_panel_ = nullptr;
-    QDockWidget* sprite_dock_ = nullptr;
-    CopperPanel* copper_panel_ = nullptr;
-    QDockWidget* copper_dock_ = nullptr;
-    NextRegPanel* nextreg_panel_ = nullptr;
-    QDockWidget* nextreg_dock_ = nullptr;
-    AudioPanel* audio_panel_ = nullptr;
-    QDockWidget* audio_dock_ = nullptr;
-
     // Refresh throttle
     int refresh_counter_ = 0;
-    static constexpr int REFRESH_INTERVAL = 12; // refresh every 12 frames ~ 4Hz at 50Hz
+    static constexpr int REFRESH_INTERVAL = 12;
 
     // Track previous pause state for breakpoint detection
     bool was_paused_ = false;

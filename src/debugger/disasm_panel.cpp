@@ -53,7 +53,7 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     // Calculate paint offset (top bar height)
     paint_y_offset_ = 28; // approximate top bar height
 
-    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 300,
+    setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                    VISIBLE_LINES * LINE_HEIGHT + paint_y_offset_);
     setFocusPolicy(Qt::StrongFocus);
 
@@ -115,11 +115,61 @@ void DisasmPanel::refresh()
     uint16_t pc = emulator_->cpu().get_registers().PC;
 
     if (follow_pc_->isChecked()) {
-        view_addr_ = pc;
+        // Disassemble starting from PC so it always appears at the center.
+        // We show VISIBLE_LINES/2 lines before PC and VISIBLE_LINES/2 lines after.
+        int half = VISIBLE_LINES / 2;
+
+        // To find a good starting address before PC, try scanning back using heuristic
+        // then disassemble forward to find where PC lands, and adjust.
+        int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
+        uint16_t start = (pc >= bytes_back) ? (pc - bytes_back) : 0;
+
+        // Disassemble from start to find the entry that matches PC
+        auto read_fn = [this](uint16_t a) -> uint8_t {
+            return emulator_->mmu().read(a);
+        };
+
+        // Disassemble enough lines to cover the range
+        int extra_lines = VISIBLE_LINES + half + 10;
+        std::vector<uint16_t> addrs;
+        addrs.reserve(extra_lines);
+        uint16_t cur = start;
+        for (int i = 0; i < extra_lines; ++i) {
+            addrs.push_back(cur);
+            int len = instruction_length(cur, read_fn);
+            cur = static_cast<uint16_t>(cur + len);
+        }
+
+        // Find the index of PC in the address list
+        int pc_idx = -1;
+        for (int i = 0; i < static_cast<int>(addrs.size()); ++i) {
+            if (addrs[i] == pc) {
+                pc_idx = i;
+                break;
+            }
+        }
+
+        if (pc_idx >= 0) {
+            // Set view_addr_ so that PC appears at line `half`
+            int start_idx = pc_idx - half;
+            if (start_idx < 0) start_idx = 0;
+            if (start_idx < static_cast<int>(addrs.size()))
+                view_addr_ = addrs[start_idx];
+            else
+                view_addr_ = pc;
+        } else {
+            // PC not found in scan — just start from PC directly
+            view_addr_ = pc;
+        }
     }
 
     disassemble_from(view_addr_, VISIBLE_LINES);
     update();
+}
+
+void DisasmPanel::activate_follow_pc()
+{
+    follow_pc_->setChecked(true);
 }
 
 uint16_t DisasmPanel::selected_address() const
@@ -424,6 +474,6 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
 QSize DisasmPanel::sizeHint() const
 {
-    return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 300,
+    return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                  VISIBLE_LINES * LINE_HEIGHT + paint_y_offset_);
 }
