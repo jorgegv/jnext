@@ -38,6 +38,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 private:
     /// Software-scale native_ into scaled_ at the current scale factor.

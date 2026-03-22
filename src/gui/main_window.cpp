@@ -3,6 +3,7 @@
 #include "core/emulator.h"
 
 #include <QKeyEvent>
+#include <QShowEvent>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
@@ -410,6 +411,13 @@ void MainWindow::on_about() {
 // ---------------------------------------------------------------------------
 // Key event handling
 // ---------------------------------------------------------------------------
+
+void MainWindow::showEvent(QShowEvent* event) {
+    QMainWindow::showEvent(event);
+    // Re-apply scale now that the window is on a real screen and
+    // EmulatorWidget::devicePixelRatioF() returns the correct value.
+    set_scale(current_scale_);
+}
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     // Handle emulator UI keys first (F11 fullscreen, F2 scale cycle).
