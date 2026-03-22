@@ -3,6 +3,9 @@
 #include "gui/emulator_widget.h"
 #include "platform/sdl_audio.h"
 #include "core/log.h"
+#ifdef ENABLE_DEBUGGER
+#include "debugger/debugger_manager.h"
+#endif
 
 #include <QApplication>
 #include <QTimer>
@@ -119,18 +122,27 @@ void QtApp::on_frame_tick() {
         --load_countdown_;
     }
 
-    // Run one emulator frame.
-    emulator_.run_frame();
-    ++frame_count_;
+    // Run one emulator frame (skip if debugger has paused).
+    if (!emulator_.debug_state().paused()) {
+        emulator_.run_frame();
+        ++frame_count_;
 
-    // Push audio samples to SDL.
-    if (audio_) {
-        audio_->push_from_mixer(emulator_.mixer());
+        // Push audio samples to SDL.
+        if (audio_) {
+            audio_->push_from_mixer(emulator_.mixer());
+        }
     }
 
-    // Update the display widget with the new framebuffer.
+    // Update the display widget with the current framebuffer (even when paused).
     main_window_->emulator_widget()->update_frame(
         emulator_.get_framebuffer(), NATIVE_W, NATIVE_H);
+
+#ifdef ENABLE_DEBUGGER
+    if (auto* mgr = main_window_->debugger_manager()) {
+        mgr->check_breakpoint_hit();
+        mgr->refresh_panels();
+    }
+#endif
 }
 
 void QtApp::on_status_tick() {

@@ -9,6 +9,9 @@
 class Emulator;
 class EmulatorWidget;
 class QTimer;
+#ifdef ENABLE_DEBUGGER
+class DebuggerManager;
+#endif
 
 /// Main emulator window — QMainWindow shell with emulator viewport, menu bar,
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
@@ -24,7 +27,12 @@ public:
     EmulatorWidget* emulator_widget() { return emulator_widget_; }
 
     /// Set the emulator pointer for direct callbacks.
-    void set_emulator(Emulator* emu) { emulator_ = emu; }
+    /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager.
+    void set_emulator(Emulator* emu);
+
+#ifdef ENABLE_DEBUGGER
+    DebuggerManager* debugger_manager() { return debugger_mgr_; }
+#endif
 
     /// Set the callback for key events.
     /// Signature: (SDL_Scancode scancode, bool pressed).
@@ -106,4 +114,8 @@ private:
 
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
+
+#ifdef ENABLE_DEBUGGER
+    DebuggerManager* debugger_mgr_ = nullptr;
+#endif
 };

@@ -1,6 +1,9 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "core/emulator.h"
+#ifdef ENABLE_DEBUGGER
+#include "debugger/debugger_manager.h"
+#endif
 
 #include <QKeyEvent>
 #include <QMenuBar>
@@ -135,6 +138,18 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Apply default scale — the widget sizes itself, then we fix the window around it.
     set_scale(current_scale_);
+}
+
+void MainWindow::set_emulator(Emulator* emu) {
+    emulator_ = emu;
+#ifdef ENABLE_DEBUGGER
+    if (!debugger_mgr_ && emu) {
+        debugger_mgr_ = new DebuggerManager(this, emu, this);
+        // With debugger panels, the window needs to be resizable.
+        setMinimumSize(size());
+        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    }
+#endif
 }
 
 void MainWindow::toggle_fullscreen() {
@@ -285,7 +300,12 @@ void MainWindow::create_menus() {
     view_menu->addSeparator();
 
     fullscreen_action_ = view_menu->addAction(tr("&Fullscreen"));
+#ifdef ENABLE_DEBUGGER
+    // When debugger is active, F11 = Step Into; use Ctrl+F11 for fullscreen.
+    fullscreen_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F11));
+#else
     fullscreen_action_->setShortcut(QKeySequence(Qt::Key_F11));
+#endif
     fullscreen_action_->setCheckable(true);
     connect(fullscreen_action_, &QAction::triggered, this, &MainWindow::on_fullscreen);
 
@@ -432,9 +452,49 @@ void MainWindow::on_about() {
 // ---------------------------------------------------------------------------
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
-    // Handle emulator UI keys first (F11 fullscreen, F2 scale cycle).
     if (!event->isAutoRepeat()) {
-        switch (event->key()) {
+        int key = event->key();
+        Qt::KeyboardModifiers modifiers = event->modifiers();
+
+#ifdef ENABLE_DEBUGGER
+        // When debugger is active, intercept debug shortcuts.
+        if (debugger_mgr_) {
+            if (key == Qt::Key_F5) {
+                debugger_mgr_->on_run();
+                event->accept();
+                return;
+            }
+            if (key == Qt::Key_F9) {
+                debugger_mgr_->on_pause();
+                event->accept();
+                return;
+            }
+            if (key == Qt::Key_F10) {
+                debugger_mgr_->on_step_over();
+                event->accept();
+                return;
+            }
+            if (key == Qt::Key_F11 && (modifiers & Qt::ShiftModifier)) {
+                debugger_mgr_->on_step_out();
+                event->accept();
+                return;
+            }
+            if (key == Qt::Key_F11 && (modifiers & Qt::ControlModifier)) {
+                // Ctrl+F11 = Fullscreen when debugger is active.
+                toggle_fullscreen();
+                event->accept();
+                return;
+            }
+            if (key == Qt::Key_F11) {
+                // F11 = Step Into when debugger is active.
+                debugger_mgr_->on_step_into();
+                event->accept();
+                return;
+            }
+        }
+#endif
+
+        switch (key) {
         case Qt::Key_F11:
             toggle_fullscreen();
             event->accept();
@@ -459,13 +519,21 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 void MainWindow::keyReleaseEvent(QKeyEvent* event) {
-    // F11 and F2 release events can be silently consumed.
+    // Consume release events for keys we handle in keyPressEvent.
     if (!event->isAutoRepeat()) {
-        if (event->key() == Qt::Key_F11 || event->key() == Qt::Key_F2
-            || event->key() == Qt::Key_Escape) {
+        int key = event->key();
+        if (key == Qt::Key_F11 || key == Qt::Key_F2 || key == Qt::Key_Escape) {
             event->accept();
             return;
         }
+#ifdef ENABLE_DEBUGGER
+        if (debugger_mgr_) {
+            if (key == Qt::Key_F5 || key == Qt::Key_F9 || key == Qt::Key_F10) {
+                event->accept();
+                return;
+            }
+        }
+#endif
     }
 
     handle_key(event, false);

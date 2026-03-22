@@ -39,9 +39,10 @@ find_package(SDL2 REQUIRED)
 # spdlog — vendored as git submodule, header-only mode.
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
-# input must come before core: emulator.h includes input/keyboard.h and
-# jnext_core explicitly links jnext_input.
+# input and debug must come before core: emulator.h includes input/keyboard.h
+# and debug/debug_state.h; jnext_core explicitly links jnext_input and jnext_debug.
 add_subdirectory(src/input)
+add_subdirectory(src/debug)
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)
 add_subdirectory(src/memory)
@@ -54,6 +55,10 @@ add_subdirectory(src/save)
 
 if(ENABLE_QT_UI)
     add_subdirectory(src/gui)
+endif()
+
+if(ENABLE_DEBUGGER)
+    add_subdirectory(src/debugger)
 endif()
 
 add_executable(jnext src/main.cpp)
@@ -69,13 +74,18 @@ target_link_libraries(jnext PRIVATE
     jnext_core jnext_cpu jnext_memory
     jnext_video jnext_audio jnext_port
     jnext_peripheral jnext_input
-    jnext_platform jnext_save
+    jnext_platform jnext_save jnext_debug
     ${SDL2_LINK_TARGET})
 target_include_directories(jnext PRIVATE src)
 
 if(ENABLE_QT_UI)
     target_link_libraries(jnext PRIVATE jnext_gui)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
+endif()
+
+if(ENABLE_DEBUGGER)
+    target_link_libraries(jnext PRIVATE jnext_debugger)
+    target_compile_definitions(jnext PRIVATE ENABLE_DEBUGGER)
 endif()
 
 if(ENABLE_TESTS)
