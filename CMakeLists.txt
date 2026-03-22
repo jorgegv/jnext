@@ -51,6 +51,7 @@ add_subdirectory(src/port)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
+add_subdirectory(src/debug)
 
 if(ENABLE_QT_UI)
     add_subdirectory(src/gui)

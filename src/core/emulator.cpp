@@ -839,6 +839,21 @@ void Emulator::run_frame()
             master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
         } else {
+            // Record trace entry before execution (captures pre-execution state).
+            if (trace_log_.enabled()) {
+                auto regs = cpu_.get_registers();
+                TraceEntry te;
+                te.cycle = clock_.get();
+                te.pc = regs.PC;
+                te.af = regs.AF; te.bc = regs.BC;
+                te.de = regs.DE; te.hl = regs.HL;
+                te.sp = regs.SP;
+                for (int i = 0; i < 4; ++i)
+                    te.opcode_bytes[i] = mmu_.read(regs.PC + i);
+                te.opcode_len = z80_instruction_length(regs.PC,
+                    [this](uint16_t a) { return mmu_.read(a); });
+                trace_log_.record(te);
+            }
             // Execute one CPU instruction; returns T-states consumed.
             int tstates = cpu_.execute();
             // Convert T-states to 28 MHz master cycles.

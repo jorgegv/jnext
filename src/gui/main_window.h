@@ -106,4 +106,7 @@ private:
 
     // CRT filter action
     QAction* crt_filter_action_ = nullptr;
+
+    // Trace enable action
+    QAction* trace_enable_action_ = nullptr;
 };
