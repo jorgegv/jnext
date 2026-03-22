@@ -48,6 +48,7 @@
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
   - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
+- [11. Pending Issues](#11-pending-issues)
 
 ---
 
@@ -917,6 +918,16 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 | **Cross-platform pixel format** | SDL texture format varies by platform GPU                                         | Always use `SDL_PIXELFORMAT_RGB565`; let SDL handle conversion                 |
 | **DMA mid-instruction**         | DMA can legally take the bus between T-states                                     | In line-accurate mode, stall CPU at instruction boundary; document limitation  |
 | **Z80N opcode conflicts**       | Some Z80N opcodes reuse `ED xx` space; must not mis-decode                        | Intercept `ED` prefix in `z80_cpu.cpp` before FUSE core sees it; dispatch to `z80n_ext`; unmapped `ED xx` fall through to FUSE |
+
+---
+
+## 11. Pending Issues
+
+Issues deferred to post-release for further debugging.
+
+| Issue | Detail | Status |
+|-------|--------|--------|
+| **DAC audio output buzzing** | Soundrive DAC demo produces a continuous buzz alongside the expected tones, even with interrupts disabled, 28 MHz CPU speed, and a pure-assembly playback loop with deterministic timing. Tested on both JNext and ZEsarUX with the same result. Needs investigation into whether the issue is in the demo code, the emulator's DAC/mixer sampling, or fundamental to software-driven DAC playback without hardware-level sample timing. DAC is rarely used by Next software, so this is low priority. | Open |
 
 ---
 

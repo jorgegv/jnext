@@ -10,3 +10,4 @@ demo/palette_demo
 demo/beeper_demo
 demo/ay_demo
 demo/dac_demo
+demo/*.lis
