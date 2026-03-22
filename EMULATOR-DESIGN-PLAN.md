@@ -771,9 +771,9 @@ endif()
   - [x] Beeper
 - [ ] Verify all works ok:
   - [x] YM2149
-  - [ ] DAC
+  - [-] DAC - **deferred**
   - [x] Beeper
-- [ ] **Milestone**: Music and sound effects audible
+- [x] **Milestone**: Music and sound effects audible
 
 ### Phase 5 — Peripherals & Full I/O ✓ COMPLETE
 
