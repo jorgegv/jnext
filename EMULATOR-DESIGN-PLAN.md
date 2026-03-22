@@ -46,6 +46,7 @@
   - [Phase 6 — Native UI \& Usability](#phase-6--native-ui--usability)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
+  - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
 
 ---
@@ -877,7 +878,25 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Layer 2 320×256 and 640×256 modes
 - [ ] Sprite scaling ×2/×4/×8
 - [ ] Performance profiling and optimization
+
+### Phase 9 - CI, Quality and Release
+
+- [ ] Generate full testing plan:
+  - [ ] Unit test plan, per module
+  - [ ] Integration test plan, between modules
+  - [ ] Functional test plan (~demos)
 - [ ] CI golden-output visual regression tests
+- [ ] General code refactor and tidy up (/simplify)
+- [ ] Replacement of magic number with named constants where possible
+- [ ] Global analysis of code, module by module, and ensure alignment with VHDL source
+- [ ] Generation of Windows version
+- [ ] Generation of MacOS version
+- [ ] Documentation
+  - [ ] Update README for repo and source code users
+  - [ ] Create DEVELOPMENT documentation
+  - [ ] Create USAGE document and man page for users
+- [ ] Create static executables by downloading QT and SDL sources and building them
+- [ ] Create exhaustive CI plan for Github and automated release
 - [ ] **Milestone**: v1.0 release
 
 ---
