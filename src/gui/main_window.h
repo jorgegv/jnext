@@ -95,9 +95,6 @@ private:
     QLabel* speed_label_   = nullptr;
     QLabel* machine_label_ = nullptr;
 
-    // Toolbar speed indicator
-    QLabel* toolbar_speed_label_ = nullptr;
-
     // CPU speed action group
     QActionGroup* speed_group_ = nullptr;
 

@@ -300,10 +300,6 @@ void MainWindow::create_toolbar() {
         style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
 
-    toolbar->addSeparator();
-
-    toolbar_speed_label_ = new QLabel(tr("  3.5 MHz  "));
-    toolbar->addWidget(toolbar_speed_label_);
 }
 
 // ---------------------------------------------------------------------------
@@ -338,8 +334,6 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
     const char* spd = speed_name(cpu_speed_idx);
     if (speed_label_)
         speed_label_->setText(QString(spd));
-    if (toolbar_speed_label_)
-        toolbar_speed_label_->setText(QString("  %1  ").arg(spd));
 
     // Update the speed radio button to match actual hardware state.
     if (speed_group_) {
