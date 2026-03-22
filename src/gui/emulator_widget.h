@@ -40,7 +40,11 @@ protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    QImage image_;
+    /// Software-scale native_ into scaled_ at the current scale factor.
+    void prescale();
+
+    QImage native_;   ///< Original framebuffer (320x256 ARGB32).
+    QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).
     int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
 };

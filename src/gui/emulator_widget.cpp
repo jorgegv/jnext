@@ -2,6 +2,7 @@
 #include <QPainter>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 
 EmulatorWidget::EmulatorWidget(QWidget* parent)
     : QWidget(parent)
@@ -20,17 +21,34 @@ EmulatorWidget::EmulatorWidget(QWidget* parent)
 void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     if (!framebuffer || w <= 0 || h <= 0) return;
 
-    if (image_.width() != w || image_.height() != h) {
-        image_ = QImage(w, h, QImage::Format_ARGB32);
+    if (native_.width() != w || native_.height() != h) {
+        native_ = QImage(w, h, QImage::Format_ARGB32);
     }
-    std::memcpy(image_.bits(), framebuffer, static_cast<size_t>(w) * h * 4);
+    std::memcpy(native_.bits(), framebuffer, static_cast<size_t>(w) * h * 4);
+
+    // Pre-scale in software to the widget's physical pixel dimensions.
+    prescale();
+
     update();  // schedule repaint
 }
 
 void EmulatorWidget::set_scale(int factor) {
     factor = std::clamp(factor, MIN_SCALE, MAX_SCALE);
     scale_ = factor;
-    setFixedSize(NATIVE_W * factor, NATIVE_H * factor);
+
+    // Widget size is in Qt logical pixels.  On Hi-DPI (Wayland, etc.) Qt
+    // multiplies by devicePixelRatio to get physical pixels.  We want the
+    // *physical* size to be exactly NATIVE_W*factor × NATIVE_H*factor, so
+    // the logical size must be divided by the DPR.
+    const qreal dpr = devicePixelRatioF();
+    const int lw = qRound(NATIVE_W * factor / dpr);
+    const int lh = qRound(NATIVE_H * factor / dpr);
+    setFixedSize(lw, lh);
+
+    // Re-scale the cached image for the new factor.
+    if (!native_.isNull()) {
+        prescale();
+    }
 }
 
 void EmulatorWidget::set_crt_filter(bool enabled) {
@@ -40,14 +58,39 @@ void EmulatorWidget::set_crt_filter(bool enabled) {
     }
 }
 
+void EmulatorWidget::prescale() {
+    // Target: fill the widget's physical pixel buffer exactly.
+    const qreal dpr = devicePixelRatioF();
+    const int pw = qRound(width() * dpr);   // physical width
+    const int ph = qRound(height() * dpr);  // physical height
+    const int nw = native_.width();
+    const int nh = native_.height();
+
+    if (scaled_.width() != pw || scaled_.height() != ph) {
+        scaled_ = QImage(pw, ph, QImage::Format_ARGB32);
+    }
+    // Tag with DPR so Qt maps image pixels 1:1 to physical screen pixels.
+    scaled_.setDevicePixelRatio(dpr);
+
+    // Nearest-neighbour scale from native → physical dimensions.
+    for (int dy = 0; dy < ph; ++dy) {
+        const auto* src = reinterpret_cast<const uint32_t*>(
+            native_.scanLine(dy * nh / ph));
+        auto* dst = reinterpret_cast<uint32_t*>(scaled_.scanLine(dy));
+        for (int dx = 0; dx < pw; ++dx) {
+            dst[dx] = src[dx * nw / pw];
+        }
+    }
+}
+
 void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
-    if (image_.isNull()) return;
+    if (scaled_.isNull()) return;
 
     QPainter painter(this);
 
-    // Always nearest-neighbour — the widget is an exact integer multiple.
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    painter.drawImage(QRect(0, 0, width(), height()), image_);
+    // Draw the pre-scaled image — its devicePixelRatio matches the widget's,
+    // so Qt performs a 1:1 physical-pixel blit with no further scaling.
+    painter.drawImage(0, 0, scaled_);
 
     // CRT scanline filter: semi-transparent dark horizontal lines every other row.
     if (crt_filter_) {

@@ -35,6 +35,8 @@ bool QtApp::init(int argc, char* argv[]) {
     }
 
     // Create QApplication (must exist before any QWidget).
+    // Note: Hi-DPI scaling is left enabled (Qt6 default on Wayland).
+    // EmulatorWidget accounts for devicePixelRatio itself.
     qapp_ = new QApplication(argc, argv);
 
     // Initialize SDL audio.
