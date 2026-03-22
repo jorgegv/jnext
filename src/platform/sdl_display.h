@@ -23,6 +23,6 @@ private:
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture*  texture_  = nullptr;
     int native_w_ = 0, native_h_ = 0;
-    int scale_    = 1;
+    int scale_    = 2;
     bool fullscreen_ = false;
 };

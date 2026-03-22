@@ -28,7 +28,8 @@ bool SdlApp::init(int argc, char* argv[]) {
                 return;
             }
             if (sc == SDL_SCANCODE_F2) {
-                int next_scale = (display_.get_scale() % 4) + 1; // 1→2→3→4→1
+                int next_scale = display_.get_scale() + 1; // 2→3→4→2
+                if (next_scale > 4) next_scale = 2;
                 display_.set_scale(next_scale);
                 return;
             }

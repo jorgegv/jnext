@@ -51,7 +51,7 @@ void SdlDisplay::toggle_fullscreen() {
 }
 
 void SdlDisplay::set_scale(int scale) {
-    if (scale < 1) scale = 1;
+    if (scale < 2) scale = 2;
     if (scale > 4) scale = 4;
     scale_ = scale;
     // Only resize if not in fullscreen; fullscreen ignores scale.
