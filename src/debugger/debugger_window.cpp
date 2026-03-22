@@ -129,13 +129,14 @@ void DebuggerWindow::create_panels() {
         return box;
     };
 
-    // --- Tab widget for left-side panels (each wrapped in titled group) ---
+    // --- Tab widget for left-side panels (tabs at bottom) ---
     tab_widget_ = new QTabWidget();
-    tab_widget_->addTab(make_group(tr("Video"), video_panel_), tr("Video"));
-    tab_widget_->addTab(make_group(tr("Sprites"), sprite_panel_), tr("Sprites"));
-    tab_widget_->addTab(make_group(tr("Copper"), copper_panel_), tr("Copper"));
-    tab_widget_->addTab(make_group(tr("NextREG"), nextreg_panel_), tr("NextREG"));
-    tab_widget_->addTab(make_group(tr("Audio"), audio_panel_), tr("Audio"));
+    tab_widget_->setTabPosition(QTabWidget::South);
+    tab_widget_->addTab(video_panel_, tr("Video"));
+    tab_widget_->addTab(sprite_panel_, tr("Sprites"));
+    tab_widget_->addTab(copper_panel_, tr("Copper"));
+    tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
+    tab_widget_->addTab(audio_panel_, tr("Audio"));
     tab_widget_->setMinimumWidth(380);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
