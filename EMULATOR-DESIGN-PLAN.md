@@ -934,6 +934,7 @@ Issues deferred to post-release for further debugging.
 | Issue | Detail | Status |
 |-------|--------|--------|
 | **DAC audio output buzzing** | Soundrive DAC demo produces a continuous buzz alongside the expected tones, even with interrupts disabled, 28 MHz CPU speed, and a pure-assembly playback loop with deterministic timing. Tested on both JNext and ZEsarUX with the same result. Needs investigation into whether the issue is in the demo code, the emulator's DAC/mixer sampling, or fundamental to software-driven DAC playback without hardware-level sample timing. DAC is rarely used by Next software, so this is low priority. | Open |
+| **Debugger window sticky positioning** | Debug sticky positioning of debugger window to emulator window. The debugger window should stay attached to the right side of the emulator window and move together when dragged. Currently the debugger window position is saved/restored via QSettings but does not track the emulator window in real time. | Open |
 
 ---
 

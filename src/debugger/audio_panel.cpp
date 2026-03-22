@@ -53,6 +53,9 @@ void AudioPanel::create_ui() {
     QFont mono("Monospace", 9);
     mono.setStyleHint(QFont::Monospace);
     ay_table_->setFont(mono);
+    QFont header_font = ay_table_->verticalHeader()->font();
+    header_font.setPointSize(8);
+    ay_table_->verticalHeader()->setFont(header_font);
 
     // Compact row height
     ay_table_->verticalHeader()->setDefaultSectionSize(20);
