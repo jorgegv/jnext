@@ -17,6 +17,9 @@ class PortDispatch : public IoInterface {
 public:
     PortDispatch();
 
+    /// Remove all registered handlers (used before re-registering on reset).
+    void clear_handlers() { handlers_.clear(); }
+
     void register_handler(uint16_t mask, uint16_t value,
                           std::function<uint8_t(uint16_t)>           rd,
                           std::function<void(uint16_t, uint8_t)>     wr);

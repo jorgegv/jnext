@@ -37,6 +37,14 @@ public:
     static constexpr int DISP_W = 256;  // active display width
     static constexpr int DISP_H = 192;  // active display height
 
+    /// Reset renderer state to power-on defaults.
+    void reset() {
+        layer_priority_ = 0;        // SLU
+        fallback_colour_ = 0xE3;    // default transparent index
+        fallback_per_line_.fill(0xE3);
+        ula_.reset();
+    }
+
     /// Access the underlying ULA (e.g. to set border colour from port 0xFE).
     Ula& ula() { return ula_; }
 

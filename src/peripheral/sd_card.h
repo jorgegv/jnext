@@ -31,6 +31,18 @@ public:
     /// Unmount the current image (if any).
     void unmount();
 
+    /// Reset SPI protocol state (keeps mounted image).
+    void reset() {
+        state_ = State::IDLE;
+        cmd_idx_ = 0;
+        resp_buf_.clear();
+        resp_idx_ = 0;
+        data_idx_ = 0;
+        data_crc_count_ = 0;
+        initialized_ = false;
+        app_cmd_ = false;
+    }
+
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
 

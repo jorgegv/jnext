@@ -38,6 +38,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // Subsystem resets.
     ram_.reset();
+    rom_.reset();
     mmu_.reset();
     nextreg_.reset();
     palette_.reset();
@@ -58,6 +59,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
+    rtc_.reset();
+    sd_card_.reset();
+
+    renderer_.reset();
 
     psg_accum_ = 0;
     sample_accum_ = 0;
@@ -83,6 +88,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
     contention_.build(cfg.type);
+
+    // Clear all port dispatch handlers before re-registering them.
+    // Without this, reset() → init() would duplicate every handler, causing
+    // double-fired writes (breaking auto-increment ports like sprites/palette).
+    port_.clear_handlers();
 
     // Install M1-cycle callback for RETI detection (ED 4D sequence).
     // When RETI is executed, notify the Im2Controller so it can clear the
@@ -762,6 +772,12 @@ bool Emulator::load_nex(const std::string& path)
 {
     NexLoader loader;
     if (!loader.load(path)) return false;
+
+    // Full machine reset before applying NEX data ensures clean subsystem
+    // state (palette, video layers, NextREG, etc.) regardless of whether
+    // the emulator was already running or freshly started.
+    reset();
+
     return loader.apply(*this);
 }
 

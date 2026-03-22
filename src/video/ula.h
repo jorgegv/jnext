@@ -50,6 +50,17 @@ public:
     static constexpr int DISP_W     = 256;
     static constexpr int DISP_H     = 192;
 
+    /// Reset ULA state to power-on defaults (preserves palette/RAM pointers).
+    void reset() {
+        ula_enabled_ = true;
+        clip_x1_ = 0; clip_x2_ = 255; clip_y1_ = 0; clip_y2_ = 191;
+        border_colour_ = 7;
+        flash_counter_ = 0;
+        flash_phase_ = false;
+        screen_mode_reg_ = 0;
+        mode_ = TimexScreenMode::STANDARD;
+    }
+
     /// Set the palette manager reference (must be called before rendering).
     void set_palette(PaletteManager* pal) { palette_ = pal; }
 
