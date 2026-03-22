@@ -746,14 +746,14 @@ endif()
   - [x] Palette
 - [x] **Milestone**: Next-specific games render correctly
 
-### Phase 3.5 — Program Loading (NEX + raw binary)
+### Phase 3.5 — Program Loading (NEX + raw binary) ✓ COMPLETE
 
 - [x] `--inject FILE` CLI flag with `--inject-org ADDR` (default `0x8000`) and `--inject-pc ADDR` (default = org): loads a raw binary into RAM and jumps to it; useful for quick testing of z88dk-compiled programs without tape/snapshot support
 - [x] Create a demo with sprite and Layer2 rendering that allows testing the emulator and Phase 3 functionality
 - [x] NEX file loader: parse the NEX V1.0/V1.1/V1.2 header (512 bytes), load memory pages (16K banks) into RAM, set PC to entry point, configure Layer 2 screen/palette / border / entry bank from header fields — `NexLoader` class in `src/core/nex_loader.h/.cpp`
 - [x] `--load FILE` CLI flag: auto-detects file format by extension (`.nex`) and loads accordingly; extensible for future `.sna`/`.z80`/`.tap` support
-- [ ] Wire file loading into the emulator UI (drag-and-drop or File menu in Phase 6)
-- [ ] **Milestone**: Can load and run `.nex` files directly from the command line
+- [x] Wire file loading into the emulator UI (File menu in Phase 6) — Load NEX via menu or Ctrl+O
+- [x] **Milestone**: Can load and run `.nex` files from CLI and GUI
 
 ### Phase 4 — Audio ✓ COMPLETE
 
