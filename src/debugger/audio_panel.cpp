@@ -57,19 +57,21 @@ void AudioPanel::create_ui() {
     // Compact row height
     ay_table_->verticalHeader()->setDefaultSectionSize(20);
     ay_table_->verticalHeader()->setMinimumSectionSize(18);
-    ay_table_->verticalHeader()->setMinimumWidth(110);
-    ay_table_->horizontalHeader()->setStretchLastSection(true);
+    ay_table_->verticalHeader()->setFixedWidth(140);
+    ay_table_->horizontalHeader()->setStretchLastSection(false);
     ay_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ay_table_->horizontalHeader()->setDefaultSectionSize(40);
     ay_table_->setAlternatingRowColors(true);
     ay_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ay_table_->setSelectionMode(QAbstractItemView::NoSelection);
 
-    // Size table to fit all 16 rows without scrollbars
-    int table_height = 16 * 20 + ay_table_->horizontalHeader()->height() + 8;
-    ay_table_->setMinimumHeight(table_height);
+    // Size table to fit all 16 rows without scrollbars.
+    // Use a generous frame allowance to prevent the last row being clipped.
+    int row_h = 20;
+    int table_height = 16 * row_h + 26 + 2 * ay_table_->frameWidth();
+    ay_table_->setFixedHeight(table_height);
     ay_table_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ay_table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    ay_table_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
     // Initialize cells
     for (int r = 0; r < 16; ++r) {
@@ -80,7 +82,7 @@ void AudioPanel::create_ui() {
         }
     }
 
-    layout->addWidget(ay_table_, 1);
+    layout->addWidget(ay_table_, 0);
 
     // --- Source Mute Controls ---
     auto* sources_box = new QGroupBox(tr("Sources"), this);
