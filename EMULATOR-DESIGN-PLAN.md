@@ -43,7 +43,7 @@
   - [Phase 3.5 — Program Loading (NEX + raw binary)](#phase-35--program-loading-nex--raw-binary)
   - [Phase 4 — Audio ✓ COMPLETE](#phase-4--audio--complete)
   - [Phase 5 — Peripherals \& Full I/O ✓ COMPLETE](#phase-5--peripherals--full-io--complete)
-  - [Phase 6 — Native UI \& Usability](#phase-6--native-ui--usability)
+  - [Phase 6 — Native UI \& Usability ✓ COMPLETE](#phase-6--native-ui--usability--complete)
   - [Phase 7 — Debugger Window](#phase-7--debugger-window)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
   - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
@@ -764,10 +764,10 @@ endif()
 - [x] NextREG audio control — 0x06 (PSG mode AY/YM), 0x08 (stereo mode/DAC enable/TurboSound enable), 0x09 (per-chip mono flags)
 - [x] PSG ticking at 1.75 MHz (28 MHz / 16), sample generation via Bresenham accumulator
 - [x] CTC (drives some AY timing) — implemented in Phase 5 (4-channel counter/timer, VHDL-verified)
-- [ ] Create Z88DK test programs for different functions (store them in `demo` directory):
-  - [ ] YM2149
-  - [ ] DAC
-  - [ ] Beeper
+- [x] Create Z88DK test programs for different functions (store them in `demo` directory):
+  - [x] YM2149
+  - [x] DAC
+  - [x] Beeper
 - [ ] Verify all works ok:
   - [ ] YM2149
   - [ ] DAC
@@ -791,19 +791,21 @@ endif()
 - [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
 - [ ] **Milestone**: NextZXOS boots from SD image
 
-### Phase 6 — Native UI & Usability
+### Phase 6 — Native UI & Usability ✓ COMPLETE
 
 - [x] Qt 6 `QMainWindow` as the main emulator window (replaces raw SDL window) — `src/gui/main_window.h/.cpp`, enabled via `-DENABLE_QT_UI=ON`
-- [x] Menu bar: **File** (Load NEX, Mount SD image, Quit), **Machine** (Reset, CPU speed submenu), **View** (1×/2×/3×/4× scaling, Fullscreen, CRT filter, Scale mode), **Help** (About)
-- [x] Toolbar: **Reset** + **Load** buttons with standard icons, CPU speed indicator label
-- [x] Emulator viewport: `EmulatorWidget` (QWidget) with QImage-based ARGB8888 rendering, integer/stretch/aspect-fit scale modes
-- [x] Fullscreen mode: toggle via F11 or View menu; `showFullScreen()`/`showNormal()` with scale restore
+- [x] Menu bar: **File** (Load NEX, Mount SD image, Quit), **Machine** (Reset, CPU speed submenu), **View** (2×/3×/4× scaling, Fullscreen, CRT filter), **Help** (About)
+- [x] Toolbar: **Reset** + **Load** buttons with standard icons
+- [x] Emulator viewport: `EmulatorWidget` (QWidget) with QImage-based ARGB8888 rendering, software pre-scaled nearest-neighbour at exact integer multiples of 320×256
+- [x] Fullscreen mode: true fullscreen (chrome hidden) via F11; ESC or F11 to exit; aspect ratio preserved with letterbox black bars at largest integer scale
 - [x] Status bar: FPS counter (1s timer), CPU speed (from NextREG 0x07), machine mode label
-- [x] CRT scanline filter: semi-transparent dark lines overlay in EmulatorWidget::paintEvent(), toggled from View menu
+- [x] CRT scanline filter: semi-transparent dark lines overlay in EmulatorWidget::paintEvent(), toggled from View menu; respects image bounds in fullscreen
 - [x] SDL remains for audio output only; keyboard input via Qt key events mapped to SDL scancodes
 - [x] Additional restriction: the final emulator file must be linked statically and have no dynamic library dependencies — `STATIC_BUILD` CMake option added; requires static Qt6/SDL2 builds (system packages are dynamic-only)
-- [ ] Test and debug GUI glitches
-- [ ] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
+- [x] Hi-DPI pixel-perfect rendering: DPR-aware widget sizing deferred to first visible frame; software pre-scaling eliminates all QPainter/GPU artifacts
+- [x] Window non-resizable; scale changed via View menu (2×/3×/4×) or F2 key cycle
+- [x] ESC exits fullscreen in both GUI and SDL builds
+- [x] **Milestone**: Native application window with menu bar, toolbar, and fullscreen toggle
 
 ### Phase 7 — Debugger Window
 
