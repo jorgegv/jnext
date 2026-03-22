@@ -117,6 +117,30 @@ public:
     /// Debug: log sprite 0 state and internal counters.
     void debug_log_sprite0() const;
 
+    // -----------------------------------------------------------------
+    // Debug / introspection accessors
+    // -----------------------------------------------------------------
+
+    /// Read a raw attribute byte (0-4) for the given sprite index.
+    /// Returns 0 if idx >= 128 or byte_idx >= 5.
+    uint8_t read_attr_byte(uint8_t sprite_idx, uint8_t byte_idx) const;
+
+    /// Decoded sprite info for debugger display.
+    struct SpriteInfo {
+        int      x;
+        int      y;
+        uint8_t  pattern;
+        uint8_t  palette_offset;
+        bool     visible;
+        bool     x_mirror;
+        bool     y_mirror;
+        bool     rotate;
+        bool     is_4bit;
+    };
+
+    /// Get decoded sprite info. Returns zeroed struct if idx >= 128.
+    SpriteInfo get_sprite_info(uint8_t idx) const;
+
 private:
     /// Internal representation of one sprite's 5-byte attribute set.
     struct SpriteAttr {
