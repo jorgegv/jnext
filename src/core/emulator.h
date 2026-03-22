@@ -28,6 +28,7 @@
 #include "peripheral/divmmc.h"
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
+#include "debug/trace.h"
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
 #include "audio/dac.h"
@@ -118,6 +119,7 @@ public:
     TurboSound&   turbosound(){ return turbosound_; }
     Dac&          dac()       { return dac_; }
     Mixer&        mixer()     { return mixer_; }
+    TraceLog&     trace_log() { return trace_log_; }
 
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
@@ -167,6 +169,7 @@ private:
     Dac             dac_;
     Mixer           mixer_;
     DebugState      debug_state_;
+    TraceLog        trace_log_;
 
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;

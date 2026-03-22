@@ -118,4 +118,7 @@ private:
 #ifdef ENABLE_DEBUGGER
     DebuggerManager* debugger_mgr_ = nullptr;
 #endif
+
+    // Trace enable action
+    QAction* trace_enable_action_ = nullptr;
 };

@@ -317,6 +317,38 @@ void MainWindow::create_menus() {
         emulator_widget_->set_crt_filter(checked);
     });
 
+    // --- Debug menu ---
+    QMenu* debug_menu = menuBar()->addMenu(tr("&Debug"));
+    QMenu* trace_menu = debug_menu->addMenu(tr("&Trace"));
+
+    trace_enable_action_ = trace_menu->addAction(tr("&Enable Trace"));
+    trace_enable_action_->setCheckable(true);
+    connect(trace_enable_action_, &QAction::triggered, this, [this](bool checked) {
+        if (emulator_)
+            emulator_->trace_log().set_enabled(checked);
+    });
+
+    QAction* clear_trace = trace_menu->addAction(tr("&Clear Trace"));
+    connect(clear_trace, &QAction::triggered, this, [this]() {
+        if (emulator_)
+            emulator_->trace_log().clear();
+    });
+
+    QAction* export_trace = trace_menu->addAction(tr("E&xport Trace..."));
+    connect(export_trace, &QAction::triggered, this, [this]() {
+        if (!emulator_) return;
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Trace Log"), QString(),
+            tr("Text Files (*.txt);;All Files (*)"));
+        if (!path.isEmpty()) {
+            bool ok = emulator_->trace_log().export_to_file(path.toStdString());
+            if (!ok) {
+                QMessageBox::warning(this, tr("Export Failed"),
+                    tr("Could not write trace log to:\n%1").arg(path));
+            }
+        }
+    });
+
     // --- Help menu ---
     QMenu* help_menu = menuBar()->addMenu(tr("&Help"));
 
