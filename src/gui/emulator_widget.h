@@ -36,9 +36,14 @@ public:
     static constexpr int MIN_SCALE = 2;
     static constexpr int MAX_SCALE = 4;
 
+signals:
+    /// Emitted once, on the first frame, after the widget re-applies its
+    /// scale with the correct devicePixelRatio.  MainWindow connects to
+    /// this to re-fix its window size.
+    void scale_changed();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
-    void showEvent(QShowEvent* event) override;
 
 private:
     /// Software-scale native_ into scaled_ at the current scale factor.
@@ -48,4 +53,5 @@ private:
     QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).
     int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
+    bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
 };

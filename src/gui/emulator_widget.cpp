@@ -1,6 +1,5 @@
 #include "gui/emulator_widget.h"
 #include <QPainter>
-#include <QShowEvent>
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -21,6 +20,15 @@ EmulatorWidget::EmulatorWidget(QWidget* parent)
 
 void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     if (!framebuffer || w <= 0 || h <= 0) return;
+
+    // On the first frame the widget is visible and devicePixelRatioF()
+    // returns the real compositor DPR.  Re-apply scale so the widget
+    // size and pre-scaled image match the actual physical pixel count.
+    if (!dpr_valid_) {
+        dpr_valid_ = true;
+        set_scale(scale_);
+        emit scale_changed();
+    }
 
     if (native_.width() != w || native_.height() != h) {
         native_ = QImage(w, h, QImage::Format_ARGB32);
@@ -57,14 +65,6 @@ void EmulatorWidget::set_crt_filter(bool enabled) {
         crt_filter_ = enabled;
         update();
     }
-}
-
-void EmulatorWidget::showEvent(QShowEvent* event) {
-    QWidget::showEvent(event);
-    // Re-apply scale now that the widget is on a real screen and
-    // devicePixelRatioF() returns the correct value (not 1.0 as in the
-    // constructor, where the widget has no associated screen yet).
-    set_scale(scale_);
 }
 
 void EmulatorWidget::prescale() {

@@ -62,7 +62,6 @@ signals:
     void sd_card_selected(const QString& path);
 
 protected:
-    void showEvent(QShowEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
 

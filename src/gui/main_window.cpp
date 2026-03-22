@@ -3,7 +3,6 @@
 #include "core/emulator.h"
 
 #include <QKeyEvent>
-#include <QShowEvent>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
@@ -125,6 +124,14 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
+
+    // When the emulator widget detects the real DPR on its first frame,
+    // it re-applies its scale and emits scale_changed — we re-fix the
+    // window size to match.
+    connect(emulator_widget_, &EmulatorWidget::scale_changed, this, [this]() {
+        if (!is_fullscreen_)
+            apply_fixed_window_size();
+    });
 
     // Apply default scale — the widget sizes itself, then we fix the window around it.
     set_scale(current_scale_);
@@ -411,13 +418,6 @@ void MainWindow::on_about() {
 // ---------------------------------------------------------------------------
 // Key event handling
 // ---------------------------------------------------------------------------
-
-void MainWindow::showEvent(QShowEvent* event) {
-    QMainWindow::showEvent(event);
-    // Re-apply scale now that the window is on a real screen and
-    // EmulatorWidget::devicePixelRatioF() returns the correct value.
-    set_scale(current_scale_);
-}
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     // Handle emulator UI keys first (F11 fullscreen, F2 scale cycle).
