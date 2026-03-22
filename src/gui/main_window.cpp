@@ -141,6 +141,7 @@ void MainWindow::toggle_fullscreen() {
     if (is_fullscreen_) {
         showNormal();
         is_fullscreen_ = false;
+        emulator_widget_->set_fullscreen_mode(false);
         // Restore fixed windowed size.
         apply_fixed_window_size();
     } else {
@@ -150,6 +151,7 @@ void MainWindow::toggle_fullscreen() {
         // Let the widget expand in fullscreen.
         emulator_widget_->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
         emulator_widget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        emulator_widget_->set_fullscreen_mode(true);
         showFullScreen();
         is_fullscreen_ = true;
     }

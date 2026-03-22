@@ -28,6 +28,12 @@ public:
     void set_crt_filter(bool enabled);
     bool crt_filter() const { return crt_filter_; }
 
+    /// Set fullscreen mode.  In fullscreen the widget fills the screen but
+    /// the framebuffer is rendered at the largest integer scale that fits,
+    /// centered with black bars (letterboxing).
+    void set_fullscreen_mode(bool fs);
+    bool fullscreen_mode() const { return fullscreen_mode_; }
+
     /// Native framebuffer dimensions (320x256 for ZX Next).
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;
@@ -53,5 +59,7 @@ private:
     QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).
     int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
+    bool fullscreen_mode_ = false;
     bool dpr_valid_ = false;  ///< True once DPR has been verified on-screen.
+    QPoint fs_offset_;        ///< Top-left offset for centered image in fullscreen.
 };
