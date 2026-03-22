@@ -8,6 +8,7 @@
 class Emulator;
 class QMainWindow;
 class CpuPanel;
+class DisasmPanel;
 
 /// Manages all debugger panels, menus, and toolbar.
 /// Created by MainWindow when ENABLE_DEBUGGER is defined.
@@ -56,6 +57,8 @@ private:
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
     QDockWidget* cpu_dock_ = nullptr;
+    DisasmPanel* disasm_panel_ = nullptr;
+    QDockWidget* disasm_dock_ = nullptr;
 
     // Refresh throttle
     int refresh_counter_ = 0;

@@ -1,5 +1,6 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/cpu_panel.h"
+#include "debugger/disasm_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -103,12 +104,27 @@ void DebuggerManager::create_debug_toolbar() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::create_panels() {
+    // CPU registers panel (right dock area)
     cpu_panel_ = new CpuPanel(emulator_);
-
     cpu_dock_ = new QDockWidget(QObject::tr("CPU Registers"), main_window_);
     cpu_dock_->setWidget(cpu_panel_);
     cpu_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     main_window_->addDockWidget(Qt::RightDockWidgetArea, cpu_dock_);
+
+    // Disassembly panel (right dock area, below CPU)
+    disasm_panel_ = new DisasmPanel(emulator_);
+    disasm_dock_ = new QDockWidget(QObject::tr("Disassembly"), main_window_);
+    disasm_dock_->setWidget(disasm_panel_);
+    disasm_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    main_window_->addDockWidget(Qt::RightDockWidgetArea, disasm_dock_);
+
+    // Connect disasm panel signals
+    connect(disasm_panel_, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
+        emulator_->debug_state().run_to(addr);
+        was_paused_ = false;
+        emit resumed();
+        update_actions();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -192,12 +208,14 @@ void DebuggerManager::refresh_panels() {
     if (emulator_->debug_state().paused()) {
         // Always refresh when paused.
         if (cpu_panel_) cpu_panel_->refresh();
+        if (disasm_panel_) disasm_panel_->refresh();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
         if (refresh_counter_ >= REFRESH_INTERVAL) {
             refresh_counter_ = 0;
             if (cpu_panel_) cpu_panel_->refresh();
+            if (disasm_panel_) disasm_panel_->refresh();
         }
     }
 }
