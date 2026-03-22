@@ -40,7 +40,7 @@
   - [Phase 2 — Full ULA Video ✓ COMPLETE](#phase-2--full-ula-video--complete)
   - [Phase 2.5 — Logging \& Debugging](#phase-25--logging--debugging)
   - [Phase 3 — Extended Video (Layer 2 + Sprites + Tilemap)](#phase-3--extended-video-layer-2--sprites--tilemap)
-  - [Phase 3.5 — Program Loading (NEX + raw binary)](#phase-35--program-loading-nex--raw-binary)
+  - [Phase 3.5 — Program Loading (NEX + raw binary) ✓ COMPLETE](#phase-35--program-loading-nex--raw-binary--complete)
   - [Phase 4 — Audio ✓ COMPLETE](#phase-4--audio--complete)
   - [Phase 5 — Peripherals \& Full I/O ✓ COMPLETE](#phase-5--peripherals--full-io--complete)
   - [Phase 6 — Native UI \& Usability ✓ COMPLETE](#phase-6--native-ui--usability--complete)
@@ -769,9 +769,9 @@ endif()
   - [x] DAC
   - [x] Beeper
 - [ ] Verify all works ok:
-  - [ ] YM2149
+  - [x] YM2149
   - [ ] DAC
-  - [ ] Beeper
+  - [x] Beeper
 - [ ] **Milestone**: Music and sound effects audible
 
 ### Phase 5 — Peripherals & Full I/O ✓ COMPLETE
