@@ -1,21 +1,20 @@
-/* z80_cpu.cpp — Z80Cpu wrapper backed by FUSE Z80 core.
- *
- * Design notes
- * ────────────
- * z80_cpu.h is left unchanged (no FUSE types may appear there).  The FUSE Z80
- * core uses a global `processor z80` struct and global `tstates` counter.
- * We provide the memory/IO callback functions that the FUSE opcode files call
- * via macros defined in fuse_z80_shim.h.
- *
- * The FUSE core is inherently single-instance (global state).  This matches
- * our emulator's single-CPU architecture.
- *
- * Z80N opcode interception
- * ────────────────────────
- * FUSE's Z80 core treats undefined ED-prefixed opcodes as NOPs.  Before calling
- * fuse_z80_execute_one() we peek at the opcode at PC.  If it is 0xED followed
- * by a Z80N-specific byte we dispatch to execute_z80n() and advance PC ourselves.
- */
+// z80_cpu.cpp — Z80Cpu wrapper backed by FUSE Z80 core.
+// 
+// Design notes
+// ────────────
+// z80_cpu.h is left unchanged (no FUSE types may appear there).  The FUSE Z80
+// core uses a global `processor z80` struct and global `tstates` counter.
+// We provide the memory/IO callback functions that the FUSE opcode files call
+// via macros defined in fuse_z80_shim.h.
+// 
+// The FUSE core is inherently single-instance (global state).  This matches
+// our emulator's single-CPU architecture.
+// 
+// Z80N opcode interception
+// ────────────────────────
+// FUSE's Z80 core treats undefined ED-prefixed opcodes as NOPs.  Before calling
+// fuse_z80_execute_one() we peek at the opcode at PC.  If it is 0xED followed
+// by a Z80N-specific byte we dispatch to execute_z80n() and advance PC ourselves.
 
 #include "z80_cpu.h"
 #include "z80n_ext.h"
@@ -24,18 +23,17 @@
 #include <cstdint>
 #include <cstring>
 
-/* ── FUSE Z80 core (C linkage) ─────────────────────────────────────────── */
+// ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
 extern "C" {
 #include "fuse_z80_shim.h"
 }
 
-/* ── Memory/IO callback state ──────────────────────────────────────────── */
+// ── Memory/IO callback state ────────────────────────────────────────────
 
-/* The FUSE opcode files call readbyte/writebyte/readport/writeport which
- * are macros that expand to fuse_z80_readbyte() etc.  These C functions
- * dispatch through the active Z80Cpu instance's MemoryInterface/IoInterface.
- */
+// The FUSE opcode files call readbyte/writebyte/readport/writeport which
+// are macros that expand to fuse_z80_readbyte() etc.  These C functions
+// dispatch through the active Z80Cpu instance's MemoryInterface/IoInterface.
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
@@ -59,7 +57,7 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
 
 } // extern "C"
 
-/* ── Z80N opcode lookup table ──────────────────────────────────────────── */
+// ── Z80N opcode lookup table ────────────────────────────────────────────
 
 static bool kZ80NOpcodeTable[256] = {};
 
@@ -99,7 +97,7 @@ static bool init_z80n_table() {
 }
 static bool z80n_table_initialized = init_z80n_table();
 
-/* ── Register sync helpers ─────────────────────────────────────────────── */
+// ── Register sync helpers ───────────────────────────────────────────────
 
 static void sync_regs_from_fuse(Z80Registers& r) {
     r.AF  = z80.af.w;
@@ -144,9 +142,9 @@ static void sync_fuse_from_regs(const Z80Registers& r) {
     z80.halted = r.halted ? 1 : 0;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * Z80Cpu — public implementation
- * ══════════════════════════════════════════════════════════════════════════ */
+// ══════════════════════════════════════════════════════════════════════════
+// Z80Cpu — public implementation
+// ══════════════════════════════════════════════════════════════════════════
 
 static bool s_tables_initialized = false;
 
@@ -168,7 +166,7 @@ void Z80Cpu::reset() {
     s_mem = &mem_;
     s_io  = &io_;
 
-    fuse_z80_reset(1); /* hard reset */
+    fuse_z80_reset(1); // hard reset
     tstates = 0;
 
     nmi_pending_ = false;
@@ -182,10 +180,10 @@ int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
 
-    /* Push any externally set registers into FUSE state */
+    // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);
 
-    /* ── NMI ──────────────────────────────────────────────────────────── */
+    // ── NMI ────────────────────────────────────────────────────────────
     if (nmi_pending_) {
         nmi_pending_ = false;
         Log::cpu()->debug("NMI at PC={:#06x}", z80.pc.w);
@@ -196,7 +194,7 @@ int Z80Cpu::execute() {
         return (cycles > 0) ? cycles : 11;
     }
 
-    /* ── INT ──────────────────────────────────────────────────────────── */
+    // ── INT ────────────────────────────────────────────────────────────
     if (int_pending_ && z80.iff1) {
         Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
         libspectrum_dword before = tstates;
@@ -206,12 +204,12 @@ int Z80Cpu::execute() {
             int_pending_ = false;
             return (int)(tstates - before);
         }
-        /* If not accepted (e.g. interrupts_enabled_at == tstates), keep
-         * int_pending_ true so the interrupt is retried next cycle.
-         * Fall through to execute one instruction first. */
+        // If not accepted (e.g. interrupts_enabled_at == tstates), keep
+        // int_pending_ true so the interrupt is retried next cycle.
+        // Fall through to execute one instruction first.
     }
 
-    /* ── Z80N interception ────────────────────────────────────────────── */
+    // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
     uint8_t  opcode = mem_.read(pc);
 
@@ -219,10 +217,10 @@ int Z80Cpu::execute() {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
         if (kZ80NOpcodeTable[ext]) {
             Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
-            /* Fire M1 callback on the ED prefix byte */
+            // Fire M1 callback on the ED prefix byte
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
 
-            /* Advance PC past ED + ext byte; execute_z80n reads any operands */
+            // Advance PC past ED + ext byte; execute_z80n reads any operands
             z80.pc.w = (pc + 2) & 0xFFFF;
             sync_regs_from_fuse(regs_);
 
@@ -234,7 +232,7 @@ int Z80Cpu::execute() {
         }
     }
 
-    /* ── Normal Z80 instruction ───────────────────────────────────────── */
+    // ── Normal Z80 instruction ─────────────────────────────────────────
     if (on_m1_cycle) on_m1_cycle(pc, opcode);
 
     int cycles = fuse_z80_execute_one();
