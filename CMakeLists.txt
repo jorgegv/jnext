@@ -40,7 +40,7 @@ find_package(SDL2 REQUIRED)
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
 # input must come before core: emulator.h includes input/keyboard.h and
-# zxnext_core explicitly links zxnext_input.
+# jnext_core explicitly links jnext_input.
 add_subdirectory(src/input)
 add_subdirectory(src/core)
 add_subdirectory(src/cpu)
@@ -66,15 +66,15 @@ else()
 endif()
 
 target_link_libraries(jnext PRIVATE
-    zxnext_core zxnext_cpu zxnext_memory
-    zxnext_video zxnext_audio zxnext_port
-    zxnext_peripheral zxnext_input
-    zxnext_platform zxnext_save
+    jnext_core jnext_cpu jnext_memory
+    jnext_video jnext_audio jnext_port
+    jnext_peripheral jnext_input
+    jnext_platform jnext_save
     ${SDL2_LINK_TARGET})
 target_include_directories(jnext PRIVATE src)
 
 if(ENABLE_QT_UI)
-    target_link_libraries(jnext PRIVATE zxnext_gui)
+    target_link_libraries(jnext PRIVATE jnext_gui)
     target_compile_definitions(jnext PRIVATE ENABLE_QT_UI)
 endif()
 

@@ -1,5 +1,7 @@
-BUILD_DIR_DEBUG   := build/debug
-BUILD_DIR_RELEASE := build/release
+BUILD_DIR_DEBUG       := build/debug
+BUILD_DIR_RELEASE     := build/release
+BUILD_DIR_GUI_DEBUG   := build/gui-debug
+BUILD_DIR_GUI_RELEASE := build/gui-release
 CMAKE             := cmake
 JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 CC                := /usr/bin/gcc
@@ -9,7 +11,8 @@ BOLD  := \033[1m
 CYAN  := \033[36m
 RESET := \033[0m
 
-.PHONY: default debug release clean debug-clean release-clean debug-run release-run
+.PHONY: default debug release clean debug-clean release-clean debug-run release-run \
+       gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -54,5 +57,46 @@ release-run: release
 release-clean:
 	rm -rf $(BUILD_DIR_RELEASE)
 
+# Configure and build Qt GUI in Debug mode
+gui-debug:
+	$(CMAKE) -B $(BUILD_DIR_GUI_DEBUG) \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
+		-DCMAKE_CXX_FLAGS="-g -fno-omit-frame-pointer" \
+		-DENABLE_QT_UI=ON \
+		-DENABLE_TESTS=ON
+	$(CMAKE) --build $(BUILD_DIR_GUI_DEBUG) -j$(JOBS)
+
+# Run the emulator with Qt GUI (debug build)
+gui-debug-run: gui-debug
+	$(BUILD_DIR_GUI_DEBUG)/jnext
+
+# Remove GUI debug build directory
+gui-debug-clean:
+	rm -rf $(BUILD_DIR_GUI_DEBUG)
+
+# Configure and build Qt GUI in Release mode
+gui-release:
+	$(CMAKE) -B $(BUILD_DIR_GUI_RELEASE) \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_C_COMPILER=$(CC) \
+		-DCMAKE_CXX_COMPILER=$(CXX) \
+		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
+		-DENABLE_QT_UI=ON \
+		-DENABLE_TESTS=OFF
+	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
+
+# Run the emulator with Qt GUI (release build)
+gui-release-run: gui-release
+	$(BUILD_DIR_GUI_RELEASE)/jnext
+
+# Remove GUI release build directory
+gui-release-clean:
+	rm -rf $(BUILD_DIR_GUI_RELEASE)
+
+# Remove all GUI build directories
+gui-clean: gui-debug-clean gui-release-clean
+
 # Remove all build directories
-clean: debug-clean release-clean
+clean: debug-clean release-clean gui-clean
