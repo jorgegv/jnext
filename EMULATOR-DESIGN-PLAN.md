@@ -790,7 +790,7 @@ endif()
 - [x] IM2 controller (all 14 levels) — wired with CTC, DMA, UART interrupt callbacks
 - [x] Z80N extension opcodes — all 26 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, ADD rr,nn, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
 - [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
-- [ ] **Milestone**: NextZXOS boots from SD image
+- [ ] **Milestone**: NextZXOS boots from SD image: download image from: https://www.specnext.com/latestdistro/#downloads - Choose "System/Next distribution for emulators" (this contains .img file and divmmc rom)
 
 ### Phase 6 — Native UI & Usability ✓ COMPLETE
 

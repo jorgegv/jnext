@@ -1,6 +1,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/memory_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -118,6 +119,13 @@ void DebuggerManager::create_panels() {
     disasm_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     main_window_->addDockWidget(Qt::RightDockWidgetArea, disasm_dock_);
 
+    // Memory panel (bottom dock area)
+    memory_panel_ = new MemoryPanel(emulator_);
+    memory_dock_ = new QDockWidget(QObject::tr("Memory"), main_window_);
+    memory_dock_->setWidget(memory_panel_);
+    memory_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
+    main_window_->addDockWidget(Qt::BottomDockWidgetArea, memory_dock_);
+
     // Connect disasm panel signals
     connect(disasm_panel_, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
         emulator_->debug_state().run_to(addr);
@@ -209,6 +217,7 @@ void DebuggerManager::refresh_panels() {
         // Always refresh when paused.
         if (cpu_panel_) cpu_panel_->refresh();
         if (disasm_panel_) disasm_panel_->refresh();
+        if (memory_panel_) memory_panel_->refresh();
     } else {
         // Throttle refresh during running to ~4Hz.
         ++refresh_counter_;
@@ -216,6 +225,10 @@ void DebuggerManager::refresh_panels() {
             refresh_counter_ = 0;
             if (cpu_panel_) cpu_panel_->refresh();
             if (disasm_panel_) disasm_panel_->refresh();
+<<<<<<< HEAD
+=======
+            if (memory_panel_) memory_panel_->refresh();
+>>>>>>> worktree-agent-a90eb90e
         }
     }
 }
