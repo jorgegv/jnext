@@ -6,21 +6,20 @@
 EmulatorWidget::EmulatorWidget(QWidget* parent)
     : QWidget(parent)
 {
-    // Dark gray background when no frame has been rendered yet.
+    // Black background.
     setAutoFillBackground(true);
     QPalette pal = palette();
     pal.setColor(QPalette::Window, QColor(0x00, 0x00, 0x00));
     setPalette(pal);
 
-    // Minimum size: native framebuffer dimensions.
-    setMinimumSize(NATIVE_W, NATIVE_H);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // Fixed size policy — the widget dictates its own size.
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    set_scale(scale_);
 }
 
 void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     if (!framebuffer || w <= 0 || h <= 0) return;
 
-    // QImage::Format_ARGB32 matches the emulator's ARGB8888 layout.
     if (image_.width() != w || image_.height() != h) {
         image_ = QImage(w, h, QImage::Format_ARGB32);
     }
@@ -28,11 +27,10 @@ void EmulatorWidget::update_frame(const uint32_t* framebuffer, int w, int h) {
     update();  // schedule repaint
 }
 
-void EmulatorWidget::set_scale_mode(ScaleMode mode) {
-    if (scale_mode_ != mode) {
-        scale_mode_ = mode;
-        update();
-    }
+void EmulatorWidget::set_scale(int factor) {
+    factor = std::clamp(factor, MIN_SCALE, MAX_SCALE);
+    scale_ = factor;
+    setFixedSize(NATIVE_W * factor, NATIVE_H * factor);
 }
 
 void EmulatorWidget::set_crt_filter(bool enabled) {
@@ -42,71 +40,23 @@ void EmulatorWidget::set_crt_filter(bool enabled) {
     }
 }
 
-QRect EmulatorWidget::compute_dest_rect() const {
-    int w = width();
-    int h = height();
-    int iw = image_.width();
-    int ih = image_.height();
-
-    switch (scale_mode_) {
-    case ScaleMode::Integer: {
-        // Largest integer scale factor that fits.
-        int sx = w / iw;
-        int sy = h / ih;
-        int scale = std::max(1, std::min(sx, sy));
-        int dw = iw * scale;
-        int dh = ih * scale;
-        return QRect((w - dw) / 2, (h - dh) / 2, dw, dh);
-    }
-
-    case ScaleMode::Stretch:
-        return QRect(0, 0, w, h);
-
-    case ScaleMode::AspectFit:
-    default: {
-        // Maintain 4:3 aspect ratio (the ZX Next output on a TV).
-        double widget_aspect = static_cast<double>(w) / h;
-        int dw, dh;
-        if (widget_aspect > TARGET_ASPECT) {
-            // Widget is wider than 4:3 — pillarbox.
-            dh = h;
-            dw = static_cast<int>(h * TARGET_ASPECT + 0.5);
-        } else {
-            // Widget is taller than 4:3 — letterbox.
-            dw = w;
-            dh = static_cast<int>(w / TARGET_ASPECT + 0.5);
-        }
-        return QRect((w - dw) / 2, (h - dh) / 2, dw, dh);
-    }
-    }
-}
-
 void EmulatorWidget::paintEvent(QPaintEvent* /*event*/) {
     if (image_.isNull()) return;
 
     QPainter painter(this);
-    QRect dest = compute_dest_rect();
 
-    // Use nearest-neighbour for Integer mode (crisp pixels), bilinear for others.
-    bool smooth = (scale_mode_ != ScaleMode::Integer);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, smooth);
-    painter.drawImage(dest, image_);
+    // Always nearest-neighbour — the widget is an exact integer multiple.
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter.drawImage(QRect(0, 0, width(), height()), image_);
 
     // CRT scanline filter: semi-transparent dark horizontal lines every other row.
     if (crt_filter_) {
         painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
         QColor line_colour(0, 0, 0, 64);  // 25% opacity black
-        int y0 = dest.top();
-        int y1 = dest.bottom();
-        int x0 = dest.left();
-        int line_w = dest.width();
-
-        // Draw lines at every other output pixel row within the dest rect.
-        // Use a pen width of 1 for single-pixel lines.
         painter.setPen(Qt::NoPen);
         painter.setBrush(line_colour);
-        for (int y = y0 + 1; y <= y1; y += 2) {
-            painter.drawRect(x0, y, line_w, 1);
+        for (int y = 1; y < height(); y += 2) {
+            painter.drawRect(0, y, width(), 1);
         }
     }
 }

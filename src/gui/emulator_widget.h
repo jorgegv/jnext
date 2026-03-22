@@ -4,17 +4,11 @@
 #include <QImage>
 #include <cstdint>
 
-/// Scale mode for the emulator display widget.
-enum class ScaleMode {
-    Integer,    ///< Largest integer scale factor that fits (crisp pixels).
-    Stretch,    ///< Fill entire widget area (may distort aspect ratio).
-    AspectFit   ///< Maintain 4:3 aspect ratio, letterbox/pillarbox as needed.
-};
-
 /// Emulator display widget — renders the emulator framebuffer as a QImage.
 ///
-/// Supports integer scaling, stretch, and 4:3 aspect-fit modes.
-/// The framebuffer is expected to be ARGB8888 format (matching Emulator::get_framebuffer()).
+/// The widget is always sized to an exact integer multiple of the native
+/// framebuffer (320x256), guaranteeing pixel-perfect rendering with
+/// nearest-neighbour scaling.
 class EmulatorWidget : public QWidget {
     Q_OBJECT
 public:
@@ -26,9 +20,9 @@ public:
     /// @param h            Framebuffer height in pixels.
     void update_frame(const uint32_t* framebuffer, int w, int h);
 
-    /// Set the scaling mode.
-    void set_scale_mode(ScaleMode mode);
-    ScaleMode scale_mode() const { return scale_mode_; }
+    /// Set the integer scale factor (2-4).  Resizes the widget to NATIVE_W*s x NATIVE_H*s.
+    void set_scale(int factor);
+    int scale() const { return scale_; }
 
     /// Enable or disable the CRT scanline filter overlay.
     void set_crt_filter(bool enabled);
@@ -38,17 +32,15 @@ public:
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;
 
-    /// Target display aspect ratio (4:3 TV).
-    static constexpr double TARGET_ASPECT = 4.0 / 3.0;
+    /// Minimum and maximum supported scale factors.
+    static constexpr int MIN_SCALE = 2;
+    static constexpr int MAX_SCALE = 4;
 
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
-    /// Compute the destination rectangle for the current scale mode and widget size.
-    QRect compute_dest_rect() const;
-
     QImage image_;
-    ScaleMode scale_mode_ = ScaleMode::AspectFit;
+    int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
 };

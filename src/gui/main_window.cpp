@@ -112,9 +112,8 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle("JNEXT \u2014 ZX Spectrum Next Emulator");
-    setMinimumSize(NATIVE_W, NATIVE_H);
 
-    // Central widget: the emulator display.
+    // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
     setCentralWidget(emulator_widget_);
 
@@ -126,17 +125,23 @@ MainWindow::MainWindow(QWidget* parent)
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
 
-    // Apply default 2x scale.
+    // Apply default scale — the widget sizes itself, then we fix the window around it.
     set_scale(current_scale_);
 }
 
 void MainWindow::toggle_fullscreen() {
     if (is_fullscreen_) {
         showNormal();
-        // Restore windowed size based on current scale factor.
-        set_scale(current_scale_);
         is_fullscreen_ = false;
+        // Restore fixed windowed size.
+        apply_fixed_window_size();
     } else {
+        // Remove fixed-size constraint so the window can go fullscreen.
+        setMinimumSize(0, 0);
+        setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        // Let the widget expand in fullscreen.
+        emulator_widget_->setFixedSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        emulator_widget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         showFullScreen();
         is_fullscreen_ = true;
     }
@@ -147,23 +152,15 @@ void MainWindow::toggle_fullscreen() {
 }
 
 void MainWindow::set_scale(int factor) {
-    if (factor < 1) factor = 1;
-    if (factor > 4) factor = 4;
+    if (factor < EmulatorWidget::MIN_SCALE) factor = EmulatorWidget::MIN_SCALE;
+    if (factor > EmulatorWidget::MAX_SCALE) factor = EmulatorWidget::MAX_SCALE;
     current_scale_ = factor;
 
+    // Size the widget to an exact integer multiple.
+    emulator_widget_->set_scale(factor);
+
     if (!is_fullscreen_) {
-        int target_w = NATIVE_W * factor;
-        int target_h = NATIVE_H * factor;
-
-        // Account for menu bar and status bar height.
-        int chrome_h = menuBar()->sizeHint().height() + statusBar()->sizeHint().height();
-
-        // Account for toolbar.
-        for (QToolBar* tb : findChildren<QToolBar*>()) {
-            if (tb->isVisible()) chrome_h += tb->sizeHint().height();
-        }
-
-        resize(target_w, target_h + chrome_h);
+        apply_fixed_window_size();
     }
 
     // Sync the scale menu action group.
@@ -177,26 +174,23 @@ void MainWindow::set_scale(int factor) {
     }
 }
 
+void MainWindow::apply_fixed_window_size() {
+    // The widget has a fixed size; let Qt compute the minimum window size
+    // that fits the widget + chrome (menu bar, toolbar, status bar).
+    // Then lock the window to exactly that size.
+    emulator_widget_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    setMinimumSize(0, 0);
+    setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    adjustSize();
+    setFixedSize(size());
+}
+
 void MainWindow::cycle_scale() {
     if (is_fullscreen_) return;
-    int next = (current_scale_ % 4) + 1;  // 1->2->3->4->1
+    // 2 -> 3 -> 4 -> 2
+    int next = current_scale_ + 1;
+    if (next > EmulatorWidget::MAX_SCALE) next = EmulatorWidget::MIN_SCALE;
     set_scale(next);
-}
-
-void MainWindow::set_scale_mode(ScaleMode mode) {
-    emulator_widget_->set_scale_mode(mode);
-
-    // Sync the scale mode menu action group.
-    if (scale_mode_group_) {
-        int idx = static_cast<int>(mode);
-        auto actions = scale_mode_group_->actions();
-        if (idx >= 0 && idx < actions.size())
-            actions[idx]->setChecked(true);
-    }
-}
-
-ScaleMode MainWindow::scale_mode() const {
-    return emulator_widget_->scale_mode();
 }
 
 void MainWindow::set_crt_filter(bool enabled) {
@@ -259,12 +253,12 @@ void MainWindow::create_menus() {
 
     scale_group_ = new QActionGroup(this);
     scale_group_->setExclusive(true);
-    for (int s = 1; s <= 4; ++s) {
+    for (int s = EmulatorWidget::MIN_SCALE; s <= EmulatorWidget::MAX_SCALE; ++s) {
         QAction* a = view_menu->addAction(tr("Scale %1x").arg(s));
         a->setCheckable(true);
         a->setData(s);
         scale_group_->addAction(a);
-        if (s == 2) a->setChecked(true);  // default: 2x
+        if (s == current_scale_) a->setChecked(true);
         connect(a, &QAction::triggered, this, [this, s]() { on_scale(s); });
     }
 
@@ -281,32 +275,6 @@ void MainWindow::create_menus() {
     crt_filter_action_->setCheckable(true);
     connect(crt_filter_action_, &QAction::triggered, this, [this](bool checked) {
         emulator_widget_->set_crt_filter(checked);
-    });
-
-    QMenu* scale_mode_menu = view_menu->addMenu(tr("Scale &Mode"));
-    scale_mode_group_ = new QActionGroup(this);
-    scale_mode_group_->setExclusive(true);
-
-    QAction* sm_int = scale_mode_menu->addAction(tr("Integer"));
-    sm_int->setCheckable(true);
-    scale_mode_group_->addAction(sm_int);
-    connect(sm_int, &QAction::triggered, this, [this]() {
-        emulator_widget_->set_scale_mode(ScaleMode::Integer);
-    });
-
-    QAction* sm_aspect = scale_mode_menu->addAction(tr("Aspect Fit"));
-    sm_aspect->setCheckable(true);
-    sm_aspect->setChecked(true);  // default
-    scale_mode_group_->addAction(sm_aspect);
-    connect(sm_aspect, &QAction::triggered, this, [this]() {
-        emulator_widget_->set_scale_mode(ScaleMode::AspectFit);
-    });
-
-    QAction* sm_stretch = scale_mode_menu->addAction(tr("Stretch"));
-    sm_stretch->setCheckable(true);
-    scale_mode_group_->addAction(sm_stretch);
-    connect(sm_stretch, &QAction::triggered, this, [this]() {
-        emulator_widget_->set_scale_mode(ScaleMode::Stretch);
     });
 
     // --- Help menu ---
