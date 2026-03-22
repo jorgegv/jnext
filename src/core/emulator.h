@@ -32,6 +32,7 @@
 #include "audio/turbosound.h"
 #include "audio/dac.h"
 #include "audio/mixer.h"
+#include "debug/debug_state.h"
 
 /// Top-level machine class.
 ///
@@ -118,6 +119,13 @@ public:
     Dac&          dac()       { return dac_; }
     Mixer&        mixer()     { return mixer_; }
 
+    DebugState& debug_state() { return debug_state_; }
+    const DebugState& debug_state() const { return debug_state_; }
+
+    /// Execute a single CPU instruction with all subsystem ticking.
+    /// Returns T-states consumed. Used by debugger step operations.
+    int execute_single_instruction();
+
     const EmulatorConfig& config() const { return config_; }
 
 private:
@@ -158,6 +166,7 @@ private:
     TurboSound      turbosound_;
     Dac             dac_;
     Mixer           mixer_;
+    DebugState      debug_state_;
 
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;

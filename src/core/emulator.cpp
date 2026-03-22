@@ -830,6 +830,23 @@ void Emulator::run_frame()
     static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
     while (clock_.get() < frame_end) {
+        // Debugger breakpoint check — before executing the next instruction.
+        if (debug_state_.active()) {
+            uint16_t pc = cpu_.get_registers().PC;
+            if (debug_state_.should_break(pc)) {
+                debug_state_.pause();
+                // Early return: leave frame_cycle_ as-is so resume continues
+                // from this point.  The display shows the previous frame.
+                return;
+            }
+            if (debug_state_.step_mode() == StepMode::INTO) {
+                // Step-into: pause immediately (caller already executed one
+                // instruction via execute_single_instruction()).
+                debug_state_.pause();
+                return;
+            }
+        }
+
         uint64_t master_cycles;
 
         if (dma_.is_active()) {
@@ -891,6 +908,56 @@ void Emulator::run_frame()
     // Render the completed frame into the ARGB8888 framebuffer.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                             layer2_, &sprites_, &tilemap_);
+}
+
+int Emulator::execute_single_instruction()
+{
+    // Audio timing constants (same as in run_frame).
+    static constexpr uint64_t PSG_DIVISOR = 16;
+    static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
+
+    uint64_t master_cycles;
+    if (dma_.is_active()) {
+        int transferred = dma_.execute_burst(16);
+        master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
+        if (master_cycles == 0) master_cycles = clock_.cpu_divisor();
+    } else {
+        int tstates = cpu_.execute();
+        master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+    }
+    clock_.tick(master_cycles);
+
+    // Copper.
+    if (copper_.is_running()) {
+        uint64_t elapsed = clock_.get() - frame_cycle_;
+        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        int hc = static_cast<int>(elapsed % MASTER_CYCLES_PER_LINE);
+        int cvc = (vc - Renderer::DISP_Y + LINES_PER_FRAME) % LINES_PER_FRAME;
+        copper_.execute(hc, cvc, nextreg_);
+    }
+
+    // CTC + UART.
+    ctc_.tick(static_cast<uint32_t>(master_cycles));
+    uart_.tick(static_cast<uint32_t>(master_cycles));
+
+    // PSG.
+    psg_accum_ += master_cycles;
+    while (psg_accum_ >= PSG_DIVISOR) {
+        psg_accum_ -= PSG_DIVISOR;
+        turbosound_.tick();
+    }
+
+    // Audio samples.
+    sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
+    while (sample_accum_ >= SAMPLE_THRESHOLD) {
+        sample_accum_ -= SAMPLE_THRESHOLD;
+        mixer_.generate_sample(beeper_, turbosound_, dac_);
+    }
+
+    // Scheduler.
+    scheduler_.run_until(clock_.get());
+
+    return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 
 void Emulator::reset()
