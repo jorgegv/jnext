@@ -63,7 +63,7 @@ private:
     // Layout constants
     static constexpr int GUTTER_WIDTH = 20;   // breakpoint indicator column
     static constexpr int LINE_HEIGHT = 18;    // pixels per line
-    static constexpr int VISIBLE_LINES = 20;  // number of visible lines
+    static constexpr int VISIBLE_LINES = 22;  // number of visible lines
     static constexpr int ADDR_WIDTH = 48;     // address column width
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
 

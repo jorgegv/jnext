@@ -16,7 +16,7 @@ public:
     /// Update display with current video state.
     void refresh();
 
-    QSize sizeHint() const override { return QSize(250, 400); }
+    QSize sizeHint() const override { return QSize(400, 400); }
 
 private:
     void create_ui();

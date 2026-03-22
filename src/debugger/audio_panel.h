@@ -17,8 +17,8 @@ public:
     /// Update display with current audio state.
     void refresh();
 
-    QSize sizeHint() const override { return QSize(400, 540); }
-    QSize minimumSizeHint() const override { return QSize(350, 500); }
+    QSize sizeHint() const override { return QSize(400, 600); }
+    QSize minimumSizeHint() const override { return QSize(350, 580); }
 
 private:
     void create_ui();

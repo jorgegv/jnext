@@ -64,14 +64,10 @@ void AudioPanel::create_ui() {
     ay_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ay_table_->setSelectionMode(QAbstractItemView::NoSelection);
 
-    // Size table to fit all 16 rows without scrollbars.
-    // Use a generous frame allowance to prevent the last row being clipped.
-    int row_h = 20;
-    int table_height = 16 * row_h + 26 + 2 * ay_table_->frameWidth();
-    ay_table_->setFixedHeight(table_height);
+    // Disable scrollbars — the panel is tall enough to show all 16 rows.
     ay_table_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ay_table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    ay_table_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    ay_table_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     // Initialize cells
     for (int r = 0; r < 16; ++r) {
@@ -82,7 +78,7 @@ void AudioPanel::create_ui() {
         }
     }
 
-    layout->addWidget(ay_table_, 0);
+    layout->addWidget(ay_table_, 1);
 
     // --- Source Mute Controls ---
     auto* sources_box = new QGroupBox(tr("Sources"), this);

@@ -13,9 +13,10 @@ class SpritePanel;
 class CopperPanel;
 class NextRegPanel;
 class AudioPanel;
-class QDockWidget;
+class QSplitter;
+class QTabWidget;
 
-/// Separate window that hosts all debugger dock panels.
+/// Separate window that hosts all debugger panels.
 /// Closing this window disables the debugger and resumes emulation.
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
@@ -53,21 +54,18 @@ private:
     Emulator* emulator_;
     DebuggerManager* debugger_mgr_ = nullptr;
 
+    // Layout
+    QSplitter* main_splitter_ = nullptr;
+    QSplitter* top_splitter_ = nullptr;
+    QTabWidget* tab_widget_ = nullptr;
+
     // Panels
     CpuPanel* cpu_panel_ = nullptr;
-    QDockWidget* cpu_dock_ = nullptr;
     DisasmPanel* disasm_panel_ = nullptr;
-    QDockWidget* disasm_dock_ = nullptr;
     MemoryPanel* memory_panel_ = nullptr;
-    QDockWidget* memory_dock_ = nullptr;
     VideoPanel* video_panel_ = nullptr;
-    QDockWidget* video_dock_ = nullptr;
     SpritePanel* sprite_panel_ = nullptr;
-    QDockWidget* sprite_dock_ = nullptr;
     CopperPanel* copper_panel_ = nullptr;
-    QDockWidget* copper_dock_ = nullptr;
     NextRegPanel* nextreg_panel_ = nullptr;
-    QDockWidget* nextreg_dock_ = nullptr;
     AudioPanel* audio_panel_ = nullptr;
-    QDockWidget* audio_dock_ = nullptr;
 };

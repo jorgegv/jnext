@@ -11,21 +11,25 @@
 
 #include "debugger/debugger_manager.h"
 
-#include <QDockWidget>
 #include <QCloseEvent>
 #include <QToolBar>
 #include <QPushButton>
 #include <QSettings>
 #include <QDataStream>
+#include <QSplitter>
+#include <QTabWidget>
+#include <QVBoxLayout>
+#include <QGroupBox>
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     : QMainWindow(parent)
     , emulator_(emulator)
 {
     setWindowTitle(tr("JNEXT Debugger"));
-    resize(506, 780);
-
     create_panels();
+
+    setMinimumWidth(780);
+    resize(780, 900);
 
     // Restore saved size (not position — position is controlled by the main window).
     QSettings settings("JNEXT", "Debugger");
@@ -34,7 +38,7 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
         QDataStream ds(saved_size);
         int w, h;
         ds >> w >> h;
-        if (w > 100 && h > 100)
+        if (w >= 780 && h > 100)
             resize(w, h);
     }
 }
@@ -82,7 +86,6 @@ void DebuggerWindow::save_position() {
 
 void DebuggerWindow::save_geometry() {
     QSettings settings("JNEXT", "Debugger");
-    // Only save size; position is controlled by the main window (sticky).
     QByteArray data;
     QDataStream ds(&data, QIODevice::WriteOnly);
     ds << width() << height();
@@ -100,84 +103,76 @@ void DebuggerWindow::position_next_to(QWidget* main_win) {
 }
 
 void DebuggerWindow::create_panels() {
-    // Static dock features: no close, no float — bold title label.
-    auto static_dock = [](QDockWidget* dock) {
-        dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
-        QFont f = dock->font();
-        f.setBold(true);
-        dock->setFont(f);
-    };
-
-    // Light gray separator lines + darker title bar background.
-    setStyleSheet(
-        "QMainWindow::separator { background: #C0C0C0; width: 1px; height: 1px;"
-        "  margin: 3px; }"
-        "QDockWidget::title { background: #D0D0D0; padding: 4px; }"
-    );
-
-    // CPU registers panel (right dock area)
+    // --- Create panels ---
     cpu_panel_ = new CpuPanel(emulator_);
-    cpu_dock_ = new QDockWidget(tr("CPU Registers"), this);
-    cpu_dock_->setWidget(cpu_panel_);
-    static_dock(cpu_dock_);
-    addDockWidget(Qt::RightDockWidgetArea, cpu_dock_);
-
-    // Disassembly panel (right dock area, below CPU)
     disasm_panel_ = new DisasmPanel(emulator_);
-    disasm_dock_ = new QDockWidget(tr("Disassembly"), this);
-    disasm_dock_->setWidget(disasm_panel_);
-    static_dock(disasm_dock_);
-    addDockWidget(Qt::RightDockWidgetArea, disasm_dock_);
-
-    // Memory panel (bottom dock area) — tall enough for 16+ rows
     memory_panel_ = new MemoryPanel(emulator_);
     memory_panel_->setMinimumHeight(320);
-    memory_dock_ = new QDockWidget(tr("Memory"), this);
-    memory_dock_->setWidget(memory_panel_);
-    static_dock(memory_dock_);
-    addDockWidget(Qt::BottomDockWidgetArea, memory_dock_);
-
-    // Video panel (left dock area)
     video_panel_ = new VideoPanel(emulator_);
-    video_dock_ = new QDockWidget(tr("Video"), this);
-    video_dock_->setWidget(video_panel_);
-    static_dock(video_dock_);
-    addDockWidget(Qt::LeftDockWidgetArea, video_dock_);
-
-    // Sprite panel (left dock area, tabified with video)
     sprite_panel_ = new SpritePanel(emulator_);
-    sprite_dock_ = new QDockWidget(tr("Sprites"), this);
-    sprite_dock_->setWidget(sprite_panel_);
-    static_dock(sprite_dock_);
-    addDockWidget(Qt::LeftDockWidgetArea, sprite_dock_);
-    tabifyDockWidget(video_dock_, sprite_dock_);
-
-    // Copper panel (left dock area, tabified)
     copper_panel_ = new CopperPanel(emulator_);
-    copper_dock_ = new QDockWidget(tr("Copper"), this);
-    copper_dock_->setWidget(copper_panel_);
-    static_dock(copper_dock_);
-    addDockWidget(Qt::LeftDockWidgetArea, copper_dock_);
-    tabifyDockWidget(sprite_dock_, copper_dock_);
-
-    // NextREG panel (left dock area, tabified)
     nextreg_panel_ = new NextRegPanel(emulator_);
-    nextreg_dock_ = new QDockWidget(tr("NextREG"), this);
-    nextreg_dock_->setWidget(nextreg_panel_);
-    static_dock(nextreg_dock_);
-    addDockWidget(Qt::LeftDockWidgetArea, nextreg_dock_);
-    tabifyDockWidget(copper_dock_, nextreg_dock_);
-
-    // Audio panel (left dock area, tabified)
     audio_panel_ = new AudioPanel(emulator_);
-    audio_dock_ = new QDockWidget(tr("Audio"), this);
-    audio_dock_->setWidget(audio_panel_);
-    static_dock(audio_dock_);
-    addDockWidget(Qt::LeftDockWidgetArea, audio_dock_);
-    tabifyDockWidget(nextreg_dock_, audio_dock_);
 
-    // Raise the video panel tab by default
-    video_dock_->raise();
+    // --- Helper: wrap a widget in a titled QGroupBox ---
+    auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
+        auto* box = new QGroupBox(title);
+        box->setStyleSheet(
+            "QGroupBox { font-weight: bold; border: 1px solid #C0C0C0;"
+            "  margin-top: 18px; padding-top: 8px; }"
+            "QGroupBox::title { subcontrol-origin: margin;"
+            "  subcontrol-position: top left; padding: 3px 8px;"
+            "  background: #D8D8D8; }");
+        auto* lay = new QVBoxLayout(box);
+        lay->setContentsMargins(4, 6, 4, 4);
+        lay->addWidget(content);
+        return box;
+    };
+
+    // --- Tab widget for left-side panels (each wrapped in titled group) ---
+    tab_widget_ = new QTabWidget();
+    tab_widget_->addTab(make_group(tr("Video"), video_panel_), tr("Video"));
+    tab_widget_->addTab(make_group(tr("Sprites"), sprite_panel_), tr("Sprites"));
+    tab_widget_->addTab(make_group(tr("Copper"), copper_panel_), tr("Copper"));
+    tab_widget_->addTab(make_group(tr("NextREG"), nextreg_panel_), tr("NextREG"));
+    tab_widget_->addTab(make_group(tr("Audio"), audio_panel_), tr("Audio"));
+    tab_widget_->setMinimumWidth(380);
+
+    auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
+    auto* disasm_box = make_group(tr("Disassembly"), disasm_panel_);
+    auto* memory_box = make_group(tr("Memory"), memory_panel_);
+
+    auto* right_widget = new QWidget();
+    auto* right_layout = new QVBoxLayout(right_widget);
+    right_layout->setContentsMargins(0, 0, 0, 0);
+    right_layout->setSpacing(2);
+    right_layout->addWidget(cpu_box);
+    right_layout->addWidget(disasm_box, 1);  // disasm gets stretch
+
+    // --- Top: tabs (left) | CPU+disasm (right) ---
+    top_splitter_ = new QSplitter(Qt::Horizontal);
+    top_splitter_->addWidget(tab_widget_);
+    top_splitter_->addWidget(right_widget);
+    top_splitter_->setStretchFactor(0, 1);  // tabs stretch
+    top_splitter_->setStretchFactor(1, 1);  // right side stretches equally
+    top_splitter_->setSizes({350, 350});
+
+    // --- Main: top area | memory (bottom) ---
+    main_splitter_ = new QSplitter(Qt::Vertical);
+    main_splitter_->addWidget(top_splitter_);
+    main_splitter_->addWidget(memory_box);
+    main_splitter_->setStretchFactor(0, 1);  // top gets stretch
+    main_splitter_->setStretchFactor(1, 0);  // memory stays at preferred size
+
+    setCentralWidget(main_splitter_);
+
+    // Style: light separator handles
+    main_splitter_->setStyleSheet(
+        "QSplitter::handle { background: #C0C0C0; }"
+    );
+    top_splitter_->setStyleSheet(
+        "QSplitter::handle { background: #C0C0C0; }"
+    );
 }
 
 void DebuggerWindow::activate_follow_pc() {
