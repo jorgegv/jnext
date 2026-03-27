@@ -1,7 +1,7 @@
 /* fuse_z80_core.c — Standalone Z80 core derived from FUSE 1.6.0.
  *
  * Original FUSE Z80 core: Copyright (c) 1999-2016 Philip Kendall, Stuart Brady
- * Adaptation for jnext:   Copyright (c) 2026 Jorge Giner Cordero
+ * Adaptation for jnext:   Copyright (c) 2026 Jorge Gonzalez Villalonga
  *
  * Licensed under the GNU General Public License version 2 or later.
  * See COPYING.GPL2 in this directory.

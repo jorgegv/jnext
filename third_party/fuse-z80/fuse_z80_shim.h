@@ -5,7 +5,7 @@
  * the opcode files (opcodes_base.c, z80_cb.c, z80_ed.c, z80_ddfd.c,
  * z80_ddfdcb.c) can compile without any other FUSE header.
  *
- * Copyright (c) 2026 Jorge Giner Cordero — GPLv2+ (matching FUSE licence)
+ * Copyright (c) 2026 Jorge Gonzalez Villalonga — GPLv2+ (matching FUSE licence)
  */
 
 #ifndef FUSE_Z80_SHIM_H
