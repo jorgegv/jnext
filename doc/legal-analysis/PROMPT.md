@@ -9,8 +9,8 @@ I need you to do a deep research and analysis about the following general topic:
 My current situation is the following:
 
 - I am currently developing a big application and I'm doing it fully with Claude Code, without writing barely any code myself.
-- I have it stored in a private Github repository
-- I'd like to publish it under GPL-3 license
+- I have it stored in a private (for the moment) Github repository
+- I'd like to publish it under GPLV3 license
 - It's not published yet because of some doubts I have (described in the next section)
 - The code is based on and contains some GPLV3 code from other repositories
 
@@ -38,3 +38,7 @@ I want an exhaustive report of the investigation, with the following sections at
 - The REPORT.md document was generated with the previous prompt, and refers to this repository and its code. Review it and adapt or correct any sections taking into account the context of this project.
 - Do NOT modify the original REPORT.md
 - Write the modified report to REPORT-2.md instead
+
+## Prompt 3
+
+- Please translate report.md and report-2.md very carefully to Spanish. Name the resulting files REPORT-ES.md and REPORT-2-ES.md
