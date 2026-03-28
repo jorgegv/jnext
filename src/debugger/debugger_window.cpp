@@ -7,6 +7,7 @@
 #include "debugger/copper_panel.h"
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
+#include "debugger/watch_panel.h"
 #include "core/emulator.h"
 
 #include "debugger/debugger_manager.h"
@@ -206,6 +207,7 @@ void DebuggerWindow::create_panels() {
     copper_panel_ = new CopperPanel(emulator_);
     nextreg_panel_ = new NextRegPanel(emulator_);
     audio_panel_ = new AudioPanel(emulator_);
+    watch_panel_ = new WatchPanel(emulator_);
 
     // --- Helper: wrap a widget in a titled QGroupBox ---
     auto make_group = [](const QString& title, QWidget* content) -> QGroupBox* {
@@ -251,12 +253,23 @@ void DebuggerWindow::create_panels() {
     top_splitter_->setStretchFactor(1, 1);  // right side stretches equally
     top_splitter_->setSizes({350, 350});
 
-    // --- Main: top area | memory (bottom) ---
+    // --- Bottom: memory (left) | watches (right) ---
+    auto* watch_box = make_group(tr("Watches"), watch_panel_);
+
+    auto* bottom_splitter = new QSplitter(Qt::Horizontal);
+    bottom_splitter->addWidget(memory_box);
+    bottom_splitter->addWidget(watch_box);
+    bottom_splitter->setStretchFactor(0, 1);
+    bottom_splitter->setStretchFactor(1, 1);
+    bottom_splitter->setSizes({390, 390});
+    bottom_splitter->setStyleSheet("QSplitter::handle { background: #C0C0C0; }");
+
+    // --- Main: top area | bottom (memory + watches) ---
     main_splitter_ = new QSplitter(Qt::Vertical);
     main_splitter_->addWidget(top_splitter_);
-    main_splitter_->addWidget(memory_box);
+    main_splitter_->addWidget(bottom_splitter);
     main_splitter_->setStretchFactor(0, 1);  // top gets stretch
-    main_splitter_->setStretchFactor(1, 0);  // memory stays at preferred size
+    main_splitter_->setStretchFactor(1, 0);  // bottom stays at preferred size
 
     setCentralWidget(main_splitter_);
 
@@ -282,4 +295,5 @@ void DebuggerWindow::refresh_panels() {
     if (copper_panel_) copper_panel_->refresh();
     if (nextreg_panel_) nextreg_panel_->refresh();
     if (audio_panel_) audio_panel_->refresh();
+    if (watch_panel_) watch_panel_->refresh();
 }
