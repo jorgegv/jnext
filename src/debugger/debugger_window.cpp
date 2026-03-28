@@ -8,6 +8,8 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "core/emulator.h"
+#include "debug/breakpoints.h"
+#include "debug/debug_state.h"
 
 #include "debugger/debugger_manager.h"
 
@@ -20,6 +22,12 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QGroupBox>
+#include <QMenuBar>
+#include <QMenu>
+#include <QDialog>
+#include <QFormLayout>
+#include <QLineEdit>
+#include <QDialogButtonBox>
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     : QMainWindow(parent)
@@ -27,6 +35,7 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
 {
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
+    create_menus();
 
     setMinimumWidth(780);
     resize(780, 900);
@@ -178,6 +187,73 @@ void DebuggerWindow::create_panels() {
 
 void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
+}
+
+void DebuggerWindow::create_menus() {
+    QMenuBar* bar = menuBar();
+
+    // --- Breakpoints menu ---
+    QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
+
+    QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
+    connect(add_read_bp, &QAction::triggered, this, [this]() {
+        show_add_data_bp_dialog(WatchType::READ);
+    });
+
+    QAction* add_write_bp = bp_menu->addAction(tr("Add &Write Breakpoint..."));
+    connect(add_write_bp, &QAction::triggered, this, [this]() {
+        show_add_data_bp_dialog(WatchType::WRITE);
+    });
+
+    QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/&Write Breakpoint..."));
+    connect(add_rw_bp, &QAction::triggered, this, [this]() {
+        show_add_data_bp_dialog(WatchType::READ_WRITE);
+    });
+
+    bp_menu->addSeparator();
+
+    QAction* clear_all_bp = bp_menu->addAction(tr("&Clear All Breakpoints"));
+    connect(clear_all_bp, &QAction::triggered, this, [this]() {
+        emulator_->debug_state().breakpoints().clear_all_pc();
+        emulator_->debug_state().breakpoints().clear_all_watchpoints();
+        if (disasm_panel_) disasm_panel_->refresh();
+    });
+}
+
+void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+    QDialog dlg(this);
+    QString type_name;
+    switch (type) {
+        case WatchType::READ:       type_name = "Read"; break;
+        case WatchType::WRITE:      type_name = "Write"; break;
+        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
+        default:                    type_name = "Data"; break;
+    }
+    dlg.setWindowTitle(tr("Add %1 Breakpoint").arg(type_name));
+    dlg.setMinimumWidth(400);
+
+    auto* form = new QFormLayout(&dlg);
+    auto* addr_edit = new QLineEdit(&dlg);
+    addr_edit->setPlaceholderText("e.g. 4000 or $4000");
+    form->addRow(tr("Address (hex):"), addr_edit);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    QString addr_text = addr_edit->text().trimmed();
+    if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
+    if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
+
+    bool ok = false;
+    uint16_t addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
+    if (!ok) return;
+
+    emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
 }
 
 void DebuggerWindow::refresh_panels() {
