@@ -8,8 +8,9 @@
 struct TraceEntry {
     uint64_t cycle;           // master cycle count
     uint16_t pc;              // PC at start of instruction
-    uint16_t af, bc, de, hl;  // register values before execution
-    uint16_t sp;
+    uint16_t af, bc, de, hl;  // main register values before execution
+    uint16_t af2, bc2, de2, hl2; // alternate register set
+    uint16_t ix, iy, sp;
     uint8_t  opcode_bytes[4]; // raw bytes
     int      opcode_len;      // 1-4
 };

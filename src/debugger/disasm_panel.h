@@ -7,6 +7,8 @@
 #include "debug/disasm.h"
 
 class Emulator;
+class SymbolTable;
+class WatchPanel;
 
 /// Scrollable disassembly view with breakpoint gutter.
 /// Uses custom painting for precise control over the display.
@@ -27,6 +29,12 @@ public:
     /// Set paused state — when not paused, the panel grays out and stops updating.
     void set_paused(bool paused);
 
+    /// Set symbol table for address resolution in disassembly display.
+    void set_symbol_table(SymbolTable* st) { symbol_table_ = st; }
+
+    /// Set watch panel for "Add Watch" context menu actions.
+    void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
+
 signals:
     void breakpoint_toggled(uint16_t addr);
     void run_to_requested(uint16_t addr);
@@ -43,6 +51,7 @@ private:
     void disassemble_from(uint16_t addr, int count);
     int line_at_y(int y) const;
     void navigate_to_address(const QString& text);
+    static uint16_t extract_immediate16(const char* mnemonic);
 
     Emulator* emulator_;
 
@@ -74,4 +83,8 @@ private:
 
     // Paused state — when false, panel is grayed out and not updated
     bool paused_ = true;
+
+    // Optional: symbol table and watch panel for enhanced features
+    SymbolTable* symbol_table_ = nullptr;
+    WatchPanel* watch_panel_ = nullptr;
 };

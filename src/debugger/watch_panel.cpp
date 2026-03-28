@@ -29,6 +29,10 @@ WatchPanel::WatchPanel(Emulator* emulator, QWidget* parent)
     connect(add_btn, &QPushButton::clicked, this, &WatchPanel::on_add_watch);
     btn_row->addWidget(add_btn);
 
+    auto* edit_btn = new QPushButton(tr("Edit"), this);
+    connect(edit_btn, &QPushButton::clicked, this, &WatchPanel::on_edit_watch);
+    btn_row->addWidget(edit_btn);
+
     auto* remove_btn = new QPushButton(tr("Remove"), this);
     connect(remove_btn, &QPushButton::clicked, this, &WatchPanel::remove_selected);
     btn_row->addWidget(remove_btn);
@@ -107,24 +111,30 @@ void WatchPanel::remove_selected() {
     update_table();
 }
 
-void WatchPanel::on_add_watch() {
+bool WatchPanel::show_watch_dialog(const QString& title, uint16_t& addr,
+                                    std::string& label, int& type)
+{
     QDialog dlg(this);
-    dlg.setWindowTitle(tr("Add Watch"));
+    dlg.setWindowTitle(title);
+    dlg.setMinimumWidth(400);
 
     auto* form = new QFormLayout(&dlg);
 
     auto* addr_edit = new QLineEdit(&dlg);
     addr_edit->setPlaceholderText("e.g. 4000 or $4000");
+    addr_edit->setText(QString::asprintf("%04X", addr));
     form->addRow(tr("Address (hex):"), addr_edit);
 
     auto* label_edit = new QLineEdit(&dlg);
     label_edit->setPlaceholderText("(optional)");
+    label_edit->setText(QString::fromStdString(label));
     form->addRow(tr("Label:"), label_edit);
 
     auto* type_combo = new QComboBox(&dlg);
     type_combo->addItem(tr("Byte"));
     type_combo->addItem(tr("Word"));
     type_combo->addItem(tr("Long"));
+    type_combo->setCurrentIndex(type);
     form->addRow(tr("Type:"), type_combo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -132,20 +142,44 @@ void WatchPanel::on_add_watch() {
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted) return false;
 
     QString addr_text = addr_edit->text().trimmed();
     if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
     if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
 
     bool ok = false;
-    uint16_t addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return;
+    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
+    if (!ok) return false;
 
-    std::string label = label_edit->text().trimmed().toStdString();
-    int type = type_combo->currentIndex();
+    label = label_edit->text().trimmed().toStdString();
+    type = type_combo->currentIndex();
+    return true;
+}
 
-    add_watch(addr, label, type);
+void WatchPanel::on_add_watch() {
+    uint16_t addr = 0;
+    std::string label;
+    int type = 0;
+    if (show_watch_dialog(tr("Add Watch"), addr, label, type))
+        add_watch(addr, label, type);
+}
+
+void WatchPanel::on_edit_watch() {
+    int row = table_->currentRow();
+    if (row < 0 || row >= static_cast<int>(watches_.size())) return;
+
+    auto& w = watches_[row];
+    uint16_t addr = w.addr;
+    std::string label = w.label;
+    int type = static_cast<int>(w.type);
+
+    if (show_watch_dialog(tr("Edit Watch"), addr, label, type)) {
+        w.addr = addr;
+        w.label = label;
+        w.type = static_cast<WatchType>(type);
+        update_table();
+    }
 }
 
 void WatchPanel::update_table() {

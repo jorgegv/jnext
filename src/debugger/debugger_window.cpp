@@ -32,8 +32,8 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     setWindowTitle(tr("JNEXT Debugger"));
     create_panels();
 
-    setMinimumWidth(780);
-    resize(780, 900);
+    setMinimumWidth(1170);
+    resize(1170, 900);
 
     // Restore saved size (not position — position is controlled by the main window).
     QSettings settings("JNEXT", "Debugger");
@@ -42,7 +42,7 @@ DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
         QDataStream ds(saved_size);
         int w, h;
         ds >> w >> h;
-        if (w >= 780 && h > 100)
+        if (w >= 1170 && h > 100)
             resize(w, h);
     }
 }
@@ -59,33 +59,37 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     // Create the menu bar with debug actions.
     create_menus();
 
-    // Create the debug controls toolbar.
+    // Create the debug controls toolbar at the bottom.
     auto* toolbar = new QToolBar(tr("Debug Controls"), this);
     toolbar->setMovable(false);
 
-    auto* continue_btn = new QPushButton(tr("Continue"), this);
+    // Continue and Break on the left
+    auto* continue_btn = new QPushButton(tr("F5: Continue"), this);
     connect(continue_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
     toolbar->addWidget(continue_btn);
 
-    auto* break_btn = new QPushButton(tr("Break"), this);
+    auto* break_btn = new QPushButton(tr("F9: Break"), this);
     connect(break_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
     toolbar->addWidget(break_btn);
 
-    toolbar->addSeparator();
+    // Spacer to push step buttons to the right
+    auto* spacer = new QWidget(this);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(spacer);
 
-    auto* step_into_btn = new QPushButton(tr("Step Into"), this);
+    auto* step_into_btn = new QPushButton(tr("F6: Single Step"), this);
     connect(step_into_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
     toolbar->addWidget(step_into_btn);
 
-    auto* step_over_btn = new QPushButton(tr("Step Over"), this);
+    auto* step_over_btn = new QPushButton(tr("F7: Step Over"), this);
     connect(step_over_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_over);
     toolbar->addWidget(step_over_btn);
 
-    auto* step_out_btn = new QPushButton(tr("Step Out"), this);
+    auto* step_out_btn = new QPushButton(tr("F8: Step Out"), this);
     connect(step_out_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
     toolbar->addWidget(step_out_btn);
 
-    addToolBar(toolbar);
+    addToolBar(Qt::BottomToolBarArea, toolbar);
 }
 
 void DebuggerWindow::create_menus() {
@@ -94,26 +98,26 @@ void DebuggerWindow::create_menus() {
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
 
-    run_action_ = debug_menu->addAction(tr("&Run / Continue"));
+    run_action_ = debug_menu->addAction(tr("Run / &Continue"));
     run_action_->setShortcut(QKeySequence(Qt::Key_F5));
     connect(run_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run);
 
-    pause_action_ = debug_menu->addAction(tr("&Pause"));
+    pause_action_ = debug_menu->addAction(tr("Pause / &Break"));
     pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
     connect(pause_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_pause);
 
     debug_menu->addSeparator();
 
-    step_into_action_ = debug_menu->addAction(tr("Step &Into"));
-    step_into_action_->setShortcut(QKeySequence(Qt::Key_F11));
+    step_into_action_ = debug_menu->addAction(tr("&Single Step"));
+    step_into_action_->setShortcut(QKeySequence(Qt::Key_F6));
     connect(step_into_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_into);
 
     step_over_action_ = debug_menu->addAction(tr("Step &Over"));
-    step_over_action_->setShortcut(QKeySequence(Qt::Key_F10));
+    step_over_action_->setShortcut(QKeySequence(Qt::Key_F7));
     connect(step_over_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_over);
 
     step_out_action_ = debug_menu->addAction(tr("Step Ou&t"));
-    step_out_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11));
+    step_out_action_->setShortcut(QKeySequence(Qt::Key_F8));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
 
     debug_menu->addSeparator();
@@ -161,8 +165,8 @@ void DebuggerWindow::create_menus() {
 
     QAction* add_watch = watches_menu->addAction(tr("&Add Watch..."));
     connect(add_watch, &QAction::triggered, this, [this]() {
-        QMessageBox::information(this, tr("Watches"),
-            tr("Watch functionality is not yet implemented."));
+        if (watch_panel_)
+            watch_panel_->on_add_watch();
     });
 }
 
@@ -261,7 +265,7 @@ void DebuggerWindow::create_panels() {
     bottom_splitter->addWidget(watch_box);
     bottom_splitter->setStretchFactor(0, 1);
     bottom_splitter->setStretchFactor(1, 1);
-    bottom_splitter->setSizes({390, 390});
+    bottom_splitter->setSizes({600, 400});
     bottom_splitter->setStyleSheet("QSplitter::handle { background: #C0C0C0; }");
 
     // --- Main: top area | bottom (memory + watches) ---

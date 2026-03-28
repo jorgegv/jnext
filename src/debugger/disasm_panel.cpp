@@ -13,6 +13,11 @@
 #include <QFontDatabase>
 
 #include "core/emulator.h"
+#include "debug/symbol_table.h"
+#include "debugger/watch_panel.h"
+
+#include <cstring>
+#include <cstdlib>
 
 DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     : QWidget(parent)
@@ -256,7 +261,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         }
         painter.drawText(x, text_y, bytes_str);
 
-        // Mnemonic column
+        // Mnemonic column — with optional symbol resolution
         x += BYTES_WIDTH;
         if (entry.is_current_pc) {
             QFont bold = mono_font_;
@@ -264,7 +269,20 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
             painter.setFont(bold);
         }
         painter.setPen(QColor(0, 0, 0));
-        painter.drawText(x, text_y, QString(entry.line.mnemonic));
+
+        QString mnemonic_str(entry.line.mnemonic);
+        // Try to resolve 16-bit immediates to symbol names
+        if (symbol_table_) {
+            uint16_t imm = extract_immediate16(entry.line.mnemonic);
+            if (imm != 0 || std::strstr(entry.line.mnemonic, "$0000")) {
+                auto sym = symbol_table_->lookup(imm);
+                if (sym) {
+                    QString target = QString::asprintf("$%04X", imm);
+                    mnemonic_str.replace(target, QString::fromStdString(*sym));
+                }
+            }
+        }
+        painter.drawText(x, text_y, mnemonic_str);
 
         if (entry.is_current_pc) {
             painter.setFont(mono_font_);
@@ -483,7 +501,96 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         addr_input_->selectAll();
     });
 
+    // --- Watch actions ---
+    if (watch_panel_) {
+        menu.addSeparator();
+
+        const auto& entry = entries_[line];
+
+        // If there's a symbol at this address, offer to watch it
+        if (symbol_table_) {
+            auto sym = symbol_table_->lookup(addr);
+            if (sym) {
+                auto* watch_sym = menu.addAction(
+                    QString("Watch '%1' ($%2)").arg(QString::fromStdString(*sym))
+                        .arg(addr, 4, 16, QChar('0')));
+                connect(watch_sym, &QAction::triggered, this, [this, addr, sym]() {
+                    watch_panel_->add_watch(addr, *sym);
+                });
+            }
+        }
+
+        // If the mnemonic has a 16-bit immediate, offer to watch that address
+        uint16_t imm = extract_immediate16(entry.line.mnemonic);
+        if (imm != 0 || std::strstr(entry.line.mnemonic, "$0000")) {
+            QString label;
+            if (symbol_table_) {
+                auto sym = symbol_table_->lookup(imm);
+                if (sym) label = QString::fromStdString(*sym);
+            }
+            auto* watch_imm = menu.addAction(
+                QString("Watch $%1").arg(imm, 4, 16, QChar('0')));
+            connect(watch_imm, &QAction::triggered, this, [this, imm, label]() {
+                watch_panel_->add_watch(imm, label.toStdString());
+            });
+        }
+
+        // Watch the address in a 16-bit register (use current register values).
+        // Match register names as standalone tokens — not inside hex immediates
+        // like $15DE. A register is standalone if the char before it is not a
+        // hex digit or '$', and the char after is not a hex digit.
+        auto regs = emulator_->cpu().get_registers();
+        struct { const char* name; uint16_t val; } reg_pairs[] = {
+            {"HL", regs.HL}, {"DE", regs.DE}, {"BC", regs.BC},
+            {"IX", regs.IX}, {"IY", regs.IY}, {"SP", regs.SP}
+        };
+        const char* mnem = entry.line.mnemonic;
+        for (const auto& rp : reg_pairs) {
+            const char* pos = std::strstr(mnem, rp.name);
+            if (!pos) continue;
+            // Check char before: must not be hex digit or '$'
+            if (pos > mnem) {
+                char before = *(pos - 1);
+                if (std::isxdigit(static_cast<unsigned char>(before)) || before == '$')
+                    continue;
+            }
+            // Check char after: must not be hex digit
+            char after = *(pos + std::strlen(rp.name));
+            if (std::isxdigit(static_cast<unsigned char>(after)))
+                continue;
+
+            auto* watch_reg = menu.addAction(
+                QString("Watch (%1) = $%2").arg(rp.name)
+                    .arg(rp.val, 4, 16, QChar('0')));
+            connect(watch_reg, &QAction::triggered, this, [this, rp]() {
+                watch_panel_->add_watch(rp.val,
+                    std::string("(") + rp.name + ")");
+            });
+        }
+    }
+
     menu.exec(event->globalPos());
+}
+
+uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)
+{
+    // Scan mnemonic for a $XXXX pattern (4 hex digits after $)
+    const char* p = mnemonic;
+    while (*p) {
+        if (*p == '$') {
+            const char* start = p + 1;
+            int digits = 0;
+            while (start[digits] && std::isxdigit(static_cast<unsigned char>(start[digits])))
+                ++digits;
+            if (digits == 4) {
+                char buf[5] = {};
+                std::memcpy(buf, start, 4);
+                return static_cast<uint16_t>(std::strtoul(buf, nullptr, 16));
+            }
+        }
+        ++p;
+    }
+    return 0; // not found — 0 is ambiguous but acceptable
 }
 
 QSize DisasmPanel::sizeHint() const

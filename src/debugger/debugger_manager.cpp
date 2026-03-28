@@ -1,6 +1,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
+#include "debugger/watch_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -12,6 +13,8 @@
 #include <QStyle>
 #include <QTimer>
 #include <QEvent>
+#include <QPainter>
+#include <QPixmap>
 #include <QFileDialog>
 #include <QMessageBox>
 
@@ -138,7 +141,7 @@ void DebuggerManager::ensure_window() {
         set_enabled(false);
     });
 
-    // Wire disasm panel "run to" signal.
+    // Wire disasm panel "run to" signal and set symbol/watch pointers.
     if (auto* dp = debugger_window_->disasm_panel()) {
         connect(dp, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
             emulator_->debug_state().run_to(addr);
@@ -146,6 +149,10 @@ void DebuggerManager::ensure_window() {
             emit resumed();
             update_actions();
         });
+
+        dp->set_symbol_table(&symbol_table_);
+        if (debugger_window_->watch_panel())
+            dp->set_watch_panel(debugger_window_->watch_panel());
     }
 }
 
@@ -157,9 +164,28 @@ void DebuggerManager::create_debug_toolbar() {
     debug_toolbar_ = main_window_->addToolBar(QObject::tr("Debug"));
     debug_toolbar_->setMovable(false);
 
+    // Draw a simple bug icon
+    QPixmap bug_pix(24, 24);
+    bug_pix.fill(Qt::transparent);
+    {
+        QPainter p(&bug_pix);
+        p.setRenderHint(QPainter::Antialiasing);
+        // Body (dark green oval)
+        p.setBrush(QColor(40, 120, 40));
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(7, 8, 10, 12);
+        // Head
+        p.drawEllipse(9, 4, 6, 6);
+        // Legs (3 pairs)
+        p.setPen(QPen(QColor(40, 120, 40), 1.5));
+        p.drawLine(7, 11, 3, 8);   p.drawLine(17, 11, 21, 8);
+        p.drawLine(7, 14, 3, 14);  p.drawLine(17, 14, 21, 14);
+        p.drawLine(7, 17, 3, 20);  p.drawLine(17, 17, 21, 20);
+        // Antennae
+        p.drawLine(10, 5, 7, 1);   p.drawLine(14, 5, 17, 1);
+    }
     QAction* dbg_toggle = debug_toolbar_->addAction(
-        main_window_->style()->standardIcon(QStyle::SP_MessageBoxWarning),
-        QObject::tr("Debug"));
+        QIcon(bug_pix), QObject::tr("Debug"));
     dbg_toggle->setCheckable(true);
     dbg_toggle->setChecked(false);
     dbg_toggle->setToolTip(QObject::tr("Toggle Debugger (Ctrl+D)"));

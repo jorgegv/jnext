@@ -864,6 +864,9 @@ void Emulator::run_frame()
                 te.pc = regs.PC;
                 te.af = regs.AF; te.bc = regs.BC;
                 te.de = regs.DE; te.hl = regs.HL;
+                te.af2 = regs.AF2; te.bc2 = regs.BC2;
+                te.de2 = regs.DE2; te.hl2 = regs.HL2;
+                te.ix = regs.IX; te.iy = regs.IY;
                 te.sp = regs.SP;
                 for (int i = 0; i < 4; ++i)
                     te.opcode_bytes[i] = mmu_.read(regs.PC + i);

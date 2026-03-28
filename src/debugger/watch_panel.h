@@ -30,8 +30,13 @@ public slots:
     /// Show dialog to add a new watch.
     void on_add_watch();
 
+    /// Show dialog to edit the currently selected watch.
+    void on_edit_watch();
+
 private:
     void update_table();
+    bool show_watch_dialog(const QString& title, uint16_t& addr,
+                           std::string& label, int& type);
 
     Emulator* emulator_;
     QTableWidget* table_ = nullptr;

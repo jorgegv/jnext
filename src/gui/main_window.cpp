@@ -468,30 +468,23 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 event->accept();
                 return;
             }
-            if (key == Qt::Key_F9) {
-                debugger_mgr_->on_pause();
+            if (key == Qt::Key_F6) {
+                debugger_mgr_->on_step_into();
                 event->accept();
                 return;
             }
-            if (key == Qt::Key_F10) {
+            if (key == Qt::Key_F7) {
                 debugger_mgr_->on_step_over();
                 event->accept();
                 return;
             }
-            if (key == Qt::Key_F11 && (modifiers & Qt::ShiftModifier)) {
+            if (key == Qt::Key_F8) {
                 debugger_mgr_->on_step_out();
                 event->accept();
                 return;
             }
-            if (key == Qt::Key_F11 && (modifiers & Qt::ControlModifier)) {
-                // Ctrl+F11 = Fullscreen when debugger is enabled.
-                toggle_fullscreen();
-                event->accept();
-                return;
-            }
-            if (key == Qt::Key_F11) {
-                // F11 = Step Into when debugger is enabled.
-                debugger_mgr_->on_step_into();
+            if (key == Qt::Key_F9) {
+                debugger_mgr_->on_pause();
                 event->accept();
                 return;
             }
@@ -532,7 +525,8 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
         }
 #ifdef ENABLE_DEBUGGER
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
-            if (key == Qt::Key_F5 || key == Qt::Key_F9 || key == Qt::Key_F10) {
+            if (key == Qt::Key_F5 || key == Qt::Key_F6 || key == Qt::Key_F7 ||
+                key == Qt::Key_F8 || key == Qt::Key_F9) {
                 event->accept();
                 return;
             }

@@ -233,7 +233,7 @@ bool TraceLog::export_to_file(const std::string& path) const
     if (!ofs.is_open())
         return false;
 
-    char line[128];
+    char line[256];
     for (size_t i = 0; i < count_; ++i) {
         const TraceEntry& e = at(i);
 
@@ -245,10 +245,27 @@ bool TraceLog::export_to_file(const std::string& path) const
                                   "%s%02X", (b > 0 ? " " : ""), e.opcode_bytes[b]);
         }
 
+        // Decode flags from F register (low byte of AF)
+        uint8_t f = static_cast<uint8_t>(e.af & 0xFF);
+        char flags[9];
+        flags[0] = (f & 0x80) ? 'S' : '-';
+        flags[1] = (f & 0x40) ? 'Z' : '-';
+        flags[2] = (f & 0x20) ? '5' : '-';
+        flags[3] = (f & 0x10) ? 'H' : '-';
+        flags[4] = (f & 0x08) ? '3' : '-';
+        flags[5] = (f & 0x04) ? 'P' : '-';
+        flags[6] = (f & 0x02) ? 'N' : '-';
+        flags[7] = (f & 0x01) ? 'C' : '-';
+        flags[8] = '\0';
+
         std::snprintf(line, sizeof(line),
-            "%012llu  $%04X  AF=%04X BC=%04X DE=%04X HL=%04X SP=%04X  %s\n",
+            "%012llu  $%04X  AF=%04X BC=%04X DE=%04X HL=%04X"
+            "  AF'=%04X BC'=%04X DE'=%04X HL'=%04X"
+            "  IX=%04X IY=%04X SP=%04X  [%s]  %s\n",
             static_cast<unsigned long long>(e.cycle),
-            e.pc, e.af, e.bc, e.de, e.hl, e.sp, bytes_str);
+            e.pc, e.af, e.bc, e.de, e.hl,
+            e.af2, e.bc2, e.de2, e.hl2,
+            e.ix, e.iy, e.sp, flags, bytes_str);
 
         ofs << line;
     }
