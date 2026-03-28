@@ -13,6 +13,7 @@ class SpritePanel;
 class CopperPanel;
 class NextRegPanel;
 class AudioPanel;
+class WatchPanel;
 class QSplitter;
 class QTabWidget;
 
@@ -39,6 +40,7 @@ public:
 
     // Panel accessors for signal wiring
     DisasmPanel* disasm_panel() { return disasm_panel_; }
+    WatchPanel* watch_panel() { return watch_panel_; }
 
 signals:
     void window_closed();
@@ -68,4 +70,5 @@ private:
     CopperPanel* copper_panel_ = nullptr;
     NextRegPanel* nextreg_panel_ = nullptr;
     AudioPanel* audio_panel_ = nullptr;
+    WatchPanel* watch_panel_ = nullptr;
 };
