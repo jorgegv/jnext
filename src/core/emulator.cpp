@@ -680,6 +680,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // --- Phase 5 DivMMC overlay + I2C RTC + SD card ---
 
     mmu_.set_divmmc(&divmmc_);
+    mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
     spi_.attach_device(0, &sd_card_);  // SD card on CS0
 
@@ -880,6 +881,13 @@ void Emulator::run_frame()
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
         }
         clock_.tick(master_cycles);
+
+        // Check if a data breakpoint was hit during this instruction.
+        if (debug_state_.active() && debug_state_.data_bp_hit()) {
+            debug_state_.pause();
+            debug_state_.set_data_bp_hit(false);
+            return;
+        }
 
         // Execute copper at current raster position.
         // Compute raw vc/hc from cycles elapsed within frame, then derive

@@ -36,9 +36,18 @@ public:
 
     StepMode step_mode() const { return step_mode_; }
 
+    /// Set by MMU when a data breakpoint (read/write) is hit.
+    /// Checked after each instruction in the hot loop.
+    bool data_bp_hit() const { return data_bp_hit_; }
+    void set_data_bp_hit(bool h) { data_bp_hit_ = h; }
+    uint16_t data_bp_addr() const { return data_bp_addr_; }
+    void set_data_bp_addr(uint16_t a) { data_bp_addr_ = a; }
+
 private:
     bool active_ = false;
     bool paused_ = false;
+    bool data_bp_hit_ = false;
+    uint16_t data_bp_addr_ = 0;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
     BreakpointSet breakpoints_;

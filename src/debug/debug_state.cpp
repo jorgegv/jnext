@@ -8,6 +8,7 @@ void DebugState::pause() {
 void DebugState::resume() {
     paused_ = false;
     step_mode_ = StepMode::NONE;
+    data_bp_hit_ = false;
     breakpoints_.clear_oneshot();
 }
 
