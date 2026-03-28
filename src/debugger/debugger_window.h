@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QSettings>
+#include "debug/breakpoints.h"
 
 class Emulator;
 class DebuggerManager;
@@ -56,6 +57,7 @@ private:
     void create_menus();
     void save_geometry();
     void restore_geometry();
+    void show_add_data_bp_dialog(WatchType type);
 
     Emulator* emulator_;
     DebuggerManager* debugger_mgr_ = nullptr;

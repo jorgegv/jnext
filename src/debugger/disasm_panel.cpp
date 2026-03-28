@@ -1,5 +1,8 @@
 #include "disasm_panel.h"
+#include "debug/breakpoints.h"
 
+#include <cstring>
+#include <cstdlib>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QMouseEvent>
@@ -501,13 +504,22 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         addr_input_->selectAll();
     });
 
+    // --- Shared: extract immediate and register info for watch/breakpoint actions ---
+    const auto& entry = entries_[line];
+    const char* mnem = entry.line.mnemonic;
+    uint16_t imm = extract_immediate16(mnem);
+    bool has_imm = (imm != 0 || std::strstr(mnem, "$0000"));
+
+    auto regs = emulator_->cpu().get_registers();
+    struct { const char* name; const char* pattern; uint16_t val; } reg_pairs[] = {
+        {"HL", "(HL)", regs.HL}, {"DE", "(DE)", regs.DE}, {"BC", "(BC)", regs.BC},
+        {"IX", "(IX", regs.IX}, {"IY", "(IY", regs.IY}, {"SP", "(SP)", regs.SP}
+    };
+
     // --- Watch actions ---
     if (watch_panel_) {
         menu.addSeparator();
 
-        const auto& entry = entries_[line];
-
-        // If there's a symbol at this address, offer to watch it
         if (symbol_table_) {
             auto sym = symbol_table_->lookup(addr);
             if (sym) {
@@ -520,9 +532,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
             }
         }
 
-        // If the mnemonic has a 16-bit immediate, offer to watch that address
-        uint16_t imm = extract_immediate16(entry.line.mnemonic);
-        if (imm != 0 || std::strstr(entry.line.mnemonic, "$0000")) {
+        if (has_imm) {
             QString label;
             if (symbol_table_) {
                 auto sym = symbol_table_->lookup(imm);
@@ -535,37 +545,51 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
             });
         }
 
-        // Watch the address in a 16-bit register (use current register values).
-        // Match register names as standalone tokens — not inside hex immediates
-        // like $15DE. A register is standalone if the char before it is not a
-        // hex digit or '$', and the char after is not a hex digit.
-        auto regs = emulator_->cpu().get_registers();
-        struct { const char* name; uint16_t val; } reg_pairs[] = {
-            {"HL", regs.HL}, {"DE", regs.DE}, {"BC", regs.BC},
-            {"IX", regs.IX}, {"IY", regs.IY}, {"SP", regs.SP}
-        };
-        const char* mnem = entry.line.mnemonic;
         for (const auto& rp : reg_pairs) {
-            const char* pos = std::strstr(mnem, rp.name);
-            if (!pos) continue;
-            // Check char before: must not be hex digit or '$'
-            if (pos > mnem) {
-                char before = *(pos - 1);
-                if (std::isxdigit(static_cast<unsigned char>(before)) || before == '$')
-                    continue;
+            if (std::strstr(mnem, rp.pattern)) {
+                auto* watch_reg = menu.addAction(
+                    QString("Watch (%1) = $%2").arg(rp.name)
+                        .arg(rp.val, 4, 16, QChar('0')));
+                connect(watch_reg, &QAction::triggered, this, [this, rp]() {
+                    watch_panel_->add_watch(rp.val,
+                        std::string("(") + rp.name + ")");
+                });
             }
-            // Check char after: must not be hex digit
-            char after = *(pos + std::strlen(rp.name));
-            if (std::isxdigit(static_cast<unsigned char>(after)))
-                continue;
+        }
+    }
 
-            auto* watch_reg = menu.addAction(
-                QString("Watch (%1) = $%2").arg(rp.name)
-                    .arg(rp.val, 4, 16, QChar('0')));
-            connect(watch_reg, &QAction::triggered, this, [this, rp]() {
-                watch_panel_->add_watch(rp.val,
-                    std::string("(") + rp.name + ")");
+    // --- Data breakpoint actions ---
+    {
+        menu.addSeparator();
+
+        if (has_imm) {
+            auto* bp_read = menu.addAction(
+                QString("Break on Read $%1").arg(imm, 4, 16, QChar('0')));
+            connect(bp_read, &QAction::triggered, this, [this, imm]() {
+                emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::READ);
             });
+            auto* bp_write = menu.addAction(
+                QString("Break on Write $%1").arg(imm, 4, 16, QChar('0')));
+            connect(bp_write, &QAction::triggered, this, [this, imm]() {
+                emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::WRITE);
+            });
+        }
+
+        for (const auto& rp : reg_pairs) {
+            if (std::strstr(mnem, rp.pattern)) {
+                auto* bp_read = menu.addAction(
+                    QString("Break on Read (%1) = $%2").arg(rp.name)
+                        .arg(rp.val, 4, 16, QChar('0')));
+                connect(bp_read, &QAction::triggered, this, [this, rp]() {
+                    emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::READ);
+                });
+                auto* bp_write = menu.addAction(
+                    QString("Break on Write (%1) = $%2").arg(rp.name)
+                        .arg(rp.val, 4, 16, QChar('0')));
+                connect(bp_write, &QAction::triggered, this, [this, rp]() {
+                    emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::WRITE);
+                });
+            }
         }
     }
 
