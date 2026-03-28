@@ -2,6 +2,7 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "debugger/watch_panel.h"
+#include "debugger/breakpoint_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -154,6 +155,12 @@ void DebuggerManager::ensure_window() {
         dp->set_symbol_table(&symbol_table_);
         if (debugger_window_->watch_panel())
             dp->set_watch_panel(debugger_window_->watch_panel());
+    }
+
+    // Wire breakpoint panel with symbol table and disasm panel.
+    if (auto* bp = debugger_window_->breakpoint_panel()) {
+        bp->set_symbol_table(&symbol_table_);
+        bp->set_disasm_panel(debugger_window_->disasm_panel());
     }
 }
 

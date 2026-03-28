@@ -8,6 +8,7 @@
 #include "debugger/nextreg_panel.h"
 #include "debugger/audio_panel.h"
 #include "debugger/watch_panel.h"
+#include "debugger/breakpoint_panel.h"
 #include "core/emulator.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
@@ -159,6 +160,15 @@ void DebuggerWindow::create_menus() {
         }
     });
 
+    // --- Map menu ---
+    QMenu* map_menu = bar->addMenu(tr("&Map"));
+
+    QMenu* load_map_menu = map_menu->addMenu(tr("&Load MAP File"));
+    QAction* z88dk_action = load_map_menu->addAction(tr("&Z88DK Format..."));
+    connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
+    QAction* simple_action = load_map_menu->addAction(tr("&Simple Format (48K ROM)..."));
+    connect(simple_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_simple);
+
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 
@@ -185,15 +195,6 @@ void DebuggerWindow::create_menus() {
         emulator_->debug_state().breakpoints().clear_all_watchpoints();
         if (disasm_panel_) disasm_panel_->refresh();
     });
-
-    // --- Map menu ---
-    QMenu* map_menu = bar->addMenu(tr("&Map"));
-
-    QMenu* load_map_menu = map_menu->addMenu(tr("&Load MAP File"));
-    QAction* z88dk_action = load_map_menu->addAction(tr("&Z88DK Format..."));
-    connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
-    QAction* simple_action = load_map_menu->addAction(tr("&Simple Format (48K ROM)..."));
-    connect(simple_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_simple);
 
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));
@@ -271,6 +272,9 @@ void DebuggerWindow::create_panels() {
     tab_widget_->addTab(copper_panel_, tr("Copper"));
     tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
     tab_widget_->addTab(audio_panel_, tr("Audio"));
+
+    breakpoint_panel_ = new BreakpointPanel(emulator_);
+    tab_widget_->addTab(breakpoint_panel_, tr("Breakpoints"));
     tab_widget_->setMinimumWidth(380);
 
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
@@ -371,4 +375,5 @@ void DebuggerWindow::refresh_panels() {
     if (nextreg_panel_) nextreg_panel_->refresh();
     if (audio_panel_) audio_panel_->refresh();
     if (watch_panel_) watch_panel_->refresh();
+    if (breakpoint_panel_) breakpoint_panel_->refresh();
 }
