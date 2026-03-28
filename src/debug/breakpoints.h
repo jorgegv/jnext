@@ -26,6 +26,7 @@ public:
     bool has_watchpoint(uint16_t addr, WatchType type) const;
     void clear_all_watchpoints();
     const std::vector<Watchpoint>& watchpoints() const { return watchpoints_; }
+    bool has_any_watchpoints() const { return !watchpoints_.empty(); }
 
     // One-shot breakpoints (for step over, run to cursor).
     void set_oneshot(uint16_t addr);
