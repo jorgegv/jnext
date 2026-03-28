@@ -44,7 +44,8 @@
   - [Phase 4 — Audio ✓ COMPLETE](#phase-4--audio--complete)
   - [Phase 5 — Peripherals \& Full I/O ✓ COMPLETE](#phase-5--peripherals--full-io--complete)
   - [Phase 6 — Native UI \& Usability ✓ COMPLETE](#phase-6--native-ui--usability--complete)
-  - [Phase 7 — Debugger Window](#phase-7--debugger-window)
+  - [Phase 7 — Debugger Window ✓ COMPLETE](#phase-7--debugger-window--complete)
+  - [Phase 7.5 - Debugger enhancements](#phase-75---debugger-enhancements)
   - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
   - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
@@ -878,6 +879,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] `src/debugger/CMakeLists.txt` — Qt6::Widgets, AUTOMOC ON
 - [x] All 3 build configs verified: Qt+Debugger, Qt-only, SDL-only
 - [x] **Milestone**: Can set a breakpoint, single-step through ROM, inspect and edit any memory page and any NextREG live, with all panels dockable
+
+### Phase 7.5 - Debugger enhancements
+
+- [ ] Remove all references to Debugger in main emulator window. Just leave a "Debug" button with an icon of a Bug, and a "Debugger" option in the "View" menu. The Debug button and the Debugger option open the full debugger window.
+- [ ] When running freely (i.e. not step by step), the Disassembler panel should not follow PC. It should be grayed out and just don't update. The ASM panel should only follow PC when running in step mode (for efficiency reasons)
+- [ ] The debugger should be able to load a MAP file (e.g. from Z88DK), and extract a symbol table from it. The ASM panel then should show the symbolic name instead of the symbol address, when showing an instruction with an immediate 16-bit value matching one of the symbols in the symbol table.
+- [ ] The debugger window must have its own menu bar and title. Debugger options should be moved to this bar.
+- [ ] Additional panel: Watches. It should be at the bottom of the debugger window. The memory panel is quite wide. Make the memory panel use only half the window width, and leave the other half for the Watch panel.
+- [ ] Defined watches should allow showing the byte (8bit), word (16bit), long(32bit) at the watch adddress.
+- [ ] Adittional menu options:
+  - [ ] Map -> Load MAP file -> Z88DK format (for the moment, more formats in the future)
+  - [ ] Watches -> Add watch -> Ask for address/symbol from the Map file if there is a match
+  - [ ] In the ASM panel:
+    - [ ] A symbol should allow to set a watch on its address
+    - [ ] A 16-bit immediate should allow to set a watch on the address it shows
+    - [ ] A 16-bit register should allow to set a watch on the address it currently contains
 
 ### Phase 8 — Polish & Accuracy
 

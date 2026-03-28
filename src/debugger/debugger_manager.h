@@ -3,6 +3,9 @@
 #include <QObject>
 #include <QAction>
 #include <QToolBar>
+#include <memory>
+
+#include "debug/symbol_table.h"
 
 class Emulator;
 class QMainWindow;
@@ -33,12 +36,20 @@ public:
     /// Access the debugger window (may be null if not yet created).
     DebuggerWindow* debugger_window_ptr() const { return debugger_window_; }
 
+    /// Access the symbol table.
+    SymbolTable& symbol_table() { return symbol_table_; }
+    const SymbolTable& symbol_table() const { return symbol_table_; }
+
+    /// Access emulator (for debugger window menu actions).
+    Emulator* emulator() const { return emulator_; }
+
 public slots:
     void on_run();
     void on_pause();
     void on_step_into();
     void on_step_over();
     void on_step_out();
+    void on_load_map_z88dk();
 
 signals:
     void paused();
@@ -49,7 +60,6 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
-    void create_debug_menu();
     void create_debug_toolbar();
     void ensure_window();
     void update_actions();
@@ -63,17 +73,13 @@ private:
     // The separate debugger window (created lazily on first enable)
     DebuggerWindow* debugger_window_ = nullptr;
 
-    // Enable/disable action
+    // Enable/disable action (points to View menu's Debugger action)
     QAction* enable_action_ = nullptr;
 
-    // Debug control actions (in the main window's Debug menu)
-    QAction* run_action_ = nullptr;
-    QAction* pause_action_ = nullptr;
-    QAction* step_into_action_ = nullptr;
-    QAction* step_over_action_ = nullptr;
-    QAction* step_out_action_ = nullptr;
-
     QToolBar* debug_toolbar_ = nullptr;
+
+    // Symbol table for loaded MAP files
+    SymbolTable symbol_table_;
 
     // Refresh throttle
     int refresh_counter_ = 0;

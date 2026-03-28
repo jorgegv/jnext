@@ -13,6 +13,7 @@
 
 #include <QCloseEvent>
 #include <QToolBar>
+#include <QMenuBar>
 #include <QPushButton>
 #include <QSettings>
 #include <QDataStream>
@@ -20,6 +21,8 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QGroupBox>
+#include <QFileDialog>
+#include <QMessageBox>
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     : QMainWindow(parent)
@@ -52,6 +55,10 @@ void DebuggerWindow::closeEvent(QCloseEvent* event) {
 void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     debugger_mgr_ = mgr;
 
+    // Create the menu bar with debug actions.
+    create_menus();
+
+    // Create the debug controls toolbar.
     auto* toolbar = new QToolBar(tr("Debug Controls"), this);
     toolbar->setMovable(false);
 
@@ -78,6 +85,92 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     toolbar->addWidget(step_out_btn);
 
     addToolBar(toolbar);
+}
+
+void DebuggerWindow::create_menus() {
+    QMenuBar* bar = menuBar();
+
+    // --- Debug menu ---
+    QMenu* debug_menu = bar->addMenu(tr("&Debug"));
+
+    run_action_ = debug_menu->addAction(tr("&Run / Continue"));
+    run_action_->setShortcut(QKeySequence(Qt::Key_F5));
+    connect(run_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run);
+
+    pause_action_ = debug_menu->addAction(tr("&Pause"));
+    pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
+    connect(pause_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_pause);
+
+    debug_menu->addSeparator();
+
+    step_into_action_ = debug_menu->addAction(tr("Step &Into"));
+    step_into_action_->setShortcut(QKeySequence(Qt::Key_F11));
+    connect(step_into_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_into);
+
+    step_over_action_ = debug_menu->addAction(tr("Step &Over"));
+    step_over_action_->setShortcut(QKeySequence(Qt::Key_F10));
+    connect(step_over_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_over);
+
+    step_out_action_ = debug_menu->addAction(tr("Step Ou&t"));
+    step_out_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11));
+    connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
+
+    debug_menu->addSeparator();
+
+    // Trace submenu
+    QMenu* trace_menu = debug_menu->addMenu(tr("&Trace"));
+
+    QAction* trace_enable = trace_menu->addAction(tr("&Enable Trace"));
+    trace_enable->setCheckable(true);
+    connect(trace_enable, &QAction::triggered, this, [this](bool checked) {
+        if (emulator_)
+            emulator_->trace_log().set_enabled(checked);
+    });
+
+    QAction* clear_trace = trace_menu->addAction(tr("&Clear Trace"));
+    connect(clear_trace, &QAction::triggered, this, [this]() {
+        if (emulator_)
+            emulator_->trace_log().clear();
+    });
+
+    QAction* export_trace = trace_menu->addAction(tr("E&xport Trace..."));
+    connect(export_trace, &QAction::triggered, this, [this]() {
+        if (!emulator_) return;
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Trace Log"), QString(),
+            tr("Text Files (*.txt);;All Files (*)"));
+        if (!path.isEmpty()) {
+            bool ok = emulator_->trace_log().export_to_file(path.toStdString());
+            if (!ok) {
+                QMessageBox::warning(this, tr("Export Failed"),
+                    tr("Could not write trace log to:\n%1").arg(path));
+            }
+        }
+    });
+
+    // --- Map menu ---
+    QMenu* map_menu = bar->addMenu(tr("&Map"));
+
+    QMenu* load_map_menu = map_menu->addMenu(tr("&Load MAP File"));
+    QAction* z88dk_action = load_map_menu->addAction(tr("&Z88DK Format..."));
+    connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
+
+    // --- Watches menu ---
+    QMenu* watches_menu = bar->addMenu(tr("&Watches"));
+
+    QAction* add_watch = watches_menu->addAction(tr("&Add Watch..."));
+    connect(add_watch, &QAction::triggered, this, [this]() {
+        QMessageBox::information(this, tr("Watches"),
+            tr("Watch functionality is not yet implemented."));
+    });
+}
+
+void DebuggerWindow::update_actions(bool is_paused) {
+    if (run_action_)       run_action_->setEnabled(is_paused);
+    if (pause_action_)     pause_action_->setEnabled(!is_paused);
+    if (step_into_action_) step_into_action_->setEnabled(is_paused);
+    if (step_over_action_) step_over_action_->setEnabled(is_paused);
+    if (step_out_action_)  step_out_action_->setEnabled(is_paused);
 }
 
 void DebuggerWindow::save_position() {

@@ -12,6 +12,8 @@
 #include <QStyle>
 #include <QTimer>
 #include <QEvent>
+#include <QFileDialog>
+#include <QMessageBox>
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, QObject* parent)
     : QObject(parent)
@@ -24,11 +26,29 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, Emulator* emulator, Q
     // Watch main window move/resize to keep debugger sticky.
     main_window_->installEventFilter(this);
 
-    create_debug_menu();
+    // Find the "Debugger" action in the View menu (created by MainWindow).
+    QMenuBar* bar = main_window_->menuBar();
+    for (QAction* menu_action : bar->actions()) {
+        if (menu_action->menu()) {
+            for (QAction* a : menu_action->menu()->actions()) {
+                if (a->text().contains("Debugger", Qt::CaseInsensitive) && a->isCheckable()) {
+                    enable_action_ = a;
+                    break;
+                }
+            }
+        }
+        if (enable_action_) break;
+    }
+
+    if (enable_action_) {
+        connect(enable_action_, &QAction::triggered, this, [this](bool checked) {
+            set_enabled(checked);
+        });
+    }
+
     create_debug_toolbar();
 
     was_paused_ = false;
-    update_actions();
 }
 
 bool DebuggerManager::eventFilter(QObject* obj, QEvent* event) {
@@ -130,111 +150,23 @@ void DebuggerManager::ensure_window() {
 }
 
 // ---------------------------------------------------------------------------
-// Menu
-// ---------------------------------------------------------------------------
-
-void DebuggerManager::create_debug_menu() {
-    QMenuBar* bar = main_window_->menuBar();
-
-    // Find the existing Debug menu (created by MainWindow with trace items).
-    QMenu* debug_menu = nullptr;
-    for (QAction* a : bar->actions()) {
-        if (a->text().contains("Debug", Qt::CaseInsensitive) && a->menu()) {
-            debug_menu = a->menu();
-            break;
-        }
-    }
-
-    // If no existing Debug menu, create one before Help.
-    if (!debug_menu) {
-        debug_menu = new QMenu(QObject::tr("&Debug"), bar);
-        QAction* before_action = nullptr;
-        for (QAction* a : bar->actions()) {
-            if (a->text().contains("Help", Qt::CaseInsensitive)) {
-                before_action = a;
-                break;
-            }
-        }
-        bar->insertMenu(before_action, debug_menu);
-    }
-
-    // Insert debugger actions at the top of the menu (before existing trace items).
-    QAction* first_action = debug_menu->actions().isEmpty() ? nullptr : debug_menu->actions().first();
-
-    // Enable/Disable Debugger (checkable toggle)
-    enable_action_ = new QAction(QObject::tr("Enable &Debugger"), debug_menu);
-    enable_action_->setCheckable(true);
-    enable_action_->setChecked(false);
-    enable_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
-    connect(enable_action_, &QAction::triggered, this, [this](bool checked) {
-        set_enabled(checked);
-    });
-    debug_menu->insertAction(first_action, enable_action_);
-
-    debug_menu->insertSeparator(first_action);
-
-    run_action_ = new QAction(QObject::tr("&Run / Continue"), debug_menu);
-    run_action_->setShortcut(QKeySequence(Qt::Key_F5));
-    connect(run_action_, &QAction::triggered, this, &DebuggerManager::on_run);
-    debug_menu->insertAction(first_action, run_action_);
-
-    pause_action_ = new QAction(QObject::tr("&Pause"), debug_menu);
-    pause_action_->setShortcut(QKeySequence(Qt::Key_F9));
-    connect(pause_action_, &QAction::triggered, this, &DebuggerManager::on_pause);
-    debug_menu->insertAction(first_action, pause_action_);
-
-    debug_menu->insertSeparator(first_action);
-
-    step_into_action_ = new QAction(QObject::tr("Step &Into"), debug_menu);
-    step_into_action_->setShortcut(QKeySequence(Qt::Key_F11));
-    connect(step_into_action_, &QAction::triggered, this, &DebuggerManager::on_step_into);
-    debug_menu->insertAction(first_action, step_into_action_);
-
-    step_over_action_ = new QAction(QObject::tr("Step &Over"), debug_menu);
-    step_over_action_->setShortcut(QKeySequence(Qt::Key_F10));
-    connect(step_over_action_, &QAction::triggered, this, &DebuggerManager::on_step_over);
-    debug_menu->insertAction(first_action, step_over_action_);
-
-    step_out_action_ = new QAction(QObject::tr("Step Ou&t"), debug_menu);
-    step_out_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11));
-    connect(step_out_action_, &QAction::triggered, this, &DebuggerManager::on_step_out);
-    debug_menu->insertAction(first_action, step_out_action_);
-
-    // Separator before trace submenu
-    debug_menu->insertSeparator(first_action);
-}
-
-// ---------------------------------------------------------------------------
-// Toolbar
+// Toolbar (minimal: just a toggle button in the main window)
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::create_debug_toolbar() {
     debug_toolbar_ = main_window_->addToolBar(QObject::tr("Debug"));
     debug_toolbar_->setMovable(false);
 
-    // Debugger enable toggle button
     QAction* dbg_toggle = debug_toolbar_->addAction(
-        main_window_->style()->standardIcon(QStyle::SP_ComputerIcon),
-        QObject::tr("Debugger"));
+        main_window_->style()->standardIcon(QStyle::SP_MessageBoxWarning),
+        QObject::tr("Debug"));
     dbg_toggle->setCheckable(true);
     dbg_toggle->setChecked(false);
-    dbg_toggle->setToolTip(QObject::tr("Enable/Disable Debugger (Ctrl+D)"));
+    dbg_toggle->setToolTip(QObject::tr("Toggle Debugger (Ctrl+D)"));
     connect(dbg_toggle, &QAction::triggered, this, [this](bool checked) {
         set_enabled(checked);
     });
-    // Keep in sync with enable_action_
     connect(this, &DebuggerManager::enabled_changed, dbg_toggle, &QAction::setChecked);
-
-    debug_toolbar_->addSeparator();
-
-    QAction* run_btn = debug_toolbar_->addAction(
-        main_window_->style()->standardIcon(QStyle::SP_MediaPlay), QObject::tr("Run"));
-    connect(run_btn, &QAction::triggered, this, &DebuggerManager::on_run);
-
-    QAction* pause_btn = debug_toolbar_->addAction(
-        main_window_->style()->standardIcon(QStyle::SP_MediaPause), QObject::tr("Pause"));
-    connect(pause_btn, &QAction::triggered, this, &DebuggerManager::on_pause);
-
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +262,24 @@ void DebuggerManager::on_step_out() {
     update_actions();
 }
 
+void DebuggerManager::on_load_map_z88dk() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load Z88DK MAP File"), QString(),
+        QObject::tr("MAP Files (*.map);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    if (symbol_table_.load_z88dk_map(path.toStdString())) {
+        QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
+            QObject::tr("Loaded %1 symbols from:\n%2")
+                .arg(symbol_table_.size())
+                .arg(path));
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load MAP file:\n%1").arg(path));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Panel refresh
 // ---------------------------------------------------------------------------
@@ -375,12 +325,8 @@ void DebuggerManager::check_breakpoint_hit() {
 // ---------------------------------------------------------------------------
 
 void DebuggerManager::update_actions() {
-    bool is_paused = enabled_ && emulator_->debug_state().paused();
-
-    // Debug control actions only available when debugger is enabled.
-    if (run_action_)       run_action_->setEnabled(enabled_ && is_paused);
-    if (pause_action_)     pause_action_->setEnabled(enabled_ && !is_paused);
-    if (step_into_action_) step_into_action_->setEnabled(enabled_ && is_paused);
-    if (step_over_action_) step_over_action_->setEnabled(enabled_ && is_paused);
-    if (step_out_action_)  step_out_action_->setEnabled(enabled_ && is_paused);
+    if (debugger_window_) {
+        bool is_paused = enabled_ && emulator_->debug_state().paused();
+        debugger_window_->update_actions(is_paused);
+    }
 }

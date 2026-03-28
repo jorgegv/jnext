@@ -25,7 +25,7 @@ public:
 
     void refresh_panels();
 
-    /// Create the debug toolbar with step/run buttons connected to the manager.
+    /// Wire up the debugger manager and create menus/toolbar.
     void set_debugger_manager(DebuggerManager* mgr);
 
     /// Save window position to QSettings (called before hide/close).
@@ -36,6 +36,9 @@ public:
 
     /// Activate follow-PC in the disassembly panel.
     void activate_follow_pc();
+
+    /// Update debug action enabled state based on pause state.
+    void update_actions(bool is_paused);
 
     // Panel accessors for signal wiring
     DisasmPanel* disasm_panel() { return disasm_panel_; }
@@ -48,6 +51,7 @@ protected:
 
 private:
     void create_panels();
+    void create_menus();
     void save_geometry();
     void restore_geometry();
 
@@ -68,4 +72,11 @@ private:
     CopperPanel* copper_panel_ = nullptr;
     NextRegPanel* nextreg_panel_ = nullptr;
     AudioPanel* audio_panel_ = nullptr;
+
+    // Menu bar actions (owned by this window)
+    QAction* run_action_ = nullptr;
+    QAction* pause_action_ = nullptr;
+    QAction* step_into_action_ = nullptr;
+    QAction* step_over_action_ = nullptr;
+    QAction* step_out_action_ = nullptr;
 };

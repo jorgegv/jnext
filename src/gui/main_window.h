@@ -120,6 +120,6 @@ private:
     DebuggerManager* debugger_mgr_ = nullptr;
 #endif
 
-    // Trace enable action
-    QAction* trace_enable_action_ = nullptr;
+    // Debugger toggle action (in View menu)
+    QAction* debugger_action_ = nullptr;
 };
