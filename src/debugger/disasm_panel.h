@@ -24,6 +24,9 @@ public:
     /// Activate "Follow PC" mode (called when Break or Step is used).
     void activate_follow_pc();
 
+    /// Set paused state — when not paused, the panel grays out and stops updating.
+    void set_paused(bool paused);
+
 signals:
     void breakpoint_toggled(uint16_t addr);
     void run_to_requested(uint16_t addr);
@@ -68,4 +71,7 @@ private:
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
 
     QFont mono_font_;
+
+    // Paused state — when false, panel is grayed out and not updated
+    bool paused_ = true;
 };

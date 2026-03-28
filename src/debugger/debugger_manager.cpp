@@ -74,6 +74,12 @@ void DebuggerManager::set_enabled(bool enabled) {
                 debugger_window_->position_next_to(main_window_);
         });
 
+        // Set disasm panel paused state based on current emulator state.
+        if (debugger_window_->disasm_panel()) {
+            debugger_window_->disasm_panel()->set_paused(
+                emulator_->debug_state().paused());
+        }
+
         // Refresh panels immediately.
         debugger_window_->refresh_panels();
     } else {
@@ -239,6 +245,8 @@ void DebuggerManager::on_run() {
     if (!enabled_) return;
     emulator_->debug_state().resume();
     was_paused_ = false;
+    if (debugger_window_ && debugger_window_->disasm_panel())
+        debugger_window_->disasm_panel()->set_paused(false);
     emit resumed();
     update_actions();
 }
@@ -247,6 +255,8 @@ void DebuggerManager::on_pause() {
     if (!enabled_) return;
     emulator_->debug_state().pause();
     was_paused_ = true;
+    if (debugger_window_ && debugger_window_->disasm_panel())
+        debugger_window_->disasm_panel()->set_paused(true);
     emit paused();
     if (debugger_window_) {
         debugger_window_->activate_follow_pc();
@@ -266,6 +276,8 @@ void DebuggerManager::on_step_into() {
 
     emulator_->debug_state().pause();
     was_paused_ = true;
+    if (debugger_window_ && debugger_window_->disasm_panel())
+        debugger_window_->disasm_panel()->set_paused(true);
     emit paused();
     if (debugger_window_) {
         debugger_window_->activate_follow_pc();
@@ -293,6 +305,8 @@ void DebuggerManager::on_step_over() {
         uint16_t next_pc = static_cast<uint16_t>(pc + len);
         emulator_->debug_state().step_over(next_pc);
         was_paused_ = false;
+        if (debugger_window_ && debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(false);
         emit resumed();
         update_actions();
     } else {
@@ -310,6 +324,8 @@ void DebuggerManager::on_step_out() {
     auto regs = emulator_->cpu().get_registers();
     emulator_->debug_state().step_out(regs.SP);
     was_paused_ = false;
+    if (debugger_window_ && debugger_window_->disasm_panel())
+        debugger_window_->disasm_panel()->set_paused(false);
     emit resumed();
     update_actions();
 }
@@ -343,6 +359,8 @@ void DebuggerManager::check_breakpoint_hit() {
     // Detect transition from running to paused (breakpoint hit during run_frame).
     if (is_paused && !was_paused_) {
         was_paused_ = true;
+        if (debugger_window_ && debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(true);
         emit paused();
         if (debugger_window_) {
             debugger_window_->activate_follow_pc();

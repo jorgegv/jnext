@@ -110,8 +110,16 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
     }
 }
 
+void DisasmPanel::set_paused(bool paused) {
+    if (paused_ == paused) return;
+    paused_ = paused;
+    update(); // trigger repaint to show/hide gray overlay
+}
+
 void DisasmPanel::refresh()
 {
+    if (!paused_) return; // don't update while running freely
+
     uint16_t pc = emulator_->cpu().get_registers().PC;
 
     if (follow_pc_->isChecked()) {
@@ -261,6 +269,12 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         if (entry.is_current_pc) {
             painter.setFont(mono_font_);
         }
+    }
+
+    // Gray overlay when running (not paused)
+    if (!paused_) {
+        painter.fillRect(0, paint_y_offset_, w, VISIBLE_LINES * LINE_HEIGHT,
+                         QColor(128, 128, 128, 100)); // semi-transparent gray
     }
 }
 
