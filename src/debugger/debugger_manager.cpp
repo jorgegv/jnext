@@ -143,9 +143,10 @@ void DebuggerManager::ensure_window() {
 
     // Wire disasm panel "run to" signal and set symbol/watch pointers.
     if (auto* dp = debugger_window_->disasm_panel()) {
-        connect(dp, &DisasmPanel::run_to_requested, this, [this](uint16_t addr) {
+        connect(dp, &DisasmPanel::run_to_requested, this, [this, dp](uint16_t addr) {
             emulator_->debug_state().run_to(addr);
             was_paused_ = false;
+            dp->set_paused(false);
             emit resumed();
             update_actions();
         });
@@ -296,6 +297,25 @@ void DebuggerManager::on_load_map_z88dk() {
         return;
 
     if (symbol_table_.load_z88dk_map(path.toStdString())) {
+        QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
+            QObject::tr("Loaded %1 symbols from:\n%2")
+                .arg(symbol_table_.size())
+                .arg(path));
+    } else {
+        QMessageBox::warning(main_window_, QObject::tr("Load Failed"),
+            QObject::tr("Could not load MAP file:\n%1").arg(path));
+    }
+}
+
+void DebuggerManager::on_load_map_simple() {
+    QString path = QFileDialog::getOpenFileName(
+        main_window_, QObject::tr("Load Simple MAP File"), QString(),
+        QObject::tr("MAP Files (*.map);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    int count = symbol_table_.load_simple_map(path.toStdString());
+    if (count >= 0) {
         QMessageBox::information(main_window_, QObject::tr("MAP Loaded"),
             QObject::tr("Loaded %1 symbols from:\n%2")
                 .arg(symbol_table_.size())

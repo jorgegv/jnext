@@ -895,6 +895,12 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - [x] A symbol should allow to set a watch on its address
     - [x] A 16-bit immediate should allow to set a watch on the address it shows
     - [x] A 16-bit register should allow to set a watch on the address it currently contains
+- [x] When running in "Run to here" mode, the ASm panel should also not be updated for performance reasons
+- [ ] Add Data breakpoints:
+  - [ ] Enhance break points to be Read/Write/Execute (execute being the regular code breakpoints)
+  - [ ] Add options in the context menu for Data breakpoints for the same cases as for Watches (16-bit immediates or 16-bit register contents)
+  - [ ] Add a  Breakpoints submenu at the top menubar and also make the breakpoint options available there
+
 
 ### Phase 8 — Polish & Accuracy
 

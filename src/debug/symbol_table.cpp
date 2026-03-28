@@ -98,6 +98,74 @@ int SymbolTable::load_z88dk_map(const std::string& path)
     return count;
 }
 
+int SymbolTable::load_simple_map(const std::string& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+        return -1;
+
+    clear();
+
+    int count = 0;
+    std::string line;
+
+    while (std::getline(file, line)) {
+        // Skip comment lines
+        auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line[first] == ';')
+            continue;
+
+        // Find '=' separator
+        auto eq = line.find('=');
+        if (eq == std::string::npos)
+            continue;
+
+        // Extract symbol name
+        std::string name_part = line.substr(0, eq);
+        auto end = name_part.find_last_not_of(" \t\r\n");
+        if (end == std::string::npos) continue;
+        auto start = name_part.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) continue;
+        std::string name = name_part.substr(start, end - start + 1);
+        if (name.empty()) continue;
+
+        // Extract hex value after '=' — look for '$' prefix
+        std::string val_part = line.substr(eq + 1);
+        auto dollar = val_part.find('$');
+        if (dollar == std::string::npos) continue;
+
+        std::string hex_str;
+        for (size_t i = dollar + 1; i < val_part.size(); ++i) {
+            char c = val_part[i];
+            if (std::isxdigit(static_cast<unsigned char>(c)))
+                hex_str += c;
+            else
+                break;
+        }
+        if (hex_str.empty()) continue;
+
+        unsigned long addr_val = 0;
+        try {
+            addr_val = std::stoul(hex_str, nullptr, 16);
+        } catch (...) {
+            continue;
+        }
+        if (addr_val > 0xFFFF) continue;
+
+        auto addr = static_cast<uint16_t>(addr_val);
+
+        if (addr_to_name_.find(addr) == addr_to_name_.end())
+            addr_to_name_[addr] = name;
+        if (name_to_addr_.find(name) == name_to_addr_.end())
+            name_to_addr_[name] = addr;
+
+        ++count;
+    }
+
+    loaded_file_ = path;
+    return count;
+}
+
 std::optional<std::string> SymbolTable::lookup(uint16_t addr) const
 {
     auto it = addr_to_name_.find(addr);

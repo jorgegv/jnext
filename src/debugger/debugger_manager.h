@@ -50,6 +50,7 @@ public slots:
     void on_step_over();
     void on_step_out();
     void on_load_map_z88dk();
+    void on_load_map_simple();
 
 signals:
     void paused();

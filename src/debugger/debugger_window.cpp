@@ -159,6 +159,8 @@ void DebuggerWindow::create_menus() {
     QMenu* load_map_menu = map_menu->addMenu(tr("&Load MAP File"));
     QAction* z88dk_action = load_map_menu->addAction(tr("&Z88DK Format..."));
     connect(z88dk_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_z88dk);
+    QAction* simple_action = load_map_menu->addAction(tr("&Simple Format (48K ROM)..."));
+    connect(simple_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_map_simple);
 
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));

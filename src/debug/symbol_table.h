@@ -9,9 +9,14 @@
 /// Pure C++ — no GUI dependency.
 class SymbolTable {
 public:
-    /// Load symbols from a Z88DK .map file.
+    /// Load symbols from a Z88DK .map file (only "; addr" lines).
     /// Returns number of symbols loaded, or -1 on error.
     int load_z88dk_map(const std::string& path);
+
+    /// Load symbols from a simple map file (SYMBOL = $ADDR format).
+    /// Lines starting with ';' are comments. No metadata filtering.
+    /// Returns number of symbols loaded, or -1 on error.
+    int load_simple_map(const std::string& path);
 
     /// Look up a symbol name by its address. Returns nullopt if not found.
     std::optional<std::string> lookup(uint16_t addr) const;
