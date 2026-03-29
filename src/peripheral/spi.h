@@ -51,8 +51,9 @@ public:
     /// and the received byte is stored for a subsequent read_data() call.
     void write_data(uint8_t val);
 
-    /// Port 0xEB read — return last received byte.
-    uint8_t read_data() const;
+    /// Port 0xEB read — triggers a new SPI transfer with MOSI=0xFF
+    /// (matching VHDL: i_spi_rd starts a transfer) and returns the result.
+    uint8_t read_data();
 
 private:
     uint8_t cs_ = 0xFF;          // CS register — all lines deasserted (active-low)

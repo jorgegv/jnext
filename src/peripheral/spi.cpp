@@ -61,8 +61,22 @@ void SpiMaster::write_data(uint8_t val) {
     }
 }
 
-uint8_t SpiMaster::read_data() const {
-    return rx_data_;
+uint8_t SpiMaster::read_data() {
+    // VHDL: reading the SPI data port starts a NEW transfer (MOSI=0xFF)
+    // but returns the PREVIOUS transfer's result.  The new transfer's
+    // result appears in miso_dat only after 16 clocks (end of transfer).
+    //
+    // Emulation: return current rx_data_, then perform the exchange so
+    // its result is available on the next read or write.
+    uint8_t prev = rx_data_;
+    SpiDevice* dev = active_device();
+    if (dev) {
+        rx_data_ = dev->exchange(0xFF);
+        spi_log()->debug("read tx=0xff → prev={:#04x} (next rx={:#04x})", prev, rx_data_);
+    } else {
+        rx_data_ = 0xFF;
+    }
+    return prev;
 }
 
 SpiDevice* SpiMaster::active_device() const {

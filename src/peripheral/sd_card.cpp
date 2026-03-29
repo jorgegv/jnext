@@ -120,13 +120,14 @@ uint8_t SdCardDevice::exchange(uint8_t tx) {
             // Collecting 2 CRC bytes (ignored)
             data_crc_count_++;
             if (data_crc_count_ >= 2) {
-                // Write the block to the image
-                uint32_t addr = cmd_arg();
-                if (addr + 512 <= file_size_) {
-                    file_.seekp(addr, std::ios::beg);
+                // Write the block to the image (SDHC: arg is sector number)
+                uint32_t sector = cmd_arg();
+                uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
+                if (byte_addr + 512 <= file_size_) {
+                    file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
                     file_.write(reinterpret_cast<const char*>(data_block_), 512);
                     file_.flush();
-                    sd_log()->debug("CMD24 wrote 512 bytes at offset {:#010x}", addr);
+                    sd_log()->debug("CMD24 wrote 512 bytes at sector {} (byte={:#010x})", sector, byte_addr);
                 }
                 // Data response token: 0x05 = data accepted
                 state_ = State::WRITE_RESP;
@@ -164,6 +165,7 @@ void SdCardDevice::process_command() {
     switch (cmd) {
         case 0:  cmd0_go_idle(); break;
         case 8:  cmd8_send_if_cond(); break;
+        case 12: cmd12_stop_transmission(); break;
         case 17: cmd17_read_single_block(); break;
         case 24: cmd24_write_single_block(); break;
         case 55: cmd55_app_cmd(); break;
@@ -190,17 +192,27 @@ void SdCardDevice::cmd8_send_if_cond() {
     state_ = State::RESPONDING;
 }
 
+void SdCardDevice::cmd12_stop_transmission() {
+    sd_log()->debug("CMD12 STOP_TRANSMISSION");
+    // Abort any in-progress multi-block transfer and return to idle.
+    data_idx_ = 0;
+    data_crc_count_ = 0;
+    queue_r1(initialized_ ? 0x00 : 0x01);
+}
+
 void SdCardDevice::cmd17_read_single_block() {
-    uint32_t addr = cmd_arg();
-    sd_log()->debug("CMD17 READ_SINGLE_BLOCK sector={} (addr={:#010x})", addr / 512, addr);
+    uint32_t sector = cmd_arg();
+    // SDHC (CCS=1): argument is sector number, not byte address
+    uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
+    sd_log()->debug("CMD17 READ_SINGLE_BLOCK sector={} (byte={:#010x})", sector, byte_addr);
 
     if (!initialized_) {
         queue_r1(0x01);  // idle state
         return;
     }
 
-    if (addr + 512 > file_size_) {
-        sd_log()->warn("CMD17 read past end of image: addr={:#010x} size={}", addr, file_size_);
+    if (byte_addr + 512 > file_size_) {
+        sd_log()->warn("CMD17 read past end of image: sector={} byte={:#010x} size={}", sector, byte_addr, file_size_);
         queue_r1(0x00);
         // Send error token instead of data
         resp_buf_.push_back(0x08);  // out of range error
@@ -208,7 +220,7 @@ void SdCardDevice::cmd17_read_single_block() {
         return;
     }
 
-    file_.seekg(addr, std::ios::beg);
+    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
     // Response: R1 (0x00 = OK), then 0xFE data start token, then 512 bytes
@@ -220,8 +232,9 @@ void SdCardDevice::cmd17_read_single_block() {
 }
 
 void SdCardDevice::cmd24_write_single_block() {
-    uint32_t addr = cmd_arg();
-    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK sector={} (addr={:#010x})", addr / 512, addr);
+    uint32_t sector = cmd_arg();
+    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK sector={} (byte={:#010x})",
+                    sector, static_cast<uint64_t>(sector) * 512);
 
     if (!initialized_) {
         queue_r1(0x01);

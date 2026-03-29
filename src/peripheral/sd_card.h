@@ -87,6 +87,7 @@ private:
     void process_command();
     void cmd0_go_idle();
     void cmd8_send_if_cond();
+    void cmd12_stop_transmission();
     void cmd17_read_single_block();
     void cmd24_write_single_block();
     void cmd55_app_cmd();
