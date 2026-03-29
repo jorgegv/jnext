@@ -19,6 +19,8 @@
 #include <QToolBar>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QLabel>
+#include <QPainter>
 #include <QSettings>
 #include <QDataStream>
 #include <QSplitter>
@@ -67,22 +69,49 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     create_menus();
 
     // Create the debug controls toolbar at the bottom.
+    // Layout: F2:Trace(ball) | Export Trace | --> | Continue | Single Step | Step Over | Step Out | Break |
     auto* toolbar = new QToolBar(tr("Debug Controls"), this);
     toolbar->setMovable(false);
 
-    // Continue and Break on the left
-    auto* continue_btn = new QPushButton(tr("F5: Continue"), this);
-    connect(continue_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
-    toolbar->addWidget(continue_btn);
+    // F2: Trace On/Off toggle with integrated ball icon
+    trace_toggle_btn_ = new QPushButton(tr("F2: Trace"), this);
+    update_trace_indicator();
+    connect(trace_toggle_btn_, &QPushButton::clicked, this, [this]() {
+        if (!emulator_) return;
+        bool new_state = !emulator_->trace_log().enabled();
+        emulator_->trace_log().set_enabled(new_state);
+        if (trace_enable_action_)
+            trace_enable_action_->setChecked(new_state);
+        update_trace_indicator();
+    });
+    toolbar->addWidget(trace_toggle_btn_);
 
-    auto* break_btn = new QPushButton(tr("F9: Break"), this);
-    connect(break_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
-    toolbar->addWidget(break_btn);
+    // F3: Export Trace
+    auto* export_trace_btn = new QPushButton(tr("F3: Export Trace"), this);
+    connect(export_trace_btn, &QPushButton::clicked, this, [this]() {
+        if (!emulator_) return;
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Trace Log"), QString(),
+            tr("Text Files (*.txt);;All Files (*)"));
+        if (!path.isEmpty()) {
+            bool ok = emulator_->trace_log().export_to_file(path.toStdString());
+            if (!ok) {
+                QMessageBox::warning(this, tr("Export Failed"),
+                    tr("Could not write trace log to:\n%1").arg(path));
+            }
+        }
+    });
+    toolbar->addWidget(export_trace_btn);
 
-    // Spacer to push step buttons to the right
+    // Spacer to push execution controls to the right
     auto* spacer = new QWidget(this);
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolbar->addWidget(spacer);
+
+    // Execution controls on the right
+    auto* continue_btn = new QPushButton(tr("F5: Continue"), this);
+    connect(continue_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
+    toolbar->addWidget(continue_btn);
 
     auto* step_into_btn = new QPushButton(tr("F6: Single Step"), this);
     connect(step_into_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
@@ -95,6 +124,10 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     auto* step_out_btn = new QPushButton(tr("F8: Step Out"), this);
     connect(step_out_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
     toolbar->addWidget(step_out_btn);
+
+    auto* break_btn = new QPushButton(tr("F9: Break"), this);
+    connect(break_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
+    toolbar->addWidget(break_btn);
 
     addToolBar(Qt::BottomToolBarArea, toolbar);
 }
@@ -132,11 +165,14 @@ void DebuggerWindow::create_menus() {
     // Trace submenu
     QMenu* trace_menu = debug_menu->addMenu(tr("&Trace"));
 
-    QAction* trace_enable = trace_menu->addAction(tr("&Enable Trace"));
-    trace_enable->setCheckable(true);
-    connect(trace_enable, &QAction::triggered, this, [this](bool checked) {
-        if (emulator_)
+    trace_enable_action_ = trace_menu->addAction(tr("&Enable Trace"));
+    trace_enable_action_->setCheckable(true);
+    trace_enable_action_->setShortcut(QKeySequence(Qt::Key_F2));
+    connect(trace_enable_action_, &QAction::triggered, this, [this](bool checked) {
+        if (emulator_) {
             emulator_->trace_log().set_enabled(checked);
+            update_trace_indicator();
+        }
     });
 
     QAction* clear_trace = trace_menu->addAction(tr("&Clear Trace"));
@@ -146,6 +182,7 @@ void DebuggerWindow::create_menus() {
     });
 
     QAction* export_trace = trace_menu->addAction(tr("E&xport Trace..."));
+    export_trace->setShortcut(QKeySequence(Qt::Key_F3));
     connect(export_trace, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
         QString path = QFileDialog::getSaveFileName(
@@ -228,6 +265,27 @@ void DebuggerWindow::save_geometry() {
 
 void DebuggerWindow::restore_geometry() {
     // No-op: size is restored in constructor, position is set by MainWindow.
+}
+
+void DebuggerWindow::update_trace_indicator() {
+    if (!trace_toggle_btn_) return;
+    bool active = emulator_ && emulator_->trace_log().enabled();
+    QColor color = active ? QColor(0x00, 0xC0, 0x00) : QColor(0xC0, 0x00, 0x00);
+
+    QPixmap pix(14, 14);
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(color);
+    p.setPen(QPen(QColor(0x40, 0x40, 0x40), 1));
+    p.drawEllipse(1, 1, 12, 12);
+    p.end();
+
+    trace_toggle_btn_->setIcon(QIcon(pix));
+    trace_toggle_btn_->setIconSize(QSize(14, 14));
+
+    if (trace_enable_action_)
+        trace_enable_action_->setChecked(active);
 }
 
 void DebuggerWindow::position_next_to(QWidget* main_win) {

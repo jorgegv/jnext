@@ -16,6 +16,7 @@ class NextRegPanel;
 class AudioPanel;
 class WatchPanel;
 class BreakpointPanel;
+class QPushButton;
 class QSplitter;
 class QTabWidget;
 
@@ -80,6 +81,11 @@ private:
     AudioPanel* audio_panel_ = nullptr;
     WatchPanel* watch_panel_ = nullptr;
     BreakpointPanel* breakpoint_panel_ = nullptr;
+
+    // Trace toolbar state
+    void update_trace_indicator();
+    QPushButton* trace_toggle_btn_ = nullptr;
+    QAction* trace_enable_action_ = nullptr;
 
     // Menu bar actions (owned by this window)
     QAction* run_action_ = nullptr;
