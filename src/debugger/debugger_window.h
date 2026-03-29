@@ -45,6 +45,7 @@ public:
     void update_actions(bool is_paused);
 
     // Panel accessors for signal wiring
+    CpuPanel* cpu_panel() { return cpu_panel_; }
     DisasmPanel* disasm_panel() { return disasm_panel_; }
     WatchPanel* watch_panel() { return watch_panel_; }
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }

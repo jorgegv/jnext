@@ -295,7 +295,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     // Gray overlay when running (not paused)
     if (!paused_) {
         painter.fillRect(0, paint_y_offset_, w, VISIBLE_LINES * LINE_HEIGHT,
-                         QColor(128, 128, 128, 100)); // semi-transparent gray
+                         QColor(192, 192, 192, 80)); // light semi-transparent gray
     }
 }
 

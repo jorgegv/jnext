@@ -7,6 +7,7 @@
 #include <QVBoxLayout>
 #include <QFrame>
 #include <QFont>
+#include <QPainter>
 #include <QString>
 
 CpuPanel::CpuPanel(Emulator* emulator, QWidget* parent)
@@ -158,8 +159,23 @@ void CpuPanel::create_ui() {
     setMinimumWidth(380);
 }
 
+void CpuPanel::set_paused(bool paused) {
+    if (paused_ == paused) return;
+    paused_ = paused;
+    update(); // trigger repaint to show/hide gray overlay
+}
+
+void CpuPanel::paintEvent(QPaintEvent* event) {
+    QWidget::paintEvent(event);
+    if (!paused_) {
+        QPainter painter(this);
+        painter.fillRect(rect(), QColor(192, 192, 192, 80));
+    }
+}
+
 void CpuPanel::refresh() {
     if (!emulator_) return;
+    if (!paused_) return;
 
     auto regs = emulator_->cpu().get_registers();
 

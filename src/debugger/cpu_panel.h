@@ -14,10 +14,17 @@ public:
     /// Update display with current CPU state.
     void refresh();
 
+    /// Set paused state — when not paused, panel shows gray overlay and skips updates.
+    void set_paused(bool paused);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+
 private:
     void create_ui();
 
     Emulator* emulator_;
+    bool paused_ = false;
 
     // Register value labels (hex display)
     QLabel* reg_af_ = nullptr;
