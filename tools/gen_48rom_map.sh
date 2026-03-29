@@ -1,10 +1,35 @@
-#!/usr/bin/env python3
-"""Generate 48rom.map from the Spectrum ROM map data."""
+#!/usr/bin/env bash
+# Generate 48rom.map from the Spectrum ROM map data.
+# Source: https://skoolkid.github.io/rom/maps/all.html
+set -euo pipefail
 
-import re
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUTPUT="${SCRIPT_DIR}/../data/48rom.map"
 
-# Raw ROM map data extracted from https://skoolkid.github.io/rom/maps/all.html
-ROM_MAP_RAW = """
+mkdir -p "$(dirname "$OUTPUT")"
+
+perl -e '
+my $raw = <<'"'"'END'"'"';
+0000 THE '"'"'START'"'"'
+0008 THE '"'"'ERROR'"'"' RESTART
+0010 THE '"'"'PRINT A CHARACTER'"'"' RESTART
+0018 THE '"'"'COLLECT CHARACTER'"'"' RESTART
+0020 THE '"'"'COLLECT NEXT CHARACTER'"'"' RESTART
+0028 THE '"'"'CALCULATOR'"'"' RESTART
+0030 THE '"'"'MAKE BC SPACES'"'"' RESTART
+0038 THE '"'"'MASKABLE INTERRUPT'"'"' ROUTINE
+END
+print $raw;
+' > /dev/null
+
+# Use a Perl script for the heavy lifting — inline heredoc with raw data
+perl - "$OUTPUT" <<'PERL_SCRIPT'
+use strict;
+use warnings;
+
+my $output = $ARGV[0];
+
+my @raw = split /\n/, <<'MAP_DATA';
 0000 THE 'START'
 0008 THE 'ERROR' RESTART
 0010 THE 'PRINT A CHARACTER' RESTART
@@ -400,64 +425,38 @@ ROM_MAP_RAW = """
 5CB0 NMIADD
 5CB2 RAMTOP
 5CB4 P_RAMT
-"""
+MAP_DATA
 
-def clean_symbol_name(desc):
-    """Convert a ROM map description to a clean symbol name."""
-    # System variables (address >= 0x5C00) are already clean in the raw data
-    # For routines: extract the quoted name, clean it up
+sub clean_symbol {
+    my ($desc) = @_;
+    my $name;
+    if ($desc =~ /THE\s+'([^']+)'/) {
+        $name = $1;
+    } elsif ($desc =~ /THE\s+(.+)/) {
+        $name = $1;
+    } else {
+        $name = $desc;
+    }
+    $name =~ s/[^A-Za-z0-9]/_/g;
+    $name =~ s/_+/_/g;
+    $name =~ s/^_|_$//g;
+    return uc($name);
+}
 
-    # Match THE 'NAME' pattern
-    m = re.match(r"THE\s+'([^']+)'", desc)
-    if m:
-        name = m.group(1)
-        # Replace spaces, commas, special chars with underscore
-        name = re.sub(r'[^A-Za-z0-9]', '_', name)
-        # Collapse multiple underscores
-        name = re.sub(r'_+', '_', name)
-        # Strip leading/trailing underscores
-        name = name.strip('_')
-        return name.upper()
+open(my $fh, '>', $output) or die "Cannot write $output: $!\n";
+print $fh "; ZX Spectrum 48K ROM Symbol Map\n";
+print $fh "; Generated from https://skoolkid.github.io/rom/maps/all.html\n";
+print $fh ";\n";
 
-    # Match THE SOMETHING TABLE/MESSAGES etc (no quotes)
-    m = re.match(r"THE\s+(.+)", desc)
-    if m:
-        name = m.group(1)
-        name = re.sub(r'[^A-Za-z0-9]', '_', name)
-        name = re.sub(r'_+', '_', name)
-        name = name.strip('_')
-        return name.upper()
-
-    # Already a clean name (system variables)
-    name = re.sub(r'[^A-Za-z0-9_]', '_', desc)
-    name = re.sub(r'_+', '_', name)
-    return name.strip('_').upper()
-
-def main():
-    entries = []
-    for line in ROM_MAP_RAW.strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # Parse: XXXX description
-        m = re.match(r'^([0-9A-Fa-f]{4})\s+(.+)$', line)
-        if not m:
-            continue
-        addr = m.group(1).upper()
-        desc = m.group(2).strip()
-        symbol = clean_symbol_name(desc)
-        if symbol:
-            entries.append((addr, symbol))
-
-    # Write in 48rom.map format: symbol = $ADDR
-    with open('data/48rom.map', 'w') as f:
-        f.write("; ZX Spectrum 48K ROM Symbol Map\n")
-        f.write("; Generated from https://skoolkid.github.io/rom/maps/all.html\n")
-        f.write(";\n")
-        for addr, symbol in entries:
-            f.write(f"{symbol:40s} = ${addr}\n")
-
-    print(f"Generated {len(entries)} symbols to data/48rom.map")
-
-if __name__ == '__main__':
-    main()
+my $count = 0;
+for my $line (@raw) {
+    next unless $line =~ /^([0-9A-Fa-f]{4})\s+(.+)$/;
+    my ($addr, $desc) = (uc($1), $2);
+    my $symbol = clean_symbol($desc);
+    next unless $symbol;
+    printf $fh "%-40s = \$%s\n", $symbol, $addr;
+    $count++;
+}
+close($fh);
+print "Generated $count symbols to $output\n";
+PERL_SCRIPT
