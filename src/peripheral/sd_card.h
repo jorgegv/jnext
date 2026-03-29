@@ -46,8 +46,17 @@ public:
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
 
-    /// SpiDevice interface — exchange one byte.
+    /// SpiDevice interface — exchange one byte (legacy, used by base class defaults).
     uint8_t exchange(uint8_t tx) override;
+
+    /// Receive a command/data byte from host (write path).
+    void receive(uint8_t tx) override;
+
+    /// Send next response byte to host (read path).
+    uint8_t send() override;
+
+    /// Called when CS is deasserted — reset SPI protocol state.
+    void deselect() override;
 
 private:
     // SD card state machine
@@ -86,6 +95,7 @@ private:
     // Command processing
     void process_command();
     void cmd0_go_idle();
+    void cmd1_send_op_cond();
     void cmd8_send_if_cond();
     void cmd12_stop_transmission();
     void cmd17_read_single_block();

@@ -62,65 +62,63 @@ void SdCardDevice::unmount() {
     file_size_ = 0;
 }
 
+void SdCardDevice::deselect() {
+    // Reset SPI protocol state on CS deassert (matches ZesarUX mmc_cs behavior).
+    // The SD card goes back to idle, ready for a new command sequence.
+    // This is critical: without it, after a sector read the SD card can be
+    // stuck in SENDING_DATA state, causing the next command to be lost.
+    state_ = State::IDLE;
+    cmd_idx_ = 0;
+    resp_buf_.clear();
+    resp_idx_ = 0;
+    data_idx_ = 0;
+    data_crc_count_ = 0;
+    app_cmd_ = false;
+    // Note: initialized_ is NOT reset — the card stays initialized
+    sd_log()->debug("CS deasserted — protocol state reset to IDLE");
+}
+
 uint8_t SdCardDevice::exchange(uint8_t tx) {
-    if (!file_.is_open()) {
-        return 0xFF;  // No card present
-    }
+    // Legacy full-duplex exchange — not used directly in the ZesarUX-style model.
+    // Kept for interface compatibility.
+    receive(tx);
+    return send();
+}
+
+void SdCardDevice::receive(uint8_t tx) {
+    // Write path: receive command/data bytes from the host.
+    // This handles ONLY the command reception side — it does NOT
+    // produce response bytes (those come from send()).
+    if (!file_.is_open()) return;
 
     switch (state_) {
         case State::IDLE:
-            // Waiting for command start byte (bit 7=0, bit 6=1 → 0x40|cmd)
             if ((tx & 0xC0) == 0x40) {
                 cmd_buf_[0] = tx;
                 cmd_idx_ = 1;
                 state_ = State::RECEIVING_CMD;
             }
-            return 0xFF;
+            break;
 
         case State::RECEIVING_CMD:
             cmd_buf_[cmd_idx_++] = tx;
             if (cmd_idx_ >= 6) {
                 process_command();
             }
-            return 0xFF;
-
-        case State::RESPONDING:
-            if (resp_idx_ < resp_buf_.size()) {
-                return resp_buf_[resp_idx_++];
-            }
-            // Response complete — back to idle
-            state_ = State::IDLE;
-            return 0xFF;
-
-        case State::SENDING_DATA:
-            if (resp_idx_ < resp_buf_.size()) {
-                // Still sending header (R1 + data token)
-                return resp_buf_[resp_idx_++];
-            }
-            if (data_idx_ < 512) {
-                return data_block_[data_idx_++];
-            }
-            // Send 2 dummy CRC bytes, then return to idle
-            if (data_crc_count_ < 2) {
-                data_crc_count_++;
-                return 0x00;
-            }
-            state_ = State::IDLE;
-            return 0xFF;
+            break;
 
         case State::RECEIVING_DATA:
             if (tx == 0xFE && data_idx_ == 0 && data_crc_count_ == 0) {
                 // Data token received — start collecting data
-                return 0xFF;
+                break;
             }
             if (data_idx_ < 512) {
                 data_block_[data_idx_++] = tx;
-                return 0xFF;
+                break;
             }
             // Collecting 2 CRC bytes (ignored)
             data_crc_count_++;
             if (data_crc_count_ >= 2) {
-                // Write the block to the image (SDHC: arg is sector number)
                 uint32_t sector = cmd_arg();
                 uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
                 if (byte_addr + 512 <= file_size_) {
@@ -129,11 +127,66 @@ uint8_t SdCardDevice::exchange(uint8_t tx) {
                     file_.flush();
                     sd_log()->debug("CMD24 wrote 512 bytes at sector {} (byte={:#010x})", sector, byte_addr);
                 }
-                // Data response token: 0x05 = data accepted
                 state_ = State::WRITE_RESP;
                 resp_buf_ = { 0x05 };
                 resp_idx_ = 0;
             }
+            break;
+
+        default:
+            // In RESPONDING, SENDING_DATA, WRITE_RESP states:
+            // If host sends a new command start byte (0x40|cmd), abort
+            // current response and start receiving the new command.
+            // This matches real SD behavior and ZesarUX (where write path
+            // always processes command bytes regardless of read state).
+            if ((tx & 0xC0) == 0x40) {
+                cmd_buf_[0] = tx;
+                cmd_idx_ = 1;
+                state_ = State::RECEIVING_CMD;
+                resp_buf_.clear();
+                resp_idx_ = 0;
+                data_idx_ = 0;
+                data_crc_count_ = 0;
+            }
+            break;
+    }
+}
+
+uint8_t SdCardDevice::send() {
+    // Read path: send the next response byte to the host.
+    // This produces the sequential response matching ZesarUX's mmc_read().
+    if (!file_.is_open()) return 0xFF;
+
+    switch (state_) {
+        case State::IDLE:
+            return 0xFF;
+
+        case State::RECEIVING_CMD:
+            // Command not fully received yet
+            return 0xFF;
+
+        case State::RESPONDING:
+            if (resp_idx_ < resp_buf_.size()) {
+                return resp_buf_[resp_idx_++];
+            }
+            state_ = State::IDLE;
+            return 0xFF;
+
+        case State::SENDING_DATA:
+            if (resp_idx_ < resp_buf_.size()) {
+                return resp_buf_[resp_idx_++];
+            }
+            if (data_idx_ < 512) {
+                return data_block_[data_idx_++];
+            }
+            if (data_crc_count_ < 2) {
+                data_crc_count_++;
+                return 0x00;
+            }
+            state_ = State::IDLE;
+            return 0xFF;
+
+        case State::RECEIVING_DATA:
             return 0xFF;
 
         case State::WRITE_RESP:
@@ -164,6 +217,7 @@ void SdCardDevice::process_command() {
 
     switch (cmd) {
         case 0:  cmd0_go_idle(); break;
+        case 1:  cmd1_send_op_cond(); break;
         case 8:  cmd8_send_if_cond(); break;
         case 12: cmd12_stop_transmission(); break;
         case 17: cmd17_read_single_block(); break;
@@ -175,6 +229,12 @@ void SdCardDevice::process_command() {
             queue_r1(initialized_ ? 0x00 : 0x01);
             break;
     }
+}
+
+void SdCardDevice::cmd1_send_op_cond() {
+    sd_log()->debug("CMD1 SEND_OP_COND → card initialized, ready");
+    initialized_ = true;
+    queue_r1(0x00);  // R1: ready (not idle)
 }
 
 void SdCardDevice::cmd0_go_idle() {

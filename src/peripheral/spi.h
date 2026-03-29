@@ -9,6 +9,18 @@ public:
 
     /// Exchange one byte: transmit tx, return the response byte.
     virtual uint8_t exchange(uint8_t tx) = 0;
+
+    /// Receive a byte from host (command/data write path).
+    /// Default implementation calls exchange() for compatibility.
+    virtual void receive(uint8_t tx) { exchange(tx); }
+
+    /// Send next response byte to host (read path).
+    /// Default implementation calls exchange(0xFF) for compatibility.
+    virtual uint8_t send() { return exchange(0xFF); }
+
+    /// Called when chip select is deasserted (CS goes high).
+    /// Devices should reset their SPI protocol state.
+    virtual void deselect() {}
 };
 
 /// SPI Master — byte-level exchange interface for SD card / flash access.

@@ -41,6 +41,14 @@ void SpiMaster::write_cs(uint8_t val) {
     if (val != cs_) {
         spi_log()->debug("CS change {:#04x} → {:#04x} (SD card {})",
                          cs_, val, (val & 0x01) ? "deselected" : "SELECTED");
+        // Notify devices that lost chip select (CS went from low to high)
+        for (int i = 0; i < kMaxDevices; ++i) {
+            bool was_selected = !(cs_ & (1 << i));
+            bool now_selected = !(val & (1 << i));
+            if (was_selected && !now_selected && devices_[i]) {
+                devices_[i]->deselect();
+            }
+        }
     }
     cs_ = val;
 }
@@ -50,33 +58,27 @@ uint8_t SpiMaster::read_cs() const {
 }
 
 void SpiMaster::write_data(uint8_t val) {
+    // Write path: feed a command/data byte TO the device.
+    // Does NOT consume response bytes (matches ZesarUX/CSpect model
+    // where write and read paths are independent).
     SpiDevice* dev = active_device();
     if (dev) {
-        rx_data_ = dev->exchange(val);
-        spi_log()->debug("exchange tx={:#04x} rx={:#04x}", val, rx_data_);
-    } else {
-        // No device selected — MISO floats high (all ones)
-        rx_data_ = 0xFF;
-        spi_log()->debug("exchange tx={:#04x} (no device) rx=0xFF", val);
+        dev->receive(val);
+        spi_log()->debug("write tx={:#04x}", val);
     }
 }
 
 uint8_t SpiMaster::read_data() {
-    // VHDL: reading the SPI data port starts a NEW transfer (MOSI=0xFF)
-    // but returns the PREVIOUS transfer's result.  The new transfer's
-    // result appears in miso_dat only after 16 clocks (end of transfer).
-    //
-    // Emulation: return current rx_data_, then perform the exchange so
-    // its result is available on the next read or write.
-    uint8_t prev = rx_data_;
+    // Read path: get the next response byte FROM the device.
+    // Independent of write path (no pipeline delay).
     SpiDevice* dev = active_device();
     if (dev) {
-        rx_data_ = dev->exchange(0xFF);
-        spi_log()->debug("read tx=0xff → prev={:#04x} (next rx={:#04x})", prev, rx_data_);
+        rx_data_ = dev->send();
+        spi_log()->debug("read → rx={:#04x}", rx_data_);
     } else {
         rx_data_ = 0xFF;
     }
-    return prev;
+    return rx_data_;
 }
 
 SpiDevice* SpiMaster::active_device() const {
