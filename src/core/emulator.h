@@ -171,6 +171,9 @@ private:
     DebugState      debug_state_;
     TraceLog        trace_log_;
 
+    /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
+    std::vector<uint8_t> boot_rom_;
+
     /// ARGB8888 framebuffer (320 × 256 pixels).
     std::vector<uint32_t> framebuffer_;
 

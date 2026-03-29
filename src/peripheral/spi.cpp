@@ -38,7 +38,10 @@ void SpiMaster::attach_device(int cs_id, SpiDevice* device) {
 }
 
 void SpiMaster::write_cs(uint8_t val) {
-    spi_log()->debug("write CS={:#04x}", val);
+    if (val != cs_) {
+        spi_log()->debug("CS change {:#04x} → {:#04x} (SD card {})",
+                         cs_, val, (val & 0x01) ? "deselected" : "SELECTED");
+    }
     cs_ = val;
 }
 

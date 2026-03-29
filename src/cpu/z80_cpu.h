@@ -44,7 +44,11 @@ public:
     MemoryInterface& memory() { return mem_; }
     IoInterface& io() { return io_; }
 
-    // Callback fired on M1 cycle — used for RETI detection and IM2
+    // Callback fired BEFORE opcode fetch — used for DivMMC automap
+    // (must activate memory overlay before the opcode read).
+    std::function<void(uint16_t pc)> on_m1_prefetch;
+
+    // Callback fired AFTER opcode fetch — used for RETI detection and IM2
     std::function<void(uint16_t pc, uint8_t opcode)> on_m1_cycle;
 
 private:

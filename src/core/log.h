@@ -31,6 +31,9 @@ public:
     static std::shared_ptr<spdlog::logger>& input()      { static auto l = make("input");      return l; }
     static std::shared_ptr<spdlog::logger>& platform()   { static auto l = make("platform");   return l; }
     static std::shared_ptr<spdlog::logger>& emulator()   { static auto l = make("emulator");   return l; }
+    static std::shared_ptr<spdlog::logger>& sdcard()     { static auto l = make("sdcard");     return l; }
+    static std::shared_ptr<spdlog::logger>& divmmc()     { static auto l = make("divmmc");     return l; }
+    static std::shared_ptr<spdlog::logger>& spi()        { static auto l = make("spi");        return l; }
 
     /// Set the log level for a specific subsystem by name.
     /// Returns false if the logger name is unknown.
@@ -68,6 +71,7 @@ public:
     static void init() {
         cpu(); memory(); ula(); video(); audio(); port(); nextreg();
         dma(); copper(); uart(); input(); platform(); emulator();
+        sdcard(); divmmc(); spi();
     }
 
 private:

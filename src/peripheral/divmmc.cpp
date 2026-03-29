@@ -33,7 +33,8 @@ void DivMmc::reset() {
     entry_valid_0_  = 0x01;
     entry_timing_0_ = 0x00;
     entry_points_1_ = 0xCD;
-    divmmc_log()->debug("reset");
+    divmmc_log()->debug("reset (entry_points_0={:#04x} entry_points_1={:#04x})",
+                        entry_points_0_, entry_points_1_);
 }
 
 bool DivMmc::load_rom(const std::string& path) {
@@ -121,21 +122,22 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     }
     if ((entry_points_1_ & 0x10) && pc == 0x04D7) {  // tape trap (nextzxos)
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap)");
+            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap nextzxos)");
         }
         automap_active_ = true;
         return;
     }
     if ((entry_points_1_ & 0x20) && pc == 0x056A) {  // tape trap (nextzxos)
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x056A (tape trap)");
+            divmmc_log()->debug("automap ON at PC=0x056A (tape trap nextzxos)");
         }
         automap_active_ = true;
         return;
     }
 
-    // Auto-unmap: addresses 0x1FF8-0x1FFF unless disabled (bit 6 of 0xBB)
-    if (!(entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
+    // Auto-unmap: addresses 0x1FF8-0x1FFF when enabled (bit 6 of 0xBB = 1)
+    // VHDL: divmmc_automap_delayed_off <= '1' when ... nr_bb_divmmc_ep_1(6) = '1'
+    if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
         if (automap_active_) {
             divmmc_log()->debug("automap OFF at PC={:#06x}", pc);
         }

@@ -28,6 +28,7 @@ static void print_usage(const char* prog) {
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
         "                       Supported: .nex\n"
+        "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n",
         prog);
@@ -51,6 +52,7 @@ int main(int argc, char* argv[]) {
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
     std::string load_file;
+    std::string boot_rom;
     std::string divmmc_rom;
     std::string sd_card_image;
 
@@ -72,6 +74,8 @@ int main(int argc, char* argv[]) {
             inject_delay = std::stoi(argv[++i]);
         } else if (arg == "--load" && i + 1 < argc) {
             load_file = argv[++i];
+        } else if (arg == "--boot-rom" && i + 1 < argc) {
+            boot_rom = argv[++i];
         } else if (arg == "--divmmc-rom" && i + 1 < argc) {
             divmmc_rom = argv[++i];
         } else if (arg == "--sd-card" && i + 1 < argc) {
@@ -91,8 +95,9 @@ int main(int argc, char* argv[]) {
 #endif
 
     // Configure emulator before init.
-    if (!divmmc_rom.empty() || !sd_card_image.empty()) {
+    if (!boot_rom.empty() || !divmmc_rom.empty() || !sd_card_image.empty()) {
         EmulatorConfig cfg;
+        cfg.boot_rom_path = boot_rom;
         cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;
         app.set_config(cfg);

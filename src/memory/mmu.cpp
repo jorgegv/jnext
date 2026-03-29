@@ -17,6 +17,8 @@ void Mmu::reset() {
     l2_write_enable_ = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
+    // Re-enable boot ROM on reset (if loaded) — matches VHDL bootrom_en init.
+    if (boot_rom_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
         read_only_[i] = false;

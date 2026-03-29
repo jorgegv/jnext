@@ -156,7 +156,7 @@ void SdCardDevice::process_command() {
             return;
         }
         // Unknown ACMD — treat as illegal, return R1 with illegal command bit
-        sd_log()->debug("unknown ACMD{}", cmd);
+        sd_log()->warn("unknown ACMD{} arg={:#010x}", cmd, cmd_arg());
         queue_r1(0x05);  // idle + illegal command
         return;
     }
@@ -169,14 +169,14 @@ void SdCardDevice::process_command() {
         case 55: cmd55_app_cmd(); break;
         case 58: cmd58_read_ocr(); break;
         default:
-            sd_log()->debug("unhandled CMD{}", cmd);
+            sd_log()->warn("unhandled CMD{} arg={:#010x}", cmd, cmd_arg());
             queue_r1(initialized_ ? 0x00 : 0x01);
             break;
     }
 }
 
 void SdCardDevice::cmd0_go_idle() {
-    sd_log()->debug("CMD0 GO_IDLE_STATE");
+    sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
     initialized_ = false;
     queue_r1(0x01);  // R1: in idle state
 }
@@ -184,7 +184,7 @@ void SdCardDevice::cmd0_go_idle() {
 void SdCardDevice::cmd8_send_if_cond() {
     // CMD8: arg has voltage range + check pattern
     uint8_t check = cmd_buf_[4];  // echo back check pattern
-    sd_log()->debug("CMD8 SEND_IF_COND check={:#04x}", check);
+    sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} → voltage accepted", check);
     resp_buf_ = { 0x01, 0x00, 0x00, 0x01, check };  // R7: idle, voltage accepted
     resp_idx_ = 0;
     state_ = State::RESPONDING;
@@ -192,7 +192,7 @@ void SdCardDevice::cmd8_send_if_cond() {
 
 void SdCardDevice::cmd17_read_single_block() {
     uint32_t addr = cmd_arg();
-    sd_log()->debug("CMD17 READ_SINGLE_BLOCK addr={:#010x}", addr);
+    sd_log()->debug("CMD17 READ_SINGLE_BLOCK sector={} (addr={:#010x})", addr / 512, addr);
 
     if (!initialized_) {
         queue_r1(0x01);  // idle state
@@ -220,7 +220,8 @@ void SdCardDevice::cmd17_read_single_block() {
 }
 
 void SdCardDevice::cmd24_write_single_block() {
-    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK addr={:#010x}", cmd_arg());
+    uint32_t addr = cmd_arg();
+    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK sector={} (addr={:#010x})", addr / 512, addr);
 
     if (!initialized_) {
         queue_r1(0x01);
@@ -235,13 +236,13 @@ void SdCardDevice::cmd24_write_single_block() {
 }
 
 void SdCardDevice::cmd55_app_cmd() {
-    sd_log()->debug("CMD55 APP_CMD");
+    sd_log()->debug("CMD55 APP_CMD (next command is ACMD)");
     app_cmd_ = true;
     queue_r1(initialized_ ? 0x00 : 0x01);
 }
 
 void SdCardDevice::cmd58_read_ocr() {
-    sd_log()->debug("CMD58 READ_OCR");
+    sd_log()->debug("CMD58 READ_OCR → initialized={} SDHC=1", initialized_);
     // OCR: bit 31=power up complete (if initialized), bit 30=SDHC
     uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // CCS=1 (SDHC), power up status
     resp_buf_ = { static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
@@ -251,7 +252,7 @@ void SdCardDevice::cmd58_read_ocr() {
 }
 
 void SdCardDevice::acmd41_sd_send_op_cond() {
-    sd_log()->debug("ACMD41 SD_SEND_OP_COND");
+    sd_log()->debug("ACMD41 SD_SEND_OP_COND → card initialized, ready");
     initialized_ = true;  // Card is now initialized
     queue_r1(0x00);  // R1: ready (not idle)
 }

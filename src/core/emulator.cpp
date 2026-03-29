@@ -94,6 +94,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // double-fired writes (breaking auto-increment ports like sprites/palette).
     port_.clear_handlers();
 
+    // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
+    // overlay is active for the same M1 read that triggered it (matching
+    // the VHDL combinatorial address decode).
+    cpu_.on_m1_prefetch = [this](uint16_t pc) {
+        divmmc_.check_automap(pc, true);
+    };
+
     // Install M1-cycle callback for RETI detection (ED 4D sequence).
     // When RETI is executed, notify the Im2Controller so it can clear the
     // active interrupt level in the daisy chain.
@@ -107,8 +114,6 @@ bool Emulator::init(const EmulatorConfig& cfg)
             }
             saw_ed = false;
         }
-        // DivMMC auto-map check on every M1 cycle.
-        divmmc_.check_automap(pc, true);
     };
 
     // --- NextREG write handlers ---
@@ -347,9 +352,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
     });
 
     // Register 0x03: Machine type (bits 2:0 = machine timing)
+    // Writing to this register also disables the boot ROM overlay
+    // (VHDL: bootrom_en <= '0' on any write to nr_03).
     nextreg_.set_write_handler(0x03, [this](uint8_t v) {
-        // Cache the value; timing mode changes are complex and would need
-        // contention LUT rebuild — log for now.
+        if (mmu_.boot_rom_enabled()) {
+            mmu_.set_boot_rom_enabled(false);
+            Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
+        }
         Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03", v);
     });
 
@@ -691,6 +700,22 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // emulator can still run (useful for testing without a ROM file).
     if (!rom_.load(0, "roms/48.rom")) {
         Log::emulator()->warn("could not load roms/48.rom — continuing without ROM (BASIC will not boot)");
+    }
+
+    // Boot ROM loading (FPGA bootloader — highest priority overlay)
+    if (!cfg.boot_rom_path.empty()) {
+        std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
+        if (bf.is_open()) {
+            auto sz = bf.tellg();
+            boot_rom_.resize(static_cast<size_t>(sz));
+            bf.seekg(0);
+            bf.read(reinterpret_cast<char*>(boot_rom_.data()), sz);
+            mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
+            Log::emulator()->info("Boot ROM loaded: '{}' ({} bytes), overlay active at 0x0000-0x{:04X}",
+                                  cfg.boot_rom_path, boot_rom_.size(), boot_rom_.size() - 1);
+        } else {
+            Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
+        }
     }
 
     // DivMMC ROM loading

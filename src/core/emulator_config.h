@@ -54,6 +54,9 @@ struct EmulatorConfig {
     // --load: load a file (e.g. .nex) into the emulator.
     std::string load_file;                // path to .nex file (empty = disabled)
 
+    // Boot ROM (FPGA bootloader — highest priority overlay at 0x0000-0x1FFF)
+    std::string boot_rom_path;            // path to Next boot ROM (empty = disabled)
+
     // DivMMC / SD card
     std::string divmmc_rom_path;          // path to DivMMC ROM (empty = disabled)
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)

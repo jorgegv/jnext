@@ -211,6 +211,11 @@ int Z80Cpu::execute() {
 
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
+
+    // DivMMC automap (and any other memory overlay) must activate BEFORE
+    // the opcode read, matching real hardware combinatorial decode.
+    if (on_m1_prefetch) on_m1_prefetch(pc);
+
     uint8_t  opcode = mem_.read(pc);
 
     if (opcode == 0xED) {

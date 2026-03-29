@@ -18,6 +18,16 @@ public:
     void set_page(int slot, uint8_t page);
     uint8_t get_page(int slot) const { return slots_[slot]; }
 
+    // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
+    // Matches VHDL bootrom_en signal: enabled at power-on, disabled by NextREG 0x03.
+    void set_boot_rom(const uint8_t* data, size_t size) {
+        boot_rom_ = data;
+        boot_rom_size_ = size;
+        boot_rom_en_ = (data != nullptr);
+    }
+    void set_boot_rom_enabled(bool en) { boot_rom_en_ = en; }
+    bool boot_rom_enabled() const { return boot_rom_en_; }
+
     // DivMMC memory overlay — set by Emulator when DivMMC is initialized.
     // Kept as raw pointer for zero-overhead hot path.
     void set_divmmc(DivMmc* d) { divmmc_ = d; }
@@ -27,6 +37,10 @@ public:
 
     // Hot-path memory access (inline for performance)
     inline uint8_t read(uint16_t addr) override {
+        // Boot ROM overlay: highest priority at 0x0000-0x1FFF (VHDL bootrom_en)
+        if (boot_rom_en_ && addr < boot_rom_size_) {
+            return boot_rom_[addr];
+        }
         // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active
         if (divmmc_ && addr < 0x4000) {
             uint8_t val;
@@ -117,6 +131,11 @@ private:
     bool    l2_write_enable_  = false;
     uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
+
+    // Boot ROM overlay (non-owning pointer into Emulator-owned storage)
+    const uint8_t* boot_rom_ = nullptr;
+    size_t boot_rom_size_ = 0;
+    bool boot_rom_en_ = false;
 
     // DivMMC overlay (non-owning pointer, set by Emulator)
     DivMmc* divmmc_ = nullptr;
