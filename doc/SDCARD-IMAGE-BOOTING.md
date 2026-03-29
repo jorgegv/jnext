@@ -19,68 +19,68 @@ order:
 ## Required Filesystem Structure
 
 ```
-/                           FAT32 root
-  TBBLUE.FW                 Firmware binary (~300K)
-  MACHINES/
-    NEXT/
-      CONFIG.INI            Hardware configuration (REQUIRED for boot)
-      MENU.DEF              Default machine personality list
-      MENU.INI              Optional menu override (same format as MENU.DEF)
-      KEYMAP.BIN            Keyboard mapping (1K)
-      ENNEXTZX.ROM          Main OS + BASIC ROM (64K)
-      ENNXTMMC.ROM          DivMMC disk OS ROM (8K)
-      ENNEXTMF.ROM          Multiface ROM (8K)
-      48.ROM                48K BASIC ROM (16K)
-      128.ROM               128K ROM (32K)
-      ... (other personality ROMs)
-  NEXTZXOS/
-    ENSYSTEM.SYS            NextZXOS system file (~28K)
-    AUTOEXEC.1ST            Autoexec script
-    BROWSER.CFG             File browser config
-    ... (other system files)
-  SYS/
-    ENV.CFG                 Environment config
-    ...
-  DOT/                      Dot commands
-  APPS/                     Applications
-  DEMOS/                    Demo programs
-  GAMES/                    Games
+/                              FAT32 root
+├── TBBLUE.FW                  Firmware binary (~300K)
+├── MACHINES/
+│   └── NEXT/
+│       ├── CONFIG.INI         Hardware configuration (REQUIRED for boot)
+│       ├── MENU.DEF           Default machine personality list
+│       ├── MENU.INI           Optional menu override (same format as MENU.DEF)
+│       ├── KEYMAP.BIN         Keyboard mapping (1K)
+│       ├── ENNEXTZX.ROM      Main OS + BASIC ROM (64K)
+│       ├── ENNXTMMC.ROM      DivMMC disk OS ROM (8K)
+│       ├── ENNEXTMF.ROM      Multiface ROM (8K)
+│       ├── 48.ROM             48K BASIC ROM (16K)
+│       ├── 128.ROM            128K ROM (32K)
+│       └── ...                (other personality ROMs)
+├── NEXTZXOS/
+│   ├── ENSYSTEM.SYS           NextZXOS system file (~28K)
+│   ├── AUTOEXEC.1ST           Autoexec script
+│   ├── BROWSER.CFG            File browser config
+│   └── ...                    (other system files)
+├── SYS/
+│   ├── ENV.CFG                Environment config
+│   └── ...
+├── DOT/                       Dot commands
+├── APPS/                      Applications
+├── DEMOS/                     Demo programs
+└── GAMES/                     Games
 ```
 
 ## config.ini Format
 
 Plain text file, one setting per line: `name=value`
 
-| # | Setting | Default | Description |
-|---|---------|---------|-------------|
-| 1 | scandoubler | 1 | VGA scandoubler ON(1)/OFF(0) |
-| 2 | 50_60hz | 0 | 50Hz(0) or 60Hz(1) |
-| 3 | timex | 1 | Timex HiRes/Multicolour modes |
-| 4 | psgmode | 0 | AY(0), YM(1), reserved(2), disabled(3) |
-| 5 | stereomode | 1 | ABC(0) or ACB(1) channel order |
-| 6 | intsnd | 1 | Internal beeper enable |
-| 7 | turbosound | 1 | TurboSound (3x AY) enable |
-| 8 | dac | 1 | SpecDRUM/Covox DAC enable |
-| 9 | divmmc | 0 | Onboard DivMMC enable |
-| 10 | divports | 1 | DivMMC I/O port access |
-| 11 | mf | 0 | Multiface hardware enable |
-| 12 | joystick1 | 2 | Joystick 1 type (0-6) |
-| 13 | joystick2 | 0 | Joystick 2 type (0-6) |
-| 14 | ps2 | 0 | PS/2 port mouse-first rewire |
-| 15 | scanlines | 0 | Scanline effect: 0/50%/25%/12.5% |
-| 16 | turbokey | 1 | Allow speeds > 3.5 MHz |
-| 17 | timing | 0 | Screen mode (0-7); 8 = testcard |
-| 18 | default | 0 | Default personality index from menu.def |
-| 19 | dma | 0 | DMA controller enable |
-| 20 | keyb_issue | 0 | Keyboard Issue 2(1)/Issue 3(0) |
-| 21 | ay48 | 0 | AY in 48K mode |
-| 22 | uart_i2c | 1 | I2C and UART devices enable |
-| 23 | kmouse | 1 | Kempston mouse enable |
-| 24 | ulaplus | 1 | ULA+ extensions enable |
-| 25 | hdmisound | 1 | Digital video port sound |
-| 26 | beepmode | 0 | Beeper audio mixing disable(1) |
-| 27 | buttonswap | 0 | Mouse button swap |
-| 28 | mousedpi | 1 | Mouse sensitivity (0-3) |
+| #  | Setting     | Default | Description                             |
+|----|-------------|---------|-----------------------------------------|
+| 1  | scandoubler | 1       | VGA scandoubler ON(1)/OFF(0)            |
+| 2  | 50_60hz     | 0       | 50Hz(0) or 60Hz(1)                      |
+| 3  | timex       | 1       | Timex HiRes/Multicolour modes           |
+| 4  | psgmode     | 0       | AY(0), YM(1), reserved(2), disabled(3)  |
+| 5  | stereomode  | 1       | ABC(0) or ACB(1) channel order          |
+| 6  | intsnd      | 1       | Internal beeper enable                  |
+| 7  | turbosound  | 1       | TurboSound (3x AY) enable               |
+| 8  | dac         | 1       | SpecDRUM/Covox DAC enable               |
+| 9  | divmmc      | 0       | Onboard DivMMC enable                   |
+| 10 | divports    | 1       | DivMMC I/O port access                  |
+| 11 | mf          | 0       | Multiface hardware enable               |
+| 12 | joystick1   | 2       | Joystick 1 type (0-6)                   |
+| 13 | joystick2   | 0       | Joystick 2 type (0-6)                   |
+| 14 | ps2         | 0       | PS/2 port mouse-first rewire            |
+| 15 | scanlines   | 0       | Scanline effect: 0/50%/25%/12.5%        |
+| 16 | turbokey    | 1       | Allow speeds > 3.5 MHz                  |
+| 17 | timing      | 0       | Screen mode (0-7); 8 = testcard         |
+| 18 | default     | 0       | Default personality index from menu.def |
+| 19 | dma         | 0       | DMA controller enable                   |
+| 20 | keyb_issue  | 0       | Keyboard Issue 2(1)/Issue 3(0)          |
+| 21 | ay48        | 0       | AY in 48K mode                          |
+| 22 | uart_i2c    | 1       | I2C and UART devices enable             |
+| 23 | kmouse      | 1       | Kempston mouse enable                   |
+| 24 | ulaplus     | 1       | ULA+ extensions enable                  |
+| 25 | hdmisound   | 1       | Digital video port sound                |
+| 26 | beepmode    | 0       | Beeper audio mixing disable(1)          |
+| 27 | buttonswap  | 0       | Mouse button swap                       |
+| 28 | mousedpi    | 1       | Mouse sensitivity (0-3)                 |
 
 **Note:** `timing=8` forces testcard/config screen. For normal boot use `timing=0`.
 
