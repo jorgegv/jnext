@@ -247,7 +247,7 @@ void SdCardDevice::cmd8_send_if_cond() {
     // CMD8: arg has voltage range + check pattern
     uint8_t check = cmd_buf_[4];  // echo back check pattern
     sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} → voltage accepted", check);
-    resp_buf_ = { 0x01, 0x00, 0x00, 0x01, check };  // R7: idle, voltage accepted
+    resp_buf_ = { 0xFF, 0x01, 0x00, 0x00, 0x01, check };  // NCR + R7: idle, voltage accepted
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -283,8 +283,8 @@ void SdCardDevice::cmd17_read_single_block() {
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     file_.read(reinterpret_cast<char*>(data_block_), 512);
 
-    // Response: R1 (0x00 = OK), then 0xFE data start token, then 512 bytes
-    resp_buf_ = { 0x00, 0xFE };
+    // Response: NCR + R1 (0x00 = OK), then 0xFE data start token, then 512 bytes
+    resp_buf_ = { 0xFF, 0x00, 0xFE };
     resp_idx_ = 0;
     data_idx_ = 0;
     data_crc_count_ = 0;
@@ -318,8 +318,8 @@ void SdCardDevice::cmd58_read_ocr() {
     sd_log()->debug("CMD58 READ_OCR → initialized={} SDHC=1", initialized_);
     // OCR: bit 31=power up complete (if initialized), bit 30=SDHC
     uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // CCS=1 (SDHC), power up status
-    resp_buf_ = { static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
-                  ocr0, 0xFF, 0x80, 0x00 };  // R3
+    resp_buf_ = { 0xFF, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
+                  ocr0, 0xFF, 0x80, 0x00 };  // NCR + R3
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -338,7 +338,9 @@ uint32_t SdCardDevice::cmd_arg() const {
 }
 
 void SdCardDevice::queue_r1(uint8_t r1) {
-    resp_buf_ = { r1 };
+    // Prepend one NCR byte (0xFF) before R1, matching ZesarUX mmc_read()
+    // behavior where index 0 = 0xFF (busy/NCR) and index 1 = R1.
+    resp_buf_ = { 0xFF, r1 };
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
