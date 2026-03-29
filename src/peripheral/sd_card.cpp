@@ -257,7 +257,15 @@ void SdCardDevice::cmd12_stop_transmission() {
     // Abort any in-progress multi-block transfer and return to idle.
     data_idx_ = 0;
     data_crc_count_ = 0;
-    queue_r1(initialized_ ? 0x00 : 0x01);
+    // CMD12 has "stuff bytes" before R1 — the firmware reads 8 stuff bytes
+    // before polling for R1 (see TBBLUE.FW code at 0x7AB0).
+    // Provide 8 stuff bytes (0xFF) + NCR (0xFF) + R1 to ensure the R1 poll
+    // after the stuff bytes finds the actual R1 response.
+    uint8_t r1 = initialized_ ? 0x00 : 0x01;
+    resp_buf_ = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,  // 8 stuff bytes
+                  0xFF, r1 };  // NCR + R1
+    resp_idx_ = 0;
+    state_ = State::RESPONDING;
 }
 
 void SdCardDevice::cmd17_read_single_block() {
