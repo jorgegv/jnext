@@ -6,8 +6,8 @@ NextReg::NextReg() { reset(); }
 void NextReg::reset() {
     regs_.fill(0);
     // Reset defaults from VHDL / ZX Next documentation
-    regs_[0x00] = 0x08;  // machine ID: ZX Spectrum Next
-    regs_[0x01] = 0x30;  // core version 3.0
+    regs_[0x00] = 0x0A;  // machine ID: ZX Spectrum Next (VHDL g_machine_id = X"0A")
+    regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x03] = 0x00;  // machine type: ZXNext
     selected_   = 0;
@@ -20,10 +20,14 @@ uint8_t NextReg::read_selected() { return read(selected_); }
 void NextReg::write_selected(uint8_t val) { write(selected_, val); }
 
 uint8_t NextReg::read(uint8_t reg) {
+    uint8_t val;
     if (read_handlers_[reg]) {
-        return read_handlers_[reg]();
+        val = read_handlers_[reg]();
+    } else {
+        val = regs_[reg];
     }
-    return regs_[reg];
+    Log::nextreg()->trace("NextREG read  reg={:#04x} val={:#04x}", reg, val);
+    return val;
 }
 
 void NextReg::write(uint8_t reg, uint8_t val) {
