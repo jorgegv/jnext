@@ -63,8 +63,8 @@ JNEXT does not include ROM files. Place a 48K Spectrum ROM as `roms/48.rom` in t
 
 ### Command-line options
 
-| Option | Description |
-|--------|-------------|
+| Option             | Description                                                                         |
+|--------------------|-------------------------------------------------------------------------------------|
 | `--log-level SPEC` | Set per-subsystem log levels. SPEC is a comma-separated list of `name=level` pairs. |
 
 ### Log levels
