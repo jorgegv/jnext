@@ -20,7 +20,7 @@ public:
 
     // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
     // Matches VHDL bootrom_en signal: enabled at power-on, disabled by NextREG 0x03.
-    void set_boot_rom(const uint8_t* data, size_t size) {
+    void set_boot_rom(uint8_t* data, size_t size) {
         boot_rom_ = data;
         boot_rom_size_ = size;
         boot_rom_en_ = (data != nullptr);
@@ -77,7 +77,14 @@ public:
             debug_state_->set_data_bp_hit(true);
             debug_state_->set_data_bp_addr(addr);
         }
-        // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active
+        // Boot ROM is in writable SRAM on real hardware — writes go to the
+        // same page that the boot ROM overlay reads from. This allows the
+        // boot loader to use variables/buffers in its own address range.
+        if (boot_rom_en_ && addr < boot_rom_size_) {
+            boot_rom_[addr] = val;
+            return;
+        }
+        // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active.
         if (divmmc_ && addr < 0x4000) {
             if (divmmc_write(addr, val)) return;
         }
@@ -139,7 +146,7 @@ private:
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
 
     // Boot ROM overlay (non-owning pointer into Emulator-owned storage)
-    const uint8_t* boot_rom_ = nullptr;
+    uint8_t* boot_rom_ = nullptr;
     size_t boot_rom_size_ = 0;
     bool boot_rom_en_ = false;
 

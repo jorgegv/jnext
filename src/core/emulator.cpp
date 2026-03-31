@@ -367,10 +367,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
         uint8_t mode = v & 0x07;
         if (mode == 0x07) {
             mmu_.set_config_mode(true);
+            divmmc_.set_config_mode(true);
         } else if (mode != 0x00) {
             mmu_.set_config_mode(false);
+            divmmc_.set_config_mode(false);
         }
-        Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03", v);
+        Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03 (mode={}, config_mode={})",
+                              v, mode, mode == 0x07 ? "ON" : (mode != 0x00 ? "OFF" : "unchanged"));
     });
 
     // Register 0x04: Config mapping — maps RAM page into slot 0 (writable, for firmware ROM loading)
@@ -591,8 +594,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // --- Audio NextREG handlers ---
 
-    // Register 0x06: Peripheral 2 — bits 1:0 = PSG mode (00=YM, 01=AY)
-    //   bit 6 = internal speaker beep-only (exclusive mode, not emulated yet)
+    // Register 0x06: Peripheral 2
+    //   bit 7 = hotkey CPU speed enable, bit 6 = internal speaker beep-only
+    //   bit 5 = hotkey 50/60Hz enable, bit 4 = drive button NMI enable
+    //   bit 3 = M1 button NMI enable, bit 2 = PS/2 mode
+    //   bits 1:0 = PSG mode (00=YM, 01=AY)
     nextreg_.set_write_handler(0x06, [this](uint8_t v) {
         bool ay_mode = (v & 0x03) == 1;  // 00=YM, 01=AY, others=hold/reset
         turbosound_.set_ay_mode(ay_mode);
@@ -620,6 +626,17 @@ bool Emulator::init(const EmulatorConfig& cfg)
         if (v & 0x40) mono |= 0x02;  // AY#1
         if (v & 0x80) mono |= 0x04;  // AY#2
         turbosound_.set_mono_mode(mono);
+    });
+
+    // Register 0x0A: Peripheral 5
+    //   bit 4 = DivMMC automap enable (VHDL: nr_0a_divmmc_automap_en, default '0')
+    //   bits 1:0 = mouse DPI, bit 3 = mouse button swap, bits 7:6 = MF type
+    nextreg_.set_write_handler(0x0A, [this](uint8_t v) {
+        bool automap_en = (v & 0x10) != 0;
+        if (divmmc_.rom_loaded() && automap_en != divmmc_.automap_enabled()) {
+            divmmc_.set_automap_enabled(automap_en);
+            Log::emulator()->info("DivMMC automap {} via NR 0x0A", automap_en ? "enabled" : "disabled");
+        }
     });
 
     // --- Phase 5 peripheral port handlers ---
@@ -738,6 +755,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     if (!cfg.divmmc_rom_path.empty()) {
         if (divmmc_.load_rom(cfg.divmmc_rom_path)) {
             divmmc_.set_enabled(true);
+            divmmc_.set_automap_enabled(true);
             Log::emulator()->info("DivMMC enabled, ROM loaded from '{}'", cfg.divmmc_rom_path);
         } else {
             Log::emulator()->warn("could not load DivMMC ROM from '{}'", cfg.divmmc_rom_path);
@@ -1070,11 +1088,9 @@ void Emulator::soft_reset()
     mmu_.reset();
     mmu_.set_boot_rom_enabled(false);
     mmu_.set_config_mode(false);
+    divmmc_.set_config_mode(false);
     // Map slots 0-1 to RAM pages 0x00, 0x01 (firmware-loaded ROM).
     // The firmware loaded the Spectrum ROM into RAM pages via NR 0x04.
-    // TODO: ROM data isn't reaching these pages yet — DivMMC overlay
-    // intercepts writes during config mode. Needs NR 0x04 + DivMMC
-    // config mode priority fix.
     mmu_.set_page(0, 0x00);
     mmu_.set_page(1, 0x01);
 

@@ -58,6 +58,7 @@ bool DivMmc::load_rom(const std::string& path) {
     f.seekg(0, std::ios::beg);
     f.read(reinterpret_cast<char*>(rom_.data()), size);
 
+    rom_loaded_ = true;
     divmmc_log()->info("loaded ROM: {} ({} bytes)", path, static_cast<int>(size));
     return true;
 }
@@ -81,7 +82,7 @@ uint8_t DivMmc::read_control() const {
 // ── Auto-mapping ──────────────────────────────────────────────────────
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
-    if (!is_m1 || !enabled_) return;
+    if (!is_m1 || !enabled_ || !automap_enabled_) return;
 
     // Auto-map trigger addresses from NextREG 0xB8 (entry_points_0_).
     // Each bit enables automap on the corresponding RST address.
@@ -141,6 +142,16 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
         if (automap_active_) {
             divmmc_log()->debug("automap OFF at PC={:#06x}", pc);
         }
+        automap_active_ = false;
+    }
+}
+
+void DivMmc::on_retn() {
+    // VHDL: i_retn_seen clears automap_hold and automap_held.
+    // When the DivMMC ROM code finishes handling an RST call, the RETN
+    // instruction deactivates the automap overlay.
+    if (automap_active_) {
+        divmmc_log()->debug("automap OFF (RETN detected)");
         automap_active_ = false;
     }
 }

@@ -51,6 +51,9 @@ public:
     /// Must be called on every M1 (instruction fetch) cycle.
     void check_automap(uint16_t pc, bool is_m1);
 
+    /// RETN detected — clears automap hold (VHDL: i_retn_seen clears automap_hold).
+    void on_retn();
+
     // ── Memory overlay interface ──────────────────────────────────
 
     /// Returns true if DivMMC memory overlay is active (conmem OR automap).
@@ -81,9 +84,18 @@ public:
 
     // ── Enable/disable ────────────────────────────────────────────
 
-    /// Enable or disable the entire DivMMC subsystem.
+    /// Enable or disable the entire DivMMC subsystem (NR 0x06 bit 4).
     void set_enabled(bool en) { enabled_ = en; }
     bool is_enabled() const { return enabled_; }
+
+    /// Enable or disable DivMMC automap (NR 0x0A bit 4).
+    /// VHDL: nr_0a_divmmc_automap_en defaults to '0'; when '0',
+    /// divmmc_automap_reset is forced high, preventing automap activation.
+    void set_automap_enabled(bool en) { automap_enabled_ = en; if (!en) automap_active_ = false; }
+    bool automap_enabled() const { return automap_enabled_; }
+
+    /// Returns true if ROM was loaded (for deferred enable by firmware).
+    bool rom_loaded() const { return rom_loaded_; }
 
     // ── Accessors for debug / testing ─────────────────────────────
 
@@ -109,7 +121,9 @@ public:
     uint8_t entry_points_1() const { return entry_points_1_; }
 
 private:
-    bool enabled_ = false;              // DivMMC subsystem enabled
+    bool enabled_ = false;              // DivMMC subsystem enabled (NR 0x06 bit 4)
+    bool automap_enabled_ = false;      // DivMMC automap enabled (NR 0x0A bit 4, VHDL default '0')
+    bool rom_loaded_ = false;           // ROM file loaded (for deferred enable)
     bool conmem_ = false;               // bit 7 of control register
     bool mapram_ = false;               // bit 6 of control register
     uint8_t bank_ = 0;                  // bits 3:0 of control register
