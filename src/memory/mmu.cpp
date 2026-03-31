@@ -64,6 +64,26 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
     write_ptr_[slot] = nullptr;
 }
 
+void Mmu::set_config_page(uint8_t bank) {
+    // NR 0x04: In config mode, maps a 16K RAM bank into slots 0-1 (writable).
+    // The VHDL uses: sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13)
+    // This concatenates the bank number with address bit 13, effectively:
+    //   slot 0 (addr 0x0000-0x1FFF, bit13=0) → 8K page = bank * 2
+    //   slot 1 (addr 0x2000-0x3FFF, bit13=1) → 8K page = bank * 2 + 1
+    // The firmware uses this to write ROM images into SRAM during boot.
+    if (!config_mode_) return;
+    uint8_t page0 = bank * 2;
+    uint8_t page1 = bank * 2 + 1;
+    Log::memory()->debug("Config page: bank {} → slot 0-1 = RAM pages {:#04x},{:#04x} (writable)",
+                          bank, page0, page1);
+    slots_[0] = page0;
+    slots_[1] = page1;
+    read_only_[0] = false;
+    read_only_[1] = false;
+    rebuild_ptr(0);
+    rebuild_ptr(1);
+}
+
 void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
     l2_write_enable_ = (val & 0x01) != 0;
     l2_bank_ = active_bank;

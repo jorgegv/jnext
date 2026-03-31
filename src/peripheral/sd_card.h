@@ -41,6 +41,8 @@ public:
         data_crc_count_ = 0;
         initialized_ = false;
         app_cmd_ = false;
+        multi_block_ = false;
+        multi_sector_ = 0;
     }
 
     /// Returns true if an image is mounted.
@@ -87,6 +89,8 @@ private:
     // SD card state
     bool initialized_ = false;   // After ACMD41 completes
     bool app_cmd_ = false;       // Next command is ACMD (preceded by CMD55)
+    bool multi_block_ = false;   // CMD18 multi-block read in progress
+    uint32_t multi_sector_ = 0;  // Current sector for multi-block read
 
     // Backing store
     std::fstream file_;
@@ -99,7 +103,10 @@ private:
     void cmd8_send_if_cond();
     void cmd12_stop_transmission();
     void cmd17_read_single_block();
+    void cmd18_read_multiple_block();
     void cmd24_write_single_block();
+    void cmd13_send_status();
+    void cmd16_set_blocklen();
     void cmd55_app_cmd();
     void cmd58_read_ocr();
     void acmd41_sd_send_op_cond();

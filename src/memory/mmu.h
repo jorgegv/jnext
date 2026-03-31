@@ -107,6 +107,12 @@ public:
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 
+    // Config mode: NR 0x04 maps a RAM page into slot 0 (writable, for firmware ROM loading).
+    // page_8k is the 8K RAM page number. The low bit of cpu_a(13) selects between the
+    // two 8K halves, so slots 0 AND 1 are mapped to page*2 and page*2+1.
+    void set_config_page(uint8_t page_8k);
+    void set_config_mode(bool en) { config_mode_ = en; }
+
     // ---------------------------------------------------------------
     // Layer 2 write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------
@@ -136,6 +142,9 @@ private:
     const uint8_t* boot_rom_ = nullptr;
     size_t boot_rom_size_ = 0;
     bool boot_rom_en_ = false;
+
+    // Config mode (NR 0x03/0x04 boot-time RAM page mapping)
+    bool config_mode_ = true;       // starts true, cleared by NR 0x03 write
 
     // DivMMC overlay (non-owning pointer, set by Emulator)
     DivMmc* divmmc_ = nullptr;

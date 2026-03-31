@@ -54,7 +54,11 @@ public:
     // ── Memory overlay interface ──────────────────────────────────
 
     /// Returns true if DivMMC memory overlay is active (conmem OR automap).
-    bool is_active() const { return enabled_ && (conmem_ || automap_active_); }
+    /// Config mode (boot firmware) disables the memory overlay.
+    bool is_active() const { return enabled_ && !config_mode_ && (conmem_ || automap_active_); }
+
+    /// Set config mode — disables DivMMC memory overlay while firmware loads ROMs.
+    void set_config_mode(bool en) { config_mode_ = en; }
 
     /// Returns true if DivMMC ROM should be mapped at slot 0.
     /// (active AND page0 AND NOT mapram)
@@ -112,6 +116,7 @@ private:
     uint8_t control_reg_ = 0;           // raw control register value
 
     bool automap_active_ = false;       // auto-map currently engaged
+    bool config_mode_ = false;          // config mode suppresses memory overlay
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default

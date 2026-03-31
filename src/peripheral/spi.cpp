@@ -25,7 +25,8 @@ SpiMaster::SpiMaster() {
 void SpiMaster::reset() {
     cs_ = 0xFF;       // all CS lines deasserted (active-low)
     rx_data_ = 0xFF;  // VHDL resets miso_dat to all ones
-    devices_.fill(nullptr);
+    // Note: do NOT clear device attachments on reset — they persist across
+    // soft resets. Only the SPI protocol state is reset.
 }
 
 void SpiMaster::attach_device(int cs_id, SpiDevice* device) {

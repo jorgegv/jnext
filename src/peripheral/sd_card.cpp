@@ -74,6 +74,7 @@ void SdCardDevice::deselect() {
     data_idx_ = 0;
     data_crc_count_ = 0;
     app_cmd_ = false;
+    multi_block_ = false;
     // Note: initialized_ is NOT reset — the card stays initialized
     sd_log()->debug("CS deasserted — protocol state reset to IDLE");
 }
@@ -183,6 +184,22 @@ uint8_t SdCardDevice::send() {
                 data_crc_count_++;
                 return 0x00;
             }
+            // Block complete — if multi-block read, load next sector
+            if (multi_block_) {
+                multi_sector_++;
+                uint64_t byte_addr = static_cast<uint64_t>(multi_sector_) * 512;
+                if (byte_addr + 512 <= file_size_) {
+                    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
+                    file_.read(reinterpret_cast<char*>(data_block_), 512);
+                    sd_log()->debug("CMD18 next block: sector={}", multi_sector_);
+                }
+                // Send data token + data for next block
+                resp_buf_ = { 0xFE };  // data token
+                resp_idx_ = 0;
+                data_idx_ = 0;
+                data_crc_count_ = 0;
+                return 0xFF;  // inter-block gap byte
+            }
             state_ = State::IDLE;
             return 0xFF;
 
@@ -220,7 +237,10 @@ void SdCardDevice::process_command() {
         case 1:  cmd1_send_op_cond(); break;
         case 8:  cmd8_send_if_cond(); break;
         case 12: cmd12_stop_transmission(); break;
+        case 13: cmd13_send_status(); break;
+        case 16: cmd16_set_blocklen(); break;
         case 17: cmd17_read_single_block(); break;
+        case 18: cmd18_read_multiple_block(); break;
         case 24: cmd24_write_single_block(); break;
         case 55: cmd55_app_cmd(); break;
         case 58: cmd58_read_ocr(); break;
@@ -255,6 +275,7 @@ void SdCardDevice::cmd8_send_if_cond() {
 void SdCardDevice::cmd12_stop_transmission() {
     sd_log()->debug("CMD12 STOP_TRANSMISSION");
     // Abort any in-progress multi-block transfer and return to idle.
+    multi_block_ = false;
     data_idx_ = 0;
     data_crc_count_ = 0;
     // CMD12 has "stuff bytes" before R1 — the firmware reads 8 stuff bytes
@@ -314,6 +335,54 @@ void SdCardDevice::cmd24_write_single_block() {
     data_idx_ = 0;
     data_crc_count_ = 0;
     state_ = State::RECEIVING_DATA;
+}
+
+void SdCardDevice::cmd18_read_multiple_block() {
+    uint32_t sector = cmd_arg();
+    uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
+    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK sector={} (byte={:#010x})", sector, byte_addr);
+
+    if (!initialized_) {
+        queue_r1(0x01);
+        return;
+    }
+
+    if (byte_addr + 512 > file_size_) {
+        sd_log()->warn("CMD18 read past end of image: sector={}", sector);
+        queue_r1(0x00);
+        resp_buf_.push_back(0x08);  // out of range error
+        state_ = State::RESPONDING;
+        return;
+    }
+
+    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
+    file_.read(reinterpret_cast<char*>(data_block_), 512);
+
+    multi_block_ = true;
+    multi_sector_ = sector;
+
+    // Response: NCR + R1 + data token + 512 bytes + CRC (then auto-continues)
+    resp_buf_ = { 0xFF, 0x00, 0xFE };
+    resp_idx_ = 0;
+    data_idx_ = 0;
+    data_crc_count_ = 0;
+    state_ = State::SENDING_DATA;
+}
+
+void SdCardDevice::cmd13_send_status() {
+    // CMD13 (SEND_STATUS): R2 response = R1 + 1 byte status
+    sd_log()->debug("CMD13 SEND_STATUS");
+    uint8_t r1 = initialized_ ? 0x00 : 0x01;
+    resp_buf_ = { 0xFF, r1, 0x00 };  // NCR + R1 + status byte (no errors)
+    resp_idx_ = 0;
+    state_ = State::RESPONDING;
+}
+
+void SdCardDevice::cmd16_set_blocklen() {
+    // CMD16 (SET_BLOCKLEN): set block length for non-SDHC cards.
+    // We always use 512 bytes; just acknowledge the command.
+    sd_log()->debug("CMD16 SET_BLOCKLEN arg={}", cmd_arg());
+    queue_r1(initialized_ ? 0x00 : 0x01);
 }
 
 void SdCardDevice::cmd55_app_cmd() {

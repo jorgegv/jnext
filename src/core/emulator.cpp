@@ -344,22 +344,38 @@ bool Emulator::init(const EmulatorConfig& cfg)
     });
 
     // Register 0x02: Reset control (soft reset on write)
+    // Bit 0 = soft reset, Bit 1 = hard reset.
+    // Soft reset does NOT re-enable boot ROM (only power-on does).
     nextreg_.set_write_handler(0x02, [this](uint8_t v) {
         if (v & 0x01) {
             Log::emulator()->info("Soft reset triggered via NextREG 0x02");
-            reset();
+            soft_reset();
         }
     });
 
     // Register 0x03: Machine type (bits 2:0 = machine timing)
     // Writing to this register also disables the boot ROM overlay
     // (VHDL: bootrom_en <= '0' on any write to nr_03).
+    // Config mode: bits 2:0 = "111" → config_mode on; != "000" → config_mode off.
     nextreg_.set_write_handler(0x03, [this](uint8_t v) {
         if (mmu_.boot_rom_enabled()) {
             mmu_.set_boot_rom_enabled(false);
             Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
         }
+        // Config mode tracking (VHDL nr_03_config_mode):
+        // bits 2:0 = "111" → config_mode on; != "000" → config_mode off; "000" → unchanged
+        uint8_t mode = v & 0x07;
+        if (mode == 0x07) {
+            mmu_.set_config_mode(true);
+        } else if (mode != 0x00) {
+            mmu_.set_config_mode(false);
+        }
         Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03", v);
+    });
+
+    // Register 0x04: Config mapping — maps RAM page into slot 0 (writable, for firmware ROM loading)
+    nextreg_.set_write_handler(0x04, [this](uint8_t v) {
+        mmu_.set_config_page(v);
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4 (with auto-increment)
@@ -1029,6 +1045,50 @@ void Emulator::reset()
 
     // Re-run init to restore consistent state (reloads ROM, rewires handlers).
     init(config_);
+}
+
+void Emulator::soft_reset()
+{
+    // Soft reset (NR 0x02 bit 0): CPU reset but RAM contents preserved.
+    // The firmware uses this after loading ROMs/config to hand control
+    // to the Spectrum ROM. Unlike hard reset:
+    //   - RAM is NOT cleared (firmware-loaded ROMs live in SRAM)
+    //   - Boot ROM stays disabled
+    //   - ROM files are NOT reloaded from disk
+    //   - MMU is reset to default mapping (ROM in slots 0-1)
+    //   - Config mode is cleared (firmware is done)
+    Log::emulator()->info("Soft reset: CPU reset, RAM preserved, boot ROM stays disabled");
+
+    // Reset CPU — PC=0, interrupts disabled
+    cpu_.reset();
+
+    // Reset MMU to default slot mapping but keep boot ROM disabled.
+    // The firmware loaded ROMs into RAM pages 0x00-0x03 (RAMPAGE_ROMSPECCY).
+    // On real hardware, ROM slots read from these same SRAM pages.
+    // We reset MMU to defaults, then remap slots 0-1 to read from the
+    // RAM pages where the firmware stored the ROM (not from our rom_ store).
+    mmu_.reset();
+    mmu_.set_boot_rom_enabled(false);
+    mmu_.set_config_mode(false);
+    // Map slots 0-1 to RAM pages 0x00, 0x01 (firmware-loaded ROM).
+    // The firmware loaded the Spectrum ROM into RAM pages via NR 0x04.
+    // TODO: ROM data isn't reaching these pages yet — DivMMC overlay
+    // intercepts writes during config mode. Needs NR 0x04 + DivMMC
+    // config mode priority fix.
+    mmu_.set_page(0, 0x00);
+    mmu_.set_page(1, 0x01);
+
+    // Reset other subsystems
+    im2_.reset();
+    scheduler_.reset();
+    frame_cycle_ = 0;
+    copper_.reset();
+
+    // Clear framebuffer
+    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
+
+    // Schedule new frame events
+    schedule_frame_events();
 }
 
 // ---------------------------------------------------------------------------

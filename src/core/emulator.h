@@ -71,6 +71,9 @@ public:
     /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
     void reset();
 
+    /// Soft reset: like reset() but keeps boot ROM disabled (firmware uses this).
+    void soft_reset();
+
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
     bool inject_binary(const std::string& path, uint16_t org, uint16_t pc);

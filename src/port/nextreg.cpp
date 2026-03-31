@@ -6,7 +6,7 @@ NextReg::NextReg() { reset(); }
 void NextReg::reset() {
     regs_.fill(0);
     // Reset defaults from VHDL / ZX Next documentation
-    regs_[0x00] = 0x0A;  // machine ID: ZX Spectrum Next (VHDL g_machine_id = X"0A")
+    regs_[0x00] = 0x08;  // machine ID: Emulators (HWID_EMULATORS from TBBLUE firmware)
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x03] = 0x00;  // machine type: ZXNext
