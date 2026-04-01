@@ -412,3 +412,51 @@ readable source." The Machine ID bug (`0x0A` vs `0x08`) is a strong candidate fo
 root cause, and the 6 additional verification items are all tractable with the source
 in hand. The emulator is far more complete and capable than its current blocker
 suggests — and that blocker now has a clear path to resolution.*
+
+---
+
+## 7. Update (2026-04-01): Decision — Ship Without NextZXOS First
+
+After a full day of intensive debugging on the NextZXOS boot issue (2026-04-01),
+the **Alternative Strategy** has been chosen: **ship v1.0 without NextZXOS** and
+defer it to v1.1.
+
+### What was accomplished
+
+The Machine ID bug was fixed (0x08), all SPI protocol items were verified, and
+the firmware now completes its entire boot sequence — loading config files, all
+ROMs, displaying the firmware version screen, and triggering soft reset. However,
+the ROM data does not reach the correct RAM pages due to a fundamental conflict
+between DivMMC automap and config page writes. See
+[nextzxos-boot-investigation.md](nextzxos-boot-investigation.md) for the full
+root cause analysis and 13+ approaches attempted.
+
+### Why deferral is the right call
+
+The root cause is a deep architectural conflict: the firmware's FatFs globals
+live at address 0x0000 (SDCC `--data-loc 0`), which overlaps with the config
+page write destination for ROM loading. On real hardware, DivMMC automap is OFF
+during boot, so there is no conflict. In the emulator, keeping automap OFF causes
+FatFs to self-corrupt (f_read overwrites its own FATFS structure). Keeping automap
+ON provides working memory for FatFs but intercepts the config page writes.
+
+A write-recording + soft_reset replay approach came closest (96K of ROM data
+correctly recorded across 6 banks), but requires additional work on DivMMC
+automap reset during soft_reset. This is tractable but not a quick fix.
+
+### Revised v1.0 plan
+
+1. **Machine-type selection** — 48K / 128K / +3 modes via ROM loading +
+   NextREG configuration, without requiring NextZXOS firmware
+2. **FUSE Z80 opcode test suite** — validate CPU accuracy
+3. **Performance profiling** and optimization
+4. **CI, testing, release packaging** — Linux first
+5. **Ship v1.0** with NEX loading, 48K BASIC, debugger, all video/audio working
+
+### NextZXOS deferred to v1.1
+
+The write-recording approach is the most promising path. Remaining work:
+- Reset DivMMC automap state properly during soft_reset
+- Verify replayed ROM data correctness
+- Handle ULA screen RAM bank overlap during replay
+- End-to-end test with screenshot comparison against reference image

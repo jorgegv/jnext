@@ -791,7 +791,7 @@ endif()
 - [x] IM2 controller (all 14 levels) — wired with CTC, DMA, UART interrupt callbacks
 - [x] Z80N extension opcodes — all 26 opcodes implemented (SWAPNIB, MIRROR, TEST, barrel shifts, MUL, ADD rr,A, ADD rr,nn, NEXTREG nn/A, PIXELDN, PIXELAD, SETAE, OUTINB, LDIX, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE, LOOP); VHDL-verified T-states and behavior
 - [x] All peripherals integrated into emulator core: port dispatch, IM2 callbacks, DMA bus stall, CTC/UART ticking, DivMMC MMU overlay
-- [ ] **Milestone**: NextZXOS boots from SD image: download image from: https://www.specnext.com/latestdistro/#downloads - Choose "System/Next distribution for emulators" (this contains .img file and divmmc rom)
+- [ ] **Milestone (DEFERRED to v1.1)**: NextZXOS boots from SD image — root cause analyzed (DivMMC/config page conflict), write-recording approach identified; see `doc/nextzxos-boot-investigation.md`
 
 ### Phase 6 — Native UI & Usability ✓ COMPLETE
 
@@ -904,6 +904,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 8 — Polish & Accuracy
 
+- [ ] Machine-type selection: 48K / 128K / +3 modes via ROM loading + NextREG configuration (no NextZXOS needed)
 - [ ] Run FUSE Z80 opcode test suite; fix any failures
 - [ ] Floating bus emulation
 - [ ] Pentagon timing mode
@@ -929,7 +930,16 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Create USAGE document and man page for users
 - [ ] Create static executables by downloading QT and SDL sources and building them
 - [ ] Create exhaustive CI plan for Github and automated release
-- [ ] **Milestone**: v1.0 release
+- [ ] **Milestone**: v1.0 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio)
+
+### Phase 10 — NextZXOS Boot (v1.1)
+
+- [ ] Implement config page write recording + soft_reset replay approach
+- [ ] Reset DivMMC automap state properly during soft_reset
+- [ ] Verify replayed ROM data correctness
+- [ ] Handle ULA screen RAM bank overlap during replay
+- [ ] End-to-end test with screenshot comparison against reference image
+- [ ] **Milestone**: NextZXOS boots from SD image
 
 ---
 
