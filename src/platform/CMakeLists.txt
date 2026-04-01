@@ -1,5 +1,6 @@
 file(GLOB_RECURSE SOURCES "*.cpp")
 add_library(jnext_platform STATIC ${SOURCES})
 find_package(SDL2 REQUIRED)
-target_link_libraries(jnext_platform PUBLIC SDL2::SDL2 spdlog::spdlog)
+find_package(PNG REQUIRED)
+target_link_libraries(jnext_platform PUBLIC SDL2::SDL2 spdlog::spdlog PNG::PNG)
 target_include_directories(jnext_platform PUBLIC ${CMAKE_SOURCE_DIR}/src)

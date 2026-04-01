@@ -30,6 +30,19 @@ void QtApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
+void QtApp::set_delayed_screenshot(const std::string& file, int delay_seconds) {
+    screenshot_file_ = file;
+    screenshot_countdown_ = delay_seconds * 50;  // 50 fps
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} second(s)",
+                           file, delay_seconds);
+}
+
+void QtApp::set_delayed_exit(int delay_seconds) {
+    exit_countdown_ = delay_seconds * 50;  // 50 fps
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
+                           delay_seconds);
+}
+
 bool QtApp::init(int argc, char* argv[]) {
     // Initialize SDL for audio only (no video, no window).
     if (SDL_Init(SDL_INIT_AUDIO) < 0) {
@@ -136,6 +149,24 @@ void QtApp::on_frame_tick() {
     // Update the display widget with the current framebuffer (even when paused).
     main_window_->emulator_widget()->update_frame(
         emulator_.get_framebuffer(), NATIVE_W, NATIVE_H);
+
+    // Delayed screenshot: take after countdown expires.
+    if (screenshot_countdown_ == 0) {
+        save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
+                            NATIVE_W, NATIVE_H);
+        screenshot_countdown_ = -1;  // done
+    } else if (screenshot_countdown_ > 0) {
+        --screenshot_countdown_;
+    }
+
+    // Delayed automatic exit.
+    if (exit_countdown_ == 0) {
+        Log::platform()->info("automatic exit triggered");
+        qapp_->quit();
+        exit_countdown_ = -1;  // done
+    } else if (exit_countdown_ > 0) {
+        --exit_countdown_;
+    }
 
 #ifdef ENABLE_DEBUGGER
     if (auto* mgr = main_window_->debugger_manager()) {

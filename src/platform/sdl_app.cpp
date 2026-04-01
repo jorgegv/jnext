@@ -61,6 +61,19 @@ void SdlApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
+void SdlApp::set_delayed_screenshot(const std::string& file, int delay_seconds) {
+    screenshot_file_ = file;
+    screenshot_countdown_ = delay_seconds * 50;  // 50 fps
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} second(s)",
+                           file, delay_seconds);
+}
+
+void SdlApp::set_delayed_exit(int delay_seconds) {
+    exit_countdown_ = delay_seconds * 50;  // 50 fps
+    Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
+                           delay_seconds);
+}
+
 void SdlApp::run() {
     while (running_) {
         uint32_t frame_start = SDL_GetTicks();
@@ -91,6 +104,22 @@ void SdlApp::run() {
         const uint32_t* fb = emulator_.get_framebuffer();
         display_.upload_frame(fb, NATIVE_W, NATIVE_H);
         display_.present();
+
+        // Delayed screenshot: take after countdown expires.
+        if (screenshot_countdown_ == 0) {
+            save_screenshot_png(screenshot_file_, fb, NATIVE_W, NATIVE_H);
+            screenshot_countdown_ = -1;  // done
+        } else if (screenshot_countdown_ > 0) {
+            --screenshot_countdown_;
+        }
+
+        // Delayed automatic exit.
+        if (exit_countdown_ == 0) {
+            Log::platform()->info("automatic exit triggered");
+            running_ = false;
+        } else if (exit_countdown_ > 0) {
+            --exit_countdown_;
+        }
 
         // Frame pacing: target 50 Hz
         uint32_t elapsed = SDL_GetTicks() - frame_start;
