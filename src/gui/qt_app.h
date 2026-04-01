@@ -6,6 +6,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/screenshot.h"
 
 class QApplication;
 class QTimer;
@@ -34,6 +35,12 @@ public:
 
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
+
+    /// Schedule a screenshot after `delay_seconds` seconds.
+    void set_delayed_screenshot(const std::string& file, int delay_seconds);
+
+    /// Schedule automatic exit after `delay_seconds` seconds.
+    void set_delayed_exit(int delay_seconds);
 
     /// Initialize Qt, SDL audio, emulator, and create the main window.
     bool init(int argc, char* argv[]);
@@ -68,6 +75,13 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;
+
+    // Pending --delayed-screenshot state
+    std::string screenshot_file_;
+    int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+
+    // Pending --delayed-automatic-exit state
+    int         exit_countdown_ = -1;  // in frames; -1 = no pending
 
     // Emulator config
     EmulatorConfig config_;

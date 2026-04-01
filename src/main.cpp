@@ -30,7 +30,10 @@ static void print_usage(const char* prog) {
         "                       Supported: .nex\n"
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
-        "  --sd-card FILE       Mount SD card image FILE (.img)\n",
+        "  --sd-card FILE       Mount SD card image FILE (.img)\n"
+        "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
+        "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
+        "  --delayed-automatic-exit N  Exit the emulator after N seconds\n",
         prog);
 }
 
@@ -55,6 +58,9 @@ int main(int argc, char* argv[]) {
     std::string boot_rom;
     std::string divmmc_rom;
     std::string sd_card_image;
+    std::string screenshot_file;
+    int         screenshot_delay = 10;  // default 10 seconds
+    int         auto_exit_delay = -1;   // -1 = disabled
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -80,6 +86,12 @@ int main(int argc, char* argv[]) {
             divmmc_rom = argv[++i];
         } else if (arg == "--sd-card" && i + 1 < argc) {
             sd_card_image = argv[++i];
+        } else if (arg == "--delayed-screenshot" && i + 1 < argc) {
+            screenshot_file = argv[++i];
+        } else if (arg == "--delayed-screenshot-time" && i + 1 < argc) {
+            screenshot_delay = std::stoi(argv[++i]);
+        } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
+            auto_exit_delay = std::stoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -104,6 +116,16 @@ int main(int argc, char* argv[]) {
     }
 
     if (!app.init(argc, argv)) return 1;
+
+    // Set up delayed screenshot.
+    if (!screenshot_file.empty()) {
+        app.set_delayed_screenshot(screenshot_file, screenshot_delay);
+    }
+
+    // Set up automatic exit.
+    if (auto_exit_delay >= 0) {
+        app.set_delayed_exit(auto_exit_delay);
+    }
 
     // Set up pending inject (applied after inject_delay frames in the main loop).
     if (!inject_file.empty()) {

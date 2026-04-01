@@ -4,6 +4,7 @@
 #include "sdl_display.h"
 #include "sdl_input.h"
 #include "sdl_audio.h"
+#include "screenshot.h"
 #include "core/emulator.h"
 
 class SdlApp {
@@ -24,6 +25,12 @@ public:
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
 
+    /// Schedule a screenshot after `delay_seconds` seconds.
+    void set_delayed_screenshot(const std::string& file, int delay_seconds);
+
+    /// Schedule automatic exit after `delay_seconds` seconds.
+    void set_delayed_exit(int delay_seconds);
+
 private:
     SdlDisplay display_;
     SdlInput   input_;
@@ -40,6 +47,13 @@ private:
     // Pending --load state
     std::string load_file_;
     int         load_countdown_ = -1;    // -1 = no pending load
+
+    // Pending --delayed-screenshot state
+    std::string screenshot_file_;
+    int         screenshot_countdown_ = -1;  // in frames; -1 = no pending
+
+    // Pending --delayed-automatic-exit state
+    int         exit_countdown_ = -1;  // in frames; -1 = no pending
 
     // Emulator config (set via set_config() before init())
     EmulatorConfig config_;
