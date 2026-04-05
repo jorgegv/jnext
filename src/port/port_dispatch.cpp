@@ -40,6 +40,11 @@ uint8_t PortDispatch::read(uint16_t port) const {
             return val;
         }
     }
+    if (default_read_) {
+        uint8_t val = default_read_(port);
+        Log::port()->trace("IN  port={:#06x} → {:#04x} (default/floating)", port, val);
+        return val;
+    }
     Log::port()->trace("IN  port={:#06x} → 0xFF (unhandled)", port);
     return 0xFF;
 }

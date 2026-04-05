@@ -52,17 +52,15 @@ int main(void) {
     unsigned char *attrs;
     unsigned int i, j;
 
-    intrinsic_di();
-
     /* Set border to black */
     ula_port = 0;
 
     /* Fill screen with known pattern */
     fill_screen_pattern();
 
-    /* Wait for frame start */
-    intrinsic_halt();
+    /* Wait for frame start (need interrupts enabled for HALT) */
     intrinsic_ei();
+    intrinsic_halt();
 
     /* Small delay to get into active display area */
     for (i = 0; i < 100; i++) {

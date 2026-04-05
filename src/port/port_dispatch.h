@@ -27,10 +27,15 @@ public:
     uint8_t read(uint16_t port) const;
     void    write(uint16_t port, uint8_t val);
 
+    /// Set a default read callback for unmatched ports (e.g. floating bus).
+    /// If not set, unmatched reads return 0xFF.
+    void set_default_read(std::function<uint8_t(uint16_t)> cb) { default_read_ = std::move(cb); }
+
     // IoInterface implementation
     uint8_t in(uint16_t port) override;
     void    out(uint16_t port, uint8_t val) override;
 
 private:
     std::vector<PortHandler> handlers_;
+    std::function<uint8_t(uint16_t)> default_read_;
 };

@@ -130,6 +130,11 @@ public:
 
     const EmulatorConfig& config() const { return config_; }
 
+    /// Floating bus read — returns the byte the ULA is currently fetching
+    /// from VRAM at this T-state position. Only active in 48K/128K modes.
+    /// Returns 0xFF when outside active display or in Next/Pentagon modes.
+    uint8_t floating_bus_read() const;
+
 private:
     static constexpr int FRAMEBUFFER_WIDTH  = 320;
     static constexpr int FRAMEBUFFER_HEIGHT = 256;
