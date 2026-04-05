@@ -5,6 +5,7 @@
 #include <QActionGroup>
 #include <functional>
 #include <SDL2/SDL.h>
+#include "core/emulator_config.h"
 
 class Emulator;
 class EmulatorWidget;
@@ -84,6 +85,7 @@ private:
     void on_load_nex();
     void on_mount_sd();
     void on_reset();
+    void on_machine_type(MachineType type);
     void on_cpu_speed(int speed_idx);
     void on_scale(int factor);
     void on_fullscreen(bool checked);
@@ -103,6 +105,9 @@ private:
     QLabel* fps_label_     = nullptr;
     QLabel* speed_label_   = nullptr;
     QLabel* machine_label_ = nullptr;
+
+    // Machine type action group
+    QActionGroup* machine_type_group_ = nullptr;
 
     // CPU speed action group
     QActionGroup* speed_group_ = nullptr;

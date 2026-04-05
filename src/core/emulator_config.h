@@ -70,8 +70,8 @@ struct EmulatorConfig {
     bool        turbo_sound = false;      // Enable TurboSound (3× AY chips)
     CpuSpeed    cpu_speed   = CpuSpeed::MHZ_3_5;
 
-    // ROM directory (default: "roms")
-    std::string roms_directory = "roms";
+    // ROM directory (default: /usr/share/fuse for standard FUSE ROMs)
+    std::string roms_directory = "/usr/share/fuse";
 
     // --inject: load a raw binary into RAM at a given address, then jump to it.
     std::string inject_file;              // path to raw binary (empty = disabled)

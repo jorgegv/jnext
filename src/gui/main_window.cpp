@@ -1,6 +1,7 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "core/emulator.h"
+#include "core/emulator_config.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -269,6 +270,32 @@ void MainWindow::create_menus() {
 
     machine_menu->addSeparator();
 
+    // Machine type submenu
+    QMenu* type_menu = machine_menu->addMenu(tr("Machine &Type"));
+    machine_type_group_ = new QActionGroup(this);
+    machine_type_group_->setExclusive(true);
+
+    struct TypeEntry { const char* label; MachineType type; };
+    TypeEntry type_entries[] = {
+        {"ZX Spectrum &48K",  MachineType::ZX48K},
+        {"ZX Spectrum &128K", MachineType::ZX128K},
+        {"ZX Spectrum +&3",   MachineType::ZX_PLUS3},
+        {"&Pentagon",         MachineType::PENTAGON},
+        {"ZX &Next",          MachineType::ZXN_ISSUE2},
+    };
+    for (auto& e : type_entries) {
+        QAction* a = type_menu->addAction(tr(e.label));
+        a->setCheckable(true);
+        a->setData(static_cast<int>(e.type));
+        machine_type_group_->addAction(a);
+        if (e.type == MachineType::ZXN_ISSUE2) a->setChecked(true);
+        connect(a, &QAction::triggered, this, [this, t = e.type]() {
+            on_machine_type(t);
+        });
+    }
+
+    machine_menu->addSeparator();
+
     QMenu* speed_menu = machine_menu->addMenu(tr("CPU &Speed"));
     speed_group_ = new QActionGroup(this);
     speed_group_->setExclusive(true);
@@ -423,6 +450,15 @@ void MainWindow::on_reset() {
     if (emulator_) {
         emulator_->reset();
     }
+}
+
+void MainWindow::on_machine_type(MachineType type) {
+    if (!emulator_) return;
+    // Machine type change requires full reinit — update config and reset
+    EmulatorConfig cfg = emulator_->config();
+    cfg.type = type;
+    emulator_->init(cfg);
+    machine_label_->setText(tr(machine_type_str(type)));
 }
 
 void MainWindow::on_cpu_speed(int speed_idx) {

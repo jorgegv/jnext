@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
     int         auto_exit_delay = -1;   // -1 = disabled
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
-    std::string roms_directory = "roms";
+    std::string roms_directory = "/usr/share/fuse";
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
