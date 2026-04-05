@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <array>
 
-enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, PENTAGON };
+enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3, PENTAGON };
 
 class ContentionModel {
 public:

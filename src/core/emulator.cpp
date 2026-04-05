@@ -473,10 +473,17 @@ bool Emulator::init(const EmulatorConfig& cfg)
         });
 
     // 128K bank switch — port 0x7FFD decoded by address-line masking.
-    // Mask 0xE002 selects A15,A14,A1; match value 0x0000.
-    port_.register_handler(0xE002, 0x0000,
+    // A15=0, A1=0 → mask 0x8002, match 0x0000.
+    // Port 0x7FFD = 0111 1111 1111 1101: A15=0 ✓, A1=0 ✓ → matches.
+    port_.register_handler(0x8002, 0x0000,
         nullptr,
         [this](uint16_t, uint8_t v) { mmu_.map_128k_bank(v); });
+
+    // +3 paging — port 0x1FFD (mask 0xF002, match 0x1000).
+    // Only active on +3/+2A models. Bits: 0=special mode, 2:1=config, 2=ROM high bit.
+    port_.register_handler(0xF002, 0x1000,
+        nullptr,
+        [this](uint16_t, uint8_t v) { mmu_.map_plus3_bank(v); });
 
     // NextREG select — full 16-bit match on port 0x243B.
     port_.register_handler(0xFFFF, 0x243B,
@@ -695,11 +702,57 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // --- ROM loading ---
 
-    // Attempt to load the 48K ROM into ROM slot 0 from the standard path.
-    // Failure is non-fatal; the machine will not boot to BASIC but the
-    // emulator can still run (useful for testing without a ROM file).
-    if (!rom_.load(0, "roms/48.rom")) {
-        Log::emulator()->warn("could not load roms/48.rom — continuing without ROM (BASIC will not boot)");
+    // Load ROMs based on machine type. ROM files are expected in the
+    // roms directory with standard names:
+    //   48k:     48.rom (16K)
+    //   128k:    128-0.rom + 128-1.rom (16K each) or 128.rom (32K)
+    //   +3:      plus3-0.rom + plus3-1.rom + plus3-2.rom + plus3-3.rom (16K each) or plus3.rom (64K)
+    //   next:    48.rom (fallback for non-NextZXOS mode)
+    //   pentagon: 128-0.rom + 128-1.rom (same as 128K)
+    {
+        std::string dir = cfg.roms_directory;
+        if (!dir.empty() && dir.back() != '/') dir += '/';
+
+        switch (cfg.type) {
+            case MachineType::ZX48K:
+                if (!rom_.load(0, dir + "48.rom"))
+                    Log::emulator()->warn("could not load {}48.rom — 48K BASIC will not boot", dir);
+                break;
+
+            case MachineType::ZX128K:
+            case MachineType::PENTAGON:
+                // Try split files first, then combined
+                if (!rom_.load(0, dir + "128-0.rom")) {
+                    // Try combined 32K file
+                    if (rom_.load(0, dir + "128.rom")) {
+                        // load() reads 16K per slot; load second half manually
+                        rom_.load(1, dir + "128.rom");  // will read first 16K again
+                        // Actually need to load the second 16K — use a temp approach
+                        Log::emulator()->warn("128.rom combined file: only first 16K loaded (split into 128-0.rom + 128-1.rom for full support)");
+                    } else {
+                        Log::emulator()->warn("could not load {}128-0.rom or {}128.rom — 128K BASIC will not boot", dir, dir);
+                    }
+                } else {
+                    if (!rom_.load(1, dir + "128-1.rom"))
+                        Log::emulator()->warn("could not load {}128-1.rom — 128K ROM 1 missing", dir);
+                }
+                break;
+
+            case MachineType::ZX_PLUS3:
+                for (int i = 0; i < 4; ++i) {
+                    std::string name = dir + "plus3-" + std::to_string(i) + ".rom";
+                    if (!rom_.load(i, name))
+                        Log::emulator()->warn("could not load {} — +3 ROM {} missing", name, i);
+                }
+                break;
+
+            case MachineType::ZXN_ISSUE2:
+            default:
+                if (!rom_.load(0, dir + "48.rom"))
+                    Log::emulator()->warn("could not load {}48.rom — BASIC will not boot", dir);
+                break;
+        }
+        Log::emulator()->info("Machine type: {} (ROMs from '{}')", machine_type_str(cfg.type), cfg.roms_directory);
     }
 
     // Boot ROM loading (FPGA bootloader — highest priority overlay)

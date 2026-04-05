@@ -92,13 +92,44 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     set_page(6, bank * 2);
     set_page(7, bank * 2 + 1);
 
-    // Slots 0-1: ROM or RAM based on bit 4
-    if (rom_select) {
-        set_page(0, 0x02);  // alt ROM page
-        set_page(1, 0x03);
+    // Slots 0-1: ROM selection
+    // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)
+    // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
+    port_7ffd_ = port_7ffd;
+    int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
+    map_rom(0, rom_bank * 2);
+    map_rom(1, rom_bank * 2 + 1);
+}
+
+void Mmu::map_plus3_bank(uint8_t port_1ffd) {
+    if (paging_locked_) {
+        Log::memory()->trace("+3 bank switch ignored (paging locked)");
+        return;
+    }
+    Log::memory()->debug("+3 bank switch: port_1ffd={:#04x}", port_1ffd);
+    port_1ffd_ = port_1ffd;
+
+    bool special_mode = (port_1ffd & 0x01) != 0;
+
+    if (special_mode) {
+        // Special paging: 4 fixed configurations based on bits 2:1
+        uint8_t config = (port_1ffd >> 1) & 0x03;
+        // Config 0: RAM 0,1,2,3  Config 1: RAM 4,5,6,7
+        // Config 2: RAM 4,5,6,3  Config 3: RAM 4,7,6,3
+        static const uint8_t configs[4][4] = {
+            {0, 1, 2, 3}, {4, 5, 6, 7}, {4, 5, 6, 3}, {4, 7, 6, 3}
+        };
+        for (int seg = 0; seg < 4; ++seg) {
+            uint8_t bank = configs[config][seg];
+            set_page(seg * 2,     bank * 2);
+            set_page(seg * 2 + 1, bank * 2 + 1);
+        }
     } else {
-        map_rom(0, 0);
-        map_rom(1, 1);
+        // Normal paging: bit 2 selects ROM high bit (combined with 0x7FFD bit 4)
+        // ROM number = (port_1ffd bit 2) << 1 | (port_7ffd bit 4)
+        int rom_bank = ((port_1ffd >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
+        map_rom(0, rom_bank * 2);
+        map_rom(1, rom_bank * 2 + 1);
     }
 }
 

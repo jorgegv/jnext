@@ -104,6 +104,9 @@ public:
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
 
+    // Apply +3 special paging: port 0x1FFD
+    void map_plus3_bank(uint8_t port_1ffd);
+
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 
@@ -126,6 +129,8 @@ private:
     uint8_t*       write_ptr_[8];
     bool           read_only_[8];
     bool           paging_locked_ = false;
+    uint8_t        port_7ffd_ = 0;         // last 128K paging register value
+    uint8_t        port_1ffd_ = 0;         // last +3 paging register value
 
     // Layer 2 write-over state
     bool    l2_write_enable_  = false;
