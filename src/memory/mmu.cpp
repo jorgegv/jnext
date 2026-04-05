@@ -92,11 +92,11 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     set_page(6, bank * 2);
     set_page(7, bank * 2 + 1);
 
-    // Slots 0-1: ROM selection based on bit 4
-    // Bit 4=0 → ROM 0 (slot 0, pages 0-1); Bit 4=1 → ROM 1 (slot 1, pages 2-3)
-    // For +3: combine with port_1ffd_ bit 2 for 4-ROM selection (handled by map_plus3_bank)
+    // Slots 0-1: ROM selection
+    // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)
+    // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
     port_7ffd_ = port_7ffd;
-    int rom_bank = rom_select ? 1 : 0;
+    int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
     map_rom(0, rom_bank * 2);
     map_rom(1, rom_bank * 2 + 1);
 }

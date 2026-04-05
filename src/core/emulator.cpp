@@ -473,8 +473,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
         });
 
     // 128K bank switch — port 0x7FFD decoded by address-line masking.
-    // Mask 0xE002 selects A15,A14,A1; match value 0x0000.
-    port_.register_handler(0xE002, 0x0000,
+    // A15=0, A1=0 → mask 0x8002, match 0x0000.
+    // Port 0x7FFD = 0111 1111 1111 1101: A15=0 ✓, A1=0 ✓ → matches.
+    port_.register_handler(0x8002, 0x0000,
         nullptr,
         [this](uint16_t, uint8_t v) { mmu_.map_128k_bank(v); });
 
