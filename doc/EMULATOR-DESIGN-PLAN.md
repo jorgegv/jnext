@@ -913,8 +913,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Implement new features:
   - [x] Floating bus emulation (48K/128K modes only — returns pixel/attribute bytes based on ULA fetch timing within each 8T cycle)
   - [x] Pentagon timing mode (448 ticks/line, 320 lines, zero contention, Pentagon ROMs 128p-0/1)
-  - [ ] Wire contention delays into CPU memory reads (LUT built but not applied)
-  - [ ] Plus2, plus2A, plu2B, plus3 contention modes (and anything else)
+  - [x] Wire contention delays into CPU memory reads — per-access contention via callback in FUSE Z80 readbyte/writebyte; 128K contended bank tracking (banks 1,3,5,7 at 0xC000)
+  - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention)
   - [ ] Layer 2 320×256 and 640×256 modes
   - [ ] Sprite scaling ×2/×4/×8
 - [ ] Performance profiling and optimization

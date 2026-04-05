@@ -99,6 +99,24 @@ bool Emulator::init(const EmulatorConfig& cfg)
         return floating_bus_read();
     });
 
+    // Memory contention: add wait states for each read/write to contended
+    // addresses during instruction execution. The delay is added directly
+    // to the FUSE tstates counter so it's included in the instruction's
+    // total T-state count returned by execute().
+    cpu_.on_contention = [this](uint16_t addr) {
+        if (contention_.is_contended_address(addr)) {
+            uint64_t elapsed = clock_.get() - frame_cycle_;
+            // Add accumulated tstates from current instruction to get accurate position
+            uint32_t* fuse_ts = fuse_z80_tstates_ptr();
+            uint64_t total_elapsed = elapsed + static_cast<uint64_t>(*fuse_ts) * clock_.cpu_divisor();
+            int vc = static_cast<int>(total_elapsed / MASTER_CYCLES_PER_LINE);
+            int hc = static_cast<int>((total_elapsed % MASTER_CYCLES_PER_LINE) / 2);
+            int delay = contention_.delay(static_cast<uint16_t>(hc),
+                                           static_cast<uint16_t>(vc));
+            if (delay > 0) *fuse_ts += delay;
+        }
+    };
+
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
     // overlay is active for the same M1 read that triggered it (matching
     // the VHDL combinatorial address decode).
@@ -482,7 +500,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Port 0x7FFD = 0111 1111 1111 1101: A15=0 ✓, A1=0 ✓ → matches.
     port_.register_handler(0x8002, 0x0000,
         nullptr,
-        [this](uint16_t, uint8_t v) { mmu_.map_128k_bank(v); });
+        [this](uint16_t, uint8_t v) {
+            mmu_.map_128k_bank(v);
+            // Banks 1,3,5,7 at 0xC000 are contended on 128K/+3
+            uint8_t bank = v & 0x07;
+            contention_.set_contended_c000(bank & 1);
+        });
 
     // +3 paging — port 0x1FFD (mask 0xF002, match 0x1000).
     // Only active on +3/+2A models. Bits: 0=special mode, 2:1=config, 2=ROM high bit.
@@ -961,6 +984,9 @@ void Emulator::run_frame()
                 trace_log_.record(te);
             }
             // Execute one CPU instruction; returns T-states consumed.
+            // Memory contention is applied per-access via the on_contention
+            // callback, which adds delay to the FUSE tstates counter for
+            // each read/write to contended addresses.
             int tstates = cpu_.execute();
             // Convert T-states to 28 MHz master cycles.
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
