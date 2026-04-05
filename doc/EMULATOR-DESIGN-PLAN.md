@@ -912,7 +912,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Create test programs for Next features (Z88dk NEX): floating bus, L2 320x256, L2 640x256, sprite scaling — baseline verified matches ZesarUX
 - [ ] Implement new features:
   - [x] Floating bus emulation (48K/128K modes only — returns pixel/attribute bytes based on ULA fetch timing within each 8T cycle)
-  - [ ] Pentagon timing mode
+  - [x] Pentagon timing mode (448 ticks/line, 320 lines, zero contention, Pentagon ROMs 128p-0/1)
+  - [ ] Wire contention delays into CPU memory reads (LUT built but not applied)
+  - [ ] Plus2, plus2A, plu2B, plus3 contention modes (and anything else)
   - [ ] Layer 2 320×256 and 640×256 modes
   - [ ] Sprite scaling ×2/×4/×8
 - [ ] Performance profiling and optimization
