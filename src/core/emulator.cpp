@@ -94,6 +94,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // double-fired writes (breaking auto-increment ports like sprites/palette).
     port_.clear_handlers();
 
+    // Floating bus: unmatched port reads return ULA bus value in 48K/128K modes.
+    port_.set_default_read([this](uint16_t) -> uint8_t {
+        return floating_bus_read();
+    });
+
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
     // overlay is active for the same M1 read that triggered it (matching
     // the VHDL combinatorial address decode).
@@ -1104,6 +1109,57 @@ void Emulator::schedule_frame_events()
         frame_cycle_ + MASTER_CYCLES_PER_FRAME,
         EventType::VSYNC,
         [this]() { on_vsync(); });
+}
+
+uint8_t Emulator::floating_bus_read() const
+{
+    // Floating bus only exists on 48K/128K hardware.
+    if (config_.type != MachineType::ZX48K && config_.type != MachineType::ZX128K)
+        return 0xFF;
+
+    // Compute current position within the frame.
+    // Master clock is 28 MHz. T-states at 3.5 MHz = master_cycles / 8.
+    uint64_t master_elapsed = clock_.get() - frame_cycle_;
+    int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
+
+    // Scanline timing:
+    //   228 T-states per line (48K/128K).
+    //   First 128 T-states: ULA fetches pixel/attribute data.
+    //   Last 100 T-states: border (bus idle = 0xFF).
+    //   Active display: lines 64-255 (192 pixel lines).
+    int line = tstates_in_frame / TSTATES_PER_LINE;
+    int tstate_in_line = tstates_in_frame % TSTATES_PER_LINE;
+
+    // Outside active display area: border, bus is idle
+    if (line < 64 || line >= 256 || tstate_in_line >= 128)
+        return 0xFF;
+
+    // Within active display: ULA fetches in 8-T-state cycles.
+    // Each 8T cycle: T+0=bitmap, T+1=attr, T+2=bitmap+1, T+3=attr+1, T+4..7=idle
+    // (Actually the FUSE/ZesarUX model uses: T%8: 2=pixel, 3=attr, 4=pixel+1, 5=attr+1)
+    int pixel_line = line - 64;
+    int char_col = tstate_in_line / 8;  // character column (0-15)
+
+    // Compute the VRAM address the ULA would be reading.
+    // Pixel address: standard ZX Spectrum display file layout
+    //   addr = 0x4000 | (line[7:6] << 11) | (line[2:0] << 8) | (line[5:3] << 5) | col
+    int y = pixel_line;
+    uint16_t pixel_addr = 0x4000
+        | ((y & 0xC0) << 5)   // bits 7:6 → bits 12:11
+        | ((y & 0x07) << 8)   // bits 2:0 → bits 10:8
+        | ((y & 0x38) << 2)   // bits 5:3 → bits 7:5
+        | (char_col * 2);     // 2 bytes per 8T cycle
+
+    // Attribute address: 0x5800 + (line/8)*32 + col
+    uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
+
+    switch (tstate_in_line % 8) {
+        case 2: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);       // pixel byte
+        case 3: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);       // attribute byte
+        case 4: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1);   // pixel byte +1
+        case 5: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1);   // attribute byte +1
+        default: return 0xFF;  // idle T-states within the 8T cycle
+    }
 }
 
 void Emulator::on_scanline(int line)
