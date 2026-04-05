@@ -725,21 +725,23 @@ bool Emulator::init(const EmulatorConfig& cfg)
                 break;
 
             case MachineType::ZX128K:
-            case MachineType::PENTAGON:
-                // Try split files first, then combined
                 if (!rom_.load(0, dir + "128-0.rom")) {
-                    // Try combined 32K file
-                    if (rom_.load(0, dir + "128.rom")) {
-                        // load() reads 16K per slot; load second half manually
-                        rom_.load(1, dir + "128.rom");  // will read first 16K again
-                        // Actually need to load the second 16K — use a temp approach
-                        Log::emulator()->warn("128.rom combined file: only first 16K loaded (split into 128-0.rom + 128-1.rom for full support)");
-                    } else {
-                        Log::emulator()->warn("could not load {}128-0.rom or {}128.rom — 128K BASIC will not boot", dir, dir);
-                    }
+                    Log::emulator()->warn("could not load {}128-0.rom — 128K BASIC will not boot", dir);
                 } else {
                     if (!rom_.load(1, dir + "128-1.rom"))
                         Log::emulator()->warn("could not load {}128-1.rom — 128K ROM 1 missing", dir);
+                }
+                break;
+
+            case MachineType::PENTAGON:
+                // Pentagon uses its own ROMs (128p-0/1), falling back to 128K ROMs
+                if (!rom_.load(0, dir + "128p-0.rom")) {
+                    if (!rom_.load(0, dir + "128-0.rom"))
+                        Log::emulator()->warn("could not load {}128p-0.rom or {}128-0.rom — Pentagon will not boot", dir, dir);
+                }
+                if (!rom_.load(1, dir + "128p-1.rom")) {
+                    if (!rom_.load(1, dir + "128-1.rom"))
+                        Log::emulator()->warn("could not load {}128p-1.rom or {}128-1.rom — Pentagon ROM 1 missing", dir, dir);
                 }
                 break;
 
