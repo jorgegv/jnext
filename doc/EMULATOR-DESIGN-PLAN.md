@@ -907,6 +907,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 ### Phase 7.8 — Polish & Accuracy
 
 - [x] Machine-type selection: 48K / 128K / +3 / Pentagon / Next via `--machine-type` CLI + Qt menu; ROMs from `--roms-directory` (default `/usr/share/fuse`); fixed port 0x7FFD decode mask; +3 port 0x1FFD paging with 4-ROM selection
+- [x] Add a Keyboard mapping from PC cursors -> ZX cursors (arrow keys → Caps Shift + 5/6/7/8 via compound key table)
 - [ ] Run FUSE Z80 opcode test suite; fix any failures
 - [ ] Create test programs for next feaures and verify correctness in ZesarUX:
   - [ ] Floating bus emulation

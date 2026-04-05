@@ -80,6 +80,12 @@ SDL_Scancode qt_key_to_sdl(int key) {
         case Qt::Key_Backspace: return SDL_SCANCODE_BACKSPACE;
         case Qt::Key_Escape: return SDL_SCANCODE_ESCAPE;
 
+        // Arrow keys (mapped to ZX cursor keys via compound table)
+        case Qt::Key_Up:    return SDL_SCANCODE_UP;
+        case Qt::Key_Down:  return SDL_SCANCODE_DOWN;
+        case Qt::Key_Left:  return SDL_SCANCODE_LEFT;
+        case Qt::Key_Right: return SDL_SCANCODE_RIGHT;
+
         // Function keys
         case Qt::Key_F1:  return SDL_SCANCODE_F1;
         case Qt::Key_F2:  return SDL_SCANCODE_F2;
