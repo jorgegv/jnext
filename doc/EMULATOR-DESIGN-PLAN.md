@@ -46,8 +46,11 @@
   - [Phase 6 — Native UI \& Usability ✓ COMPLETE](#phase-6--native-ui--usability--complete)
   - [Phase 7 — Debugger Window ✓ COMPLETE](#phase-7--debugger-window--complete)
   - [Phase 7.5 - Debugger enhancements](#phase-75---debugger-enhancements)
-  - [Phase 8 — Polish \& Accuracy](#phase-8--polish--accuracy)
+  - [Phase 7.8 — Polish \& Accuracy](#phase-78--polish--accuracy)
+  - [Phase 8  More enhancements](#phase-8--more-enhancements)
   - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
+  - [Phase 10 — NextZXOS Boot (v1.1)](#phase-10--nextzxos-boot-v11)
+  - [Phase 11 - New functions](#phase-11---new-functions)
 - [10. Key Pitfalls and Mitigations](#10-key-pitfalls-and-mitigations)
 - [11. Pending Issues](#11-pending-issues)
 
@@ -901,16 +904,77 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Add options in the context menu for Data breakpoints for the same cases as for Watches (16-bit immediates or 16-bit register contents)
   - [x] Add a  Breakpoints submenu at the top menubar and also make the breakpoint options available there
 
-
-### Phase 8 — Polish & Accuracy
+### Phase 7.8 — Polish & Accuracy
 
 - [ ] Machine-type selection: 48K / 128K / +3 modes via ROM loading + NextREG configuration (no NextZXOS needed)
 - [ ] Run FUSE Z80 opcode test suite; fix any failures
-- [ ] Floating bus emulation
-- [ ] Pentagon timing mode
-- [ ] Layer 2 320×256 and 640×256 modes
-- [ ] Sprite scaling ×2/×4/×8
+- [ ] Create test programs for next feaures and verify correctness in ZesarUX:
+  - [ ] Floating bus emulation
+  - [ ] Pentagon timing mode
+  - [ ] Layer 2 320×256 and 640×256 modes
+  - [ ] Sprite scaling ×2/×4/×8
+- [ ] Implement new features:
+  - [ ] Floating bus emulation
+  - [ ] Pentagon timing mode
+  - [ ] Layer 2 320×256 and 640×256 modes
+  - [ ] Sprite scaling ×2/×4/×8
 - [ ] Performance profiling and optimization
+- [ ] File format loading: TAP, TZX, SNA, SZX
+  - [ ] Fast TAP loading via ROM load routine interception
+  - [ ] TAPE menu with controls
+  - [ ] Allow writing to TAP format
+
+### Phase 8  More enhancements
+
+- [ ] Emulator:
+  - [ ] Magic Breakpoint: a special instruction that when run in real hardware or emulators that do not support it, it runs a NOP. But if hit in the emulator (and MAGIC BP is active), is triggers a break to the debugger (equivalent to INT3 on Intel x86) - See @MAGIC-BREAKPOINT.md document for description. Support both magic-bp opcodes (ZesarUX and CSpect)
+  - [ ] Save video with/without audio - Format: MP4+H264, using FFMPEG - See @VIDEO-RECORDING.md document for description.
+  - [ ] RZX input
+  - [ ] RZX recording
+  - [ ] Magic Port:
+    - [ ] A "magic" 16-bit port that can be used for debugging: each time an out is made to that port, the byte sent is traced in STDERR
+    - [ ] Port can be selected at will, ideally one that is not normally used should be selected
+    - [ ] Magic Port mode: ascii,hex,dec,line. "line" mode is special: output is buffered unti a CR or LF is sent, then a whole line is sent to STDERR
+
+- [ ] Debugger:
+  - [ ] Use tabbed panels for everything
+  - [ ] Registers panel:
+    - [ ] Convert to tabbed panel
+    - [ ] Add IFF1/IFF2/R registers, IM Mode, ULA active screen (bank 5/7) 
+    - [ ] Add a NEXTREGS panel
+  - [ ] Add a MMU panel: current bank layout (128 mode, banks 0-3), current page layout (Next MMU mode, pages 0-7)
+  - [ ] Video panel:
+    - [ ] add a ULA screen panel: two screens with contents of both screens (normal, shadow), with current frame video contents updated to the scanline, red line indicating the current scanline
+    - [ ] add a Layer2 screen panel: two screens with contents of both Layer2 screens (normal, shadow) updated to the scanline and red line indicating the current scanline
+    - [ ] add a Sprite screen panel: contents of Sprite rendering updated to the scanline and red line indicating the current scanline
+    - [ ] add a TileMap screen panel: contents of TileMap rendering updated to the scanline and red line indicating the current scanline
+  - [ ] Call stack panel:
+    - [ ] Monitors CALL, RST instructions
+    - [ ] Monitors Interrupts
+    - [ ] Integrates with symbol list
+    - [ ] Shows list of nested functions calls, top->down (recent->older)
+  - [ ] Stack panel:
+    - [ ] View of 16-bit values, top->down: address (hex), 16-bit value hex+dec, Hibyte value hex+dec, Lobyte value hex+dec
+    - [ ] Potentially integrated with Call Stack panel?
+  - [ ] Control buttons: 
+    - [ ] New button "Run to EOF" (popup hint with "Run to End of Frame")
+    - [ ] New button "-> Run to EOSL" (popup hint with "Run to End of Scan Line")
+  - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
+  - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
+
+- [ ] General UI:
+  - [ ] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x
+  - [ ] Save PNG screenshot
+  - [ ] CLI: add options for all the previous functionalities where it makes sense:
+    - --magic-port-enable
+    - --magic-port-mode
+    - --magic-breakpoint-enable
+    - --rewind-buffer-size <num-instructions>
+    - --rzx-play <rzx-file>
+    - --rzx-record <rzx-file>
+    - --record-video <output-file>
+    - --record-video-with-audio <output-file>
+- [ ] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio)
 
 ### Phase 9 - CI, Quality and Release
 
@@ -930,16 +994,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Create USAGE document and man page for users
 - [ ] Create static executables by downloading QT and SDL sources and building them
 - [ ] Create exhaustive CI plan for Github and automated release
-- [ ] **Milestone**: v1.0 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio)
 
 ### Phase 10 — NextZXOS Boot (v1.1)
 
+- [ ] Evaluate other "shortcut" options: divMMC ROM interception similar to TAP loading (CSpect does this?)
 - [ ] Implement config page write recording + soft_reset replay approach
 - [ ] Reset DivMMC automap state properly during soft_reset
 - [ ] Verify replayed ROM data correctness
 - [ ] Handle ULA screen RAM bank overlap during replay
 - [ ] End-to-end test with screenshot comparison against reference image
-- [ ] **Milestone**: NextZXOS boots from SD image
+- [ ] **Milestone**: v1.0 release (NextZXOS boots from SD image, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. 
+
+### Phase 11 - New functions
+
+- [ ] Z80 file format loading
+- [ ] SZX file format loading
+- [ ] DSK file format loading - Emulation of disk controller?
 
 ---
 

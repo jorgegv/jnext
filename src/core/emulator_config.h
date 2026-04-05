@@ -41,10 +41,37 @@ inline int cpu_speed_divisor(CpuSpeed s) {
     return 8;
 }
 
+/// Return the display string for a MachineType value.
+inline const char* machine_type_str(MachineType t) {
+    switch (t) {
+        case MachineType::ZXN_ISSUE2: return "ZX Next";
+        case MachineType::ZX48K:      return "48K";
+        case MachineType::ZX128K:     return "128K";
+        case MachineType::ZX_PLUS3:   return "+3";
+        case MachineType::PENTAGON:   return "Pentagon";
+    }
+    return "unknown";
+}
+
+/// Parse a machine type string (case-insensitive). Returns true on success.
+inline bool parse_machine_type(const std::string& s, MachineType& out) {
+    std::string lower = s;
+    for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "48k" || lower == "48")         { out = MachineType::ZX48K;      return true; }
+    if (lower == "128k" || lower == "128")       { out = MachineType::ZX128K;     return true; }
+    if (lower == "+3" || lower == "plus3" || lower == "p3") { out = MachineType::ZX_PLUS3; return true; }
+    if (lower == "pentagon" || lower == "pent")   { out = MachineType::PENTAGON;   return true; }
+    if (lower == "next" || lower == "zxn")        { out = MachineType::ZXN_ISSUE2; return true; }
+    return false;
+}
+
 struct EmulatorConfig {
     MachineType type        = MachineType::ZXN_ISSUE2;
     bool        turbo_sound = false;      // Enable TurboSound (3× AY chips)
     CpuSpeed    cpu_speed   = CpuSpeed::MHZ_3_5;
+
+    // ROM directory (default: "roms")
+    std::string roms_directory = "roms";
 
     // --inject: load a raw binary into RAM at a given address, then jump to it.
     std::string inject_file;              // path to raw binary (empty = disabled)

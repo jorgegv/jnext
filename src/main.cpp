@@ -31,6 +31,8 @@ static void print_usage(const char* prog) {
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n"
+        "  --machine-type TYPE  Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
+        "  --roms-directory DIR Directory containing ROM files (default: roms)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n",
@@ -61,6 +63,9 @@ int main(int argc, char* argv[]) {
     std::string screenshot_file;
     int         screenshot_delay = 10;  // default 10 seconds
     int         auto_exit_delay = -1;   // -1 = disabled
+    MachineType machine_type = MachineType::ZXN_ISSUE2;
+    bool        machine_type_set = false;
+    std::string roms_directory = "roms";
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -92,6 +97,14 @@ int main(int argc, char* argv[]) {
             screenshot_delay = std::stoi(argv[++i]);
         } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
             auto_exit_delay = std::stoi(argv[++i]);
+        } else if (arg == "--machine-type" && i + 1 < argc) {
+            if (!parse_machine_type(argv[++i], machine_type)) {
+                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", argv[i]);
+                return 1;
+            }
+            machine_type_set = true;
+        } else if (arg == "--roms-directory" && i + 1 < argc) {
+            roms_directory = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -107,8 +120,10 @@ int main(int argc, char* argv[]) {
 #endif
 
     // Configure emulator before init.
-    if (!boot_rom.empty() || !divmmc_rom.empty() || !sd_card_image.empty()) {
+    {
         EmulatorConfig cfg;
+        cfg.type = machine_type;
+        cfg.roms_directory = roms_directory;
         cfg.boot_rom_path = boot_rom;
         cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;

@@ -10,7 +10,7 @@ void ContentionModel::build(MachineType type) {
     // i.e. hc_adj in 4..15, equivalently (hc & 0xF) in 3..14
     // Delays (hc mod 8 within contended window): {6,5,4,3,2,1,0,0}
     //
-    // ZX128K: memory contention LUT is identical to 48K.
+    // ZX128K / +3: memory contention LUT is identical to 48K.
     // The additional 128K port 0xFD family contention (which adds ~1 wait state
     // during active display hc window) is handled in port_dispatch, not here.
     static const uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
