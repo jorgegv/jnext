@@ -37,15 +37,24 @@ extern "C" {
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
+// Contention callback: called on each memory access to a potentially
+// contended address. The callback adds the contention delay to tstates.
+static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
+
 extern "C" {
 
 libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
+    if (s_contention_cb && *s_contention_cb) (*s_contention_cb)(address);
     return s_mem->read(address);
 }
 
 void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
+    if (s_contention_cb && *s_contention_cb) (*s_contention_cb)(address);
     s_mem->write(address, b);
 }
+
+// Expose tstates for contention callback to add delays
+libspectrum_dword* fuse_z80_tstates_ptr(void) { return &tstates; }
 
 libspectrum_byte fuse_z80_readport(libspectrum_word port) {
     return s_io->in(port);
@@ -179,6 +188,7 @@ void Z80Cpu::reset() {
 int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
+    s_contention_cb = &on_contention;
 
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);

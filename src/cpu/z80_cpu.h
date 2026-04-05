@@ -25,6 +25,9 @@ public:
     virtual void out(uint16_t port, uint8_t val) = 0;
 };
 
+// Access to FUSE tstates counter (for contention delay injection)
+extern "C" uint32_t* fuse_z80_tstates_ptr(void);
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:
@@ -43,6 +46,11 @@ public:
     // Public memory access for Z80N instruction implementations
     MemoryInterface& memory() { return mem_; }
     IoInterface& io() { return io_; }
+
+    // Contention callback: called on every memory read/write during instruction
+    // execution. The callback should add delay to the tstates counter if the
+    // address is in contended memory at the current video position.
+    std::function<void(uint16_t addr)> on_contention;
 
     // Callback fired BEFORE opcode fetch — used for DivMMC automap
     // (must activate memory overlay before the opcode read).
