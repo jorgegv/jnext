@@ -92,6 +92,12 @@ static void init_map() {
     // This produces the ZX Spectrum RUBOUT/DELETE function.
     s_compound[SDL_SCANCODE_BACKSPACE] = {{0, 0}, {4, 0}};
 
+    // Cursor keys: PC arrows → Caps Shift + 5/6/7/8
+    s_compound[SDL_SCANCODE_LEFT]  = {{0, 0}, {3, 4}};  // Caps Shift + 5
+    s_compound[SDL_SCANCODE_DOWN]  = {{0, 0}, {4, 4}};  // Caps Shift + 6
+    s_compound[SDL_SCANCODE_UP]    = {{0, 0}, {4, 3}};  // Caps Shift + 7
+    s_compound[SDL_SCANCODE_RIGHT] = {{0, 0}, {4, 2}};  // Caps Shift + 8
+
     s_map_init = true;
 }
 
