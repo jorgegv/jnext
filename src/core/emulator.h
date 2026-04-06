@@ -37,6 +37,7 @@
 #include "core/tap_loader.h"
 #include "core/tzx_loader.h"
 #include "core/sna_loader.h"
+#include "core/szx_loader.h"
 
 /// Top-level machine class.
 ///
@@ -95,6 +96,9 @@ public:
 
     /// Load an SNA snapshot file into the emulator.  Returns true on success.
     bool load_sna(const std::string& path);
+
+    /// Load an SZX (zx-state) snapshot file. Returns true on success.
+    bool load_szx(const std::string& path);
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }

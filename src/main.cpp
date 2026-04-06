@@ -28,7 +28,7 @@ static void print_usage(const char* prog) {
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex, .sna, .tap, .tzx\n"
+        "                       Supported: .nex, .sna, .szx, .tap, .tzx\n"
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n"
@@ -150,14 +150,14 @@ int main(int argc, char* argv[]) {
                 ext = load_file.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
-            if (ext == ".nex" || ext == ".sna") {
+            if (ext == ".nex" || ext == ".sna" || ext == ".szx") {
                 app.set_pending_load(load_file, 0);
             } else if (ext == ".tap" || ext == ".tzx") {
                 // Tape loading needs BASIC to be ready; delay ~2s (100 frames at 50Hz)
                 app.set_pending_load(load_file, 100);
                 app.set_tape_realtime(tape_realtime);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .tap, .tzx)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .sna, .szx, .tap, .tzx)", ext);
                 return 1;
             }
         }

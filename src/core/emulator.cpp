@@ -1009,6 +1009,14 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     return true;
 }
 
+bool Emulator::load_szx(const std::string& path)
+{
+    SzxLoader loader;
+    if (!loader.load(path)) return false;
+    reset();
+    return loader.apply(*this);
+}
+
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;

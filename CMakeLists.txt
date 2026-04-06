@@ -35,6 +35,7 @@ if(STATIC_BUILD)
 endif()
 
 find_package(SDL2 REQUIRED)
+find_package(ZLIB REQUIRED)
 
 # spdlog — vendored as git submodule, header-only mode.
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
