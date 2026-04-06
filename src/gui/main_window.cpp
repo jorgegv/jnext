@@ -460,7 +460,7 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), QString(),
-        tr("Spectrum Files (*.nex *.sna *.szx *.tap *.tzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
+        tr("Spectrum Files (*.nex *.sna *.szx *.tap *.tzx *.wav);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (!path.isEmpty()) {
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
@@ -471,6 +471,8 @@ void MainWindow::on_load_nex() {
                 emulator_->load_sna(path.toStdString());
             } else if (path.toLower().endsWith(".szx")) {
                 emulator_->load_szx(path.toStdString());
+            } else if (path.toLower().endsWith(".wav")) {
+                emulator_->load_wav(path.toStdString());
             } else {
                 emulator_->load_nex(path.toStdString());
             }
@@ -540,11 +542,13 @@ void MainWindow::on_about() {
 void MainWindow::on_tape_open() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Open Tape File"), QString(),
-        tr("Tape Files (*.tap *.tzx);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
+        tr("Tape Files (*.tap *.tzx *.wav);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
     if (path.toLower().endsWith(".tzx")) {
         emulator_->load_tzx(path.toStdString());
+    } else if (path.toLower().endsWith(".wav")) {
+        emulator_->load_wav(path.toStdString());
     } else {
         emulator_->load_tap(path.toStdString());
     }

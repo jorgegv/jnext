@@ -575,6 +575,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
                 // Use FUSE's live T-state counter (advances mid-instruction during I/O).
                 uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
                 result = (result & ~0x40) | (tzx_tape_.update(cpu_clocks) << 6);
+            } else if (wav_tape_.is_playing()) {
+                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+                result = (result & ~0x40) | (wav_tape_.get_ear_bit(cpu_clocks) << 6);
             }
             return result;
         },
@@ -1017,6 +1020,34 @@ bool Emulator::load_szx(const std::string& path)
     return loader.apply(*this);
 }
 
+bool Emulator::load_wav(const std::string& path)
+{
+    WavLoader loader;
+    if (!loader.load(path)) return false;
+
+    wav_tape_ = std::move(loader);
+    Log::emulator()->info("WAV: tape attached (always real-time)");
+
+    // Eject any other tape to avoid conflicts.
+    if (tape_.is_loaded()) tape_.eject();
+    if (tzx_tape_.is_loaded()) tzx_tape_.eject();
+
+    // Auto-type LOAD "" to start tape loading.
+    std::vector<Keyboard::AutoKey> keys = {
+        {6, 3,  -1, -1, 5},   // J = LOAD
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {6, 0,  -1, -1, 5},   // ENTER
+    };
+    keyboard_.queue_auto_type(keys);
+
+    // WAV is always real-time — start playback immediately.
+    uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+    wav_tape_.start_playback(cpu_clocks);
+
+    return true;
+}
+
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
@@ -1157,6 +1188,9 @@ void Emulator::run_frame()
                 // TZX real-time: ZOT uses absolute CPU T-state clocks.
                 uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
                 beeper_.set_tape_ear(tzx_tape_.update(cpu_clocks) != 0);
+            } else if (wav_tape_.is_playing()) {
+                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+                beeper_.set_tape_ear(wav_tape_.get_ear_bit(cpu_clocks) != 0);
             } else {
                 beeper_.set_tape_ear(false);
             }

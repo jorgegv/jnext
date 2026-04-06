@@ -71,6 +71,8 @@ void HeadlessApp::run() {
                 emulator_.load_sna(load_file_);
             } else if (ext == ".szx") {
                 emulator_.load_szx(load_file_);
+            } else if (ext == ".wav") {
+                emulator_.load_wav(load_file_);
             } else {
                 emulator_.load_nex(load_file_);
             }
