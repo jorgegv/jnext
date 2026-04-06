@@ -140,6 +140,12 @@ void QtApp::on_frame_tick() {
             emulator_.load_tap(load_file_, !tape_realtime_);
         } else if (ext == ".tzx") {
             emulator_.load_tzx(load_file_, !tape_realtime_);
+        } else if (ext == ".sna") {
+            emulator_.load_sna(load_file_);
+        } else if (ext == ".szx") {
+            emulator_.load_szx(load_file_);
+        } else if (ext == ".wav") {
+            emulator_.load_wav(load_file_);
         } else {
             emulator_.load_nex(load_file_);
         }
