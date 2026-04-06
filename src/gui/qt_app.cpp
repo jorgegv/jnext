@@ -7,6 +7,7 @@
 #include "debugger/debugger_manager.h"
 #endif
 
+#include <cctype>
 #include <QApplication>
 #include <QTimer>
 #include <SDL2/SDL.h>
@@ -127,9 +128,19 @@ void QtApp::on_frame_tick() {
         --inject_countdown_;
     }
 
-    // Apply pending load when countdown reaches zero.
+    // Apply pending load when countdown reaches zero (auto-detect format).
     if (load_countdown_ == 0) {
-        emulator_.load_nex(load_file_);
+        std::string ext;
+        auto dot = load_file_.rfind('.');
+        if (dot != std::string::npos) {
+            ext = load_file_.substr(dot);
+            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (ext == ".tap") {
+            emulator_.load_tap(load_file_);
+        } else {
+            emulator_.load_nex(load_file_);
+        }
         load_countdown_ = -1;
     } else if (load_countdown_ > 0) {
         --load_countdown_;

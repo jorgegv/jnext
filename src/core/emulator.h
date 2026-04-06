@@ -34,6 +34,7 @@
 #include "audio/dac.h"
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
+#include "core/tap_loader.h"
 
 /// Top-level machine class.
 ///
@@ -77,6 +78,15 @@ public:
 
     /// Load a NEX file into the emulator.  Returns true on success.
     bool load_nex(const std::string& path);
+
+    /// Load a TAP file and attach it as the virtual tape.
+    /// The tape is played via fast-load ROM trap interception.
+    /// Returns true on success.
+    bool load_tap(const std::string& path);
+
+    /// Access the tape loader (e.g. for UI tape controls).
+    TapLoader& tape() { return tape_; }
+    const TapLoader& tape() const { return tape_; }
 
     // -----------------------------------------------------------------------
     // Framebuffer access
@@ -175,6 +185,7 @@ private:
     Mixer           mixer_;
     DebugState      debug_state_;
     TraceLog        trace_log_;
+    TapLoader       tape_;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;

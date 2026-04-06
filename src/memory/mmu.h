@@ -17,6 +17,7 @@ public:
     // Set slot to page number; rebuilds fast-dispatch pointer
     void set_page(int slot, uint8_t page);
     uint8_t get_page(int slot) const { return slots_[slot]; }
+    bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
     // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
     // Matches VHDL bootrom_en signal: enabled at power-on, disabled by NextREG 0x03.

@@ -926,6 +926,31 @@ bool Emulator::load_nex(const std::string& path)
     return loader.apply(*this);
 }
 
+bool Emulator::load_tap(const std::string& path)
+{
+    TapLoader loader;
+    if (!loader.load(path)) return false;
+
+    tape_ = std::move(loader);
+    Log::emulator()->info("TAP: tape attached — {} blocks, ready for fast-load", tape_.block_count());
+
+    // Auto-type LOAD "" to start tape loading.
+    // In 48K BASIC keyword mode:
+    //   J         = LOAD keyword  (row 6, col 3)
+    //   SYM+P     = "             (row 7, col 1 + row 5, col 0)
+    //   SYM+P     = "             (row 7, col 1 + row 5, col 0)
+    //   ENTER     = execute       (row 6, col 0)
+    std::vector<Keyboard::AutoKey> keys = {
+        {6, 3,  -1, -1, 5},   // J = LOAD
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {6, 0,  -1, -1, 5},   // ENTER
+    };
+    keyboard_.queue_auto_type(keys);
+
+    return true;
+}
+
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
@@ -990,6 +1015,21 @@ void Emulator::run_frame()
                 // instruction via execute_single_instruction()).
                 debug_state_.pause();
                 return;
+            }
+        }
+
+        // TAP fast-load: intercept the LD-BYTES ROM routine.
+        // When PC == 0x0556 and a tape is attached, handle the load
+        // directly instead of executing the ROM code.
+        if (tape_.is_loaded() && !tape_.at_end()) {
+            uint16_t pc = cpu_.get_registers().PC;
+            if (pc == TapLoader::LD_BYTES_ADDR && mmu_.is_slot_rom(0)) {
+                tape_.handle_ld_bytes_trap(*this);
+                // Advance clock by ~100 T-states (simulates a very fast load)
+                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
+                clock_.tick(fake_cycles);
+                scheduler_.run_until(clock_.get());
+                continue;
             }
         }
 
@@ -1082,6 +1122,9 @@ void Emulator::run_frame()
     // Render the completed frame into the ARGB8888 framebuffer.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                             layer2_, &sprites_, &tilemap_);
+
+    // Advance auto-type state machine (one step per frame).
+    keyboard_.tick_auto_type();
 }
 
 int Emulator::execute_single_instruction()
