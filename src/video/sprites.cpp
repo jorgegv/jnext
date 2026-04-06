@@ -38,7 +38,7 @@ void SpriteEngine::reset()
     clip_x1_          = 0;
     clip_x2_          = 255;
     clip_y1_          = 0;
-    clip_y2_          = 255;
+    clip_y2_          = 0xBF;  // VHDL default: 191
 
     collision_        = false;
     max_sprites_      = false;
@@ -223,20 +223,29 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     int spr_y = spr.y();
     int spr_x = spr.x();
 
-    // Y offset = scanline - sprite_y.  For scale x1, sprite is 16 pixels tall.
-    // The offset must be in range [0, 15] for the sprite to be on this scanline.
+    // Scale factors: 0=1x, 1=2x, 2=4x, 3=8x
+    int x_scale_shift = spr.x_scale();
+    int y_scale_shift = spr.y_scale();
+    int scaled_height = SPRITE_SIZE << y_scale_shift;
+    int scaled_width  = SPRITE_SIZE << x_scale_shift;
+
+    // Y offset = scanline - sprite_y.  Must be in [0, scaled_height).
     int y_offset = y - spr_y;
 
     // Handle 9-bit Y wrapping: if sprite Y > 256, it wraps around.
     // The VHDL uses 9-bit subtraction; we simulate by checking modular distance.
     if (y_offset < 0)
         y_offset += 512;
-    if (y_offset < 0 || y_offset >= SPRITE_SIZE)
+    if (y_offset < 0 || y_offset >= scaled_height)
         return;
+
+    // Divide Y offset by scale factor to get pattern row (0-15).
+    // From VHDL: arithmetic right-shift by scale amount.
+    int pattern_row = y_offset >> y_scale_shift;
 
     // Apply Y mirror: complement the row index within the sprite.
     // From VHDL: spr_y_index <= y_offset(3:0) when ymirror='0' else not(y_offset(3:0))
-    int y_index = spr.y_mirror() ? (SPRITE_SIZE - 1 - y_offset) : y_offset;
+    int y_index = spr.y_mirror() ? (SPRITE_SIZE - 1 - pattern_row) : pattern_row;
 
     // Rotation swaps X and Y in the pattern address.
     bool rotated = spr.rotate();
@@ -288,12 +297,16 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
         clip_ye = ((((clip_y2_ >> 5) & 0x07) + 1) << 5) | (clip_y2_ & 0x1F);
     }
 
-    // Check Y clip
+    // Check Y clip.
+    // VHDL: non-over-border mode also hardcodes vcounter_i < 224 (display bottom).
     if (y < clip_ys || y > clip_ye)
         return;
+    if (!over_border_ && y >= 224)
+        return;
 
-    // Iterate over 16 pixel columns of the sprite.
-    for (int col = 0; col < SPRITE_SIZE; ++col) {
+    // Iterate over scaled width of the sprite.
+    // Each screen pixel maps to a pattern column via division by scale factor.
+    for (int col = 0; col < scaled_width; ++col) {
         int screen_x = spr_x + col;
 
         // Wrap X within 9-bit space (0-511), but only draw if on-screen (0-319).
@@ -305,17 +318,18 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
         if (screen_x < clip_xs || screen_x > clip_xe)
             continue;
 
+        // Divide screen column by X scale to get pattern column (0-15).
+        int pattern_col = col >> x_scale_shift;
+
         // Determine pixel coordinates within the pattern.
         int px, py;
         if (!rotated) {
-            px = x_mirror_eff ? (SPRITE_SIZE - 1 - col) : col;
+            px = x_mirror_eff ? (SPRITE_SIZE - 1 - pattern_col) : pattern_col;
             py = y_index;
         } else {
             // Rotation: swap row/col in pattern address.
-            // From VHDL: addr_start = pattern & x_index & y_index (when rotated)
-            px = x_mirror_eff ? (SPRITE_SIZE - 1 - col) : col;
+            px = x_mirror_eff ? (SPRITE_SIZE - 1 - pattern_col) : pattern_col;
             py = y_index;
-            // Swap: pattern address row = px, col = py
             int tmp = px;
             px = py;
             py = tmp;
@@ -416,5 +430,7 @@ SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
     info.y_mirror       = s.y_mirror();
     info.rotate         = s.rotate();
     info.is_4bit        = s.is_4bit();
+    info.x_scale        = s.x_scale();
+    info.y_scale        = s.y_scale();
     return info;
 }

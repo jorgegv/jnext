@@ -28,7 +28,7 @@ class PaletteManager;
 ///   8-bit mode: pattern[6:0] & row[3:0] & col[3:0]  (256 bytes per pattern)
 ///   4-bit mode: pattern[6:1] & N6 & row[3:0] & col[3:1] (128 bytes per pattern)
 ///
-/// Scale x2/x4/x8 is deferred to Phase 8; only x1 is implemented.
+/// Per-sprite X/Y scaling (x1/x2/x4/x8) is implemented via extended byte 4.
 /// Sprite linking (relative sprites) is deferred.
 class SpriteEngine {
 public:
@@ -136,6 +136,8 @@ public:
         bool     y_mirror;
         bool     rotate;
         bool     is_4bit;
+        uint8_t  x_scale;       // 0=1x, 1=2x, 2=4x, 3=8x
+        uint8_t  y_scale;
     };
 
     /// Get decoded sprite info. Returns zeroed struct if idx >= 128.
@@ -163,6 +165,14 @@ private:
         bool     y_mirror()      const { return (byte2 & 0x04) != 0; }
         bool     rotate()        const { return (byte2 & 0x02) != 0; }
         bool     is_4bit()       const { return extended() && ((byte4 & 0x80) != 0); }
+
+        // Scale factors: 0=1x, 1=2x, 2=4x, 3=8x (only valid when extended)
+        uint8_t  x_scale()       const { return extended() ? ((byte4 >> 3) & 0x03) : 0; }
+        uint8_t  y_scale()       const { return extended() ? ((byte4 >> 1) & 0x03) : 0; }
+
+        // Scaled sprite dimensions
+        int      width()         const { return SPRITE_SIZE << x_scale(); }
+        int      height()        const { return SPRITE_SIZE << y_scale(); }
     };
 
     SpriteAttr sprites_[NUM_SPRITES];
@@ -183,11 +193,11 @@ private:
     bool       over_border_     = false;
     bool       zero_on_top_     = false;
 
-    // Clip window (defaults: full visible area)
+    // Clip window (VHDL defaults: 0x00,0xFF,0x00,0xBF)
     uint8_t    clip_x1_ = 0;
     uint8_t    clip_x2_ = 255;
     uint8_t    clip_y1_ = 0;
-    uint8_t    clip_y2_ = 255;
+    uint8_t    clip_y2_ = 0xBF;   // 191 — maps to Y=223 (display bottom) in non-over-border
 
     // Status (sticky flags, cleared on read of port 0x303B)
     mutable bool collision_     = false;

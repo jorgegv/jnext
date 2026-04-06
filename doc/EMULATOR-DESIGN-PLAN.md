@@ -918,7 +918,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Layer 2 320×256 and 640×256 modes — column-major addressing (x*256+y), 320x256@8bpp, 640x256@4bpp (2px/byte), NextREG 0x69 Layer 2 enable, default RRRGGGBB palette init
   - [ ] Sprite scaling ×2/×4/×8
 - [ ] File format loading: TAP, TZX, SNA, SZX
-  - [ ] Fast TAP loading via ROM load routine interception
+  - [ ] Fast TAP loading via ROM load routine interception (48 and 128)
   - [ ] TAPE menu with controls
   - [ ] Allow writing to TAP format
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
