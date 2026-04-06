@@ -185,6 +185,9 @@ private:
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
 
+    /// FUSE tstates value at frame start (for contention position calc).
+    uint32_t frame_ts_start_ = 0;
+
     /// Audio timing: fractional accumulators for PSG ticking and sample generation.
     /// PSG clock = 28 MHz / 16 = 1.75 MHz.
     uint64_t psg_accum_ = 0;      ///< Accumulates master cycles for PSG tick timing

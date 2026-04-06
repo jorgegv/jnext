@@ -105,15 +105,17 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // total T-state count returned by execute().
     cpu_.on_contention = [this](uint16_t addr) {
         if (contention_.is_contended_address(addr)) {
-            uint64_t elapsed = clock_.get() - frame_cycle_;
-            // Add accumulated tstates from current instruction to get accurate position
-            uint32_t* fuse_ts = fuse_z80_tstates_ptr();
-            uint64_t total_elapsed = elapsed + static_cast<uint64_t>(*fuse_ts) * clock_.cpu_divisor();
-            int vc = static_cast<int>(total_elapsed / MASTER_CYCLES_PER_LINE);
-            int hc = static_cast<int>((total_elapsed % MASTER_CYCLES_PER_LINE) / 2);
+            // Compute position within frame using FUSE tstates counter.
+            // tstates is a global monotonic counter; frame_ts_start_ is its
+            // value at the beginning of run_frame(). The delta gives us the
+            // number of T-states elapsed within the current frame.
+            uint32_t ts_in_frame = *fuse_z80_tstates_ptr() - frame_ts_start_;
+            uint64_t master_in_frame = static_cast<uint64_t>(ts_in_frame) * clock_.cpu_divisor();
+            int vc = static_cast<int>(master_in_frame / MASTER_CYCLES_PER_LINE);
+            int hc = static_cast<int>((master_in_frame % MASTER_CYCLES_PER_LINE) / 2);
             int delay = contention_.delay(static_cast<uint16_t>(hc),
                                            static_cast<uint16_t>(vc));
-            if (delay > 0) *fuse_ts += delay;
+            if (delay > 0) *fuse_z80_tstates_ptr() += delay;
         }
     };
 
@@ -918,6 +920,7 @@ bool Emulator::load_nex(const std::string& path)
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
+    frame_ts_start_ = *fuse_z80_tstates_ptr();
 
     // Schedule the ULA frame interrupt at vc=1 (the line immediately after
     // vsync/sync area).  In 48K timing: vc=1, hc=0 corresponds to 1 line
