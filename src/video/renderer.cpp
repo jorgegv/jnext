@@ -47,9 +47,12 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // --- Step 3: Render each layer for this scanline ---
         const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
 
-        // Layer 2 — only active in the 192-line display area
-        if (in_display && layer2.enabled()) {
-            layer2.render_scanline(layer2_line_.data(), screen_row, ram, palette);
+        // Layer 2 — 256×192 is active only in the display area;
+        // 320×256 and 640×256 ("wide") modes cover all 256 rows.
+        if (layer2.enabled()) {
+            if (layer2.is_wide() || in_display) {
+                layer2.render_scanline(layer2_line_.data(), row, ram, palette);
+            }
         }
 
         // Tilemap — covers the full 320×256 framebuffer (VHDL: vcounter(8)='0')

@@ -15,7 +15,12 @@ class PaletteManager;
 ///   Third 1 (rows  64–127): bank N+1, offset = (row-64) * 256 + x
 ///   Third 2 (rows 128–191): bank N+2, offset = (row-128) * 256 + x
 ///
-/// Higher resolutions (320×256, 640×256) are deferred to Phase 8.
+/// Resolution modes (NextREG 0x70 bits 5:4):
+///   00 = 256×192 @ 8-bit  (row-major:    addr = y * 256 + x)
+///   01 = 320×256 @ 8-bit  (column-major: addr = x * 256 + y)
+///   1x = 640×256 @ 4-bit  (column-major: addr = x * 256 + y, 2 pixels/byte)
+///
+/// VHDL reference: layer2.vhd (address generation, pixel output).
 class Layer2 {
 public:
     Layer2() = default;
@@ -44,9 +49,15 @@ public:
     void set_scroll_y(uint8_t val) { scroll_y_ = val; }
 
     /// NextREG 0x70: Layer 2 control.
-    ///   bits 5:4 = resolution (00=256×192, others deferred)
+    ///   bits 5:4 = resolution (00=256×192, 01=320×256, 1x=640×256)
     ///   bits 3:0 = palette offset
     void set_control(uint8_t val);
+
+    /// Current resolution mode: 0=256×192, 1=320×256, 2/3=640×256.
+    uint8_t resolution() const { return resolution_; }
+
+    /// True when in a wide mode (320×256 or 640×256).
+    bool is_wide() const { return resolution_ != 0; }
 
     /// Enable/disable Layer 2 rendering (from NextREG 0x69 bit 7 or port 0x123B).
     void set_enabled(bool en) { enabled_ = en; }
@@ -64,11 +75,13 @@ public:
 
     /// Render one scanline of Layer 2 into a 320-pixel ARGB8888 buffer.
     ///
-    /// @param dst       Output buffer (320 pixels wide, same layout as ULA).
-    /// @param y         Display row (0–191 within the active display area).
+    /// @param dst       Output buffer (320 pixels wide).
+    /// @param row       Framebuffer row (0–255).  For 256×192 mode, only
+    ///                  rows 32–223 (display area) produce output.  For
+    ///                  320×256 / 640×256 modes, all 256 rows are active.
     /// @param ram       Physical RAM for direct bank access.
     /// @param palette   Palette manager for Layer 2 colour lookup.
-    void render_scanline(uint32_t* dst, int y, const Ram& ram,
+    void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette) const;
 
 private:
@@ -82,5 +95,5 @@ private:
     uint8_t  clip_x1_        = 0;
     uint8_t  clip_x2_        = 255;
     uint8_t  clip_y1_        = 0;
-    uint8_t  clip_y2_        = 191;
+    uint8_t  clip_y2_        = 255;
 };

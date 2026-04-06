@@ -407,6 +407,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
         renderer_.ula().set_ula_enabled((v & 0x80) == 0);
     });
 
+    // Register 0x69: Display Control 1
+    //   bit 7 = Layer 2 enable
+    //   bit 6 = ULA shadow display (bank 7)
+    //   bits 5:4 = Timex modes (deferred)
+    //   bits 3:0 = reserved
+    nextreg_.set_write_handler(0x69, [this](uint8_t v) {
+        layer2_.set_enabled((v & 0x80) != 0);
+    });
+
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
 
     nextreg_.set_write_handler(0xB8, [this](uint8_t v) { divmmc_.set_entry_points_0(v); });

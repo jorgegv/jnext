@@ -915,13 +915,13 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Pentagon timing mode (448 ticks/line, 320 lines, zero contention, Pentagon ROMs 128p-0/1)
   - [x] Wire contention delays into CPU memory reads — per-access contention via callback in FUSE Z80 readbyte/writebyte; 128K contended bank tracking (banks 1,3,5,7 at 0xC000)
   - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention) — per-slot flags, +3 wider window (VHDL hc_adj[3:1]==0), +3 banks>=4 rule, +3 special paging support
-  - [ ] Layer 2 320×256 and 640×256 modes
+  - [x] Layer 2 320×256 and 640×256 modes — column-major addressing (x*256+y), 320x256@8bpp, 640x256@4bpp (2px/byte), NextREG 0x69 Layer 2 enable, default RRRGGGBB palette init
   - [ ] Sprite scaling ×2/×4/×8
-- [ ] Performance profiling and optimization
 - [ ] File format loading: TAP, TZX, SNA, SZX
   - [ ] Fast TAP loading via ROM load routine interception
   - [ ] TAPE menu with controls
   - [ ] Allow writing to TAP format
+- [ ] Performance profiling and optimization
 
 ### Phase 8  More enhancements
 

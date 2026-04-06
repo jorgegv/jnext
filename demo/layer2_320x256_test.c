@@ -1,24 +1,19 @@
 /*
- * Layer 2 320x256 Mode Test
+ * Layer 2 320x256 Mode Test (8bpp, column-major)
  *
- * Enables Layer 2 in 320x256 resolution (4bpp, 16 colours per pixel).
- * Draws a vertical colour gradient to verify the extended resolution
- * mode works correctly.
+ * Enables Layer 2 in 320x256 resolution.  Each pixel is 8 bits (256 colours).
+ * Memory layout is column-major: address = x * 256 + y.
+ * Total = 320 * 256 = 81920 bytes = 5 x 16K banks (banks 8-12, pages 16-25).
  *
- * NextREG configuration:
- *   0x70: Layer 2 resolution = 01 (320x256, 4bpp)
- *   0x12: Layer 2 active bank (default 8)
- *   0x69: Display control 1 — enable Layer 2
- *   0x15: Sprite/Layer priority
+ * Draws vertical colour bands (each column = one colour) so the column-major
+ * layout is clearly visible.
  *
- * Memory layout for 320x256 4bpp:
- *   Each line = 160 bytes (320 pixels * 4 bits)
- *   Total = 160 * 256 = 40960 bytes = 5 x 8K pages
- *   Pages start at bank 8 (pages 16-20)
+ * Expected result: 320 vertical stripes cycling through palette colours,
+ * covering the entire 320x256 screen including border area.
  *
  * Build:
  *   zcc +zxn -vn -startup=31 -clib=sdcc_iy -SO3 \
- *       layer2_320x256_test.c -o layer2_320_test -create-app
+ *       layer2_320x256_test.c -o layer2_320x256_test -subtype=nex -create-app
  */
 
 #pragma output REGISTER_SP  = 0xfffd
@@ -28,7 +23,6 @@
 #include <intrinsic.h>
 #include <string.h>
 
-/* NextREG port access */
 __sfr __banked __at 0x243B nextreg_select;
 __sfr __banked __at 0x253B nextreg_data;
 
@@ -38,55 +32,63 @@ static void nr_write(unsigned char reg, unsigned char val) {
 }
 
 int main(void) {
-    unsigned char page, y, x;
-    unsigned char *ptr;
-    unsigned int line;
+    unsigned char page;
 
     intrinsic_di();
 
-    /* Set Layer 2 resolution to 320x256 4bpp (NextREG 0x70 bits 5:4 = 01) */
+    /* Set Layer 2 resolution to 320x256 8bpp (NextREG 0x70 bits 5:4 = 01) */
     nr_write(0x70, 0x10);
 
-    /* Layer 2 bank = 8 (default) */
+    /* Layer 2 bank = 8 (default), pages 16-25 */
     nr_write(0x12, 8);
 
     /* Enable Layer 2 (NextREG 0x69 bit 7) */
     nr_write(0x69, 0x80);
 
-    /* Set layer priority: Layer 2 on top (NextREG 0x15) */
+    /* Layer priority: Layer 2 on top */
     nr_write(0x15, 0x00);
 
-    /* Draw vertical gradient: each line gets a colour based on Y.
-     * In 4bpp mode, each byte contains 2 pixels (high nibble = left).
-     * We write 160 bytes per line.
+    /* Fill L2 memory using MMU slots 2 and 3 (0x4000-0x7FFF = 16K window).
+     * We map pairs of 8K pages and fill 16K at a time.
+     * Column-major: addr = col * 256 + row.
+     * Each column of 256 bytes gets colour = (col & 0xFF).
      *
-     * Memory is paged via NextREG 0x12 (Layer 2 bank).
-     * We use MMU slot 2 (0x4000-0x5FFF) to write to L2 pages.
+     * Since columns are 256 bytes and pages are 8192 bytes,
+     * each page holds 32 complete columns.
      */
-    for (line = 0; line < 256; line++) {
-        /* Calculate which 8K page this line falls in */
-        /* 160 bytes/line, 8192 bytes/page = 51.2 lines/page */
-        unsigned int byte_offset = line * 160;
-        page = (unsigned char)(byte_offset >> 13);  /* byte_offset / 8192 */
-        unsigned int page_offset = byte_offset & 0x1FFF;
+    for (page = 0; page < 10; page += 2) {
+        unsigned int col_start, col;
+        unsigned char *base;
 
-        /* Map the page into slot 2 (0x4000-0x5FFF) via MMU */
-        nr_write(0x52, 16 + page);  /* Page 16 = bank 8 first page */
+        /* Map two consecutive 8K pages into slots 2-3 */
+        nr_write(0x52, 16 + page);
+        nr_write(0x53, 16 + page + 1);
 
-        ptr = (unsigned char *)(0x4000 + page_offset);
+        base = (unsigned char *)0x4000;
+        col_start = (unsigned int)(page) * 32;  /* 32 columns per 8K page */
 
-        /* Fill line with gradient colour (Y mod 16 in both nibbles) */
-        unsigned char colour = (unsigned char)((line & 0x0F) | ((line & 0x0F) << 4));
-        memset(ptr, colour, 160);
+        /* Fill 64 columns (16K = 64 * 256 bytes).
+         * Use bright RRRGGGBB colours: cycle R,G,B bands via column index.
+         * Colour = column * 4 (stretch to cover brighter range).
+         * Each column is a uniform vertical stripe of one colour.
+         */
+        for (col = 0; col < 64 && (col_start + col) < 320; col++) {
+            unsigned int idx = col_start + col;
+            /* Create visible colour bands: R cycles every ~10 cols,
+             * G cycles independently, B fills in.  This gives a
+             * rainbow-like pattern across 320 columns. */
+            unsigned char r = (unsigned char)((idx * 7 / 10) & 0x07);  /* 3-bit R */
+            unsigned char g = (unsigned char)((idx * 5 / 10) & 0x07);  /* 3-bit G */
+            unsigned char b = (unsigned char)((idx * 3 / 10) & 0x03);  /* 2-bit B */
+            unsigned char colour = (r << 5) | (g << 2) | b;
+            memset(base + col * 256, colour, 256);
+        }
     }
 
-    /* Restore MMU slot 2 to default (page 10 = bank 5) */
+    /* Restore MMU slots 2-3 to defaults (pages 10, 11 = bank 5) */
     nr_write(0x52, 10);
+    nr_write(0x53, 11);
 
-    /* Set border to blue */
-    ZXN_WRITE_REG(0x42, 0x01);  /* ULA palette = blue border */
-
-    /* Infinite loop */
     for (;;) {
         intrinsic_halt();
     }

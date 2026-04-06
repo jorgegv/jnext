@@ -113,12 +113,17 @@ void PaletteManager::reset()
         }
     }
 
-    // Initialize Layer2/Sprite/Tilemap palettes to black.
+    // Initialize Layer 2 and Sprite palettes to the default RRRGGGBB mapping.
+    // On real hardware (VHDL), the default palette maps each index 0-255
+    // to its own RRRGGGBB colour value.
     for (int p = 0; p < 2; ++p) {
-        layer2_rgb333_[p].fill(0);
-        layer2_argb_[p].fill(0xFF000000u);
-        sprite_rgb333_[p].fill(0);
-        sprite_argb_[p].fill(0xFF000000u);
+        for (int i = 0; i < 256; ++i) {
+            uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
+            layer2_rgb333_[p][i] = rgb333;
+            layer2_argb_[p][i] = rgb333_to_argb(rgb333);
+            sprite_rgb333_[p][i] = rgb333;
+            sprite_argb_[p][i] = rgb333_to_argb(rgb333);
+        }
         tilemap_rgb333_[p].fill(0);
         tilemap_argb_[p].fill(0xFF000000u);
     }

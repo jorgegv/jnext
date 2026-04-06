@@ -1,22 +1,20 @@
 /*
- * Layer 2 640x256 Mode Test
+ * Layer 2 640x256 Mode Test (4bpp, column-major, 2 pixels per byte)
  *
- * Enables Layer 2 in 640x256 resolution (1bpp, 2 colours per pixel).
- * Draws a checkerboard pattern to verify the hi-res mode works.
+ * Enables Layer 2 in 640x256 resolution.  Each byte holds 2 pixels:
+ * high nibble = left pixel, low nibble = right pixel (4 bits, 16 colours).
+ * Memory layout is column-major: address = col * 256 + row (same as 320x256).
+ * Total = 320 * 256 = 81920 bytes = 5 x 16K banks.
  *
- * NextREG configuration:
- *   0x70: Layer 2 resolution = 10 (640x256, 1bpp)
- *   0x12: Layer 2 active bank (default 8)
- *   0x69: Display control 1 — enable Layer 2
+ * Draws a checkerboard pattern where pixel pairs alternate:
+ *   Even (col+row): byte = 0xF0 (left=white, right=black)
+ *   Odd  (col+row): byte = 0x0F (left=black, right=white)
  *
- * Memory layout for 640x256 1bpp:
- *   Each line = 80 bytes (640 pixels * 1 bit)
- *   Total = 80 * 256 = 20480 bytes = 2.5 x 8K pages
- *   Pages start at bank 8 (pages 16-18)
+ * Expected result: fine checkerboard covering the full screen.
  *
  * Build:
  *   zcc +zxn -vn -startup=31 -clib=sdcc_iy -SO3 \
- *       layer2_640x256_test.c -o layer2_640_test -create-app
+ *       layer2_640x256_test.c -o layer2_640x256_test -subtype=nex -create-app
  */
 
 #pragma output REGISTER_SP  = 0xfffd
@@ -35,12 +33,11 @@ static void nr_write(unsigned char reg, unsigned char val) {
 }
 
 int main(void) {
-    unsigned char page, *ptr;
-    unsigned int line;
+    unsigned char page;
 
     intrinsic_di();
 
-    /* Set Layer 2 resolution to 640x256 1bpp (NextREG 0x70 bits 5:4 = 10) */
+    /* Set Layer 2 resolution to 640x256 4bpp (NextREG 0x70 bits 5:4 = 10) */
     nr_write(0x70, 0x20);
 
     /* Layer 2 bank = 8 (default) */
@@ -49,30 +46,41 @@ int main(void) {
     /* Enable Layer 2 (NextREG 0x69 bit 7) */
     nr_write(0x69, 0x80);
 
-    /* Set layer priority */
+    /* Layer priority: Layer 2 on top */
     nr_write(0x15, 0x00);
 
-    /* Draw checkerboard: alternate 0xAA and 0x55 per line.
-     * In 1bpp mode, each byte = 8 pixels (MSB = leftmost).
-     * 80 bytes per line.
+    /* Fill L2 memory: column-major, 2 pixels per byte.
+     * Checkerboard: alternate 0xF0 / 0x0F based on (col + row) parity.
+     * Since columns are 256 bytes, even columns get {0xF0,0x0F,0xF0,...}
+     * and odd columns get {0x0F,0xF0,0x0F,...}.
      */
-    for (line = 0; line < 256; line++) {
-        unsigned int byte_offset = line * 80;
-        page = (unsigned char)(byte_offset >> 13);
-        unsigned int page_offset = byte_offset & 0x1FFF;
+    for (page = 0; page < 10; page += 2) {
+        unsigned int col_start, col, row;
+        unsigned char *base;
 
         nr_write(0x52, 16 + page);
+        nr_write(0x53, 16 + page + 1);
 
-        ptr = (unsigned char *)(0x4000 + page_offset);
+        base = (unsigned char *)0x4000;
+        col_start = (unsigned int)(page) * 32;
 
-        unsigned char pattern = (line & 1) ? 0xAA : 0x55;
-        memset(ptr, pattern, 80);
+        for (col = 0; col < 64 && (col_start + col) < 320; col++) {
+            unsigned char *col_ptr = base + col * 256;
+            unsigned char even_byte = ((col_start + col) & 1) ? 0x0F : 0xF0;
+            unsigned char odd_byte  = ((col_start + col) & 1) ? 0xF0 : 0x0F;
+
+            /* Fill alternating rows */
+            for (row = 0; row < 256; row += 2) {
+                col_ptr[row]     = even_byte;
+                col_ptr[row + 1] = odd_byte;
+            }
+        }
     }
 
-    /* Restore MMU slot 2 */
+    /* Restore MMU slots */
     nr_write(0x52, 10);
+    nr_write(0x53, 11);
 
-    /* Infinite loop */
     for (;;) {
         intrinsic_halt();
     }
