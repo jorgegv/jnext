@@ -26,6 +26,10 @@ public:
     /// Set the MIC output bit (port 0xFE bit 3).
     void set_mic(bool on) { mic_ = on; }
 
+    /// Set the tape EAR input bit (from real-time tape playback).
+    /// On a real Spectrum, the EAR input is AC-coupled to the speaker.
+    void set_tape_ear(bool on) { tape_ear_ = on; }
+
     /// Return the current beeper level as a 13-bit unsigned value,
     /// matching the VHDL mixer scaling (EAR=256, MIC=32).
     uint16_t current_level() const;
@@ -36,7 +40,11 @@ public:
     /// Get current MIC state.
     bool mic() const { return mic_; }
 
+    /// Get current tape EAR input state.
+    bool tape_ear() const { return tape_ear_; }
+
 private:
     bool ear_ = false;
     bool mic_ = false;
+    bool tape_ear_ = false;
 };

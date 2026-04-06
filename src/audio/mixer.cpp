@@ -15,7 +15,7 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 {
     // VHDL audio_mixer.vhd scaling (all values are 13-bit unsigned, 0-8191):
     //
-    //   ear = 0x200 (512) when ear=1, else 0
+    //   ear = 0x200 (512) when ear=1, else 0  (includes tape EAR input)
     //   mic = 0x080 (128) when mic=1, else 0
     //   ay_L = 0 & ay_L_i  (12-bit → 13-bit, range 0-2295)
     //   ay_R = 0 & ay_R_i
@@ -26,6 +26,7 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 
     uint16_t ear = beeper.ear() ? 512u : 0u;
     uint16_t mic = beeper.mic() ? 128u : 0u;
+    uint16_t tape_ear = beeper.tape_ear() ? 512u : 0u;
 
     uint16_t ay_L = ts.pcm_left();    // 12-bit, already correct scale
     uint16_t ay_R = ts.pcm_right();
@@ -33,8 +34,8 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     uint16_t dac_L = dac.pcm_left() << 2;   // 9-bit × 4
     uint16_t dac_R = dac.pcm_right() << 2;
 
-    uint16_t pcm_L = ear + mic + ay_L + dac_L;  // 13-bit unsigned (0-5998 typical)
-    uint16_t pcm_R = ear + mic + ay_R + dac_R;
+    uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L;
+    uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R;
 
     // Convert to signed 16-bit.  Center at the resting DC level so that
     // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
