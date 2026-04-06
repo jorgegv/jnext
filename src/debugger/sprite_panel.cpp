@@ -21,8 +21,8 @@ void SpritePanel::create_ui() {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
 
-    table_ = new QTableWidget(SpriteEngine::NUM_SPRITES, 8, this);
-    table_->setHorizontalHeaderLabels({"#", "X", "Y", "Pat", "Pal", "Vis", "Mir", "Rot"});
+    table_ = new QTableWidget(SpriteEngine::NUM_SPRITES, 10, this);
+    table_->setHorizontalHeaderLabels({"#", "X", "Y", "Pat", "Pal", "Vis", "Mir", "Rot", "XS", "YS"});
     table_->setFont(mono);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -39,6 +39,8 @@ void SpritePanel::create_ui() {
     table_->setColumnWidth(5, 35);   // Vis
     table_->setColumnWidth(6, 35);   // Mir
     table_->setColumnWidth(7, 35);   // Rot
+    table_->setColumnWidth(8, 30);   // XS
+    table_->setColumnWidth(9, 30);   // YS
 
     // Pre-populate the index column (static)
     for (int i = 0; i < SpriteEngine::NUM_SPRITES; ++i) {
@@ -49,7 +51,7 @@ void SpritePanel::create_ui() {
 
     // Create remaining cells
     for (int i = 0; i < SpriteEngine::NUM_SPRITES; ++i) {
-        for (int col = 1; col < 8; ++col) {
+        for (int col = 1; col < 10; ++col) {
             auto* item = new QTableWidgetItem("--");
             item->setTextAlignment(Qt::AlignCenter);
             table_->setItem(i, col, item);
@@ -74,5 +76,9 @@ void SpritePanel::refresh() {
             QString("%1%2").arg(info.x_mirror ? "X" : "-")
                            .arg(info.y_mirror ? "Y" : "-"));
         table_->item(i, 7)->setText(info.rotate ? "R" : "-");
+
+        static const char* scale_labels[] = {"1", "2", "4", "8"};
+        table_->item(i, 8)->setText(scale_labels[info.x_scale & 3]);
+        table_->item(i, 9)->setText(scale_labels[info.y_scale & 3]);
     }
 }

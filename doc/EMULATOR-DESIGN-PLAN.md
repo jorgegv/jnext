@@ -916,9 +916,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Wire contention delays into CPU memory reads — per-access contention via callback in FUSE Z80 readbyte/writebyte; 128K contended bank tracking (banks 1,3,5,7 at 0xC000)
   - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention) — per-slot flags, +3 wider window (VHDL hc_adj[3:1]==0), +3 banks>=4 rule, +3 special paging support
   - [x] Layer 2 320×256 and 640×256 modes — column-major addressing (x*256+y), 320x256@8bpp, 640x256@4bpp (2px/byte), NextREG 0x69 Layer 2 enable, default RRRGGGBB palette init
-  - [ ] Sprite scaling ×2/×4/×8
+  - [x] Sprite scaling ×2/×4/×8 — per-sprite X/Y via extended byte 4, non-over-border clip fix (clip_y2 default 0xBF matching VHDL)
 - [ ] File format loading: TAP, TZX, SNA, SZX
-  - [ ] Fast TAP loading via ROM load routine interception
+  - [ ] Fast TAP loading via ROM load routine interception (48 and 128)
   - [ ] TAPE menu with controls
   - [ ] Allow writing to TAP format
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
