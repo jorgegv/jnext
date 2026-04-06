@@ -36,6 +36,7 @@
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
 #include "core/tzx_loader.h"
+#include "core/szx_loader.h"
 
 /// Top-level machine class.
 ///
@@ -91,6 +92,9 @@ public:
     /// When false, uses real-time EAR bit simulation via ZOT player.
     /// Returns true on success.
     bool load_tzx(const std::string& path, bool fast_load = true);
+
+    /// Load an SZX (zx-state) snapshot file. Returns true on success.
+    bool load_szx(const std::string& path);
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
