@@ -921,6 +921,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Fast TAP loading via ROM load routine interception
   - [ ] TAPE menu with controls
   - [ ] Allow writing to TAP format
+- [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
 - [ ] Performance profiling and optimization
 
 ### Phase 8  More enhancements

@@ -50,82 +50,56 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 
 Result: 1340/1356 pass (98.8%). See `doc/FUSE-Z80-TEST-SUITE-REPORT.md` for details on the 16 failures (all undocumented Z80 behaviors).
 
-### Automated screenshot testing
+### Full regression test suite
 
-Use `--delayed-screenshot` and `--delayed-automatic-exit` for unattended testing:
+Run the complete automated test suite (FUSE Z80 opcodes + screenshot tests):
 
 ```bash
-timeout --kill-after=5s 10s ./build/jnext \
-    --machine-type 48k \
+bash test/regression.sh
+```
+
+This runs all tests in headless mode and compares screenshots to reference images.
+See [doc/REGRESSION-TEST-SUITE.md](doc/REGRESSION-TEST-SUITE.md) for full details.
+
+To update reference screenshots after intentional rendering changes:
+
+```bash
+bash test/generate-references.sh
+```
+
+### Headless mode
+
+The `--headless` option runs without display/audio for automated testing:
+
+```bash
+./build/jnext --headless --machine-type 48k \
     --delayed-screenshot /tmp/test.png \
-    --delayed-screenshot-time 3 \
-    --delayed-automatic-exit 5
+    --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
 
 Key options:
 - `--machine-type TYPE` — `48k`, `128k`, `plus3`, `pentagon`, `next` (default)
+- `--headless` — no display, no audio, runs at max speed
 - `--roms-directory DIR` — ROM files location (default: `/usr/share/fuse`)
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
 - `--delayed-automatic-exit N` — exit emulator after N seconds
 - `--load FILE` — load a NEX file at startup
 
-Always use `timeout --kill-after=5s` to ensure the emulator process is killed if it hangs.
-
-### Testing machine boot
-
-Verify each machine type boots to BASIC:
-
-```bash
-# 48K — expect "(c) 1982 Sinclair Research Ltd"
-timeout --kill-after=5s 10s ./build/jnext --machine-type 48k \
-    --delayed-screenshot /tmp/test-48k.png --delayed-screenshot-time 3 --delayed-automatic-exit 5
-
-# 128K — expect 128K menu (Tape Loader / 128 BASIC / Calculator / 48 BASIC / Tape Tester)
-timeout --kill-after=5s 12s ./build/jnext --machine-type 128k \
-    --delayed-screenshot /tmp/test-128k.png --delayed-screenshot-time 5 --delayed-automatic-exit 8
-
-# +3 — expect "(c) 1982 Amstrad"
-timeout --kill-after=5s 12s ./build/jnext --machine-type plus3 \
-    --delayed-screenshot /tmp/test-plus3.png --delayed-screenshot-time 5 --delayed-automatic-exit 8
-
-# Pentagon — expect 128K menu with TR-DOS option
-timeout --kill-after=5s 12s ./build/jnext --machine-type pentagon \
-    --delayed-screenshot /tmp/test-pentagon.png --delayed-screenshot-time 5 --delayed-automatic-exit 8
-```
-
-### Loading and testing NEX demo programs
-
-```bash
-timeout --kill-after=5s 10s ./build/jnext \
-    --load demo/floating_bus_test.nex \
-    --machine-type 48k \
-    --delayed-screenshot /tmp/test-fbus.png \
-    --delayed-screenshot-time 3 --delayed-automatic-exit 5
-```
-
-### Comparing screenshots with reference images
-
-Reference image: `test/img/boot-reference.img` — do NOT modify this file.
-
-To compare a screenshot with a reference, use the Read tool to view both PNG files and visually compare. For automated comparison, use ImageMagick:
-
-```bash
-compare -metric AE /tmp/test.png test/img/reference.png /tmp/diff.png 2>&1
-# Output is the number of different pixels (0 = identical)
-```
+Always use `timeout --kill-after=5s` when running non-headless for safety.
 
 ### Building demo/test programs (z88dk)
 
 Test programs are in `demo/` and built with z88dk:
 
 ```bash
-cd demo
-zcc +zxn -vn -startup=31 -clib=sdcc_iy -SO3 \
-    program.c -o program -subtype=nex -create-app
-```
+# Build all demos (NEX + TAP)
+make -C demo all
 
-Both `-subtype=nex` AND `-create-app` are required to produce a `.nex` file.
+# Build only NEX or TAP
+make -C demo nex
+make -C demo tap
+```
 
 ### ROMs
 

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <string>
 
+#include "platform/headless_app.h"
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
 #else
@@ -35,7 +36,8 @@ static void print_usage(const char* prog) {
         "  --roms-directory DIR Directory containing ROM files (default: roms)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
-        "  --delayed-automatic-exit N  Exit the emulator after N seconds\n",
+        "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
+        "  --headless               Run without display/audio (for automated testing)\n",
         prog);
 }
 
@@ -66,6 +68,7 @@ int main(int argc, char* argv[]) {
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     std::string roms_directory = "/usr/share/fuse";
+    bool        headless = false;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -105,6 +108,8 @@ int main(int argc, char* argv[]) {
             machine_type_set = true;
         } else if (arg == "--roms-directory" && i + 1 < argc) {
             roms_directory = argv[++i];
+        } else if (arg == "--headless") {
+            headless = true;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -113,14 +118,9 @@ int main(int argc, char* argv[]) {
 
     if (!inject_pc_set) inject_pc = inject_org;
 
-#ifdef ENABLE_QT_UI
-    QtApp app;
-#else
-    SdlApp app;
-#endif
-
-    // Configure emulator before init.
-    {
+    // Helper lambda: configure and run any app object with the common interface.
+    auto configure_and_run = [&](auto& app) -> int {
+        // Configure emulator before init.
         EmulatorConfig cfg;
         cfg.type = machine_type;
         cfg.roms_directory = roms_directory;
@@ -128,52 +128,51 @@ int main(int argc, char* argv[]) {
         cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;
         app.set_config(cfg);
-    }
 
-    if (!app.init(argc, argv)) return 1;
+        if (!app.init(argc, argv)) return 1;
 
-    // Set up delayed screenshot.
-    if (!screenshot_file.empty()) {
-        app.set_delayed_screenshot(screenshot_file, screenshot_delay);
-    }
+        if (!screenshot_file.empty())
+            app.set_delayed_screenshot(screenshot_file, screenshot_delay);
+        if (auto_exit_delay >= 0)
+            app.set_delayed_exit(auto_exit_delay);
+        if (!inject_file.empty())
+            app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
 
-    // Set up automatic exit.
-    if (auto_exit_delay >= 0) {
-        app.set_delayed_exit(auto_exit_delay);
-    }
-
-    // Set up pending inject (applied after inject_delay frames in the main loop).
-    if (!inject_file.empty()) {
-        app.set_pending_inject(inject_file, inject_org, inject_pc, inject_delay);
-    }
-
-    // Set up pending load (auto-detect format by extension).
-    if (!load_file.empty()) {
-        // Check extension to determine format.
-        std::string ext;
-        auto dot = load_file.rfind('.');
-        if (dot != std::string::npos) {
-            ext = load_file.substr(dot);
-            // Convert to lowercase for comparison.
-            for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        // Set up pending load (auto-detect format by extension).
+        if (!load_file.empty()) {
+            std::string ext;
+            auto dot = load_file.rfind('.');
+            if (dot != std::string::npos) {
+                ext = load_file.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            if (ext == ".nex") {
+                app.set_pending_load(load_file, 0);
+            } else {
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex)", ext);
+                return 1;
+            }
         }
-        if (ext == ".nex") {
-            app.set_pending_load(load_file, 0);
-        } else {
-            Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex)", ext);
-            return 1;
-        }
-    }
 
+        app.run();
+        app.shutdown();
+        return 0;
+    };
+
+    int result;
+    if (headless) {
+        HeadlessApp app;
+        result = configure_and_run(app);
+    } else {
 #ifdef ENABLE_QT_UI
-    int result = app.run();
-    app.shutdown();
+        QtApp app;
+        result = configure_and_run(app);
+#else
+        SdlApp app;
+        result = configure_and_run(app);
+#endif
+    }
+
     spdlog::shutdown();
     return result;
-#else
-    app.run();
-    app.shutdown();
-    spdlog::shutdown();
-    return 0;
-#endif
 }
