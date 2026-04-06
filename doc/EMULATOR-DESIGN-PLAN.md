@@ -936,8 +936,14 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Real-time playback with EAR bit + audio (same --tape-realtime flag as TAP)
   - [x] GUI: file dialogs accept .tzx, Tape menu works with TZX files
   - [x] CLI: --load file.tzx with auto-detection by extension
-- [ ] File format loading: WAV
-- [ ] File format loading: SNA, SZX - These should be easy, they are similar to NEX
+- [x] File format loading: WAV
+  - [x] RIFF/WAVE PCM parser (8-bit unsigned, 16-bit signed LE, mono/stereo)
+  - [x] Real-time EAR bit playback via T-state-to-sample conversion (always real-time, no fast-load)
+  - [x] Integrated into beeper/ULA audio path, GUI file dialogs, CLI --load
+- [x] File format loading: SNA, SZX
+  - [x] SNA: 48K (27-byte header, PC from stack) and 128K (extended header, port 0x7FFD paging, remaining banks)
+  - [x] SZX: chunked "ZXST" format with Z80R/SPCR/RAMP handlers, zlib decompression for compressed RAM pages
+  - [x] Both formats: full register restore, border, paging, CLI/GUI/headless support
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
 - [ ] Performance profiling and optimization
 
@@ -1025,7 +1031,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 ### Phase 11 - New functions
 
 - [ ] Z80 file format loading
-- [ ] SZX file format loading
+- [x] SZX file format loading ✓ (done in Phase 7.8)
 - [ ] DSK file format loading - Emulation of disk controller?
 
 ---
