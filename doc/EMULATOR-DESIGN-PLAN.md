@@ -958,7 +958,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - [ ] A "magic" 16-bit port that can be used for debugging: each time an out is made to that port, the byte sent is traced in STDERR
     - [ ] Port can be selected at will, ideally one that is not normally used should be selected
     - [ ] Magic Port mode: ascii,hex,dec,line. "line" mode is special: output is buffered unti a CR or LF is sent, then a whole line is sent to STDERR
-
+  - [ ] All previous functionalities should have a demo/test program when it is sensible
+  
 - [ ] Debugger:
   - [ ] Use tabbed panels for everything
   - [ ] Registers panel:
@@ -986,8 +987,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
 
 - [ ] General UI:
-  - [ ] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x
-  - [ ] Save PNG screenshot
+  - [ ] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (menu and buttons)
+  - [ ] Save PNG screenshot (menu and button)
   - [ ] CLI: add options for all the previous functionalities where it makes sense:
     - --magic-port-enable
     - --magic-port-mode
@@ -997,7 +998,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - --rzx-record <rzx-file>
     - --record-video <output-file>
     - --record-video-with-audio <output-file>
-- [ ] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio)
+- [ ] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - **PUBLIC RELEASE**
 
 ### Phase 9 - CI, Quality and Release
 
