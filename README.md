@@ -18,12 +18,12 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 
 ## Emulated machines
 
-| Machine | Description |
-|---------|-------------|
-| ZX Spectrum 48K | Original rubber-key Spectrum |
-| ZX Spectrum 128K | 128K with AY sound and memory paging |
-| ZX Spectrum +3 | Amstrad +3 with extended paging |
-| Pentagon 128 | Russian Pentagon clone |
+| Machine                    | Description                               |
+|----------------------------|-------------------------------------------|
+| ZX Spectrum 48K            | Original rubber-key Spectrum              |
+| ZX Spectrum 128K           | 128K with AY sound and memory paging      |
+| ZX Spectrum +3             | Amstrad +3 with extended paging           |
+| Pentagon 128               | Russian Pentagon clone                    |
 | ZX Spectrum Next (Issue 2) | Full Next hardware with extended features |
 
 ## Emulated hardware
@@ -51,7 +51,7 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 
 JNEXT includes a full-featured Qt6 graphical interface:
 
-- **File loading** -- NEX and TAP format support via File menu or toolbar
+- **File loading** -- NEX, SNA, SZX, TAP, TZX, and WAV format support via File menu or toolbar
 - **Machine type selection** -- Switch between 48K, 128K, +3, Pentagon, and Next on the fly
 - **CPU speed control** -- 3.5 MHz, 7 MHz, 14 MHz, 28 MHz
 - **Tape controls** -- Open, eject, rewind; fast load or real-time playback modes
@@ -110,18 +110,18 @@ JNEXT supports headless operation for CI pipelines and automated testing:
 ./build/jnext [options]
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--headless` | Run without display or audio, at maximum speed |
-| `--machine-type TYPE` | `48k`, `128k`, `plus3`, `pentagon`, `next` (default) |
-| `--load FILE` | Load a program file (NEX or TAP, auto-detected by extension) |
-| `--tape-realtime` | Use real-time tape loading speed instead of fast load |
-| `--delayed-screenshot FILE` | Save a PNG screenshot after a delay |
-| `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10) |
-| `--delayed-automatic-exit N` | Exit the emulator after N seconds |
-| `--sd-card FILE` | Mount an SD card image (.img) |
-| `--roms-directory DIR` | Directory containing ROM files (default: `/usr/share/fuse`) |
-| `--log-level SPEC` | Per-subsystem log levels (e.g. `cpu=trace,video=warn`) |
+| Option                        | Description                                                  |
+|-------------------------------|--------------------------------------------------------------|
+| `--headless`                  | Run without display or audio, at maximum speed               |
+| `--machine-type TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)         |
+| `--load FILE`                 | Load a program file (NEX or TAP, auto-detected by extension) |
+| `--tape-realtime`             | Use real-time tape loading speed instead of fast load        |
+| `--delayed-screenshot FILE`   | Save a PNG screenshot after a delay                          |
+| `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10)             |
+| `--delayed-automatic-exit N`  | Exit the emulator after N seconds                            |
+| `--sd-card FILE`              | Mount an SD card image (.img)                                |
+| `--roms-directory DIR`        | Directory containing ROM files (default: `/usr/share/fuse`)  |
+| `--log-level SPEC`            | Per-subsystem log levels (e.g. `cpu=trace,video=warn`)       |
 
 A full automated regression test suite is included, running the FUSE Z80 opcode tests (1340/1356 pass, 98.8%) and screenshot comparison tests in headless mode:
 
@@ -175,24 +175,24 @@ cmake --build build -j$(nproc)
 
 ### CMake options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `ENABLE_QT_UI` | OFF | Build the Qt6 native GUI |
-| `ENABLE_DEBUGGER` | ON | Include the debugger (requires Qt6) |
-| `ENABLE_TESTS` | ON | Build the test suite |
-| `CYCLE_ACCURATE` | OFF | 28 MHz cycle-accurate mode |
-| `STATIC_BUILD` | OFF | Link statically |
+| Option            | Default | Description                         |
+|-------------------|---------|-------------------------------------|
+| `ENABLE_QT_UI`    | OFF     | Build the Qt6 native GUI            |
+| `ENABLE_DEBUGGER` | ON      | Include the debugger (requires Qt6) |
+| `ENABLE_TESTS`    | ON      | Build the test suite                |
+| `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode          |
+| `STATIC_BUILD`    | OFF     | Link statically                     |
 
 ### ROM files
 
 JNEXT does not ship ROM files. By default, it loads ROMs from `/usr/share/fuse/` (installed by the FUSE emulator package):
 
-| Machine | ROM files |
-|---------|-----------|
-| 48K | `48.rom` |
-| 128K | `128-0.rom`, `128-1.rom` |
-| +3 | `plus3-0.rom` through `plus3-3.rom` |
-| Pentagon | `128p-0.rom`, `128p-1.rom` |
+| Machine  | ROM files                           |
+|----------|-------------------------------------|
+| 48K      | `48.rom`                            |
+| 128K     | `128-0.rom`, `128-1.rom`            |
+| +3       | `plus3-0.rom` through `plus3-3.rom` |
+| Pentagon | `128p-0.rom`, `128p-1.rom`          |
 
 Override the ROM directory with `--roms-directory DIR`.
 
@@ -234,12 +234,13 @@ Override the ROM directory with `--roms-directory DIR`.
 
 ## Libraries and third-party software
 
-| Library | License | Description |
-|---------|---------|-------------|
-| [SDL2](https://www.libsdl.org/) | zlib | Cross-platform multimedia library |
-| [Qt6](https://www.qt.io/) | LGPLv3 | GUI framework |
-| [spdlog](https://github.com/gabime/spdlog) | MIT | Fast C++ logging library (vendored as git submodule) |
-| FUSE Z80 core | GPLv2 | Z80 CPU core adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator |
+| Library                                    | License | Description                                                                          |
+|--------------------------------------------|---------|--------------------------------------------------------------------------------------|
+| [SDL2](https://www.libsdl.org/)            | zlib    | Cross-platform multimedia library                                                    |
+| [Qt6](https://www.qt.io/)                  | LGPLv3  | GUI framework                                                                        |
+| [spdlog](https://github.com/gabime/spdlog) | MIT     | Fast C++ logging library (vendored as git submodule)                                 |
+| FUSE Z80 core                              | GPLv2   | Z80 CPU core adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator |
+| [ZOT](https://github.com/antirez/zot)      | MIT     | TZX/TAP tape player library by antirez (vendored in third_party/zot/)                |
 
 ## References and acknowledgments
 
@@ -251,7 +252,7 @@ Override the ROM directory with `--roms-directory DIR`.
 
 ## License
 
-Copyright (C) 2025-2026 Jorge Gonzalez Villalonga
+Copyright (C) 2026 Jorge Gonzalez Villalonga
 
 JNEXT is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
