@@ -1055,6 +1055,7 @@ Issues deferred to post-release for further debugging.
 |-------|--------|--------|
 | **DAC audio output buzzing** | Soundrive DAC demo produces a continuous buzz alongside the expected tones, even with interrupts disabled, 28 MHz CPU speed, and a pure-assembly playback loop with deterministic timing. Tested on both JNext and ZEsarUX with the same result. Needs investigation into whether the issue is in the demo code, the emulator's DAC/mixer sampling, or fundamental to software-driven DAC playback without hardware-level sample timing. DAC is rarely used by Next software, so this is low priority. | Open |
 | **Debugger window sticky positioning** | Debug sticky positioning of debugger window to emulator window. The debugger window should stay attached to the right side of the emulator window and move together when dragged. Currently the debugger window position is saved/restored via QSettings but does not track the emulator window in real time. | Open |
+| **TZX Direct Recording (DeciLoad)** | TZX 0x15 blocks with DeciLoad 12k8 turbo format (77 T-states/sample) fail in real-time mode. BASIC loader loads fine but custom loader can't read direct recording data. FUSE handles the same file correctly. See [doc/DECILOAD-TZX-LOADING.md](DECILOAD-TZX-LOADING.md) for full investigation. Test file: `test/tzx/Xevious_ZX0_DeciLoad12k8.tzx`. | Open |
 
 ---
 
