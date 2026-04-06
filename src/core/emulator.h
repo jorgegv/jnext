@@ -36,6 +36,7 @@
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
 #include "core/tzx_loader.h"
+#include "core/wav_loader.h"
 
 /// Top-level machine class.
 ///
@@ -92,6 +93,11 @@ public:
     /// Returns true on success.
     bool load_tzx(const std::string& path, bool fast_load = true);
 
+    /// Load a WAV file and start real-time EAR bit playback.
+    /// WAV loading is always real-time (no fast-load possible).
+    /// Returns true on success.
+    bool load_wav(const std::string& path);
+
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
     const TapLoader& tape() const { return tape_; }
@@ -99,6 +105,10 @@ public:
     /// Access the TZX loader.
     TzxLoader& tzx_tape() { return tzx_tape_; }
     const TzxLoader& tzx_tape() const { return tzx_tape_; }
+
+    /// Access the WAV loader.
+    WavLoader& wav_tape() { return wav_tape_; }
+    const WavLoader& wav_tape() const { return wav_tape_; }
 
     // -----------------------------------------------------------------------
     // Framebuffer access
@@ -199,6 +209,7 @@ private:
     TraceLog        trace_log_;
     TapLoader       tape_;
     TzxLoader       tzx_tape_;
+    WavLoader       wav_tape_;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;
