@@ -319,7 +319,7 @@ void MainWindow::create_menus() {
     // --- Tape menu ---
     QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
 
-    QAction* tape_open = tape_menu->addAction(tr("&Open TAP File..."));
+    QAction* tape_open = tape_menu->addAction(tr("&Open Tape File..."));
     tape_open->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
     connect(tape_open, &QAction::triggered, this, &MainWindow::on_tape_open);
 
@@ -460,11 +460,13 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), QString(),
-        tr("Spectrum Files (*.nex *.tap);;NEX Files (*.nex);;TAP Files (*.tap);;All Files (*)"));
+        tr("Spectrum Files (*.nex *.tap *.tzx);;NEX Files (*.nex);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
     if (!path.isEmpty()) {
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
                 emulator_->load_tap(path.toStdString());
+            } else if (path.toLower().endsWith(".tzx")) {
+                emulator_->load_tzx(path.toStdString());
             } else {
                 emulator_->load_nex(path.toStdString());
             }
@@ -533,47 +535,62 @@ void MainWindow::on_about() {
 
 void MainWindow::on_tape_open() {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("Open TAP File"), QString(),
-        tr("TAP Files (*.tap);;All Files (*)"));
+        this, tr("Open Tape File"), QString(),
+        tr("Tape Files (*.tap *.tzx);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
     if (path.isEmpty() || !emulator_) return;
 
-    emulator_->load_tap(path.toStdString());
+    if (path.toLower().endsWith(".tzx")) {
+        emulator_->load_tzx(path.toStdString());
+    } else {
+        emulator_->load_tap(path.toStdString());
+    }
     update_tape_status();
 }
 
 void MainWindow::on_tape_eject() {
     if (!emulator_) return;
     emulator_->tape().eject();
+    emulator_->tzx_tape().eject();
     update_tape_status();
 }
 
 void MainWindow::on_tape_rewind() {
     if (!emulator_) return;
-    emulator_->tape().rewind();
+    if (emulator_->tzx_tape().is_loaded()) {
+        emulator_->tzx_tape().rewind();
+    } else {
+        emulator_->tape().rewind();
+    }
     update_tape_status();
 }
 
 void MainWindow::on_tape_fast_load(bool checked) {
     if (!emulator_) return;
     emulator_->tape().set_fast_load(checked);
+    emulator_->tzx_tape().set_fast_load(checked);
 }
 
 void MainWindow::update_tape_status() {
     if (!tape_label_ || !emulator_) return;
 
-    const auto& tape = emulator_->tape();
-    if (!tape.is_loaded()) {
-        tape_label_->setText(tr("Tape: none"));
-    } else {
-        QString name = QString::fromStdString(tape.filename());
+    const auto& tap = emulator_->tape();
+    const auto& tzx = emulator_->tzx_tape();
+
+    if (tzx.is_loaded()) {
+        QString name = QString::fromStdString(tzx.filename());
+        tape_label_->setText(tr("Tape: %1").arg(name));
+    } else if (tap.is_loaded()) {
+        QString name = QString::fromStdString(tap.filename());
         tape_label_->setText(tr("Tape: %1 [%2/%3]")
             .arg(name)
-            .arg(tape.current_block())
-            .arg(tape.block_count()));
+            .arg(tap.current_block())
+            .arg(tap.block_count()));
+    } else {
+        tape_label_->setText(tr("Tape: none"));
     }
 
     // Enable/disable menu actions
-    bool has_tape = tape.is_loaded();
+    bool has_tape = tap.is_loaded() || tzx.is_loaded();
     if (tape_eject_action_)  tape_eject_action_->setEnabled(has_tape);
     if (tape_rewind_action_) tape_rewind_action_->setEnabled(has_tape);
 }

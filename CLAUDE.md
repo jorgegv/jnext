@@ -84,7 +84,7 @@ Key options:
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
 - `--delayed-automatic-exit N` — exit emulator after N seconds
-- `--load FILE` — load a NEX file at startup
+- `--load FILE` — load a NEX, TAP, or TZX file at startup
 
 Always use `timeout --kill-after=5s` when running non-headless for safety.
 

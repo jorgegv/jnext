@@ -39,6 +39,9 @@ find_package(SDL2 REQUIRED)
 # spdlog — vendored as git submodule, header-only mode.
 add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 
+# ZOT TZX/TAP player by antirez — MIT License.
+add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
+
 # input and debug must come before core: emulator.h includes input/keyboard.h
 # and debug/debug_state.h; jnext_core explicitly links jnext_input and jnext_debug.
 add_subdirectory(src/input)

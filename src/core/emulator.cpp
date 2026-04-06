@@ -571,6 +571,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
             // During real-time tape playback, feed the tape EAR bit.
             if (tape_.is_playing()) {
                 result = (result & ~0x40) | (tape_.tick_realtime(0) << 6);
+            } else if (tzx_tape_.is_playing()) {
+                // Use FUSE's live T-state counter (advances mid-instruction during I/O).
+                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+                result = (result & ~0x40) | (tzx_tape_.update(cpu_clocks) << 6);
             }
             return result;
         },
@@ -965,6 +969,38 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     return true;
 }
 
+bool Emulator::load_tzx(const std::string& path, bool fast_load)
+{
+    TzxLoader loader;
+    if (!loader.load(path)) return false;
+
+    loader.set_fast_load(fast_load);
+    tzx_tape_ = std::move(loader);
+    Log::emulator()->info("TZX: tape attached, mode: {}",
+                           tzx_tape_.fast_load() ? "fast" : "realtime");
+
+    // Eject any TAP tape to avoid conflicts.
+    if (tape_.is_loaded()) tape_.eject();
+
+    // Auto-type LOAD "" to start tape loading.
+    std::vector<Keyboard::AutoKey> keys = {
+        {6, 3,  -1, -1, 5},   // J = LOAD
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {5, 0,   7,  1, 5},   // SYM+P = "
+        {6, 0,  -1, -1, 5},   // ENTER
+    };
+    keyboard_.queue_auto_type(keys);
+
+    // For real-time mode, start TZX playback immediately.
+    if (!tzx_tape_.fast_load()) {
+        uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+        tzx_tape_.start_playback(cpu_clocks);
+        Log::emulator()->info("TZX: playback started at T-state {}", cpu_clocks);
+    }
+
+    return true;
+}
+
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
@@ -1036,7 +1072,7 @@ void Emulator::run_frame()
             }
         }
 
-        // TAP ROM traps — only when ROM is paged in at slot 0.
+        // Tape ROM traps — only when ROM is paged in at slot 0.
         if (mmu_.is_slot_rom(0)) {
             uint16_t pc = cpu_.get_registers().PC;
 
@@ -1044,6 +1080,16 @@ void Emulator::run_frame()
             if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
                 pc == TapLoader::LD_BYTES_ADDR) {
                 tape_.handle_ld_bytes_trap(*this);
+                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
+                clock_.tick(fake_cycles);
+                scheduler_.run_until(clock_.get());
+                continue;
+            }
+
+            // TZX fast-load: same ROM trap, different loader.
+            if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
+                pc == TzxLoader::LD_BYTES_ADDR) {
+                tzx_tape_.handle_ld_bytes_trap(*this);
                 uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
                 clock_.tick(fake_cycles);
                 scheduler_.run_until(clock_.get());
@@ -1090,8 +1136,11 @@ void Emulator::run_frame()
             // Tick real-time tape playback (advances EAR bit state machine).
             if (tape_.is_playing()) {
                 tape_.tick_realtime(static_cast<uint64_t>(tstates));
-                // Feed tape EAR input to beeper so loading sound is audible.
                 beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+            } else if (tzx_tape_.is_playing()) {
+                // TZX real-time: ZOT uses absolute CPU T-state clocks.
+                uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+                beeper_.set_tape_ear(tzx_tape_.update(cpu_clocks) != 0);
             } else {
                 beeper_.set_tape_ear(false);
             }

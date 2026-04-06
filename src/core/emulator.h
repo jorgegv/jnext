@@ -35,6 +35,7 @@
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
+#include "core/tzx_loader.h"
 
 /// Top-level machine class.
 ///
@@ -85,9 +86,19 @@ public:
     /// Returns true on success.
     bool load_tap(const std::string& path, bool fast_load = true);
 
+    /// Load a TZX file and attach it as the virtual tape.
+    /// When fast_load is true (default), uses ROM trap interception.
+    /// When false, uses real-time EAR bit simulation via ZOT player.
+    /// Returns true on success.
+    bool load_tzx(const std::string& path, bool fast_load = true);
+
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
     const TapLoader& tape() const { return tape_; }
+
+    /// Access the TZX loader.
+    TzxLoader& tzx_tape() { return tzx_tape_; }
+    const TzxLoader& tzx_tape() const { return tzx_tape_; }
 
     // -----------------------------------------------------------------------
     // Framebuffer access
@@ -187,6 +198,7 @@ private:
     DebugState      debug_state_;
     TraceLog        trace_log_;
     TapLoader       tape_;
+    TzxLoader       tzx_tape_;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;

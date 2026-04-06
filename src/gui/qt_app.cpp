@@ -138,6 +138,8 @@ void QtApp::on_frame_tick() {
         }
         if (ext == ".tap") {
             emulator_.load_tap(load_file_, !tape_realtime_);
+        } else if (ext == ".tzx") {
+            emulator_.load_tzx(load_file_, !tape_realtime_);
         } else {
             emulator_.load_nex(load_file_);
         }

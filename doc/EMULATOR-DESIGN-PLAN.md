@@ -929,10 +929,14 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Real-time tape loading via EAR bit simulation (--tape-realtime CLI flag, Tape menu toggle)
   - [x] Tape EAR input routed to audio mixer — loading sounds audible during real-time playback
   - [x] Per-scanline border colour updates — authentic red/cyan pilot and yellow/blue data stripes
-- [ ] File format loading: TZX
-  - [ ] Use a GPL or BSD/MIT library if available for parsing/playing - let me check alternatives before starting
-  - [ ] Allow accelerated load (if possible), similar to TAP files
-  - [ ] Integrate with sound tape input, so that a real tape loading experience can be simulated
+- [x] File format loading: TZX
+  - [x] Uses ZOT library by antirez (MIT license, third_party/zot/) for TZX parsing and real-time playback
+  - [x] Supports blocks: 0x10 (standard), 0x11 (turbo), 0x12-0x15 (pure tone/pulse/data/direct), 0x20-0x25 (pause/groups/loops), 0x2A/0x2B (stop/signal), 0x30/0x32 (metadata)
+  - [x] Fast-load mode via ROM trap at 0x0556 (extracts standard/turbo data blocks)
+  - [x] Real-time playback with EAR bit + audio (same --tape-realtime flag as TAP)
+  - [x] GUI: file dialogs accept .tzx, Tape menu works with TZX files
+  - [x] CLI: --load file.tzx with auto-detection by extension
+- [ ] File format loading: WAV
 - [ ] File format loading: SNA, SZX - These should be easy, they are similar to NEX
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
 - [ ] Performance profiling and optimization
@@ -942,8 +946,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Emulator:
   - [ ] Magic Breakpoint: a special instruction that when run in real hardware or emulators that do not support it, it runs a NOP. But if hit in the emulator (and MAGIC BP is active), is triggers a break to the debugger (equivalent to INT3 on Intel x86) - See @MAGIC-BREAKPOINT.md document for description. Support both magic-bp opcodes (ZesarUX and CSpect)
   - [ ] Save video with/without audio - Format: MP4+H264, using FFMPEG - See @VIDEO-RECORDING.md document for description.
-  - [ ] RZX input and playback
-  - [ ] RZX recording
+  - [ ] RZX file input and playback (Open RZX file, Start Playing, Pause, Stop Playing)
+  - [ ] RZX recording to file (Record to RZX file, Start Recording, Pause Recording, Stop Recording)
   - [ ] Magic Port:
     - [ ] A "magic" 16-bit port that can be used for debugging: each time an out is made to that port, the byte sent is traced in STDERR
     - [ ] Port can be selected at will, ideally one that is not normally used should be selected
