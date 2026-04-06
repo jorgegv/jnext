@@ -123,6 +123,9 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
         uint32_t* line = framebuffer + row * FB_WIDTH;
         const int screen_row = row - DISP_Y;   // < 0 if in top border
 
+        // Use per-line border colour (snapshotted during frame execution).
+        border_colour_ = border_per_line_[row];
+
         if (screen_row >= 0 && screen_row < DISP_H) {
             switch (mode_) {
                 case TimexScreenMode::STANDARD: {
@@ -166,6 +169,10 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 
 void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
 {
+    // Use per-line border colour (snapshotted during frame execution).
+    if (row >= 0 && row < FB_HEIGHT)
+        border_colour_ = border_per_line_[row];
+
     const int screen_row = row - DISP_Y;
 
     if (screen_row >= 0 && screen_row < DISP_H) {

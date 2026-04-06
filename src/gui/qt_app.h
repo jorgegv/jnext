@@ -36,6 +36,8 @@ public:
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
 
+    void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+
     /// Schedule a screenshot after `delay_seconds` seconds.
     void set_delayed_screenshot(const std::string& file, int delay_seconds);
 
@@ -86,6 +88,7 @@ private:
     // Emulator config
     EmulatorConfig config_;
     bool           config_set_ = false;
+    bool           tape_realtime_ = false;
 
     // FPS tracking
     int frame_count_ = 0;

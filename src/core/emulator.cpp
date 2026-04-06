@@ -1050,14 +1050,6 @@ void Emulator::run_frame()
                 continue;
             }
 
-            // Save trap: intercept SA-BYTES to capture data into TAP blocks.
-            if (pc == TapLoader::SA_BYTES_ADDR) {
-                tape_.handle_sa_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                scheduler_.run_until(clock_.get());
-                continue;
-            }
         }
 
         uint64_t master_cycles;

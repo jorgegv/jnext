@@ -137,7 +137,7 @@ void QtApp::on_frame_tick() {
             for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
         if (ext == ".tap") {
-            emulator_.load_tap(load_file_);
+            emulator_.load_tap(load_file_, !tape_realtime_);
         } else {
             emulator_.load_nex(load_file_);
         }

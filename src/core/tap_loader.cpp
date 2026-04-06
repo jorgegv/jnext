@@ -101,6 +101,11 @@ bool TapLoader::load(const std::string& path) {
 
     loaded_ = true;
     current_block_ = 0;
+
+    // Extract just the filename for UI display
+    auto slash = path.rfind('/');
+    filename_ = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+
     return true;
 }
 
@@ -192,4 +197,165 @@ bool TapLoader::handle_ld_bytes_trap(Emulator& emu) {
 
     emu.cpu().set_registers(regs);
     return true;
+}
+
+
+void TapLoader::eject() {
+    blocks_.clear();
+    current_block_ = 0;
+    loaded_ = false;
+    playing_ = false;
+    filename_.clear();
+    Log::emulator()->info("TAP: tape ejected");
+}
+
+// ---------------------------------------------------------------------------
+// Real-time tape playback
+// ---------------------------------------------------------------------------
+
+void TapLoader::start_realtime_playback() {
+    if (!loaded_ || at_end()) return;
+
+    const TapBlock* block = peek_block();
+    if (!block) return;
+
+    playing_ = true;
+    play_tstates_ = 0;
+    play_byte_idx_ = 0;
+    play_bit_idx_ = 7;
+    play_pulse_count_ = 0;
+    ear_bit_ = 0;
+
+    // Leader tone: header blocks get longer pilot tone
+    play_phase_ = PlayPhase::LEADER;
+    leader_pulses_ = (block->flag == 0x00) ? HEADER_LEADER : DATA_LEADER;
+    phase_tstates_ = PILOT_PULSE;
+
+    Log::emulator()->debug("TAP realtime: starting block {} ({} leader pulses)",
+                            current_block_, leader_pulses_);
+}
+
+uint8_t TapLoader::tick_realtime(uint64_t tstates) {
+    if (!playing_) return ear_bit_;
+
+    // Process the given number of T-states
+    while (tstates > 0) {
+        if (phase_tstates_ <= tstates) {
+            tstates -= phase_tstates_;
+            phase_tstates_ = 0;
+        } else {
+            phase_tstates_ -= tstates;
+            tstates = 0;
+            break;
+        }
+
+        // Current pulse completed — toggle EAR and advance state
+        ear_bit_ ^= 1;
+
+        switch (play_phase_) {
+        case PlayPhase::LEADER:
+            --leader_pulses_;
+            if (leader_pulses_ <= 0) {
+                play_phase_ = PlayPhase::SYNC1;
+                phase_tstates_ = SYNC1_PULSE;
+            } else {
+                phase_tstates_ = PILOT_PULSE;
+            }
+            break;
+
+        case PlayPhase::SYNC1:
+            play_phase_ = PlayPhase::SYNC2;
+            phase_tstates_ = SYNC2_PULSE;
+            break;
+
+        case PlayPhase::SYNC2:
+            play_phase_ = PlayPhase::DATA;
+            play_byte_idx_ = 0;
+            play_bit_idx_ = 7;
+            play_pulse_count_ = 0;
+            // First data byte is the flag byte
+            {
+                const TapBlock* block = peek_block();
+                if (!block) {
+                    play_phase_ = PlayPhase::DONE;
+                    phase_tstates_ = 0;
+                    break;
+                }
+                // Prepare to send flag byte, then data, then checksum
+                // We'll send: flag, data[0..n-1], checksum
+                // Total bytes = 1 + data.size() + 1
+                uint8_t byte = block->flag;  // start with flag
+                int bit = (byte >> play_bit_idx_) & 1;
+                phase_tstates_ = bit ? ONE_PULSE : ZERO_PULSE;
+            }
+            break;
+
+        case PlayPhase::DATA: {
+            const TapBlock* block = peek_block();
+            if (!block) {
+                play_phase_ = PlayPhase::DONE;
+                break;
+            }
+
+            ++play_pulse_count_;
+            if (play_pulse_count_ < 2) {
+                // Second half of the same bit — same duration
+                uint8_t byte;
+                size_t total_bytes = 1 + block->data.size() + 1; // flag + data + checksum
+                if (play_byte_idx_ == 0)
+                    byte = block->flag;
+                else if (play_byte_idx_ <= block->data.size())
+                    byte = block->data[play_byte_idx_ - 1];
+                else
+                    byte = block->checksum;
+                int bit = (byte >> play_bit_idx_) & 1;
+                phase_tstates_ = bit ? ONE_PULSE : ZERO_PULSE;
+            } else {
+                // Bit complete — move to next bit
+                play_pulse_count_ = 0;
+                --play_bit_idx_;
+                if (play_bit_idx_ < 0) {
+                    play_bit_idx_ = 7;
+                    ++play_byte_idx_;
+                    size_t total_bytes = 1 + block->data.size() + 1;
+                    if (play_byte_idx_ >= total_bytes) {
+                        // Block complete — pause then next block
+                        play_phase_ = PlayPhase::PAUSE;
+                        phase_tstates_ = PAUSE_TSTATES;
+                        next_block();  // advance to next block
+                        break;
+                    }
+                }
+                // Set up next bit pulse
+                uint8_t byte;
+                if (play_byte_idx_ == 0)
+                    byte = block->flag;
+                else if (play_byte_idx_ <= block->data.size())
+                    byte = block->data[play_byte_idx_ - 1];
+                else
+                    byte = block->checksum;
+                int bit = (byte >> play_bit_idx_) & 1;
+                phase_tstates_ = bit ? ONE_PULSE : ZERO_PULSE;
+            }
+            break;
+        }
+
+        case PlayPhase::PAUSE:
+            if (at_end()) {
+                play_phase_ = PlayPhase::DONE;
+                playing_ = false;
+                Log::emulator()->info("TAP realtime: tape ended");
+            } else {
+                // Start next block
+                start_realtime_playback();
+            }
+            break;
+
+        case PlayPhase::DONE:
+            playing_ = false;
+            return ear_bit_;
+        }
+    }
+
+    return ear_bit_;
 }

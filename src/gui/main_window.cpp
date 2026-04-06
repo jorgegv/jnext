@@ -316,6 +316,28 @@ void MainWindow::create_menus() {
         connect(a, &QAction::triggered, this, [this, i]() { on_cpu_speed(i); });
     }
 
+    // --- Tape menu ---
+    QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
+
+    QAction* tape_open = tape_menu->addAction(tr("&Open TAP File..."));
+    tape_open->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    connect(tape_open, &QAction::triggered, this, &MainWindow::on_tape_open);
+
+    tape_eject_action_ = tape_menu->addAction(tr("&Eject Tape"));
+    tape_eject_action_->setEnabled(false);
+    connect(tape_eject_action_, &QAction::triggered, this, &MainWindow::on_tape_eject);
+
+    tape_rewind_action_ = tape_menu->addAction(tr("&Rewind"));
+    tape_rewind_action_->setEnabled(false);
+    connect(tape_rewind_action_, &QAction::triggered, this, &MainWindow::on_tape_rewind);
+
+    tape_menu->addSeparator();
+
+    tape_fast_action_ = tape_menu->addAction(tr("&Fast Load"));
+    tape_fast_action_->setCheckable(true);
+    tape_fast_action_->setChecked(true);  // fast load is default
+    connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
+
     // --- View menu ---
     QMenu* view_menu = menuBar()->addMenu(tr("&View"));
 
@@ -395,8 +417,13 @@ void MainWindow::create_statusbar() {
     machine_label_->setMinimumWidth(100);
     machine_label_->setAlignment(Qt::AlignRight);
 
+    tape_label_ = new QLabel(tr("Tape: none"));
+    tape_label_->setMinimumWidth(120);
+    tape_label_->setAlignment(Qt::AlignCenter);
+
     statusBar()->addWidget(fps_label_, 1);
     statusBar()->addWidget(speed_label_, 1);
+    statusBar()->addWidget(tape_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
 
@@ -421,6 +448,9 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
             }
         }
     }
+
+    // Update tape status display
+    update_tape_status();
 }
 
 // ---------------------------------------------------------------------------
@@ -495,6 +525,57 @@ void MainWindow::on_about() {
            "<p>A line-accurate emulator of the ZX Spectrum Next computer, "
            "based on the official FPGA VHDL sources.</p>"
            "<p>Written in C++17 with Qt 6 and SDL2.</p>"));
+}
+
+// ---------------------------------------------------------------------------
+// Tape menu handlers
+// ---------------------------------------------------------------------------
+
+void MainWindow::on_tape_open() {
+    QString path = QFileDialog::getOpenFileName(
+        this, tr("Open TAP File"), QString(),
+        tr("TAP Files (*.tap);;All Files (*)"));
+    if (path.isEmpty() || !emulator_) return;
+
+    emulator_->load_tap(path.toStdString());
+    update_tape_status();
+}
+
+void MainWindow::on_tape_eject() {
+    if (!emulator_) return;
+    emulator_->tape().eject();
+    update_tape_status();
+}
+
+void MainWindow::on_tape_rewind() {
+    if (!emulator_) return;
+    emulator_->tape().rewind();
+    update_tape_status();
+}
+
+void MainWindow::on_tape_fast_load(bool checked) {
+    if (!emulator_) return;
+    emulator_->tape().set_fast_load(checked);
+}
+
+void MainWindow::update_tape_status() {
+    if (!tape_label_ || !emulator_) return;
+
+    const auto& tape = emulator_->tape();
+    if (!tape.is_loaded()) {
+        tape_label_->setText(tr("Tape: none"));
+    } else {
+        QString name = QString::fromStdString(tape.filename());
+        tape_label_->setText(tr("Tape: %1 [%2/%3]")
+            .arg(name)
+            .arg(tape.current_block())
+            .arg(tape.block_count()));
+    }
+
+    // Enable/disable menu actions
+    bool has_tape = tape.is_loaded();
+    if (tape_eject_action_)  tape_eject_action_->setEnabled(has_tape);
+    if (tape_rewind_action_) tape_rewind_action_->setEnabled(has_tape);
 }
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,13 @@ private:
     void on_fullscreen(bool checked);
     void on_about();
 
+    // Tape menu slots
+    void on_tape_open();
+    void on_tape_eject();
+    void on_tape_rewind();
+    void on_tape_fast_load(bool checked);
+    void update_tape_status();
+
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
 
@@ -127,4 +134,10 @@ private:
 
     // Debugger toggle action (in View menu)
     QAction* debugger_action_ = nullptr;
+
+    // Tape menu actions
+    QAction* tape_eject_action_  = nullptr;
+    QAction* tape_rewind_action_ = nullptr;
+    QAction* tape_fast_action_   = nullptr;
+    QLabel*  tape_label_         = nullptr;
 };
