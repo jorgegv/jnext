@@ -914,7 +914,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Floating bus emulation (48K/128K modes only — returns pixel/attribute bytes based on ULA fetch timing within each 8T cycle)
   - [x] Pentagon timing mode (448 ticks/line, 320 lines, zero contention, Pentagon ROMs 128p-0/1)
   - [x] Wire contention delays into CPU memory reads — per-access contention via callback in FUSE Z80 readbyte/writebyte; 128K contended bank tracking (banks 1,3,5,7 at 0xC000)
-  - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention)
+  - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention) — per-slot flags, +3 wider window (VHDL hc_adj[3:1]==0), +3 banks>=4 rule, +3 special paging support
   - [ ] Layer 2 320×256 and 640×256 modes
   - [ ] Sprite scaling ×2/×4/×8
 - [ ] Performance profiling and optimization

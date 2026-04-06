@@ -502,16 +502,41 @@ bool Emulator::init(const EmulatorConfig& cfg)
         nullptr,
         [this](uint16_t, uint8_t v) {
             mmu_.map_128k_bank(v);
-            // Banks 1,3,5,7 at 0xC000 are contended on 128K/+3
+            // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
+            //   128K: odd banks (1,3,5,7) are contended
+            //   +3:   banks >= 4 (4,5,6,7) are contended
             uint8_t bank = v & 0x07;
-            contention_.set_contended_c000(bank & 1);
+            if (config_.type == MachineType::ZX_PLUS3)
+                contention_.set_contended_slot(3, bank >= 4);
+            else
+                contention_.set_contended_slot(3, bank & 1);
         });
 
     // +3 paging — port 0x1FFD (mask 0xF002, match 0x1000).
     // Only active on +3/+2A models. Bits: 0=special mode, 2:1=config, 2=ROM high bit.
     port_.register_handler(0xF002, 0x1000,
         nullptr,
-        [this](uint16_t, uint8_t v) { mmu_.map_plus3_bank(v); });
+        [this](uint16_t, uint8_t v) {
+            mmu_.map_plus3_bank(v);
+            // Update per-slot contention for +3 (VHDL: banks >= 4 are contended).
+            bool special_mode = (v & 0x01) != 0;
+            if (special_mode) {
+                // Special paging: 4 configs map specific banks to each 16K slot
+                static const uint8_t configs[4][4] = {
+                    {0, 1, 2, 3}, {4, 5, 6, 7}, {4, 5, 6, 3}, {4, 7, 6, 3}
+                };
+                uint8_t config = (v >> 1) & 0x03;
+                for (int slot = 0; slot < 4; ++slot)
+                    contention_.set_contended_slot(slot, configs[config][slot] >= 4);
+            } else {
+                // Normal paging: slot 0 = ROM (not contended), slot 1 = bank 5 (contended),
+                // slot 2 = bank 2 (not contended), slot 3 = per 0x7FFD bank
+                contention_.set_contended_slot(0, false);
+                contention_.set_contended_slot(1, true);
+                contention_.set_contended_slot(2, false);
+                // Slot 3 contention stays as set by 0x7FFD handler
+            }
+        });
 
     // NextREG select — full 16-bit match on port 0x243B.
     port_.register_handler(0xFFFF, 0x243B,
