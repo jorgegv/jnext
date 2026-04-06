@@ -80,9 +80,10 @@ public:
     bool load_nex(const std::string& path);
 
     /// Load a TAP file and attach it as the virtual tape.
-    /// The tape is played via fast-load ROM trap interception.
+    /// When fast_load is true (default), uses ROM trap interception.
+    /// When false, uses real-time EAR bit simulation.
     /// Returns true on success.
-    bool load_tap(const std::string& path);
+    bool load_tap(const std::string& path, bool fast_load = true);
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }

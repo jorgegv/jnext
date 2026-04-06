@@ -37,7 +37,8 @@ static void print_usage(const char* prog) {
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
-        "  --headless               Run without display/audio (for automated testing)\n",
+        "  --headless               Run without display/audio (for automated testing)\n"
+        "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n",
         prog);
 }
 
@@ -69,6 +70,7 @@ int main(int argc, char* argv[]) {
     bool        machine_type_set = false;
     std::string roms_directory = "/usr/share/fuse";
     bool        headless = false;
+    bool        tape_realtime = false;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -110,6 +112,8 @@ int main(int argc, char* argv[]) {
             roms_directory = argv[++i];
         } else if (arg == "--headless") {
             headless = true;
+        } else if (arg == "--tape-realtime") {
+            tape_realtime = true;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -151,6 +155,7 @@ int main(int argc, char* argv[]) {
             } else if (ext == ".tap") {
                 // TAP loading needs BASIC to be ready; delay ~2s (100 frames at 50Hz)
                 app.set_pending_load(load_file, 100);
+                app.set_tape_realtime(tape_realtime);
             } else {
                 Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .tap)", ext);
                 return 1;

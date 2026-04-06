@@ -566,7 +566,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0x00FF, 0x00FE,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
-            return 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
+            uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
+            // Bit 6 = EAR input: 1 = no signal, 0 = signal present.
+            // During real-time tape playback, feed the tape EAR bit.
+            if (tape_.is_playing()) {
+                result = (result & ~0x40) | (tape_.tick_realtime(0) << 6);
+            }
+            return result;
         },
         [this](uint16_t, uint8_t val) {
             renderer_.ula().set_border(val & 0x07);
@@ -926,13 +932,15 @@ bool Emulator::load_nex(const std::string& path)
     return loader.apply(*this);
 }
 
-bool Emulator::load_tap(const std::string& path)
+bool Emulator::load_tap(const std::string& path, bool fast_load)
 {
     TapLoader loader;
     if (!loader.load(path)) return false;
 
+    loader.set_fast_load(fast_load);
     tape_ = std::move(loader);
-    Log::emulator()->info("TAP: tape attached — {} blocks, ready for fast-load", tape_.block_count());
+    Log::emulator()->info("TAP: tape attached — {} blocks, mode: {}",
+                           tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
     // Auto-type LOAD "" to start tape loading.
     // In 48K BASIC keyword mode:
@@ -947,6 +955,12 @@ bool Emulator::load_tap(const std::string& path)
         {6, 0,  -1, -1, 5},   // ENTER
     };
     keyboard_.queue_auto_type(keys);
+
+    // For real-time mode, start tape playback immediately.
+    // The leader tone will play while the ROM waits for edge detection.
+    if (!tape_.fast_load()) {
+        tape_.start_realtime_playback();
+    }
 
     return true;
 }
@@ -990,6 +1004,10 @@ void Emulator::run_frame()
     // The copper will update individual lines during execution.
     renderer_.init_fallback_per_line();
 
+    // Initialize per-line border colour to current value.
+    // Port 0xFE writes will update individual lines during execution.
+    renderer_.ula().init_border_per_line();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -1018,19 +1036,20 @@ void Emulator::run_frame()
             }
         }
 
-        // TAP fast-load: intercept the LD-BYTES ROM routine.
-        // When PC == 0x0556 and a tape is attached, handle the load
-        // directly instead of executing the ROM code.
-        if (tape_.is_loaded() && !tape_.at_end()) {
+        // TAP ROM traps — only when ROM is paged in at slot 0.
+        if (mmu_.is_slot_rom(0)) {
             uint16_t pc = cpu_.get_registers().PC;
-            if (pc == TapLoader::LD_BYTES_ADDR && mmu_.is_slot_rom(0)) {
+
+            // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
+            if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
+                pc == TapLoader::LD_BYTES_ADDR) {
                 tape_.handle_ld_bytes_trap(*this);
-                // Advance clock by ~100 T-states (simulates a very fast load)
                 uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
                 clock_.tick(fake_cycles);
                 scheduler_.run_until(clock_.get());
                 continue;
             }
+
         }
 
         uint64_t master_cycles;
@@ -1067,6 +1086,15 @@ void Emulator::run_frame()
             int tstates = cpu_.execute();
             // Convert T-states to 28 MHz master cycles.
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+
+            // Tick real-time tape playback (advances EAR bit state machine).
+            if (tape_.is_playing()) {
+                tape_.tick_realtime(static_cast<uint64_t>(tstates));
+                // Feed tape EAR input to beeper so loading sound is audible.
+                beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
+            } else {
+                beeper_.set_tape_ear(false);
+            }
         }
         clock_.tick(master_cycles);
 
@@ -1116,8 +1144,9 @@ void Emulator::run_frame()
 
     frame_cycle_ = frame_end;
 
-    // Snapshot the fallback colour for the last scanline.
+    // Snapshot the fallback/border colour for the last scanline.
     renderer_.snapshot_fallback_for_line(LINES_PER_FRAME - 1);
+    renderer_.ula().snapshot_border_for_line(LINES_PER_FRAME - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
@@ -1277,6 +1306,7 @@ void Emulator::on_scanline(int line)
     // for line N-1, so the fallback colour reflects the copper's MOVE writes.
     if (line > 0) {
         renderer_.snapshot_fallback_for_line(line - 1);
+        renderer_.ula().snapshot_border_for_line(line - 1);
     }
 }
 

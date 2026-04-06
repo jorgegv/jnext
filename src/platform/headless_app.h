@@ -22,6 +22,7 @@ public:
     void set_pending_load(const std::string& file, int delay_frames);
     void set_delayed_screenshot(const std::string& file, int delay_seconds);
     void set_delayed_exit(int delay_seconds);
+    void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
 
 private:
     Emulator emulator_;
@@ -46,6 +47,7 @@ private:
     EmulatorConfig config_;
     bool           config_set_ = false;
     bool           running_ = false;
+    bool           tape_realtime_ = false;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

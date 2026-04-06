@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 
 class Mmu;
@@ -55,6 +56,7 @@ public:
         ula_enabled_ = true;
         clip_x1_ = 0; clip_x2_ = 255; clip_y1_ = 0; clip_y2_ = 191;
         border_colour_ = 7;
+        border_per_line_.fill(7);
         flash_counter_ = 0;
         flash_phase_ = false;
         screen_mode_reg_ = 0;
@@ -70,6 +72,24 @@ public:
     /// Set the border colour (bits 2:0 from ULA port 0xFE write).
     void set_border(uint8_t colour) { border_colour_ = colour & 0x07; }
     uint8_t get_border() const { return border_colour_; }
+
+    /// Snapshot the current border colour for a given scanline.
+    /// Called during the frame loop so per-line border changes are preserved.
+    void snapshot_border_for_line(int line) {
+        if (line >= 0 && line < FB_HEIGHT)
+            border_per_line_[line] = border_colour_;
+    }
+
+    /// Initialize all per-line border colours to current value (called at frame start).
+    void init_border_per_line() {
+        border_per_line_.fill(border_colour_);
+    }
+
+    /// Get the snapshotted border colour for a given line.
+    uint8_t border_for_line(int line) const {
+        if (line >= 0 && line < FB_HEIGHT) return border_per_line_[line];
+        return border_colour_;
+    }
 
     /// Enable/disable ULA rendering (NextREG 0x68 bit 7).
     void set_ula_enabled(bool enabled) { ula_enabled_ = enabled; }
@@ -113,6 +133,7 @@ private:
     uint8_t          clip_y1_        = 0;
     uint8_t          clip_y2_        = 191;
     uint8_t          border_colour_   = 7;     ///< ZX colour index 0–7 (white = 7)
+    std::array<uint8_t, FB_HEIGHT> border_per_line_; ///< Per-scanline border colour snapshots
     int              flash_counter_   = 0;     ///< Incremented once per frame
     bool             flash_phase_     = false; ///< Toggles every 16 frames
     uint8_t          screen_mode_reg_ = 0;     ///< Raw value last written to port 0xFF
