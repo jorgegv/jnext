@@ -9,7 +9,7 @@ bool SdlAudio::init()
     want.freq = Mixer::SAMPLE_RATE;
     want.format = AUDIO_S16SYS;
     want.channels = 2;
-    want.samples = 1024;  // Buffer size in sample frames
+    want.samples = 512;   // Buffer size in sample frames (~12ms at 44100Hz)
     want.callback = nullptr;  // We use SDL_QueueAudio / SDL_AudioStream
 
     SDL_AudioSpec have{};
@@ -54,7 +54,8 @@ void SdlAudio::push_from_mixer(Mixer& mixer)
 
     // If the device buffer is already large enough, skip pushing new data
     // to let it drain naturally.  Never clear the queue — that causes clicks.
-    constexpr uint32_t max_queued = Mixer::SAMPLE_RATE * 2 * sizeof(int16_t) * 120 / 1000;
+    // Target ~40ms max latency (down from 120ms) for tighter audio-visual sync.
+    constexpr uint32_t max_queued = Mixer::SAMPLE_RATE * 2 * sizeof(int16_t) * 40 / 1000;
     uint32_t queued = SDL_GetQueuedAudioSize(device_);
     if (queued > max_queued) {
         return;
