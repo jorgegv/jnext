@@ -910,17 +910,25 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Add a Keyboard mapping from PC cursors -> ZX cursors (arrow keys → Caps Shift + 5/6/7/8 via compound key table)
 - [x] Run FUSE Z80 opcode test suite: 1340/1356 pass (98.8%); 16 failures are undocumented Z80 behaviors (BIT n,(HL) YF flag, SCF flags 3/5, DD/FD prefix chains, DJNZ loop test)
 - [x] Create test programs for Next features (Z88dk NEX): floating bus, L2 320x256, L2 640x256, sprite scaling — baseline verified matches ZesarUX
-- [ ] Implement new features:
+- [x] Implement new features:
   - [x] Floating bus emulation (48K/128K modes only — returns pixel/attribute bytes based on ULA fetch timing within each 8T cycle)
   - [x] Pentagon timing mode (448 ticks/line, 320 lines, zero contention, Pentagon ROMs 128p-0/1)
   - [x] Wire contention delays into CPU memory reads — per-access contention via callback in FUSE Z80 readbyte/writebyte; 128K contended bank tracking (banks 1,3,5,7 at 0xC000)
   - [x] Contention for all modes: 48K/128K/+3 (standard pattern), Pentagon/Next (zero contention) — per-slot flags, +3 wider window (VHDL hc_adj[3:1]==0), +3 banks>=4 rule, +3 special paging support
   - [x] Layer 2 320×256 and 640×256 modes — column-major addressing (x*256+y), 320x256@8bpp, 640x256@4bpp (2px/byte), NextREG 0x69 Layer 2 enable, default RRRGGGBB palette init
   - [x] Sprite scaling ×2/×4/×8 — per-sprite X/Y via extended byte 4, non-over-border clip fix (clip_y2 default 0xBF matching VHDL)
-- [ ] File format loading: TAP, TZX, SNA, SZX
+  - [x] Sprite anchoring — anchor/relative composite sprites (type 0 + type 1), offset rotation/mirror/scale, pattern & palette offset modes
+- [ ] File format loading: TAP
+  - [ ] Use a GPL or BSD/MIT library if available for parsing/playing - let me check alternatives before starting
   - [ ] Fast TAP loading via ROM load routine interception (48 and 128)
-  - [ ] TAPE menu with controls
+  - [ ] TAPE menu with controls in main emulator UI
   - [ ] Allow writing to TAP format
+  - [ ] Allow to optionally simulate a real load experience by inputting TAP data to the tape input at real speed
+- [ ] File format loading: TZX
+  - [ ] Use a GPL or BSD/MIT library if available for parsing/playing - let me check alternatives before starting
+  - [ ] Allow accelerated load (if possible), similar to TAP files
+  - [ ] Integrate with sound tape input, so that a real tape loading experience can be simulated
+- [ ] File format loading: SNA, SZX - These should be easy, they are similar to NEX
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
 - [ ] Performance profiling and optimization
 
@@ -929,7 +937,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Emulator:
   - [ ] Magic Breakpoint: a special instruction that when run in real hardware or emulators that do not support it, it runs a NOP. But if hit in the emulator (and MAGIC BP is active), is triggers a break to the debugger (equivalent to INT3 on Intel x86) - See @MAGIC-BREAKPOINT.md document for description. Support both magic-bp opcodes (ZesarUX and CSpect)
   - [ ] Save video with/without audio - Format: MP4+H264, using FFMPEG - See @VIDEO-RECORDING.md document for description.
-  - [ ] RZX input
+  - [ ] RZX input and playback
   - [ ] RZX recording
   - [ ] Magic Port:
     - [ ] A "magic" 16-bit port that can be used for debugging: each time an out is made to that port, the byte sent is traced in STDERR
@@ -985,7 +993,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] CI golden-output visual regression tests
 - [ ] General code refactor and tidy up (/simplify)
 - [ ] Replacement of magic number with named constants where possible
-- [ ] Global analysis of code, module by module, and ensure alignment with VHDL source
+- [ ] Global analysis of code, module by module, ensure alignment with VHDL source, document each module for easy reference for CLAUDE
 - [ ] Generation of Windows version
 - [ ] Generation of MacOS version
 - [ ] Documentation
