@@ -460,13 +460,15 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), QString(),
-        tr("Spectrum Files (*.nex *.tap *.tzx);;NEX Files (*.nex);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
+        tr("Spectrum Files (*.nex *.sna *.tap *.tzx);;NEX Files (*.nex);;SNA Files (*.sna);;TAP Files (*.tap);;TZX Files (*.tzx);;All Files (*)"));
     if (!path.isEmpty()) {
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
                 emulator_->load_tap(path.toStdString());
             } else if (path.toLower().endsWith(".tzx")) {
                 emulator_->load_tzx(path.toStdString());
+            } else if (path.toLower().endsWith(".sna")) {
+                emulator_->load_sna(path.toStdString());
             } else {
                 emulator_->load_nex(path.toStdString());
             }

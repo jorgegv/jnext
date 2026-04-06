@@ -67,6 +67,8 @@ void HeadlessApp::run() {
                 emulator_.load_tap(load_file_, !tape_realtime_);
             } else if (ext == ".tzx") {
                 emulator_.load_tzx(load_file_, !tape_realtime_);
+            } else if (ext == ".sna") {
+                emulator_.load_sna(load_file_);
             } else {
                 emulator_.load_nex(load_file_);
             }

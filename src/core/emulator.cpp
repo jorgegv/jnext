@@ -936,6 +936,14 @@ bool Emulator::load_nex(const std::string& path)
     return loader.apply(*this);
 }
 
+bool Emulator::load_sna(const std::string& path)
+{
+    SnaLoader loader;
+    if (!loader.load(path)) return false;
+    reset();
+    return loader.apply(*this);
+}
+
 bool Emulator::load_tap(const std::string& path, bool fast_load)
 {
     TapLoader loader;
