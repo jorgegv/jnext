@@ -925,12 +925,10 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] CLI support: `--load file.tap` with 100-frame boot delay for BASIC initialization
   - [x] Qt GUI: file dialog accepts .tap files alongside .nex
   - [x] Regression test: tap-demo (15 tests total, all passing)
-  - [x] TAPE menu with controls: Open, Save, Eject, Rewind, Fast Load toggle
-  - [x] Allow writing to TAP format — SA-BYTES trap at 0x04C2 captures save data, GUI Save dialog
+  - [x] TAPE menu with controls: Open, Eject, Rewind, Fast Load toggle
   - [x] Real-time tape loading via EAR bit simulation (--tape-realtime CLI flag, Tape menu toggle)
-    - [ ] Sound must be played also so it can be heard while loading
-    - [ ] I believe the border is updated only at the end on each frame, but it should be updated on each scanline: the lead tone should show red and cyan stripes, and the loading phase tinier stripes in yellow and blue. Currentñy I only see border rapidly changing, but fully.
-    - [ ] Fix sound latency, it is quite big
+  - [x] Tape EAR input routed to audio mixer — loading sounds audible during real-time playback
+  - [x] Per-scanline border colour updates — authentic red/cyan pilot and yellow/blue data stripes
 - [ ] File format loading: TZX
   - [ ] Use a GPL or BSD/MIT library if available for parsing/playing - let me check alternatives before starting
   - [ ] Allow accelerated load (if possible), similar to TAP files
