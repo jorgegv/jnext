@@ -185,25 +185,185 @@ void SpriteEngine::write_attr_byte(uint8_t byte_idx, uint8_t val)
 // Collision is detected when a non-transparent pixel is written to a position
 // already occupied by a previous sprite's non-transparent pixel.
 
+// ---------------------------------------------------------------------------
+// Anchor state management for composite sprite chains
+// ---------------------------------------------------------------------------
+
+void SpriteEngine::update_anchor(AnchorState& anchor, const SpriteAttr& spr)
+{
+    // Every non-relative sprite updates the anchor state.
+    // Type 1 anchors (byte4 bit 5) inherit mirror/rotate/scale to relatives.
+    bool type1 = spr.is_anchor_type1();
+
+    anchor.type1      = type1;
+    anchor.h4bit      = spr.extended() && ((spr.byte4 & 0x80) != 0);
+    anchor.visible    = spr.visible();
+    anchor.x          = spr.x();
+    anchor.y          = spr.y();
+    anchor.pattern    = spr.pattern_7bit();
+    anchor.pal_offset = spr.palette_offset();
+
+    if (type1) {
+        anchor.rotate   = spr.rotate();
+        anchor.x_mirror = spr.x_mirror();
+        anchor.y_mirror = spr.y_mirror();
+        anchor.x_scale  = spr.x_scale();
+        anchor.y_scale  = spr.y_scale();
+    } else {
+        anchor.rotate   = false;
+        anchor.x_mirror = false;
+        anchor.y_mirror = false;
+        anchor.x_scale  = 0;
+        anchor.y_scale  = 0;
+    }
+}
+
+SpriteEngine::SpriteAttr SpriteEngine::resolve_relative(const SpriteAttr& rel,
+                                                         const AnchorState& anchor)
+{
+    SpriteAttr eff;
+
+    // --- Offset transformation pipeline ---
+    // Stage 1: rotation swap — if anchor rotates, swap X/Y offsets
+    int8_t raw_x = static_cast<int8_t>(rel.byte0);
+    int8_t raw_y = static_cast<int8_t>(rel.byte1);
+
+    int8_t off_x = anchor.rotate ? raw_y : raw_x;
+    int8_t off_y = anchor.rotate ? raw_x : raw_y;
+
+    // Stage 2: mirror negation
+    // X: negate if (anchor_rotate XOR anchor_xmirror) = 1
+    if (anchor.rotate ^ anchor.x_mirror)
+        off_x = -off_x;
+    // Y: negate if anchor_ymirror = 1
+    if (anchor.y_mirror)
+        off_y = -off_y;
+
+    // Stage 3: scale multiplication (signed, left shift)
+    int rel_x2 = static_cast<int>(off_x) << anchor.x_scale;
+    int rel_y2 = static_cast<int>(off_y) << anchor.y_scale;
+
+    // Stage 4: add to anchor position (9-bit)
+    int final_x = (anchor.x + rel_x2) & 0x1FF;
+    int final_y = (anchor.y + rel_y2) & 0x1FF;
+
+    // --- Palette offset ---
+    // attr2 bit 0: 0 = use relative's palette directly, 1 = add to anchor's
+    uint8_t pal;
+    if (rel.byte2 & 0x01) {
+        pal = (rel.palette_offset() + anchor.pal_offset) & 0x0F;
+    } else {
+        pal = rel.palette_offset();
+    }
+
+    // --- Mirror/rotate for type 1 ---
+    bool rel_xm, rel_ym, rel_rot;
+    if (anchor.rotate) {
+        // When anchor has rotation, relative's mirror bits are remapped
+        rel_xm = ((rel.byte2 >> 2) & 1) ^ ((rel.byte2 >> 1) & 1);  // ymirror XOR rotate
+        rel_ym = ((rel.byte2 >> 3) & 1) ^ ((rel.byte2 >> 1) & 1);  // xmirror XOR rotate
+    } else {
+        rel_xm = rel.x_mirror();
+        rel_ym = rel.y_mirror();
+    }
+    rel_rot = rel.rotate();
+
+    bool eff_xm, eff_ym, eff_rot;
+    if (anchor.type1) {
+        // Type 1: XOR relative's transforms with anchor's
+        eff_xm  = anchor.x_mirror ^ rel_xm;
+        eff_ym  = anchor.y_mirror ^ rel_ym;
+        eff_rot = anchor.rotate   ^ rel_rot;
+    } else {
+        // Type 0: use relative's own transforms directly
+        eff_xm  = rel.x_mirror();
+        eff_ym  = rel.y_mirror();
+        eff_rot = rel.rotate();
+    }
+
+    // --- Pattern ---
+    // For relative sprites, byte4(5) holds N6 (not byte4(6) which is part of "01" marker)
+    uint8_t rel_n6 = (rel.byte4 >> 5) & 1;
+    uint8_t rel_pattern = (rel.pattern_base() << 1) | rel_n6;
+    // attr4 bit 0: 1 = add anchor pattern to relative's pattern
+    if (rel.byte4 & 0x01) {
+        rel_pattern = (rel_pattern + anchor.pattern) & 0x7F;
+    }
+
+    // --- Scale ---
+    uint8_t eff_xscale, eff_yscale;
+    if (anchor.type1) {
+        // Type 1: inherit anchor's scale
+        eff_xscale = anchor.x_scale;
+        eff_yscale = anchor.y_scale;
+    } else {
+        // Type 0: use relative's own scale
+        eff_xscale = rel.x_scale();
+        eff_yscale = rel.y_scale();
+    }
+
+    // --- Reconstruct effective SpriteAttr bytes ---
+    eff.byte0 = final_x & 0xFF;
+    eff.byte1 = final_y & 0xFF;
+    eff.byte2 = static_cast<uint8_t>(
+        (pal << 4) |
+        (eff_xm  ? 0x08 : 0) |
+        (eff_ym  ? 0x04 : 0) |
+        (eff_rot ? 0x02 : 0) |
+        ((final_x >> 8) & 0x01));
+    // Visibility: anchor AND relative must both be visible
+    bool eff_vis = anchor.visible && rel.visible();
+    eff.byte3 = static_cast<uint8_t>(
+        (eff_vis ? 0x80 : 0) |
+        0x40 |  // extended flag
+        ((rel_pattern >> 1) & 0x3F));
+    // H4BIT from anchor; N6 from computed pattern; scale from effective
+    eff.byte4 = static_cast<uint8_t>(
+        (anchor.h4bit ? 0x80 : 0) |
+        ((rel_pattern & 1) << 6) |  // N6
+        (eff_xscale << 3) |
+        (eff_yscale << 1) |
+        ((final_y >> 8) & 0x01));
+
+    return eff;
+}
+
+// ---------------------------------------------------------------------------
+// Render one scanline of sprites
+// ---------------------------------------------------------------------------
+
 void SpriteEngine::render_scanline(uint32_t* dst, int y,
                                    const PaletteManager& palette) const
 {
     if (!sprites_visible_)
         return;
 
+    // Pre-resolve anchor chains: compute effective attributes for all sprites.
+    // Anchor chain is always evaluated in sprite index order 0-127 regardless
+    // of zero_on_top rendering order (VHDL: spr_cur_index increments in S_QUALIFY).
+    SpriteAttr effective[NUM_SPRITES];
+    AnchorState anchor{};
+
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        const auto& spr = sprites_[i];
+        if (spr.is_relative()) {
+            effective[i] = resolve_relative(spr, anchor);
+        } else {
+            effective[i] = spr;
+            update_anchor(anchor, spr);
+        }
+    }
+
     // Line-occupied tracker for collision detection (320 pixels max).
     bool line_occupied[DISPLAY_WIDTH] = {};
 
     if (zero_on_top_) {
-        // Sprite 0 on top: render from 127 down to 0 so sprite 0 is last
-        // (overwrites everything).  But collision is still detected.
         for (int i = NUM_SPRITES - 1; i >= 0; --i) {
-            render_sprite_scanline(dst, sprites_[i], y, palette, line_occupied);
+            render_sprite_scanline(dst, effective[i], y, palette, line_occupied);
         }
     } else {
-        // Default: higher-index sprites on top (rendered last, overwrite).
         for (int i = 0; i < NUM_SPRITES; ++i) {
-            render_sprite_scanline(dst, sprites_[i], y, palette, line_occupied);
+            render_sprite_scanline(dst, effective[i], y, palette, line_occupied);
         }
     }
 }

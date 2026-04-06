@@ -29,7 +29,7 @@ class PaletteManager;
 ///   4-bit mode: pattern[6:1] & N6 & row[3:0] & col[3:1] (128 bytes per pattern)
 ///
 /// Per-sprite X/Y scaling (x1/x2/x4/x8) is implemented via extended byte 4.
-/// Sprite linking (relative sprites) is deferred.
+/// Sprite anchoring (composite/relative sprites) is implemented.
 class SpriteEngine {
 public:
     static constexpr int NUM_SPRITES    = 128;
@@ -173,6 +173,14 @@ private:
         // Scaled sprite dimensions
         int      width()         const { return SPRITE_SIZE << x_scale(); }
         int      height()        const { return SPRITE_SIZE << y_scale(); }
+
+        // Anchor/relative sprite detection (VHDL sprites.vhd)
+        // A sprite is relative when: extended AND byte4 bits 7:6 = "01"
+        bool     is_relative()   const { return extended() && ((byte4 & 0xC0) == 0x40); }
+        // Anchor type: byte4 bit 5 (only meaningful for non-relative extended sprites)
+        // Type 0: relatives inherit position/pattern/palette/h4bit only
+        // Type 1: additionally inherit mirror/rotate/scale with XOR
+        bool     is_anchor_type1() const { return extended() && ((byte4 & 0x20) != 0); }
     };
 
     SpriteAttr sprites_[NUM_SPRITES];
@@ -202,6 +210,28 @@ private:
     // Status (sticky flags, cleared on read of port 0x303B)
     mutable bool collision_     = false;
     mutable bool max_sprites_   = false;
+
+    // Anchor state for composite sprite chains
+    struct AnchorState {
+        bool     type1      = false;  // type 0 vs type 1
+        bool     h4bit      = false;  // anchor's 4-bit pattern flag
+        bool     visible    = false;
+        int      x          = 0;      // 9-bit position
+        int      y          = 0;
+        uint8_t  pattern    = 0;      // 7-bit pattern (N5:N0 << 1 | N6)
+        uint8_t  pal_offset = 0;      // 4-bit palette offset
+        bool     rotate     = false;
+        bool     x_mirror   = false;
+        bool     y_mirror   = false;
+        uint8_t  x_scale    = 0;      // 2-bit scale
+        uint8_t  y_scale    = 0;
+    };
+
+    // Update anchor state from a non-relative sprite
+    static void update_anchor(AnchorState& anchor, const SpriteAttr& spr);
+
+    // Compute effective SpriteAttr for a relative sprite
+    static SpriteAttr resolve_relative(const SpriteAttr& rel, const AnchorState& anchor);
 
     // Helpers
     void render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr, int y,
