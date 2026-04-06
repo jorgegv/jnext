@@ -918,9 +918,13 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Layer 2 320×256 and 640×256 modes — column-major addressing (x*256+y), 320x256@8bpp, 640x256@4bpp (2px/byte), NextREG 0x69 Layer 2 enable, default RRRGGGBB palette init
   - [x] Sprite scaling ×2/×4/×8 — per-sprite X/Y via extended byte 4, non-over-border clip fix (clip_y2 default 0xBF matching VHDL)
   - [x] Sprite anchoring — anchor/relative composite sprites (type 0 + type 1), offset rotation/mirror/scale, pattern & palette offset modes
-- [ ] File format loading: TAP
-  - [ ] Use a GPL or BSD/MIT library if available for parsing/playing - let me check alternatives before starting
-  - [ ] Fast TAP loading via ROM load routine interception (48 and 128)
+- [x] File format loading: TAP
+  - [x] Custom TAP parser (no external library) — block parsing, checksum verification, header logging
+  - [x] Fast TAP loading via ROM LD-BYTES trap at 0x0556 (48K ROM)
+  - [x] Auto-type LOAD "" via keyboard matrix injection with debounce-safe timing
+  - [x] CLI support: `--load file.tap` with 100-frame boot delay for BASIC initialization
+  - [x] Qt GUI: file dialog accepts .tap files alongside .nex
+  - [x] Regression test: tap-demo (15 tests total, all passing)
   - [ ] TAPE menu with controls in main emulator UI
   - [ ] Allow writing to TAP format
   - [ ] Allow to optionally simulate a real load experience by inputting TAP data to the tape input at real speed

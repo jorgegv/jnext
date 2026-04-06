@@ -1,5 +1,6 @@
 #include "headless_app.h"
 #include "core/log.h"
+#include <cctype>
 
 bool HeadlessApp::init(int argc, char* argv[]) {
     (void)argc; (void)argv;
@@ -54,9 +55,19 @@ void HeadlessApp::run() {
             --inject_countdown_;
         }
 
-        // Apply pending load.
+        // Apply pending load (auto-detect format by extension).
         if (load_countdown_ == 0) {
-            emulator_.load_nex(load_file_);
+            std::string ext;
+            auto dot = load_file_.rfind('.');
+            if (dot != std::string::npos) {
+                ext = load_file_.substr(dot);
+                for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            if (ext == ".tap") {
+                emulator_.load_tap(load_file_);
+            } else {
+                emulator_.load_nex(load_file_);
+            }
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
             --load_countdown_;

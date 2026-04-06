@@ -153,3 +153,52 @@ void Keyboard::set_matrix_bit(int row, int col, bool pressed) {
         matrix_[row] |= (1 << col);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Auto-type
+// ---------------------------------------------------------------------------
+
+void Keyboard::queue_auto_type(const std::vector<AutoKey>& keys) {
+    auto_queue_ = keys;
+    auto_frame_count_ = 0;
+    auto_gap_ = false;
+    Log::input()->info("Auto-type: queued {} keystrokes", keys.size());
+}
+
+void Keyboard::tick_auto_type() {
+    if (auto_queue_.empty()) return;
+
+    if (auto_gap_) {
+        // Gap between keys: all keys released for 4 frames
+        // (ROM debounce needs to see key released before re-accepting)
+        ++auto_frame_count_;
+        if (auto_frame_count_ >= 4) {
+            auto_gap_ = false;
+            auto_frame_count_ = 0;
+        }
+        return;
+    }
+
+    const AutoKey& key = auto_queue_.front();
+
+    if (auto_frame_count_ == 0) {
+        // Press the key(s)
+        set_matrix_bit(key.row1, key.col1, true);
+        if (key.row2 >= 0) {
+            set_matrix_bit(key.row2, key.col2, true);
+        }
+    }
+
+    ++auto_frame_count_;
+
+    if (auto_frame_count_ >= key.frames) {
+        // Release the key(s)
+        set_matrix_bit(key.row1, key.col1, false);
+        if (key.row2 >= 0) {
+            set_matrix_bit(key.row2, key.col2, false);
+        }
+        auto_queue_.erase(auto_queue_.begin());
+        auto_frame_count_ = 0;
+        auto_gap_ = true;  // enter gap before next key
+    }
+}

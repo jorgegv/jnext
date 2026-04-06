@@ -28,7 +28,7 @@ static void print_usage(const char* prog) {
         "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex\n"
+        "                       Supported: .nex, .tap\n"
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n"
@@ -148,8 +148,11 @@ int main(int argc, char* argv[]) {
             }
             if (ext == ".nex") {
                 app.set_pending_load(load_file, 0);
+            } else if (ext == ".tap") {
+                // TAP loading needs BASIC to be ready; delay ~2s (100 frames at 50Hz)
+                app.set_pending_load(load_file, 100);
             } else {
-                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex)", ext);
+                Log::emulator()->error("--load: unsupported file extension '{}' (supported: .nex, .tap)", ext);
                 return 1;
             }
         }
