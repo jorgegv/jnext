@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollBar>
 #include <vector>
 #include "debug/disasm.h"
 
@@ -51,6 +52,7 @@ protected:
 
 private:
     void disassemble_from(uint16_t addr, int count);
+    uint16_t clamp_view_addr(uint16_t addr) const;
     int line_at_y(int y) const;
     void navigate_to_address(const QString& text);
     static uint16_t extract_immediate16(const char* mnemonic);
@@ -60,6 +62,8 @@ private:
     // Navigation
     QLineEdit* addr_input_ = nullptr;
     QPushButton* goto_pc_btn_ = nullptr;
+    QScrollBar* scrollbar_ = nullptr;
+    bool scrollbar_updating_ = false; // guard against feedback loops
 
     // Display state
     struct DisasmEntry {

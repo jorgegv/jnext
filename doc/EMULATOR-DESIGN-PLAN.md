@@ -956,29 +956,20 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Magic Port: configurable 16-bit debug output port (`--magic-port ADDR --magic-port-mode hex|dec|ascii|line`); writes to the port are logged to stderr; line mode buffers until CR/LF; demo program `demo/magic_port_demo.c`
   - [x] Regression tests for all features: magic BP/port functional tests, video recording (MP4 stream validation), RZX record/playback roundtrip
   
-- [ ] Debugger:
-  - [ ] Use tabbed panels for everything
-  - [ ] Registers panel:
-    - [ ] Convert to tabbed panel
-    - [ ] Add IFF1/IFF2/R registers, IM Mode, ULA active screen (bank 5/7) 
-    - [ ] Add a NEXTREGS panel
-  - [ ] Add a MMU panel: current bank layout (128 mode, banks 0-3), current page layout (Next MMU mode, pages 0-7)
+- [x] Debugger:
+  - [x] Tabbed panel layout: left tabs (Video/Sprites/Copper/NextREG/Audio), bottom-left (Stack/Call Stack/Memory), bottom-right (Watches/Breakpoints), all tabs on top
+  - [x] CPU Registers panel: vertical narrow panel with 2×2 register groups, flags, state, ULA active screen (bank 5/7)
+  - [x] MMU panel: Next MMU slot table (Slot/Page/Type) + 128K Bank Mappings, vertical below CPU panel
+  - [x] Stack panel: 16-bit SP-relative view, ascending address, Address/Word/High Byte/Low Byte columns, SP row highlighted
+  - [x] Call stack panel: tracks CALL/RST/INT/RET via pre/post SP comparison, symbol resolution from MAP files, paused-only updates
+  - [x] Control buttons: "Run to EOF" (Run to End of Frame), "Run to EOSL" (Run to End of Scan Line) — toolbar + Debug menu
+  - [x] Disassembly panel: dynamic visible lines from panel height, "Go to PC" button, address input centers view, vertical scrollbar (0x0000-0xFFFF), BP/Addr column headers, address wrap-around clamping
+  - [x] Non-resizable panel splitters (1px handles, no collapse)
   - [ ] Video panel:
     - [ ] add a ULA screen panel: two screens with contents of both screens (normal, shadow), with current frame video contents updated to the scanline, red line indicating the current scanline
     - [ ] add a Layer2 screen panel: two screens with contents of both Layer2 screens (normal, shadow) updated to the scanline and red line indicating the current scanline
     - [ ] add a Sprite screen panel: contents of Sprite rendering updated to the scanline and red line indicating the current scanline
     - [ ] add a TileMap screen panel: contents of TileMap rendering updated to the scanline and red line indicating the current scanline
-  - [ ] Call stack panel:
-    - [ ] Monitors CALL, RST instructions
-    - [ ] Monitors Interrupts
-    - [ ] Integrates with symbol list
-    - [ ] Shows list of nested functions calls, top->down (recent->older)
-  - [ ] Stack panel:
-    - [ ] View of 16-bit values, top->down: address (hex), 16-bit value hex+dec, Hibyte value hex+dec, Lobyte value hex+dec
-    - [ ] Potentially integrated with Call Stack panel?
-  - [ ] Control buttons: 
-    - [ ] New button "Run to EOF" (popup hint with "Run to End of Frame")
-    - [ ] New button "-> Run to EOSL" (popup hint with "Run to End of Scan Line")
   - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
     - [ ] Add --rewind-buffer-size <num-instructions> (deferred: depends on backwards execution)
   - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)

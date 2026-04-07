@@ -35,20 +35,25 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     auto* top_bar = new QHBoxLayout();
     top_bar->setContentsMargins(2, 2, 2, 2);
 
-    auto* addr_label = new QLabel("Addr:");
+    auto* addr_label = new QLabel("Address:");
     addr_input_ = new QLineEdit();
     addr_input_->setPlaceholderText("Address...");
     addr_input_->setFont(mono_font_);
     addr_input_->setMaximumWidth(80);
     addr_input_->setToolTip("Enter hex address (e.g. 4000) and press Enter");
 
-    goto_pc_btn_ = new QPushButton("Goto PC");
+    goto_pc_btn_ = new QPushButton("Go to PC");
     goto_pc_btn_->setMaximumWidth(80);
 
     top_bar->addWidget(addr_label);
     top_bar->addWidget(addr_input_);
     top_bar->addWidget(goto_pc_btn_);
     top_bar->addStretch();
+
+    scrollbar_ = new QScrollBar(Qt::Vertical, this);
+    scrollbar_->setRange(0, 0xFFFF);
+    scrollbar_->setSingleStep(3);  // ~1 instruction
+    scrollbar_->setPageStep(48);   // ~one page of instructions
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -59,8 +64,8 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     layout->addWidget(top_widget);
     layout->addStretch();
 
-    // Calculate paint offset (top bar height)
-    paint_y_offset_ = 28; // approximate top bar height
+    // Calculate paint offset (top bar height + column headers + spacing)
+    paint_y_offset_ = 52;
 
     setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                    10 * LINE_HEIGHT + paint_y_offset_);
@@ -75,17 +80,56 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     connect(goto_pc_btn_, &QPushButton::clicked, this, [this]() {
         activate_follow_pc();
     });
+
+    // Scrollbar — navigate address space
+    connect(scrollbar_, &QScrollBar::valueChanged, this, [this](int value) {
+        if (scrollbar_updating_) return;
+        view_addr_ = clamp_view_addr(static_cast<uint16_t>(value));
+        disassemble_from(view_addr_, visible_lines());
+        update();
+    });
 }
 
 void DisasmPanel::navigate_to_address(const QString& text)
 {
     bool ok = false;
     uint16_t addr = static_cast<uint16_t>(text.toUInt(&ok, 16));
-    if (ok) {
-        view_addr_ = addr;
-        disassemble_from(view_addr_, visible_lines());
-        update();
+    if (!ok) return;
+
+    // Center the target address in the view
+    int half = visible_lines() / 2;
+    int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
+    uint16_t start = (addr >= bytes_back) ? (addr - bytes_back) : 0;
+
+    auto read_fn = [this](uint16_t a) -> uint8_t {
+        return emulator_->mmu().read(a);
+    };
+
+    int extra_lines = visible_lines() + half + 10;
+    std::vector<uint16_t> addrs;
+    addrs.reserve(extra_lines);
+    uint16_t cur = start;
+    for (int i = 0; i < extra_lines; ++i) {
+        addrs.push_back(cur);
+        int len = instruction_length(cur, read_fn);
+        cur = static_cast<uint16_t>(cur + len);
     }
+
+    int target_idx = -1;
+    for (int i = 0; i < static_cast<int>(addrs.size()); ++i) {
+        if (addrs[i] == addr) { target_idx = i; break; }
+    }
+
+    if (target_idx >= 0) {
+        int start_idx = target_idx - half;
+        if (start_idx < 0) start_idx = 0;
+        view_addr_ = addrs[start_idx];
+    } else {
+        view_addr_ = addr;
+    }
+
+    disassemble_from(view_addr_, visible_lines());
+    update();
 }
 
 void DisasmPanel::disassemble_from(uint16_t addr, int count)
@@ -116,12 +160,31 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
             break;
         }
     }
+
+    // Sync scrollbar
+    if (scrollbar_) {
+        scrollbar_updating_ = true;
+        scrollbar_->setValue(addr);
+        scrollbar_updating_ = false;
+    }
 }
 
 void DisasmPanel::set_paused(bool paused) {
     if (paused_ == paused) return;
     paused_ = paused;
     update(); // trigger repaint to show/hide gray overlay
+}
+
+uint16_t DisasmPanel::clamp_view_addr(uint16_t addr) const
+{
+    // Prevent view_addr_ from going so far that the view extends past 0xFFFF.
+    // Last visible line should reach ~0xFFFF. Longest Z80 instruction is 4 bytes,
+    // so use 1 byte per line (minimum) to compute the tightest bound.
+    int max_addr = 0x10000 - visible_lines();
+    if (max_addr < 0) max_addr = 0;
+    if (addr > static_cast<uint16_t>(max_addr))
+        return static_cast<uint16_t>(max_addr);
+    return addr;
 }
 
 void DisasmPanel::refresh()
@@ -203,6 +266,18 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     painter.fillRect(0, paint_y_offset_, w, visible_lines() * LINE_HEIGHT,
                      QColor(255, 255, 255));
 
+    // Draw column headers just above the disasm lines
+    QFont header_font = mono_font_;
+    header_font.setBold(true);
+    header_font.setPointSize(8);
+    QFontMetrics hfm(header_font);
+    painter.setFont(header_font);
+    painter.setPen(QColor(80, 80, 80));
+    int header_y = paint_y_offset_ - 4;
+    painter.drawText(2, header_y, "BP");
+    painter.drawText(GUTTER_WIDTH + 4, header_y, "Addr");
+    painter.setFont(mono_font_);
+
     // Draw gutter separator
     painter.setPen(QColor(200, 200, 200));
     painter.drawLine(GUTTER_WIDTH, paint_y_offset_,
@@ -227,7 +302,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 
         // Breakpoint indicator (red circle in gutter)
         if (entry.has_breakpoint) {
-            painter.setBrush(QColor(220, 40, 40));
+            painter.setBrush(QColor(255, 0, 0));
             painter.setPen(Qt::NoPen);
             int cx = GUTTER_WIDTH / 2;
             int cy = y + LINE_HEIGHT / 2;
@@ -322,9 +397,11 @@ void DisasmPanel::wheelEvent(QWheelEvent* event)
         uint16_t addr = view_addr_;
         for (int i = 0; i < lines_to_scroll; ++i) {
             int len = instruction_length(addr, read_fn);
-            addr = static_cast<uint16_t>(addr + len);
+            uint16_t next = static_cast<uint16_t>(addr + len);
+            if (next < addr) break; // wrap guard
+            addr = next;
         }
-        view_addr_ = addr;
+        view_addr_ = clamp_view_addr(addr);
     } else {
         // Scroll up: heuristic - go back ~3 bytes per line (average Z80 instruction)
         int bytes_back = (-lines_to_scroll) * 3;
@@ -373,7 +450,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
                 return emulator_->mmu().read(a);
             };
             int len = instruction_length(view_addr_, read_fn);
-            view_addr_ = static_cast<uint16_t>(view_addr_ + len);
+            view_addr_ = clamp_view_addr(static_cast<uint16_t>(view_addr_ + len));
             disassemble_from(view_addr_, visible_lines());
             selected_line_ = static_cast<int>(entries_.size()) - 1;
             update();
@@ -396,9 +473,11 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         uint16_t addr = view_addr_;
         for (int i = 0; i < visible_lines(); ++i) {
             int len = instruction_length(addr, read_fn);
-            addr = static_cast<uint16_t>(addr + len);
+            uint16_t next = static_cast<uint16_t>(addr + len);
+            if (next < addr) break;
+            addr = next;
         }
-        view_addr_ = addr;
+        view_addr_ = clamp_view_addr(addr);
         disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
         update();
@@ -595,6 +674,21 @@ uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)
 
 void DisasmPanel::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
+
+    // Position scrollbar on the right edge, from paint_y_offset_ to bottom
+    if (scrollbar_) {
+        int sb_w = scrollbar_->sizeHint().width();
+        scrollbar_->setGeometry(width() - sb_w, paint_y_offset_,
+                                sb_w, height() - paint_y_offset_);
+        // Adjust max to match clamp_view_addr logic.
+        int max_addr = 0x10000 - visible_lines();
+        if (max_addr < 0) max_addr = 0;
+        scrollbar_updating_ = true;
+        scrollbar_->setRange(0, max_addr);
+        scrollbar_->setPageStep(visible_lines());
+        scrollbar_updating_ = false;
+    }
+
     // Re-disassemble to fill the new height
     disassemble_from(view_addr_, visible_lines());
     update();

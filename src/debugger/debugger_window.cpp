@@ -370,6 +370,8 @@ void DebuggerWindow::create_panels() {
     right_col->addWidget(mmu_box);
     right_col->setStretchFactor(0, 1);
     right_col->setStretchFactor(1, 1);
+    right_col->setHandleWidth(1);
+    right_col->setChildrenCollapsible(false);
 
     auto* right_widget = new QWidget();
     auto* right_layout = new QHBoxLayout(right_widget);
@@ -385,13 +387,15 @@ void DebuggerWindow::create_panels() {
     top_splitter_->setStretchFactor(0, 1);  // tabs stretch
     top_splitter_->setStretchFactor(1, 1);  // right side stretches equally
     top_splitter_->setSizes({350, 350});
+    top_splitter_->setHandleWidth(1);
+    top_splitter_->setChildrenCollapsible(false);
 
     // --- Bottom: memory tabs (left) | watches+breakpoints tabs (right) ---
     auto* memory_tab_widget = new QTabWidget();
     memory_tab_widget->setTabPosition(QTabWidget::North);
-    memory_tab_widget->addTab(memory_panel_, tr("Memory"));
     memory_tab_widget->addTab(stack_panel_, tr("Stack"));
     memory_tab_widget->addTab(callstack_panel_, tr("Call Stack"));
+    memory_tab_widget->addTab(memory_panel_, tr("Memory"));
 
     auto* bottom_tab_widget = new QTabWidget();
     bottom_tab_widget->setTabPosition(QTabWidget::North);
@@ -404,7 +408,8 @@ void DebuggerWindow::create_panels() {
     bottom_splitter->setStretchFactor(0, 1);
     bottom_splitter->setStretchFactor(1, 1);
     bottom_splitter->setSizes({600, 400});
-    bottom_splitter->setStyleSheet("QSplitter::handle { background: #C0C0C0; }");
+    bottom_splitter->setHandleWidth(1);
+    bottom_splitter->setChildrenCollapsible(false);
 
     // --- Main: top area | bottom (memory + watches) ---
     main_splitter_ = new QSplitter(Qt::Vertical);
@@ -412,16 +417,10 @@ void DebuggerWindow::create_panels() {
     main_splitter_->addWidget(bottom_splitter);
     main_splitter_->setStretchFactor(0, 1);  // top gets stretch
     main_splitter_->setStretchFactor(1, 0);  // bottom stays at preferred size
+    main_splitter_->setHandleWidth(1);
+    main_splitter_->setChildrenCollapsible(false);
 
     setCentralWidget(main_splitter_);
-
-    // Style: light separator handles
-    main_splitter_->setStyleSheet(
-        "QSplitter::handle { background: #C0C0C0; }"
-    );
-    top_splitter_->setStyleSheet(
-        "QSplitter::handle { background: #C0C0C0; }"
-    );
 }
 
 void DebuggerWindow::activate_follow_pc() {
