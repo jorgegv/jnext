@@ -2,6 +2,7 @@
 #include "gui/emulator_widget.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/video_recorder.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -663,6 +664,15 @@ void MainWindow::update_tape_status() {
 
 void MainWindow::on_record_start() {
     if (!emulator_) return;
+
+    if (!VideoRecorder::ffmpeg_available()) {
+        QMessageBox::warning(this, tr("Recording Error"),
+            tr("FFmpeg is not installed or not found in PATH.\n\n"
+               "Install it with your package manager, e.g.:\n"
+               "  sudo dnf install ffmpeg\n"
+               "  sudo apt install ffmpeg"));
+        return;
+    }
 
     QString path = QFileDialog::getSaveFileName(
         this, tr("Record MPEG4 Video"), QString(),
