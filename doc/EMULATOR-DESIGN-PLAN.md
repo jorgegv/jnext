@@ -950,9 +950,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [ ] Emulator:
   - [x] Magic Breakpoint: ED FF (ZEsarUX/Spectaculator) and DD 01 (CSpect) trigger debugger pause when `--magic-breakpoint` is enabled; acts as NOP when disabled; Qt Debug menu toggle; demo program `demo/magic_bp_demo.c`
-  - [ ] Save video with/without audio - Format: MP4+H264, using FFMPEG - See @VIDEO-RECORDING.md document for description.
-  - [ ] RZX file input and playback (Open RZX file, Start Playing, Pause, Stop Playing)
-  - [ ] RZX recording to file (Record to RZX file, Start Recording, Pause Recording, Stop Recording)
+  - [x] Save video with/without audio — MP4 via FFmpeg pipe (temp-file approach), `--record FILE` CLI, Qt Start/Stop Recording menu; encoder fallback chain: libx264 → mpeg4 → libopenh264
+  - [x] RZX file playback — `--rzx-play FILE` CLI, Qt File menu, embedded SNA snapshot loading, per-frame IN value replay via port dispatch hook
+  - [x] RZX recording — `--rzx-record FILE` CLI, Qt File menu, captures IN values + instruction count per frame, embeds SNA snapshot, zlib-compressed output
   - [x] Magic Port: configurable 16-bit debug output port (`--magic-port ADDR --magic-port-mode hex|dec|ascii|line`); writes to the port are logged to stderr; line mode buffers until CR/LF; demo program `demo/magic_port_demo.c`
   - [ ] All previous functionalities should have a demo/test program when it is sensible
   
