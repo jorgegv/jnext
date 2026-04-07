@@ -169,7 +169,11 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 
 void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
 {
-    // Use per-line border colour (snapshotted during frame execution).
+    // Temporarily use the per-line border colour for rendering, but restore
+    // the live border_colour_ afterwards so init_border_per_line() at the
+    // next frame start uses the value last set by port 0xFE, not the
+    // per-line snapshot from the last rendered row.
+    const uint8_t saved_border = border_colour_;
     if (row >= 0 && row < FB_HEIGHT)
         border_colour_ = border_per_line_[row];
 
@@ -201,6 +205,8 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
     } else {
         render_border_line(dst);
     }
+
+    border_colour_ = saved_border;
 }
 
 // ---------------------------------------------------------------------------
