@@ -211,6 +211,32 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# Video recording test: verify --record produces a valid MP4 file
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'video-record-func'; then
+    printf "  %-25s " "[video-record-func]"
+    rec_file="$TMP_DIR/test_recording.mp4"
+    timeout --kill-after=5s 12s "$JNEXT" --headless \
+        --record "$rec_file" \
+        --delayed-automatic-exit 3 &>/dev/null || true
+    if [[ -f "$rec_file" ]] && command -v ffprobe &>/dev/null; then
+        has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
+        has_audio=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=audio" || true)
+        if [[ "$has_video" -ge 1 && "$has_audio" -ge 1 ]]; then
+            echo -e "${GREEN}PASS${RESET} (MP4 with video+audio streams)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} (MP4 missing video or audio stream)"
+            fail=$((fail + 1))
+        fi
+    elif [[ -f "$rec_file" ]]; then
+        echo -e "${YELLOW}SKIP${RESET} (ffprobe not available for validation)"
+        skip=$((skip + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (no MP4 file produced)"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
