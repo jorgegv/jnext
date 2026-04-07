@@ -274,6 +274,33 @@ void MainWindow::create_menus() {
 
     file_menu->addSeparator();
 
+    QAction* rzx_play = file_menu->addAction(tr("Play &RZX Recording..."));
+    connect(rzx_play, &QAction::triggered, this, [this]() {
+        QString path = QFileDialog::getOpenFileName(
+            this, tr("Play RZX File"), QString(),
+            tr("RZX Files (*.rzx);;All Files (*)"));
+        if (!path.isEmpty() && emulator_) {
+            emulator_->load_rzx(path.toStdString());
+        }
+    });
+
+    QAction* rzx_record = file_menu->addAction(tr("Record R&ZX..."));
+    connect(rzx_record, &QAction::triggered, this, [this]() {
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Record RZX File"), QString(),
+            tr("RZX Files (*.rzx);;All Files (*)"));
+        if (!path.isEmpty() && emulator_) {
+            emulator_->start_rzx_recording(path.toStdString());
+        }
+    });
+
+    QAction* rzx_stop = file_menu->addAction(tr("Stop RZX Recordin&g"));
+    connect(rzx_stop, &QAction::triggered, this, [this]() {
+        if (emulator_) emulator_->stop_rzx_recording();
+    });
+
+    file_menu->addSeparator();
+
     QAction* quit = file_menu->addAction(tr("&Quit"));
     quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(quit, &QAction::triggered, qApp, &QApplication::quit);
@@ -485,7 +512,7 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), QString(),
-        tr("Spectrum Files (*.nex *.sna *.szx *.tap *.tzx *.wav);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;All Files (*)"));
+        tr("Spectrum Files (*.nex *.sna *.szx *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
     if (!path.isEmpty()) {
         if (emulator_) {
             if (path.toLower().endsWith(".tap")) {
@@ -498,6 +525,8 @@ void MainWindow::on_load_nex() {
                 emulator_->load_szx(path.toStdString());
             } else if (path.toLower().endsWith(".wav")) {
                 emulator_->load_wav(path.toStdString());
+            } else if (path.toLower().endsWith(".rzx")) {
+                emulator_->load_rzx(path.toStdString());
             } else {
                 emulator_->load_nex(path.toStdString());
             }

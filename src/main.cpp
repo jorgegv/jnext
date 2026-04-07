@@ -42,7 +42,9 @@ static void print_usage(const char* prog) {
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
-        "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n",
+        "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
+        "  --rzx-play FILE         Play back an RZX recording file\n"
+        "  --rzx-record FILE       Record input to an RZX file\n",
         prog);
 }
 
@@ -80,6 +82,8 @@ int main(int argc, char* argv[]) {
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
     std::string record_file;
+    std::string rzx_play_file;
+    std::string rzx_record_file;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -138,6 +142,10 @@ int main(int argc, char* argv[]) {
             else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", argv[i]); return 1; }
         } else if (arg == "--record" && i + 1 < argc) {
             record_file = argv[++i];
+        } else if (arg == "--rzx-play" && i + 1 < argc) {
+            rzx_play_file = argv[++i];
+        } else if (arg == "--rzx-record" && i + 1 < argc) {
+            rzx_record_file = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -178,7 +186,11 @@ int main(int argc, char* argv[]) {
                 ext = load_file.substr(dot);
                 for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             }
-            if (ext == ".nex" || ext == ".sna" || ext == ".szx") {
+            if (ext == ".rzx") {
+                // RZX files are handled via --rzx-play, not --load.
+                // But support it here for convenience.
+                rzx_play_file = load_file;
+            } else if (ext == ".nex" || ext == ".sna" || ext == ".szx") {
                 app.set_pending_load(load_file, 0);
             } else if (ext == ".tap" || ext == ".tzx") {
                 // Tape loading needs BASIC to be ready; delay ~2s (100 frames at 50Hz)
@@ -194,12 +206,19 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Start recording if requested (after init, before run).
+        // Start video recording if requested (after init, before run).
         if (!record_file.empty()) {
             if (!app.emulator().start_recording(record_file)) {
                 Log::emulator()->error("Failed to start recording to {}", record_file);
-                // Continue without recording — not fatal.
             }
+        }
+
+        // Set up RZX playback or recording.
+        if (!rzx_play_file.empty()) {
+            app.set_rzx_play(rzx_play_file);
+        }
+        if (!rzx_record_file.empty()) {
+            app.set_rzx_record(rzx_record_file);
         }
 
         app.run();

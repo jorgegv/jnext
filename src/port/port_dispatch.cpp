@@ -60,7 +60,15 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
 
 // IoInterface implementation
 uint8_t PortDispatch::in(uint16_t port) {
-    return read(port);
+    // RZX playback: override all IN reads with recorded values.
+    if (rzx_in_override) return rzx_in_override(port);
+
+    uint8_t val = read(port);
+
+    // RZX recording: capture every IN value.
+    if (rzx_in_record) rzx_in_record(val);
+
+    return val;
 }
 
 void PortDispatch::out(uint16_t port, uint8_t val) {

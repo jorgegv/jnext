@@ -46,6 +46,16 @@ void HeadlessApp::set_delayed_exit(int delay_seconds) {
 }
 
 void HeadlessApp::run() {
+    // Apply RZX play/record at startup.
+    if (!rzx_play_file_.empty()) {
+        if (!emulator_.load_rzx(rzx_play_file_)) {
+            Log::platform()->error("RZX: failed to load '{}'", rzx_play_file_);
+        }
+    }
+    if (!rzx_record_file_.empty()) {
+        emulator_.start_rzx_recording(rzx_record_file_);
+    }
+
     while (running_) {
         // Apply pending inject.
         if (inject_countdown_ == 0) {
@@ -73,6 +83,8 @@ void HeadlessApp::run() {
                 emulator_.load_szx(load_file_);
             } else if (ext == ".wav") {
                 emulator_.load_wav(load_file_);
+            } else if (ext == ".rzx") {
+                emulator_.load_rzx(load_file_);
             } else {
                 emulator_.load_nex(load_file_);
             }
@@ -103,5 +115,9 @@ void HeadlessApp::run() {
 }
 
 void HeadlessApp::shutdown() {
+    // Stop RZX recording if active (writes the file).
+    if (emulator_.rzx_recorder().is_recording()) {
+        emulator_.stop_rzx_recording();
+    }
     Log::platform()->info("Headless mode shutdown");
 }

@@ -23,6 +23,8 @@ public:
     void set_delayed_screenshot(const std::string& file, int delay_seconds);
     void set_delayed_exit(int delay_seconds);
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+    void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
+    void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
 private:
     Emulator emulator_;
@@ -48,6 +50,8 @@ private:
     bool           config_set_ = false;
     bool           running_ = false;
     bool           tape_realtime_ = false;
+    std::string    rzx_play_file_;
+    std::string    rzx_record_file_;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

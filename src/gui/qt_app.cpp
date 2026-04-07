@@ -93,6 +93,14 @@ bool QtApp::init(int argc, char* argv[]) {
     QObject::connect(status_timer_, &QTimer::timeout, [this]() { on_status_tick(); });
     status_timer_->start(1000);
 
+    // Apply RZX play/record if requested via CLI.
+    if (!rzx_play_file_.empty()) {
+        emulator_.load_rzx(rzx_play_file_);
+    }
+    if (!rzx_record_file_.empty()) {
+        emulator_.start_rzx_recording(rzx_record_file_);
+    }
+
     return true;
 }
 
@@ -102,6 +110,11 @@ int QtApp::run() {
 }
 
 void QtApp::shutdown() {
+    // Stop RZX recording if active (writes the file).
+    if (emulator_.rzx_recorder().is_recording()) {
+        emulator_.stop_rzx_recording();
+    }
+
     if (frame_timer_) {
         frame_timer_->stop();
     }
