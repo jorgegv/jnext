@@ -85,11 +85,13 @@ bool VideoRecorder::stop()
     // Audio: raw signed 16-bit little-endian stereo.
     // Output: H.264 + AAC in MP4 container.
     // Try encoders in preference order: libx264, libopenh264, mpeg4 (fallback).
+    // Encoder preference order: libx264 (best quality/compat), mpeg4 (universal
+    // fallback, VLC-safe), libopenh264 (last resort — known VLC issues).
     struct Encoder { const char* codec; const char* extra; };
     Encoder encoders[] = {
         {"libx264",      "-preset fast -crf 18 -pix_fmt yuv420p"},
+        {"mpeg4",        "-q:v 3 -pix_fmt yuv420p"},
         {"libopenh264",  "-pix_fmt yuv420p"},
-        {"mpeg4",        "-q:v 5 -pix_fmt yuv420p"},
     };
 
     Log::emulator()->info("VideoRecorder: encoding with FFmpeg...");
