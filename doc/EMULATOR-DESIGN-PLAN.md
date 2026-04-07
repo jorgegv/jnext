@@ -948,7 +948,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 8 - More enhancements
 
-- [ ] Emulator:
+- [x] Emulator:
   - [x] Magic Breakpoint: ED FF (ZEsarUX/Spectaculator) and DD 01 (CSpect) trigger debugger pause when `--magic-breakpoint` is enabled; acts as NOP when disabled; Qt Debug menu toggle; demo program `demo/magic_bp_demo.c`
   - [x] Save video with/without audio — MP4 via FFmpeg pipe (temp-file approach), `--record FILE` CLI, Qt Start/Stop Recording menu; encoder fallback chain: libx264 → mpeg4 → libopenh264
   - [x] RZX file playback — `--rzx-play FILE` CLI, Qt File menu, embedded SNA snapshot loading, per-frame IN value replay via port dispatch hook
