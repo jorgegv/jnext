@@ -154,8 +154,9 @@ while IFS= read -r line; do
 
     if $HAS_COMPARE; then
         diff_raw=$(compare -metric AE "$out_img" "$ref_img" /dev/null 2>&1) || true
-        # ImageMagick may output "0 (0)" or just "0"; extract first number
-        diff_pixels=$(echo "$diff_raw" | grep -oP '^\d+')
+        # ImageMagick may output "0", "0 (0)", or scientific notation like "2.14745e+09".
+        # Extract first number token and convert to integer (awk handles sci notation).
+        diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
         if [[ "$diff_pixels" -le "$TOLERANCE" ]]; then
             echo -e "${GREEN}PASS${RESET} (${diff_pixels} pixel diff)"
         else
