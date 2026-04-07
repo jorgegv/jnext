@@ -174,6 +174,43 @@ while IFS= read -r line; do
     pass=$((pass + 1))
 done < "$CONF"
 
+# --- Functional tests ---
+echo ""
+echo -e "${BOLD}Running functional tests...${RESET}"
+echo ""
+
+# Magic breakpoint test: verify ED FF is detected and logged
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-bp-func'; then
+    printf "  %-25s " "[magic-bp-func]"
+    bp_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
+        --load "$PROJECT_DIR/demo/magic_bp_demo.nex" \
+        --delayed-automatic-exit 3 2>&1) || true
+    bp_count=$(echo "$bp_output" | grep -c "Magic breakpoint hit" || true)
+    if [[ "$bp_count" -ge 1 ]]; then
+        echo -e "${GREEN}PASS${RESET} ($bp_count magic breakpoint(s) detected)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (no magic breakpoint detected in output)"
+        fail=$((fail + 1))
+    fi
+fi
+
+# Magic port test: verify port output appears on stderr in line mode
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-port-func'; then
+    printf "  %-25s " "[magic-port-func]"
+    port_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+        --magic-port 0xCAFE --magic-port-mode line \
+        --load "$PROJECT_DIR/demo/magic_port_demo.nex" \
+        --delayed-automatic-exit 3 2>&1) || true
+    if echo "$port_output" | grep -q "Hello from ZX Next!"; then
+        echo -e "${GREEN}PASS${RESET} (magic port output verified)"
+        pass=$((pass + 1))
+    else
+        echo -e "${RED}FAIL${RESET} (expected 'Hello from ZX Next!' in magic port output)"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"

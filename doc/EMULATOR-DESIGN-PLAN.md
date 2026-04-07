@@ -944,7 +944,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] SNA: 48K (27-byte header, PC from stack) and 128K (extended header, port 0x7FFD paging, remaining banks)
   - [x] SZX: chunked "ZXST" format with Z80R/SPCR/RAMP handlers, zlib decompression for compressed RAM pages
   - [x] Both formats: full register restore, border, paging, CLI/GUI/headless support
-- [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
+- [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 16 screenshot + 2 functional + FUSE Z80 tests, reference image generation
 
 ### Phase 8 - More enhancements
 
