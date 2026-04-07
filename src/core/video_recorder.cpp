@@ -100,12 +100,12 @@ bool VideoRecorder::stop()
         char cmd[2048];
         snprintf(cmd, sizeof(cmd),
             "ffmpeg -y "
-            "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i \"%s\" "
-            "-f s16le -ar %d -ac 2 -i \"%s\" "
+            "-f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i '%s' "
+            "-f s16le -ar %d -ac 2 -i '%s' "
             "-c:v %s %s "
             "-c:a aac -b:a 128k "
             "-shortest -movflags +faststart "
-            "\"%s\" "
+            "'%s' "
             ">/dev/null 2>&1",
             frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
             SAMPLE_RATE, audio_tmp_.c_str(),
@@ -113,8 +113,10 @@ bool VideoRecorder::stop()
             output_path_.c_str());
 
         Log::emulator()->info("VideoRecorder: trying encoder '{}'", enc.codec);
+        Log::emulator()->debug("VideoRecorder: cmd={}", cmd);
         ret = system(cmd);
         if (ret == 0) break;
+        Log::emulator()->debug("VideoRecorder: encoder '{}' failed (exit code {})", enc.codec, ret);
     }
 
     // Clean up temp files.
