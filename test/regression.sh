@@ -237,6 +237,56 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# RZX recording test: verify --rzx-record produces a valid RZX file
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-record-func'; then
+    printf "  %-25s " "[rzx-record-func]"
+    rzx_file="$TMP_DIR/test_recording.rzx"
+    rzx_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+        --rzx-record "$rzx_file" \
+        --delayed-automatic-exit 3 2>&1) || true
+    if [[ -f "$rzx_file" ]]; then
+        # Check file starts with RZX! magic signature
+        magic=$(xxd -l 4 -p "$rzx_file" 2>/dev/null)
+        frame_count=$(echo "$rzx_output" | grep -oP '\d+ frames' | grep -oP '^\d+' || true)
+        if [[ "$magic" == "525a5821" ]]; then
+            echo -e "${GREEN}PASS${RESET} (valid RZX file, ${frame_count:-?} frames)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} (file exists but invalid RZX signature)"
+            fail=$((fail + 1))
+        fi
+    else
+        echo -e "${RED}FAIL${RESET} (no RZX file produced)"
+        fail=$((fail + 1))
+    fi
+fi
+
+# RZX roundtrip test: record then play back, verify playback starts
+if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-playback-func'; then
+    printf "  %-25s " "[rzx-playback-func]"
+    rzx_rt="$TMP_DIR/roundtrip.rzx"
+    # Record 2 seconds
+    timeout --kill-after=5s 8s "$JNEXT" --headless \
+        --rzx-record "$rzx_rt" \
+        --delayed-automatic-exit 2 &>/dev/null || true
+    if [[ -f "$rzx_rt" ]]; then
+        # Play back and check for playback log message
+        play_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+            --rzx-play "$rzx_rt" \
+            --delayed-automatic-exit 3 2>&1) || true
+        if echo "$play_output" | grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot"; then
+            echo -e "${GREEN}PASS${RESET} (RZX playback started successfully)"
+            pass=$((pass + 1))
+        else
+            echo -e "${RED}FAIL${RESET} (no RZX playback confirmation in log)"
+            fail=$((fail + 1))
+        fi
+    else
+        echo -e "${RED}FAIL${RESET} (RZX recording failed, cannot test playback)"
+        fail=$((fail + 1))
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
