@@ -18,7 +18,9 @@
 | 5/4    | 3h    | Phase 7.8 , test suite                                           |
 | 6/4    | 8h    | Phase 7.8, new video modes, new file formats                     |
 |        | 2h    | Phase 7.8, SNA/SZX/WAV loaders, README                           |
-| 7/4    | 4h    | Phase 8: magic BP/port, RZX, video recording                     |
-|        | 2h    | Phase 8: General UI (speed control, screenshot), window size fix |
+| 7/4    | 3h    | Phase 8: magic BP/port, RZX, video recording                     |
+|        | 1h    | Phase 8: General UI (speed control, screenshot), window size fix |
+|        | 3h    | Phase 8: Debugger enhancements (panels, tabs, stepping)          |
+|        | 1h    | Copper border fix, regression timeout fix, make regression       |
 |        |       |                                                                  |
-| TOTAL: | 42.5h |                                                                  |
+| TOTAL: | 59.5h |                                                                  |
