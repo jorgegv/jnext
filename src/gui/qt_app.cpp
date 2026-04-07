@@ -82,6 +82,13 @@ bool QtApp::init(int argc, char* argv[]) {
 
     main_window_->show();
 
+    // Re-apply scale after the window is mapped so devicePixelRatio is correct.
+    // The 100ms delay ensures the window manager has finished placing the window
+    // and the real DPR is available (critical on Wayland/Hi-DPI).
+    QTimer::singleShot(100, main_window_, [this]() {
+        main_window_->set_scale(main_window_->current_scale());
+    });
+
     // Set up a 20ms timer (50 Hz) to drive emulator frames.
     frame_timer_ = new QTimer(main_window_);
     frame_timer_->setTimerType(Qt::PreciseTimer);

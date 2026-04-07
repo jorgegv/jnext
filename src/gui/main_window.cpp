@@ -224,6 +224,7 @@ void MainWindow::apply_fixed_window_size() {
     emulator_widget_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    emulator_widget_->updateGeometry();
     adjustSize();
     setFixedSize(size());
 }
