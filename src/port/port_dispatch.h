@@ -35,6 +35,13 @@ public:
     uint8_t in(uint16_t port) override;
     void    out(uint16_t port, uint8_t val) override;
 
+    /// RZX playback: if set, all IN reads return values from this callback
+    /// instead of normal port dispatch.
+    std::function<uint8_t(uint16_t)> rzx_in_override;
+
+    /// RZX recording: if set, called after each IN with the returned value.
+    std::function<void(uint8_t)> rzx_in_record;
+
 private:
     std::vector<PortHandler> handlers_;
     std::function<uint8_t(uint16_t)> default_read_;

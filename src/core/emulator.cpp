@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "core/nex_loader.h"
+#include "core/sna_saver.h"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -1095,6 +1096,70 @@ bool Emulator::load_wav(const std::string& path)
     return true;
 }
 
+bool Emulator::load_rzx(const std::string& path)
+{
+    RzxRecording rec;
+    if (!rzx::parse(path, rec)) {
+        Log::emulator()->error("RZX: failed to parse '{}'", path);
+        return false;
+    }
+
+    Log::emulator()->info("RZX: loaded '{}' — creator='{}' frames={} snapshot={}",
+                          path, rec.creator, rec.frames.size(),
+                          rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
+
+    // Load embedded snapshot if present.
+    if (!rec.snapshot_data.empty()) {
+        // Write snapshot to a temporary file and load it.
+        std::string tmp_path = "/tmp/jnext_rzx_snap." + rec.snapshot_ext;
+        {
+            std::ofstream tmp(tmp_path, std::ios::binary);
+            tmp.write(reinterpret_cast<const char*>(rec.snapshot_data.data()),
+                      static_cast<std::streamsize>(rec.snapshot_data.size()));
+        }
+        if (rec.snapshot_ext == "sna") {
+            if (!load_sna(tmp_path)) return false;
+        } else if (rec.snapshot_ext == "szx") {
+            if (!load_szx(tmp_path)) return false;
+        } else {
+            Log::emulator()->warn("RZX: unsupported snapshot type '{}', skipping", rec.snapshot_ext);
+        }
+    }
+
+    // Wire up port override for playback.
+    rzx_player_.start(std::move(rec));
+    port_.rzx_in_override = [this](uint16_t) -> uint8_t {
+        return rzx_player_.next_in_value();
+    };
+
+    return true;
+}
+
+bool Emulator::start_rzx_recording(const std::string& path)
+{
+    // Save current state as SNA snapshot for embedding.
+    auto sna_data = SnaSaver::save(*this);
+
+    rzx_recorder_.start(path);
+    if (!sna_data.empty()) {
+        rzx_recorder_.set_snapshot(std::move(sna_data), "sna");
+    }
+    rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
+
+    // Wire up port recording hook.
+    port_.rzx_in_record = [this](uint8_t val) {
+        rzx_recorder_.record_in(val);
+    };
+
+    return true;
+}
+
+void Emulator::stop_rzx_recording()
+{
+    port_.rzx_in_record = nullptr;
+    rzx_recorder_.stop();
+}
+
 void Emulator::run_frame()
 {
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
@@ -1125,6 +1190,19 @@ void Emulator::run_frame()
                 im2_int_status_[0] |= 0x02;  // Line interrupt status
                 cpu_.request_interrupt(0xFF);
             });
+    }
+
+    // RZX frame management.
+    if (rzx_player_.is_playing()) {
+        rzx_player_.begin_frame();
+        if (!rzx_player_.is_playing()) {
+            // Playback just finished — remove override.
+            port_.rzx_in_override = nullptr;
+        }
+    }
+    if (rzx_recorder_.is_recording()) {
+        rzx_recorder_.begin_frame();
+        rzx_frame_instruction_count_ = 0;
     }
 
     // Notify copper of frame start (resets PC in mode 11).
@@ -1231,6 +1309,9 @@ void Emulator::run_frame()
             // Convert T-states to 28 MHz master cycles.
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
 
+            // Count instructions for RZX recording.
+            if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
+
             // Tick real-time tape playback (advances EAR bit state machine).
             if (tape_.is_playing()) {
                 tape_.tick_realtime(static_cast<uint64_t>(tstates));
@@ -1301,6 +1382,12 @@ void Emulator::run_frame()
     // Render the completed frame into the ARGB8888 framebuffer.
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                             layer2_, &sprites_, &tilemap_);
+
+    // End RZX recording frame.
+    if (rzx_recorder_.is_recording()) {
+        rzx_recorder_.end_frame(static_cast<uint16_t>(
+            std::min(rzx_frame_instruction_count_, uint32_t(0xFFFF))));
+    }
 
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();

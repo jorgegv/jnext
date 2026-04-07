@@ -39,6 +39,8 @@
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
 #include "core/wav_loader.h"
+#include "core/rzx_player.h"
+#include "core/rzx_recorder.h"
 
 /// Top-level machine class.
 ///
@@ -105,6 +107,19 @@ public:
     /// WAV loading is always real-time (no fast-load possible).
     /// Returns true on success.
     bool load_wav(const std::string& path);
+
+    /// Load an RZX file and start playback.  Returns true on success.
+    bool load_rzx(const std::string& path);
+
+    /// Start recording RZX input to the given file path.
+    bool start_rzx_recording(const std::string& path);
+
+    /// Stop RZX recording and write the file.
+    void stop_rzx_recording();
+
+    /// Access the RZX player/recorder.
+    RzxPlayer& rzx_player() { return rzx_player_; }
+    RzxRecorder& rzx_recorder() { return rzx_recorder_; }
 
     /// Access the tape loader (e.g. for UI tape controls).
     TapLoader& tape() { return tape_; }
@@ -218,6 +233,9 @@ private:
     TapLoader       tape_;
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
+    RzxPlayer       rzx_player_;
+    RzxRecorder     rzx_recorder_;
+    uint32_t        rzx_frame_instruction_count_ = 0;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;

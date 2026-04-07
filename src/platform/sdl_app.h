@@ -31,6 +31,10 @@ public:
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
 
+    void set_tape_realtime(bool) {}
+    void set_rzx_play(const std::string&) {}
+    void set_rzx_record(const std::string&) {}
+
 private:
     SdlDisplay display_;
     SdlInput   input_;
