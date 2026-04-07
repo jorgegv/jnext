@@ -102,7 +102,7 @@ bool VideoRecorder::stop()
             "-f s16le -ar %d -ac 2 -i \"%s\" "
             "-c:v %s %s "
             "-c:a aac -b:a 128k "
-            "-shortest "
+            "-shortest -movflags +faststart "
             "\"%s\" "
             ">/dev/null 2>&1",
             frame_width_, frame_height_, FRAME_RATE, video_tmp_.c_str(),
