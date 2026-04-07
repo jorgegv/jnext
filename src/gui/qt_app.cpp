@@ -38,6 +38,22 @@ void QtApp::set_delayed_screenshot(const std::string& file, int delay_seconds) {
                            file, delay_seconds);
 }
 
+void QtApp::set_speed_multiplier(double multiplier) {
+    if (multiplier < 0.1) multiplier = 0.1;
+    if (multiplier > 10.0) multiplier = 10.0;
+    speed_multiplier_ = multiplier;
+
+    // Adjust frame timer: base interval is 20ms (50 Hz real-time).
+    // Higher multiplier = shorter interval = faster emulation.
+    int interval_ms = static_cast<int>(20.0 / multiplier);
+    if (interval_ms < 1) interval_ms = 1;
+
+    if (frame_timer_) {
+        frame_timer_->setInterval(interval_ms);
+    }
+    Log::platform()->info("Emulator speed: {}x (timer {}ms)", multiplier, interval_ms);
+}
+
 void QtApp::set_delayed_exit(int delay_seconds) {
     exit_countdown_ = delay_seconds * 50;  // 50 fps
     Log::platform()->info("--delayed-automatic-exit: will exit after {} second(s)",
@@ -78,6 +94,11 @@ bool QtApp::init(int argc, char* argv[]) {
     // Route keyboard events from the Qt window to the emulator keyboard matrix.
     main_window_->set_key_callback([this](SDL_Scancode sc, bool pressed) {
         emulator_.keyboard().set_key(sc, pressed);
+    });
+
+    // Route emulator speed changes from the menu to the frame timer.
+    main_window_->set_speed_callback([this](double multiplier) {
+        set_speed_multiplier(multiplier);
     });
 
     main_window_->show();
@@ -224,5 +245,5 @@ void QtApp::on_status_tick() {
     // Read current CPU speed from NextREG 0x07 (bits 1:0).
     int speed_idx = emulator_.nextreg().cached(0x07) & 0x03;
 
-    main_window_->update_status(fps, speed_idx);
+    main_window_->update_status(fps, speed_idx, speed_multiplier_);
 }

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <string>
+#include <type_traits>
 
 #include "platform/headless_app.h"
 #ifdef ENABLE_QT_UI
@@ -44,7 +45,8 @@ static void print_usage(const char* prog) {
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
         "  --rzx-play FILE         Play back an RZX recording file\n"
-        "  --rzx-record FILE       Record input to an RZX file\n",
+        "  --rzx-record FILE       Record input to an RZX file\n"
+        "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n",
         prog);
 }
 
@@ -84,6 +86,7 @@ int main(int argc, char* argv[]) {
     std::string record_file;
     std::string rzx_play_file;
     std::string rzx_record_file;
+    int         speed_percent = 100;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -146,6 +149,10 @@ int main(int argc, char* argv[]) {
             rzx_play_file = argv[++i];
         } else if (arg == "--rzx-record" && i + 1 < argc) {
             rzx_record_file = argv[++i];
+        } else if (arg == "--speed" && i + 1 < argc) {
+            speed_percent = std::stoi(argv[++i]);
+            if (speed_percent < 10) speed_percent = 10;
+            if (speed_percent > 1000) speed_percent = 1000;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -212,6 +219,15 @@ int main(int argc, char* argv[]) {
                 Log::emulator()->error("Failed to start recording to {}", record_file);
             }
         }
+
+        // Apply emulator speed if not default (only meaningful for QtApp).
+#ifdef ENABLE_QT_UI
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, QtApp>) {
+            if (speed_percent != 100) {
+                app.set_speed_multiplier(speed_percent / 100.0);
+            }
+        }
+#endif
 
         // Set up RZX playback or recording.
         if (!rzx_play_file.empty()) {

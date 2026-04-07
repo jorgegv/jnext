@@ -979,21 +979,21 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Control buttons: 
     - [ ] New button "Run to EOF" (popup hint with "Run to End of Frame")
     - [ ] New button "-> Run to EOSL" (popup hint with "Run to End of Scan Line")
-  - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
   - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
+    - [ ] Add --rewind-buffer-size <num-instructions> (deferred: depends on backwards execution)
+  - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 
-- [ ] General UI:
-  - [ ] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (menu and buttons)
-  - [ ] Save PNG screenshot (menu and button)
-  - [ ] CLI: add options for all the previous functionalities where it makes sense:
+- [x] General UI:
+  - [x] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (Machine > Emulator Speed menu, Custom... dialog, status bar %, `--speed PERCENT` CLI)
+  - [x] Save PNG screenshot (File > Save Screenshot... Ctrl+S, toolbar button)
+  - [x] CLI: add options for all the previous functionalities where it makes sense:
     - ~~--magic-port-enable~~ ✓ `--magic-port PORT`
     - ~~--magic-port-mode~~ ✓ `--magic-port-mode MODE`
     - ~~--magic-breakpoint-enable~~ ✓ `--magic-breakpoint`
-    - --rewind-buffer-size <num-instructions>
-    - --rzx-play <rzx-file>
-    - --rzx-record <rzx-file>
-    - --record-video <output-file>
-    - --record-video-with-audio <output-file>
+    - ✓ `--rzx-play FILE`
+    - ✓ `--rzx-record FILE`
+    - ✓ `--record FILE` (records video with audio)
+    - ✓ `--speed PERCENT` (emulator throttle: 50=half, 100=normal, 200=2x, 400=4x)
 - [ ] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - **PUBLIC RELEASE**
 
 ### Phase 9 - CI, Quality and Release
@@ -1007,6 +1007,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Replacement of magic number with named constants where possible
 - [ ] Global analysis of code, module by module, ensure alignment with VHDL source, document each module for easy reference for CLAUDE
 - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
+  - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
 - [ ] Generation of Windows version
 - [ ] Generation of MacOS version

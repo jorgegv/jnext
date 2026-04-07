@@ -57,8 +57,12 @@ public:
     bool is_fullscreen() const { return is_fullscreen_; }
     int current_scale() const { return current_scale_; }
 
+    /// Set callback for emulator speed changes.
+    using SpeedCallback = std::function<void(double)>;
+    void set_speed_callback(SpeedCallback cb) { speed_callback_ = std::move(cb); }
+
     /// Update status bar information.  Called once per second from the frame timer.
-    void update_status(double fps, int cpu_speed_idx);
+    void update_status(double fps, int cpu_speed_idx, double emu_speed = 1.0);
 
 signals:
     /// Emitted when a scale factor is selected from the View menu.
@@ -108,6 +112,7 @@ private:
     EmulatorWidget* emulator_widget_ = nullptr;
     Emulator*       emulator_        = nullptr;
     KeyCallback     key_callback_;
+    SpeedCallback   speed_callback_;
 
     bool is_fullscreen_ = false;
     int current_scale_ = 2;  ///< Default 2x scale (640x512 viewport).
@@ -151,4 +156,11 @@ private:
     // Recording menu actions
     QAction* record_start_action_ = nullptr;
     QAction* record_stop_action_  = nullptr;
+
+    // Emulator speed action group
+    QActionGroup* emu_speed_group_ = nullptr;
+    QLabel* emu_speed_label_ = nullptr;
+
+    // Screenshot action
+    QAction* screenshot_action_ = nullptr;
 };

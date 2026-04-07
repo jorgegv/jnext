@@ -46,6 +46,11 @@ public:
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
 
+    /// Set emulator speed multiplier (e.g. 0.5, 1.0, 2.0, 4.0).
+    /// Adjusts the frame timer interval accordingly.
+    void set_speed_multiplier(double multiplier);
+    double speed_multiplier() const { return speed_multiplier_; }
+
     /// Initialize Qt, SDL audio, emulator, and create the main window.
     bool init(int argc, char* argv[]);
 
@@ -96,6 +101,9 @@ private:
 
     // FPS tracking
     int frame_count_ = 0;
+
+    // Emulator speed multiplier (1.0 = real-time 50 Hz)
+    double speed_multiplier_ = 1.0;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

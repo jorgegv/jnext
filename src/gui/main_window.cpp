@@ -3,6 +3,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
+#include "platform/screenshot.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -19,6 +20,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QInputDialog>
 #include <QStyle>
 
 // ---------------------------------------------------------------------------
@@ -303,6 +305,29 @@ void MainWindow::create_menus() {
 
     file_menu->addSeparator();
 
+    screenshot_action_ = file_menu->addAction(tr("Save &Screenshot..."));
+    screenshot_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_S));
+    connect(screenshot_action_, &QAction::triggered, this, [this]() {
+        if (!emulator_) return;
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Save Screenshot"), QString(),
+            tr("PNG Images (*.png);;All Files (*)"));
+        if (path.isEmpty()) return;
+        if (!path.endsWith(".png", Qt::CaseInsensitive))
+            path += ".png";
+        // Use the existing screenshot function with the current framebuffer.
+        bool ok = save_screenshot_png(path.toStdString(),
+                                       emulator_->get_framebuffer(), 320, 256);
+        if (ok) {
+            statusBar()->showMessage(tr("Screenshot saved: %1").arg(path), 3000);
+        } else {
+            QMessageBox::warning(this, tr("Screenshot Error"),
+                tr("Failed to save screenshot to:\n%1").arg(path));
+        }
+    });
+
+    file_menu->addSeparator();
+
     QAction* quit = file_menu->addAction(tr("&Quit"));
     quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(quit, &QAction::triggered, qApp, &QApplication::quit);
@@ -355,6 +380,56 @@ void MainWindow::create_menus() {
         if (i == 0) a->setChecked(true);  // default: 3.5 MHz
         connect(a, &QAction::triggered, this, [this, i]() { on_cpu_speed(i); });
     }
+
+    machine_menu->addSeparator();
+
+    // Emulator speed (throttle) submenu
+    QMenu* emu_speed_menu = machine_menu->addMenu(tr("&Emulator Speed"));
+    emu_speed_group_ = new QActionGroup(this);
+    emu_speed_group_->setExclusive(true);
+
+    struct EmuSpeedEntry { const char* label; double multiplier; };
+    EmuSpeedEntry emu_speeds[] = {
+        {"0.5x (50%)",  0.5},
+        {"1x (100%)",   1.0},
+        {"2x (200%)",   2.0},
+        {"4x (400%)",   4.0},
+    };
+    for (auto& e : emu_speeds) {
+        QAction* a = emu_speed_menu->addAction(tr(e.label));
+        a->setCheckable(true);
+        a->setData(e.multiplier);
+        emu_speed_group_->addAction(a);
+        if (e.multiplier == 1.0) a->setChecked(true);
+        connect(a, &QAction::triggered, this, [this, m = e.multiplier]() {
+            if (speed_callback_) speed_callback_(m);
+        });
+    }
+
+    emu_speed_menu->addSeparator();
+
+    QAction* custom_speed = emu_speed_menu->addAction(tr("&Custom..."));
+    connect(custom_speed, &QAction::triggered, this, [this]() {
+        bool ok;
+        int percent = QInputDialog::getInt(this, tr("Emulator Speed"),
+            tr("Speed (%):"), 100, 10, 1000, 10, &ok);
+        if (ok) {
+            double multiplier = percent / 100.0;
+            if (speed_callback_) speed_callback_(multiplier);
+            // Uncheck all preset actions (custom speed doesn't match any)
+            if (emu_speed_group_) {
+                for (QAction* a : emu_speed_group_->actions()) {
+                    if (std::abs(a->data().toDouble() - multiplier) < 0.01) {
+                        a->setChecked(true);
+                        return;
+                    }
+                }
+                // No match — uncheck all
+                if (auto* checked = emu_speed_group_->checkedAction())
+                    checked->setChecked(false);
+            }
+        }
+    });
 
     // --- Tape menu ---
     QMenu* tape_menu = menuBar()->addMenu(tr("&Tape"));
@@ -453,6 +528,14 @@ void MainWindow::create_toolbar() {
         style()->standardIcon(QStyle::SP_DialogOpenButton), tr("Load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
 
+    toolbar->addSeparator();
+
+    // Screenshot toolbar button — triggers the same action as File > Save Screenshot.
+    if (screenshot_action_) {
+        QAction* screenshot_btn = toolbar->addAction(
+            QIcon::fromTheme("camera-photo"), tr("Screenshot"));
+        connect(screenshot_btn, &QAction::triggered, screenshot_action_, &QAction::trigger);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -475,8 +558,13 @@ void MainWindow::create_statusbar() {
     tape_label_->setMinimumWidth(120);
     tape_label_->setAlignment(Qt::AlignCenter);
 
+    emu_speed_label_ = new QLabel(tr("1x"));
+    emu_speed_label_->setMinimumWidth(60);
+    emu_speed_label_->setAlignment(Qt::AlignCenter);
+
     statusBar()->addWidget(fps_label_, 1);
     statusBar()->addWidget(speed_label_, 1);
+    statusBar()->addWidget(emu_speed_label_, 1);
     statusBar()->addWidget(tape_label_, 1);
     statusBar()->addPermanentWidget(machine_label_);
 }
@@ -485,7 +573,7 @@ void MainWindow::create_statusbar() {
 // Status update
 // ---------------------------------------------------------------------------
 
-void MainWindow::update_status(double fps, int cpu_speed_idx) {
+void MainWindow::update_status(double fps, int cpu_speed_idx, double emu_speed) {
     if (fps_label_)
         fps_label_->setText(QString("FPS: %1").arg(fps, 0, 'f', 1));
 
@@ -501,6 +589,12 @@ void MainWindow::update_status(double fps, int cpu_speed_idx) {
                 break;
             }
         }
+    }
+
+    // Show emulator speed multiplier.
+    if (emu_speed_label_) {
+        int pct = static_cast<int>(emu_speed * 100.0 + 0.5);
+        emu_speed_label_->setText(QString("%1%").arg(pct));
     }
 
     // Update tape status display
