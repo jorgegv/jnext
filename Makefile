@@ -13,7 +13,7 @@ RESET := \033[0m
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       kloc-count
+       kloc-count regression
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -101,6 +101,10 @@ gui-clean: gui-debug-clean gui-release-clean
 
 # Remove all build directories
 clean: debug-clean release-clean gui-clean
+
+# Run the full regression test suite (FUSE Z80 opcodes + screenshot tests)
+regression:
+	bash test/regression.sh
 
 # Count lines of code (excluding comments and blanks), per directory and total
 kloc-count:

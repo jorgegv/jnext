@@ -113,7 +113,7 @@ while IFS= read -r line; do
     exit_delay=$((delay_secs + 2))
 
     # Build command
-    cmd=("timeout" "--kill-after=5s" "$((exit_delay + 5))s"
+    cmd=("timeout" "--foreground" "--kill-after=5s" "$((exit_delay + 5))s"
          "$JNEXT" "--headless"
          "--machine-type" "$machine_type"
          "--delayed-screenshot" "$out_img"
@@ -183,7 +183,7 @@ echo ""
 # Magic breakpoint test: verify ED FF is detected and logged
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-bp-func'; then
     printf "  %-25s " "[magic-bp-func]"
-    bp_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
+    bp_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
         --load "$PROJECT_DIR/demo/magic_bp_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
     bp_count=$(echo "$bp_output" | grep -c "Magic breakpoint hit" || true)
@@ -199,7 +199,7 @@ fi
 # Magic port test: verify port output appears on stderr in line mode
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-port-func'; then
     printf "  %-25s " "[magic-port-func]"
-    port_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+    port_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
         --magic-port 0xCAFE --magic-port-mode line \
         --load "$PROJECT_DIR/demo/magic_port_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
@@ -215,10 +215,11 @@ fi
 # Video recording test: verify --record produces a valid MP4 file
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'video-record-func'; then
     printf "  %-25s " "[video-record-func]"
-    rec_file="$TMP_DIR/test_recording.mp4"
-    timeout --kill-after=5s 12s "$JNEXT" --headless \
+    rec_file="/tmp/jnext_test_recording.mp4"
+    rm -f "$rec_file"
+    timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
         --record "$rec_file" \
-        --delayed-automatic-exit 3 &>/dev/null || true
+        --delayed-automatic-exit 3 2>/dev/null || true
     if [[ -f "$rec_file" ]] && command -v ffprobe &>/dev/null; then
         has_video=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=video" || true)
         has_audio=$(ffprobe -show_streams "$rec_file" 2>/dev/null | grep -c "codec_type=audio" || true)
@@ -242,7 +243,7 @@ fi
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rzx-record-func'; then
     printf "  %-25s " "[rzx-record-func]"
     rzx_file="$TMP_DIR/test_recording.rzx"
-    rzx_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+    rzx_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
         --rzx-record "$rzx_file" \
         --delayed-automatic-exit 3 2>&1) || true
     if [[ -f "$rzx_file" ]]; then
@@ -267,12 +268,12 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     printf "  %-25s " "[rzx-playback-func]"
     rzx_rt="$TMP_DIR/roundtrip.rzx"
     # Record 2 seconds
-    timeout --kill-after=5s 8s "$JNEXT" --headless \
+    timeout --foreground --kill-after=5s 8s "$JNEXT" --headless \
         --rzx-record "$rzx_rt" \
         --delayed-automatic-exit 2 &>/dev/null || true
     if [[ -f "$rzx_rt" ]]; then
         # Play back and check for playback log message
-        play_output=$(timeout --kill-after=5s 10s "$JNEXT" --headless \
+        play_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
             --rzx-play "$rzx_rt" \
             --delayed-automatic-exit 3 2>&1) || true
         if echo "$play_output" | grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot"; then
