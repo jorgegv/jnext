@@ -263,11 +263,11 @@ void MainWindow::create_menus() {
 
     file_menu->addSeparator();
 
-    record_start_action_ = file_menu->addAction(tr("Start &Recording..."));
+    record_start_action_ = file_menu->addAction(tr("Record &MPEG4 Video..."));
     record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
 
-    record_stop_action_ = file_menu->addAction(tr("Sto&p Recording"));
+    record_stop_action_ = file_menu->addAction(tr("Sto&p MPEG4 Recording"));
     record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
     record_stop_action_->setEnabled(false);
     connect(record_stop_action_, &QAction::triggered, this, &MainWindow::on_record_stop);
@@ -665,7 +665,7 @@ void MainWindow::on_record_start() {
     if (!emulator_) return;
 
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Record Video"), QString(),
+        this, tr("Record MPEG4 Video"), QString(),
         tr("MP4 Video (*.mp4);;All Files (*)"));
     if (path.isEmpty()) return;
     if (!path.endsWith(".mp4", Qt::CaseInsensitive))
