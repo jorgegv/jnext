@@ -230,6 +230,17 @@ int Z80Cpu::execute() {
 
     if (opcode == 0xED) {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+
+        // Magic breakpoint: ED FF (ZEsarUX/Spectaculator convention)
+        if (ext == 0xFF && on_magic_breakpoint) {
+            if (on_magic_breakpoint(pc)) {
+                // Advance PC past ED FF (acts as 2-byte NOP)
+                z80.pc.w = (pc + 2) & 0xFFFF;
+                sync_regs_from_fuse(regs_);
+                return 8;  // 8 T-states like a NOP
+            }
+        }
+
         if (kZ80NOpcodeTable[ext]) {
             Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
             // Fire M1 callback on the ED prefix byte
@@ -244,6 +255,19 @@ int Z80Cpu::execute() {
 
             sync_fuse_from_regs(regs_);
             return t;
+        }
+    }
+
+    // Magic breakpoint: DD 01 (CSpect convention)
+    if (opcode == 0xDD) {
+        uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));
+        if (ext == 0x01 && on_magic_breakpoint) {
+            if (on_magic_breakpoint(pc)) {
+                // Advance PC past DD 01 (acts as 2-byte NOP)
+                z80.pc.w = (pc + 2) & 0xFFFF;
+                sync_regs_from_fuse(regs_);
+                return 8;
+            }
         }
     }
 

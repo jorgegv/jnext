@@ -59,6 +59,10 @@ public:
     // Callback fired AFTER opcode fetch — used for RETI detection and IM2
     std::function<void(uint16_t pc, uint8_t opcode)> on_m1_cycle;
 
+    // Magic breakpoint callback: fired when ED FF or DD 01 is executed.
+    // If set and returns true, CPU should break to debugger.
+    std::function<bool(uint16_t pc)> on_magic_breakpoint;
+
 private:
     MemoryInterface& mem_;
     IoInterface&     io_;

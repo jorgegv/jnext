@@ -38,7 +38,10 @@ static void print_usage(const char* prog) {
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
         "  --headless               Run without display/audio (for automated testing)\n"
-        "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n",
+        "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
+        "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
+        "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
+        "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n",
         prog);
 }
 
@@ -71,6 +74,10 @@ int main(int argc, char* argv[]) {
     std::string roms_directory = "/usr/share/fuse";
     bool        headless = false;
     bool        tape_realtime = false;
+    bool        magic_breakpoint = false;
+    bool        magic_port_enabled = false;
+    uint16_t    magic_port_address = 0;
+    EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -114,6 +121,19 @@ int main(int argc, char* argv[]) {
             headless = true;
         } else if (arg == "--tape-realtime") {
             tape_realtime = true;
+        } else if (arg == "--magic-breakpoint") {
+            magic_breakpoint = true;
+        } else if (arg == "--magic-port" && i + 1 < argc) {
+            magic_port_enabled = true;
+            magic_port_address = static_cast<uint16_t>(std::stoul(argv[++i], nullptr, 0));
+        } else if (arg == "--magic-port-mode" && i + 1 < argc) {
+            std::string mode = argv[++i];
+            for (auto& c : mode) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (mode == "hex") magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
+            else if (mode == "dec") magic_port_mode = EmulatorConfig::MagicPortMode::DEC;
+            else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
+            else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
+            else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", argv[i]); return 1; }
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -131,6 +151,10 @@ int main(int argc, char* argv[]) {
         cfg.boot_rom_path = boot_rom;
         cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;
+        cfg.magic_breakpoint = magic_breakpoint;
+        cfg.magic_port_enabled = magic_port_enabled;
+        cfg.magic_port_address = magic_port_address;
+        cfg.magic_port_mode = magic_port_mode;
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;

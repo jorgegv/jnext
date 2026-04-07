@@ -141,6 +141,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
         }
     };
 
+    // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
+    if (cfg.magic_breakpoint) {
+        cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
+            Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
+            debug_state_.set_active(true);
+            debug_state_.pause();
+            return true;
+        };
+    }
+
     // --- NextREG write handlers ---
 
     // Register 0x07: CPU speed selector
@@ -743,6 +753,43 @@ bool Emulator::init(const EmulatorConfig& cfg)
         [this](uint16_t) -> uint8_t { return divmmc_.read_control(); },
         [this](uint16_t, uint8_t val) { divmmc_.write_control(val); });
 
+    // --- Magic Port (debug output) ---
+    if (cfg.magic_port_enabled) {
+        Log::emulator()->info("Magic port enabled at {:#06x}, mode={}",
+                              cfg.magic_port_address,
+                              cfg.magic_port_mode == EmulatorConfig::MagicPortMode::HEX ? "hex" :
+                              cfg.magic_port_mode == EmulatorConfig::MagicPortMode::DEC ? "dec" :
+                              cfg.magic_port_mode == EmulatorConfig::MagicPortMode::ASCII ? "ascii" : "line");
+        port_.register_handler(0xFFFF, cfg.magic_port_address,
+            nullptr,  // reads return 0xFF (default)
+            [mode = cfg.magic_port_mode](uint16_t, uint8_t val) {
+                switch (mode) {
+                    case EmulatorConfig::MagicPortMode::HEX:
+                        fprintf(stderr, "%02X\n", val);
+                        break;
+                    case EmulatorConfig::MagicPortMode::DEC:
+                        fprintf(stderr, "%d\n", val);
+                        break;
+                    case EmulatorConfig::MagicPortMode::ASCII:
+                        fputc(val, stderr);
+                        break;
+                    case EmulatorConfig::MagicPortMode::LINE: {
+                        // Buffer until CR or LF, then output full line
+                        static std::string line_buf;
+                        if (val == '\r' || val == '\n') {
+                            if (!line_buf.empty()) {
+                                fprintf(stderr, "%s\n", line_buf.c_str());
+                                line_buf.clear();
+                            }
+                        } else {
+                            line_buf += static_cast<char>(val);
+                        }
+                        break;
+                    }
+                }
+            });
+    }
+
     // --- Phase 5 DMA memory/IO callbacks ---
 
     dma_.read_memory  = [this](uint16_t addr) -> uint8_t { return mmu_.read(addr); };
@@ -1104,6 +1151,10 @@ void Emulator::run_frame()
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
         if (debug_state_.active()) {
+            // Check if an external trigger (e.g. magic breakpoint) already
+            // paused the emulator during the previous instruction's execute().
+            if (debug_state_.paused())
+                return;
             uint16_t pc = cpu_.get_registers().PC;
             if (debug_state_.should_break(pc)) {
                 debug_state_.pause();

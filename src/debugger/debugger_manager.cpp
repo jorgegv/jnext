@@ -378,6 +378,12 @@ void DebuggerManager::refresh_panels() {
 }
 
 void DebuggerManager::check_breakpoint_hit() {
+    // Auto-enable debugger when a magic breakpoint (or other external trigger)
+    // pauses the emulator while the debugger window is not yet open.
+    if (!enabled_ && emulator_->debug_state().paused()) {
+        set_enabled(true);
+    }
+
     if (!enabled_)
         return;
 

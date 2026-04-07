@@ -338,6 +338,20 @@ void MainWindow::create_menus() {
     tape_fast_action_->setChecked(true);  // fast load is default
     connect(tape_fast_action_, &QAction::triggered, this, &MainWindow::on_tape_fast_load);
 
+    // --- Debug menu ---
+    QMenu* debug_menu = menuBar()->addMenu(tr("&Debug"));
+
+    magic_bp_action_ = debug_menu->addAction(tr("Magic &Breakpoint"));
+    magic_bp_action_->setCheckable(true);
+    magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / DD 01)"));
+    if (emulator_) magic_bp_action_->setChecked(emulator_->config().magic_breakpoint);
+    connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
+        if (!emulator_) return;
+        EmulatorConfig cfg = emulator_->config();
+        cfg.magic_breakpoint = checked;
+        emulator_->init(cfg);
+    });
+
     // --- View menu ---
     QMenu* view_menu = menuBar()->addMenu(tr("&View"));
 

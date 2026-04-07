@@ -87,6 +87,15 @@ struct EmulatorConfig {
     // DivMMC / SD card
     std::string divmmc_rom_path;          // path to DivMMC ROM (empty = disabled)
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
+
+    // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
+    bool magic_breakpoint = false;
+
+    // Magic port: debug output port that logs bytes to stderr
+    bool     magic_port_enabled = false;
+    uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)
+    enum class MagicPortMode : uint8_t { HEX, DEC, ASCII, LINE };
+    MagicPortMode magic_port_mode = MagicPortMode::HEX;
 };
 
 // ---------------------------------------------------------------------------

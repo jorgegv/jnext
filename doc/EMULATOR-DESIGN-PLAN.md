@@ -46,8 +46,8 @@
   - [Phase 6 — Native UI \& Usability ✓ COMPLETE](#phase-6--native-ui--usability--complete)
   - [Phase 7 — Debugger Window ✓ COMPLETE](#phase-7--debugger-window--complete)
   - [Phase 7.5 - Debugger enhancements](#phase-75---debugger-enhancements)
-  - [Phase 7.8 — Polish \& Accuracy](#phase-78--polish--accuracy)
-  - [Phase 8  More enhancements](#phase-8--more-enhancements)
+  - [Phase 7.8 — Polish \& Accuracy ✓ COMPLETE](#phase-78--polish--accuracy--complete)
+  - [Phase 8 - More enhancements](#phase-8---more-enhancements)
   - [Phase 9 - CI, Quality and Release](#phase-9---ci-quality-and-release)
   - [Phase 10 — NextZXOS Boot (v1.1)](#phase-10--nextzxos-boot-v11)
   - [Phase 11 - New functions](#phase-11---new-functions)
@@ -904,7 +904,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Add options in the context menu for Data breakpoints for the same cases as for Watches (16-bit immediates or 16-bit register contents)
   - [x] Add a  Breakpoints submenu at the top menubar and also make the breakpoint options available there
 
-### Phase 7.8 — Polish & Accuracy
+### Phase 7.8 — Polish & Accuracy ✓ COMPLETE
 
 - [x] Machine-type selection: 48K / 128K / +3 / Pentagon / Next via `--machine-type` CLI + Qt menu; ROMs from `--roms-directory` (default `/usr/share/fuse`); fixed port 0x7FFD decode mask; +3 port 0x1FFD paging with 4-ROM selection
 - [x] Add a Keyboard mapping from PC cursors -> ZX cursors (arrow keys → Caps Shift + 5/6/7/8 via compound key table)
@@ -945,19 +945,15 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] SZX: chunked "ZXST" format with Z80R/SPCR/RAMP handlers, zlib decompression for compressed RAM pages
   - [x] Both formats: full register restore, border, paging, CLI/GUI/headless support
 - [x] Automated regression test suite — `--headless` mode, `demo/Makefile` (NEX+TAP), `test/regression.sh` with 12 screenshot + FUSE Z80 tests, reference image generation
-- [ ] Performance profiling and optimization
 
-### Phase 8  More enhancements
+### Phase 8 - More enhancements
 
 - [ ] Emulator:
-  - [ ] Magic Breakpoint: a special instruction that when run in real hardware or emulators that do not support it, it runs a NOP. But if hit in the emulator (and MAGIC BP is active), is triggers a break to the debugger (equivalent to INT3 on Intel x86) - See @MAGIC-BREAKPOINT.md document for description. Support both magic-bp opcodes (ZesarUX and CSpect)
+  - [x] Magic Breakpoint: ED FF (ZEsarUX/Spectaculator) and DD 01 (CSpect) trigger debugger pause when `--magic-breakpoint` is enabled; acts as NOP when disabled; Qt Debug menu toggle; demo program `demo/magic_bp_demo.c`
   - [ ] Save video with/without audio - Format: MP4+H264, using FFMPEG - See @VIDEO-RECORDING.md document for description.
   - [ ] RZX file input and playback (Open RZX file, Start Playing, Pause, Stop Playing)
   - [ ] RZX recording to file (Record to RZX file, Start Recording, Pause Recording, Stop Recording)
-  - [ ] Magic Port:
-    - [ ] A "magic" 16-bit port that can be used for debugging: each time an out is made to that port, the byte sent is traced in STDERR
-    - [ ] Port can be selected at will, ideally one that is not normally used should be selected
-    - [ ] Magic Port mode: ascii,hex,dec,line. "line" mode is special: output is buffered unti a CR or LF is sent, then a whole line is sent to STDERR
+  - [x] Magic Port: configurable 16-bit debug output port (`--magic-port ADDR --magic-port-mode hex|dec|ascii|line`); writes to the port are logged to stderr; line mode buffers until CR/LF; demo program `demo/magic_port_demo.c`
   - [ ] All previous functionalities should have a demo/test program when it is sensible
   
 - [ ] Debugger:
@@ -990,9 +986,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (menu and buttons)
   - [ ] Save PNG screenshot (menu and button)
   - [ ] CLI: add options for all the previous functionalities where it makes sense:
-    - --magic-port-enable
-    - --magic-port-mode
-    - --magic-breakpoint-enable
+    - ~~--magic-port-enable~~ ✓ `--magic-port PORT`
+    - ~~--magic-port-mode~~ ✓ `--magic-port-mode MODE`
+    - ~~--magic-breakpoint-enable~~ ✓ `--magic-breakpoint`
     - --rewind-buffer-size <num-instructions>
     - --rzx-play <rzx-file>
     - --rzx-record <rzx-file>
@@ -1010,6 +1006,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] General code refactor and tidy up (/simplify)
 - [ ] Replacement of magic number with named constants where possible
 - [ ] Global analysis of code, module by module, ensure alignment with VHDL source, document each module for easy reference for CLAUDE
+- [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
+
 - [ ] Generation of Windows version
 - [ ] Generation of MacOS version
 - [ ] Documentation

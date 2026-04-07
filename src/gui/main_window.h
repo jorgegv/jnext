@@ -140,4 +140,7 @@ private:
     QAction* tape_rewind_action_ = nullptr;
     QAction* tape_fast_action_   = nullptr;
     QLabel*  tape_label_         = nullptr;
+
+    // Debug menu actions
+    QAction* magic_bp_action_    = nullptr;
 };
