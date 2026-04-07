@@ -954,7 +954,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] RZX file playback — `--rzx-play FILE` CLI, Qt File menu, embedded SNA snapshot loading, per-frame IN value replay via port dispatch hook
   - [x] RZX recording — `--rzx-record FILE` CLI, Qt File menu, captures IN values + instruction count per frame, embeds SNA snapshot, zlib-compressed output
   - [x] Magic Port: configurable 16-bit debug output port (`--magic-port ADDR --magic-port-mode hex|dec|ascii|line`); writes to the port are logged to stderr; line mode buffers until CR/LF; demo program `demo/magic_port_demo.c`
-  - [ ] All previous functionalities should have a demo/test program when it is sensible
+  - [x] Regression tests for all features: magic BP/port functional tests, video recording (MP4 stream validation), RZX record/playback roundtrip
   
 - [ ] Debugger:
   - [ ] Use tabbed panels for everything
