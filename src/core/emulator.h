@@ -39,6 +39,7 @@
 #include "core/sna_loader.h"
 #include "core/szx_loader.h"
 #include "core/wav_loader.h"
+#include "core/video_recorder.h"
 
 /// Top-level machine class.
 ///
@@ -117,6 +118,16 @@ public:
     /// Access the WAV loader.
     WavLoader& wav_tape() { return wav_tape_; }
     const WavLoader& wav_tape() const { return wav_tape_; }
+
+    /// Access the video recorder.
+    VideoRecorder& video_recorder() { return video_recorder_; }
+    const VideoRecorder& video_recorder() const { return video_recorder_; }
+
+    /// Start recording video/audio to `output_path`.
+    bool start_recording(const std::string& output_path);
+
+    /// Stop recording and finalize the output file.
+    bool stop_recording();
 
     // -----------------------------------------------------------------------
     // Framebuffer access
@@ -218,6 +229,7 @@ private:
     TapLoader       tape_;
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;
+    VideoRecorder   video_recorder_;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;

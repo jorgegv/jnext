@@ -263,6 +263,17 @@ void MainWindow::create_menus() {
 
     file_menu->addSeparator();
 
+    record_start_action_ = file_menu->addAction(tr("Start &Recording..."));
+    record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
+    connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
+
+    record_stop_action_ = file_menu->addAction(tr("Sto&p Recording"));
+    record_stop_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F6));
+    record_stop_action_->setEnabled(false);
+    connect(record_stop_action_, &QAction::triggered, this, &MainWindow::on_record_stop);
+
+    file_menu->addSeparator();
+
     QAction* quit = file_menu->addAction(tr("&Quit"));
     quit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     connect(quit, &QAction::triggered, qApp, &QApplication::quit);
@@ -618,6 +629,50 @@ void MainWindow::update_tape_status() {
 }
 
 // ---------------------------------------------------------------------------
+// Recording handlers
+// ---------------------------------------------------------------------------
+
+void MainWindow::on_record_start() {
+    if (!emulator_) return;
+
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Record Video"), QString(),
+        tr("MP4 Video (*.mp4);;All Files (*)"));
+    if (path.isEmpty()) return;
+
+    if (!emulator_->start_recording(path.toStdString())) {
+        QMessageBox::warning(this, tr("Recording Error"),
+            tr("Failed to start recording.\n"
+               "Make sure FFmpeg is installed and available in PATH."));
+        return;
+    }
+
+    record_start_action_->setEnabled(false);
+    record_stop_action_->setEnabled(true);
+    statusBar()->showMessage(tr("Recording..."), 0);
+}
+
+void MainWindow::on_record_stop() {
+    if (!emulator_) return;
+
+    statusBar()->showMessage(tr("Encoding video..."), 0);
+    QApplication::processEvents();  // show message before blocking encode
+
+    bool ok = emulator_->stop_recording();
+
+    record_start_action_->setEnabled(true);
+    record_stop_action_->setEnabled(false);
+
+    if (ok) {
+        statusBar()->showMessage(tr("Recording saved"), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Recording Error"),
+            tr("FFmpeg encoding failed. Check console output for details."));
+        statusBar()->clearMessage();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Key event handling
 // ---------------------------------------------------------------------------
 
@@ -720,6 +775,11 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // Stop any active recording before closing.
+    if (emulator_ && emulator_->video_recorder().is_recording()) {
+        emulator_->stop_recording();
+    }
+
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) {
         debugger_mgr_->set_enabled(false);

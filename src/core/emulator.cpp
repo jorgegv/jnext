@@ -1302,6 +1302,12 @@ void Emulator::run_frame()
     renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                             layer2_, &sprites_, &tilemap_);
 
+    // Capture frame for video recording (if active).
+    if (video_recorder_.is_recording()) {
+        video_recorder_.capture_frame(framebuffer_.data(),
+                                       FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT);
+    }
+
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();
 }
@@ -1466,4 +1472,25 @@ void Emulator::on_vsync()
     // Real implementation:
     //   - Signal the platform layer that a new frame is ready.
     //   - Reset per-frame state (floating bus cache, sprite collision flags).
+}
+
+bool Emulator::start_recording(const std::string& output_path)
+{
+    if (!video_recorder_.start(output_path))
+        return false;
+
+    // Wire up audio capture: the mixer calls our callback for every sample.
+    mixer_.set_record_callback([this](const int16_t* samples, int count) {
+        video_recorder_.capture_audio(samples, count);
+    });
+
+    return true;
+}
+
+bool Emulator::stop_recording()
+{
+    // Disconnect audio capture callback first.
+    mixer_.set_record_callback(nullptr);
+
+    return video_recorder_.stop();
 }

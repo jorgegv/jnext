@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
@@ -39,10 +40,18 @@ public:
     /// Returns the number of stereo samples actually read.
     int read_samples(int16_t* out, int count);
 
+    /// Set a callback that receives every generated stereo sample pair.
+    /// Used by VideoRecorder to capture audio at the source.
+    /// Signature: (const int16_t* samples, int stereo_pair_count).
+    using RecordCallback = std::function<void(const int16_t*, int)>;
+    void set_record_callback(RecordCallback cb) { record_callback_ = std::move(cb); }
+
 private:
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;
     int write_pos_ = 0;
     int read_pos_ = 0;
     int count_ = 0;
+
+    RecordCallback record_callback_;
 };

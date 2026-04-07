@@ -98,6 +98,10 @@ private:
     void on_tape_fast_load(bool checked);
     void update_tape_status();
 
+    // Recording slots
+    void on_record_start();
+    void on_record_stop();
+
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
 
@@ -143,4 +147,8 @@ private:
 
     // Debug menu actions
     QAction* magic_bp_action_    = nullptr;
+
+    // Recording menu actions
+    QAction* record_start_action_ = nullptr;
+    QAction* record_stop_action_  = nullptr;
 };

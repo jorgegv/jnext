@@ -41,7 +41,8 @@ static void print_usage(const char* prog) {
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
-        "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n",
+        "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
+        "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n",
         prog);
 }
 
@@ -78,6 +79,7 @@ int main(int argc, char* argv[]) {
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
+    std::string record_file;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -134,6 +136,8 @@ int main(int argc, char* argv[]) {
             else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
             else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
             else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", argv[i]); return 1; }
+        } else if (arg == "--record" && i + 1 < argc) {
+            record_file = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -190,7 +194,21 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // Start recording if requested (after init, before run).
+        if (!record_file.empty()) {
+            if (!app.emulator().start_recording(record_file)) {
+                Log::emulator()->error("Failed to start recording to {}", record_file);
+                // Continue without recording — not fatal.
+            }
+        }
+
         app.run();
+
+        // Stop recording before shutdown (encodes the MP4).
+        if (app.emulator().video_recorder().is_recording()) {
+            app.emulator().stop_recording();
+        }
+
         app.shutdown();
         return 0;
     };

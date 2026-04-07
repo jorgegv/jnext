@@ -62,6 +62,12 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     buffer_[write_pos_ + 1] = static_cast<int16_t>(sR);
     write_pos_ = (write_pos_ + 2) % (RING_BUFFER_SIZE * 2);
     count_++;
+
+    // Notify the recording callback (if any) with this sample pair.
+    if (record_callback_) {
+        int16_t pair[2] = { static_cast<int16_t>(sL), static_cast<int16_t>(sR) };
+        record_callback_(pair, 1);
+    }
 }
 
 int Mixer::available() const { return count_; }
