@@ -35,6 +35,12 @@ void DebugState::run_to(uint16_t addr) {
     step_mode_ = StepMode::NONE;
 }
 
+void DebugState::run_to_cycle(uint64_t target_cycle) {
+    target_cycle_ = target_cycle;
+    paused_ = false;
+    step_mode_ = StepMode::RUN_TO_CYCLE;
+}
+
 bool DebugState::should_break(uint16_t pc) const {
     // Check PC breakpoints.
     if (breakpoints_.has_pc(pc)) return true;

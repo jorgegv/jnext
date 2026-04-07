@@ -1246,6 +1246,12 @@ void Emulator::run_frame()
                 debug_state_.pause();
                 return;
             }
+            if (debug_state_.step_mode() == StepMode::RUN_TO_CYCLE) {
+                if (clock_.get() >= debug_state_.target_cycle()) {
+                    debug_state_.pause();
+                    return;
+                }
+            }
         }
 
         // Tape ROM traps — only when ROM is paged in at slot 0.
@@ -1301,11 +1307,27 @@ void Emulator::run_frame()
                     [this](uint16_t a) { return mmu_.read(a); });
                 trace_log_.record(te);
             }
+            // Call stack tracking (debugger only, gated by enabled flag).
+            if (call_stack_.enabled()) {
+                auto regs2 = cpu_.get_registers();
+                uint8_t op0 = mmu_.read(regs2.PC);
+                uint8_t op1 = mmu_.read(regs2.PC + 1);
+                uint8_t op2 = mmu_.read(regs2.PC + 2);
+                call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
+            }
+
             // Execute one CPU instruction; returns T-states consumed.
             // Memory contention is applied per-access via the on_contention
             // callback, which adds delay to the FUSE tstates counter for
             // each read/write to contended addresses.
             int tstates = cpu_.execute();
+
+            // Call stack tracking post-execution.
+            if (call_stack_.enabled()) {
+                auto post = cpu_.get_registers();
+                call_stack_.on_instruction_post(post.SP, post.PC);
+            }
+
             // Convert T-states to 28 MHz master cycles.
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
 
@@ -1399,6 +1421,12 @@ void Emulator::run_frame()
     keyboard_.tick_auto_type();
 }
 
+int Emulator::current_scanline() const
+{
+    uint64_t elapsed = clock_.get() - frame_cycle_;
+    return static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+}
+
 int Emulator::execute_single_instruction()
 {
     // Audio timing constants (same as in run_frame).
@@ -1411,7 +1439,23 @@ int Emulator::execute_single_instruction()
         master_cycles = static_cast<uint64_t>(transferred * 2) * clock_.cpu_divisor();
         if (master_cycles == 0) master_cycles = clock_.cpu_divisor();
     } else {
+        // Call stack tracking (debugger single-step path).
+        if (call_stack_.enabled()) {
+            auto regs = cpu_.get_registers();
+            uint8_t op0 = mmu_.read(regs.PC);
+            uint8_t op1 = mmu_.read(regs.PC + 1);
+            uint8_t op2 = mmu_.read(regs.PC + 2);
+            call_stack_.on_instruction_pre(regs.PC, regs.SP, op0, op1, op2);
+        }
+
         int tstates = cpu_.execute();
+
+        // Call stack tracking post-execution.
+        if (call_stack_.enabled()) {
+            auto post = cpu_.get_registers();
+            call_stack_.on_instruction_post(post.SP, post.PC);
+        }
+
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
     }
     clock_.tick(master_cycles);

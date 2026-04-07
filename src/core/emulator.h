@@ -29,6 +29,7 @@
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
 #include "debug/trace.h"
+#include "debug/call_stack.h"
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
 #include "audio/dac.h"
@@ -186,9 +187,17 @@ public:
     Dac&          dac()       { return dac_; }
     Mixer&        mixer()     { return mixer_; }
     TraceLog&     trace_log() { return trace_log_; }
+    CallStack&    call_stack(){ return call_stack_; }
+    Renderer&     renderer()  { return renderer_; }
 
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
+
+    /// Current scanline (0..LINES_PER_FRAME-1) within the frame.
+    int current_scanline() const;
+
+    /// Current master cycle within the current frame.
+    uint64_t current_frame_cycle() const { return frame_cycle_; }
 
     /// Execute a single CPU instruction with all subsystem ticking.
     /// Returns T-states consumed. Used by debugger step operations.
@@ -241,6 +250,7 @@ private:
     Mixer           mixer_;
     DebugState      debug_state_;
     TraceLog        trace_log_;
+    CallStack       call_stack_;
     TapLoader       tape_;
     TzxLoader       tzx_tape_;
     WavLoader       wav_tape_;

@@ -7,6 +7,7 @@
 #include <QPaintEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QResizeEvent>
 #include <QContextMenuEvent>
 #include <QMenu>
 #include <QAction>
@@ -41,12 +42,12 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     addr_input_->setMaximumWidth(80);
     addr_input_->setToolTip("Enter hex address (e.g. 4000) and press Enter");
 
-    follow_pc_ = new QCheckBox("Follow PC");
-    follow_pc_->setChecked(true);
+    goto_pc_btn_ = new QPushButton("Goto PC");
+    goto_pc_btn_->setMaximumWidth(80);
 
     top_bar->addWidget(addr_label);
     top_bar->addWidget(addr_input_);
-    top_bar->addWidget(follow_pc_);
+    top_bar->addWidget(goto_pc_btn_);
     top_bar->addStretch();
 
     auto* layout = new QVBoxLayout(this);
@@ -62,7 +63,7 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
     paint_y_offset_ = 28; // approximate top bar height
 
     setMinimumSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
-                   VISIBLE_LINES * LINE_HEIGHT + paint_y_offset_);
+                   10 * LINE_HEIGHT + paint_y_offset_);
     setFocusPolicy(Qt::StrongFocus);
 
     // Connect address input
@@ -70,9 +71,9 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
         navigate_to_address(addr_input_->text());
     });
 
-    // When follow-PC is re-checked, refresh to jump to PC
-    connect(follow_pc_, &QCheckBox::toggled, this, [this](bool checked) {
-        if (checked) refresh();
+    // Goto PC button — centers the view around current PC
+    connect(goto_pc_btn_, &QPushButton::clicked, this, [this]() {
+        activate_follow_pc();
     });
 }
 
@@ -81,9 +82,8 @@ void DisasmPanel::navigate_to_address(const QString& text)
     bool ok = false;
     uint16_t addr = static_cast<uint16_t>(text.toUInt(&ok, 16));
     if (ok) {
-        follow_pc_->setChecked(false);
         view_addr_ = addr;
-        disassemble_from(view_addr_, VISIBLE_LINES);
+        disassemble_from(view_addr_, visible_lines());
         update();
     }
 }
@@ -128,64 +128,50 @@ void DisasmPanel::refresh()
 {
     if (!paused_) return; // don't update while running freely
 
-    uint16_t pc = emulator_->cpu().get_registers().PC;
-
-    if (follow_pc_->isChecked()) {
-        // Disassemble starting from PC so it always appears at the center.
-        // We show VISIBLE_LINES/2 lines before PC and VISIBLE_LINES/2 lines after.
-        int half = VISIBLE_LINES / 2;
-
-        // To find a good starting address before PC, try scanning back using heuristic
-        // then disassemble forward to find where PC lands, and adjust.
-        int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
-        uint16_t start = (pc >= bytes_back) ? (pc - bytes_back) : 0;
-
-        // Disassemble from start to find the entry that matches PC
-        auto read_fn = [this](uint16_t a) -> uint8_t {
-            return emulator_->mmu().read(a);
-        };
-
-        // Disassemble enough lines to cover the range
-        int extra_lines = VISIBLE_LINES + half + 10;
-        std::vector<uint16_t> addrs;
-        addrs.reserve(extra_lines);
-        uint16_t cur = start;
-        for (int i = 0; i < extra_lines; ++i) {
-            addrs.push_back(cur);
-            int len = instruction_length(cur, read_fn);
-            cur = static_cast<uint16_t>(cur + len);
-        }
-
-        // Find the index of PC in the address list
-        int pc_idx = -1;
-        for (int i = 0; i < static_cast<int>(addrs.size()); ++i) {
-            if (addrs[i] == pc) {
-                pc_idx = i;
-                break;
-            }
-        }
-
-        if (pc_idx >= 0) {
-            // Set view_addr_ so that PC appears at line `half`
-            int start_idx = pc_idx - half;
-            if (start_idx < 0) start_idx = 0;
-            if (start_idx < static_cast<int>(addrs.size()))
-                view_addr_ = addrs[start_idx];
-            else
-                view_addr_ = pc;
-        } else {
-            // PC not found in scan — just start from PC directly
-            view_addr_ = pc;
-        }
-    }
-
-    disassemble_from(view_addr_, VISIBLE_LINES);
+    disassemble_from(view_addr_, visible_lines());
     update();
 }
 
 void DisasmPanel::activate_follow_pc()
 {
-    follow_pc_->setChecked(true);
+    if (!emulator_) return;
+    uint16_t pc = emulator_->cpu().get_registers().PC;
+
+    // Center PC in the middle of the visible area
+    int half = visible_lines() / 2;
+    int bytes_back = half * 3; // heuristic: avg Z80 instruction ~3 bytes
+    uint16_t start = (pc >= bytes_back) ? (pc - bytes_back) : 0;
+
+    auto read_fn = [this](uint16_t a) -> uint8_t {
+        return emulator_->mmu().read(a);
+    };
+
+    int extra_lines = visible_lines() + half + 10;
+    std::vector<uint16_t> addrs;
+    addrs.reserve(extra_lines);
+    uint16_t cur = start;
+    for (int i = 0; i < extra_lines; ++i) {
+        addrs.push_back(cur);
+        int len = instruction_length(cur, read_fn);
+        cur = static_cast<uint16_t>(cur + len);
+    }
+
+    // Find PC in the address list
+    int pc_idx = -1;
+    for (int i = 0; i < static_cast<int>(addrs.size()); ++i) {
+        if (addrs[i] == pc) { pc_idx = i; break; }
+    }
+
+    if (pc_idx >= 0) {
+        int start_idx = pc_idx - half;
+        if (start_idx < 0) start_idx = 0;
+        view_addr_ = addrs[start_idx];
+    } else {
+        view_addr_ = pc;
+    }
+
+    disassemble_from(view_addr_, visible_lines());
+    update();
 }
 
 uint16_t DisasmPanel::selected_address() const
@@ -214,13 +200,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     int w = width();
 
     // Fill background
-    painter.fillRect(0, paint_y_offset_, w, VISIBLE_LINES * LINE_HEIGHT,
+    painter.fillRect(0, paint_y_offset_, w, visible_lines() * LINE_HEIGHT,
                      QColor(255, 255, 255));
 
     // Draw gutter separator
     painter.setPen(QColor(200, 200, 200));
     painter.drawLine(GUTTER_WIDTH, paint_y_offset_,
-                     GUTTER_WIDTH, paint_y_offset_ + VISIBLE_LINES * LINE_HEIGHT);
+                     GUTTER_WIDTH, paint_y_offset_ + visible_lines() * LINE_HEIGHT);
 
     QFontMetrics fm(mono_font_);
 
@@ -294,7 +280,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 
     // Gray overlay when running (not paused)
     if (!paused_) {
-        painter.fillRect(0, paint_y_offset_, w, VISIBLE_LINES * LINE_HEIGHT,
+        painter.fillRect(0, paint_y_offset_, w, visible_lines() * LINE_HEIGHT,
                          QColor(192, 192, 192, 80)); // light semi-transparent gray
     }
 }
@@ -328,10 +314,6 @@ void DisasmPanel::wheelEvent(QWheelEvent* event)
     int delta = event->angleDelta().y();
     int lines_to_scroll = (delta > 0) ? -3 : 3;
 
-    if (follow_pc_->isChecked()) {
-        follow_pc_->setChecked(false);
-    }
-
     if (lines_to_scroll > 0) {
         // Scroll down: advance view_addr_ by skipping some instructions
         auto read_fn = [this](uint16_t a) -> uint8_t {
@@ -355,7 +337,7 @@ void DisasmPanel::wheelEvent(QWheelEvent* event)
         // This is inherently imprecise for variable-length ISAs
     }
 
-    disassemble_from(view_addr_, VISIBLE_LINES);
+    disassemble_from(view_addr_, visible_lines());
     update();
     event->accept();
 }
@@ -369,13 +351,12 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
             update();
         } else {
             // Scroll up by one line
-            if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
             if (view_addr_ >= 3) {
                 view_addr_ -= 3;
             } else {
                 view_addr_ = 0;
             }
-            disassemble_from(view_addr_, VISIBLE_LINES);
+            disassemble_from(view_addr_, visible_lines());
             selected_line_ = 0;
             update();
         }
@@ -388,13 +369,12 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
             update();
         } else if (!entries_.empty()) {
             // Scroll down by one line
-            if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
             auto read_fn = [this](uint16_t a) -> uint8_t {
                 return emulator_->mmu().read(a);
             };
             int len = instruction_length(view_addr_, read_fn);
             view_addr_ = static_cast<uint16_t>(view_addr_ + len);
-            disassemble_from(view_addr_, VISIBLE_LINES);
+            disassemble_from(view_addr_, visible_lines());
             selected_line_ = static_cast<int>(entries_.size()) - 1;
             update();
         }
@@ -410,17 +390,16 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         break;
 
     case Qt::Key_PageDown: {
-        if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
         auto read_fn = [this](uint16_t a) -> uint8_t {
             return emulator_->mmu().read(a);
         };
         uint16_t addr = view_addr_;
-        for (int i = 0; i < VISIBLE_LINES; ++i) {
+        for (int i = 0; i < visible_lines(); ++i) {
             int len = instruction_length(addr, read_fn);
             addr = static_cast<uint16_t>(addr + len);
         }
         view_addr_ = addr;
-        disassemble_from(view_addr_, VISIBLE_LINES);
+        disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
         update();
         event->accept();
@@ -428,14 +407,13 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     }
 
     case Qt::Key_PageUp: {
-        if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
-        int bytes_back = VISIBLE_LINES * 3; // heuristic
+        int bytes_back = visible_lines() * 3; // heuristic
         if (view_addr_ >= bytes_back) {
             view_addr_ -= bytes_back;
         } else {
             view_addr_ = 0;
         }
-        disassemble_from(view_addr_, VISIBLE_LINES);
+        disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
         update();
         event->accept();
@@ -443,18 +421,16 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     }
 
     case Qt::Key_Home:
-        if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
         view_addr_ = 0;
-        disassemble_from(view_addr_, VISIBLE_LINES);
+        disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
         update();
         event->accept();
         break;
 
     case Qt::Key_End:
-        if (follow_pc_->isChecked()) follow_pc_->setChecked(false);
         view_addr_ = 0xFF00; // near end of address space
-        disassemble_from(view_addr_, VISIBLE_LINES);
+        disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
         update();
         event->accept();
@@ -617,8 +593,15 @@ uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)
     return 0; // not found — 0 is ambiguous but acceptable
 }
 
+void DisasmPanel::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    // Re-disassemble to fill the new height
+    disassemble_from(view_addr_, visible_lines());
+    update();
+}
+
 QSize DisasmPanel::sizeHint() const
 {
     return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
-                 VISIBLE_LINES * LINE_HEIGHT + paint_y_offset_);
+                 20 * LINE_HEIGHT + paint_y_offset_);
 }

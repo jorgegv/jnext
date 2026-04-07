@@ -16,6 +16,9 @@ class NextRegPanel;
 class AudioPanel;
 class WatchPanel;
 class BreakpointPanel;
+class MmuPanel;
+class StackPanel;
+class CallStackPanel;
 class QPushButton;
 class QSplitter;
 class QTabWidget;
@@ -49,6 +52,8 @@ public:
     DisasmPanel* disasm_panel() { return disasm_panel_; }
     WatchPanel* watch_panel() { return watch_panel_; }
     BreakpointPanel* breakpoint_panel() { return breakpoint_panel_; }
+    StackPanel* stack_panel() { return stack_panel_; }
+    CallStackPanel* callstack_panel() { return callstack_panel_; }
 
 signals:
     void window_closed();
@@ -82,6 +87,9 @@ private:
     AudioPanel* audio_panel_ = nullptr;
     WatchPanel* watch_panel_ = nullptr;
     BreakpointPanel* breakpoint_panel_ = nullptr;
+    MmuPanel* mmu_panel_ = nullptr;
+    StackPanel* stack_panel_ = nullptr;
+    CallStackPanel* callstack_panel_ = nullptr;
 
     // Trace toolbar state
     void update_trace_indicator();

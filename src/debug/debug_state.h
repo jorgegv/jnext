@@ -3,7 +3,7 @@
 #include "debug/breakpoints.h"
 #include <cstdint>
 
-enum class StepMode { NONE, INTO, OVER, OUT };
+enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE };
 
 /// Manages the debugger's execution control state: pause/resume, step modes,
 /// and breakpoint checking.  Pure C++ — no GUI dependency.
@@ -22,6 +22,8 @@ public:
     void step_over(uint16_t next_pc);
     void step_out(uint16_t current_sp);
     void run_to(uint16_t addr);
+    void run_to_cycle(uint64_t target_cycle);
+    uint64_t target_cycle() const { return target_cycle_; }
 
     /// Called before each CPU instruction in the hot loop.
     /// Returns true if execution should break (pause).
@@ -50,5 +52,6 @@ private:
     uint16_t data_bp_addr_ = 0;
     StepMode step_mode_ = StepMode::NONE;
     uint16_t step_out_sp_ = 0;
+    uint64_t target_cycle_ = 0;
     BreakpointSet breakpoints_;
 };

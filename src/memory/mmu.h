@@ -105,6 +105,9 @@ public:
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
 
+    // Last 128K paging register value (for debugger display)
+    uint8_t port_7ffd() const { return port_7ffd_; }
+
     // Apply +3 special paging: port 0x1FFD
     void map_plus3_bank(uint8_t port_1ffd);
 

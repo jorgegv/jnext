@@ -9,6 +9,9 @@
 #include "debugger/audio_panel.h"
 #include "debugger/watch_panel.h"
 #include "debugger/breakpoint_panel.h"
+#include "debugger/mmu_panel.h"
+#include "debugger/stack_panel.h"
+#include "debugger/callstack_panel.h"
 #include "core/emulator.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
@@ -125,6 +128,16 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     connect(step_out_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
     toolbar->addWidget(step_out_btn);
 
+    auto* run_to_eosl_btn = new QPushButton(tr("Run to EOSL"), this);
+    run_to_eosl_btn->setToolTip(tr("Run to End of Scan Line"));
+    connect(run_to_eosl_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eosl);
+    toolbar->addWidget(run_to_eosl_btn);
+
+    auto* run_to_eof_btn = new QPushButton(tr("Run to EOF"), this);
+    run_to_eof_btn->setToolTip(tr("Run to End of Frame"));
+    connect(run_to_eof_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eof);
+    toolbar->addWidget(run_to_eof_btn);
+
     auto* break_btn = new QPushButton(tr("F9: Break"), this);
     connect(break_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
     toolbar->addWidget(break_btn);
@@ -159,6 +172,14 @@ void DebuggerWindow::create_menus() {
     step_out_action_ = debug_menu->addAction(tr("Step Ou&t"));
     step_out_action_->setShortcut(QKeySequence(Qt::Key_F8));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
+
+    debug_menu->addSeparator();
+
+    QAction* run_to_eof_action = debug_menu->addAction(tr("Run to End of &Frame"));
+    connect(run_to_eof_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eof);
+
+    QAction* run_to_eosl_action = debug_menu->addAction(tr("Run to End of Scan &Line"));
+    connect(run_to_eosl_action, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eosl);
 
     debug_menu->addSeparator();
 
@@ -324,27 +345,38 @@ void DebuggerWindow::create_panels() {
 
     // --- Tab widget for left-side panels (tabs at bottom) ---
     tab_widget_ = new QTabWidget();
-    tab_widget_->setTabPosition(QTabWidget::South);
+    tab_widget_->setTabPosition(QTabWidget::North);
     tab_widget_->addTab(video_panel_, tr("Video"));
     tab_widget_->addTab(sprite_panel_, tr("Sprites"));
     tab_widget_->addTab(copper_panel_, tr("Copper"));
     tab_widget_->addTab(nextreg_panel_, tr("NextREG"));
     tab_widget_->addTab(audio_panel_, tr("Audio"));
 
-    breakpoint_panel_ = new BreakpointPanel(emulator_);
-    tab_widget_->addTab(breakpoint_panel_, tr("Breakpoints"));
     tab_widget_->setMinimumWidth(380);
 
+    stack_panel_ = new StackPanel(emulator_);
+    callstack_panel_ = new CallStackPanel(emulator_);
+    breakpoint_panel_ = new BreakpointPanel(emulator_);
+
+    mmu_panel_ = new MmuPanel(emulator_);
+
     auto* cpu_box = make_group(tr("CPU Registers"), cpu_panel_);
+    auto* mmu_box = make_group(tr("MMU"), mmu_panel_);
     auto* disasm_box = make_group(tr("Disassembly"), disasm_panel_);
-    auto* memory_box = make_group(tr("Memory"), memory_panel_);
+
+    // Right column: CPU Registers (top half) + MMU (bottom half)
+    auto* right_col = new QSplitter(Qt::Vertical);
+    right_col->addWidget(cpu_box);
+    right_col->addWidget(mmu_box);
+    right_col->setStretchFactor(0, 1);
+    right_col->setStretchFactor(1, 1);
 
     auto* right_widget = new QWidget();
-    auto* right_layout = new QVBoxLayout(right_widget);
+    auto* right_layout = new QHBoxLayout(right_widget);
     right_layout->setContentsMargins(0, 0, 0, 0);
     right_layout->setSpacing(2);
-    right_layout->addWidget(cpu_box);
     right_layout->addWidget(disasm_box, 1);  // disasm gets stretch
+    right_layout->addWidget(right_col, 0);   // CPU+MMU on the right, narrow
 
     // --- Top: tabs (left) | CPU+disasm (right) ---
     top_splitter_ = new QSplitter(Qt::Horizontal);
@@ -354,12 +386,21 @@ void DebuggerWindow::create_panels() {
     top_splitter_->setStretchFactor(1, 1);  // right side stretches equally
     top_splitter_->setSizes({350, 350});
 
-    // --- Bottom: memory (left) | watches (right) ---
-    auto* watch_box = make_group(tr("Watches"), watch_panel_);
+    // --- Bottom: memory tabs (left) | watches+breakpoints tabs (right) ---
+    auto* memory_tab_widget = new QTabWidget();
+    memory_tab_widget->setTabPosition(QTabWidget::North);
+    memory_tab_widget->addTab(memory_panel_, tr("Memory"));
+    memory_tab_widget->addTab(stack_panel_, tr("Stack"));
+    memory_tab_widget->addTab(callstack_panel_, tr("Call Stack"));
+
+    auto* bottom_tab_widget = new QTabWidget();
+    bottom_tab_widget->setTabPosition(QTabWidget::North);
+    bottom_tab_widget->addTab(watch_panel_, tr("Watches"));
+    bottom_tab_widget->addTab(breakpoint_panel_, tr("Breakpoints"));
 
     auto* bottom_splitter = new QSplitter(Qt::Horizontal);
-    bottom_splitter->addWidget(memory_box);
-    bottom_splitter->addWidget(watch_box);
+    bottom_splitter->addWidget(memory_tab_widget);
+    bottom_splitter->addWidget(bottom_tab_widget);
     bottom_splitter->setStretchFactor(0, 1);
     bottom_splitter->setStretchFactor(1, 1);
     bottom_splitter->setSizes({600, 400});
@@ -433,5 +474,8 @@ void DebuggerWindow::refresh_panels() {
     if (nextreg_panel_) nextreg_panel_->refresh();
     if (audio_panel_) audio_panel_->refresh();
     if (watch_panel_) watch_panel_->refresh();
+    if (mmu_panel_) mmu_panel_->refresh();
+    if (stack_panel_) stack_panel_->refresh();
+    if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
 }

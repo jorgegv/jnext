@@ -5,13 +5,13 @@
 
 class Emulator;
 
-/// CPU registers and flags panel (shown as QDockWidget content).
+/// CPU registers, flags, and MMU panel.
 class CpuPanel : public QWidget {
     Q_OBJECT
 public:
     explicit CpuPanel(Emulator* emulator, QWidget* parent = nullptr);
 
-    /// Update display with current CPU state.
+    /// Update display with current CPU state and MMU.
     void refresh();
 
     /// Set paused state — when not paused, panel shows gray overlay and skips updates.
@@ -44,6 +44,7 @@ private:
     QLabel* reg_iff_ = nullptr;
     QLabel* reg_im_ = nullptr;
     QLabel* reg_halted_ = nullptr;
+    QLabel* ula_screen_ = nullptr;
 
     // Individual flag labels
     QLabel* flag_s_ = nullptr;
@@ -52,4 +53,5 @@ private:
     QLabel* flag_pv_ = nullptr;
     QLabel* flag_n_ = nullptr;
     QLabel* flag_c_ = nullptr;
+
 };

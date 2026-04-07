@@ -1,8 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <QWidget>
 #include <QLineEdit>
-#include <QCheckBox>
+#include <QPushButton>
 #include <vector>
 #include "debug/disasm.h"
 
@@ -45,6 +46,7 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
     QSize sizeHint() const override;
 
 private:
@@ -57,7 +59,7 @@ private:
 
     // Navigation
     QLineEdit* addr_input_ = nullptr;
-    QCheckBox* follow_pc_ = nullptr;
+    QPushButton* goto_pc_btn_ = nullptr;
 
     // Display state
     struct DisasmEntry {
@@ -75,7 +77,7 @@ private:
     // Layout constants
     static constexpr int GUTTER_WIDTH = 20;   // breakpoint indicator column
     static constexpr int LINE_HEIGHT = 18;    // pixels per line
-    static constexpr int VISIBLE_LINES = 22;  // number of visible lines
+    int visible_lines() const { return std::max(4, (height() - paint_y_offset_) / LINE_HEIGHT); }
     static constexpr int ADDR_WIDTH = 48;     // address column width
     static constexpr int BYTES_WIDTH = 100;   // hex bytes column width
 

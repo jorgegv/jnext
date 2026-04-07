@@ -49,6 +49,8 @@ public slots:
     void on_step_into();
     void on_step_over();
     void on_step_out();
+    void on_run_to_eof();
+    void on_run_to_eosl();
     void on_load_map_z88dk();
     void on_load_map_simple();
 

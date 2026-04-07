@@ -4,7 +4,11 @@
 #include "debugger/disasm_panel.h"
 #include "debugger/watch_panel.h"
 #include "debugger/breakpoint_panel.h"
+#include "debugger/stack_panel.h"
+#include "debugger/callstack_panel.h"
 #include "core/emulator.h"
+#include "core/emulator_config.h"
+#include "core/clock.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
 
@@ -84,6 +88,7 @@ void DebuggerManager::set_enabled(bool enabled) {
     if (enabled) {
         // Activate debug checks in the hot loop.
         emulator_->debug_state().set_active(true);
+        emulator_->call_stack().set_enabled(true);
 
         // Create the debugger window lazily.
         ensure_window();
@@ -105,6 +110,10 @@ void DebuggerManager::set_enabled(bool enabled) {
             debugger_window_->disasm_panel()->set_paused(is_paused);
         if (debugger_window_->cpu_panel())
             debugger_window_->cpu_panel()->set_paused(is_paused);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(is_paused);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(is_paused);
 
         // Refresh panels immediately.
         debugger_window_->refresh_panels();
@@ -117,6 +126,7 @@ void DebuggerManager::set_enabled(bool enabled) {
         }
 
         emulator_->debug_state().set_active(false);
+        emulator_->call_stack().set_enabled(false);
 
         if (debugger_window_) {
             debugger_window_->save_position();
@@ -152,6 +162,10 @@ void DebuggerManager::ensure_window() {
             dp->set_paused(false);
             if (debugger_window_->cpu_panel())
                 debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
             emit resumed();
             update_actions();
         });
@@ -159,6 +173,11 @@ void DebuggerManager::ensure_window() {
         dp->set_symbol_table(&symbol_table_);
         if (debugger_window_->watch_panel())
             dp->set_watch_panel(debugger_window_->watch_panel());
+    }
+
+    // Wire call stack panel with symbol table.
+    if (auto* cs = debugger_window_->callstack_panel()) {
+        cs->set_symbol_table(&symbol_table_);
     }
 
     // Wire breakpoint panel with symbol table and disasm panel.
@@ -220,6 +239,10 @@ void DebuggerManager::on_run() {
             debugger_window_->disasm_panel()->set_paused(false);
         if (debugger_window_->cpu_panel())
             debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
     }
     emit resumed();
     update_actions();
@@ -234,6 +257,10 @@ void DebuggerManager::on_pause() {
             debugger_window_->disasm_panel()->set_paused(true);
         if (debugger_window_->cpu_panel())
             debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
     }
     emit paused();
     if (debugger_window_) {
@@ -259,6 +286,10 @@ void DebuggerManager::on_step_into() {
             debugger_window_->disasm_panel()->set_paused(true);
         if (debugger_window_->cpu_panel())
             debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
     }
     emit paused();
     if (debugger_window_) {
@@ -292,6 +323,10 @@ void DebuggerManager::on_step_over() {
                 debugger_window_->disasm_panel()->set_paused(false);
             if (debugger_window_->cpu_panel())
                 debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
         }
         emit resumed();
         update_actions();
@@ -315,6 +350,61 @@ void DebuggerManager::on_step_out() {
             debugger_window_->disasm_panel()->set_paused(false);
         if (debugger_window_->cpu_panel())
             debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
+    }
+    emit resumed();
+    update_actions();
+}
+
+void DebuggerManager::on_run_to_eof() {
+    if (!enabled_) return;
+    if (!emulator_->debug_state().paused()) return;
+
+    // Calculate the cycle at the end of the current frame.
+    uint64_t frame_start = emulator_->current_frame_cycle();
+    uint64_t target = frame_start + MASTER_CYCLES_PER_FRAME;
+
+    emulator_->debug_state().run_to_cycle(target);
+    was_paused_ = false;
+    if (debugger_window_) {
+        if (debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(false);
+        if (debugger_window_->cpu_panel())
+            debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
+    }
+    emit resumed();
+    update_actions();
+}
+
+void DebuggerManager::on_run_to_eosl() {
+    if (!enabled_) return;
+    if (!emulator_->debug_state().paused()) return;
+
+    // Calculate the cycle at the end of the current scanline.
+    uint64_t frame_start = emulator_->current_frame_cycle();
+    uint64_t elapsed = emulator_->clock().get() - frame_start;
+    // Round up to the next scanline boundary.
+    uint64_t next_line_start = ((elapsed / MASTER_CYCLES_PER_LINE) + 1) * MASTER_CYCLES_PER_LINE;
+    uint64_t target = frame_start + next_line_start;
+
+    emulator_->debug_state().run_to_cycle(target);
+    was_paused_ = false;
+    if (debugger_window_) {
+        if (debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(false);
+        if (debugger_window_->cpu_panel())
+            debugger_window_->cpu_panel()->set_paused(false);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(false);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(false);
     }
     emit resumed();
     update_actions();
@@ -397,6 +487,10 @@ void DebuggerManager::check_breakpoint_hit() {
                 debugger_window_->disasm_panel()->set_paused(true);
             if (debugger_window_->cpu_panel())
                 debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
         }
         emit paused();
         if (debugger_window_) {
