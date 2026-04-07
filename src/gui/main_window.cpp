@@ -639,6 +639,8 @@ void MainWindow::on_record_start() {
         this, tr("Record Video"), QString(),
         tr("MP4 Video (*.mp4);;All Files (*)"));
     if (path.isEmpty()) return;
+    if (!path.endsWith(".mp4", Qt::CaseInsensitive))
+        path += ".mp4";
 
     if (!emulator_->start_recording(path.toStdString())) {
         QMessageBox::warning(this, tr("Recording Error"),
