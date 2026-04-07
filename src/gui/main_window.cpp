@@ -588,7 +588,7 @@ void MainWindow::on_about() {
            "<p>A line-accurate emulator of the ZX Spectrum Next computer, "
            "based on the official FPGA VHDL sources.</p>"
            "<p>Written in C++17 with Qt 6 and SDL2.</p>"
-           "<p>&copy; Copyright Jorge Gonzalez Villalonga &lt;zx@jogv.es&gt;</p>"));
+           "<p>&copy; Copyright 2026 Jorge Gonzalez Villalonga &lt;zx@jogv.es&gt;</p>"));
 }
 
 // ---------------------------------------------------------------------------
