@@ -965,11 +965,14 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Control buttons: "Run to EOF" (Run to End of Frame), "Run to EOSL" (Run to End of Scan Line) — toolbar + Debug menu
   - [x] Disassembly panel: dynamic visible lines from panel height, "Go to PC" button, address input centers view, vertical scrollbar (0x0000-0xFFFF), BP/Addr column headers, address wrap-around clamping
   - [x] Non-resizable panel splitters (1px handles, no collapse)
-  - [ ] Video panel:
-    - [ ] add a ULA screen panel: two screens with contents of both screens (normal, shadow), with current frame video contents updated to the scanline, red line indicating the current scanline
-    - [ ] add a Layer2 screen panel: two screens with contents of both Layer2 screens (normal, shadow) updated to the scanline and red line indicating the current scanline
-    - [ ] add a Sprite screen panel: contents of Sprite rendering updated to the scanline and red line indicating the current scanline
-    - [ ] add a TileMap screen panel: contents of TileMap rendering updated to the scanline and red line indicating the current scanline
+  - [x] Video panel: tabbed sub-panel in Video tab, below readonly info:
+    - [x] ULA tab: Primary (0x4000) + Shadow (0x6000) side by side; rows rendered up to current VC, dark for unrendered, red 1-px scanline indicator
+    - [x] Layer2 tab: Active bank + Shadow bank side by side; same scanline treatment
+    - [x] Sprites tab: sprite layer; same scanline treatment
+    - [x] TileMap tab: tilemap layer; same scanline treatment
+    - [x] Transparent pixels shown with dark/light checkerboard background
+    - [x] Full layer contents rendered from current VRAM state at break point
+    - [x] Panels NOT updated in realtime; updated only in stepping/paused mode; tab switch triggers re-render
   - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
     - [ ] Add --rewind-buffer-size <num-instructions> (deferred: depends on backwards execution)
 
@@ -1024,6 +1027,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] SZX file format loading ✓ (done in Phase 7.8)
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
+- [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc.
 
 ---
 

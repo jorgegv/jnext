@@ -89,6 +89,11 @@ public:
                          const Ram& ram,
                          const PaletteManager& palette) const;
 
+    /// Render one scanline regardless of enabled_ state. Used by the debugger.
+    void render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
+                               const Ram& ram,
+                               const PaletteManager& palette);
+
 private:
     // --- Control register state ---
     uint8_t  control_raw_    = 0;

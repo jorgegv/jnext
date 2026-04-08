@@ -84,6 +84,11 @@ public:
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette) const;
 
+    /// Render one scanline using a specific bank, regardless of enabled_ state.
+    /// Used by the debugger video panel to show active and shadow Layer 2 content.
+    void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
+                               const PaletteManager& palette, uint8_t bank);
+
 private:
     uint8_t  active_bank_    = 8;     // NextREG 0x12 default
     uint8_t  shadow_bank_    = 11;    // NextREG 0x13 default

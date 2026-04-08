@@ -384,9 +384,9 @@ void DebuggerWindow::create_panels() {
     top_splitter_ = new QSplitter(Qt::Horizontal);
     top_splitter_->addWidget(tab_widget_);
     top_splitter_->addWidget(right_widget);
-    top_splitter_->setStretchFactor(0, 1);  // tabs stretch
-    top_splitter_->setStretchFactor(1, 1);  // right side stretches equally
-    top_splitter_->setSizes({350, 350});
+    top_splitter_->setStretchFactor(0, 3);  // left tabs get more space
+    top_splitter_->setStretchFactor(1, 2);  // right side (disasm+CPU)
+    top_splitter_->setSizes({450, 300});
     top_splitter_->setHandleWidth(1);
     top_splitter_->setChildrenCollapsible(false);
 

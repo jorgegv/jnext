@@ -1446,16 +1446,15 @@ int Emulator::current_hc() const
 
 void Emulator::snapshot_raster()
 {
+    // Always compute VC/HC from actual elapsed cycles since the current frame
+    // start.  When Break is pressed "between frames" (after run_frame() has
+    // advanced frame_cycle_ but before the next frame has started), elapsed is
+    // near zero and VC=0 is accurate — the CPU is at the very start of a new
+    // frame.  The old "between frames" workaround that returned last_frame_vc_
+    // caused the EOSL step from VC=255 to land at VC=1 instead of VC=0.
     uint64_t elapsed = clock_.get() - frame_cycle_;
-    if (elapsed < MASTER_CYCLES_PER_LINE) {
-        // Between frames (Break pressed after run_frame() completed):
-        // use the position saved at end of the last completed frame.
-        paused_vc_ = last_frame_vc_;
-        paused_hc_ = last_frame_hc_;
-    } else {
-        paused_vc_ = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
-        paused_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
-    }
+    paused_vc_ = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+    paused_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
 }
 
 int Emulator::execute_single_instruction()

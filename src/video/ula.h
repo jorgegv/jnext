@@ -121,6 +121,13 @@ public:
     /// Used by the compositor for per-scanline rendering.
     void render_scanline(uint32_t* dst, int row, Mmu& mmu);
 
+    /// Render a single scanline from the 128K shadow screen (bank 7, page 14).
+    /// Bank 7 uses the same ZX pixel/attribute layout as bank 5 but lives in
+    /// physical pages 14-15.  The FPGA implements it as 8K BRAM (enough for
+    /// the ~7KB screen data).  Selected by port 0x7FFD bit 3.
+    /// Used by the debugger video panel; does NOT affect live rendering state.
+    void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu);
+
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();
 
@@ -128,6 +135,7 @@ private:
     PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kUlaPalette)
     Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
+    bool             vram_use_bank7_  = false; ///< When true, vram_read() reads from bank 7 (page 14) not bank 5 (page 10)
     uint8_t          clip_x1_        = 0;
     uint8_t          clip_x2_        = 255;
     uint8_t          clip_y1_        = 0;

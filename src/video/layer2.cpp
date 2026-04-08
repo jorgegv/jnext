@@ -59,6 +59,18 @@ static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr)
     return static_cast<uint32_t>((bank_16k + sub_bank) * 16384 + offset);
 }
 
+void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
+                                   const PaletteManager& palette, uint8_t bank)
+{
+    const bool saved_enabled = enabled_;
+    const uint8_t saved_bank = active_bank_;
+    enabled_      = true;
+    active_bank_  = bank;
+    render_scanline(dst, row, ram, palette);
+    enabled_      = saved_enabled;
+    active_bank_  = saved_bank;
+}
+
 void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                              const PaletteManager& palette) const
 {
