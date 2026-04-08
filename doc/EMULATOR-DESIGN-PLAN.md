@@ -972,7 +972,6 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - [ ] add a TileMap screen panel: contents of TileMap rendering updated to the scanline and red line indicating the current scanline
   - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
     - [ ] Add --rewind-buffer-size <num-instructions> (deferred: depends on backwards execution)
-  - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 
 - [x] General UI:
   - [x] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (Machine > Emulator Speed menu, Custom... dialog, status bar %, `--speed PERCENT` CLI)
@@ -1023,6 +1022,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [ ] Z80 file format loading
 - [x] SZX file format loading ✓ (done in Phase 7.8)
+- [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
 
 ---
