@@ -127,7 +127,11 @@ void VideoLayerView::setLayer(Layer layer)
 
 void VideoLayerView::refresh(int vc)
 {
-    if (vc == last_vc_) return;
+    // Only skip re-render for the dim running placeholder (vc < 0).
+    // When paused (vc >= 0), always re-render: registers (scroll, palette,
+    // tile data) may have changed even if the scanline position is the same
+    // (e.g. EOF → EOF stepping stays at vc=255 across frames).
+    if (vc < 0 && last_vc_ < 0) return;
     last_vc_ = vc;
     render_to_image(vc);
     update();
