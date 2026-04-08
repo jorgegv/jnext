@@ -8,6 +8,7 @@
 #include "debugger/callstack_panel.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "video/renderer.h"
 #include "core/clock.h"
 #include "debug/debug_state.h"
 #include "debug/disasm.h"
@@ -363,9 +364,17 @@ void DebuggerManager::on_run_to_eof() {
     if (!enabled_) return;
     if (!emulator_->debug_state().paused()) return;
 
-    // Calculate the cycle at the end of the current frame.
+    // Target the midpoint of the last visible scanline (VC = FB_HEIGHT-1 = 255)
+    // so that when the CPU stops, paused_vc_ = 255 and all visible rows are shown
+    // in the video panel.  If we are already past that point in the current frame
+    // (e.g. stepping from blanking), target the same scanline in the next frame.
     uint64_t frame_start = emulator_->current_frame_cycle();
-    uint64_t target = frame_start + MASTER_CYCLES_PER_FRAME;
+    const uint64_t last_vis_mid = static_cast<uint64_t>(Renderer::FB_HEIGHT - 1)
+                                  * MASTER_CYCLES_PER_LINE
+                                  + MASTER_CYCLES_PER_LINE / 2;
+    uint64_t target = frame_start + last_vis_mid;
+    if (emulator_->clock().get() >= target)
+        target += MASTER_CYCLES_PER_FRAME;
 
     emulator_->debug_state().run_to_cycle(target);
     was_paused_ = false;
@@ -392,7 +401,11 @@ void DebuggerManager::on_run_to_eosl() {
     uint64_t elapsed = emulator_->clock().get() - frame_start;
     // Round up to the next scanline boundary.
     uint64_t next_line_start = ((elapsed / MASTER_CYCLES_PER_LINE) + 1) * MASTER_CYCLES_PER_LINE;
-    uint64_t target = frame_start + next_line_start;
+    uint64_t next_line_vc    = next_line_start / MASTER_CYCLES_PER_LINE;
+    // Skip blanking lines (VC >= FB_HEIGHT): jump straight to next frame start.
+    uint64_t target = (static_cast<int>(next_line_vc) >= Renderer::FB_HEIGHT)
+                    ? frame_start + MASTER_CYCLES_PER_FRAME
+                    : frame_start + next_line_start;
 
     emulator_->debug_state().run_to_cycle(target);
     was_paused_ = false;

@@ -111,6 +111,11 @@ public:
     void render_scanline(uint32_t* dst, int y,
                          const PaletteManager& palette) const;
 
+    /// Render one scanline regardless of global sprites_visible_ flag.
+    /// Used by the debugger video panel.
+    void render_scanline_debug(uint32_t* dst, int y,
+                               const PaletteManager& palette);
+
     /// Set whether sprite 0 is drawn on top (true) or behind (false, default).
     void set_zero_on_top(bool val) { zero_on_top_ = val; }
 

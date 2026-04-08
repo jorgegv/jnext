@@ -34,22 +34,18 @@ inline uint32_t Ula::lookup_colour(uint8_t idx) const
 uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 {
     if (ram_) {
-        // Direct physical access, like real hardware.
-        // addr is in CPU space (0x4000-0x7FFF for bank 5, 0x6000-0x7FFF also bank 5).
-        // Convert to 14-bit offset within a 16K bank.
-        uint16_t offset = addr & 0x3FFF;
-        // Bank 5 starts at page 10 (physical offset = page * 8192).
-        // The shadow screen (bank 7) starts at page 14.
-        bool use_bank7 = (addr >= 0x6000 && addr < 0x8000 &&
-                          mode_ == TimexScreenMode::HI_COLOUR);
-        // Actually, bank selection is simpler: addresses 0x4000-0x7FFF all map to
-        // bank 5 for the ULA. The alternate screen at 0x6000 is at offset 0x2000
-        // within bank 5. Bank 7 is only used via ula_vram_shadow signal.
-        // For now, always read from bank 5.
-        uint32_t phys = static_cast<uint32_t>(10) * 8192u + offset;
-        return ram_->read(phys);
+        // Direct physical access, bypassing the MMU — as on real hardware.
+        // addr is in CPU space; we only care about the 14-bit bank offset.
+        // Normal screen  : bank 5, starting at physical page 10.
+        // Shadow screen  : bank 7, starting at physical page 14.
+        //   (VHDL: ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1')
+        //   Bank 7 is implemented as 8K BRAM on the FPGA; the screen data
+        //   (pixels + attrs, ~7KB) fits within the first 8K (page 14).
+        const uint16_t offset = addr & 0x3FFF;
+        const uint32_t page   = vram_use_bank7_ ? 14u : 10u;
+        return ram_->read(page * 8192u + offset);
     }
-    // Fallback: read through MMU (legacy behavior, not hardware-accurate).
+    // Fallback: read through MMU (used when RAM not wired, e.g. early tests).
     return mmu.read(addr);
 }
 
@@ -207,6 +203,43 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
     }
 
     border_colour_ = saved_border;
+}
+
+// ---------------------------------------------------------------------------
+// render_scanline_screen1 — render 128K shadow screen (bank 7) for debug panel
+// ---------------------------------------------------------------------------
+//
+// Bank 7 uses the identical ZX pixel/attribute layout as bank 5, just stored
+// in physical pages 14-15.  We temporarily set vram_use_bank7_=true so that
+// all vram_read() calls inside render_display_line() go to page 14 instead of
+// page 10.  We pass STANDARD-mode addresses (0x4000-base) so that
+// render_display_line() uses pixel_base = 0x4000 | poff (the 0x3FFF mask in
+// vram_read strips that base, leaving just the 14-bit bank offset).
+
+void Ula::render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu)
+{
+    const uint8_t saved_border   = border_colour_;
+    const bool    saved_bank7    = vram_use_bank7_;
+
+    if (row >= 0 && row < FB_HEIGHT)
+        border_colour_ = border_per_line_[row];
+
+    vram_use_bank7_ = true;
+
+    const int screen_row = row - DISP_Y;
+
+    if (screen_row >= 0 && screen_row < DISP_H) {
+        // STANDARD-mode addresses: pixel base 0x4000, attr base 0x5800.
+        // vram_read will map the 14-bit offsets to bank 7 (page 14).
+        const uint16_t poff     = pixel_addr_offset(screen_row, 0);
+        const uint16_t attr_row = static_cast<uint16_t>(0x5800u + (screen_row / 8) * 32);
+        render_display_line(dst, screen_row, poff, attr_row, mmu);
+    } else {
+        render_border_line(dst);
+    }
+
+    vram_use_bank7_ = saved_bank7;
+    border_colour_  = saved_border;
 }
 
 // ---------------------------------------------------------------------------

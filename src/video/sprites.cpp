@@ -332,6 +332,15 @@ SpriteEngine::SpriteAttr SpriteEngine::resolve_relative(const SpriteAttr& rel,
 // Render one scanline of sprites
 // ---------------------------------------------------------------------------
 
+void SpriteEngine::render_scanline_debug(uint32_t* dst, int y,
+                                         const PaletteManager& palette)
+{
+    const bool saved = sprites_visible_;
+    sprites_visible_ = true;
+    render_scanline(dst, y, palette);
+    sprites_visible_ = saved;
+}
+
 void SpriteEngine::render_scanline(uint32_t* dst, int y,
                                    const PaletteManager& palette) const
 {

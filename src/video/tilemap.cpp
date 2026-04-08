@@ -127,6 +127,16 @@ void Tilemap::set_def_base(uint8_t val)
 //   X scroll wraps at 320 (40-col) or 640 (80-col) pixel boundary.
 //   Y scroll wraps at 256 pixels (32 tiles * 8).
 
+void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
+                                    const Ram& ram,
+                                    const PaletteManager& palette)
+{
+    const bool saved = enabled_;
+    enabled_ = true;
+    render_scanline(dst, ula_over_flags, y, ram, palette);
+    enabled_ = saved;
+}
+
 void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               const Ram& ram,
                               const PaletteManager& palette) const

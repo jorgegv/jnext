@@ -166,6 +166,7 @@ public:
 
     Clock&        clock()     { return clock_; }
     Scheduler&    scheduler() { return scheduler_; }
+    Ram&          ram()       { return ram_; }
     Mmu&          mmu()       { return mmu_; }
     PortDispatch& port()      { return port_; }
     NextReg&      nextreg()   { return nextreg_; }
