@@ -456,6 +456,7 @@ void DebuggerManager::refresh_panels() {
         return;
 
     if (emulator_->debug_state().paused()) {
+        emulator_->snapshot_raster();
         debugger_window_->refresh_panels();
     } else {
         // Throttle refresh during running to ~4Hz.

@@ -2,12 +2,10 @@
 
 #include <QWidget>
 #include <QLabel>
-#include <QCheckBox>
-#include <QComboBox>
 
 class Emulator;
 
-/// Debugger panel showing raster position, layer controls, and ULA palette.
+/// Debugger panel showing raster position, layer state, priority and ULA palette.
 class VideoPanel : public QWidget {
     Q_OBJECT
 public:
@@ -16,26 +14,23 @@ public:
     /// Update display with current video state.
     void refresh();
 
-    QSize sizeHint() const override { return QSize(400, 400); }
+    QSize sizeHint() const override { return QSize(420, 200); }
 
 private:
     void create_ui();
 
     Emulator* emulator_;
 
-    // Raster position labels
-    QLabel* hc_label_ = nullptr;
-    QLabel* vc_label_ = nullptr;
+    // Raster position
+    QLabel* hc_label_       = nullptr;
+    QLabel* vc_label_       = nullptr;
 
-    // Layer visibility checkboxes (display-only for now)
-    QCheckBox* ula_check_ = nullptr;
-    QCheckBox* l2_check_ = nullptr;
-    QCheckBox* tm_check_ = nullptr;
-    QCheckBox* spr_check_ = nullptr;
+    // Layer flags (0=ULA, 1=Layer2, 2=Tilemap, 3=Sprites)
+    QLabel* layer_flags_[4] = {};
 
-    // Layer priority dropdown
-    QComboBox* priority_combo_ = nullptr;
+    // Layer priority flags (0=SLU .. 5=ULS)
+    QLabel* prio_flags_[6]  = {};
 
-    // Palette swatch widget (custom-painted)
+    // Palette swatch
     QWidget* palette_widget_ = nullptr;
 };

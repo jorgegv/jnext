@@ -196,6 +196,16 @@ public:
     /// Current scanline (0..LINES_PER_FRAME-1) within the frame.
     int current_scanline() const;
 
+    /// Current horizontal counter (pixel column, 0..PIXELS_PER_LINE-1) within the current scanline.
+    int current_hc() const;
+
+    /// Snapshot raster position at the current clock value (call when pausing).
+    void snapshot_raster();
+
+    /// Raster position from the last snapshot (valid when paused).
+    int paused_vc() const { return paused_vc_; }
+    int paused_hc() const { return paused_hc_; }
+
     /// Current master cycle within the current frame.
     uint64_t current_frame_cycle() const { return frame_cycle_; }
 
@@ -267,6 +277,14 @@ private:
 
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
+
+    /// Raster position snapshotted at pause time.
+    int paused_vc_ = 0;
+    int paused_hc_ = 0;
+
+    /// Raster position at the end of the last completed frame (saved before frame_cycle_ advances).
+    int last_frame_vc_ = 0;
+    int last_frame_hc_ = 0;
 
     /// FUSE tstates value at frame start (for contention position calc).
     uint32_t frame_ts_start_ = 0;

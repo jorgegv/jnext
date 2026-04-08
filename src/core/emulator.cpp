@@ -1395,6 +1395,14 @@ void Emulator::run_frame()
         scheduler_.run_until(clock_.get());
     }
 
+    // Save end-of-frame raster before advancing frame_cycle_, so snapshot_raster()
+    // can show a meaningful position when Break is pressed between frames.
+    {
+        uint64_t elapsed = clock_.get() - frame_cycle_;
+        last_frame_vc_ = std::min(static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE),
+                                  LINES_PER_FRAME - 1);
+        last_frame_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+    }
     frame_cycle_ = frame_end;
 
     // Snapshot the fallback/border colour for the last scanline.
@@ -1425,6 +1433,29 @@ int Emulator::current_scanline() const
 {
     uint64_t elapsed = clock_.get() - frame_cycle_;
     return static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+}
+
+int Emulator::current_hc() const
+{
+    // VHDL phc (practical horizontal count) ticks at the pixel clock.
+    // 28 MHz master / 4 = 7 MHz pixel clock → 1 pixel = 4 master cycles.
+    // phc runs 0..447 (48K) or 0..455 (other modes) per line.
+    uint64_t elapsed = clock_.get() - frame_cycle_;
+    return static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+}
+
+void Emulator::snapshot_raster()
+{
+    uint64_t elapsed = clock_.get() - frame_cycle_;
+    if (elapsed < MASTER_CYCLES_PER_LINE) {
+        // Between frames (Break pressed after run_frame() completed):
+        // use the position saved at end of the last completed frame.
+        paused_vc_ = last_frame_vc_;
+        paused_hc_ = last_frame_hc_;
+    } else {
+        paused_vc_ = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        paused_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+    }
 }
 
 int Emulator::execute_single_instruction()
