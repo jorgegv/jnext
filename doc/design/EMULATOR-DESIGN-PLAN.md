@@ -1006,7 +1006,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Generation of MacOS version
 - [ ] Documentation
   - [ ] Update README for repo and source code users
-  - [ ] Create DEVELOPMENT documentation
+  - [ ] Create DEVELOPMENT documentation and process: software description, architecture, subsystems, mermaid diagrams, issue reporting template (GitHub), pull requests, needed tools, etc.
   - [ ] Create USAGE document and man page for users
 - [ ] Create static executables by downloading QT and SDL sources and building them
 - [ ] Create exhaustive CI plan for Github and automated release
