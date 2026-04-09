@@ -973,8 +973,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - [x] Transparent pixels shown with dark/light checkerboard background
     - [x] Full layer contents rendered from current VRAM state at break point
     - [x] Panels NOT updated in realtime; updated only in stepping/paused mode; tab switch triggers re-render
-  - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions.
-    - [ ] Add --rewind-buffer-size <num-instructions> (deferred: depends on backwards execution)
+  - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions. See plan at @doc/design/BACKWARD-EXECUTION.md
+    - [ ] Add --rewind-buffer-size <num-frames> (see backward execution plan)
 
 - [x] General UI:
   - [x] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (Machine > Emulator Speed menu, Custom... dialog, status bar %, `--speed PERCENT` CLI)
