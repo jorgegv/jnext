@@ -1027,7 +1027,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] SZX file format loading ✓ (done in Phase 7.8)
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
-- [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc.
+- [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
 
 ---
 
