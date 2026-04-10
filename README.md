@@ -1,18 +1,16 @@
-# JNEXT -- ZX Spectrum Next Emulator
+# JNEXT — ZX Spectrum Next Emulator
 
 **A developer's emulator for the ZX Spectrum Next, derived directly from the official FPGA VHDL sources.**
 
-JNEXT is a real-time, cross-platform software emulator of the ZX Spectrum Next computer, written in C++17. It uses the official ZX Next FPGA core VHDL sources as the authoritative hardware reference, translating gate-level behavior into accurate software emulation.
+JNEXT is a real-time software emulator of the ZX Spectrum Next computer, written in C++17. It uses the official ZX Next FPGA core VHDL sources as the authoritative hardware reference, translating gate-level behavior into accurate software emulation.
 
-**Status:** Beta -- actively developed. Issues and pull requests are welcome.
-
-**GitHub:** [https://github.com/jorgegv/jnext](https://github.com/jorgegv/jnext)
+**Status:** Beta — actively developed. Issues and pull requests are welcome.
 
 ---
 
 ## About this project
 
-JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and supervision from Jorge Gonzalez Villalonga. The complete prompt history, design documents, daily task files, and development documentation are available in the repository. This makes JNEXT not just an emulator, but also a practical case study in developing a large, complex piece of software using AI-assisted programming with Claude.
+JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and supervision from Jorge Gonzalez Villalonga. The complete prompt history, design documents, daily task files, and development documentation are available in the repository. This makes JNEXT not just an emulator, but also a practical case study in developing a large, complex piece of software using AI-assisted programming.
 
 ---
 
@@ -24,168 +22,167 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 | ZX Spectrum 128K           | 128K with AY sound and memory paging      |
 | ZX Spectrum +3             | Amstrad +3 with extended paging           |
 | Pentagon 128               | Russian Pentagon clone                    |
-| ZX Spectrum Next (Issue 2) | Full Next hardware with extended features |
+| ZX Spectrum Next (Issue 2) | Full Next hardware with all extended features |
 
 ## Emulated hardware
 
-- **Z80N CPU** -- Standard Z80 plus Next extended instructions (Z80N)
-- **ULA** with memory contention and per-scanline border rendering
-- **Layer 2** -- 256x192, 320x256, and 640x256 modes
-- **Hardware sprites** -- 128 sprites with scaling and anchoring
-- **Tilemap** engine
-- **Copper** co-processor
-- **AY-3-8912 sound** -- TurboSound with 3 AY chips
-- **DAC audio** (4-channel)
-- **Beeper** with real-time EAR audio
-- **DMA** (Z80 DMA compatible)
-- **DivMMC** with SD card interface
-- **UART**
-- **CTC** (Counter/Timer Circuit)
-- **MMU** -- 8-slot memory management unit
+- **Z80N CPU** — Standard Z80 plus all 26 Next extended instructions; 98.8% pass rate on FUSE opcode test suite
+- **ULA** — Standard 48K, Timex hi-colour (8×1 attributes), Timex hi-res (512×192); per-scanline border, floating bus, memory contention
+- **Layer 2** — 256×192, 320×256, and 640×256 @ 8-bit colour; hardware X/Y scroll
+- **Hardware sprites** — 128 sprites, 16×16, 8-bit/4-bit colour, ×1/×2/×4/×8 scaling, composite anchoring
+- **Tilemap** — 40×32 and 80×32 modes, 4bpp/1bpp patterns, hardware scroll
+- **Copper co-processor** — WAIT/MOVE instruction set, per-scanline register writes
+- **6-mode layer compositor** — SLU/LSU/SUL/LUS/USL/ULS priority order
+- **8 palettes** — ULA/Layer2/Sprite/Tilemap × first/second; 9-bit RGB (512 colours)
+- **AY-3-8910 × 3** — TurboSound with tone, noise, envelope, and stereo panning
+- **DAC** — 4-channel 8-bit Soundrive/Specdrum/Covox
+- **Beeper** — EAR/MIC with real-time audio output
+- **DMA** — Z80-DMA compatible + ZXN burst mode
+- **DivMMC** — 8KB SRAM, automap, SD card image mounting
+- **UART** — Dual-channel with 512/64-byte FIFOs
+- **CTC** — 4-channel counter/timer with daisy-chain
+- **SPI / I2C / RTC** — SPI master, bit-bang I2C, DS1307 RTC via host clock
+- **IM1/IM2** — All 14 Next interrupt levels
 - **Kempston and Sinclair joystick** emulation
-- **Keyboard** with compound key mapping (arrows, delete)
+- **Keyboard** with compound key mapping (arrows, delete, etc.)
+
+---
 
 ## Features
 
 ### Qt6 GUI
 
-JNEXT includes a full-featured Qt6 graphical interface:
-
-- **File loading** -- NEX, SNA, SZX, TAP, TZX, and WAV format support via File menu or toolbar
-- **Machine type selection** -- Switch between 48K, 128K, +3, Pentagon, and Next on the fly
-- **CPU speed control** -- 3.5 MHz, 7 MHz, 14 MHz, 28 MHz
-- **Tape controls** -- Open, eject, rewind; fast load or real-time playback modes
-- **SD card mounting** -- Mount `.img` disk images for DivMMC
-- **Reset** -- Soft reset via menu, toolbar, or Ctrl+R
-- **CRT filter toggle** -- Simulated CRT scanline effect
-- **Fullscreen** -- True fullscreen with aspect-ratio-correct letterboxing (F11)
-- **Scalable display** -- 2x, 3x, 4x integer scaling with Hi-DPI / pixel-perfect rendering
-- **FPS and status bar** -- Real-time FPS, CPU speed, tape status, and machine type indicators
-
-### SDL2 minimal interface
-
-For quick testing or lightweight use, JNEXT also runs with a plain SDL2 window (when built without Qt6):
-
-| Key   | Action                            |
-|-------|-----------------------------------|
-| F2    | Cycle window scale (1x / 2x / 3x) |
-| F11   | Toggle fullscreen                 |
+- File loading — NEX, SNA, SZX, TAP, TZX, WAV via File menu or toolbar
+- Machine type selection — 48K, 128K, +3, Pentagon, Next
+- CPU speed control — 0.5×, 1×, 2×, 4×, or custom percentage
+- Tape controls — Open, eject, rewind; fast load or real-time playback
+- SD card mounting — Mount `.img` disk images for DivMMC
+- PNG screenshot — File > Save Screenshot or Ctrl+S
+- Video recording — Record to MP4 via FFmpeg (File > Start/Stop Recording)
+- RZX playback and recording — File menu
+- CRT scanline filter — View menu toggle
+- Fullscreen — True fullscreen with letterbox aspect ratio (F11)
+- Scalable display — 2×, 3×, 4× integer scaling, Hi-DPI pixel-perfect rendering
+- Status bar — FPS, CPU speed, machine type, tape status, rewind state
 
 ### Debugger
 
-The integrated debugger is a major feature, opening in a separate window alongside the emulator. It provides:
+The integrated debugger opens in a separate window and provides full introspection into the running emulator:
 
-- **CPU register panel** -- All Z80 registers (AF, BC, DE, HL, IX, IY, SP, PC, I, R, alternate set) and individual flag display (S, Z, H, P/V, N, C), with halt and interrupt mode indicators
-- **Disassembly view** -- Scrollable disassembly with address navigation, current-PC highlighting, breakpoint gutter, follow-PC mode, and run-to-cursor (via context menu)
-- **Memory hex editor** -- Full 64K memory view with hex and ASCII columns, inline byte editing, page/bank selector, and address navigation
-- **Breakpoint management** -- Execution breakpoints (click gutter or via panel), memory read/write/read-write watchpoints, clear-all, add/edit/remove dialog
-- **Stepping controls** -- Single step (F6), step over (F7), step out (F8), run/continue (F5), pause/break (F9)
-- **Watch expressions** -- Monitor byte, word, or long values at arbitrary addresses with custom labels
-- **Sprite viewer** -- Table view of all 128 hardware sprites with attributes
-- **Video panel** -- Raster position, layer visibility, layer priority, and ULA palette swatch
-- **Copper disassembly** -- Decoded copper instructions with current PC indicator
-- **NextREG viewer** -- All 256 NextREG registers with names and editable values
-- **Audio panel** -- AY register state for all 3 TurboSound chips, mute controls for AY/DAC/beeper, stereo mode display
-- **Trace log** -- Enable/disable instruction tracing (F2), clear, and export to text file
-- **Symbol table support** -- Load Z88DK or simple-format MAP files for symbolic address display
-- **Breakpoint panel** -- Unified view of all execution and data breakpoints with type indicators
+- **CPU registers** — All Z80/Z80N registers, flags (S/Z/H/P/V/N/C), halt, interrupt mode, ULA active screen
+- **MMU panel** — Next 8-slot MMU table with page numbers and type; 128K bank mappings
+- **Disassembly** — Scrollable Z80+Z80N disassembly, PC highlighting, breakpoint gutter, follow-PC mode, run-to-cursor, symbol names from MAP files
+- **Memory hex editor** — Full 64K view, hex+ASCII, inline editing, page/bank selector
+- **Stack panel** — SP-relative word view, SP row highlighted
+- **Call stack** — CALL/RST/INT/RET tracking with symbol resolution
+- **Breakpoints** — Execution, read, write, and I/O watchpoints; unified panel view
+- **Watch expressions** — Byte, word, or long at arbitrary addresses with custom labels
+- **Video subpanels** — ULA (primary+shadow), Layer 2 (active+shadow), Sprites, Tilemap; per-scanline view up to current raster position; checkerboard for transparent pixels
+- **Sprite viewer** — All 128 hardware sprites with full attribute table
+- **Copper disassembly** — Decoded WAIT/MOVE instructions with current PC indicator
+- **NextREG panel** — All 256 registers with names, hex values, editable inline
+- **Audio panel** — AY register state for all 3 TurboSound chips, per-source mute controls
+- **Trace log** — Circular instruction trace buffer, export to file
+- **Symbol table** — Load Z88DK MAP files; symbols shown inline in disassembly and watches
+- **Backwards execution (rewind)** — Frame snapshot ring buffer; Step Back, Frame Back, rewind slider; configurable buffer size
 
 Debugger keyboard shortcuts:
 
-| Key   | Action         |
-|-------|----------------|
-| F5    | Run / Continue |
-| F6    | Single Step    |
-| F7    | Step Over      |
-| F8    | Step Out       |
-| F9    | Pause / Break  |
-| F2    | Toggle Trace   |
-| F3    | Export Trace   |
+| Key        | Action           |
+|------------|------------------|
+| F5         | Run / Continue   |
+| F6         | Step Into        |
+| F7         | Step Over        |
+| F8         | Step Out         |
+| F9         | Pause / Break    |
+| Shift+F6   | Frame Back       |
+| Shift+F7   | Step Back        |
 
-### Command-line interface for automated testing
+### Magic breakpoint and magic port
 
-JNEXT supports headless operation for CI pipelines and automated testing:
+- **Magic breakpoint** — `ED FF` (ZEsarUX) or `DD 01` (CSpect) opcodes trigger debugger pause when enabled; act as NOP otherwise. Enable via `--magic-breakpoint` or Debug menu.
+- **Magic debug port** — Writes to a configurable port are logged to stderr in hex, decimal, ASCII, or line-buffered mode. Enable via `--magic-port PORT --magic-port-mode MODE`.
+
+### Command-line interface
 
 ```
-./build/jnext [options]
+./build/gui-release/jnext [options]
 ```
 
-| Option                        | Description                                                  |
-|-------------------------------|--------------------------------------------------------------|
-| `--headless`                  | Run without display or audio, at maximum speed               |
-| `--machine-type TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)         |
-| `--load FILE`                 | Load a program file (NEX or TAP, auto-detected by extension) |
-| `--tape-realtime`             | Use real-time tape loading speed instead of fast load        |
-| `--delayed-screenshot FILE`   | Save a PNG screenshot after a delay                          |
-| `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10)             |
-| `--delayed-automatic-exit N`  | Exit the emulator after N seconds                            |
-| `--sd-card FILE`              | Mount an SD card image (.img)                                |
-| `--roms-directory DIR`        | Directory containing ROM files (default: `/usr/share/fuse`)  |
-| `--log-level SPEC`            | Per-subsystem log levels (e.g. `cpu=trace,video=warn`)       |
-
-A full automated regression test suite is included, running the FUSE Z80 opcode tests (1340/1356 pass, 98.8%) and screenshot comparison tests in headless mode:
-
-```bash
-bash test/regression.sh
-```
+| Option                        | Description                                                          |
+|-------------------------------|----------------------------------------------------------------------|
+| `--machine-type TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)                 |
+| `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
+| `--roms-directory DIR`        | ROM directory (default: `/usr/share/fuse`)                           |
+| `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
+| `--headless`                  | Run without display or audio, at maximum speed                       |
+| `--tape-realtime`             | Real-time tape loading instead of fast load                          |
+| `--sd-card FILE`              | Mount an SD card image (.img)                                        |
+| `--record FILE`               | Record video+audio to MP4 via FFmpeg                                 |
+| `--rzx-play FILE`             | Play back an RZX recording                                           |
+| `--rzx-record FILE`           | Record to RZX                                                        |
+| `--rewind-buffer-size N`      | Enable backwards execution with N-frame ring buffer                  |
+| `--magic-breakpoint`          | Enable magic breakpoint opcodes (ED FF / DD 01)                      |
+| `--magic-port PORT`           | Enable magic debug port at PORT                                      |
+| `--magic-port-mode MODE`      | Magic port output mode: `hex`, `dec`, `ascii`, `line`                |
+| `--delayed-screenshot FILE`   | Save a PNG screenshot after a delay                                  |
+| `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10)                     |
+| `--delayed-automatic-exit N`  | Exit after N seconds                                                 |
+| `--log-level SPEC`            | Per-subsystem log levels, e.g. `cpu=trace,video=warn`                |
+| `--version`                   | Print version and exit                                               |
 
 ---
 
 ## Building
 
-### Requirements
+### Requirements (Linux)
 
-- C++17 compiler (GCC 8+, Clang 7+, MSVC 2019+)
-- CMake 3.16 or later
-- SDL2 development libraries
-- Qt6 development libraries (for the full GUI; optional)
-
-**Linux (Fedora/RHEL):**
+**Fedora / RHEL:**
 ```sh
-sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel
+sudo dnf install SDL2-devel cmake gcc-c++ qt6-qtbase-devel libpng-devel zlib-devel
 ```
 
-**Linux (Debian/Ubuntu):**
+**Debian / Ubuntu:**
 ```sh
-sudo apt install libsdl2-dev cmake g++ qt6-base-dev
+sudo apt install libsdl2-dev cmake g++ qt6-base-dev libpng-dev zlib1g-dev
 ```
 
-**macOS:**
-```sh
-brew install sdl2 cmake qt@6
-```
+_Windows and macOS builds are pending._
 
 ### Build steps
 
 ```sh
 git clone --recursive https://github.com/jorgegv/jnext.git
 cd jnext
-cmake -B build -DENABLE_QT_UI=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+
+# Full Qt6 GUI build (recommended)
+make gui-release
+
+# SDL-only build (no GUI, no debugger)
+make release
 ```
 
-The executable is `build/jnext`.
+Executables are placed in `build/gui-release/jnext` and `build/release/jnext` respectively.
 
-To build without the Qt6 GUI (SDL2-only):
+### Available make targets
 
-```sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-```
-
-### CMake options
-
-| Option            | Default | Description                         |
-|-------------------|---------|-------------------------------------|
-| `ENABLE_QT_UI`    | OFF     | Build the Qt6 native GUI            |
-| `ENABLE_DEBUGGER` | ON      | Include the debugger (requires Qt6) |
-| `ENABLE_TESTS`    | ON      | Build the test suite                |
-| `CYCLE_ACCURATE`  | OFF     | 28 MHz cycle-accurate mode          |
-| `STATIC_BUILD`    | OFF     | Link statically                     |
+| Target             | Description                                      |
+|--------------------|--------------------------------------------------|
+| `make gui-release` | Build Qt6 GUI release (optimised)                |
+| `make gui-debug`   | Build Qt6 GUI debug (sanitisers + debug symbols) |
+| `make release`     | Build SDL-only release                           |
+| `make debug`       | Build SDL-only debug                             |
+| `make gui-clean`   | Remove GUI build directories                     |
+| `make clean`       | Remove all build directories                     |
+| `make regression`  | Run the full automated regression test suite     |
+| `make version`     | Show current version                             |
+| `make bump`        | Bump minor version, commit, and tag              |
+| `make bump-patch`  | Bump patch version, commit, and tag              |
+| `make bump-major`  | Bump major version, commit, and tag              |
 
 ### ROM files
 
-JNEXT does not ship ROM files. By default, it loads ROMs from `/usr/share/fuse/` (installed by the FUSE emulator package):
+JNEXT does not ship ROM files. By default it loads them from `/usr/share/fuse/` (installed by the FUSE emulator package):
 
 | Machine  | ROM files                           |
 |----------|-------------------------------------|
@@ -202,51 +199,72 @@ Override the ROM directory with `--roms-directory DIR`.
 
 ```sh
 # Run with the default ZX Next machine type
-./build/jnext
+./build/gui-release/jnext
 
 # Run as ZX Spectrum 48K
-./build/jnext --machine-type 48k
+./build/gui-release/jnext --machine-type 48k
 
 # Load and run a NEX file
-./build/jnext --load game.nex
+./build/gui-release/jnext --load game.nex
 
 # Load a TAP file (will auto-type LOAD "")
-./build/jnext --load game.tap
+./build/gui-release/jnext --load game.tap
 
-# Headless screenshot for testing
-./build/jnext --headless --machine-type 48k \
+# Load a snapshot
+./build/gui-release/jnext --load game.sna
+
+# Run at double speed
+./build/gui-release/jnext --speed 200
+
+# Enable backwards execution with a 60-frame buffer
+./build/gui-release/jnext --rewind-buffer-size 60
+
+# Headless screenshot for CI testing
+./build/gui-release/jnext --headless --machine-type 48k \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
 
 ### Keyboard mapping
 
-| PC Key             | Spectrum Key               |
-|--------------------|----------------------------|
-| Letter/number keys | Corresponding Spectrum key |
-| Left Ctrl          | Caps Shift                 |
-| Left/Right Shift   | Symbol Shift               |
-| Backspace          | Delete (Caps Shift + 0)    |
-| Arrow keys         | Cursor keys (5/6/7/8)      |
-| Enter              | Enter                      |
+| PC Key            | Spectrum key            |
+|-------------------|-------------------------|
+| Letter/number keys | Corresponding key      |
+| Left Ctrl         | Caps Shift              |
+| Left/Right Shift  | Symbol Shift            |
+| Backspace         | Delete (Caps Shift + 0) |
+| Arrow keys        | Cursor keys (5/6/7/8)   |
+| Enter             | Enter                   |
+
+---
+
+## Automated testing
+
+A full regression test suite runs the FUSE Z80 opcode tests (1340/1356 pass, 98.8%) and screenshot comparison tests in headless mode:
+
+```sh
+make regression
+```
 
 ---
 
 ## Libraries and third-party software
 
-| Library                                    | License | Description                                                                          |
-|--------------------------------------------|---------|--------------------------------------------------------------------------------------|
-| [SDL2](https://www.libsdl.org/)            | zlib    | Cross-platform multimedia library                                                    |
-| [Qt6](https://www.qt.io/)                  | LGPLv3  | GUI framework                                                                        |
-| [spdlog](https://github.com/gabime/spdlog) | MIT     | Fast C++ logging library (vendored as git submodule)                                 |
+| Library                                    | License | Description                                                              |
+|--------------------------------------------|---------|--------------------------------------------------------------------------|
+| [SDL2](https://www.libsdl.org/)            | zlib    | Cross-platform multimedia library (audio + input)                        |
+| [Qt6](https://www.qt.io/)                  | LGPLv3  | GUI framework                                                            |
+| [spdlog](https://github.com/gabime/spdlog) | MIT     | Fast C++ logging library (vendored as git submodule)                     |
 | FUSE Z80 core                              | GPLv2   | Z80 CPU core adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator |
-| [ZOT](https://github.com/antirez/zot)      | MIT     | TZX/TAP tape player library by antirez (vendored in third_party/zot/)                |
+| [ZOT](https://github.com/antirez/zot)      | MIT     | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`)  |
+
+---
 
 ## References and acknowledgments
 
-- **ZX Spectrum Next FPGA core** -- The official VHDL sources serve as the authoritative hardware specification for this emulator.
-- **[FUSE](http://fuse-emulator.sourceforge.net/)** -- The Z80 CPU core is adapted from FUSE. ROM files are loaded from the FUSE package installation.
-- **[ZesarUX](https://github.com/chernandezba/zesarux)** -- Used as a behavioral reference during development.
+- **ZX Spectrum Next FPGA core** — The official VHDL sources serve as the authoritative hardware specification for this emulator.
+- **[FUSE](http://fuse-emulator.sourceforge.net/)** — The Z80 CPU core is adapted from FUSE. ROM files are loaded from the FUSE package installation.
+- **[ZesarUX](https://github.com/chernandezba/zesarux)** — Used as a behavioural reference during development.
 
 ---
 
