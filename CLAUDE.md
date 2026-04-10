@@ -31,6 +31,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
 - Update task status on the main plan whenever a task is finished
 - When the user tells you to prepare for a session handvover, immediately save your memories
+- When a commit is made, check that the FEATURES.md and TODO.md files are updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update to these files.
 
 ## Building
 
