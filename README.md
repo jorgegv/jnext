@@ -6,6 +6,8 @@ JNEXT is a real-time software emulator of the ZX Spectrum Next computer, written
 
 **Status:** Beta — actively developed. Issues and pull requests are welcome.
 
+![JNEXT screenshot](doc/SCREENSHOT.png)
+
 ---
 
 ## About this project
