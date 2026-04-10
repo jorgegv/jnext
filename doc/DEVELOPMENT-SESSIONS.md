@@ -23,7 +23,6 @@
 | 9/4    | 1.5h | Phase 8: Backward execution design, implementation plan                                    |
 |        |      | Phase 11: Scriptable debugger design, implementation plan                                  |
 | 10/4   | 4h   | Phase 8: Backward execution GUI (Step Back, Frame Back, rewind slider, status bar, sync)   |
-|        | 2h   | Release prep: fix build warnings, version.yaml + bump targets, --version flag, About dialog |
-|        | 1h   | Release prep: FEATURES.md, TODO.md, Windows portability assessment                        |
+|        | 1h   | Public release preparation                                                                 |
 |        |      |                                                                                            |
-| TOTAL: | 73h  |                                                                                            |
+| TOTAL: | 72h  |                                                                                            |

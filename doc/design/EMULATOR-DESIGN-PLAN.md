@@ -1006,6 +1006,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
   - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
+- [ ] Generate binary packages: Fedora, Debian/Ubuntu
 - [ ] Generation of Windows version
 - [ ] Generation of MacOS version
 - [ ] Documentation
