@@ -122,49 +122,50 @@ kloc-count:
 
 # Show current version
 version:
-	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
-	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
-	 patch=$$(grep '^patch:' version.yaml | awk '{print $$2}'); \
-	 printf "$(BOLD)jnext $$major.$$minor.$$patch$(RESET)\n"
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 printf "$(BOLD)jnext $$ver$(RESET)\n"
 
 # Bump patch version (x.y.Z → x.y.Z+1)
 bump-patch:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
 	 fi
-	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
-	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
-	 patch=$$(grep '^patch:' version.yaml | awk '{print $$2}'); \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 major=$$(echo $$ver | cut -d. -f1); \
+	 minor=$$(echo $$ver | cut -d. -f2); \
+	 patch=$$(echo $$ver | cut -d. -f3); \
 	 patch=$$((patch + 1)); \
-	 printf "major: $$major\nminor: $$minor\npatch: $$patch\n" > version.yaml; \
-	 ver="$$major.$$minor.$$patch"; \
-	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
-	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
+	 newver="$$major.$$minor.$$patch"; \
+	 printf "version: $$newver\n" > version.yaml; \
+	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Bump minor version (x.Y.z → x.Y+1.0)
 bump-minor:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
 	 fi
-	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
-	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 major=$$(echo $$ver | cut -d. -f1); \
+	 minor=$$(echo $$ver | cut -d. -f2); \
 	 minor=$$((minor + 1)); \
-	 printf "major: $$major\nminor: $$minor\npatch: 0\n" > version.yaml; \
-	 ver="$$major.$$minor.0"; \
-	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
-	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
+	 newver="$$major.$$minor.0"; \
+	 printf "version: $$newver\n" > version.yaml; \
+	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Bump major version (X.y.z → X+1.0.0)
 bump-major:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
 	 fi
-	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
+	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+	 major=$$(echo $$ver | cut -d. -f1); \
 	 major=$$((major + 1)); \
-	 printf "major: $$major\nminor: 0\npatch: 0\n" > version.yaml; \
-	 ver="$$major.0.0"; \
-	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
-	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
+	 newver="$$major.0.0"; \
+	 printf "version: $$newver\n" > version.yaml; \
+	 git add version.yaml && git commit -m "chore: bump version to $$newver" && git tag "v$$newver"; \
+	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
 # Alias: bump → bump-minor
 bump: bump-minor
