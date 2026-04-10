@@ -1,4 +1,5 @@
 #include "audio/beeper.h"
+#include "core/saveable.h"
 
 Beeper::Beeper() { reset(); }
 
@@ -20,4 +21,18 @@ uint16_t Beeper::current_level() const
     if (mic_) level += 0x020;
     if (tape_ear_) level += 0x100;
     return level;
+}
+
+void Beeper::save_state(StateWriter& w) const
+{
+    w.write_bool(ear_);
+    w.write_bool(mic_);
+    w.write_bool(tape_ear_);
+}
+
+void Beeper::load_state(StateReader& r)
+{
+    ear_      = r.read_bool();
+    mic_      = r.read_bool();
+    tape_ear_ = r.read_bool();
 }

@@ -1,5 +1,6 @@
 #include "nextreg.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 NextReg::NextReg() { reset(); }
 
@@ -44,4 +45,16 @@ void NextReg::set_write_handler(uint8_t reg, std::function<void(uint8_t)> fn) {
 
 void NextReg::set_read_handler(uint8_t reg, std::function<uint8_t()> fn) {
     read_handlers_[reg] = std::move(fn);
+}
+
+void NextReg::save_state(StateWriter& w) const
+{
+    w.write_u8(selected_);
+    w.write_bytes(regs_.data(), 256);
+}
+
+void NextReg::load_state(StateReader& r)
+{
+    selected_ = r.read_u8();
+    r.read_bytes(regs_.data(), 256);
 }

@@ -43,6 +43,9 @@ public:
     /// Get current tape EAR input state.
     bool tape_ear() const { return tape_ear_; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     bool ear_ = false;
     bool mic_ = false;

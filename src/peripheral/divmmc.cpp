@@ -1,6 +1,7 @@
 #include "peripheral/divmmc.h"
 #include "core/log.h"
 #include <fstream>
+#include "core/saveable.h"
 
 // ─── DivMMC logger ────────────────────────────────────────────────────
 
@@ -225,4 +226,34 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
     }
 
     ram_[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
+}
+
+void DivMmc::save_state(StateWriter& w) const
+{
+    w.write_bool(enabled_);
+    w.write_bool(conmem_);
+    w.write_bool(mapram_);
+    w.write_u8(bank_);
+    w.write_u8(control_reg_);
+    w.write_bool(automap_active_);
+    w.write_u8(entry_points_0_);
+    w.write_u8(entry_valid_0_);
+    w.write_u8(entry_timing_0_);
+    w.write_u8(entry_points_1_);
+    w.write_bytes(ram_.data(), ram_.size());
+}
+
+void DivMmc::load_state(StateReader& r)
+{
+    enabled_        = r.read_bool();
+    conmem_         = r.read_bool();
+    mapram_         = r.read_bool();
+    bank_           = r.read_u8();
+    control_reg_    = r.read_u8();
+    automap_active_ = r.read_bool();
+    entry_points_0_ = r.read_u8();
+    entry_valid_0_  = r.read_u8();
+    entry_timing_0_ = r.read_u8();
+    entry_points_1_ = r.read_u8();
+    r.read_bytes(ram_.data(), ram_.size());
 }

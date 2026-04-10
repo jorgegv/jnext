@@ -1,4 +1,5 @@
 #include "audio/turbosound.h"
+#include "core/saveable.h"
 
 TurboSound::TurboSound()
     : ay_{AyChip(3), AyChip(2), AyChip(1)}  // AY#0=id 3, AY#1=id 2, AY#2=id 1
@@ -150,4 +151,28 @@ void TurboSound::compute_stereo_mix()
     // Output: 12-bit (0-4095 max with all 3 PSGs at full volume)
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
+}
+
+void TurboSound::save_state(StateWriter& w) const
+{
+    for (const auto& a : ay_) a.save_state(w);
+    w.write_u8(ay_select_);
+    for (int i = 0; i < 3; ++i) w.write_u8(pan_[i]);
+    w.write_bool(enabled_);
+    w.write_bool(stereo_mode_);
+    w.write_u8(mono_mode_);
+    w.write_u16(pcm_L_);
+    w.write_u16(pcm_R_);
+}
+
+void TurboSound::load_state(StateReader& r)
+{
+    for (auto& a : ay_) a.load_state(r);
+    ay_select_   = r.read_u8();
+    for (int i = 0; i < 3; ++i) pan_[i] = r.read_u8();
+    enabled_     = r.read_bool();
+    stereo_mode_ = r.read_bool();
+    mono_mode_   = r.read_u8();
+    pcm_L_       = r.read_u16();
+    pcm_R_       = r.read_u16();
 }

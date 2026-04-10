@@ -3,6 +3,7 @@
 #include "memory/mmu.h"
 #include "memory/ram.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 #include <algorithm>
 #include <cstring>
@@ -469,4 +470,32 @@ void Ula::render_border_line(uint32_t* row)
     const uint32_t border_argb = lookup_colour(border_colour_);
     for (int x = 0; x < FB_WIDTH; ++x)
         row[x] = border_argb;
+}
+
+void Ula::save_state(StateWriter& w) const
+{
+    w.write_bool(ula_enabled_);
+    w.write_bool(vram_use_bank7_);
+    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
+    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+    w.write_u8(border_colour_);
+    w.write_bytes(border_per_line_.data(), FB_HEIGHT);
+    w.write_i32(flash_counter_);
+    w.write_bool(flash_phase_);
+    w.write_u8(screen_mode_reg_);
+    w.write_u8(static_cast<uint8_t>(mode_));
+}
+
+void Ula::load_state(StateReader& r)
+{
+    ula_enabled_ = r.read_bool();
+    vram_use_bank7_ = r.read_bool();
+    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
+    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
+    border_colour_ = r.read_u8();
+    r.read_bytes(border_per_line_.data(), FB_HEIGHT);
+    flash_counter_ = r.read_i32();
+    flash_phase_ = r.read_bool();
+    screen_mode_reg_ = r.read_u8();
+    mode_ = static_cast<TimexScreenMode>(r.read_u8());
 }

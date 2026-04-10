@@ -1,6 +1,7 @@
 #include "video/layer2.h"
 #include "video/palette.h"
 #include "memory/ram.h"
+#include "core/saveable.h"
 
 // ---------------------------------------------------------------------------
 // Reset
@@ -209,4 +210,30 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             dst[pixel_x] = palette.layer2_colour(colour_idx);
         }
     }
+}
+
+void Layer2::save_state(StateWriter& w) const
+{
+    w.write_u8(active_bank_);
+    w.write_u8(shadow_bank_);
+    w.write_u16(scroll_x_);
+    w.write_u8(scroll_y_);
+    w.write_u8(palette_offset_);
+    w.write_u8(resolution_);
+    w.write_bool(enabled_);
+    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
+    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+}
+
+void Layer2::load_state(StateReader& r)
+{
+    active_bank_ = r.read_u8();
+    shadow_bank_ = r.read_u8();
+    scroll_x_ = r.read_u16();
+    scroll_y_ = r.read_u8();
+    palette_offset_ = r.read_u8();
+    resolution_ = r.read_u8();
+    enabled_ = r.read_bool();
+    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
+    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
 }

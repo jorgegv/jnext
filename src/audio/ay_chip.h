@@ -97,6 +97,10 @@ private:
     void update_output();
 
     uint16_t tone_period(int ch) const;
+
+public:
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
     uint16_t tone_comp(int ch) const;
     uint8_t noise_period() const;
     uint8_t noise_comp() const;

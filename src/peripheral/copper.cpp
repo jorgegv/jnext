@@ -1,6 +1,7 @@
 #include "peripheral/copper.h"
 #include "port/nextreg.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 #include <cstring>
 
@@ -220,4 +221,27 @@ uint8_t Copper::read_reg_0x61() const {
 
 uint8_t Copper::read_reg_0x62() const {
     return static_cast<uint8_t>((mode_ << 6) | ((write_addr_ >> 8) & 0x07));
+}
+
+void Copper::save_state(StateWriter& w) const
+{
+    // 1024 × uint16_t instruction RAM (2048 bytes)
+    for (const auto& ins : instructions_) w.write_u16(ins);
+    w.write_u16(pc_);
+    w.write_u8(mode_);
+    w.write_u8(last_mode_);
+    w.write_bool(move_pending_);
+    w.write_u16(write_addr_);
+    w.write_u8(write_data_stored_);
+}
+
+void Copper::load_state(StateReader& r)
+{
+    for (auto& ins : instructions_) ins = r.read_u16();
+    pc_                = r.read_u16();
+    mode_              = r.read_u8();
+    last_mode_         = r.read_u8();
+    move_pending_      = r.read_bool();
+    write_addr_        = r.read_u16();
+    write_data_stored_ = r.read_u8();
 }

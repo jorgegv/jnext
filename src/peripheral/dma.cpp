@@ -1,5 +1,6 @@
 #include "peripheral/dma.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 // ─── DMA logger ──────────────────────────────────────────────────────
 
@@ -580,4 +581,64 @@ int Dma::execute_burst(int max_bytes) {
     }
 
     return transferred;
+}
+
+void Dma::save_state(StateWriter& w) const
+{
+    w.write_bool(dir_a_to_b_);
+    w.write_u16(port_a_addr_);
+    w.write_u16(block_len_);
+    w.write_bool(port_a_is_io_);
+    w.write_u8(port_a_addr_mode_);
+    w.write_u8(port_a_timing_);
+    w.write_bool(port_b_is_io_);
+    w.write_u8(port_b_addr_mode_);
+    w.write_u8(port_b_timing_);
+    w.write_u8(port_b_prescaler_);
+    w.write_bool(dma_en_);
+    w.write_u8(mode_);
+    w.write_u16(port_b_addr_);
+    w.write_bool(ce_wait_);
+    w.write_bool(auto_restart_);
+    w.write_u8(read_mask_);
+    w.write_u8(static_cast<uint8_t>(state_));
+    w.write_u16(src_);
+    w.write_u16(dst_);
+    w.write_u16(counter_);
+    w.write_bool(status_at_least_one_);
+    w.write_bool(status_end_of_block_);
+    w.write_u8(static_cast<uint8_t>(wr_seq_));
+    w.write_u8(static_cast<uint8_t>(rd_seq_));
+    w.write_u8(reg_temp_);
+    w.write_bool(z80_compat_);
+}
+
+void Dma::load_state(StateReader& r)
+{
+    dir_a_to_b_          = r.read_bool();
+    port_a_addr_         = r.read_u16();
+    block_len_           = r.read_u16();
+    port_a_is_io_        = r.read_bool();
+    port_a_addr_mode_    = r.read_u8();
+    port_a_timing_       = r.read_u8();
+    port_b_is_io_        = r.read_bool();
+    port_b_addr_mode_    = r.read_u8();
+    port_b_timing_       = r.read_u8();
+    port_b_prescaler_    = r.read_u8();
+    dma_en_              = r.read_bool();
+    mode_                = r.read_u8();
+    port_b_addr_         = r.read_u16();
+    ce_wait_             = r.read_bool();
+    auto_restart_        = r.read_bool();
+    read_mask_           = r.read_u8();
+    state_               = static_cast<State>(r.read_u8());
+    src_                 = r.read_u16();
+    dst_                 = r.read_u16();
+    counter_             = r.read_u16();
+    status_at_least_one_ = r.read_bool();
+    status_end_of_block_ = r.read_bool();
+    wr_seq_              = static_cast<WrSeq>(r.read_u8());
+    rd_seq_              = static_cast<RdSeq>(r.read_u8());
+    reg_temp_            = r.read_u8();
+    z80_compat_          = r.read_bool();
 }

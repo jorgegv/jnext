@@ -22,6 +22,9 @@ class CallStackPanel;
 class QPushButton;
 class QSplitter;
 class QTabWidget;
+class QSlider;
+class QLabel;
+class QToolBar;
 
 /// Separate window that hosts all debugger panels.
 /// Closing this window disables the debugger and resumes emulation.
@@ -67,6 +70,9 @@ private:
     void save_geometry();
     void restore_geometry();
     void show_add_data_bp_dialog(WatchType type);
+    void show_rewind_buffer_size_dialog();
+    void update_trace_indicator();
+    void update_rewind_ui();
 
     Emulator* emulator_;
     DebuggerManager* debugger_mgr_ = nullptr;
@@ -92,7 +98,6 @@ private:
     CallStackPanel* callstack_panel_ = nullptr;
 
     // Trace toolbar state
-    void update_trace_indicator();
     QPushButton* trace_toggle_btn_ = nullptr;
     QAction* trace_enable_action_ = nullptr;
 
@@ -102,4 +107,13 @@ private:
     QAction* step_into_action_ = nullptr;
     QAction* step_over_action_ = nullptr;
     QAction* step_out_action_ = nullptr;
+    QAction* step_back_action_ = nullptr;
+    QAction* rewind_enable_action_ = nullptr;
+
+    // Rewind toolbar (second bottom toolbar, shown when rewind buffer has data)
+    QToolBar* rewind_toolbar_ = nullptr;
+    QSlider*  rewind_slider_ = nullptr;
+    QLabel*   rewind_frame_label_ = nullptr;
+    QPushButton* rewind_jump_btn_ = nullptr;
+    bool      rewind_slider_dragging_ = false;
 };

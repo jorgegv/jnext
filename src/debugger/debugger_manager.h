@@ -51,6 +51,8 @@ public slots:
     void on_step_out();
     void on_run_to_eof();
     void on_run_to_eosl();
+    void on_step_back();
+    void on_rewind_to_frame(uint32_t frame_num);
     void on_load_map_z88dk();
     void on_load_map_simple();
 

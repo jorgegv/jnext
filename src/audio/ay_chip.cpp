@@ -1,4 +1,5 @@
 #include "audio/ay_chip.h"
+#include "core/saveable.h"
 
 // Volume tables from VHDL ym2149.vhd — zero volume is actually zero
 // (modified for ZX Next, unlike real hardware).
@@ -347,4 +348,54 @@ void AyChip::update_output()
         out_b_ = vol_table_ym_[vol[1]];
         out_c_ = vol_table_ym_[vol[2]];
     }
+}
+
+void AyChip::save_state(StateWriter& w) const
+{
+    w.write_bool(ay_mode_);
+    w.write_bytes(reg_.data(), reg_.size());
+    w.write_u8(addr_);
+    w.write_u8(cnt_div_);
+    w.write_bool(noise_div_);
+    w.write_bool(ena_div_);
+    w.write_bool(ena_div_noise_);
+    for (int i = 0; i < 3; ++i) w.write_u16(tone_cnt_[i]);
+    for (int i = 0; i < 3; ++i) w.write_bool(tone_op_[i]);
+    w.write_u8(noise_cnt_);
+    w.write_u32(poly17_);
+    w.write_bool(noise_op_);
+    w.write_u16(env_cnt_);
+    w.write_bool(env_ena_);
+    w.write_bool(env_reset_);
+    w.write_u8(env_vol_);
+    w.write_bool(env_inc_);
+    w.write_bool(env_hold_);
+    w.write_u8(out_a_);
+    w.write_u8(out_b_);
+    w.write_u8(out_c_);
+}
+
+void AyChip::load_state(StateReader& r)
+{
+    ay_mode_ = r.read_bool();
+    r.read_bytes(reg_.data(), reg_.size());
+    addr_           = r.read_u8();
+    cnt_div_        = r.read_u8();
+    noise_div_      = r.read_bool();
+    ena_div_        = r.read_bool();
+    ena_div_noise_  = r.read_bool();
+    for (int i = 0; i < 3; ++i) tone_cnt_[i] = r.read_u16();
+    for (int i = 0; i < 3; ++i) tone_op_[i]  = r.read_bool();
+    noise_cnt_  = r.read_u8();
+    poly17_     = r.read_u32();
+    noise_op_   = r.read_bool();
+    env_cnt_    = r.read_u16();
+    env_ena_    = r.read_bool();
+    env_reset_  = r.read_bool();
+    env_vol_    = r.read_u8();
+    env_inc_    = r.read_bool();
+    env_hold_   = r.read_bool();
+    out_a_      = r.read_u8();
+    out_b_      = r.read_u8();
+    out_c_      = r.read_u8();
 }

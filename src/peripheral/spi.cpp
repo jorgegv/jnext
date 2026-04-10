@@ -1,4 +1,5 @@
 #include "peripheral/spi.h"
+#include "core/saveable.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -89,4 +90,16 @@ SpiDevice* SpiMaster::active_device() const {
         }
     }
     return nullptr;
+}
+
+void SpiMaster::save_state(StateWriter& w) const
+{
+    w.write_u8(cs_);
+    w.write_u8(rx_data_);
+}
+
+void SpiMaster::load_state(StateReader& r)
+{
+    cs_      = r.read_u8();
+    rx_data_ = r.read_u8();
 }

@@ -131,6 +131,9 @@ public:
     /// Advance flash state (call once per frame after all scanlines rendered).
     void advance_flash();
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kUlaPalette)
     Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads

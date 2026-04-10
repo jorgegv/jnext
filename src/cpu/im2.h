@@ -17,6 +17,8 @@ public:
     uint8_t get_vector() const;
     void set_mask(uint16_t mask);
     void on_reti();
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 private:
     static constexpr int N = static_cast<int>(Im2Level::COUNT);
     bool     pending_[N]   = {};

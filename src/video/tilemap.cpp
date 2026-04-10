@@ -2,6 +2,7 @@
 
 #include "memory/ram.h"
 #include "video/palette.h"
+#include "core/saveable.h"
 
 // ---------------------------------------------------------------------------
 // Reset
@@ -342,4 +343,44 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         if (ula_over_flags)
             ula_over_flags[screen_x] = pixel_below;
     }
+}
+
+void Tilemap::save_state(StateWriter& w) const
+{
+    w.write_u8(control_raw_);
+    w.write_bool(enabled_);
+    w.write_bool(mode_80col_);
+    w.write_bool(text_mode_);
+    w.write_bool(force_attr_);
+    w.write_bool(mode_512_);
+    w.write_bool(ula_on_top_);
+    w.write_u8(default_attr_);
+    w.write_u8(map_base_raw_);
+    w.write_u8(def_base_raw_);
+    w.write_u32(map_base_addr_);
+    w.write_u32(def_base_addr_);
+    w.write_u16(scroll_x_);
+    w.write_u8(scroll_y_);
+    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
+    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+}
+
+void Tilemap::load_state(StateReader& r)
+{
+    control_raw_ = r.read_u8();
+    enabled_ = r.read_bool();
+    mode_80col_ = r.read_bool();
+    text_mode_ = r.read_bool();
+    force_attr_ = r.read_bool();
+    mode_512_ = r.read_bool();
+    ula_on_top_ = r.read_bool();
+    default_attr_ = r.read_u8();
+    map_base_raw_ = r.read_u8();
+    def_base_raw_ = r.read_u8();
+    map_base_addr_ = r.read_u32();
+    def_base_addr_ = r.read_u32();
+    scroll_x_ = r.read_u16();
+    scroll_y_ = r.read_u8();
+    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
+    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
 }

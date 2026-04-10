@@ -11,6 +11,10 @@ public:
     const uint8_t* page_ptr(uint16_t page) const;
     void reset();
     size_t size() const { return data_.size(); }
+
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     std::vector<uint8_t> data_;
 };

@@ -1,5 +1,6 @@
 #include "peripheral/uart.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 // ─── UART logger ──────────────────────────────────────────────────────
 
@@ -320,4 +321,44 @@ uint8_t Uart::read(int port_reg) {
 void Uart::inject_rx(int channel, uint8_t byte) {
     if (channel < 0 || channel > 1) return;
     channels_[channel].inject_rx(byte);
+}
+
+void UartChannel::save_state(StateWriter& w) const
+{
+    tx_fifo_.save_state(w);
+    rx_fifo_.save_state(w);
+    w.write_u8(prescaler_msb_);
+    w.write_u16(prescaler_lsb_);
+    w.write_u8(framing_);
+    w.write_bool(tx_busy_);
+    w.write_u32(tx_timer_);
+    w.write_bool(err_overflow_);
+    w.write_bool(err_framing_);
+    w.write_bool(err_break_);
+}
+
+void UartChannel::load_state(StateReader& r)
+{
+    tx_fifo_.load_state(r);
+    rx_fifo_.load_state(r);
+    prescaler_msb_ = r.read_u8();
+    prescaler_lsb_ = r.read_u16();
+    framing_       = r.read_u8();
+    tx_busy_       = r.read_bool();
+    tx_timer_      = r.read_u32();
+    err_overflow_  = r.read_bool();
+    err_framing_   = r.read_bool();
+    err_break_     = r.read_bool();
+}
+
+void Uart::save_state(StateWriter& w) const
+{
+    w.write_i32(select_);
+    for (const auto& ch : channels_) ch.save_state(w);
+}
+
+void Uart::load_state(StateReader& r)
+{
+    select_ = r.read_i32();
+    for (auto& ch : channels_) ch.load_state(r);
 }

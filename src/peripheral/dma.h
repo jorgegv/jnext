@@ -107,6 +107,9 @@ public:
     AddrMode    dst_addr_mode() const;
     TransferMode transfer_mode() const { return static_cast<TransferMode>(mode_); }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // ── Register write state machine ──────────────────────────────────
 

@@ -1,6 +1,7 @@
 #include "mmu.h"
 #include "peripheral/divmmc.h"
 #include "core/log.h"
+#include "core/saveable.h"
 #include <cstring>
 
 // Reset MMU state from VHDL zxnext.vhd lines 4611-4618:
@@ -131,6 +132,38 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
         map_rom(0, rom_bank * 2);
         map_rom(1, rom_bank * 2 + 1);
     }
+}
+
+// ---------------------------------------------------------------------------
+// State serialisation
+// ---------------------------------------------------------------------------
+
+void Mmu::save_state(StateWriter& w) const
+{
+    w.write_bytes(slots_, 8);
+    for (int i = 0; i < 8; ++i) w.write_bool(read_only_[i]);
+    w.write_bool(paging_locked_);
+    w.write_u8(port_7ffd_);
+    w.write_u8(port_1ffd_);
+    w.write_bool(l2_write_enable_);
+    w.write_u8(l2_segment_mask_);
+    w.write_u8(l2_bank_);
+    w.write_bool(boot_rom_en_);
+}
+
+void Mmu::load_state(StateReader& r)
+{
+    r.read_bytes(slots_, 8);
+    for (int i = 0; i < 8; ++i) read_only_[i] = r.read_bool();
+    paging_locked_   = r.read_bool();
+    port_7ffd_       = r.read_u8();
+    port_1ffd_       = r.read_u8();
+    l2_write_enable_ = r.read_bool();
+    l2_segment_mask_ = r.read_u8();
+    l2_bank_         = r.read_u8();
+    boot_rom_en_     = r.read_bool();
+    // Rebuild fast-dispatch pointers from restored page/read_only state.
+    for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 }
 
 // ---------------------------------------------------------------------------

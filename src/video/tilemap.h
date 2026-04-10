@@ -94,6 +94,9 @@ public:
                                const Ram& ram,
                                const PaletteManager& palette);
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // --- Control register state ---
     uint8_t  control_raw_    = 0;

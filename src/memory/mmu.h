@@ -123,6 +123,9 @@ public:
     ///   bits 7:6: segment select (00=0x0000, 01=0x4000, 10=0x8000, 11=all)
     void set_l2_write_port(uint8_t val, uint8_t active_bank);
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     void rebuild_ptr(int slot);
 

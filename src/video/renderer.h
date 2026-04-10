@@ -52,6 +52,9 @@ public:
     void set_layer_priority(uint8_t val) { layer_priority_ = val & 0x07; }
     uint8_t layer_priority() const { return layer_priority_; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
     /// Set the fallback colour index (NextREG 0x4A).
     /// Used when all layers are transparent at a given pixel.
     /// In the VHDL, this also replaces the ULA border colour.

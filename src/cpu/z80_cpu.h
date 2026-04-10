@@ -63,6 +63,9 @@ public:
     // If set and returns true, CPU should break to debugger.
     std::function<bool(uint16_t pc)> on_magic_breakpoint;
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     MemoryInterface& mem_;
     IoInterface&     io_;

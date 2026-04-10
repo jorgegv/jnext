@@ -84,6 +84,10 @@ private:
 
     /// Apply one count-down step.  Returns true if underflow (ZC/TO).
     bool count_step();
+
+public:
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 };
 
 /// CTC controller — 4 channels with daisy-chain.
@@ -120,6 +124,9 @@ public:
     // ── Accessors for debug / testing ─────────────────────────────
 
     const CtcChannel& channel(int ch) const { return channels_[ch]; }
+
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 
 private:
     std::array<CtcChannel, 4> channels_;

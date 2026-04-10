@@ -104,6 +104,9 @@ public:
     uint8_t entry_timing_0() const { return entry_timing_0_; }
     uint8_t entry_points_1() const { return entry_points_1_; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     bool enabled_ = false;              // DivMMC subsystem enabled
     bool conmem_ = false;               // bit 7 of control register

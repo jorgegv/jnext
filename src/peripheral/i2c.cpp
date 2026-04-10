@@ -1,5 +1,6 @@
 #include "peripheral/i2c.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 // Local I2C logger — created on first use, follows the same pattern as Log::make()
 namespace {
@@ -263,4 +264,48 @@ void I2cController::on_scl_falling() {
         shift_reg_ = 0;
         break;
     }
+}
+
+void I2cRtc::save_state(StateWriter& w) const
+{
+    w.write_u8(reg_ptr_);
+    w.write_bool(addr_set_);
+    w.write_bytes(regs_.data(), regs_.size());
+}
+
+void I2cRtc::load_state(StateReader& r)
+{
+    reg_ptr_  = r.read_u8();
+    addr_set_ = r.read_bool();
+    r.read_bytes(regs_.data(), regs_.size());
+}
+
+void I2cController::save_state(StateWriter& w) const
+{
+    w.write_u8(scl_);
+    w.write_u8(sda_out_);
+    w.write_u8(sda_in_);
+    w.write_u8(prev_scl_);
+    w.write_u8(prev_sda_);
+    w.write_u8(static_cast<uint8_t>(state_));
+    w.write_u8(bit_count_);
+    w.write_u8(shift_reg_);
+    w.write_u8(device_addr_);
+    w.write_bool(is_read_);
+    w.write_u8(read_data_);
+}
+
+void I2cController::load_state(StateReader& r)
+{
+    scl_         = r.read_u8();
+    sda_out_     = r.read_u8();
+    sda_in_      = r.read_u8();
+    prev_scl_    = r.read_u8();
+    prev_sda_    = r.read_u8();
+    state_       = static_cast<State>(r.read_u8());
+    bit_count_   = r.read_u8();
+    shift_reg_   = r.read_u8();
+    device_addr_ = r.read_u8();
+    is_read_     = r.read_bool();
+    read_data_   = r.read_u8();
 }

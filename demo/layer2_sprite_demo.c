@@ -87,7 +87,7 @@ static void pal_write(unsigned char idx, unsigned char rrrgggbb)
 }
 
 /* ------------------------------------------------------------------ *
- * Layer 2 fill (256×192 @ 8 bpp = 49152 bytes)                        *
+ * Layer 2 pattern (256×192 @ 8 bpp = 49152 bytes)                    *
  *                                                                      *
  * Port 0x123B bit layout (from zxnext.vhd):                           *
  *   bit 0 : write-map enable                                          *
@@ -98,17 +98,25 @@ static void pal_write(unsigned char idx, unsigned char rrrgggbb)
  *   bits [7:6] : segment  (11 = map all 3 L2 banks at 0x0000–0xBFFF) *
  *                                                                      *
  * 0xC000–0xFFFF is NOT remapped → stack at 0xFFFD is safe.            *
+ *                                                                      *
+ * Pattern: diagonal rainbow stripes.  For each pixel at (col, row),   *
+ * colour index = ((row + col) >> 5) & 7) + 1.                        *
+ * This gives 8-colour bands 32 pixels wide along the NW→SE diagonal. *
  * ------------------------------------------------------------------ */
-static void l2_fill(unsigned char colour)
+static void l2_draw_pattern(void)
 {
     unsigned char *p = (unsigned char *)0x0000;
     unsigned int   i;
+    unsigned char  row, col;
 
     /* segment=11 + write + display = 0xC3 */
     IO_LAYER2 = 0xC3;
 
-    for (i = 0; i < 0xC000U; i++)
-        p[i] = colour;
+    for (i = 0; i < 0xC000U; i++) {
+        row = (unsigned char)(i >> 8);   /* 0–191 */
+        col = (unsigned char)(i);        /* 0–255 */
+        p[i] = (unsigned char)(((unsigned int)row + col) >> 5 & 7u) + 1;
+    }
 
     /* keep display, disable write-map */
     IO_LAYER2 = 0x02;
@@ -190,9 +198,17 @@ int main(void)
     /* 2. Sprite transparent index → 0  (default is 0xE3). */
     ZXN_WRITE_REG(NR_SPRITE_TRANSP, 0x00);
 
-    /* 3. Layer 2 palette: index 1 = sky blue (RRRGGGBB 011_110_11). */
+    /* 3. Layer 2 palette: indices 1–8 = diagonal rainbow stripe colours.
+     *    Format: RRRGGGBB (bits [7:5]=R, [4:2]=G, [1:0]=B). */
     ZXN_WRITE_REG(NR_PALETTE_CTRL, NR_PAL_L2_FIRST);
-    pal_write(1, 0x7B);
+    pal_write(1, 0xED);  /* light red     111 011 01 */
+    pal_write(2, 0xF5);  /* light orange  111 101 01 */
+    pal_write(3, 0xFD);  /* light yellow  111 111 01 */
+    pal_write(4, 0x7D);  /* light green   011 111 01 */
+    pal_write(5, 0x3F);  /* light cyan    001 111 11 */
+    pal_write(6, 0x6F);  /* light blue    011 011 11 */
+    pal_write(7, 0xEF);  /* light magenta 111 011 11 */
+    pal_write(8, 0xFF);  /* white         111 111 11 */
 
     /* 4. Sprite palette: index 2 = red, index 4 = yellow. */
     ZXN_WRITE_REG(NR_PALETTE_CTRL, NR_PAL_SPR_FIRST);
@@ -202,8 +218,8 @@ int main(void)
     /* 5. Enable Layer 2 display (NR 0x69 bit 7). */
     ZXN_WRITE_REG(NR_DISPLAY_CTRL, 0x80);
 
-    /* 6. Fill Layer 2 background. */
-    l2_fill(1);
+    /* 6. Draw diagonal rainbow pattern on Layer 2. */
+    l2_draw_pattern();
 
     /* 7. Enable sprites globally (NR 0x15 bit 0). */
     ZXN_WRITE_REG(NR_SPRITE_CTRL, 0x01);

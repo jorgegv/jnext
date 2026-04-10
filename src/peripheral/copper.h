@@ -78,6 +78,9 @@ public:
     bool     is_running() const { return mode_ != 0; }
     uint16_t instruction(uint16_t addr) const { return instructions_[addr & 0x3FF]; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     std::array<uint16_t, 1024> instructions_{};  // 1K instruction RAM
     uint16_t pc_ = 0;          // program counter (10-bit, 0-1023)

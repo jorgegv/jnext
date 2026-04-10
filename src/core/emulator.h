@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "core/clock.h"
@@ -43,6 +44,7 @@
 #include "core/video_recorder.h"
 #include "core/rzx_player.h"
 #include "core/rzx_recorder.h"
+#include "debug/rewind_buffer.h"
 
 /// Top-level machine class.
 ///
@@ -216,6 +218,51 @@ public:
 
     const EmulatorConfig& config() const { return config_; }
 
+    // -----------------------------------------------------------------------
+    // State serialisation (used by RewindBuffer)
+    // -----------------------------------------------------------------------
+
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
+    /// Access the rewind buffer (may be null if disabled).
+    RewindBuffer* rewind_buffer() { return rewind_buffer_.get(); }
+    const RewindBuffer* rewind_buffer() const { return rewind_buffer_.get(); }
+
+    /// True if snapshot-taking is active (can be toggled without freeing the buffer).
+    bool rewind_enabled() const { return rewind_enabled_; }
+    void set_rewind_enabled(bool v) { rewind_enabled_ = v; }
+
+    /// Resize (or create/destroy) the rewind buffer at runtime.
+    /// Clears all existing snapshots. frames=0 disables rewind.
+    void resize_rewind_buffer(int frames);
+
+    /// True if replay_mode is active (suppresses audio/video during fast-forward).
+    bool replay_mode() const { return replay_mode_; }
+    void set_replay_mode(bool v) { replay_mode_ = v; }
+
+    /// Logical frame counter (incremented each run_frame()).
+    uint32_t frame_num() const { return frame_num_; }
+
+    // -----------------------------------------------------------------------
+    // Rewind / backwards execution
+    // -----------------------------------------------------------------------
+
+    /// Rewind to the nearest snapshot at or before target_cycle, then silently
+    /// fast-forward to that exact cycle. Pauses the debugger at the target.
+    /// Returns the cycle actually reached (may differ if the trace doesn't
+    /// contain target_cycle exactly — lands on the nearest instruction boundary).
+    /// Returns UINT64_MAX if the rewind buffer is empty or disabled.
+    uint64_t rewind_to_cycle(uint64_t target_cycle);
+
+    /// Step back N instructions using the TraceLog for target-cycle lookup.
+    /// Requires TraceLog to be enabled.  Returns true on success.
+    bool step_back(int n = 1);
+
+    /// Rewind to the start of frame frame_num (must be in the rewind buffer).
+    /// Returns true on success.
+    bool rewind_to_frame(uint32_t frame_num);
+
     /// Floating bus read — returns the byte the ULA is currently fetching
     /// from VRAM at this T-state position. Only active in 48K/128K modes.
     /// Returns 0xFF when outside active display or in Next/Pentagon modes.
@@ -269,6 +316,18 @@ private:
     RzxPlayer       rzx_player_;
     RzxRecorder     rzx_recorder_;
     uint32_t        rzx_frame_instruction_count_ = 0;
+
+    /// Rewind snapshot buffer (null when disabled).
+    std::unique_ptr<RewindBuffer> rewind_buffer_;
+
+    /// Logical frame counter — incremented each run_frame(); saved in snapshots.
+    uint32_t frame_num_   = 0;
+
+    /// When true, snapshot-taking is active (independent of buffer allocation).
+    bool rewind_enabled_ = false;
+
+    /// When true, suppresses audio/video output during fast-forward replay.
+    bool replay_mode_ = false;
 
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;

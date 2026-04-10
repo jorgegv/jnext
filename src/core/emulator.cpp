@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/nex_loader.h"
 #include "core/sna_saver.h"
+#include "core/saveable.h"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -36,6 +37,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
     scheduler_.reset();
 
     frame_cycle_ = 0;
+    frame_num_   = 0;
+    replay_mode_ = false;
 
     // Subsystem resets.
     ram_.reset();
@@ -926,6 +929,25 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);
 
+    // Initialise rewind buffer.
+    // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
+    if (cfg.rewind_buffer_frames > 0) {
+        StateWriter measure;
+        save_state(measure);
+        size_t snap_bytes = measure.position();
+        rewind_buffer_ = std::make_unique<RewindBuffer>(
+            static_cast<size_t>(cfg.rewind_buffer_frames), snap_bytes);
+        rewind_enabled_ = true;
+        trace_log_.set_enabled(true);
+        Log::emulator()->info("Rewind buffer: {} frames × {} bytes = {} KB",
+            cfg.rewind_buffer_frames, snap_bytes,
+            (static_cast<uint64_t>(cfg.rewind_buffer_frames) * snap_bytes + 512) / 1024);
+    } else {
+        rewind_buffer_.reset();
+        rewind_enabled_ = false;
+        Log::emulator()->debug("Rewind buffer: disabled");
+    }
+
     return true;
 }
 
@@ -1162,6 +1184,26 @@ void Emulator::stop_rzx_recording()
 
 void Emulator::run_frame()
 {
+    // Handle rewind step modes set by the GUI or scripting layer.
+    // These are processed before the normal snapshot so we don't take a
+    // snapshot of the "current" state before rewinding away from it.
+    if (debug_state_.active() && !replay_mode_) {
+        if (debug_state_.step_mode() == StepMode::STEP_BACK) {
+            step_back(debug_state_.step_back_count());
+            return;
+        }
+        if (debug_state_.step_mode() == StepMode::RUN_BACK_TO_CYCLE) {
+            rewind_to_cycle(debug_state_.target_cycle());
+            return;
+        }
+    }
+
+    // Snapshot at frame boundary — scheduler queue is empty here, which is
+    // required for correct serialisation (no pending events to save).
+    if (rewind_buffer_ && rewind_enabled_ && !replay_mode_) {
+        rewind_buffer_->take_snapshot(*this, frame_cycle_, frame_num_++);
+    }
+
     const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
     frame_ts_start_ = *fuse_z80_tstates_ptr();
 
@@ -1290,6 +1332,7 @@ void Emulator::run_frame()
             if (master_cycles == 0) master_cycles = clock_.cpu_divisor();  // minimum advance
         } else {
             // Record trace entry before execution (captures pre-execution state).
+            // Enabled during replay so consecutive step-backs can look up target cycles.
             if (trace_log_.enabled()) {
                 auto regs = cpu_.get_registers();
                 TraceEntry te;
@@ -1385,10 +1428,13 @@ void Emulator::run_frame()
         }
 
         // Generate audio samples at 44100 Hz using Bresenham accumulator.
-        sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
-        while (sample_accum_ >= SAMPLE_THRESHOLD) {
-            sample_accum_ -= SAMPLE_THRESHOLD;
-            mixer_.generate_sample(beeper_, turbosound_, dac_);
+        // Suppressed in replay mode (fast-forward rewind path).
+        if (!replay_mode_) {
+            sample_accum_ += master_cycles * Mixer::SAMPLE_RATE;
+            while (sample_accum_ >= SAMPLE_THRESHOLD) {
+                sample_accum_ -= SAMPLE_THRESHOLD;
+                mixer_.generate_sample(beeper_, turbosound_, dac_);
+            }
         }
 
         // Drain any scheduler events that have become due.
@@ -1410,17 +1456,20 @@ void Emulator::run_frame()
     renderer_.ula().snapshot_border_for_line(LINES_PER_FRAME - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
-    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                            layer2_, &sprites_, &tilemap_);
+    // Suppressed in replay mode (fast-forward rewind path).
+    if (!replay_mode_) {
+        renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                layer2_, &sprites_, &tilemap_);
+    }
 
-    // Capture frame for video recording (if active).
-    if (video_recorder_.is_recording()) {
+    // Capture frame for video recording (if active, not in replay).
+    if (!replay_mode_ && video_recorder_.is_recording()) {
         video_recorder_.capture_frame(framebuffer_.data(),
                                        FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT);
     }
 
-    // End RZX recording frame.
-    if (rzx_recorder_.is_recording()) {
+    // End RZX recording frame (not in replay).
+    if (!replay_mode_ && rzx_recorder_.is_recording()) {
         rzx_recorder_.end_frame(static_cast<uint16_t>(
             std::min(rzx_frame_instruction_count_, uint32_t(0xFFFF))));
     }
@@ -1633,6 +1682,306 @@ void Emulator::on_vsync()
     // Real implementation:
     //   - Signal the platform layer that a new frame is ready.
     //   - Reset per-frame state (floating bus cache, sprite collision flags).
+}
+
+// ---------------------------------------------------------------------------
+// State serialisation — save_state / load_state
+// ---------------------------------------------------------------------------
+//
+// Snapshots are taken at frame boundaries (before any events are scheduled
+// into the scheduler_), so the scheduler queue is always empty here.
+// Subsystem order must be identical in save_state and load_state.
+//
+// NOT serialised (rewired by init() / not part of emulated state):
+//   rom_          — loaded from file at startup, never changes
+//   contention_   — rebuilt from config.type by build()
+//   port_         — lambda callbacks only; rewired in init()
+//   keyboard_     — user input, not CPU state
+//   mixer_        — output path, discarded on rewind by design
+//   debug_state_  — debugger transient state
+//   trace_log_    — debug trace, not emulated state
+//   call_stack_   — debug call stack, not emulated state
+//   tape_/tzx_tape_/wav_tape_ — tape position independent of CPU rewind
+//   video_recorder_, rzx_player_, rzx_recorder_ — recording, not state
+//   sd_card_      — external device, not serialised
+//   boot_rom_     — loaded from file, never changes
+//   framebuffer_  — regenerated by render_frame()
+//   paused_vc_, paused_hc_, last_frame_vc_, last_frame_hc_ — raster transient
+//   frame_ts_start_ — FUSE tstates at frame start, set at run_frame() entry
+
+void Emulator::save_state(StateWriter& w) const
+{
+    // Core subsystems.
+    clock_.save_state(w);
+    ram_.save_state(w);
+    mmu_.save_state(w);
+    nextreg_.save_state(w);
+    cpu_.save_state(w);
+    im2_.save_state(w);
+
+    // Video subsystems.
+    palette_.save_state(w);
+    layer2_.save_state(w);
+    sprites_.save_state(w);
+    tilemap_.save_state(w);
+    renderer_.save_state(w);   // includes ULA
+
+    // Peripheral subsystems.
+    copper_.save_state(w);
+    ctc_.save_state(w);
+    dma_.save_state(w);
+    spi_.save_state(w);
+    i2c_.save_state(w);
+    rtc_.save_state(w);
+    uart_.save_state(w);
+    divmmc_.save_state(w);
+
+    // Audio subsystems.
+    beeper_.save_state(w);
+    turbosound_.save_state(w);
+    dac_.save_state(w);
+
+    // Emulator private state.
+    w.write_u64(frame_cycle_);
+    w.write_u32(frame_num_);
+    w.write_u64(psg_accum_);
+    w.write_u64(sample_accum_);
+    w.write_bool(dac_enabled_);
+    w.write_bool(line_int_enabled_);
+    w.write_bool(ula_int_disabled_);
+    w.write_u16(line_int_value_);
+    w.write_bool(im2_hw_mode_);
+    w.write_u8(im2_vector_base_);
+    w.write_bytes(im2_int_enable_, 3);
+    w.write_bytes(im2_int_status_, 3);
+    w.write_u8(clip_l2_idx_);
+    w.write_u8(clip_spr_idx_);
+    w.write_u8(clip_ula_idx_);
+    w.write_u8(clip_tm_idx_);
+}
+
+void Emulator::load_state(StateReader& r)
+{
+    // Core subsystems.
+    clock_.load_state(r);
+    ram_.load_state(r);
+    mmu_.load_state(r);
+    nextreg_.load_state(r);
+    cpu_.load_state(r);
+    im2_.load_state(r);
+
+    // Video subsystems.
+    palette_.load_state(r);
+    layer2_.load_state(r);
+    sprites_.load_state(r);
+    tilemap_.load_state(r);
+    renderer_.load_state(r);   // includes ULA
+
+    // Peripheral subsystems.
+    copper_.load_state(r);
+    ctc_.load_state(r);
+    dma_.load_state(r);
+    spi_.load_state(r);
+    i2c_.load_state(r);
+    rtc_.load_state(r);
+    uart_.load_state(r);
+    divmmc_.load_state(r);
+
+    // Audio subsystems.
+    beeper_.load_state(r);
+    turbosound_.load_state(r);
+    dac_.load_state(r);
+
+    // Emulator private state.
+    frame_cycle_      = r.read_u64();
+    frame_num_        = r.read_u32();
+    psg_accum_        = r.read_u64();
+    sample_accum_     = r.read_u64();
+    dac_enabled_      = r.read_bool();
+    line_int_enabled_ = r.read_bool();
+    ula_int_disabled_ = r.read_bool();
+    line_int_value_   = r.read_u16();
+    im2_hw_mode_      = r.read_bool();
+    im2_vector_base_  = r.read_u8();
+    r.read_bytes(im2_int_enable_, 3);
+    r.read_bytes(im2_int_status_, 3);
+    clip_l2_idx_  = r.read_u8();
+    clip_spr_idx_ = r.read_u8();
+    clip_ula_idx_ = r.read_u8();
+    clip_tm_idx_  = r.read_u8();
+}
+
+// ---------------------------------------------------------------------------
+// Rewind / backwards execution
+// ---------------------------------------------------------------------------
+
+void Emulator::resize_rewind_buffer(int frames)
+{
+    if (frames <= 0) {
+        rewind_buffer_.reset();
+        rewind_enabled_ = false;
+        Log::emulator()->info("Rewind buffer: disabled");
+        return;
+    }
+    StateWriter measure;
+    save_state(measure);
+    size_t snap_bytes = measure.position();
+    rewind_buffer_ = std::make_unique<RewindBuffer>(
+        static_cast<size_t>(frames), snap_bytes);
+    rewind_enabled_ = true;
+    trace_log_.set_enabled(true);
+    Log::emulator()->info("Rewind buffer resized: {} frames × {} bytes = {} KB",
+        frames, snap_bytes,
+        (static_cast<uint64_t>(frames) * snap_bytes + 512) / 1024);
+}
+
+
+uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
+{
+    if (!rewind_buffer_ || rewind_buffer_->empty()) {
+        Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
+        return UINT64_MAX;
+    }
+
+    // Restore the nearest snapshot at or before target_cycle.
+    uint64_t snap_cycle = rewind_buffer_->restore_nearest(target_cycle, *this);
+
+    Log::emulator()->debug("rewind_to_cycle: target={} snap_cycle={}", target_cycle, snap_cycle);
+
+    if (snap_cycle > target_cycle) {
+        // Oldest snapshot is newer than target — clamp to oldest available.
+        Log::emulator()->warn("rewind_to_cycle: target {} older than oldest snapshot {}; clamping",
+                               target_cycle, snap_cycle);
+        target_cycle = snap_cycle;
+    }
+
+    // Fast-forward from the snapshot to target_cycle in replay mode.
+    // replay_mode_ suppresses audio mixing and video rendering.
+    // The debug state runs to the target cycle, then pauses automatically.
+    replay_mode_ = true;
+    debug_state_.set_active(true);
+    debug_state_.run_to_cycle(target_cycle);
+
+    // Run frames until the debugger pauses (target cycle reached) or we
+    // somehow overshoot (should not happen, but guard against infinite loop).
+    constexpr int MAX_REPLAY_FRAMES = 100000;
+    int frames = 0;
+    while (!debug_state_.paused() && frames < MAX_REPLAY_FRAMES) {
+        run_frame();
+        ++frames;
+    }
+
+    replay_mode_ = false;
+
+    // Re-render the frame so the main window framebuffer reflects the rewound state.
+    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                           layer2_, &sprites_, &tilemap_);
+
+    uint64_t reached = clock_.get();
+    Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
+                            reached, frames);
+    return reached;
+}
+
+bool Emulator::step_back(int n)
+{
+    if (n <= 0) n = 1;
+
+    if (!rewind_buffer_ || rewind_buffer_->empty()) {
+        Log::emulator()->warn("step_back: rewind buffer is empty or disabled");
+        return false;
+    }
+
+    if (!trace_log_.enabled() || trace_log_.size() == 0) {
+        Log::emulator()->warn("step_back: trace log not enabled or empty");
+        return false;
+    }
+
+    // The trace has entries [0..size()-1] where size()-1 is the most recent.
+    // The current instruction (just executed) is at size()-1.
+    // "Step back 1" means go to the instruction before that: size()-2.
+    // But after a rewind we want to land on that instruction's *start* cycle.
+    size_t trace_size = trace_log_.size();
+
+    // Clamp n to available trace depth.
+    if (static_cast<size_t>(n) > trace_size) {
+        n = static_cast<int>(trace_size);
+        if (n <= 0) {
+            Log::emulator()->warn("step_back: not enough trace entries");
+            return false;
+        }
+    }
+
+    // The trace records each instruction BEFORE it executes.
+    // trace[size-1] = last executed instruction.
+    // step_back(N) = land at trace[size-N] = undo the last N instructions.
+    // The CPU will be positioned to execute that instruction again (PC = trace[size-N].pc).
+    size_t target_idx = trace_size - static_cast<size_t>(n);
+    uint64_t target_cycle = trace_log_.at(target_idx).cycle;
+
+    Log::emulator()->debug("step_back({}): target trace idx={} cycle={}", n, target_idx, target_cycle);
+
+    // Clear the trace before rewind: entries above target_idx are stale "future" state.
+    trace_log_.clear();
+
+    rewind_to_cycle(target_cycle);
+    return true;
+}
+
+bool Emulator::rewind_to_frame(uint32_t target_frame_num)
+{
+    if (!rewind_buffer_ || rewind_buffer_->empty()) {
+        Log::emulator()->warn("rewind_to_frame: rewind buffer is empty or disabled");
+        return false;
+    }
+
+    if (target_frame_num < rewind_buffer_->oldest_frame_num() ||
+        target_frame_num > rewind_buffer_->newest_frame_num()) {
+        Log::emulator()->warn("rewind_to_frame: frame {} out of range [{},{}]",
+                               target_frame_num,
+                               rewind_buffer_->oldest_frame_num(),
+                               rewind_buffer_->newest_frame_num());
+        return false;
+    }
+
+    // A frame snapshot's frame_cycle is the cycle at which that frame *started*.
+    // Find the snapshot whose frame_num matches and use its frame_cycle as target.
+    // restore_nearest will land us at the start of that frame.
+    uint64_t snap_cycle = rewind_buffer_->restore_nearest(
+        rewind_buffer_->newest_frame_cycle(), *this);
+
+    // We need the exact frame_cycle for frame target_frame_num.
+    // Use restore_nearest with a cycle one frame before the target to find it.
+    // Actually: since we want to land at the start of target_frame_num, and
+    // frame snapshots are taken at frame_cycle_ before the frame runs, we can
+    // use restore_nearest with any cycle >= target_frame_num's frame_cycle.
+    // The simplest approach: restore_nearest finds the latest snapshot <=
+    // target_cycle. We want exactly frame target_frame_num — search for it.
+    // Re-restore using the oldest_frame_cycle as sentinel.
+    (void)snap_cycle;
+
+    // Restore: find the cycle of target_frame_num by doing a targeted restore.
+    // restore_nearest(oldest_frame_cycle + target_frame * CYCLES_PER_FRAME)
+    // is an approximation — instead use the actual frame_cycle from the buffer.
+    uint64_t target_cycle = rewind_buffer_->frame_cycle_for(target_frame_num);
+    if (target_cycle == UINT64_MAX) {
+        Log::emulator()->warn("rewind_to_frame: frame {} not found in buffer", target_frame_num);
+        return false;
+    }
+
+    // Restore the snapshot and pause right at frame start (no fast-forward needed —
+    // frame snapshots are taken at the exact cycle before any execution).
+    uint64_t snap = rewind_buffer_->restore_nearest(target_cycle, *this);
+    (void)snap;
+
+    // Re-render so the main window framebuffer reflects the restored state.
+    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                           layer2_, &sprites_, &tilemap_);
+
+    // Pause the debugger at the current position.
+    debug_state_.set_active(true);
+    debug_state_.pause();
+    return true;
 }
 
 bool Emulator::start_recording(const std::string& output_path)

@@ -13,8 +13,10 @@
 #include "debugger/stack_panel.h"
 #include "debugger/callstack_panel.h"
 #include "core/emulator.h"
+#include "core/rzx_player.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
+#include "debug/rewind_buffer.h"
 
 #include "debugger/debugger_manager.h"
 
@@ -36,6 +38,9 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QDialogButtonBox>
+#include <QSlider>
+#include <QStatusBar>
+#include <QSpinBox>
 
 DebuggerWindow::DebuggerWindow(Emulator* emulator, QWidget* parent)
     : QMainWindow(parent)
@@ -116,6 +121,23 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     connect(continue_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
     toolbar->addWidget(continue_btn);
 
+    auto* frame_back_btn = new QPushButton(tr("|\u25C4 Frame Back"), this);
+    frame_back_btn->setToolTip(tr("Rewind to previous frame (Shift+F6)"));
+    connect(frame_back_btn, &QPushButton::clicked, this, [this]() {
+        if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
+                && !emulator_->rewind_buffer()->empty()) {
+            uint32_t prev = emulator_->frame_num() > 0
+                ? emulator_->frame_num() - 1 : 0;
+            debugger_mgr_->on_rewind_to_frame(prev);
+        }
+    });
+    toolbar->addWidget(frame_back_btn);
+
+    auto* step_back_btn = new QPushButton(tr("\u25C4 Step Back"), this);
+    step_back_btn->setToolTip(tr("Step back one instruction (Shift+F7)"));
+    connect(step_back_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_back);
+    toolbar->addWidget(step_back_btn);
+
     auto* step_into_btn = new QPushButton(tr("F6: Single Step"), this);
     connect(step_into_btn, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
     toolbar->addWidget(step_into_btn);
@@ -143,6 +165,47 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     toolbar->addWidget(break_btn);
 
     addToolBar(Qt::BottomToolBarArea, toolbar);
+
+    // --- Rewind slider toolbar (second bottom toolbar, initially hidden) ---
+    rewind_toolbar_ = new QToolBar(tr("Rewind"), this);
+    rewind_toolbar_->setMovable(false);
+
+    auto* rewind_label = new QLabel(tr("  \u23EE Rewind — Frame: "), this);
+    rewind_toolbar_->addWidget(rewind_label);
+
+    rewind_slider_ = new QSlider(Qt::Horizontal, this);
+    rewind_slider_->setMinimumWidth(300);
+    rewind_slider_->setToolTip(tr("Drag to select a frame to rewind to"));
+    connect(rewind_slider_, &QSlider::sliderPressed, this, [this]() {
+        rewind_slider_dragging_ = true;
+    });
+    connect(rewind_slider_, &QSlider::sliderMoved, this, [this](int value) {
+        if (rewind_frame_label_)
+            rewind_frame_label_->setText(tr("Frame %1").arg(value));
+    });
+    connect(rewind_slider_, &QSlider::sliderReleased, this, [this]() {
+        rewind_slider_dragging_ = false;
+        // Trigger rewind immediately on release (no need to press Jump Here separately).
+        if (debugger_mgr_)
+            debugger_mgr_->on_rewind_to_frame(
+                static_cast<uint32_t>(rewind_slider_->value()));
+    });
+    rewind_toolbar_->addWidget(rewind_slider_);
+
+    rewind_frame_label_ = new QLabel(tr("---"), this);
+    rewind_frame_label_->setMinimumWidth(120);
+    rewind_toolbar_->addWidget(rewind_frame_label_);
+
+    rewind_jump_btn_ = new QPushButton(tr("Jump Here"), this);
+    connect(rewind_jump_btn_, &QPushButton::clicked, this, [this]() {
+        if (!debugger_mgr_ || !rewind_slider_) return;
+        uint32_t frame = static_cast<uint32_t>(rewind_slider_->value());
+        debugger_mgr_->on_rewind_to_frame(frame);
+    });
+    rewind_toolbar_->addWidget(rewind_jump_btn_);
+
+    rewind_toolbar_->setVisible(false);
+    addToolBar(Qt::BottomToolBarArea, rewind_toolbar_);
 }
 
 void DebuggerWindow::create_menus() {
@@ -172,6 +235,21 @@ void DebuggerWindow::create_menus() {
     step_out_action_ = debug_menu->addAction(tr("Step Ou&t"));
     step_out_action_->setShortcut(QKeySequence(Qt::Key_F8));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
+
+    QAction* frame_back_action = debug_menu->addAction(tr("|< &Frame Back"));
+    frame_back_action->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F6));
+    connect(frame_back_action, &QAction::triggered, this, [this]() {
+        if (debugger_mgr_ && emulator_ && emulator_->rewind_buffer()
+                && !emulator_->rewind_buffer()->empty()) {
+            uint32_t prev = emulator_->frame_num() > 0
+                ? emulator_->frame_num() - 1 : 0;
+            debugger_mgr_->on_rewind_to_frame(prev);
+        }
+    });
+
+    step_back_action_ = debug_menu->addAction(tr("Step &Back"));
+    step_back_action_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F7));
+    connect(step_back_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_back);
 
     debug_menu->addSeparator();
 
@@ -217,6 +295,35 @@ void DebuggerWindow::create_menus() {
             }
         }
     });
+
+    // Rewind submenu
+    debug_menu->addSeparator();
+    QMenu* rewind_menu = debug_menu->addMenu(tr("&Rewind"));
+
+    rewind_enable_action_ = rewind_menu->addAction(tr("&Enable Rewind"));
+    rewind_enable_action_->setCheckable(true);
+    rewind_enable_action_->setChecked(emulator_ && emulator_->rewind_buffer() != nullptr);
+    connect(rewind_enable_action_, &QAction::triggered, this, [this](bool checked) {
+        if (!emulator_) return;
+        if (checked) {
+            if (!emulator_->rewind_buffer()) {
+                // No buffer allocated — explain how to enable
+                QMessageBox::information(this, tr("Enable Rewind"),
+                    tr("Rewind requires pre-allocated memory.\n"
+                       "Restart the emulator with:\n\n"
+                       "  --rewind-buffer-size N\n\n"
+                       "where N is the number of frames to store (default 500)."));
+                rewind_enable_action_->setChecked(false);
+                return;
+            }
+            emulator_->set_rewind_enabled(true);
+        } else {
+            emulator_->set_rewind_enabled(false);
+        }
+    });
+
+    QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
+    connect(rewind_size_action, &QAction::triggered, this, &DebuggerWindow::show_rewind_buffer_size_dialog);
 
     // --- Map menu ---
     QMenu* map_menu = bar->addMenu(tr("&Map"));
@@ -270,6 +377,16 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (step_into_action_) step_into_action_->setEnabled(is_paused);
     if (step_over_action_) step_over_action_->setEnabled(is_paused);
     if (step_out_action_)  step_out_action_->setEnabled(is_paused);
+
+    // Step Back is only available when paused, rewind buffer has snapshots,
+    // and RZX playback is not active.
+    bool can_rewind = is_paused
+        && emulator_
+        && emulator_->rewind_buffer()
+        && !emulator_->rewind_buffer()->empty()
+        && !emulator_->rzx_player().is_playing();
+    if (step_back_action_) step_back_action_->setEnabled(can_rewind);
+    if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
 }
 
 void DebuggerWindow::save_position() {
@@ -307,6 +424,120 @@ void DebuggerWindow::update_trace_indicator() {
 
     if (trace_enable_action_)
         trace_enable_action_->setChecked(active);
+}
+
+void DebuggerWindow::update_rewind_ui() {
+    if (!emulator_) return;
+
+    auto* rb = emulator_->rewind_buffer();
+    bool has_rewind = rb && !rb->empty() && rb->depth() > 1;
+
+    // Show/hide the rewind toolbar
+    if (rewind_toolbar_)
+        rewind_toolbar_->setVisible(has_rewind);
+
+    bool is_paused = emulator_->debug_state().paused();
+    if (has_rewind && !rewind_slider_dragging_) {
+        // Always update the range; only move the thumb when running (not paused).
+        // When paused, the user controls the slider position.
+        if (rewind_slider_) {
+            rewind_slider_->blockSignals(true);
+            rewind_slider_->setRange(
+                static_cast<int>(rb->oldest_frame_num()),
+                static_cast<int>(rb->newest_frame_num()));
+            if (!is_paused)
+                rewind_slider_->setValue(static_cast<int>(emulator_->frame_num()));
+            rewind_slider_->blockSignals(false);
+        }
+        if (rewind_frame_label_) {
+            rewind_frame_label_->setText(
+                tr("Frame %1 / %2")
+                    .arg(emulator_->frame_num())
+                    .arg(rb->newest_frame_num()));
+        }
+    }
+
+    // Status bar indicator
+    if (rb && !rb->empty()) {
+        bool is_rewound = emulator_->frame_num() < rb->newest_frame_num();
+        if (is_rewound) {
+            statusBar()->showMessage(
+                tr("\u23EE Rewound: frame %1 of %2  (F5 / Continue to resume)")
+                    .arg(emulator_->frame_num())
+                    .arg(rb->newest_frame_num()));
+        } else {
+            size_t mb = (rb->depth() * rb->snapshot_bytes() + 524288) / 1048576;
+            statusBar()->showMessage(
+                tr("\u23EE Rewind: %1 frames / %2 MB")
+                    .arg(rb->depth())
+                    .arg(mb));
+        }
+    } else {
+        statusBar()->clearMessage();
+    }
+
+    // Sync menu checkmark
+    if (rewind_enable_action_)
+        rewind_enable_action_->setChecked(rb != nullptr && emulator_->rewind_enabled());
+}
+
+void DebuggerWindow::show_rewind_buffer_size_dialog() {
+    if (!emulator_) return;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Rewind Buffer Size"));
+    dlg.setMinimumWidth(360);
+
+    auto* form = new QFormLayout(&dlg);
+
+    auto* spin = new QSpinBox(&dlg);
+    spin->setRange(0, 2000);
+    spin->setSuffix(tr(" frames"));
+    int current_frames = emulator_->rewind_buffer()
+        ? static_cast<int>(emulator_->rewind_buffer()->depth()) : 0;
+    // Show the max capacity (depth() is current fill, not capacity)
+    // Use snapshot_bytes to estimate from allocated memory
+    // Since we don't expose max_frames, use config value as best estimate
+    spin->setValue(current_frames > 0 ? current_frames : 500);
+
+    size_t snap_bytes = emulator_->rewind_buffer()
+        ? emulator_->rewind_buffer()->snapshot_bytes() : 0;
+    QString info;
+    if (snap_bytes > 0) {
+        size_t est_mb = (static_cast<uint64_t>(spin->value()) * snap_bytes + 524288) / 1048576;
+        info = tr("~%1 MB at %2 frames").arg(est_mb).arg(spin->value());
+    } else {
+        info = tr("Rewind is currently disabled. Enter frame count to enable.");
+    }
+    auto* info_label = new QLabel(info, &dlg);
+    info_label->setWordWrap(true);
+
+    connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this, [&](int v) {
+        if (snap_bytes > 0) {
+            size_t est_mb = (static_cast<uint64_t>(v) * snap_bytes + 524288) / 1048576;
+            info_label->setText(tr("~%1 MB at %2 frames").arg(est_mb).arg(v));
+        }
+    });
+
+    form->addRow(tr("Buffer size:"), spin);
+    form->addRow(info_label);
+
+    auto* note = new QLabel(
+        tr("Note: resizing clears all existing snapshots."), &dlg);
+    note->setWordWrap(true);
+    form->addRow(note);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    int new_frames = spin->value();
+    emulator_->resize_rewind_buffer(new_frames);
+    update_rewind_ui();
 }
 
 void DebuggerWindow::position_next_to(QWidget* main_win) {
@@ -477,4 +708,5 @@ void DebuggerWindow::refresh_panels() {
     if (stack_panel_) stack_panel_->refresh();
     if (callstack_panel_) callstack_panel_->refresh();
     if (breakpoint_panel_) breakpoint_panel_->refresh();
+    update_rewind_ui();
 }

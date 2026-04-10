@@ -32,6 +32,9 @@ public:
     uint16_t pcm_left() const  { return static_cast<uint16_t>(ch_[0]) + ch_[1]; }
     uint16_t pcm_right() const { return static_cast<uint16_t>(ch_[2]) + ch_[3]; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     uint8_t ch_[4];  // A, B, C, D
 };
