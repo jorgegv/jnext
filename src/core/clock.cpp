@@ -1,4 +1,5 @@
 #include "core/clock.h"
+#include "core/saveable.h"
 
 Clock::Clock()
     : cycle_(0)
@@ -31,4 +32,16 @@ bool Clock::pixel_enable() const
 void Clock::set_cpu_speed(CpuSpeed speed)
 {
     cpu_divisor_ = cpu_speed_divisor(speed);
+}
+
+void Clock::save_state(StateWriter& w) const
+{
+    w.write_u64(cycle_);
+    w.write_i32(cpu_divisor_);
+}
+
+void Clock::load_state(StateReader& r)
+{
+    cycle_       = r.read_u64();
+    cpu_divisor_ = r.read_i32();
 }

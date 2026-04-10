@@ -67,6 +67,9 @@ public:
     /// (matching VHDL: i_spi_rd starts a transfer) and returns the result.
     uint8_t read_data();
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     uint8_t cs_ = 0xFF;          // CS register — all lines deasserted (active-low)
     uint8_t rx_data_ = 0xFF;     // last byte received from device

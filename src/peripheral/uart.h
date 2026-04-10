@@ -32,6 +32,18 @@ public:
     bool almost_full()const { return count_ >= (Capacity - 2); }
     std::size_t size() const { return count_; }
 
+    void save_state(class StateWriter& w) const {
+        // Save logical contents (oldest-first) then count.
+        w.write_u64(count_);
+        for (std::size_t i = 0; i < count_; ++i)
+            w.write_u8(buf_[(tail_ + i) % Capacity]);
+    }
+    void load_state(class StateReader& r) {
+        reset();
+        std::size_t n = static_cast<std::size_t>(r.read_u64());
+        for (std::size_t i = 0; i < n; ++i) push(r.read_u8());
+    }
+
     /// Push a byte.  Returns false if full (byte is dropped).
     bool push(uint8_t val) {
         if (full()) return false;
@@ -145,6 +157,9 @@ public:
     bool rx_avail() const { return !rx_fifo_.empty(); }
     bool rx_near_full() const { return rx_fifo_.near_full(); }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // FIFOs
     FifoBuffer<TX_FIFO_SIZE> tx_fifo_;
@@ -224,6 +239,9 @@ public:
 
     const UartChannel& channel(int ch) const { return channels_[ch]; }
     int selected_channel() const { return select_; }
+
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 
 private:
     std::array<UartChannel, 2> channels_;

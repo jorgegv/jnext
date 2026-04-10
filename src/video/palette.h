@@ -126,6 +126,9 @@ public:
     void set_tilemap_transparency(uint8_t val) { tilemap_transparency_ = val & 0x0F; }
     uint8_t tilemap_transparency() const { return tilemap_transparency_; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     // Internal RGB333 storage (uint16_t, bits 8:0 = RRRGGGBBB).
     // [0] = first palette, [1] = second palette.

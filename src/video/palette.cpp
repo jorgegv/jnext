@@ -1,4 +1,5 @@
 #include "video/palette.h"
+#include "core/saveable.h"
 
 #include <algorithm>
 
@@ -279,4 +280,68 @@ void PaletteManager::rebuild_argb(PaletteId /*id*/, uint8_t /*idx*/)
 {
     // Individual entries are updated inline in write_entry().
     // This is reserved for potential bulk rebuild operations.
+}
+
+void PaletteManager::save_state(StateWriter& w) const
+{
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < ULA_SIZE; ++i) w.write_u16(ula_rgb333_[p][i]);
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(layer2_rgb333_[p][i]);
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(sprite_rgb333_[p][i]);
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(tilemap_rgb333_[p][i]);
+    w.write_u8(control_);
+    w.write_u8(index_);
+    w.write_u8(static_cast<uint8_t>(target_palette_));
+    w.write_bool(auto_inc_disabled_);
+    w.write_bool(active_ula_second_);
+    w.write_bool(active_l2_second_);
+    w.write_bool(active_spr_second_);
+    w.write_bool(active_tm_second_);
+    w.write_bool(ulanext_mode_);
+    w.write_bool(nine_bit_first_written_);
+    w.write_u8(nine_bit_first_byte_);
+    w.write_u8(global_transparency_);
+    w.write_u8(sprite_transparency_);
+    w.write_u8(tilemap_transparency_);
+}
+
+void PaletteManager::load_state(StateReader& r)
+{
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < ULA_SIZE; ++i) {
+            ula_rgb333_[p][i] = r.read_u16();
+            ula_argb_[p][i] = rgb333_to_argb(ula_rgb333_[p][i]);
+        }
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) {
+            layer2_rgb333_[p][i] = r.read_u16();
+            layer2_argb_[p][i] = rgb333_to_argb(layer2_rgb333_[p][i]);
+        }
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) {
+            sprite_rgb333_[p][i] = r.read_u16();
+            sprite_argb_[p][i] = rgb333_to_argb(sprite_rgb333_[p][i]);
+        }
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) {
+            tilemap_rgb333_[p][i] = r.read_u16();
+            tilemap_argb_[p][i] = rgb333_to_argb(tilemap_rgb333_[p][i]);
+        }
+    control_ = r.read_u8();
+    index_ = r.read_u8();
+    target_palette_ = static_cast<PaletteId>(r.read_u8());
+    auto_inc_disabled_ = r.read_bool();
+    active_ula_second_ = r.read_bool();
+    active_l2_second_ = r.read_bool();
+    active_spr_second_ = r.read_bool();
+    active_tm_second_ = r.read_bool();
+    ulanext_mode_ = r.read_bool();
+    nine_bit_first_written_ = r.read_bool();
+    nine_bit_first_byte_ = r.read_u8();
+    global_transparency_ = r.read_u8();
+    sprite_transparency_ = r.read_u8();
+    tilemap_transparency_ = r.read_u8();
 }

@@ -1,4 +1,5 @@
 #include "ram.h"
+#include "core/saveable.h"
 #include <cstring>
 
 Ram::Ram(size_t size_bytes) : data_(size_bytes, 0) {}
@@ -25,3 +26,15 @@ const uint8_t* Ram::page_ptr(uint16_t page) const {
 }
 
 void Ram::reset() { std::fill(data_.begin(), data_.end(), 0); }
+
+void Ram::save_state(StateWriter& w) const
+{
+    w.write_u64(static_cast<uint64_t>(data_.size()));
+    w.write_bytes(data_.data(), data_.size());
+}
+
+void Ram::load_state(StateReader& r)
+{
+    uint64_t sz = r.read_u64();
+    r.read_bytes(data_.data(), static_cast<size_t>(sz));
+}

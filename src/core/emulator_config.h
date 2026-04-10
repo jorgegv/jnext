@@ -88,6 +88,9 @@ struct EmulatorConfig {
     std::string divmmc_rom_path;          // path to DivMMC ROM (empty = disabled)
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
 
+    // Rewind buffer: number of frame snapshots to keep (0 = disabled)
+    int rewind_buffer_frames = 500;
+
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 

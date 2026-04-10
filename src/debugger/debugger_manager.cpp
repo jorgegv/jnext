@@ -423,6 +423,58 @@ void DebuggerManager::on_run_to_eosl() {
     update_actions();
 }
 
+void DebuggerManager::on_step_back() {
+    if (!enabled_) return;
+    if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
+
+    bool ok = emulator_->step_back(1);
+    if (!ok) return;
+
+    was_paused_ = true;
+    if (debugger_window_) {
+        if (debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(true);
+        if (debugger_window_->cpu_panel())
+            debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
+    }
+    emit paused();
+    if (debugger_window_) {
+        debugger_window_->activate_follow_pc();
+        debugger_window_->refresh_panels();
+    }
+    update_actions();
+}
+
+void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
+    if (!enabled_) return;
+    if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
+
+    bool ok = emulator_->rewind_to_frame(frame_num);
+    if (!ok) return;
+
+    was_paused_ = true;
+    if (debugger_window_) {
+        if (debugger_window_->disasm_panel())
+            debugger_window_->disasm_panel()->set_paused(true);
+        if (debugger_window_->cpu_panel())
+            debugger_window_->cpu_panel()->set_paused(true);
+        if (debugger_window_->stack_panel())
+            debugger_window_->stack_panel()->set_paused(true);
+        if (debugger_window_->callstack_panel())
+            debugger_window_->callstack_panel()->set_paused(true);
+    }
+    emit paused();
+    if (debugger_window_) {
+        debugger_window_->activate_follow_pc();
+        debugger_window_->refresh_panels();
+    }
+    update_actions();
+}
+
 void DebuggerManager::on_load_map_z88dk() {
     QString path = QFileDialog::getOpenFileName(
         main_window_, QObject::tr("Load Z88DK MAP File"), QString(),

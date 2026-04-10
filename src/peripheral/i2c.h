@@ -32,6 +32,9 @@ public:
 
     void reset() { reg_ptr_ = 0; addr_set_ = false; regs_.fill(0); }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
     void start() override;
     uint8_t transfer(uint8_t data, bool is_read) override;
     void stop() override;
@@ -76,6 +79,9 @@ public:
 
     /// Attach a device at the given 7-bit I2C address.
     void attach_device(uint8_t address, I2cDevice* device);
+
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
 
 private:
     enum class State {

@@ -28,6 +28,9 @@ public:
     // Direct access to cached register value (bypasses read handler)
     uint8_t cached(uint8_t reg) const { return regs_[reg]; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     std::array<uint8_t, 256> regs_{};
     uint8_t selected_ = 0;

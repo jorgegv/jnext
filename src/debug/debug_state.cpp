@@ -51,6 +51,18 @@ bool DebugState::should_break(uint16_t pc) const {
     return false;
 }
 
+void DebugState::step_back(int n) {
+    step_back_count_ = (n > 0) ? n : 1;
+    paused_ = false;
+    step_mode_ = StepMode::STEP_BACK;
+}
+
+void DebugState::run_back_to_cycle(uint64_t target_cycle) {
+    target_cycle_ = target_cycle;
+    paused_ = false;
+    step_mode_ = StepMode::RUN_BACK_TO_CYCLE;
+}
+
 bool DebugState::check_step_out(uint16_t sp, uint8_t opcode, uint8_t prev_opcode) const {
     if (step_mode_ != StepMode::OUT) return false;
 

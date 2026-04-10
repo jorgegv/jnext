@@ -1,5 +1,14 @@
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)
 add_executable(fuse_z80_test fuse_z80_test.cpp)
+
+# Rewind / backwards execution tests (standalone, no GoogleTest required)
+add_executable(rewind_test rewind_test.cpp)
+target_link_libraries(rewind_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(rewind_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME rewind_tests COMMAND rewind_test)
 target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
 target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

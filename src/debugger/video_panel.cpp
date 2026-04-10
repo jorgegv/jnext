@@ -250,7 +250,7 @@ void VideoLayerView::paintEvent(QPaintEvent*)
     if (last_vc_ >= 0) {
         // Logical y: top of image + (vc * logical image height / 256)
         const int log_img_h = qRound(phys_h / dpr);
-        const int y_line    = TITLE_H + MARGIN + last_vc_ * log_img_h / NATIVE_H;
+        const int y_line    = TITLE_H + MARGIN + (last_vc_ + 1) * log_img_h / NATIVE_H;
         p.setPen(QPen(Qt::red, 1));
         p.drawLine(0, y_line, width() - 1, y_line);
     }

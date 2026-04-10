@@ -19,6 +19,7 @@
 #include "z80_cpu.h"
 #include "z80n_ext.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 #include <cstdint>
 #include <cstring>
@@ -287,4 +288,42 @@ void Z80Cpu::request_interrupt(uint8_t vector) {
 
 void Z80Cpu::request_nmi() {
     nmi_pending_ = true;
+}
+
+void Z80Cpu::save_state(StateWriter& w) const
+{
+    // Registers
+    w.write_u16(regs_.AF);  w.write_u16(regs_.BC);
+    w.write_u16(regs_.DE);  w.write_u16(regs_.HL);
+    w.write_u16(regs_.AF2); w.write_u16(regs_.BC2);
+    w.write_u16(regs_.DE2); w.write_u16(regs_.HL2);
+    w.write_u16(regs_.IX);  w.write_u16(regs_.IY);
+    w.write_u16(regs_.SP);  w.write_u16(regs_.PC);
+    w.write_u8(regs_.I);    w.write_u8(regs_.R);
+    w.write_u8(regs_.IFF1); w.write_u8(regs_.IFF2);
+    w.write_u8(regs_.IM);
+    w.write_bool(regs_.halted);
+    // Interrupt state
+    w.write_bool(nmi_pending_);
+    w.write_bool(int_pending_);
+    w.write_u8(int_vector_);
+}
+
+void Z80Cpu::load_state(StateReader& r)
+{
+    regs_.AF  = r.read_u16(); regs_.BC  = r.read_u16();
+    regs_.DE  = r.read_u16(); regs_.HL  = r.read_u16();
+    regs_.AF2 = r.read_u16(); regs_.BC2 = r.read_u16();
+    regs_.DE2 = r.read_u16(); regs_.HL2 = r.read_u16();
+    regs_.IX  = r.read_u16(); regs_.IY  = r.read_u16();
+    regs_.SP  = r.read_u16(); regs_.PC  = r.read_u16();
+    regs_.I   = r.read_u8();  regs_.R   = r.read_u8();
+    regs_.IFF1 = r.read_u8(); regs_.IFF2 = r.read_u8();
+    regs_.IM  = r.read_u8();
+    regs_.halted = r.read_bool();
+    nmi_pending_ = r.read_bool();
+    int_pending_ = r.read_bool();
+    int_vector_  = r.read_u8();
+    // FUSE global z80 struct is synced on the next execute() call via
+    // sync_fuse_from_regs(regs_) — no explicit sync needed here.
 }

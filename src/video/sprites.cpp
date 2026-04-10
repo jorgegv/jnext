@@ -1,6 +1,7 @@
 #include "video/sprites.h"
 #include "video/palette.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 // ---------------------------------------------------------------------------
 // SpriteAttr::y() — decode 9-bit Y coordinate
@@ -602,4 +603,50 @@ SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
     info.x_scale        = s.x_scale();
     info.y_scale        = s.y_scale();
     return info;
+}
+
+void SpriteEngine::save_state(StateWriter& w) const
+{
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        w.write_u8(sprites_[i].byte0);
+        w.write_u8(sprites_[i].byte1);
+        w.write_u8(sprites_[i].byte2);
+        w.write_u8(sprites_[i].byte3);
+        w.write_u8(sprites_[i].byte4);
+    }
+    w.write_bytes(pattern_ram_, PATTERN_RAM_SZ);
+    w.write_u8(attr_slot_);
+    w.write_u8(attr_byte_);
+    w.write_u16(pattern_offset_);
+    w.write_u8(pattern_slot_msb_);
+    w.write_bool(sprites_visible_);
+    w.write_bool(over_border_);
+    w.write_bool(zero_on_top_);
+    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
+    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+    w.write_bool(collision_);
+    w.write_bool(max_sprites_);
+}
+
+void SpriteEngine::load_state(StateReader& r)
+{
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        sprites_[i].byte0 = r.read_u8();
+        sprites_[i].byte1 = r.read_u8();
+        sprites_[i].byte2 = r.read_u8();
+        sprites_[i].byte3 = r.read_u8();
+        sprites_[i].byte4 = r.read_u8();
+    }
+    r.read_bytes(pattern_ram_, PATTERN_RAM_SZ);
+    attr_slot_ = r.read_u8();
+    attr_byte_ = r.read_u8();
+    pattern_offset_ = r.read_u16();
+    pattern_slot_msb_ = r.read_u8();
+    sprites_visible_ = r.read_bool();
+    over_border_ = r.read_bool();
+    zero_on_top_ = r.read_bool();
+    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
+    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
+    collision_ = r.read_bool();
+    max_sprites_ = r.read_bool();
 }

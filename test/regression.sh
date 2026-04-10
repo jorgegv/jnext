@@ -289,6 +289,23 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     fi
 fi
 
+# Rewind / backwards execution unit tests
+REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
+if [[ -x "$REWIND_TEST" ]]; then
+    if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rewind-func'; then
+        printf "  %-25s " "[rewind-func]"
+        if timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null | grep -q "18 pass, 0 fail"; then
+            echo -e "${GREEN}PASS${RESET} (18/18 rewind unit tests)"
+            pass=$((pass + 1))
+        else
+            rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
+            fail_line=$(echo "$rewind_out" | grep "=== Results" || echo "unknown")
+            echo -e "${RED}FAIL${RESET} ($fail_line)"
+            fail=$((fail + 1))
+        fi
+    fi
+fi
+
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"

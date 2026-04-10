@@ -42,6 +42,9 @@ public:
     /// Return the current CPU divisor (8, 4, 2, or 1).
     int cpu_divisor() const { return cpu_divisor_; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     uint64_t cycle_;      ///< Master cycle counter
     int      cpu_divisor_; ///< Divisor: 8=3.5MHz, 4=7MHz, 2=14MHz, 1=28MHz

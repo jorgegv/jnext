@@ -54,6 +54,9 @@ public:
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     std::array<AyChip, 3> ay_;   // AY#0 (id=3), AY#1 (id=2), AY#2 (id=1)
     uint8_t ay_select_ = 3;      // Active AY: 3=AY#0, 2=AY#1, 1=AY#2

@@ -122,6 +122,9 @@ public:
     /// Debug: log sprite 0 state and internal counters.
     void debug_log_sprite0() const;
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
     // -----------------------------------------------------------------
     // Debug / introspection accessors
     // -----------------------------------------------------------------

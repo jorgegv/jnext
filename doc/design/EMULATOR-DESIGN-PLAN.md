@@ -973,8 +973,12 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - [x] Transparent pixels shown with dark/light checkerboard background
     - [x] Full layer contents rendered from current VRAM state at break point
     - [x] Panels NOT updated in realtime; updated only in stepping/paused mode; tab switch triggers re-render
-  - [ ] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions. See plan at @doc/design/BACKWARD-EXECUTION.md
-    - [ ] Add --rewind-buffer-size <num-frames> (see backward execution plan)
+  - [x] Backwards execution: Have a circular buffer that stores the complete CPU state and memory changes (including the bank) up to a maximum size, and allow "rewinding" up to a certain number of instructions. Should be toggleable from the debugger and via command line, with a configurable maximum number of instructions. See plan at @doc/design/BACKWARD-EXECUTION.md
+    - [x] Add --rewind-buffer-size <num-frames> (see backward execution plan)
+    - [x] Phase 1: Saveable interface + RewindBuffer ring buffer + save_state/load_state on all 22 subsystems
+    - [x] Phase 2: Full emulator state serialisation, frame-start snapshots, CLI option
+    - [x] Phase 3: Replay mode, rewind_to_cycle/step_back/rewind_to_frame, unit tests (23 regression tests pass)
+    - [x] Phase 4: GUI — Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider, status bar indicator, Debug > Rewind submenu; trace auto-enabled with rewind; main window framebuffer sync on rewind
 
 - [x] General UI:
   - [x] Emulator speed: text (manually input %), plus 0.5x,1x,2x,4x (Machine > Emulator Speed menu, Custom... dialog, status bar %, `--speed PERCENT` CLI)

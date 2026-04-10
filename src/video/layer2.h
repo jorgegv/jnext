@@ -89,6 +89,9 @@ public:
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                const PaletteManager& palette, uint8_t bank);
 
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     uint8_t  active_bank_    = 8;     // NextREG 0x12 default
     uint8_t  shadow_bank_    = 11;    // NextREG 0x13 default

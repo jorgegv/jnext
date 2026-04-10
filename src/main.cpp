@@ -46,7 +46,8 @@ static void print_usage(const char* prog) {
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
-        "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n",
+        "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
+        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n",
         prog);
 }
 
@@ -87,6 +88,7 @@ int main(int argc, char* argv[]) {
     std::string rzx_play_file;
     std::string rzx_record_file;
     int         speed_percent = 100;
+    int         rewind_buffer_frames = 500;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -153,6 +155,9 @@ int main(int argc, char* argv[]) {
             speed_percent = std::stoi(argv[++i]);
             if (speed_percent < 10) speed_percent = 10;
             if (speed_percent > 1000) speed_percent = 1000;
+        } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
+            rewind_buffer_frames = std::stoi(argv[++i]);
+            if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -174,6 +179,7 @@ int main(int argc, char* argv[]) {
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;
+        cfg.rewind_buffer_frames = rewind_buffer_frames;
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) return 1;

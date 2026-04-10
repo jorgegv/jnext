@@ -1,5 +1,6 @@
 #include "peripheral/ctc.h"
 #include "core/log.h"
+#include "core/saveable.h"
 
 // ─── CTC logger ───────────────────────────────────────────────────────
 
@@ -250,4 +251,42 @@ void Ctc::handle_zc_to(int channel) {
             handle_zc_to(channel + 1);
         }
     }
+}
+
+void CtcChannel::save_state(StateWriter& w) const
+{
+    w.write_bool(control_int_en_);
+    w.write_bool(control_counter_);
+    w.write_bool(control_prescale_);
+    w.write_bool(control_edge_);
+    w.write_bool(control_trigger_);
+    w.write_u8(time_constant_);
+    w.write_u8(counter_);
+    w.write_u8(prescaler_);
+    w.write_u8(static_cast<uint8_t>(state_));
+    w.write_bool(clk_trg_prev_);
+}
+
+void CtcChannel::load_state(StateReader& r)
+{
+    control_int_en_   = r.read_bool();
+    control_counter_  = r.read_bool();
+    control_prescale_ = r.read_bool();
+    control_edge_     = r.read_bool();
+    control_trigger_  = r.read_bool();
+    time_constant_    = r.read_u8();
+    counter_          = r.read_u8();
+    prescaler_        = r.read_u8();
+    state_            = static_cast<State>(r.read_u8());
+    clk_trg_prev_     = r.read_bool();
+}
+
+void Ctc::save_state(StateWriter& w) const
+{
+    for (const auto& ch : channels_) ch.save_state(w);
+}
+
+void Ctc::load_state(StateReader& r)
+{
+    for (auto& ch : channels_) ch.load_state(r);
 }

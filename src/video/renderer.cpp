@@ -1,4 +1,5 @@
 #include "video/renderer.h"
+#include "core/saveable.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
 #include "video/palette.h"
@@ -200,4 +201,20 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
 
         dst[x] = result;
     }
+}
+
+void Renderer::save_state(StateWriter& w) const
+{
+    ula_.save_state(w);
+    w.write_u8(layer_priority_);
+    w.write_u8(fallback_colour_);
+    w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
+}
+
+void Renderer::load_state(StateReader& r)
+{
+    ula_.load_state(r);
+    layer_priority_ = r.read_u8();
+    fallback_colour_ = r.read_u8();
+    r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }
