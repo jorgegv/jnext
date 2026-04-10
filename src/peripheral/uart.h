@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <array>
 #include <functional>
+#include "core/saveable.h"
 
 /// UART peripheral — dual-channel UART (ESP WiFi + Raspberry Pi).
 ///
