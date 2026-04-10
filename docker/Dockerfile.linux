@@ -1,0 +1,18 @@
+FROM fedora:latest
+
+# Build tools and all jnext dependencies
+RUN dnf install -y \
+    gcc-c++ \
+    cmake \
+    make \
+    ninja-build \
+    git \
+    SDL2-devel \
+    qt6-qtbase-devel \
+    libpng-devel \
+    zlib-devel \
+    ffmpeg-free \
+    ImageMagick \
+    coreutils \
+    fuse-emulator-roms \
+    && dnf clean all
