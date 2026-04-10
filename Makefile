@@ -129,27 +129,42 @@ version:
 
 # Bump patch version (x.y.Z → x.y.Z+1)
 bump-patch:
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
+	 fi
 	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
 	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
 	 patch=$$(grep '^patch:' version.yaml | awk '{print $$2}'); \
 	 patch=$$((patch + 1)); \
 	 printf "major: $$major\nminor: $$minor\npatch: $$patch\n" > version.yaml; \
-	 printf "$(BOLD)Bumped to $$major.$$minor.$$patch$(RESET)\n"
+	 ver="$$major.$$minor.$$patch"; \
+	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
+	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
 
 # Bump minor version (x.Y.z → x.Y+1.0)
 bump-minor:
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
+	 fi
 	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
 	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
 	 minor=$$((minor + 1)); \
 	 printf "major: $$major\nminor: $$minor\npatch: 0\n" > version.yaml; \
-	 printf "$(BOLD)Bumped to $$major.$$minor.0$(RESET)\n"
+	 ver="$$major.$$minor.0"; \
+	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
+	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
 
 # Bump major version (X.y.z → X+1.0.0)
 bump-major:
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
+	 fi
 	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
 	 major=$$((major + 1)); \
 	 printf "major: $$major\nminor: 0\npatch: 0\n" > version.yaml; \
-	 printf "$(BOLD)Bumped to $$major.0.0$(RESET)\n"
+	 ver="$$major.0.0"; \
+	 git add version.yaml && git commit -m "chore: bump version to $$ver" && git tag "v$$ver"; \
+	 printf "$(BOLD)Bumped to $$ver and tagged v$$ver$(RESET)\n"
 
 # Alias: bump → bump-minor
 bump: bump-minor
