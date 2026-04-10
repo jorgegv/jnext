@@ -13,7 +13,8 @@ RESET := \033[0m
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       kloc-count regression
+       kloc-count regression \
+       bump bump-patch bump-minor bump-major version
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -118,3 +119,37 @@ kloc-count:
 		fi; \
 	done; \
 	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
+
+# Show current version
+version:
+	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
+	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
+	 patch=$$(grep '^patch:' version.yaml | awk '{print $$2}'); \
+	 printf "$(BOLD)jnext $$major.$$minor.$$patch$(RESET)\n"
+
+# Bump patch version (x.y.Z → x.y.Z+1)
+bump-patch:
+	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
+	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
+	 patch=$$(grep '^patch:' version.yaml | awk '{print $$2}'); \
+	 patch=$$((patch + 1)); \
+	 printf "major: $$major\nminor: $$minor\npatch: $$patch\n" > version.yaml; \
+	 printf "$(BOLD)Bumped to $$major.$$minor.$$patch$(RESET)\n"
+
+# Bump minor version (x.Y.z → x.Y+1.0)
+bump-minor:
+	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
+	 minor=$$(grep '^minor:' version.yaml | awk '{print $$2}'); \
+	 minor=$$((minor + 1)); \
+	 printf "major: $$major\nminor: $$minor\npatch: 0\n" > version.yaml; \
+	 printf "$(BOLD)Bumped to $$major.$$minor.0$(RESET)\n"
+
+# Bump major version (X.y.z → X+1.0.0)
+bump-major:
+	@major=$$(grep '^major:' version.yaml | awk '{print $$2}'); \
+	 major=$$((major + 1)); \
+	 printf "major: $$major\nminor: 0\npatch: 0\n" > version.yaml; \
+	 printf "$(BOLD)Bumped to $$major.0.0$(RESET)\n"
+
+# Alias: bump → bump-minor
+bump: bump-minor

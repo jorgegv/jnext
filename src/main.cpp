@@ -1,4 +1,5 @@
 #include "core/log.h"
+#include "version.h"
 #include <csignal>
 #include <cctype>
 #include <cstdlib>
@@ -47,7 +48,8 @@ static void print_usage(const char* prog) {
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
-        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n",
+        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
+        "  --version               Print version and exit\n",
         prog);
 }
 
@@ -62,6 +64,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize all loggers at default level (info).
     Log::init();
+    Log::emulator()->info("jnext {}", JNEXT_VERSION_STRING);
 
     std::string inject_file;
     uint16_t inject_org = 0x8000;
@@ -160,6 +163,9 @@ int main(int argc, char* argv[]) {
             if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
+            return 0;
+        } else if (arg == "--version" || arg == "-V") {
+            fprintf(stdout, "jnext %s\n", JNEXT_VERSION_STRING);
             return 0;
         }
     }

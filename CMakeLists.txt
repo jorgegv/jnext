@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-project(jnext VERSION 0.1.0 LANGUAGES C CXX)
+
+# Read version from version.yaml (single source of truth).
+include(cmake/GenerateVersion.cmake)
+project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -80,7 +83,7 @@ target_link_libraries(jnext PRIVATE
     jnext_peripheral jnext_input
     jnext_platform jnext_save jnext_debug
     ${SDL2_LINK_TARGET})
-target_include_directories(jnext PRIVATE src)
+target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 
 if(ENABLE_QT_UI)
     target_link_libraries(jnext PRIVATE jnext_gui)

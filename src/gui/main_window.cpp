@@ -1,4 +1,5 @@
 #include "gui/main_window.h"
+#include "version.h"
 #include "gui/emulator_widget.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -678,12 +679,13 @@ void MainWindow::on_fullscreen(bool checked) {
 
 void MainWindow::on_about() {
     QMessageBox::about(this, tr("About JNEXT"),
-        tr("<h3>JNEXT</h3>"
+        tr("<h3>JNEXT %1</h3>"
            "<p>ZX Spectrum Next Emulator</p>"
            "<p>A line-accurate emulator of the ZX Spectrum Next computer, "
            "based on the official FPGA VHDL sources.</p>"
            "<p>Written in C++17 with Qt 6 and SDL2.</p>"
-           "<p>&copy; Copyright 2026 Jorge Gonzalez Villalonga &lt;zx@jogv.es&gt;</p>"));
+           "<p>&copy; Copyright 2026 Jorge Gonzalez Villalonga &lt;zx@jogv.es&gt;</p>")
+        .arg(JNEXT_VERSION_STRING));
 }
 
 // ---------------------------------------------------------------------------
