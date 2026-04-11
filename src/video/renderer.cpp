@@ -99,6 +99,75 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 ula_line_[x] = TRANSPARENT;
         }
 
+        // ULA clip window (NextREG 0x1A).
+        // Display pixels outside the clip window become transparent.
+        // Border pixels also become transparent when they are adjacent to
+        // a fully-clipped axis (matching ZesarUX — allows L2 wide modes
+        // to cover the full screen when the ULA is clipped out).
+        {
+            uint8_t cx1 = ula_.clip_x1();
+            uint8_t cx2 = ula_.clip_x2();
+            uint8_t cy1 = ula_.clip_y1();
+            uint8_t cy2 = ula_.clip_y2();
+
+            bool row_in_display = in_display;
+            int vc = screen_row;  // only valid when in_display
+
+            // Is this row's display area clipped?
+            bool y_clipped = row_in_display && (vc < cy1 || vc > cy2);
+            // Is this row entirely in the border (top/bottom)?
+            bool in_border_y = !row_in_display;
+
+            if (y_clipped) {
+                // Display row is Y-clipped: clear display pixels
+                for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
+                    ula_line_[x] = TRANSPARENT;
+            }
+
+            if (in_border_y || y_clipped) {
+                // Border rows: transparent if the display is fully Y-clipped
+                // at this row's corresponding edge. Top border inherits from
+                // cy1, bottom from cy2.
+                bool clip_border_row;
+                if (in_border_y) {
+                    // Top border: clip if display top row (vc=0) is outside clip
+                    // Bottom border: clip if display bottom row (vc=191) is outside clip
+                    // This covers cases like cy1=255,cy2=255 where no display is visible
+                    clip_border_row = (row < DISP_Y) ? (cy1 > 0) : (cy2 < (DISP_H - 1) || cy1 > cy2 || cy1 >= DISP_H);
+                } else {
+                    clip_border_row = true;  // display row is Y-clipped
+                }
+                if (clip_border_row) {
+                    // Clear the entire row — on border rows ALL pixels are
+                    // border, including the middle (x=32..287).
+                    ula_line_.fill(TRANSPARENT);
+                }
+            }
+
+            // X-axis clipping for display pixels (on non-Y-clipped rows)
+            if (row_in_display && !y_clipped) {
+                for (int x = 0; x < DISP_W; ++x) {
+                    if (x < cx1 || x > cx2)
+                        ula_line_[DISP_X + x] = TRANSPARENT;
+                }
+                // Clip borders when display edges are clipped.
+                // Left border: clip when display left edge is clipped (cx1 > 0).
+                // Right border: clip when display right edge is clipped
+                // (cx2 < 255) OR when left is so far clipped that effectively
+                // all display is gone (cx1 > cx2 means empty window).
+                bool left_clipped  = (cx1 > 0);
+                bool right_clipped = (cx2 < (DISP_W - 1)) || (cx1 > cx2);
+                if (left_clipped) {
+                    for (int x = 0; x < DISP_X; ++x)
+                        ula_line_[x] = TRANSPARENT;
+                }
+                if (right_clipped) {
+                    for (int x = DISP_X + DISP_W; x < FB_WIDTH; ++x)
+                        ula_line_[x] = TRANSPARENT;
+                }
+            }
+        }
+
         composite_scanline(out, fb_argb);
     }
 

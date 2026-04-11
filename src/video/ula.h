@@ -100,6 +100,10 @@ public:
     void set_clip_x2(uint8_t v) { clip_x2_ = v; }
     void set_clip_y1(uint8_t v) { clip_y1_ = v; }
     void set_clip_y2(uint8_t v) { clip_y2_ = v; }
+    uint8_t clip_x1() const { return clip_x1_; }
+    uint8_t clip_x2() const { return clip_x2_; }
+    uint8_t clip_y1() const { return clip_y1_; }
+    uint8_t clip_y2() const { return clip_y2_; }
 
     /// Set the Timex screen mode from a port 0xFF write.
     ///

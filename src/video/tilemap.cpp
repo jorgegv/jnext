@@ -99,10 +99,10 @@ void Tilemap::set_def_base(uint8_t val)
 //   - Total tilemap area is 40*8 = 320 pixels wide, 32*8 = 256 pixels tall
 //
 // 80-column mode:
-//   - 80 tiles per row, each 4 pixels wide (left half of 8px tile) = 320 display pixels
+//   - 80 tiles per row, each 8 pixels wide = 640 tilemap pixels
+//   - Displayed 2:1 onto 320 physical pixels (each screen pixel = 2 tilemap pixels)
 //   - Map entry same format as 40-col
 //   - Map memory size: 80*32*2 = 5120 bytes (with flags), 80*32 = 2560 (stripped)
-//   - Total tilemap area is 80*4 = 320 pixels wide, 32*8 = 256 pixels tall
 //
 // Tile definition (pattern) memory:
 //   - Each tile is 8x8 pixels at 4bpp = 32 bytes per tile
@@ -148,17 +148,12 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int tile_row = abs_y >> 3;       // which tile row (0-31)
     const int pixel_y  = abs_y & 7;        // pixel row within tile (0-7)
 
-    // Number of tiles per row and tile pixel width.
+    // Number of tiles per row.
     const int tiles_per_row = mode_80col_ ? 80 : 40;
-    const int tile_px_width = mode_80col_ ? 4 : 8;
 
-    // Total tilemap pixel width for X scroll wrapping.
-    // 40-col: 40*8 = 320 pixels; 80-col: 80*4 = 320 pixels.
-    // But the VHDL wraps at 320 (40-col) or 640 (80-col) considering the
-    // underlying 8-pixel tiles. In 80-col mode the tilemap is still 80 tiles
-    // wide but the scroll is in pixel units up to 640. Actually from the VHDL:
-    // x correction thresholds: 1280, 960 (40-col only), 640, 320 (40-col only).
-    // For 40-col: wrap at 320. For 80-col: wrap at 640.
+    // 80-col mode is 640x256 (80 tiles × 8 pixels), displayed in 320 physical
+    // pixels. Each screen pixel maps to 2 tilemap pixels; we show the left one
+    // (even column). X scroll wraps at 640 in 80-col, 320 in 40-col.
     const int wrap_x = mode_80col_ ? 640 : 320;
 
     // Map memory layout:
@@ -190,17 +185,14 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // So tilemap is active for the full 320-pixel display width, overlapping the border area.
 
     for (int screen_x = 0; screen_x < 320; ++screen_x) {
-        // Apply X scroll (wraps at wrap_x).
-        int abs_x = (screen_x + scroll_x_) % wrap_x;
+        // In 80-col mode, 640 tilemap pixels map to 320 screen pixels.
+        // Each screen pixel shows the left (even) tilemap pixel.
+        int tilemap_x = mode_80col_ ? (screen_x * 2) : screen_x;
+        int abs_x = (tilemap_x + scroll_x_) % wrap_x;
 
-        // In 80-col mode, abs_x can go up to 639. The tile column is abs_x / 4,
-        // and the pixel within the tile is abs_x % 4.
-        // In 40-col mode, tile column = abs_x / 8, pixel within = abs_x % 8.
-        int tile_col = abs_x / tile_px_width;
-        int pixel_x  = abs_x % tile_px_width;
-
-        // In 80-col mode, we only show the left 4 pixels of each 8-pixel-wide tile.
-        // pixel_x is 0-3 and maps directly to the left half of the tile pattern.
+        // Tile column and pixel within tile (always 8 pixels per tile).
+        int tile_col = abs_x / 8;
+        int pixel_x  = abs_x % 8;
 
         // Read tile index from map memory.
         uint32_t map_addr = map_base_addr_ + (map_row_offset + tile_col) * map_entry_size;
@@ -258,7 +250,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         }
 
         // Apply transforms to get the effective pixel coordinates within the tile.
-        int eff_px = pixel_x;  // 0-7 (or 0-3 in 80-col)
+        int eff_px = pixel_x;  // 0-7
         int eff_py = pixel_y;  // 0-7
 
         if (!text_mode_) {
