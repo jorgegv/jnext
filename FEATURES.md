@@ -64,6 +64,8 @@
 
 ## CLI
 - `--machine-type`, `--roms-directory`, `--load`, `--headless`
+- `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
+- `--boot-rom`, `--divmmc-rom`, `--sd-card`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--log-level` per subsystem (cpu, video, audio, etc.)

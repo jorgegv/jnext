@@ -120,12 +120,18 @@ Debugger keyboard shortcuts:
 | `--headless`                  | Run without display or audio, at maximum speed                       |
 | `--tape-realtime`             | Real-time tape loading instead of fast load                          |
 | `--sd-card FILE`              | Mount an SD card image (.img)                                        |
+| `--boot-rom FILE`             | Load Next boot ROM (8K FPGA bootloader)                              |
+| `--divmmc-rom FILE`           | Load DivMMC ROM (enables DivMMC)                                     |
+| `--inject FILE`               | Load raw binary into RAM (see `--inject-org`, `--inject-pc`)         |
+| `--inject-org ADDR`           | Load address for `--inject` (hex, default: 8000)                     |
+| `--inject-pc ADDR`            | Entry point for `--inject` (hex, default: same as `--inject-org`)    |
+| `--inject-delay N`            | Wait N frames before injecting (default: 0)                          |
 | `--record FILE`               | Record video+audio to MP4 via FFmpeg                                 |
 | `--rzx-play FILE`             | Play back an RZX recording                                           |
 | `--rzx-record FILE`           | Record to RZX                                                        |
-| `--rewind-buffer-size N`      | Enable backwards execution with N-frame ring buffer                  |
+| `--rewind-buffer-size N`      | Frame snapshot ring buffer size (default: 500, 0=off)                |
 | `--magic-breakpoint`          | Enable magic breakpoint opcodes (ED FF / DD 01)                      |
-| `--magic-port PORT`           | Enable magic debug port at PORT                                      |
+| `--magic-port PORT`           | Enable magic debug port at PORT (hex, e.g. 0x00FF)                   |
 | `--magic-port-mode MODE`      | Magic port output mode: `hex`, `dec`, `ascii`, `line`                |
 | `--delayed-screenshot FILE`   | Save a PNG screenshot after a delay                                  |
 | `--delayed-screenshot-time N` | Delay in seconds before screenshot (default: 10)                     |
@@ -218,8 +224,8 @@ Override the ROM directory with `--roms-directory DIR`.
 # Run at double speed
 ./build/gui-release/jnext --speed 200
 
-# Enable backwards execution with a 60-frame buffer
-./build/gui-release/jnext --rewind-buffer-size 60
+# Inject a raw binary at address 0x8000 and run
+./build/gui-release/jnext --inject program.bin --inject-org 8000
 
 # Headless screenshot for CI testing
 ./build/gui-release/jnext --headless --machine-type 48k \

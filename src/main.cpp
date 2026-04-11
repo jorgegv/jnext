@@ -35,7 +35,7 @@ static void print_usage(const char* prog) {
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n"
         "  --machine-type TYPE  Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
-        "  --roms-directory DIR Directory containing ROM files (default: roms)\n"
+        "  --roms-directory DIR Directory containing ROM files (default: /usr/share/fuse)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
