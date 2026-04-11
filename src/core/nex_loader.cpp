@@ -273,14 +273,26 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ---------------------------------------------------------------
-    // 4. Border colour (via ULA port 0xFE)
+    // 4. Sprite/layer system setup (NextREG 0x15)
+    //
+    // The official NextZXOS NEX loader (nexload.asm) sets NextREG 0x15
+    // to 0x01 (sprites visible, SLU priority) before launching every
+    // NEX program. Replicate this so programs that rely on sprites
+    // being enabled by default work correctly.
+    // ---------------------------------------------------------------
+
+    emu.nextreg().write(0x15, 0x01);
+    Log::emulator()->info("NEX: NextREG 0x15 set to 0x01 (sprites visible, SLU)");
+
+    // ---------------------------------------------------------------
+    // 5. Border colour (via ULA port 0xFE)
     // ---------------------------------------------------------------
 
     emu.port().out(0x00FE, header_.border_colour & 0x07);
     Log::emulator()->info("NEX: border colour set to {}", header_.border_colour & 0x07);
 
     // ---------------------------------------------------------------
-    // 5. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)
+    // 6. Map entry_bank to MMU slots 6+7 (0xC000-0xFFFF)
     // ---------------------------------------------------------------
 
     uint8_t page_slot6 = static_cast<uint8_t>(header_.entry_bank * 2);
