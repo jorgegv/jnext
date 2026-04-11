@@ -112,8 +112,12 @@ while IFS= read -r line; do
     out_img="$TMP_DIR/${test_name}.png"
     exit_delay=$((delay_secs + 2))
 
+    # 28 MHz Next programs run ~8x slower in headless mode, so we need
+    # generous wall-clock timeouts. Multiply by 4 to be safe.
+    wall_timeout=$(( (exit_delay + 5) * 4 ))
+
     # Build command
-    cmd=("timeout" "--foreground" "--kill-after=5s" "$((exit_delay + 5))s"
+    cmd=("timeout" "--foreground" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
          "--machine-type" "$machine_type"
          "--delayed-screenshot" "$out_img"

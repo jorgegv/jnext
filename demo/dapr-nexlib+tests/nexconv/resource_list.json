@@ -1,0 +1,87 @@
+{
+    "src_path" : "../../art/",
+    "raw_path" : "./raw/",
+    "dst_path" : "../res/",
+    "lev_path" : "../levels/",
+    "asm_path" : "../screens.asm",
+    "out_path" : "../",
+    "dbg_path" : "./output_debug/",
+    "res_start_page" : 32,
+    "scr_list_page" : 80,
+    "list": [
+        {
+            "id" : "mainmenu",
+            "_l2" : "mainmenu/main",
+            "ts" : "mainmenu/main_ts",
+            "raw_l2" : "radial_title_l2",
+            "font" : {"src":"jungle0/font0","dst":"gamefont"}
+        },
+        {
+            "id" : "jungle0",
+            "l2" : "jungle0/jungle_bg",
+            "sp" : "jungle0/jungle0-sprites",
+            "ts" : "jungle0/jungle_ts",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "jungle1",
+            "ref_l2" : "jungle0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "jungle0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "fforest0",
+            "l2" : "fforest0/fforest_bg",
+            "ref_sp" : "jungle0",
+            "ts" : "fforest0/fforest_tileset",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "fforest1",
+            "ref_l2" : "fforest0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "fforest0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "level11",
+            "ref_l2" : "fforest0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "fforest0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "level12",
+            "ref_l2" : "fforest0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "fforest0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "level13",
+            "ref_l2" : "fforest0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "fforest0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "level14",
+            "ref_l2" : "fforest0",
+            "ref_sp" : "jungle0",
+            "ref_ts" : "fforest0",
+            "ref_font" : "mainmenu",
+            "is_level" : true
+        },
+        {
+            "id" : "emptyscreen"
+        }
+    ]
+}

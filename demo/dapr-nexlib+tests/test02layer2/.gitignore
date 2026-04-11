@@ -1,0 +1,5 @@
+*.lis
+*.sym
+*.o
+scripts/__pycache__
+!*.bin

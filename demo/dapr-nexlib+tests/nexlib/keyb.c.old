@@ -1,0 +1,48 @@
+// #include "keyb.h"
+
+// bool keyb_is_just_pressed (u16 keycode) fastcall
+// {
+//     return keyb_is_pressed(keycode) && !keyb_was_pressed(keycode);
+// }
+
+// bool keyb_is_just_released(u16 keycode) fastcall
+// {
+//     return !keyb_is_pressed(keycode) && keyb_was_pressed(keycode);
+// }
+
+// bool keyb_is_just_pressed_any(void)
+// {
+//     return keyb_is_pressed_any() && !keyb_was_pressed_any();
+// }
+
+// bool keyb_is_just_released_any(void)
+// {
+//     return !keyb_is_pressed_any() && keyb_was_pressed_any();
+// }
+
+
+
+
+// extern void keyb_copy_curr_to_prev();
+// extern void keyb_read_spectrum_std(void);
+// extern void keyb_read_spectrum_next(void);
+
+// void keyb_update()
+// {
+//     keyb_copy_curr_to_prev();
+//     keyb_read_spectrum_std();
+//     keyb_read_spectrum_next();
+// }
+
+// const char* keyb_ch4short = ""\
+// "12345---"\
+// "09876---"\
+// "QWERT---"\
+// "POIUY---"\
+// "ASDFG---"\
+// "\x1DLKJH---"\
+// "\x1EZXCV---"\
+// "\x1C\x1FMNB---"\
+// "\x13\x12\x11\x10.,\";"\
+// "\x1B\x1A\x19\x18\x17\x16\x15\x14";
+ 

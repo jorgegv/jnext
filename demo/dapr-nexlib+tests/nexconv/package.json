@@ -1,0 +1,14 @@
+{
+  "name": "nexconv",
+  "version": "1.0.0",
+  "description": "Conversion tools for ZX Spectrum Next",
+  "main": "conv.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "David Crespo <dcrespo3d@gmail.com>",
+  "license": "ISC",
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  }
+}

@@ -1,0 +1,32 @@
+#ifndef zx0_decompress_h
+#define zx0_decompress_h
+
+#define DSTPAGE_LAYER2_0A 18
+#define DSTPAGE_LAYER2_0B 19
+#define DSTPAGE_LAYER2_1A 20
+#define DSTPAGE_LAYER2_1B 21
+#define DSTPAGE_LAYER2_2A 22
+#define DSTPAGE_LAYER2_2B 23
+#define DSTPAGE_LAYER2_3A 24
+#define DSTPAGE_LAYER2_3B 25
+#define DSTPAGE_LAYER2_4A 26
+#define DSTPAGE_LAYER2_4B 27
+#define DSTPAGE_TILEMAP_A 70
+#define DSTPAGE_TILEMAP_B 71
+#define DSTPAGE_COLLMAP_A 72
+#define DSTPAGE_COLLMAP_B 73
+#define DSTPAGE_LEVDATA   58
+#define DSTPAGE_SPRITES_A 74
+#define DSTPAGE_SPRITES_B 75
+#define DSTPAGE_PALETTES  76
+#define DSTADDR_TILESET_MAIN ((void*)0x6000)
+#define DSTADDR_TILESET_TEXT ((void*)0x5000)
+
+#define SRCSLOT_DECOMP_REG 0x50
+#define DSTSLOT_DECOMP_REG 0x51
+
+#define DSTADDR_DECOMP (void*)0x2000
+
+void zx0_decompress(void* src, void* dst);
+
+#endif

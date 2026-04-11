@@ -1,0 +1,32 @@
+///////////////////////////////////////////////////////////////////////////////
+//
+//  (c) 2025 David Crespo - https://github.com/dcrespo3d
+//                          https://davidprograma.itch.io
+//                          https://www.youtube.com/@Davidprograma
+//
+///////////////////////////////////////////////////////////////////////////////
+
+#include "joystick.h"
+
+// const char* joystick_ch4short = "\x13\x12\x11\x10\x0C\x0D\x0E\x0F";
+
+// bool joystick_is_just_pressed (u8 joycode) fastcall
+// {
+//     return joystick_is_pressed(joycode) && !joystick_was_pressed(joycode);
+// }
+
+// bool joystick_is_just_released(u8 joycode) fastcall
+// {
+//     return !joystick_is_pressed(joycode) && joystick_was_pressed(joycode);
+// }
+
+// bool joystick_is_just_pressed_any(void)
+// {
+//     return joystick_is_pressed_any() && !joystick_was_pressed_any();
+// }
+
+// bool joystick_is_just_released_any(void)
+// {
+//     return !joystick_is_pressed_any() && joystick_was_pressed_any();
+// }
+
