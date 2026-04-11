@@ -193,7 +193,10 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             int src_col_pre = col + (scroll_x_ & 0x1FF);
             int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
 
-            if (src_col < (clip_x1_eff >> 1) || src_col > (clip_x2_eff >> 1))
+            // VHDL: hc_eff (column 0-319) compared directly against
+            // clip_x1_q (clip_x1 & '0') and clip_x2_q (clip_x2 & '1').
+            // Do NOT divide clip values — compare column index directly.
+            if (src_col < clip_x1_eff || src_col > clip_x2_eff)
                 continue;
 
             uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
