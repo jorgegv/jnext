@@ -78,7 +78,10 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
     if (!enabled_)
         return;
 
-    uint8_t transparency = palette.global_transparency();
+    // VHDL transparency: compares the 8-bit RRRGGGBB palette output
+    // (NOT the raw pixel index) against the global transparency colour
+    // (NextREG 0x14).  See zxnext.vhd line 7121.
+    uint8_t transp_rgb = palette.global_transparency();
 
     if (resolution_ == 0) {
         // ---------------------------------------------------------------
@@ -114,11 +117,12 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
             uint8_t pixel = ram.read(ram_addr);
 
-            if (pixel == transparency)
-                continue;
-
             uint8_t colour_idx = static_cast<uint8_t>(
                 ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+
+            // Transparency: compare palette RRRGGGBB against global transparent colour.
+            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
+                continue;
 
             dst[DISP_X + x] = palette.layer2_colour(colour_idx);
         }
@@ -156,11 +160,11 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
             uint8_t pixel = ram.read(ram_addr);
 
-            if (pixel == transparency)
-                continue;
-
             uint8_t colour_idx = static_cast<uint8_t>(
                 ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+
+            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
+                continue;
 
             dst[x] = palette.layer2_colour(colour_idx);
         }
@@ -204,7 +208,7 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // Apply palette offset: pixel_pre = 0000_XXXX, then offset added to top nibble.
             uint8_t colour_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
 
-            if (colour_idx == transparency)
+            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
                 continue;
 
             dst[pixel_x] = palette.layer2_colour(colour_idx);

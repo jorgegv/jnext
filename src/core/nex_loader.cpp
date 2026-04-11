@@ -273,16 +273,57 @@ bool NexLoader::apply(Emulator& emu) const
     }
 
     // ---------------------------------------------------------------
-    // 4. Sprite/layer system setup (NextREG 0x15)
+    // 4. NextREG initialization (replicates official nexload.asm)
     //
-    // The official NextZXOS NEX loader (nexload.asm) sets NextREG 0x15
-    // to 0x01 (sprites visible, SLU priority) before launching every
-    // NEX program. Replicate this so programs that rely on sprites
-    // being enabled by default work correctly.
+    // The official NextZXOS NEX loader sets up a standard machine
+    // state before launching the program. We replicate the key
+    // register writes here. Source: nexload.asm from tbblue gitlab.
     // ---------------------------------------------------------------
 
-    emu.nextreg().write(0x15, 0x01);
-    Log::emulator()->info("NEX: NextREG 0x15 set to 0x01 (sprites visible, SLU)");
+    auto& nr = emu.nextreg();
+
+    // Sprite/layer system: sprites visible, SLU priority
+    nr.write(0x15, 0x01);
+
+    // Transparency: global colour = 0xE3, fallback = 0x00
+    nr.write(0x14, 0xE3);
+    nr.write(0x4A, 0x00);
+
+    // Sprite transparency index = 0xE3
+    nr.write(0x4B, 0xE3);
+
+    // Layer 2 active bank = 9, shadow bank = 12
+    nr.write(0x12, 0x09);
+    nr.write(0x13, 0x0C);
+
+    // Reset all clip window indices
+    nr.write(0x1C, 0x0F);
+
+    // Layer 2 clip: 0, 255, 0, 255 (full)
+    nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
+    nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
+    // Sprite clip: 0, 255, 0, 255
+    nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+    nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+    // ULA clip: 0, 255, 0, 191
+    nr.write(0x1A, 0x00); nr.write(0x1A, 0xFF);
+    nr.write(0x1A, 0x00); nr.write(0x1A, 0xBF);
+    // Tilemap clip: 0, 159, 0, 255
+    nr.write(0x1B, 0x00); nr.write(0x1B, 0x9F);
+    nr.write(0x1B, 0x00); nr.write(0x1B, 0xFF);
+
+    // Layer 2 scroll = 0,0
+    nr.write(0x16, 0x00);
+    nr.write(0x17, 0x00);
+
+    // Palette control: select ULA first palette, no auto-increment
+    nr.write(0x43, 0x00);
+
+    // ULA palette entry 24 (border ink 0) = 0xE3 (standard transparent)
+    nr.write(0x40, 0x18);
+    nr.write(0x41, 0xE3);
+
+    Log::emulator()->info("NEX: machine state initialized (nexload.asm compatible)");
 
     // ---------------------------------------------------------------
     // 5. Border colour (via ULA port 0xFE)

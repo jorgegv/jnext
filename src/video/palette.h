@@ -99,6 +99,16 @@ public:
         return layer2_argb_[active_l2_second_][idx];
     }
 
+    /// Return the 8-bit RRRGGGBB value for a Layer 2 palette entry.
+    /// Used for VHDL-accurate transparency comparison (zxnext.vhd:7121).
+    uint8_t layer2_rgb8(uint8_t idx) const {
+        uint16_t c = layer2_rgb333_[active_l2_second_][idx];
+        uint8_t r3 = (c >> 6) & 0x07;
+        uint8_t g3 = (c >> 3) & 0x07;
+        uint8_t b3 = c & 0x07;
+        return static_cast<uint8_t>((r3 << 5) | (g3 << 2) | (b3 >> 1));
+    }
+
     /// Look up sprite colour by 8-bit pixel value. Uses the active sprite palette.
     uint32_t sprite_colour(uint8_t idx) const {
         return sprite_argb_[active_spr_second_][idx];
