@@ -1028,11 +1028,19 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 11 - New functions
 
+Easy ones:
 - [ ] Z80 file format loading
 - [x] SZX file format loading ✓ (done in Phase 7.8)
+- [ ] Redefinable debugger keys (or perhaps named key combinations? e.g. "borland", "cspect", "zesarux",...)
+- [ ] Save screenshots in .SCR format
+- [ ] Save screenshots with automatically generated name (without asking the user for the name - fast!)
+- [ ] Allow specifying automatic screenshot time in Frames and T-states (currently only in seconds)
+
+Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
+
 
 ---
 
