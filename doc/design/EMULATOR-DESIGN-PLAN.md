@@ -1035,6 +1035,15 @@ Easy ones:
 - [ ] Save screenshots in .SCR format
 - [ ] Save screenshots with automatically generated name (without asking the user for the name - fast!)
 - [ ] Allow specifying automatic screenshot time in Frames and T-states (currently only in seconds)
+- [ ] Specific test capture and playback workflow:
+  I still need the ability to capture the time information from script during the test recording part of the process, and I need to save multiple screen captures, I'm not sure at the time of running the recording session what time I want the screen captures taken, it has to be interactive. Perhaps if I describe my ideal process in steps to see if that makes it easier to understand what I'm trying to achieve:
+  - Create test in Kwyll that demonstrates a particular element of the functionality.
+  - Save it as a .TAP/.SNA.
+  - Load it into an interactive emulator.
+  - Interact with the sample using the keyboard and/or joystick. Each "frame" the current status of the input ports for the keyboard and joystick are saved to a file along with a deterministic, accurate timestamp, in frames/cycles/t-states/whatever works.
+  - At points during the test, press a host key combination to save a dump of the screen memory to disk, along with a file containing a list of screenshots and the deterministic, accurate timestamp that the screen capture was triggered.
+  - Result: a .TAP/.SNA, a file containing all inputs during the test session with accurate timing, when keys/joystick inputs were pressed/released, a series of screen memory captures, and a file detailing when each screen capture was taken.
+  - Then: given a new .TAP/.SNA, load that, and the input file and screens file, and then at each timestamp in the input file, update the input states for the keyboard and joystick. At each timestamp in the screens file, either save the current screen memory for later comparison, or compare the current screen memory to the saved file, report any discrepancies.
 
 Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
