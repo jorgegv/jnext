@@ -23,36 +23,36 @@
 //
 // VHDL reference: zxnext.vhd lines 7193-7354.
 
-void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
-                             PaletteManager& palette,
-                             Layer2& layer2,
-                             SpriteEngine* sprites,
-                             Tilemap* tilemap)
+int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
+                            PaletteManager& palette,
+                            Layer2& layer2,
+                            SpriteEngine* sprites,
+                            Tilemap* tilemap)
 {
+    // Detect hi-res mode: any 640px layer active this frame?
+    hi_res_active_ = (layer2.enabled() && layer2.resolution() >= 2) ||
+                     (tilemap && tilemap->enabled() && tilemap->is_80col());
+    composite_width_ = hi_res_active_ ? FB_WIDTH_HI : FB_WIDTH;
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
-        uint32_t* out = framebuffer + row * FB_WIDTH;
+        uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
 
-        // --- Step 1: Render ULA scanline ---
-        // ULA always produces a full 320-pixel line (border + display).
-        // We render it using the existing ULA render_frame logic but
-        // into our temporary buffer.  For now, use the full-frame ULA
-        // render for the first pass (ULA is always the base layer).
+        // --- Clear layer buffers to transparent ---
+        std::fill_n(layer2_line_.begin(), composite_width_, TRANSPARENT);
+        std::fill_n(sprite_line_.begin(), composite_width_, TRANSPARENT);
+        std::fill_n(tilemap_line_.begin(), composite_width_, TRANSPARENT);
+        std::fill_n(ula_over_flags_.begin(), composite_width_, false);
 
-        // --- Step 2: Clear layer buffers to transparent ---
-        layer2_line_.fill(TRANSPARENT);
-        sprite_line_.fill(TRANSPARENT);
-        tilemap_line_.fill(TRANSPARENT);
-        ula_over_flags_.fill(false);
-
-        // --- Step 3: Render each layer for this scanline ---
+        // --- Render each layer for this scanline ---
         const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
 
         // Layer 2 — 256×192 is active only in the display area;
         // 320×256 and 640×256 ("wide") modes cover all 256 rows.
         if (layer2.enabled()) {
             if (layer2.is_wide() || in_display) {
-                layer2.render_scanline(layer2_line_.data(), row, ram, palette);
+                layer2.render_scanline(layer2_line_.data(), row, ram, palette,
+                                       composite_width_);
             }
         }
 
@@ -60,7 +60,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (tilemap && tilemap->enabled()) {
             tilemap->render_scanline(tilemap_line_.data(),
                                      ula_over_flags_.data(),
-                                     row, ram, palette);
+                                     row, ram, palette, composite_width_);
         }
 
         // Sprites — Y coordinates are in absolute framebuffer space (0-255)
@@ -68,42 +68,15 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             sprites->render_scanline(sprite_line_.data(), row, palette);
         }
 
-        // --- Step 4: Composite ---
-        // ULA is rendered directly first (as the fallback base layer).
-        // We'll render ULA into ula_line_, then composite on top.
-
-        // For now, render ULA into the output row first, then overlay.
-        // This matches the VHDL where the fallback is always the border/ULA colour.
-        // We render ULA into ula_line_ then composite all layers into the output.
-        // (ULA render is done per-row using the Ula class.)
-
-        // Temporarily use the output row for ULA rendering, then we'll do
-        // proper compositing.  The Ula class's render functions write ARGB
-        // pixels directly.
-
-        // We need a scanline-level ULA render.  The existing Ula class only
-        // has render_frame().  Let's render ULA into ula_line_ by calling
-        // the frame renderer for just this one row.  This is inefficient but
-        // correct; we can optimise later.
-
-        // Render ULA scanline.  Always render so border colours are present.
-        // When ULA is disabled (NextREG 0x68 bit 7), only the display-area
-        // pixels become transparent — border pixels stay as the ULA border
-        // colour.  VHDL: ula_en='0' → ula_transparent for display pixels only.
+        // Render ULA scanline (always 320px).
         const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
         ula_.render_scanline(ula_line_.data(), row, mmu);
         if (!ula_.ula_enabled() && in_display) {
-            // Clear only the display pixels (DISP_X..DISP_X+DISP_W-1) to
-            // transparent; border pixels at the left/right margins remain.
             for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
                 ula_line_[x] = TRANSPARENT;
         }
 
         // ULA clip window (NextREG 0x1A).
-        // Display pixels outside the clip window become transparent.
-        // Border pixels also become transparent when they are adjacent to
-        // a fully-clipped axis (matching ZesarUX — allows L2 wide modes
-        // to cover the full screen when the ULA is clipped out).
         {
             uint8_t cx1 = ula_.clip_x1();
             uint8_t cx2 = ula_.clip_x2();
@@ -111,50 +84,33 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             uint8_t cy2 = ula_.clip_y2();
 
             bool row_in_display = in_display;
-            int vc = screen_row;  // only valid when in_display
+            int vc = screen_row;
 
-            // Is this row's display area clipped?
             bool y_clipped = row_in_display && (vc < cy1 || vc > cy2);
-            // Is this row entirely in the border (top/bottom)?
             bool in_border_y = !row_in_display;
 
             if (y_clipped) {
-                // Display row is Y-clipped: clear display pixels
                 for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
                     ula_line_[x] = TRANSPARENT;
             }
 
             if (in_border_y || y_clipped) {
-                // Border rows: transparent if the display is fully Y-clipped
-                // at this row's corresponding edge. Top border inherits from
-                // cy1, bottom from cy2.
                 bool clip_border_row;
                 if (in_border_y) {
-                    // Top border: clip if display top row (vc=0) is outside clip
-                    // Bottom border: clip if display bottom row (vc=191) is outside clip
-                    // This covers cases like cy1=255,cy2=255 where no display is visible
                     clip_border_row = (row < DISP_Y) ? (cy1 > 0) : (cy2 < (DISP_H - 1) || cy1 > cy2 || cy1 >= DISP_H);
                 } else {
-                    clip_border_row = true;  // display row is Y-clipped
+                    clip_border_row = true;
                 }
                 if (clip_border_row) {
-                    // Clear the entire row — on border rows ALL pixels are
-                    // border, including the middle (x=32..287).
-                    ula_line_.fill(TRANSPARENT);
+                    std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
                 }
             }
 
-            // X-axis clipping for display pixels (on non-Y-clipped rows)
             if (row_in_display && !y_clipped) {
                 for (int x = 0; x < DISP_W; ++x) {
                     if (x < cx1 || x > cx2)
                         ula_line_[DISP_X + x] = TRANSPARENT;
                 }
-                // Clip borders when display edges are clipped.
-                // Left border: clip when display left edge is clipped (cx1 > 0).
-                // Right border: clip when display right edge is clipped
-                // (cx2 < 255) OR when left is so far clipped that effectively
-                // all display is gone (cx1 > cx2 means empty window).
                 bool left_clipped  = (cx1 > 0);
                 bool right_clipped = (cx2 < (DISP_W - 1)) || (cx1 > cx2);
                 if (left_clipped) {
@@ -168,11 +124,50 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             }
         }
 
-        composite_scanline(out, fb_argb);
+        // Pixel-double 320px layers in-place when hi-res is active.
+        // Must go right-to-left to avoid overwriting source pixels.
+        if (hi_res_active_) {
+            // ULA (always 320px)
+            for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                ula_line_[x * 2 + 1] = ula_line_[x];
+                ula_line_[x * 2]     = ula_line_[x];
+            }
+
+            // Sprites (always 320px)
+            for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                sprite_line_[x * 2 + 1] = sprite_line_[x];
+                sprite_line_[x * 2]     = sprite_line_[x];
+            }
+
+            // Layer2: only double if NOT natively 640px
+            if (!(layer2.enabled() && layer2.resolution() >= 2)) {
+                for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                    layer2_line_[x * 2 + 1] = layer2_line_[x];
+                    layer2_line_[x * 2]     = layer2_line_[x];
+                }
+            }
+
+            // Tilemap: only double if NOT natively 80-col
+            if (!(tilemap && tilemap->enabled() && tilemap->is_80col())) {
+                for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                    tilemap_line_[x * 2 + 1] = tilemap_line_[x];
+                    tilemap_line_[x * 2]     = tilemap_line_[x];
+                }
+                // Also double the ula_over flags
+                for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                    ula_over_flags_[x * 2 + 1] = ula_over_flags_[x];
+                    ula_over_flags_[x * 2]     = ula_over_flags_[x];
+                }
+            }
+        }
+
+        composite_scanline(out, fb_argb, composite_width_);
     }
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
+
+    return composite_width_;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,9 +187,9 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 //   We combine ULA + Tilemap into a single "U" layer before priority
 //   compositing to match the VHDL behavior.
 
-void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
+void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int width)
 {
-    for (int x = 0; x < FB_WIDTH; ++x) {
+    for (int x = 0; x < width; ++x) {
         const uint32_t ula_px  = ula_line_[x];
         const uint32_t l2_px   = layer2_line_[x];
         const uint32_t spr_px  = sprite_line_[x];

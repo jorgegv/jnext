@@ -73,21 +73,23 @@ public:
     // Rendering
     // -----------------------------------------------------------------
 
-    /// Render one scanline of Layer 2 into a 320-pixel ARGB8888 buffer.
+    /// Render one scanline of Layer 2 into an ARGB8888 buffer.
     ///
-    /// @param dst       Output buffer (320 pixels wide).
-    /// @param row       Framebuffer row (0–255).  For 256×192 mode, only
-    ///                  rows 32–223 (display area) produce output.  For
-    ///                  320×256 / 640×256 modes, all 256 rows are active.
-    /// @param ram       Physical RAM for direct bank access.
-    /// @param palette   Palette manager for Layer 2 colour lookup.
+    /// @param dst          Output buffer (render_width pixels wide).
+    /// @param row          Framebuffer row (0–255).
+    /// @param ram          Physical RAM for direct bank access.
+    /// @param palette      Palette manager for Layer 2 colour lookup.
+    /// @param render_width Output width: 320 or 640. When 640 and resolution
+    ///                     is 640×256, renders both nibbles per byte.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
-                         const PaletteManager& palette) const;
+                         const PaletteManager& palette,
+                         int render_width = 320) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
-                               const PaletteManager& palette, uint8_t bank);
+                               const PaletteManager& palette, uint8_t bank,
+                               int render_width = 320);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

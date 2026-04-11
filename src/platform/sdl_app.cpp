@@ -102,12 +102,14 @@ void SdlApp::run() {
         audio_.push_from_mixer(emulator_.mixer());
 
         const uint32_t* fb = emulator_.get_framebuffer();
-        display_.upload_frame(fb, NATIVE_W, NATIVE_H);
+        const int fb_w = emulator_.get_framebuffer_width();
+        const int fb_h = emulator_.get_framebuffer_height();
+        display_.upload_frame(fb, fb_w, fb_h);
         display_.present();
 
         // Delayed screenshot: take after countdown expires.
         if (screenshot_countdown_ == 0) {
-            save_screenshot_png(screenshot_file_, fb, NATIVE_W, NATIVE_H);
+            save_screenshot_png(screenshot_file_, fb, fb_w, fb_h);
             screenshot_countdown_ = -1;  // done
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;

@@ -126,17 +126,19 @@ void Tilemap::set_def_base(uint8_t val)
 
 void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                     const Ram& ram,
-                                    const PaletteManager& palette)
+                                    const PaletteManager& palette,
+                                    int render_width)
 {
     const bool saved = enabled_;
     enabled_ = true;
-    render_scanline(dst, ula_over_flags, y, ram, palette);
+    render_scanline(dst, ula_over_flags, y, ram, palette, render_width);
     enabled_ = saved;
 }
 
 void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               const Ram& ram,
-                              const PaletteManager& palette) const
+                              const PaletteManager& palette,
+                              int render_width) const
 {
     if (!enabled_ || y < 0 || y >= 256)
         return;
@@ -184,10 +186,20 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Let me check the VHDL: pixel_en_s checks hcounter_i < 320 && vcounter_i(8) = '0'.
     // So tilemap is active for the full 320-pixel display width, overlapping the border area.
 
-    for (int screen_x = 0; screen_x < 320; ++screen_x) {
-        // In 80-col mode, 640 tilemap pixels map to 320 screen pixels.
-        // Each screen pixel shows the left (even) tilemap pixel.
-        int tilemap_x = mode_80col_ ? (screen_x * 2) : screen_x;
+    // Output width: in 80-col mode, render_width=640 gives 1:1 mapping,
+    // render_width=320 downsamples 2:1.  40-col always renders 320px.
+    const int out_width = mode_80col_ ? render_width : 320;
+
+    for (int screen_x = 0; screen_x < out_width; ++screen_x) {
+        // In 80-col mode with render_width=640: 1:1 mapping (no downsampling).
+        // In 80-col mode with render_width=320: 2:1 downsampling (show left pixel).
+        // In 40-col mode: direct 1:1 mapping at 320px.
+        int tilemap_x;
+        if (mode_80col_) {
+            tilemap_x = (render_width == 640) ? screen_x : (screen_x * 2);
+        } else {
+            tilemap_x = screen_x;
+        }
         int abs_x = (tilemap_x + scroll_x_) % wrap_x;
 
         // Tile column and pixel within tile (always 8 pixels per tile).

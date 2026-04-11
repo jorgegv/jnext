@@ -76,9 +76,9 @@ static constexpr uint32_t UNRENDERED_ARGB   = 0xFF111111;
 static constexpr uint32_t CHECKER_DARK_ARGB = 0xFFAAAAAA;
 static constexpr uint32_t CHECKER_LITE_ARGB = 0xFFCCCCCC;
 
-static void fill_checker(uint32_t* dst, int row)
+static void fill_checker(uint32_t* dst, int row, int width)
 {
-    for (int x = 0; x < 320; ++x) {
+    for (int x = 0; x < width; ++x) {
         bool dark = (((row / CHECK_SZ) ^ (x / CHECK_SZ)) & 1) != 0;
         dst[x] = dark ? CHECKER_DARK_ARGB : CHECKER_LITE_ARGB;
     }
@@ -152,18 +152,35 @@ void VideoLayerView::render_to_image(int vc)
 
     Emulator& emu = *emulator_;
 
+    // Determine the native width for this layer.
+    int layer_w = NATIVE_W;
+    switch (layer_) {
+        case Layer::LAYER2_ACTIVE:
+        case Layer::LAYER2_SHADOW:
+            if (emu.layer2().resolution() >= 2) layer_w = 640;
+            break;
+        case Layer::TILEMAP:
+            if (emu.tilemap().is_80col()) layer_w = 640;
+            break;
+        default:
+            break;
+    }
+
+    // Recreate QImage if the resolution changed.
+    if (image_.width() != layer_w || image_.height() != NATIVE_H) {
+        image_ = QImage(layer_w, NATIVE_H, QImage::Format_ARGB32);
+    }
+
     for (int row = 0; row < 256; ++row) {
         uint32_t* dst = reinterpret_cast<uint32_t*>(image_.scanLine(row));
 
         if (row > vc) {
-            // Scanline not yet reached in this frame.
-            for (int x = 0; x < 320; ++x)
-                dst[x] = UNRENDERED_ARGB;
+            std::fill_n(dst, layer_w, UNRENDERED_ARGB);
             continue;
         }
 
         // Pre-fill with checkerboard so transparent areas are visible.
-        fill_checker(dst, row);
+        fill_checker(dst, row, layer_w);
 
         switch (layer_) {
             case Layer::ULA_PRIMARY:
@@ -177,13 +194,13 @@ void VideoLayerView::render_to_image(int vc)
             case Layer::LAYER2_ACTIVE:
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().active_bank());
+                    emu.layer2().active_bank(), layer_w);
                 break;
 
             case Layer::LAYER2_SHADOW:
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().shadow_bank());
+                    emu.layer2().shadow_bank(), layer_w);
                 break;
 
             case Layer::SPRITES:
@@ -191,10 +208,10 @@ void VideoLayerView::render_to_image(int vc)
                 break;
 
             case Layer::TILEMAP: {
-                static bool ula_over[320];
-                std::fill(std::begin(ula_over), std::end(ula_over), false);
+                bool ula_over[640];
+                std::fill_n(ula_over, layer_w, false);
                 emu.tilemap().render_scanline_debug(
-                    dst, ula_over, row, emu.ram(), emu.palette());
+                    dst, ula_over, row, emu.ram(), emu.palette(), layer_w);
                 break;
             }
         }
@@ -214,20 +231,20 @@ void VideoLayerView::paintEvent(QPaintEvent*)
 
     QPainter p(this);
 
-    // Pre-scale the 320×256 source image to fill the physical content area.
-    // Use the actual widget dimensions so the image always fills the available
-    // space regardless of screen DPR (avoids clipping on fractional-DPR screens).
+    // Pre-scale the source image (320×256 or 640×256) to fill the physical content area.
     const qreal dpr    = devicePixelRatioF();
     const int   phys_w = qRound((width()  - 2 * MARGIN) * dpr);
     const int   phys_h = qRound((height() - TITLE_H - 2 * MARGIN) * dpr);
+    const int   img_w  = image_.width();
+    const int   img_h  = image_.height();
 
     QImage scaled(phys_w, phys_h, QImage::Format_ARGB32);
     for (int sy = 0; sy < phys_h; ++sy) {
         const auto* src = reinterpret_cast<const uint32_t*>(
-            image_.scanLine(sy * NATIVE_H / phys_h));
+            image_.scanLine(sy * img_h / phys_h));
         auto* dst = reinterpret_cast<uint32_t*>(scaled.scanLine(sy));
         for (int sx = 0; sx < phys_w; ++sx)
-            dst[sx] = src[sx * NATIVE_W / phys_w];
+            dst[sx] = src[sx * img_w / phys_w];
     }
     // Tag with DPR so Qt maps each physical pixel 1:1 to the screen.
     scaled.setDevicePixelRatio(dpr);

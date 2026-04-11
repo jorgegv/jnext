@@ -318,7 +318,9 @@ void MainWindow::create_menus() {
             path += ".png";
         // Use the existing screenshot function with the current framebuffer.
         bool ok = save_screenshot_png(path.toStdString(),
-                                       emulator_->get_framebuffer(), 320, 256);
+                                       emulator_->get_framebuffer(),
+                                       emulator_->get_framebuffer_width(),
+                                       emulator_->get_framebuffer_height());
         if (ok) {
             statusBar()->showMessage(tr("Screenshot saved: %1").arg(path), 3000);
         } else {

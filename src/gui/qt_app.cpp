@@ -208,12 +208,14 @@ void QtApp::on_frame_tick() {
 
     // Update the display widget with the current framebuffer (even when paused).
     main_window_->emulator_widget()->update_frame(
-        emulator_.get_framebuffer(), NATIVE_W, NATIVE_H);
+        emulator_.get_framebuffer(),
+        emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
 
     // Delayed screenshot: take after countdown expires.
     if (screenshot_countdown_ == 0) {
         save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                            NATIVE_W, NATIVE_H);
+                            emulator_.get_framebuffer_width(),
+                            emulator_.get_framebuffer_height());
         screenshot_countdown_ = -1;  // done
     } else if (screenshot_countdown_ > 0) {
         --screenshot_countdown_;

@@ -75,24 +75,28 @@ public:
     // Rendering
     // -----------------------------------------------------------------
 
-    /// Render one scanline of tilemap into a 320-pixel ARGB8888 buffer.
+    /// True when in 80-column (640-pixel) mode.
+    bool is_80col() const { return mode_80col_; }
+
+    /// Render one scanline of tilemap into an ARGB8888 buffer.
     ///
-    /// @param dst       Output buffer (320 pixels wide, same layout as ULA).
-    /// @param y         Display row (0-255 within the active display area).
-    /// @param ram       Physical RAM for direct access.
-    /// @param palette   Palette manager for tilemap colour lookup.
-    ///
-    /// The ula_over flags are written into the ula_over_flags array (one bool
-    /// per display pixel, 320 entries). When true, the ULA layer should be
-    /// drawn on top of this tilemap pixel instead of below it.
+    /// @param dst            Output buffer (render_width pixels wide).
+    /// @param ula_over_flags Per-pixel ULA priority flags (render_width entries).
+    /// @param y              Display row (0-255 within the active display area).
+    /// @param ram            Physical RAM for direct access.
+    /// @param palette        Palette manager for tilemap colour lookup.
+    /// @param render_width   Output width: 320 or 640. When 640 and 80-col,
+    ///                       renders at native 640px resolution (1:1 mapping).
     void render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                          const Ram& ram,
-                         const PaletteManager& palette) const;
+                         const PaletteManager& palette,
+                         int render_width = 320) const;
 
     /// Render one scanline regardless of enabled_ state. Used by the debugger.
     void render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                const Ram& ram,
-                               const PaletteManager& palette);
+                               const PaletteManager& palette,
+                               int render_width = 320);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

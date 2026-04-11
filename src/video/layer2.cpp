@@ -61,19 +61,21 @@ static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr)
 }
 
 void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
-                                   const PaletteManager& palette, uint8_t bank)
+                                   const PaletteManager& palette, uint8_t bank,
+                                   int render_width)
 {
     const bool saved_enabled = enabled_;
     const uint8_t saved_bank = active_bank_;
     enabled_      = true;
     active_bank_  = bank;
-    render_scanline(dst, row, ram, palette);
+    render_scanline(dst, row, ram, palette, render_width);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
 
 void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
-                             const PaletteManager& palette) const
+                             const PaletteManager& palette,
+                             int render_width) const
 {
     if (!enabled_)
         return;
@@ -185,17 +187,12 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
 
-        // Each memory address holds 2 horizontal pixels.
-        // We iterate over 320 memory columns, each producing 2 pixels at
-        // positions 2*col and 2*col+1.  Our framebuffer is 320 pixels wide,
-        // so we render the left pixel of each pair (half horizontal resolution).
+        // Each memory address holds 2 horizontal pixels (left=high nibble, right=low nibble).
+        // When render_width=640, output both pixels; when 320, output only the left pixel.
         for (int col = 0; col < 320; ++col) {
             int src_col_pre = col + (scroll_x_ & 0x1FF);
             int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
 
-            // Clip X against the 640-pixel coordinate space.
-            int pixel_x = col;  // framebuffer position (0-319)
-            // In 640x256, clip coords are in the 320 address space doubled.
             if (src_col < (clip_x1_eff >> 1) || src_col > (clip_x2_eff >> 1))
                 continue;
 
@@ -203,15 +200,24 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
             uint8_t byte = ram.read(ram_addr);
 
-            // High nibble = left pixel (sc(1)=0 in VHDL).
+            // High nibble = left pixel.
             uint8_t left_nib = (byte >> 4) & 0x0F;
-            // Apply palette offset: pixel_pre = 0000_XXXX, then offset added to top nibble.
-            uint8_t colour_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
+            uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
 
-            if (palette.layer2_rgb8(colour_idx) == transp_rgb)
-                continue;
+            if (render_width == 640) {
+                // Native 640px: output both pixels.
+                if (palette.layer2_rgb8(left_idx) != transp_rgb)
+                    dst[col * 2] = palette.layer2_colour(left_idx);
 
-            dst[pixel_x] = palette.layer2_colour(colour_idx);
+                uint8_t right_nib = byte & 0x0F;
+                uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
+                if (palette.layer2_rgb8(right_idx) != transp_rgb)
+                    dst[col * 2 + 1] = palette.layer2_colour(right_idx);
+            } else {
+                // 320px: only the left pixel.
+                if (palette.layer2_rgb8(left_idx) != transp_rgb)
+                    dst[col] = palette.layer2_colour(left_idx);
+            }
         }
     }
 }

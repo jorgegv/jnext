@@ -151,13 +151,13 @@ public:
     // Framebuffer access
     // -----------------------------------------------------------------------
 
-    /// Returns a pointer to the 320×256 ARGB8888 framebuffer.
+    /// Returns a pointer to the ARGB8888 framebuffer (up to 640×256).
     /// The pointer is valid for the lifetime of the Emulator object.
     /// Contents are updated by run_frame().
     uint32_t* get_framebuffer() { return framebuffer_.data(); }
 
-    /// Framebuffer width in pixels.
-    int get_framebuffer_width()  const { return FRAMEBUFFER_WIDTH; }
+    /// Framebuffer width in pixels (320 or 640, depending on last frame).
+    int get_framebuffer_width()  const { return last_frame_width_; }
 
     /// Framebuffer height in pixels.
     int get_framebuffer_height() const { return FRAMEBUFFER_HEIGHT; }
@@ -269,9 +269,10 @@ public:
     uint8_t floating_bus_read() const;
 
 private:
-    static constexpr int FRAMEBUFFER_WIDTH  = 320;
-    static constexpr int FRAMEBUFFER_HEIGHT = 256;
-    static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
+    static constexpr int FRAMEBUFFER_WIDTH      = 320;
+    static constexpr int FRAMEBUFFER_WIDTH_MAX  = 640;
+    static constexpr int FRAMEBUFFER_HEIGHT     = 256;
+    static constexpr int FRAMEBUFFER_PIXELS_MAX = FRAMEBUFFER_WIDTH_MAX * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
     Clock          clock_;
@@ -332,8 +333,11 @@ private:
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;
 
-    /// ARGB8888 framebuffer (320 × 256 pixels).
+    /// ARGB8888 framebuffer (up to 640 × 256 pixels).
     std::vector<uint32_t> framebuffer_;
+
+    /// Actual width of the last rendered frame (320 or 640).
+    int last_frame_width_ = FRAMEBUFFER_WIDTH;
 
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;

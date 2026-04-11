@@ -98,7 +98,8 @@ void HeadlessApp::run() {
         // Delayed screenshot.
         if (screenshot_countdown_ == 0) {
             save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                                NATIVE_W, NATIVE_H);
+                                emulator_.get_framebuffer_width(),
+                                emulator_.get_framebuffer_height());
             screenshot_countdown_ = -1;
         } else if (screenshot_countdown_ > 0) {
             --screenshot_countdown_;

@@ -31,7 +31,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
     clock_.set_cpu_speed(cfg.cpu_speed);
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
-    framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
+    framebuffer_.assign(FRAMEBUFFER_PIXELS_MAX, 0xFF000000u);
+    last_frame_width_ = FRAMEBUFFER_WIDTH;
 
     // Clear any stale scheduler events from a previous session.
     scheduler_.reset();
@@ -1464,14 +1465,14 @@ void Emulator::run_frame()
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
     if (!replay_mode_) {
-        renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                                layer2_, &sprites_, &tilemap_);
+        last_frame_width_ = renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                                    layer2_, &sprites_, &tilemap_);
     }
 
     // Capture frame for video recording (if active, not in replay).
     if (!replay_mode_ && video_recorder_.is_recording()) {
         video_recorder_.capture_frame(framebuffer_.data(),
-                                       FRAMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT);
+                                       last_frame_width_, FRAMEBUFFER_HEIGHT);
     }
 
     // End RZX recording frame (not in replay).
@@ -1880,8 +1881,8 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
     replay_mode_ = false;
 
     // Re-render the frame so the main window framebuffer reflects the rewound state.
-    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                           layer2_, &sprites_, &tilemap_);
+    last_frame_width_ = renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                                layer2_, &sprites_, &tilemap_);
 
     uint64_t reached = clock_.get();
     Log::emulator()->debug("rewind_to_cycle: reached cycle {} after {} replay frames",
@@ -1981,8 +1982,8 @@ bool Emulator::rewind_to_frame(uint32_t target_frame_num)
     (void)snap;
 
     // Re-render so the main window framebuffer reflects the restored state.
-    renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
-                           layer2_, &sprites_, &tilemap_);
+    last_frame_width_ = renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
+                                                layer2_, &sprites_, &tilemap_);
 
     // Pause the debugger at the current position.
     debug_state_.set_active(true);

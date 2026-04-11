@@ -28,8 +28,9 @@ enum class LayerPriority : uint8_t {
 /// VHDL reference: zxnext.vhd lines 7193-7354 (compositor process).
 class Renderer {
 public:
-    static constexpr int FB_WIDTH  = 320;
-    static constexpr int FB_HEIGHT = 256;
+    static constexpr int FB_WIDTH     = 320;
+    static constexpr int FB_WIDTH_HI  = 640;
+    static constexpr int FB_HEIGHT    = 256;
 
     // Display area within the framebuffer (matches ULA constants)
     static constexpr int DISP_X = 32;   // left border width
@@ -87,17 +88,18 @@ public:
 
     /// Render one complete frame into the ARGB8888 framebuffer.
     ///
-    /// @param framebuffer  Pointer to FB_WIDTH x FB_HEIGHT pixels.
+    /// @param framebuffer  Pointer to FB_WIDTH_HI x FB_HEIGHT pixels (max).
     /// @param mmu          MMU for VRAM access (ULA).
     /// @param ram          Physical RAM for Layer 2 and Tilemap.
     /// @param palette      Palette manager for colour lookups.
     /// @param sprites      Sprite engine (may be null if not yet wired).
     /// @param tilemap      Tilemap renderer (may be null if not yet wired).
-    void render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
-                      PaletteManager& palette,
-                      class Layer2& layer2,
-                      SpriteEngine* sprites,
-                      Tilemap* tilemap);
+    /// @return             Actual composite width (320 or 640).
+    int render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
+                     PaletteManager& palette,
+                     class Layer2& layer2,
+                     SpriteEngine* sprites,
+                     Tilemap* tilemap);
 
 private:
     Ula ula_;
@@ -112,16 +114,23 @@ private:
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;
 
-    // Per-scanline layer buffers (320 pixels each)
-    std::array<uint32_t, FB_WIDTH> ula_line_{};
-    std::array<uint32_t, FB_WIDTH> layer2_line_{};
-    std::array<uint32_t, FB_WIDTH> sprite_line_{};
-    std::array<uint32_t, FB_WIDTH> tilemap_line_{};
-    std::array<bool, FB_WIDTH>     ula_over_flags_{};  // tilemap per-tile ULA priority
+    // Per-scanline layer buffers (640 pixels max to support hi-res modes)
+    std::array<uint32_t, FB_WIDTH_HI> ula_line_{};
+    std::array<uint32_t, FB_WIDTH_HI> layer2_line_{};
+    std::array<uint32_t, FB_WIDTH_HI> sprite_line_{};
+    std::array<uint32_t, FB_WIDTH_HI> tilemap_line_{};
+    std::array<bool, FB_WIDTH_HI>     ula_over_flags_{};  // tilemap per-tile ULA priority
+
+    /// True when any 640px layer is active this frame.
+    bool hi_res_active_ = false;
+
+    /// Active composite width (320 or 640) for the current frame.
+    int composite_width_ = FB_WIDTH;
 
     /// Composite one scanline from the layer buffers into the output.
     /// @param fallback_argb  ARGB8888 fallback colour for when all layers are transparent.
-    void composite_scanline(uint32_t* dst, uint32_t fallback_argb);
+    /// @param width          Composite width (320 or 640).
+    void composite_scanline(uint32_t* dst, uint32_t fallback_argb, int width);
 
     /// Check if a pixel is transparent (alpha channel = 0).
     static bool is_transparent(uint32_t argb) { return (argb & 0xFF000000) == 0; }
