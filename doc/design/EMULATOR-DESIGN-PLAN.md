@@ -995,6 +995,20 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 9 - CI, Quality and Release
 
+- [ ] Ensure all of David Crespo's tests work the same as Zesarux (verify each one with Zesarux)
+  - [x] 01-dapr-l2empty - verified and fixed
+  - [x] 02-dapr-layer2 - verified and fixed
+  - [x] 03-dapr-sprite - verified and fixed
+  - [ ] 04-dapr-tilemap - currently not working OK
+  - [ ] 05-dapr-print - currently not working OK
+  - [ ] 06-dapr-keyb - currently not working OK
+  - [ ] 97-dapr-joystick - currently not working OK
+  - [ ] 08-dapr-covox - currently not working OK
+  - [ ] 09-dapr-videoint - currently not working OK
+  - [ ] 10-dapr-tilemapper - currently not working OK
+  - [ ] 11-dapr-isometric - currently not working OK
+  - [ ] dapr-mathfunc - currently not working OK
+
 - [ ] Generate full testing plan:
   - [ ] Unit test plan, per module
   - [ ] Integration test plan, between modules
