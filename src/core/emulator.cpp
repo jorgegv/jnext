@@ -1622,9 +1622,9 @@ void Emulator::schedule_frame_events()
 
 uint8_t Emulator::floating_bus_read() const
 {
-    // Floating bus only exists on 48K/128K hardware.
-    if (config_.type != MachineType::ZX48K && config_.type != MachineType::ZX128K)
-        return 0xFF;
+    // Floating bus: the ULA drives VRAM data onto the bus during active display.
+    // The VHDL implements this for all machine types (48K/128K/+3/Pentagon/Next).
+    // Pentagon returns the attribute byte only (no pixel bytes on the bus).
 
     // Compute current position within the frame.
     // Master clock is 28 MHz. T-states at 3.5 MHz = master_cycles / 8.
