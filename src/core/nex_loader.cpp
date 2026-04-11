@@ -323,6 +323,9 @@ bool NexLoader::apply(Emulator& emu) const
     nr.write(0x40, 0x18);
     nr.write(0x41, 0xE3);
 
+    // Reset palette index to 0 (programs assume this after NEX load)
+    nr.write(0x40, 0x00);
+
     Log::emulator()->info("NEX: machine state initialized (nexload.asm compatible)");
 
     // ---------------------------------------------------------------

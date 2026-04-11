@@ -525,10 +525,11 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
                 (((pixel_val >> 4) + pal_offset) << 4) | (pixel_val & 0x0F));
         } else {
             // 4-bit colour mode.
-            // Pattern address is halved: pattern(5:1) & N6 & row(3:0) & col(3:1)
-            // Each byte holds two 4-bit pixels.
+            // VHDL: addr = {N5:N0, N6, row(3:0), col(3:1)}
+            //   = pattern(6:1) * 256 + pattern(0) * 128 + row * 8 + col/2
+            // Each byte holds two 4-bit pixels (128 bytes per pattern).
             uint16_t addr = static_cast<uint16_t>(
-                ((pattern >> 1) << 7) | (py << 3) | (px >> 1));
+                ((pattern >> 1) << 8) | ((pattern & 1) << 7) | (py << 3) | (px >> 1));
             uint8_t raw = read_pattern(addr);
 
             // Select high or low nibble based on column LSB.
