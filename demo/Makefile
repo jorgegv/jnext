@@ -1,31 +1,20 @@
 # Makefile for JNEXT demo/test programs
-# Compiles all .c files to .nex and .tap using z88dk
+# Delegates to per-demo subdirectory Makefiles
 
-ZCC      = zcc
-ZCCFLAGS = +zxn -vn -startup=31 -clib=sdcc_ix -SO3
+DEMOS = $(sort $(patsubst %/Makefile,%,$(wildcard */Makefile)))
 
-SOURCES  = $(wildcard *.c)
-STEMS    = $(SOURCES:.c=)
-NEXFILES = $(SOURCES:.c=.nex)
-TAPFILES = $(SOURCES:.c=.tap)
+.PHONY: all nex tap clean $(DEMOS)
 
-.PHONY: all nex tap clean
+all: $(DEMOS)
 
-all: nex tap
+$(DEMOS):
+	$(MAKE) -C $@ all
 
-nex: $(NEXFILES)
+nex:
+	@for d in $(DEMOS); do $(MAKE) -C $$d nex; done
 
-tap: $(TAPFILES)
-
-# z88dk -o produces a raw binary (no extension by default).
-# We use .bin extension to keep the directory clean.
-%.nex: %.c
-	$(ZCC) $(ZCCFLAGS) $< -o $*.bin -subtype=nex -create-app
-
-%.tap: %.c
-	$(ZCC) $(ZCCFLAGS) $< -o $*.bin -subtype=tap -create-app
+tap:
+	@for d in $(DEMOS); do $(MAKE) -C $$d tap; done
 
 clean:
-	rm -f $(NEXFILES) $(TAPFILES)
-	rm -f *.bin *.lis *.c.lis *.map *.sym *.o *.reloc
-	rm -f $(STEMS)
+	@for d in $(DEMOS); do $(MAKE) -C $$d clean; done

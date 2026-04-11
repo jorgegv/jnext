@@ -184,7 +184,7 @@ echo ""
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-bp-func'; then
     printf "  %-25s " "[magic-bp-func]"
     bp_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
-        --load "$PROJECT_DIR/demo/magic_bp_demo.nex" \
+        --load "$PROJECT_DIR/demo/magic_bp_demo/magic_bp_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
     bp_count=$(echo "$bp_output" | grep -c "Magic breakpoint hit" || true)
     if [[ "$bp_count" -ge 1 ]]; then
@@ -201,7 +201,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     printf "  %-25s " "[magic-port-func]"
     port_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
         --magic-port 0xCAFE --magic-port-mode line \
-        --load "$PROJECT_DIR/demo/magic_port_demo.nex" \
+        --load "$PROJECT_DIR/demo/magic_port_demo/magic_port_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
     if echo "$port_output" | grep -q "Hello from ZX Next!"; then
         echo -e "${GREEN}PASS${RESET} (magic port output verified)"

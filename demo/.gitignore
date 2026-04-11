@@ -1,0 +1,9 @@
+*.bin
+*.nex
+*.tap
+*.lis
+*.c.lis
+*.map
+*.sym
+*.o
+*.reloc

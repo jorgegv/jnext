@@ -347,9 +347,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.set_write_handler(0x63, [this](uint8_t v) { copper_.write_reg_0x63(v); });
 
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
+    // Page 0xFF = map ROM into the slot (VHDL: mmu_A21_wr_en = '0' when page = xFF).
     for (int i = 0; i < 8; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
-            [this, i](uint8_t v) { mmu_.set_page(i, v); });
+            [this, i](uint8_t v) {
+                if (v == 0xFF)
+                    mmu_.map_rom(i, static_cast<uint8_t>(i < 2 ? i : 0));
+                else
+                    mmu_.set_page(i, v);
+            });
     }
 
     // --- NextREG read handlers (dynamic registers) ---
