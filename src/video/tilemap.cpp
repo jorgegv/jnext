@@ -18,10 +18,11 @@ void Tilemap::reset()
     mode_512_      = false;
     ula_on_top_    = false;
     default_attr_  = 0;
-    map_base_raw_  = 0;
-    def_base_raw_  = 0;
-    map_base_addr_ = 0;
-    def_base_addr_ = 0;
+    // VHDL defaults: map base = 0x2C (offset 44 → 0x6C00), tile defs = 0x0C (offset 12 → 0x4C00)
+    map_base_raw_  = 0x2C;
+    def_base_raw_  = 0x0C;
+    map_base_addr_ = decode_base_addr(0x2C);
+    def_base_addr_ = decode_base_addr(0x0C);
     scroll_x_      = 0;
     scroll_y_      = 0;
 }
@@ -48,33 +49,28 @@ void Tilemap::set_control(uint8_t val)
 // NextREG 0x6E / 0x6F encode a physical address within two 16K banks
 // (bank 5 = 0x0A000..0x0DFFF in 8K pages, bank 7 = 0x0E000..0x11FFF).
 //
-// Register format: bits 7:1 of the written value become address bits 16:10.
-// This gives 1K granularity within a 128K window.
+// From VHDL (zxnext.vhd lines 5468-5469, tilemap.vhd line 402-403):
 //
-// In the VHDL, bit 6 of the 7-bit field (i.e. bit 7 of the register value
-// shifted right by 1) selects between bank 5 (0) and bank 7 (1).
-// Bits 5:0 are a 1K offset within the selected 16K bank.
+//   nr_6e_tilemap_base_7 <= nr_wr_dat(7);         -- bank select
+//   nr_6e_tilemap_base   <= nr_wr_dat(5 downto 0); -- 6-bit offset
 //
-// Physical addresses:
-//   Bank 5 base = 5 * 16384 = 81920 (0x14000)
-//   Bank 7 base = 7 * 16384 = 114688 (0x1C000)
+// The tilemap module receives a 7-bit input: { bank_select, offset[5:0] }.
+// Bit 6 of the register is unused.  The address within a 16K bank is:
+//   addr[13:8] = sub[13:8] + offset[5:0]
+//   addr[7:0]  = sub[7:0]
+// Each offset unit = 2^8 = 256 bytes.  Physical addresses:
+//   Bank 5 base = 5 * 16384 = 0x14000
+//   Bank 7 base = 7 * 16384 = 0x1C000
 //
-// The VHDL uses: tm_mem_bank7_o = offset(6), and the 14-bit address within
-// a 16K bank is: (sub_addr[13:8] + offset[5:0]) & sub_addr[7:0].
-// For our software model, we precompute the full physical RAM address:
-//   base = (bank_select ? 7 : 5) * 16384 + offset_within_bank * 1024
+// VHDL defaults: map base = 44 (0x6C00), tile defs = 12 (0x4C00).
 
 uint32_t Tilemap::decode_base_addr(uint8_t reg_val)
 {
-    // The register stores bits 7:1 as address bits 16:10.
-    uint8_t field = (reg_val >> 1) & 0x7F;
-
-    // Bit 6 of the 7-bit field = bank select (0 = bank 5, 1 = bank 7).
-    bool bank7 = (field & 0x40) != 0;
-    uint8_t offset_1k = field & 0x3F;  // 0-63, offset in 1K units within 16K
+    bool bank7 = (reg_val & 0x80) != 0;   // bit 7 = bank select
+    uint8_t offset = reg_val & 0x3F;       // bits 5:0 = 256-byte offset
 
     uint32_t bank_base = bank7 ? (7u * 16384u) : (5u * 16384u);
-    return bank_base + static_cast<uint32_t>(offset_1k) * 1024u;
+    return bank_base + static_cast<uint32_t>(offset) * 256u;
 }
 
 void Tilemap::set_map_base(uint8_t val)

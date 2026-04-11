@@ -3,7 +3,7 @@
  *
  * Build with z88dk (zxn target):
  *
- *   zcc +zxn -vn -startup=31 -clib=sdcc_iy -SO3 -subtype=nex tilemap_demo.c -o tilemap_demo -create-app
+ *   zcc +zxn -vn -startup=31 -clib=sdcc_ix -SO3 -subtype=nex tilemap_demo.c -o tilemap_demo -create-app
  *
  * Produces tilemap_demo.nex loadable in jnext / CSpect / real hardware.
  *
@@ -37,8 +37,8 @@
 #define NR_TILEMAP_DEFATTR  0x6C   /* default tilemap attribute           */
 #define NR_TILEMAP_MAPBASE  0x6E   /* tilemap base address                */
 #define NR_TILEMAP_DEFBASE  0x6F   /* tile definitions (patterns) base    */
-#define NR_TILEMAP_XSCROLL  0x2F   /* X scroll LSB                        */
-#define NR_TILEMAP_XSCROLL_MSB 0x30 /* X scroll MSB (bits 1:0)            */
+#define NR_TILEMAP_XSCROLL_MSB 0x2F /* X scroll MSB (bits 1:0)            */
+#define NR_TILEMAP_XSCROLL  0x30   /* X scroll LSB                        */
 #define NR_TILEMAP_YSCROLL  0x31   /* Y scroll (0-255)                    */
 
 #define NR_PALETTE_CTRL     0x43   /* bits[6:4] = palette select           */
@@ -55,38 +55,18 @@
 /* ------------------------------------------------------------------ *
  * Tilemap memory layout                                                *
  *                                                                      *
- * We place tilemap data at bank 5 offset 0x4000 (CPU address 0x4000).  *
- *   NR 0x6E value: bits[7:1] encode address bits[16:10].               *
- *   Bank 5 starts at physical address 0x0A000 (page 10).               *
- *   Offset 0x0000 within bank 5 => physical 0x0A000.                   *
- *   For CPU address 0x4000 in bank 5: NR 0x6E = 0x00 (default).        *
+ * From VHDL (zxnext.vhd): register bit 7 selects bank (0=bank5, 1=bank7). *
+ * Bits 5:0 are a 6-bit offset in 256-byte units within the 16K bank.   *
+ * Bit 6 is unused.                                                      *
  *                                                                      *
- * Tile patterns at bank 5 offset 0x6000 (CPU address 0x6000).          *
- *   NR 0x6F = 0x0C (bits[7:1] = 0x06 << 1, selecting 1K offset 6      *
- *   within bank 5 = address 0x6000 - but this is wrong, let me calc)   *
+ * Tilemap map at CPU 0x4000 = bank 5 offset 0x0000:                    *
+ *   offset = 0 → NR 0x6E = 0x00.                                      *
  *                                                                      *
- * Actually, the register value bits[7:1] map to address bits[16:10]:   *
- *   Physical addr = bank_base + (reg_val >> 1) * 1024                  *
- *   Bank 5 base = 0x4000 in CPU space (physical page 10,11)            *
- *   - For tilemap at 0x4000: reg = 0x00 (offset 0 in bank 5)          *
- *   - For patterns at 0x6000: offset = 0x2000 = 8*1024,               *
- *     so reg = (8 << 1) = 0x10                                         *
- *                                                                      *
- * Wait -- let me re-read the emulator source for exact encoding.       *
- * From tilemap.h set_map_base / set_def_base:                          *
- *   bit 7 of reg value (= bit 6 of 7-bit field) selects bank 5 or 7.  *
- *   bits[7:1] => address bits[16:10] within the 32K window.            *
- *                                                                      *
- * In practice, for the default config (NR 0x6E = 0x00):                *
- *   tilemap data is at the start of bank 5 = CPU addr 0x4000.          *
- * For patterns at 0x6000 (2K offset = 0x800 from bank 5):              *
- *   We need (reg >> 1) to give the 1K-aligned offset.                  *
- *   0x6000 - 0x4000 = 0x2000 = 8192 = 8 * 1024                        *
- *   So reg bits[7:1] = 8, meaning reg = 8 << 1 = 0x10.                *
+ * Tile patterns at CPU 0x6000 = bank 5 offset 0x2000:                  *
+ *   0x2000 / 256 = 32 → NR 0x6F = 0x20.                               *
  *                                                                      *
  * Tilemap map: 40*32*2 = 2560 bytes at 0x4000-0x49FF.                  *
- * Patterns: we define a handful of patterns (say 8 = 256 bytes) at     *
- * 0x6000.                                                              *
+ * Patterns: 8 tiles × 32 bytes = 256 bytes at 0x6000.                  *
  * ------------------------------------------------------------------ */
 
 #define TILEMAP_ADDR    0x4000
@@ -346,15 +326,11 @@ int main(void)
 
     /* 4. Configure tilemap base addresses via NextREG.
      *
-     * NR 0x6E (tilemap map base):
-     *   Default 0x00 => bank 5, offset 0 => CPU address 0x4000.
-     *
-     * NR 0x6F (tile definitions base):
-     *   We want patterns at 0x6000 = bank 5 + 0x2000 offset.
-     *   0x2000 / 1024 = 8, so bits[7:1] = 8 => register = 8 << 1 = 0x10.
+     * NR 0x6E: tilemap map at CPU 0x4000 = bank 5 offset 0 → reg = 0x00.
+     * NR 0x6F: tile defs at CPU 0x6000 = bank 5 offset 0x2000/256 = 32 → reg = 0x20.
      */
     ZXN_WRITE_REG(NR_TILEMAP_MAPBASE, 0x00);
-    ZXN_WRITE_REG(NR_TILEMAP_DEFBASE, 0x10);
+    ZXN_WRITE_REG(NR_TILEMAP_DEFBASE, 0x20);
 
     /* 5. Default attribute: palette offset 0, no mirror/rotate */
     ZXN_WRITE_REG(NR_TILEMAP_DEFATTR, 0x00);
@@ -396,9 +372,9 @@ int main(void)
         if (scroll_y <= 0 || scroll_y >= 128)
             dy = -dy;
 
-        /* Write scroll registers (mask to valid range) */
-        ZXN_WRITE_REG(NR_TILEMAP_XSCROLL, (unsigned char)(scroll_x & 0xFF));
+        /* Write scroll registers (MSB first to avoid mid-scan glitches) */
         ZXN_WRITE_REG(NR_TILEMAP_XSCROLL_MSB, (unsigned char)((scroll_x >> 8) & 0x03));
+        ZXN_WRITE_REG(NR_TILEMAP_XSCROLL, (unsigned char)(scroll_x & 0xFF));
         ZXN_WRITE_REG(NR_TILEMAP_YSCROLL, (unsigned char)(scroll_y & 0xFF));
     }
 

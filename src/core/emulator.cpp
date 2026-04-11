@@ -319,11 +319,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
             [this, i](uint8_t v) { sprites_.write_attr_byte(static_cast<uint8_t>(i), v); });
     }
 
-    // Register 0x2F: Tilemap X scroll LSB
-    nextreg_.set_write_handler(0x2F, [this](uint8_t v) { tilemap_.set_scroll_x_lsb(v); });
+    // Register 0x2F: Tilemap X scroll MSB (bits 1:0)
+    nextreg_.set_write_handler(0x2F, [this](uint8_t v) { tilemap_.set_scroll_x_msb(v); });
 
-    // Register 0x30: Tilemap X scroll MSB
-    nextreg_.set_write_handler(0x30, [this](uint8_t v) { tilemap_.set_scroll_x_msb(v); });
+    // Register 0x30: Tilemap X scroll LSB
+    nextreg_.set_write_handler(0x30, [this](uint8_t v) { tilemap_.set_scroll_x_lsb(v); });
 
     // Register 0x31: Tilemap Y scroll
     nextreg_.set_write_handler(0x31, [this](uint8_t v) { tilemap_.set_scroll_y(v); });

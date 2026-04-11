@@ -42,9 +42,9 @@ public:
     uint8_t get_default_attr() const { return default_attr_; }
 
     /// NextREG 0x6E — Tilemap base address.
-    ///   bits 7:1 map to address bits 16:10 (1K boundaries within two 16K banks).
-    ///   bit 7 (of the register value, i.e. bit 6 of the 7-bit field) selects
-    ///   between bank 5 and bank 7.
+    ///   bit 7 = bank select (0 = bank 5, 1 = bank 7).
+    ///   bits 5:0 = 256-byte offset within the selected 16K bank.
+    ///   bit 6 is unused.
     void set_map_base(uint8_t val);
     uint8_t get_map_base_raw() const { return map_base_raw_; }
 
@@ -52,11 +52,11 @@ public:
     void set_def_base(uint8_t val);
     uint8_t get_def_base_raw() const { return def_base_raw_; }
 
-    /// NextREG 0x2F — Tilemap X scroll LSB.
-    void set_scroll_x_lsb(uint8_t val) { scroll_x_ = (scroll_x_ & 0x300) | val; }
-
-    /// NextREG 0x30 — Tilemap X scroll MSB (bits 1:0).
+    /// NextREG 0x2F — Tilemap X scroll MSB (bits 1:0).
     void set_scroll_x_msb(uint8_t val) { scroll_x_ = (scroll_x_ & 0xFF) | ((val & 0x03) << 8); }
+
+    /// NextREG 0x30 — Tilemap X scroll LSB.
+    void set_scroll_x_lsb(uint8_t val) { scroll_x_ = (scroll_x_ & 0x300) | val; }
 
     /// NextREG 0x31 — Tilemap Y scroll.
     void set_scroll_y(uint8_t val) { scroll_y_ = val; }

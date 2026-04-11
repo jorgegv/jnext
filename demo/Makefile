@@ -2,7 +2,7 @@
 # Compiles all .c files to .nex and .tap using z88dk
 
 ZCC      = zcc
-ZCCFLAGS = +zxn -vn -startup=31 -clib=sdcc_iy -SO3
+ZCCFLAGS = +zxn -vn -startup=31 -clib=sdcc_ix -SO3
 
 SOURCES  = $(wildcard *.c)
 STEMS    = $(SOURCES:.c=)
