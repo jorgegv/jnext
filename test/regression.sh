@@ -92,11 +92,16 @@ echo ""
 echo -e "${BOLD}Running screenshot tests...${RESET}"
 echo ""
 
-while IFS= read -r line; do
-    # Skip comments and blank lines
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+# Maximum parallel jobs (default: number of CPUs)
+MAX_JOBS=${JNEXT_TEST_JOBS:-$(nproc 2>/dev/null || echo 4)}
 
-    # Parse fields
+# Phase 1: Launch all emulator instances in parallel to generate screenshots
+declare -A TEST_PIDS  # test_name -> PID
+declare -A TEST_INFO  # test_name -> "machine_type nex_file delay_secs"
+ORDERED_TESTS=()
+
+while IFS= read -r line; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     read -r test_name machine_type nex_file delay_secs <<< "$line"
 
     # Filter if specific tests requested
@@ -108,37 +113,47 @@ while IFS= read -r line; do
         $match || continue
     fi
 
-    ref_img="$IMG_DIR/${test_name}-reference.png"
+    ORDERED_TESTS+=("$test_name")
+    TEST_INFO["$test_name"]="$machine_type $nex_file $delay_secs"
+
     out_img="$TMP_DIR/${test_name}.png"
     exit_delay=$((delay_secs + 2))
-
-    # 28 MHz Next programs run ~8x slower in headless mode, so we need
-    # generous wall-clock timeouts. Multiply by 4 to be safe.
     wall_timeout=$(( (exit_delay + 5) * 4 ))
 
-    # Build command
-    cmd=("timeout" "--foreground" "--kill-after=5s" "${wall_timeout}s"
+    cmd=("timeout" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
          "--machine-type" "$machine_type"
          "--delayed-screenshot" "$out_img"
          "--delayed-screenshot-time" "$delay_secs"
          "--delayed-automatic-exit" "$exit_delay")
 
-    # BOOT is a special keyword meaning "no --load"
     if [[ "$nex_file" != "BOOT" ]]; then
         cmd+=("--load" "$PROJECT_DIR/$nex_file")
     fi
 
-    # Run emulator
-    printf "  %-25s " "[$test_name]"
-    if ! "${cmd[@]}" &>/dev/null; then
-        echo -e "${RED}FAIL${RESET} (emulator crashed or timed out)"
-        fail=$((fail + 1))
-        continue
-    fi
+    # Launch in background
+    "${cmd[@]}" &>/dev/null &
+    TEST_PIDS["$test_name"]=$!
 
+    # Throttle: wait if we've reached MAX_JOBS
+    while [[ $(jobs -rp | wc -l) -ge $MAX_JOBS ]]; do
+        wait -n 2>/dev/null || true
+    done
+done < "$CONF"
+
+# Wait for all background jobs to finish
+wait 2>/dev/null || true
+
+# Phase 2: Evaluate results (sequential, for ordered output)
+for test_name in "${ORDERED_TESTS[@]}"; do
+    ref_img="$IMG_DIR/${test_name}-reference.png"
+    out_img="$TMP_DIR/${test_name}.png"
+
+    printf "  %-25s " "[$test_name]"
+
+    # Check if emulator produced output
     if [[ ! -f "$out_img" ]]; then
-        echo -e "${RED}FAIL${RESET} (no screenshot produced)"
+        echo -e "${RED}FAIL${RESET} (emulator crashed or timed out)"
         fail=$((fail + 1))
         continue
     fi
@@ -158,14 +173,11 @@ while IFS= read -r line; do
 
     if $HAS_COMPARE; then
         diff_raw=$(compare -metric AE "$out_img" "$ref_img" /dev/null 2>&1) || true
-        # ImageMagick may output "0", "0 (0)", or scientific notation like "2.14745e+09".
-        # Extract first number token and convert to integer (awk handles sci notation).
         diff_pixels=$(echo "$diff_raw" | awk '{printf "%d", $1+0}' 2>/dev/null || echo 999999)
         if [[ "$diff_pixels" -le "$TOLERANCE" ]]; then
             echo -e "${GREEN}PASS${RESET} (${diff_pixels} pixel diff)"
         else
             echo -e "${RED}FAIL${RESET} (${diff_pixels} pixels differ)"
-            # Save diff image for debugging
             compare "$out_img" "$ref_img" "$IMG_DIR/${test_name}-diff.png" 2>/dev/null || true
             fail=$((fail + 1))
             continue
@@ -177,7 +189,7 @@ while IFS= read -r line; do
     fi
 
     pass=$((pass + 1))
-done < "$CONF"
+done
 
 # --- Functional tests ---
 echo ""
