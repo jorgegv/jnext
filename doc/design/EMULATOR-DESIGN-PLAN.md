@@ -1018,7 +1018,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Layer 2 (~91 tests) — [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md)
   - [ ] Sprites (~146 tests) — [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md)
   - [ ] Tilemap (~67 tests) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
-  - [ ] Copper (~75 tests) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
+  - [x] Copper (69/69 pass, 6 integration-level deferred) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
   - [ ] Compositor (~83 tests) — [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md)
   - [ ] Audio — AY/YM2149 + DAC + Beeper (~161 tests) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
   - [ ] DMA (~142 tests) — [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md)
@@ -1034,6 +1034,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Integration test plan, between modules
   - [ ] Functional test plan (~demos)
 - [ ] CI golden-output visual regression tests
+
 - [ ] General code refactor and tidy up (/simplify)
 - [ ] Replacement of magic number with named constants where possible
 - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
