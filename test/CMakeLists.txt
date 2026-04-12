@@ -18,6 +18,13 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fuse/ DESTINATION ${CMAKE_CURRENT_BINARY_D
 # Register as CTest target
 add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# Z80N extended opcode test runner
+add_executable(z80n_test z80n_test.cpp)
+target_link_libraries(z80n_test PRIVATE jnext_cpu)
+target_include_directories(z80n_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/z80n/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/z80n/)
+add_test(NAME z80n_tests COMMAND z80n_test ${CMAKE_CURRENT_BINARY_DIR}/z80n)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)

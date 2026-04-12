@@ -88,6 +88,36 @@ fi
 
 echo ""
 
+# --- Z80N extended opcode tests ---
+Z80N_TEST="$PROJECT_DIR/build/test/z80n_test"
+Z80N_DATA="$PROJECT_DIR/build/test/z80n"
+echo -e "${BOLD}[z80n] Running Z80N extended opcode tests...${RESET}"
+if [[ -x "$Z80N_TEST" && -d "$Z80N_DATA" ]]; then
+    z80n_output=$("$Z80N_TEST" "$Z80N_DATA" 2>&1) || true
+    if echo "$z80n_output" | grep -qE "Total:.*Passed:"; then
+        z80n_total=$(echo "$z80n_output" | grep -oP "Total:\s*\K[0-9]+")
+        z80n_pass=$(echo "$z80n_output" | grep -oP "Passed:\s*\K[0-9]+")
+        z80n_fail=$(echo "$z80n_output" | grep -oP "Failed:\s*\K[0-9]+")
+        if [[ "$z80n_fail" -eq 0 ]]; then
+            echo -e "  ${GREEN}PASS${RESET}: $z80n_pass/$z80n_total Z80N opcodes passed"
+            pass=$((pass + 1))
+        else
+            echo -e "  ${RED}FAIL${RESET}: $z80n_pass/$z80n_total passed ($z80n_fail failures)"
+            echo "$z80n_output" | grep "FAIL" | head -10
+            fail=$((fail + 1))
+        fi
+    else
+        echo -e "  ${RED}FAIL${RESET}: unexpected output format"
+        echo "$z80n_output" | tail -5
+        fail=$((fail + 1))
+    fi
+else
+    echo -e "  ${YELLOW}SKIP${RESET}: z80n_test not built"
+    skip=$((skip + 1))
+fi
+
+echo ""
+
 # --- Screenshot tests ---
 echo -e "${BOLD}Running screenshot tests...${RESET}"
 echo ""
