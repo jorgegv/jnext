@@ -31,6 +31,12 @@ target_link_libraries(copper_test PRIVATE jnext_peripheral jnext_port)
 target_include_directories(copper_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME copper_tests COMMAND copper_test)
 
+# Memory/MMU compliance test
+add_executable(mmu_test mmu/mmu_test.cpp)
+target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug)
+target_include_directories(mmu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME mmu_tests COMMAND mmu_test)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
