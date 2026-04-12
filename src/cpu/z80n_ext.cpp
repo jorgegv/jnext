@@ -88,22 +88,22 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::BSRF_DE_B: {
+            // VHDL: 17-bit signed right shift, bit 16 = IR[0] = 1 (fills with 1s)
             auto regs = cpu.get_registers();
             uint8_t shift = (regs.BC >> 8) & 0x1F;
-            if (shift == 0) {
-                // No change
-            } else {
-                uint16_t mask = static_cast<uint16_t>(0xFFFF << (16 - shift));
-                regs.DE = (regs.DE >> shift) | mask;
-            }
+            int32_t val = (1 << 16) | regs.DE;  // bit 16 = 1
+            val = static_cast<int32_t>(val << 15) >> 15;  // sign-extend bit 16
+            val >>= shift;
+            regs.DE = static_cast<uint16_t>(val & 0xFFFF);
             cpu.set_registers(regs);
             return 4;
         }
 
         case Z80NOpcode::BRLC_DE_B: {
             auto regs = cpu.get_registers();
-            uint8_t rot = (regs.BC >> 8) & 0x0F;
+            uint8_t rot = (regs.BC >> 8) & 0x1F;  // VHDL: B[4:0], 5-bit mask
             if (rot != 0) {
+                rot &= 0x0F;  // rotate_left on 16-bit wraps mod 16
                 regs.DE = ((regs.DE << rot) | (regs.DE >> (16 - rot))) & 0xFFFF;
             }
             cpu.set_registers(regs);
@@ -261,10 +261,11 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
 
         case Z80NOpcode::PIXELAD: {
             auto regs = cpu.get_registers();
-            uint8_t D = regs.DE >> 8;    // X coord
-            uint8_t E = regs.DE & 0xFF;  // Y coord
-            uint8_t H = 0x40 | ((E & 0xC0) >> 3) | (E & 0x07);
-            uint8_t L = ((E & 0x38) << 2) | (D >> 3);
+            uint8_t D = regs.DE >> 8;    // Y coord (row 0-191)
+            uint8_t E = regs.DE & 0xFF;  // X coord (pixel col 0-255)
+            // VHDL: H = "010" & D[7:6] & D[2:0], L = D[5:3] & E[7:3]
+            uint8_t H = 0x40 | ((D & 0xC0) >> 3) | (D & 0x07);
+            uint8_t L = ((D & 0x38) << 2) | (E >> 3);
             regs.HL = ((uint16_t)H << 8) | L;
             cpu.set_registers(regs);
             return 4;
@@ -406,10 +407,11 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::LDIRSCALE: {
-            // ED B6 — scaled block load, HL increments by BC' each iteration
+            // ED B6 — scaled block load with transparency
+            // VHDL note: the BC'/DE' alternate register additions are commented
+            // out in the FPGA source. The mcode uses standard HL++, DE++.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint16_t bc_alt = regs.BC2;  // alternate BC holds HL increment
             uint32_t count = (regs.BC == 0) ? 65536 : regs.BC;
             for (uint32_t i = 0; i < count; ++i) {
                 uint8_t temp = cpu.memory().read(regs.HL);
@@ -417,7 +419,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                     cpu.memory().write(regs.DE, temp);
                 }
                 regs.DE = (regs.DE + 1) & 0xFFFF;
-                regs.HL = (regs.HL + bc_alt) & 0xFFFF;
+                regs.HL = (regs.HL + 1) & 0xFFFF;
             }
             regs.BC = 0;
             cpu.set_registers(regs);

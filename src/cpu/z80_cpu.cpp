@@ -265,6 +265,8 @@ int Z80Cpu::execute() {
 
             // Advance PC past ED + ext byte; execute_z80n reads any operands
             z80.pc.w = (pc + 2) & 0xFFFF;
+            // Increment R by 2: one for ED prefix M1, one for ext byte M1
+            z80.r = (z80.r + 2) & 0x7F;
             sync_regs_from_fuse(regs_);
 
             int t = execute_z80n(ext, *this);
