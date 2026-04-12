@@ -1,8 +1,10 @@
 # JNEXT — ZX Spectrum Next Emulator
 
-**A developer's emulator for the ZX Spectrum Next, using the official FPGA VHDL sources as the main reference.**
+**A developer's emulator for the ZX Spectrum Next**
 
-JNEXT is a real-time software emulator of the ZX Spectrum Next computer, written in C++17. It uses the official ZX Next FPGA core VHDL sources as the authoritative hardware reference.
+JNEXT is a real-time software emulator of the ZX Spectrum Next computer, written in C++17. It uses the official ZX Next FPGA core VHDL sources as the authoritative hardware reference. The main goal is to have a _good enough_ emulator to allow comfortable game development for the Next, and a good debugger with lots of introspection features.
+
+Specifically, _extremely faithful emulation_ of the ZX Next is **not the main goal** of this emulator. But indeed having the VHDL sources available makes it easier to know the expected behaviour.
 
 **Current Status: ALPHA** — features still being actively developed. Issues and pull requests are welcome.
 
