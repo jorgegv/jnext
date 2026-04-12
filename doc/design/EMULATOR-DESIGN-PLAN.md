@@ -1005,11 +1005,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [ ] Manual verification needed (moved to `interactive`):
   - [ ] 06-dapr-keyb - currently not working OK
-  - [ ] 97-dapr-joystick - currently not working OK
-  - [x] 08-dapr-covox - currently not working OK
-  - [x] 09-dapr-videoint - currently not working OK
-  - [x] 11-dapr-isometric - currently not working OK
-  - [ ] dapr-mathfunc - currently not working OK
+  - [ ] 07-dapr-joystick - currently not working OK
+  - [x] 08-dapr-covox - verified and fixed - ZesarUX bug
+  - [x] 09-dapr-videoint - verified and fixed - ZesarUX bug
+  - [x] 11-dapr-isometric - verified and fixed
+  - [x] dapr-mathfunc - verified and fixed - Works the same in JNext, ZesarUX and CSpect
 
 - [ ] Generate full testing plan:
   - [ ] Unit test plan, per module

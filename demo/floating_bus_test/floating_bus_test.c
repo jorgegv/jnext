@@ -62,8 +62,12 @@ int main(void) {
     intrinsic_ei();
     intrinsic_halt();
 
-    /* Small delay to get into active display area */
-    for (i = 0; i < 100; i++) {
+    /* Delay to get into active display area.
+     * After HALT + IM1 ISR (~2000 T), we're at vc≈10.
+     * Active pixel fetches start at vc≈64 (48K top border = 64 lines).
+     * Need ~54 lines × 228 T/line ≈ 12312 T.  Each loop iteration
+     * is ~30 T, so ~420 iterations puts us well into active display. */
+    for (i = 0; i < 420; i++) {
         __asm nop __endasm;
     }
 

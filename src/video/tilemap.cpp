@@ -131,6 +131,12 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
 {
     const bool saved = enabled_;
     enabled_ = true;
+    // Use current register values (not per-line snapshots) so the debugger
+    // shows the tilemap with the live scroll position.
+    if (y >= 0 && y < 320) {
+        scroll_x_per_line_[y] = scroll_x_;
+        scroll_y_per_line_[y] = scroll_y_;
+    }
     render_scanline(dst, ula_over_flags, y, ram, palette, render_width);
     enabled_ = saved;
 }
