@@ -76,7 +76,12 @@ public:
     int execute_burst(int max_bytes);
 
     /// Returns true when DMA is actively transferring (CPU should stall).
-    bool is_active() const { return state_ == State::TRANSFERRING; }
+    /// In burst mode, returns false during prescaler wait (CPU runs freely).
+    bool is_active() const { return state_ == State::TRANSFERRING && burst_wait_ == 0; }
+
+    /// Tick the burst prescaler wait counter.  Called each emulator step
+    /// with the number of master clock cycles that just elapsed.
+    void tick_burst_wait(uint64_t master_cycles);
 
     // ── Callbacks ─────────────────────────────────────────────────────
 
@@ -185,6 +190,9 @@ private:
 
     bool     status_at_least_one_ = false;   // status_atleastone
     bool     status_end_of_block_ = false;   // !status_endofblock_n (inverted for clarity)
+
+    // Burst mode prescaler wait (master clock cycles remaining before next byte)
+    int64_t  burst_wait_ = 0;
 
     // ── Write/read state machine ──────────────────────────────────────
 

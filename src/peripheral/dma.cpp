@@ -52,6 +52,8 @@ void Dma::reset() {
     status_at_least_one_ = false;
     status_end_of_block_ = false;
 
+    burst_wait_ = 0;
+
     wr_seq_ = WrSeq::IDLE;
     rd_seq_ = RdSeq::STATUS;
     reg_temp_ = 0;
@@ -574,13 +576,24 @@ int Dma::execute_burst(int max_bytes) {
             break;
         }
 
-        // In burst mode, only transfer one byte per call (prescaler emulation)
+        // In burst mode, transfer one byte then wait for prescaler cycles.
+        // VHDL: waits until DMA_timer_s(13:5) >= prescaler, i.e. prescaler*32 master cycles.
         if (mode_ == 2) {  // burst
+            if (port_b_prescaler_ > 0) {
+                burst_wait_ = static_cast<int64_t>(port_b_prescaler_) * 32;
+            }
             break;
         }
     }
 
     return transferred;
+}
+
+void Dma::tick_burst_wait(uint64_t master_cycles) {
+    if (burst_wait_ > 0) {
+        burst_wait_ -= static_cast<int64_t>(master_cycles);
+        if (burst_wait_ < 0) burst_wait_ = 0;
+    }
 }
 
 void Dma::save_state(StateWriter& w) const
@@ -607,6 +620,7 @@ void Dma::save_state(StateWriter& w) const
     w.write_u16(counter_);
     w.write_bool(status_at_least_one_);
     w.write_bool(status_end_of_block_);
+    w.write_u16(static_cast<uint16_t>(burst_wait_ > 0 ? burst_wait_ : 0));
     w.write_u8(static_cast<uint8_t>(wr_seq_));
     w.write_u8(static_cast<uint8_t>(rd_seq_));
     w.write_u8(reg_temp_);
@@ -637,6 +651,7 @@ void Dma::load_state(StateReader& r)
     counter_             = r.read_u16();
     status_at_least_one_ = r.read_bool();
     status_end_of_block_ = r.read_bool();
+    burst_wait_          = r.read_u16();
     wr_seq_              = static_cast<WrSeq>(r.read_u8());
     rd_seq_              = static_cast<RdSeq>(r.read_u8());
     reg_temp_            = r.read_u8();

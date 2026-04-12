@@ -1401,6 +1401,9 @@ void Emulator::run_frame()
         }
         clock_.tick(master_cycles);
 
+        // Tick DMA burst prescaler (counts down between burst-mode transfers).
+        dma_.tick_burst_wait(master_cycles);
+
         // Check if a data breakpoint was hit during this instruction.
         if (debug_state_.active() && debug_state_.data_bp_hit()) {
             debug_state_.pause();
@@ -1545,6 +1548,7 @@ int Emulator::execute_single_instruction()
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
     }
     clock_.tick(master_cycles);
+    dma_.tick_burst_wait(master_cycles);
 
     // Copper.
     if (copper_.is_running()) {
