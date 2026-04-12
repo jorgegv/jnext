@@ -14,7 +14,7 @@ void s0_init(void)
 {
     tilemap_clear_buf_value(' ');
 
-    u16 sz = 40*30;
+    u16 sz = 40*26;
     u8* tm = (u8*)0x4000;
     u8 tile = 0;
     while (sz--) {
@@ -24,7 +24,7 @@ void s0_init(void)
         tile++;
     }
 
-    print_set_pos(0, 31);
+    print_set_pos(0, 26);
     print_str("SP=");
     print_hex_word(first_sp);
     print_str("~");

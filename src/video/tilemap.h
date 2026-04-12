@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 
 class Ram;
@@ -65,6 +66,20 @@ public:
     void set_enabled(bool en) { enabled_ = en; }
     bool enabled() const { return enabled_; }
 
+    /// Snapshot current scroll values for a given scanline (called per-line).
+    void snapshot_scroll_for_line(int line) {
+        if (line >= 0 && line < 320) {
+            scroll_x_per_line_[line] = scroll_x_;
+            scroll_y_per_line_[line] = scroll_y_;
+        }
+    }
+
+    /// Initialize per-line scroll arrays to current values (called at frame start).
+    void init_scroll_per_line() {
+        scroll_x_per_line_.fill(scroll_x_);
+        scroll_y_per_line_.fill(scroll_y_);
+    }
+
     // Clip window (NextREG 0x1B, 4-write cycle)
     void set_clip_x1(uint8_t v) { clip_x1_ = v; }
     void set_clip_x2(uint8_t v) { clip_x2_ = v; }
@@ -122,6 +137,10 @@ private:
     // Scroll
     uint16_t scroll_x_       = 0;       // 10-bit X scroll
     uint8_t  scroll_y_       = 0;       // 8-bit Y scroll
+
+    // Per-scanline scroll snapshots (for mid-frame scroll changes)
+    std::array<uint16_t, 320> scroll_x_per_line_{};
+    std::array<uint8_t, 320>  scroll_y_per_line_{};
 
     // Clip window
     uint8_t  clip_x1_        = 0;

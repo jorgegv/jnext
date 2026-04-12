@@ -145,8 +145,14 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
 
     const uint8_t transp_idx = palette.tilemap_transparency();
 
+    // Use per-scanline scroll values (captured during the frame loop).
+    const uint16_t line_scroll_x = (y >= 0 && y < 320) ? scroll_x_per_line_[y] : scroll_x_;
+    const uint8_t  line_scroll_y = (y >= 0 && y < 320) ? scroll_y_per_line_[y] : scroll_y_;
+
+
+
     // Compute the absolute Y position with scroll applied (wraps at 256).
-    const int abs_y = (y + scroll_y_) & 0xFF;
+    const int abs_y = (y + line_scroll_y) & 0xFF;
     const int tile_row = abs_y >> 3;       // which tile row (0-31)
     const int pixel_y  = abs_y & 7;        // pixel row within tile (0-7)
 
@@ -200,7 +206,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         } else {
             tilemap_x = screen_x;
         }
-        int abs_x = (tilemap_x + scroll_x_) % wrap_x;
+        int abs_x = (tilemap_x + line_scroll_x) % wrap_x;
 
         // Tile column and pixel within tile (always 8 pixels per tile).
         int tile_col = abs_x / 8;

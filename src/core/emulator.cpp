@@ -1265,6 +1265,10 @@ void Emulator::run_frame()
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
 
+    // Initialize per-line tilemap scroll to current values.
+    // Interrupt handlers may change scroll mid-frame for split-screen effects.
+    tilemap_.init_scroll_per_line();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -1461,9 +1465,10 @@ void Emulator::run_frame()
     }
     frame_cycle_ = frame_end;
 
-    // Snapshot the fallback/border colour for the last scanline.
+    // Snapshot the fallback/border colour and tilemap scroll for the last scanline.
     renderer_.snapshot_fallback_for_line(LINES_PER_FRAME - 1);
     renderer_.ula().snapshot_border_for_line(LINES_PER_FRAME - 1);
+    tilemap_.snapshot_scroll_for_line(LINES_PER_FRAME - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -1684,6 +1689,7 @@ void Emulator::on_scanline(int line)
     if (line > 0) {
         renderer_.snapshot_fallback_for_line(line - 1);
         renderer_.ula().snapshot_border_for_line(line - 1);
+        tilemap_.snapshot_scroll_for_line(line - 1);
     }
 }
 

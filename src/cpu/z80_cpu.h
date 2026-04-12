@@ -73,4 +73,5 @@ private:
     bool             nmi_pending_ = false;
     bool             int_pending_ = false;
     uint8_t          int_vector_  = 0xFF;
+    uint32_t         int_requested_at_ = 0;  // FUSE tstates when /INT was asserted
 };

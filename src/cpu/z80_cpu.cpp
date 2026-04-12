@@ -206,18 +206,30 @@ int Z80Cpu::execute() {
     }
 
     // ── INT ────────────────────────────────────────────────────────────
-    if (int_pending_ && z80.iff1) {
-        Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
-        libspectrum_dword before = tstates;
-        int accepted = fuse_z80_interrupt(int_vector_);
-        sync_regs_from_fuse(regs_);
-        if (accepted) {
+    // Real hardware holds /INT low for ~32 T-states (pulse).  If the CPU
+    // doesn't acknowledge within that window (e.g. interrupts are disabled
+    // inside an ISR), the interrupt is missed.  Without this, a pending
+    // interrupt persists indefinitely and fires the moment EI/RETI re-enables
+    // interrupts — even frames later — breaking programs that call
+    // waitForScanline() inside their ISR.
+    static constexpr uint32_t INT_PULSE_TSTATES = 32;
+    if (int_pending_) {
+        if (tstates - int_requested_at_ > INT_PULSE_TSTATES && !z80.iff1) {
+            // Pulse expired while interrupts were disabled — missed.
             int_pending_ = false;
-            return (int)(tstates - before);
+        } else if (z80.iff1) {
+            Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
+            libspectrum_dword before = tstates;
+            int accepted = fuse_z80_interrupt(int_vector_);
+            sync_regs_from_fuse(regs_);
+            if (accepted) {
+                int_pending_ = false;
+                return (int)(tstates - before);
+            }
+            // If not accepted (e.g. interrupts_enabled_at == tstates), keep
+            // int_pending_ true so the interrupt is retried next cycle.
+            // Fall through to execute one instruction first.
         }
-        // If not accepted (e.g. interrupts_enabled_at == tstates), keep
-        // int_pending_ true so the interrupt is retried next cycle.
-        // Fall through to execute one instruction first.
     }
 
     // ── Z80N interception ──────────────────────────────────────────────
@@ -284,6 +296,7 @@ int Z80Cpu::execute() {
 void Z80Cpu::request_interrupt(uint8_t vector) {
     int_pending_ = true;
     int_vector_  = vector;
+    int_requested_at_ = *fuse_z80_tstates_ptr();
 }
 
 void Z80Cpu::request_nmi() {
@@ -307,6 +320,7 @@ void Z80Cpu::save_state(StateWriter& w) const
     w.write_bool(nmi_pending_);
     w.write_bool(int_pending_);
     w.write_u8(int_vector_);
+    w.write_u32(int_requested_at_);
 }
 
 void Z80Cpu::load_state(StateReader& r)
@@ -324,6 +338,7 @@ void Z80Cpu::load_state(StateReader& r)
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
     int_vector_  = r.read_u8();
+    int_requested_at_ = r.read_u32();
     // FUSE global z80 struct is synced on the next execute() call via
     // sync_fuse_from_regs(regs_) — no explicit sync needed here.
 }
