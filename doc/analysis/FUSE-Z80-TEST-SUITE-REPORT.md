@@ -24,10 +24,10 @@ and memory against expected values.
 
 ## Results Summary
 
-| Category | Tests | Pass | Fail |
-|----------|-------|------|------|
-| Standard Z80 opcodes | 1356 | 1356 | 0 |
-| **Pass rate** | | | **100%** |
+| Category             | Tests | Pass | Fail     |
+|----------------------|-------|------|----------|
+| Standard Z80 opcodes | 1356  | 1356 | 0        |
+| **Pass rate**        |       |      | **100%** |
 
 ---
 
