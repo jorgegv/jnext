@@ -2,7 +2,7 @@
 
 
 # basename for binary
-BASEFN = test07joystick
+BASEFN = test06keyb
 # Final binary
 BIN = $(BASEFN).nex
 # Put all auto generated stuff to this build dir.
@@ -11,9 +11,9 @@ BLDIR = ./build
 CSPECT = $(HOME)/z88dk/cspect/CSpect.exe
 
 # Compiler options
-C_OPTS := +zxn -SO3 -compiler=sdcc -clib=sdcc_iy --list --c-code-in-asm -I../nexlib
+C_OPTS := +zxn -SO3 -compiler=sdcc -clib=sdcc_iy --list --c-code-in-asm -I../../nexlib
 # Linker options
-L_OPTS := +zxn -subtype=nex -v -O3 -m -s -clib=sdcc_iy -L../nexlib -lnexlib -startup=31 -create-app -pragma-include:zpragma.inc
+L_OPTS := +zxn -subtype=nex -v -O3 -m -s -clib=sdcc_iy -L../../nexlib -lnexlib -startup=31 -create-app -pragma-include:zpragma.inc
 
 # List of all .c source files.
 C_SRCS := $(wildcard *.c)
@@ -37,7 +37,7 @@ $(BLDIR)/$(BIN) : build_external $(C_OBJS) $(ASM_OBJS)
 	zcc $(L_OPTS) $(C_OBJS) $(ASM_OBJS) -o $(BLDIR)/$(BASEFN)
 
 build_external :
-	make -C ../nexlib
+	make -C ../../nexlib
 
 all : $(BLDIR)/$(BIN)
 	@du -b $(BLDIR)/*.bin $(BLDIR)/*.nex
@@ -62,6 +62,6 @@ cleanres :
 	rm -f $(BLDIR)/tilemap_manager.asm.o $(BLDIR)/tileset.asm.o
 
 cleanlib :
-	make -C ../nexlib clean
+	make -C ../../nexlib clean
 
 cleanall : clean cleanlib
