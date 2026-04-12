@@ -6,8 +6,10 @@ struct Z80Registers {
     uint16_t AF, BC, DE, HL;
     uint16_t AF2, BC2, DE2, HL2;
     uint16_t IX, IY, SP, PC;
+    uint16_t MEMPTR;           // hidden WZ register
     uint8_t  I, R;
     uint8_t  IFF1, IFF2, IM;
+    uint8_t  Q;                // internal F-assembly register
     bool halted;
 };
 

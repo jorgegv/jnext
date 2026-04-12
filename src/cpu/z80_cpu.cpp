@@ -124,9 +124,11 @@ static void sync_regs_from_fuse(Z80Registers& r) {
     r.PC  = z80.pc.w;
     r.I   = z80.i;
     r.R   = (z80.r7 & 0x80) | (z80.r & 0x7f);
+    r.MEMPTR = z80.memptr.w;
     r.IFF1 = z80.iff1;
     r.IFF2 = z80.iff2;
     r.IM   = z80.im;
+    r.Q    = z80.q;
     r.halted = (z80.halted != 0);
 }
 
@@ -146,9 +148,11 @@ static void sync_fuse_from_regs(const Z80Registers& r) {
     z80.i     = r.I;
     z80.r     = r.R & 0x7f;
     z80.r7    = r.R & 0x80;
+    z80.memptr.w = r.MEMPTR;
     z80.iff1  = r.IFF1;
     z80.iff2  = r.IFF2;
     z80.im    = r.IM;
+    z80.q     = r.Q;
     z80.halted = r.halted ? 1 : 0;
 }
 

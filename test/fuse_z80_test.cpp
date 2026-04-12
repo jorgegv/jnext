@@ -175,10 +175,12 @@ static void apply_state(Z80Cpu& cpu, TestMemory& mem, const TestCase& tc) {
     r.AF = tc.AF; r.BC = tc.BC; r.DE = tc.DE; r.HL = tc.HL;
     r.AF2 = tc.AF2; r.BC2 = tc.BC2; r.DE2 = tc.DE2; r.HL2 = tc.HL2;
     r.IX = tc.IX; r.IY = tc.IY; r.SP = tc.SP; r.PC = tc.PC;
+    r.MEMPTR = tc.MEMPTR;
     r.I = tc.I; r.R = tc.R;
     r.IFF1 = static_cast<uint8_t>(tc.IFF1);
     r.IFF2 = static_cast<uint8_t>(tc.IFF2);
     r.IM = static_cast<uint8_t>(tc.IM);
+    r.Q = 0;  // Q is internal, not in test format — always starts at 0
     r.halted = tc.halted != 0;
     cpu.set_registers(r);
 
