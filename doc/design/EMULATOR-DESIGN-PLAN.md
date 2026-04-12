@@ -1078,6 +1078,8 @@ Easy ones:
   - At points during the test, press a host key combination to save a dump of the screen memory to disk, along with a file containing a list of screenshots and the deterministic, accurate timestamp that the screen capture was triggered.
   - Result: a .TAP/.SNA, a file containing all inputs during the test session with accurate timing, when keys/joystick inputs were pressed/released, a series of screen memory captures, and a file detailing when each screen capture was taken.
   - Then: given a new .TAP/.SNA, load that, and the input file and screens file, and then at each timestamp in the input file, update the input states for the keyboard and joystick. At each timestamp in the screens file, either save the current screen memory for later comparison, or compare the current screen memory to the saved file, report any discrepancies.
+- [ ] Allow selecting and copying assembly code from the ASM view to paste into editors and such (try to make the copy only include the ASM code, and not the addr, the opcode bytes, etc.)
+- [ ] Indicator about where the raster currently is, and if the ULA is reading data
 
 Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
