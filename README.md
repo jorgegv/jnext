@@ -31,7 +31,7 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 
 ## Emulated hardware
 
-- **Z80N CPU** — Standard Z80 plus all 26 Next extended instructions; 98.8% pass rate on FUSE opcode test suite
+- **Z80N CPU** — Standard Z80 plus all 26 Next extended instructions; 100% pass rate on FUSE opcode test suite
 - **ULA** — Standard 48K, Timex hi-colour (8×1 attributes), Timex hi-res (512×192); per-scanline border, floating bus, memory contention
 - **Layer 2** — 256×192, 320×256, and 640×256 @ 8-bit colour; hardware X/Y scroll
 - **Hardware sprites** — 128 sprites, 16×16, 8-bit/4-bit colour, ×1/×2/×4/×8 scaling, composite anchoring
@@ -251,7 +251,7 @@ Override the ROM directory with `--roms-directory DIR`.
 
 ## Automated testing
 
-A full regression test suite runs the FUSE Z80 opcode tests (1340/1356 pass, 98.8%) and screenshot comparison tests in headless mode:
+A full regression test suite runs the FUSE Z80 opcode tests (1356/1356 pass, 100%) and screenshot comparison tests in headless mode:
 
 ```sh
 make regression

@@ -49,7 +49,7 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 ./build/test/fuse_z80_test build/test/fuse
 ```
 
-Result: 1340/1356 pass (98.8%). See `doc/FUSE-Z80-TEST-SUITE-REPORT.md` for details on the 16 failures (all undocumented Z80 behaviors).
+Result: 1356/1356 pass (100%).
 
 ### Full regression test suite
 

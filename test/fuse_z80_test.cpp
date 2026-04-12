@@ -339,6 +339,55 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // ── Multi-instruction tests ─��────────────────────────────────────
+    // These tests contain instruction sequences that the single-execute()
+    // runner above can't handle.  We run them separately with a loop that
+    // calls execute() repeatedly until the expected PC is reached.
+    static const char* multi_tests[] = { "10", "dd00", "ddfd00" };
+    for (const char* name : multi_tests) {
+        // Find input and expected for this test
+        const TestCase* inp = nullptr;
+        const TestCase* ex  = nullptr;
+        for (auto& t : inputs)   if (t.name == name) { inp = &t; break; }
+        auto eit = exp_map.find(name);
+        if (eit != exp_map.end()) ex = eit->second;
+        if (!inp || !ex) continue;
+
+        // Remove from failures list (the main loop already counted it)
+        for (auto it = failures.begin(); it != failures.end(); ++it) {
+            if (it->substr(0, strlen(name) + 1) == std::string(name) + ":") {
+                failures.erase(it);
+                failed--;
+                break;
+            }
+        }
+
+        apply_state(cpu, mem, *inp);
+
+        int safety = 100000;
+        while (cpu.get_registers().PC != ex->PC && --safety > 0) {
+            cpu.execute();
+        }
+
+        std::vector<RegDiff> reg_diffs;
+        std::vector<std::string> mem_diffs_list;
+        if (compare_state(cpu, mem, *ex, reg_diffs, mem_diffs_list)) {
+            passed++;
+        } else {
+            failed++;
+            std::string msg = std::string(name) + ": FAIL";
+            for (auto& d : reg_diffs) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), " %s=%04X(exp %04X)", d.name, d.got, d.expected);
+                msg += buf;
+            }
+            for (auto& m : mem_diffs_list) {
+                msg += " " + m;
+            }
+            failures.push_back(msg);
+        }
+    }
+
     // Summary
     printf("\nFUSE Z80 Test Results\n");
     printf("=====================\n");

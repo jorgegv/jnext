@@ -2,7 +2,7 @@
 
 ## Machine emulation
 - ZX Spectrum 48K, 128K, +2A/+3, Pentagon, and ZX Spectrum Next machine types
-- FUSE-based Z80 core with all standard opcodes (98.8% pass rate on FUSE test suite)
+- FUSE-based Z80 core with all standard opcodes (100% pass rate on FUSE test suite)
 - All 26 Z80N extended opcodes (NEXTREG, MUL, LDIRX, barrel shifts, etc.)
 - Accurate memory contention for 48K, 128K, +3, and Pentagon timing models
 - IM1/IM2 interrupt controller with all 14 Next interrupt levels
