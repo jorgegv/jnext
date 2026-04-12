@@ -102,7 +102,7 @@ ORDERED_TESTS=()
 
 while IFS= read -r line; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    read -r test_name machine_type nex_file delay_secs <<< "$line"
+    read -r test_name machine_type nex_file delay_secs extra_args <<< "$line"
 
     # Filter if specific tests requested
     if [[ ${#FILTER_TESTS[@]} -gt 0 ]]; then
@@ -129,6 +129,12 @@ while IFS= read -r line; do
 
     if [[ "$nex_file" != "BOOT" ]]; then
         cmd+=("--load" "$PROJECT_DIR/$nex_file")
+    fi
+
+    # Append extra CLI arguments (e.g. --delayed-keypress 2 0)
+    if [[ -n "$extra_args" ]]; then
+        read -ra extra_array <<< "$extra_args"
+        cmd+=("${extra_array[@]}")
     fi
 
     # Launch in background
@@ -265,7 +271,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     if [[ -f "$rzx_file" ]]; then
         # Check file starts with RZX! magic signature
         magic=$(xxd -l 4 -p "$rzx_file" 2>/dev/null)
-        frame_count=$(echo "$rzx_output" | grep -oP '\d+ frames' | grep -oP '^\d+' || true)
+        frame_count=$(echo "$rzx_output" | grep -oP 'RZX:.*?\K\d+(?= frames)' || true)
         if [[ "$magic" == "525a5821" ]]; then
             echo -e "${GREEN}PASS${RESET} (valid RZX file, ${frame_count:-?} frames)"
             pass=$((pass + 1))

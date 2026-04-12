@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 #include <cstdint>
 #include "screenshot.h"
 #include "core/emulator.h"
@@ -25,6 +26,10 @@ public:
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
+
+    /// Schedule a keypress after a delay (for menu-driven tests in headless mode).
+    /// key is a character like '0'-'9', 'a'-'z', or special names.
+    void set_delayed_keypress(char key, int delay_seconds);
 
 private:
     Emulator emulator_;
@@ -52,6 +57,13 @@ private:
     bool           tape_realtime_ = false;
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
+
+    // Pending --delayed-keypress state
+    struct DelayedKey {
+        char key;
+        int countdown;  // in frames
+    };
+    std::vector<DelayedKey> delayed_keys_;
 
     static constexpr int NATIVE_W = 320;
     static constexpr int NATIVE_H = 256;

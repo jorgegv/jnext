@@ -53,11 +53,13 @@ void main(void)
     // print_set_attr(4);
     // print_set_color(2);
 
-    static u16 frame = 0;
+    // Use fixed test values so output is deterministic for screenshot testing.
+    // Each value exercises different bit patterns across the print functions.
+    static const u16 test_values[] = { 0x94, 0x4A, 0x25, 0x12, 0x09, 0x04, 0x02, 0x01 };
 
     while(1) {
         waitForScanline(255);
-        u16 u16val = frame;
+        u16 u16val;
 
         u8 y = 3;
 
@@ -76,134 +78,56 @@ void main(void)
         ///////////////////////////////////////
         print_set_pos(0, y++);
         print_str("str_hex_for_u8 : ");
-        print_str(str_hex_for_u8(u16val));
+        for (u8 i = 0; i < 8; i++) {
+            if (i) print_char(' ');
+            print_str(str_hex_for_u8(test_values[i]));
+        }
 
         ///////////////////////////////////////
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_str(str_hex_for_u8(u16val));
-
-        ///////////////////////////////////////
-
-        u16val = frame;
         print_set_pos(0, y++);
-
         print_str("print_hex_byte : ");
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_hex_byte(u16val);
+        for (u8 i = 0; i < 8; i++) {
+            if (i) print_char(' ');
+            print_hex_byte(test_values[i]);
+        }
 
         ///////////////////////////////////////
-        u16val = frame;
-
         print_set_pos(0, y++);
         print_str("str_hex_for_u16: ");
+        u16val = 0x0094;
         print_str(str_hex_for_u16(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
+        print_str("  ");
+        u16val = 0x004A;
         print_str(str_hex_for_u16(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
+        print_str("  ");
+        u16val = 0x0025;
         print_str(str_hex_for_u16(u16val));
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
+        print_str("  ");
+        u16val = 0x0012;
         print_str(str_hex_for_u16(u16val));
 
         ///////////////////////////////////////
-        u16val = frame;
-
         print_set_pos(0, y++);
         print_str("print_hex_word : ");
-        print_hex_word(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
-        print_hex_word(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
-        print_hex_word(u16val);
-
-        u16val >>= 1;
-        print_char(' ');
-        print_char(' ');
-        print_hex_word(u16val);
+        print_hex_word(0x0094);
+        print_str("  ");
+        print_hex_word(0x004A);
+        print_str("  ");
+        print_hex_word(0x0025);
+        print_str("  ");
+        print_hex_word(0x0012);
 
         ///////////////////////////////////////
-        u16val = frame;
-
         print_set_pos(0, y++);
         print_str("str_bin_for_u8 : ");
-        print_str(str_bin_for_u8(u16val));
-
-        u16val >>= 5;
+        print_str(str_bin_for_u8(0x94));
         print_char(' ');
-        print_str(str_bin_for_u8(u16val));
+        print_str(str_bin_for_u8(0x04));
 
         ///////////////////////////////////////
-        u16val = frame;
-
         print_set_pos(0, y++);
         print_str("str_bin_for_u16: ");
-        print_str(str_bin_for_u16(u16val));
+        print_str(str_bin_for_u16(0x0094));
 
         ///////////////////////////////////////
         print_set_pos(0, y++);
@@ -259,14 +183,5 @@ void main(void)
         print_dec_word(40320);
  
  
-        ///////////////////////////////////////
-
-        ///////////////////////////////////////
-        ///////////////////////////////////////
-        ///////////////////////////////////////
-        ///////////////////////////////////////
-
-        frame++;
-
     }
 }

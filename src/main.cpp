@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <string>
+#include <vector>
 #include <type_traits>
 
 #include "platform/headless_app.h"
@@ -49,6 +50,7 @@ static void print_usage(const char* prog) {
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
         "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 500, 0=off)\n"
+        "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
         "  --version               Print version and exit\n",
         prog);
 }
@@ -92,6 +94,8 @@ int main(int argc, char* argv[]) {
     std::string rzx_record_file;
     int         speed_percent = 100;
     int         rewind_buffer_frames = 500;
+    struct DelayedKeyArg { int delay; char key; };
+    std::vector<DelayedKeyArg> delayed_keys;
 
     // Parse command-line arguments.
     for (int i = 1; i < argc; ++i) {
@@ -158,6 +162,13 @@ int main(int argc, char* argv[]) {
             speed_percent = std::stoi(argv[++i]);
             if (speed_percent < 10) speed_percent = 10;
             if (speed_percent > 1000) speed_percent = 1000;
+        } else if (arg == "--delayed-keypress" && i + 2 < argc) {
+            int dk_delay = std::stoi(argv[++i]);
+            std::string dk_key = argv[++i];
+            if (!dk_key.empty()) {
+                char k = static_cast<char>(std::tolower(static_cast<unsigned char>(dk_key[0])));
+                delayed_keys.push_back({dk_delay, k});
+            }
         } else if (arg == "--rewind-buffer-size" && i + 1 < argc) {
             rewind_buffer_frames = std::stoi(argv[++i]);
             if (rewind_buffer_frames < 0) rewind_buffer_frames = 0;
@@ -263,6 +274,9 @@ int main(int argc, char* argv[]) {
     int result;
     if (headless) {
         HeadlessApp app;
+        for (auto& dk : delayed_keys) {
+            app.set_delayed_keypress(dk.key, dk.delay);
+        }
         result = configure_and_run(app);
     } else {
 #ifdef ENABLE_QT_UI
