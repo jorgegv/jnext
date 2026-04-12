@@ -25,6 +25,12 @@ target_include_directories(z80n_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/z80n/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/z80n/)
 add_test(NAME z80n_tests COMMAND z80n_test ${CMAKE_CURRENT_BINARY_DIR}/z80n)
 
+# Copper coprocessor compliance test
+add_executable(copper_test copper/copper_test.cpp)
+target_link_libraries(copper_test PRIVATE jnext_peripheral jnext_port)
+target_include_directories(copper_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME copper_tests COMMAND copper_test)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
