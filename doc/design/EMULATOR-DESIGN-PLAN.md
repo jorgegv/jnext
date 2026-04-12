@@ -1011,6 +1011,30 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] 11-dapr-isometric - verified and fixed
   - [x] dapr-mathfunc - verified and fixed - Works the same in JNext, ZesarUX and CSpect
 
+- [ ] For each emulator module, do an exhaustive analysis of VHDL code for that module and all its functions and modes, generate a test plan for VHDL->Code compliance check. DO NOT, UNDER ANY CIRCUMSTANCE, USE THE EXISTING C++ CODE AS A REFERENCE FOR THE TESTS! We need the tests for verifying the C++ code! - Subsystems to generate test plans for:
+  - [x] Z80N processor (78/78 tests, VHDL-derived — found and fixed 5 bugs)
+  - [ ] Memory — MMU & RAM (bank mapping, slot configuration, contention timing, ROM selection)
+  - [ ] ULA Video (attribute rendering, border, flash, contention, floating bus, clip windows)
+  - [ ] Layer 2 (all resolutions: 256x192, 320x256, 640x256; scrolling, palettes, transparency)
+  - [ ] Sprites (patterns, attributes, 4-bit/8-bit modes, scaling, mirroring/rotation, anchor, clip window)
+  - [ ] Tilemap (8-bit/4-bit modes, 40/80 column, scrolling, transparency, ULA-over-tilemap)
+  - [ ] Copper (instruction decoding, WAIT/MOVE, timing, control register modes)
+  - [ ] Compositor (layer priority, transparency, fallback colour, palette mixing)
+  - [ ] Audio — AY/YM2149 (register I/O, envelope, channel mixing, turbosound)
+  - [ ] Audio — DAC (channel selection, sample output, mono/stereo)
+  - [ ] Audio — Beeper (1-bit output, timing)
+  - [ ] DMA (Z80-DMA compat, ZXN burst mode, transfer modes, bus arbitration)
+  - [ ] DivMMC (automap trigger/deactivation, bank mapping, conmem/mapram, ROM overlay)
+  - [ ] SPI / SD card (byte exchange protocol, CS signaling, pipeline delay)
+  - [ ] CTC (timer/counter modes, daisy chain, interrupt generation)
+  - [ ] UART (RX/TX FIFO, baud rate, ESP/Pi channels)
+  - [ ] I2C / RTC (bit-bang protocol, DS1307 register map)
+  - [ ] NextREG (register read/write, all register behaviors, reset defaults)
+  - [ ] I/O Port Dispatch (port decoding, active device selection, Next-specific ports)
+  - [ ] Keyboard (half-row scanning, extended keys, PS/2 protocol)
+  - [ ] Joystick (Kempston, Sinclair, MD protocol, I/O mapping)
+  - [ ] Interrupt controller (IM0/1/2, line interrupt, ULA interrupt, CTC interrupt, DMA interrupt, priorities)
+
 - [ ] Generate full testing plan:
   - [ ] Unit test plan, per module
   - [ ] Integration test plan, between modules
@@ -1018,7 +1042,6 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] CI golden-output visual regression tests
 - [ ] General code refactor and tidy up (/simplify)
 - [ ] Replacement of magic number with named constants where possible
-- [ ] Global analysis of code, module by module, ensure alignment with VHDL source, document each module for easy reference for CLAUDE
 - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
   - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
