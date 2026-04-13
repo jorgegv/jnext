@@ -6,26 +6,26 @@
 | 19/3   | 4h   | Phases 1,2,3                                                                               |
 | 20/3   | 4h   | Phases 3,3.5,4,5                                                                           |
 | 21/3   | 3h   | Phases 3,4,5                                                                               |
-|        | 2h   | Graphics Debugging                                                                         |
-|        | 1h   | QT GUI                                                                                     |
-| 22/3   | 2h   | QT GUI                                                                                     |
-|        | 1h   | DAC Sound debugging                                                                        |
-|        | 4.5h | Debugger Implementation                                                                    |
-| 28/3   | 4h   | Debugger implementation                                                                    |
-| 29/3   | 2h   | DivMMC/SPI debugging                                                                       |
-|        | 6h   | NextZXOS boot debugging                                                                    |
-| 31/3   | 4h   | NextZXOS boot debugging                                                                    |
-| 5/4    | 3h   | Phase 7.8 , test suite                                                                     |
-| 6/4    | 8h   | Phase 7.8, new video modes, new file formats                                               |
-|        | 2h   | Phase 7.8, SNA/SZX/WAV loaders, README                                                     |
+|        | 2h   | Phase 3: Graphics Debugging                                                                |
+|        | 1h   | Phase 6: QT GUI                                                                            |
+| 22/3   | 2h   | Phase 6:QT GUI                                                                             |
+|        | 1h   | Phase 5: DAC Sound debugging                                                               |
+|        | 4.5h | Phase 7: Debugger Implementation                                                           |
+| 28/3   | 4h   | Phase 7: Debugger implementation                                                           |
+| 29/3   | 2h   | Phase 10: DivMMC/SPI debugging                                                             |
+|        | 6h   | Phase 10: NextZXOS boot debugging                                                          |
+| 31/3   | 4h   | Phase 10: NextZXOS boot debugging                                                          |
+| 5/4    | 3h   | Phase 7.8: test suite                                                                      |
+| 6/4    | 8h   | Phase 7.8: new video modes, new file formats                                               |
+|        | 2h   | Phase 7.8: SNA/SZX/WAV loaders, README                                                     |
 | 7/4    | 8h   | Phase 8: magic BP/port, RZX, video recording, General UI, Debugger enhancements, bug fixes |
 | 8/4    | 4h   | Phase 8: Video panel redesign and Subpanels, fixes                                         |
 | 9/4    | 1.5h | Phase 8: Backward execution design, implementation plan                                    |
 |        |      | Phase 11: Scriptable debugger design, implementation plan                                  |
 | 10/4   | 4h   | Phase 8: Backward execution GUI (Step Back, Frame Back, rewind slider, status bar, sync)   |
 |        | 1h   | Public release preparation                                                                 |
-| 11/4   | 4h   | Bug fixes: palette index, 4-bit sprites, floating bus, ULA clip, tilemap 80-col            |
-| 12/4   | 8h   | FUSE 100%, Z80N test suite (78/78), 15 VHDL test plans, Copper+MMU test runners            |
-| 13/4   | 4h   | Z80 timing fix (3 root causes), contention, internal Z80N core feasibility plan            |
+| 11/4   | 4h   | Phase 9: Bug fixes: palette index, 4-bit sprites, floating bus, ULA clip, tilemap 80-col   |
+| 12/4   | 8h   | Phase 9: FUSE 100%, Z80N test suite (78/78), 15 VHDL test plans, Copper+MMU test runners   |
+| 13/4   | 4h   | Phase 9: Z80 timing fix (3 root causes), contention, internal Z80N core feasibility plan   |
 |        |      |                                                                                            |
 | TOTAL: | 88h  |                                                                                            |
