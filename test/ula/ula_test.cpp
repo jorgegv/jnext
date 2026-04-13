@@ -567,8 +567,8 @@ static void test_timing_constants() {
     timing.init(MachineType::ZX48K);
     int tstates_48k = timing.hc_max() * timing.vc_max() / 2;
     check("S13.01", "48K pixels/line",
-          timing.hc_max() == 456,
-          DETAIL("got %d, exp 456 (VHDL says 448)", timing.hc_max()));
+          timing.hc_max() == 448,
+          DETAIL("got %d, exp 448 (VHDL c_max_hc=447)", timing.hc_max()));
     check("S13.02", "48K lines/frame",
           timing.vc_max() == 312,
           DETAIL("got %d, exp 312", timing.vc_max()));

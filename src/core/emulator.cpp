@@ -23,8 +23,10 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {}
 bool Emulator::init(const EmulatorConfig& cfg)
 {
     config_ = cfg;
-    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={}",
-                          static_cast<int>(cfg.type), cpu_speed_str(cfg.cpu_speed));
+    timing_ = machine_timing(cfg.type);
+    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={} lines={} tstates/line={}",
+                          static_cast<int>(cfg.type), cpu_speed_str(cfg.cpu_speed),
+                          timing_.lines_per_frame, timing_.tstates_per_line);
 
     // Apply CPU speed to the clock.
     clock_.reset();
@@ -94,6 +96,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // (emulator_config.h now includes contention.h for this definition).
     contention_.build(cfg.type);
 
+    // Build FUSE Z80 core's internal contention tables.  These provide
+    // per-access contention for opcode fetches, data reads/writes, and
+    // internal timing delays — matching real hardware more accurately
+    // than the external callback approach.
+    z80_build_contention_tables(cfg.type);
+
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing
     // double-fired writes (breaking auto-increment ports like sprites/palette).
@@ -104,25 +112,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
         return floating_bus_read();
     });
 
-    // Memory contention: add wait states for each read/write to contended
-    // addresses during instruction execution. The delay is added directly
-    // to the FUSE tstates counter so it's included in the instruction's
-    // total T-state count returned by execute().
-    cpu_.on_contention = [this](uint16_t addr) {
-        if (contention_.is_contended_address(addr)) {
-            // Compute position within frame using FUSE tstates counter.
-            // tstates is a global monotonic counter; frame_ts_start_ is its
-            // value at the beginning of run_frame(). The delta gives us the
-            // number of T-states elapsed within the current frame.
-            uint32_t ts_in_frame = *fuse_z80_tstates_ptr() - frame_ts_start_;
-            uint64_t master_in_frame = static_cast<uint64_t>(ts_in_frame) * clock_.cpu_divisor();
-            int vc = static_cast<int>(master_in_frame / MASTER_CYCLES_PER_LINE);
-            int hc = static_cast<int>((master_in_frame % MASTER_CYCLES_PER_LINE) / 2);
-            int delay = contention_.delay(static_cast<uint16_t>(hc),
-                                           static_cast<uint16_t>(vc));
-            if (delay > 0) *fuse_z80_tstates_ptr() += delay;
-        }
-    };
+    // Memory contention is now handled by the FUSE Z80 core's built-in
+    // contend_read/contend_write macros (ula_contention[] tables).
+    // No external callback needed.
+    cpu_.on_contention = nullptr;
 
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
     // overlay is active for the same M1 read that triggered it (matching
@@ -365,12 +358,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Returns the current raster line (vc) relative to display start.
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
         uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
         return static_cast<uint8_t>((vc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
         uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
         return static_cast<uint8_t>(vc & 0xFF);
     });
 
@@ -1211,18 +1204,20 @@ void Emulator::run_frame()
         rewind_buffer_->take_snapshot(*this, frame_cycle_, frame_num_++);
     }
 
-    const uint64_t frame_end = frame_cycle_ + MASTER_CYCLES_PER_FRAME;
-    frame_ts_start_ = *fuse_z80_tstates_ptr();
+    const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
-    // Schedule the ULA frame interrupt at vc=1 (the line immediately after
-    // vsync/sync area).  In 48K timing: vc=1, hc=0 corresponds to 1 line
-    // into the frame.  One line = 228 T-states; at 28 MHz that is
-    // 228 * 8 = 1824 master cycles (cpu_divisor=8 at 3.5 MHz).
-    // The 48K ROM runs in IM1; the vector 0xFF calls RST 0x38 which scans
-    // the keyboard and drives the BASIC main loop.
-    static constexpr uint64_t INT_FIRE_OFFSET = 1ULL * 228 * 8;  // vc=1, hc=0
+    // Reset FUSE tstates counter to 0 at frame start.  The FUSE Z80 core's
+    // built-in contention macros index ula_contention[tstates], so tstates
+    // must be relative to the frame start (0 = first T-state of frame).
+    *fuse_z80_tstates_ptr() = 0;
+    frame_ts_start_ = 0;
+
+    // Schedule the ULA frame interrupt at vc=1, hc=0.
+    // One line = timing_.tstates_per_line T-states; at 28 MHz that is
+    // tstates_per_line * 8 master cycles.
+    const uint64_t int_fire_offset = 1ULL * timing_.tstates_per_line * 8;
     if (!ula_int_disabled_) {
-        scheduler_.schedule(frame_cycle_ + INT_FIRE_OFFSET, EventType::CPU_INT,
+        scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
                 cpu_.request_interrupt(0xFF);
                 im2_int_status_[0] |= 0x01;  // ULA interrupt status
@@ -1230,9 +1225,9 @@ void Emulator::run_frame()
     }
 
     // Schedule line interrupt if enabled.
-    if (line_int_enabled_ && line_int_value_ < static_cast<uint16_t>(LINES_PER_FRAME)) {
+    if (line_int_enabled_ && line_int_value_ < static_cast<uint16_t>(timing_.lines_per_frame)) {
         uint64_t line_cycle = frame_cycle_ +
-            static_cast<uint64_t>(line_int_value_) * MASTER_CYCLES_PER_LINE;
+            static_cast<uint64_t>(line_int_value_) * timing_.master_cycles_per_line;
         scheduler_.schedule(line_cycle, EventType::CPU_INT,
             [this]() {
                 im2_.raise(Im2Level::LINE_IRQ);
@@ -1423,10 +1418,10 @@ void Emulator::run_frame()
         // layout the active display starts at row DISP_Y (32).
         if (copper_.is_running()) {
             uint64_t elapsed = clock_.get() - frame_cycle_;
-            int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
-            int hc = static_cast<int>(elapsed % MASTER_CYCLES_PER_LINE);
+            int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+            int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
             // Convert raw vc to copper vc: cvc=0 at first display line.
-            int cvc = (vc - Renderer::DISP_Y + LINES_PER_FRAME) % LINES_PER_FRAME;
+            int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
             copper_.execute(hc, cvc, nextreg_);
         }
 
@@ -1459,16 +1454,16 @@ void Emulator::run_frame()
     // can show a meaningful position when Break is pressed between frames.
     {
         uint64_t elapsed = clock_.get() - frame_cycle_;
-        last_frame_vc_ = std::min(static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE),
-                                  LINES_PER_FRAME - 1);
-        last_frame_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+        last_frame_vc_ = std::min(static_cast<int>(elapsed / timing_.master_cycles_per_line),
+                                  timing_.lines_per_frame - 1);
+        last_frame_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
     }
     frame_cycle_ = frame_end;
 
     // Snapshot the fallback/border colour and tilemap scroll for the last scanline.
-    renderer_.snapshot_fallback_for_line(LINES_PER_FRAME - 1);
-    renderer_.ula().snapshot_border_for_line(LINES_PER_FRAME - 1);
-    tilemap_.snapshot_scroll_for_line(LINES_PER_FRAME - 1);
+    renderer_.snapshot_fallback_for_line(timing_.lines_per_frame - 1);
+    renderer_.ula().snapshot_border_for_line(timing_.lines_per_frame - 1);
+    tilemap_.snapshot_scroll_for_line(timing_.lines_per_frame - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -1496,7 +1491,7 @@ void Emulator::run_frame()
 int Emulator::current_scanline() const
 {
     uint64_t elapsed = clock_.get() - frame_cycle_;
-    return static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
+    return static_cast<int>(elapsed / timing_.master_cycles_per_line);
 }
 
 int Emulator::current_hc() const
@@ -1505,7 +1500,7 @@ int Emulator::current_hc() const
     // 28 MHz master / 4 = 7 MHz pixel clock → 1 pixel = 4 master cycles.
     // phc runs 0..447 (48K) or 0..455 (other modes) per line.
     uint64_t elapsed = clock_.get() - frame_cycle_;
-    return static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+    return static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
 }
 
 void Emulator::snapshot_raster()
@@ -1517,8 +1512,8 @@ void Emulator::snapshot_raster()
     // frame.  The old "between frames" workaround that returned last_frame_vc_
     // caused the EOSL step from VC=255 to land at VC=1 instead of VC=0.
     uint64_t elapsed = clock_.get() - frame_cycle_;
-    paused_vc_ = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
-    paused_hc_ = static_cast<int>((elapsed % MASTER_CYCLES_PER_LINE) / 4);
+    paused_vc_ = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+    paused_hc_ = static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
 }
 
 int Emulator::execute_single_instruction()
@@ -1558,9 +1553,9 @@ int Emulator::execute_single_instruction()
     // Copper.
     if (copper_.is_running()) {
         uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / MASTER_CYCLES_PER_LINE);
-        int hc = static_cast<int>(elapsed % MASTER_CYCLES_PER_LINE);
-        int cvc = (vc - Renderer::DISP_Y + LINES_PER_FRAME) % LINES_PER_FRAME;
+        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+        int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
+        int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
         copper_.execute(hc, cvc, nextreg_);
     }
 
@@ -1615,9 +1610,9 @@ void Emulator::reset()
 void Emulator::schedule_frame_events()
 {
     // Schedule one SCANLINE event per line and a VSYNC at the frame boundary.
-    for (int line = 0; line < LINES_PER_FRAME; ++line) {
+    for (int line = 0; line < timing_.lines_per_frame; ++line) {
         const uint64_t line_cycle =
-            frame_cycle_ + static_cast<uint64_t>(line) * MASTER_CYCLES_PER_LINE;
+            frame_cycle_ + static_cast<uint64_t>(line) * timing_.master_cycles_per_line;
 
         scheduler_.schedule(line_cycle, EventType::SCANLINE,
             [this, line]() { on_scanline(line); });
@@ -1625,7 +1620,7 @@ void Emulator::schedule_frame_events()
 
     // VSYNC fires at the very end of the frame.
     scheduler_.schedule(
-        frame_cycle_ + MASTER_CYCLES_PER_FRAME,
+        frame_cycle_ + timing_.master_cycles_per_frame,
         EventType::VSYNC,
         [this]() { on_vsync(); });
 }
@@ -1646,8 +1641,8 @@ uint8_t Emulator::floating_bus_read() const
     //   First 128 T-states: ULA fetches pixel/attribute data.
     //   Last 100 T-states: border (bus idle = 0xFF).
     //   Active display: lines 64-255 (192 pixel lines).
-    int line = tstates_in_frame / TSTATES_PER_LINE;
-    int tstate_in_line = tstates_in_frame % TSTATES_PER_LINE;
+    int line = tstates_in_frame / timing_.tstates_per_line;
+    int tstate_in_line = tstates_in_frame % timing_.tstates_per_line;
 
     // Outside active display area: border, bus is idle
     if (line < 64 || line >= 256 || tstate_in_line >= 128)

@@ -217,6 +217,7 @@ public:
     int execute_single_instruction();
 
     const EmulatorConfig& config() const { return config_; }
+    const MachineTiming& timing() const { return timing_; }
 
     // -----------------------------------------------------------------------
     // State serialisation (used by RewindBuffer)
@@ -275,6 +276,7 @@ private:
     static constexpr int FRAMEBUFFER_PIXELS_MAX = FRAMEBUFFER_WIDTH_MAX * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
+    MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;
     Scheduler      scheduler_;
 

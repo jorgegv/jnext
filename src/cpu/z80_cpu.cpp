@@ -30,6 +30,13 @@ extern "C" {
 #include "fuse_z80_shim.h"
 }
 
+// ── FUSE built-in contention data (defined here, declared in shim) ──────
+
+memory_page_entry_t memory_map_read[8]  = {};
+memory_page_entry_t memory_map_write[8] = {};
+libspectrum_dword ula_contention[ULA_CONTENTION_TABLE_SIZE]        = {};
+libspectrum_dword ula_contention_no_mreq[ULA_CONTENTION_TABLE_SIZE] = {};
+
 // ── Memory/IO callback state ────────────────────────────────────────────
 
 // The FUSE opcode files call readbyte/writebyte/readport/writeport which
@@ -44,13 +51,29 @@ static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
 
 extern "C" {
 
-libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
-    if (s_contention_cb && *s_contention_cb) (*s_contention_cb)(address);
+// Raw memory read — no timing, no contention.  Used for opcode fetches
+// where contend_read() already handled the timing.
+libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address) {
     return s_mem->read(address);
 }
 
+// Data memory read — adds contention + 3 T-states, matching original FUSE
+// readbyte() from memory_pages.c.  Used for instruction data operands.
+libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
+    libspectrum_word bank = address >> MEMORY_PAGE_SIZE_LOGARITHM;
+    if (memory_map_read[bank].contended)
+        tstates += ula_contention[tstates];
+    tstates += 3;
+    return s_mem->read(address);
+}
+
+// Data memory write — adds contention + 3 T-states, matching original FUSE
+// writebyte() from memory_pages.c.
 void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
-    if (s_contention_cb && *s_contention_cb) (*s_contention_cb)(address);
+    libspectrum_word bank = address >> MEMORY_PAGE_SIZE_LOGARITHM;
+    if (memory_map_write[bank].contended)
+        tstates += ula_contention[tstates];
+    tstates += 3;
     s_mem->write(address, b);
 }
 
@@ -58,11 +81,47 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
 libspectrum_dword* fuse_z80_tstates_ptr(void) { return &tstates; }
 
 libspectrum_byte fuse_z80_readport(libspectrum_word port) {
-    return s_io->in(port);
+    // Port pre-I/O: 1 T-state (+ ULA contention if port in 0x4000-0x7FFF)
+    if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
+        tstates += ula_contention[tstates];
+    tstates++;
+    libspectrum_byte val = s_io->in(port);
+    // Port post-I/O: 3 T-states (+ ULA contention patterns)
+    if (port & 0x0001) {
+        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended) {
+            tstates += ula_contention[tstates]; tstates++;
+            tstates += ula_contention[tstates]; tstates++;
+            tstates += ula_contention[tstates]; tstates++;
+        } else {
+            tstates += 3;
+        }
+    } else {
+        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
+            tstates += ula_contention[tstates];
+        tstates += 3;
+    }
+    return val;
 }
 
 void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
+    // Same port timing as readport.
+    if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
+        tstates += ula_contention[tstates];
+    tstates++;
     s_io->out(port, b);
+    if (port & 0x0001) {
+        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended) {
+            tstates += ula_contention[tstates]; tstates++;
+            tstates += ula_contention[tstates]; tstates++;
+            tstates += ula_contention[tstates]; tstates++;
+        } else {
+            tstates += 3;
+        }
+    } else {
+        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
+            tstates += ula_contention[tstates];
+        tstates += 3;
+    }
 }
 
 } // extern "C"
@@ -347,4 +406,59 @@ void Z80Cpu::load_state(StateReader& r)
     int_requested_at_ = r.read_u32();
     // FUSE global z80 struct is synced on the next execute() call via
     // sync_fuse_from_regs(regs_) — no explicit sync needed here.
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Contention table builder — populates FUSE's ula_contention[] and
+// memory_map_read[]/write[] for the built-in contend_read macros.
+// ══════════════════════════════════════════════════════════════════════════
+
+#include "memory/contention.h"
+#include "core/emulator_config.h"
+
+void z80_build_contention_tables(MachineType type)
+{
+    const auto t = machine_timing(type);
+
+    // Clear tables.
+    std::memset(ula_contention, 0, sizeof(ula_contention));
+    std::memset(ula_contention_no_mreq, 0, sizeof(ula_contention_no_mreq));
+    std::memset(memory_map_read, 0, sizeof(memory_map_read));
+    std::memset(memory_map_write, 0, sizeof(memory_map_write));
+
+    // Pentagon and ZX Next have no ULA contention.
+    if (type == MachineType::PENTAGON || type == MachineType::ZXN_ISSUE2)
+        return;
+
+    // 48K/128K/+3: contention pattern {6, 5, 4, 3, 2, 1, 0, 0} repeating
+    // every 8 T-states during active display lines.
+    //
+    // Active display: lines 64-255 (192 pixel lines).
+    // Contended T-states per line: 0..127 (128 T-states of ULA fetch).
+    static constexpr int delay_pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+
+    const int first_display_line = 64;
+    const int last_display_line = 255;  // 64 + 192 - 1
+    const int contended_tstates_per_line = 128;
+
+    for (int line = first_display_line; line <= last_display_line; ++line) {
+        int line_start = line * t.tstates_per_line;
+        for (int tc = 0; tc < contended_tstates_per_line; ++tc) {
+            int idx = line_start + tc;
+            if (idx >= 0 && idx < ULA_CONTENTION_TABLE_SIZE) {
+                int delay = delay_pattern[tc % 8];
+                ula_contention[idx] = static_cast<libspectrum_dword>(delay);
+                ula_contention_no_mreq[idx] = static_cast<libspectrum_dword>(delay);
+            }
+        }
+    }
+
+    // Set contended pages: 0x4000-0x7FFF (pages 2 and 3 at 8KB granularity).
+    memory_map_read[2].contended = 1;   // 0x4000-0x5FFF
+    memory_map_read[3].contended = 1;   // 0x6000-0x7FFF
+    memory_map_write[2].contended = 1;
+    memory_map_write[3].contended = 1;
+
+    // For 128K: also contend 0xC000-0xFFFF when odd-numbered banks are paged in.
+    // This needs dynamic updating when bank switching occurs — left for future.
 }

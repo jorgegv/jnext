@@ -369,12 +369,13 @@ void DebuggerManager::on_run_to_eof() {
     // in the video panel.  If we are already past that point in the current frame
     // (e.g. stepping from blanking), target the same scanline in the next frame.
     uint64_t frame_start = emulator_->current_frame_cycle();
+    const auto& t = emulator_->timing();
     const uint64_t last_vis_mid = static_cast<uint64_t>(Renderer::FB_HEIGHT - 1)
-                                  * MASTER_CYCLES_PER_LINE
-                                  + MASTER_CYCLES_PER_LINE / 2;
+                                  * t.master_cycles_per_line
+                                  + t.master_cycles_per_line / 2;
     uint64_t target = frame_start + last_vis_mid;
     if (emulator_->clock().get() >= target)
-        target += MASTER_CYCLES_PER_FRAME;
+        target += t.master_cycles_per_frame;
 
     emulator_->debug_state().run_to_cycle(target);
     was_paused_ = false;
@@ -400,11 +401,12 @@ void DebuggerManager::on_run_to_eosl() {
     uint64_t frame_start = emulator_->current_frame_cycle();
     uint64_t elapsed = emulator_->clock().get() - frame_start;
     // Round up to the next scanline boundary.
-    uint64_t next_line_start = ((elapsed / MASTER_CYCLES_PER_LINE) + 1) * MASTER_CYCLES_PER_LINE;
-    uint64_t next_line_vc    = next_line_start / MASTER_CYCLES_PER_LINE;
+    const auto& t = emulator_->timing();
+    uint64_t next_line_start = ((elapsed / t.master_cycles_per_line) + 1) * t.master_cycles_per_line;
+    uint64_t next_line_vc    = next_line_start / t.master_cycles_per_line;
     // Skip blanking lines (VC >= FB_HEIGHT): jump straight to next frame start.
     uint64_t target = (static_cast<int>(next_line_vc) >= Renderer::FB_HEIGHT)
-                    ? frame_start + MASTER_CYCLES_PER_FRAME
+                    ? frame_start + t.master_cycles_per_frame
                     : frame_start + next_line_start;
 
     emulator_->debug_state().run_to_cycle(target);

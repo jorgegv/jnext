@@ -21,14 +21,9 @@
 #include "fuse_z80_shim.h"
 #include "z80_macros.h"
 
-/* Override FUSE contention macros — our emulator handles contention at a
- * higher level; the Z80 core just advances tstates by the base time. */
-#undef contend_read
-#undef contend_read_no_mreq
-#undef contend_write_no_mreq
-#define contend_read(address, time)          tstates += (time);
-#define contend_read_no_mreq(address, time)  tstates += (time);
-#define contend_write_no_mreq(address, time) tstates += (time);
+/* Use the contention macros from z80_macros.h — they check memory_map_read[]
+ * and apply delays from ula_contention[tstates].  The emulator builds these
+ * tables at init time from VHDL-derived timing data. */
 
 /* Override IS_CMOS — we emulate NMOS Z80 */
 #undef IS_CMOS
@@ -40,8 +35,11 @@
 #undef writebyte
 #undef readport
 #undef writeport
+/* readbyte: data operand reads — adds 3 T-states + contention (like FUSE) */
 #define readbyte(addr)          fuse_z80_readbyte(addr)
-#define readbyte_internal(addr) fuse_z80_readbyte(addr)
+/* readbyte_internal: opcode fetch reads — raw, no timing (contend_read handles it) */
+#define readbyte_internal(addr) fuse_z80_readbyte_raw(addr)
+/* writebyte: data writes — adds 3 T-states + contention (like FUSE) */
 #define writebyte(addr, val)    fuse_z80_writebyte(addr, val)
 #define readport(port)          fuse_z80_readport(port)
 #define writeport(port, val)    fuse_z80_writeport(port, val)

@@ -29,7 +29,7 @@ struct RasterPos { uint16_t hc; uint16_t vc; };
 class VideoTiming {
 public:
     // Default machine constants (48K, 7 MHz domain) — kept for compatibility.
-    static constexpr int HC_MAX_DEFAULT  = 456;  // pixel ticks per line (48K/128K)
+    static constexpr int HC_MAX_DEFAULT  = 448;  // pixel ticks per line (48K: VHDL c_max_hc=447)
     static constexpr int VC_MAX_DEFAULT  = 312;  // total lines per frame (48K PAL)
 
     // Active display window (pixel addresses within 7 MHz domain)

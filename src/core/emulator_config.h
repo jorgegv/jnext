@@ -105,30 +105,51 @@ struct EmulatorConfig {
 // Machine-wide timing constants
 // ---------------------------------------------------------------------------
 
-/// Frame rate (Hz).
-static constexpr int FRAME_RATE_HZ = 50;
-
 /// Master clock frequency (28 MHz).
 static constexpr uint64_t MASTER_CLOCK_HZ = 28'000'000ULL;
 
-/// Master cycles per frame at 28 MHz.
-static constexpr uint64_t MASTER_CYCLES_PER_FRAME = MASTER_CLOCK_HZ / FRAME_RATE_HZ;
-// = 560 000 cycles/frame
+/// Per-machine timing parameters derived from VHDL (zxula_timing.vhd).
+///
+/// The VHDL defines pixel-clock (7 MHz) counters per machine type.
+/// Each 7 MHz pixel tick = 4 master clock cycles (28 MHz).
+/// Each CPU T-state at 3.5 MHz = 2 pixel ticks = 8 master cycles.
+struct MachineTiming {
+    int      pixels_per_line;       // 7 MHz pixel ticks per scanline (c_max_hc + 1)
+    int      lines_per_frame;       // total scanlines per frame (c_max_vc + 1)
+    int      tstates_per_line;      // pixels_per_line / 2
+    int      tstates_per_frame;     // tstates_per_line * lines_per_frame
+    uint64_t master_cycles_per_line;  // pixels_per_line * 4
+    uint64_t master_cycles_per_frame; // master_cycles_per_line * lines_per_frame
+};
 
-/// Total scanlines per frame (including blanking).
-/// ZX Spectrum Next (Issue 2): 320 lines total (312 visible + overscan).
-static constexpr int LINES_PER_FRAME = 320;
+/// Return timing constants for the given machine type.
+/// Values from ZX Spectrum Next FPGA VHDL (zxula_timing.vhd).
+inline constexpr MachineTiming machine_timing(MachineType type)
+{
+    switch (type) {
+        case MachineType::ZX48K:
+            // 48K PAL: c_max_hc=447 (448 pixels), c_max_vc=311 (312 lines)
+            return {448, 312, 224, 224*312, 1792, 1792ULL*312};
+        case MachineType::ZX128K:
+        case MachineType::ZX_PLUS3:
+            // 128K/+3 PAL: c_max_hc=455 (456 pixels), c_max_vc=310 (311 lines)
+            return {456, 311, 228, 228*311, 1824, 1824ULL*311};
+        case MachineType::PENTAGON:
+            // Pentagon: c_max_hc=447 (448 pixels), c_max_vc=319 (320 lines)
+            return {448, 320, 224, 224*320, 1792, 1792ULL*320};
+        case MachineType::ZXN_ISSUE2:
+        default:
+            // ZX Next defaults to 128K timing
+            return {456, 311, 228, 228*311, 1824, 1824ULL*311};
+    }
+}
 
-/// Master clock cycles per scanline (28 MHz domain).
-/// 28 000 000 / 50 / 320 = 1750 master cycles per line.
-static constexpr uint64_t MASTER_CYCLES_PER_LINE = MASTER_CYCLES_PER_FRAME / LINES_PER_FRAME;
-// = 1 750
-
-/// T-states per scanline at 3.5 MHz (÷8 from 28 MHz).
-/// 1750 / 8 = 218.75; the ZX Spectrum uses 228 T-states/line (standard).
-/// 228 is the hardware value; use it directly for CPU accounting.
+// Legacy global constants — kept for code that doesn't yet use MachineTiming.
+// These match 128K/Next timing (the most common default).
+static constexpr int FRAME_RATE_HZ = 50;
+static constexpr uint64_t MASTER_CYCLES_PER_FRAME = 1824ULL * 311;   // 567,264
+static constexpr int LINES_PER_FRAME = 311;
+static constexpr uint64_t MASTER_CYCLES_PER_LINE = 1824;
 static constexpr int TSTATES_PER_LINE = 228;
-
-/// T-states per frame at 3.5 MHz.
-static constexpr int TSTATES_PER_FRAME = TSTATES_PER_LINE * LINES_PER_FRAME;
+static constexpr int TSTATES_PER_FRAME = 228 * 311;
 // = 72 960

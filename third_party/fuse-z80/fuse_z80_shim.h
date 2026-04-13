@@ -71,11 +71,32 @@ extern libspectrum_byte parity_table[];
 extern libspectrum_dword tstates;
 extern libspectrum_dword event_next_event;
 
+/* ── Contention data structures (used by z80_macros.h contend_* macros) ── */
+
+/* Memory pages: 8 KB each (2^13), giving 8 pages for 64 KB address space. */
+#define MEMORY_PAGE_SIZE_LOGARITHM 13
+
+typedef struct {
+    int contended;   /* non-zero if this page is contended */
+} memory_page_entry_t;
+
+/* Per-page contention flags — set by emulator init for the current machine type */
+extern memory_page_entry_t memory_map_read[8];
+extern memory_page_entry_t memory_map_write[8];
+
+/* Contention delay lookup tables indexed by T-state position in frame.
+ * ula_contention[t] = extra T-states of delay at position t.
+ * Size must accommodate the largest frame (Pentagon: 71680 T-states) + margin. */
+#define ULA_CONTENTION_TABLE_SIZE 80000
+extern libspectrum_dword ula_contention[ULA_CONTENTION_TABLE_SIZE];
+extern libspectrum_dword ula_contention_no_mreq[ULA_CONTENTION_TABLE_SIZE];
+
 /* ── Memory / IO access callbacks ──────────────────────────────────────── */
 
 /* These are implemented by the Z80Cpu wrapper (z80_cpu.cpp) */
-extern libspectrum_byte fuse_z80_readbyte(libspectrum_word address);
-extern void             fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b);
+extern libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address); /* no timing */
+extern libspectrum_byte fuse_z80_readbyte(libspectrum_word address);     /* +3T +contention */
+extern void             fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b); /* +3T +contention */
 extern libspectrum_byte fuse_z80_readport(libspectrum_word port);
 extern void             fuse_z80_writeport(libspectrum_word port, libspectrum_byte b);
 

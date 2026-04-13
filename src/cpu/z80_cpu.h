@@ -30,6 +30,14 @@ public:
 // Access to FUSE tstates counter (for contention delay injection)
 extern "C" uint32_t* fuse_z80_tstates_ptr(void);
 
+// Forward declaration — MachineType defined in contention.h
+enum class MachineType;
+
+/// Build the FUSE Z80 core's internal contention tables (ula_contention[],
+/// memory_map_read[]) for the given machine type.  Must be called at init
+/// and whenever the machine type changes.
+void z80_build_contention_tables(MachineType type);
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:

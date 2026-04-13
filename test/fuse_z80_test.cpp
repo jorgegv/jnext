@@ -184,6 +184,10 @@ static void apply_state(Z80Cpu& cpu, TestMemory& mem, const TestCase& tc) {
     r.halted = tc.halted != 0;
     cpu.set_registers(r);
 
+    // FUSE coretest always starts tstates at 0.  The "tstates" field in the
+    // input file is actually event_next_event (not the initial counter).
+    *fuse_z80_tstates_ptr() = 0;
+
     memset(mem.ram, 0, sizeof(mem.ram));
     for (auto& mb : tc.mem_blocks) {
         for (size_t i = 0; i < mb.data.size(); ++i) {
@@ -228,6 +232,8 @@ static bool compare_state(const Z80Cpu& cpu, const TestMemory& mem,
     chk("IFF2", r.IFF2, expected.IFF2);
     chk("IM", r.IM, expected.IM);
     chk("halted", r.halted ? 1u : 0u, static_cast<unsigned>(expected.halted));
+    chk("tstates", static_cast<unsigned>(*fuse_z80_tstates_ptr()),
+        static_cast<unsigned>(expected.tstates));
 
     // Check expected memory
     for (auto& mb : expected.mem_blocks) {

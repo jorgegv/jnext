@@ -12,8 +12,8 @@ void VideoTiming::init(MachineType type)
 {
     switch (type) {
         case MachineType::ZX128K:
-            // ZX Spectrum 128K PAL: 456 ticks/line, 311 lines/frame.
-            // Same active display window as 48K (hc [128,383], vc [64,255]).
+        case MachineType::ZX_PLUS3:
+            // 128K/+3 PAL: 456 ticks/line, 311 lines/frame (VHDL c_max_hc=455).
             hc_max_ = 456;
             vc_max_ = 311;
             break;
@@ -24,11 +24,15 @@ void VideoTiming::init(MachineType type)
             vc_max_ = 320;
             break;
         case MachineType::ZX48K:
-        case MachineType::ZXN_ISSUE2:
         default:
-            // 48K PAL / ZX Next Issue 2: 456 ticks/line, 312 lines/frame.
-            hc_max_ = 456;
+            // 48K PAL: 448 ticks/line, 312 lines/frame (VHDL c_max_hc=447).
+            hc_max_ = 448;
             vc_max_ = 312;
+            break;
+        case MachineType::ZXN_ISSUE2:
+            // ZX Next defaults to 128K timing (456 ticks/line, 311 lines/frame).
+            hc_max_ = 456;
+            vc_max_ = 311;
             break;
     }
     reset();
