@@ -1097,9 +1097,9 @@ Complex ones:
 - [ ] DSK file format loading - Emulation of disk controller?
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
 - [ ] Develop a new Z80N core derived directly from VHDL description, and make both cores selectable at runtime: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
-- [ ] Enhanced performance optimizations (wild ideas):
-  - [ ] Idea 1: Multithreaded Z80N CPU emulator: Pipelined/Superscalar/Especulative execution - Like a real "modern" CPU, but emulating a legacy CPU.
-  - [ ] Idea 2: Z80N CPU emulator using a JIT compiler
+- ~~Enhanced performance optimizations (evaluated and deferred indefinitely):~~
+  - ~~Idea 1: Multithreaded Z80N CPU emulator~~ — Z80 has near-zero ILP; thread sync overhead exceeds instruction cost; side effects require strict ordering
+  - ~~Idea 2: Z80N JIT compiler~~ — 3.5 MHz Z80 is trivially fast to interpret; cycle-accurate contention/interrupts fragment JIT blocks; 6-12 months effort for ~10% overall gain
 
 ---
 
