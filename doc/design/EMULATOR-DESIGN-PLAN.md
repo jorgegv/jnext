@@ -1040,11 +1040,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] DMA (35 failures — transfer execution, port B address programming)
   - [ ] Tilemap (8 failures — tile rendering, scrolling verification)
 
-- [ ] Generate full testing plan:
-  - [ ] Unit test plan, per module
-  - [ ] Integration test plan, between modules
-  - [ ] Functional test plan (~demos)
-- [ ] CI golden-output visual regression tests
+- [x] Generate full testing plan:
+  - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1179 tests)
+  - [x] Functional test plan (~demos) — regression screenshot tests (`test/regression.sh`) cover demo programs
+  - [ ] Integration test plan — document cross-subsystem interaction scenarios (deferred items from subsystem plans)
+- [x] CI golden-output visual regression tests — `test/regression.sh` + `test/generate-references.sh` (CI pipeline integration pending)
 
 - [ ] General code refactor and tidy up (/simplify)
 - [ ] Replacement of magic number with named constants where possible
@@ -1096,7 +1096,7 @@ Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
-- [ ] Add selectable Z80N core: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Make it selectable via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
+- [ ] Develop a new Z80N core derived directly from VHDL description, and make both cores selectable at runtime: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
 
 ---
 
