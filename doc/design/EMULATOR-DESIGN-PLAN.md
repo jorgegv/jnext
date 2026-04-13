@@ -1026,7 +1026,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] CTC + Interrupt controller (48/49 pass, 1 failure — ch3→ch0 wrap) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
   - [x] UART + I2C / RTC (60/69 pass, 9 failures — I2C/RTC protocol) — [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md)
   - [x] NextREG (49/63 pass, 14 failures — reset defaults) — [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md)
-  - [ ] I/O Port Dispatch (~90 tests) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
+  - [x] I/O Port Dispatch (78/78 pass) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
   - [x] Keyboard + Joystick (71/71 pass) — [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md)
 
 - [ ] Generate full testing plan:
