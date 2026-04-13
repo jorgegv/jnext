@@ -1017,7 +1017,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] ULA Video (90/109 pass, 19 failures — screen addr, attr encoding) — [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.md)
   - [x] Layer 2 (61/61 pass) — [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md)
   - [x] Sprites (48/48 pass) — [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md)
-  - [ ] Tilemap (~67 tests) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
+  - [x] Tilemap (49/57 pass, 8 failures — tile rendering, scrolling) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
   - [x] Copper (69/69 pass, 6 integration-level deferred) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
   - [x] Compositor (74/74 pass) — [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md)
   - [x] Audio — AY/YM2149 + DAC + Beeper (94/100 pass, 6 failures — envelope hold, panning) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
