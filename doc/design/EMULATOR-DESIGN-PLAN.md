@@ -1022,7 +1022,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Compositor (~83 tests) — [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md)
   - [ ] Audio — AY/YM2149 + DAC + Beeper (~161 tests) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
   - [ ] DMA (~142 tests) — [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md)
-  - [ ] DivMMC + SPI / SD card (~123 tests) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIGN.md)
+  - [x] DivMMC + SPI / SD card (72/76 pass, 4 failures — mapram latch, 0x3Dxx) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIGN.md)
   - [x] CTC + Interrupt controller (48/49 pass, 1 failure — ch3→ch0 wrap) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
   - [x] UART + I2C / RTC (60/69 pass, 9 failures — I2C/RTC protocol) — [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md)
   - [x] NextREG (49/63 pass, 14 failures — reset defaults) — [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md)
