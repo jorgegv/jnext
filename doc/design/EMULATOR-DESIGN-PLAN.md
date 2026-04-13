@@ -1025,7 +1025,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] DivMMC + SPI / SD card (~123 tests) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIGN.md)
   - [ ] CTC + Interrupt controller (~151 tests) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
   - [ ] UART + I2C / RTC (~105 tests) — [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md)
-  - [ ] NextREG (~64 tests) — [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md)
+  - [x] NextREG (49/63 pass, 14 failures — reset defaults) — [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md)
   - [ ] I/O Port Dispatch (~90 tests) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
   - [ ] Keyboard + Joystick (~61 tests) — [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md)
 
