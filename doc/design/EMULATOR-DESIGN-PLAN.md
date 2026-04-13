@@ -1029,6 +1029,17 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] I/O Port Dispatch (78/78 pass) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
   - [x] Keyboard + Joystick (71/71 pass) — [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md)
 
+- [ ] Fix baseline of subsystem tests not passing:
+  - [ ] Memory/MMU (4 failures — ROM slot register value, +3 special config 3, L2 write-over)
+  - [ ] NextREG (14 failures — reset defaults not initialized to VHDL values)
+  - [ ] CTC + Interrupts (1 failure — ch3→ch0 ZC/TO wrap-around not implemented)
+  - [ ] UART + I2C/RTC (9 failures — I2C protocol sequencing, RTC register reads)
+  - [ ] DivMMC + SPI (4 failures — mapram OR-latch, bits 5:4 mask, 0x3Dxx automap)
+  - [ ] ULA Video (19 failures — screen address formula, attribute paper encoding)
+  - [ ] Audio (6 failures — AY envelope hold, Turbosound default panning)
+  - [ ] DMA (35 failures — transfer execution, port B address programming)
+  - [ ] Tilemap (8 failures — tile rendering, scrolling verification)
+
 - [ ] Generate full testing plan:
   - [ ] Unit test plan, per module
   - [ ] Integration test plan, between modules
@@ -1085,7 +1096,7 @@ Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
-
+- [ ] Add selectable Z80N core: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Make it selectable via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
 
 ---
 
