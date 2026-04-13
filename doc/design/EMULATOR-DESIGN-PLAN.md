@@ -1020,7 +1020,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Tilemap (~67 tests) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
   - [x] Copper (69/69 pass, 6 integration-level deferred) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
   - [x] Compositor (74/74 pass) — [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md)
-  - [ ] Audio — AY/YM2149 + DAC + Beeper (~161 tests) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
+  - [x] Audio — AY/YM2149 + DAC + Beeper (94/100 pass, 6 failures — envelope hold, panning) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
   - [ ] DMA (~142 tests) — [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md)
   - [x] DivMMC + SPI / SD card (72/76 pass, 4 failures — mapram latch, 0x3Dxx) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIGN.md)
   - [x] CTC + Interrupt controller (48/49 pass, 1 failure — ch3→ch0 wrap) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
