@@ -459,6 +459,13 @@ void z80_build_contention_tables(MachineType type)
     memory_map_write[2].contended = 1;
     memory_map_write[3].contended = 1;
 
-    // For 128K: also contend 0xC000-0xFFFF when odd-numbered banks are paged in.
-    // This needs dynamic updating when bank switching occurs — left for future.
+    // For 128K: slot 3 (0xC000-0xFFFF) contention is set dynamically
+    // via z80_set_page_contended() when bank paging changes.
+}
+
+void z80_set_page_contended(int page, bool contended)
+{
+    if (page < 0 || page >= 8) return;
+    memory_map_read[page].contended  = contended ? 1 : 0;
+    memory_map_write[page].contended = contended ? 1 : 0;
 }

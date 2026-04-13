@@ -38,6 +38,11 @@ enum class MachineType;
 /// and whenever the machine type changes.
 void z80_build_contention_tables(MachineType type);
 
+/// Update contention flag for a specific 8KB memory page (0-7).
+/// page 0 = 0x0000-0x1FFF, page 2 = 0x4000-0x5FFF, page 6 = 0xC000-0xDFFF, etc.
+/// Called when 128K bank paging changes which RAM bank is at 0xC000.
+void z80_set_page_contended(int page, bool contended);
+
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {
 public:

@@ -531,10 +531,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
             //   128K: odd banks (1,3,5,7) are contended
             //   +3:   banks >= 4 (4,5,6,7) are contended
             uint8_t bank = v & 0x07;
+            bool slot3_contended;
             if (config_.type == MachineType::ZX_PLUS3)
-                contention_.set_contended_slot(3, bank >= 4);
+                slot3_contended = (bank >= 4);
             else
-                contention_.set_contended_slot(3, bank & 1);
+                slot3_contended = (bank & 1) != 0;
+            contention_.set_contended_slot(3, slot3_contended);
+            // Update FUSE Z80 core's memory page contention flags for 0xC000-0xFFFF.
+            z80_set_page_contended(6, slot3_contended);
+            z80_set_page_contended(7, slot3_contended);
         });
 
     // +3 paging — port 0x1FFD (mask 0xF002, match 0x1000).
