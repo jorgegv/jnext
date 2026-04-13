@@ -1015,7 +1015,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Z80N processor (78/78 tests, VHDL-derived — found and fixed 5 bugs) — [Z80N-COMPLIANCE-TEST-SUITE.md](Z80N-COMPLIANCE-TEST-SUITE.md)
   - [x] Memory — MMU & RAM (79/83 pass, 4 failures — baseline) — [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIGN.md)
   - [ ] ULA Video (~122 tests) — [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.md)
-  - [ ] Layer 2 (~91 tests) — [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md)
+  - [x] Layer 2 (61/61 pass) — [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md)
   - [ ] Sprites (~146 tests) — [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md)
   - [ ] Tilemap (~67 tests) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
   - [x] Copper (69/69 pass, 6 integration-level deferred) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
