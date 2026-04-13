@@ -57,7 +57,7 @@ add_test(NAME ctc_tests COMMAND ctc_test)
 
 # Layer 2 compliance test
 add_executable(layer2_test layer2/layer2_test.cpp)
-target_link_libraries(layer2_test PRIVATE jnext_video jnext_memory jnext_port)
+target_link_libraries(layer2_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
 target_include_directories(layer2_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME layer2_tests COMMAND layer2_test)
 
@@ -75,19 +75,19 @@ add_test(NAME divmmc_tests COMMAND divmmc_test)
 
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
-target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port)
+target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
 target_include_directories(sprites_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sprites_tests COMMAND sprites_test)
 
 # Compositor compliance test
 add_executable(compositor_test compositor/compositor_test.cpp)
-target_link_libraries(compositor_test PRIVATE jnext_video jnext_memory jnext_port)
+target_link_libraries(compositor_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
 target_include_directories(compositor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME compositor_tests COMMAND compositor_test)
 
 # ULA video compliance test
 add_executable(ula_test ula/ula_test.cpp)
-target_link_libraries(ula_test PRIVATE jnext_video jnext_memory jnext_port)
+target_link_libraries(ula_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
 target_include_directories(ula_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ula_tests COMMAND ula_test)
 
@@ -111,7 +111,7 @@ add_test(NAME dma_tests COMMAND dma_test)
 
 # Tilemap subsystem compliance test
 add_executable(tilemap_test tilemap/tilemap_test.cpp)
-target_link_libraries(tilemap_test PRIVATE jnext_video jnext_memory jnext_port)
+target_link_libraries(tilemap_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
 target_include_directories(tilemap_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tilemap_tests COMMAND tilemap_test)
 
