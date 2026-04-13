@@ -26,5 +26,6 @@
 |        | 1h   | Public release preparation                                                                 |
 | 11/4   | 4h   | Bug fixes: palette index, 4-bit sprites, floating bus, ULA clip, tilemap 80-col            |
 | 12/4   | 8h   | FUSE 100%, Z80N test suite (78/78), 15 VHDL test plans, Copper+MMU test runners            |
+| 13/4   | 4h   | Z80 timing fix (3 root causes), contention, internal Z80N core feasibility plan            |
 |        |      |                                                                                            |
-| TOTAL: | 84h  |                                                                                            |
+| TOTAL: | 88h  |                                                                                            |
