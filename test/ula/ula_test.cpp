@@ -84,7 +84,7 @@ static uint16_t vhdl_pixel_addr(int py, int px, bool alt = false) {
 // VHDL formula: vram_a = screen_mode(0) & "110" & py(7:3) & px(7:3)
 static uint16_t vhdl_attr_addr(int py, int px, bool alt = false) {
     uint16_t addr = 0;
-    addr |= 0x06 << 8;                 // "110" -> bits 12:10
+    addr |= 0x06 << 10;                // "110" -> bits 12:10 (= 0x1800)
     addr |= ((py >> 3) & 0x1F) << 5;   // py(7:3) -> bits 9:5
     addr |= (px >> 3);                  // px(7:3) -> bits 4:0
     if (alt) addr |= (1 << 13);        // screen_mode(0) -> bit 13
@@ -127,12 +127,12 @@ static void test_screen_address() {
         {"S01.04", "Pixel row 7 in char row 0",         7,   0,   0x0700, 0x1800, false},
         {"S01.05", "Char row 1, pixel row 0",           8,   0,   0x0020, 0x1820, false},
         {"S01.06", "Third of screen (py=64)",          64,   0,   0x0800, 0x1900, false},
-        {"S01.07", "Bottom-right pixel",              191, 248,   0x17FF, 0x1BFF, false},
+        {"S01.07", "Bottom-right pixel",              191, 248,   0x17FF, 0x1AFF, false},
         {"S01.08", "Alternate display file",            0,   0,   0x2000, 0x3800, true},
-        {"S01.09", "Middle of screen (py=96, px=128)", 96, 128,   0x1010, 0x1A10, false},
+        {"S01.09", "Middle of screen (py=96, px=128)", 96, 128,   0x0890, 0x1990, false},
         {"S01.10", "Wrap within third (py=63)",        63,   0,   0x07E0, 0x18E0, false},
-        {"S01.11", "Second third start+1 row",         65,   0,   0x0820, 0x1920, false},
-        {"S01.12", "Last pixel row of last char",     191,   0,   0x17E0, 0x1BE0, false},
+        {"S01.11", "Second third start+1 row",         65,   0,   0x0900, 0x1900, false},
+        {"S01.12", "Last pixel row of last char",     191,   0,   0x17E0, 0x1AE0, false},
     };
 
     for (auto& t : tests) {
@@ -186,9 +186,9 @@ static void test_attribute_rendering() {
 
     AttrTest tests[] = {
         {"S02.01", "Ink, no bright, colour 0",       true,  0x00, 0x00, true},
-        {"S02.02", "Paper, no bright, colour 0",     false, 0x00, 0x08, true},
+        {"S02.02", "Paper, no bright, colour 0",     false, 0x00, 0x10, true},
         {"S02.03", "Ink, bright, red (2)",            true,  0x42, 0x0A, true},
-        {"S02.04", "Paper, bright, green (4)",        false, 0x60, 0x18, true},
+        {"S02.04", "Paper, bright, green (4)",        false, 0x60, 0x1C, true},
         {"S02.05", "Ink white, no bright",            true,  0x07, 0x07, true},
         {"S02.06", "Paper white, bright",             false, 0x78, 0x1F, true},
         {"S02.07", "Ink cyan (5), bright",            true,  0x45, 0x0D, true},
@@ -573,7 +573,7 @@ static void test_timing_constants() {
           timing.vc_max() == 312,
           DETAIL("got %d, exp 312", timing.vc_max()));
     check("S13.03", "48K T-states/frame = 69888",
-          tstates_48k == 69888 || true,  // report baseline, may differ
+          tstates_48k == 69888,
           DETAIL("got %d, VHDL exp 69888 (448*312/2)", tstates_48k));
 
     // 128K
@@ -586,7 +586,7 @@ static void test_timing_constants() {
           timing.vc_max() == 311,
           DETAIL("got %d, exp 311 (VHDL says 311)", timing.vc_max()));
     check("S13.06", "128K T-states/frame = 70908",
-          tstates_128k == 70908 || true,  // report baseline
+          tstates_128k == 70908,
           DETAIL("got %d, VHDL exp 70908 (456*311/2)", tstates_128k));
 
     // Pentagon
@@ -599,7 +599,7 @@ static void test_timing_constants() {
           timing.vc_max() == 320,
           DETAIL("got %d, exp 320", timing.vc_max()));
     check("S13.09", "Pentagon T-states/frame = 71680",
-          tstates_pent == 71680 || true,  // report baseline
+          tstates_pent == 71680,
           DETAIL("got %d, VHDL exp 71680 (448*320/2)", tstates_pent));
 
     // Display window constants
