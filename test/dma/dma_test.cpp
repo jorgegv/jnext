@@ -33,6 +33,8 @@ static constexpr uint8_t DMA_R6_BASE = 0x83;
 // Common R4 programmings built from the VHDL-correct base byte.
 // R4 bit2=load port B addr LO, bit3=load port B addr HI, bits[6:5]=mode (01=cont,10=burst)
 static constexpr uint8_t DMA_R4_CONT_LOAD_B   = DMA_R4_BASE | (0x01 << 5) | 0x04 | 0x08; // 0xAD
+static constexpr uint8_t DMA_R4_BURST_LOAD_B  = DMA_R4_BASE | (0x02 << 5) | 0x04 | 0x08; // 0xCD
+static constexpr uint8_t DMA_R4_BURST         = DMA_R4_BASE | (0x02 << 5);               // 0xC1
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -546,9 +548,8 @@ static void test_group6_r4() {
     // 6.2: Set byte mode (00)
     {
         fresh(dma);
-        // R4: bits[6:5]=00(byte), bits[1:0]=01
-        // = 0b0_00_0_0_0_01 = 0x01
-        zxn_write(dma, 0x01);
+        // R4: bit7=1, bits[6:5]=00(byte), bits[1:0]=01 → 0x81 (DMA_R4_BASE itself)
+        zxn_write(dma, DMA_R4_BASE);
         check("6.2", "Byte mode (R4_mode=00)",
               dma.transfer_mode() == Dma::TransferMode::BYTE,
               DETAIL("mode=%d", (int)dma.transfer_mode()));
@@ -557,9 +558,8 @@ static void test_group6_r4() {
     // 6.3: Set burst mode (10)
     {
         fresh(dma);
-        // R4: bits[6:5]=10(burst), bits[1:0]=01
-        // = 0b0_10_0_0_0_01 = 0x41
-        zxn_write(dma, 0x41);
+        // R4: bit7=1, bits[6:5]=10(burst), bits[1:0]=01 → 0xC1
+        zxn_write(dma, DMA_R4_BURST);
         check("6.3", "Burst mode (R4_mode=10)",
               dma.transfer_mode() == Dma::TransferMode::BURST,
               DETAIL("mode=%d", (int)dma.transfer_mode()));
@@ -1142,8 +1142,8 @@ static void test_group12_transfer_modes() {
         zxn_write(dma, 0x50);
         zxn_write(dma, 0x21);
         zxn_write(dma, 0x01); // prescaler = 1
-        // R4: burst mode
-        zxn_write(dma, 0x4D); // bits[6:5]=10(burst), bit2+bit3, bits[1:0]=01
+        // R4: burst mode + port B addr follows → 0xCD
+        zxn_write(dma, DMA_R4_BURST_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0x8000] = 0xAA;
         zxn_write(dma, 0xCF);
@@ -1163,8 +1163,8 @@ static void test_group12_transfer_modes() {
         zxn_write(dma, 0x04); zxn_write(dma, 0x00);
         zxn_write(dma, 0x14);
         zxn_write(dma, 0x10);
-        zxn_write(dma, 0x41); // R4: burst mode, no addr follows
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
+        // R4: burst mode + port B addr follows → 0xCD
+        zxn_write(dma, DMA_R4_BURST_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         for (int i = 0; i < 4; i++) g_mem[0x8000 + i] = (uint8_t)(i + 1);
         zxn_write(dma, 0xCF);
@@ -1459,7 +1459,6 @@ static void test_group22_edge_cases() {
         zxn_write(dma, 0xFF); zxn_write(dma, 0x00); // len = 255
         zxn_write(dma, 0x14);
         zxn_write(dma, 0x10);
-        zxn_write(dma, 0x21); // R4: continuous
         zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         zxn_write(dma, 0xCF);
