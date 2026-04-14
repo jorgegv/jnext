@@ -692,7 +692,9 @@ static void test_ay_envelope() {
     }
 
     // AY-102/103: Writing R13 resets envelope
-    // Test shape 0x0D (up, hold at max): after full ramp, output should be max
+    // Test shape 0x0D: up once, then hold at is_top_m1 (vol=30), NOT is_top (vol=31).
+    // VHDL ym2149.vhd hold branch: when up (inc=1) and alt=0, hold triggers on is_top_m1.
+    // YM vol_table_ym_[30] = 0xE0 (see src/audio/ay_chip.cpp).
     {
         AyChip ay;
         ay.set_ay_mode(false); // YM for 32 levels
@@ -700,12 +702,11 @@ static void test_ay_envelope() {
         ay.select_register(8); ay.write_data(0x10); // envelope mode
         ay.select_register(11); ay.write_data(0x00); // period 0 => fastest
         ay.select_register(12); ay.write_data(0x00);
-        ay.select_register(13); ay.write_data(0x0D); // shape: up, hold at max
+        ay.select_register(13); ay.write_data(0x0D); // shape: up, hold near max
         // Tick many times to complete the ramp
         for (int i = 0; i < 2000; i++) ay.tick();
-        // Should hold at max volume
-        check("AY-103", "Envelope shape 0x0D: hold at max",
-              ay.output_a() == 0xFF,
+        check("AY-103", "Envelope shape 0x0D: hold at vol=30 (YM=0xE0)",
+              ay.output_a() == 0xE0,
               DETAIL("got=0x%02x", ay.output_a()));
     }
 
@@ -747,7 +748,9 @@ static void test_ay_envelope() {
               DETAIL("got=0x%02x (expect 0xFF or 0x00)", ay.output_a()));
     }
 
-    // AY-117: Shape 0x0D (/---hold at max)
+    // AY-117: Shape 0x0D (C=1,At=1,Al=0,H=1): up once, hold at vol=30 (is_top_m1)
+    // YM mode volume table index 30 = 0xE0 (NOT 0xFF which is index 31)
+    // VHDL ym2149.vhd hold branch uses is_top_m1 when up + alt=0
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -757,8 +760,8 @@ static void test_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0D);
         for (int i = 0; i < 2000; i++) ay.tick();
-        check("AY-117", "Shape 0x0D: hold at max",
-              ay.output_a() == 0xFF,
+        check("AY-117", "Shape 0x0D: hold at vol=30 (YM=0xE0)",
+              ay.output_a() == 0xE0,
               DETAIL("got=0x%02x", ay.output_a()));
     }
 
