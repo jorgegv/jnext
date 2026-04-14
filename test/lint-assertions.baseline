@@ -1,5 +1,2 @@
 test/sprites/sprites_test.cpp:705:            check("PAL-01", "Palette offset stored correctly (all 16 values)", true);
 test/tilemap/tilemap_test.cpp:351:              res1.pixels[0] != res0.pixels[0] || true,
-test/ula/ula_test.cpp:576:          tstates_48k == 69888 || true,  // report baseline, may differ
-test/ula/ula_test.cpp:589:          tstates_128k == 70908 || true,  // report baseline
-test/ula/ula_test.cpp:602:          tstates_pent == 71680 || true,  // report baseline

@@ -102,12 +102,12 @@ shadow screen).
 | 4 | Pixel row 7 in char row 0 | 7 | 0 | 0x0700 | 0x1800 |
 | 5 | Char row 1, pixel row 0 | 8 | 0 | 0x0020 | 0x1820 |
 | 6 | Third of screen (py=64) | 64 | 0 | 0x0800 | 0x1900 |
-| 7 | Bottom-right pixel | 191 | 248 | 0x17FF | 0x1BFF |
+| 7 | Bottom-right pixel | 191 | 248 | 0x17FF | 0x1AFF |
 | 8 | Alternate display file (mode(0)=1) | 0 | 0 | 0x2000 | 0x3800 |
-| 9 | Middle of screen (py=96, px=128) | 96 | 128 | 0x1010 | 0x1A10 |
+| 9 | Middle of screen (py=96, px=128) | 96 | 128 | 0x0890 | 0x1990 |
 | 10| Wrap within third (py=63) | 63 | 0 | 0x07E0 | 0x18E0 |
-| 11| Second third start+1 row | 65 | 0 | 0x0820 | 0x1920 |
-| 12| Last pixel row of last char | 191 | 0 | 0x17E0 | 0x1BE0 |
+| 11| Second third start+1 row | 65 | 0 | 0x0900 | 0x1900 |
+| 12| Last pixel row of last char | 191 | 0 | 0x17E0 | 0x1AE0 |
 
 ### Verification
 
@@ -142,9 +142,9 @@ This yields a palette index where:
 | # | Test | Pixel bit | Attr byte | Expected ula_pixel |
 |---|------|-----------|-----------|--------------------|
 | 1 | Ink, no bright, colour 0 | 1 | 0x00 | 0x00 |
-| 2 | Paper, no bright, colour 0 | 0 | 0x00 | 0x08 |
+| 2 | Paper, no bright, colour 0 | 0 | 0x00 | 0x10 |
 | 3 | Ink, bright, red (2) | 1 | 0x42 | 0x0A |
-| 4 | Paper, bright, green (4) | 0 | 0x60 | 0x18 |
+| 4 | Paper, bright, green (4) | 0 | 0x60 | 0x1C |
 | 5 | Ink white, no bright | 1 | 0x07 | 0x07 |
 | 6 | Paper white, bright | 0 | 0x78 | 0x1F |
 | 7 | Ink cyan (5), bright | 1 | 0x45 | 0x0D |
