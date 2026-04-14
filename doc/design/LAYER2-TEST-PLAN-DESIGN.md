@@ -338,7 +338,7 @@ Assume palette identity so index = rendered colour byte.
 | G3-06 | Scroll X MSB (nr_71[0]) in 256 mode | NR 0x70=0x00, Pattern D, NR 0x16=0, NR 0x71=0x01 | col 0 | scroll_x = 256, `hc_eff + 256` → x(8)=1 but addr takes only x(7:0); visible col 0 = source col 0 (`0x11`) — **same as no scroll**, because narrow addr uses `x(7:0)` only | layer2.vhd:160 narrow |
 | G3-07 | 320x256 scroll X=160 | NR 0x70=0x10, Pattern D (wide, left/right at x=160), NR 0x16=160 | col 0 | `0x22` (right half); col 159 = `0x22`; col 160 = `0x11` | layer2.vhd:152-154 wide |
 | G3-08 | 320x256 scroll X=319 | NR 0x70=0x10, Pattern D wide, NR 0x16=63, NR 0x71=0x01 (scroll_x=319) | col 0 | source col 319 | layer2.vhd:152-154 |
-| G3-09 | 320x256 scroll X wrap arithmetic | NR 0x70=0x10, Pattern D wide, NR 0x16=200, NR 0x71=0x00 | col 120 | `x_pre = 120+200 = 320`; wide branch triggers (`x_pre(8)='1' AND x_pre(7:6) /= "00"` is false since 320=0x140, x_pre(7:6)="01" ≠ "00" — re-evaluate: 320 = binary `0101000000`, x_pre(8)='1', x_pre(7:6)="01", so wrap fires; x(8:6) = `001+011 = 100`, x(5:0)=0 → x=256... which is still ≥320? No: `100`(x(8:6)) & `000000` = 256. That's valid in 320-wide (col 256). Expected pixel = source col 256 (right half, `0x22`). | layer2.vhd:153 |
+| G3-09 | 320x256 scroll X wrap arithmetic | NR 0x70=0x10, Pattern D wide, NR 0x16=200, NR 0x71=0x00 | `hc_eff=120` | `x_pre = 120+200 = 320 = 10'b0101000000`; wide=1, inner condition `x_pre(9)='0' AND (x_pre(8)='0' OR x_pre(7:6)="00")` is false (x_pre(8)='1', x_pre(7:6)="01"), so wrap branch fires: `x(8:6) = "101" + "011" = "1000"` truncated to 3 bits = `"000"`; `x(5:0) = "000000"`; x=0 → source col 0 = **left half `0x11`** | layer2.vhd:153 |
 | G3-10 | 320x256 scroll Y=128 | NR 0x70=0x10, Pattern E wide (top/bot at y=128), NR 0x17=128 | row 0 | source row 128 = `0x22`; row 128 wraps to row 0 = `0x11` (natural 8-bit wrap, wide branch does not add +1) | layer2.vhd:157 wide |
 | G3-11 | 640x256 scroll X=160 byte-level | NR 0x70=0x20, Pattern C but with left/right halves of nibbles, NR 0x16=160 | (0,0) | nibble at byte `(x+80).y=0` — verify byte-granularity byte-lane scroll | layer2.vhd:152-154, 202 |
 | G3-12 | Negative path: 320x256 scroll X wrap branch skipped when x_pre<320 | NR 0x70=0x10, Pattern D wide, NR 0x16=100 | col 0 | `x_pre=100`, wrap branch does NOT fire, x=100 → source col 100 (left half, `0x11`) | layer2.vhd:153 |
@@ -350,10 +350,13 @@ Assume palette identity so index = rendered colour byte.
 
 | ID | Title | Preconditions | Stimulus | Expected | VHDL cite |
 |----|-------|---------------|----------|----------|-----------|
-| G4-01 | Auto-index advances | cold reset | write `0x11,0x22,0x33,0x44` to NR 0x18; read back NR 0x18 four times | read-back sequence `0x11,0x22,0x33,0x44` | zxnext.vhd:5243-5249, 5948-5952 |
+| G4-01a | Auto-index advances — slot 0 observable | cold reset | write `0x11` to NR 0x18 (idx 0→1); write NR 0x1C=0x01 (idx→0); read NR 0x18 once | `0x11` (slot 0 = x1 holds the value written at idx 0) | zxnext.vhd:5243-5249, 5278-5281, 5948-5952 |
+| G4-01b | Auto-index advances — slot 1 observable | cold reset | write `0x11,0x22` to NR 0x18 (idx 0→1→2); write NR 0x1C=0x01 (idx→0); write dummy `0x00` (idx 0→1); read NR 0x18 once | `0x22` (slot 1 = x2 was set by the second write at idx 1; dummy write advanced idx back to 1) | zxnext.vhd:5243-5249 |
+| G4-01c | Auto-index advances — slot 2 observable | cold reset | write `0x11,0x22,0x33` to NR 0x18 (idx ends at 3); write NR 0x1C=0x01 (idx→0); write dummy `0x00,0x00` (idx 0→1→2); read NR 0x18 once | `0x33` (slot 2 = y1 holds the value from the third original write) | zxnext.vhd:5243-5249 |
+| G4-01d | Auto-index advances — slot 3 observable and wraps | cold reset | write `0x11,0x22,0x33,0x44` to NR 0x18 (idx 0→1→2→3→0 wraps); write NR 0x1C=0x01 (idx→0); write dummy `0x00,0x00,0x00` (idx→3); read NR 0x18 once | `0x44` (slot 3 = y2, confirms both that `idx+1` was a 2-bit wrap and that the fourth write landed at idx 3) | zxnext.vhd:5243-5249 |
 | G4-02 | Auto-index wraps at 4 | cold reset | write `0x11,0x22,0x33,0x44,0x55` to NR 0x18; read back x1 | `0x55` (5th write landed in slot 0 again) | zxnext.vhd:5249 (`idx + 1`), 2-bit rollover |
 | G4-03 | NR 0x1C[0] resets L2 clip index | after G4-02 (idx now at 1) | write NR 0x1C = 0x01; read NR 0x18 once | `0x55` (index was reset to 0, first read returns x1) | zxnext.vhd:5278-5281 |
-| G4-04 | NR 0x1C[0]=0 leaves L2 index alone | after a write sequence leaving idx=2 | write NR 0x1C = 0x02 (only bit1, sprite reset) | next L2 read returns y1 (idx unchanged at 2) | zxnext.vhd:5279 |
+| G4-04 | NR 0x1C[0]=0 leaves L2 index alone | cold reset; seed slots: write `0x10,0x20,0x30,0x40` to NR 0x18 then `NR 0x1C=0x01`; then write `0x11,0x22` to NR 0x18 so L2 idx=2 (slots x1=0x11, x2=0x22, y1=0x30, y2=0x40) | write NR 0x1C=0x02 (sprite-only reset, bit0=0); write `0xAA` to NR 0x18; then `NR 0x1C=0x01` followed by two dummy writes `0x00,0x00` to step idx to 2; read NR 0x18 once | `0xAA` — the `0xAA` write landed in slot 2 (y1), proving L2 idx was NOT reset by NR 0x1C=0x02 and was still at 2 when the write happened. If bit0 of NR 0x1C had (incorrectly) reset L2 idx, the `0xAA` would have landed in slot 0 and the read would return `0x30` (the y1 left over from seeding). | zxnext.vhd:5278-5281 (four independent `if` guards; only bit0 touches L2 idx) |
 | G4-05 | 256x192 default clip covers full area | reset, L2 enabled, fill with `0x5A` | screenshot | entire 256x192 area = palette[0x5A]; pixel at (0,0) and (255,191) both visible | layer2.vhd:167, zxnext.vhd:4959-4962 |
 | G4-06 | 256x192 clip to centre 64x64 | reset, L2 enabled, fill `0x5A`, NR 0x18 writes `96,159,64,127` | screenshot | pixels inside `[96..159]×[64..127]` = L2, outside = ULA/fallback | layer2.vhd:167 (inclusive) |
 | G4-07 | 256x192 clip x1==x2 single column | reset, L2 enabled, fill `0x5A`, clip `100,100,0,191` | screenshot | exactly one vertical column (x=100) is L2 | layer2.vhd:167 inclusive |
@@ -582,3 +585,24 @@ Those have been re-expressed as concrete pixel values or read-back bytes.
    — no test distinguishes "L2 transparent and showing NR 0x4A" from
    "L2 transparent and showing stale NR 0x14" at reset. Resolved in spirit
    by G6-08 once NR 0x4A is changed.
+
+7. **`layer2_en_qq` one-pixel latency not directly observed.**
+   layer2.vhd:197 registers `layer2_en` into `layer2_en_qq` on CLK_7,
+   and `o_layer2_en` (the compositor gate) is `layer2_en_qq`, not
+   `layer2_en`. G2-12 proves the address-path lookahead (`hc_eff = hc+1`)
+   but does not independently observe the enable-path latch. A targeted
+   test would need a mid-line clip-edge transition and a sample exactly
+   at the transition column; the expected visible edge is shifted by
+   one CLK_7 pixel relative to the address-path edge. Deferred because
+   the JNEXT renderer collapses the pipeline; flagged so a future
+   cycle-accurate pass has a hook.
+
+8. **NR 0x69 vs port 0x123B same-cycle collision.** zxnext.vhd:3914-3925
+   is an `elsif` chain: if `port_123b_wr='1'` and `nr_69_we='1'` on the
+   same rising edge, the port write wins and the NR 0x69 write to
+   `port_123b_layer2_en` is dropped. G7-10 and G9-01 only exercise
+   sequential writes. A same-cycle collision is essentially unreachable
+   from Z80 software (two I/O cycles cannot end on the same CLK_28
+   rising edge) and untestable from our harness; recorded here as the
+   documented priority for anyone who later wires an internal stimulus
+   path (Copper, DMA-to-IO) that could clash.
