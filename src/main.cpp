@@ -178,6 +178,9 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--version" || arg == "-V") {
             fprintf(stdout, "jnext %s\n", JNEXT_VERSION_STRING);
             return 0;
+        } else {
+            fprintf(stderr, "Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
+            return 1;
         }
     }
 
