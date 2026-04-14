@@ -14,6 +14,26 @@
 #include <array>
 #include <functional>
 
+// ── DMA register identification base bytes (from VHDL zxnext/src/device/dma.vhd) ──
+// R0: bit7=0, bit0|bit1=1             → 0x01 template (transfer op)
+// R1: bit7=0, bits[2:0]=100           → 0x04
+// R2: bit7=0, bits[2:0]=000           → 0x00
+// R3: bit7=1, bits[1:0]=00            → 0x80
+// R4: bit7=1, bits[1:0]=01            → 0x81   (NOTE: test used to write 0x2D: bit7 missing)
+// R5: bits[7:6]=10, bits[2:0]=010     → 0x82
+// R6: bit7=1, bits[1:0]=11            → 0x83   (command register)
+static constexpr uint8_t DMA_R0_BASE = 0x01;
+static constexpr uint8_t DMA_R1_BASE = 0x04;
+static constexpr uint8_t DMA_R2_BASE = 0x00;
+static constexpr uint8_t DMA_R3_BASE = 0x80;
+static constexpr uint8_t DMA_R4_BASE = 0x81;
+static constexpr uint8_t DMA_R5_BASE = 0x82;
+static constexpr uint8_t DMA_R6_BASE = 0x83;
+
+// Common R4 programmings built from the VHDL-correct base byte.
+// R4 bit2=load port B addr LO, bit3=load port B addr HI, bits[6:5]=mode (01=cont,10=burst)
+static constexpr uint8_t DMA_R4_CONT_LOAD_B   = DMA_R4_BASE | (0x01 << 5) | 0x04 | 0x08; // 0xAD
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 static int g_pass = 0;
@@ -118,8 +138,8 @@ static void program_mem_to_mem(Dma& dma, uint16_t src, uint16_t dst, uint16_t le
 
     // R4: continuous mode (01), port B addr follows (bit2+bit3)
     // bits[1:0]=01, bit2=1(addrLO), bit3=1(addrHI), bits[6:5]=01(continuous)
-    // = 0b0_01_0_1_1_01 = 0x2D
-    wr(dma, 0x2D);
+    // = 0b1_01_0_1_1_01 = 0xAD (DMA_R4_CONT_LOAD_B)
+    wr(dma, DMA_R4_CONT_LOAD_B);
     wr(dma, dst & 0xFF);
     wr(dma, (dst >> 8) & 0xFF);
 
@@ -218,7 +238,7 @@ static void test_group2_r0() {
         zxn_write(dma, 0x00); zxn_write(dma, 0x10); // portA = 0x1000
         zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
         // R4 with port B addr
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x20); // portB = 0x2000
         zxn_write(dma, 0xCF); // Load
         check("2.1", "Direction A->B: src=portA, dst=portB",
@@ -235,7 +255,7 @@ static void test_group2_r0() {
         zxn_write(dma, 0x79); // bit2=0 -> B->A
         zxn_write(dma, 0x00); zxn_write(dma, 0x10); // portA = 0x1000
         zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x20); // portB = 0x2000
         zxn_write(dma, 0xCF); // Load
         // B->A: src=portB(0x2000), dst=portA(0x1000)
@@ -374,7 +394,7 @@ static void test_group3_r1() {
         zxn_write(dma, 0x00); zxn_write(dma, 0x00); // portA addr = 0x0000
         zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
         zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
         g_io[0x0000] = 0x42;
         zxn_write(dma, 0xCF);
@@ -427,7 +447,7 @@ static void test_group4_r2() {
         zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
         zxn_write(dma, 0x14); // R1: portA = mem, inc
         zxn_write(dma, 0x28); // R2: portB = IO(bit3=1), fixed (bits[5:4]=10)
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x55); zxn_write(dma, 0x00); // portB = 0x0055
         g_mem[0x8000] = 0xAA;
         zxn_write(dma, 0xCF);
@@ -549,8 +569,8 @@ static void test_group6_r4() {
     {
         fresh(dma);
         // R4: continuous, port B addr follows (bit2+bit3)
-        // = 0b0_01_0_1_1_01 = 0x2D
-        zxn_write(dma, 0x2D);
+        // = 0b1_01_0_1_1_01 = 0xAD (DMA_R4_CONT_LOAD_B)
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x78); // portB LO
         zxn_write(dma, 0x56); // portB HI
         // Need to set direction and Load to check via dst_addr
@@ -596,7 +616,7 @@ static void test_group7_r5() {
         zxn_write(dma, 0x02); zxn_write(dma, 0x00); // len=2
         zxn_write(dma, 0x14); // R1: mem, inc
         zxn_write(dma, 0x10); // R2: mem, inc
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB;
         zxn_write(dma, 0xCF);
@@ -661,7 +681,7 @@ static void test_group8_r6_commands() {
         zxn_write(dma, 0x7D);
         zxn_write(dma, 0x34); zxn_write(dma, 0x12); // portA = 0x1234
         zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x78); zxn_write(dma, 0x56); // portB = 0x5678
         zxn_write(dma, 0xCF);
         check("8.4", "Load A->B: src=portA, dst=portB",
@@ -675,7 +695,7 @@ static void test_group8_r6_commands() {
         zxn_write(dma, 0x79); // B->A (bit2=0)
         zxn_write(dma, 0x34); zxn_write(dma, 0x12);
         zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x78); zxn_write(dma, 0x56);
         zxn_write(dma, 0xCF);
         check("8.5", "Load B->A: src=portB, dst=portA",
@@ -844,7 +864,7 @@ static void test_group9_mem_to_mem() {
         zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
         zxn_write(dma, 0x14); // R1: portA = mem, inc
         zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portB = 0x8000
         g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB;
         g_mem[0x8002] = 0xCC; g_mem[0x8003] = 0xDD;
@@ -868,7 +888,7 @@ static void test_group9_mem_to_mem() {
         zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
         zxn_write(dma, 0x04); // R1: portA = mem, decrement (bits[5:4]=00)
         zxn_write(dma, 0x10); // R2: portB = mem, increment
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
         g_mem[0x8000] = 0x44; g_mem[0x8001] = 0x33;
         g_mem[0x8002] = 0x22; g_mem[0x8003] = 0x11;
@@ -892,7 +912,7 @@ static void test_group9_mem_to_mem() {
         zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
         zxn_write(dma, 0x24); // R1: portA = mem, fixed (bits[5:4]=10)
         zxn_write(dma, 0x10); // R2: portB = mem, increment
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0x8000] = 0xFF;
         zxn_write(dma, 0xCF);
@@ -958,7 +978,7 @@ static void test_group10_mem_to_io() {
         zxn_write(dma, 0x03); zxn_write(dma, 0x00); // len = 3
         zxn_write(dma, 0x14); // R1: portA = mem, inc
         zxn_write(dma, 0x28); // R2: portB = IO(bit3=1), fixed(bits[5:4]=10)
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0xFE); zxn_write(dma, 0x00); // portB = 0x00FE
         g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB; g_mem[0x8002] = 0xCC;
         zxn_write(dma, 0xCF);
@@ -978,7 +998,7 @@ static void test_group10_mem_to_io() {
         zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
         zxn_write(dma, 0x2C); // R1: portA = IO(bit3=1), fixed(bits[5:4]=10) = 0b0_0_10_1_100
         zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
         g_io[0x00FE] = 0x55;
         zxn_write(dma, 0xCF);
@@ -997,7 +1017,7 @@ static void test_group10_mem_to_io() {
         zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
         zxn_write(dma, 0x1C); // R1: portA = IO, inc
         zxn_write(dma, 0x18); // R2: portB = IO(bit3=1), inc(bits[5:4]=01) = 0b0_0_01_1_000
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x20); zxn_write(dma, 0x00); // portB = 0x0020
         g_io[0x0010] = 0x77;
         zxn_write(dma, 0xCF);
@@ -1035,7 +1055,7 @@ static void test_group11_addr_modes() {
         zxn_write(dma, 0x04); zxn_write(dma, 0x00);
         zxn_write(dma, 0x04); // R1: portA = mem, dec
         zxn_write(dma, 0x00); // R2: portB = mem, dec
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x03); zxn_write(dma, 0x90); // portB = 0x9003
         g_mem[0x8000] = 0x44; g_mem[0x8001] = 0x33;
         g_mem[0x8002] = 0x22; g_mem[0x8003] = 0x11;
@@ -1061,7 +1081,7 @@ static void test_group11_addr_modes() {
         zxn_write(dma, 0x03); zxn_write(dma, 0x00); // len = 3
         zxn_write(dma, 0x24); // R1: portA = mem, fixed
         zxn_write(dma, 0x20); // R2: portB = mem, fixed
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0x8000] = 0x42;
         zxn_write(dma, 0xCF);
@@ -1080,7 +1100,7 @@ static void test_group11_addr_modes() {
         zxn_write(dma, 0x02); zxn_write(dma, 0x00); // len = 2
         zxn_write(dma, 0x14); // R1: portA = mem, inc
         zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0xFFFF] = 0xAA;
         g_mem[0x0000] = 0xBB;
@@ -1144,7 +1164,7 @@ static void test_group12_transfer_modes() {
         zxn_write(dma, 0x14);
         zxn_write(dma, 0x10);
         zxn_write(dma, 0x41); // R4: burst mode, no addr follows
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         for (int i = 0; i < 4; i++) g_mem[0x8000 + i] = (uint8_t)(i + 1);
         zxn_write(dma, 0xCF);
@@ -1333,7 +1353,7 @@ static void test_group17_status_readback() {
         zxn_write(dma, 0x08); zxn_write(dma, 0x00);
         zxn_write(dma, 0x14);
         zxn_write(dma, 0x10);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x78); zxn_write(dma, 0x56);
         zxn_write(dma, 0xCF);
         // Init read sequence
@@ -1402,7 +1422,7 @@ static void test_group19_reset() {
         zxn_write(dma, 0x7D);
         zxn_write(dma, 0x34); zxn_write(dma, 0x12);
         zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x78); zxn_write(dma, 0x56);
         // Soft reset
         zxn_write(dma, 0xC3);
@@ -1440,7 +1460,7 @@ static void test_group22_edge_cases() {
         zxn_write(dma, 0x14);
         zxn_write(dma, 0x10);
         zxn_write(dma, 0x21); // R4: continuous
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         zxn_write(dma, 0xCF);
         zxn_write(dma, 0x87); // Enable
@@ -1469,14 +1489,14 @@ static void test_group22_edge_cases() {
         zxn_write(dma, 0x7D);
         zxn_write(dma, 0x00); zxn_write(dma, 0x10); // first portA = 0x1000
         zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x20);
         zxn_write(dma, 0xCF); // First Load
         // Reprogram
         zxn_write(dma, 0x7D);
         zxn_write(dma, 0x00); zxn_write(dma, 0x30); // second portA = 0x3000
         zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x2D);
+        zxn_write(dma, DMA_R4_CONT_LOAD_B);
         zxn_write(dma, 0x00); zxn_write(dma, 0x40);
         zxn_write(dma, 0xCF); // Second Load
         check("22.3", "Multiple Loads: last values used",
