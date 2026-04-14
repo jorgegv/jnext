@@ -33,6 +33,25 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - When a commit is made, check that the FEATURES.md and TODO.md files are updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update to these files.
 
+## ChangeLog file
+
+- A ChangeLog file should exist at the root of the repository
+- It should contain entries for the different tagged versions, in reverse chronological order (most recent at the top of the file)
+- Each entry should consist of the version tag, and below it, an extremely terse description of the new features and fixes of that version, up to the previous version. There should be 4 sections:
+  - User Features: new features oriented to users who just run games and programs: GUI, emulation features, main menu, etc.
+  - Developer Features: new features oriented to developers: in general, all debugger and instrospection features
+  - Bug Fixes
+  - Internal JNEXT Development: new plans, enhancements to test results, big architectural changes or enhancements, etc.
+- Descriptions for each feature/fix should never be more than one line, and should be about 10-20 words maximum
+- Trivial fixes, syntax, reformats, documentation, project plan updates, etc. should not appear on the ChangeLog. Only significative features and fixes.
+- The file should only be updated when the user requests it
+- The initial version (v0.91.0) should contains a short list of the current features at that time
+- If there are commits after the last tag, and the user requests a ChangeLog update, it should be updated up to the current date, and using "(current date)" as the version identifier in the ChangeLog
+- Don't be overly confident about features: never put an ongoing feature in the ChangeLog if it's still not tested or has known bugs
+- Don't put commit IDs in the ChangeLog
+- Try to coalesce similar features or fixes in a single description if possible
+- The goal os this file is to give the emulator USERS an overview of the most important things happened since the last version. It's NOT meant to be an exhaustive list of changes at all. It's not meant to be a development diary for the emulator itself either.
+
 ## Building
 
 ```bash

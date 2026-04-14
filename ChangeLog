@@ -1,0 +1,50 @@
+# ChangeLog
+
+## (2026-04-14)
+
+### User Features
+- 640px native framebuffer for tilemap 80-col and Layer 2 640x256 modes
+- Floating bus emulation enabled for all machine types
+
+### Developer Features
+- Debugger: improved interrupt and tilemap split-screen debugging
+
+### Bug Fixes
+- Z80 instruction timing and contention fixes — games now run at correct speed
+- DMA burst mode prescaler — covox/PCM audio plays at correct speed
+- NEX loader: palette, sprite, transparency, and init fixes
+- Tilemap rendering, scrolling, and 80-col pixel addressing
+- L2 640x256 clip dropping columns 256-319
+- Z80N opcode fixes: PIXELAD, BRLC, BSRF, LDIRSCALE
+
+### Internal JNEXT Development
+- FUSE Z80 opcode tests: 1356/1356 (100%)
+- Z80N VHDL compliance tests: 78/78 pass
+- 16 subsystem VHDL compliance test suites: 1079/1179 pass (92%)
+- Internal Z80N core feasibility plan (from VHDL T80N sources)
+
+## v0.91.0
+
+### User Features
+- ZX Spectrum 48K, 128K, +2A/+3, Pentagon, and Next machine types
+- ULA, Layer 2 (256/320/640), Sprites (8-bit/4-bit), Tilemap, Copper
+- 6-mode layer compositor with per-scanline border colour
+- 8 palettes with 9-bit RGB (512 colours)
+- AY/YM x3 TurboSound, 4-channel DAC, Beeper
+- NEX, SNA, SZX, TAP, TZX, WAV, RZX file formats
+- Qt 6 GUI: Hi-DPI, fullscreen, CRT filter, speed control, screenshots, MPEG4 video recording
+
+### Developer Features
+- Debugger: registers, disassembly, hex editor, breakpoints, trace, symbol tables
+- Magic breakpoint (ED FF / DD 01) and magic debug port
+- Headless mode for automated testing and screenshot regression suite
+- Backwards execution: Step Back, Frame Back, rewind slider
+
+### Bug Fixes
+- (initial release)
+
+### Internal JNEXT Development
+- FUSE-based Z80 core with Z80N extensions (26 opcodes)
+- Memory contention for 48K, 128K, +3, Pentagon timing models
+- IM1/IM2 interrupt controller with 14 Next interrupt levels
+- DivMMC with automap, CTC, UART, DMA, SPI, I2C/RTC peripherals
