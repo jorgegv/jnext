@@ -73,7 +73,7 @@ the (hcounter, vcounter) position, not final ARGB.
 | `TOTAL_PATTERN_BITS` | 6 | 93 |
 | `TOTAL_PATTERNS` | 64 | 94 |
 | Pattern RAM | 16 KiB (14-bit addr) | component `sdpbram_16k_8`, 125–139 |
-| Line buffer | 320 × 9 bits | component `spram_320_9`, 112–122 |
+| Line buffer | 320 × 9 bits | component `spram_320_9`, 112–126 |
 
 ### Attribute bytes (from VHDL comments at `sprites.vhd:325, 352, 381, 409, 437`)
 
@@ -467,7 +467,7 @@ Every row renders at least one pixel and compares it; none of them stop at
 | G12.RE-03 | Relative palette: attr2(0)=0 ⇒ direct paloff | — | — | paloff = rel's attr2(7:4) | 775 |
 | G12.RE-04 | Relative palette: attr2(0)=1 ⇒ `anchor_paloff + attr2(7:4)` (mod 16) | — | — | verified sum | 775 |
 | G12.RE-05 | Anchor rotate swaps rel's offset axes (x0↔y0) | anchor type=1 rotate=1 | rel attr0=dx, attr1=dy | pixel at `anchor + (dy,dx)` | 760–761 |
-| G12.RE-06 | Anchor xmirror XOR rotate negates rel X offset | type=1, xmirror=1, rotate=0 | rel attr0=+10 | pixel at `anchor_x - 10` | 762 |
+| G12.RE-06 | Anchor xmirror XOR rotate negates rel X offset (note: subtraction is in **9-bit space**, so `anchor_x - 10` wraps mod 2^9 per sprites.vhd:762) | type=1, xmirror=1, rotate=0 | rel attr0=+10 | pixel at `(anchor_x - 10) mod 512` | 762 |
 | G12.RE-07 | Anchor ymirror negates rel Y offset | type=1, ymirror=1 | rel attr1=+4 | pixel at `anchor_y - 4` | 763 |
 | G12.RE-08 | Anchor xscale=01 doubles rel X offset (shift left 1) | type=1, xscale=01 | rel attr0=+5 | pixel at `anchor_x + 10` | 764–765 |
 | G12.RE-09 | Anchor yscale=10 quadruples rel Y offset | type=1, yscale=10 | rel attr1=+3 | pixel at `anchor_y + 12` | 770 |
@@ -531,7 +531,7 @@ VHDL-driven state via outputs.
 | G15.NG-04 | Palette offset wrap: `paloff=0xF, pat(7:4)=0x1` ⇒ (0xF+0x1)&0xF = 0 | — | — | low byte = 0x0N | 968 |
 | G15.NG-05 | Zero-size pattern (all bytes = transp colour) ⇒ zero pixels written but FSM still advances to next sprite | — | — | collision bit stays 0, no OT | 971 |
 | G15.NG-06 | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(6)=0 — **impossible** because relatives require attr3(6)=1; document as unreachable | — | — | — | 756 |
-| G15.NG-07 | Negative offset wraps in 9-bit arithmetic: anchor_x=5, rel x0=0xF0 (signed −16) ⇒ pixel at x=`(5-16) mod 512 = 0x1F5` (off-screen) | — | — | no pixel, FSM qualifies out | 762, 772 |
+| G15.NG-07 | Negative offset wraps in 9-bit arithmetic: anchor_x=5, rel x0=0xF0 (signed −16) ⇒ pixel at x=`(5-16) mod 512 = 0x1F5` (off-screen) | anchor has `xmirror=1, rotate=0` so the `not(x0)+1` negation path (sprites.vhd:762) is active and x0=0xF0 is treated as signed −16 | — | no pixel, FSM qualifies out | 762, 772 |
 
 ## Test Implementation Strategy
 
@@ -576,15 +576,15 @@ There is no `check(..., true)`. No row tests "does not crash".
 | G9 Mirror / rotate | 8 |
 | G10 Scaling | 10 |
 | G11 Over border | 4 |
-| G12 Anchor / relative / type / pattern / negative | 22 |
+| G12 Anchor / relative / type / pattern / negative | 26 |
 | G13 Status / collision / overtime | 13 |
 | G14 Reset defaults | 6 |
 | G15 Boundary / negative | 7 |
-| **Total** | **122** |
+| **Total** | **126** |
 
 There is no honest target of "100% pass" until every row above has been
 implemented against the VHDL oracle. Until then, the published status
-line must read "`N/122` passing, `M` VHDL-derived, `K` stub". A stub row
+line must read "`N/126` passing, `M` VHDL-derived, `K` stub". A stub row
 counts as 0 in the N column and must carry a `TODO(sprites): stub` marker
 in code.
 
