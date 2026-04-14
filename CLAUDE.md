@@ -11,6 +11,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - Emulator design plan: @EMULATOR-DESIGN-PLAN.md
 - FPGA code analysis: @FPGA-REPO-ANALYSIS.md
 - FPGA VHDL source (authoritative hardware spec): `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/`
+- Design plans in directory `doc/design`
 
 ## General guidance
 
@@ -20,6 +21,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
   - C/C++ expert developer
   - VHDL expert
   - GUI developer expert in SDL/QT6
+- When a new feature or bugfix is developed, ALWAYS schedule an additional agent for code review, with the same expertise as the original one. The code review should NEVER be done by the same agent that created the code in the first place. Make the reviewer agent be very critic with the code created, ensuring that code passes tests and that no regressions are introduced. Also review code style and conformance to our best practices.
 
 ## Constraints for development
 
