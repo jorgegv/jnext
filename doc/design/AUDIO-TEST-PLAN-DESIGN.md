@@ -187,11 +187,11 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-112 | 8     | 08  | `\\\\` (saw down) | C=1,At=0,Al=0,H=0: repeat down cycles                   |
 | AY-113 | 9     | 09  | `\___`            | C=1,At=0,Al=0,H=1: down once, hold at 0                 |
 | AY-114 | 10    | 0A  | `\/\/` (triangle) | C=1,At=0,Al=1,H=0: down then up, repeat                 |
-| AY-115 | 11    | 0B  | `\` then hold max | C=1,At=0,Al=1,H=1: down, then alt+hold at max           |
+| AY-115 | 11    | 0B  | `\___` hold at 0  | C=1,At=0,Al=1,H=1: down once, hold at 0 (is_bot, vol=0) |
 | AY-116 | 12    | 0C  | `////` (saw up)   | C=1,At=1,Al=0,H=0: repeat up cycles                     |
-| AY-117 | 13    | 0D  | `/` then hold max | C=1,At=1,Al=0,H=1: up once, hold at max                 |
+| AY-117 | 13    | 0D  | `/‾‾‾` hold near max | C=1,At=1,Al=0,H=1: up once, hold at vol=30 (is_top_m1); YM out = 0xE0 |
 | AY-118 | 14    | 0E  | `/\/\` (triangle) | C=1,At=1,Al=1,H=0: up then down, repeat                 |
-| AY-119 | 15    | 0F  | `/___`            | C=1,At=1,Al=1,H=1: up once, hold at 0                   |
+| AY-119 | 15    | 0F  | `/‾‾‾` hold at 31 | C=1,At=1,Al=1,H=1: up once, hold at 31 (is_top, vol=31) |
 
 **Envelope state machine details:**
 
@@ -200,8 +200,8 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-120 | Attack=0 (At bit): initial vol=31, direction=down| `env_vol="11111"`, `env_inc='0'`                           |
 | AY-121 | Attack=1 (At bit): initial vol=0, direction=up   | `env_vol="00000"`, `env_inc='1'`                           |
 | AY-122 | C=0: hold after first ramp regardless of Al/H    | Single ramp then stop                                      |
-| AY-123 | C=1, H=1, Al=0: hold at end of first ramp        | Hold when reaching boundary                                |
-| AY-124 | C=1, H=1, Al=1: hold at opposite boundary        | Alternate direction once, then hold                        |
+| AY-123 | C=1, H=1, Al=0: hold one step inside boundary     | Hold at is_top_m1 (vol=30) when up, is_bot_p1 (vol=1) when down |
+| AY-124 | C=1, H=1, Al=1: hold exactly at boundary          | Hold at is_top (vol=31) when up, is_bot (vol=0) when down       |
 | AY-125 | C=1, H=0, Al=1: triangle wave (continuous)       | Direction reverses at each boundary, no hold               |
 | AY-126 | C=1, H=0, Al=0: sawtooth (continuous)            | One-direction hold then restart (no direction reversal)    |
 | AY-127 | Envelope steps through 32 levels (0-31)          | 5-bit counter increments/decrements by 1                   |
