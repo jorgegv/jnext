@@ -61,6 +61,17 @@ mkdir -p "$IMG_DIR"
 echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
 echo ""
 
+# --- Tautological-assertion lint (fast fail on new offenders) ---
+echo -e "${BOLD}[lint-assertions] Scanning test/ for tautological assertions...${RESET}"
+if bash "$SCRIPT_DIR/lint-assertions.sh"; then
+    echo -e "  ${GREEN}PASS${RESET}: no new tautological assertions"
+    pass=$((pass + 1))
+else
+    echo -e "  ${RED}FAIL${RESET}: new tautological assertions detected (see above)"
+    fail=$((fail + 1))
+fi
+echo ""
+
 # --- FUSE Z80 opcode tests ---
 echo -e "${BOLD}[fuse-z80] Running FUSE Z80 opcode tests...${RESET}"
 if [[ -x "$FUSE_TEST" && -d "$FUSE_DATA" ]]; then
