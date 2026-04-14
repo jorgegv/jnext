@@ -68,7 +68,7 @@ struct TestFixture {
     Rom rom;
     Mmu mmu;
 
-    TestFixture() : ram(768 * 1024), rom(), mmu(ram, rom) {
+    TestFixture() : ram(1792 * 1024), rom(), mmu(ram, rom) {
         // Fill ROM with recognizable pattern: each byte = (page * 0x10 + offset_low)
         // We just fill all 64K of ROM with a known pattern
         for (int page = 0; page < 8; ++page) {
@@ -705,22 +705,46 @@ static void test_l2_write_mapping() {
     set_group("L2 Write Mapping");
     TestFixture f;
 
-    // L2M-01: L2 write-enable maps 0-16K segment
+    // L2M-01: L2 write-over routes writes to the L2 bank, NOT to an
+    // unrelated MMU slot. Decouple the L2 base bank from the MMU page
+    // under test: MMU slot 0 → page 0x20 (16K bank 16), L2 bank → 8
+    // (16K bank 8 = pages 0x10/0x11). The physical pages are disjoint,
+    // so a write through L2 write-over must not appear when reading
+    // through MMU slot 0 via the normal (non-L2) read path.
     {
         f.fresh();
-        f.mmu.set_page(0, 0x10); // slot 0 → RAM page 0x10
-        // Enable L2 write-over for segment 0 (0x0000-0x3FFF), bank 8
-        f.mmu.set_l2_write_port(0x01, 8); // bit0=1 enable, seg=00 → 0x0000-0x3FFF
+        f.mmu.set_page(0, 0x20); // MMU slot 0 → page 0x20 (disjoint from L2 bank 8)
+        f.mmu.set_l2_write_port(0x01, 8); // bit0=1 enable, seg=00 → 0x0000-0x3FFF, bank 8
         f.mmu.write(0x0000, 0xAB);
-        // The write should go to L2 bank, NOT to page 0x10
-        // Read back through normal MMU should NOT see the L2 write
-        // (L2 write-over only affects writes, reads go through MMU)
-        // Disable L2, read from page 0x10
-        f.mmu.set_l2_write_port(0x00, 8); // disable
+        f.mmu.set_l2_write_port(0x00, 8); // disable L2 write-over
         uint8_t ram_val = f.mmu.read(0x0000);
-        check("L2M-01", "L2 write-over redirects writes away from MMU",
+        check("L2M-01", "L2 write-over does not bleed into unrelated MMU page",
               ram_val != 0xAB,
-              DETAIL("page 0x10 at 0x0000 = 0x%02X (should NOT be 0xAB)", ram_val));
+              DETAIL("MMU page 0x20 at 0x0000 = 0x%02X (should NOT be 0xAB — write should have gone to L2 bank 8 / physical page 0x10)", ram_val));
+    }
+
+    // L2M-01b: Known hardware aliasing — when the L2 base bank happens
+    // to map the SAME physical SRAM page as the current MMU slot, L2
+    // write-over and the MMU slot share that memory. This test
+    // DOCUMENTS the collision; any future "MMU-aware L2 redirect"
+    // regression flips this test red and forces a plan discussion.
+    //
+    // VHDL derivation (zxnext.vhd:2964, 2969, 2971):
+    //   layer2_active_page = (layer2_bank << 1) | cpu_a(13)
+    //   layer2_A21_A13     = ("0001" + page(7:5)) & page(4:0)
+    //   mmu_A21_A13        = ("0001" + page(7:5)) & page(4:0)   (same formula)
+    // For L2 bank 8, cpu_a(13)=0: layer2_page = 0x10, identical to
+    // MMU page 0x10 → same physical SRAM → write appears in both.
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0x10); // MMU slot 0 → page 0x10 (ALIASED by L2 bank 8)
+        f.mmu.set_l2_write_port(0x01, 8); // bit0=1 enable, seg=00, bank 8
+        f.mmu.write(0x0000, 0xAB);
+        f.mmu.set_l2_write_port(0x00, 8); // disable L2 write-over
+        uint8_t ram_val = f.mmu.read(0x0000);
+        check("L2M-01b", "L2 bank 8 physically aliases MMU page 0x10 (known hw collision)",
+              ram_val == 0xAB,
+              DETAIL("MMU page 0x10 at 0x0000 = 0x%02X (expected 0xAB — L2 write lands in same physical SRAM as MMU page 0x10 per VHDL)", ram_val));
     }
 
     // L2M-04: L2 does NOT map 48K-64K

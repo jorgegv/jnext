@@ -215,7 +215,7 @@ static void test_attribute_rendering() {
     // We set up a minimal ULA + RAM + MMU, write known pixel+attr data,
     // render a scanline, and check the output pixels.
 
-    Ram ram(768 * 1024);
+    Ram ram(1792 * 1024);
     Rom rom;
     Mmu mmu(ram, rom);
     mmu.reset();
@@ -290,7 +290,7 @@ static void test_border_colour() {
     }
 
     // Verify the emulator's border rendering: set border colour and render a border line
-    Ram ram(768 * 1024);
+    Ram ram(1792 * 1024);
     Rom rom;
     Mmu mmu(ram, rom);
     mmu.reset();
@@ -339,7 +339,7 @@ static void test_flash_timing() {
 
     // Test flash period by rendering: set up pixel=1, attr=0x87 (flash+white ink)
     // and verify that after 16 frames the pixel changes.
-    Ram ram(768 * 1024);
+    Ram ram(1792 * 1024);
     Rom rom;
     Mmu mmu(ram, rom);
     mmu.reset();
@@ -439,7 +439,7 @@ static void test_timex_modes() {
           ula.get_screen_mode_reg() == 0x30, "");
 
     // Test actual rendering of hi-colour and hi-res modes
-    Ram ram(768 * 1024);
+    Ram ram(1792 * 1024);
     Rom rom;
     Mmu mmu(ram, rom);
     mmu.reset();
@@ -634,7 +634,7 @@ static void test_timing_constants() {
 static void test_shadow_screen() {
     set_group("S15-Shadow");
 
-    Ram ram(768 * 1024);
+    Ram ram(1792 * 1024);
     Rom rom;
     Mmu mmu(ram, rom);
     mmu.reset();
