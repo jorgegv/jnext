@@ -23,6 +23,16 @@ foundation for all memory access in the emulator. This test suite validates:
 - Pentagon/Profi mapping modes (NR 0x8F)
 - +3 special paging modes
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
+Measured on main post-merge (commit `6d1a057`):
+
+- **143 plan rows total**, mapped 1:1 to test IDs
+- **64/66 live pass (97.0%)**, 2 fail, 77 skip
+- **Fails (C-class legitimate emulator bugs, Task 2 backlog item 5)**: RST-01, RST-02 — `Mmu::reset()` clobbers slots_[0..1] to 0/1 via `map_rom(0,0)/map_rom(1,1)`, VHDL `zxnext.vhd:4611-4612` sets MMU0=MMU1=0xFF (ROM sentinel).
+- **Skips**: 77 rows blocked by thin `Mmu` public API — NR 0x8E/8F/8C/03/04, ports 0xDFFD/0xEFF7, machine-type ROM selection, altrom, config-mode, sram_bank5/7 flags, contention model inputs (no `mem_active_page`/speed/Pentagon), NR 0x12/0x13 shadow, DivMmc overlay fixture. These rows are genuinely unreachable on the bare Mmu surface — a thicker Mmu facade or integration tests are needed to convert them.
+
 ## VHDL Architecture Summary
 
 ### Physical Memory Map (SRAM)

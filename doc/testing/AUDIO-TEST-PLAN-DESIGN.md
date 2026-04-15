@@ -7,6 +7,19 @@ Spectrum Next emulator. Covers: AY/YM2149, Turbosound (triple AY), Soundrive
 All behavioural specifications are derived exclusively from the FPGA VHDL
 sources in `ZX_Spectrum_Next_FPGA/cores/zxnext/src/audio/`.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-audio`).
+Measured on main post-merge (commit `178c41c`):
+
+- **197 plan rows total**, mapped 1:1 to test IDs (some rows expanded to sub-letter variants, e.g. AY-50a/b)
+- **121/127 live pass (95.3%)**, 6 fail, 73 skip
+- **Fails (C-class legitimate emulator bugs)**:
+  - AY-81, AY-102, AY-110, AY-122 — envelope "hold at 0" family. Task 2 backlog item 2 had scope "shapes 0/9 only"; the actual bug affects a wider envelope-shape set in `src/audio/ay_chip.cpp`. **Task 2 item 2 scope needs widening**.
+  - TS-10, TS-42 — Turbosound default panning and pan=01 decode (`src/audio/turbosound.cpp`). Task 2 backlog item 3.
+- **Skips**: 73 rows — NR-xx NextREG handlers (16), IO-xx port decode (8), BP-xx beeper port 0xFE pipeline (13), SD-09..18 (port decode), MX-03/06/20-22 (exc_i / I2S), TS/AY gating flags not exposed. All live in `zxnext.vhd` core outside the bare Audio/AY/TS/DAC class surface — integration-tier tests required.
+- **(D) plan nit noted (plan not edited per process rule)**: AY-113 plan text says "hold at 0" but VHDL `ym2149.vhd:428-431` holds on `is_bot_p1` → env_vol=1 → YM[1]=0x01. Test cites VHDL (0x01) and currently passes.
+
 ## VHDL Source Files
 
 | File               | Component                                         |

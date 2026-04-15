@@ -13,6 +13,19 @@ timing, auto-restart, and a programmable read-back sequence. This test plan
 covers all VHDL-observable behaviour to verify the JNEXT emulation matches
 hardware.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-dma`).
+Measured on main post-merge (commit `deeb9f6`):
+
+- **156 plan rows total**, mapped 1:1 to test IDs
+- **116/121 live pass (95.9%)**, 5 fail, 35 skip
+- **Fails (C-class legitimate emulator bugs)**:
+  - 9.8, 14.6, 14.7 — block_length=0 transfers 1 byte instead of 0 (`src/peripheral/dma.cpp:560`, counter post-increment before length check). Task 2 backlog item 6.
+  - 12.6 — byte mode: one byte then stop (block_len=4) transfers N bytes (expected 1). **NEW Task 2 backlog item** — byte-mode R4 mode=00 handling.
+  - 12.7 — continuous+prescaler: prescaler wait-state only armed for burst mode (`src/peripheral/dma.cpp:581` `mode_==2` guard), VHDL `dma.vhd:424` gates on prescaler regardless of mode. **NEW Task 2 backlog item**.
+- **Skips**: 35 rows blocked by missing public API on `Dma` — bus arbitration signals (`cpu_busreq_n_o`, `cpu_bai_n`, `bus_busreq_n_i`), cycle-accurate timing (`DMA_timer_s`, turbo_i), R1/R2 timing-byte accessors, NR 0xCC/0xCD/0xCE DMA-delay inputs, dma_mreq_n_o/iorq_n_o bus lines.
+
 ## VHDL Source Summary
 
 ### Entity: `z80dma` (dma.vhd)

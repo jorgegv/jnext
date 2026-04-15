@@ -7,15 +7,15 @@
 | Subsystem        | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
-| Memory/MMU       | 143       | 38      | —    | —    | —         | 105     | `9fcc580214`      |
+| Memory/MMU       | 143       | 143     | 64   | 2    | 77        | 0       | `6d1a057000`      |
 | ULA Video        | 122       | 35      | —    | —    | —         | 87      | `9fcc580214`      |
 | Layer2           | 97        | 51      | —    | —    | 0         | 46      | `fcbd9aed61`      |
 | Sprites          | 132       | 116     | —    | —    | 0         | 16      | `28f5afb540`      |
 | Tilemap          | 69        | 43      | —    | —    | —         | 26      | `d599cd2761`      |
 | Copper           | 76        | 76      | —    | —    | 10        | 0       | `fcbd9aed61`      |
 | Compositor       | 115       | 91      | —    | —    | 0         | 24      | `fcbd9aed61`      |
-| Audio            | 197       | 86      | —    | —    | —         | 111     | `0020b71025`      |
-| DMA              | 156       | 87      | —    | —    | —         | 69      | `651ea41d76`      |
+| Audio            | 197       | 197     | 121  | 6    | 73        | 0       | `178c41c000`      |
+| DMA              | 156       | 156     | 116  | 5    | 35        | 0       | `deeb9f6000`      |
 | DivMMC+SPI       | 124       | 57      | —    | —    | —         | 67      | `86dc8f85dc`      |
 | CTC+Interrupts   | 150       | 46      | —    | —    | —         | 104     | `f7e1b035d7`      |
 | UART+I2C/RTC     | 105       | 63      | —    | —    | —         | 42      | `7cf61e20fa`      |
@@ -23,7 +23,7 @@
 | IO Port Dispatch | 90        | 60      | —    | —    | 0         | 30      | `fcbd9aed61`      |
 | Input            | 149       | 149     | —    | —    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1821** plan rows, **1036** mapped to tests, **785** missing. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
+Totals: **1821** plan rows, **1321** mapped to tests, **500** missing. Wave 1 of Task 1 (2026-04-15, MMU/DMA/Audio) populated concrete pass/fail/skip counts above for those three rows. **Per-row Status columns inside the MMU, DMA, and Audio sections below are still `—`** — they will be refreshed in one sweep once Waves 2 and 3 of Task 1 also land, to avoid redundant mechanical edits across 9 sequential merges. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
 ## Z80N — `test/z80n_test.cpp`
 
