@@ -1,1599 +1,2360 @@
-// DMA Subsystem Compliance Test Runner
+// DMA Subsystem Compliance Test Runner (Phase 2 per-row rewrite)
 //
-// Tests the DMA subsystem against VHDL-derived expected behaviour.
-// All expected values come from the DMA-TEST-PLAN-DESIGN.md spec.
+// Expected values are read from the ZXN FPGA VHDL sources at
+//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/device/dma.vhd
+// and cross-checked with the relevant wiring in zxnext.vhd.  The C++
+// implementation is never used as an oracle.
+//
+// One section per plan row from doc/testing/DMA-TEST-PLAN-DESIGN.md (156
+// rows across 22 groups).  Every live row is either a single check(id, ...)
+// or a skip(id, ...) with a one-line reason.
 //
 // Run: ./build/test/dma_test
 
 #include "peripheral/dma.h"
-#include <cstdio>
+
+#include <array>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
-#include <array>
-#include <functional>
 
-// ── DMA register identification base bytes (from VHDL zxnext/src/device/dma.vhd) ──
-// R0: bit7=0, bit0|bit1=1             → 0x01 template (transfer op)
-// R1: bit7=0, bits[2:0]=100           → 0x04
-// R2: bit7=0, bits[2:0]=000           → 0x00
-// R3: bit7=1, bits[1:0]=00            → 0x80
-// R4: bit7=1, bits[1:0]=01            → 0x81   (NOTE: test used to write 0x2D: bit7 missing)
-// R5: bits[7:6]=10, bits[2:0]=010     → 0x82
-// R6: bit7=1, bits[1:0]=11            → 0x83   (command register)
-static constexpr uint8_t DMA_R0_BASE = 0x01;
-static constexpr uint8_t DMA_R1_BASE = 0x04;
-static constexpr uint8_t DMA_R2_BASE = 0x00;
-static constexpr uint8_t DMA_R3_BASE = 0x80;
-static constexpr uint8_t DMA_R4_BASE = 0x81;
-static constexpr uint8_t DMA_R5_BASE = 0x82;
-static constexpr uint8_t DMA_R6_BASE = 0x83;
-
-// Common R4 programmings built from the VHDL-correct base byte.
-// R4 bit2=load port B addr LO, bit3=load port B addr HI, bits[6:5]=mode (01=cont,10=burst)
-static constexpr uint8_t DMA_R4_CONT_LOAD_B   = DMA_R4_BASE | (0x01 << 5) | 0x04 | 0x08; // 0xAD
-static constexpr uint8_t DMA_R4_BURST_LOAD_B  = DMA_R4_BASE | (0x02 << 5) | 0x04 | 0x08; // 0xCD
-static constexpr uint8_t DMA_R4_BURST         = DMA_R4_BASE | (0x02 << 5);               // 0xC1
+namespace {
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
-static int g_pass = 0;
-static int g_fail = 0;
-static int g_total = 0;
-static std::string g_group;
+int g_pass  = 0;
+int g_fail  = 0;
+int g_total = 0;
 
-struct TestResult {
+struct Result {
     std::string group;
     std::string id;
-    std::string description;
-    bool passed;
+    std::string desc;
+    bool        passed;
     std::string detail;
 };
 
-static std::vector<TestResult> g_results;
+std::vector<Result> g_results;
+std::string         g_group;
 
-static void set_group(const char* name) {
-    g_group = name;
-}
+struct SkipNote {
+    std::string id;
+    std::string reason;
+};
+std::vector<SkipNote> g_skipped;
 
-static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
-    g_total++;
-    TestResult r;
-    r.group = g_group;
-    r.id = id;
-    r.description = desc;
-    r.passed = cond;
-    r.detail = detail;
+void set_group(const char* name) { g_group = name; }
+
+void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    ++g_total;
+    Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
-
     if (cond) {
-        g_pass++;
+        ++g_pass;
     } else {
-        g_fail++;
-        printf("  FAIL %s: %s", id, desc);
-        if (detail[0]) printf(" [%s]", detail);
-        printf("\n");
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
-static char g_buf[512];
-#define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+}
+
+std::string fmt(const char* fmt_str, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt_str);
+    std::vsnprintf(buf, sizeof(buf), fmt_str, ap);
+    va_end(ap);
+    return std::string(buf);
+}
 
 // ── Mock memory and I/O ──────────────────────────────────────────────
 
-static std::array<uint8_t, 65536> g_mem;
-static std::array<uint8_t, 65536> g_io;  // indexed by port address
+std::array<uint8_t, 65536> g_mem;
+std::array<uint8_t, 65536> g_io;
 
-static void clear_mem() { g_mem.fill(0); }
-static void clear_io()  { g_io.fill(0);  }
+void clear_mem() { g_mem.fill(0); }
+void clear_io()  { g_io.fill(0);  }
 
-static void attach_callbacks(Dma& dma) {
+void attach_callbacks(Dma& dma) {
     dma.read_memory  = [](uint16_t a) -> uint8_t { return g_mem[a]; };
     dma.write_memory = [](uint16_t a, uint8_t v) { g_mem[a] = v; };
     dma.read_io      = [](uint16_t p) -> uint8_t { return g_io[p]; };
     dma.write_io     = [](uint16_t p, uint8_t v) { g_io[p] = v; };
 }
 
-static void fresh(Dma& dma) {
+void fresh(Dma& dma) {
     dma.reset();
     clear_mem();
     clear_io();
     attach_callbacks(dma);
 }
 
-// ── Helpers: DMA programming sequences ───────────────────────────────
+// ── DMA port write helpers (VHDL zxnext.vhd port decode: 0x6B = ZXN,
+//    0x0B = Z80-DMA-compat; dma_mode_i latched per access) ─────────────
 
-// Write to ZXN DMA port (0x6B, z80_compat=false)
-static void zxn_write(Dma& dma, uint8_t val) {
-    dma.write(val, false);
-}
+void zxn(Dma& dma, uint8_t v) { dma.write(v, false); }
+void z80(Dma& dma, uint8_t v) { dma.write(v, true);  }
 
-// Write to Z80-DMA port (0x0B, z80_compat=true)
-static void z80_write(Dma& dma, uint8_t val) {
-    dma.write(val, true);
-}
-
-// Program a standard mem-to-mem transfer: A->B, both increment, continuous
-// src_addr -> dst_addr, block_len bytes
-static void program_mem_to_mem(Dma& dma, uint16_t src, uint16_t dst, uint16_t len, bool zxn = true) {
-    auto wr = zxn ? zxn_write : z80_write;
-
-    // R0: A->B, port A addr + block length (all 4 sub-bytes)
-    // bit2=1 (A->B), bit3=1 (addrLO), bit4=1 (addrHI), bit5=1 (lenLO), bit6=1 (lenHI)
-    // = 0b0_1_1_1_1_1_0_1 = 0x7D
-    wr(dma, 0x7D);
-    wr(dma, src & 0xFF);
-    wr(dma, (src >> 8) & 0xFF);
-    wr(dma, len & 0xFF);
-    wr(dma, (len >> 8) & 0xFF);
-
-    // R1: port A = memory, increment, no timing sub-bytes
-    // bits[2:0]=100, bit3=0(mem), bits[5:4]=01(inc), bit6=0(no timing)
-    // = 0b0_0_01_0_100 = 0x14
-    wr(dma, 0x14);
-
-    // R2: port B = memory, increment, no timing sub-bytes
-    // bits[2:0]=000, bit3=0(mem), bits[5:4]=01(inc), bit6=0(no timing)
-    // = 0b0_0_01_0_000 = 0x10
-    wr(dma, 0x10);
-
-    // R4: continuous mode (01), port B addr follows (bit2+bit3)
-    // bits[1:0]=01, bit2=1(addrLO), bit3=1(addrHI), bits[6:5]=01(continuous)
-    // = 0b1_01_0_1_1_01 = 0xAD (DMA_R4_CONT_LOAD_B)
-    wr(dma, DMA_R4_CONT_LOAD_B);
-    wr(dma, dst & 0xFF);
-    wr(dma, (dst >> 8) & 0xFF);
-
-    // Load + Enable
-    wr(dma, 0xCF);  // Load
-    wr(dma, 0x87);  // Enable
-}
-
-// Run DMA until idle or max_bytes reached
-static int run_dma(Dma& dma, int max_bytes = 65536) {
+// Run DMA to completion.
+int run_to_idle(Dma& dma, int cap = 65536) {
     int total = 0;
-    while (dma.state() == Dma::State::TRANSFERRING && total < max_bytes) {
-        int n = dma.execute_burst(max_bytes - total);
+    while (dma.state() == Dma::State::TRANSFERRING && total < cap) {
+        int n = dma.execute_burst(cap - total);
         if (n == 0) break;
         total += n;
     }
     return total;
 }
 
-// ── Group 1: Port Decoding and Mode Selection ────────────────────────
-// Note: We test mode via the counter initialization after Load (ZXN=0, Z80=0xFFFF)
+// Program a standard A->B mem/inc + mem/inc transfer via the register
+// protocol, matching the VHDL decode order (R0, R1, R2, R4, LOAD, ENABLE).
+// - R0 base 0x7D = 0b0111_1101:
+//     bit0=1 (R0 discriminator), bit2=1 (A->B),
+//     bit3..bit6=1 (portA LO/HI + len LO/HI sub-bytes follow).
+//     VHDL decode: dma.vhd:518-538 (dir + sub-byte gating).
+// - R1 base 0x14 = 0b0001_0100:
+//     bits[2:0]=100 (R1 id, dma.vhd:542 select),
+//     bit3=0 (mem), bits[5:4]=01 (inc), bit6=0 (no timing follow).
+// - R2 base 0x10 = 0b0001_0000:
+//     bits[2:0]=000 (R2 id, dma.vhd:559 select),
+//     bit3=0 (mem), bits[5:4]=01 (inc), bit6=0 (no timing follow).
+// - R4 base 0xAD = 0b1010_1101:
+//     bit7=1, bits[1:0]=01 (R4 id, dma.vhd:601 select),
+//     bits[6:5]=01 (continuous mode), bit2=1 (portB LO), bit3=1 (portB HI).
+void program_mem_to_mem_AB(Dma& dma, uint16_t src, uint16_t dst, uint16_t len,
+                           bool z80_mode = false) {
+    auto wr = z80_mode ? z80 : zxn;
+    wr(dma, 0x7D);
+    wr(dma, src & 0xFF);
+    wr(dma, (src >> 8) & 0xFF);
+    wr(dma, len & 0xFF);
+    wr(dma, (len >> 8) & 0xFF);
+    wr(dma, 0x14);
+    wr(dma, 0x10);
+    wr(dma, 0xAD);
+    wr(dma, dst & 0xFF);
+    wr(dma, (dst >> 8) & 0xFF);
+    wr(dma, 0xCF);  // LOAD (dma.vhd:654-668)
+    wr(dma, 0x87);  // ENABLE (dma.vhd:725)
+}
 
-static void test_group1_port_decode() {
-    set_group("Port Decode");
+// ══════════════════════════════════════════════════════════════════════
+// Group 1 — Port decoding and mode selection
+// VHDL: zxnext.vhd port decode sets dma_mode <= port_0b_lsb per access.
+// Observed by the Z80-vs-ZXN counter reset value at LOAD
+// (dma.vhd:664-668, :673-676, :482-486).
+// ══════════════════════════════════════════════════════════════════════
+
+void group1_port_decode() {
+    set_group("G1 Port Decode");
     Dma dma;
 
-    // 1.1: Write to ZXN port sets counter to 0 on Load
+    // 1.1 Write to port 0x6B -> ZXN mode (counter=0 at LOAD).
     {
         fresh(dma);
-        zxn_write(dma, 0x79); // R0: A->B, addr+len sub-bytes
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portA = 0x8000
-        zxn_write(dma, 0x10); zxn_write(dma, 0x00); // len = 16
-        zxn_write(dma, 0xCF); // Load
-        check("1.1", "ZXN mode: counter=0 after Load",
+        zxn(dma, 0x05);  // R0 dir A->B, no sub-bytes (bit0=1, bit2=1)
+        zxn(dma, 0xCF);  // LOAD
+        check("1.1", "Write 0x6B latches ZXN mode: counter=0 on LOAD",
               dma.counter() == 0,
-              DETAIL("counter=%u", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:664-665", dma.counter()));
     }
 
-    // 1.2: Write to Z80 port sets counter to 0xFFFF on Load
+    // 1.2 Write to port 0x0B -> Z80 mode (counter=0xFFFF at LOAD).
     {
         fresh(dma);
-        z80_write(dma, 0x79);
-        z80_write(dma, 0x00); z80_write(dma, 0x80);
-        z80_write(dma, 0x10); z80_write(dma, 0x00);
-        z80_write(dma, 0xCF); // Load
-        check("1.2", "Z80 mode: counter=0xFFFF after Load",
+        z80(dma, 0x05);
+        z80(dma, 0xCF);
+        check("1.2", "Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD",
               dma.counter() == 0xFFFF,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:666-667", dma.counter()));
     }
 
-    // 1.3: Mode switches on each access
+    // 1.3 Read from 0x6B -> ZXN mode.  The C++ read() path latches the
+    // mode via the same write(bool) parameter through a preceding access;
+    // we model it by doing a Z80 LOAD, then a ZXN CONTINUE which the VHDL
+    // treats as a mode latch on port access (dma.vhd:670-676).
     {
         fresh(dma);
-        // First write ZXN, then Load -> counter=0
-        zxn_write(dma, 0x79);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x10); zxn_write(dma, 0x00);
-        zxn_write(dma, 0xCF);
-        check("1.3a", "ZXN then Load: counter=0",
+        z80(dma, 0x05);
+        z80(dma, 0xCF);  // counter = 0xFFFF
+        zxn(dma, 0xD3);  // CONTINUE with ZXN mode -> counter = 0
+        check("1.3", "Subsequent 0x6B access latches ZXN: CONTINUE counter=0",
               dma.counter() == 0,
-              DETAIL("counter=%u", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:673-674", dma.counter()));
+    }
 
-        // Now write Z80 Continue -> counter should be 0xFFFF
-        z80_write(dma, 0xD3);
-        check("1.3b", "Switch to Z80 Continue: counter=0xFFFF",
+    // 1.4 Read from 0x0B -> Z80 mode.
+    {
+        fresh(dma);
+        zxn(dma, 0x05);
+        zxn(dma, 0xCF);  // ZXN LOAD -> counter=0
+        z80(dma, 0xD3);  // Z80 CONTINUE -> counter=0xFFFF
+        check("1.4", "Subsequent 0x0B access latches Z80: CONTINUE counter=0xFFFF",
               dma.counter() == 0xFFFF,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:675-676", dma.counter()));
     }
 
-    // 1.4: Default mode after reset (ZXN, counter=0)
+    // 1.5 Mode defaults to ZXN on reset.  Reset leaves dma_mode in the
+    // signal that is re-latched on the next port access (dma.vhd:213-242
+    // reset block); from the public API the only observable proxy is that
+    // a ZXN LOAD yields counter=0 — which is the same as the 1.1 check.
+    // The dedicated "default" vs "latched" distinction is unreachable.
+    skip("1.5", "dma_mode_i latch not separately observable from C++ API "
+                "(only visible via counter-on-LOAD, same as row 1.1)");
+
+    // 1.6 Mode switches per access: alternate ZXN and Z80 LOADs.
     {
         fresh(dma);
-        // Just check that a Load with no writes to either port results in ZXN mode
-        // We need an R0 write first (any valid one)
-        zxn_write(dma, 0x79);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00);
-        zxn_write(dma, 0xCF);
-        check("1.4", "Default mode is ZXN after reset",
-              dma.counter() == 0,
-              DETAIL("counter=%u", dma.counter()));
+        zxn(dma, 0x05); zxn(dma, 0xCF);
+        bool zxn_ok = (dma.counter() == 0);
+        z80(dma, 0xCF);  // Z80 LOAD re-latches mode, counter -> 0xFFFF
+        bool z80_ok = (dma.counter() == 0xFFFF);
+        check("1.6", "Mode re-latched on each port access",
+              zxn_ok && z80_ok,
+              fmt("zxn_load=%d z80_load=%d  VHDL dma.vhd:664-668",
+                  (int)zxn_ok, (int)z80_ok));
     }
 }
 
-// ── Group 2: R0 — Direction, Port A Address, Block Length ────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 2 — R0 (direction, port A address, block length)
+// VHDL dma.vhd:518-538 (R0 decode + sub-byte gating), :739-772 (sub-bytes).
+// R0 base byte: bit7=0, (bit0=1 OR bit1=1) discriminator; bit2=dir (1=A->B);
+// bits[6:3]=follow-up mask (addrLO, addrHI, lenLO, lenHI).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group2_r0() {
-    set_group("R0 Programming");
+void group2_r0() {
+    set_group("G2 R0 programming");
     Dma dma;
 
-    // 2.1: Direction A->B
+    // 2.1 Direction A->B: after LOAD, src=portA, dst=portB.
+    // VHDL dma.vhd:656-658 (cmd_load AtoB).
     {
         fresh(dma);
-        // R0 with bit2=1 (A->B), addr+len
-        zxn_write(dma, 0x7D); // bit2=1 -> A->B
-        zxn_write(dma, 0x00); zxn_write(dma, 0x10); // portA = 0x1000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        // R4 with port B addr
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x20); // portB = 0x2000
-        zxn_write(dma, 0xCF); // Load
-        check("2.1", "Direction A->B: src=portA, dst=portB",
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x10);  // portA = 0x1000
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x20);  // portB = 0x2000
+        zxn(dma, 0xCF);
+        check("2.1", "R0 bit2=1 dir A->B: src=portA, dst=portB",
               dma.src_addr() == 0x1000 && dma.dst_addr() == 0x2000,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:656-658",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 2.2: Direction B->A
+    // 2.2 Direction B->A: R0 bit2=0 -> src=portB, dst=portA.
+    // VHDL dma.vhd:659-662.
     {
         fresh(dma);
-        // R0 with bit2=0 (B->A)
-        // bit0=1, bit3=1(addrLO), bit4=1(addrHI), bit5=1(lenLO), bit6=1(lenHI)
-        // = 0b0_1_1_1_1_0_0_1 = 0x79
-        zxn_write(dma, 0x79); // bit2=0 -> B->A
-        zxn_write(dma, 0x00); zxn_write(dma, 0x10); // portA = 0x1000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x20); // portB = 0x2000
-        zxn_write(dma, 0xCF); // Load
-        // B->A: src=portB(0x2000), dst=portA(0x1000)
-        check("2.2", "Direction B->A: src=portB, dst=portA",
+        zxn(dma, 0x79);                  // bit2=0
+        zxn(dma, 0x00); zxn(dma, 0x10);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x20);
+        zxn(dma, 0xCF);
+        check("2.2", "R0 bit2=0 dir B->A: src=portB, dst=portA",
               dma.src_addr() == 0x2000 && dma.dst_addr() == 0x1000,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:659-662",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 2.3: Port A start address low byte only
+    // 2.3 Port A start address low byte alone (R0 bit3=1 only).
+    // VHDL dma.vhd:739 R0_start_addr_port_A_s(7 downto 0).
     {
         fresh(dma);
-        // R0 with bit3=1 only (addr LO)
-        // bit0=1, bit2=1(A->B), bit3=1(addrLO)
-        // = 0b0_0_0_0_1_1_0_1 = 0x0D
-        zxn_write(dma, 0x0D);
-        zxn_write(dma, 0xAB); // portA LO = 0xAB
-        zxn_write(dma, 0xCF); // Load
-        check("2.3", "Port A addr low byte",
-              (dma.src_addr() & 0xFF) == 0xAB,
-              DETAIL("src=0x%04X", dma.src_addr()));
+        zxn(dma, 0x0D);      // bit0=1, bit2=1, bit3=1
+        zxn(dma, 0xAB);
+        zxn(dma, 0xCF);
+        check("2.3", "R0 addr LO sub-byte only",
+              (dma.src_addr() & 0x00FF) == 0xAB,
+              fmt("src=0x%04X  VHDL dma.vhd:739", dma.src_addr()));
     }
 
-    // 2.4: Port A start address high byte
+    // 2.4 Port A start address high byte (bit3+bit4).
+    // VHDL dma.vhd:752 R0_start_addr_port_A_s(15 downto 8).
     {
         fresh(dma);
-        // R0 with bit3=1 + bit4=1 (addr LO + HI)
-        // bit0=1, bit2=1, bit3=1, bit4=1
-        // = 0b0_0_0_1_1_1_0_1 = 0x1D
-        zxn_write(dma, 0x1D);
-        zxn_write(dma, 0x34); // portA LO
-        zxn_write(dma, 0x12); // portA HI
-        zxn_write(dma, 0xCF);
-        check("2.4", "Port A full 16-bit address",
+        zxn(dma, 0x1D);      // bit3=1, bit4=1
+        zxn(dma, 0x34);
+        zxn(dma, 0x12);
+        zxn(dma, 0xCF);
+        check("2.4", "R0 addr HI sub-byte",
               dma.src_addr() == 0x1234,
-              DETAIL("src=0x%04X", dma.src_addr()));
+              fmt("src=0x%04X  VHDL dma.vhd:752", dma.src_addr()));
     }
 
-    // 2.5: Block length programming
+    // 2.5 Full 16-bit port A address (same base 0x7D as 2.1; the all-bytes
+    // path exercises addr LO + HI in one write sequence).
+    // VHDL dma.vhd:739 + :752.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x01); // len = 256
-        zxn_write(dma, 0xCF);
-        check("2.5", "Block length = 256",
-              dma.block_length() == 256,
-              DETAIL("block_len=%u", dma.block_length()));
+        zxn(dma, 0x7D);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0xCF);
+        check("2.5", "R0 full 16-bit port A address",
+              dma.src_addr() == 0x5678,
+              fmt("src=0x%04X  VHDL dma.vhd:739,752", dma.src_addr()));
     }
 
-    // 2.6: Block length low byte only
+    // 2.6 Block length low byte (bit5=1).
+    // VHDL dma.vhd:763 R0_block_len_s(7 downto 0).
     {
         fresh(dma);
-        // R0 with bit5=1 only (len LO), bit0=1, bit2=1
-        // = 0b0_0_1_0_0_1_0_1 = 0x25
-        zxn_write(dma, 0x25);
-        zxn_write(dma, 0x10); // len LO = 16
-        zxn_write(dma, 0xCF);
-        check("2.6", "Block length low byte only",
-              (dma.block_length() & 0xFF) == 0x10,
-              DETAIL("block_len=%u", dma.block_length()));
+        zxn(dma, 0x25);
+        zxn(dma, 0x10);
+        zxn(dma, 0xCF);
+        check("2.6", "R0 block length LO sub-byte",
+              (dma.block_length() & 0x00FF) == 0x10,
+              fmt("block_len=%u  VHDL dma.vhd:763", dma.block_length()));
     }
 
-    // 2.7: Selective byte programming (addr LO only, no HI, no len)
+    // 2.7 Block length high byte (bit5+bit6).
+    // VHDL dma.vhd:772 R0_block_len_s(15 downto 8).
     {
         fresh(dma);
-        // First set full address to known value
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0xEF); zxn_write(dma, 0xBE);
-        zxn_write(dma, 0x20); zxn_write(dma, 0x00);
-        // Now write only addr LO
-        zxn_write(dma, 0x0D); // bit0=1, bit2=1, bit3=1
-        zxn_write(dma, 0x42); // new portA LO
-        zxn_write(dma, 0xCF);
-        check("2.7", "Selective: only addr LO changed",
-              dma.src_addr() == 0xBE42,
-              DETAIL("src=0x%04X (expected 0xBE42)", dma.src_addr()));
+        zxn(dma, 0x65);
+        zxn(dma, 0x00);
+        zxn(dma, 0x01);
+        zxn(dma, 0xCF);
+        check("2.7", "R0 block length HI sub-byte",
+              dma.block_length() == 0x0100,
+              fmt("block_len=0x%04X  VHDL dma.vhd:772", dma.block_length()));
+    }
+
+    // 2.8 Selective programming: write full R0, then re-write only addr LO;
+    // addr HI and block length must be preserved (VHDL parses only the
+    // sub-bytes selected by the current base byte — dma.vhd:518-538).
+    {
+        fresh(dma);
+        zxn(dma, 0x7D);
+        zxn(dma, 0xEF); zxn(dma, 0xBE);
+        zxn(dma, 0x20); zxn(dma, 0x00);
+        zxn(dma, 0x0D);
+        zxn(dma, 0x42);
+        zxn(dma, 0xCF);
+        check("2.8", "R0 selective re-program: only addr LO updated",
+              dma.src_addr() == 0xBE42 && dma.block_length() == 0x0020,
+              fmt("src=0x%04X len=0x%04X  VHDL dma.vhd:518-538",
+                  dma.src_addr(), dma.block_length()));
     }
 }
 
-// ── Group 3: R1 — Port A Configuration ──────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 3 — R1 (port A configuration)
+// VHDL dma.vhd:542-545 (R1_portAisIO_s, R1_portA_addrMode_s), :776 (timing).
+// R1 base: bits[2:0]=100, bit3=isIO, bits[5:4]=addrMode, bit6=timing follow.
+// Observability: port_a_is_io not exposed; verified by transfer side-effect.
+// addr mode exposed through src_addr_mode() (when dir A->B).
+// timing byte not observable (no cycle counter).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group3_r1() {
-    set_group("R1 Port A Config");
+void group3_r1() {
+    set_group("G3 R1 Port A");
     Dma dma;
 
-    // 3.1: Port A is memory (default)
+    // 3.1 Port A is memory (default after R1 write with bit3=0).
+    // Verified by A->B transfer reading from g_mem (not g_io).
+    // VHDL dma.vhd:542 R1_portAisIO_s = cpu_d_i(3).
     {
         fresh(dma);
-        // R1: bit3=0 (memory), bits[5:4]=01 (inc)
-        zxn_write(dma, 0x14); // = 0b0_0_01_0_100
-        check("3.1", "Port A is memory (bit3=0)",
-              dma.src_addr_mode() == Dma::AddrMode::INCREMENT, // just check it programs
-              "");
+        g_mem[0x8000] = 0x55;
+        g_io[0x8000]  = 0xAA;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        check("3.1", "R1 bit3=0: portA reads memory",
+              g_mem[0x9000] == 0x55,
+              fmt("mem[0x9000]=0x%02X  VHDL dma.vhd:542", g_mem[0x9000]));
     }
 
-    // 3.2: Port A address increment
+    // 3.2 Port A is I/O: 0x1C = 0b0001_1100 (bit3=1 IO, bits[5:4]=01 inc).
+    // Source should come from g_io on an A->B transfer.
     {
         fresh(dma);
-        zxn_write(dma, 0x14); // addr_mode = 01 (increment)
-        check("3.2", "Port A address mode = increment",
+        g_io[0x0030] = 0x5A;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x30); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x1C);                  // R1 bit3=1 IO
+        zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("3.2", "R1 bit3=1: portA reads I/O",
+              g_mem[0x9000] == 0x5A,
+              fmt("mem[0x9000]=0x%02X  VHDL dma.vhd:542", g_mem[0x9000]));
+    }
+
+    // 3.3 Port A addr increment (bits[5:4]=01).  R1 base 0x14.
+    // VHDL dma.vhd:543 R1_portA_addrMode_s = cpu_d_i(5 downto 4).
+    {
+        fresh(dma);
+        zxn(dma, 0x14);
+        check("3.3", "R1 addr mode 01 = increment",
               dma.src_addr_mode() == Dma::AddrMode::INCREMENT,
-              DETAIL("mode=%d", (int)dma.src_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:543", (int)dma.src_addr_mode()));
     }
 
-    // 3.3: Port A address decrement
+    // 3.4 Port A addr decrement (bits[5:4]=00).  R1 base 0x04.
     {
         fresh(dma);
-        // R1: bits[5:4]=00 (decrement)
-        // = 0b0_0_00_0_100 = 0x04
-        zxn_write(dma, 0x04);
-        check("3.3", "Port A address mode = decrement",
+        zxn(dma, 0x04);
+        check("3.4", "R1 addr mode 00 = decrement",
               dma.src_addr_mode() == Dma::AddrMode::DECREMENT,
-              DETAIL("mode=%d", (int)dma.src_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:543", (int)dma.src_addr_mode()));
     }
 
-    // 3.4: Port A address fixed
+    // 3.5 Port A addr fixed (bits[5:4]=10 or 11).  R1 base 0x24.
     {
         fresh(dma);
-        // R1: bits[5:4]=10 (fixed)
-        // = 0b0_0_10_0_100 = 0x24
-        zxn_write(dma, 0x24);
-        check("3.4", "Port A address mode = fixed",
+        zxn(dma, 0x24);
+        check("3.5", "R1 addr mode 10 = fixed",
               dma.src_addr_mode() == Dma::AddrMode::FIXED,
-              DETAIL("mode=%d", (int)dma.src_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:543", (int)dma.src_addr_mode()));
     }
 
-    // 3.5: Port A is I/O
-    {
-        fresh(dma);
-        // R1: bit3=1 (I/O), bits[5:4]=01 (inc)
-        // = 0b0_0_01_1_100 = 0x1C
-        zxn_write(dma, 0x1C);
-        // Verify through a transfer: set up mem-to-IO transfer
-        // Program src from IO
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x00); // portA addr = 0x0000
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
-        zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
-        g_io[0x0000] = 0x42;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        check("3.5", "Port A is I/O: reads from I/O",
-              g_mem[0x9000] == 0x42,
-              DETAIL("mem[0x9000]=0x%02X", g_mem[0x9000]));
-    }
+    // 3.6 R1 timing byte not observable: no cycle counter on the public API.
+    skip("3.6", "R1_portA_timming_byte_s (dma.vhd:776) has no C++ accessor "
+                "and no cycle-counter observable through Dma callbacks");
 }
 
-// ── Group 4: R2 — Port B Configuration ──────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 4 — R2 (port B configuration)
+// VHDL dma.vhd:559-561 (R2_portBisIO_s, R2_portB_addrMode_s), :790 (timing),
+// :799 (prescaler).  R2 base: bits[2:0]=000, bit3=isIO, bits[5:4]=addrMode,
+// bit6=timing follow; within timing byte, bit5=prescaler follow.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group4_r2() {
-    set_group("R2 Port B Config");
+void group4_r2() {
+    set_group("G4 R2 Port B");
     Dma dma;
 
-    // 4.1: Port B address increment
+    // 4.1 Port B is memory (A->B dest).  Transfer writes memory.
+    // VHDL dma.vhd:559.
     {
         fresh(dma);
-        zxn_write(dma, 0x10); // R2: mem, inc
-        check("4.1", "Port B address mode = increment",
+        g_mem[0x8000] = 0x77;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        check("4.1", "R2 bit3=0: portB writes memory",
+              g_mem[0x9000] == 0x77,
+              fmt("mem[0x9000]=0x%02X  VHDL dma.vhd:559", g_mem[0x9000]));
+    }
+
+    // 4.2 Port B is I/O (bit3=1).  R2 base 0x28 = 0b0010_1000
+    // (fixed mode to avoid incrementing the I/O port).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0xA5;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x28);                  // R2 bit3=1 IO, fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0x55); zxn(dma, 0x00);  // portB = 0x0055
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("4.2", "R2 bit3=1: portB writes I/O",
+              g_io[0x0055] == 0xA5,
+              fmt("io[0x55]=0x%02X  VHDL dma.vhd:559", g_io[0x0055]));
+    }
+
+    // 4.3 Port B addr increment (bits[5:4]=01).
+    // VHDL dma.vhd:560.
+    {
+        fresh(dma);
+        zxn(dma, 0x10);
+        check("4.3", "R2 addr mode 01 = increment",
               dma.dst_addr_mode() == Dma::AddrMode::INCREMENT,
-              DETAIL("mode=%d", (int)dma.dst_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:560", (int)dma.dst_addr_mode()));
     }
 
-    // 4.2: Port B address decrement
+    // 4.4 Port B addr decrement (bits[5:4]=00).
     {
         fresh(dma);
-        zxn_write(dma, 0x00); // R2: mem, dec (bits[5:4]=00)
-        check("4.2", "Port B address mode = decrement",
+        zxn(dma, 0x00);
+        check("4.4", "R2 addr mode 00 = decrement",
               dma.dst_addr_mode() == Dma::AddrMode::DECREMENT,
-              DETAIL("mode=%d", (int)dma.dst_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:560", (int)dma.dst_addr_mode()));
     }
 
-    // 4.3: Port B address fixed
+    // 4.5 Port B addr fixed (bits[5:4]=10).
     {
         fresh(dma);
-        zxn_write(dma, 0x20); // R2: mem, fixed (bits[5:4]=10)
-        check("4.3", "Port B address mode = fixed",
+        zxn(dma, 0x20);
+        check("4.5", "R2 addr mode 10 = fixed",
               dma.dst_addr_mode() == Dma::AddrMode::FIXED,
-              DETAIL("mode=%d", (int)dma.dst_addr_mode()));
+              fmt("mode=%d  VHDL dma.vhd:560", (int)dma.dst_addr_mode()));
     }
 
-    // 4.4: Port B is I/O
+    // 4.6 R2 timing byte not observable.
+    skip("4.6", "R2_portB_timming_byte_s (dma.vhd:790) has no C++ accessor "
+                "and no cycle-counter observable through Dma callbacks");
+
+    // 4.7 R2 prescaler byte is programmable but only observable through
+    // burst-mode wait behaviour (exercised in 12.3).  The setter path itself
+    // has no direct accessor — we verify that programming the sequence does
+    // not derail later state (sub-byte state machine returns to IDLE and a
+    // subsequent transfer still runs).
+    // VHDL dma.vhd:799.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portA = 0x8000
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
-        zxn_write(dma, 0x14); // R1: portA = mem, inc
-        zxn_write(dma, 0x28); // R2: portB = IO(bit3=1), fixed (bits[5:4]=10)
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x55); zxn_write(dma, 0x00); // portB = 0x0055
-        g_mem[0x8000] = 0xAA;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        check("4.4", "Port B is I/O: writes to I/O port",
-              g_io[0x0055] == 0xAA,
-              DETAIL("io[0x55]=0x%02X", g_io[0x0055]));
+        zxn(dma, 0x50);                  // R2 with timing follow (bit6=1)
+        zxn(dma, 0x21);                  // timing byte with prescaler follow (bit5=1)
+        zxn(dma, 0x0A);                  // prescaler = 0x0A
+        // Follow with a successful 1-byte transfer to prove the sequencer
+        // is back in IDLE and accepting new base bytes.
+        g_mem[0x8000] = 0x3C;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        check("4.7", "R2 prescaler sub-byte consumed; sequencer returns to IDLE",
+              g_mem[0x9000] == 0x3C,
+              fmt("mem[0x9000]=0x%02X  VHDL dma.vhd:799", g_mem[0x9000]));
     }
 
-    // 4.5: Port B prescaler byte
+    // 4.8 Prescaler = 0 (the reset default): continuous mode must not
+    // enter WAITING_CYCLES.  Observable via is_active() staying asserted
+    // until the block finishes in one execute_burst() call.
+    // VHDL dma.vhd:424 gate `(R2_portB_preescaler_s > 0) AND ...`.
     {
         fresh(dma);
-        // R2 with timing sub-byte (bit6=1) and prescaler (timing byte bit5=1)
-        // R2 base: bits[2:0]=000, bit3=0(mem), bits[5:4]=01(inc), bit6=1(timing follows)
-        // = 0b0_1_01_0_000 = 0x50
-        zxn_write(dma, 0x50);
-        // Timing byte: bits[1:0]=timing, bit5=1(prescaler follows)
-        // = 0b0_0_1_0_0_0_01 = 0x21
-        zxn_write(dma, 0x21);
-        // Prescaler byte
-        zxn_write(dma, 0x0A);
-        // We can't directly read prescaler, but we can verify it was consumed
-        // by checking that the write sequence returned to IDLE
-        check("4.5", "Port B prescaler byte consumed",
-              true, ""); // Just verify no crash
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n = dma.execute_burst(1000);
+        check("4.8", "Prescaler=0 default: full block in one burst (no wait)",
+              n == 4 && dma.state() == Dma::State::IDLE,
+              fmt("n=%d state=%d  VHDL dma.vhd:424",
+                  n, (int)dma.state()));
     }
 }
 
-// ── Group 5: R3 — DMA Enable ────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 5 — R3 (DMA enable)
+// VHDL dma.vhd:576-582.  R3 base: bit7=1, bits[1:0]=00; bit6 triggers
+// START_DMA; bit3/bit4 gate mask/match sub-bytes (commented out in VHDL
+// but still consumed by the sequencer).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group5_r3() {
-    set_group("R3 DMA Enable");
+void group5_r3() {
+    set_group("G5 R3 Enable");
     Dma dma;
 
-    // 5.1: R3 with bit6=1 starts DMA
+    // 5.1 R3 bit6=1 starts DMA.  Base 0xC0 = 0b1100_0000.
     {
         fresh(dma);
-        // R3: bit7=1, bits[1:0]=00, bit6=1 (enable)
-        // = 0b1_1_0_0_0_0_00 = 0xC0
-        zxn_write(dma, 0xC0);
-        check("5.1", "R3 bit6=1 starts DMA",
+        zxn(dma, 0xC0);
+        check("5.1", "R3 bit6=1 -> TRANSFERRING",
               dma.state() == Dma::State::TRANSFERRING,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:576-579", (int)dma.state()));
     }
 
-    // 5.2: R3 with bit6=0 does not start
+    // 5.2 R3 bit6=0 leaves DMA idle.  Base 0x80.
     {
         fresh(dma);
-        // R3: bit7=1, bits[1:0]=00, bit6=0
-        // = 0b1_0_0_0_0_0_00 = 0x80
-        zxn_write(dma, 0x80);
-        check("5.2", "R3 bit6=0 does not start DMA",
+        zxn(dma, 0x80);
+        check("5.2", "R3 bit6=0 -> IDLE",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:576", (int)dma.state()));
     }
 
-    // 5.3: R3 mask byte consumed (bit3=1)
+    // 5.3 R3 mask byte (bit3=1 follow-up).  Base 0x88.  Observable: after
+    // the mask is consumed, another R0 write must still land correctly.
     {
         fresh(dma);
-        // R3 base with bit3=1 (mask byte follows)
-        // = 0b1_0_0_0_1_0_00 = 0x88
-        zxn_write(dma, 0x88);
-        zxn_write(dma, 0xFF); // mask byte - should be consumed
-        check("5.3", "R3 mask byte consumed without crash",
-              true, "");
+        zxn(dma, 0x88);
+        zxn(dma, 0xFF);                  // mask byte
+        zxn(dma, 0x0D);                  // R0 addr LO follow-up
+        zxn(dma, 0x42);
+        zxn(dma, 0xCF);
+        check("5.3", "R3 mask sub-byte consumed; subsequent R0 still parsed",
+              (dma.src_addr() & 0x00FF) == 0x42,
+              fmt("src=0x%04X  VHDL dma.vhd:576-582 (mask commented)",
+                  dma.src_addr()));
     }
 
-    // 5.4: R3 match byte consumed (bit4=1)
+    // 5.4 R3 match byte (bit3+bit4).  Base 0x98.
     {
         fresh(dma);
-        // R3 base with bit3=1 + bit4=1
-        // = 0b1_0_0_1_1_0_00 = 0x98
-        zxn_write(dma, 0x98);
-        zxn_write(dma, 0xFF); // mask byte
-        zxn_write(dma, 0xAA); // match byte
-        check("5.4", "R3 match byte consumed without crash",
-              true, "");
+        zxn(dma, 0x98);
+        zxn(dma, 0xFF);                  // mask
+        zxn(dma, 0xAA);                  // match
+        zxn(dma, 0x0D);
+        zxn(dma, 0x24);
+        zxn(dma, 0xCF);
+        check("5.4", "R3 match sub-byte consumed; subsequent R0 still parsed",
+              (dma.src_addr() & 0x00FF) == 0x24,
+              fmt("src=0x%04X  VHDL dma.vhd:576-582 (match commented)",
+                  dma.src_addr()));
     }
 }
 
-// ── Group 6: R4 — Transfer Mode, Port B Address ─────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 6 — R4 (transfer mode, port B address)
+// VHDL dma.vhd:601-603 (R4_mode_s, R4_start_addr_port_B_s decode),
+// :816 (portB LO), :827 (portB HI), :236 (reset default "01" continuous).
+// R4 base: bit7=1, bits[1:0]=01, bits[6:5]=mode, bit2=addrLO follow,
+// bit3=addrHI follow.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group6_r4() {
-    set_group("R4 Mode/PortB");
+void group6_r4() {
+    set_group("G6 R4 Mode/PortB");
     Dma dma;
 
-    // 6.1: Default mode is continuous (01)
+    // 6.1 Byte mode: R4_mode="00".  Base 0x81.
     {
         fresh(dma);
-        check("6.1", "Default transfer mode = continuous",
-              dma.transfer_mode() == Dma::TransferMode::CONTINUOUS,
-              DETAIL("mode=%d", (int)dma.transfer_mode()));
-    }
-
-    // 6.2: Set byte mode (00)
-    {
-        fresh(dma);
-        // R4: bit7=1, bits[6:5]=00(byte), bits[1:0]=01 → 0x81 (DMA_R4_BASE itself)
-        zxn_write(dma, DMA_R4_BASE);
-        check("6.2", "Byte mode (R4_mode=00)",
+        zxn(dma, 0x81);
+        check("6.1", "R4 mode 00 = byte",
               dma.transfer_mode() == Dma::TransferMode::BYTE,
-              DETAIL("mode=%d", (int)dma.transfer_mode()));
+              fmt("mode=%d  VHDL dma.vhd:601", (int)dma.transfer_mode()));
     }
 
-    // 6.3: Set burst mode (10)
+    // 6.2 Continuous mode: R4_mode="01".  Base 0xA1.
     {
         fresh(dma);
-        // R4: bit7=1, bits[6:5]=10(burst), bits[1:0]=01 → 0xC1
-        zxn_write(dma, DMA_R4_BURST);
-        check("6.3", "Burst mode (R4_mode=10)",
+        zxn(dma, 0xA1);
+        check("6.2", "R4 mode 01 = continuous",
+              dma.transfer_mode() == Dma::TransferMode::CONTINUOUS,
+              fmt("mode=%d  VHDL dma.vhd:601", (int)dma.transfer_mode()));
+    }
+
+    // 6.3 Burst mode: R4_mode="10".  Base 0xC1.
+    {
+        fresh(dma);
+        zxn(dma, 0xC1);
+        check("6.3", "R4 mode 10 = burst",
               dma.transfer_mode() == Dma::TransferMode::BURST,
-              DETAIL("mode=%d", (int)dma.transfer_mode()));
+              fmt("mode=%d  VHDL dma.vhd:601", (int)dma.transfer_mode()));
     }
 
-    // 6.4: Port B start address
+    // 6.4 Default R4_mode is "01" (continuous) after reset.
+    // VHDL dma.vhd:236.
     {
         fresh(dma);
-        // R4: continuous, port B addr follows (bit2+bit3)
-        // = 0b1_01_0_1_1_01 = 0xAD (DMA_R4_CONT_LOAD_B)
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x78); // portB LO
-        zxn_write(dma, 0x56); // portB HI
-        // Need to set direction and Load to check via dst_addr
-        zxn_write(dma, 0x7D); // R0: A->B
-        zxn_write(dma, 0x00); zxn_write(dma, 0x10);
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00);
-        zxn_write(dma, 0xCF);
-        check("6.4", "Port B address = 0x5678",
+        check("6.4", "Reset default R4 mode = continuous",
+              dma.transfer_mode() == Dma::TransferMode::CONTINUOUS,
+              fmt("mode=%d  VHDL dma.vhd:236", (int)dma.transfer_mode()));
+    }
+
+    // 6.5 Port B start address LO byte (bit2=1 follow-up).  Base 0x85.
+    // VHDL dma.vhd:816.
+    {
+        fresh(dma);
+        zxn(dma, 0x7D);                  // establish A->B dir
+        zxn(dma, 0x00); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x85);                  // R4 byte w/ portB LO follow
+        zxn(dma, 0x34);
+        zxn(dma, 0xCF);
+        check("6.5", "R4 portB addr LO sub-byte",
+              (dma.dst_addr() & 0x00FF) == 0x34,
+              fmt("dst=0x%04X  VHDL dma.vhd:816", dma.dst_addr()));
+    }
+
+    // 6.6 Port B start address HI byte (bit3=1 follow-up after LO).
+    // VHDL dma.vhd:827.
+    {
+        fresh(dma);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x8D);                  // R4 with both portB sub-bytes
+        zxn(dma, 0x34);
+        zxn(dma, 0x12);
+        zxn(dma, 0xCF);
+        check("6.6", "R4 portB addr HI sub-byte",
+              dma.dst_addr() == 0x1234,
+              fmt("dst=0x%04X  VHDL dma.vhd:827", dma.dst_addr()));
+    }
+
+    // 6.7 Full 16-bit port B address (same mechanism combined).
+    {
+        fresh(dma);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0xCF);
+        check("6.7", "R4 full 16-bit port B address",
               dma.dst_addr() == 0x5678,
-              DETAIL("dst=0x%04X", dma.dst_addr()));
+              fmt("dst=0x%04X  VHDL dma.vhd:816,827", dma.dst_addr()));
+    }
+
+    // 6.8 Mode "11" has no VHDL branch: dma.vhd:601 assigns cpu_d_i(6:5)
+    // straight into R4_mode_s so the TransferMode enum ends up with value 3
+    // (outside {BYTE, CONTINUOUS, BURST}).  The plan row describes this as
+    // "no special case" — the live observation is simply that the stored
+    // 2-bit value is "11".  The public transfer_mode() accessor returns a
+    // TransferMode cast, which for value 3 is an out-of-range enum.  Test
+    // as (int) raw to document the behaviour.
+    {
+        fresh(dma);
+        zxn(dma, 0xE1);                  // R4 base + mode=11
+        int raw = static_cast<int>(dma.transfer_mode());
+        check("6.8", "R4 mode 11 stored as raw value 3 (no VHDL special case)",
+              raw == 3,
+              fmt("mode_raw=%d  VHDL dma.vhd:601", raw));
     }
 }
 
-// ── Group 7: R5 — Auto-restart, CE/WAIT ─────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 7 — R5 (auto-restart, CE/WAIT)
+// VHDL dma.vhd:622-623 (R5 decode), :237-238 (reset defaults), :473 (auto
+// restart reload in FINISH_DMA).  R5 base: bits[7:6]=10, bits[2:0]=010;
+// bit4=ce_wait, bit5=auto_restart.
+// No public accessor for R5 fields; observable only via transfer outcome.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group7_r5() {
-    set_group("R5 Auto-restart");
+void group7_r5() {
+    set_group("G7 R5 Restart/CE");
     Dma dma;
 
-    // 7.1: Defaults on reset
+    // 7.1 Auto-restart enabled: after the block completes, FINISH_DMA
+    // reloads addresses and re-enters START_DMA (dma.vhd:473-491).
+    // Observable: after one full block, state is still TRANSFERRING and
+    // src/dst have been reloaded to their programmed start values.
     {
         fresh(dma);
-        // After reset, auto_restart should be off
-        // We test by running a transfer and verifying it stops
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        g_mem[0x8000] = 1; g_mem[0x8001] = 2;
-        g_mem[0x8002] = 3; g_mem[0x8003] = 4;
-        run_dma(dma);
-        check("7.1", "Default: DMA stops after block (no auto-restart)",
+        zxn(dma, 0xA2);                  // R5 bit5=1 auto-restart
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xA0 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        dma.execute_burst(2);            // transfer exactly one block
+        check("7.1", "R5 auto-restart: state=TRANSFERRING and addrs reloaded",
+              dma.state() == Dma::State::TRANSFERRING &&
+              dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000,
+              fmt("state=%d src=0x%04X dst=0x%04X  VHDL dma.vhd:473-491",
+                  (int)dma.state(), dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 7.2 Auto-restart disabled (reset default): after the block, state=IDLE.
+    // VHDL dma.vhd:238, :494.
+    {
+        fresh(dma);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        run_to_idle(dma);
+        check("7.2", "R5 auto-restart off (default): state=IDLE after block",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:238,494", (int)dma.state()));
     }
 
-    // 7.2: Auto-restart enabled
-    {
-        fresh(dma);
-        // R5: bit5=1 (auto-restart), bits[7:6]=10, bits[2:0]=010
-        // = 0b10_1_0_0_010 = 0xA2
-        zxn_write(dma, 0xA2);
-        // Program a short transfer
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x02); zxn_write(dma, 0x00); // len=2
-        zxn_write(dma, 0x14); // R1: mem, inc
-        zxn_write(dma, 0x10); // R2: mem, inc
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        // Run exactly the block length
-        int n = dma.execute_burst(2);
-        // After auto-restart, DMA should still be TRANSFERRING
-        check("7.2", "Auto-restart: DMA still active after block",
-              dma.state() == Dma::State::TRANSFERRING,
-              DETAIL("state=%d transferred=%d", (int)dma.state(), n));
-    }
+    // 7.3 CE/WAIT mux bit: VHDL dma.vhd:622 assigns R5_ce_wait_s but the
+    // code path that consumes it (dma.vhd:341,409) is commented out.
+    skip("7.3", "R5_ce_wait_s (dma.vhd:622) has no observable effect — "
+                "the ce_wait / wait_n_s branches at dma.vhd:341 and :409 "
+                "are commented out in VHDL, no public accessor");
 
-    // 7.3: R5 CE/WAIT bit
-    {
-        fresh(dma);
-        // R5: bit4=1 (ce_wait), bits[7:6]=10, bits[2:0]=010
-        // = 0b10_0_1_0_010 = 0x92
-        zxn_write(dma, 0x92);
-        check("7.3", "R5 CE/WAIT bit accepted",
-              true, "");
-    }
+    // 7.4 R5 reset defaults (bits 4 and 5 both 0) — the only observable
+    // side of ce_wait_s is through 7.3 (unreachable), so the reset value
+    // is only indirectly testable via 7.2 (auto-restart off default).
+    skip("7.4", "R5_ce_wait_s reset (dma.vhd:237) unreachable; "
+                "R5_auto_restart_s reset (dma.vhd:238) covered by 7.2");
 }
 
-// ── Group 8: R6 Commands ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 8 — R6 commands
+// VHDL dma.vhd:628-733 (R6 command decode) and :859-861 (R6_BYTE_0 for
+// read mask follow-up).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group8_r6_commands() {
-    set_group("R6 Commands");
+void group8_r6_commands() {
+    set_group("G8 R6 Commands");
     Dma dma;
 
-    // 8.1: 0xC3 Reset
+    // 8.1 0xC3 RESET -> IDLE and defaults.  VHDL dma.vhd:638-645.
     {
         fresh(dma);
-        // Set some non-default state first
-        zxn_write(dma, 0xA2); // R5: auto-restart
-        zxn_write(dma, 0x87); // Enable DMA
-        // Now reset
-        zxn_write(dma, 0xC3);
-        check("8.1", "0xC3 Reset -> IDLE",
+        zxn(dma, 0x87);                  // ENABLE first
+        zxn(dma, 0xA2);                  // R5 auto-restart on
+        zxn(dma, 0xC3);                  // RESET
+        check("8.1", "0xC3 RESET: state=IDLE",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:638", (int)dma.state()));
     }
 
-    // 8.2: 0xC7 Reset port A timing
+    // 8.2 0xC7 Reset port A timing to "01".  VHDL dma.vhd:648.
+    // Not publicly observable (no timing accessor).
+    skip("8.2", "0xC7 resets R1_portA_timming_byte_s (dma.vhd:648) "
+                "which has no C++ accessor");
+
+    // 8.3 0xCB Reset port B timing to "01".  VHDL dma.vhd:651.
+    skip("8.3", "0xCB resets R2_portB_timming_byte_s (dma.vhd:651) "
+                "which has no C++ accessor");
+
+    // 8.4 0xCF LOAD clears status_endofblock_n.  VHDL dma.vhd:654.
+    // Observable via status byte read (bit5=endofblock_n).
     {
         fresh(dma);
-        zxn_write(dma, 0xC7);
-        check("8.2", "0xC7 Reset port A timing (no crash)",
-              true, "");
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);                // sets end-of-block
+        zxn(dma, 0xCF);                  // LOAD again
+        zxn(dma, 0xBF);                  // read status next
+        uint8_t s = dma.read();
+        check("8.4", "LOAD clears status_endofblock_n (bit5=1)",
+              (s & 0x20) == 0x20,
+              fmt("status=0x%02X  VHDL dma.vhd:654", s));
     }
 
-    // 8.3: 0xCB Reset port B timing
+    // 8.5 LOAD A->B: src=portA, dst=portB.  VHDL dma.vhd:656-658.
     {
         fresh(dma);
-        zxn_write(dma, 0xCB);
-        check("8.3", "0xCB Reset port B timing (no crash)",
-              true, "");
-    }
-
-    // 8.4: 0xCF Load A->B direction
-    {
-        fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x34); zxn_write(dma, 0x12); // portA = 0x1234
-        zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x78); zxn_write(dma, 0x56); // portB = 0x5678
-        zxn_write(dma, 0xCF);
-        check("8.4", "Load A->B: src=portA, dst=portB",
+        zxn(dma, 0x7D);
+        zxn(dma, 0x34); zxn(dma, 0x12);
+        zxn(dma, 0x08); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0xCF);
+        check("8.5", "LOAD A->B: src=0x1234, dst=0x5678",
               dma.src_addr() == 0x1234 && dma.dst_addr() == 0x5678,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:656-658",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 8.5: 0xCF Load B->A direction
+    // 8.6 LOAD B->A: src=portB, dst=portA.  VHDL dma.vhd:660-662.
     {
         fresh(dma);
-        zxn_write(dma, 0x79); // B->A (bit2=0)
-        zxn_write(dma, 0x34); zxn_write(dma, 0x12);
-        zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x78); zxn_write(dma, 0x56);
-        zxn_write(dma, 0xCF);
-        check("8.5", "Load B->A: src=portB, dst=portA",
+        zxn(dma, 0x79);                  // bit2=0 -> B->A
+        zxn(dma, 0x34); zxn(dma, 0x12);
+        zxn(dma, 0x08); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0xCF);
+        check("8.6", "LOAD B->A: src=0x5678, dst=0x1234",
               dma.src_addr() == 0x5678 && dma.dst_addr() == 0x1234,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:660-662",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 8.6: 0xCF Load counter ZXN mode
+    // 8.7 LOAD in ZXN mode: counter=0.  VHDL dma.vhd:664-665.
     {
         fresh(dma);
-        zxn_write(dma, 0x79);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x10); zxn_write(dma, 0x00);
-        zxn_write(dma, 0xCF);
-        check("8.6", "Load ZXN: counter=0",
+        zxn(dma, 0x05);
+        zxn(dma, 0xCF);
+        check("8.7", "LOAD ZXN: counter=0",
               dma.counter() == 0,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:664-665", dma.counter()));
     }
 
-    // 8.7: 0xCF Load counter Z80 mode
+    // 8.8 LOAD in Z80 mode: counter=0xFFFF.  VHDL dma.vhd:666-667.
     {
         fresh(dma);
-        z80_write(dma, 0x79);
-        z80_write(dma, 0x00); z80_write(dma, 0x00);
-        z80_write(dma, 0x10); z80_write(dma, 0x00);
-        z80_write(dma, 0xCF);
-        check("8.7", "Load Z80: counter=0xFFFF",
+        z80(dma, 0x05);
+        z80(dma, 0xCF);
+        check("8.8", "LOAD Z80: counter=0xFFFF",
               dma.counter() == 0xFFFF,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:666-667", dma.counter()));
     }
 
-    // 8.8: 0xD3 Continue ZXN mode
+    // 8.9 0xD3 CONTINUE resets counter, keeps addresses.  VHDL dma.vhd:670-676.
     {
         fresh(dma);
-        // Load first to set addresses, then transfer some bytes, then Continue
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        g_mem[0x8000] = 1; g_mem[0x8001] = 2;
-        g_mem[0x8002] = 3; g_mem[0x8003] = 4;
-        run_dma(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        run_to_idle(dma);
         uint16_t src_after = dma.src_addr();
         uint16_t dst_after = dma.dst_addr();
-        zxn_write(dma, 0xD3); // Continue
-        check("8.8", "Continue ZXN: counter=0, addrs preserved",
+        zxn(dma, 0xD3);
+        check("8.9", "CONTINUE: counter reset, addrs preserved",
               dma.counter() == 0 &&
               dma.src_addr() == src_after && dma.dst_addr() == dst_after,
-              DETAIL("counter=0x%04X src=0x%04X dst=0x%04X",
-                     dma.counter(), dma.src_addr(), dma.dst_addr()));
+              fmt("counter=%u src=0x%04X dst=0x%04X  VHDL dma.vhd:670-676",
+                  dma.counter(), dma.src_addr(), dma.dst_addr()));
     }
 
-    // 8.9: 0xD3 Continue Z80 mode
+    // 8.10 CONTINUE ZXN -> counter=0.  VHDL dma.vhd:673-674.
     {
         fresh(dma);
-        z80_write(dma, 0x79);
-        z80_write(dma, 0x00); z80_write(dma, 0x80);
-        z80_write(dma, 0x04); z80_write(dma, 0x00);
-        z80_write(dma, 0xCF);
-        z80_write(dma, 0xD3);
-        check("8.9", "Continue Z80: counter=0xFFFF",
+        zxn(dma, 0x05); zxn(dma, 0xCF);
+        zxn(dma, 0xD3);
+        check("8.10", "CONTINUE ZXN: counter=0",
+              dma.counter() == 0,
+              fmt("counter=0x%04X  VHDL dma.vhd:673-674", dma.counter()));
+    }
+
+    // 8.11 CONTINUE Z80 -> counter=0xFFFF.  VHDL dma.vhd:675-676.
+    {
+        fresh(dma);
+        z80(dma, 0x05); z80(dma, 0xCF);
+        z80(dma, 0xD3);
+        check("8.11", "CONTINUE Z80: counter=0xFFFF",
               dma.counter() == 0xFFFF,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:675-676", dma.counter()));
     }
 
-    // 8.10: 0x87 Enable DMA
+    // 8.12 0x87 ENABLE -> TRANSFERRING.  VHDL dma.vhd:725.
     {
         fresh(dma);
-        zxn_write(dma, 0x87);
-        check("8.10", "Enable DMA -> TRANSFERRING",
+        zxn(dma, 0x87);
+        check("8.12", "ENABLE -> TRANSFERRING",
               dma.state() == Dma::State::TRANSFERRING,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:725", (int)dma.state()));
     }
 
-    // 8.11: 0x83 Disable DMA
+    // 8.13 0x83 DISABLE -> IDLE.  VHDL dma.vhd:728.
     {
         fresh(dma);
-        zxn_write(dma, 0x87); // Enable first
-        zxn_write(dma, 0x83); // Disable
-        check("8.11", "Disable DMA -> IDLE",
+        zxn(dma, 0x87);
+        zxn(dma, 0x83);
+        check("8.13", "DISABLE -> IDLE",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:728", (int)dma.state()));
     }
 
-    // 8.12: 0x8B Reinitialize status
+    // 8.14 0x8B Reinitialize status byte.  VHDL dma.vhd:691-692.
+    // After a transfer, status bits 5 and 0 should both be cleared:
+    //   endofblock_n=1 (bit5=1), atleastone=0 (bit0=0), fixed middle=1101.
+    // Status byte = 0b00_1_1101_0 = 0x3A.
     {
         fresh(dma);
-        // Run a transfer to set status bits
-        program_mem_to_mem(dma, 0x8000, 0x9000, 1);
-        g_mem[0x8000] = 0x42;
-        run_dma(dma);
-        // Now reinitialize status
-        zxn_write(dma, 0x8B);
-        // Read status: should be 0x3A (endofblock_n=1, atleastone=0) wait...
-        // Actually status byte: bit5=endofblock_n (1=not ended), bits[4:1]=1101=0x1A, bit0=atleastone
-        // After reinit: endofblock=false -> bit5=1(not ended), atleastone=false -> bit0=0
-        // = 0b00_1_1101_0 = 0x3A
-        zxn_write(dma, 0xBF); // Read status byte command
-        uint8_t status = dma.read();
-        check("8.12", "0x8B reinitializes status",
-              status == 0x3A,
-              DETAIL("status=0x%02X (expected 0x3A)", status));
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        g_mem[0x8000] = 0x11;
+        run_to_idle(dma);
+        zxn(dma, 0x8B);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("8.14", "0x8B status reinit: byte = 0x3A",
+              s == 0x3A,
+              fmt("status=0x%02X  VHDL dma.vhd:691-692,902", s));
     }
 
-    // 8.13: 0xBB Read mask follows
+    // 8.15 0xBB Read mask follows: writes next byte into R6_read_mask_s.
+    // VHDL dma.vhd:731 + :859-860.  Observable via the read sequence
+    // advancing differently.  Set mask = 0x01 (status only) and confirm
+    // repeated reads always return the status byte.
     {
         fresh(dma);
-        zxn_write(dma, 0xBB);
-        zxn_write(dma, 0x07); // mask = bits 0,1,2 only
-        check("8.13", "0xBB read mask accepted",
-              true, "");
+        zxn(dma, 0xBB);
+        zxn(dma, 0x01);                  // mask = bit0 only (status)
+        zxn(dma, 0xA7);                  // init read sequence
+        uint8_t s1 = dma.read();
+        uint8_t s2 = dma.read();
+        check("8.15", "0xBB mask=0x01: read sequence locked to status",
+              s1 == 0x3A && s2 == 0x3A,
+              fmt("s1=0x%02X s2=0x%02X  VHDL dma.vhd:731,859-860",
+                  s1, s2));
     }
 
-    // 8.14: 0xBF Read status byte
+    // 8.16 0xBF Read status byte: sets reg_rd_seq_s := RD_STATUS, so the
+    // very next dma.read() returns the status byte regardless of where
+    // the read sequence previously was.  VHDL dma.vhd:696-699.
     {
         fresh(dma);
-        zxn_write(dma, 0xBF);
-        uint8_t status = dma.read();
-        // Initial status: endofblock_n=1, atleastone=0
-        // = 0b00_1_1101_0 = 0x3A
-        // Wait, the status byte from code: (end_of_block ? 0 : 0x20) | 0x1A | atleastone
-        // Initially: end_of_block_=false -> 0x20, atleastone=false -> 0
-        // = 0x20 | 0x1A = 0x3A
-        check("8.14", "0xBF: read status returns 0x3A initially",
-              status == 0x3A,
-              DETAIL("status=0x%02X", status));
-    }
-
-    // 8.15: Interrupt commands accepted (no-ops)
-    {
-        fresh(dma);
-        zxn_write(dma, 0xAF); // Disable interrupts
-        zxn_write(dma, 0xAB); // Enable interrupts
-        zxn_write(dma, 0xA3); // Reset+disable interrupts
-        zxn_write(dma, 0xB7); // Enable after RETI
-        zxn_write(dma, 0xB3); // Force ready
-        check("8.15", "Interrupt/ready commands accepted (no-ops)",
-              true, "");
+        // Walk the read pointer off of STATUS first.
+        zxn(dma, 0xA7);
+        dma.read();                      // consumes STATUS, advances
+        zxn(dma, 0xBF);                  // force next read = status
+        uint8_t s = dma.read();
+        check("8.16", "0xBF forces next read = status byte",
+              s == 0x3A,
+              fmt("status=0x%02X  VHDL dma.vhd:696-699", s));
     }
 }
 
-// ── Group 9: Memory-to-Memory Transfer ──────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 9 — Memory-to-memory transfer
+// VHDL dma.vhd:359-396 (address update), :424-434 (block-length check).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group9_mem_to_mem() {
-    set_group("Mem-to-Mem Transfer");
+void group9_mem_to_mem() {
+    set_group("G9 Mem-to-Mem");
     Dma dma;
 
-    // 9.1: Simple A->B, increment both
+    // 9.1 A->B, both increment, 4 bytes.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        g_mem[0x8000] = 0x11; g_mem[0x8001] = 0x22;
-        g_mem[0x8002] = 0x33; g_mem[0x8003] = 0x44;
-        int n = run_dma(dma);
-        bool ok = (g_mem[0x9000] == 0x11 && g_mem[0x9001] == 0x22 &&
-                   g_mem[0x9002] == 0x33 && g_mem[0x9003] == 0x44);
-        check("9.1", "A->B, inc both, 4 bytes",
-              ok && n == 4,
-              DETAIL("n=%d mem=[%02X %02X %02X %02X]", n,
-                     g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
-    }
-
-    // 9.2: B->A direction
-    {
-        fresh(dma);
-        // R0: B->A (bit2=0)
-        zxn_write(dma, 0x79);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portA = 0x9000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, 0x14); // R1: portA = mem, inc
-        zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portB = 0x8000
-        g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB;
-        g_mem[0x8002] = 0xCC; g_mem[0x8003] = 0xDD;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        // B->A: src=portB(0x8000), dst=portA(0x9000)
-        bool ok = (g_mem[0x9000] == 0xAA && g_mem[0x9001] == 0xBB &&
-                   g_mem[0x9002] == 0xCC && g_mem[0x9003] == 0xDD);
-        check("9.2", "B->A direction, 4 bytes",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x10 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        run_to_idle(dma);
+        bool ok = g_mem[0x9000] == 0x10 && g_mem[0x9001] == 0x11 &&
+                  g_mem[0x9002] == 0x12 && g_mem[0x9003] == 0x13;
+        check("9.1", "A->B inc both, 4 bytes copied in order",
               ok,
-              DETAIL("mem=[%02X %02X %02X %02X]",
-                     g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:379-391",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
     }
 
-    // 9.3: A->B, decrement source
+    // 9.2 B->A, both increment.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D); // A->B
-        zxn_write(dma, 0x03); zxn_write(dma, 0x80); // portA = 0x8003
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, 0x04); // R1: portA = mem, decrement (bits[5:4]=00)
-        zxn_write(dma, 0x10); // R2: portB = mem, increment
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
-        g_mem[0x8000] = 0x44; g_mem[0x8001] = 0x33;
-        g_mem[0x8002] = 0x22; g_mem[0x8003] = 0x11;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        // Source decrements from 0x8003: reads 0x11, 0x22, 0x33, 0x44
-        bool ok = (g_mem[0x9000] == 0x11 && g_mem[0x9001] == 0x22 &&
-                   g_mem[0x9002] == 0x33 && g_mem[0x9003] == 0x44);
-        check("9.3", "A->B, src decrement",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xA0 + i);
+        zxn(dma, 0x79);                  // B->A
+        zxn(dma, 0x00); zxn(dma, 0x90);  // portA = 0x9000
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14); zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x80);  // portB = 0x8000
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        bool ok = g_mem[0x9000] == 0xA0 && g_mem[0x9001] == 0xA1 &&
+                  g_mem[0x9002] == 0xA2 && g_mem[0x9003] == 0xA3;
+        check("9.2", "B->A inc both, 4 bytes copied portB->portA",
               ok,
-              DETAIL("mem=[%02X %02X %02X %02X]",
-                     g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:660-662,389-391",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
     }
 
-    // 9.4: A->B, fixed source (fill)
+    // 9.3 A->B, decrement source (R1 bits[5:4]=00).
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portA = 0x8000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, 0x24); // R1: portA = mem, fixed (bits[5:4]=10)
-        zxn_write(dma, 0x10); // R2: portB = mem, increment
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        g_mem[0x8000] = 0xFF;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        bool ok = (g_mem[0x9000] == 0xFF && g_mem[0x9001] == 0xFF &&
-                   g_mem[0x9002] == 0xFF && g_mem[0x9003] == 0xFF);
-        check("9.4", "A->B, fixed source (fill)",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x10 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x03); zxn(dma, 0x80);  // portA = 0x8003
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x04);                  // R1 portA dec
+        zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        bool ok = g_mem[0x9000] == 0x13 && g_mem[0x9001] == 0x12 &&
+                  g_mem[0x9002] == 0x11 && g_mem[0x9003] == 0x10;
+        check("9.3", "A->B src decrement: reads walk backwards",
               ok,
-              DETAIL("mem=[%02X %02X %02X %02X]",
-                     g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:384-387",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
     }
 
-    // 9.5: Block length = 1
+    // 9.4 A->B, fixed source (fill).
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 1);
-        g_mem[0x8000] = 0x42;
-        int n = run_dma(dma);
-        check("9.5", "Block length = 1",
-              n == 1 && g_mem[0x9000] == 0x42,
-              DETAIL("n=%d mem=0x%02X", n, g_mem[0x9000]));
+        g_mem[0x8000] = 0x5A;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x24);                  // R1 portA fixed
+        zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        bool ok = g_mem[0x9000] == 0x5A && g_mem[0x9001] == 0x5A &&
+                  g_mem[0x9002] == 0x5A && g_mem[0x9003] == 0x5A;
+        check("9.4", "A->B fixed src: identical bytes written N times",
+              ok,
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:379-396 (no update path)",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
     }
 
-    // 9.6: Block length = 256
+    // 9.5 A->B, fixed destination (probe).
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 256);
-        for (int i = 0; i < 256; i++) g_mem[0x8000 + i] = (uint8_t)i;
-        int n = run_dma(dma);
-        bool ok = true;
-        for (int i = 0; i < 256; i++) {
-            if (g_mem[0x9000 + i] != (uint8_t)i) { ok = false; break; }
-        }
-        check("9.6", "Block length = 256",
-              ok && n == 256,
-              DETAIL("n=%d", n));
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xC0 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x20);                  // R2 portB fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("9.5", "A->B fixed dst: last byte remains in single slot",
+              g_mem[0x9000] == 0xC3 && g_mem[0x9001] == 0x00 &&
+              g_mem[0x9002] == 0x00 && g_mem[0x9003] == 0x00,
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:389-396 (no update path)",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
     }
 
-    // 9.7: Block length = 0 (edge case)
+    // 9.6 Block length = 1 transfers exactly 1 byte in ZXN mode.
+    // VHDL dma.vhd:426 counter<block_len check.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 0);
-        g_mem[0x8000] = 0xFF;
-        int n = run_dma(dma);
-        check("9.7", "Block length = 0: no bytes transferred",
+        g_mem[0x8000] = 0x77;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        int n = run_to_idle(dma);
+        check("9.6", "Block length = 1 transfers 1 byte (ZXN)",
+              n == 1 && g_mem[0x9000] == 0x77 && g_mem[0x9001] == 0x00,
+              fmt("n=%d dst[0]=0x%02X dst[1]=0x%02X  VHDL dma.vhd:426",
+                  n, g_mem[0x9000], g_mem[0x9001]));
+    }
+
+    // 9.7 Block length = 256 transfers 256 bytes.
+    {
+        fresh(dma);
+        for (int i = 0; i < 256; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 256);
+        int n = run_to_idle(dma);
+        bool ok = (n == 256);
+        for (int i = 0; i < 256 && ok; ++i) ok = g_mem[0x9000 + i] == static_cast<uint8_t>(i);
+        check("9.7", "Block length = 256 transfers 256 bytes",
+              ok,
+              fmt("n=%d  VHDL dma.vhd:426", n));
+    }
+
+    // 9.8 Block length = 0 edge case — ZXN.  VHDL dma.vhd:426 comparison
+    // `counter_s < block_len_s` is false immediately when both are 0, so
+    // the transition is directly to FINISH_DMA with 0 bytes transferred.
+    // Known emulator bug (Task 2 / Task 3 backlog item 6): the C++ loop
+    // transfers one byte before checking `counter >= block_len`, so this
+    // row is expected to FAIL on current main.  Do not patch src/.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0xEE;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0);
+        int n = run_to_idle(dma);
+        check("9.8", "Block length = 0 transfers 0 bytes (ZXN)",
               n == 0 && g_mem[0x9000] == 0x00,
-              DETAIL("n=%d mem=0x%02X", n, g_mem[0x9000]));
+              fmt("n=%d dst=0x%02X  VHDL dma.vhd:426 "
+                  "(KNOWN EMU BUG: counter>=block_len post-increment)",
+                  n, g_mem[0x9000]));
     }
 }
 
-// ── Group 10: Memory-to-IO Transfer ─────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 10 — Memory-to-IO transfer
+// VHDL dma.vhd:290-296 (source bus signals), :351-354 (dest bus signals),
+// :530-543 (emulator read/write callback selection).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group10_mem_to_io() {
-    set_group("Mem-to-IO Transfer");
+void group10_mem_to_io() {
+    set_group("G10 Mem-to-IO");
     Dma dma;
 
-    // 10.1: Mem(A) -> IO(B), A inc, B fixed
+    // 10.1 Mem(A) -> IO(B), A inc, B fixed.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80); // portA = 0x8000
-        zxn_write(dma, 0x03); zxn_write(dma, 0x00); // len = 3
-        zxn_write(dma, 0x14); // R1: portA = mem, inc
-        zxn_write(dma, 0x28); // R2: portB = IO(bit3=1), fixed(bits[5:4]=10)
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0xFE); zxn_write(dma, 0x00); // portB = 0x00FE
-        g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB; g_mem[0x8002] = 0xCC;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        // Last byte written to IO port 0x00FE should be 0xCC
-        check("10.1", "Mem->IO: last byte to IO port",
-              g_io[0x00FE] == 0xCC,
-              DETAIL("io[0xFE]=0x%02X", g_io[0x00FE]));
+        for (int i = 0; i < 3; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x40 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x03); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x28);                  // R2 IO, fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0xFE); zxn(dma, 0x00);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.1", "Mem->IO A inc, B fixed: last byte at fixed IO port",
+              g_io[0x00FE] == 0x42,
+              fmt("io[0xFE]=0x%02X  VHDL dma.vhd:559 (portB IO)",
+                  g_io[0x00FE]));
     }
 
-    // 10.2: IO(A) -> Mem(B)
+    // 10.2 Mem(A) -> IO(B), both inc: consecutive IO ports receive bytes.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0xFE); zxn_write(dma, 0x00); // portA = 0x00FE
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
-        zxn_write(dma, 0x2C); // R1: portA = IO(bit3=1), fixed(bits[5:4]=10) = 0b0_0_10_1_100
-        zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90); // portB = 0x9000
-        g_io[0x00FE] = 0x55;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        check("10.2", "IO->Mem: byte read from IO",
-              g_mem[0x9000] == 0x55,
-              DETAIL("mem[0x9000]=0x%02X", g_mem[0x9000]));
+        for (int i = 0; i < 3; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x60 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x03); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x18);                  // R2 IO, inc
+        zxn(dma, 0xAD);
+        zxn(dma, 0x20); zxn(dma, 0x00);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.2", "Mem->IO A inc, B inc: 3 consecutive IO ports written",
+              g_io[0x0020] == 0x60 && g_io[0x0021] == 0x61 &&
+              g_io[0x0022] == 0x62,
+              fmt("io[0x20..22]=[%02X %02X %02X]  VHDL dma.vhd:559,389-391",
+                  g_io[0x0020], g_io[0x0021], g_io[0x0022]));
     }
 
-    // 10.3: IO(A) -> IO(B)
+    // 10.3 MREQ/IORQ bus signal distinction: the emulator does not expose
+    // mreq_n/iorq_n to test code; memory-vs-IO is observed only through
+    // which callback fires.  The plan's dma_mreq_n_o assertion is
+    // unreachable from the C++ API.
+    skip("10.3", "dma_mreq_n_o / dma_iorq_n_o (dma.vhd:140-142, :290-296) "
+                 "not exposed; memory vs IO is observed only via callback");
+
+    // 10.4 IO(A) -> Mem(B): portA is IO, portB is mem.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x10); zxn_write(dma, 0x00); // portA = 0x0010
-        zxn_write(dma, 0x01); zxn_write(dma, 0x00); // len = 1
-        zxn_write(dma, 0x1C); // R1: portA = IO, inc
-        zxn_write(dma, 0x18); // R2: portB = IO(bit3=1), inc(bits[5:4]=01) = 0b0_0_01_1_000
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x20); zxn_write(dma, 0x00); // portB = 0x0020
-        g_io[0x0010] = 0x77;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        check("10.3", "IO->IO transfer",
-              g_io[0x0020] == 0x77,
-              DETAIL("io[0x20]=0x%02X", g_io[0x0020]));
+        g_io[0x00FE] = 0x99;
+        zxn(dma, 0x7D);
+        zxn(dma, 0xFE); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x2C);                  // R1 portA IO fixed
+        zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.4", "IO->Mem: byte arrives from IO to memory",
+              g_mem[0x9000] == 0x99,
+              fmt("mem[0x9000]=0x%02X  VHDL dma.vhd:542 (portA IO)",
+                  g_mem[0x9000]));
+    }
+
+    // 10.5 IO(A) -> IO(B): both ports IO.
+    {
+        fresh(dma);
+        g_io[0x0010] = 0x66;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x10); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x1C);                  // R1 portA IO inc
+        zxn(dma, 0x18);                  // R2 portB IO inc
+        zxn(dma, 0xAD);
+        zxn(dma, 0x20); zxn(dma, 0x00);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.5", "IO->IO: single byte arrives at destination IO port",
+              g_io[0x0020] == 0x66,
+              fmt("io[0x20]=0x%02X  VHDL dma.vhd:542,559", g_io[0x0020]));
+    }
+
+    // 10.6 Port B full 16-bit address on bus: dma_a_o is 16 bits (dma.vhd:
+    // 36) so an IO write to an address > 0xFF must deliver the byte to the
+    // full 16-bit port number in the callback.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x3C;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x28);                  // R2 IO fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0x34); zxn(dma, 0x12);  // portB = 0x1234 (16-bit)
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.6", "IO port B delivered with full 16-bit address",
+              g_io[0x1234] == 0x3C,
+              fmt("io[0x1234]=0x%02X  VHDL dma.vhd:36 (dma_a_o 15:0)",
+                  g_io[0x1234]));
     }
 }
 
-// ── Group 11: Address Mode Combinations ─────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 11 — Address mode combinations
+// VHDL dma.vhd:379-396 (four parallel if-blocks for src/dst inc/dec).
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group11_addr_modes() {
-    set_group("Address Modes");
+void group11_addr_modes() {
+    set_group("G11 Addr Modes");
     Dma dma;
 
-    // 11.1: Both increment
+    // 11.1 Both increment A->B.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        g_mem[0x8000] = 1; g_mem[0x8001] = 2;
-        g_mem[0x8002] = 3; g_mem[0x8003] = 4;
-        run_dma(dma);
-        check("11.1", "Both increment: src=0x8004, dst=0x9004",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        run_to_idle(dma);
+        check("11.1", "Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes",
               dma.src_addr() == 0x8004 && dma.dst_addr() == 0x9004,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:379-391",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 11.2: Both decrement
+    // 11.2 Both decrement A->B.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x03); zxn_write(dma, 0x80); // portA = 0x8003
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x04); // R1: portA = mem, dec
-        zxn_write(dma, 0x00); // R2: portB = mem, dec
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x03); zxn_write(dma, 0x90); // portB = 0x9003
-        g_mem[0x8000] = 0x44; g_mem[0x8001] = 0x33;
-        g_mem[0x8002] = 0x22; g_mem[0x8003] = 0x11;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        // src ends at 0x7FFF, dst ends at 0x8FFF
-        check("11.2a", "Both decrement: addresses decrease",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x03); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x04);                  // R1 portA dec
+        zxn(dma, 0x00);                  // R2 portB dec
+        zxn(dma, 0xAD);
+        zxn(dma, 0x03); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("11.2", "Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes",
               dma.src_addr() == 0x7FFF && dma.dst_addr() == 0x8FFF,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
-        check("11.2b", "Both decrement: data correct",
-              g_mem[0x9003] == 0x11 && g_mem[0x9002] == 0x22 &&
-              g_mem[0x9001] == 0x33 && g_mem[0x9000] == 0x44,
-              DETAIL("mem=[%02X %02X %02X %02X]",
-                     g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:384-396",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 11.3: Both fixed (port-to-port style)
+    // 11.3 Source inc, destination dec.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x03); zxn_write(dma, 0x00); // len = 3
-        zxn_write(dma, 0x24); // R1: portA = mem, fixed
-        zxn_write(dma, 0x20); // R2: portB = mem, fixed
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        g_mem[0x8000] = 0x42;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        check("11.3", "Both fixed: addresses unchanged",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x10 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x00);                  // R2 portB dec
+        zxn(dma, 0xAD);
+        zxn(dma, 0x03); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("11.3", "Src inc, dst dec: dst walks backwards while src ascends",
+              g_mem[0x9003] == 0x10 && g_mem[0x9002] == 0x11 &&
+              g_mem[0x9001] == 0x12 && g_mem[0x9000] == 0x13,
+              fmt("dst=[%02X %02X %02X %02X]  VHDL dma.vhd:379-396",
+                  g_mem[0x9000], g_mem[0x9001], g_mem[0x9002], g_mem[0x9003]));
+    }
+
+    // 11.4 Source dec, destination fixed.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x20 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x03); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x04);                  // R1 portA dec
+        zxn(dma, 0x20);                  // R2 portB fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("11.4", "Src dec, dst fixed: dst=0x9000 holds last source byte (0x20)",
+              dma.src_addr() == 0x7FFF && dma.dst_addr() == 0x9000 &&
+              g_mem[0x9000] == 0x20 && g_mem[0x9001] == 0x00,
+              fmt("src=0x%04X dst=0x%04X dst[0]=0x%02X  VHDL dma.vhd:384-396",
+                  dma.src_addr(), dma.dst_addr(), g_mem[0x9000]));
+    }
+
+    // 11.5 Both fixed (port-to-port style).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x7E;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x03); zxn(dma, 0x00);
+        zxn(dma, 0x24);
+        zxn(dma, 0x20);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("11.5", "Both fixed: addresses unchanged after transfer",
               dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:379-396 (no branch taken)",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 11.4: Address wrap at 0xFFFF
+    // 11.6 Address wrap at 0xFFFF: the address bus is 16 bits (dma.vhd:36
+    // `dma_a_o : out 16`), so src increment from 0xFFFF produces 0x0000.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0xFF); zxn_write(dma, 0xFF); // portA = 0xFFFF
-        zxn_write(dma, 0x02); zxn_write(dma, 0x00); // len = 2
-        zxn_write(dma, 0x14); // R1: portA = mem, inc
-        zxn_write(dma, 0x10); // R2: portB = mem, inc
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
         g_mem[0xFFFF] = 0xAA;
         g_mem[0x0000] = 0xBB;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        run_dma(dma);
-        // src wraps: 0xFFFF -> 0x0000 -> 0x0001
-        check("11.4", "Address wrap: src goes 0xFFFF -> 0x0001",
+        zxn(dma, 0x7D);
+        zxn(dma, 0xFF); zxn(dma, 0xFF);
+        zxn(dma, 0x02); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("11.6", "Src wraps 0xFFFF -> 0x0000 (16-bit address)",
+              g_mem[0x9000] == 0xAA && g_mem[0x9001] == 0xBB &&
               dma.src_addr() == 0x0001,
-              DETAIL("src=0x%04X", dma.src_addr()));
+              fmt("dst=[%02X %02X] src=0x%04X  VHDL dma.vhd:36,381",
+                  g_mem[0x9000], g_mem[0x9001], dma.src_addr()));
     }
 }
 
-// ── Group 12: Transfer Modes ─────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 12 — Transfer modes
+// VHDL dma.vhd:420-434 (post-byte branching), :439-464 (WAITING_CYCLES),
+// :236 (default mode), :601 (mode decode).
+// Continuous mode holds the bus; burst mode releases it between prescaled
+// bytes.  Observable in C++ via execute_burst() byte counts and is_active().
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group12_transfer_modes() {
-    set_group("Transfer Modes");
+void group12_transfer_modes() {
+    set_group("G12 Xfer Modes");
     Dma dma;
 
-    // 12.1: Continuous mode — full block transferred
+    // 12.1 Continuous, full block in one run.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 8);
-        for (int i = 0; i < 8; i++) g_mem[0x8000 + i] = (uint8_t)(i + 1);
-        int n = run_dma(dma);
-        check("12.1", "Continuous: full block in one burst",
+        for (int i = 0; i < 8; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i + 1);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 8);
+        int n = dma.execute_burst(1000);
+        check("12.1", "Continuous: whole block in one execute_burst",
               n == 8 && dma.state() == Dma::State::IDLE,
-              DETAIL("n=%d state=%d", n, (int)dma.state()));
+              fmt("n=%d state=%d  VHDL dma.vhd:426-430,601 mode=01",
+                  n, (int)dma.state()));
     }
 
-    // 12.2: Burst mode — transfers one byte then pauses
+    // 12.2 Burst with no prescaler: dma.vhd:581-586 shows burst still
+    // breaks after each byte via `break` in C++.  VHDL equivalent: the
+    // prescaler path at :424 is bypassed when prescaler=0, so it loops
+    // through START_DMA each byte but does not enter WAITING_CYCLES.
+    // Observable: execute_burst returns 1 byte at a time in burst+prescaler=0.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00); // len = 4
-        zxn_write(dma, 0x14); // R1: mem, inc
-        // R2 with prescaler: base 0x50 (mem, inc, timing follows), timing 0x21 (prescaler follows), prescaler 0x01
-        zxn_write(dma, 0x50);
-        zxn_write(dma, 0x21);
-        zxn_write(dma, 0x01); // prescaler = 1
-        // R4: burst mode + port B addr follows → 0xCD
-        zxn_write(dma, DMA_R4_BURST_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        g_mem[0x8000] = 0xAA;
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        // Execute one burst - should transfer 1 byte then wait
-        int n = dma.execute_burst(100);
-        check("12.2", "Burst mode: 1 byte per burst with prescaler",
-              n == 1,
-              DETAIL("n=%d", n));
-    }
-
-    // 12.3: Burst mode — no prescaler acts like continuous per byte
-    {
-        fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x14);
-        zxn_write(dma, 0x10);
-        // R4: burst mode + port B addr follows → 0xCD
-        zxn_write(dma, DMA_R4_BURST_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        for (int i = 0; i < 4; i++) g_mem[0x8000 + i] = (uint8_t)(i + 1);
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87);
-        // With prescaler=0, burst mode still transfers one byte at a time
-        int n1 = dma.execute_burst(100);
-        check("12.3", "Burst mode, no prescaler: 1 byte per execute",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x10);
+        zxn(dma, 0xCD);                  // R4 burst + portB sub-bytes
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        int n1 = dma.execute_burst(1000);
+        check("12.2", "Burst prescaler=0: 1 byte per execute_burst",
               n1 == 1,
-              DETAIL("n=%d", n1));
+              fmt("n1=%d  VHDL dma.vhd:424 (prescaler>0 gate false)", n1));
     }
+
+    // 12.3 Burst with prescaler > 0: enters WAITING_CYCLES after each byte,
+    // burst_wait_ set on the C++ side, is_active() returns false.
+    // VHDL dma.vhd:424-425 WAITING_CYCLES entry.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x12;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x50);                  // R2 with timing follow
+        zxn(dma, 0x21);                  // timing w/ prescaler follow
+        zxn(dma, 0x08);                  // prescaler = 8
+        zxn(dma, 0xCD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        dma.execute_burst(1000);
+        check("12.3", "Burst prescaler>0: is_active() false during wait",
+              dma.is_active() == false && dma.state() == Dma::State::TRANSFERRING,
+              fmt("is_active=%d state=%d  VHDL dma.vhd:424-425",
+                  (int)dma.is_active(), (int)dma.state()));
+    }
+
+    // 12.4 Burst mode bus-release timing: `cpu_busreq_n_s <= '1'` in
+    // WAITING_CYCLES (dma.vhd:439-446).  BUSREQ_N is not exposed.
+    skip("12.4", "cpu_busreq_n_s deassertion in WAITING_CYCLES (dma.vhd:446) "
+                 "is not exposed on the Dma public API");
+
+    // 12.5 Bus re-request after prescaler expires.
+    skip("12.5", "BUSREQ re-request path (dma.vhd:451-460) requires bus "
+                 "signal observation not exposed by Dma");
+
+    // 12.6 Byte mode: one byte per enable command.
+    // VHDL: `R4_mode_s = "00"` falls through to the same logic as burst
+    // with prescaler, but without looping back at the end.  In the C++
+    // emulator byte mode still goes through execute_burst, stopping after
+    // block_len reached — it does not implement the per-enable restriction.
+    // That is a legitimate emulator gap (Task 3 backlog territory).  For
+    // the plan row "R4_mode=00: single byte per enable", the VHDL
+    // expectation is the DMA stops after 1 byte even with block_len>1 and
+    // requires another ENABLE.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xA0 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x10);
+        zxn(dma, 0x8D);                  // R4 byte mode + portB follow
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        int n = dma.execute_burst(1000);
+        check("12.6", "Byte mode: one byte then stop (block_len=4)",
+              n == 1,
+              fmt("n=%d  VHDL dma.vhd:601 mode=00", n));
+    }
+
+    // 12.7 Continuous mode still respects the prescaler between bytes.
+    // VHDL dma.vhd:424 is inside the TRANSFERING_WRITE_4 path, not gated
+    // by mode, so WAITING_CYCLES fires in continuous mode too.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x50);                  // R2 timing follow
+        zxn(dma, 0x21);                  // timing + prescaler follow
+        zxn(dma, 0x04);                  // prescaler = 4
+        zxn(dma, 0xAD);                  // continuous + portB
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        // VHDL TRANSFERING_WRITE_4 -> WAITING_CYCLES gate at dma.vhd:424 is
+        // NOT guarded by R4_mode_s, so continuous mode pauses between bytes
+        // when a prescaler is set.  Expected: after one execute_burst,
+        // exactly 1 byte has been written and DMA is still TRANSFERRING
+        // (waiting).  Known emulator gap — dma.cpp:581 only applies
+        // burst_wait_ when mode_==2; this row is expected to FAIL on main.
+        dma.execute_burst(1000);
+        int written = 0;
+        for (int i = 0; i < 4; ++i) if (g_mem[0x9000 + i] != 0) ++written;
+        check("12.7", "Continuous+prescaler: one byte then wait (TRANSFERRING)",
+              written == 1 && dma.state() == Dma::State::TRANSFERRING,
+              fmt("written=%d state=%d  VHDL dma.vhd:424 "
+                  "(KNOWN EMU GAP: C++ only honours prescaler in burst mode)",
+                  written, (int)dma.state()));
+    }
+
+    // 12.8 Prescaler vs timer comparison with CPU speed scaling.
+    // VHDL dma.vhd:424,444 compare `R2_portB_preescaler_s > DMA_timer_s(13:5)`
+    // where the timer increments by 8/4/2/1 per clock at 3.5/7/14/28 MHz.
+    skip("12.8", "turbo_i / DMA_timer_s scaling (dma.vhd:109-159) not "
+                 "modelled in C++ Dma (no CPU-speed input)");
 }
 
-// ── Group 14: Counter Behaviour ──────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 13 — Prescaler and timing
+// All VHDL references point at the 14-bit DMA_timer_s (dma.vhd:109-159)
+// and the prescaler comparison `(0 & preescaler) > timer(13:5)` at :424.
+// The C++ implementation approximates this with `burst_wait_ = prescaler*32`
+// (dma.cpp:582-583), but the timer is not reset/exposed and cycle counts
+// are not comparable.  All rows describing exact wait-cycle counts are
+// unreachable.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group14_counter() {
-    set_group("Counter Behaviour");
+void group13_prescaler_timing() {
+    set_group("G13 Prescaler/Timing");
     Dma dma;
 
-    // 14.1: ZXN mode counter starts at 0
+    // 13.1 Prescaler = 0 bypasses WAITING_CYCLES.  Already exercised at 4.8
+    // with block-granularity.  Here we assert is_active() stays true until
+    // the block ends in continuous mode.
     {
         fresh(dma);
-        zxn_write(dma, 0x79);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0x05); zxn_write(dma, 0x00);
-        zxn_write(dma, 0xCF);
-        check("14.1", "ZXN: counter=0 after Load",
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        bool before = dma.is_active();
+        dma.execute_burst(1000);
+        check("13.1", "Prescaler=0: no WAITING_CYCLES (runs to IDLE)",
+              before && dma.state() == Dma::State::IDLE,
+              fmt("before=%d state=%d  VHDL dma.vhd:424",
+                  (int)before, (int)dma.state()));
+    }
+
+    // 13.2 Prescaler>0 at 3.5 MHz: exact wait-cycle math is unreachable.
+    skip("13.2", "Prescaler wait-cycle count at 3.5MHz (dma.vhd:159) "
+                 "not observable — no turbo_i input and no exposed DMA_timer_s");
+
+    // 13.3 7 MHz behaviour.
+    skip("13.3", "Prescaler wait-cycle count at 7MHz (dma.vhd:158) "
+                 "not observable — no turbo_i input");
+
+    // 13.4 14 MHz behaviour.
+    skip("13.4", "Prescaler wait-cycle count at 14MHz (dma.vhd:158) "
+                 "not observable — no turbo_i input");
+
+    // 13.5 28 MHz behaviour.
+    skip("13.5", "Prescaler wait-cycle count at 28MHz (dma.vhd:158) "
+                 "not observable — no turbo_i input");
+
+    // 13.6 Prescaler comparison path (timer bits 13:5).
+    skip("13.6", "Prescaler vs timer(13:5) comparison (dma.vhd:424) "
+                 "needs DMA_timer_s which is not exposed in Dma");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 14 — Counter behaviour (ZXN vs Z80)
+// VHDL dma.vhd:361 counter increment, :426 block-length check,
+// :664-667 LOAD initial value by mode.
+// ══════════════════════════════════════════════════════════════════════
+
+void group14_counter() {
+    set_group("G14 Counter");
+    Dma dma;
+
+    // 14.1 ZXN: counter starts at 0 after LOAD.
+    {
+        fresh(dma);
+        zxn(dma, 0x05); zxn(dma, 0xCF);
+        check("14.1", "ZXN LOAD: counter=0",
               dma.counter() == 0,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:664-665", dma.counter()));
     }
 
-    // 14.2: Z80 mode counter starts at 0xFFFF
+    // 14.2 Z80: counter starts at 0xFFFF after LOAD.
     {
         fresh(dma);
-        z80_write(dma, 0x79);
-        z80_write(dma, 0x00); z80_write(dma, 0x80);
-        z80_write(dma, 0x05); z80_write(dma, 0x00);
-        z80_write(dma, 0xCF);
-        check("14.2", "Z80: counter=0xFFFF after Load",
+        z80(dma, 0x05); z80(dma, 0xCF);
+        check("14.2", "Z80 LOAD: counter=0xFFFF",
               dma.counter() == 0xFFFF,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:666-667", dma.counter()));
     }
 
-    // 14.3: Counter increments per byte (ZXN mode)
+    // 14.3 Counter increments per byte (ZXN mode): after 10 bytes, counter=10.
+    // VHDL dma.vhd:361 `dma_counter_s + 1`.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 10);
-        for (int i = 0; i < 10; i++) g_mem[0x8000 + i] = (uint8_t)i;
-        run_dma(dma);
-        // After 10 bytes transferred in ZXN mode, counter should be 10
-        check("14.3", "ZXN: counter=block_len after transfer",
+        for (int i = 0; i < 10; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 10);
+        run_to_idle(dma);
+        check("14.3", "ZXN: counter=N after N-byte block",
               dma.counter() == 10,
-              DETAIL("counter=%u", dma.counter()));
+              fmt("counter=%u  VHDL dma.vhd:361", dma.counter()));
     }
 
-    // 14.4: ZXN block_len=0 transfers 0 bytes
+    // 14.4 ZXN block_len=5 transfers exactly 5 bytes.
+    // VHDL dma.vhd:426 counter<block_len while counter stepping 0..4.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 0);
-        g_mem[0x8000] = 0xFF;
-        int n = run_dma(dma);
-        check("14.4", "ZXN: block_len=0 transfers 0 bytes",
+        for (int i = 0; i < 8; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xE0 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 5);
+        int n = run_to_idle(dma);
+        check("14.4", "ZXN block_len=5: 5 bytes transferred",
+              n == 5 && g_mem[0x9004] == 0xE4 && g_mem[0x9005] == 0x00,
+              fmt("n=%d dst[4]=0x%02X dst[5]=0x%02X  VHDL dma.vhd:426",
+                  n, g_mem[0x9004], g_mem[0x9005]));
+    }
+
+    // 14.5 Z80 block_len=5 transfers 6 bytes.  In Z80 mode the counter
+    // starts at 0xFFFF, so after byte 1 counter=0x0000 and the check
+    // `counter<5` is still true — 5 more bytes transfer (total 6).
+    // VHDL dma.vhd:426 with init 0xFFFF.
+    {
+        fresh(dma);
+        for (int i = 0; i < 8; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xC0 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 5, /*z80_mode=*/true);
+        int n = run_to_idle(dma);
+        check("14.5", "Z80 block_len=5: 6 bytes (block_len+1)",
+              n == 6 && g_mem[0x9005] == 0xC5 && g_mem[0x9006] == 0x00,
+              fmt("n=%d dst[5]=0x%02X dst[6]=0x%02X  VHDL dma.vhd:426,666-667",
+                  n, g_mem[0x9005], g_mem[0x9006]));
+    }
+
+    // 14.6 ZXN block_len=0 transfers 0 bytes.  Same known emulator bug as
+    // 9.8 — the plan-row assertion is the VHDL expectation and the test
+    // is expected to FAIL on current main (Task 3 backlog item 6).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0xDE;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0);
+        int n = run_to_idle(dma);
+        check("14.6", "ZXN block_len=0: 0 bytes transferred",
               n == 0,
-              DETAIL("n=%d", n));
+              fmt("n=%d  VHDL dma.vhd:426 "
+                  "(KNOWN EMU BUG: counter>=block_len post-increment)", n));
     }
 
-    // 14.5: Counter readback via read sequence
+    // 14.7 Z80 block_len=0 transfers 0 bytes.  Same known emulator bug.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 5);
-        for (int i = 0; i < 5; i++) g_mem[0x8000 + i] = (uint8_t)i;
-        run_dma(dma);
-        // Set read mask to counter only (bits 1,2)
-        zxn_write(dma, 0xBB);
-        zxn_write(dma, 0x06); // mask = 0b0000110 = bits 1,2
-        zxn_write(dma, 0xA7); // Init read sequence
+        g_mem[0x8000] = 0xCA;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0, /*z80_mode=*/true);
+        int n = run_to_idle(dma);
+        check("14.7", "Z80 block_len=0: 0 bytes transferred",
+              n == 0,
+              fmt("n=%d  VHDL dma.vhd:426 "
+                  "(KNOWN EMU BUG: counter>=block_len post-increment)", n));
+    }
+
+    // 14.8 Counter readback via read sequence.
+    // VHDL dma.vhd:933-935 + mask-driven advancement.
+    {
+        fresh(dma);
+        for (int i = 0; i < 5; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 5);
+        run_to_idle(dma);
+        zxn(dma, 0xBB);
+        zxn(dma, 0x06);                  // mask bits 1,2 = counter LO + HI
+        zxn(dma, 0xA7);                  // init sequence
         uint8_t lo = dma.read();
         uint8_t hi = dma.read();
-        uint16_t cnt = (hi << 8) | lo;
-        check("14.5", "Counter readback = 5",
+        uint16_t cnt = static_cast<uint16_t>((hi << 8) | lo);
+        check("14.8", "Counter readback = 5 after 5-byte block",
               cnt == 5,
-              DETAIL("counter readback=0x%04X (expected 5)", cnt));
+              fmt("readback=0x%04X  VHDL dma.vhd:933-947", cnt));
     }
 }
 
-// ── Group 16: Auto-Restart and Continue ──────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 15 — Bus arbitration
+// VHDL dma.vhd:267-302 (START_DMA / WAITING_ACK), zxnext.vhd dma_holds_bus
+// wiring.  None of the BUSREQ/BUSACK/daisy-chain signals are exposed by
+// the C++ Dma class.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group16_auto_restart_continue() {
-    set_group("Auto-restart/Continue");
+void group15_bus_arbitration() {
+    set_group("G15 Bus Arb");
+
+    skip("15.1", "cpu_busreq_n_o (dma.vhd:267-281) not exposed on Dma");
+    skip("15.2", "WAITING_ACK / cpu_bai_n (dma.vhd:285-298) not exposed");
+    skip("15.3", "cpu_busreq_n_s=1 in IDLE (dma.vhd:213-242) not exposed");
+    skip("15.4", "bus_busreq_n_i external deferral (dma.vhd:267-281) not wired");
+    skip("15.5", "cpu_bai_n daisy-chain deferral (dma.vhd:267-281) not wired");
+    skip("15.6", "dma_delay_i IM2 deferral (dma.vhd:267-281) not wired");
+    skip("15.7", "zxnext.vhd address/data mux on dma_holds_bus not modelled");
+    skip("15.8", "port_dma_rd/wr gating on dma_holds_bus (zxnext.vhd) not modelled");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 16 — Auto-restart and continue
+// VHDL dma.vhd:473-491 (FINISH_DMA auto-restart reload), :670-676 (CONTINUE).
+// ══════════════════════════════════════════════════════════════════════
+
+void group16_autorestart_continue() {
+    set_group("G16 Auto-restart/Cont");
     Dma dma;
 
-    // 16.1: Auto-restart reloads addresses
+    // 16.1 Auto-restart reloads addresses from start registers.
     {
         fresh(dma);
-        zxn_write(dma, 0xA2); // R5: auto-restart
-        program_mem_to_mem(dma, 0x8000, 0x9000, 2);
-        g_mem[0x8000] = 0xAA; g_mem[0x8001] = 0xBB;
-        run_dma(dma, 2); // Run exactly one block
-        // After auto-restart, addresses should be reloaded
-        check("16.1", "Auto-restart reloads src/dst addresses",
+        zxn(dma, 0xA2);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        dma.execute_burst(2);
+        check("16.1", "Auto-restart: src/dst reloaded to 0x8000/0x9000",
               dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:473-481",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 16.2: Continue preserves addresses
+    // 16.2 Auto-restart reloads counter to mode-specific value.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        for (int i = 0; i < 4; i++) g_mem[0x8000 + i] = (uint8_t)i;
-        run_dma(dma);
-        uint16_t src_after = dma.src_addr();
-        uint16_t dst_after = dma.dst_addr();
-        zxn_write(dma, 0xD3); // Continue
-        check("16.2", "Continue preserves addresses",
-              dma.src_addr() == src_after && dma.dst_addr() == dst_after,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
-    }
-
-    // 16.3: Continue resets counter
-    {
-        fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 4);
-        for (int i = 0; i < 4; i++) g_mem[0x8000 + i] = (uint8_t)i;
-        run_dma(dma);
-        zxn_write(dma, 0xD3); // Continue
-        check("16.3", "Continue resets counter to 0 (ZXN)",
+        zxn(dma, 0xA2);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        dma.execute_burst(2);
+        check("16.2", "Auto-restart ZXN: counter reloaded to 0",
               dma.counter() == 0,
-              DETAIL("counter=0x%04X", dma.counter()));
+              fmt("counter=0x%04X  VHDL dma.vhd:482-486", dma.counter()));
+    }
+
+    // 16.3 Auto-restart in direction A->B (already covered by 16.1 which
+    // programs A->B).  Repeat more explicitly.
+    {
+        fresh(dma);
+        zxn(dma, 0xA2);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xF0 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        dma.execute_burst(2);
+        check("16.3", "Auto-restart A->B reload uses R0 as src, R4 as dst",
+              dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000,
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:474-476",
+                  dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 16.4 Auto-restart in direction B->A: src reloaded from port B start.
+    {
+        fresh(dma);
+        zxn(dma, 0xA2);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x80 + i);
+        zxn(dma, 0x79);                  // B->A
+        zxn(dma, 0x00); zxn(dma, 0x90);  // portA = 0x9000
+        zxn(dma, 0x02); zxn(dma, 0x00);
+        zxn(dma, 0x14); zxn(dma, 0x10);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0x80);  // portB = 0x8000
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        dma.execute_burst(2);
+        check("16.4", "Auto-restart B->A reload: src=portB, dst=portA",
+              dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000,
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:478-479",
+                  dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 16.5 CONTINUE preserves current src/dst.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        run_to_idle(dma);
+        uint16_t s = dma.src_addr(), d = dma.dst_addr();
+        zxn(dma, 0xD3);
+        check("16.5", "CONTINUE preserves src/dst",
+              dma.src_addr() == s && dma.dst_addr() == d,
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:670-676",
+                  dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 16.6 CONTINUE vs LOAD: LOAD overwrites src/dst, CONTINUE does not.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        run_to_idle(dma);
+        zxn(dma, 0xCF);                  // LOAD -> src/dst = start values
+        bool load_restored = (dma.src_addr() == 0x8000 && dma.dst_addr() == 0x9000);
+        // Advance src manually by running a partial transfer so addresses differ
+        zxn(dma, 0x87);
+        dma.execute_burst(2);
+        uint16_t s = dma.src_addr(), d = dma.dst_addr();
+        zxn(dma, 0xD3);                  // CONTINUE -> keeps current addrs
+        bool cont_preserved = (dma.src_addr() == s && dma.dst_addr() == d);
+        check("16.6", "LOAD restores start addrs; CONTINUE keeps current addrs",
+              load_restored && cont_preserved,
+              fmt("load=%d cont=%d  VHDL dma.vhd:656-662 vs :670-676",
+                  (int)load_restored, (int)cont_preserved));
     }
 }
 
-// ── Group 17: Status Register and Read Sequence ─────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 17 — Status register and read sequence
+// VHDL dma.vhd:902 status byte layout, :691-692 reinit, :638-645 hard reset,
+// :239 read mask reset default, :859-861 mask programming.
+// Layout: [7:6]=00, [5]=endofblock_n, [4:1]=1101, [0]=atleastone
+// Idle: 0b00_1_1101_0 = 0x3A.  After full block: 0b00_0_1101_1 = 0x1B.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group17_status_readback() {
-    set_group("Status/Readback");
+void group17_status() {
+    set_group("G17 Status/Readback");
     Dma dma;
 
-    // 17.1: Initial status byte
+    // 17.1 Status byte format: fixed middle nibble is 1101.
     {
         fresh(dma);
-        zxn_write(dma, 0xBF); // Read status byte
+        zxn(dma, 0xBF);
         uint8_t s = dma.read();
-        // Initial: endofblock_n=1(not ended), atleastone=0
-        // = 0b00_1_1101_0 = 0x3A
-        // Wait: 0x20 | 0x1A | 0 = 0x3A
-        check("17.1", "Initial status = 0x3A",
+        check("17.1", "Status bits [4:1] = 1101",
+              (s & 0x1E) == 0x1A,
+              fmt("status=0x%02X middle_nibble=0x%02X  VHDL dma.vhd:902",
+                  s, s & 0x1E));
+    }
+
+    // 17.2 End-of-block flag is clear initially (bit5=1 = NOT ended).
+    {
+        fresh(dma);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("17.2", "Initial endofblock_n = 1 (bit5 set)",
+              (s & 0x20) == 0x20,
+              fmt("status=0x%02X  VHDL dma.vhd:242", s));
+    }
+
+    // 17.3 End-of-block set after full transfer (bit5=0).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x11;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("17.3", "After block: endofblock_n = 0 (bit5 clear)",
+              (s & 0x20) == 0x00,
+              fmt("status=0x%02X  VHDL dma.vhd:471", s));
+    }
+
+    // 17.4 At-least-one flag set after first byte transferred.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x22;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("17.4", "After 1 byte: atleastone = 1 (bit0 set)",
+              (s & 0x01) == 0x01,
+              fmt("status=0x%02X  VHDL dma.vhd:412", s));
+    }
+
+    // 17.5 Status cleared by 0x8B reinit (status = 0x3A).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x33;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        zxn(dma, 0x8B);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("17.5", "0x8B reinit: status = 0x3A",
               s == 0x3A,
-              DETAIL("status=0x%02X", s));
+              fmt("status=0x%02X  VHDL dma.vhd:691-692", s));
     }
 
-    // 17.2: Status after partial transfer (at-least-one set)
-    // We need to check after a transfer completes since we can't stop mid-transfer easily
+    // 17.6 Status cleared by 0xC3 hard reset.
     {
         fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 1);
-        g_mem[0x8000] = 0x42;
-        run_dma(dma);
-        // After transfer: endofblock=true -> bit5=0, atleastone=true -> bit0=1
-        // = 0b00_0_1101_1 = 0x1B
-        zxn_write(dma, 0xBF);
+        g_mem[0x8000] = 0x44;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 1);
+        run_to_idle(dma);
+        zxn(dma, 0xC3);
+        zxn(dma, 0xBF);
         uint8_t s = dma.read();
-        check("17.2", "Status after complete transfer = 0x1B",
-              s == 0x1B,
-              DETAIL("status=0x%02X", s));
-    }
-
-    // 17.3: Status cleared by 0x8B
-    {
-        fresh(dma);
-        program_mem_to_mem(dma, 0x8000, 0x9000, 1);
-        g_mem[0x8000] = 0x42;
-        run_dma(dma);
-        zxn_write(dma, 0x8B); // Reinit status
-        zxn_write(dma, 0xBF);
-        uint8_t s = dma.read();
-        check("17.3", "Status cleared by 0x8B = 0x3A",
+        check("17.6", "0xC3 reset: status = 0x3A",
               s == 0x3A,
-              DETAIL("status=0x%02X", s));
+              fmt("status=0x%02X  VHDL dma.vhd:638-641", s));
     }
 
-    // 17.4: Default read mask = 0x7F (all 7 fields)
+    // 17.7 Default read mask after reset = "01111111" = 0x7F.
+    // Observable: the read sequence after ENABLE/LOAD rotates through
+    // all 7 fields once before wrapping.
     {
         fresh(dma);
-        // Program known values, do a Load
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x34); zxn_write(dma, 0x12);
-        zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, 0x14);
-        zxn_write(dma, 0x10);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x78); zxn_write(dma, 0x56);
-        zxn_write(dma, 0xCF);
-        // Init read sequence
-        zxn_write(dma, 0xA7);
-        // Read all 7 fields: status, counter_lo, counter_hi, portA_lo, portA_hi, portB_lo, portB_hi
-        uint8_t vals[7];
-        for (int i = 0; i < 7; i++) vals[i] = dma.read();
-        // Status should be 0x3A, counter=0x0000, portA=src=0x1234, portB=dst=0x5678
-        check("17.4", "Full read sequence: status",
-              vals[0] == 0x3A,
-              DETAIL("status=0x%02X", vals[0]));
-        check("17.5", "Full read sequence: counter",
-              vals[1] == 0x00 && vals[2] == 0x00,
-              DETAIL("counter=[%02X %02X]", vals[1], vals[2]));
-        check("17.6", "Full read sequence: port A (src)",
-              vals[3] == 0x34 && vals[4] == 0x12,
-              DETAIL("portA=[%02X %02X]", vals[3], vals[4]));
-        check("17.7", "Full read sequence: port B (dst)",
-              vals[5] == 0x78 && vals[6] == 0x56,
-              DETAIL("portB=[%02X %02X]", vals[5], vals[6]));
+        zxn(dma, 0x7D);
+        zxn(dma, 0x34); zxn(dma, 0x12);
+        zxn(dma, 0x08); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0xCF);
+        zxn(dma, 0xA7);                  // init read sequence
+        uint8_t v[8];
+        for (int i = 0; i < 8; ++i) v[i] = dma.read();
+        // Expected sequence: status, cnt_lo, cnt_hi, pA_lo, pA_hi, pB_lo, pB_hi,
+        // then wrap back to status.
+        bool ok = v[0] == 0x3A && v[1] == 0x00 && v[2] == 0x00 &&
+                  v[3] == 0x34 && v[4] == 0x12 && v[5] == 0x78 && v[6] == 0x56 &&
+                  v[7] == v[0];
+        check("17.7", "Default mask 0x7F: 7-field cycle then wrap",
+              ok,
+              fmt("v=[%02X %02X %02X %02X %02X %02X %02X %02X]  VHDL dma.vhd:239",
+                  v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7]));
     }
 
-    // 17.8: Custom read mask
+    // 17.8 Read sequence cycles through mask (default 0x7F): 7 reads all
+    // distinct fields when addresses are unique.
     {
         fresh(dma);
-        zxn_write(dma, 0xBB);
-        zxn_write(dma, 0x07); // mask = 0b0000111 = status + counter_lo + counter_hi
-        zxn_write(dma, 0xA7); // Init read sequence
-        uint8_t v0 = dma.read(); // status
-        uint8_t v1 = dma.read(); // counter_lo
-        uint8_t v2 = dma.read(); // counter_hi
-        uint8_t v3 = dma.read(); // wraps to status again
-        check("17.8", "Custom mask: 3 fields then wrap",
-              v0 == v3, // should wrap back to status
-              DETAIL("first_status=0x%02X wrap_status=0x%02X", v0, v3));
+        zxn(dma, 0x7D);
+        zxn(dma, 0x11); zxn(dma, 0x22);
+        zxn(dma, 0x08); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x33); zxn(dma, 0x44);
+        zxn(dma, 0xCF);
+        zxn(dma, 0xA7);
+        uint8_t v[7];
+        for (int i = 0; i < 7; ++i) v[i] = dma.read();
+        check("17.8", "Read sequence advances mask bits 0..6 in order",
+              v[1] == 0x00 && v[2] == 0x00 &&
+              v[3] == 0x11 && v[4] == 0x22 &&
+              v[5] == 0x33 && v[6] == 0x44,
+              fmt("v=[%02X %02X %02X %02X %02X %02X %02X]  VHDL dma.vhd:902-922",
+                  v[0],v[1],v[2],v[3],v[4],v[5],v[6]));
+    }
+
+    // 17.9 Custom read mask (status + counter only): 3 reads then wrap.
+    {
+        fresh(dma);
+        zxn(dma, 0xBB);
+        zxn(dma, 0x07);                  // bits 0,1,2
+        zxn(dma, 0xA7);
+        uint8_t a = dma.read();          // status
+        uint8_t b = dma.read();          // counter LO
+        uint8_t c = dma.read();          // counter HI
+        uint8_t d = dma.read();          // wrap to status
+        check("17.9", "Mask 0x07: 3 fields (status, cnt LO/HI) then wrap",
+              a == 0x3A && b == 0x00 && c == 0x00 && d == a,
+              fmt("[a=%02X b=%02X c=%02X d=%02X]  VHDL dma.vhd:696-717",
+                  a, b, c, d));
+    }
+
+    // 17.10 Read sequence wraps after last enabled field.
+    {
+        fresh(dma);
+        zxn(dma, 0xBB);
+        zxn(dma, 0x41);                  // bits 0 and 6 = status + portB HI
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x00);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x00); zxn(dma, 0xEE);
+        zxn(dma, 0xCF);
+        zxn(dma, 0xA7);
+        uint8_t s1 = dma.read();         // status
+        uint8_t pbh = dma.read();        // portB HI = 0xEE
+        uint8_t s2 = dma.read();         // wrap to status
+        check("17.10", "Mask with two bits: wraps after last enabled field",
+              s1 == 0x3A && pbh == 0xEE && s2 == 0x3A,
+              fmt("[s1=%02X pbh=%02X s2=%02X]  VHDL dma.vhd:919-922",
+                  s1, pbh, s2));
     }
 }
 
-// ── Group 19: Reset Behaviour ────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 18 — Read sequence fields
+// VHDL dma.vhd:902 (status), :933 (counter LO), :935-947 (advancement),
+// and per-direction src/dest mapping driven by R0_dir_AtoB_s.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group19_reset() {
-    set_group("Reset Behaviour");
+void group18_read_fields() {
+    set_group("G18 Read Fields");
     Dma dma;
 
-    // 19.1: Hardware reset defaults
-    {
+    auto program_and_init = [&](bool z80_mode, uint16_t pa, uint16_t pb,
+                                 bool a_to_b) {
         fresh(dma);
-        check("19.1a", "Reset: state=IDLE",
-              dma.state() == Dma::State::IDLE, "");
-        check("19.1b", "Reset: transfer_mode=continuous",
-              dma.transfer_mode() == Dma::TransferMode::CONTINUOUS, "");
-        check("19.1c", "Reset: src_addr_mode=increment",
-              dma.src_addr_mode() == Dma::AddrMode::INCREMENT, "");
-        check("19.1d", "Reset: dst_addr_mode=increment",
-              dma.dst_addr_mode() == Dma::AddrMode::INCREMENT, "");
-        check("19.1e", "Reset: counter=0",
-              dma.counter() == 0, DETAIL("counter=%u", dma.counter()));
-        check("19.1f", "Reset: block_length=0",
-              dma.block_length() == 0, DETAIL("len=%u", dma.block_length()));
+        auto wr = z80_mode ? z80 : zxn;
+        wr(dma, a_to_b ? 0x7D : 0x79);
+        wr(dma, pa & 0xFF);
+        wr(dma, (pa >> 8) & 0xFF);
+        wr(dma, 0x01); wr(dma, 0x00);
+        wr(dma, 0x14); wr(dma, 0x10);
+        wr(dma, 0xAD);
+        wr(dma, pb & 0xFF);
+        wr(dma, (pb >> 8) & 0xFF);
+        wr(dma, 0xCF);                   // LOAD
+        wr(dma, 0xA7);                   // init read sequence
+    };
+
+    // 18.1 Read status byte.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        // The sequence starts at mask bit 0 = STATUS.
+        uint8_t s = dma.read();
+        check("18.1", "Read field: status byte",
+              s == 0x3A,
+              fmt("status=0x%02X  VHDL dma.vhd:902", s));
     }
 
-    // 19.2: Soft reset (0xC3) preserves addresses
+    // 18.2 Read counter LO.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        dma.read();                      // consume status
+        uint8_t lo = dma.read();
+        check("18.2", "Read field: counter LO = 0x00 (ZXN just LOADed)",
+              lo == 0x00,
+              fmt("cnt_lo=0x%02X  VHDL dma.vhd:933", lo));
+    }
+
+    // 18.3 Read counter HI.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        dma.read(); dma.read();          // consume status, cnt_lo
+        uint8_t hi = dma.read();
+        check("18.3", "Read field: counter HI = 0x00 (ZXN just LOADed)",
+              hi == 0x00,
+              fmt("cnt_hi=0x%02X  VHDL dma.vhd:935", hi));
+    }
+
+    // 18.4 Read port A LO when A->B (= dma_src_s LO).
+    // VHDL dma.vhd:910-912 uses R0_dir_AtoB_s to select src vs dest.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        for (int i = 0; i < 3; ++i) dma.read();
+        uint8_t pa_lo = dma.read();
+        check("18.4", "Read field: portA LO = src LO (0x34) under A->B",
+              pa_lo == 0x34,
+              fmt("pA_lo=0x%02X  VHDL dma.vhd:910-912", pa_lo));
+    }
+
+    // 18.5 Read port A HI when A->B.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        for (int i = 0; i < 4; ++i) dma.read();
+        uint8_t pa_hi = dma.read();
+        check("18.5", "Read field: portA HI = src HI (0x12) under A->B",
+              pa_hi == 0x12,
+              fmt("pA_hi=0x%02X  VHDL dma.vhd:913-915", pa_hi));
+    }
+
+    // 18.6 Read port B LO when A->B.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        for (int i = 0; i < 5; ++i) dma.read();
+        uint8_t pb_lo = dma.read();
+        check("18.6", "Read field: portB LO = dst LO (0x78) under A->B",
+              pb_lo == 0x78,
+              fmt("pB_lo=0x%02X  VHDL dma.vhd:916-918", pb_lo));
+    }
+
+    // 18.7 Read port B HI when A->B.
+    {
+        program_and_init(false, 0x1234, 0x5678, true);
+        for (int i = 0; i < 6; ++i) dma.read();
+        uint8_t pb_hi = dma.read();
+        check("18.7", "Read field: portB HI = dst HI (0x56) under A->B",
+              pb_hi == 0x56,
+              fmt("pB_hi=0x%02X  VHDL dma.vhd:919-921", pb_hi));
+    }
+
+    // 18.8 Under B->A the port A/B readback swaps: portA reads dma_dest_s,
+    // portB reads dma_src_s.  VHDL dma.vhd:910-921 check R0_dir_AtoB_s.
+    {
+        program_and_init(false, 0x1234, 0x5678, false);  // B->A
+        // src = portB = 0x5678; dst = portA = 0x1234
+        for (int i = 0; i < 3; ++i) dma.read();
+        uint8_t pa_lo = dma.read();      // should be dst LO = 0x34
+        uint8_t pa_hi = dma.read();      // dst HI = 0x12
+        uint8_t pb_lo = dma.read();      // src LO = 0x78
+        uint8_t pb_hi = dma.read();      // src HI = 0x56
+        check("18.8", "B->A: portA reads dst, portB reads src",
+              pa_lo == 0x34 && pa_hi == 0x12 && pb_lo == 0x78 && pb_hi == 0x56,
+              fmt("[pA=%02X%02X pB=%02X%02X]  VHDL dma.vhd:910-921",
+                  pa_hi, pa_lo, pb_hi, pb_lo));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 19 — Reset behaviour
+// VHDL dma.vhd:213-242 (hard reset block), :638-645 (0xC3 soft reset).
+// ══════════════════════════════════════════════════════════════════════
+
+void group19_reset() {
+    set_group("G19 Reset");
+    Dma dma;
+
+    // 19.1 Hardware reset: state=IDLE, mode=continuous, counter=0,
+    //      src/dst/block_len = 0, read_mask=0x7F, inc+inc.
+    // VHDL dma.vhd:213-242.
     {
         fresh(dma);
-        // Set port A and B addresses
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x34); zxn_write(dma, 0x12);
-        zxn_write(dma, 0x08); zxn_write(dma, 0x00);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x78); zxn_write(dma, 0x56);
-        // Soft reset
-        zxn_write(dma, 0xC3);
-        // Load after reset - addresses should still be programmed
-        zxn_write(dma, 0xCF);
-        check("19.2", "Soft reset preserves port addresses",
+        bool ok = dma.state() == Dma::State::IDLE &&
+                  dma.transfer_mode() == Dma::TransferMode::CONTINUOUS &&
+                  dma.src_addr_mode() == Dma::AddrMode::INCREMENT &&
+                  dma.dst_addr_mode() == Dma::AddrMode::INCREMENT &&
+                  dma.counter() == 0 &&
+                  dma.block_length() == 0 &&
+                  dma.src_addr() == 0 && dma.dst_addr() == 0;
+        check("19.1", "Hardware reset defaults",
+              ok,
+              fmt("state=%d mode=%d src_m=%d dst_m=%d cnt=%u bl=%u "
+                  "src=0x%04X dst=0x%04X  VHDL dma.vhd:213-242",
+                  (int)dma.state(), (int)dma.transfer_mode(),
+                  (int)dma.src_addr_mode(), (int)dma.dst_addr_mode(),
+                  dma.counter(), dma.block_length(),
+                  dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 19.2 Soft reset (0xC3) puts state=IDLE and clears status.
+    // VHDL dma.vhd:638-641.
+    {
+        fresh(dma);
+        zxn(dma, 0x87);                  // ENABLE
+        zxn(dma, 0xC3);
+        zxn(dma, 0xBF);
+        uint8_t s = dma.read();
+        check("19.2", "0xC3 soft reset: state=IDLE and status=0x3A",
+              dma.state() == Dma::State::IDLE && s == 0x3A,
+              fmt("state=%d status=0x%02X  VHDL dma.vhd:638-641",
+                  (int)dma.state(), s));
+    }
+
+    // 19.3 0xC3 does NOT reset R0 port A start address nor R4 port B start
+    // address.  VHDL dma.vhd:638-645 lists the reset signals — port A/B
+    // start address registers are absent from that list.
+    {
+        fresh(dma);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x34); zxn(dma, 0x12);
+        zxn(dma, 0x08); zxn(dma, 0x00);
+        zxn(dma, 0xAD);
+        zxn(dma, 0x78); zxn(dma, 0x56);
+        zxn(dma, 0xC3);
+        zxn(dma, 0xCF);                  // LOAD reveals preserved start regs
+        check("19.3", "0xC3 preserves R0 and R4 start addresses",
               dma.src_addr() == 0x1234 && dma.dst_addr() == 0x5678,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:638-645",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 19.3: Soft reset goes to IDLE
+    // 19.4 0xC3 resets both port timings to "01".  Not observable.
+    skip("19.4", "0xC3 port timing reset (dma.vhd:641-642) unobservable "
+                 "— no C++ accessor for R1/R2 timing");
+
+    // 19.5 0xC3 resets prescaler to 0x00.  Only indirectly observable via
+    // continuous-mode runs-to-IDLE behaviour (row 4.8).
     {
         fresh(dma);
-        zxn_write(dma, 0x87); // Enable DMA
-        zxn_write(dma, 0xC3); // Reset
-        check("19.3", "Soft reset -> IDLE",
+        // Arm prescaler to a large value, then soft reset and confirm a
+        // subsequent transfer completes in one execute_burst (prescaler=0).
+        zxn(dma, 0x50); zxn(dma, 0x21); zxn(dma, 0xFF);
+        zxn(dma, 0xC3);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n = dma.execute_burst(1000);
+        check("19.5", "0xC3 resets prescaler: transfer runs to IDLE in one burst",
+              n == 4 && dma.state() == Dma::State::IDLE,
+              fmt("n=%d state=%d  VHDL dma.vhd:643", n, (int)dma.state()));
+    }
+
+    // 19.6 0xC3 resets auto-restart to 0.  Observable: after soft reset,
+    // a transfer ends at IDLE (no restart loop).
+    {
+        fresh(dma);
+        zxn(dma, 0xA2);                  // enable auto-restart
+        zxn(dma, 0xC3);                  // reset
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 2);
+        run_to_idle(dma);
+        check("19.6", "0xC3 clears auto-restart: transfer ends at IDLE",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:645", (int)dma.state()));
     }
 }
 
-// ── Group 22: Edge Cases ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Group 20 — DMA delay and interrupt integration
+// VHDL dma.vhd:267-281 (dma_delay_i gate in START_DMA), zxnext.vhd nextreg
+// 0xCC/0xCD/0xCE wiring for IM2 DMA.  None of these are exposed on Dma.
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_group22_edge_cases() {
-    set_group("Edge Cases");
+void group20_dma_delay() {
+    set_group("G20 DMA Delay");
+    skip("20.1", "dma_delay_i START_DMA gate (dma.vhd:267-281) not wired into Dma");
+    skip("20.2", "dma_delay_i mid-transfer re-entry (dma.vhd:420-432) not wired");
+    skip("20.3", "NextRegs 0xCC/0xCD/0xCE IM2 DMA enable bits (zxnext.vhd) "
+                 "not handled in Dma");
+    skip("20.4", "im2_dma_delay composition (zxnext.vhd) not modelled");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 21 — Timing byte effects
+// VHDL dma.vhd:311-327 (read cycle count) and :363-376 (write cycle count).
+// None observable: C++ Dma has no cycle counter exposed.
+// ══════════════════════════════════════════════════════════════════════
+
+void group21_timing_bytes() {
+    set_group("G21 Timing Bytes");
+    skip("21.1", "R1/R2 timing '00' -> READ_1..READ_2 4-cycle path "
+                 "(dma.vhd:313,365) not cycle-observable");
+    skip("21.2", "Timing '01' -> 3-cycle (dma.vhd:314,366) not cycle-observable");
+    skip("21.3", "Timing '10' -> 2-cycle (dma.vhd:315,367) not cycle-observable");
+    skip("21.4", "Timing '11' -> 4-cycle fallthrough (dma.vhd:316,368) "
+                 "not cycle-observable");
+    skip("21.5", "Source read-timing selection via R0_dir_AtoB_s "
+                 "(dma.vhd:311,319) not cycle-observable");
+    skip("21.6", "Dest write-timing selection via R0_dir_AtoB_s "
+                 "(dma.vhd:363,371) not cycle-observable");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 22 — Edge cases
+// ══════════════════════════════════════════════════════════════════════
+
+void group22_edge() {
+    set_group("G22 Edge Cases");
     Dma dma;
 
-    // 22.1: Disable during active transfer
+    // 22.1 Disable during active transfer -> IDLE.  VHDL dma.vhd:728.
     {
         fresh(dma);
-        // Set up burst mode transfer to have control
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x80);
-        zxn_write(dma, 0xFF); zxn_write(dma, 0x00); // len = 255
-        zxn_write(dma, 0x14);
-        zxn_write(dma, 0x10);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x90);
-        zxn_write(dma, 0xCF);
-        zxn_write(dma, 0x87); // Enable
-        // Transfer a few bytes
-        dma.execute_burst(3);
-        // Disable mid-transfer
-        zxn_write(dma, 0x83);
-        check("22.1", "Disable during transfer -> IDLE",
+        for (int i = 0; i < 32; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 32);
+        dma.execute_burst(4);
+        zxn(dma, 0x83);
+        check("22.1", "DISABLE mid-transfer -> IDLE",
               dma.state() == Dma::State::IDLE,
-              DETAIL("state=%d", (int)dma.state()));
+              fmt("state=%d  VHDL dma.vhd:728", (int)dma.state()));
     }
 
-    // 22.2: Enable without Load
+    // 22.2 Enable without LOAD: VHDL allows it and uses the current
+    // dma_src_s / dma_dest_s / block_len values as-is (dma.vhd:725 simply
+    // sets dma_seq_s <= START_DMA).
     {
         fresh(dma);
-        zxn_write(dma, 0x87); // Enable without Load
-        check("22.2", "Enable without Load: uses default addresses",
+        zxn(dma, 0x87);
+        check("22.2", "ENABLE without LOAD: state=TRANSFERRING",
               dma.state() == Dma::State::TRANSFERRING,
-              DETAIL("state=%d src=0x%04X dst=0x%04X",
-                     (int)dma.state(), dma.src_addr(), dma.dst_addr()));
+              fmt("state=%d src=0x%04X dst=0x%04X  VHDL dma.vhd:725",
+                  (int)dma.state(), dma.src_addr(), dma.dst_addr()));
     }
 
-    // 22.3: Multiple Loads before Enable
+    // 22.3 Multiple LOADs before ENABLE: the last LOAD wins.
     {
         fresh(dma);
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x10); // first portA = 0x1000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x20);
-        zxn_write(dma, 0xCF); // First Load
-        // Reprogram
-        zxn_write(dma, 0x7D);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x30); // second portA = 0x3000
-        zxn_write(dma, 0x04); zxn_write(dma, 0x00);
-        zxn_write(dma, DMA_R4_CONT_LOAD_B);
-        zxn_write(dma, 0x00); zxn_write(dma, 0x40);
-        zxn_write(dma, 0xCF); // Second Load
-        check("22.3", "Multiple Loads: last values used",
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x10);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0xAD); zxn(dma, 0x00); zxn(dma, 0x20);
+        zxn(dma, 0xCF);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x30);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0xAD); zxn(dma, 0x00); zxn(dma, 0x40);
+        zxn(dma, 0xCF);
+        check("22.3", "Multiple LOADs: last values used",
               dma.src_addr() == 0x3000 && dma.dst_addr() == 0x4000,
-              DETAIL("src=0x%04X dst=0x%04X", dma.src_addr(), dma.dst_addr()));
+              fmt("src=0x%04X dst=0x%04X  VHDL dma.vhd:656-668",
+                  dma.src_addr(), dma.dst_addr()));
     }
 
-    // 22.4: R2 byte 0x00 matches R2 not R0
+    // 22.4 CONTINUE during auto-restart: only counter is reset, current
+    // addresses survive.  VHDL dma.vhd:670-676.
     {
         fresh(dma);
-        // Byte 0x00: bits[7]=0, bits[2:0]=000 -> matches R2
-        // R0 requires bit0=1 or bit1=1, so 0x00 does NOT match R0
-        // After writing 0x00, port B should be configured (addr_mode=00=decrement)
-        zxn_write(dma, 0x00); // Should be R2
-        check("22.4", "Byte 0x00 matches R2 (dec), not R0",
+        zxn(dma, 0xA2);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        dma.execute_burst(4);            // one block -> auto-reload
+        // Manually step one more byte so src advances from 0x8000.
+        dma.execute_burst(1);
+        uint16_t s = dma.src_addr(), d = dma.dst_addr();
+        zxn(dma, 0xD3);
+        check("22.4", "CONTINUE during auto-restart: counter reset, addrs kept",
+              dma.counter() == 0 && dma.src_addr() == s && dma.dst_addr() == d,
+              fmt("counter=%u src=0x%04X dst=0x%04X  VHDL dma.vhd:670-676",
+                  dma.counter(), dma.src_addr(), dma.dst_addr()));
+    }
+
+    // 22.5 Decode ambiguity: a byte with bit7=0 can match multiple
+    // non-exclusive R0/R1/R2 patterns in theory, but VHDL dma.vhd:542 and
+    // :559 require bits[2:0]=100/000 which are mutually exclusive with R0
+    // needing bit0|bit1 set.  Writing 0x14 (R1 inc) must NOT touch R0 dir.
+    // Use 0x01 as the baseline R0 (dir B->A, no sub-bytes) so the R1 byte
+    // that follows is interpreted as a fresh base byte and hits R1 decode.
+    {
+        fresh(dma);
+        zxn(dma, 0x01);                  // R0: bit0=1, bit2=0 (B->A), no sub-bytes
+        zxn(dma, 0x14);                  // R1 base — must not disturb dir
+        zxn(dma, 0xAD); zxn(dma, 0xCD); zxn(dma, 0xAB);  // R4 + portB sub-bytes
+        zxn(dma, 0xCF);                  // LOAD
+        check("22.5", "R1 base byte does not update R0 direction",
+              dma.src_addr() == 0xABCD,
+              fmt("src=0x%04X (dir B->A -> src=portB=0xABCD)  "
+                  "VHDL dma.vhd:542 vs :518-520", dma.src_addr()));
+    }
+
+    // 22.6 Byte 0x00: bit7=0 and bits[2:0]=000 matches R2, and R0 is NOT
+    // matched because R0 requires (bit0|bit1)=1.  VHDL dma.vhd:559 vs
+    // :518-520.  After writing 0x00, R2 addr mode becomes "00" (decrement),
+    // observable via dst_addr_mode().
+    {
+        fresh(dma);
+        zxn(dma, 0x00);
+        check("22.6", "0x00 matches R2 (dec), not R0",
               dma.dst_addr_mode() == Dma::AddrMode::DECREMENT,
-              DETAIL("dst_mode=%d", (int)dma.dst_addr_mode()));
+              fmt("dst_mode=%d  VHDL dma.vhd:518-520,559",
+                  (int)dma.dst_addr_mode()));
     }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────
+}  // namespace
+
+// ══════════════════════════════════════════════════════════════════════
 
 int main() {
-    printf("DMA Subsystem Compliance Tests\n");
-    printf("==============================\n\n");
+    std::printf("DMA Subsystem Compliance Tests (Phase 2 rewrite)\n");
+    std::printf("================================================\n\n");
 
-    test_group1_port_decode();
-    printf("  Group: Port Decode — done\n");
+    group1_port_decode();          std::printf("  G1  Port Decode          done\n");
+    group2_r0();                   std::printf("  G2  R0                   done\n");
+    group3_r1();                   std::printf("  G3  R1                   done\n");
+    group4_r2();                   std::printf("  G4  R2                   done\n");
+    group5_r3();                   std::printf("  G5  R3                   done\n");
+    group6_r4();                   std::printf("  G6  R4                   done\n");
+    group7_r5();                   std::printf("  G7  R5                   done\n");
+    group8_r6_commands();          std::printf("  G8  R6                   done\n");
+    group9_mem_to_mem();           std::printf("  G9  Mem-to-Mem           done\n");
+    group10_mem_to_io();           std::printf("  G10 Mem-to-IO            done\n");
+    group11_addr_modes();          std::printf("  G11 Addr Modes           done\n");
+    group12_transfer_modes();      std::printf("  G12 Xfer Modes           done\n");
+    group13_prescaler_timing();    std::printf("  G13 Prescaler/Timing     done\n");
+    group14_counter();             std::printf("  G14 Counter              done\n");
+    group15_bus_arbitration();     std::printf("  G15 Bus Arb              done\n");
+    group16_autorestart_continue();std::printf("  G16 Auto-restart/Cont    done\n");
+    group17_status();              std::printf("  G17 Status/Readback      done\n");
+    group18_read_fields();         std::printf("  G18 Read Fields          done\n");
+    group19_reset();               std::printf("  G19 Reset                done\n");
+    group20_dma_delay();           std::printf("  G20 DMA Delay            done\n");
+    group21_timing_bytes();        std::printf("  G21 Timing Bytes         done\n");
+    group22_edge();                std::printf("  G22 Edge Cases           done\n");
 
-    test_group2_r0();
-    printf("  Group: R0 Programming — done\n");
+    std::printf("\n================================================\n");
+    std::printf("Results: %d/%d passed", g_pass, g_total);
+    if (g_fail > 0) std::printf(" (%d FAILED)", g_fail);
+    std::printf("\n");
 
-    test_group3_r1();
-    printf("  Group: R1 Port A Config — done\n");
-
-    test_group4_r2();
-    printf("  Group: R2 Port B Config — done\n");
-
-    test_group5_r3();
-    printf("  Group: R3 DMA Enable — done\n");
-
-    test_group6_r4();
-    printf("  Group: R4 Mode/PortB — done\n");
-
-    test_group7_r5();
-    printf("  Group: R5 Auto-restart — done\n");
-
-    test_group8_r6_commands();
-    printf("  Group: R6 Commands — done\n");
-
-    test_group9_mem_to_mem();
-    printf("  Group: Mem-to-Mem Transfer — done\n");
-
-    test_group10_mem_to_io();
-    printf("  Group: Mem-to-IO Transfer — done\n");
-
-    test_group11_addr_modes();
-    printf("  Group: Address Modes — done\n");
-
-    test_group12_transfer_modes();
-    printf("  Group: Transfer Modes — done\n");
-
-    test_group14_counter();
-    printf("  Group: Counter Behaviour — done\n");
-
-    test_group16_auto_restart_continue();
-    printf("  Group: Auto-restart/Continue — done\n");
-
-    test_group17_status_readback();
-    printf("  Group: Status/Readback — done\n");
-
-    test_group19_reset();
-    printf("  Group: Reset Behaviour — done\n");
-
-    test_group22_edge_cases();
-    printf("  Group: Edge Cases — done\n");
-
-    printf("\n==============================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0)
-        printf(" (%d FAILED)", g_fail);
-    printf("\n");
-
-    // Per-group summary
-    printf("\nPer-group breakdown:\n");
-    std::string last_group;
+    std::printf("\nPer-group breakdown:\n");
+    std::string last;
     int gp = 0, gf = 0;
     for (const auto& r : g_results) {
-        if (r.group != last_group) {
-            if (!last_group.empty())
-                printf("  %-25s %d/%d\n", last_group.c_str(), gp, gp + gf);
-            last_group = r.group;
+        if (r.group != last) {
+            if (!last.empty())
+                std::printf("  %-24s %d/%d\n", last.c_str(), gp, gp + gf);
+            last = r.group;
             gp = gf = 0;
         }
-        if (r.passed) gp++; else gf++;
+        if (r.passed) ++gp; else ++gf;
     }
-    if (!last_group.empty())
-        printf("  %-25s %d/%d\n", last_group.c_str(), gp, gp + gf);
+    if (!last.empty())
+        std::printf("  %-24s %d/%d\n", last.c_str(), gp, gp + gf);
+
+    if (!g_skipped.empty()) {
+        std::printf("\nSkipped plan rows (%zu, unrealisable with current C++ API):\n",
+                    g_skipped.size());
+        for (const auto& s : g_skipped) {
+            std::printf("  %-8s %s\n", s.id.c_str(), s.reason.c_str());
+        }
+    }
 
     return g_fail > 0 ? 1 : 0;
 }
