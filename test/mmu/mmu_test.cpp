@@ -220,7 +220,7 @@ void test_cat1_slot_assignment() {
             if (g != vals[i]) { ok = false; bad = fmt("slot %d: 0x%02X != 0x%02X", i, g, vals[i]); break; }
         }
         check("MMU-13",
-              "NR 0x50-0x57 read-back — VHDL zxnext.vhd:1018-1025",
+              "NR 0x50-0x57 read-back — VHDL zxnext.vhd:4880 NR write handler",
               ok, bad);
     }
 
@@ -238,7 +238,7 @@ void test_cat1_slot_assignment() {
             if (g != (0x20 + i)) { ok = false; bad = fmt("slot %d: 0x%02X != 0x%02X", i, g, 0x20 + i); break; }
         }
         check("MMU-14",
-              "NR 0x50-0x57 write pattern 0x20..0x27 — VHDL zxnext.vhd:1018-1025",
+              "NR 0x50-0x57 write pattern 0x20..0x27 — VHDL zxnext.vhd:4880 NR write handler",
               ok, bad);
     }
 
@@ -256,7 +256,7 @@ void test_cat1_slot_assignment() {
         const uint8_t lo = f.ram.page_ptr(0x10)[0x1FFF];
         const uint8_t hi = f.ram.page_ptr(0x20)[0];
         check("MMU-15",
-              "slot boundary 0x1FFF/0x2000 dispatch — VHDL zxnext.vhd:2920 cpu_a(15:13) slot index",
+              "slot boundary 0x1FFF/0x2000 dispatch — VHDL zxnext.vhd:2952-2959 cpu_a(15:13) slot mux",
               lo == 0xAA && hi == 0x55,
               fmt("page 0x10[0x1FFF]=0x%02X (exp 0xAA), page 0x20[0]=0x%02X (exp 0x55)", lo, hi));
     }
@@ -337,7 +337,7 @@ void test_cat3_port_7ffd() {
         f.fresh();
         f.mmu.map_128k_bank(0x00);
         check("P7F-09",
-              "port 0x7FFD bit 4=0 → ROM 0 (slots 0,1 read-only) — VHDL zxnext.vhd:3662",
+              "port 0x7FFD bit 4=0 → ROM 0 (slots 0,1 read-only) — VHDL zxnext.vhd:4619-4670 port_memory_change",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -349,7 +349,7 @@ void test_cat3_port_7ffd() {
         f.fresh();
         f.mmu.map_128k_bank(0x10);
         check("P7F-10",
-              "port 0x7FFD bit 4=1 → ROM 1 (slots 0,1 read-only) — VHDL zxnext.vhd:3662",
+              "port 0x7FFD bit 4=1 → ROM 1 (slots 0,1 read-only) — VHDL zxnext.vhd:4619-4670 port_memory_change",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -444,7 +444,7 @@ void test_cat5_port_1ffd() {
         f.mmu.map_128k_bank(0x00);  // 7ffd(4)=0
         f.mmu.map_plus3_bank(0x00); // 1ffd(2)=0, non-special
         check("P1F-01",
-              "+3 ROM 0: slots 0,1 read-only after 1ffd=0 & 7ffd(4)=0 — VHDL zxnext.vhd:3662",
+              "+3 ROM 0: slots 0,1 read-only after 1ffd=0 & 7ffd(4)=0 — VHDL zxnext.vhd:4619-4670",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -456,7 +456,7 @@ void test_cat5_port_1ffd() {
         f.mmu.map_plus3_bank(0x00);
         f.mmu.map_128k_bank(0x10);
         check("P1F-02",
-              "+3 ROM 1: slots 0,1 read-only after 7ffd(4)=1 — VHDL zxnext.vhd:3662",
+              "+3 ROM 1: slots 0,1 read-only after 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -468,7 +468,7 @@ void test_cat5_port_1ffd() {
         f.mmu.map_128k_bank(0x00);
         f.mmu.map_plus3_bank(0x04);
         check("P1F-03",
-              "+3 ROM 2: slots 0,1 read-only after 1ffd(2)=1 — VHDL zxnext.vhd:3662",
+              "+3 ROM 2: slots 0,1 read-only after 1ffd(2)=1 — VHDL zxnext.vhd:4619-4670",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -480,7 +480,7 @@ void test_cat5_port_1ffd() {
         f.mmu.map_128k_bank(0x10);
         f.mmu.map_plus3_bank(0x04);
         check("P1F-04",
-              "+3 ROM 3: slots 0,1 read-only after 1ffd(2)=1 & 7ffd(4)=1 — VHDL zxnext.vhd:3662",
+              "+3 ROM 3: slots 0,1 read-only after 1ffd(2)=1 & 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670",
               f.mmu.is_slot_rom(0) && f.mmu.is_slot_rom(1),
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
@@ -634,7 +634,7 @@ void test_cat7_paging_lock() {
         f.mmu.map_128k_bank(0x20);  // lock paging ports
         f.mmu.set_page(6, 0x10);    // direct NR 0x56 write
         check("LCK-06",
-              "direct NR 0x50-0x57 bypasses 7FFD(5) lock — VHDL zxnext.vhd:1018-1025",
+              "direct NR 0x50-0x57 bypasses 7FFD(5) lock — VHDL zxnext.vhd:4880 NR write handler",
               f.mmu.get_page(6) == 0x10,
               fmt("MMU6=0x%02X expected=0x10", f.mmu.get_page(6)));
     }
