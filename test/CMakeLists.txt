@@ -92,8 +92,14 @@ target_include_directories(ula_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ula_tests COMMAND ula_test)
 
 # I/O Port Dispatch compliance test
+# Links the full emulator because the rewritten plan requires constructing a
+# real Emulator (headless) and probing real peripheral handlers, not a
+# synthetic clean container. See doc/design/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md.
 add_executable(port_test port/port_test.cpp)
-target_link_libraries(port_test PRIVATE jnext_port jnext_cpu)
+target_link_libraries(port_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(port_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME port_tests COMMAND port_test)
 
