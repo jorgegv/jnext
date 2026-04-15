@@ -9,21 +9,23 @@
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
 | Memory/MMU       | 143       | 143     | 64   | 2    | 77        | 0       | `6d1a057000`      |
 | ULA Video        | 122       | 122     | 47   | 0    | 75        | 0       | `7c56b92000`      |
-| Layer2           | 97        | 51      | —    | —    | 0         | 46      | `fcbd9aed61`      |
-| Sprites          | 132       | 116     | —    | —    | 0         | 16      | `28f5afb540`      |
+| Layer2           | 97        | 95      | 91   | 4    | 0         | 2       | `fcbd9aed61`      |
+| Sprites          | 132       | 132     | 121  | 1    | 10        | 0       | `28f5afb540`      |
 | Tilemap          | 69        | 69      | 38   | 13   | 18        | 0       | `a3e1196000`      |
-| Copper           | 76        | 76      | —    | —    | 10        | 0       | `fcbd9aed61`      |
-| Compositor       | 115       | 91      | —    | —    | 0         | 24      | `fcbd9aed61`      |
+| Copper           | 76        | 76      | 66   | 0    | 10        | 0       | `fcbd9aed61`      |
+| Compositor       | 115       | 115     | 91   | 24   | 0         | 0       | `fcbd9aed61`      |
 | Audio            | 197       | 197     | 118  | 6    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 156     | 116  | 5    | 35        | 0       | `deeb9f6000`      |
 | DivMMC+SPI       | 123       | 123     | 53   | 14   | 56        | 0       | `c9d057e000`      |
 | CTC+Interrupts   | 150       | 150     | 43   | 1    | 106       | 0       | `9591481000`      |
 | UART+I2C/RTC     | 105       | 105     | 48   | 11   | 46        | 0       | `628d01f000`      |
 | NextREG          | 64        | 64      | 16   | 1    | 47        | 0       | `75fe6da000`      |
-| IO Port Dispatch | 90        | 60      | —    | —    | 0         | 30      | `fcbd9aed61`      |
-| Input            | 149       | 149     | —    | —    | 126       | 0       | `fcbd9aed61`      |
+| IO Port Dispatch | 90        | 86      | 68   | 18   | 0         | 4       | `fcbd9aed61`      |
+| Input            | 149       | 149     | 21   | 2    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1816** plan rows, **1816** mapped to tests, **0** missing (non-Z80N). Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
+Totals: **1788** non-Z80N plan rows (+ 30 Z80N), **1782** mapped to tests, **6** genuinely dropped by Phase 2 rewrites. Aggregate per-row status across all 15 non-Z80N subsystems: **1001 pass, 102 fail, 679 skip, 6 missing**. Z80N stays permanently missing (FUSE data-driven runner, by design). The 6 dropped-row misses are: Layer2 `G9-04`/`G9-06`, IO Port Dispatch `IORQ-01`/`CTN-01`/`CTN-02`/`AMAP-01` — plan rows that the Phase 2 rewrites dropped without a replacement; a future revisit should add them back or formally retire them in the plan. Refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` (see `doc/testing/UNIT-TEST-PLAN-EXECUTION.md` §6a). One-time matrix data cleanups applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN`, Sprites 6 IDs renamed to match source group prefixes (`CL-*` → `G6.CL-*`, `RST-04/05` → `G14.RST-04/05`), IO Port Dispatch 7 IDs remapped to match collapsed source assertions (`REG-06`/`REG-07` → `REG-06+07`, `BUS-86-02`..`BUS-89-00` → `BUS-86..89-W`).
+
+OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
 ## Z80N — `test/z80n_test.cpp`
 
@@ -392,28 +394,28 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 |---------|--------------------------------------------------------------|----------------------|---------|----------------------------------|
 | G1-01   | NR 0x12 default                                              | zxnext.vhd:4943      | pass    | test/layer2/layer2_test.cpp:221  |
 | G1-02   | NR 0x13 default                                              | zxnext.vhd:4944      | pass    | test/layer2/layer2_test.cpp:226  |
-| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | missing | missing                          |
-| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | missing | missing                          |
-| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | missing | missing                          |
-| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | missing | missing                          |
-| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | missing | missing                          |
-| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | missing | missing                          |
+| G1-03   | NR 0x14 default                                              | zxnext.vhd:4946      | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-04   | NR 0x16 default                                              | zxnext.vhd:4955      | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-05   | NR 0x17 default                                              | zxnext.vhd:4957      | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-06   | NR 0x18 defaults                                             | zxnext.vhd:4959-4962 | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-07   | NR 0x43[2] default                                           | zxnext.vhd:5007      | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-08   | NR 0x4A default                                              | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1159 |
 | G1-09   | NR 0x70 default                                              | zxnext.vhd:5047-5048 | pass    | test/layer2/layer2_test.cpp:232  |
-| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | missing | missing                          |
-| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | missing | missing                          |
+| G1-10   | NR 0x71[0] default                                           | zxnext.vhd:5050      | pass    | test/layer2/layer2_test.cpp:1159 |
+| G1-11   | port 0x123B default                                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1159 |
 | G1-12   | Layer 2 off after reset                                      | zxnext.vhd:3908      | pass    | test/layer2/layer2_test.cpp:239  |
 | G2-01   | 256x192 row-major address                                    | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:287  |
 | G2-02   | 256x192 row pitch = 256                                      | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:317  |
 | G2-03   | 256x192 y≥192 invisible                                      | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:333  |
-| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | missing | missing                          |
+| G2-04   | 256x192 x wraparound at 256 is impossible (no stimulus rout… | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1161 |
 | G2-05   | 320x256 column-major address                                 | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:345  |
 | G2-06   | 320x256 column pitch = 256                                   | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:367  |
-| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | missing | missing                          |
+| G2-07   | 320x256 x in [320,383] invisible                             | layer2.vhd:164       | pass    | test/layer2/layer2_test.cpp:1161 |
 | G2-08   | 320x256 y=255 visible                                        | layer2.vhd:165       | pass    | test/layer2/layer2_test.cpp:376  |
 | G2-09   | 640x256 high nibble = left pixel                             | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:390  |
 | G2-10   | 640x256 only 4-bit index pre-offset                          | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:419  |
-| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | missing | missing                          |
-| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | missing | missing                          |
+| G2-11   | 640x256 shares 320 column layout                             | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1161 |
+| G2-12   | Lookahead one pixel                                          | layer2.vhd:148       | pass    | test/layer2/layer2_test.cpp:1161 |
 | G3-01   | 256x192 scroll X=128                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:459  |
 | G3-02   | 256x192 scroll X=255                                         | layer2.vhd:152       | pass    | test/layer2/layer2_test.cpp:474  |
 | G3-03   | 256x192 scroll Y wrap from 192                               | layer2.vhd:156-158   | pass    | test/layer2/layer2_test.cpp:489  |
@@ -422,17 +424,17 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G3-06   | Scroll X MSB (nr_71[0]) in 256 mode                          | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:525  |
 | G3-07   | 320x256 scroll X=160                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:543  |
 | G3-08   | 320x256 scroll X=319                                         | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:558  |
-| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | missing | missing                          |
+| G3-09   | 320x256 scroll X wrap arithmetic                             | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:1163 |
 | G3-10   | 320x256 scroll Y=128                                         | layer2.vhd:157       | pass    | test/layer2/layer2_test.cpp:572  |
-| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | missing | missing                          |
+| G3-11   | 640x256 scroll X=160 byte-level                              | layer2.vhd:152-154   | pass    | test/layer2/layer2_test.cpp:1163 |
 | G3-12   | Negative path: 320x256 scroll X wrap branch skipped when x_… | layer2.vhd:153       | pass    | test/layer2/layer2_test.cpp:584  |
-| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | missing | missing                          |
-| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | missing | missing                          |
-| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | missing | missing                          |
-| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | missing | missing                          |
-| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | missing | missing                          |
-| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | missing | missing                          |
-| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | missing | missing                          |
+| G4-01a  | Auto-index advances — slot 0 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-01b  | Auto-index advances — slot 1 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-01c  | Auto-index advances — slot 2 observable                      | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-01d  | Auto-index advances — slot 3 observable and wraps            | zxnext.vhd:5243-5249 | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-02   | Auto-index wraps at 4                                        | zxnext.vhd:5249      | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-03   | NR 0x1C[0] resets L2 clip index                              | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1165 |
+| G4-04   | NR 0x1C[0]=0 leaves L2 index alone                           | zxnext.vhd:5278-5281 | pass    | test/layer2/layer2_test.cpp:1165 |
 | G4-05   | 256x192 default clip covers full area                        | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:627  |
 | G4-06   | 256x192 clip to centre 64x64                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:640  |
 | G4-07   | 256x192 clip x1==x2 single column                            | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:659  |
@@ -450,39 +452,39 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G5-06   | 4-bit mode offset shifts into upper nibble                   | layer2.vhd:202-203   | pass    | test/layer2/layer2_test.cpp:844  |
 | G5-07   | 4-bit mode low nibble is right pixel                         | layer2.vhd:202       | pass    | test/layer2/layer2_test.cpp:854  |
 | G5-08   | Palette 0 vs Palette 1                                       | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:875  |
-| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | missing | missing                          |
+| G5-09   | Palette select does not affect sprite/ula palette            | zxnext.vhd:6827      | pass    | test/layer2/layer2_test.cpp:1167 |
 | G6-01   | Index ≠ 0xE3, RGB = 0xE3 → transparent (would catch "index…  | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:921  |
 | G6-02   | Index = 0xE3, RGB ≠ 0xE3 → opaque (would catch "index check… | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:929  |
 | G6-03   | Identity palette, default NR 0x14                            | zxnext.vhd:7121      | pass    | test/layer2/layer2_test.cpp:941  |
 | G6-04   | Change NR 0x14 to 0x00                                       | zxnext.vhd:5226      | pass    | test/layer2/layer2_test.cpp:951  |
 | G6-05   | Clip outside ⇒ transparent regardless of colour              | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:966  |
 | G6-06   | L2 disabled ⇒ all transparent                                | layer2.vhd:175       | pass    | test/layer2/layer2_test.cpp:977  |
-| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | missing | missing                          |
-| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | missing | missing                          |
-| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | missing | missing                          |
-| G7-01   | Bank `+1` transform on default bank                          | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1021 |
-| G7-02   | Bank `+1` transform, nonzero high 3 bits                     | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1038 |
-| G7-03   | Bank `+1` transform, max legal                               | layer2.vhd:172-175   | pass    | test/layer2/layer2_test.cpp:1050 |
-| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | missing | missing                          |
-| G7-05   | Address bits 16:14 select 16K page within 48K                | layer2.vhd:173       | pass    | test/layer2/layer2_test.cpp:1068 |
-| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | missing | missing                          |
-| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | missing | missing                          |
-| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | missing | missing                          |
-| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | missing | missing                          |
-| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | missing | missing                          |
-| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | missing | missing                          |
-| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | missing | missing                          |
-| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | missing | missing                          |
-| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | missing | missing                          |
-| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | missing | missing                          |
-| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | missing | missing                          |
-| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | missing | missing                          |
-| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | missing | missing                          |
-| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | missing | missing                          |
-| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | missing | missing                          |
-| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | missing | missing                          |
-| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | missing | missing                          |
-| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | missing | missing                          |
+| G6-07   | Fallback 0xE3 visible when every layer transparent           | zxnext.vhd:5014      | pass    | test/layer2/layer2_test.cpp:1169 |
+| G6-08   | Fallback colour follows NR 0x4A write                        | zxnext.vhd:5407      | pass    | test/layer2/layer2_test.cpp:1169 |
+| G6-09   | Priority bit gated by transparency                           | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1169 |
+| G7-01   | Bank `+1` transform on default bank                          | layer2.vhd:172       | fail    | test/layer2/layer2_test.cpp:1021 |
+| G7-02   | Bank `+1` transform, nonzero high 3 bits                     | layer2.vhd:172       | fail    | test/layer2/layer2_test.cpp:1038 |
+| G7-03   | Bank `+1` transform, max legal                               | layer2.vhd:172-175   | fail    | test/layer2/layer2_test.cpp:1050 |
+| G7-04   | Out-of-range bank → no pixel                                 | layer2.vhd:173-175   | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-05   | Address bits 16:14 select 16K page within 48K                | layer2.vhd:173       | fail    | test/layer2/layer2_test.cpp:1068 |
+| G7-06   | 320x256 uses 5 pages                                         | layer2.vhd:160       | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-07   | Port 0x123B bit 0 enables CPU writes                         | zxnext.vhd:3917      | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-08   | Port 0x123B bit 2 enables CPU reads                          | zxnext.vhd:3918      | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-09   | Port 0x123B bit 1 enables display                            | zxnext.vhd:3916      | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-10   | Port 0x123B bit 1 and NR 0x69 bit 7 target same flop         | zxnext.vhd:3924-3925 | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-11   | Port 0x123B bit 3 selects shadow bank for mapping only       | zxnext.vhd:2968      | pass    | test/layer2/layer2_test.cpp:1171 |
+| G7-12   | Shadow bank data becomes visible after NR 0x12 rewrite       | layer2.vhd:172       | pass    | test/layer2/layer2_test.cpp:1172 |
+| G7-13   | Port 0x123B bits 7:6 select segment                          | zxnext.vhd:2966-2967 | pass    | test/layer2/layer2_test.cpp:1172 |
+| G7-14   | Port 0x123B segment=11 ⇒ A15:A14 selects page                | zxnext.vhd:2966      | pass    | test/layer2/layer2_test.cpp:1172 |
+| G7-15   | Port 0x123B bit 4 (offset latch)                             | zxnext.vhd:3922      | pass    | test/layer2/layer2_test.cpp:1172 |
+| G7-16   | Port 0x123B read-back formatting                             | zxnext.vhd:3933      | pass    | test/layer2/layer2_test.cpp:1172 |
+| G8-01   | NR 0x15 priority SLU with L2 opaque over ULA                 | zxnext.vhd:7216      | pass    | test/layer2/layer2_test.cpp:1174 |
+| G8-02   | L2 transparent ⇒ ULA shows through in SLU                    | zxnext.vhd:7121-7122 | pass    | test/layer2/layer2_test.cpp:1174 |
+| G8-03   | L2 priority bit promotes over sprite                         | zxnext.vhd:7050      | pass    | test/layer2/layer2_test.cpp:1174 |
+| G8-04   | Priority bit suppressed when L2 pixel transparent            | zxnext.vhd:7123      | pass    | test/layer2/layer2_test.cpp:1174 |
+| G8-05   | `layer2_rgb` zeroed when transparent                         | zxnext.vhd:7122      | pass    | test/layer2/layer2_test.cpp:1174 |
+| G9-01   | Disable then re-enable via NR 0x69                           | zxnext.vhd:3924      | pass    | test/layer2/layer2_test.cpp:1176 |
+| G9-02   | Cold-reset port 0x123B read is 0x00                          | zxnext.vhd:3908-3913 | pass    | test/layer2/layer2_test.cpp:1176 |
 | G9-03   | Clip y1 > y2 empties display                                 | layer2.vhd:167       | pass    | test/layer2/layer2_test.cpp:1119 |
 | G9-04   | Scroll X with wide branch NOT fired                          | —                    | missing | missing                          |
 | G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1139 |
@@ -494,12 +496,12 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 
 | Test ID    | Plan row title                                               | VHDL file:line  | Status  | Test file:line                     |
 |------------|--------------------------------------------------------------|-----------------|---------|------------------------------------|
-| CL-01      | `check(..., true)` — no clip semantics verified              | —               | missing | missing                            |
-| CL-02      | `check(..., true)` — setters only                            | —               | missing | missing                            |
-| CL-03      | `check(..., true)` — setter only, wrong group                | —               | missing | missing                            |
-| CL-04      | `check(..., true)` — setter, misnamed as clip                | —               | missing | missing                            |
-| RST-04     | `check(..., true)` — no getter, no assertion                 | —               | missing | missing                            |
-| RST-05     | `check(..., true)` — same                                    | —               | missing | missing                            |
+| G6.CL-01   | `check(..., true)` — no clip semantics verified              | —               | pass    | test/sprites/sprites_test.cpp:907  |
+| G6.CL-02   | `check(..., true)` — setters only                            | —               | pass    | test/sprites/sprites_test.cpp:927  |
+| G6.CL-03   | `check(..., true)` — setter only, wrong group                | —               | pass    | test/sprites/sprites_test.cpp:952  |
+| G6.CL-04   | `check(..., true)` — setter, misnamed as clip                | —               | pass    | test/sprites/sprites_test.cpp:967  |
+| G14.RST-04 | `check(..., true)` — no getter, no assertion                 | —               | pass    | test/sprites/sprites_test.cpp:2131 |
+| G14.RST-05 | `check(..., true)` — same                                    | —               | pass    | test/sprites/sprites_test.cpp:2144 |
 | G1.AT-01   | 4-byte write auto-skips to next sprite attr0                 | —               | pass    | test/sprites/sprites_test.cpp:216  |
 | G1.AT-02   | 5-byte write advances through attr4                          | —               | pass    | test/sprites/sprites_test.cpp:234  |
 | G1.AT-03   | 0x303B sets `attr_index = d(6:0) & "000"`                    | —               | pass    | test/sprites/sprites_test.cpp:246  |
@@ -511,7 +513,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G1.AT-09   | Mirror `index="111"` sets sprite number                      | —               | pass    | test/sprites/sprites_test.cpp:326  |
 | G1.AT-10   | `mirror_inc_i` increments within 7 bits                      | —               | pass    | test/sprites/sprites_test.cpp:339  |
 | G1.AT-11   | `mirror_tie_i=1` syncs attr_index to mirror number           | —               | pass    | test/sprites/sprites_test.cpp:351  |
-| G1.AT-12   | Mirror write takes priority over pending CPU write           | —               | missing | missing                            |
+| G1.AT-12   | Mirror write takes priority over pending CPU write           | —               | skip    | test/sprites/sprites_test.cpp:359  |
 | G2.PL-01   | 256-byte pattern upload targets bytes 0..255 of pattern 0    | —               | pass    | test/sprites/sprites_test.cpp:388  |
 | G2.PL-02   | Last pattern (63) writable                                   | —               | pass    | test/sprites/sprites_test.cpp:403  |
 | G2.PL-03   | Auto-increment crosses pattern boundary                      | —               | pass    | test/sprites/sprites_test.cpp:422  |
@@ -532,7 +534,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G4.XY-01   | Sprite at (0,0) opaque fills [0..15] on line 0               | —               | pass    | test/sprites/sprites_test.cpp:705  |
 | G4.XY-02   | X MSB (attr2(0)=1) gives x=256+attr0                         | —               | pass    | test/sprites/sprites_test.cpp:717  |
 | G4.XY-03   | Y MSB requires 5th byte; else forced to 0                    | —               | pass    | test/sprites/sprites_test.cpp:736  |
-| G4.XY-04   | Y MSB honored with 5th byte                                  | —               | pass    | test/sprites/sprites_test.cpp:753  |
+| G4.XY-04   | Y MSB honored with 5th byte                                  | —               | fail    | test/sprites/sprites_test.cpp:753  |
 | G4.XY-05   | x=319 renders last valid column                              | —               | pass    | test/sprites/sprites_test.cpp:768  |
 | G4.XY-06   | x=320 fully off-screen, x-wrap 1× (mask 11111) still render… | —               | pass    | test/sprites/sprites_test.cpp:785  |
 | G4.XY-07   | 2× scale wrap-around, sprite starts at x=300                 | —               | pass    | test/sprites/sprites_test.cpp:805  |
@@ -558,8 +560,8 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G9.MI-04   | Both mirrors                                                 | —               | pass    | test/sprites/sprites_test.cpp:1168 |
 | G9.RO-01   | Rotate swaps row/col in address                              | —               | pass    | test/sprites/sprites_test.cpp:1191 |
 | G9.RO-02   | `x_mirr_eff = xmirror XOR rotate`                            | —               | pass    | test/sprites/sprites_test.cpp:1211 |
-| G9.RO-03   | Rotate + x-mirror produces delta = -16 (0x3FF0)              | —               | missing | missing                            |
-| G9.RO-04   | Rotate without mirror: delta = +16                           | —               | missing | missing                            |
+| G9.RO-03   | Rotate + x-mirror produces delta = -16 (0x3FF0)              | —               | skip    | test/sprites/sprites_test.cpp:1219 |
+| G9.RO-04   | Rotate without mirror: delta = +16                           | —               | skip    | test/sprites/sprites_test.cpp:1222 |
 | G10.SC-01  | X 1× renders 16 px, advances addr every pixel                | —               | pass    | test/sprites/sprites_test.cpp:1255 |
 | G10.SC-02  | X 2× renders 32 px, each byte repeated twice                 | —               | pass    | test/sprites/sprites_test.cpp:1267 |
 | G10.SC-03  | X 4× renders 64 px, each byte×4                              | —               | pass    | test/sprites/sprites_test.cpp:1282 |
@@ -572,7 +574,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G10.SC-10  | X wrap mask for 2× is 11110                                  | —               | pass    | test/sprites/sprites_test.cpp:1400 |
 | G11.OB-01  | `over_border=0`: sprite at y=200 not emitted (clip via non-… | —               | pass    | test/sprites/sprites_test.cpp:1427 |
 | G11.OB-02  | `over_border=1, border_clip_en=0`: sprite at y=200 emitted   | —               | pass    | test/sprites/sprites_test.cpp:1438 |
-| G11.OB-03  | `over_border=1, border_clip_en=1`: sprite at y=200, clip_y2… | —               | missing | missing                            |
+| G11.OB-03  | `over_border=1, border_clip_en=1`: sprite at y=200, clip_y2… | —               | skip    | test/sprites/sprites_test.cpp:1444 |
 | G11.OB-04  | `pixel_en_o` also requires `vcounter < 224` when `over_bord… | —               | pass    | test/sprites/sprites_test.cpp:1461 |
 | G12.AN-01  | Sprite with `attr4(7:6)≠"01"` and attr3(6)=1 is an anchor;…  | —               | pass    | test/sprites/sprites_test.cpp:1483 |
 | G12.AN-02  | Anchor type=1 additionally latches rotate/mirror/scale       | —               | pass    | test/sprites/sprites_test.cpp:1499 |
@@ -595,8 +597,8 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G12.RT-04  | Type 1 relative scale from anchor, not relative              | —               | pass    | test/sprites/sprites_test.cpp:1807 |
 | G12.RP-01  | Rel pattern without add (attr4(0)=0): uses own name          | —               | pass    | test/sprites/sprites_test.cpp:1822 |
 | G12.RP-02  | Rel pattern with add (attr4(0)=1): anchor_pattern + rel pat… | —               | pass    | test/sprites/sprites_test.cpp:1835 |
-| G12.RP-03  | Rel pattern with N6 bit (from rel's attr4(6) AND anchor_h)   | —               | missing | missing                            |
-| G12.RP-04  | 4bpp relative inherits H from anchor (`anchor_h`)            | —               | missing | missing                            |
+| G12.RP-03  | Rel pattern with N6 bit (from rel's attr4(6) AND anchor_h)   | —               | skip    | test/sprites/sprites_test.cpp:1843 |
+| G12.RP-04  | 4bpp relative inherits H from anchor (`anchor_h`)            | —               | skip    | test/sprites/sprites_test.cpp:1848 |
 | G12.NG-01  | Relative sprite with no prior anchor ⇒ `anchor_*` all zero…  | —               | pass    | test/sprites/sprites_test.cpp:1868 |
 | G12.NG-02  | Two consecutive anchors: second replaces first               | —               | pass    | test/sprites/sprites_test.cpp:1882 |
 | G12.NG-03  | Invisible anchor between visible anchor and relative leaves… | —               | pass    | test/sprites/sprites_test.cpp:1896 |
@@ -607,9 +609,9 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G13.CO-05  | Read of 0x303B clears status                                 | —               | pass    | test/sprites/sprites_test.cpp:1982 |
 | G13.CO-06  | Collision bit is sticky across frames until read             | —               | pass    | test/sprites/sprites_test.cpp:2001 |
 | G13.OT-01  | Few sprites ⇒ `state_s` returns to S_IDLE before next `line… | —               | pass    | test/sprites/sprites_test.cpp:2015 |
-| G13.OT-02  | 128 visible anchors all on same Y, 1× scale ⇒ overtime       | —               | missing | missing                            |
-| G13.OT-03  | Overtime bit independent of collision bit                    | —               | missing | missing                            |
-| G13.OT-04  | Both flags can accumulate                                    | —               | missing | missing                            |
+| G13.OT-02  | 128 visible anchors all on same Y, 1× scale ⇒ overtime       | —               | skip    | test/sprites/sprites_test.cpp:2020 |
+| G13.OT-03  | Overtime bit independent of collision bit                    | —               | skip    | test/sprites/sprites_test.cpp:2023 |
+| G13.OT-04  | Both flags can accumulate                                    | —               | skip    | test/sprites/sprites_test.cpp:2026 |
 | G13.SR-01  | Status bits 7:2 always 0                                     | —               | pass    | test/sprites/sprites_test.cpp:2041 |
 | G13.SR-02  | Read captures then clears in same cycle                      | —               | pass    | test/sprites/sprites_test.cpp:2058 |
 | G13.SR-03  | Status bits update via OR while unread                       | —               | pass    | test/sprites/sprites_test.cpp:2074 |
@@ -624,7 +626,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G15.NG-03  | Sprite at `(x=0, y=0)` with `attr3(7)=1, attr3(6)=0` (no 5t… | —               | pass    | test/sprites/sprites_test.cpp:2229 |
 | G15.NG-04  | Palette offset wrap: `paloff=0xF, pat(7:4)=0x1` ⇒ (0xF+0x1)… | —               | pass    | test/sprites/sprites_test.cpp:2242 |
 | G15.NG-05  | Zero-size pattern (all bytes = transp colour) ⇒ zero pixels… | —               | pass    | test/sprites/sprites_test.cpp:2258 |
-| G15.NG-06  | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(… | —               | missing | missing                            |
+| G15.NG-06  | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(… | —               | skip    | test/sprites/sprites_test.cpp:2265 |
 | G15.NG-07  | Negative offset wraps in 9-bit arithmetic: anchor_x=5, rel…  | sprites.vhd:762 | pass    | test/sprites/sprites_test.cpp:2286 |
 
 ## Tilemap — `test/tilemap/tilemap_test.cpp`
@@ -815,7 +817,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:243  |
 | TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | —                | pass    | test/compositor/compositor_test.cpp:262  |
 | TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:280  |
-| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | pass    | test/compositor/compositor_test.cpp:301  |
+| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | fail    | test/compositor/compositor_test.cpp:301  |
 | TR-20              | Tilemap text-mode RGB compare                                | —                | pass    | test/compositor/compositor_test.cpp:314  |
 | TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:331  |
 | TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | —                | pass    | test/compositor/compositor_test.cpp:344  |
@@ -837,55 +839,55 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | FB-15              | Fallback not used when any layer opaque                      | —                | pass    | test/compositor/compositor_test.cpp:563  |
 | FB-16              | Reset default is 0xE3                                        | —                | pass    | test/compositor/compositor_test.cpp:572  |
 | FB-17              | All 8 priority modes converge on fallback when every layer…  | —                | pass    | test/compositor/compositor_test.cpp:592  |
-| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | missing | missing                                  |
-| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | missing | missing                                  |
-| PRI-010-SLU-U      | Mode 000, only U                                             | —                | missing | missing                                  |
-| PRI-010-SLU-0      | Mode 000, none                                               | —                | missing | missing                                  |
-| PRI-011-LSU-3      | Mode 001, all three                                          | —                | missing | missing                                  |
-| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | missing | missing                                  |
-| PRI-011-LSU-U      | Mode 001, U only                                             | —                | missing | missing                                  |
-| PRI-010-SUL-3      | Mode 010, all three                                          | —                | missing | missing                                  |
-| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | missing | missing                                  |
-| PRI-010-SUL-L      | Mode 010, L only                                             | —                | missing | missing                                  |
-| PRI-011-LUS-3      | Mode 011, all three                                          | —                | missing | missing                                  |
-| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | missing | missing                                  |
-| PRI-011-LUS-S      | Mode 011, S only                                             | —                | missing | missing                                  |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | pass    | test/compositor/compositor_test.cpp:680  |
-| PRI-100-USL-3      | Mode 100, all three                                          | —                | missing | missing                                  |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:693  |
-| PRI-100-USL-L      | Mode 100, L only                                             | —                | missing | missing                                  |
-| PRI-101-ULS-3      | Mode 101, all three                                          | —                | missing | missing                                  |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:709  |
-| PRI-101-ULS-S      | Mode 101, S only                                             | —                | missing | missing                                  |
+| PRI-010-SLU-3      | Mode 000, all three opaque                                   | —                | pass    | test/compositor/compositor_test.cpp:636  |
+| PRI-010-SLU-LU     | Mode 000, only L+U                                           | —                | pass    | test/compositor/compositor_test.cpp:637  |
+| PRI-010-SLU-U      | Mode 000, only U                                             | —                | pass    | test/compositor/compositor_test.cpp:638  |
+| PRI-010-SLU-0      | Mode 000, none                                               | —                | pass    | test/compositor/compositor_test.cpp:639  |
+| PRI-011-LSU-3      | Mode 001, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:642  |
+| PRI-011-LSU-SU     | Mode 001, S+U only                                           | —                | pass    | test/compositor/compositor_test.cpp:643  |
+| PRI-011-LSU-U      | Mode 001, U only                                             | —                | pass    | test/compositor/compositor_test.cpp:644  |
+| PRI-010-SUL-3      | Mode 010, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:647  |
+| PRI-010-SUL-UL     | Mode 010, U+L                                                | —                | pass    | test/compositor/compositor_test.cpp:648  |
+| PRI-010-SUL-L      | Mode 010, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:649  |
+| PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:652  |
+| PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:653  |
+| PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:654  |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | fail    | test/compositor/compositor_test.cpp:680  |
+| PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:657  |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | fail    | test/compositor/compositor_test.cpp:693  |
+| PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:658  |
+| PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:661  |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | fail    | test/compositor/compositor_test.cpp:709  |
+| PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:662  |
 | PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:734  |
 | PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:745  |
 | PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:757  |
-| L2P-10             | Promotion in mode 000 over sprite                            | —                | missing | missing                                  |
-| L2P-11             | Promotion in mode 010 over sprite                            | —                | missing | missing                                  |
-| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | missing | missing                                  |
-| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | missing | missing                                  |
-| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | missing | missing                                  |
-| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | missing | missing                                  |
+| L2P-10             | Promotion in mode 000 over sprite                            | —                | fail    | test/compositor/compositor_test.cpp:777  |
+| L2P-11             | Promotion in mode 010 over sprite                            | —                | fail    | test/compositor/compositor_test.cpp:778  |
+| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | fail    | test/compositor/compositor_test.cpp:779  |
+| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | fail    | test/compositor/compositor_test.cpp:780  |
+| L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:781  |
+| L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:782  |
 | L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:804  |
-| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:827  |
-| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:841  |
-| BL-10              | Add no clamp                                                 | —                | pass    | test/compositor/compositor_test.cpp:892  |
-| BL-11              | Add clamp hi                                                 | —                | pass    | test/compositor/compositor_test.cpp:905  |
+| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | fail    | test/compositor/compositor_test.cpp:827  |
+| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | fail    | test/compositor/compositor_test.cpp:841  |
+| BL-10              | Add no clamp                                                 | —                | fail    | test/compositor/compositor_test.cpp:892  |
+| BL-11              | Add clamp hi                                                 | —                | fail    | test/compositor/compositor_test.cpp:905  |
 | BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:918  |
-| BL-13              | Add, `mix_top` opaque beats blend                            | —                | pass    | test/compositor/compositor_test.cpp:934  |
+| BL-13              | Add, `mix_top` opaque beats blend                            | —                | fail    | test/compositor/compositor_test.cpp:934  |
 | BL-14              | Add, sprite between mix_top and mix_bot                      | —                | pass    | test/compositor/compositor_test.cpp:948  |
-| BL-15              | Add, mix_bot wins after sprite transp                        | —                | pass    | test/compositor/compositor_test.cpp:964  |
+| BL-15              | Add, mix_bot wins after sprite transp                        | —                | fail    | test/compositor/compositor_test.cpp:964  |
 | BL-16              | Add, final fallback to blend                                 | —                | pass    | test/compositor/compositor_test.cpp:978  |
-| BL-20              | Sub, ≤4 clamps to 0                                          | —                | pass    | test/compositor/compositor_test.cpp:992  |
-| BL-21              | Sub, ≥12 clamps to 7                                         | —                | pass    | test/compositor/compositor_test.cpp:1006 |
-| BL-22              | Sub, middle value                                            | —                | pass    | test/compositor/compositor_test.cpp:1020 |
+| BL-20              | Sub, ≤4 clamps to 0                                          | —                | fail    | test/compositor/compositor_test.cpp:992  |
+| BL-21              | Sub, ≥12 clamps to 7                                         | —                | fail    | test/compositor/compositor_test.cpp:1006 |
+| BL-22              | Sub, middle value                                            | —                | fail    | test/compositor/compositor_test.cpp:1020 |
 | BL-23              | Sub gated by `mix_rgb_transparent`                           | —                | pass    | test/compositor/compositor_test.cpp:1034 |
-| BL-24              | Sub, mix_top opaque wins over blend                          | —                | pass    | test/compositor/compositor_test.cpp:1047 |
+| BL-24              | Sub, mix_top opaque wins over blend                          | —                | fail    | test/compositor/compositor_test.cpp:1047 |
 | BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1059 |
-| BL-26              | Sub, mix_bot fallback                                        | —                | pass    | test/compositor/compositor_test.cpp:1071 |
-| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1085 |
-| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1101 |
-| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1115 |
+| BL-26              | Sub, mix_bot fallback                                        | —                | fail    | test/compositor/compositor_test.cpp:1071 |
+| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | fail    | test/compositor/compositor_test.cpp:1085 |
+| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | fail    | test/compositor/compositor_test.cpp:1101 |
+| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | fail    | test/compositor/compositor_test.cpp:1115 |
 | UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1143 |
 | UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1156 |
 | UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1169 |
@@ -895,8 +897,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | UTB-41             | Mode 01, below=1                                             | —                | pass    | test/compositor/compositor_test.cpp:1231 |
 | STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:1259 |
 | STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:1274 |
-| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:1288 |
-| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:1302 |
+| STEN-12            | ULA transparent → stencil transparent                        | —                | fail    | test/compositor/compositor_test.cpp:1288 |
+| STEN-13            | TM transparent → stencil transparent                         | —                | fail    | test/compositor/compositor_test.cpp:1302 |
 | STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:1313 |
 | STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:1327 |
 | STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:1340 |
@@ -921,7 +923,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | RST-11             | After reset, mode is 000 (SLU)                               | —                | pass    | test/compositor/compositor_test.cpp:1634 |
 | RST-12             | After reset, NR 0x4A = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:1643 |
 | RST-13             | After reset, NR 0x14 = 0xE3                                  | —                | pass    | test/compositor/compositor_test.cpp:1653 |
-| PRI-BOUND          | 3                                                            | —                | missing | missing                                  |
+| PRI-BOUND          | 3                                                            | —                | pass    | test/compositor/compositor_test.cpp:719  |
 
 ## Audio — `test/audio/audio_test.cpp`
 
@@ -1819,17 +1821,17 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | LIBZ80-02     | `IN A,(nn)` upper byte honoured                              | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:186  |
 | LIBZ80-03     | `OUT (nn),A` upper byte honoured                             | zxnext.vhd:2626      | pass    | test/port/port_test.cpp:199  |
 | LIBZ80-04     | INIR block transfer uses full BC                             | zxnext.vhd:2635      | pass    | test/port/port_test.cpp:213  |
-| LIBZ80-05     | MSB-only discrimination                                      | zxnext.vhd:2648      | pass    | test/port/port_test.cpp:229  |
+| LIBZ80-05     | MSB-only discrimination                                      | zxnext.vhd:2648      | fail    | test/port/port_test.cpp:229  |
 | REG-01        | ULA 0xFE matches any even address                            | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:254  |
 | REG-02        | 0xFE does not match on odd address                           | zxnext.vhd:2582–2583 | pass    | test/port/port_test.cpp:265  |
 | REG-03        | NextReg select 0x243B                                        | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:276  |
 | REG-04        | NextReg data 0x253B                                          | zxnext.vhd:2626      | pass    | test/port/port_test.cpp:282  |
 | REG-05        | 0x243C/0x253C not decoded                                    | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:306  |
-| REG-06        | AY select 0xFFFD real                                        | zxnext.vhd:2647      | missing | missing                      |
-| REG-07        | AY data 0xBFFD real                                          | zxnext.vhd:2648      | missing | missing                      |
+| REG-06+07     | AY select 0xFFFD real                                        | zxnext.vhd:2647      | pass    | test/port/port_test.cpp:320  |
+| REG-06+07     | AY data 0xBFFD real                                          | zxnext.vhd:2648      | pass    | test/port/port_test.cpp:320  |
 | REG-08        | 0x7FFD MMU bank select                                       | zxnext.vhd:2593      | pass    | test/port/port_test.cpp:333  |
 | REG-09        | 0x1FFD +3 extended                                           | zxnext.vhd:2599      | pass    | test/port/port_test.cpp:349  |
-| REG-10        | 0xDFFD Pentagon ext                                          | zxnext.vhd:2596      | pass    | test/port/port_test.cpp:375  |
+| REG-10        | 0xDFFD Pentagon ext                                          | zxnext.vhd:2596      | fail    | test/port/port_test.cpp:375  |
 | REG-11        | DivMMC 0xE3 real                                             | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:385  |
 | REG-12        | SPI CS 0xE7, data 0xEB                                       | zxnext.vhd:2620–2621 | pass    | test/port/port_test.cpp:403  |
 | REG-13        | Sprite 0x303B write-then-read                                | zxnext.vhd:2681      | pass    | test/port/port_test.cpp:416  |
@@ -1837,58 +1839,58 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | REG-15        | I²C 0x103B / 0x113B                                          | zxnext.vhd:2630–2631 | pass    | test/port/port_test.cpp:439  |
 | REG-16        | UART 0x143B / 0x153B                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:451  |
 | REG-17        | UART 0x133B rejected                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:465  |
-| REG-18        | Kempston 1 0x001F                                            | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:475  |
-| REG-19        | Kempston 2 0x0037                                            | zxnext.vhd:2675      | pass    | test/port/port_test.cpp:484  |
-| REG-20        | Mouse 0xFADF/0xFBDF/0xFFDF                                   | zxnext.vhd:2668–2670 | pass    | test/port/port_test.cpp:495  |
-| REG-21        | ULA+ 0xBF3B / 0xFF3B                                         | zxnext.vhd:2685–2686 | pass    | test/port/port_test.cpp:506  |
+| REG-18        | Kempston 1 0x001F                                            | zxnext.vhd:2674      | fail    | test/port/port_test.cpp:475  |
+| REG-19        | Kempston 2 0x0037                                            | zxnext.vhd:2675      | fail    | test/port/port_test.cpp:484  |
+| REG-20        | Mouse 0xFADF/0xFBDF/0xFFDF                                   | zxnext.vhd:2668–2670 | fail    | test/port/port_test.cpp:495  |
+| REG-21        | ULA+ 0xBF3B / 0xFF3B                                         | zxnext.vhd:2685–2686 | fail    | test/port/port_test.cpp:506  |
 | REG-22        | DMA 0x6B vs 0x0B                                             | zxnext.vhd:2643      | pass    | test/port/port_test.cpp:519  |
 | REG-23        | CTC 0x183B range                                             | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:529  |
 | REG-24        | Unmapped port read                                           | zxnext.vhd:2589      | pass    | test/port/port_test.cpp:541  |
 | REG-25        | Unmapped port write                                          | zxnext.vhd:2697      | pass    | test/port/port_test.cpp:559  |
-| REG-26        | 0xDF routes to Specdrum/port_1f sink (positive combo)        | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:579  |
-| REG-27        | 0xDF re-routed away from port_1f when mouse enabled (negati… | zxnext.vhd:2670      | pass    | test/port/port_test.cpp:590  |
+| REG-26        | 0xDF routes to Specdrum/port_1f sink (positive combo)        | zxnext.vhd:2674      | fail    | test/port/port_test.cpp:579  |
+| REG-27        | 0xDF re-routed away from port_1f when mouse enabled (negati… | zxnext.vhd:2670      | fail    | test/port/port_test.cpp:590  |
 | NR82-00       | 0x82 b0                                                      | zxnext.vhd:2397      | pass    | test/port/port_test.cpp:624  |
-| NR82-01       | 0x82 b1                                                      | zxnext.vhd:2399      | pass    | test/port/port_test.cpp:636  |
+| NR82-01       | 0x82 b1                                                      | zxnext.vhd:2399      | fail    | test/port/port_test.cpp:636  |
 | NR82-02       | 0x82 b2                                                      | zxnext.vhd:2400      | pass    | test/port/port_test.cpp:646  |
-| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | pass    | test/port/port_test.cpp:659  |
+| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | fail    | test/port/port_test.cpp:659  |
 | NR82-04       | 0x82 b4                                                      | zxnext.vhd:2403      | pass    | test/port/port_test.cpp:668  |
 | NR82-05       | 0x82 b5                                                      | zxnext.vhd:2405      | pass    | test/port/port_test.cpp:680  |
 | NR82-06       | 0x82 b6                                                      | zxnext.vhd:2407      | pass    | test/port/port_test.cpp:688  |
 | NR82-07       | 0x82 b7                                                      | zxnext.vhd:2408      | pass    | test/port/port_test.cpp:696  |
-| NR83-00       | 0x83 b0                                                      | zxnext.vhd:2412      | missing | missing                      |
-| NR83-01       | 0x83 b1                                                      | zxnext.vhd:2415      | missing | missing                      |
-| NR83-02       | 0x83 b2                                                      | zxnext.vhd:2418      | missing | missing                      |
-| NR83-03       | 0x83 b3                                                      | zxnext.vhd:2419      | missing | missing                      |
-| NR83-04       | 0x83 b4                                                      | zxnext.vhd:2420      | missing | missing                      |
-| NR83-05       | 0x83 b5                                                      | zxnext.vhd:2422      | missing | missing                      |
-| NR83-06       | 0x83 b6                                                      | zxnext.vhd:2423      | missing | missing                      |
-| NR83-07       | 0x83 b7                                                      | zxnext.vhd:2424      | missing | missing                      |
-| NR84-00       | 0x84 b0                                                      | zxnext.vhd:2428      | missing | missing                      |
-| NR84-01       | 0x84 b1                                                      | zxnext.vhd:2429      | missing | missing                      |
-| NR84-02       | 0x84 b2                                                      | zxnext.vhd:2430      | missing | missing                      |
-| NR84-03       | 0x84 b3                                                      | zxnext.vhd:2431      | missing | missing                      |
-| NR84-04       | 0x84 b4                                                      | zxnext.vhd:2432      | missing | missing                      |
-| NR84-05       | 0x84 b5                                                      | zxnext.vhd:2433      | missing | missing                      |
-| NR84-06       | 0x84 b6                                                      | zxnext.vhd:2434      | missing | missing                      |
-| NR84-07       | 0x84 b7                                                      | zxnext.vhd:2435      | missing | missing                      |
+| NR83-00       | 0x83 b0                                                      | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:706  |
+| NR83-01       | 0x83 b1                                                      | zxnext.vhd:2415      | pass    | test/port/port_test.cpp:707  |
+| NR83-02       | 0x83 b2                                                      | zxnext.vhd:2418      | pass    | test/port/port_test.cpp:708  |
+| NR83-03       | 0x83 b3                                                      | zxnext.vhd:2419      | pass    | test/port/port_test.cpp:709  |
+| NR83-04       | 0x83 b4                                                      | zxnext.vhd:2420      | pass    | test/port/port_test.cpp:710  |
+| NR83-05       | 0x83 b5                                                      | zxnext.vhd:2422      | pass    | test/port/port_test.cpp:711  |
+| NR83-06       | 0x83 b6                                                      | zxnext.vhd:2423      | pass    | test/port/port_test.cpp:712  |
+| NR83-07       | 0x83 b7                                                      | zxnext.vhd:2424      | pass    | test/port/port_test.cpp:713  |
+| NR84-00       | 0x84 b0                                                      | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:732  |
+| NR84-01       | 0x84 b1                                                      | zxnext.vhd:2429      | pass    | test/port/port_test.cpp:733  |
+| NR84-02       | 0x84 b2                                                      | zxnext.vhd:2430      | pass    | test/port/port_test.cpp:734  |
+| NR84-03       | 0x84 b3                                                      | zxnext.vhd:2431      | pass    | test/port/port_test.cpp:735  |
+| NR84-04       | 0x84 b4                                                      | zxnext.vhd:2432      | pass    | test/port/port_test.cpp:736  |
+| NR84-05       | 0x84 b5                                                      | zxnext.vhd:2433      | pass    | test/port/port_test.cpp:737  |
+| NR84-06       | 0x84 b6                                                      | zxnext.vhd:2434      | pass    | test/port/port_test.cpp:738  |
+| NR84-07       | 0x84 b7                                                      | zxnext.vhd:2435      | pass    | test/port/port_test.cpp:739  |
 | NR84-07-combo | 0x84 b7 AND 0x83 b5 AND 0x82 b6 (combinatorial)              | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:773  |
-| NR85-00       | 0x85 b0                                                      | zxnext.vhd:2439      | missing | missing                      |
-| NR85-01       | 0x85 b1                                                      | zxnext.vhd:2440      | missing | missing                      |
-| NR85-02       | 0x85 b2                                                      | zxnext.vhd:2441      | missing | missing                      |
-| NR85-03       | 0x85 b3                                                      | zxnext.vhd:2442      | pass    | test/port/port_test.cpp:809  |
-| NR85-03b      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:809  |
+| NR85-00       | 0x85 b0                                                      | zxnext.vhd:2439      | pass    | test/port/port_test.cpp:782  |
+| NR85-01       | 0x85 b1                                                      | zxnext.vhd:2440      | pass    | test/port/port_test.cpp:783  |
+| NR85-02       | 0x85 b2                                                      | zxnext.vhd:2441      | pass    | test/port/port_test.cpp:784  |
+| NR85-03       | 0x85 b3                                                      | zxnext.vhd:2442      | pass    | test/port/port_test.cpp:785  |
+| NR85-03b      | 0x85 b3                                                      | zxnext.vhd:2690      | fail    | test/port/port_test.cpp:809  |
 | NR85-03c      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:825  |
-| NR-DEF-01     | Power-on defaults all-enabled                                | zxnext.vhd:1226–1230 | pass    | test/port/port_test.cpp:838  |
-| NR-RST-01     | Soft reset reloads when reset_type=1                         | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:866  |
+| NR-DEF-01     | Power-on defaults all-enabled                                | zxnext.vhd:1226–1230 | fail    | test/port/port_test.cpp:838  |
+| NR-RST-01     | Soft reset reloads when reset_type=1                         | zxnext.vhd:5052–5057 | fail    | test/port/port_test.cpp:866  |
 | NR-RST-02     | Soft reset does NOT reload when reset_type=0                 | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:880  |
-| NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | pass    | test/port/port_test.cpp:854  |
-| BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | pass    | test/port/port_test.cpp:907  |
-| BUS-86-02     | NR 0x86 gates when expbus_eff_en=1                           | zxnext.vhd:2393      | missing | missing                      |
-| BUS-86-03     | NR 0x86 AND with NR 0x82                                     | zxnext.vhd:2393      | missing | missing                      |
-| BUS-87-D      | DivMMC enable-diff detection                                 | zxnext.vhd:2413      | missing | missing                      |
-| BUS-88-00     | NR 0x88 AND with NR 0x84 (AY)                                | zxnext.vhd:2393      | missing | missing                      |
-| BUS-89-00     | NR 0x89 AND with NR 0x85 (ULA+)                              | zxnext.vhd:2393      | missing | missing                      |
-| PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:988  |
+| NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | fail    | test/port/port_test.cpp:854  |
+| BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | fail    | test/port/port_test.cpp:907  |
+| BUS-86..89-W  | NR 0x86 gates when expbus_eff_en=1                           | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:927  |
+| BUS-86..89-W  | NR 0x86 AND with NR 0x82                                     | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:927  |
+| BUS-86..89-W  | DivMMC enable-diff detection                                 | zxnext.vhd:2413      | pass    | test/port/port_test.cpp:927  |
+| BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY)                                | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:927  |
+| BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+)                              | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:927  |
+| PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | fail    | test/port/port_test.cpp:988  |
 | PR-02         | One-hot invariant over all real peripherals after `Emulator… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1015 |
 | PR-01-CUR     | **Document current-code asymmetry (guard test until PR-01 c… | —                    | pass    | test/port/port_test.cpp:963  |
 | PR-03         | `clear_handlers()` then re-register on reset                 | —                    | pass    | test/port/port_test.cpp:1032 |
@@ -1901,9 +1903,9 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range                 | —                    | missing | missing                      |
 | AMAP-01       | DivMMC enable diff freezes expansion bus                     | zxnext.vhd:2180      | missing | missing                      |
 | AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1128 |
-| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1142 |
+| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | fail    | test/port/port_test.cpp:1142 |
 | BUS-01        | Single-owner invariant over all registered                   | —                    | pass    | test/port/port_test.cpp:1166 |
-| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1181 |
+| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | fail    | test/port/port_test.cpp:1181 |
 | BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:1200 |
 
 ### Extra coverage (not in plan)
@@ -1974,7 +1976,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000                                 | —                                     | skip   | test/input/input_test.cpp:394 |
 | JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010                                 | —                                     | skip   | test/input/input_test.cpp:396 |
 | JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000                                 | —                                     | skip   | test/input/input_test.cpp:398 |
-| JMODE-08  | Power-on, read joystick mode                                 | —                                     | pass   | test/input/input_test.cpp:412 |
+| JMODE-08  | Power-on, read joystick mode                                 | —                                     | fail   | test/input/input_test.cpp:412 |
 | KEMP-01   | joy0=001                                                     | —                                     | skip   | test/input/input_test.cpp:426 |
 | KEMP-02   | joy0=001                                                     | —                                     | skip   | test/input/input_test.cpp:427 |
 | KEMP-03   | joy0=001                                                     | —                                     | skip   | test/input/input_test.cpp:428 |
@@ -2034,7 +2036,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | CURS-04   | joy0=010                                                     | —                                     | skip   | test/input/input_test.cpp:530 |
 | CURS-05   | joy0=010                                                     | —                                     | skip   | test/input/input_test.cpp:531 |
 | CURS-06   | joy0=010, LEFT + RIGHT                                       | —                                     | skip   | test/input/input_test.cpp:532 |
-| IOMODE-01 | Reset                                                        | —                                     | pass   | test/input/input_test.cpp:556 |
+| IOMODE-01 | Reset                                                        | —                                     | fail   | test/input/input_test.cpp:556 |
 | IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0)             | —                                     | skip   | test/input/input_test.cpp:561 |
 | IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1)             | —                                     | skip   | test/input/input_test.cpp:562 |
 | IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | —                                     | skip   | test/input/input_test.cpp:563 |

@@ -36,13 +36,24 @@ ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "doc/testing/TRACEABILITY-MATRIX.md"
 
 # (section_header_line, test_binary, source_rel_path)
+# Every non-Z80N subsystem with per-row `check()`/`skip()` tracking.
+# Z80N is deliberately excluded: it uses the FUSE data-driven runner and
+# its per-row status is permanently `missing` by design (see §6a).
 SUBSYS = [
     ("## Memory/MMU — `test/mmu/mmu_test.cpp`",
      "build/test/mmu_test", "test/mmu/mmu_test.cpp"),
     ("## ULA Video — `test/ula/ula_test.cpp`",
      "build/test/ula_test", "test/ula/ula_test.cpp"),
+    ("## Layer2 — `test/layer2/layer2_test.cpp`",
+     "build/test/layer2_test", "test/layer2/layer2_test.cpp"),
+    ("## Sprites — `test/sprites/sprites_test.cpp`",
+     "build/test/sprites_test", "test/sprites/sprites_test.cpp"),
     ("## Tilemap — `test/tilemap/tilemap_test.cpp`",
      "build/test/tilemap_test", "test/tilemap/tilemap_test.cpp"),
+    ("## Copper — `test/copper/copper_test.cpp`",
+     "build/test/copper_test", "test/copper/copper_test.cpp"),
+    ("## Compositor — `test/compositor/compositor_test.cpp`",
+     "build/test/compositor_test", "test/compositor/compositor_test.cpp"),
     ("## Audio — `test/audio/audio_test.cpp`",
      "build/test/audio_test", "test/audio/audio_test.cpp"),
     ("## DMA — `test/dma/dma_test.cpp`",
@@ -55,27 +66,41 @@ SUBSYS = [
      "build/test/uart_test", "test/uart/uart_test.cpp"),
     ("## NextREG — `test/nextreg/nextreg_test.cpp`",
      "build/test/nextreg_test", "test/nextreg/nextreg_test.cpp"),
+    ("## IO Port Dispatch — `test/port/port_test.cpp`",
+     "build/test/port_test", "test/port/port_test.cpp"),
+    ("## Input — `test/input/input_test.cpp`",
+     "build/test/input_test", "test/input/input_test.cpp"),
 ]
 
 # "  FAIL ID: ..." or "  FAIL ID [..." — robust across all known harnesses.
 FAIL_RE = re.compile(r"^\s*FAIL\s+([A-Za-z0-9._\-]+)\s*[:\[]")
 
-# skip("ID", ...) — first-arg string literal; skips are always direct, no
-# struct-loop indirection, so a literal-match regex is sufficient.
-SKIP_RE = re.compile(r'\bskip\s*\(\s*"([A-Za-z0-9._\-]+)"')
+# skip("ID", ...) or stub("ID", ...) — first-arg string literal. Both helpers
+# flag "not reachable via current C++ API" and are aggregated under the
+# Skip/Stub column in the Summary table. Always direct calls (no loop
+# indirection) so a literal-match regex is sufficient.
+SKIP_RE = re.compile(r'\b(?:skip|stub)\s*\(\s*"([A-Za-z0-9._\-]+)"')
 
-# Plan-row-shaped string literal anywhere in the source. Matches uppercase
-# prefix + digits/dashes/dots (e.g. "MMU-01", "AY-110", "9.7", "TM-CB5",
-# "I2C-P05a", "S13.14"). This captures IDs used both directly in check()
-# calls AND indirectly via struct-of-rows loops like:
-#     struct { const char* id; ... } rows[] = {
-#         { "MMU-01", ... },
-#         { "MMU-02", ... },
-#     };
-#     for (auto& r : rows) check(r.id, ...);
-# False positives (strings in log messages etc.) are minimal in test files
-# because log strings rarely match the plan-row shape.
-ID_LITERAL_RE = re.compile(r'"([A-Z][A-Z0-9]*-[A-Za-z0-9._\-]+|\d+\.\d+[a-z]?|S\d+\.\d+)"')
+# Plan-row-shaped string literal anywhere in the source. Captures IDs used
+# both directly in check() calls AND indirectly via struct-of-rows loops
+# where the ID is embedded in an aggregate initializer and later passed
+# via `r.id`. Matches three common shapes seen across subsystems:
+#
+#   1. Dashed prefix:        "MMU-01", "AY-110", "TM-CB5", "I2C-P05a",
+#                            "G1.AT-01", "G10.SC-01" (group-prefixed),
+#                            "S1.05-mode" etc.
+#   2. Numeric dotted:       "9.7", "14.6", "14.7a" (DMA plan rows)
+#   3. Section-dotted:       "S13.14", "S2.08" (ULA sections)
+#
+# False positives (English strings etc.) are minimal in test files because
+# the shape is distinctive. Log/fmt strings rarely match.
+ID_LITERAL_RE = re.compile(
+    r'"('
+    r'[A-Z][A-Z0-9]*(?:\.[A-Z][A-Z0-9]*)*-[A-Za-z0-9._\-+]+'  # dashed (+ allowed for collapsed rows like REG-06+07)
+    r'|\d+\.\d+[a-z]?'                                        # numeric like 9.7 / 14.7a
+    r'|S\d+\.\d+[a-z]?'                                       # ULA S-section
+    r')"'
+)
 
 def run_fails(binary):
     """Run binary, return set of failing plan row IDs."""

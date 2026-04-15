@@ -285,10 +285,15 @@ matrix agree with what the binaries actually report:
 ### Refresh workflow
 
 The mechanical parts of this workflow (running binaries, parsing FAIL sets,
-greping source for `check()`/`skip()` call sites, rewriting the Status and
-Test-file columns while preserving column widths) are automated by
-`test/refresh-traceability-matrix.py`. Run it from the repo root after the
-affected test binary is built:
+greping source for `check()`/`skip()`/`stub()` call sites, rewriting the
+Status and Test-file columns while preserving column widths) are automated
+by `test/refresh-traceability-matrix.py`. The script covers all 15 non-Z80N
+subsystems (the 9 Task 1 refactored suites plus the 6 Phase 2 rewrites —
+Layer2, Sprites, Copper, Compositor, IO Port Dispatch, Input). Z80N is
+deliberately excluded — its FUSE data-driven runner has no per-row IDs and
+stays permanently `missing` in the Summary by design.
+
+Run it from the repo root after the affected test binary is built:
 
 ```bash
 cmake --build build --target <sub>_test -j$(nproc)
