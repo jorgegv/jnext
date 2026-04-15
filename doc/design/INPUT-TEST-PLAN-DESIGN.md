@@ -111,23 +111,25 @@ In Kempston mode bits 7:6 are forced to `'0'` by the VHDL guards at
 lines 3478 and 3490. In MD mode those two bits pass through and carry
 START (bit 7) and A (bit 6).
 
-### 1.4 NR 0xB2 — MD 6-button extras (`zxnext.vhd` 6214-6215)
+### 1.4 NR 0xB2 — MD 6-button extras (`zxnext.vhd` 6215)
 
 ```
 port_253b_dat <= i_JOY_RIGHT(10 downto 8) & i_JOY_RIGHT(11)
               &  i_JOY_LEFT(10 downto 8)  & i_JOY_LEFT(11);
 ```
 
-So NR 0xB2 bit layout is:
+VHDL concatenation is MSB-first, so `A(10 downto 8)` contributes bits
+(10),(9),(8) in that order. Combined with the signal layout from
+`zxnext.vhd` 3441-3442 (`MODE X Z Y START A C B U D L R` at positions
+11..0, i.e. X=10, Z=9, Y=8, MODE=11), NR 0xB2 decodes as:
 
 ```
-bit  7    6    5    4       3    2    1    0
-     R.Y  R.Z  R.X  R.MODE  L.Y  L.Z  L.X  L.MODE
+bit  7     6     5     4          3     2     1     0
+     R.X   R.Z   R.Y   R.MODE     L.X   L.Z   L.Y   L.MODE
+     R(10) R(9)  R(8)  R(11)      L(10) L(9)  L(8)  L(11)
 ```
 
-Note: `i_JOY_*(10:8)` is `X Z Y` high-to-low (line 3442), so bit 7 of
-NR 0xB2 is Y (i.e. `JOY_RIGHT(8)`), bit 6 is Z (`JOY_RIGHT(9)`), bit 5
-is X (`JOY_RIGHT(10)`). Mirrored for the left joystick at bits 3:1.
+Both nibbles are symmetric: top = right connector, bottom = left.
 
 ### 1.5 Port 0xFE layout (`zxnext.vhd` 3459)
 
@@ -202,20 +204,35 @@ UART-enable: `joy_uart_en = iomode_en AND iomode(1)` (line 3536).
 RX input selection at 3538: `joy_uart_rx` picks `JOY_LEFT(5)` or
 `JOY_RIGHT(5)` based on `iomode_0`.
 
-Reset: `joy_iomode_pin7 <= '1'` (line 3516); register defaults must be
-checked from the reset process at the top of `zxnext.vhd`.
+Reset: `joy_iomode_pin7 <= '1'` at `zxnext.vhd:3515-3516`; NR 0x0B
+bits come from the reset block at `zxnext.vhd:4939-4941`
+(`nr_0b_joy_iomode_en := '0'`, `nr_0b_joy_iomode := "00"`,
+`nr_0b_joy_iomode_0 := '1'`).
 
 ### 1.9 Kempston mouse (`zxnext.vhd` 2668-2670, 3543-3561)
 
 ```
-port_fbdf (0xFBDF) <= i_MOUSE_X
-port_ffdf (0xFFDF) <= i_MOUSE_Y
-port_fadf (0xFADF) <= MOUSE_WHEEL(4) & '1' & !BTN2 & !BTN0 & !BTN1
+port_fbdf (0xFBDF) <= i_MOUSE_X                               -- line 3546
+port_ffdf (0xFFDF) <= i_MOUSE_Y                               -- line 3553
+port_fadf (0xFADF) <= i_MOUSE_WHEEL & '1' & !BTN2 & !BTN0 & !BTN1   -- line 3560
+```
+
+`i_MOUSE_WHEEL` is a 4-bit vector (`zxnext.vhd` 104), so the port
+byte layout is:
+
+```
+bit  7..4          3   2      1      0
+     wheel[3..0]   1   !BTN2  !BTN0  !BTN1
 ```
 
 Decoded only when `port_mouse_io_en = 1` (line 2668). NR 0x0A bit 3
-(`nr_0a_mouse_button_reverse`) swaps left/right in the host adapter —
-verify separately from the port decode.
+(`nr_0a_mouse_button_reverse`, reset default 0 at line 1127) swaps
+left/right in the host adapter — verify separately from the port
+decode. NR 0x0A bits 1:0 (`nr_0a_mouse_dpi`, reset default "01" at
+line 1128) select the host-side DPI divisor and are observable only
+through the rate at which `i_MOUSE_X/Y` increment per physical
+movement unit; this is a host-harness property, so it is covered by
+MOUSE-10 as a rate assertion rather than a VHDL-bit assertion.
 
 ### 1.10 NMI buttons (`zxnext.vhd` 2090-2091, 5165-5166)
 
@@ -241,14 +258,20 @@ harness signals.
 
 ### 2.2 JMODE-02
 
+Per `zxnext.vhd` 5157-5158, `nr_05_joy0 = D3 & D7 & D6` and
+`nr_05_joy1 = D1 & D5 & D4`. VHDL `&` is MSB-first, so for `joy0` the
+3-bit code reads `{D3, D7, D6}` high-to-low, and for `joy1` it reads
+`{D1, D5, D4}` high-to-low.
+
 | | Stimulus | Expected (old) | Expected (VHDL) |
 |---|---|---|---|
 | JMODE-02 (retracted) | Write NR 0x05 = 0xC9 | joy0=101 (MD1), joy1=010 (Cursor) | joy0=111 (I/O mode), joy1=000 (Sinclair 2) |
-| JMODE-02 (corrected) | Write NR 0x05 = 0x4A = 0b0100_1010 | joy0 = D3&D7&D6 = 1&0&1 = 101 (MD1); joy1 = D1&D5&D4 = 1&0&0 = 010 (Cursor) | — |
+| JMODE-02 (corrected) | Write NR 0x05 = 0x68 = 0b0110_1000 | joy0 = {D3,D7,D6} = {1,0,1} = 101 (MD1); joy1 = {D1,D5,D4} = {0,1,0} = 010 (Cursor) | same |
 
-0x4A is the byte that actually yields the originally-intended mapping.
-The retracted 0xC9 row is now JMODE-02r and tests the correct
-I/O-mode + Sinclair-2 decode.
+Derivation of 0x68: to get joy0=101 we need D3=1, D7=0, D6=1; to get
+joy1=010 we need D1=0, D5=1, D4=0. Don't-care bits D2, D0 are chosen
+as 0. The byte is `0 1 1 0 1 0 0 0 = 0x68`. The retracted 0xC9 row is
+kept as JMODE-02r so the I/O-mode + Sinclair-2 decode is also covered.
 
 ### 2.3 MD-01
 
@@ -340,22 +363,29 @@ Coverage of `membrane.vhd` 159-254 and `zxnext.vhd` 6206-6212.
 
 ### 3.4 Joystick mode select (JMODE-*)
 
-| ID | Stimulus | Expected `(joy0, joy1)` | Cite |
-|----|----------|-------------------------|------|
-| JMODE-01  | Write NR 0x05 = 0x00 | (000, 000) — Sinclair 2 both | 5157-5158 |
-| JMODE-02  | Write NR 0x05 = 0x4A = 0b0100_1010 | (101 MD1, 010 Cursor) — D3=1,D7=0,D6=1; D1=1,D5=0,D4=0 | 5157-5158 |
-| JMODE-02r | Write NR 0x05 = 0xC9 = 0b1100_1001 | (111 I/O, 000 Sinclair 2) — retracted-row decode | 5157-5158 |
-| JMODE-03  | Write 0x05 = 0x41 | (001 Kempston1, 000 Sinclair2) | 5157-5158 |
-| JMODE-04  | Write 0x05 = 0x80 | (100 Kempston2, 000 Sinclair2) — D3=0,D7=1,D6=0 → 010? **Check:** 0x80 ⇒ D7=1,D6=0,D3=0 ⇒ joy0=010 Cursor. Use 0x88 instead: D7=0,D6=0,D3=1 ⇒ joy0=100 Kempston2. | 5157-5158 |
-| JMODE-05  | Write 0x05 = 0x88 | (100 Kempston2, 000 Sinclair2) | 5157-5158 |
-| JMODE-06  | Write 0x05 = 0x22 | (000 Sinclair2, 011 Sinclair1) — D5=1,D4=0,D1=1 → joy1=110? **Check:** 0x22=0b0010_0010 ⇒ D5=1,D4=0,D1=1 ⇒ joy1 = 1&1&0 = 110 MD2. | 5157-5158 |
-| JMODE-07  | Write 0x05 = 0x30 | joy1 = D1&D5&D4 = 0&1&1 = 011 Sinclair1; joy0 = 000 | 5157-5158 |
-| JMODE-08  | Reset, read joystick mode | (000, 000) Sinclair 2 default | reset process |
+Each row below is fully derived: for every byte, the expected
+`(joy0, joy1)` is what `{D3,D7,D6}` and `{D1,D5,D4}` compute to per
+`zxnext.vhd` 5157-5158. No "check" sidebars, no guessing.
 
-Note: JMODE-04/06 rows intentionally *show the derivation* (not the
-wrong guess) so the test binding code is forced to do the bit-fiddle
-arithmetic from the VHDL oracle, not from memory. The expected column
-on those rows is whatever the derivation line computes.
+| ID | Stimulus | joy0 = {D3,D7,D6} | joy1 = {D1,D5,D4} | Expected `(joy0, joy1)` | Cite |
+|----|----------|-------------------|-------------------|-------------------------|------|
+| JMODE-01  | NR 0x05 = 0x00 = 0b0000_0000 | {0,0,0}=000 | {0,0,0}=000 | (000 Sinclair 2, 000 Sinclair 2) | 5157-5158 |
+| JMODE-02  | NR 0x05 = 0x68 = 0b0110_1000 | {1,0,1}=101 | {0,1,0}=010 | (101 MD 1, 010 Cursor) | 5157-5158 |
+| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001 | {1,1,1}=111 | {0,0,0}=000 | (111 I/O mode, 000 Sinclair 2) | 5157-5158 |
+| JMODE-03  | NR 0x05 = 0x40 = 0b0100_0000 | {0,0,1}=001 | {0,0,0}=000 | (001 Kempston 1, 000 Sinclair 2) | 5157-5158 |
+| JMODE-04  | NR 0x05 = 0x08 = 0b0000_1000 | {1,0,0}=100 | {0,0,0}=000 | (100 Kempston 2, 000 Sinclair 2) | 5157-5158 |
+| JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000 | {1,1,0}=110 | {0,0,0}=000 | (110 MD 2, 000 Sinclair 2) | 5157-5158 |
+| JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010 | {0,0,0}=000 | {1,1,0}=110 | (000 Sinclair 2, 110 MD 2) | 5157-5158 |
+| JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000 | {0,0,0}=000 | {0,1,1}=011 | (000 Sinclair 2, 011 Sinclair 1) | 5157-5158 |
+| JMODE-08  | Power-on, read joystick mode | — | — | (001 Kempston 1, 000 Sinclair 2) — signal-declaration defaults | 1105-1106 |
+
+JMODE-08 cites the signal-declaration line numbers because the soft
+reset block at `zxnext.vhd` 4926-4942 does not clear `nr_05_joy0` or
+`nr_05_joy1`. Their only defaults are the initialisers at
+`zxnext.vhd:1105` (`nr_05_joy0 := "001"`) and `zxnext.vhd:1106`
+(`nr_05_joy1 := "000"`), so the cold-boot mode is Kempston 1 on the
+left connector and Sinclair 2 on the right — not "(000, 000)" as the
+retracted plan said.
 
 ### 3.5 Kempston 1 / 2 (KEMP-*)
 
@@ -407,23 +437,72 @@ Expected byte is `L or R` but no firmware ever selects this config.
 
 Expected byte per section 1.4.
 
-| ID | PRE | Stimulus | NR 0xB2 read | Cite |
-|----|-----|----------|--------------|------|
-| MD6-01 | joy0=101, L.MODE (bit 11) | L.MODE=1 | bit 0 = 1 | 6215 |
-| MD6-02 | joy0=101, L.X (bit 10)    | L.X=1    | bit 1 = 1 | 6215 |
-| MD6-03 | joy0=101, L.Z (bit 9)     | L.Z=1    | bit 2 = 1 | 6215 |
-| MD6-04 | joy0=101, L.Y (bit 8)     | L.Y=1    | bit 3 = 1 | 6215 |
-| MD6-05 | joy1=110, R.MODE          | bit 4 = 1 | 6215 |
-| MD6-06 | joy1=110, R.X             | bit 5 = 1 | 6215 |
-| MD6-07 | joy1=110, R.Z             | bit 6 = 1 | 6215 |
-| MD6-08 | joy1=110, R.Y             | bit 7 = 1 | 6215 |
-| MD6-09 | both MD with all 6 extras pressed | 0xFF | 6215 |
-| MD6-10 | joy0=001 (Kempston, not MD), L.X pressed | NR 0xB2 still shows bit 1 = 1 (oracle reads the raw vector regardless of mode) or 0? **Open question** — see section 6 | 6215 |
-| MD6-11 | SELECT-pin sequencing: emulate 6-button protocol via md6 state machine; pins 3,4 low during state 100 | test extras latch | md6_joystick_connector_x2.vhd (whole entity) |
+Per §1.4 the NR 0xB2 byte is
+`{R.X, R.Z, R.Y, R.MODE, L.X, L.Z, L.Y, L.MODE}` at bit positions
+`{7, 6, 5, 4, 3, 2, 1, 0}`. Each row drives exactly one bit of
+`i_JOY_LEFT` or `i_JOY_RIGHT` and asserts the mapped NR 0xB2 bit.
 
-MD6-11 is the only test that exercises the SELECT-pin state machine in
-`md6_joystick_connector_x2.vhd`; everything above can be tested by
-driving `i_JOY_LEFT/RIGHT` directly.
+| ID | PRE | Stimulus (one bit high) | NR 0xB2 read | Cite |
+|----|-----|------------------------|--------------|------|
+| MD6-01 | joy0=101 | `i_JOY_LEFT(11)` (L.MODE)  | bit 0 = 1 | 6215 + 3442 |
+| MD6-02 | joy0=101 | `i_JOY_LEFT(8)`  (L.Y)     | bit 1 = 1 | 6215 + 3442 |
+| MD6-03 | joy0=101 | `i_JOY_LEFT(9)`  (L.Z)     | bit 2 = 1 | 6215 + 3442 |
+| MD6-04 | joy0=101 | `i_JOY_LEFT(10)` (L.X)     | bit 3 = 1 | 6215 + 3442 |
+| MD6-05 | joy1=110 | `i_JOY_RIGHT(11)` (R.MODE) | bit 4 = 1 | 6215 + 3442 |
+| MD6-06 | joy1=110 | `i_JOY_RIGHT(8)`  (R.Y)    | bit 5 = 1 | 6215 + 3442 |
+| MD6-07 | joy1=110 | `i_JOY_RIGHT(9)`  (R.Z)    | bit 6 = 1 | 6215 + 3442 |
+| MD6-08 | joy1=110 | `i_JOY_RIGHT(10)` (R.X)    | bit 7 = 1 | 6215 + 3442 |
+| MD6-09 | both MD | all of `JOY_LEFT(11..8)` and `JOY_RIGHT(11..8)` high | 0xFF | 6215 |
+| MD6-10 | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1` | bit 3 of NR 0xB2 = 1 (VHDL at 6215 reads the raw vector unconditionally, no mode gating) | 6215 |
+
+Derivation of the left-nibble mapping (mirrored for the right): line
+6215 builds the byte as `R(10) R(9) R(8) R(11) L(10) L(9) L(8) L(11)`
+from MSB to LSB because `A & B & C` in VHDL places `A` at the
+most-significant position. That fixes the left nibble at
+`L.X=bit 3, L.Z=bit 2, L.Y=bit 1, L.MODE=bit 0`. Any prior row
+claiming "L.X → bit 1" was reading the slice upside-down.
+
+#### 3.6a.1 MD6 SELECT-pin state machine (MD6-11a..MD6-11i)
+
+Coverage of `md6_joystick_connector_x2.vhd`. The state machine at
+lines 66-117 of that file cycles `state(3 downto 0)` through an
+8-phase sequence (bit 0 = connector, 0=left / 1=right, driven to
+`o_joy_select` at line 117; bit 3:1 = sub-phase). Six-button detect
+happens at sub-phase `100` (lines 157-161) by checking
+`i_joy_1_n or i_joy_2_n`, and the extras (MODE X Y Z) are latched at
+sub-phase `101` (lines 163-171) into bits `(11 downto 8)` with
+ordering `joy_4_n & joy_3_n & joy_1_n & joy_2_n` (i.e. MODE=!joy_4_n,
+X=!joy_3_n, Z=!joy_1_n, Y=!joy_2_n after the final `not` at lines
+192-193). Eight sub-phases * 2 connectors = 16 distinct `state(3:0)`
+values; only the `0000`, `0010/011x`, `0011/011x`, `0100/100x`, and
+`0101/101x` sub-phases mutate state, so the test walks just those.
+
+Stimuli drive `i_joy_1_n..i_joy_9_n` and `i_CLK_EN` at the expected
+cadence so the state machine advances one sub-phase per row.
+
+| ID | Phase `state(3:0)` | `o_joy_select` | Purpose | Stimulus | Expected | Cite |
+|----|---------------------|----------------|---------|----------|----------|------|
+| MD6-11a | 0000 (left, sub=000)  | 0 | init clear   | any pad state | `joy_left_n <= (others=>'1')`, `joy_right_n <= (others=>'1')`, `joy_left_six_button_n <= '1'` | md6_joystick_connector_x2.vhd:135-139 |
+| MD6-11b | 0100 (left, sub=010)  | 0 | bits 7:6 latch (L) | `i_joy_3_n=0, i_joy_4_n=0, i_joy_9_n=0, i_joy_6_n=1` | `joy_left_n(7 downto 6) <= "01"` → final `o_joy_left(7)='1'` (START), `(6)='0'` | 141-144 |
+| MD6-11c | 0110 (left, sub=011)  | 0 | bits 5:0 latch (L) | drive `i_joy_9_n/6_n/1_n/2_n/3_n/4_n` active-low to press `C,B,U,D,L,R` (line 121 builds `joy_raw` in this order) | `joy_left_n(5:0) <= joy_raw`, so `o_joy_left(5:0)` becomes `{C,B,U,D,L,R}` active-high | 121, 151-152 |
+| MD6-11d | 1000 (left, sub=100)  | 0 | 6-button detect (L) | `i_joy_1_n=0, i_joy_2_n=0` | `joy_left_six_button_n <= '0'` (6-button pad) | 157-158 |
+| MD6-11e | 1010 (left, sub=101)  | 0 | extras latch (L, 6-btn only) | `i_joy_4_n=0 (MODE), i_joy_3_n=1, i_joy_1_n=0 (Z), i_joy_2_n=0 (Y)` | `joy_left_n(11:8) <= "0100"` → `o_joy_left(11)='1'` MODE, `(10)='0'` X, `(9)='1'` Z, `(8)='1'` Y | 163-166 |
+| MD6-11f | 0101 (right, sub=010) | 1 | bits 7:6 latch (R) | `i_joy_3_n=0, i_joy_4_n=0, i_joy_9_n=1, i_joy_6_n=0` | `joy_right_n(7:6) <= "10"` → `o_joy_right(7)='0'`, `(6)='1'` | 146-149 |
+| MD6-11g | 0111 (right, sub=011) | 1 | bits 5:0 latch (R) | `joy_raw` all inactive (all `_n=1`) | `joy_right_n(5:0) <= "111111"` → `o_joy_right(5:0)="000000"` | 154-155 |
+| MD6-11h | 1011 (right, sub=101) | 1 | extras latch (R) | `joy_right_six_button_n='0'`, `i_joy_4_n=1, i_joy_3_n=0, i_joy_1_n=0, i_joy_2_n=1` | `joy_right_n(11:8) <= "1001"` → `o_joy_right(11)='0'`, `(10)='1'` X, `(9)='1'` Z, `(8)='0'` Y | 168-171 |
+| MD6-11i | 1000 (left, sub=100), 3-button pad | 0 | 3-button detect (L) | `i_joy_1_n=1 or i_joy_2_n=1` (a single-missing pin is enough) | `joy_left_six_button_n <= '1'`; the subsequent `101` sub-phase does NOT update `joy_left_n(11:8)` (line 164 guard), so bits 11:8 stay at their `0000` reset from sub-phase 0000 → `o_joy_left(11:8)="0000"` | 158, 163-166 |
+
+The `state_rest` mask at line 100 ORs sub-phases where `state(8:4)` is
+non-zero; only the 8 sub-phases enumerated above are "live". MD6-11a
+must be issued first (or after a reset / `io_mode_change`) because
+`joy_left_n`/`joy_right_n` are otherwise sticky across phases.
+
+`io_mode_change` (line 96) and `i_reset` both force the state machine
+to `"111110000"` (line 107) and clear the outputs (lines 185-186,
+128-129). An extra row MD6-11j can be added to assert that toggling
+`i_io_mode_en` mid-sequence aborts whatever latches were in progress;
+this is tracked in Open Questions §6.5 rather than shipped here
+because the test harness for `io_mode_change` is not yet specified.
 
 ### 3.7 Sinclair 1 / 2 (SINC-*)
 
@@ -507,6 +586,8 @@ Coverage of `zxnext.vhd` 2668-2670 and 3543-3561.
 | MOUSE-07 | `port_mouse_io_en=1` | wheel = 0xA | 0xFADF | bits 7..4 = 0xA | 3560 |
 | MOUSE-08 | `port_mouse_io_en=0` | any | 0xFBDF/FFDF/FADF | port not decoded (bus default) | 2668-2670 |
 | MOUSE-09 | NR 0x0A bit 3 = 1 (reverse) | host swaps L/R | verify reversal happens at the adapter, not the VHDL port | 5197 |
+| MOUSE-10 | `port_mouse_io_en=1` | `i_MOUSE_WHEEL = 0xF` (max), then 0x0 (wrap) | 0xFADF | bits 7..4 track `i_MOUSE_WHEEL` directly; VHDL at 3560 does no sign extension, so wrap is a pure 4-bit unsigned roll-over and any "signed wheel delta" semantics live in the host adapter | 104, 3560 |
+| MOUSE-11 | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"` | same physical motion | no visible change in `i_MOUSE_X/Y` at the VHDL port — DPI scaling is applied in the host mouse adapter before it drives `i_MOUSE_X/Y`, not inside `zxnext.vhd`. Open question §6.6. | 1128, 5198 |
 
 ### 3.11 NMI buttons (NMI-*)
 
@@ -536,22 +617,36 @@ Coverage of `zxnext.vhd` 2090-2091 and NR 0x06 bits 3-4.
 
 ## 4. Reset Defaults (VHDL-verified)
 
-| Register / signal | Default | Cite |
-|-------------------|---------|------|
-| `nr_05_joy0`      | 000 (Sinclair 2) | reset process (check zxnext.vhd top) |
-| `nr_05_joy1`      | 000 (Sinclair 2) | ditto |
-| `nr_06_button_m1_nmi_en` | 0 | 1110 |
-| `nr_06_button_drive_nmi_en` | 0 | 1109 |
-| `nr_0b_joy_iomode_en` | 0 | reset process |
-| `nr_0b_joy_iomode` | "00" | reset process |
-| `nr_0b_joy_iomode_0` | 1 | reset process |
-| `joy_iomode_pin7` | '1' | 3516 |
-| `matrix_state*` | all 1s | 184-186 |
-| `i_JOY_LEFT/RIGHT` | all 0s (host side) | — |
+Every entry below is pinned to a specific `zxnext.vhd` line. Entries
+labelled "signal decl" come from the signal declaration block at
+1100-1135 (the value after `:=`), which is the power-up value
+because the soft-reset process at 4926-4942 does NOT clear these
+particular signals. Entries labelled "reset process" come from the
+`if reset = '1'` block inside that process.
 
-The actual reset values of the NR 0x05 / 0x06 / 0x0B signals are set
-at the main NR reset process near the top of `zxnext.vhd`; the tests
-must cite the real line numbers when binding, not repeat this table.
+| Register / signal | Default | Cite | Kind |
+|-------------------|---------|------|------|
+| `nr_05_joy0`      | "001" (Kempston 1) | `zxnext.vhd:1105` | signal decl |
+| `nr_05_joy1`      | "000" (Sinclair 2) | `zxnext.vhd:1106` | signal decl |
+| `nr_06_button_m1_nmi_en` | '0' | `zxnext.vhd:1110` | signal decl |
+| `nr_06_button_drive_nmi_en` | '0' | `zxnext.vhd:1109` | signal decl |
+| `nr_06_hotkey_cpu_speed_en` | '1' | `zxnext.vhd:4932` | reset process |
+| `nr_06_hotkey_5060_en` | '1' | `zxnext.vhd:4933` | reset process |
+| `nr_0a_mouse_button_reverse` | '0' | `zxnext.vhd:1127` | signal decl |
+| `nr_0a_mouse_dpi` | "01" | `zxnext.vhd:1128` | signal decl |
+| `nr_0b_joy_iomode_en` | '0' | `zxnext.vhd:4939` | reset process |
+| `nr_0b_joy_iomode` | "00" | `zxnext.vhd:4940` | reset process |
+| `nr_0b_joy_iomode_0` | '1' | `zxnext.vhd:4941` | reset process |
+| `joy_iomode_pin7` | '1' | `zxnext.vhd:3515-3516` | reset process |
+| `matrix_state*` | all 1s | `membrane.vhd:184-186` | reset process |
+| `i_JOY_LEFT/RIGHT` | all 0s | host-driven | — |
+
+Note on the cold-boot joystick mode: because the signal declarations
+at `zxnext.vhd:1105-1106` give `nr_05_joy0 := "001"` and
+`nr_05_joy1 := "000"`, a cold-booted Next is in (Kempston 1, Sinclair
+2) mode, not "(Sinclair 2, Sinclair 2)". JMODE-08 asserts this
+specific default and fails loudly if any reset path silently zeroes
+`nr_05_joy0`.
 
 ---
 
@@ -565,14 +660,14 @@ must cite the real line numbers when binding, not repeat this table.
 | 3.4 Joystick mode select | 9 |
 | 3.5 Kempston 1/2 | 15 |
 | 3.6 MD 3-button | 9 |
-| 3.6a MD 6-button + NR 0xB2 | 11 |
+| 3.6a MD 6-button + NR 0xB2 (incl. MD6-11a..i) | 19 |
 | 3.7 Sinclair 1/2 | 11 |
 | 3.8 Cursor | 6 |
 | 3.9 I/O mode | 11 |
-| 3.10 Kempston mouse | 9 |
+| 3.10 Kempston mouse | 11 |
 | 3.11 NMI buttons | 7 |
 | 3.12 Port 0xFE format | 5 |
-| **Total (nominal)** | **139** |
+| **Total (nominal)** | **149** |
 
 No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan
@@ -610,17 +705,22 @@ Rebuilt.
    out of scope here; the test should only assert "not the joystick
    value", not pin a specific byte.
 
-5. **`md6_joystick_connector_x2` coverage.** Only MD6-11 exercises the
-   SELECT-pin state machine. A full protocol test (8 states, 3-button
-   detect, 6-button detect at state 100 with pins 3/4 low) is
-   deferred — listed in TODO for a second pass once the basic
-   connector mock is wired.
+5. **`md6_joystick_connector_x2` `io_mode_change` coverage.** Rows
+   MD6-11a..MD6-11i walk the non-io-mode 8-phase state machine, but
+   the `io_mode_change` path (line 96, 106, 184) that aborts the
+   sequence and re-enters at state `"111110000"` is only exercised
+   indirectly via IOMODE-*. A dedicated row MD6-11j that asserts
+   "toggle `i_io_mode_en` mid-sub-phase-101 and verify `joy_left_n`
+   returns to all-1s on the next `i_CLK_EN`" is listed here as TODO
+   once the connector harness supports it.
 
-6. **Reset-process line numbers.** The NR-reset `when` block that
-   clears `nr_05_*`, `nr_06_*`, `nr_0b_*` was not re-read for this
-   rewrite; the tests binding the reset-default rows (JMODE-08,
-   IOMODE-01, NMI-02/04) must insert the real file:line in place of
-   "reset process" before committing.
+6. **Mouse DPI scaling visibility.** `nr_0a_mouse_dpi` (default "01"
+   at `zxnext.vhd:1128`, written at 5198) has no VHDL consumer inside
+   `zxnext.vhd` — it is exposed on `o_MOUSE_CONTROL` at line 1599 and
+   consumed by the host PS/2 mouse driver. MOUSE-11 asserts the
+   absence of any in-core effect; whether the host adapter actually
+   divides its increment counter by the DPI factor is out of scope
+   for this VHDL-compliance plan.
 
 7. **PS/2 scancode mapping.** `ps2_keyb.vhd` is referenced in §VHDL
    sources but not tested here: its host-side nature means every row
