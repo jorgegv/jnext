@@ -4,9 +4,11 @@
 #include "core/saveable.h"
 #include <cstring>
 
-// Reset MMU state from VHDL zxnext.vhd lines 4611-4618:
+// Reset MMU register view from VHDL zxnext.vhd lines 4611-4618:
 // MMU0=0xFF(ROM), MMU1=0xFF(ROM), MMU2=0x0A(bank5 lo), MMU3=0x0B(bank5 hi),
-// MMU4=0x04(bank2 lo), MMU5=0x05(bank2 hi), MMU6=0x00(bank0 lo), MMU7=0x01(bank0 hi)
+// MMU4=0x04(bank2 lo), MMU5=0x05(bank2 hi), MMU6=0x00(bank0 lo), MMU7=0x01(bank0 hi).
+// Slots 0/1 carry the 0xFF ROM sentinel; the physical ROM pages (0 and 1) are
+// applied by map_rom_physical() immediately after the loop in reset().
 static constexpr uint8_t RESET_PAGES[8] = {0xFF, 0xFF, 0x0A, 0x0B, 0x04, 0x05, 0x00, 0x01};
 
 Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
@@ -22,12 +24,14 @@ void Mmu::reset() {
     if (boot_rom_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
+        nr_mmu_[i] = RESET_PAGES[i];
         read_only_[i] = false;
         rebuild_ptr(i);
     }
-    // Slots 0-1 are ROM in reset state
-    map_rom(0, 0);
-    map_rom(1, 1);
+    // Slots 0-1 are ROM in reset state; NR 0x50/0x51 stay at the 0xFF sentinel
+    // (already seeded above). Use map_rom_physical so nr_mmu_ is untouched.
+    map_rom_physical(0, 0);
+    map_rom_physical(1, 1);
 }
 
 void Mmu::rebuild_ptr(int slot) {
@@ -52,17 +56,28 @@ void Mmu::set_page(int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return;
     Log::memory()->debug("MMU slot {} → RAM page {:#04x}", slot, page);
     slots_[slot] = page;
+    nr_mmu_[slot] = page;
     read_only_[slot] = false;
     rebuild_ptr(slot);
 }
 
-void Mmu::map_rom(int slot, uint8_t rom_page) {
+void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     if (slot < 0 || slot > 7) return;
-    Log::memory()->debug("MMU slot {} → ROM page {}", slot, rom_page);
+    Log::memory()->debug("MMU slot {} → ROM page {} (physical)", slot, rom_page);
     slots_[slot] = rom_page;
     read_only_[slot] = true;
     read_ptr_[slot] = rom_.page_ptr(rom_page);
     write_ptr_[slot] = nullptr;
+    // Intentionally leaves nr_mmu_[slot] unchanged — used by internal bank
+    // switchers (port 0x7FFD / 0x1FFD) which must not alter the NR 0x50/0x51
+    // register view per VHDL zxnext.vhd:4611-4612.
+}
+
+void Mmu::map_rom(int slot, uint8_t rom_page) {
+    map_rom_physical(slot, rom_page);
+    // NR 0x50–0x57 register-visible value: an explicit ROM map from an NR
+    // write shows the 0xFF sentinel (VHDL zxnext.vhd:4611-4612).
+    if (slot >= 0 && slot < 8) nr_mmu_[slot] = 0xFF;
 }
 
 void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
@@ -98,8 +113,10 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
     port_7ffd_ = port_7ffd;
     int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
-    map_rom(0, rom_bank * 2);
-    map_rom(1, rom_bank * 2 + 1);
+    // Port 0x7FFD does not touch NR 0x50/0x51 register storage (VHDL
+    // zxnext.vhd: nr_50/nr_51 are only written via NR writes).
+    map_rom_physical(0, rom_bank * 2);
+    map_rom_physical(1, rom_bank * 2 + 1);
 }
 
 void Mmu::map_plus3_bank(uint8_t port_1ffd) {
@@ -129,8 +146,9 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
         // Normal paging: bit 2 selects ROM high bit (combined with 0x7FFD bit 4)
         // ROM number = (port_1ffd bit 2) << 1 | (port_7ffd bit 4)
         int rom_bank = ((port_1ffd >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
-        map_rom(0, rom_bank * 2);
-        map_rom(1, rom_bank * 2 + 1);
+        // Port 0x1FFD does not touch NR 0x50/0x51 register storage.
+        map_rom_physical(0, rom_bank * 2);
+        map_rom_physical(1, rom_bank * 2 + 1);
     }
 }
 
@@ -164,6 +182,12 @@ void Mmu::load_state(StateReader& r)
     boot_rom_en_     = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
+    // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
+    // ROM-mapped slots show the 0xFF sentinel, RAM-mapped slots show the page.
+    // Lossy by design — older save streams did not persist nr_mmu_ separately,
+    // so a prior explicit NR 0x50 RAM write followed by a 0x7FFD ROM remap
+    // cannot be distinguished from a fresh power-on sentinel.
+    for (int i = 0; i < 8; ++i) nr_mmu_[i] = read_only_[i] ? 0xFF : slots_[i];
 }
 
 // ---------------------------------------------------------------------------

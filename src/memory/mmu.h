@@ -16,7 +16,9 @@ public:
 
     // Set slot to page number; rebuilds fast-dispatch pointer
     void set_page(int slot, uint8_t page);
-    uint8_t get_page(int slot) const { return slots_[slot]; }
+    // Returns the NR 0x50–0x57 register-visible value. At reset this matches
+    // the VHDL zxnext.vhd:4611-4618 defaults (MMU0/MMU1 = 0xFF ROM sentinel).
+    uint8_t get_page(int slot) const { return nr_mmu_[slot]; }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
     // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
@@ -128,10 +130,15 @@ public:
 
 private:
     void rebuild_ptr(int slot);
+    // Map a ROM page into a slot without updating nr_mmu_ (used by the
+    // port 0x7FFD / 0x1FFD paging paths, which must leave the NR 0x50/0x51
+    // register view untouched per VHDL zxnext.vhd:4611-4612).
+    void map_rom_physical(int slot, uint8_t rom_page);
 
     Ram& ram_;
     Rom& rom_;
-    uint8_t slots_[8];
+    uint8_t slots_[8];      // physical page used by rebuild_ptr
+    uint8_t nr_mmu_[8];     // NR 0x50–0x57 register-visible value (may be 0xFF sentinel)
     const uint8_t* read_ptr_[8];
     uint8_t*       write_ptr_[8];
     bool           read_only_[8];
