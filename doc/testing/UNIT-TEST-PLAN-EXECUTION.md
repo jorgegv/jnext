@@ -284,6 +284,54 @@ matrix agree with what the binaries actually report:
 
 ### Refresh workflow
 
+The mechanical parts of this workflow (running binaries, parsing FAIL sets,
+greping source for `check()`/`skip()` call sites, rewriting the Status and
+Test-file columns while preserving column widths) are automated by
+`test/refresh-traceability-matrix.py`. Run it from the repo root after the
+affected test binary is built:
+
+```bash
+cmake --build build --target <sub>_test -j$(nproc)
+python3 test/refresh-traceability-matrix.py
+```
+
+The script prints a per-subsystem tally (pass / fail / skip / miss) so you
+can immediately see whether the refresh made sense. A non-zero **miss**
+column is the important signal: it means the matrix has plan row IDs that
+are NOT found anywhere in the current test source. Investigate before
+committing — usually it points at one of:
+
+- **ID-naming drift**: the author of the Phase 2 rewrite chose a slightly
+  different ID string than the pre-refactor matrix used (e.g. `S01.14` vs
+  `S1.14`, or `I2C-P05` split into `I2C-P05a`/`I2C-P05b`). The script
+  already normalises sub-letter variants up to `a`/`b`/`c`, but other drift
+  must be fixed by hand — typically by editing the matrix Test ID column
+  to match the authoritative source file.
+- **Pseudo-header rows** in the matrix that were never real plan row IDs
+  (e.g. `ROM3-conditional` as a group label, `0x82-85` as a register range
+  header). Delete them from the matrix; they were coverage-theatre to begin
+  with.
+- **Genuinely missing rows**: the rewrite dropped a plan row entirely.
+  This is the theatre-failure mode §8 exists to prevent — re-read the plan
+  and re-add the assertion before committing the refresh.
+
+The script's input assumptions:
+
+- Test source files are at `test/<sub>/<sub>_test.cpp` with one file per
+  subsystem.
+- `check("ID", ...)` and `skip("ID", ...)` calls use string literals for
+  plan row IDs. Struct-of-rows loops with `check(r.id, ...)` are also
+  handled: the script grep for any plan-row-shaped string literal in the
+  source, so initializers like `{ "MMU-01", ... }` feed into the pass set.
+- `skip()` call sites are always direct, not hidden behind a loop variable.
+- Test binaries print `  FAIL ID: ...` or `  FAIL ID [...` for every
+  failing row — this is the one output-format assumption the script makes,
+  and it has held across every harness in the repo.
+
+The manual fallback is below, in case the script is unavailable or the
+refresh touches areas the script doesn't automate (last-touch commit hash,
+discrepancies bullets, Summary table totals line):
+
 1. **Re-run the affected suite** on main with a clean build. Capture the
    raw `check()`/`skip()` output; don't trust memory.
 2. **Open `doc/testing/TRACEABILITY-MATRIX.md`** and locate the
