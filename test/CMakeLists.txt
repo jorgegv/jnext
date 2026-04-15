@@ -45,7 +45,7 @@ add_test(NAME nextreg_tests COMMAND nextreg_test)
 
 # Input subsystem compliance test
 add_executable(input_test input/input_test.cpp)
-target_link_libraries(input_test PRIVATE jnext_input)
+target_link_libraries(input_test PRIVATE jnext_input jnext_port)
 target_include_directories(input_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME input_tests COMMAND input_test)
 
