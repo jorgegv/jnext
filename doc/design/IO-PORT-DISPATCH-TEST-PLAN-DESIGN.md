@@ -266,6 +266,8 @@ port (positive) and **verifies a near-miss does not match** (negative).
 | REG-23   | CTC 0x183B range                     | CTC enable default              | OUT 0x183B                                            | CTC channel 0 updated.                                       | `zxnext.vhd:2690`                        |
 | REG-24   | Unmapped port read                   | —                               | IN 0x0042 (nothing registered)                        | Floating-bus byte per 48K/128K/+3 rules, **not** 0x00.       | `zxnext.vhd:2589`, `2800–2840`           |
 | REG-25   | Unmapped port write                  | —                               | OUT 0x0042                                            | No side effect in any subsystem.                             | `zxnext.vhd:2697`                        |
+| REG-26   | 0xDF routes to Specdrum/port_1f sink (positive combo) | NR 0x84 b7=1 (`port_dac_mono_AD_df_io_en=1`), NR 0x83 b5=0 (`port_mouse_io_en=0`), NR 0x82 b6=1 (`port_1f_io_en=1`), `port_1f_hw_en=1` | OUT 0x00DF ← 0x55 | `port_1f` asserts and the Specdrum DAC mono-AD-df handler sinks 0x55; no mouse handler reached because mouse is disabled | `zxnext.vhd:2674` |
+| REG-27   | 0xDF re-routed away from port_1f when mouse enabled (negative combo) | NR 0x84 b7=1, NR 0x83 b5=1 (mouse enabled), NR 0x82 b6=1 | OUT 0xFFDF ← 0x55 | `port_1f` stays deasserted for 0xDF (the `port_mouse_io_en='0'` guard at line 2674 is false); mouse handler (0xFFDF path, `zxnext.vhd:2670`) takes the write; Specdrum sink is NOT hit | `zxnext.vhd:2670, 2674` |
 
 ### Group C. NR 0x82–0x89 bit-by-bit enable gating
 
@@ -300,10 +302,13 @@ confirms a *different* port (from a different NR) is still live.
 | NR84-05  | 0x84 b5   | DAC mono AD 0xFB (masked by sd2) | `zxnext.vhd:2433, 2658` |
 | NR84-06  | 0x84 b6   | DAC mono BC 0xB3        | `zxnext.vhd:2434, 2659`    |
 | NR84-07  | 0x84 b7   | Specdrum 0xDF + Kempston alias | `zxnext.vhd:2435, 2674` |
+| NR84-07-combo | 0x84 b7 AND 0x83 b5 AND 0x82 b6 (combinatorial) | 0xDF routed into `port_1f` when `port_dac_mono_AD_df_io_en='1'` AND `port_mouse_io_en='0'` AND `port_1f_io_en='1'` — see line 2674: `port_1f <= '1' when (port_1f_lsb='1' or (port_df_lsb='1' and port_dac_mono_AD_df_io_en='1' and port_mouse_io_en='0')) and port_1f_io_en='1' and port_1f_hw_en='1' else '0';` | `zxnext.vhd:2674` |
 | NR85-00  | 0x85 b0   | ULA+ 0xBF3B             | `zxnext.vhd:2439, 2685`    |
 | NR85-01  | 0x85 b1   | DMA 0x0B                | `zxnext.vhd:2440, 2643`    |
 | NR85-02  | 0x85 b2   | 0xEFF7                  | `zxnext.vhd:2441, 2604`    |
-| NR85-03  | 0x85 b3   | CTC 0x183B              | `zxnext.vhd:2442, 2690`    |
+| NR85-03  | 0x85 b3   | CTC 0x183B (bottom of decoded range)                             | `zxnext.vhd:2442, 2690`    |
+| NR85-03b | 0x85 b3   | CTC 0x1F3B (top of decoded range: bits 15:11=`"00011"`, LSB=0x3B) — should decode with bit set, be inert with bit cleared | `zxnext.vhd:2690` |
+| NR85-03c | 0x85 b3   | CTC near-miss 0x203B (bits 15:11=`"00100"`, next pattern above CTC range) — MUST NOT reach CTC whether NR 0x85 b3 is 0 or 1 | `zxnext.vhd:2690` |
 
 Plus:
 
@@ -329,8 +334,9 @@ Plus:
 
 | ID    | Title                                                 | Stimulus                                                                                                                         | Expected                                                                                                                           | Oracle                           |
 |-------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
-| PR-01 | First-match-wins ordering                             | Register handler A with mask/value matching 0x0100–0x01FF, then handler B for 0x01FE                                             | Dispatcher returns handler A for 0x01FE (insertion order) — document this as the contract; a VHDL fanout has no order but the C++ does | `port_dispatch.cpp:36–43`        |
-| PR-02 | Two real peripherals must not overlap                 | Walk `handlers_` after `Emulator::init`                                                                                          | For every pair (h1, h2), `((v1 ^ v2) & (m1 & m2)) != 0` OR the masks are disjoint — asserts no silent shadowing                    | VHDL per-port decode is one-hot  |
+| PR-01 | Registering an overlapping handler must fail (target contract: one-hot) | Install any single handler for 0x01FE, then attempt to register a second handler whose `(mask,value)` range intersects it (e.g. a broader 0x0100–0x01FF range) | `register_handler` refuses/aborts/logs-error so the overlap cannot silently exist. Picks **Option A**: the dispatcher enforces one-hot registration, matching the VHDL wired-OR which is order-independent only because at most one line is asserted per port. | `port_dispatch.cpp:29–33`; VHDL per-port decode is one-hot (`zxnext.vhd:2696–2699`) |
+| PR-02 | One-hot invariant over all real peripherals after `Emulator::init` | Walk `handlers_` after boot                                                                                                    | For every pair (h1, h2) of registered handlers, the intersection of their mask/value ranges is empty: `((v1 ^ v2) & (m1 & m2)) != 0` OR `(m1 & m2) == 0`. Same invariant PR-01 enforces at registration time, verified end-to-end. | VHDL one-hot decode (`zxnext.vhd:2696–2699`) |
+| PR-01-CUR | **Document current-code asymmetry (guard test until PR-01 contract is implemented)** | Current `port_dispatch.cpp` does NOT enforce one-hot: `read()` is first-match-wins (returns on first match, `port_dispatch.cpp:35–42`) while `write()` broadcasts to **all** matches (`port_dispatch.cpp:52–59`). This is an asymmetry bug — the same overlap would silently return one handler's value on IN yet side-effect every handler on OUT. | Test asserts the asymmetry so it cannot regress unnoticed before PR-01 is fixed; to be retired as a FIXME once `register_handler` enforces one-hot. | `port_dispatch.cpp:35–42` vs `52–59` |
 | PR-03 | `clear_handlers()` then re-register on reset          | Clear, register one handler, OUT                                                                                                 | Only new handler sees the write                                                                                                    | `port_dispatch.h:21`             |
 | PR-04 | Default-read used when no handler matches             | No handler registered for 0x0042; install default_read returning floating-bus byte                                               | IN 0x0042 returns that byte, not 0xFF                                                                                              | `port_dispatch.cpp:43–47`        |
 | PR-05 | Default-read NOT used when any handler matches (even with 0 return) | Handler for 0x00FE returning 0x00; default_read returns 0xAA                                                       | IN 0x00FE returns 0x00                                                                                                             | `port_dispatch.cpp:36–42`        |
@@ -365,7 +371,7 @@ from contributing.
 |--------|-------------------------------------------------|--------------------------------------------------|----------------------------------------------------------------------|----------------------------|
 | BUS-01 | Single-owner invariant over all registered      | Loop all ports 0x0000..0xFFFF through `read`     | For every port, ≤1 handler matches (collect from `handlers_`)        | VHDL one-hot per port      |
 | BUS-02 | Disabled port yields default-read byte          | NR 0x84 b0 = 0; IN 0xFFFD                        | Default-read byte (floating bus), not stale AY data                  | `zxnext.vhd:2428, 2771`    |
-| BUS-03 | SCLD read gated by `ff_rd_en`, not just `_io_en`| `port_ff_io_en=1`, `ff_rd_en=0`; IN 0x00FF       | ULA floating bus                                                     | `zxnext.vhd:2583, 2789-ish`|
+| BUS-03 | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff_io_en` | `port_ff_io_en=1`, NR 0x08 bit 2 (`nr_08_port_ff_rd_en`) = 0; IN 0x00FF | ULA floating-bus byte (the Timex SCLD read-data is masked out of the wired-OR when `nr_08_port_ff_rd_en='0'`) | `zxnext.vhd:2813` (`port_ff_rd_dat <= port_ff_dat_tmx when nr_08_port_ff_rd_en = '1' and port_ff_io_en = '1' and port_ff_rd = '1' else port_ff_dat_ula when port_ff_rd = '1' else X"00"`); declaration `zxnext.vhd:1118`; NR 0x08 write path `zxnext.vhd:5180` |
 
 ## Out-of-scope / explicitly not tested
 
@@ -390,30 +396,39 @@ from contributing.
    on the bus. Row NR-85-PK assumes bits 4..6 read as zero; confirm vs
    a recent VHDL revision (the cited lines are from the current clone
    but the signal declaration uses an aggregate).
-3. **`port_ff_io_en` read path.** VHDL has a separate `ff_rd_en` that
-   gates the *read* contribution of port 0xFF independently of the
-   write enable; BUS-03 cites an "ish" line number. The exact gate
-   name and line number must be pinned before implementation.
-4. **Kempston 0x1F / Specdrum 0xDF overlap.** The `port_1f` equation
-   (`zxnext.vhd:2674`) folds 0xDF into port_1f when the Specdrum DAC
-   mono-AD-df mode is enabled *and* mouse is disabled. Tests NR82-06
-   and NR84-07 partially cover this, but we need a combinatorial row
-   for (`port_1f_io_en=0`, `port_dac_mono_AD_df_io_en=1`) to confirm
-   the AND gating is correct (should still be blocked).
-5. **Dispatcher first-match-wins.** PR-01 documents the current C++
-   contract but the VHDL is order-independent. If PR-02 is enforced
-   as an invariant, PR-01 becomes vacuous — but any future handler
-   that deliberately uses a catch-all mask (e.g. a debug tracer)
-   would depend on insertion order. Decide whether PR-01 is an
-   asserted contract or a warning.
+3. **`port_ff_io_en` read path.** RESOLVED. The read contribution of
+   port 0xFF is gated by `nr_08_port_ff_rd_en` (NR 0x08 bit 2),
+   declared at `zxnext.vhd:1118`, assigned via NR write path at
+   `zxnext.vhd:5180`, and enforced in the read-data mux at
+   `zxnext.vhd:2813`: `port_ff_rd_dat <= port_ff_dat_tmx when
+   nr_08_port_ff_rd_en = '1' and port_ff_io_en = '1' and port_ff_rd =
+   '1' else port_ff_dat_ula when port_ff_rd = '1' else X"00"`. BUS-03
+   updated with these precise citations.
+4. **Kempston 0x1F / Specdrum 0xDF overlap.** RESOLVED. NR84-07-combo
+   (summary) + REG-26/REG-27 (actionable rows) cover the combinatorial
+   `(port_dac_mono_AD_df_io_en AND NOT port_mouse_io_en AND
+   port_1f_io_en)` equation at `zxnext.vhd:2674`, including both the
+   positive route-to-Specdrum case and the mouse-enabled re-route case.
+5. **Dispatcher first-match-wins vs one-hot.** RESOLVED as **Option A**:
+   the target contract is that `PortDispatch::register_handler` enforces
+   one-hot (rejects overlapping registrations), matching the VHDL's
+   order-independent wired-OR. PR-01 is now a registration-failure test
+   for that contract; PR-02 verifies the invariant end-to-end after
+   `Emulator::init`. The current C++ does NOT yet enforce this and has
+   an asymmetric read/write bug (`read` is first-match-wins, `write`
+   broadcasts — `port_dispatch.cpp:35–42` vs `52–59`); PR-01-CUR pins
+   that asymmetry as a guard test until the fix lands.
 6. **Multiface enable diff (BUS-87-D).** The `_diff` XOR produces a
    transient; we need to decide whether the test observes it through a
    debug hook or by injecting a memory access that `hotkey_expbus_freeze`
    would gate. The latter crosses into MMU territory.
-7. **CTC port range.** `zxnext.vhd:2690` says
-   `cpu_a(15:11)="00011"` which covers 0x183B, 0x1B3B, 0x1D3B, 0x1F3B.
-   NR85-03 only hits 0x183B — the test must also hit the top of the
-   range and a near-miss (0x203B).
+7. **CTC port range.** RESOLVED. `zxnext.vhd:2690` decodes
+   `cpu_a(15 downto 11) = "00011"` AND `port_3b_lsb = '1'`, so the
+   full CTC range is 0x183B, 0x193B, 0x1A3B, 0x1B3B, 0x1C3B, 0x1D3B,
+   0x1E3B, 0x1F3B (all 8 combinations of bits 10:8). NR85-03 covers
+   0x183B (bottom), NR85-03b covers 0x1F3B (top), and NR85-03c covers
+   the near-miss 0x203B (next 5-bit pattern `"00100"`) which must
+   not reach CTC regardless of enable bit.
 
 ## Summary of retractions vs previous revision
 
