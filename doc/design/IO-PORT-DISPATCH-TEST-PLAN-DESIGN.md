@@ -1,405 +1,453 @@
 # I/O Port Dispatch Compliance Test Plan
 
-VHDL-derived compliance test plan for the I/O port address decoding and
-dispatch subsystem of the JNEXT emulator, covering port address matching,
-device enable gating, read/write routing, and the internal response signal.
+> **Plan Rebuilt 2026-04-14 — prior 78/78 PASS result RETRACTED.**
+>
+> The previous revision of this document claimed 78/78 passing tests against
+> `PortDispatch`. A Task 4 critical review found that result to be coverage
+> theatre and the plan is hereby rebuilt from the VHDL and from the libz80
+> port API contract. Retracted because:
+>
+> 1. **Container-only testing.** Every prior test called
+>    `make_clean_dispatch()` and then registered private stub handlers with
+>    hand-picked `(mask, value)` pairs. It verified that
+>    `std::vector<PortHandler>` linear search works — not that the real
+>    peripherals (`Ay`, `NextReg`, `Mmu`, `Ula`, `DivMMC`, `Dma`, `Sprite`,
+>    `Layer2`, `Spi`, `I2c`, `Uart`, `Ctc`, `Mouse`, …) register the right
+>    masks, in the right order, with the right enable gating. A regression
+>    that mis-registers `0xBFFD` as `0xBFFF` in the real `Ay` wiring would
+>    not flip a single prior test red.
+> 2. **No libz80 regression oracle.** A historical bug in this codebase
+>    (memory: *libz80 passes only C (8-bit) to I/O macros*) wired ports
+>    through with a truncated 8-bit address, collapsing `0x7FFD` and
+>    `0xBFFD` into the same handler. The FUSE Z80 core now passes full
+>    16-bit `BC`/`nn|A<<8` addresses to `readport`/`writeport` (see
+>    `third_party/fuse-z80/opcodes_base.c:890,943` and `z80_ed.c:31,264,
+>    317` — `writeport(BC, …)`, `readport(BC)`). Nothing in the old plan
+>    would fail if the shim were silently reverted to 8-bit.
+> 3. **NR 0x82–0x89 port-enable bits: zero coverage.** These 32 bits of
+>    internal-port-enable state gate almost every Next-only and legacy
+>    port. The prior plan mentioned `port_*_io_en` signals in prose but
+>    did not test a single bit-to-port mapping, did not test the 0x86–0x89
+>    expansion-bus AND masking, did not test reset defaults, and did not
+>    test the NR 0x85 bit 7 `reset_type` that controls whether a soft
+>    reset reloads the enable bits.
+> 4. **Peripheral collision / precedence untested.** Two handlers with
+>    overlapping `(mask,value)` ranges were never examined; the iteration
+>    order in `PortDispatch::read` (first match wins) is a silent
+>    correctness surface.
+> 5. **Floating bus on unmapped read untested.** The VHDL returns the
+>    +3 floating-bus byte (or 0xFF on 48K) for unmatched reads when
+>    `port_p3_floating_bus_io_en` is set; the prior plan accepted
+>    `0xFF` from the default arm with no VHDL citation.
+>
+> Until this plan is re-implemented, the I/O port dispatch subsystem has
+> **no trustworthy test coverage**. The subsystem must not be marked green
+> on Task 5 based on the old 78/78 number.
+
+---
 
 ## Purpose
 
-Validate that the emulator's I/O port dispatch matches the VHDL behaviour
-defined in `zxnext.vhd` (lines ~2384-2840), specifically the two-stage
-address decode (MSB then LSB), peripheral enable gating, read/write signal
-generation, and the wired-OR data bus output.
+Validate that `src/port/port_dispatch.{h,cpp}` and every peripheral that
+registers handlers against it behave identically to the VHDL top-level
+port decode in `zxnext.vhd` **and** correctly interpret the full 16-bit
+port address delivered by the FUSE Z80 core.
 
-## Authoritative VHDL Source
+The two surfaces under test are:
 
-`zxnext.vhd`:
-- Lines 2384-2464: Port enable registers and hardware enable latching
-- Lines 2466-2576: Early address decode (MSB and LSB case statements)
-- Lines 2578-2699: Full port address matching (combinatorial)
-- Lines 2700-2797: Read/write signal generation (iord/iowr qualification)
-- Lines 2800-2840: Wired-OR read data bus assembly
+1. **The dispatcher itself** (`PortDispatch::read`/`write`, mask/value
+   matching, default-read fallback, precedence, clear/re-register on
+   reset).
+2. **The as-wired set of real peripherals** in a constructed `Emulator`
+   object. Tests call the CPU-facing `IoInterface::in`/`out` through the
+   real registered handler list, not a synthetic clean container.
 
-## Architecture
+Every expected value is derived from VHDL (`zxnext.vhd`) or from the
+libz80 port contract (`third_party/fuse-z80/*.c`) — never from the C++
+under test.
 
-### Two-Stage Address Decode
+## Authoritative Sources
 
-The VHDL uses a two-phase decode to generate port match signals:
+### VHDL (hardware oracle)
 
-**Phase 1 --- MSB decode** (lines 2470-2506): Decodes `cpu_a(15:8)` into
-one-hot signals (`port_00xx_msb`, `port_24xx_msb`, `port_ffxx_msb`, etc.).
+Path: `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/zxnext.vhd`
 
-**Phase 2 --- LSB decode** (lines 2508-2576): Decodes `cpu_a(7:0)` into
-one-hot signals (`port_1f_lsb`, `port_3b_lsb`, `port_ff_lsb`, etc.).
+| Lines        | Content                                                      |
+|--------------|--------------------------------------------------------------|
+| 460–489      | `port_*_io_en` signal declarations                           |
+| 1226–1235    | NR 0x82–0x89 state registers and power-on defaults           |
+| 2180         | `hotkey_expbus_freeze` interplay (DivMMC/MF enable diff)     |
+| 2392–2393    | `internal_port_enable` assembly (with/without expbus AND)    |
+| 2397–2442    | Bit-to-`port_*_io_en` dispatch (the NR bit map)              |
+| 2470–2576    | MSB / LSB early decode (`port_24xx_msb`, `port_3b_lsb`, …)   |
+| 2578–2699    | Full per-port match equations                                |
+| 2700–2797    | `iord`/`iowr` qualification + read-side enables              |
+| 2800–2840    | Wired-OR read data bus                                       |
+| 5052–5057    | Soft-reset reload of NR 0x82–0x85 when `reset_type = 1`      |
+| 5499–5509    | NR 0x82–0x85 write paths (including `reset_type` in bit 7)   |
+| 6129–6138    | Read-back of NR 0x82–0x85 through `port_253b`                |
 
-**Final match**: Each port combines MSB, LSB, and enable signals.
+### libz80 port contract (software oracle)
 
-### Port Enable Gating
+Path: `third_party/fuse-z80/`
 
-Each peripheral has an enable bit from the NextREG port enable registers
-(NR 0x82-0x89). A port only decodes if its enable bit is set.
+| File / symbol                                    | Contract                                         |
+|--------------------------------------------------|--------------------------------------------------|
+| `opcodes_base.c:890` `OUT (nn),A`                | `writeport(nn | (A<<8), A)` — upper 8 bits = A   |
+| `opcodes_base.c:943` `IN A,(nn)`                 | `readport(nn | (A<<8))` — upper 8 bits = A       |
+| `z80_ed.c:31,87,113,…` `OUT (C),r`               | `writeport(BC, r)` — full 16-bit BC              |
+| `z80_ed.c:27,83,109,…` `IN r,(C)`                | `readport(BC)` — full 16-bit BC                  |
+| `z80_ed.c:317,338,386,…` INI/OUTI/INIR/OTIR/…    | `readport(BC)` / `writeport(BC, …)`              |
+| `src/cpu/z80_cpu.cpp:88,111`                     | `s_io->in(port)` / `s_io->out(port, b)` — 16-bit |
 
-Additionally, some ports have hardware enable conditions:
-- Port 0x1F/0x37 require `port_1f_hw_en`/`port_37_hw_en` (joystick connected)
-- DAC ports require `dac_hw_en` (NR 0x08 bit 3)
-- +3 ports require `p3_timing_hw_en`
-- 128K ports require `s128_timing_hw_en`
+**Regression vector.** A prior bug truncated the port parameter to
+`C` only. Any test that can only distinguish ports whose LSBs differ
+will silently pass on a regressed build. The plan therefore requires
+at least one oracle row per (MSB-distinguished) pair where **LSB is
+identical** and the correct decode depends on bits 15:8.
 
-### Wired-OR Data Bus
+### C++ implementation under test
 
-Read data uses wired-OR: each port contributes its data when active,
-or 0x00 when inactive. All are ORed together (lines 2837-2840).
+- `src/port/port_dispatch.{h,cpp}` — `PortDispatch` (mask/value linear match).
+- `src/core/emulator.cpp` — where each peripheral calls
+  `port_dispatch.register_handler(...)`. Tests must construct a real
+  `Emulator` (headless) and probe **through** `IoInterface::in`/`out`,
+  not through a private clean container.
 
-## Test Case Catalog
+## Architecture Summary (as derived from VHDL)
 
-### 1. ULA Port 0xFE
+### Two-stage decode
+`zxnext.vhd:2470–2576` splits `cpu_a(15:0)` into MSB (`cpu_a(15:8)`)
+and LSB (`cpu_a(7:0)`) one-hot strobes, then recombines them plus an
+`io_en` bit per port. Our dispatcher does the same match in one step
+via `(port & mask) == value`; the VHDL decomposition is still visible
+in the `(mask, value)` pairs each peripheral registers.
 
-From `zxnext.vhd` line 2582: `port_fe <= '1' when cpu_a(0) = '0'`
-
-The ULA port matches on bit 0 = 0 only, regardless of other address bits.
-
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| FE-01 | 0x00FE | Read | port_fe_rd active |
-| FE-02 | 0xFFFE | Read | port_fe_rd active (bit 0 = 0) |
-| FE-03 | 0x00FE | Write | port_fe_wr active |
-| FE-04 | 0x00FF | Read | port_fe NOT active (bit 0 = 1) |
-| FE-05 | 0x01FE | Read | port_fe active (any even address) |
-| FE-06 | 0xFEFE | Read | port_fe active |
-
-### 2. Timex SCLD Port 0xFF
-
-From line 2583: `port_ff <= '1' when port_ff_lsb = '1'`
-
-Port 0xFF matches on exact LSB 0xFF. Write requires `port_ff_io_en`.
-
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| FF-01 | 0x00FF | Write, io_en=1 | port_ff_wr active |
-| FF-02 | 0x00FF | Write, io_en=0 | port_ff_wr NOT active |
-| FF-03 | 0x00FF | Read, ff_rd_en=1 | TMX data returned |
-| FF-04 | 0x00FF | Read, ff_rd_en=0 | ULA floating bus data |
-
-### 3. NextREG Ports 0x243B / 0x253B
-
-From lines 2625-2626:
-```
-port_243b <= '1' when port_24xx_msb = '1' and port_3b_lsb = '1'
-port_253b <= '1' when port_25xx_msb = '1' and port_3b_lsb = '1'
-```
-
-These are always decoded (no enable gate --- they are the mechanism to control enables).
-
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| NR-01 | 0x243B | Write | port_243b_wr active |
-| NR-02 | 0x243B | Read | Returns nr_register |
-| NR-03 | 0x253B | Write | port_253b_wr active |
-| NR-04 | 0x253B | Read | Returns register data |
-| NR-05 | 0x243C | Any | NOT decoded (LSB wrong) |
-| NR-06 | 0x253B | Read-then-read | Two consecutive reads work |
-
-### 4. 128K Memory Ports (0x7FFD, 0xDFFD, 0x1FFD)
-
-From lines 2593-2604:
+### Internal port enable vector
+`zxnext.vhd:2392–2393`:
 
 ```
-port_7ffd <= '1' when cpu_a(15)='0' and (cpu_a(14)='1' or not p3) and port_fd='1' 
-             and port_1ffd='0' and port_7ffd_io_en='1'
-port_dffd <= '1' when cpu_a(15:12)="1101" and port_fd='1' and port_dffd_io_en='1'
-port_1ffd <= '1' when cpu_a(13:12)="01" and port_xffd='1' and port_1ffd_io_en='1'
+internal_port_enable <=
+    (nr_85 & nr_84 & nr_83 & nr_82)                                    when expbus_eff_en = '0' else
+    ((nr_89 and nr_85) & (nr_88 and nr_84) & (nr_87 and nr_83) & (nr_86 and nr_82));
 ```
 
-Where `port_fd = cpu_a(1:0) == "01"` and `port_xffd = cpu_a(15:14) == "00" and port_fd`.
+So the 32-bit enable word is NR 0x82 in bits 7:0, NR 0x83 in 15:8,
+NR 0x84 in 23:16, NR 0x85 in 27:24 (bits 28..31 are unused). When the
+expansion-bus IO passthrough is enabled, each byte is ANDed with the
+corresponding NR 0x86–0x89 mask.
 
-| Test | Address | Timing | Expected |
-|------|---------|--------|----------|
-| MEM-01 | 0x7FFD | 128K timing | port_7ffd_active |
-| MEM-02 | 0x7FFD | 48K timing | port_7ffd but NOT active |
-| MEM-03 | 0xDFFD | Any | port_dffd when io_en |
-| MEM-04 | 0x1FFD | +3 timing | port_1ffd when io_en |
-| MEM-05 | 0x7FFD | io_en=0 | NOT decoded |
-| MEM-06 | 0xFFFD | Any | NOT port_7ffd (bit 15=1) |
-| MEM-07 | 0x3FFD | +3 timing | port_3ffd (FDC data) |
-| MEM-08 | 0x2FFD | +3 timing | port_2ffd (FDC status) |
+### Exact bit-to-port map (VHDL `zxnext.vhd:2397–2442`)
 
-### 5. Kempston Joystick Ports (0x1F, 0x37)
+This is the authoritative map the new plan must exercise one bit at a
+time. Each emulator test toggles exactly one enable bit and verifies
+that exactly the expected handler goes silent while all others remain
+active.
 
-From lines 2674-2675:
+| NR   | Bit | `internal_port_enable` index | VHDL signal                         | Emulator effect                            |
+|------|-----|------------------------------|-------------------------------------|--------------------------------------------|
+| 0x82 | 0   | 0                            | `port_ff_io_en`                     | Timex SCLD port 0xFF write                 |
+| 0x82 | 1   | 1                            | `port_7ffd_io_en`                   | 128K bank port 0x7FFD                      |
+| 0x82 | 2   | 2                            | `port_dffd_io_en`                   | Pentagon extended 0xDFFD                   |
+| 0x82 | 3   | 3                            | `port_1ffd_io_en`                   | +3 extended memory 0x1FFD                  |
+| 0x82 | 4   | 4                            | `port_p3_floating_bus_io_en`        | +3 floating bus (low 0x?FFD on p3)         |
+| 0x82 | 5   | 5                            | `port_dma_6b_io_en`                 | DMA 0x6B (ZXN DMA)                         |
+| 0x82 | 6   | 6                            | `port_1f_io_en`                     | Kempston 1 (0x1F + DAC-df alias gate)      |
+| 0x82 | 7   | 7                            | `port_37_io_en`                     | Kempston 2 (0x37)                          |
+| 0x83 | 0   | 8                            | `port_divmmc_io_en`                 | DivMMC 0xE3                                |
+| 0x83 | 1   | 9                            | `port_multiface_io_en`              | Multiface enable/disable I/O               |
+| 0x83 | 2   | 10                           | `port_i2c_io_en`                    | I²C 0x103B / 0x113B                        |
+| 0x83 | 3   | 11                           | `port_spi_io_en`                    | SPI 0xE7 / 0xEB                            |
+| 0x83 | 4   | 12                           | `port_uart_io_en`                   | UART 0x143B / 0x153B                       |
+| 0x83 | 5   | 13                           | `port_mouse_io_en`                  | Kempston mouse 0xFADF / 0xFBDF / 0xFFDF    |
+| 0x83 | 6   | 14                           | `port_sprite_io_en`                 | Sprite 0x0057 / 0x005B / 0x303B            |
+| 0x83 | 7   | 15                           | `port_layer2_io_en`                 | Layer 2 0x123B                             |
+| 0x84 | 0   | 16                           | `port_ay_io_en`                     | AY 0xFFFD / 0xBFFD                         |
+| 0x84 | 1   | 17                           | `port_dac_sd1_ABCD_1f0f4f5f_io_en`  | Soundrive mode 1 DAC (0x1F/0x0F/0x4F/0x5F) |
+| 0x84 | 2   | 18                           | `port_dac_sd2_ABCD_f1f3f9fb_io_en`  | Soundrive mode 2 DAC                       |
+| 0x84 | 3   | 19                           | `port_dac_stereo_AD_3f5f_io_en`     | Profi Covox stereo AD (0x3F/0x5F)          |
+| 0x84 | 4   | 20                           | `port_dac_stereo_BC_0f4f_io_en`     | Covox stereo BC (0x0F/0x4F)                |
+| 0x84 | 5   | 21                           | `port_dac_mono_AD_fb_io_en`         | Pentagon/ATM mono AD 0xFB (masked by sd2)  |
+| 0x84 | 6   | 22                           | `port_dac_mono_BC_b3_io_en`         | GS Covox mono BC 0xB3                      |
+| 0x84 | 7   | 23                           | `port_dac_mono_AD_df_io_en`         | Specdrum 0xDF (also Kempston 0x1F alias)   |
+| 0x85 | 0   | 24                           | `port_ulap_io_en`                   | ULA+ 0xBF3B / 0xFF3B                       |
+| 0x85 | 1   | 25                           | `port_dma_0b_io_en`                 | DMA 0x0B (Z80-DMA compatible)              |
+| 0x85 | 2   | 26                           | `port_eff7_io_en`                   | Port 0xEFF7 (Pentagon config)              |
+| 0x85 | 3   | 27                           | `port_ctc_io_en`                    | Z80 CTC (0x183B..0x1F3B per VHDL 2690)     |
 
-```
-port_1f <= '1' when (port_1f_lsb='1' or (port_df_lsb='1' and dac_mono_AD_df and not mouse))
-           and port_1f_io_en='1' and port_1f_hw_en='1'
-port_37 <= '1' when port_37_lsb='1' and port_37_io_en='1' and port_37_hw_en='1'
-```
+**Power-on default** (`zxnext.vhd:1226–1234`): all bits `'1'` — every
+port is enabled out of reset. **Soft-reset reload**: only if NR 0x85
+bit 7 `reset_type = '1'` (default `'1'`, `zxnext.vhd:5052–5057`); if
+software clears that bit, NR 0x82–0x85 survive a soft reset. NR 0x86–
+0x89 are the bus-side masks; they are only AND-ed when
+`expbus_eff_en = '1'` (external expansion bus I/O passthrough enabled).
 
-Note: port 0x1F also matches when LSB is 0xDF (for Specdrum DAC compatibility
-with Kempston) --- but only if DAC DF mode is enabled and mouse is disabled.
+### NR 0x85 bit packing (`zxnext.vhd:5508–5509, 6138`)
 
-| Test | Address | Conditions | Expected |
-|------|---------|------------|----------|
-| JOY-01 | 0x001F | io_en=1, hw_en=1 | port_1f_rd active |
-| JOY-02 | 0x001F | io_en=1, hw_en=0 | NOT decoded |
-| JOY-03 | 0x001F | io_en=0 | NOT decoded |
-| JOY-04 | 0x0037 | io_en=1, hw_en=1 | port_37_rd active |
-| JOY-05 | 0x00DF | dac_df_en=1, mouse=0, 1f_en=1 | port_1f active |
-| JOY-06 | 0x00DF | mouse=1 | NOT port_1f (mouse takes priority) |
-| JOY-07 | 0xFF1F | Any | port_1f (MSB ignored for LSB-only decode) |
+Writing NR 0x85: `nr_85_internal_port_enable <= dat(3:0)`;
+`nr_85_internal_port_reset_type <= dat(7)`. Reading NR 0x85 returns
+`reset_type & "000" & enable(3:0)`. Bits 4..6 read back as 0.
 
-### 6. AY Sound Ports (0xFFFD, 0xBFFD)
+### NR 0x86–0x89 expansion-bus ANDing
 
-From lines 2647-2649:
+Tests must cover: with `expbus_eff_en = 0` (default), writing NR 0x86–
+0x89 has **no** observable gating effect on any port. With
+`expbus_eff_en = 1`, clearing a bit in NR 0x86 disables the
+corresponding NR 0x82 port. The exception is the two `_diff` signals
+at `zxnext.vhd:2413,2416` used to detect DivMMC/Multiface enable
+transitions, which are *XORs* — worth a dedicated row.
 
-```
-port_fffd <= '1' when cpu_a(15:14)="11" and cpu_a(2)='1' and port_fd='1' and port_ay_io_en='1'
-port_bffd <= '1' when cpu_a(15:14)="10" and cpu_a(2)='1' and port_fd='1' and port_ay_io_en='1'
-```
+## Test Approach
 
-Read logic (line 2771): `port_fffd_rd = iord and (port_fffd or (port_bffd and machine_timing_p3) or port_bff5)`
+- Tests are written in `test/port/port_test.cpp` and must build a real
+  `Emulator` (headless, `machine-type=next`) so that real peripherals
+  register real handlers. The dispatcher-in-isolation container tests
+  from the prior revision are deleted (not merely relabelled).
+- `PortDispatch::read` and `write` are called through
+  `IoInterface::in`/`out` to exercise the same path libz80 uses.
+- For NR 0x82–0x89 tests, the test writes NR 0x82 value via the real
+  NextReg pathway (port 0x253B after selecting 0x82 via 0x243B) — not
+  by poking C++ fields directly — so that the NR → dispatcher wiring
+  is under test end-to-end.
+- Every row below is either a VHDL-grounded behavioural oracle or a
+  libz80-contract regression oracle. Tautologies (e.g. "register then
+  read the same mask and check it matches") are banned.
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| AY-01 | 0xFFFD | Write | port_fffd_wr (register select) |
-| AY-02 | 0xBFFD | Write | port_bffd_wr (data write) |
-| AY-03 | 0xFFFD | Read | port_fffd_rd (register read) |
-| AY-04 | 0xBFFD | Read, +3 timing | port_fffd_rd (readable on +3) |
-| AY-05 | 0xBFFD | Read, 128K timing | NOT readable |
-| AY-06 | 0xFFFD | ay_io_en=0 | NOT decoded |
+## Test Catalog
 
-### 7. SPI Ports (0xE7, 0xEB)
+Each row: **ID · title · preconditions · stimulus · expected · oracle**.
+"Oracle" is the VHDL line or libz80 file:line that dictates the expected
+value. All port values are 16-bit.
 
-From lines 2620-2621:
+### Group A. libz80 regression oracles (the historical bug)
 
-```
-port_e7 <= '1' when port_e7_lsb='1' and port_spi_io_en='1'
-port_eb <= '1' when port_eb_lsb='1' and port_spi_io_en='1'
-```
+The point of this group is that it would fail — in a way a code reader
+can see in 5 seconds — if anything between `Z80Cpu` and
+`PortDispatch::in`/`out` ever again truncates the port to 8 bits.
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| SPI-01 | 0x00E7 | Write | port_e7_wr (SPI CS) |
-| SPI-02 | 0x00EB | Read | port_eb_rd (SPI data) |
-| SPI-03 | 0x00EB | Write | port_eb_wr (SPI data) |
-| SPI-04 | 0x00E7 | spi_io_en=0 | NOT decoded |
+| ID        | Title                                   | Preconditions                                   | Stimulus                                                            | Expected                                                                                     | Oracle                                              |
+|-----------|-----------------------------------------|-------------------------------------------------|---------------------------------------------------------------------|----------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| LIBZ80-01 | `OUT (C),r` to 0x7FFD vs 0xBFFD         | 128K timing; AY+MMU real handlers registered    | BC=0x7FFD, r=0x10, OUT (C),r; then BC=0xBFFD, r=0x3F, OUT (C),r     | MMU bank register sees 0x10; AY data register sees 0x3F. Swapping bus addresses is detected. | `zxnext.vhd:2593,2648`; `z80_ed.c:31` `writeport(BC,…)` |
+| LIBZ80-02 | `IN A,(nn)` upper byte honoured         | A=0x24, nn=0x3B, NextReg selected reg = 0x01    | Execute `IN A,(0x3B)` with A=0x24 (forms port 0x243B)              | Returns NextReg read for register 0x01 at 0x243B, not a generic LSB-0x3B handler.            | `zxnext.vhd:2625`; `opcodes_base.c:943`             |
+| LIBZ80-03 | `OUT (nn),A` upper byte honoured        | A=0x25, nn=0x3B, reg 0x07 pre-selected          | `OUT (0x3B),A` with A=0x25 (forms port 0x253B), data 0x02          | NextReg 0x07 receives 0x02; **not** an unrelated 0x003B handler.                             | `zxnext.vhd:2626`; `opcodes_base.c:890`             |
+| LIBZ80-04 | INIR block transfer uses full BC        | BC=0x12_03B, HL=0x4000                          | Execute INI once                                                     | `readport(0x123B)` hits Layer 2 register; not 0x003B.                                        | `zxnext.vhd:2635`; `z80_ed.c:317`                   |
+| LIBZ80-05 | MSB-only discrimination                 | NR 0x84 bit 0 cleared (AY disabled)             | Read 0xBFFD                                                         | Floating-bus (or default) value, **not** AY register. A C-only truncation maps this to 0xFD. | `zxnext.vhd:2648`; libz80 contract                  |
 
-### 8. DivMMC Port (0xE3)
+### Group B. Real-peripheral registration
 
-From line 2608: `port_e3 <= '1' when port_e3_lsb='1' and port_divmmc_io_en='1'`
+These require the real `Emulator` object and walk every port that the
+emulator actually wires to a subsystem. Each test both **hits** the
+port (positive) and **verifies a near-miss does not match** (negative).
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| DIV-01 | 0x00E3 | Read | port_e3_rd |
-| DIV-02 | 0x00E3 | Write | port_e3_wr |
-| DIV-03 | 0x00E3 | divmmc_io_en=0 | NOT decoded |
+| ID       | Title                                | Preconditions                   | Stimulus                                              | Expected                                                     | Oracle                                   |
+|----------|--------------------------------------|---------------------------------|-------------------------------------------------------|--------------------------------------------------------------|------------------------------------------|
+| REG-01   | ULA 0xFE matches any even address    | All enables default             | OUT 0xFEFE / 0x01FE / 0x00FE                          | All three reach ULA border/beeper.                           | `zxnext.vhd:2582`                        |
+| REG-02   | 0xFE does not match on odd address   | —                               | OUT 0x00FF (odd)                                      | Hits `port_ff` / SCLD path, not ULA.                         | `zxnext.vhd:2582–2583`                   |
+| REG-03   | NextReg select 0x243B                | —                               | OUT 0x243B ← 0x07                                     | NextReg register index becomes 0x07.                         | `zxnext.vhd:2625`                        |
+| REG-04   | NextReg data 0x253B                  | Reg 0x07 selected               | OUT 0x253B ← 0x03                                     | Underlying NextReg 0x07 state = 0x03 (check via read-back).  | `zxnext.vhd:2626`                        |
+| REG-05   | 0x243C/0x253C not decoded            | —                               | OUT 0x243C                                            | Ignored (no handler); default-read on IN returns floating.   | `zxnext.vhd:2625`                        |
+| REG-06   | AY select 0xFFFD real                | 128K or Next                    | OUT 0xFFFD ← 0x08                                     | Real AY register latch = 0x08.                               | `zxnext.vhd:2647`                        |
+| REG-07   | AY data 0xBFFD real                  | AY register 0x08 latched        | OUT 0xBFFD ← 0x0F                                     | Real AY channel volume state = 0x0F.                         | `zxnext.vhd:2648`                        |
+| REG-08   | 0x7FFD MMU bank select               | Not in 0x1FFD special mode      | OUT 0x7FFD ← 0x11                                     | MMU page 3 = bank 1, ROM select bit honoured.                | `zxnext.vhd:2593`                        |
+| REG-09   | 0x1FFD +3 extended                   | `plus3` machine type            | OUT 0x1FFD ← 0x04                                     | +3 extended paging latched.                                  | `zxnext.vhd:2599`                        |
+| REG-10   | 0xDFFD Pentagon ext                  | —                               | OUT 0xDFFD ← 0x07                                     | Pentagon extended bank state updated.                        | `zxnext.vhd:2596`                        |
+| REG-11   | DivMMC 0xE3 real                     | DivMMC subsystem present        | OUT 0xE3 ← 0x40                                       | DivMMC automap latch reflects value.                         | `zxnext.vhd:2608`                        |
+| REG-12   | SPI CS 0xE7, data 0xEB               | SPI subsystem present           | OUT 0xE7 ← 0xFE; OUT 0xEB ← 0x55                      | Real SPI CS register and data shift register updated.        | `zxnext.vhd:2620–2621`                   |
+| REG-13   | Sprite 0x303B write-then-read        | Sprite subsystem                | OUT 0x303B ← 0x05; IN 0x303B                          | Sprite status reflects VHDL contract for that write.         | `zxnext.vhd:2681`                        |
+| REG-14   | Layer 2 0x123B                       | Layer 2 subsystem               | OUT 0x123B ← 0x13                                     | Layer 2 NextReg control reflects write.                      | `zxnext.vhd:2635`                        |
+| REG-15   | I²C 0x103B / 0x113B                  | I²C subsystem                   | OUT 0x103B ← 0; OUT 0x113B ← 0                        | SCL/SDA lines driven.                                        | `zxnext.vhd:2630–2631`                   |
+| REG-16   | UART 0x143B / 0x153B                 | UART subsystem                  | OUT 0x143B ← 'A'                                      | UART TX holding register = 'A'.                              | `zxnext.vhd:2639`                        |
+| REG-17   | UART 0x133B rejected                 | UART subsystem                  | OUT 0x133B ← 'Z'                                      | No UART state change (fails bit equation).                   | `zxnext.vhd:2639`                        |
+| REG-18   | Kempston 1 0x001F                    | `port_1f_hw_en=1`               | IN 0x001F                                             | Joystick state returned.                                     | `zxnext.vhd:2674`                        |
+| REG-19   | Kempston 2 0x0037                    | `port_37_hw_en=1`               | IN 0x0037                                             | Joystick 2 state returned.                                   | `zxnext.vhd:2675`                        |
+| REG-20   | Mouse 0xFADF/0xFBDF/0xFFDF           | Mouse present                   | IN each                                               | Buttons / X / Y respectively.                                | `zxnext.vhd:2668–2670`                   |
+| REG-21   | ULA+ 0xBF3B / 0xFF3B                 | ULA+ present                    | OUT 0xBF3B ← idx; OUT 0xFF3B ← col                    | Palette entry updated.                                       | `zxnext.vhd:2685–2686`                   |
+| REG-22   | DMA 0x6B vs 0x0B                     | DMA present                     | OUT 0x6B; OUT 0x0B                                    | Both land on same DMA engine; mode latch differs.            | `zxnext.vhd:2643`                        |
+| REG-23   | CTC 0x183B range                     | CTC enable default              | OUT 0x183B                                            | CTC channel 0 updated.                                       | `zxnext.vhd:2690`                        |
+| REG-24   | Unmapped port read                   | —                               | IN 0x0042 (nothing registered)                        | Floating-bus byte per 48K/128K/+3 rules, **not** 0x00.       | `zxnext.vhd:2589`, `2800–2840`           |
+| REG-25   | Unmapped port write                  | —                               | OUT 0x0042                                            | No side effect in any subsystem.                             | `zxnext.vhd:2697`                        |
+| REG-26   | 0xDF routes to Specdrum/port_1f sink (positive combo) | NR 0x84 b7=1 (`port_dac_mono_AD_df_io_en=1`), NR 0x83 b5=0 (`port_mouse_io_en=0`), NR 0x82 b6=1 (`port_1f_io_en=1`), `port_1f_hw_en=1` | OUT 0x00DF ← 0x55 | `port_1f` asserts and the Specdrum DAC mono-AD-df handler sinks 0x55; no mouse handler reached because mouse is disabled | `zxnext.vhd:2674` |
+| REG-27   | 0xDF re-routed away from port_1f when mouse enabled (negative combo) | NR 0x84 b7=1, NR 0x83 b5=1 (mouse enabled), NR 0x82 b6=1 | OUT 0xFFDF ← 0x55 | `port_1f` stays deasserted for 0xDF (the `port_mouse_io_en='0'` guard at line 2674 is false); mouse handler (0xFFDF path, `zxnext.vhd:2670`) takes the write; Specdrum sink is NOT hit | `zxnext.vhd:2670, 2674` |
 
-### 9. Sprite Ports (0x57, 0x5B, 0x303B)
+### Group C. NR 0x82–0x89 bit-by-bit enable gating
 
-From lines 2679-2681:
+One row per enable bit. Each test (a) confirms the port works with the
+bit set (default), (b) writes NR 0x82..0x85 via 0x243B/0x253B to clear
+**only that bit**, (c) confirms that exact port is now inert, (d)
+confirms a *different* port (from a different NR) is still live.
 
-```
-port_57 <= '1' when port_57_lsb='1' and port_sprite_io_en='1'
-port_5b <= '1' when port_5b_lsb='1' and port_sprite_io_en='1'
-port_303b <= '1' when port_30xx_msb='1' and port_3b_lsb='1' and port_sprite_io_en='1'
-```
+| ID       | NR/Bit    | Port exercised          | Oracle (VHDL)              |
+|----------|-----------|-------------------------|----------------------------|
+| NR82-00  | 0x82 b0   | 0x00FF (SCLD write)     | `zxnext.vhd:2397`          |
+| NR82-01  | 0x82 b1   | 0x7FFD (MMU)            | `zxnext.vhd:2399`          |
+| NR82-02  | 0x82 b2   | 0xDFFD                  | `zxnext.vhd:2400`          |
+| NR82-03  | 0x82 b3   | 0x1FFD                  | `zxnext.vhd:2401`          |
+| NR82-04  | 0x82 b4   | +3 floating bus 0x0FFD  | `zxnext.vhd:2403, 2589`    |
+| NR82-05  | 0x82 b5   | DMA 0x6B                | `zxnext.vhd:2405, 2643`    |
+| NR82-06  | 0x82 b6   | Kempston 0x1F           | `zxnext.vhd:2407, 2674`    |
+| NR82-07  | 0x82 b7   | Kempston 0x37           | `zxnext.vhd:2408, 2675`    |
+| NR83-00  | 0x83 b0   | DivMMC 0xE3             | `zxnext.vhd:2412, 2608`    |
+| NR83-01  | 0x83 b1   | Multiface I/O           | `zxnext.vhd:2415, 2615`    |
+| NR83-02  | 0x83 b2   | I²C 0x103B              | `zxnext.vhd:2418, 2630`    |
+| NR83-03  | 0x83 b3   | SPI 0xE7                | `zxnext.vhd:2419, 2620`    |
+| NR83-04  | 0x83 b4   | UART 0x143B             | `zxnext.vhd:2420, 2639`    |
+| NR83-05  | 0x83 b5   | Mouse 0xFADF            | `zxnext.vhd:2422, 2668`    |
+| NR83-06  | 0x83 b6   | Sprite 0x303B           | `zxnext.vhd:2423, 2681`    |
+| NR83-07  | 0x83 b7   | Layer 2 0x123B          | `zxnext.vhd:2424, 2635`    |
+| NR84-00  | 0x84 b0   | AY 0xFFFD/0xBFFD        | `zxnext.vhd:2428, 2647–8`  |
+| NR84-01  | 0x84 b1   | DAC SD1 0x1F/0x0F/0x4F/0x5F | `zxnext.vhd:2429, 2661–4` |
+| NR84-02  | 0x84 b2   | DAC SD2 0xF1/0xF3/0xF9/0xFB | `zxnext.vhd:2430, 2661–4` |
+| NR84-03  | 0x84 b3   | DAC stereo AD 0x3F/0x5F | `zxnext.vhd:2431, 2661, 2664` |
+| NR84-04  | 0x84 b4   | DAC stereo BC 0x0F/0x4F | `zxnext.vhd:2432, 2662–3`  |
+| NR84-05  | 0x84 b5   | DAC mono AD 0xFB (masked by sd2) | `zxnext.vhd:2433, 2658` |
+| NR84-06  | 0x84 b6   | DAC mono BC 0xB3        | `zxnext.vhd:2434, 2659`    |
+| NR84-07  | 0x84 b7   | Specdrum 0xDF + Kempston alias | `zxnext.vhd:2435, 2674` |
+| NR84-07-combo | 0x84 b7 AND 0x83 b5 AND 0x82 b6 (combinatorial) | 0xDF routed into `port_1f` when `port_dac_mono_AD_df_io_en='1'` AND `port_mouse_io_en='0'` AND `port_1f_io_en='1'` — see line 2674: `port_1f <= '1' when (port_1f_lsb='1' or (port_df_lsb='1' and port_dac_mono_AD_df_io_en='1' and port_mouse_io_en='0')) and port_1f_io_en='1' and port_1f_hw_en='1' else '0';` | `zxnext.vhd:2674` |
+| NR85-00  | 0x85 b0   | ULA+ 0xBF3B             | `zxnext.vhd:2439, 2685`    |
+| NR85-01  | 0x85 b1   | DMA 0x0B                | `zxnext.vhd:2440, 2643`    |
+| NR85-02  | 0x85 b2   | 0xEFF7                  | `zxnext.vhd:2441, 2604`    |
+| NR85-03  | 0x85 b3   | CTC 0x183B (bottom of decoded range)                             | `zxnext.vhd:2442, 2690`    |
+| NR85-03b | 0x85 b3   | CTC 0x1F3B (top of decoded range: bits 15:11=`"00011"`, LSB=0x3B) — should decode with bit set, be inert with bit cleared | `zxnext.vhd:2690` |
+| NR85-03c | 0x85 b3   | CTC near-miss 0x203B (bits 15:11=`"00100"`, next pattern above CTC range) — MUST NOT reach CTC whether NR 0x85 b3 is 0 or 1 | `zxnext.vhd:2690` |
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| SPR-01 | 0x0057 | Write | port_57_wr (sprite attr) |
-| SPR-02 | 0x005B | Write | port_5b_wr (sprite pattern) |
-| SPR-03 | 0x303B | Read | port_303b_rd (sprite status) |
-| SPR-04 | 0x303B | Write | port_303b_wr (sprite index) |
-| SPR-05 | 0x0057 | sprite_io_en=0 | NOT decoded |
+Plus:
 
-### 10. Layer 2 Port (0x123B)
+| ID        | Title                                            | Stimulus                                                                | Expected                                                                | Oracle                              |
+|-----------|--------------------------------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------|-------------------------------------|
+| NR-DEF-01 | Power-on defaults all-enabled                    | Fresh `Emulator` construct; read NR 0x82–0x85 via 0x243B/0x253B          | NR 0x82=0xFF, 0x83=0xFF, 0x84=0xFF, 0x85 low nibble=0x0F, bit 7=1       | `zxnext.vhd:1226–1230`              |
+| NR-RST-01 | Soft reset reloads when reset_type=1             | Clear NR 0x82 bit 0; leave NR 0x85 bit 7 = 1; soft-reset                | NR 0x82 returns to 0xFF                                                 | `zxnext.vhd:5052–5057`              |
+| NR-RST-02 | Soft reset does NOT reload when reset_type=0     | Clear NR 0x82 bit 0; clear NR 0x85 bit 7; soft-reset                    | NR 0x82 bit 0 remains 0                                                 | `zxnext.vhd:5052–5057`              |
+| NR-85-PK  | NR 0x85 packing: bits 4–6 read back zero         | Write NR 0x85 ← 0xFF; read back                                         | Value 0x8F (bit 7 + low nibble; middle bits 0)                          | `zxnext.vhd:5508–5509, 6138`        |
 
-From line 2635: `port_123b <= '1' when port_12xx_msb='1' and port_3b_lsb='1' and port_layer2_io_en='1'`
+### Group D. Expansion-bus masks NR 0x86–0x89
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| L2-01 | 0x123B | Read | port_123b_rd |
-| L2-02 | 0x123B | Write | port_123b_wr |
-| L2-03 | 0x123B | layer2_io_en=0 | NOT decoded |
+| ID        | Title                                         | Preconditions                     | Stimulus                                          | Expected                                                   | Oracle                 |
+|-----------|-----------------------------------------------|-----------------------------------|---------------------------------------------------|------------------------------------------------------------|------------------------|
+| BUS-86-01 | NR 0x86 inert when expbus_eff_en=0            | expbus_eff_en=0                   | NR 0x86 ← 0x00; OUT 0x00FF                        | SCLD write still reaches handler                           | `zxnext.vhd:2392`      |
+| BUS-86-02 | NR 0x86 gates when expbus_eff_en=1            | expbus_eff_en=1, NR 0x82 bit 0=1  | NR 0x86 bit 0 ← 0; OUT 0x00FF                     | SCLD write blocked                                         | `zxnext.vhd:2393`      |
+| BUS-86-03 | NR 0x86 AND with NR 0x82                      | expbus_eff_en=1                   | NR 0x82 bit 1=1, NR 0x86 bit 1=0                  | 0x7FFD blocked (AND of cleared bit)                        | `zxnext.vhd:2393, 2399`|
+| BUS-87-D  | DivMMC enable-diff detection                  | expbus_eff_en=1                   | Toggle NR 0x87 bit 0 while NR 0x83 bit 0 fixed    | `port_divmmc_io_en_diff` rising edge observable            | `zxnext.vhd:2413, 2180`|
+| BUS-88-00 | NR 0x88 AND with NR 0x84 (AY)                 | expbus_eff_en=1                   | NR 0x88 bit 0 ← 0                                 | 0xFFFD/0xBFFD blocked regardless of NR 0x84                | `zxnext.vhd:2393, 2428`|
+| BUS-89-00 | NR 0x89 AND with NR 0x85 (ULA+)               | expbus_eff_en=1                   | NR 0x89 bit 0 ← 0                                 | 0xBF3B blocked                                             | `zxnext.vhd:2393, 2439`|
 
-### 11. I2C Ports (0x103B, 0x113B)
+### Group E. Precedence, collision, clear/re-register
 
-From lines 2630-2631:
+| ID    | Title                                                 | Stimulus                                                                                                                         | Expected                                                                                                                           | Oracle                           |
+|-------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|----------------------------------|
+| PR-01 | Registering an overlapping handler must fail (target contract: one-hot) | Install any single handler for 0x01FE, then attempt to register a second handler whose `(mask,value)` range intersects it (e.g. a broader 0x0100–0x01FF range) | `register_handler` refuses/aborts/logs-error so the overlap cannot silently exist. Picks **Option A**: the dispatcher enforces one-hot registration, matching the VHDL wired-OR which is order-independent only because at most one line is asserted per port. | `port_dispatch.cpp:29–33`; VHDL per-port decode is one-hot (`zxnext.vhd:2696–2699`) |
+| PR-02 | One-hot invariant over all real peripherals after `Emulator::init` | Walk `handlers_` after boot                                                                                                    | For every pair (h1, h2) of registered handlers, the intersection of their mask/value ranges is empty: `((v1 ^ v2) & (m1 & m2)) != 0` OR `(m1 & m2) == 0`. Same invariant PR-01 enforces at registration time, verified end-to-end. | VHDL one-hot decode (`zxnext.vhd:2696–2699`) |
+| PR-01-CUR | **Document current-code asymmetry (guard test until PR-01 contract is implemented)** | Current `port_dispatch.cpp` does NOT enforce one-hot: `read()` is first-match-wins (returns on first match, `port_dispatch.cpp:35–42`) while `write()` broadcasts to **all** matches (`port_dispatch.cpp:52–59`). This is an asymmetry bug — the same overlap would silently return one handler's value on IN yet side-effect every handler on OUT. | Test asserts the asymmetry so it cannot regress unnoticed before PR-01 is fixed; to be retired as a FIXME once `register_handler` enforces one-hot. | `port_dispatch.cpp:35–42` vs `52–59` |
+| PR-03 | `clear_handlers()` then re-register on reset          | Clear, register one handler, OUT                                                                                                 | Only new handler sees the write                                                                                                    | `port_dispatch.h:21`             |
+| PR-04 | Default-read used when no handler matches             | No handler registered for 0x0042; install default_read returning floating-bus byte                                               | IN 0x0042 returns that byte, not 0xFF                                                                                              | `port_dispatch.cpp:43–47`        |
+| PR-05 | Default-read NOT used when any handler matches (even with 0 return) | Handler for 0x00FE returning 0x00; default_read returns 0xAA                                                       | IN 0x00FE returns 0x00                                                                                                             | `port_dispatch.cpp:36–42`        |
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| I2C-01 | 0x103B | Read/Write | Active when i2c_io_en |
-| I2C-02 | 0x113B | Read/Write | Active when i2c_io_en |
-| I2C-03 | 0x103B | i2c_io_en=0 | NOT decoded |
+### Group F. IORQ/M1 / RMW / contention-affected ports
 
-### 12. UART Ports
+| ID      | Title                                         | Stimulus                                                | Expected                                                            | Oracle                           |
+|---------|-----------------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|----------------------------------|
+| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1 vector                           | `PortDispatch::in` is **not** called during M1+IORQ                 | `zxnext.vhd:2705`                |
+| IORQ-02 | Normal IN is routed                           | Execute `IN A,(0xFE)` inside normal instruction          | `PortDispatch::in(0xFE|(A<<8))` called exactly once                 | `zxnext.vhd:2705`                |
+| RMW-01  | 0xFE border + beeper latch                    | OUT 0xFE ← 0x07 (border); OUT 0xFE ← 0x10 (beeper bit)  | ULA border = 7 after first write, bit 4 latches speaker             | `zxnext.vhd:2582`                |
+| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`        | `z80_cpu.cpp:84–104`             |
+| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states                                       | `z80_cpu.cpp:84–104`             |
 
-From line 2639: Complex decode using bits 15:8, with uart_io_en gate.
+### Group G. DivMMC automap interaction
 
-```
-port_uart <= '1' when cpu_a(15:11)="00010" and (cpu_a(10) xor (cpu_a(9) and cpu_a(8)))='1'
-             and port_3b_lsb='1' and port_uart_io_en='1'
-```
+| ID       | Title                                              | Preconditions                                             | Stimulus                            | Expected                                                                                                  | Oracle                                |
+|----------|----------------------------------------------------|-----------------------------------------------------------|-------------------------------------|-----------------------------------------------------------------------------------------------------------|---------------------------------------|
+| AMAP-01  | DivMMC enable diff freezes expansion bus           | NR 0x83 b0 = 1, NR 0x87 b0 = 0, expbus_eff_en = 1         | Write to a divmmc-trigger address   | `hotkey_expbus_freeze` asserts (observable via debug hook / log)                                          | `zxnext.vhd:2180, 2413`               |
+| AMAP-02  | 0xE3 writes honoured even when automap held        | DivMMC automap held                                        | OUT 0xE3 ← 0x80                     | DivMMC register state updates (the port is not squelched by automap; only memory mapping changes)         | `zxnext.vhd:2608`                     |
+| AMAP-03  | NR 0x83 b0 = 0 disables 0xE3 regardless of automap | NR 0x83 b0 = 0                                             | OUT 0xE3                            | No DivMMC state change; handler gated off                                                                 | `zxnext.vhd:2412, 2608`               |
 
-Valid UART addresses: 0x143B, 0x153B, 0x163B, 0x173B (TX/RX for two UARTs).
+### Group H. Read data bus wired-OR semantics
 
-| Test | Address | Expected |
-|------|---------|----------|
-| UART-01 | 0x143B | port_uart active |
-| UART-02 | 0x153B | port_uart active |
-| UART-03 | 0x133B | NOT decoded (fails bit test) |
-| UART-04 | 0x143B, uart_io_en=0 | NOT decoded |
+The C++ dispatcher returns the **first** matching handler's data. The
+VHDL ORs all active lines. For this to be equivalent, at most one
+handler can be active for any given read — tested by PR-02. Group H
+also verifies the *read* disable gating where the VHDL blocks a handler
+from contributing.
 
-### 13. ULA+ Ports (0xBF3B, 0xFF3B)
+| ID     | Title                                           | Stimulus                                         | Expected                                                             | Oracle                     |
+|--------|-------------------------------------------------|--------------------------------------------------|----------------------------------------------------------------------|----------------------------|
+| BUS-01 | Single-owner invariant over all registered      | Loop all ports 0x0000..0xFFFF through `read`     | For every port, ≤1 handler matches (collect from `handlers_`)        | VHDL one-hot per port      |
+| BUS-02 | Disabled port yields default-read byte          | NR 0x84 b0 = 0; IN 0xFFFD                        | Default-read byte (floating bus), not stale AY data                  | `zxnext.vhd:2428, 2771`    |
+| BUS-03 | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff_io_en` | `port_ff_io_en=1`, NR 0x08 bit 2 (`nr_08_port_ff_rd_en`) = 0; IN 0x00FF | ULA floating-bus byte (the Timex SCLD read-data is masked out of the wired-OR when `nr_08_port_ff_rd_en='0'`) | `zxnext.vhd:2813` (`port_ff_rd_dat <= port_ff_dat_tmx when nr_08_port_ff_rd_en = '1' and port_ff_io_en = '1' and port_ff_rd = '1' else port_ff_dat_ula when port_ff_rd = '1' else X"00"`); declaration `zxnext.vhd:1118`; NR 0x08 write path `zxnext.vhd:5180` |
 
-From lines 2685-2686:
+## Out-of-scope / explicitly not tested
 
-| Test | Address | Direction | Expected |
-|------|---------|-----------|----------|
-| ULAP-01 | 0xBF3B | Write | port_bf3b_wr |
-| ULAP-02 | 0xFF3B | Read | port_ff3b_rd |
-| ULAP-03 | 0xFF3B | Write | port_ff3b_wr |
-| ULAP-04 | 0xBF3B | ulap_io_en=0 | NOT decoded |
+- Internal signal cycle-accuracy of the VHDL two-stage decode. The C++
+  collapses MSB/LSB into one step; we verify equivalence by port match,
+  not by mirroring the intermediate signals.
+- Per-peripheral behavioural correctness (e.g. "does the sprite index
+  increment correctly" is Sprite's own test plan, not this one). This
+  plan verifies only that writes/reads *reach* the right subsystem.
+- Multiface paging interactions beyond the enable-diff XOR.
 
-### 14. Kempston Mouse Ports (0xFADF, 0xFBDF, 0xFFDF)
+## Open questions (must be resolved before plan is considered final)
 
-From lines 2668-2670: Decode uses `cpu_a(11:8)` for the specific sub-port.
+1. **Floating-bus default on unmapped reads.** The VHDL returns a
+   timing-dependent ULA byte on 48K and the +3 floating-bus byte on +3.
+   Our dispatcher's default-read is currently pluggable. What machine-
+   mode-specific callback is installed, and does it match
+   `zxnext.vhd:2589` for +3 and `zxnext.vhd:2800-2840` wired-OR zero-
+   default for Next? Row REG-24 must be pinned down per machine type.
+2. **NR 0x85 middle bits.** VHDL declares `nr_85_internal_port_enable`
+   as 4 bits and `reset_type` as 1 bit but the register is 8 bits wide
+   on the bus. Row NR-85-PK assumes bits 4..6 read as zero; confirm vs
+   a recent VHDL revision (the cited lines are from the current clone
+   but the signal declaration uses an aggregate).
+3. **`port_ff_io_en` read path.** RESOLVED. The read contribution of
+   port 0xFF is gated by `nr_08_port_ff_rd_en` (NR 0x08 bit 2),
+   declared at `zxnext.vhd:1118`, assigned via NR write path at
+   `zxnext.vhd:5180`, and enforced in the read-data mux at
+   `zxnext.vhd:2813`: `port_ff_rd_dat <= port_ff_dat_tmx when
+   nr_08_port_ff_rd_en = '1' and port_ff_io_en = '1' and port_ff_rd =
+   '1' else port_ff_dat_ula when port_ff_rd = '1' else X"00"`. BUS-03
+   updated with these precise citations.
+4. **Kempston 0x1F / Specdrum 0xDF overlap.** RESOLVED. NR84-07-combo
+   (summary) + REG-26/REG-27 (actionable rows) cover the combinatorial
+   `(port_dac_mono_AD_df_io_en AND NOT port_mouse_io_en AND
+   port_1f_io_en)` equation at `zxnext.vhd:2674`, including both the
+   positive route-to-Specdrum case and the mouse-enabled re-route case.
+5. **Dispatcher first-match-wins vs one-hot.** RESOLVED as **Option A**:
+   the target contract is that `PortDispatch::register_handler` enforces
+   one-hot (rejects overlapping registrations), matching the VHDL's
+   order-independent wired-OR. PR-01 is now a registration-failure test
+   for that contract; PR-02 verifies the invariant end-to-end after
+   `Emulator::init`. The current C++ does NOT yet enforce this and has
+   an asymmetric read/write bug (`read` is first-match-wins, `write`
+   broadcasts — `port_dispatch.cpp:35–42` vs `52–59`); PR-01-CUR pins
+   that asymmetry as a guard test until the fix lands.
+6. **Multiface enable diff (BUS-87-D).** The `_diff` XOR produces a
+   transient; we need to decide whether the test observes it through a
+   debug hook or by injecting a memory access that `hotkey_expbus_freeze`
+   would gate. The latter crosses into MMU territory.
+7. **CTC port range.** RESOLVED. `zxnext.vhd:2690` decodes
+   `cpu_a(15 downto 11) = "00011"` AND `port_3b_lsb = '1'`, so the
+   full CTC range is 0x183B, 0x193B, 0x1A3B, 0x1B3B, 0x1C3B, 0x1D3B,
+   0x1E3B, 0x1F3B (all 8 combinations of bits 10:8). NR85-03 covers
+   0x183B (bottom), NR85-03b covers 0x1F3B (top), and NR85-03c covers
+   the near-miss 0x203B (next 5-bit pattern `"00100"`) which must
+   not reach CTC regardless of enable bit.
 
-| Test | Address | Expected |
-|------|---------|----------|
-| MOUSE-01 | 0xFADF | port_fadf_rd (buttons) |
-| MOUSE-02 | 0xFBDF | port_fbdf_rd (X coord) |
-| MOUSE-03 | 0xFFDF | port_ffdf_rd (Y coord) |
-| MOUSE-04 | 0xFADF, mouse_io_en=0 | NOT decoded |
-| MOUSE-05 | 0xF0DF | NOT decoded (wrong nibble) |
+## Summary of retractions vs previous revision
 
-### 15. DMA Port (0x6B / 0x0B)
+| Prior row | Problem                                                                 | Replacement                                       |
+|-----------|-------------------------------------------------------------------------|---------------------------------------------------|
+| §1 FE-01..06   | Tested a hand-registered stub, not real ULA              | REG-01, REG-02, RMW-01                            |
+| §2 FF-01..04   | No `ff_rd_en` distinction; no enable coverage            | NR82-00, BUS-03                                   |
+| §3 NR-01..06   | No read-path NextReg state assertions                    | REG-03, REG-04, LIBZ80-02, LIBZ80-03              |
+| §4 MEM-01..08  | No MMU state check; no libz80 regression oracle          | REG-08, REG-09, REG-10, LIBZ80-01                 |
+| §5 JOY-01..07  | No real peripheral; no NR 0x82 bit coverage              | REG-18, REG-19, NR82-06, NR82-07                  |
+| §6 AY-01..06   | No AY state check; no LSB-collision probe                | REG-06, REG-07, LIBZ80-01, NR84-00, BUS-02        |
+| §7..§17        | All container-only; no enable-bit single-step            | Groups B + C (per-bit)                            |
+| §18 INT-01..04 | "internal response" is a VHDL-internal signal; we test the observable `default_read_` fallback instead | PR-04, PR-05, REG-24 |
+| §19 BUS-01..04 | Only trivial wired-OR claims; no one-hot invariant       | BUS-01, BUS-02, PR-02                             |
+| §20 IORQ-01..03| Asserted iord/iowr equations, not CPU pathway            | IORQ-01, IORQ-02                                  |
 
-From line 2643: `port_dma <= (port_6b_lsb and port_dma_6b_io_en) or (port_0b_lsb and port_dma_0b_io_en)`
-
-| Test | Address | Expected |
-|------|---------|----------|
-| DMA-01 | 0x006B | port_dma when dma_6b_en |
-| DMA-02 | 0x000B | port_dma when dma_0b_en |
-| DMA-03 | Both disabled | NOT decoded |
-
-### 16. CTC Port
-
-From line 2690: `port_ctc <= cpu_a(15:11)="00011" and port_3b_lsb='1' and port_ctc_io_en='1'`
-
-| Test | Address | Expected |
-|------|---------|----------|
-| CTC-01 | 0x183B | port_ctc active |
-| CTC-02 | 0x1F3B | port_ctc active |
-| CTC-03 | 0x203B | NOT decoded (wrong high bits) |
-
-### 17. DAC Ports
-
-From lines 2651-2664: Complex routing with multiple DAC modes.
-
-| Test | Address | Mode | Expected |
-|------|---------|------|----------|
-| DAC-01 | 0x00FB | mono_AD_fb_en | port_dac_A and port_dac_D |
-| DAC-02 | 0x00B3 | mono_BC_b3_en | port_dac_B and port_dac_C |
-| DAC-03 | 0x001F | sd1_en, dac_hw_en | port_dac_A |
-| DAC-04 | 0x00FB | sd2_en | SD2 overrides mono_AD |
-| DAC-05 | 0x001F | dac_hw_en=0 | NOT written (DAC disabled) |
-
-### 18. Internal Response Signal
-
-From line 2696-2699: `port_internal_response` is the OR of all decoded port
-signals. This determines whether the expansion bus sees the access or if it's
-handled internally.
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| INT-01 | Port 0xFE access | internal_response = 1 |
-| INT-02 | Port 0x243B access | internal_response = 1 |
-| INT-03 | Unknown port (e.g. 0x0042) | internal_response = 0 |
-| INT-04 | Port 0x1F with hw_en=0 | internal_response = 0 |
-
-### 19. Read Data Bus Assembly
-
-From lines 2812-2840: Wired-OR of all port read data.
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| BUS-01 | Read 0x243B | Only port_243b data on bus |
-| BUS-02 | Read 0xFE | Only port_fe data on bus |
-| BUS-03 | No port active | Data = 0x00 |
-| BUS-04 | Two ports conflict | OR of both (should not happen in practice) |
-
-### 20. IORQ/M1 Qualification
-
-From lines 2705-2706:
-```
-iord <= '1' when cpu_iorq_n='0' and cpu_m1_n='1' and cpu_rd_n='0'
-iowr <= '1' when cpu_iorq_n='0' and cpu_m1_n='1' and cpu_wr_n='0'
-```
-
-I/O operations are only valid when IORQ is active AND M1 is inactive (M1+IORQ
-is interrupt acknowledge, not I/O).
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| IORQ-01 | IORQ=0, M1=1, RD=0 | iord active |
-| IORQ-02 | IORQ=0, M1=0, RD=0 | iord NOT active (int ack) |
-| IORQ-03 | IORQ=1, M1=1, RD=0 | iord NOT active |
-
-## Port Address Summary Table
-
-| Port | Address | Decode | Enable |
-|------|---------|--------|--------|
-| ULA | xxFE (bit 0=0) | Any even | Always |
-| SCLD | xxFF | LSB=0xFF | port_ff_io_en |
-| NextREG sel | 243B | MSB=24, LSB=3B | Always |
-| NextREG dat | 253B | MSB=25, LSB=3B | Always |
-| 128K page | 7FFD | A15=0, A14=1, FD | port_7ffd_io_en |
-| +3 extended | 1FFD | A15:14=00, A13:12=01, FD | port_1ffd_io_en |
-| Pentagon ext | DFFD | A15:12=1101, FD | port_dffd_io_en |
-| DivMMC | 00E3 | LSB=E3 | port_divmmc_io_en |
-| SPI CS | 00E7 | LSB=E7 | port_spi_io_en |
-| SPI data | 00EB | LSB=EB | port_spi_io_en |
-| AY select | FFFD | A15:14=11, A2=1, FD | port_ay_io_en |
-| AY data | BFFD | A15:14=10, A2=1, FD | port_ay_io_en |
-| Kempston 1 | 001F | LSB=1F | port_1f_io_en + hw_en |
-| Kempston 2 | 0037 | LSB=37 | port_37_io_en + hw_en |
-| Sprite attr | 0057 | LSB=57 | port_sprite_io_en |
-| Sprite pat | 005B | LSB=5B | port_sprite_io_en |
-| Sprite ctl | 303B | MSB=30, LSB=3B | port_sprite_io_en |
-| Layer 2 | 123B | MSB=12, LSB=3B | port_layer2_io_en |
-| I2C (SCL) | 103B | MSB=10, LSB=3B | port_i2c_io_en |
-| I2C (SDA) | 113B | MSB=11, LSB=3B | port_i2c_io_en |
-| UART | 1x3B | MSB=1[4-7], LSB=3B | port_uart_io_en |
-| Mouse btn | FADF | A11:8=A, LSB=DF | port_mouse_io_en |
-| Mouse X | FBDF | A11:8=B, LSB=DF | port_mouse_io_en |
-| Mouse Y | FFDF | A11:8=F, LSB=DF | port_mouse_io_en |
-| ULA+ reg | BF3B | MSB=BF, LSB=3B | port_ulap_io_en |
-| ULA+ data | FF3B | MSB=FF, LSB=3B | port_ulap_io_en |
-| DMA | 006B / 000B | LSB match | Respective dma_io_en |
-| CTC | 1x3B | A15:11=00011, LSB=3B | port_ctc_io_en |
-| EFF7 | EFF7 | A15:12=E, LSB=F7 | port_eff7_io_en |
-
-## Test Count Summary
-
-| Category | Tests |
-|----------|-------|
-| ULA port 0xFE | ~6 |
-| Timex SCLD 0xFF | ~4 |
-| NextREG 0x243B/0x253B | ~6 |
-| 128K memory ports | ~8 |
-| Kempston joystick | ~7 |
-| AY sound | ~6 |
-| SPI | ~4 |
-| DivMMC | ~3 |
-| Sprite | ~5 |
-| Layer 2 | ~3 |
-| I2C | ~3 |
-| UART | ~4 |
-| ULA+ | ~4 |
-| Mouse | ~5 |
-| DMA | ~3 |
-| CTC | ~3 |
-| DAC | ~5 |
-| Internal response | ~4 |
-| Read data bus | ~4 |
-| IORQ/M1 qualification | ~3 |
-| **Total** | **~90** |
+All ~90 tautological rows are retracted. The new plan contains
+approximately **5 libz80 oracles + 25 real-peripheral rows + 32 NR bit
+rows + 4 NR defaults/reset + 6 expansion-bus rows + 5
+precedence/collision rows + 5 IORQ/RMW/contention rows + 3 automap
+rows + 3 wired-OR rows ≈ 88 rows**, every one grounded in a specific
+VHDL line or libz80 symbol citation.
