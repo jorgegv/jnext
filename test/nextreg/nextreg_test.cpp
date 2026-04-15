@@ -1,717 +1,727 @@
 // NextREG Compliance Test Runner
 //
-// Tests the NextReg register file against VHDL-derived expected behaviour.
-// All expected values come from the NEXTREG-TEST-PLAN-DESIGN.md spec.
+// Full rewrite (Task 5 Step 5 Phase 2 idiom, Task 1 Wave 2 of
+// .prompts/2026-04-15.md) against doc/testing/NEXTREG-TEST-PLAN-DESIGN.md.
+// Every assertion cites a specific VHDL file:line from the authoritative
+// FPGA source at
+//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+// (external to this repo — cited here for provenance, not edited).
+//
+// Ground rules (per doc/testing/UNIT-TEST-PLAN-EXECUTION.md §§1-3):
+//   * The VHDL is the oracle. The C++ implementation is NEVER the oracle.
+//   * Every check() compares observable state against a value
+//     independently derived from VHDL.
+//   * Every plan row maps to exactly one check() or skip(), identified by
+//     its plan ID (SEL-01, RO-03, RST-05, ...).
+//   * Plan rows that cannot be exercised via the bare NextReg public API
+//     are skip()'d with a one-line reason; they do not count as pass or
+//     fail.
+//
+// Bare-NextReg surface notes (see src/port/nextreg.{h,cpp}):
+//   * regs_[0..255] + selected_ + per-register read/write handlers.
+//   * Reset only applies 4 hard-coded defaults: NR 0x00=0x0A, 0x01=0x32,
+//     0x03=0x00, 0x07=0x00, and selected_=0. Everything else resets to 0.
+//   * No read-only enforcement, no clip-window cycling, no palette sub_idx
+//     latch, no machine-config state machine, no copper arbitration.
+//   * Those facilities live in peripheral subsystems (MMU, Layer2,
+//     SpriteEngine, Copper, TilemapEngine, Audio, Input, ...) that wire
+//     themselves to NextReg via set_read_handler/set_write_handler at
+//     Emulator construction time. Testing them against a bare NextReg
+//     would be tautological (we would be testing our stub, not the spec).
+//
+// Per Task 2 item 7 of .prompts/2026-04-15.md: the 9 RST-xx reset-default
+// plan rows are deliberately skipped here because the bare NextReg class
+// does not own the VHDL reset defaults — they live in the subsystem that
+// wires its handler. Those rows are deferred to the integration tier
+// ("full-machine reset reads back NR 0xXX as VHDL default"). Do NOT
+// duplicate the defaults into NextReg::reset() just to make these rows
+// pass — that would make NextReg::reset() its own oracle and defeat the
+// point of the test.
 //
 // Run: ./build/test/nextreg_test
 
 #include "port/nextreg.h"
-#include <cstdio>
+
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
-static int g_pass = 0;
-static int g_fail = 0;
-static int g_total = 0;
-static std::string g_group;
+namespace {
 
-struct TestResult {
+int g_pass  = 0;
+int g_fail  = 0;
+int g_total = 0;
+
+struct Result {
     std::string group;
     std::string id;
-    std::string description;
-    bool passed;
+    std::string desc;
+    bool        passed;
     std::string detail;
 };
 
-static std::vector<TestResult> g_results;
+std::vector<Result> g_results;
+std::string         g_group;
 
-static void set_group(const char* name) {
-    g_group = name;
-}
+struct SkipNote {
+    const char* id;
+    const char* reason;
+};
+std::vector<SkipNote> g_skipped;
 
-static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
-    g_total++;
-    TestResult r;
-    r.group = g_group;
-    r.id = id;
-    r.description = desc;
-    r.passed = cond;
-    r.detail = detail;
+void set_group(const char* name) { g_group = name; }
+
+void check(const char* id, const char* desc, bool cond, const std::string& detail = {}) {
+    ++g_total;
+    Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
-
     if (cond) {
-        g_pass++;
+        ++g_pass;
     } else {
-        g_fail++;
-        printf("  FAIL %s: %s", id, desc);
-        if (detail[0]) printf(" [%s]", detail);
-        printf("\n");
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
-static char g_buf[512];
-#define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+}
 
-// ── 1. Register Selection and Access ──────────────────────────────────
+std::string hex2(uint8_t v) {
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "0x%02x", v);
+    return buf;
+}
 
-static void test_register_selection() {
+std::string detail_eq(uint8_t got, uint8_t expected) {
+    return "got=" + hex2(got) + " expected=" + hex2(expected);
+}
+
+} // namespace
+
+// ── 1. Register Selection and Access (SEL-01..05) ─────────────────────
+
+static void test_selection() {
     set_group("Selection");
 
-    // SEL-01: Write 0x243B = 0x15, read 0x243B returns 0x15
+    // SEL-01 — zxnext.vhd:4597-4599: port_243b_wr loads nr_register from
+    // cpu_do; port_253b_rd with that selector returns that register's
+    // stored value. Bare surface: select(r) + write_selected(v) then
+    // read_selected() must round-trip v at selector r.
     {
         NextReg nr;
-        nr.select(0x15);
-        // read_selected reads the register at selected_, not the selector itself
-        // The select port stores the register number internally
-        // We verify via a write+read round-trip through the selected register
+        nr.select(0x7F);                // user register, avoid handlers
         nr.write_selected(0x42);
-        uint8_t val = nr.read_selected();
-        check("SEL-01", "Select reg 0x15, write+read via 0x253B",
-              val == 0x42,
-              DETAIL("expected=0x42 got=0x%02x", val));
+        uint8_t got = nr.read_selected();
+        check("SEL-01",
+              "select(0x7F)+write_selected(0x42)+read_selected() "
+              "[zxnext.vhd:4597-4599]",
+              got == 0x42, detail_eq(got, 0x42));
     }
 
-    // SEL-02: After reset, selected register is 0 (VHDL says 0x24 for protection,
-    // but we test what our implementation does)
+    // SEL-02 — zxnext.vhd:4594-4596: on reset, nr_register<=X"24" as
+    // legacy-protection default. Bare surface exposes selected_ only via
+    // read_selected(); after reset the register at selector 0x24 is read.
+    // We cannot probe "selector == 0x24" directly, so instead we store a
+    // unique sentinel at NR 0x24 before reset, clear it indirectly by
+    // constructing a fresh instance, and verify the post-reset selector
+    // is 0x24 by checking that read_selected() targets NR 0x24. We
+    // distinguish NR 0x24 from NR 0x00 by also writing NR 0x00=0x55 after
+    // reset and observing read_selected() != 0x55.
     {
-        NextReg nr;  // constructor calls reset()
-        // Write a value to reg 0x00 (the default selected after reset)
-        // and verify we can read it back via read_selected
-        uint8_t machine_id = nr.read_selected();
-        // After reset, selected_ = 0, and reg[0x00] = 0x0A (machine ID)
-        check("SEL-02", "After reset, selected=0, read returns machine ID",
-              machine_id == 0x0A,
-              DETAIL("expected=0x0a got=0x%02x", machine_id));
+        NextReg nr;                      // constructor calls reset()
+        nr.write(0x24, 0xA5);            // store sentinel at NR 0x24
+        nr.write(0x00, 0x55);            // distinguisher at NR 0x00
+        uint8_t sel_target = nr.read_selected();
+        // VHDL: selector after reset is 0x24, so read_selected() == 0xA5.
+        // Bare impl resets selected_ to 0, so read_selected() == 0x55.
+        // Leave failing — tracked as emulator bug in Task 3 backlog.
+        check("SEL-02",
+              "read_selected() after reset reads NR 0x24 "
+              "[zxnext.vhd:4594-4596]",
+              sel_target == 0xA5, detail_eq(sel_target, 0xA5));
     }
 
-    // SEL-03: Write to read-only register 0x00 does not change it
+    // SEL-03 — NR 0x00 is read-only (g_machine_id), zxnext.vhd read
+    // dispatch ~line 5867 onwards returns the generic regardless of
+    // writes. Plan row tests that writing NR 0x00 does not change its
+    // readback. Bare NextReg has no read-only enforcement on NR 0x00; the
+    // RO lookup is installed by the subsystem that owns g_machine_id at
+    // integration time.
+    skip("SEL-03",
+         "NR 0x00 read-only enforcement lives in integration-tier "
+         "read_handler install, not bare NextReg class");
+
+    // SEL-04 — zxnext.vhd read dispatch: NR 0x7F is a user-scratch
+    // register with no RO handler, so a write+read round-trip must
+    // preserve the written value bit-for-bit.
     {
         NextReg nr;
-        uint8_t before = nr.read(0x00);
-        nr.write(0x00, 0x42);
-        uint8_t after = nr.read(0x00);
-        // Note: NextReg base class stores unconditionally; read-only enforcement
-        // happens via read handlers in the wired-up system
-        check("SEL-03", "Write NR 0x00, read back (no read handler = stored)",
-              after == 0x42,
-              DETAIL("before=0x%02x after=0x%02x", before, after));
+        nr.select(0x7F);
+        nr.write_selected(0xAB);
+        uint8_t got = nr.read_selected();
+        check("SEL-04",
+              "select(0x7F)+write_selected(0xAB)+read_selected()==0xAB "
+              "[zxnext.vhd read dispatch, NR 0x7F user scratch]",
+              got == 0xAB, detail_eq(got, 0xAB));
     }
 
-    // SEL-04: User register 0x7F round-trip
-    {
-        NextReg nr;
-        nr.write(0x7F, 0xAB);
-        uint8_t val = nr.read(0x7F);
-        check("SEL-04", "Write NR 0x7F = 0xAB, read back",
-              val == 0xAB,
-              DETAIL("expected=0xab got=0x%02x", val));
-    }
-
-    // SEL-05: select() does not affect register values
-    {
-        NextReg nr;
-        nr.write(0x15, 0x55);
-        nr.select(0x20);  // change selection
-        uint8_t val = nr.read(0x15);  // direct read bypasses selection
-        check("SEL-05", "select() does not affect register storage",
-              val == 0x55,
-              DETAIL("expected=0x55 got=0x%02x", val));
-    }
+    // SEL-05 — Z80N NEXTREG (ED 91 rr,vv) writes NR rr with vv without
+    // modifying nr_register (zxnext.vhd:4706-4777, cpu_requester_0 uses
+    // rr directly, port_243b_wr is not asserted). The bare NextReg class
+    // has no NEXTREG-instruction entry point; that opcode is decoded by
+    // the Z80 frontend which then calls nr.write(rr, vv) on the wired
+    // instance. Cannot exercise from bare class.
+    skip("SEL-05",
+         "Z80N ED 91 NEXTREG-instruction path is Z80-decoder territory, "
+         "not observable via bare NextReg class");
 }
 
-// ── 2. Read-Only Registers ────────────────────────────────────────────
+// ── 2. Read-Only Registers (RO-01..06) ───────────────────────────────
 
-static void test_readonly_registers() {
+static void test_readonly() {
     set_group("Read-Only");
 
-    NextReg nr;
-
-    // RO-01: Machine ID is 0x0A after reset
-    {
-        uint8_t val = nr.read(0x00);
-        check("RO-01", "NR 0x00 machine ID = 0x0A",
-              val == 0x0A,
-              DETAIL("expected=0x0a got=0x%02x", val));
-    }
-
-    // RO-02: Write NR 0x00, read back — without read handler, it gets overwritten
-    {
-        NextReg nr2;
-        nr2.write(0x00, 0xFF);
-        uint8_t val = nr2.read(0x00);
-        // Without a read handler, the stored value is returned
-        check("RO-02", "Write NR 0x00=0xFF, read back (no handler protection)",
-              val == 0xFF,
-              DETAIL("got=0x%02x (expected 0xff without handler)", val));
-    }
-
-    // RO-03: Core version is 0x32 after reset
-    {
-        uint8_t val = nr.read(0x01);
-        check("RO-03", "NR 0x01 core version = 0x32",
-              val == 0x32,
-              DETAIL("expected=0x32 got=0x%02x", val));
-    }
-
-    // RO-04: Cached value for read-only reg via cached()
-    {
-        uint8_t val = nr.cached(0x00);
-        check("RO-04", "cached(0x00) returns machine ID",
-              val == 0x0A,
-              DETAIL("expected=0x0a got=0x%02x", val));
-    }
-
-    // RO-05: Read handler overrides stored value
-    {
-        NextReg nr2;
-        nr2.set_read_handler(0x00, []() -> uint8_t { return 0xBE; });
-        nr2.write(0x00, 0xFF);  // stored value changes
-        uint8_t via_read = nr2.read(0x00);
-        uint8_t via_cached = nr2.cached(0x00);
-        check("RO-05", "Read handler overrides stored value",
-              via_read == 0xBE && via_cached == 0xFF,
-              DETAIL("read=0x%02x(exp 0xbe) cached=0x%02x(exp 0xff)", via_read, via_cached));
-    }
+    // RO-01..RO-06: all six read-only registers (0x00 machine ID, 0x01
+    // core version, 0x0E sub-version, 0x0F board issue, 0x1E/0x1F video
+    // line) are resolved in VHDL by the read-dispatch mux at
+    // zxnext.vhd:5867-6292 using FPGA generics and a live cvc counter.
+    // None of these are stored in the bare NextReg regs_[] array — the
+    // authoritative values come from integration-tier wiring (g_version
+    // generic, cvc counter from the VSync pipeline, etc.). Testing them
+    // against a bare NextReg would be testing whatever the bare reset
+    // happens to leave in regs_[], which is exactly the tautology the
+    // test-plan-execution manual §1 forbids.
+    skip("RO-01",
+         "NR 0x00 machine ID lives in integration-tier read_handler "
+         "backed by VHDL g_machine_id generic [zxnext.vhd read dispatch]");
+    skip("RO-02",
+         "NR 0x00 write-then-read round-trip meaningless without the RO "
+         "read_handler installed [zxnext.vhd read dispatch]");
+    skip("RO-03",
+         "NR 0x01 core version lives in integration-tier read_handler "
+         "backed by VHDL g_version generic [zxnext.vhd read dispatch]");
+    skip("RO-04",
+         "NR 0x0E sub-version lives in integration-tier read_handler "
+         "backed by VHDL g_sub_version generic [zxnext.vhd read dispatch]");
+    skip("RO-05",
+         "NR 0x0F board issue (lower nibble) lives in integration-tier "
+         "read_handler backed by VHDL g_board_issue [zxnext.vhd read dispatch]");
+    skip("RO-06",
+         "NR 0x1E/0x1F active video line is cvc counter from VSync "
+         "pipeline, not bare NextReg state [zxnext.vhd read dispatch]");
 }
 
-// ── 3. Reset Defaults ─────────────────────────────────────────────────
+// ── 3. Reset Defaults (RST-01..09) ───────────────────────────────────
 
 static void test_reset_defaults() {
     set_group("Reset");
 
-    NextReg nr;  // constructor calls reset()
+    // Per Task 2 item 7 (.prompts/2026-04-15.md): the bare NextReg class
+    // does not own the VHDL reset defaults. Each register's reset value
+    // is applied by the subsystem that owns the register's behaviour
+    // (MMU, Layer2, SpriteEngine, Audio, ...). Verifying these defaults
+    // against bare NextReg would require duplicating VHDL state into
+    // NextReg::reset(), which makes NextReg::reset() its own oracle and
+    // defeats the test's purpose. Defer all 9 RST-xx rows to the
+    // integration tier.
 
-    // RST-01: Machine ID
-    check("RST-01", "NR 0x00 = 0x0A (machine ID)",
-          nr.read(0x00) == 0x0A,
-          DETAIL("got=0x%02x", nr.read(0x00)));
-
-    // RST-02: Core version
-    check("RST-02", "NR 0x01 = 0x32 (core version)",
-          nr.read(0x01) == 0x32,
-          DETAIL("got=0x%02x", nr.read(0x01)));
-
-    // RST-03: CPU speed
-    check("RST-03", "NR 0x07 = 0x00 (3.5MHz)",
-          nr.read(0x07) == 0x00,
-          DETAIL("got=0x%02x", nr.read(0x07)));
-
-    // RST-04: Machine type
-    check("RST-04", "NR 0x03 = 0x00",
-          nr.read(0x03) == 0x00,
-          DETAIL("got=0x%02x", nr.read(0x03)));
-
-    // RST-05: Global transparent 0x14 should be 0xE3 per VHDL
-    {
-        uint8_t val = nr.read(0x14);
-        check("RST-05", "NR 0x14 global transparent (VHDL: 0xE3)",
-              val == 0xE3,
-              DETAIL("expected=0xe3 got=0x%02x", val));
-    }
-
-    // RST-06: Sprite/layer priority 0x15 should be 0x00
-    {
-        uint8_t val = nr.read(0x15);
-        check("RST-06", "NR 0x15 layer priority = 0x00",
-              val == 0x00,
-              DETAIL("expected=0x00 got=0x%02x", val));
-    }
-
-    // RST-07: Fallback colour 0x4A should be 0xE3
-    {
-        uint8_t val = nr.read(0x4A);
-        check("RST-07", "NR 0x4A fallback RGB (VHDL: 0xE3)",
-              val == 0xE3,
-              DETAIL("expected=0xe3 got=0x%02x", val));
-    }
-
-    // RST-08: ULANext format 0x42 should be 0x07
-    {
-        uint8_t val = nr.read(0x42);
-        check("RST-08", "NR 0x42 ULANext format (VHDL: 0x07)",
-              val == 0x07,
-              DETAIL("expected=0x07 got=0x%02x", val));
-    }
-
-    // RST-09: MMU defaults
-    {
-        struct { uint8_t reg; uint8_t expected; const char* name; } mmu[] = {
-            {0x50, 0xFF, "MMU0"}, {0x51, 0xFF, "MMU1"},
-            {0x52, 0x0A, "MMU2"}, {0x53, 0x0B, "MMU3"},
-            {0x54, 0x04, "MMU4"}, {0x55, 0x05, "MMU5"},
-            {0x56, 0x00, "MMU6"}, {0x57, 0x01, "MMU7"},
-        };
-        for (auto& m : mmu) {
-            uint8_t val = nr.read(m.reg);
-            char id[16];
-            snprintf(id, sizeof(id), "RST-09-%s", m.name);
-            check(id, DETAIL("NR 0x%02X %s = 0x%02X", m.reg, m.name, m.expected),
-                  val == m.expected,
-                  DETAIL("expected=0x%02x got=0x%02x", m.expected, val));
-        }
-    }
-
-    // RST-10: L2 active bank 0x12 should be 0x08
-    {
-        uint8_t val = nr.read(0x12);
-        check("RST-10", "NR 0x12 L2 active bank (VHDL: 0x08)",
-              val == 0x08,
-              DETAIL("expected=0x08 got=0x%02x", val));
-    }
-
-    // RST-11: NR 0x68 ULA control
-    {
-        uint8_t val = nr.read(0x68);
-        check("RST-11", "NR 0x68 ULA control (VHDL: bit7=NOT ula_en=0)",
-              true,  // just report value
-              DETAIL("got=0x%02x", val));
-    }
-
-    // RST-12: NR 0x6B tilemap should be 0x00
-    {
-        uint8_t val = nr.read(0x6B);
-        check("RST-12", "NR 0x6B tilemap = 0x00",
-              val == 0x00,
-              DETAIL("expected=0x00 got=0x%02x", val));
-    }
-
-    // RST-13: Internal port enables 0x82-0x85 should be 0xFF
-    {
-        bool all_ff = true;
-        for (uint8_t r = 0x82; r <= 0x85; r++) {
-            if (nr.read(r) != 0xFF) all_ff = false;
-        }
-        check("RST-13", "NR 0x82-0x85 internal port enables = 0xFF",
-              all_ff,
-              DETAIL("0x82=%02x 0x83=%02x 0x84=%02x 0x85=%02x",
-                     nr.read(0x82), nr.read(0x83), nr.read(0x84), nr.read(0x85)));
-    }
-
-    // RST-14: Bus port enables 0x86-0x89 should be 0xFF
-    {
-        bool all_ff = true;
-        for (uint8_t r = 0x86; r <= 0x89; r++) {
-            if (nr.read(r) != 0xFF) all_ff = false;
-        }
-        check("RST-14", "NR 0x86-0x89 bus port enables = 0xFF",
-              all_ff,
-              DETAIL("0x86=%02x 0x87=%02x 0x88=%02x 0x89=%02x",
-                     nr.read(0x86), nr.read(0x87), nr.read(0x88), nr.read(0x89)));
-    }
-
-    // RST-15: Sprite transparent 0x4B should be 0xE3
-    {
-        uint8_t val = nr.read(0x4B);
-        check("RST-15", "NR 0x4B sprite transparent (VHDL: 0xE3)",
-              val == 0xE3,
-              DETAIL("expected=0xe3 got=0x%02x", val));
-    }
-
-    // RST-16: L2 scroll X/Y should be 0x00
-    {
-        check("RST-16a", "NR 0x16 L2 scroll X = 0x00",
-              nr.read(0x16) == 0x00,
-              DETAIL("got=0x%02x", nr.read(0x16)));
-        check("RST-16b", "NR 0x17 L2 scroll Y = 0x00",
-              nr.read(0x17) == 0x00,
-              DETAIL("got=0x%02x", nr.read(0x17)));
-    }
+    skip("RST-01",
+         "NR 0x14 global transparent default=0xE3 owned by Compositor "
+         "reset wiring, not bare NextReg [zxnext.vhd:4926-5100]");
+    skip("RST-02",
+         "NR 0x15 layer priority default=0x00 owned by Compositor "
+         "reset wiring [zxnext.vhd:4926-5100]");
+    skip("RST-03",
+         "NR 0x4A fallback RGB default=0xE3 owned by Compositor "
+         "reset wiring [zxnext.vhd:4926-5100]");
+    skip("RST-04",
+         "NR 0x42 ULANext format default=0x07 owned by ULA reset "
+         "wiring [zxnext.vhd:4926-5100]");
+    skip("RST-05",
+         "NR 0x50-0x57 MMU defaults owned by Mmu reset, not bare "
+         "NextReg [zxnext.vhd:4610-4618]");
+    skip("RST-06",
+         "NR 0x68 ULA control (bit7=NOT ula_en) default owned by ULA "
+         "reset wiring [zxnext.vhd:4926-5100]");
+    skip("RST-07",
+         "NR 0x0B I/O mode default=0x01 owned by Input reset wiring "
+         "[zxnext.vhd:4926-5100]");
+    skip("RST-08",
+         "NR 0x82-0x85 internal port enables default=0xFF owned by "
+         "port-enable reset wiring [zxnext.vhd:5052-5068]");
+    skip("RST-09",
+         "NR 0x1B tilemap clip default (0,0x9F,0,0xFF) owned by "
+         "TilemapEngine reset wiring [zxnext.vhd:5242-5290]");
 }
 
-// ── 4. Read/Write Round-Trip ──────────────────────────────────────────
+// ── 4. Read/Write Round-Trip (RW-01..12) ─────────────────────────────
 
-static void test_readwrite_roundtrip() {
+static void test_roundtrip() {
     set_group("Round-Trip");
 
-    // RW-01: L2 active bank
+    // RW-01 — zxnext.vhd:~5156 NR 0x07 CPU-speed register: VHDL packs
+    // bits (1:0)=actual_speed, (5:4)=requested_speed on read; write sets
+    // (1:0). Readback differs from write — format is owned by the speed
+    // FSM, not bare NextReg.
+    skip("RW-01",
+         "NR 0x07 CPU speed read format (actual+requested packed) owned "
+         "by speed FSM, not bare NextReg [zxnext.vhd ~5156]");
+
+    // RW-02 — zxnext.vhd ~5168 NR 0x08: bit 7 on read = NOT port_7ffd_lock.
+    // Write/read asymmetry is owned by the Mmu 7FFD lock state, not bare
+    // NextReg.
+    skip("RW-02",
+         "NR 0x08 bit7 read=NOT port_7ffd_lock — asymmetric format "
+         "owned by Mmu, not bare NextReg [zxnext.vhd ~5168]");
+
+    // RW-03 — NR 0x12 L2 active bank: plain 8-bit register in VHDL with
+    // no read-side transform. Bare round-trip is the spec.
     {
         NextReg nr;
         nr.write(0x12, 0x10);
-        uint8_t val = nr.read(0x12);
-        check("RW-01", "NR 0x12 write 0x10 read back",
-              val == 0x10,
-              DETAIL("expected=0x10 got=0x%02x", val));
+        uint8_t got = nr.read(0x12);
+        check("RW-03",
+              "NR 0x12 L2 active bank write=0x10 read=0x10 "
+              "[zxnext.vhd ~5190 nr_12_layer2_active_bank]",
+              got == 0x10, detail_eq(got, 0x10));
     }
 
-    // RW-02: Global transparent
+    // RW-04 — NR 0x14 global transparent: plain 8-bit RRRGGGBB register,
+    // no read-side transform.
     {
         NextReg nr;
         nr.write(0x14, 0x55);
-        uint8_t val = nr.read(0x14);
-        check("RW-02", "NR 0x14 write 0x55 read back",
-              val == 0x55,
-              DETAIL("expected=0x55 got=0x%02x", val));
+        uint8_t got = nr.read(0x14);
+        check("RW-04",
+              "NR 0x14 global transparent write=0x55 read=0x55 "
+              "[zxnext.vhd ~5200 nr_14_global_transparent]",
+              got == 0x55, detail_eq(got, 0x55));
     }
 
-    // RW-03: Layer priority
+    // RW-05 — NR 0x15 (sprite/lores/priority control): plain register,
+    // bare round-trip. Bit layout is read by the Compositor at render
+    // time but the storage itself is transparent.
     {
         NextReg nr;
         nr.write(0x15, 0x15);
-        uint8_t val = nr.read(0x15);
-        check("RW-03", "NR 0x15 write 0x15 read back",
-              val == 0x15,
-              DETAIL("expected=0x15 got=0x%02x", val));
+        uint8_t got = nr.read(0x15);
+        check("RW-05",
+              "NR 0x15 layer control write=0x15 read=0x15 "
+              "[zxnext.vhd ~5210 nr_15_sprite_lores]",
+              got == 0x15, detail_eq(got, 0x15));
     }
 
-    // RW-04: L2 scroll X
+    // RW-06 — NR 0x16 Layer 2 scroll X: plain 8-bit register.
     {
         NextReg nr;
         nr.write(0x16, 0xAA);
-        uint8_t val = nr.read(0x16);
-        check("RW-04", "NR 0x16 write 0xAA read back",
-              val == 0xAA,
-              DETAIL("expected=0xaa got=0x%02x", val));
+        uint8_t got = nr.read(0x16);
+        check("RW-06",
+              "NR 0x16 L2 scroll X write=0xAA read=0xAA "
+              "[zxnext.vhd ~5220 nr_16_layer2_scrollx]",
+              got == 0xAA, detail_eq(got, 0xAA));
     }
 
-    // RW-05: ULANext format
+    // RW-07 — NR 0x42 ULANext format: plain 8-bit ink-mask register.
     {
         NextReg nr;
         nr.write(0x42, 0xFF);
-        uint8_t val = nr.read(0x42);
-        check("RW-05", "NR 0x42 write 0xFF read back",
-              val == 0xFF,
-              DETAIL("expected=0xff got=0x%02x", val));
+        uint8_t got = nr.read(0x42);
+        check("RW-07",
+              "NR 0x42 ULANext format write=0xFF read=0xFF "
+              "[zxnext.vhd ~5470 nr_42_ulanext_format]",
+              got == 0xFF, detail_eq(got, 0xFF));
     }
 
-    // RW-06: Palette control
+    // RW-08 — NR 0x43 palette control: plain 8-bit register. Auto-
+    // increment and sub_idx latch are palette-engine side effects not
+    // observable from bare NextReg regs_[], but the 8-bit storage
+    // itself round-trips.
     {
         NextReg nr;
         nr.write(0x43, 0x55);
-        uint8_t val = nr.read(0x43);
-        check("RW-06", "NR 0x43 write 0x55 read back",
-              val == 0x55,
-              DETAIL("expected=0x55 got=0x%02x", val));
+        uint8_t got = nr.read(0x43);
+        check("RW-08",
+              "NR 0x43 palette control write=0x55 read=0x55 "
+              "[zxnext.vhd ~5480 nr_43_palette_control]",
+              got == 0x55, detail_eq(got, 0x55));
     }
 
-    // RW-07: Fallback RGB
+    // RW-09 — NR 0x4A fallback RGB: plain 8-bit register.
     {
         NextReg nr;
         nr.write(0x4A, 0x42);
-        uint8_t val = nr.read(0x4A);
-        check("RW-07", "NR 0x4A write 0x42 read back",
-              val == 0x42,
-              DETAIL("expected=0x42 got=0x%02x", val));
+        uint8_t got = nr.read(0x4A);
+        check("RW-09",
+              "NR 0x4A fallback RGB write=0x42 read=0x42 "
+              "[zxnext.vhd ~5520 nr_4a_fallback_colour]",
+              got == 0x42, detail_eq(got, 0x42));
     }
 
-    // RW-08: MMU pages round-trip
+    // RW-10 — NR 0x50-0x57 MMU pages: plain 8-bit registers (MMU state
+    // mirror is in the Mmu subsystem, but the NextREG-side storage is
+    // transparent for a bare write/read round-trip).
     {
         NextReg nr;
-        uint8_t vals[] = {0x10, 0x11, 0x20, 0x21, 0x30, 0x31, 0x40, 0x41};
-        bool ok = true;
-        for (int i = 0; i < 8; i++) {
+        const uint8_t vals[8] = {0x10, 0x11, 0x20, 0x21,
+                                 0x30, 0x31, 0x40, 0x41};
+        bool all_ok = true;
+        std::string worst;
+        for (int i = 0; i < 8; ++i) {
             nr.write(0x50 + i, vals[i]);
-            if (nr.read(0x50 + i) != vals[i]) ok = false;
+            uint8_t got = nr.read(0x50 + i);
+            if (got != vals[i]) {
+                all_ok = false;
+                worst = "NR " + hex2(0x50 + i) + " " +
+                        detail_eq(got, vals[i]);
+            }
         }
-        check("RW-08", "NR 0x50-0x57 MMU write/read round-trip",
-              ok,
-              DETAIL("mmu2=%02x mmu5=%02x", nr.read(0x52), nr.read(0x55)));
+        check("RW-10",
+              "NR 0x50-0x57 MMU pages write/read round-trip "
+              "[zxnext.vhd:4607-4700]",
+              all_ok, worst);
     }
 
-    // RW-09: User register 0x7F
+    // RW-11 — NR 0x7F user scratch register.
     {
         NextReg nr;
         nr.write(0x7F, 0xAB);
-        uint8_t val = nr.read(0x7F);
-        check("RW-09", "NR 0x7F write 0xAB read back",
-              val == 0xAB,
-              DETAIL("expected=0xab got=0x%02x", val));
+        uint8_t got = nr.read(0x7F);
+        check("RW-11",
+              "NR 0x7F user scratch write=0xAB read=0xAB "
+              "[zxnext.vhd read dispatch, user-scratch slot]",
+              got == 0xAB, detail_eq(got, 0xAB));
     }
 
-    // RW-10: Tilemap control
+    // RW-12 — NR 0x6B tilemap control: plain 8-bit register. Per-bit
+    // effects belong to TilemapEngine; bare storage round-trips.
     {
         NextReg nr;
         nr.write(0x6B, 0x81);
-        uint8_t val = nr.read(0x6B);
-        check("RW-10", "NR 0x6B write 0x81 read back",
-              val == 0x81,
-              DETAIL("expected=0x81 got=0x%02x", val));
-    }
-
-    // RW-11: Write via select+write_selected
-    {
-        NextReg nr;
-        nr.select(0x16);
-        nr.write_selected(0xBB);
-        uint8_t val = nr.read(0x16);
-        check("RW-11", "select(0x16) + write_selected(0xBB) + read(0x16)",
-              val == 0xBB,
-              DETAIL("expected=0xbb got=0x%02x", val));
-    }
-
-    // RW-12: Read via select+read_selected
-    {
-        NextReg nr;
-        nr.write(0x17, 0xCC);
-        nr.select(0x17);
-        uint8_t val = nr.read_selected();
-        check("RW-12", "write(0x17,0xCC) + select(0x17) + read_selected()",
-              val == 0xCC,
-              DETAIL("expected=0xcc got=0x%02x", val));
+        uint8_t got = nr.read(0x6B);
+        check("RW-12",
+              "NR 0x6B tilemap control write=0x81 read=0x81 "
+              "[zxnext.vhd ~5630 nr_6b_tilemap_control]",
+              got == 0x81, detail_eq(got, 0x81));
     }
 }
 
-// ── 5. Write Handlers ─────────────────────────────────────────────────
-
-static void test_write_handlers() {
-    set_group("Handlers");
-
-    // WH-01: Write handler is called on write
-    {
-        NextReg nr;
-        uint8_t captured = 0;
-        nr.set_write_handler(0x15, [&](uint8_t v) { captured = v; });
-        nr.write(0x15, 0x42);
-        check("WH-01", "Write handler called with correct value",
-              captured == 0x42,
-              DETAIL("expected=0x42 captured=0x%02x", captured));
-    }
-
-    // WH-02: Write handler via write_selected
-    {
-        NextReg nr;
-        uint8_t captured = 0;
-        nr.set_write_handler(0x20, [&](uint8_t v) { captured = v; });
-        nr.select(0x20);
-        nr.write_selected(0x99);
-        check("WH-02", "Write handler via write_selected",
-              captured == 0x99,
-              DETAIL("expected=0x99 captured=0x%02x", captured));
-    }
-
-    // WH-03: Read handler overrides cached value
-    {
-        NextReg nr;
-        nr.set_read_handler(0x30, []() -> uint8_t { return 0xDD; });
-        nr.write(0x30, 0x11);
-        uint8_t val = nr.read(0x30);
-        check("WH-03", "Read handler returns 0xDD despite cached 0x11",
-              val == 0xDD,
-              DETAIL("expected=0xdd got=0x%02x", val));
-    }
-
-    // WH-04: No handler — direct storage
-    {
-        NextReg nr;
-        nr.write(0x40, 0x77);
-        uint8_t val = nr.read(0x40);
-        check("WH-04", "No handler — direct storage round-trip",
-              val == 0x77,
-              DETAIL("expected=0x77 got=0x%02x", val));
-    }
-}
-
-// ── 6. Clip Window Cycling (standalone NextReg only) ──────────────────
+// ── 5. Clip Window Cycling (CLIP-01..08) ─────────────────────────────
 
 static void test_clip_cycling() {
     set_group("Clip-Cycle");
 
-    // Note: Clip window cycling is implemented by write handlers in the
-    // wired-up system, not in the bare NextReg class. Here we verify that
-    // the base register storage works for the clip registers.
+    // Clip window registers 0x18/0x19/0x1A/0x1B cycle a 2-bit per-window
+    // index on each write (zxnext.vhd:5242-5290), and NR 0x1C bits 0..3
+    // reset those indices. NR 0x1C read returns the four 2-bit indices
+    // packed. Repeated reads of NR 0x18 cycle through x1/x2/y1/y2.
+    //
+    // None of this is implemented in the bare NextReg class — writing
+    // NR 0x18 four times just stores 0x40 in regs_[0x18]. The cycling
+    // state machine is installed as write_handlers by the Compositor /
+    // Layer2 / SpriteEngine / TilemapEngine subsystems at Emulator
+    // construction time. Cannot be exercised from bare NextReg.
 
-    // CLIP-01: Clip registers are writable
-    {
-        NextReg nr;
-        nr.write(0x18, 0x10);
-        check("CLIP-01", "NR 0x18 (L2 clip) writable",
-              nr.read(0x18) == 0x10,
-              DETAIL("got=0x%02x", nr.read(0x18)));
-    }
-
-    // CLIP-02: Clip register 0x19 writable
-    {
-        NextReg nr;
-        nr.write(0x19, 0x20);
-        check("CLIP-02", "NR 0x19 (sprite clip) writable",
-              nr.read(0x19) == 0x20,
-              DETAIL("got=0x%02x", nr.read(0x19)));
-    }
-
-    // CLIP-03: Clip register 0x1A writable
-    {
-        NextReg nr;
-        nr.write(0x1A, 0x30);
-        check("CLIP-03", "NR 0x1A (ULA clip) writable",
-              nr.read(0x1A) == 0x30,
-              DETAIL("got=0x%02x", nr.read(0x1A)));
-    }
-
-    // CLIP-04: Clip register 0x1B writable
-    {
-        NextReg nr;
-        nr.write(0x1B, 0x40);
-        check("CLIP-04", "NR 0x1B (tilemap clip) writable",
-              nr.read(0x1B) == 0x40,
-              DETAIL("got=0x%02x", nr.read(0x1B)));
-    }
-
-    // CLIP-05: Clip index register 0x1C writable
-    {
-        NextReg nr;
-        nr.write(0x1C, 0x0F);
-        check("CLIP-05", "NR 0x1C (clip index reset) writable",
-              nr.read(0x1C) == 0x0F,
-              DETAIL("got=0x%02x", nr.read(0x1C)));
-    }
+    skip("CLIP-01",
+         "L2 clip 4-way write cycling lives in Layer2 write_handler, "
+         "not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-02",
+         "L2 clip index wrap-around is Layer2 write_handler state, "
+         "not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-03",
+         "NR 0x1C bit0 L2 clip-index reset is Layer2 write_handler "
+         "state, not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-04",
+         "NR 0x1C bit1 sprite clip-index reset is SpriteEngine "
+         "write_handler state, not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-05",
+         "NR 0x1C bit2 ULA clip-index reset is ULA write_handler "
+         "state, not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-06",
+         "NR 0x1C bit3 tilemap clip-index reset is TilemapEngine "
+         "write_handler state, not bare NextReg [zxnext.vhd:5242-5290]");
+    skip("CLIP-07",
+         "NR 0x1C read-back of four packed 2-bit clip indices lives in "
+         "integration-tier read_handler, not bare NextReg "
+         "[zxnext.vhd:5242-5290]");
+    skip("CLIP-08",
+         "NR 0x18 sequential read cycling owned by Layer2 read_handler, "
+         "not bare NextReg [zxnext.vhd:5242-5290]");
 }
 
-// ── 7. Port Enable Registers ─────────────────────────────────────────
+// ── 6. MMU Registers (MMU-01..04) ────────────────────────────────────
+
+static void test_mmu() {
+    set_group("MMU");
+
+    // MMU-01 — zxnext.vhd:4610-4618 MMU reset defaults. The Mmu subsystem
+    // owns these; bare NextReg has no MMU reset at all.
+    skip("MMU-01",
+         "NR 0x50-0x57 MMU reset defaults owned by Mmu, not bare "
+         "NextReg [zxnext.vhd:4610-4618]");
+
+    // MMU-02 — plain write/read round-trip on a single MMU page slot.
+    // NextREG-side storage is transparent; the Mmu mirror lives in the
+    // Mmu subsystem but the regs_[] byte round-trips.
+    {
+        NextReg nr;
+        nr.write(0x52, 0x20);
+        uint8_t got = nr.read(0x52);
+        check("MMU-02",
+              "NR 0x52 (MMU2) write=0x20 read=0x20 "
+              "[zxnext.vhd:4613 MMU2 storage]",
+              got == 0x20, detail_eq(got, 0x20));
+    }
+
+    // MMU-03 — writing port 0x7FFD must update MMU6/MMU7 via the
+    // secondary port-path described in zxnext.vhd:4605. The bare NextReg
+    // class has no port 0x7FFD decoder; the Mmu subsystem owns that
+    // coupling.
+    skip("MMU-03",
+         "port 0x7FFD -> NR 0x56/0x57 coupling lives in Mmu, not bare "
+         "NextReg [zxnext.vhd ~4605]");
+
+    // MMU-04 — last-writer-wins arbitration between NextREG path and
+    // port 0x7FFD path is again Mmu-owned state.
+    skip("MMU-04",
+         "NextREG vs port 0x7FFD last-writer-wins arbitration is Mmu "
+         "state, not bare NextReg [zxnext.vhd ~4605-4700]");
+}
+
+// ── 7. Machine Config (CFG-01..05) ───────────────────────────────────
+
+static void test_cfg() {
+    set_group("Machine-Cfg");
+
+    // NR 0x03 has a small state machine at zxnext.vhd:5121-5151:
+    //   - bits 6:4 select machine timing
+    //   - bit 3 XOR-toggles dt_lock
+    //   - bits 2:0 enter/exit config mode (value 111 enters, 001-100
+    //     sets machine type and exits)
+    //   - machine type is only writable while config mode is active
+    //
+    // The bare NextReg class stores NR 0x03 as a plain byte with no
+    // config-mode FSM, no XOR, and no mode gating. Every CFG-xx row
+    // exercises behaviour that only exists in the integration-tier
+    // write_handler for NR 0x03 (owned by the machine-type manager in
+    // EmulatorConfig/Mmu).
+
+    skip("CFG-01",
+         "NR 0x03 bits 6:4 timing change is machine-type-manager "
+         "write_handler state, not bare NextReg "
+         "[zxnext.vhd:5121-5151]");
+    skip("CFG-02",
+         "NR 0x03 bit 3 dt_lock XOR toggle is machine-type-manager "
+         "write_handler state, not bare NextReg "
+         "[zxnext.vhd:5121-5151]");
+    skip("CFG-03",
+         "NR 0x03 bits 2:0=111 config-mode enter is machine-type-manager "
+         "write_handler state, not bare NextReg "
+         "[zxnext.vhd:5121-5151]");
+    skip("CFG-04",
+         "NR 0x03 bits 2:0=001..100 machine-type commit is "
+         "machine-type-manager write_handler state, not bare NextReg "
+         "[zxnext.vhd:5121-5151]");
+    skip("CFG-05",
+         "NR 0x03 config-mode gating of machine-type writes is "
+         "machine-type-manager write_handler state, not bare NextReg "
+         "[zxnext.vhd:5121-5151]");
+}
+
+// ── 8. Palette Registers (PAL-01..06) ────────────────────────────────
+
+static void test_palette() {
+    set_group("Palette");
+
+    // NR 0x40/0x41/0x44 form a 3-register palette-write pipeline with a
+    // sub_idx latch for the 9-bit 0x44 format and an auto-increment
+    // controlled by NR 0x43 bit 7 (zxnext.vhd:4918-4920 plus read
+    // dispatch). The palette RAM, sub_idx latch, priority bits and
+    // auto-increment state all live in the palette subsystem (Layer2 /
+    // Compositor side) — bare NextReg has none of them.
+
+    skip("PAL-01",
+         "NR 0x40 palette-index register sets palette-subsystem pointer, "
+         "not bare NextReg state [zxnext.vhd:4918-4920]");
+    skip("PAL-02",
+         "NR 0x41 8-bit palette write targets palette RAM in palette "
+         "subsystem, not bare NextReg [zxnext.vhd:4918-4920]");
+    skip("PAL-03",
+         "NR 0x44 9-bit palette write toggles sub_idx latch in palette "
+         "subsystem, not bare NextReg [zxnext.vhd:4918-4920]");
+    skip("PAL-04",
+         "NR 0x41 read returns palette_dat bits 8:1 from palette RAM "
+         "in palette subsystem, not bare NextReg [zxnext.vhd read dispatch]");
+    skip("PAL-05",
+         "NR 0x44 read returns priority+LSB from palette subsystem, "
+         "not bare NextReg [zxnext.vhd read dispatch]");
+    skip("PAL-06",
+         "NR 0x43 bit7 auto-increment disable gates palette-subsystem "
+         "pointer advance, not bare NextReg [zxnext.vhd:4918-4920]");
+}
+
+// ── 9. Port Enable Registers (PE-01..05) ─────────────────────────────
 
 static void test_port_enables() {
     set_group("Port-Enable");
 
-    // PE-01: Internal port enables writable
+    // PE-01 — NR 0x82 is a plain 8-bit storage register; peripheral
+    // decoding gates port response but the NextREG storage itself is
+    // transparent for a bare round-trip.
     {
         NextReg nr;
         nr.write(0x82, 0x00);
-        check("PE-01", "NR 0x82 write 0x00 read back",
-              nr.read(0x82) == 0x00,
-              DETAIL("got=0x%02x", nr.read(0x82)));
+        uint8_t got = nr.read(0x82);
+        check("PE-01",
+              "NR 0x82 internal port-enable write=0x00 read=0x00 "
+              "[zxnext.vhd:2392-2442, 5052-5068]",
+              got == 0x00, detail_eq(got, 0x00));
     }
 
-    // PE-02: Bus port enables writable
+    // PE-02 — same as PE-01 with a non-zero value to avoid the zero
+    // degeneracy.
     {
         NextReg nr;
-        nr.write(0x86, 0x55);
-        check("PE-02", "NR 0x86 write 0x55 read back",
-              nr.read(0x86) == 0x55,
-              DETAIL("got=0x%02x", nr.read(0x86)));
+        nr.write(0x82, 0xA5);
+        uint8_t got = nr.read(0x82);
+        check("PE-02",
+              "NR 0x82 internal port-enable write=0xA5 read=0xA5 "
+              "[zxnext.vhd:2392-2442, 5052-5068]",
+              got == 0xA5, detail_eq(got, 0xA5));
     }
 
-    // PE-03: All port enable registers round-trip
-    {
-        NextReg nr;
-        bool ok = true;
-        for (uint8_t r = 0x82; r <= 0x89; r++) {
-            nr.write(r, r);  // write the register number as value
-            if (nr.read(r) != r) ok = false;
-        }
-        check("PE-03", "NR 0x82-0x89 all writable",
-              ok,
-              DETAIL("spot: 0x84=%02x 0x88=%02x", nr.read(0x84), nr.read(0x88)));
-    }
+    // PE-03 — joystick-port disable via NR 0x82 bit 6 gates the
+    // port_1f_dat decoder in PortDispatch. Bare NextReg does not decode
+    // ports.
+    skip("PE-03",
+         "NR 0x82 bit6 gating of port 0x1F decoder lives in "
+         "PortDispatch, not bare NextReg [zxnext.vhd:2392-2442]");
+
+    // PE-04 — internal port-enable reset defaults (0xFF) are applied by
+    // the subsystem that wires the write_handler, per Task 2 item 7.
+    skip("PE-04",
+         "NR 0x82-0x85 reset default 0xFF owned by integration-tier "
+         "wiring, not bare NextReg [zxnext.vhd:5052-5068]");
+
+    // PE-05 — bus-side port-enable reset defaults (0xFF) come from the
+    // bus reset path, not the main reset.
+    skip("PE-05",
+         "NR 0x86-0x89 bus-port-enable reset default 0xFF owned by bus "
+         "reset path, not bare NextReg [zxnext.vhd:5052-5068]");
 }
 
-// ── 8. Edge Cases ────────────────────────────────────────────────────
+// ── 10. Copper Arbitration (COP-01..04) ──────────────────────────────
 
-static void test_edge_cases() {
-    set_group("Edge");
+static void test_copper_arbitration() {
+    set_group("Copper-Arb");
 
-    // EDGE-01: All 256 registers writable and readable (basic storage)
+    // COP-01 — CPU-side write to NR 0x15 via the bare NextReg interface
+    // is just write(0x15, v); the arbitration bus is invisible at this
+    // tier but the CPU-path byte does land in regs_[].
     {
         NextReg nr;
-        bool ok = true;
-        for (int r = 0; r < 256; r++) {
-            nr.write(r, r & 0xFF);
-        }
-        for (int r = 0; r < 256; r++) {
-            if (nr.read(r) != (r & 0xFF)) { ok = false; break; }
-        }
-        check("EDGE-01", "All 256 registers store and retrieve",
-              ok, "");
+        nr.write(0x15, 0x3C);
+        uint8_t got = nr.read(0x15);
+        check("COP-01",
+              "NR 0x15 CPU-path write=0x3C read=0x3C "
+              "[zxnext.vhd:4706-4777 cpu_requester_1]",
+              got == 0x3C, detail_eq(got, 0x3C));
     }
 
-    // EDGE-02: Reset clears non-default registers
-    {
-        NextReg nr;
-        nr.write(0x7F, 0xAA);
-        nr.reset();
-        uint8_t val = nr.read(0x7F);
-        check("EDGE-02", "Reset clears NR 0x7F to 0",
-              val == 0x00,
-              DETAIL("expected=0x00 got=0x%02x", val));
-    }
+    // COP-02 — simultaneous CPU+Copper write on the nr_wr_* bus (copper
+    // wins) is cycle-accurate arbitration that does not exist in the
+    // bare NextReg surface. No ticking, no dual-requester mux.
+    skip("COP-02",
+         "simultaneous CPU+Copper write arbitration requires "
+         "cycle-accurate nr_wr_* bus not exposed by bare NextReg "
+         "[zxnext.vhd:4706-4777]");
 
-    // EDGE-03: Reset restores defaults
-    {
-        NextReg nr;
-        nr.write(0x00, 0xFF);
-        nr.write(0x01, 0xFF);
-        nr.reset();
-        check("EDGE-03", "Reset restores NR 0x00=0x0A, NR 0x01=0x32",
-              nr.read(0x00) == 0x0A && nr.read(0x01) == 0x32,
-              DETAIL("nr00=0x%02x nr01=0x%02x", nr.read(0x00), nr.read(0x01)));
-    }
+    // COP-03 — CPU-wait-when-copper-active is the other half of the
+    // same cycle-accurate arbitration missing from the bare surface.
+    skip("COP-03",
+         "CPU-wait-while-copper-active requires cycle-accurate "
+         "arbitration bus not exposed by bare NextReg "
+         "[zxnext.vhd:4706-4777]");
 
-    // EDGE-04: Handlers survive reset (they are not cleared)
-    {
-        NextReg nr;
-        bool handler_called = false;
-        nr.set_write_handler(0x15, [&](uint8_t) { handler_called = true; });
-        nr.reset();
-        nr.write(0x15, 0x01);
-        check("EDGE-04", "Write handler survives reset",
-              handler_called, "");
-    }
-
-    // EDGE-05: Multiple selects, last wins
-    {
-        NextReg nr;
-        nr.write(0x10, 0xAA);
-        nr.write(0x20, 0xBB);
-        nr.select(0x10);
-        nr.select(0x20);
-        uint8_t val = nr.read_selected();
-        check("EDGE-05", "Multiple selects, last wins",
-              val == 0xBB,
-              DETAIL("expected=0xbb got=0x%02x", val));
-    }
+    // COP-04 — zxnext.vhd:4706-4777: copper-side register index is
+    // masked to 7 bits (MSB forced to 0). The mask is applied inside the
+    // Copper class, not NextReg, so a bare NextReg cannot see it.
+    skip("COP-04",
+         "copper register-index 7-bit mask applied in Copper class "
+         "before calling NextReg, not observable from bare NextReg "
+         "[zxnext.vhd:4706-4777]");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
-    printf("NextREG Compliance Tests\n");
-    printf("====================================\n\n");
+    std::printf("NextREG Compliance Tests\n");
+    std::printf("====================================\n\n");
 
-    test_register_selection();
-    printf("  Group: Selection — done\n");
+    test_selection();
+    std::printf("  Group: Selection      — done\n");
 
-    test_readonly_registers();
-    printf("  Group: Read-Only — done\n");
+    test_readonly();
+    std::printf("  Group: Read-Only      — done\n");
 
     test_reset_defaults();
-    printf("  Group: Reset — done\n");
+    std::printf("  Group: Reset          — done\n");
 
-    test_readwrite_roundtrip();
-    printf("  Group: Round-Trip — done\n");
-
-    test_write_handlers();
-    printf("  Group: Handlers — done\n");
+    test_roundtrip();
+    std::printf("  Group: Round-Trip     — done\n");
 
     test_clip_cycling();
-    printf("  Group: Clip-Cycle — done\n");
+    std::printf("  Group: Clip-Cycle     — done\n");
+
+    test_mmu();
+    std::printf("  Group: MMU            — done\n");
+
+    test_cfg();
+    std::printf("  Group: Machine-Cfg    — done\n");
+
+    test_palette();
+    std::printf("  Group: Palette        — done\n");
 
     test_port_enables();
-    printf("  Group: Port-Enable — done\n");
+    std::printf("  Group: Port-Enable    — done\n");
 
-    test_edge_cases();
-    printf("  Group: Edge — done\n");
+    test_copper_arbitration();
+    std::printf("  Group: Copper-Arb     — done\n");
 
-    printf("\n====================================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0)
-        printf(" (%d FAILED)", g_fail);
-    printf("\n");
+    std::printf("\n====================================\n");
+    std::printf("Results: %d/%d passed", g_pass, g_total);
+    if (g_fail > 0) std::printf(" (%d FAILED)", g_fail);
+    std::printf("\n");
 
-    // Per-group summary
-    printf("\nPer-group breakdown:\n");
-    std::string last_group;
+    // Per-group breakdown
+    std::printf("\nPer-group breakdown:\n");
+    std::string last;
     int gp = 0, gf = 0;
     for (const auto& r : g_results) {
-        if (r.group != last_group) {
-            if (!last_group.empty())
-                printf("  %-20s %d/%d\n", last_group.c_str(), gp, gp + gf);
-            last_group = r.group;
-            gp = gf = 0;
+        if (r.group != last) {
+            if (!last.empty())
+                std::printf("  %-22s %d/%d\n", last.c_str(), gp, gp + gf);
+            last = r.group;
+            gp   = gf = 0;
         }
-        if (r.passed) gp++; else gf++;
+        if (r.passed) ++gp; else ++gf;
     }
-    if (!last_group.empty())
-        printf("  %-20s %d/%d\n", last_group.c_str(), gp, gp + gf);
+    if (!last.empty())
+        std::printf("  %-22s %d/%d\n", last.c_str(), gp, gp + gf);
+
+    if (!g_skipped.empty()) {
+        std::printf("\nSkipped plan rows (unrealisable with bare NextReg API):\n");
+        for (const auto& s : g_skipped) {
+            std::printf("  %-10s %s\n", s.id, s.reason);
+        }
+        std::printf("  (%zu skipped)\n", g_skipped.size());
+    }
 
     return g_fail > 0 ? 1 : 0;
 }
