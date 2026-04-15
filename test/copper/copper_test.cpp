@@ -1186,6 +1186,12 @@ void group8_self_modifying() {
     // — they are independent (zxnext.vhd:3968/3989 vs 3973/3994).
     // copper_list_addr pc_ continues linearly; we observe that pc still
     // advances past the MOVE, not to the new CPU pointer.
+    //
+    // VHDL note (zxnext.vhd:5430-5431): NR 0x62 write only touches
+    // nr_copper_addr(10..8); bits (7..0) are preserved. So after the
+    // Copper MOVE lands 0x41 on NR 0x62 the CPU byte pointer becomes
+    // (prior_low | 0x100), not 0x100. We capture the low byte BEFORE the
+    // MOVE fires and assert the post-MOVE low byte is identical.
     {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
@@ -1193,16 +1199,20 @@ void group8_self_modifying() {
         program_word(cu, 1, enc_move(0x00, 0));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);   // mode change
+        uint8_t r61_before = cu.read_reg_0x61();
         cu.execute(12, 0, nr);   // MOVE@0: writes NR 0x62=0x41 via wired handler
-        // cu.write_reg_0x62 will set write_addr_ to 0x100 and mode to 01
-        // (same as current); but the read_reg_0x61 side sees the new hi bits.
-        uint8_t r61 = cu.read_reg_0x61();
-        uint8_t r62 = cu.read_reg_0x62();
+        // cu.write_reg_0x62 merges new addr_hi with preserved low byte
+        // and leaves mode unchanged (01); read_reg side sees the new hi
+        // bits, same low bits, same mode.
+        uint8_t r61_after = cu.read_reg_0x61();
+        uint8_t r62       = cu.read_reg_0x62();
         // Copper internal pc_ is independent; it should be 1 after the MOVE.
         uint16_t copper_pc = cu.pc();
-        check("MUT-03", "Copper NR 0x62 write updates CPU ptr, not copper pc",
-              (r62 & 0x07) == 0x01 && r61 == 0x00 && copper_pc == 1,
-              fmt("r61=%02x r62=%02x pc=%u", r61, r62, copper_pc));
+        check("MUT-03", "Copper NR 0x62 write updates CPU addr_hi only, preserves low byte; pc independent",
+              (r62 & 0xC0) == 0x40 && (r62 & 0x07) == 0x01
+                  && r61_after == r61_before && copper_pc == 1,
+              fmt("r61_before=%02x r61_after=%02x r62=%02x pc=%u",
+                  r61_before, r61_after, r62, copper_pc));
     }
 
     // MUT-04: Copper writes RAM via NR 0x60 inside a MOVE. With the CPU
