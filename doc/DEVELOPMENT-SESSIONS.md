@@ -27,5 +27,9 @@
 | 11/4   | 4h   | Phase 9: Bug fixes: palette index, 4-bit sprites, floating bus, ULA clip, tilemap 80-col   |
 | 12/4   | 8h   | Phase 9: FUSE 100%, Z80N test suite (78/78), 15 VHDL test plans, Copper+MMU test runners   |
 | 13/4   | 4h   | Phase 9: Z80 timing fix (3 root causes), contention, internal Z80N core feasibility plan   |
+| 14/4   | 6h   | Phase 9: Task 5 Steps 1-2 (lint, 4 plan/test fixes +54, 8 real emulator bugs documented)   |
+|        | 4h   | Phase 9: Task 5 Step 5 Phase 1 (6 theatre subsystem plans rebuilt from VHDL + reviews)     |
+|        | 6h   | Phase 9: Task 5 Step 5 Phase 2 (6 theatre test suites rewritten, 2 waves, 89.7% honest)    |
+|        | 2h   | Phase 9: Task 5 Step 6 traceability matrix + UNIT-TEST-PLAN-EXECUTION doc + reorg          |
 |        |      |                                                                                            |
-| TOTAL: | 88h  |                                                                                            |
+| TOTAL: | 106h |                                                                                            |
