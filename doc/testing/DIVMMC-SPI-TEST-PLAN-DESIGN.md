@@ -323,7 +323,7 @@ Port 0xEB triggers SPI byte exchange. VHDL reference: `spi_master.vhd`.
 | ID   | Test | Notes |
 |------|------|-------|
 | SX-01 | Write to port 0xEB: sends byte via MOSI | Loads output shift register with written byte |
-| SX-02 | Read from port 0xEB: sends 0xFF via MOSI, receives MISO | Output shift register loaded with all 1s on read |
+| SX-02 | Read from port 0xEB triggers exactly one SPI exchange cycle | `state_r` starts on rd (VHDL spi_master.vhd:109-110). MISO return value is NOT checked here — that is SX-03/SX-05/ML-05 territory because `miso_dat` is latched via the pipeline register at `state_last_d`. |
 | SX-03 | Read returns PREVIOUS exchange result | `miso_dat` latched at end of previous transfer |
 | SX-04 | First read after reset returns 0xFF | `miso_dat` initialized to all 1s |
 | SX-05 | Write 0xAA then read: read returns MISO from write cycle | Pipeline: read gets result of preceding exchange |

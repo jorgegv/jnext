@@ -114,6 +114,10 @@ public:
         ++exchange_count;
     }
     uint8_t send() override {
+        // Aligns with SpiDevice base class default `send() { return
+        // exchange(0xFF); }` — a read-triggered exchange pushes 0xFF on
+        // MOSI (VHDL spi_master.vhd:109-110 oshift_r <= all 1s on rd).
+        last_tx = 0xFF;
         ++exchange_count;
         return next_response;
     }
@@ -1150,19 +1154,31 @@ void group_sx() {
                   dev.last_tx, dev.exchange_count));
     }
 
-    // SX-02: Read from 0xEB sends 0xFF and latches MISO.
-    // VHDL: spi_master.vhd:109-110 — oshift_r <= all 1s on rd.
+    // SX-02: Read from 0xEB triggers exactly one SPI exchange.
+    // VHDL: spi_master.vhd:109-110 — oshift_r <= all 1s on rd;
+    // the read initiates a full 16-state_r transfer regardless of MISO.
+    //
+    // NOTE: the prior oracle also asserted `v == 0x5A` (the freshly-
+    // exchanged byte). That claim was a false-pass against the current
+    // non-pipelined C++ model — VHDL spi_master.vhd:159-175 latches
+    // miso_dat one state_last_d cycle after the exchange, so the
+    // CPU-visible byte on a read is the result of the PREVIOUS exchange,
+    // not the one this read just triggered. That semantic is covered by
+    // SX-03 / SX-05 / ML-05; SX-02's scope is narrowed here to the
+    // "a read triggers one exchange cycle" fact only. See also row 27
+    // of the Task 2 Emulator Bug backlog.
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
         dev.next_response = 0x5A;
         m.attach_device(0, &dev);
         m.write_cs(0xFE);
-        uint8_t v = m.read_data();
+        (void)m.read_data();
         check("SX-02",
-              "Read 0xEB returns MISO (VHDL spi_master.vhd:165)",
-              v == 0x5A && dev.exchange_count == 1,
-              fmt("v=%02x cnt=%d", v, dev.exchange_count));
+              "Read 0xEB pushes 0xFF on MOSI and triggers one exchange "
+              "(VHDL spi_master.vhd:109-110)",
+              dev.last_tx == 0xFF && dev.exchange_count == 1,
+              fmt("last_tx=0x%02x cnt=%d", dev.last_tx, dev.exchange_count));
     }
 
     // SX-03: Read returns PREVIOUS exchange result (pipeline delay).
