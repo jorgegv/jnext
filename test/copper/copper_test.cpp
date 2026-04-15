@@ -1073,7 +1073,9 @@ void group6_offset() {
     skip("OFS-03", "NR 0x64 / cvc not modelled in Copper class");
     skip("OFS-04", "NR 0x64 readback not exposed");
     skip("OFS-05", "NR 0x64 reset not observable (no accessor)");
-    skip("OFS-06", "c_max_vc wrap not modelled");
+    skip("OFS-06",
+         "c_max_vc timing-model wrap not observable — cvc is 50/60Hz/HDMI "
+         "dependent; see COPPER-TEST-PLAN-DESIGN.md Open Question #3");
 }
 
 // ── Group 7: NextREG write arbitration ────────────────────────────────
@@ -1106,8 +1108,11 @@ void group7_arbitration() {
               fmt("7f=%02x ff=%02x", seen_at_7f, seen_at_ff));
     }
 
-    // ARB-05: No copper request when stopped. Mode 00 + schedule CPU
-    // write to NR 0x40 -> CPU write completes unopposed.
+    // ARB-05: Mode 00 (stopped) never issues a Copper write pulse.
+    // VHDL copper.vhd:92-97 — when copper_en='0' (mode 00) the instruction
+    // machine does not advance; no MOVE can fire. Narrowed from the prior
+    // tautological variant that mixed a CPU write into the oracle (Task 3
+    // audit). Now asserts only the Copper-side fact.
     {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
@@ -1116,11 +1121,10 @@ void group7_arbitration() {
         program_word(cu, 0, enc_move(0x40, 0xAA));
         set_mode(cu, 0);
         for (int i = 0; i < 50; ++i) cu.execute(12, 0, nr);
-        // Now CPU writes; this counts as 1 write.
-        nr.write(0x40, 0xBB);
-        check("ARB-05", "Mode 00 never issues copper write",
-              copper_pulses == 1 && nr.read(0x40) == 0xBB,
-              fmt("pulses=%d nr40=%02x", copper_pulses, nr.read(0x40)));
+        check("ARB-05",
+              "Mode 00 never issues copper write (VHDL copper.vhd:92-97)",
+              copper_pulses == 0,
+              fmt("pulses=%d", copper_pulses));
     }
 
     skip("ARB-01", "cycle-accurate CPU/Copper bus not exposed");

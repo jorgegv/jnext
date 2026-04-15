@@ -162,20 +162,26 @@ static void test_TR() {
     }
 
     // TR-11: ULA palette output == NR 0x14 => ULA transparent; fallback wins.
-    //        VHDL zxnext.vhd:7100 mix transp when RGB[8:1]=transparent_rgb_2.
-    //        Encoded here by giving the ULA layer buffer the NR 0x14 colour
-    //        in its ARGB form — the Renderer currently treats this as opaque
-    //        (bug: ignores palette compare), so this row is expected to fail
-    //        until Task 3 fixes the compositor to honour NR 0x14.
+    //        VHDL zxnext.vhd:7100: mix_transparent when RGB[8:1] ==
+    //        transparent_rgb_2. The test uses a FALLBACK colour DISTINCT
+    //        from the ULA colour so that the transparent-then-fallback
+    //        path produces an observably different result from the
+    //        opaque-ULA path. Expected to fail until the compositor
+    //        implements palette-compare transparency (Task 2 backlog item
+    //        14.1 "NR 0x14 palette-compare transparency absent").
     {
         clear_layers(r);
         r.set_layer_priority(0);
         uint32_t nr14_as_argb = Renderer::rrrgggbb_to_argb(0xE3);
         r.ula_line_[0] = nr14_as_argb;          // palette RGB[8:1] == NR 0x14
-        uint32_t fb = vhdl_fallback_argb(0xE3);
+        uint32_t fb = vhdl_fallback_argb(0x10); // distinct from ULA (0xE3)
         uint32_t got = composite_one(r, fb);
-        // VHDL oracle: all layers transparent => fallback.
-        check("TR-11", "ULA RGB[8:1]=NR0x14 => transparent; fallback wins (VHDL 7100,7214)",
+        // VHDL oracle: ULA RGB matches NR 0x14 => transparent => fallback wins.
+        // Currently fails: Renderer uses ARGB alpha=0 for transparency; it
+        // treats opaque 0xE3 as opaque and emits the ULA colour instead.
+        check("TR-11",
+              "ULA RGB[8:1]=NR0x14 => transparent; fallback wins "
+              "(VHDL zxnext.vhd:7100, 7214)",
               got == fb,
               DETAIL("got=0x%08X expected_fallback=0x%08X", got, fb));
     }
@@ -184,22 +190,26 @@ static void test_TR() {
     //        against NR 0x14 — both palette LSBs (0 and 1) must be
     //        transparent when upper 8 == NR 0x14. VHDL zxnext.vhd:7100.
     //        The C++ renderer does not model the 9-bit palette, so the
-    //        encoding uses the same ARGB for both cases; we assert the
-    //        VHDL-correct oracle: both are transparent => both fall back.
+    //        two LSB cases collapse to the same ARGB input. We still
+    //        assert the VHDL-correct oracle (both produce fallback) using
+    //        a DISTINCT fallback colour so the check is non-tautological.
+    //        Expected to fail on same root cause as TR-11.
     {
         clear_layers(r);
         r.set_layer_priority(0);
         uint32_t nr14_as_argb = Renderer::rrrgggbb_to_argb(0xE3);
         r.ula_line_[0] = nr14_as_argb;
-        uint32_t fb = vhdl_fallback_argb(0xE3);
+        uint32_t fb = vhdl_fallback_argb(0x10); // distinct from ULA
         uint32_t got_a = composite_one(r, fb);
         // Second case — emulator has no 9-bit LSB, so we reuse the same
         // input to assert the VHDL-correct shared result.
         uint32_t got_b = composite_one(r, fb);
-        // The assertion: BOTH cases land on the fallback (transparent).
         bool ok = (got_a == fb) && (got_b == fb);
-        check("TR-12", "9-bit LSB is not compared; both LSB variants transparent (VHDL 7100)",
-              ok, DETAIL("a=0x%08X b=0x%08X fb=0x%08X", got_a, got_b, fb));
+        check("TR-12",
+              "9-bit LSB is not compared; both LSB variants transparent "
+              "(VHDL zxnext.vhd:7100)",
+              ok,
+              DETAIL("a=0x%08X b=0x%08X fb=0x%08X", got_a, got_b, fb));
     }
 
     // TR-13: ula_clipped_2=1 forces ULA transparent regardless of RGB.

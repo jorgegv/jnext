@@ -198,7 +198,7 @@ VHDL ref: `ym2149.vhd` lines 332-465
 | AY-110 | 0-3   | 0x  | `\___`            | C=0,At=0: start at 31, count down, hold at 0            |
 | AY-111 | 4-7   | 0x  | `/___`            | C=0,At=1: start at 0, count up, hold at max             |
 | AY-112 | 8     | 08  | `\\\\` (saw down) | C=1,At=0,Al=0,H=0: repeat down cycles                   |
-| AY-113 | 9     | 09  | `\___`            | C=1,At=0,Al=0,H=1: down once, hold at 0                 |
+| AY-113 | 9     | 09  | `\___`            | C=1,At=0,Al=0,H=1: down once, hold at is_bot_p1 → YM[1]=0x01 (VHDL ym2149.vhd:428-431) |
 | AY-114 | 10    | 0A  | `\/\/` (triangle) | C=1,At=0,Al=1,H=0: down then up, repeat                 |
 | AY-115 | 11    | 0B  | `\___` hold at 0  | C=1,At=0,Al=1,H=1: down once, hold at 0 (is_bot, vol=0) |
 | AY-116 | 12    | 0C  | `////` (saw up)   | C=1,At=1,Al=0,H=0: repeat up cycles                     |

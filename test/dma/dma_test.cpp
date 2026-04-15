@@ -1428,15 +1428,15 @@ void group12_transfer_modes() {
     skip("12.5", "BUSREQ re-request path (dma.vhd:451-460) requires bus "
                  "signal observation not exposed by Dma");
 
-    // 12.6 Byte mode: one byte per enable command.
-    // VHDL: `R4_mode_s = "00"` falls through to the same logic as burst
-    // with prescaler, but without looping back at the end.  In the C++
-    // emulator byte mode still goes through execute_burst, stopping after
-    // block_len reached — it does not implement the per-enable restriction.
-    // That is a legitimate emulator gap (Task 3 backlog territory).  For
-    // the plan row "R4_mode=00: single byte per enable", the VHDL
-    // expectation is the DMA stops after 1 byte even with block_len>1 and
-    // requires another ENABLE.
+    // 12.6 R4 mode "00" (byte mode) — VHDL dma.vhd:426 is not gated by
+    // R4_mode_s: the block-length check runs in every mode, so the DMA
+    // transfers the full block regardless of mode selection. The Z80-DMA
+    // external data sheet defines byte mode as "one byte per enable", but
+    // the jnext VHDL does not implement per-enable gating. The test
+    // asserts the VHDL-observable fact (full block transferred), not the
+    // Z80-DMA data sheet. Task 3 audit reclassified the prior `n==1`
+    // oracle as a plan misreading, not an emulator bug; Task 2 backlog
+    // item 6a (DMA byte-mode gate) is removed accordingly.
     {
         fresh(dma);
         for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xA0 + i);
@@ -1449,9 +1449,11 @@ void group12_transfer_modes() {
         zxn(dma, 0x00); zxn(dma, 0x90);
         zxn(dma, 0xCF); zxn(dma, 0x87);
         int n = dma.execute_burst(1000);
-        check("12.6", "Byte mode: one byte then stop (block_len=4)",
-              n == 1,
-              fmt("n=%d  VHDL dma.vhd:601 mode=00", n));
+        check("12.6",
+              "R4 mode=00 transfers full block_len bytes "
+              "(VHDL dma.vhd:426 block-length check is mode-agnostic)",
+              n == 4,
+              fmt("n=%d VHDL dma.vhd:426", n));
     }
 
     // 12.7 Continuous mode still respects the prescaler between bytes.

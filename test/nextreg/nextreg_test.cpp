@@ -138,9 +138,10 @@ static void test_selection() {
         nr.write(0x24, 0xA5);            // store sentinel at NR 0x24
         nr.write(0x00, 0x55);            // distinguisher at NR 0x00
         uint8_t sel_target = nr.read_selected();
-        // VHDL: selector after reset is 0x24, so read_selected() == 0xA5.
-        // Bare impl resets selected_ to 0, so read_selected() == 0x55.
-        // Leave failing — tracked as emulator bug in Task 3 backlog.
+        // VHDL: selector after reset is 0x24 (zxnext.vhd:4594-4596).
+        // C++ resets selected_ to 0x24 in NextReg::reset() — fix landed
+        // 2026-04-15 per prompt file Task 2 item 21. Expected: read_selected()
+        // targets NR 0x24, returns the 0xA5 sentinel written above.
         check("SEL-02",
               "read_selected() after reset reads NR 0x24 "
               "[zxnext.vhd:4594-4596]",

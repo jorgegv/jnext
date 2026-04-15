@@ -618,22 +618,17 @@ static void test_group_nr_gating() {
 
     // Each row constructs its own Emulator to avoid cross-contamination.
 
-    // NR82-00: 0x82 b0 → port 0x00FF (SCLD write). VHDL 2397, 2613.
-    {
-        Emulator emu; build_next_emulator(emu);
-        emu.port().out(0x00FF, 0x00);   // reset SCLD
-        nr_write(emu, 0x82, 0xFE);      // clear bit 0
-        emu.port().out(0x00FF, 0x38);   // hi-res mode bits
-        // Observe via renderer / Timex screen mode accessor if present.
-        // No direct accessor: rely on a negative probe — read-back of 0xFF
-        // should remain at its default post-gate. The best we can do is
-        // assert the gate has been written; the behavioural check is
-        // deferred to a VHDL-complete emulator.
-        uint8_t rb = nr_read(emu, 0x82);
-        check("NR82-00", "NR 0x82 bit 0 clear observable via NR readback",
-              (rb & 0x01) == 0,
-              DETAIL("NR82=0x%02x", rb));
-    }
+    // NR82-00: 0x82 b0 → port 0x00FF (SCLD write) gating.
+    // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0).
+    // A behavioural test would clear bit 0, then OUT 0xFF and observe
+    // that Timex screen mode does NOT change. The C++ emulator does not
+    // implement NR 0x82-0x85 gating (Task 2 backlog item 15.2) and has no
+    // Timex screen-mode accessor for a negative probe. Skipped until both
+    // land. The prior oracle was a bare NR readback — removed by the
+    // Task 3 audit as a false-pass (NR register latch, not port gate).
+    skip("NR82-00",
+         "port 0xFF SCLD gate unobservable: NR 0x82-0x85 gating not "
+         "implemented (Task 2 item 15.2, VHDL zxnext.vhd:2397)");
 
     // NR82-01: bit 1 gates 0x7FFD. VHDL 2399.
     {
@@ -647,14 +642,16 @@ static void test_group_nr_gating() {
               DETAIL("latch before=0x%02x after=0x%02x", before, after));
     }
 
-    // NR82-02: bit 2 gates 0xDFFD. VHDL 2400.
-    {
-        Emulator emu; build_next_emulator(emu);
-        nr_write(emu, 0x82, 0xFB);
-        // No observable accessor for 0xDFFD; test defers to handler presence.
-        check("NR82-02", "NR 0x82 b2 cleared in NR state",
-              (nr_read(emu, 0x82) & 0x04) == 0);
-    }
+    // NR82-02: bit 2 gates 0xDFFD (Pentagon extended bank).
+    // VHDL zxnext.vhd:2400: port_dffd_io_en <= internal_port_enable(2).
+    // A behavioural test requires both NR 0x82-0x85 gating (Task 2 item
+    // 15.2) and a Pentagon 0xDFFD handler (Task 2 item 15.3 / REG-10).
+    // Neither exists yet. The prior oracle was a bare NR readback — removed
+    // by Task 3 audit as a false-pass (NR latch, not port gate).
+    skip("NR82-02",
+         "port 0xDFFD gate unobservable: NR 0x82-0x85 gating not "
+         "implemented and no Pentagon 0xDFFD handler "
+         "(Task 2 items 15.2/15.3, VHDL zxnext.vhd:2400)");
 
     // NR82-03: bit 3 gates 0x1FFD. VHDL 2401.
     {

@@ -18,12 +18,6 @@
 //     bank5/bank7 flag accessor, no DivMMC/altrom priority plumbing) are
 //     skipped rather than tested as tautologies.
 //
-// Known-failing rows (left failing — Task 2 emulator backlog):
-//   * RST-01, RST-02 — Mmu::reset() calls map_rom(0,0)/map_rom(1,1) which
-//     overwrites slots_[0]/slots_[1] with 0/1, whereas VHDL reset leaves
-//     MMU0/MMU1 = 0xFF (the ROM marker). See Task 2 item 5 "MMU reset
-//     slot clobber" in .prompts/2026-04-15.md.
-//
 // Run: ./build/test/mmu/mmu_test
 
 #include "memory/mmu.h"
