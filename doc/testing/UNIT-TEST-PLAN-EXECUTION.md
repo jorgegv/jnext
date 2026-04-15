@@ -258,6 +258,112 @@ per-plan Current status blocks in sync.
 pass on a live subset is honest; 100% pass on the whole plan is only
 honest when the skip list is empty.
 
+## 6a. Updating the traceability matrix after a test run
+
+`doc/testing/TRACEABILITY-MATRIX.md` is the canonical map from every plan
+row to its test ID, VHDL citation, runtime status, and test-file location.
+It was generated mechanically at Task 5 Step 6 and must be refreshed
+whenever anything below changes, so that the published numbers in the
+matrix agree with what the binaries actually report:
+
+- A subsystem test suite is re-run and at least one row flips state
+  (pass ↔ fail, pass/fail ↔ skip, or `—` → any concrete state).
+- A test rewrite or review-fix commit lands on main — the last-touch SHA
+  in the per-subsystem header changes, and any new/removed test IDs
+  shift the "In-test" and "Missing" counts.
+- A plan row is added, retracted, renamed, or re-cited against different
+  VHDL lines.
+- A `skip()` is replaced by a real `check()` (per §5's un-skip rule) or
+  vice versa.
+- An "Extra coverage" row gets promoted to a real plan row (or the
+  reverse).
+- A subsystem gets refactored from a helper-function / data-driven
+  pattern to per-row `check()` IDs — the older suites currently report
+  `—` in the Status column precisely because they lack per-row tracking,
+  and refactoring one of them flips dozens of rows at once.
+
+### Refresh workflow
+
+1. **Re-run the affected suite** on main with a clean build. Capture the
+   raw `check()`/`skip()` output; don't trust memory.
+2. **Open `doc/testing/TRACEABILITY-MATRIX.md`** and locate the
+   subsystem's section. Every section has a fixed shape: a last-touch
+   commit header, one main table, and (sometimes) an "Extra coverage"
+   subsection.
+3. **Update the last-touch commit** at the top of the section to the new
+   SHA (both full form and 10-char short form as elsewhere in the doc).
+   `git log -1 --format='%H' -- test/<sub>/<file>.cpp` is the source of
+   truth.
+4. **Update each row's Status column** for every row whose state moved.
+   Allowed values: `pass`, `fail`, `skip`, `stub`, `missing`, `—`. Use
+   `—` only when the suite genuinely cannot report per-row status (the
+   older helper-function patterns); do not use `—` as a synonym for
+   "haven't looked yet."
+5. **Update each row's Test file:line** if assertions were re-grouped or
+   moved. Grep the test file for the test ID once; the first matching
+   `check()` or `skip()` call wins, same rule the original extractor
+   used.
+6. **Update the Summary table at the top** of the document — the
+   Pass / Fail / Skip-Stub / Missing columns and the aggregate Totals
+   line. This is the most common place to miss an update, and the
+   summary is what most readers look at first.
+7. **Re-align the table borders.** Every `|` in a column must still land
+   at the same position after your edits. If a cell got longer, bump the
+   column width for that whole table (header, separator row, and every
+   data row). A wider column by one cell is not acceptable — the hard
+   rule from §7 of this doc applies: tables are aligned or they are
+   broken.
+8. **Discrepancies section.** If your refresh resolves a discrepancy
+   previously listed (e.g. you refactored Tilemap to per-row IDs and it
+   no longer needs `—`), remove the corresponding bullet. If your run
+   uncovers a new discrepancy, add a bullet.
+9. **Commit the matrix update alongside the change that triggered it.**
+   An emulator fix branch, a test rewrite branch, or a suite-refactor
+   branch should all include the matrix diff in the same commit (or the
+   immediately following commit on the same branch) so reviewers can
+   see the numbers move together with the code. A separate "update
+   matrix" commit with no other context is a smell — it usually means
+   someone ran the tests, saw drift, and patched the doc instead of
+   investigating.
+
+### What NOT to do
+
+- **Do not fake pass/fail without running the binary.** The matrix was
+  originally generated read-only (status derived from `check()` vs
+  `skip()` structure) and that is the only context where `—` is
+  allowed. Once you're updating a row's status, you must have actually
+  executed the test on main.
+- **Do not regenerate the whole matrix from scratch for a small change.**
+  The mechanical extraction is expensive in tool calls and risks
+  reintroducing fixed discrepancies. Edit in place.
+- **Do not update the matrix without also updating the corresponding
+  plan's Current status block and the EMULATOR-DESIGN-PLAN.md table**
+  (§6 rule). All three numbers must move together.
+- **Do not lose the "Extra coverage (not in plan)" subsection** for a
+  subsystem just because a refresh removed the rows that populated it.
+  Leave the subsection header with an explicit "(none)" line so future
+  readers know the absence is intentional, not an oversight.
+
+### Per-subsystem gotchas to watch for
+
+- **Phase 2 rewrites (Layer2, Sprites, Copper, Compositor, IO Port
+  Dispatch, Input)**: these have proper per-row `skip()`/`check()`
+  tracking. Refreshes should produce concrete `pass`/`fail`/`skip`
+  values for every row except ones genuinely deferred to the integration
+  tier. If a row in one of these six subsystems still reports `—` after
+  a refresh, that is a bug in the refresh, not an acceptable state.
+- **Older rewrites (Memory/MMU, ULA Video, Tilemap, Audio, DMA, DivMMC,
+  CTC, UART, NextREG)**: per-row status is `—` until the suite is
+  refactored. A refresh after a run of these suites should still leave
+  Status as `—` unless the refactor has also landed. The useful signal
+  to update for these is the aggregate Pass / Fail count in the summary
+  table — derive it from the suite's trailing summary line, not from
+  the per-row table.
+- **Z80N**: data-driven FUSE runner; per-row is permanently `missing`
+  by design. The aggregate Pass column in the summary table tracks the
+  runner's overall pass count (currently 1356/1356 FUSE + 78/78 Z80N
+  compliance). Update only the aggregate, never the per-row rows.
+
 ## 7. Worktree mechanics and the sub-agent sandbox
 
 A few operational rules that bit us during Phase 2 and are easy to forget:
