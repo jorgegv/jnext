@@ -285,18 +285,26 @@ static void test_group_registration() {
               DETAIL("NR07 readback=0x%02x", rb));
     }
 
-    // REG-05: 0x243C/0x253C not decoded (LSB 0x3C, not 0x3B).
+    // REG-05: LSB 0x3F (not 0x3B) is not decoded by the NextReg data path.
     // VHDL zxnext.vhd:2625 matches on port_3b_lsb only.
+    //
+    // Review note: the original probe used 0x253C, but that port has A15=0
+    // and A1=0, which IS the 128K bank latch decode (mask 0x8002/0x0000,
+    // VHDL 2593). Writing 0xFF to 0x253C therefore silently latched 0xFF
+    // into MMU.port_7ffd_ and locked paging for the rest of the shared
+    // Emulator — poisoning REG-08 and every later row that reads the MMU.
+    // The correct "NR LSB miss" probe needs A1=1 to avoid the 0x7FFD
+    // decoder; 0x253F (A1=1, A15=0) is a clean miss on both decoders.
     {
         // Pre-load NR 0x07 to a known value, then attempt a rogue OUT at
-        // 0x253C which must not change NR state.
+        // 0x253F which must not change NR state and must not hit 0x7FFD.
         emu.port().out(0x243B, 0x07);
         emu.port().out(0x253B, 0x01);
-        emu.port().out(0x253C, 0xFF);           // should be a no-op
+        emu.port().out(0x253F, 0xFF);           // should be a no-op
         emu.port().out(0x243B, 0x07);
         uint8_t rb = emu.port().in(0x253B);
         check("REG-05",
-              "OUT 0x253C does not reach NextReg data path",
+              "OUT 0x253F does not reach NextReg data path",
               (rb & 0x03) == 0x01,
               DETAIL("NR07=0x%02x expected 0x01", rb));
     }
@@ -316,9 +324,12 @@ static void test_group_registration() {
     }
 
     // REG-08: 0x7FFD MMU bank select. VHDL zxnext.vhd:2593.
+    // Use a fresh Emulator: the 128K bank latch locks on writes with bit 5
+    // set, and earlier rows may have inadvertently triggered the decoder.
     {
-        emu.port().out(0x7FFD, 0x03);           // bank 3, ROM lo, screen 0
-        uint8_t latch = emu.mmu().port_7ffd();
+        Emulator emu8; build_next_emulator(emu8);
+        emu8.port().out(0x7FFD, 0x03);           // bank 3, ROM lo, screen 0
+        uint8_t latch = emu8.mmu().port_7ffd();
         check("REG-08",
               "OUT 0x7FFD updates MMU 128K bank latch",
               latch == 0x03,
@@ -378,15 +389,21 @@ static void test_group_registration() {
     }
 
     // REG-12: SPI CS 0xE7, data 0xEB. VHDL zxnext.vhd:2620-2621.
+    //
+    // Review note: the original row also asserted `dat != 0xFF`, but with no
+    // SD image attached the SD card device returns 0xFF from send() per
+    // spi/sd_card.cpp:158. 0xFF is a valid SPI idle response and asserting
+    // !=0xFF is a test bug. Keep the CS latch check only — that is what
+    // proves the 0xE7 write handler is wired. The 0xEB handler wiring is
+    // already exercised by the write call itself (no crash / no default).
     {
         emu.port().out(0x00E7, 0xFE);           // CS: all-but-channel-0 low
-        emu.port().out(0x00EB, 0x55);           // shift reg data
-        uint8_t cs   = emu.spi().read_cs();
-        uint8_t dat  = emu.spi().read_data();
+        emu.port().out(0x00EB, 0x55);           // shift reg data (no crash)
+        uint8_t cs = emu.spi().read_cs();
         check("REG-12",
-              "OUT 0xE7/0xEB land on SPI CS / data shifter",
-              cs == 0xFE && dat != 0xFF, // reads trigger exchange, exact byte device-dependent
-              DETAIL("cs=0x%02x data=0x%02x", cs, dat));
+              "OUT 0xE7 updates SPI CS latch",
+              cs == 0xFE,
+              DETAIL("cs=0x%02x expected 0xFE", cs));
     }
 
     // REG-13: Sprite 0x303B slot-select write + status read. VHDL
@@ -520,7 +537,7 @@ static void test_group_registration() {
     // On a Next machine the expected default is a non-zero floating byte
     // per the installed default_read callback.
     {
-        uint8_t rd = emu.port().in(0x00A5);     // nothing should match
+        uint8_t rd = emu.port().in(0x00A7);     // nothing should match
         check("REG-24",
               "Unmapped port read does not return 0x00",
               rd != 0x00,
@@ -528,10 +545,16 @@ static void test_group_registration() {
     }
 
     // REG-25: Unmapped port write has no observable side effect — we can
-    // only negatively assert: ULA border unchanged, AY unchanged, etc.
+    // only negatively assert: ULA border unchanged.
+    //
+    // Review note: the original probe used 0x00A5, but A1=0 on that port, so
+    // the write hits the 0x7FFD 128K decoder (mask 0x8002/value 0x0000,
+    // VHDL 2593). That is not "unmapped" — it quietly locks MMU paging.
+    // Use 0x00A7 (A1=1) which misses both the 0x7FFD decoder and every
+    // NR/peripheral decode line.
     {
         emu.port().out(0x00FE, 0x04);           // set border = green
-        emu.port().out(0x00A5, 0xFF);           // unmapped write
+        emu.port().out(0x00A7, 0xFF);           // truly unmapped write
         uint8_t b = emu.renderer().ula().get_border();
         check("REG-25",
               "OUT to unmapped port does not clobber ULA border",
