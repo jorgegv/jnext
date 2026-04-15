@@ -12,6 +12,22 @@ based on instruction fetches at specific addresses. SPI provides the byte
 exchange protocol for SD card communication. Both subsystems are critical for
 NextZXOS boot and SD card access.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-divmmc`).
+Measured on main post-merge (commit `c9d057e`):
+
+- **123 plan rows** mapped 1:1 to test IDs. Plan header says "124 rows" but section totals sum to 123 — (D) plan nit noted, plan not edited.
+- **53/67 live pass (79.1%)**, 14 fail, 56 skip.
+- **Fails (C-class legitimate emulator bugs — many NEW Emulator Bug backlog items)**:
+  - **E3-04**: `DivMmc::write_control(0x00)` clears `mapram_`, VHDL `zxnext.vhd:4182-4183` OR-latches (mapram stays set once armed). NEW.
+  - **E3-07, E3-08**: `DivMmc::read_control` returns raw register, VHDL `zxnext.vhd:4190` masks bits 5:4 to zero in read-back.
+  - **EP-02, EP-03, EP-11, NR-01, NR-02, NR-05**: ROM3 automap gating absent. `DivMmc::check_automap` iterates `entry_points_0_` bits unconditionally without consulting `entry_valid_0_` / `i_automap_rom3_active`. VHDL `zxnext.vhd:2892-2905` requires ROM3 for all EP except EP0. NEW — major user-visible impact (wrongly traps into DivMMC on any 0x0008/0x0038 RST fetch).
+  - **SS-09, SS-10, SS-11**: `SpiMaster::write_cs` stores raw byte; VHDL `zxnext.vhd:3311-3322` implements a full cpu_do decode with defaults collapsing to `0xFF` (single-device enforcement). NEW.
+  - **SX-03**: SPI pipeline delay absent. `spi_master.vhd:162-166` latches `miso_dat` one cycle after `state_last`, so first read after select should return the previous exchange result. C++ returns the current result. See `memory/project_spi_vhdl_behavior.md`.
+  - **ML-05**: `SpiMaster::reset` does not initialize `ishift_r` to `0xFF`; VHDL `spi_master.vhd:151-152` does. NEW.
+- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (TM-01..05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
+
 ## Architecture
 
 ### Test harness

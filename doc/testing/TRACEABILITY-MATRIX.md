@@ -16,14 +16,14 @@
 | Compositor       | 115       | 91      | —    | —    | 0         | 24      | `fcbd9aed61`      |
 | Audio            | 197       | 197     | 121  | 6    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 156     | 116  | 5    | 35        | 0       | `deeb9f6000`      |
-| DivMMC+SPI       | 124       | 57      | —    | —    | —         | 67      | `86dc8f85dc`      |
+| DivMMC+SPI       | 123       | 123     | 53   | 14   | 56        | 0       | `c9d057e000`      |
 | CTC+Interrupts   | 150       | 46      | —    | —    | —         | 104     | `f7e1b035d7`      |
-| UART+I2C/RTC     | 105       | 63      | —    | —    | —         | 42      | `7cf61e20fa`      |
-| NextREG          | 66        | 38      | —    | —    | —         | 28      | `044f9c5787`      |
+| UART+I2C/RTC     | 105       | 106     | 48   | 12   | 46        | 0       | `628d01f000`      |
+| NextREG          | 64        | 64      | 16   | 1    | 47        | 0       | `75fe6da000`      |
 | IO Port Dispatch | 90        | 60      | —    | —    | 0         | 30      | `fcbd9aed61`      |
 | Input            | 149       | 149     | —    | —    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1821** plan rows, **1321** mapped to tests, **500** missing. Wave 1 of Task 1 (2026-04-15, MMU/DMA/Audio) populated concrete pass/fail/skip counts above for those three rows. **Per-row Status columns inside the MMU, DMA, and Audio sections below are still `—`** — they will be refreshed in one sweep once Waves 2 and 3 of Task 1 also land, to avoid redundant mechanical edits across 9 sequential merges. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
+Totals: **1819** plan rows (−2 from NextREG plan-count correction 66→64, +1 from UART I2C-P05 sub-letter split), **1614** mapped to tests, **207** missing. Waves 1 and 2 of Task 1 (2026-04-15) refactored MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI — 6 subsystems — to the Phase 2 per-row idiom and populated concrete pass/fail/skip counts above. **Per-row Status columns inside the 6 refactored sections below are still `—`** — they will be refreshed in a single sweep once Wave 3 (CTC, Tilemap, ULA Video) also lands, to avoid redundant mechanical edits across the 9 sequential merges of Task 1. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
 ## Z80N — `test/z80n_test.cpp`
 

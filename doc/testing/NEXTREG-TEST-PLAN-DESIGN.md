@@ -11,6 +11,17 @@ defined in `zxnext.vhd` (lines ~4585-6293), specifically the register
 select mechanism (port 0x243B), data read/write (port 0x253B), reset defaults,
 register encoding, and arbitration between CPU and copper requesters.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-nextreg`).
+Measured on main post-merge (commit `75fe6da`):
+
+- **64 plan rows total** (plan header said ~64; prompt said 66 — (D) row count noted, plan not edited). Actual sections sum to 64 (SEL 7 + RO 6 + RST 9 + RW 12 + CLIP 8 + MMU 4 + CFG 5 + PAL 6 + PE 5 + COP 4 — but actual plan is SEL 5 + RO 6 + RST 9 + RW 12 + CLIP 8 + MMU 4 + CFG 5 + PAL 6 + PE 5 + COP 4 = 64).
+- **16/17 live pass (94.1%)**, 1 fail, 47 skip.
+- **Fails (C-class legitimate emulator bug — NEW Emulator Bug backlog item)**: SEL-02 — `NextReg::reset()` sets `selected_=0`, VHDL `zxnext.vhd:4594-4596` specifies `nr_register <= X"24"` on reset. One-line fix in `src/port/nextreg.cpp`.
+- **Skips**: 47 rows (73%). Very skip-heavy. Every non-SEL / non-RW row (RO, RST, CLIP, MMU 1/3/4, CFG, PAL, PE 3-5, COP) lives in subsystem classes attached to `NextReg` via handlers, not on the bare `NextReg` public API. Per Emulator Bug backlog item 7 — these rows must be rewritten as full-machine integration tests rather than duplicating VHDL state into `NextReg::reset()`.
+- **(D) plan nit**: plan mixes bare-tier rows with integration-tier rows without labelling. Future plan refresh should tag each row with its intended test tier (bare / subsystem / integration). Test file's skip reasons document the tier boundary inline.
+
 ## Authoritative VHDL Source
 
 `zxnext.vhd`:

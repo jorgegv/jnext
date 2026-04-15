@@ -13,6 +13,18 @@ and by user programs. This test plan ensures the emulator faithfully
 reproduces the VHDL behaviour for port I/O, FIFO management, baud rate
 configuration, status register semantics, and I2C bit-bang protocol.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-uart`).
+Measured on main post-merge (commit `628d01f`):
+
+- **105 plan rows** mapped 1:1 to test IDs (I2C-P05 split into P05a/P05b → 106 IDs total).
+- **48/60 live pass (80.0%)**, 12 fail, 46 skip.
+- **Fails (C-class legitimate emulator bugs)**:
+  - 9 rows — I2C-P03, I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, RTC-06, RTC-07 — all collapse to one root cause: `src/peripheral/i2c.cpp:101` false-STOP detection. `detect_start_stop()` is called from `write_scl` with stale `prev_sda_`. Fix: remove the call from `write_scl`. (Emulator Bug backlog item 1.)
+  - 3 rows — SEL-02, SEL-05, DUAL-02 — **NEW Emulator Bug backlog item**. `src/peripheral/uart.cpp:299` select-register read uses bit 6 (`0x40`) as UART 1 marker, but VHDL `uart.vhd:371` emits `"01000" & msb` → bit 3 (`0x08`).
+- **Skips**: 46 rows — TX-05/07-14 (no bit-level TX line), RX-08-15 (no framing/parity error injection), INT-01..06 (IM2 wiring outside `Uart` class), GATE-01..03 (port decode in `PortDispatch`), FRM-05/06, BAUD-02/03/07, DUAL-05/06, I2C-10/11, RTC-08..17. All genuinely unreachable via the current public API.
+
 ## VHDL Source Files
 
 | File | Role |
