@@ -2,8 +2,7 @@
 
 This document describes how the VHDL-derived unit test plans in
 `doc/design/*-TEST-PLAN-DESIGN.md` are authored, executed, maintained, and
-evolved in lockstep with emulator fixes. It is the process manual behind
-Phase 9 / Task 5 of the emulator design plan. Read it before touching any
+evolved in lockstep with emulator fixes. Read it before touching any
 test plan, any `test/<subsystem>/<subsystem>_test.cpp`, or any emulator fix
 that flips tests from skip/fail to pass.
 
@@ -32,7 +31,7 @@ A unit-test plan row can resolve into one of three observable states:
   under the plan's stimulus. Counts toward the live pass rate.
 - **Fail** — the C++ implementation produces a value that disagrees with
   the VHDL citation. Counts toward the live fail count. Every fail must be
-  traceable to a specific emulator gap listed in the Task 3 backlog.
+  traceable to a specific entry in the Emulator Bug backlog.
 - **Skip** — the plan row cannot be exercised against the current C++
   surface. Does NOT count as pass or fail. Reported separately with a
   one-line reason.
@@ -70,7 +69,7 @@ in C++ but produces the wrong value:
 
 The distinction matters because skips are advertising "work has to be done
 here" while fails are advertising "the code is lying about behaviour." Both
-feed the Task 3 backlog but they point at different fix categories and
+feed the Emulator Bug backlog but they point at different fix categories and
 should not be conflated.
 
 ### What skip is NOT
@@ -121,7 +120,8 @@ Step 5 Phase 2 pattern), follow this recipe:
    Sandbox restrictions block them; build, run, and commit happen from the
    main session (see `memory/feedback_subagent_sandbox.md`). The author
    sub-agent delivers source code only.
-10. **Do NOT patch `src/` to make tests pass.** That is Task 3's job; see
+10. **Do NOT patch `src/` to make tests pass.** That belongs to the
+    Emulator Bug backlog; see
     §5.
 
 ## 4. Independent review is mandatory
@@ -148,7 +148,7 @@ The reviewer's job is triage, not rewriting:
      arithmetic wrong. Example: Copper MUT-03 asserted an over-wide NR
      0x62 self-write when VHDL preserves the low byte.
    - **(C) Legitimate emulator bug** — C++ disagrees with VHDL. Leave
-     failing, add to Task 3 backlog.
+     failing, add to the Emulator Bug backlog.
    - **(D) Plan bug** — plan row itself disagrees with VHDL. Note in the
      report; do not edit the plan (that's a separate decision).
 3. **Stub honesty check.** For every `skip()`, verify the facility is
@@ -165,7 +165,7 @@ The reviewer's job is triage, not rewriting:
    on the same branch with messages like `test(<subsystem>): review fix
    — <what>`. Rebuild and re-run to measure final pass/fail/skip numbers.
 7. **Report.** Verdict (APPROVE / APPROVE-WITH-FIXES / REJECT), per-
-   category summary, Task 3 backlog items found, final pass rate, commit
+   category summary, Emulator Bug backlog items found, final pass rate, commit
    SHAs of any fixes.
 
 Only APPROVE or APPROVE-WITH-FIXES (with the fixes committed and the rerun
@@ -174,13 +174,13 @@ passing) are merge-eligible. REJECT bounces back to the author.
 ## 5. Running emulator fixes against existing skips and fails
 
 This is the process that moves the honest pass rate up over time. It is a
-separate task stream from test authoring (Phase 9 Task 3 in the design
-plan) and has strict rules.
+separate task stream from test authoring (the Emulator Bug backlog) and
+has strict rules.
 
 ### The 1:1:1 rule
 
 One emulator fix branch handles **one coherent feature area** from the
-Task 3 backlog (e.g. "implement NR 0x64 / cvc offset" or "apply `+1` bank
+Emulator Bug backlog (e.g. "implement NR 0x64 / cvc offset" or "apply `+1` bank
 transform in `compute_ram_addr`"). On that branch:
 
 1. Apply the emulator fix in `src/`.
@@ -246,7 +246,7 @@ whenever:
 
 - A test rewrite lands — publish the measured numbers, not the plan
   target.
-- A Task 3 emulator fix lands — publish the new numbers after re-running
+- An Emulator Bug backlog fix lands — publish the new numbers after re-running
   the suite on main.
 - A new row is added or retracted — update the denominator.
 
@@ -425,7 +425,7 @@ short-cut would have let slip through in the original theatre suites.
 | Situation | What to do |
 |---|---|
 | A test plan row does not match VHDL | Report in the review. Do not silently edit the plan. |
-| A test fails because VHDL disagrees with C++ | File a Task 3 backlog item in `.prompts/YYYY-MM-DD.md`. Leave the test failing. |
+| A test fails because VHDL disagrees with C++ | File an Emulator Bug backlog item in `.prompts/YYYY-MM-DD.md`. Leave the test failing. |
 | A test fails because the author misread VHDL | Reviewer fixes the assertion on the same branch. Commit message `test(<sub>): review fix — <what>`. |
 | A plan row cannot be exercised via the current API | Replace the assertion with `skip(id, reason)`. Reason must be one line and explain *what* is unreachable, not *that* it is unreachable. |
 | An emulator fix lands and unblocks skipped rows | Same branch as the fix: delete the `skip()` calls, write the real assertions from the plan. Re-run. |
@@ -435,12 +435,12 @@ short-cut would have let slip through in the original theatre suites.
 
 ## 10. Related documents and memory
 
-- `doc/design/EMULATOR-DESIGN-PLAN.md` § Phase 9 — the task tree this
-  process implements.
+- `doc/design/EMULATOR-DESIGN-PLAN.md` — the emulator design plan this
+  process plugs into.
 - `doc/testing/REGRESSION-TEST-SUITE.md` — the golden-output screenshot
   suite (separate track from unit tests).
 - `doc/design/*-TEST-PLAN-DESIGN.md` — the 16 per-subsystem plans.
-- `.prompts/YYYY-MM-DD.md` Task 3 sections — the live emulator-bug
+- `.prompts/YYYY-MM-DD.md` Emulator Bug backlog sections — the live emulator-bug
   backlog sourced from these plans.
 - `memory/feedback_test_from_vhdl.md` — the no-C++-as-oracle rule.
 - `memory/feedback_verify_before_commit.md` — never commit a fix without
@@ -454,4 +454,4 @@ short-cut would have let slip through in the original theatre suites.
 - `memory/project_test_plan_audit_20260414.md` — the audit that triggered
   the Phase 2 rewrites.
 - `memory/project_task5_step5_phase2_complete.md` — the Phase 2 outcome
-  and Task 3 backlog snapshot.
+  and Emulator Bug backlog snapshot.
