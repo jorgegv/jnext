@@ -58,12 +58,12 @@ future confusion. The authoritative mapping is `nr_wr_dat(4 downto 2)`
 
 | NR 0x15 bits | Function | Source |
 |--------------|----------|--------|
-| 7 | (reserved) | — |
-| 6 | `nr_15_sprite_priority` (sprite zero on top) | `zxnext.vhd:5939` |
-| 5 | `nr_15_sprite_border_clip_en` | `zxnext.vhd:5939` |
+| 7 | `nr_15_lores_en` (LoRes enable) | `zxnext.vhd:5229` |
+| 6 | `nr_15_sprite_priority` (sprite zero on top) | `zxnext.vhd:5230` |
+| 5 | `nr_15_sprite_border_clip_en` | `zxnext.vhd:5231` |
 | 4:2 | `nr_15_layer_priority` (3-bit mode selector) | `zxnext.vhd:5232` |
-| 1 | `nr_15_sprite_over_border_en` | `zxnext.vhd:5939` |
-| 0 | `nr_15_sprite_en` | `zxnext.vhd:5939` |
+| 1 | `nr_15_sprite_over_border_en` | `zxnext.vhd:5233` |
+| 0 | `nr_15_sprite_en` (global sprite enable) | `zxnext.vhd:5234` |
 
 The 8 encodings of the 3-bit mode are:
 
@@ -77,6 +77,24 @@ The 8 encodings of the 3-bit mode are:
 | `101` | ULS | ULA → Layer 2 → Sprite | 7274 |
 | `110` | Blend add | L2 + U additive (clamped to 7) | 7286 |
 | `111` | Blend sub | L2 + U − 5 (clamped to [0,7]) | 7312 |
+
+## Out-of-scope (delegated to other subsystem plans)
+
+The following NR 0x15 bits and ULA sub-modes affect pixels that arrive at
+the compositor but their **internal semantics** belong to other subsystem
+test plans. The compositor plan only verifies that the signal crosses the
+boundary correctly (see the explicit boundary rows in the PRI-BOUND and
+TR groups).
+
+| Feature | Delegated to | Reason |
+|---------|--------------|--------|
+| NR 0x15 bit 7 `nr_15_lores_en` (LoRes enable) | ULA / LoRes plan | LoRes is folded into the ULA pixel path before stage 2; the compositor only sees `ula_rgb_2`. See Open Question 3 and 5 below. |
+| NR 0x15 bit 6 `nr_15_sprite_priority` (sprite-0 on top among sprites) | Sprites plan | Resolved inside `sprites.vhd` before `sprite_pixel_en_o` reaches the compositor. |
+| NR 0x15 bit 5 `nr_15_sprite_border_clip_en` | Sprites plan | Gates the sprite clip window inside `sprites.vhd`; compositor only sees the resulting `sprite_pixel_en_2`. |
+| ULA hi-res mode (NR 0x11, timing 256×192 at doubled pixel clock) | ULA plan | Produces a regular `ula_rgb_2` stream; compositor is resolution-agnostic at the ULA input boundary. |
+| ULA hi-colour / ULAplus / ULANext attribute modes | ULA plan | Produce a regular `ula_rgb_2` stream through the ULA/TM shared palette; compositor sees only the post-palette 9-bit RGB. See boundary row TR-15. |
+| Sprite transparent-index comparison (NR 0x4B) | Sprites plan | Comparison is inside `sprites.vhd:1067`; compositor verified at TRI-10/TRI-11 only. |
+| Tilemap transparent-index nibble (NR 0x4C) | Tilemap plan | Comparison is inside `tilemap.vhd`; compositor verified at TRI-20 only. |
 
 ## Authoritative VHDL Source
 
@@ -293,6 +311,10 @@ derivation is non-obvious, the arithmetic is shown inline.
 | TR-12 | ULA palette entry whose LSB differs from NR 0x14 LSB is still transparent | NR 0x14=0xE3 | ULA palette entry 9-bit value `"11100011" & "0"` and `"11100011" & "1"` | both transparent | 7100 (only 8:1 compared) |
 | TR-13 | `ula_clipped_2=1` forces ULA transparent regardless of RGB | NR 0x14=0x00, ULA pixel RGB=0xFF | set `ula_clipped_2=1` | ULA transparent | 7100 |
 | TR-14 | `ula_en_2=0` forces ULA transparent even if mix_transparent=0 | — | Disable ULA (NR 0x68 bit 7=1) | `ula_transparent=1`, ULA does not win | 7103 |
+| TR-15 | Compositor is resolution-agnostic at the ULA input boundary (hi-res / hi-colour / ULANext) | mode 000, L2/S/TM transparent, NR 0x14=0xE3 | Drive `ula_rgb_2`=0x1AA from the ULA path regardless of whether the ULA is in standard, hi-res, hi-colour or ULANext mode | `rgb_out_2 = 0x1AA` — stage 2 only consumes the post-palette 9-bit word; any hi-res/hi-colour semantics are resolved upstream of `ula_rgb_2` | 7100, 7104, 7226 |
+| TR-16 | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → ULA transparent (match succeeds) | NR 0x14=0x00, mode 000, L2/S/TM transparent, NR 0x4A=0x10 | ULA palette entry 9-bit = `"00000000" & "0"` | ULA transparent → fallback wins; `rgb_out_2 = 0x10<<1 \| 0 = 0x020` (bit1=0, bit0=0 → synthetic LSB=0) | 7100, 7214 |
+| TR-17 | `ula_border_2` is ignored by stage-2 mix in modes 000/001/010 (only ULA's `ula_final_transparent` feeds the SLU selector) | mode 000, U opaque, `ula_border_2=1`, `ula_border_2=0` | Toggle `ula_border_2` with ULA identically opaque in both cases; L2/S/TM transparent | `rgb_out_2` identical for both — stage 2 branches at 7218–7248 reference `ula_final_transparent` only; the border exception clause is attached to `ula_final_transparent` exclusively at lines 7256/7266/7278 (modes 011/100/101), not at 7220/7232/7244 | 7218–7248, 7256, 7266, 7278 |
+| TR-42 | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin pixel transparent at the compositor output | mode 000, S palette RGB=0x1CC (opaque), L2/U transparent, NR 0x4A=0xE3 | Write NR 0x15 bit 0 = 0 while keeping a sprite that would otherwise produce `sprite_pixel_en=1` | `sprite_pixel_en_1 = sprite_pixel_en_1a AND sprite_en_1 = 0` → `sprite_pixel_en_2=0` → `sprite_transparent=1` at compositor → fallback wins (`rgb_out_2 = 0x1C7`), regardless of the sprite engine's internal pixel_en | 6934 (AND with `sprite_en_1`), 6819 (latch from NR 0x15[0]), 7118, 7214 |
 | TR-20 | Tilemap text-mode RGB compare | NR 0x14=0xE3, tm_pixel_en=1, tm_textmode=1 | TM palette entry RGB[8:1]=0xE3 | tm_transparent=1 | 7109 |
 | TR-21 | Tilemap non-text (attribute) ignores RGB compare | NR 0x14=0xE3, tm_pixel_en=1, tm_textmode=0 | TM palette entry RGB[8:1]=0xE3 | tm_transparent=0 (opaque) | 7109 (middle clause gated on textmode) |
 | TR-22 | Tilemap `pixel_en=0` transparent regardless of mode | — | tm_pixel_en=0, textmode=0, RGB=0x10 | tm_transparent=1 | 7109 |
@@ -538,7 +560,7 @@ Layer 2 / Sprites / ULA plans.
 
 | Category | Tests |
 |----------|------:|
-| TR (RGB-compare transparency)      | 15 |
+| TR (RGB-compare transparency)      | 19 |
 | TRI (index-compare integration)    |  3 |
 | FB (fallback)                      |  8 |
 | PRI (6 priority modes, rows)       | 20 |
@@ -552,7 +574,7 @@ Layer 2 / Sprites / ULA plans.
 | BLANK (output blanking)            |  4 |
 | PAL (palette integration)          |  6 |
 | RST (reset)                        |  4 |
-| **Total**                          |**109** |
+| **Total**                          |**113** |
 
 ## Open Questions (Honest)
 
