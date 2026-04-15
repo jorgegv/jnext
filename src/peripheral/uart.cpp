@@ -295,8 +295,9 @@ uint8_t Uart::read(int port_reg) {
         }
         case 1: {
             // 0x153B Select port read — returns channel select + prescaler MSB
-            // VHDL: uart0 returns "00000" & msb, uart1 returns "01000" & msb
-            uint8_t val = (select_ ? 0x40 : 0x00) | channels_[select_].read_prescaler_msb();
+            // VHDL uart.vhd:371: uart0 returns "00000" & msb,
+            // uart1 returns "01000" & msb → bit 3 (0x08), not bit 6.
+            uint8_t val = (select_ ? 0x08 : 0x00) | channels_[select_].read_prescaler_msb();
             uart_log()->trace("ch{} select read {:#04x}", select_, val);
             return val;
         }
