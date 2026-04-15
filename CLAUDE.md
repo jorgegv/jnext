@@ -71,8 +71,8 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 > It documents the VHDL-as-oracle rule, the pass/fail/skip distinction,
 > the 1:1:1 emulator-fix-plus-unskip process, the independent-review
 > requirement, and why all of that exists (the coverage-theatre audit).
-> The process is mandatory for every test plan rewrite and every Task 3
-> emulator fix that touches subsystem tests.
+> The process is mandatory for every test plan rewrite and every emulator
+> fix that touches subsystem tests.
 
 ### FUSE Z80 opcode test suite
 
