@@ -13,6 +13,16 @@ contention and floating bus behaviour. Incorrect ULA behaviour is visible in
 virtually every program. This test plan defines the checks needed to verify
 VHDL-faithful implementation across all ULA operating modes.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave3-ula`).
+Measured on main post-merge (commit `7c56b92`):
+
+- **122 plan rows + 1 extra regression witness**, 48 live check + 75 skip.
+- **47/48 live pass (97.9%)**, 1 fail, 75 skip.
+- **Fails (C-class legitimate emulator bug)**: **S13.14** — `frame_done` does not flip at the 69888 T-state boundary on 48K. VHDL `zxula_timing.vhd` says it should. Retained as a failing `check()` regression witness per process manual §3; Emulator Bug backlog item 4. Do NOT convert to skip.
+- **Skips**: 75 rows cluster into 6 unimplemented feature areas all living outside `Ula`'s public API — §6 ULAnext (12, no `nr_42/43`), §7 ULA+ (6, no `port_ff3b_ulap_en`), §9 Scroll (10, no `nr_26/27`), §10 Floating bus (8, lives on `Emulator` not `Ula`), §11 Contention (12, in `ContentionModel`), §14 Frame interrupt (6, not on `VideoTiming`/`Ula`). Plus scattered internal-signal rows for unexposed state. S12.02/S12.03 demoted from check→skip during review because `Ula::set_ula_enabled` is a plain bool field not wired into `render_scanline` (tautology).
+
 ## Scope
 
 | Area                         | VHDL Source                | Section |

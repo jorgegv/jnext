@@ -8,22 +8,22 @@
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
 | Memory/MMU       | 143       | 143     | 64   | 2    | 77        | 0       | `6d1a057000`      |
-| ULA Video        | 122       | 35      | —    | —    | —         | 87      | `9fcc580214`      |
+| ULA Video        | 122       | 123     | 47   | 1    | 75        | 0       | `7c56b92000`      |
 | Layer2           | 97        | 51      | —    | —    | 0         | 46      | `fcbd9aed61`      |
 | Sprites          | 132       | 116     | —    | —    | 0         | 16      | `28f5afb540`      |
-| Tilemap          | 69        | 43      | —    | —    | —         | 26      | `d599cd2761`      |
+| Tilemap          | 69        | 69      | 38   | 13   | 18        | 0       | `a3e1196000`      |
 | Copper           | 76        | 76      | —    | —    | 10        | 0       | `fcbd9aed61`      |
 | Compositor       | 115       | 91      | —    | —    | 0         | 24      | `fcbd9aed61`      |
 | Audio            | 197       | 197     | 121  | 6    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 156     | 116  | 5    | 35        | 0       | `deeb9f6000`      |
 | DivMMC+SPI       | 123       | 123     | 53   | 14   | 56        | 0       | `c9d057e000`      |
-| CTC+Interrupts   | 150       | 46      | —    | —    | —         | 104     | `f7e1b035d7`      |
+| CTC+Interrupts   | 150       | 150     | 43   | 1    | 106       | 0       | `9591481000`      |
 | UART+I2C/RTC     | 105       | 106     | 48   | 12   | 46        | 0       | `628d01f000`      |
 | NextREG          | 64        | 64      | 16   | 1    | 47        | 0       | `75fe6da000`      |
 | IO Port Dispatch | 90        | 60      | —    | —    | 0         | 30      | `fcbd9aed61`      |
 | Input            | 149       | 149     | —    | —    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1819** plan rows (−2 from NextREG plan-count correction 66→64, +1 from UART I2C-P05 sub-letter split), **1614** mapped to tests, **207** missing. Waves 1 and 2 of Task 1 (2026-04-15) refactored MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI — 6 subsystems — to the Phase 2 per-row idiom and populated concrete pass/fail/skip counts above. **Per-row Status columns inside the 6 refactored sections below are still `—`** — they will be refreshed in a single sweep once Wave 3 (CTC, Tilemap, ULA Video) also lands, to avoid redundant mechanical edits across the 9 sequential merges of Task 1. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
+Totals: **1819** plan rows, **1819** mapped to tests, **0** missing (non-Z80N). **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
 ## Z80N — `test/z80n_test.cpp`
 

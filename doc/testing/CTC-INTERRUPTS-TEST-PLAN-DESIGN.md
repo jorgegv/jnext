@@ -13,6 +13,17 @@ sources with a daisy-chain priority scheme, supporting both legacy pulse mode
 and hardware IM2 mode. This test suite validates both subsystems against the
 authoritative VHDL sources.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave3-ctc`).
+Measured on main post-merge (commit `9591481`):
+
+- **150 plan rows total** (plan summary line says "~151" — (D) plan nit).
+- **43/44 live pass (97.7%)**, 1 fail, 106 skip.
+- **Fails (C-class legitimate emulator bug)**: CTC-CH-01 — `src/peripheral/ctc.cpp::handle_zc_to()` chains N→N+1 only for N<3; VHDL `zxnext.vhd:4084` wires `ch0.clk_trg = ch3.zc_to` (ring wrap). Known Emulator Bug backlog item.
+- **Skips**: 106 rows (71%). Sections 7-17 (IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE, DMA, UNQ, JOY) are entirely unreachable on bare `Ctc` class — there is no interrupt controller class, no NR 0xC0-0xCE handlers, no DMA int wire, no pulse fabric, no line-interrupt class, no joy_iomode pin 7 plumbing in the current jnext source tree. Those sections are effectively "subsystems not yet implemented" and would require substantial new code to un-skip.
+- **(D) plan nits**: plan summary "~151" should be 150; Section 13 header says "18" but lists 17 NR-C* rows.
+
 ## VHDL Source Files
 
 | File | Role |

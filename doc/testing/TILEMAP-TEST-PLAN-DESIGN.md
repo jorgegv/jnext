@@ -13,6 +13,21 @@ configurable layer-priority ("below ULA") mode. This plan defines black-box
 tests that verify emulator behaviour against VHDL-derived specifications,
 without reference to the C++ implementation.
 
+## Current status
+
+Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave3-tilemap`).
+Measured on main post-merge (commit `a3e1196`):
+
+- **69 plan rows total**, 51 check + 18 skip.
+- **38/51 live pass (74.5%)**, 13 fail, 18 skip.
+- **SPECIAL**: this rewrite **replaced the control-bit swap "anti-tests"** (TM-40/41/42/43/50/51/52/53/71/104) with VHDL-correct assertions that now FAIL against the current emulator, exposing the `src/video/tilemap.cpp:38-42` bit-assignment swap (2-bit misalignment with dropped bit 3). Reviewer confirmed VHDL `tilemap.vhd:189-195` says bit 6=mode, bit 5=strip_flags, bit 3=textmode; C++ has text_mode_=bit 5 and force_attr_=bit 4. Once the Emulator Bug backlog item for the control-bit swap lands, these 10 rows flip from fail to pass.
+- **Fails (C-class legitimate emulator bugs, 13 rows)**:
+  - **Control-bit swap family (10 rows)**: TM-40, TM-41, TM-42, TM-43, TM-50, TM-51, TM-52, TM-53, TM-71, TM-104 — existing Emulator Bug backlog item 8.
+  - **NEW — TM-15**: rotate transform swaps X/Y (VHDL `tilemap.vhd:323-324`) — not implemented.
+  - **NEW — TM-30**: `control(1)=1` enables 9-bit tile index (512 mode, VHDL `tilemap.vhd:194`) — not implemented.
+  - **NEW — TM-31**: in 512 mode, `attr(0)` becomes tile bit 8 (VHDL `tilemap.vhd:393`) — not implemented.
+- **Skips**: 18 rows — all live outside `Tilemap`'s public API: compositor RGB transparency (TM-44/93/94), PaletteManager routing (TM-100/101/102), clip enforcement in compositor (TM-110..116), below/ULA merge (TM-123), stencil (TM-130/131), disabled-tilemap below logic (TM-140/141).
+
 ## Authoritative VHDL Sources
 
 | File | Role |
