@@ -1031,25 +1031,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
   **Unit-test totals post-Phase 2: 1133/1244 live pass (91.1%), 152 honest skips/stubs, 91 legitimate emulator-bug failures** (all in Task 3 backlog, VHDL-verified, no test-harness bugs remain).
 
-- [ ] Fix baseline of subsystem tests not passing (Task 3 — deferred by user directive; emulator fixes are not done during Task 5 Step 2/5 test-plan work):
-  - [x] Memory/MMU SPE-04 config-3 row (fixed in Step 2 plan+test pass)
-  - [ ] Memory/MMU RST-01/02 (`Mmu::reset()` clobbers slots_[0..1] to 0x00/0x01; VHDL `zxnext.vhd:4611-4612` says 0xFF/0xFF sentinel)
-  - [ ] Memory/MMU L2M-01 (L2 writes to bank 8 alias MMU page 0x10 — real hardware collision, needs user decision per Task 5 Step 4)
-  - [ ] NextREG (14 RST-xx failures — rewrite as full-machine integration tests, not state duplication in `NextReg::reset()`; see `project_nextreg_integration_test.md`)
-  - [ ] NextREG (2 failures JMODE-08 + IOMODE-01 — `NextReg::reset()` zeroes register file instead of applying signal-decl defaults; NR 0x05 should reset to 0x40, NR 0x0B to 0x01)
-  - [ ] CTC + Interrupts (1 failure — ch3→ch0 ZC/TO wrap-around)
-  - [ ] UART + I2C/RTC (9 failures — `detect_start_stop()` at `src/peripheral/i2c.cpp:101` fires from `write_scl` with stale `prev_sda_`; per I2C spec, START/STOP are SDA transitions only)
-  - [ ] DivMMC + SPI (4 failures — mapram OR-latch, bits 5:4 mask, 0x3Dxx automap)
-  - [ ] ULA Video S13.14 (frame_done doesn't flip when T-state counter reaches hc_max*vc_max/2=69888)
-  - [ ] Audio — AY envelope hold-at-is_bot off-by-one shapes 0/9 (`ay_chip.cpp` hold triggers on `is_bot_p1` instead of `is_bot`), Turbosound default panning TS-10/TS-42 (reset panning not initialized to 0b11, pan=01 decode wrong)
-  - [ ] DMA zero-length transfer (9.7, 14.4 — block_len==0 still transfers 1 byte)
-  - [ ] Tilemap control-bit swap (bit 3 text mode / bit 5 strip flags swapped relative to `tilemap.vhd`; delete the anti-tests that document the bug as expected behaviour)
-  - [ ] Layer 2 `+1` bank transform missing at `src/video/layer2.cpp:52-61` (VHDL `layer2.vhd:172`) — breaks 6 tests
-  - [ ] Sprites: Y clip 8-bit → 9-bit, `max_sprites_` overtime detection, NR 0x15 bit 5 `border_clip_en` plumbing, non-over-border clip Y transform parity, `mirror_inc_i` pulse observability, anchor-H latch observability — breaks 1 live test + 5 stubs
-  - [ ] Copper `nr_copper_write_8` sticky latch (`zxnext.vhd:4883-4887`), NR 0x64/cvc offset model, cycle-accurate arbitration bus, NMI `nmi_cu_02_we` — 0 live fails but 10 stubs
-  - [ ] Compositor 9 gaps: palette-compare transparency (NR 0x14), blend modes 110/111, stencil mode (NR 0x68 b0), ULA/TM blend mode (NR 0x68 b6:5), L2 palette bit 15 promotion, border exception modes 011/100/101, NR 0x15[0] global `sprite_en` gating, per-line NR 0x15/NR 0x14 stage-0 latch, blank output boundary visibility — breaks 24 tests
-  - [ ] I/O Port Dispatch: `register_handler` overlap silently accepted (`port_dispatch.cpp` read/write asymmetry), NR 0x82-0x85 enable-bit gating absent, Pentagon 0xDFFD / Kempston 1/2 / Kempston mouse / ULA+ handlers missing, DivMMC NR 0x83 b0 gating not wired, AY 0xFFFD floating-bus gated read, SPI 0xE7/0xEB routing, 128K bank latch observability, CTC range extension to 0x1F3B, `PortDispatch` constructor stub collision with real handlers — breaks 18 tests
-  - [ ] Input: entire joystick subsystem (NR 0x05 decoder, port 0x1F/0x37, Kempston 1/2, MD 3-button, MD 6-button + NR 0xB2, Sinclair 1/2, Cursor adapters), Kempston mouse (0xFADF/FBDF/FFDF), NR 0x06 NMI gating, NR 0x0B user-I/O pin-7 mux + UART routing, keyboard CS hysteresis + extended-column folding + NR 0xB0/0xB1 extended-key matrix, port 0xFE byte-assembly wrapper + NR 0x08 issue-2/3 select + expansion-bus AND — 126 skipped rows
+- [ ] **Fix baseline of subsystem tests not passing** — Emulator Bug backlog. Tracked item-by-item in the active `.prompts/YYYY-MM-DD.md` "Emulator Bug backlog" section (currently `.prompts/2026-04-15.md` with 31 items as of Task 1 completion); the live set of failing rows is always visible by running the subsystem test binaries and reading the per-row Status column in `doc/testing/TRACEABILITY-MATRIX.md`. Current aggregate across all 15 non-Z80N subsystems: **102 legitimate emulator-bug failures** (see matrix Summary). Work items are picked up one-branch-per-fix per the 1:1:1 rule in `doc/testing/UNIT-TEST-PLAN-EXECUTION.md` §5.
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
