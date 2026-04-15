@@ -34,5 +34,9 @@
 | 15/4   | 6h   | Phase 9: Task 1 all 9 older suites refactored to Phase 2 per-row idiom (3 waves, merged)   |
 |        | 1h   | Phase 9: Task 1 doc refresh — plans + EMULATOR-DESIGN-PLAN + matrix summary + backlog 21-31|
 |        | 2h   | Phase 9: Matrix per-row refresh script + extend to 15 subsystems + 6 dropped-row fixups    |
+|        | 2h   | Phase 9: Task 2 partial — 4 cheap fixes merged (items 1/5/21/22), SX-02 false-pass found   |
+|        | 1h   | Phase 9: Task 3 spec drafted — full 1788-row audit, 3 waves of 5, pass/fail/skip taxonomy  |
+|        | 3h   | Phase 9: Task 3 audit Waves 1-3 — 15 parallel agents, 15 subsystem reports + master summary|
+|        | 1h   | Phase 9: Task 3 remediation — 11 findings + 5 UNCLEAR cleared, matrix 1010/89/689/0        |
 |        |      |                                                                                            |
-| TOTAL: | 104h |                                                                                            |
+| TOTAL: | 111h |                                                                                            |
