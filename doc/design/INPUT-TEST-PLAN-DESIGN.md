@@ -673,6 +673,25 @@ No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan
 Rebuilt.
 
+**Current status (2026-04-15):** test code rewritten and merged to main.
+Honest pass rate: **21/23 live, 126 skip** — the skips document plan rows
+that cannot be exercised against the current C++ surface. 2 live failures
+are legitimate Task 3 emulator bugs, both in `NextReg::reset()`: JMODE-08
+expects NR 0x05 = 0x40 per `zxnext.vhd:1105-1106` + the soft-reset block
+at `:4920-4945` that intentionally does NOT clear `nr_05_joy*`; IOMODE-01
+expects NR 0x0B = 0x01 per `zxnext.vhd:4939-4941` + packing at `:5200-5203`.
+`NextReg::reset()` currently zeroes the whole register file instead of
+applying signal-declaration defaults.
+
+**Task 3 implementation debt (summary of the 126 skipped rows):** keyboard
+CS hysteresis + extended-column folding + NR 0xB0/0xB1 extended-key matrix;
+entire joystick subsystem (NR 0x05 decoder, joy0/joy1 mux, port 0x1F/0x37
+handlers, Kempston 1/2, MD 3-button, MD 6-button state machine + NR 0xB2,
+Sinclair 1/2 and Cursor joy→key adapters); NR 0x0B user-I/O pin-7 mux +
+UART routing; Kempston mouse ports 0xFADF/0xFBDF/0xFFDF + enable gate;
+NR 0x06 NMI gating; port 0xFE byte assembly wrapper + NR 0x08 issue-2/3
+select + expansion-bus AND.
+
 ---
 
 ## 6. Open Questions

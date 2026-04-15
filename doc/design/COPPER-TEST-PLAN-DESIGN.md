@@ -32,6 +32,13 @@
 >   11 bits (`zxnext.vhd:1194`), the instruction address `copper_list_addr`
 >   is 10 bits (`copper.vhd:38, 48`).
 
+**Current status (2026-04-15):** test code rewritten and merged to main.
+Honest pass rate: **66/66 live, 10 stub** (OFS-01..06 NR 0x64/cvc offset
+model absent, ARB-01/02/03/06 cycle-accurate bus / NMI model absent).
+0 failures. The `nr_copper_write_8` sticky latch (RAM-MIX-01) remains
+unmodelled in the emulator but does not manifest under current stimulus;
+it is on the Task 3 backlog in case other interleavings expose it.
+
 ## Purpose
 
 The Copper is a simple display-synchronized coprocessor that executes a list

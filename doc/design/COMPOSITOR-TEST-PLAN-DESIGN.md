@@ -47,6 +47,17 @@ structural problems that together made the pass rate coverage theatre:
 This rebuild derives every expected value from a specific line in
 `zxnext.vhd`. No expected value is taken from the C++ implementation.
 
+**Current status (2026-04-15):** test code rewritten and merged to main.
+Honest pass rate: **90/114 live, 0 stub**. 24 failures are all legitimate
+Task 3 emulator gaps, independently VHDL-verified: (1) NR 0x14 palette-
+compare transparency absent (C++ uses ARGB alpha); (2) blend modes 110/111
+unimplemented (`src/video/renderer.cpp:259` SLU fallback); (3) stencil mode
+(NR 0x68 bit 0) absent; (4) ULA/TM blend mode (NR 0x68 bits 6:5) absent;
+(5) L2 palette bit 15 priority promotion absent; (6) border exception for
+modes 011/100/101 absent; (7) NR 0x15[0] global `sprite_en` gating absent
+at compositor; (8) per-line stage-0 latch for NR 0x15/NR 0x14 absent; (9)
+blank output visibility at `composite_scanline` boundary absent.
+
 ### NR 0x15 bit-field clarification
 
 The task brief claimed "NR 0x15 bits 2:0" control the priority mode.

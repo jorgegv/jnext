@@ -43,6 +43,22 @@
 > Until this plan is re-implemented, the I/O port dispatch subsystem has
 > **no trustworthy test coverage**. The subsystem must not be marked green
 > on Task 5 based on the old 78/78 number.
+>
+> **Current status (2026-04-15):** test code rewritten and merged to main.
+> Honest pass rate: **64/82 live, 6 stub** (Group D expbus_eff_en hook absent,
+> IORQ-01, CTN-01/02, AMAP-01). 18 failures are all legitimate Task 3 emulator
+> gaps: NR 0x82-0x85 enable-bit gating completely absent (NR82-01/03, NR85-03b,
+> NR-DEF-01, NR-85-PK, NR-RST-01, BUS-86-01, LIBZ80-05); Pentagon 0xDFFD handler
+> missing (REG-10); Kempston 1/2 read handlers missing (REG-18/19); mouse
+> 0xFADF/FBDF/FFDF handlers missing (REG-20, REG-26/27); ULA+ 0xBF3B/FF3B
+> missing (REG-21); `register_handler` silently accepts overlapping (mask,
+> value) ranges (PR-01 — the known read/write asymmetry bug in
+> `src/port/port_dispatch.cpp`); DivMMC NR 0x83 b0 gating not wired (AMAP-03);
+> AY 0xFFFD floating-bus gated read (BUS-02); SPI 0xE7/0xEB not routed (REG-12);
+> 128K bank latch not observable (REG-08). Plan nit: REG-17 wording says
+> "0x133B rejected" but VHDL line 2639 and `src/core/emulator.cpp:747` both
+> route 0x133B to UART TX-status — the test correctly tracks observable
+> VHDL, not plan wording.
 
 ---
 

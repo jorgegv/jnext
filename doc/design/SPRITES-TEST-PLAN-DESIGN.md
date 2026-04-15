@@ -588,6 +588,16 @@ line must read "`N/126` passing, `M` VHDL-derived, `K` stub". A stub row
 counts as 0 in the N column and must carry a `TODO(sprites): stub` marker
 in code.
 
+**Current status (2026-04-15):** test code rewritten and merged to main.
+Honest pass rate: **115/116 live, 10 stub** (G13.OT-02/03/04, G11.OB-03,
+G12.RP-03/04, G9.RO-03/04, G1.AT-12, G15.NG-06 — facilities not exposed by
+`SpriteEngine`). The 1 remaining live failure is a Task 3 emulator bug:
+sprite Y clip is 8-bit in C++ (`clip_y1_`/`clip_y2_`) but VHDL `y_e_v` is
+9-bit — cannot address y=256. Task 3 backlog also contains: `max_sprites_`
+overtime detection, NR 0x15 bit 5 `border_clip_en` plumbing, non-over-border
+clip Y transform parity with VHDL, `mirror_inc_i` pulse observability,
+anchor-H latch observability.
+
 ## Open Questions
 
 These are the VHDL ambiguities identified while deriving the plan. They

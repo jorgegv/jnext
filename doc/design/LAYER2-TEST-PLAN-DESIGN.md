@@ -35,8 +35,11 @@
 > corresponding test code (if any) must be removed before this plan is re-marked
 > "passing"; see the Retractions section at the bottom.
 >
-> **Current status: plan rewritten; test code not yet aligned to it. Pass count
-> is unknown until test code is reworked in a separate pass.**
+> **Current status (2026-04-15): test code rewritten and merged to main. Honest
+> pass rate: 89/95 live, 44 rows deferred to integration tier. The 6 failures are
+> all driven by a single Task 3 emulator bug — `src/video/layer2.cpp:52-61`
+> `compute_ram_addr()` omits the VHDL `+1` bank transform at `layer2.vhd:172`.
+> Tests are the specification; leave failing until Task 3 fixes the emulator.**
 
 Systematic compliance test plan for the Layer 2 bitmap display subsystem,
 derived exclusively from the VHDL sources (`layer2.vhd` and the Layer 2 wiring
