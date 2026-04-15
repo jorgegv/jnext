@@ -33,7 +33,7 @@ public:
 
 private:
     std::array<uint8_t, 256> regs_{};
-    uint8_t selected_ = 0;
+    uint8_t selected_ = 0x24;  // VHDL zxnext.vhd:4594-4596 reset default
     std::array<std::function<void(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
 };
