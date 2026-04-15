@@ -31,5 +31,8 @@
 |        | 2h   | Phase 9: Task 5 Step 5 Phase 1 (6 theatre subsystem plans rebuilt from VHDL + reviews)     |
 |        | 3h   | Phase 9: Task 5 Step 5 Phase 2 (6 theatre test suites rewritten, 2 waves, 89.7% honest)    |
 |        | 1h   | Phase 9: Task 5 Step 6 traceability matrix + UNIT-TEST-PLAN-EXECUTION doc + reorg          |
+| 15/4   | 6h   | Phase 9: Task 1 all 9 older suites refactored to Phase 2 per-row idiom (3 waves, merged)   |
+|        | 1h   | Phase 9: Task 1 doc refresh — plans + EMULATOR-DESIGN-PLAN + matrix summary + backlog 21-31|
+|        | 2h   | Phase 9: Matrix per-row refresh script + extend to 15 subsystems + 6 dropped-row fixups    |
 |        |      |                                                                                            |
-| TOTAL: | 95h  |                                                                                            |
+| TOTAL: | 104h |                                                                                            |
