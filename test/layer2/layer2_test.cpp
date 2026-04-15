@@ -7,7 +7,7 @@
 // in the form "// VHDL: <file>:<line>  <short rationale>".
 //
 // This file replaces the previous Layer 2 test suite that was flagged as
-// coverage theatre (see doc/design/LAYER2-TEST-PLAN-DESIGN.md retraction
+// coverage theatre (see doc/testing/LAYER2-TEST-PLAN-DESIGN.md retraction
 // notice). Tests are grouped and named by the plan's G<group>-<id> IDs.
 //
 // Scope note — what is NOT tested here (and why):

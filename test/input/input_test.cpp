@@ -1,6 +1,6 @@
 // Input Subsystem Compliance Test Runner
 //
-// Derived one-to-one from doc/design/INPUT-TEST-PLAN-DESIGN.md, which is
+// Derived one-to-one from doc/testing/INPUT-TEST-PLAN-DESIGN.md, which is
 // itself derived row-by-row from the ZX Next FPGA VHDL source at
 //   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
 //

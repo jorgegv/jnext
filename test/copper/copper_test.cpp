@@ -1,7 +1,7 @@
 // Copper Coprocessor Compliance Test Runner
 //
 // Full rewrite (Task 5 Step 5 Phase 2, 2026-04-15) against the rebuilt
-// doc/design/COPPER-TEST-PLAN-DESIGN.md. Every assertion cites a specific
+// doc/testing/COPPER-TEST-PLAN-DESIGN.md. Every assertion cites a specific
 // VHDL file and line range from the authoritative FPGA source at
 //   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
 // (external to this repo — cited here for provenance, not edited).

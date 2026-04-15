@@ -331,7 +331,7 @@ short-cut would have let slip through in the original theatre suites.
 
 - `doc/design/EMULATOR-DESIGN-PLAN.md` § Phase 9 — the task tree this
   process implements.
-- `doc/design/REGRESSION-TEST-SUITE.md` — the golden-output screenshot
+- `doc/testing/REGRESSION-TEST-SUITE.md` — the golden-output screenshot
   suite (separate track from unit tests).
 - `doc/design/*-TEST-PLAN-DESIGN.md` — the 16 per-subsystem plans.
 - `.prompts/YYYY-MM-DD.md` Task 3 sections — the live emulator-bug

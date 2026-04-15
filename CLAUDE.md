@@ -67,7 +67,7 @@ The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable i
 ## Testing
 
 > **Before authoring, rewriting, or un-skipping any subsystem unit test
-> plan**, read [doc/design/UNIT-TEST-PLAN-EXECUTION.md](doc/design/UNIT-TEST-PLAN-EXECUTION.md).
+> plan**, read [doc/testing/UNIT-TEST-PLAN-EXECUTION.md](doc/testing/UNIT-TEST-PLAN-EXECUTION.md).
 > It documents the VHDL-as-oracle rule, the pass/fail/skip distinction,
 > the 1:1:1 emulator-fix-plus-unskip process, the independent-review
 > requirement, and why all of that exists (the coverage-theatre audit).
@@ -91,7 +91,7 @@ bash test/regression.sh
 ```
 
 This runs all tests in headless mode and compares screenshots to reference images.
-See [doc/REGRESSION-TEST-SUITE.md](doc/REGRESSION-TEST-SUITE.md) for full details.
+See [doc/testing/REGRESSION-TEST-SUITE.md](doc/testing/REGRESSION-TEST-SUITE.md) for full details.
 
 To update reference screenshots after intentional rendering changes:
 

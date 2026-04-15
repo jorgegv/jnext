@@ -4,7 +4,7 @@
 // Next emulator against expected values derived EXCLUSIVELY from the
 // authoritative VHDL source cores/zxnext/src/zxnext.vhd (stage 2 of the
 // video pipeline). The plan this file implements is
-// doc/design/COMPOSITOR-TEST-PLAN-DESIGN.md (rebuild dated 2026-04-14).
+// doc/testing/COMPOSITOR-TEST-PLAN-DESIGN.md (rebuild dated 2026-04-14).
 //
 // IMPORTANT: the expected values come from the VHDL, never from the C++
 // implementation. Where the VHDL semantics exercise features that the

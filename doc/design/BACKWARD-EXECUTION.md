@@ -629,7 +629,7 @@ replay, audio resumes from the replay target position. This produces a brief aud
 - [ ] TraceLog depth warning: if trace is shorter than rewind depth, warn user
 - [ ] Rewind during loading (TZX/TAP): disable rewind during tape loading, enable after
 - [ ] Keyboard shortcut conflict check and documentation update
-- [ ] `doc/REGRESSION-TEST-SUITE.md` update: add rewind tests to test suite
+- [ ] `doc/testing/REGRESSION-TEST-SUITE.md` update: add rewind tests to test suite
 - [ ] Performance benchmarks: snapshot time, replay time
 
 ---

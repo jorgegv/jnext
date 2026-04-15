@@ -1012,22 +1012,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] dapr-mathfunc - verified and fixed - Works the same in JNext, ZesarUX and CSpect
 
 - [ ] For each emulator module, do an exhaustive analysis of VHDL code for that module and all its functions and modes, generate a test plan for VHDL->Code compliance check. DO NOT, UNDER ANY CIRCUMSTANCE, USE THE EXISTING C++ CODE AS A REFERENCE FOR THE TESTS! We need the tests for verifying the C++ code! - Subsystems to generate test plans for (numbers below reflect state post Task 5 Step 2 emulator-free test fixes and Step 5 Phase 2 theatre rebuilds; see `.prompts/2026-04-14.md` Task 5 Completion Status):
-  - [x] Z80N processor (FUSE Z80 1356/1356 + Z80N 78/78 compliance suite, VHDL-derived) — [Z80N-COMPLIANCE-TEST-SUITE.md](Z80N-COMPLIANCE-TEST-SUITE.md)
-  - [x] Memory — MMU & RAM (80/83 pass, 3 failures — RST-01/02 `Mmu::reset()` slot clobber, L2M-01 hardware collision) — [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIGN.md)
-  - [x] ULA Video (108/109 pass, 1 failure — S13.14 frame_done T-state flip) — [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.md)
-  - [x] Layer 2 (89/95 live, 6 failures — all from missing `+1` bank transform; retracted prior 61/61 theatre) — [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md)
-  - [x] Sprites (115/116 live, 10 stub, 1 failure — Y clip 8-bit; retracted prior 48/48 theatre) — [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md)
-  - [x] Tilemap (49/57 pass, 8 failures — control-bit swap and anti-tests, Task 5 Step 3) — [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md)
-  - [x] Copper (66/66 live, 10 stub, 0 failures; retracted prior 69/69 theatre) — [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md)
-  - [x] Compositor (90/114 live, 24 failures — blend modes 110/111, stencil, ULA/TM blend, palette-compare transparency, border exception, sprite_en gating, per-line latches, L2 palette promotion, blank visibility; retracted prior 74/74 theatre) — [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIGN.md)
-  - [x] Audio — AY/YM2149 + DAC + Beeper (96/100 pass, 4 failures — AY envelope hold off-by-one shapes 0/9, Turbosound default panning TS-10/TS-42) — [AUDIO-TEST-PLAN-DESIGN.md](AUDIO-TEST-PLAN-DESIGN.md)
-  - [x] DMA (92/94 pass, 2 failures — zero-length transfer 9.7/14.4) — [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md)
-  - [x] DivMMC + SPI / SD card (72/76 pass, 4 failures — mapram OR-latch, bits 5:4 mask, 0x3Dxx automap) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIGN.md)
-  - [x] CTC + Interrupt controller (48/49 pass, 1 failure — ch3→ch0 ZC/TO wrap) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
-  - [x] UART + I2C / RTC (60/69 pass, 9 failures — all collapse to one bug: `detect_start_stop()` called from `write_scl` with stale `prev_sda_` at `i2c.cpp:101`) — [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md)
-  - [x] NextREG (49/63 pass, 14 failures — test-design issue: RST-xx rows need rewrite as full-machine integration tests, not bare-class state duplication) — [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md)
-  - [x] I/O Port Dispatch (64/82 live, 6 stub, 18 failures — NR 0x82-0x85 gating absent, Pentagon/Kempston/mouse/ULA+ handlers missing, `register_handler` overlap asymmetry; retracted prior 78/78 theatre) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
-  - [x] Keyboard + Joystick (21/23 live, 126 skip, 2 failures — NR 0x05/NR 0x0B reset defaults zeroed by `NextReg::reset()`; 126 skips = entire joystick/mouse/NMI/port-0xFE subsystems not in C++; retracted prior 71/71 theatre) — [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md)
+  - [x] Z80N processor (FUSE Z80 1356/1356 + Z80N 78/78 compliance suite, VHDL-derived) — [Z80N-COMPLIANCE-TEST-SUITE.md](../testing/Z80N-COMPLIANCE-TEST-SUITE.md)
+  - [x] Memory — MMU & RAM (80/83 pass, 3 failures — RST-01/02 `Mmu::reset()` slot clobber, L2M-01 hardware collision) — [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md)
+  - [x] ULA Video (108/109 pass, 1 failure — S13.14 frame_done T-state flip) — [ULA-VIDEO-TEST-PLAN-DESIGN.md](../testing/ULA-VIDEO-TEST-PLAN-DESIGN.md)
+  - [x] Layer 2 (89/95 live, 6 failures — all from missing `+1` bank transform; retracted prior 61/61 theatre) — [LAYER2-TEST-PLAN-DESIGN.md](../testing/LAYER2-TEST-PLAN-DESIGN.md)
+  - [x] Sprites (115/116 live, 10 stub, 1 failure — Y clip 8-bit; retracted prior 48/48 theatre) — [SPRITES-TEST-PLAN-DESIGN.md](../testing/SPRITES-TEST-PLAN-DESIGN.md)
+  - [x] Tilemap (49/57 pass, 8 failures — control-bit swap and anti-tests, Task 5 Step 3) — [TILEMAP-TEST-PLAN-DESIGN.md](../testing/TILEMAP-TEST-PLAN-DESIGN.md)
+  - [x] Copper (66/66 live, 10 stub, 0 failures; retracted prior 69/69 theatre) — [COPPER-TEST-PLAN-DESIGN.md](../testing/COPPER-TEST-PLAN-DESIGN.md)
+  - [x] Compositor (90/114 live, 24 failures — blend modes 110/111, stencil, ULA/TM blend, palette-compare transparency, border exception, sprite_en gating, per-line latches, L2 palette promotion, blank visibility; retracted prior 74/74 theatre) — [COMPOSITOR-TEST-PLAN-DESIGN.md](../testing/COMPOSITOR-TEST-PLAN-DESIGN.md)
+  - [x] Audio — AY/YM2149 + DAC + Beeper (96/100 pass, 4 failures — AY envelope hold off-by-one shapes 0/9, Turbosound default panning TS-10/TS-42) — [AUDIO-TEST-PLAN-DESIGN.md](../testing/AUDIO-TEST-PLAN-DESIGN.md)
+  - [x] DMA (92/94 pass, 2 failures — zero-length transfer 9.7/14.4) — [DMA-TEST-PLAN-DESIGN.md](../testing/DMA-TEST-PLAN-DESIGN.md)
+  - [x] DivMMC + SPI / SD card (72/76 pass, 4 failures — mapram OR-latch, bits 5:4 mask, 0x3Dxx automap) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](../testing/DIVMMC-SPI-TEST-PLAN-DESIGN.md)
+  - [x] CTC + Interrupt controller (48/49 pass, 1 failure — ch3→ch0 ZC/TO wrap) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](../testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
+  - [x] UART + I2C / RTC (60/69 pass, 9 failures — all collapse to one bug: `detect_start_stop()` called from `write_scl` with stale `prev_sda_` at `i2c.cpp:101`) — [UART-I2C-TEST-PLAN-DESIGN.md](../testing/UART-I2C-TEST-PLAN-DESIGN.md)
+  - [x] NextREG (49/63 pass, 14 failures — test-design issue: RST-xx rows need rewrite as full-machine integration tests, not bare-class state duplication) — [NEXTREG-TEST-PLAN-DESIGN.md](../testing/NEXTREG-TEST-PLAN-DESIGN.md)
+  - [x] I/O Port Dispatch (64/82 live, 6 stub, 18 failures — NR 0x82-0x85 gating absent, Pentagon/Kempston/mouse/ULA+ handlers missing, `register_handler` overlap asymmetry; retracted prior 78/78 theatre) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](../testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
+  - [x] Keyboard + Joystick (21/23 live, 126 skip, 2 failures — NR 0x05/NR 0x0B reset defaults zeroed by `NextReg::reset()`; 126 skips = entire joystick/mouse/NMI/port-0xFE subsystems not in C++; retracted prior 71/71 theatre) — [INPUT-TEST-PLAN-DESIGN.md](../testing/INPUT-TEST-PLAN-DESIGN.md)
 
   **Unit-test totals post-Phase 2: 1133/1244 live pass (91.1%), 152 honest skips/stubs, 91 legitimate emulator-bug failures** (all in Task 3 backlog, VHDL-verified, no test-harness bugs remain).
 

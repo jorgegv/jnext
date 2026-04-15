@@ -1,6 +1,6 @@
 // I/O Port Dispatch Compliance Test Runner — VHDL-grounded rewrite.
 //
-// Plan: doc/design/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md (rebuilt 2026-04-14).
+// Plan: doc/testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md (rebuilt 2026-04-14).
 // Oracle: ZX Next FPGA VHDL at
 //   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/zxnext.vhd
 // and libz80 port API contract at third_party/fuse-z80/.
@@ -1213,7 +1213,7 @@ static void print_summary() {
     printf("================================================================\n");
     if (g_fail) {
         printf("Failures (expected where the emulator has known gaps per\n");
-        printf("doc/design/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md; tests are spec, not mirror):\n");
+        printf("doc/testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md; tests are spec, not mirror):\n");
         for (auto& r : g_results) {
             if (!r.passed) {
                 printf("  [%s] %s: %s\n",
