@@ -85,8 +85,8 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | MMU-13  | Read-back NR 0x50-0x57                                       | —               | pass    | test/mmu/mmu_test.cpp:222 |
 | MMU-14  | Write/read pattern all slots                                 | —               | pass    | test/mmu/mmu_test.cpp:240 |
 | MMU-15  | Slot boundary (0x1FFF/0x2000)                                | —               | pass    | test/mmu/mmu_test.cpp:258 |
-| RST-01  | MMU0 after reset                                             | —               | fail    | test/mmu/mmu_test.cpp:282 |
-| RST-02  | MMU1 after reset                                             | —               | fail    | test/mmu/mmu_test.cpp:283 |
+| RST-01  | MMU0 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:282 |
+| RST-02  | MMU1 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:283 |
 | RST-03  | MMU2 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:284 |
 | RST-04  | MMU3 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:285 |
 | RST-05  | MMU4 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:286 |
@@ -1613,10 +1613,10 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | Test ID | Plan row title                                               | VHDL file:line | Status  | Test file:line              |
 |---------|--------------------------------------------------------------|----------------|---------|-----------------------------|
 | SEL-01  | Reset state: read select register                            | —              | pass    | test/uart/uart_test.cpp:169 |
-| SEL-02  | Write 0x40 to select, read back                              | —              | fail    | test/uart/uart_test.cpp:182 |
+| SEL-02  | Write 0x40 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:182 |
 | SEL-03  | Write 0x00 to select, read back                              | —              | pass    | test/uart/uart_test.cpp:195 |
 | SEL-04  | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0      | —              | pass    | test/uart/uart_test.cpp:207 |
-| SEL-05  | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UA… | —              | fail    | test/uart/uart_test.cpp:220 |
+| SEL-05  | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UA… | —              | pass    | test/uart/uart_test.cpp:220 |
 | SEL-06  | Hard reset clears prescaler MSB to 0                         | —              | pass    | test/uart/uart_test.cpp:237 |
 | SEL-07  | Soft reset clears uart_select_r to 0 but preserves prescale… | —              | pass    | test/uart/uart_test.cpp:252 |
 | FRM-01  | Hard reset state: read frame                                 | —              | pass    | test/uart/uart_test.cpp:272 |
@@ -1668,7 +1668,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | STAT-05 | tx_empty = tx_fifo_empty AND NOT tx_busy                     | —              | pass    | test/uart/uart_test.cpp:701 |
 | STAT-06 | rx_avail = NOT rx_fifo_empty                                 | —              | pass    | test/uart/uart_test.cpp:714 |
 | DUAL-01 | UART 0 and UART 1 have independent FIFOs                     | —              | pass    | test/uart/uart_test.cpp:740 |
-| DUAL-02 | Independent prescalers                                       | —              | fail    | test/uart/uart_test.cpp:758 |
+| DUAL-02 | Independent prescalers                                       | —              | pass    | test/uart/uart_test.cpp:758 |
 | DUAL-03 | Independent frame registers                                  | —              | pass    | test/uart/uart_test.cpp:773 |
 | DUAL-04 | Independent status registers                                 | —              | pass    | test/uart/uart_test.cpp:786 |
 | DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment                 | —              | skip    | test/uart/uart_test.cpp:794 |
@@ -1687,16 +1687,16 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | I2C-12  | Reset releases both lines                                    | —              | pass    | test/uart/uart_test.cpp:935 |
 | I2C-P01 | START condition: SDA high->low while SCL high                | —              | pass    | test/uart/uart_test.cpp:968 |
 | I2C-P02 | STOP condition: SDA low->high while SCL high                 | —              | pass    | test/uart/uart_test.cpp:981 |
-| I2C-P03 | Send byte (8 clocks): MSB first, clock each bit              | —              | fail    | test/uart/uart_test.cpp:996 |
+| I2C-P03 | Send byte (8 clocks): MSB first, clock each bit              | —              | pass    | test/uart/uart_test.cpp:996 |
 | I2C-P04 | Read ACK: release SDA, clock SCL, read SDA bit 0             | —              | pass    | test/uart/uart_test.cpp:101 |
-| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits               | —              | fail    | test/uart/uart_test.cpp:103 |
+| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits               | —              | pass    | test/uart/uart_test.cpp:103 |
 | I2C-P06 | Send ACK/NACK after read                                     | —              | skip    | test/uart/uart_test.cpp:104 |
-| RTC-01  | Address 0xD0 write: device ACKs                              | —              | fail    | test/uart/uart_test.cpp:107 |
-| RTC-02  | Address 0xD1 read: device ACKs                               | —              | fail    | test/uart/uart_test.cpp:109 |
+| RTC-01  | Address 0xD0 write: device ACKs                              | —              | pass    | test/uart/uart_test.cpp:107 |
+| RTC-02  | Address 0xD1 read: device ACKs                               | —              | pass    | test/uart/uart_test.cpp:109 |
 | RTC-03  | Wrong address: device NACKs                                  | —              | pass    | test/uart/uart_test.cpp:110 |
-| RTC-04  | Write register pointer (0x00), read seconds                  | —              | fail    | test/uart/uart_test.cpp:111 |
-| RTC-05  | Read minutes (register 0x01)                                 | —              | fail    | test/uart/uart_test.cpp:112 |
-| RTC-06  | Read hours (register 0x02)                                   | —              | fail    | test/uart/uart_test.cpp:113 |
+| RTC-04  | Write register pointer (0x00), read seconds                  | —              | pass    | test/uart/uart_test.cpp:111 |
+| RTC-05  | Read minutes (register 0x01)                                 | —              | pass    | test/uart/uart_test.cpp:112 |
+| RTC-06  | Read hours (register 0x02)                                   | —              | pass    | test/uart/uart_test.cpp:113 |
 | RTC-07  | Read day-of-week (register 0x03)                             | —              | fail    | test/uart/uart_test.cpp:114 |
 | RTC-08  | Read date (register 0x04)                                    | —              | skip    | test/uart/uart_test.cpp:115 |
 | RTC-09  | Read month (register 0x05)                                   | —              | skip    | test/uart/uart_test.cpp:115 |
@@ -1725,7 +1725,7 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | Test ID | Plan row title                                         | VHDL file:line | Status  | Test file:line                    |
 |---------|--------------------------------------------------------|----------------|---------|-----------------------------------|
 | SEL-01  | Write 0x243B = 0x15, read 0x243B                       | —              | pass    | test/nextreg/nextreg_test.cpp:121 |
-| SEL-02  | Reset, read 0x243B                                     | —              | fail    | test/nextreg/nextreg_test.cpp:144 |
+| SEL-02  | Reset, read 0x243B                                     | —              | pass    | test/nextreg/nextreg_test.cpp:144 |
 | SEL-03  | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | —              | skip    | test/nextreg/nextreg_test.cpp:156 |
 | SEL-04  | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | —              | pass    | test/nextreg/nextreg_test.cpp:168 |
 | SEL-05  | NEXTREG ED 91 instruction                              | —              | skip    | test/nextreg/nextreg_test.cpp:180 |
@@ -1830,7 +1830,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | REG-06+07     | AY select 0xFFFD real                                        | zxnext.vhd:2647      | pass    | test/port/port_test.cpp:329  |
 | REG-06+07     | AY data 0xBFFD real                                          | zxnext.vhd:2648      | pass    | test/port/port_test.cpp:329  |
 | REG-08        | 0x7FFD MMU bank select                                       | zxnext.vhd:2593      | pass    | test/port/port_test.cpp:342  |
-| REG-09        | 0x1FFD +3 extended                                           | zxnext.vhd:2599      | pass    | test/port/port_test.cpp:358  |
+| REG-09        | 0x1FFD +3 extended                                           | zxnext.vhd:2599      | fail    | test/port/port_test.cpp:358  |
 | REG-10        | 0xDFFD Pentagon ext                                          | zxnext.vhd:2596      | fail    | test/port/port_test.cpp:384  |
 | REG-11        | DivMMC 0xE3 real                                             | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:394  |
 | REG-12        | SPI CS 0xE7, data 0xEB                                       | zxnext.vhd:2620–2621 | pass    | test/port/port_test.cpp:412  |
@@ -1852,7 +1852,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | NR82-00       | 0x82 b0                                                      | zxnext.vhd:2397      | pass    | test/port/port_test.cpp:633  |
 | NR82-01       | 0x82 b1                                                      | zxnext.vhd:2399      | fail    | test/port/port_test.cpp:645  |
 | NR82-02       | 0x82 b2                                                      | zxnext.vhd:2400      | pass    | test/port/port_test.cpp:655  |
-| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | fail    | test/port/port_test.cpp:668  |
+| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | pass    | test/port/port_test.cpp:668  |
 | NR82-04       | 0x82 b4                                                      | zxnext.vhd:2403      | pass    | test/port/port_test.cpp:677  |
 | NR82-05       | 0x82 b5                                                      | zxnext.vhd:2405      | pass    | test/port/port_test.cpp:689  |
 | NR82-06       | 0x82 b6                                                      | zxnext.vhd:2407      | pass    | test/port/port_test.cpp:697  |
