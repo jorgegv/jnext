@@ -1,1103 +1,1590 @@
 // DivMMC + SPI Compliance Test Runner
 //
-// Tests the DivMMC and SPI subsystems against VHDL-derived expected behaviour.
-// All expected values come from the DIVMMC-SPI-TEST-PLAN-DESIGN.md spec.
+// Full rewrite (Task 1 Wave 2, 2026-04-15) against the rebuilt
+// doc/testing/DIVMMC-SPI-TEST-PLAN-DESIGN.md. Every assertion cites a
+// specific VHDL file:line range from the authoritative FPGA source at
+//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+// (external to this repo — cited here for provenance, not edited).
+//
+// Ground rules (per doc/testing/UNIT-TEST-PLAN-EXECUTION.md):
+//   * The C++ implementation is NEVER the oracle — every expected value
+//     comes from VHDL.
+//   * No data-driven loops without per-iteration IDs. One section (or
+//     tight group) per plan row, labelled with the plan ID.
+//   * Plan rows that cannot be realised with the current emulator API
+//     are reported via skip(id, reason) and not counted toward pass/fail.
+//   * Known Task 2 gaps (e.g. NR 0x83 b0 enable gating, SRAM priority
+//     ladder, SPI state machine, sd_swap, ROM3-conditional gating) are
+//     left failing and fed back to the Task 3 backlog.
+//
+// Emulator surface summary (src/peripheral/divmmc.{h,cpp}, spi.{h,cpp}):
+//   * DivMmc models port 0xE3 as raw bit fields, exposes conmem/mapram/
+//     bank/automap_active, and implements a minimal M1-fetch trigger
+//     model with NR 0xB8/0xBB only (no NR 0xB9 valid/NR 0xBA timing
+//     split, no ROM3 conditional, no NMI button, no RETN hook, no
+//     automap_hold/held latch pipeline, no 0x3Dxx range).
+//   * SpiMaster is a zero-latency byte-exchange wrapper (no 16-cycle
+//     state machine, no pipeline delay, independent write/read paths,
+//     raw CS register with no sd_swap/flash decode, no MISO source
+//     priority ladder — any selected device wins).
 //
 // Run: ./build/test/divmmc_test
 
 #include "peripheral/divmmc.h"
 #include "peripheral/spi.h"
-#include "peripheral/sd_card.h"
-#include <cstdio>
+
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
-#include <functional>
 
-// -- Test infrastructure (same pattern as copper_test) --------------------
+// ── Test infrastructure ───────────────────────────────────────────────
 
-static int g_pass = 0;
-static int g_fail = 0;
-static int g_total = 0;
-static std::string g_group;
+namespace {
 
-struct TestResult {
+int g_pass  = 0;
+int g_fail  = 0;
+int g_total = 0;
+
+struct Result {
     std::string group;
     std::string id;
-    std::string description;
-    bool passed;
+    std::string desc;
+    bool        passed;
     std::string detail;
 };
 
-static std::vector<TestResult> g_results;
+std::vector<Result> g_results;
+std::string         g_group;
 
-static void set_group(const char* name) {
-    g_group = name;
-}
+struct SkipNote {
+    const char* id;
+    const char* reason;
+};
+std::vector<SkipNote> g_skipped;
 
-static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
-    g_total++;
-    TestResult r;
-    r.group = g_group;
-    r.id = id;
-    r.description = desc;
-    r.passed = cond;
-    r.detail = detail;
+void set_group(const char* name) { g_group = name; }
+
+void check(const char* id, const char* desc, bool cond,
+           const std::string& detail = {}) {
+    ++g_total;
+    Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
-
     if (cond) {
-        g_pass++;
+        ++g_pass;
     } else {
-        g_fail++;
-        printf("  FAIL %s: %s", id, desc);
-        if (detail[0]) printf(" [%s]", detail);
-        printf("\n");
+        ++g_fail;
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
-static char g_buf[512];
-#define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+}
 
-// -- Mock SPI device for testing ------------------------------------------
+std::string fmt(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return std::string(buf);
+}
+
+// ── Mock SPI device ───────────────────────────────────────────────────
 
 class MockSpiDevice : public SpiDevice {
 public:
     uint8_t next_response = 0xFF;
-    uint8_t last_tx = 0xFF;
-    int exchange_count = 0;
-    bool was_deselected = false;
+    uint8_t last_tx       = 0xFF;
+    int     exchange_count = 0;
+    bool    was_deselected = false;
 
     uint8_t exchange(uint8_t tx) override {
         last_tx = tx;
-        exchange_count++;
+        ++exchange_count;
         return next_response;
     }
-
     void receive(uint8_t tx) override {
         last_tx = tx;
-        exchange_count++;
+        ++exchange_count;
     }
-
     uint8_t send() override {
-        exchange_count++;
+        ++exchange_count;
         return next_response;
     }
-
-    void deselect() override {
-        was_deselected = true;
-    }
-
-    void reset_mock() {
-        next_response = 0xFF;
-        last_tx = 0xFF;
-        exchange_count = 0;
-        was_deselected = false;
-    }
+    void deselect() override { was_deselected = true; }
 };
 
-// -- Group 1: Port 0xE3 -- DivMMC Control Register ------------------------
+// Fresh enabled DivMmc with default (soft-reset) NR 0xB8/B9/BA/BB values.
+DivMmc make_divmmc() {
+    DivMmc d;
+    d.reset();
+    d.set_enabled(true);
+    return d;
+}
 
-static void test_port_e3() {
-    set_group("Port 0xE3");
+// ══════════════════════════════════════════════════════════════════════
+// §1. Port 0xE3 — DivMMC Control Register
+// VHDL: zxnext.vhd:4173-4190 (port decode), divmmc.vhd:85-86 (conmem/mapram)
+// ══════════════════════════════════════════════════════════════════════
 
-    // E3-01: Reset clears port 0xE3 to 0x00
+void group_e3() {
+    set_group("1. Port 0xE3");
+
+    // E3-01: reset clears raw control register to 0x00.
+    // VHDL: zxnext.vhd:4173 — port_e3_reg default "00000000".
     {
-        DivMmc div;
-        div.reset();
-        check("E3-01", "Reset clears port 0xE3 to 0x00",
-              div.read_control() == 0x00,
-              DETAIL("got=%02x", div.read_control()));
+        DivMmc d; d.reset();
+        uint8_t v = d.read_control();
+        check("E3-01",
+              "Reset clears port 0xE3 control register to 0x00",
+              v == 0x00,
+              fmt("got=%02x exp=00", v));
     }
 
-    // E3-02: Write 0x80: conmem=1, mapram=0, bank=0
+    // E3-02: Write 0x80 -> conmem=1, mapram=0, bank=0.
+    // VHDL: zxnext.vhd:4180 — cpu_do(7)=conmem.
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0x80);
-        check("E3-02", "Write 0x80: conmem=1, mapram=0, bank=0",
-              div.conmem() == true && div.mapram() == false && div.bank() == 0,
-              DETAIL("conmem=%d mapram=%d bank=%d", div.conmem(), div.mapram(), div.bank()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x80);
+        bool ok = d.conmem() && !d.mapram() && d.bank() == 0;
+        check("E3-02",
+              "Write 0x80 decodes as conmem=1, mapram=0, bank=0 "
+              "(VHDL zxnext.vhd:4180)",
+              ok,
+              fmt("conmem=%d mapram=%d bank=%u",
+                  d.conmem(), d.mapram(), d.bank()));
     }
 
-    // E3-03: Write 0x40: mapram set
+    // E3-03: Write 0x40 -> mapram set (bit 6 OR-latched).
+    // VHDL: zxnext.vhd:4183 — port_e3_reg(6) <= cpu_do(6) OR port_e3_reg(6).
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0x40);
-        check("E3-03", "Write 0x40: mapram=1",
-              div.mapram() == true,
-              DETAIL("mapram=%d", div.mapram()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x40);
+        check("E3-03",
+              "Write 0x40 sets mapram (VHDL zxnext.vhd:4183)",
+              d.mapram() == true,
+              fmt("mapram=%d", d.mapram()));
     }
 
-    // E3-04: Write 0x00 after mapram set: mapram stays 1
-    // NOTE: VHDL OR-latches mapram. Our implementation may not do this.
+    // E3-04: mapram cannot be cleared by a subsequent write (OR-latch).
+    // VHDL: zxnext.vhd:4183.
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0x40);  // set mapram
-        div.write_control(0x00);  // try to clear it
-        check("E3-04", "mapram OR-latch: stays 1 after write 0x00",
-              div.mapram() == true,
-              DETAIL("mapram=%d (expected 1)", div.mapram()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x40);  // set mapram
+        d.write_control(0x00);  // attempt clear
+        check("E3-04",
+              "mapram remains set after write 0x00 (VHDL zxnext.vhd:4183)",
+              d.mapram() == true,
+              fmt("mapram=%d exp=1", d.mapram()));
     }
 
-    // E3-06: Write bank 0x0F: bits 3:0 select bank 15
+    // E3-05: mapram cleared by NextREG 0x09 bit 3.
+    // VHDL: zxnext.vhd:~4186 — nr_09_we AND nr_wr_dat(3) clears bit 6.
+    // No C++ hook exists (DivMmc has no clear_mapram accessor, and the
+    // NextReg 0x09 handler does not reach DivMmc).
+    skip("E3-05",
+         "No emulator path: NR 0x09[3] does not reach DivMmc::mapram_ "
+         "(VHDL zxnext.vhd:~4186)");
+
+    // E3-06: Bits 3:0 select bank 0..15.
+    // VHDL: zxnext.vhd:4188 — port_e3_reg(3 downto 0) <= cpu_do(3 downto 0).
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0x0F);
-        check("E3-06", "Write bank 0x0F: bank=15",
-              div.bank() == 15,
-              DETAIL("bank=%d", div.bank()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x0F);
+        check("E3-06",
+              "Write 0x0F selects bank 15 (VHDL zxnext.vhd:4188)",
+              d.bank() == 0x0F,
+              fmt("bank=%u exp=15", d.bank()));
     }
 
-    // E3-07: Read port 0xE3 returns correct bits
+    // E3-07: Read port 0xE3 returns {conmem, mapram, 00, bank[3:0]}.
+    // VHDL: zxnext.vhd:4190 — readback mask. The C++ implementation
+    // returns the raw control_reg_ instead, so writing 0x30 (sets bits
+    // 5:4) will read back as 0x30 in the emulator but 0x00 in VHDL.
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0xCF);  // conmem=1, mapram=1, bits5:4=ignored, bank=15
-        uint8_t val = div.read_control();
-        bool conmem_ok = (val & 0x80) != 0;
-        bool mapram_ok = (val & 0x40) != 0;
-        bool bank_ok   = (val & 0x0F) == 0x0F;
-        check("E3-07", "Read port 0xE3 returns {conmem, mapram, 00, bank}",
-              conmem_ok && mapram_ok && bank_ok,
-              DETAIL("val=%02x conmem=%d mapram=%d bank=%d",
-                     val, conmem_ok, mapram_ok, bank_ok));
+        DivMmc d = make_divmmc();
+        d.write_control(0xFF);  // all bits set
+        uint8_t got = d.read_control();
+        // VHDL: bits 5:4 always read as 0 -> expected 0xCF.
+        check("E3-07",
+              "Read 0xE3 masks bits 5:4 to 0 "
+              "(VHDL zxnext.vhd:4190)",
+              got == 0xCF,
+              fmt("got=%02x exp=CF", got));
     }
 
-    // E3-08: Bits 5:4 of write are ignored (read back as 0)
+    // E3-08: Bits 5:4 of write are ignored (not stored).
+    // VHDL: zxnext.vhd:4190 — only bits 7,6,3:0 latched.
     {
-        DivMmc div;
-        div.reset();
-        div.write_control(0x30);  // only set bits 5:4
-        uint8_t val = div.read_control();
-        bool bits54_zero = (val & 0x30) == 0x00;
-        check("E3-08", "Bits 5:4 of write are ignored",
-              bits54_zero,
-              DETAIL("val=%02x bits54=%02x (expected 0)", val, val & 0x30));
+        DivMmc d = make_divmmc();
+        d.write_control(0x30);   // attempt to set bits 5:4 only
+        uint8_t got = d.read_control();
+        check("E3-08",
+              "Bits 5:4 of write are ignored "
+              "(VHDL zxnext.vhd:4190)",
+              got == 0x00,
+              fmt("got=%02x exp=00", got));
     }
 }
 
-// -- Group 2: DivMMC Memory Paging -- conmem Mode -------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §2. DivMMC Memory Paging — conmem Mode
+// VHDL: divmmc.vhd:88-101
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_conmem_paging() {
-    set_group("Conmem Paging");
+void group_cm() {
+    set_group("2. conmem paging");
 
-    // CM-01: conmem=1, mapram=0: 0x0000-0x1FFF = DivMMC ROM
+    // CM-01: conmem=1, mapram=0: 0x0000-0x1FFF = DivMMC ROM (rom_en=1).
+    // VHDL: divmmc.vhd:94.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x80);  // conmem=1
-        check("CM-01", "conmem=1, mapram=0: ROM mapped at slot 0",
-              div.is_rom_mapped(),
-              DETAIL("is_rom_mapped=%d", div.is_rom_mapped()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x80);  // conmem=1, mapram=0, bank=0
+        bool ok = d.is_active() && d.is_rom_mapped()
+                  && !d.is_ram_mapped(0x0000);
+        check("CM-01",
+              "conmem=1 mapram=0: ROM mapped at page0 "
+              "(VHDL divmmc.vhd:94)",
+              ok,
+              fmt("active=%d rom=%d ram0=%d",
+                  d.is_active(), d.is_rom_mapped(),
+                  d.is_ram_mapped(0x0000)));
     }
 
-    // CM-02: conmem=1, mapram=0: 0x2000-0x3FFF = DivMMC RAM bank N
+    // CM-02: conmem=1, mapram=0: 0x2000-0x3FFF = DivMMC RAM bank N.
+    // VHDL: divmmc.vhd:95-96 — page1 AND conmem; ram_bank=reg(3:0).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x85);  // conmem=1, bank=5
-        check("CM-02", "conmem=1: RAM mapped at slot 1",
-              div.is_ram_mapped(0x2000),
-              DETAIL("is_ram_mapped(0x2000)=%d", div.is_ram_mapped(0x2000)));
+        DivMmc d = make_divmmc();
+        d.write_control(0x85);  // conmem=1, bank=5
+        bool ok = d.is_ram_mapped(0x2000) && d.bank() == 5;
+        check("CM-02",
+              "conmem=1 mapram=0: page1 RAM from reg(3:0) "
+              "(VHDL divmmc.vhd:95-96)",
+              ok,
+              fmt("ram1=%d bank=%u",
+                  d.is_ram_mapped(0x2000), d.bank()));
     }
 
-    // CM-03: conmem=1, mapram=1: 0x0000-0x1FFF = DivMMC RAM bank 3
+    // CM-03: conmem=1, mapram=1: 0x0000-0x1FFF = DivMMC RAM bank 3.
+    // VHDL: divmmc.vhd:95-96 — ram_bank=3 when page0, page0 RAM mapped.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC0);  // conmem=1, mapram=1
-        bool ram_at_slot0 = div.is_ram_mapped(0x0000);
-        bool not_rom = !div.is_rom_mapped();
-        check("CM-03", "conmem=1, mapram=1: RAM bank 3 at slot 0",
-              ram_at_slot0 && not_rom,
-              DETAIL("ram_mapped=%d rom_mapped=%d", ram_at_slot0, !not_rom));
+        DivMmc d = make_divmmc();
+        d.write_control(0xC0);  // conmem=1, mapram=1, bank=0
+        // ram mapped at 0x0000 and read resolves to RAM page 3.
+        // Seed RAM bank 3 byte 0 to a sentinel, read through API.
+        // We cannot poke ram_ directly; but ram_page_for() is private.
+        // Observe via is_ram_mapped and is_rom_mapped inversion.
+        bool ok = d.is_ram_mapped(0x0000) && !d.is_rom_mapped();
+        check("CM-03",
+              "conmem=1 mapram=1: page0 maps to RAM bank 3 "
+              "(VHDL divmmc.vhd:95-96)",
+              ok,
+              fmt("ram0=%d rom=%d",
+                  d.is_ram_mapped(0x0000), d.is_rom_mapped()));
     }
 
-    // CM-04: conmem=1, mapram=1: 0x2000-0x3FFF = DivMMC RAM bank N
+    // CM-04: conmem=1, mapram=1, bank=5: 0x2000-0x3FFF = RAM bank 5.
+    // VHDL: divmmc.vhd:95-96.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC7);  // conmem=1, mapram=1, bank=7
-        check("CM-04", "conmem=1, mapram=1: RAM at slot 1",
-              div.is_ram_mapped(0x2000),
-              DETAIL("is_ram_mapped(0x2000)=%d", div.is_ram_mapped(0x2000)));
+        DivMmc d = make_divmmc();
+        d.write_control(0xC5);  // conmem=1, mapram=1, bank=5
+        check("CM-04",
+              "conmem=1 mapram=1: page1 maps to reg(3:0) "
+              "(VHDL divmmc.vhd:95-96)",
+              d.is_ram_mapped(0x2000) && d.bank() == 5,
+              fmt("ram1=%d bank=%u",
+                  d.is_ram_mapped(0x2000), d.bank()));
     }
 
-    // CM-05: conmem=1: 0x0000-0x1FFF is read-only
+    // CM-05: 0x0000-0x1FFF is read-only (page0 always rdonly).
+    // VHDL: divmmc.vhd:100 — rdonly = page0 OR (mapram AND bank=3).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x80);  // conmem=1
-        check("CM-05", "conmem=1: slot 0 is read-only",
-              div.is_read_only(0x0000),
-              DETAIL("is_read_only(0x0000)=%d", div.is_read_only(0x0000)));
+        DivMmc d = make_divmmc();
+        d.write_control(0x80);  // conmem=1
+        check("CM-05",
+              "page0 is read-only with conmem=1 "
+              "(VHDL divmmc.vhd:100)",
+              d.is_read_only(0x0000) && d.is_read_only(0x1FFF),
+              fmt("ro0=%d ro1fff=%d",
+                  d.is_read_only(0x0000),
+                  d.is_read_only(0x1FFF)));
     }
 
-    // CM-06: conmem=1, mapram=1, bank=3: slot 1 is read-only
+    // CM-06: conmem=1, mapram=1, bank=3: 0x2000-0x3FFF read-only.
+    // VHDL: divmmc.vhd:100.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC3);  // conmem=1, mapram=1, bank=3
-        check("CM-06", "mapram=1, bank=3: slot 1 read-only",
-              div.is_read_only(0x2000),
-              DETAIL("is_read_only(0x2000)=%d", div.is_read_only(0x2000)));
+        DivMmc d = make_divmmc();
+        d.write_control(0xC3);  // conmem=1, mapram=1, bank=3
+        check("CM-06",
+              "conmem+mapram+bank=3: page1 read-only "
+              "(VHDL divmmc.vhd:100)",
+              d.is_read_only(0x2000) && d.is_read_only(0x3FFF),
+              fmt("ro2000=%d ro3fff=%d",
+                  d.is_read_only(0x2000),
+                  d.is_read_only(0x3FFF)));
     }
 
-    // CM-07: conmem=1, mapram=1, bank!=3: slot 1 is writable
+    // CM-07: conmem=1, mapram=1, bank!=3: page1 writable.
+    // VHDL: divmmc.vhd:100.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC5);  // conmem=1, mapram=1, bank=5
-        check("CM-07", "mapram=1, bank!=3: slot 1 writable",
-              !div.is_read_only(0x2000),
-              DETAIL("is_read_only(0x2000)=%d", div.is_read_only(0x2000)));
+        DivMmc d = make_divmmc();
+        d.write_control(0xC5);  // conmem=1, mapram=1, bank=5
+        check("CM-07",
+              "conmem+mapram+bank!=3: page1 writable "
+              "(VHDL divmmc.vhd:100)",
+              !d.is_read_only(0x2000),
+              fmt("ro2000=%d exp=0", d.is_read_only(0x2000)));
     }
 
-    // CM-08: conmem=0, automap=0: no DivMMC mapping
+    // CM-08: conmem=0, automap=0: no DivMMC mapping.
+    // VHDL: divmmc.vhd:94-95 — both rom_en and ram_en zero.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x00);  // conmem=0
-        check("CM-08", "conmem=0, automap=0: not active",
-              !div.is_active(),
-              DETAIL("is_active=%d", div.is_active()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x00);  // everything off
+        bool ok = !d.is_active()
+                  && !d.is_rom_mapped()
+                  && !d.is_ram_mapped(0x0000)
+                  && !d.is_ram_mapped(0x2000);
+        check("CM-08",
+              "conmem=0 automap=0: no DivMMC mapping "
+              "(VHDL divmmc.vhd:94-95)",
+              ok,
+              fmt("act=%d rom=%d ram0=%d ram1=%d",
+                  d.is_active(), d.is_rom_mapped(),
+                  d.is_ram_mapped(0x0000), d.is_ram_mapped(0x2000)));
     }
 
-    // CM-09: DivMMC paging requires enabled=true
+    // CM-09: mapping gated by i_en (port_divmmc_io_en).
+    // VHDL: divmmc.vhd:98 — o_divmmc_rom_en = rom_en AND i_en.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(false);
-        div.write_control(0x80);  // conmem=1 but not enabled
-        check("CM-09", "DivMMC paging requires enabled=true",
-              !div.is_active(),
-              DETAIL("is_active=%d (enabled=%d)", div.is_active(), div.is_enabled()));
-    }
-}
-
-// -- Group 3: DivMMC Memory Paging -- automap Mode ------------------------
-
-static void test_automap_paging() {
-    set_group("Automap Paging");
-
-    // AM-01: automap=1, mapram=0: ROM mapped at slot 0
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);  // trigger automap at RST 0
-        check("AM-01", "automap=1, mapram=0: ROM at slot 0",
-              div.is_rom_mapped(),
-              DETAIL("rom_mapped=%d automap=%d", div.is_rom_mapped(), div.automap_active()));
-    }
-
-    // AM-02: automap=1, mapram=0: RAM at slot 1
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x05);  // bank=5, no conmem
-        div.check_automap(0x0000, true);
-        check("AM-02", "automap=1: RAM at slot 1",
-              div.is_ram_mapped(0x2000),
-              DETAIL("ram_mapped=%d", div.is_ram_mapped(0x2000)));
-    }
-
-    // AM-03: automap=1, mapram=1: RAM bank 3 at slot 0
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x40);  // mapram=1 (no conmem)
-        div.check_automap(0x0000, true);
-        bool ram_at_0 = div.is_ram_mapped(0x0000);
-        bool not_rom  = !div.is_rom_mapped();
-        check("AM-03", "automap=1, mapram=1: RAM bank 3 at slot 0",
-              ram_at_0 && not_rom,
-              DETAIL("ram=%d rom=%d", ram_at_0, !not_rom));
-    }
-
-    // AM-04: automap deactivated: normal ROM restored
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);   // activate
-        div.check_automap(0x1FF8, true);   // deactivate
-        check("AM-04", "automap deactivated: not active",
-              !div.is_active(),
-              DETAIL("is_active=%d automap=%d", div.is_active(), div.automap_active()));
+        DivMmc d;
+        d.reset();
+        d.set_enabled(false);   // i_en = 0
+        d.write_control(0x80);  // conmem=1
+        bool ok = !d.is_active()
+                  && !d.is_rom_mapped()
+                  && !d.is_ram_mapped(0x2000);
+        check("CM-09",
+              "i_en=0 suppresses DivMMC mapping "
+              "(VHDL divmmc.vhd:98)",
+              ok,
+              fmt("act=%d rom=%d ram=%d",
+                  d.is_active(), d.is_rom_mapped(),
+                  d.is_ram_mapped(0x2000)));
     }
 }
 
-// -- Group 4: RST Entry Points (NextREG 0xB8/0xB9/0xBA) ------------------
+// ══════════════════════════════════════════════════════════════════════
+// §3. DivMMC Memory Paging — automap Mode
+// VHDL: divmmc.vhd:94-96, 148
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_rst_entry_points() {
-    set_group("RST Entry Points");
+void group_am() {
+    set_group("3. automap paging");
 
-    // EP-01: M1 fetch at 0x0000: automap activates (EP0 enabled by default)
+    // Helper: trigger default EP0 (0x0000) automap.
+    auto trigger = [](DivMmc& d) {
+        d.check_automap(0x0000, true);
+    };
+
+    // AM-01: automap=1, mapram=0: ROM mapped at page0.
+    // VHDL: divmmc.vhd:94.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        check("EP-01", "M1 at 0x0000: automap ON",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        trigger(d);
+        check("AM-01",
+              "automap active + mapram=0: ROM mapped at page0 "
+              "(VHDL divmmc.vhd:94)",
+              d.is_active() && d.is_rom_mapped(),
+              fmt("act=%d rom=%d automap=%d",
+                  d.is_active(), d.is_rom_mapped(),
+                  d.automap_active()));
     }
 
-    // EP-02: M1 at 0x0008: automap activates (EP1 enabled by default)
+    // AM-02: automap=1, mapram=0: page1 RAM bank=N.
+    // VHDL: divmmc.vhd:95-96.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0008, true);
-        check("EP-02", "M1 at 0x0008: automap ON",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x07);  // bank=7 (no conmem, no mapram)
+        trigger(d);
+        check("AM-02",
+              "automap + bank=7: page1 maps to bank 7 "
+              "(VHDL divmmc.vhd:95-96)",
+              d.is_ram_mapped(0x2000) && d.bank() == 7,
+              fmt("ram1=%d bank=%u",
+                  d.is_ram_mapped(0x2000), d.bank()));
     }
 
-    // EP-03: M1 at 0x0038: automap activates (EP7 enabled by default)
+    // AM-03: automap=1, mapram=1: 0x0000-0x1FFF = RAM bank 3.
+    // VHDL: divmmc.vhd:95-96.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0038, true);
-        check("EP-03", "M1 at 0x0038: automap ON",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.write_control(0x40);  // mapram=1 (set via OR-latch)
+        trigger(d);
+        check("AM-03",
+              "automap + mapram=1: page0 maps to RAM bank 3 "
+              "(VHDL divmmc.vhd:95-96)",
+              d.is_ram_mapped(0x0000) && !d.is_rom_mapped(),
+              fmt("ram0=%d rom=%d",
+                  d.is_ram_mapped(0x0000),
+                  d.is_rom_mapped()));
     }
 
-    // EP-04 through EP-08: disabled entry points
+    // AM-04: automap active, then deactivated via 0x1FF8 range.
+    // VHDL: divmmc.vhd:131 (delayed_off), zxnext.vhd non-RST NR BB[6].
     {
-        static const struct { const char* id; uint16_t addr; int ep; } disabled[] = {
-            {"EP-04", 0x0010, 2}, {"EP-05", 0x0018, 3},
-            {"EP-06", 0x0020, 4}, {"EP-07", 0x0028, 5},
-            {"EP-08", 0x0030, 6},
-        };
-        for (auto& t : disabled) {
-            DivMmc div;
-            div.reset();
-            div.set_enabled(true);
-            div.check_automap(t.addr, true);
-            char desc[64];
-            snprintf(desc, sizeof(desc), "M1 at 0x%04X: no automap (EP%d disabled)", t.addr, t.ep);
-            check(t.id, desc,
-                  !div.automap_active(),
-                  DETAIL("automap=%d ep=%d", div.automap_active(), t.ep));
+        DivMmc d = make_divmmc();
+        trigger(d);                      // activate at 0x0000
+        d.check_automap(0x1FF8, true);   // deactivation range
+        bool ok = !d.automap_active() && !d.is_active();
+        check("AM-04",
+              "automap deactivates on M1 at 0x1FF8 "
+              "(VHDL divmmc.vhd:131)",
+              ok,
+              fmt("automap=%d act=%d",
+                  d.automap_active(), d.is_active()));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §4. Automap Entry Points — RST Addresses
+// VHDL: zxnext.vhd:2848-2890, divmmc.vhd:128-148
+// ══════════════════════════════════════════════════════════════════════
+
+void group_ep() {
+    set_group("4. RST entry points");
+
+    // Default NR state per reset: B8=0x83, B9=0x01, BA=0x00, BB=0xCD.
+
+    // EP-01: M1 fetch at 0x0000 activates automap (EP0 enabled, valid,
+    // delayed). VHDL: zxnext.vhd:2850, divmmc.vhd:129-131.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);
+        check("EP-01",
+              "M1 at 0x0000 activates automap with default NR state "
+              "(VHDL zxnext.vhd:2850)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // EP-02: M1 at 0x0008 with default NR B9[1]=0 -> rom3_delayed_on,
+    // which ONLY triggers when ROM3 is active. The C++ model ignores
+    // the ROM3 conditional path and activates unconditionally whenever
+    // B8[1]=1. VHDL authority: zxnext.vhd:2856, divmmc.vhd:130.
+    // Expected VHDL behaviour (no ROM3): automap must NOT activate.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0008, true);
+        // With no ROM3 active, VHDL should NOT activate automap.
+        // Known Task 3 bug: C++ activates anyway (no ROM3 gating).
+        check("EP-02",
+              "M1 at 0x0008 with default NR state and no ROM3: "
+              "automap must NOT activate "
+              "(VHDL zxnext.vhd:2856, divmmc.vhd:130)",
+              !d.automap_active(),
+              fmt("automap=%d exp=0 (ROM3 gating missing)",
+                  d.automap_active()));
+    }
+
+    // EP-03: M1 at 0x0038 default -> rom3_delayed_on (EP7 valid=0).
+    // Same ROM3 conditional gap as EP-02.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0038, true);
+        check("EP-03",
+              "M1 at 0x0038 with default NR and no ROM3: "
+              "automap must NOT activate "
+              "(VHDL zxnext.vhd:2890, divmmc.vhd:130)",
+              !d.automap_active(),
+              fmt("automap=%d exp=0 (ROM3 gating missing)",
+                  d.automap_active()));
+    }
+
+    // EP-04..EP-08: EP2..EP6 disabled by default (B8 bit clear).
+    // VHDL: zxnext.vhd:2862-2884 — all unselected bits yield no trigger.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0010, true);
+        check("EP-04",
+              "M1 at 0x0010 with B8[2]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2862)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0018, true);
+        check("EP-05",
+              "M1 at 0x0018 with B8[3]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2868)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0020, true);
+        check("EP-06",
+              "M1 at 0x0020 with B8[4]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2874)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0028, true);
+        check("EP-07",
+              "M1 at 0x0028 with B8[5]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2880)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0030, true);
+        check("EP-08",
+              "M1 at 0x0030 with B8[6]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2886)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // EP-09: Setting NR 0xBA[0]=1 makes EP0 use instant_on timing.
+    // VHDL: zxnext.vhd:2852, divmmc.vhd:148. No C++ NR BA handler exists
+    // on DivMmc — set_entry_timing_0 setter is available but the
+    // check_automap path does not consult it (instant vs delayed is
+    // collapsed). Observable effect identical either way in the current
+    // model, so there is no distinguishing assertion.
+    skip("EP-09",
+         "No emulator path: DivMmc::check_automap collapses instant vs "
+         "delayed timing, NR 0xBA has no observable effect");
+
+    // EP-10: Setting NR 0xB9[1]=1 makes 0x0008 an unconditional automap
+    // (not ROM3 conditional). No C++ handler — DivMmc has no
+    // set_entry_valid_0 effect on check_automap.
+    skip("EP-10",
+         "No emulator path: DivMmc::check_automap ignores NR 0xB9 valid "
+         "flag (VHDL zxnext.vhd:2856)");
+
+    // EP-11: NR B8=0xFF with B9=0x01 default. Per VHDL zxnext.vhd:2892-2905,
+    // only EP0 (PC=0x0000) reaches delayed_on — the other 7 entry points
+    // drop into rom3_delayed_on and need i_automap_rom3_active. Without the
+    // ROM3 plumbing in C++, only 1/8 should fire against VHDL; the current
+    // emulator wrongly fires all 8 (two compounding bugs: ignores B9 and
+    // ignores ROM3). This row is a failing regression witness for the
+    // ROM3-gating Emulator Bug backlog item.
+    {
+        int fired = 0;
+        const uint16_t rst[8] = {0x0000,0x0008,0x0010,0x0018,
+                                 0x0020,0x0028,0x0030,0x0038};
+        for (uint16_t addr : rst) {
+            DivMmc dd = make_divmmc();
+            dd.set_entry_points_0(0xFF);
+            dd.check_automap(addr, true);
+            if (dd.automap_active()) ++fired;
         }
+        check("EP-11",
+              "NR B8=0xFF, B9=0x01 default: only EP0 reaches delayed_on; "
+              "other 7 need ROM3 (VHDL zxnext.vhd:2892-2905)",
+              fired == 1,
+              fmt("fired=%d exp=1 (B9/ROM3 gating missing)", fired));
     }
 
-    // EP-11: Set NR 0xB8=0xFF: all 8 RST addresses trigger
+    // EP-12: Automap only triggers on M1+MREQ (is_m1=true). Data reads
+    // at 0x0000 must NOT activate. VHDL: divmmc.vhd:128.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.set_entry_points_0(0xFF);  // enable all
-        bool all_ok = true;
-        uint16_t addrs[] = {0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038};
-        for (auto addr : addrs) {
-            DivMmc d2;
-            d2.reset();
-            d2.set_enabled(true);
-            d2.set_entry_points_0(0xFF);
-            d2.check_automap(addr, true);
-            if (!d2.automap_active()) all_ok = false;
-        }
-        check("EP-11", "NR 0xB8=0xFF: all 8 RST addresses trigger",
-              all_ok, DETAIL("all_ok=%d", all_ok));
-    }
-
-    // EP-12: Automap only triggers on M1 (is_m1=true)
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, false);  // NOT an M1 fetch
-        check("EP-12", "Data read at 0x0000 does NOT trigger automap",
-              !div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, false);  // non-M1 fetch
+        check("EP-12",
+              "Non-M1 fetch at 0x0000 must not activate automap "
+              "(VHDL divmmc.vhd:128)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 }
 
-// -- Group 5: Non-RST Entry Points (NextREG 0xBB) -------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §5. Automap Entry Points — Non-RST (NR 0xBB)
+// VHDL: zxnext.vhd:2896-2908
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_nonrst_entry_points() {
-    set_group("Non-RST Entry Points");
+void group_nr() {
+    set_group("5. Non-RST entry points");
 
-    // NR-01: M1 at 0x04C6 with BB[2]=1 (default): automap on
+    // NR-01: BB[2]=1 (default): M1 at 0x04C6 triggers rom3_delayed_on.
+    // Again, C++ does not gate on ROM3, so it will activate. VHDL says
+    // it requires ROM3 active; we assert the VHDL contract.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x04C6, true);
-        check("NR-01", "M1 at 0x04C6: automap ON (BB[2]=1)",
-              div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x04C6, true);
+        check("NR-01",
+              "M1 at 0x04C6 with BB[2]=1 (default) and no ROM3: "
+              "automap must NOT activate "
+              "(VHDL zxnext.vhd:2898)",
+              !d.automap_active(),
+              fmt("automap=%d (ROM3 gating missing)",
+                  d.automap_active()));
     }
 
-    // NR-02: M1 at 0x0562 with BB[3]=1 (default): automap on
+    // NR-02: BB[3]=1 (default): 0x0562 triggers rom3_delayed_on.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0562, true);
-        check("NR-02", "M1 at 0x0562: automap ON (BB[3]=1)",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0562, true);
+        check("NR-02",
+              "M1 at 0x0562 with BB[3]=1 (default) and no ROM3: "
+              "automap must NOT activate "
+              "(VHDL zxnext.vhd:2900)",
+              !d.automap_active(),
+              fmt("automap=%d (ROM3 gating missing)",
+                  d.automap_active()));
     }
 
-    // NR-03: M1 at 0x04D7 with BB[4]=0 (default): no trigger
+    // NR-03: BB[4]=0 (default): M1 at 0x04D7: no trigger.
+    // VHDL: zxnext.vhd:2902.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x04D7, true);
-        check("NR-03", "M1 at 0x04D7: no trigger (BB[4]=0 default)",
-              !div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x04D7, true);
+        check("NR-03",
+              "M1 at 0x04D7 with BB[4]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2902)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-04: M1 at 0x056A with BB[5]=0 (default): no trigger
+    // NR-04: BB[5]=0 (default): 0x056A: no trigger.
+    // VHDL: zxnext.vhd:2904.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x056A, true);
-        check("NR-04", "M1 at 0x056A: no trigger (BB[5]=0 default)",
-              !div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x056A, true);
+        check("NR-04",
+              "M1 at 0x056A with BB[5]=0 (default): no automap "
+              "(VHDL zxnext.vhd:2904)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-05: Set BB[4]=1, M1 at 0x04D7: triggers
+    // NR-05: Enable BB[4]=1 then M1 at 0x04D7 -> rom3_delayed_on.
+    // VHDL: zxnext.vhd:2902. Requires ROM3; assert VHDL contract.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.set_entry_points_1(div.entry_points_1() | 0x10);  // set bit 4
-        div.check_automap(0x04D7, true);
-        check("NR-05", "BB[4]=1, M1 at 0x04D7: automap ON",
-              div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x10);  // BB[4]=1
+        d.check_automap(0x04D7, true);
+        check("NR-05",
+              "M1 at 0x04D7 with BB[4]=1 and no ROM3: automap must NOT "
+              "activate (VHDL zxnext.vhd:2902)",
+              !d.automap_active(),
+              fmt("automap=%d (ROM3 gating missing)",
+                  d.automap_active()));
     }
 
-    // NR-06: M1 at 0x3D00 with BB[7]=1 (default 0xCD has bit7=1)
-    // The VHDL checks any 0x3Dxx address. Our code may not implement this.
+    // NR-06: BB[7]=1 (default): M1 at any 0x3Dxx -> rom3_instant_on.
+    // VHDL: zxnext.vhd:2908. C++ DivMmc does not implement 0x3Dxx at all
+    // — leave failing. Expected (VHDL): NOT activated without ROM3.
+    // Since C++ does nothing at 0x3Dxx, this passes vacuously.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x3D00, true);
-        check("NR-06", "M1 at 0x3D00: automap (BB[7]=1)",
-              div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x3D00, true);
+        check("NR-06",
+              "M1 at 0x3D00 with BB[7]=1 and no ROM3: automap must NOT "
+              "activate (VHDL zxnext.vhd:2908)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-07: M1 at 0x3DFF with BB[7]=1
+    // NR-07: M1 at 0x3DFF with BB[7]=1 and no ROM3: no activation.
+    // VHDL: zxnext.vhd:2908 — range any 0x3Dxx.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x3DFF, true);
-        check("NR-07", "M1 at 0x3DFF: automap (BB[7]=1)",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x3DFF, true);
+        check("NR-07",
+              "M1 at 0x3DFF with BB[7]=1 and no ROM3: no automap "
+              "(VHDL zxnext.vhd:2908)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-08: Set BB[7]=0, M1 at 0x3D00: no trigger
+    // NR-08: Disable BB[7]=0, M1 at 0x3D00: no trigger.
+    // VHDL: zxnext.vhd:2908. C++ DivMmc does not handle 0x3Dxx, so this
+    // passes vacuously — but the observable contract still holds.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.set_entry_points_1(div.entry_points_1() & ~0x80);  // clear bit 7
-        div.check_automap(0x3D00, true);
-        check("NR-08", "BB[7]=0, M1 at 0x3D00: no trigger",
-              !div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
-    }
-}
-
-// -- Group 6: Automap Deactivation ----------------------------------------
-
-static void test_deactivation() {
-    set_group("Deactivation");
-
-    // DA-01: M1 at 0x1FF8 deactivates automap
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);   // activate
-        div.check_automap(0x1FF8, true);   // deactivate
-        check("DA-01", "M1 at 0x1FF8: automap OFF",
-              !div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
-    }
-
-    // DA-02: M1 at 0x1FFF deactivates
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        div.check_automap(0x1FFF, true);
-        check("DA-02", "M1 at 0x1FFF: automap OFF",
-              !div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
-    }
-
-    // DA-03: M1 at 0x1FF7: no deactivation
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        div.check_automap(0x1FF7, true);
-        check("DA-03", "M1 at 0x1FF7: no deactivation",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
-    }
-
-    // DA-04: M1 at 0x2000: no deactivation
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        div.check_automap(0x2000, true);
-        check("DA-04", "M1 at 0x2000: no deactivation",
-              div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
-    }
-
-    // DA-05: Set BB[6]=0: deactivation range disabled
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.set_entry_points_1(div.entry_points_1() & ~0x40);  // clear bit 6
-        div.check_automap(0x0000, true);   // activate
-        div.check_automap(0x1FF8, true);   // try deactivate
-        check("DA-05", "BB[6]=0: deactivation disabled",
-              div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
-    }
-
-    // DA-07: Reset clears automap state
-    {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        div.reset();
-        check("DA-07", "Reset clears automap state",
-              !div.automap_active(),
-              DETAIL("automap=%d", div.automap_active()));
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD & ~0x80);  // clear bit 7
+        d.check_automap(0x3D00, true);
+        check("NR-08",
+              "M1 at 0x3D00 with BB[7]=0: no automap "
+              "(VHDL zxnext.vhd:2908)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 }
 
-// -- Group 7: DivMMC Memory Read/Write ------------------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §6. Automap Deactivation
+// VHDL: divmmc.vhd:108, 126-131; zxnext.vhd:~2906
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_memory_rw() {
-    set_group("Memory R/W");
+void group_da() {
+    set_group("6. Deactivation");
 
-    // MEM-01: Write and read slot 1 RAM
+    // DA-01: M1 at 0x1FF8 with automap held: deactivates.
+    // VHDL: zxnext.vhd NR BB[6]=1; divmmc.vhd:131.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x82);  // conmem=1, bank=2
-        div.write(0x2000, 0xAB);
-        check("MEM-01", "Write/read slot 1 RAM bank 2",
-              div.read(0x2000) == 0xAB,
-              DETAIL("got=%02x", div.read(0x2000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // activate
+        d.check_automap(0x1FF8, true);   // deactivate
+        check("DA-01",
+              "M1 at 0x1FF8 deactivates held automap "
+              "(VHDL divmmc.vhd:131)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // MEM-02: Slot 0 writes are discarded (read-only)
+    // DA-02: M1 at 0x1FFF: deactivates (upper bound).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x80);  // conmem=1, mapram=0
-        uint8_t before = div.read(0x0000);
-        div.write(0x0000, 0x42);
-        check("MEM-02", "Slot 0 writes discarded (ROM read-only)",
-              div.read(0x0000) == before,
-              DETAIL("before=%02x after=%02x", before, div.read(0x0000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);
+        d.check_automap(0x1FFF, true);
+        check("DA-02",
+              "M1 at 0x1FFF deactivates held automap "
+              "(VHDL divmmc.vhd:131)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // MEM-03: mapram=1, bank=3: slot 1 is read-only
+    // DA-03: M1 at 0x1FF7: below range, no deactivation.
+    // VHDL: cpu_a[7:3]=11111 required (bits 7..3 = 11111 -> 0xF8..0xFF).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC3);  // conmem=1, mapram=1, bank=3
-        uint8_t before = div.read(0x2000);
-        div.write(0x2000, 0x55);
-        check("MEM-03", "mapram=1, bank=3: slot 1 read-only",
-              div.read(0x2000) == before,
-              DETAIL("before=%02x after=%02x", before, div.read(0x2000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);
+        d.check_automap(0x1FF7, true);
+        check("DA-03",
+              "M1 at 0x1FF7: no deactivation (below 0x1FF8) "
+              "(VHDL zxnext.vhd: cpu_a[7:3]=11111)",
+              d.automap_active(),
+              fmt("automap=%d exp=1", d.automap_active()));
     }
 
-    // MEM-04: mapram=1, bank!=3: slot 1 writable
+    // DA-04: M1 at 0x2000: above range, no deactivation.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0xC5);  // conmem=1, mapram=1, bank=5
-        div.write(0x2000, 0x77);
-        check("MEM-04", "mapram=1, bank!=3: slot 1 writable",
-              div.read(0x2000) == 0x77,
-              DETAIL("got=%02x", div.read(0x2000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);
+        d.check_automap(0x2000, true);
+        check("DA-04",
+              "M1 at 0x2000: no deactivation (above range) "
+              "(VHDL zxnext.vhd: port_1fxx_msb)",
+              d.automap_active(),
+              fmt("automap=%d exp=1", d.automap_active()));
     }
 
-    // MEM-05: mapram=1: slot 0 reads from RAM page 3
+    // DA-05: BB[6]=0 disables deactivation range.
+    // VHDL: zxnext.vhd NR BB[6] gates delayed_off.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        // Write to RAM page 3 via slot 1 first
-        div.write_control(0x83);  // conmem=1, bank=3
-        div.write(0x2000, 0xBE);
-        // Now switch to mapram mode
-        div.write_control(0xC0);  // conmem=1, mapram=1
-        // Slot 0 should read from RAM page 3
-        check("MEM-05", "mapram=1: slot 0 reads RAM page 3",
-              div.read(0x0000) == 0xBE,
-              DETAIL("got=%02x expected=0xBE", div.read(0x0000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);            // activate
+        d.set_entry_points_1(0xCD & ~0x40);       // clear bit 6
+        d.check_automap(0x1FF8, true);            // should NOT deactivate
+        check("DA-05",
+              "BB[6]=0 disables 0x1FF8 deactivation "
+              "(VHDL zxnext.vhd NR 0xBB[6])",
+              d.automap_active(),
+              fmt("automap=%d exp=1", d.automap_active()));
     }
 
-    // MEM-06: Bank switching changes slot 1 data
+    // DA-06: RETN instruction clears automap state.
+    // VHDL: divmmc.vhd:108 (button_nmi clear), :126-139 (hold/held
+    // clear on i_retn_seen). No C++ hook — DivMmc has no
+    // notify_retn/on_retn method.
+    skip("DA-06",
+         "No emulator path: DivMmc has no RETN hook "
+         "(VHDL divmmc.vhd:108,126,139)");
+
+    // DA-07: Reset clears automap state.
+    // VHDL: divmmc.vhd:108,127,139 (i_reset branch).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.write_control(0x80);  // conmem=1, bank=0
-        div.write(0x2000, 0x11);
-        div.write_control(0x81);  // bank=1
-        div.write(0x2000, 0x22);
-        div.write_control(0x80);  // back to bank=0
-        check("MEM-06", "Bank switching: data preserved per bank",
-              div.read(0x2000) == 0x11,
-              DETAIL("got=%02x expected=0x11", div.read(0x2000)));
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // activate
+        d.reset();
+        check("DA-07",
+              "reset() clears automap_active "
+              "(VHDL divmmc.vhd:127)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
     }
 
-    // MEM-07: Address outside 0x0000-0x3FFF returns 0xFF
+    // DA-08: automap_reset (port_divmmc_io_en=0 OR NR 0x0A[4]=0)
+    // clears automap. VHDL: divmmc.vhd:126-139 (i_automap_reset branch).
+    // C++ surface: set_enabled(false) is the only path and it merely
+    // gates is_active(), it does NOT clear automap_active_.
+    skip("DA-08",
+         "No emulator path: set_enabled(false) gates visibility but does "
+         "not clear automap_active_ latch (VHDL divmmc.vhd:126)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §7. Automap Timing — Instant vs Delayed
+// VHDL: divmmc.vhd:123-148
+// ══════════════════════════════════════════════════════════════════════
+
+void group_tm() {
+    set_group("7. Instant vs delayed");
+
+    // TM-01..TM-05: all require modelling of automap_hold/automap_held
+    // pipeline (two-process M1+MREQ edge latch). The C++ model collapses
+    // everything into a single automap_active_ boolean latched on
+    // check_automap() so there is nothing to distinguish instant vs
+    // delayed, nothing to observe at MREQ rising edge, nothing to
+    // probe mid-M1.
+    skip("TM-01",
+         "No emulator path: automap_hold/held pipeline not modelled "
+         "(VHDL divmmc.vhd:123-148)");
+    skip("TM-02",
+         "No emulator path: delayed_on pipeline not modelled "
+         "(VHDL divmmc.vhd:129)");
+    skip("TM-03",
+         "No emulator path: MREQ_n rising-edge latch not modelled "
+         "(VHDL divmmc.vhd:141-142)");
+    skip("TM-04",
+         "No emulator path: M1+MREQ gating for automap_hold not modelled "
+         "(VHDL divmmc.vhd:128)");
+    skip("TM-05",
+         "No emulator path: automap_held persistence across non-off "
+         "fetches not modelled (VHDL divmmc.vhd:131)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §8. Automap ROM3-Conditional Activation
+// VHDL: zxnext.vhd:3137-3138
+// ══════════════════════════════════════════════════════════════════════
+
+void group_r3() {
+    set_group("8. ROM3 conditional");
+
+    // R3-01..R3-03: require ROM3/altrom/Layer2/ROMCS state to be
+    // observable to DivMmc. None of these signals are plumbed into
+    // DivMmc — it has no i_automap_rom3_active input equivalent.
+    skip("R3-01",
+         "No emulator path: sram_divmmc_automap_rom3_en not modelled "
+         "(VHDL zxnext.vhd:3137-3138)");
+    skip("R3-02",
+         "No emulator path: ROM page selection not observable to DivMmc "
+         "(VHDL zxnext.vhd:3137)");
+    skip("R3-03",
+         "No emulator path: Layer 2 mapping override not observable to "
+         "DivMmc (VHDL zxnext.vhd:3137)");
+
+    // R3-04: sram_divmmc_automap_en = sram_pre_override(2). Roughly
+    // corresponds to the i_en gate modelled in CM-09.
+    // VHDL: zxnext.vhd:3137.
     {
-        DivMmc div;
-        div.reset();
-        check("MEM-07", "Read outside range returns 0xFF",
-              div.read(0x4000) == 0xFF,
-              DETAIL("got=%02x", div.read(0x4000)));
+        DivMmc d;
+        d.reset();
+        d.set_enabled(true);
+        d.write_control(0x80);  // conmem=1
+        check("R3-04",
+              "DivMMC enabled + conmem: non-ROM3 automap path active "
+              "(VHDL zxnext.vhd:3137)",
+              d.is_active(),
+              fmt("act=%d", d.is_active()));
     }
 }
 
-// -- Group 8: NextREG defaults --------------------------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §9. NMI and DivMMC Button
+// VHDL: divmmc.vhd:105-116, 120-121, 150
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_nextreg_defaults() {
-    set_group("NextREG Defaults");
+void group_nm() {
+    set_group("9. NMI / button");
 
-    DivMmc div;
-    div.reset();
-
-    // NR-B8 default
-    check("NRD-01", "NR 0xB8 default = 0x83",
-          div.entry_points_0() == 0x83,
-          DETAIL("got=%02x", div.entry_points_0()));
-
-    // NR-B9 default
-    check("NRD-02", "NR 0xB9 default = 0x01",
-          div.entry_valid_0() == 0x01,
-          DETAIL("got=%02x", div.entry_valid_0()));
-
-    // NR-BA default
-    check("NRD-03", "NR 0xBA default = 0x00",
-          div.entry_timing_0() == 0x00,
-          DETAIL("got=%02x", div.entry_timing_0()));
-
-    // NR-BB default
-    check("NRD-04", "NR 0xBB default = 0xCD",
-          div.entry_points_1() == 0xCD,
-          DETAIL("got=%02x", div.entry_points_1()));
+    // NM-01..NM-08: DivMmc has no button_nmi_ flag, no
+    // set_divmmc_button() API, no o_disable_nmi output. Entire NMI
+    // lifecycle is absent from the emulator.
+    skip("NM-01",
+         "No emulator path: button_nmi flag not modelled "
+         "(VHDL divmmc.vhd:108-111)");
+    skip("NM-02",
+         "No emulator path: automap_nmi_*_on signals not gated on "
+         "button_nmi (VHDL divmmc.vhd:120-121)");
+    skip("NM-03",
+         "No emulator path: button_nmi gating not modelled "
+         "(VHDL divmmc.vhd:120)");
+    skip("NM-04",
+         "No emulator path: button_nmi reset clear not modelled "
+         "(VHDL divmmc.vhd:108)");
+    skip("NM-05",
+         "No emulator path: button_nmi automap_reset clear not modelled "
+         "(VHDL divmmc.vhd:108)");
+    skip("NM-06",
+         "No emulator path: button_nmi RETN clear not modelled "
+         "(VHDL divmmc.vhd:108)");
+    skip("NM-07",
+         "No emulator path: button_nmi clear on automap_held=1 not "
+         "modelled (VHDL divmmc.vhd:112-113)");
+    skip("NM-08",
+         "No emulator path: o_disable_nmi output not exposed "
+         "(VHDL divmmc.vhd:150)");
 }
 
-// -- Group 9: NMI Entry Point (0x0066) ------------------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §10. NextREG 0x0A — DivMMC Automap Enable
+// VHDL: zxnext.vhd:4112
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_nmi_entry() {
-    set_group("NMI Entry");
+void group_na() {
+    set_group("10. NR 0x0A enable");
 
-    // NMI via entry_points_1_ bit 1 (NMI instant) - default 0xCD has bit1=0
-    // So NMI at 0x0066 should NOT trigger with default settings
+    // NA-01: NR 0x0A[4]=0 (default) asserts automap_reset.
+    // VHDL: zxnext.vhd:4112. In the emulator the equivalent lever is
+    // set_enabled(false) (there is no NR 0x0A bit 4 handler on DivMmc).
+    // The contract: with enable off, automap cannot take effect.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0066, true);
-        check("NM-01", "M1 at 0x0066 default (BB[1]=0): no automap",
-              !div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d;
+        d.reset();
+        d.set_enabled(false);
+        d.check_automap(0x0000, true);
+        check("NA-01",
+              "enable=false (NR 0x0A[4]=0 equivalent): no mapping on "
+              "automap trigger (VHDL zxnext.vhd:4112)",
+              !d.is_active(),
+              fmt("act=%d", d.is_active()));
     }
 
-    // With BB[1] set (NMI instant)
+    // NA-02: NR 0x0A[4]=1 releases automap_reset -> automap can function.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.set_entry_points_1(div.entry_points_1() | 0x02);  // set bit 1
-        div.check_automap(0x0066, true);
-        check("NM-02", "BB[1]=1, M1 at 0x0066: automap ON",
-              div.automap_active(),
-              DETAIL("automap=%d ep1=%02x", div.automap_active(), div.entry_points_1()));
+        DivMmc d;
+        d.reset();
+        d.set_enabled(true);
+        d.check_automap(0x0000, true);
+        check("NA-02",
+              "enable=true releases reset, automap functions "
+              "(VHDL zxnext.vhd:4112)",
+              d.is_active() && d.is_rom_mapped(),
+              fmt("act=%d rom=%d",
+                  d.is_active(), d.is_rom_mapped()));
     }
+
+    // NA-03: port_divmmc_io_en=0 asserts automap_reset even with NR
+    // 0x0A[4]=1. There is no separate port_divmmc_io_en lever on the
+    // emulator side — set_enabled() is the only gate.
+    skip("NA-03",
+         "No emulator path: port_divmmc_io_en and NR 0x0A[4] collapsed "
+         "onto single set_enabled() lever (VHDL zxnext.vhd:4112)");
 }
 
-// -- Group 10: Port 0xE7 -- SPI Chip Select -------------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §11. DivMMC SRAM Address Mapping
+// VHDL: zxnext.vhd:3084-3097
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_spi_cs() {
-    set_group("SPI CS (Port 0xE7)");
+void group_sm() {
+    set_group("11. SRAM mapping");
 
-    // SS-01: Reset: all CS deasserted (0xFF)
-    {
-        SpiMaster spi;
-        spi.reset();
-        check("SS-01", "Reset: CS = 0xFF (all deselected)",
-              spi.read_cs() == 0xFF,
-              DETAIL("cs=%02x", spi.read_cs()));
-    }
-
-    // SS-02: Write CS value
-    {
-        SpiMaster spi;
-        spi.reset();
-        spi.write_cs(0xFE);  // select device 0
-        check("SS-02", "Write CS 0xFE: device 0 selected",
-              spi.read_cs() == 0xFE,
-              DETAIL("cs=%02x", spi.read_cs()));
-    }
-
-    // SS-03: CS read-back matches write
-    {
-        SpiMaster spi;
-        spi.reset();
-        spi.write_cs(0xFD);
-        check("SS-03", "CS read-back matches write",
-              spi.read_cs() == 0xFD,
-              DETAIL("cs=%02x", spi.read_cs()));
-    }
-
-    // SS-04: Deselect callback fires on CS transition
-    {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);  // select device 0
-        spi.write_cs(0xFF);  // deselect
-        check("SS-04", "Deselect callback fires on CS high transition",
-              mock.was_deselected,
-              DETAIL("was_deselected=%d", mock.was_deselected));
-    }
-
-    // SS-05: No deselect callback when device stays selected
-    {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);  // select device 0
-        spi.write_cs(0xFE);  // same value
-        check("SS-05", "No deselect when CS unchanged",
-              !mock.was_deselected,
-              DETAIL("was_deselected=%d", mock.was_deselected));
-    }
-
-    // SS-06: Multiple devices: only active one responds
-    {
-        SpiMaster spi;
-        MockSpiDevice mock0, mock1;
-        spi.reset();
-        spi.attach_device(0, &mock0);
-        spi.attach_device(1, &mock1);
-        mock0.next_response = 0xAA;
-        mock1.next_response = 0xBB;
-        spi.write_cs(0xFE);  // select device 0 (bit 0 = 0)
-        uint8_t val = spi.read_data();
-        check("SS-06", "Only active device responds to read",
-              val == 0xAA,
-              DETAIL("got=%02x expected=0xAA", val));
-    }
+    // SM-01..SM-07: the physical SRAM address ladder lives in the
+    // top-level memory resolver (mmu/memory.cpp) and is not exposed
+    // on DivMmc. DivMmc itself owns the ROM/RAM buffers but does not
+    // publish their 22-bit SRAM addresses, nor does it compete with
+    // Layer 2 / ROMCS in a priority chain. All seven rows are
+    // structural observations about the higher-level resolver and are
+    // unreachable from this test.
+    skip("SM-01",
+         "No emulator path: SRAM ROM address ladder not exposed "
+         "(VHDL zxnext.vhd:3084)");
+    skip("SM-02",
+         "No emulator path: SRAM RAM bank 0 address not exposed "
+         "(VHDL zxnext.vhd:3087)");
+    skip("SM-03",
+         "No emulator path: SRAM RAM bank 3 address not exposed "
+         "(VHDL zxnext.vhd:3087)");
+    skip("SM-04",
+         "No emulator path: SRAM RAM bank 15 address not exposed "
+         "(VHDL zxnext.vhd:3087)");
+    skip("SM-05",
+         "No emulator path: DivMMC/Layer2 priority is resolved outside "
+         "DivMmc (VHDL zxnext.vhd:3091)");
+    skip("SM-06",
+         "No emulator path: DivMMC/ROMCS priority is resolved outside "
+         "DivMmc (VHDL zxnext.vhd:3094)");
+    skip("SM-07",
+         "No emulator path: ROMCS->DivMMC bank 14/15 aliasing is outside "
+         "DivMmc (VHDL zxnext.vhd:3097)");
 }
 
-// -- Group 11: Port 0xEB -- SPI Data Exchange -----------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §12. Port 0xE7 — SPI Chip Select
+// VHDL: zxnext.vhd:3300-3332
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_spi_data() {
-    set_group("SPI Data (Port 0xEB)");
+void group_ss() {
+    set_group("12. Port 0xE7 CS");
 
-    // SX-01: Write to 0xEB sends byte to device
+    // SS-01: Reset -> port_e7_reg = 0xFF.
+    // VHDL: zxnext.vhd:3302.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);
-        spi.write_data(0xA5);
-        check("SX-01", "Write 0xEB: byte sent to device",
-              mock.last_tx == 0xA5,
-              DETAIL("last_tx=%02x", mock.last_tx));
+        SpiMaster m; m.reset();
+        uint8_t v = m.read_cs();
+        check("SS-01",
+              "Reset sets port_e7 to 0xFF (all deselected) "
+              "(VHDL zxnext.vhd:3302)",
+              v == 0xFF,
+              fmt("got=%02x", v));
     }
 
-    // SX-02: Read from 0xEB returns device response
+    // SS-02..SS-05: sd_swap decode logic from zxnext.vhd:3308-3314.
+    // VHDL transforms cpu_do(1:0) according to sd_swap (NR 0x0A[5]).
+    // The C++ SpiMaster stores the raw CS byte verbatim — there is no
+    // sd_swap input and no transform of the low two bits. All four
+    // rows are unreachable without wiring NR 0x0A[5] into SpiMaster.
+    skip("SS-02",
+         "No emulator path: sd_swap decode not modelled, write_cs stores "
+         "raw byte (VHDL zxnext.vhd:3308)");
+    skip("SS-03",
+         "No emulator path: sd_swap decode not modelled "
+         "(VHDL zxnext.vhd:3308)");
+    skip("SS-04",
+         "No emulator path: sd_swap=1 path not modelled "
+         "(VHDL zxnext.vhd:3308)");
+    skip("SS-05",
+         "No emulator path: sd_swap=1 reverse mapping not modelled "
+         "(VHDL zxnext.vhd:3308)");
+
+    // SS-06: Write 0xFB selects RPI0. VHDL: zxnext.vhd:3318.
+    // Emulator stores verbatim, and bit 2 clear selects device index 2.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);
-        mock.next_response = 0x5A;
-        uint8_t val = spi.read_data();
-        check("SX-02", "Read 0xEB: returns device response",
-              val == 0x5A,
-              DETAIL("got=%02x expected=0x5A", val));
+        SpiMaster m; m.reset();
+        m.write_cs(0xFB);
+        // Observable: read_cs() returns raw; active device resolution
+        // is internal but we can verify the store.
+        check("SS-06",
+              "Write 0xFB selects RPI0 (bit 2 clear) "
+              "(VHDL zxnext.vhd:3318)",
+              m.read_cs() == 0xFB,
+              fmt("got=%02x", m.read_cs()));
     }
 
-    // SX-04: First read after reset returns 0xFF
+    // SS-07: Write 0xF7 selects RPI1. VHDL: zxnext.vhd:3320.
     {
-        SpiMaster spi;
-        spi.reset();
-        // No device attached: read should return 0xFF
-        uint8_t val = spi.read_data();
-        check("SX-04", "First read after reset returns 0xFF",
-              val == 0xFF,
-              DETAIL("got=%02x", val));
+        SpiMaster m; m.reset();
+        m.write_cs(0xF7);
+        check("SS-07",
+              "Write 0xF7 selects RPI1 (bit 3 clear) "
+              "(VHDL zxnext.vhd:3320)",
+              m.read_cs() == 0xF7,
+              fmt("got=%02x", m.read_cs()));
     }
 
-    // SX-05: Write then read sequence
+    // SS-08: Write 0x7F in config mode selects Flash.
+    // VHDL: zxnext.vhd:3324 — gated by config_mode/reset_type bit 2.
+    skip("SS-08",
+         "No emulator path: flash select gating (config_mode) not "
+         "modelled (VHDL zxnext.vhd:3324)");
+
+    // SS-09: Write 0x7F outside config mode -> all deselected (0xFF).
+    // VHDL: zxnext.vhd:3326 — flash select blocked. Emulator stores raw.
+    // Expected (VHDL): read_cs == 0xFF. Current C++ will return 0x7F.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);
-        mock.next_response = 0x42;
-        spi.write_data(0xAA);  // write command
-        mock.next_response = 0x42;
-        uint8_t val = spi.read_data();  // read response
-        check("SX-05", "Write then read: gets device response",
-              val == 0x42,
-              DETAIL("got=%02x expected=0x42", val));
+        SpiMaster m; m.reset();
+        m.write_cs(0x7F);
+        check("SS-09",
+              "Write 0x7F outside config mode: all deselected (0xFF) "
+              "(VHDL zxnext.vhd:3326)",
+              m.read_cs() == 0xFF,
+              fmt("got=%02x exp=FF", m.read_cs()));
     }
 
-    // SX-06: No device selected: read returns 0xFF
+    // SS-10: Write any other value -> all deselected (0xFF).
+    // VHDL: zxnext.vhd:3328-3330 — default OTHERS => 0xFF.
+    // Emulator stores raw; expect VHDL contract.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        mock.next_response = 0xAB;
-        spi.write_cs(0xFF);  // all deselected
-        uint8_t val = spi.read_data();
-        check("SX-06", "No device selected: read = 0xFF",
-              val == 0xFF,
-              DETAIL("got=%02x", val));
+        SpiMaster m; m.reset();
+        m.write_cs(0x12);  // not a recognised SS pattern
+        check("SS-10",
+              "Write unrecognised value: all deselected (0xFF) "
+              "(VHDL zxnext.vhd:3328)",
+              m.read_cs() == 0xFF,
+              fmt("got=%02x exp=FF", m.read_cs()));
     }
 
-    // SX-07: Multiple exchanges on same device
+    // SS-11: Only one device selected at a time.
+    // VHDL: zxnext.vhd:3300-3332 — each written value decodes to exactly
+    // one selected bit. In the emulator the raw byte 0xFC would leave
+    // two bits clear; the VHDL decoder would collapse that to 0xFF.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        spi.write_cs(0xFE);
-        mock.next_response = 0x11;
-        spi.read_data();
-        mock.next_response = 0x22;
-        spi.read_data();
-        mock.next_response = 0x33;
-        uint8_t val = spi.read_data();
-        check("SX-07", "Multiple exchanges: last response returned",
-              val == 0x33,
-              DETAIL("got=%02x expected=0x33", val));
-    }
-}
-
-// -- Group 12: SD Card Device (basic protocol) ----------------------------
-
-static void test_sd_card_basic() {
-    set_group("SD Card Basic");
-
-    // SD-01: SD card exchange returns 0xFF initially (no image mounted)
-    {
-        SdCardDevice sd;
-        sd.reset();
-        uint8_t val = sd.exchange(0xFF);
-        check("SD-01", "SD card: initial exchange returns 0xFF",
-              val == 0xFF,
-              DETAIL("got=%02x", val));
-    }
-
-    // SD-02: SD card deselect does not crash
-    {
-        SdCardDevice sd;
-        sd.reset();
-        sd.deselect();
-        check("SD-02", "SD card: deselect after reset",
-              true, "");  // Just tests no crash
-    }
-
-    // SD-03: SD card not mounted initially
-    {
-        SdCardDevice sd;
-        check("SD-03", "SD card: not mounted initially",
-              !sd.mounted(),
-              DETAIL("mounted=%d", sd.mounted()));
+        SpiMaster m; m.reset();
+        m.write_cs(0xFC);  // two bits clear (ambiguous)
+        check("SS-11",
+              "Ambiguous SS write (two bits clear) must collapse to "
+              "0xFF — single-device enforcement "
+              "(VHDL zxnext.vhd:3328)",
+              m.read_cs() == 0xFF,
+              fmt("got=%02x exp=FF", m.read_cs()));
     }
 }
 
-// -- Group 13: Integration scenarios --------------------------------------
+// ══════════════════════════════════════════════════════════════════════
+// §13. Port 0xEB — SPI Data Exchange
+// VHDL: spi_master.vhd:80-177
+// ══════════════════════════════════════════════════════════════════════
 
-static void test_integration() {
-    set_group("Integration");
+void group_sx() {
+    set_group("13. Port 0xEB xchg");
 
-    // IN-01: Boot sequence: automap at 0x0000, DivMMC mapped
+    // SX-01: Write to 0xEB sends byte via MOSI.
+    // VHDL: spi_master.vhd:111-112 — oshift_r <= i_spi_mosi_dat on wr.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);
-        check("IN-01", "Boot: automap at 0x0000, DivMMC active",
-              div.is_active() && div.is_rom_mapped(),
-              DETAIL("active=%d rom=%d", div.is_active(), div.is_rom_mapped()));
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);           // select device 0 (bit0 low)
+        m.write_data(0xA5);
+        check("SX-01",
+              "Write 0xEB forwards byte to MOSI "
+              "(VHDL spi_master.vhd:111-112)",
+              dev.last_tx == 0xA5 && dev.exchange_count == 1,
+              fmt("tx=%02x cnt=%d",
+                  dev.last_tx, dev.exchange_count));
     }
 
-    // IN-02: SD card init: select, exchange, deselect
+    // SX-02: Read from 0xEB sends 0xFF and latches MISO.
+    // VHDL: spi_master.vhd:109-110 — oshift_r <= all 1s on rd.
     {
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        mock.next_response = 0x01;  // R1 idle response
-        spi.write_cs(0xFE);         // select
-        spi.write_data(0x40);       // CMD0
-        uint8_t resp = spi.read_data();
-        spi.write_cs(0xFF);         // deselect
-        check("IN-02", "SD init: select, exchange, deselect",
-              resp == 0x01 && mock.was_deselected,
-              DETAIL("resp=%02x deselected=%d", resp, mock.was_deselected));
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x5A;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        uint8_t v = m.read_data();
+        check("SX-02",
+              "Read 0xEB returns MISO (VHDL spi_master.vhd:165)",
+              v == 0x5A && dev.exchange_count == 1,
+              fmt("v=%02x cnt=%d", v, dev.exchange_count));
     }
 
-    // IN-06: conmem override during automap
+    // SX-03: Read returns PREVIOUS exchange result (pipeline delay).
+    // VHDL: spi_master.vhd:159-166 — miso_dat latched at end of PREVIOUS
+    // transfer, one-cycle state_last_d delay. The C++ SpiMaster has no
+    // pipeline delay: read_data() returns the freshly-exchanged byte.
+    // Expected (VHDL): the byte returned by a read is the result of the
+    // PREVIOUS exchange (or the reset value for the very first read).
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(true);
-        div.check_automap(0x0000, true);  // automap active
-        div.write_control(0x85);          // conmem=1, bank=5 (overrides automap)
-        check("IN-06", "conmem override: active with conmem+automap",
-              div.is_active() && div.conmem(),
-              DETAIL("active=%d conmem=%d", div.is_active(), div.conmem()));
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x11;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        // First read: pipeline says "result of previous" — i.e. reset
+        // value 0xFF — NOT 0x11.
+        uint8_t first = m.read_data();
+        check("SX-03",
+              "First read after select returns previous-cycle result "
+              "(VHDL spi_master.vhd:162-166)",
+              first == 0xFF,
+              fmt("got=%02x exp=FF (pipeline delay not modelled)",
+                  first));
     }
 
-    // IN-07: DivMMC disabled: no automap, SPI still works
+    // SX-04: First read after reset returns 0xFF.
+    // VHDL: spi_master.vhd:162-163 — miso_dat reset to all 1s.
+    // With no device attached this is trivially satisfied.
     {
-        DivMmc div;
-        div.reset();
-        div.set_enabled(false);
-        div.check_automap(0x0000, true);
-        bool no_automap = !div.automap_active();
+        SpiMaster m; m.reset();
+        uint8_t v = m.read_data();
+        check("SX-04",
+              "First read after reset (no device) returns 0xFF "
+              "(VHDL spi_master.vhd:162)",
+              v == 0xFF,
+              fmt("got=%02x", v));
+    }
 
-        SpiMaster spi;
-        MockSpiDevice mock;
-        spi.reset();
-        spi.attach_device(0, &mock);
-        mock.next_response = 0x42;
-        spi.write_cs(0xFE);
-        uint8_t val = spi.read_data();
-        bool spi_works = (val == 0x42);
+    // SX-05: Write 0xAA then read: read returns MISO from the write
+    // cycle (pipeline). VHDL: spi_master.vhd:159-166.
+    // C++: write_data feeds device via receive(); read_data triggers a
+    // separate send() — so read returns the send() value, NOT the
+    // result of the write exchange. Expect VHDL contract to fail until
+    // the emulator models the shared pipeline.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0xC3;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        m.write_data(0xAA);         // triggers exchange, miso=0xC3
+        uint8_t v = m.read_data();  // VHDL: returns 0xC3 from write cyc
+        check("SX-05",
+              "Read after write returns MISO of the write exchange "
+              "(VHDL spi_master.vhd:164-165)",
+              v == 0xC3,
+              fmt("got=%02x exp=C3 (independent write/read paths)", v));
+    }
 
-        check("IN-07", "DivMMC disabled: no automap, SPI still works",
-              no_automap && spi_works,
-              DETAIL("automap=%d spi_resp=%02x", !no_automap, val));
+    // SX-06: SPI transfer is 16 clock cycles (8 bits x 2 edges).
+    // VHDL: spi_master.vhd:86, 95-97.
+    skip("SX-06",
+         "No emulator path: SPI state counter not modelled, transfers "
+         "are instantaneous (VHDL spi_master.vhd:86,95-97)");
+
+    // SX-07: o_spi_sck = state_r(0). VHDL: spi_master.vhd:172.
+    skip("SX-07",
+         "No emulator path: SCK output not exposed "
+         "(VHDL spi_master.vhd:172)");
+
+    // SX-08: MOSI outputs MSB first. VHDL: spi_master.vhd:173.
+    skip("SX-08",
+         "No emulator path: MOSI pin-level output not exposed "
+         "(VHDL spi_master.vhd:173)");
+
+    // SX-09: MISO sampled on delayed rising SCK edge.
+    // VHDL: spi_master.vhd:148-156.
+    skip("SX-09",
+         "No emulator path: MISO bit-level sampling not modelled "
+         "(VHDL spi_master.vhd:148-156)");
+
+    // SX-10: Back-to-back transfers: new transfer starts on last state.
+    // VHDL: spi_master.vhd:82.
+    skip("SX-10",
+         "No emulator path: state_last pipelined restart not modelled "
+         "(VHDL spi_master.vhd:82)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §14. SPI State Machine
+// VHDL: spi_master.vhd:86-100
+// ══════════════════════════════════════════════════════════════════════
+
+void group_st() {
+    set_group("14. SPI state machine");
+
+    // ST-01..ST-08: the state counter, spi_wait_n and idle/last flags
+    // are not exposed anywhere in C++ — SpiMaster is a zero-latency
+    // byte wrapper and has no state_r, spi_wait_n, spi_begin or
+    // state_last observables.
+    skip("ST-01",
+         "No emulator path: state_r idle flag not modelled "
+         "(VHDL spi_master.vhd:87,93)");
+    skip("ST-02",
+         "No emulator path: spi_begin transition not modelled "
+         "(VHDL spi_master.vhd:82,94-95)");
+    skip("ST-03",
+         "No emulator path: state counter increment not modelled "
+         "(VHDL spi_master.vhd:96-97)");
+    skip("ST-04",
+         "No emulator path: state wrap to idle not modelled "
+         "(VHDL spi_master.vhd:96-97)");
+    skip("ST-05",
+         "No emulator path: spi_wait_n signal not exposed "
+         "(VHDL spi_master.vhd:177)");
+    skip("ST-06",
+         "No emulator path: spi_wait_n signal not exposed "
+         "(VHDL spi_master.vhd:177)");
+    skip("ST-07",
+         "No emulator path: pipelined transfer begin condition not "
+         "modelled (VHDL spi_master.vhd:82)");
+    skip("ST-08",
+         "No emulator path: mid-transfer rd/wr suppression not modelled "
+         "(VHDL spi_master.vhd:82)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §15. SPI MISO Data Latch
+// VHDL: spi_master.vhd:121-168
+// ══════════════════════════════════════════════════════════════════════
+
+void group_ml() {
+    set_group("15. MISO latch");
+
+    // ML-01: MISO bits shifted in on delayed rising SCK.
+    // VHDL: spi_master.vhd:152-155.
+    skip("ML-01",
+         "No emulator path: bit-level ishift_r not modelled "
+         "(VHDL spi_master.vhd:152-155)");
+
+    // ML-02: Full byte latched into miso_dat on state_last_d.
+    // VHDL: spi_master.vhd:164-165.
+    skip("ML-02",
+         "No emulator path: state_last_d-timed miso_dat latch not "
+         "modelled (VHDL spi_master.vhd:164-165)");
+
+    // ML-03: miso_dat holds value until next transfer completes.
+    // Observable: two consecutive reads with the same device response
+    // should both return that response (once the pipeline has primed).
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        (void)m.read_data();            // prime pipeline
+        uint8_t a = m.read_data();
+        uint8_t b = m.read_data();
+        check("ML-03",
+              "miso_dat stable across reads with same response "
+              "(VHDL spi_master.vhd:164-165)",
+              a == 0x42 && b == 0x42,
+              fmt("a=%02x b=%02x", a, b));
+    }
+
+    // ML-04: Input and output shift registers are independent.
+    // VHDL: spi_master.vhd:102-117 vs :119-157. Not observable at the
+    // byte-level C++ API.
+    skip("ML-04",
+         "No emulator path: ishift_r vs oshift_r independence not "
+         "observable at byte level (VHDL spi_master.vhd:102-157)");
+
+    // ML-05: Reset sets ishift_r to all 1s.
+    // VHDL: spi_master.vhd:151-152. The observable proxy is that the
+    // first read after reset (before any exchange) returns 0xFF.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x00;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        uint8_t v = m.read_data();
+        // VHDL: pipeline delay means first read returns reset value 0xFF.
+        check("ML-05",
+              "First read after reset reflects ishift_r reset to 0xFF "
+              "(VHDL spi_master.vhd:151-152)",
+              v == 0xFF,
+              fmt("got=%02x exp=FF", v));
+    }
+
+    // ML-06: 16 cycles minimum between read/write operations.
+    // VHDL: spi_master.vhd:86-100 comment.
+    skip("ML-06",
+         "No emulator path: 16-cycle minimum not modelled, transfers "
+         "instantaneous (VHDL spi_master.vhd:86-100)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §16. SPI MISO Source Multiplexing
+// VHDL: zxnext.vhd:3278-3280
+// ══════════════════════════════════════════════════════════════════════
+
+void group_mx() {
+    set_group("16. MISO mux");
+
+    // MX-01: Flash has highest priority.
+    // VHDL: zxnext.vhd:3278. No flash backend or priority ladder in C++.
+    skip("MX-01",
+         "No emulator path: flash MISO source not wired "
+         "(VHDL zxnext.vhd:3278)");
+
+    // MX-02: RPI is second priority. VHDL: zxnext.vhd:3279.
+    skip("MX-02",
+         "No emulator path: RPI MISO source priority not modelled "
+         "(VHDL zxnext.vhd:3279)");
+
+    // MX-03: SD is third priority. Observable by attaching an SD device
+    // to CS 0 and selecting it. VHDL: zxnext.vhd:3280.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice sd;
+        sd.next_response = 0x77;
+        m.attach_device(0, &sd);
+        m.write_cs(0xFE);
+        (void)m.read_data();            // prime
+        uint8_t v = m.read_data();
+        check("MX-03",
+              "SD selected: MISO sourced from SD device "
+              "(VHDL zxnext.vhd:3280)",
+              v == 0x77,
+              fmt("got=%02x", v));
+    }
+
+    // MX-04: No device selected -> MISO = 1 (pull-up).
+    // VHDL: zxnext.vhd:3280 default branch.
+    {
+        SpiMaster m; m.reset();
+        // All CS bits high (reset default) = no selection.
+        uint8_t v = m.read_data();
+        check("MX-04",
+              "No device selected: MISO reads as 0xFF "
+              "(VHDL zxnext.vhd:3280)",
+              v == 0xFF,
+              fmt("got=%02x", v));
+    }
+
+    // MX-05: Priority Flash > RPI > SD > default.
+    // VHDL: zxnext.vhd:3278-3280 cascaded if-else. Priority ladder not
+    // implemented in the C++ SpiMaster.
+    skip("MX-05",
+         "No emulator path: device priority cascade not implemented "
+         "(VHDL zxnext.vhd:3278-3280)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// §17. Integration Scenarios
+// ══════════════════════════════════════════════════════════════════════
+
+void group_in() {
+    set_group("17. Integration");
+
+    // IN-01: Boot: automap at 0x0000 with default NR values maps ROM.
+    // VHDL: zxnext.vhd:2850 (EP0 default), divmmc.vhd:94.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);
+        check("IN-01",
+              "Boot automap: M1 at 0x0000 maps DivMMC ROM "
+              "(VHDL divmmc.vhd:94, zxnext.vhd:2850)",
+              d.is_active() && d.is_rom_mapped(),
+              fmt("act=%d rom=%d",
+                  d.is_active(), d.is_rom_mapped()));
+    }
+
+    // IN-02: SD init: select SD0, exchange, deselect.
+    // VHDL: zxnext.vhd:3302-3332 (CS), spi_master.vhd:82-117 (xchg).
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice sd;
+        sd.next_response = 0x01;
+        m.attach_device(0, &sd);
+        m.write_cs(0xFE);            // select SD0
+        m.write_data(0x40);          // send CMD0 opcode byte
+        m.write_cs(0xFF);            // deselect
+        bool ok = sd.last_tx == 0x40
+                  && sd.was_deselected;
+        check("IN-02",
+              "SD init sequence: select, write, deselect "
+              "(VHDL zxnext.vhd:3302, spi_master.vhd:109)",
+              ok,
+              fmt("tx=%02x desel=%d",
+                  sd.last_tx, sd.was_deselected));
+    }
+
+    // IN-03: RETN after NMI handler: automap deactivated.
+    // VHDL: divmmc.vhd:126,139 (i_retn_seen branch). No RETN hook in
+    // C++ DivMmc — same gap as DA-06.
+    skip("IN-03",
+         "No emulator path: DivMmc has no RETN hook "
+         "(VHDL divmmc.vhd:126,139)");
+
+    // IN-04: Automap at 0x0008 (RST 8) is ROM3-conditional.
+    // VHDL: zxnext.vhd:2856, :3137. Same ROM3 gating gap as EP-02.
+    skip("IN-04",
+         "No emulator path: ROM3 conditional activation not modelled "
+         "(VHDL zxnext.vhd:2856,3137)");
+
+    // IN-05: Rapid SPI exchanges: back-to-back without idle gap.
+    // Observable: two consecutive writes both reach the device.
+    {
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        m.write_data(0x11);
+        m.write_data(0x22);
+        check("IN-05",
+              "Two back-to-back writes both reach device "
+              "(VHDL spi_master.vhd:82)",
+              dev.exchange_count == 2 && dev.last_tx == 0x22,
+              fmt("cnt=%d last=%02x",
+                  dev.exchange_count, dev.last_tx));
+    }
+
+    // IN-06: conmem during automap: mapping is active (either source).
+    // VHDL: divmmc.vhd:94 — rom_en = page0 AND (conmem OR automap).
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // automap on
+        d.write_control(0x80);            // conmem on as well
+        check("IN-06",
+              "conmem during automap: mapping remains active "
+              "(VHDL divmmc.vhd:94)",
+              d.is_active() && d.is_rom_mapped(),
+              fmt("act=%d rom=%d",
+                  d.is_active(), d.is_rom_mapped()));
+    }
+
+    // IN-07: DivMMC disabled via enable=false: no automap, SPI
+    // still works. VHDL: zxnext.vhd:4112, spi_master.vhd (independent).
+    {
+        DivMmc d = make_divmmc();
+        d.set_enabled(false);
+        d.check_automap(0x0000, true);
+        bool divmmc_off = !d.is_active();
+
+        SpiMaster m; m.reset();
+        MockSpiDevice dev;
+        dev.next_response = 0x88;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);
+        m.write_data(0xBB);
+        bool spi_ok = dev.last_tx == 0xBB;
+
+        check("IN-07",
+              "DivMMC disabled: no automap mapping, SPI still exchanges "
+              "(VHDL zxnext.vhd:4112)",
+              divmmc_off && spi_ok,
+              fmt("divmmc_off=%d spi_ok=%d",
+                  divmmc_off, spi_ok));
     }
 }
 
-// -- Main -----------------------------------------------------------------
+}  // namespace
+
+// ── Main ─────────────────────────────────────────────────────────────
 
 int main() {
-    printf("DivMMC + SPI Compliance Tests\n");
-    printf("==============================\n\n");
+    std::printf("DivMMC + SPI Compliance Tests (rewritten Task 1 Wave 2)\n");
+    std::printf("======================================================\n\n");
 
-    test_port_e3();
-    printf("  Group: Port 0xE3 -- done\n");
+    group_e3();  std::printf("  §1  Port 0xE3            done\n");
+    group_cm();  std::printf("  §2  conmem paging        done\n");
+    group_am();  std::printf("  §3  automap paging       done\n");
+    group_ep();  std::printf("  §4  RST entry points     done\n");
+    group_nr();  std::printf("  §5  Non-RST entry points done\n");
+    group_da();  std::printf("  §6  Deactivation         done\n");
+    group_tm();  std::printf("  §7  Instant/delayed      done\n");
+    group_r3();  std::printf("  §8  ROM3 conditional     done\n");
+    group_nm();  std::printf("  §9  NMI / button         done\n");
+    group_na();  std::printf("  §10 NR 0x0A enable       done\n");
+    group_sm();  std::printf("  §11 SRAM mapping         done\n");
+    group_ss();  std::printf("  §12 Port 0xE7 CS         done\n");
+    group_sx();  std::printf("  §13 Port 0xEB xchg       done\n");
+    group_st();  std::printf("  §14 SPI state machine    done\n");
+    group_ml();  std::printf("  §15 MISO latch           done\n");
+    group_mx();  std::printf("  §16 MISO mux             done\n");
+    group_in();  std::printf("  §17 Integration          done\n");
 
-    test_conmem_paging();
-    printf("  Group: Conmem Paging -- done\n");
+    std::printf("\n======================================================\n");
+    std::printf("Results: %d/%d passed", g_pass, g_total);
+    if (g_fail > 0) std::printf(" (%d FAILED)", g_fail);
+    std::printf("\n");
 
-    test_automap_paging();
-    printf("  Group: Automap Paging -- done\n");
-
-    test_rst_entry_points();
-    printf("  Group: RST Entry Points -- done\n");
-
-    test_nonrst_entry_points();
-    printf("  Group: Non-RST Entry Points -- done\n");
-
-    test_deactivation();
-    printf("  Group: Deactivation -- done\n");
-
-    test_memory_rw();
-    printf("  Group: Memory R/W -- done\n");
-
-    test_nextreg_defaults();
-    printf("  Group: NextREG Defaults -- done\n");
-
-    test_nmi_entry();
-    printf("  Group: NMI Entry -- done\n");
-
-    test_spi_cs();
-    printf("  Group: SPI CS -- done\n");
-
-    test_spi_data();
-    printf("  Group: SPI Data -- done\n");
-
-    test_sd_card_basic();
-    printf("  Group: SD Card Basic -- done\n");
-
-    test_integration();
-    printf("  Group: Integration -- done\n");
-
-    printf("\n==============================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0)
-        printf(" (%d FAILED)", g_fail);
-    printf("\n");
-
-    // Per-group summary
-    printf("\nPer-group breakdown:\n");
-    std::string last_group;
+    // Per-group breakdown
+    std::printf("\nPer-group breakdown:\n");
+    std::string last;
     int gp = 0, gf = 0;
     for (const auto& r : g_results) {
-        if (r.group != last_group) {
-            if (!last_group.empty())
-                printf("  %-25s %d/%d\n", last_group.c_str(), gp, gp + gf);
-            last_group = r.group;
+        if (r.group != last) {
+            if (!last.empty())
+                std::printf("  %-24s %d/%d\n",
+                            last.c_str(), gp, gp + gf);
+            last = r.group;
             gp = gf = 0;
         }
-        if (r.passed) gp++; else gf++;
+        if (r.passed) ++gp; else ++gf;
     }
-    if (!last_group.empty())
-        printf("  %-25s %d/%d\n", last_group.c_str(), gp, gp + gf);
+    if (!last.empty())
+        std::printf("  %-24s %d/%d\n", last.c_str(), gp, gp + gf);
+
+    if (!g_skipped.empty()) {
+        std::printf("\nSkipped plan rows (%zu total, unreachable with "
+                    "current C++ API):\n", g_skipped.size());
+        for (const auto& s : g_skipped) {
+            std::printf("  %-8s %s\n", s.id, s.reason);
+        }
+    }
+
+    std::printf("\nTotals: %d checks, %d skips, %d plan rows covered\n",
+                g_total, (int)g_skipped.size(),
+                g_total + (int)g_skipped.size());
 
     return g_fail > 0 ? 1 : 0;
 }
