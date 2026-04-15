@@ -72,6 +72,16 @@ static void check(const char* id, const char* desc, bool cond,
     }
 }
 
+// skip() records a plan row as unreachable on the Layer2 unit surface.
+// Does NOT affect g_pass/g_fail counters (same semantic as copper_test.cpp
+// and the other Phase 2 rewrites). Printed at the end of a run so the
+// row is visible in the binary's SKIP section, and picked up by the
+// traceability matrix extractor via its first-arg string literal.
+static std::vector<std::pair<const char*, const char*>> g_skips;
+static void skip(const char* id, const char* reason) {
+    g_skips.emplace_back(id, reason);
+}
+
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
 
@@ -1139,11 +1149,24 @@ static void test_group9_boundary() {
     check("G9-05", "wide clip x2=0xFF renders all 320 columns (2*255+1=511)",
           all_visible);
 
-    // DEFERRED:
+    // G9-04 (wide scroll branch NOT fired, layer2.vhd:148) — the inverse
+    // branch is structurally observed via G3-12's narrow-scroll assertion,
+    // which only passes if the wide-scroll branch is NOT fired under narrow
+    // mode. Rather than re-run the same stimulus under a different ID,
+    // record it as a skip with the cross-reference so the traceability
+    // matrix picks it up.
+    skip("G9-04", "covered structurally by G3-12 narrow-scroll path (layer2.vhd:148)");
+
+    // G9-06 (hc_eff = hc+1 can't be detected as a pure scroll) — this plan
+    // row is documentation of a VHDL corner case, not a falsifiable
+    // assertion on the Layer2 class (there is no "hc_eff" observable
+    // through the render_row() boundary). Recorded as a skip with the plan
+    // citation.
+    skip("G9-06", "hc_eff=hc+1 is a VHDL internal signal; not observable via Layer2 API (layer2.vhd:148)");
+
+    // DEFERRED (tracked separately via log_deferred):
     //   G9-01 (NR 0x69 disable path) — not modelled in Layer2 class.
     //   G9-02 (port 0x123B read-back 0x00 at reset) — port dispatcher test.
-    //   G9-04 (wide scroll branch NOT fired) — see G3-12; already covered.
-    //   G9-06 (hc_eff = hc+1 doc-only) — not a test.
 }
 
 // =========================================================================
@@ -1210,7 +1233,15 @@ int main() {
     printf("\n================================================\n");
     printf("Results: %d/%d passed", g_pass, g_total);
     if (g_fail > 0) printf(" (%d FAILED)", g_fail);
+    if (!g_skips.empty()) printf(", %zu skipped", g_skips.size());
     printf("\n");
+
+    if (!g_skips.empty()) {
+        printf("\nSkipped plan rows:\n");
+        for (const auto& p : g_skips) {
+            printf("  SKIP %-8s %s\n", p.first, p.second);
+        }
+    }
 
     printf("\nPer-group breakdown:\n");
     std::string last_group;

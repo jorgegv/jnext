@@ -70,6 +70,15 @@ static void check(const char* id, const char* desc, bool cond, const char* detai
     }
 }
 
+// skip() records a plan row as unreachable on the PortDispatch unit tier
+// (no API surface, observation requires libz80/Emulator internals, etc.).
+// Does NOT affect g_pass/g_fail counters — skipped rows are printed at
+// end-of-run and picked up by the traceability matrix extractor.
+static std::vector<std::pair<const char*, const char*>> g_skips;
+static void skip(const char* id, const char* reason) {
+    g_skips.emplace_back(id, reason);
+}
+
 static char g_buf[512];
 #define DETAIL(...) (snprintf(g_buf, sizeof(g_buf), __VA_ARGS__), g_buf)
 
@@ -1091,12 +1100,11 @@ static void test_group_iorq() {
               DETAIL("0xFE read=0x%02x", v));
     }
 
-    // IORQ-01: interrupt ack must NOT call PortDispatch::in. Cannot be
-    // directly observed without an M1+IORQ hook. The libz80 core handles
-    // IM1 internally and never reaches our in() during vector fetch —
-    // this is covered structurally by test/fuse_z80_test. Row deferred
-    // as a structural invariant here; no C++ assertion is meaningful
-    // without a spy installed in libz80.
+    // IORQ-01: interrupt ack must NOT call PortDispatch::in. Not directly
+    // observable without an M1+IORQ spy in libz80; the core handles IM1
+    // internally and never reaches PortDispatch::in during vector fetch.
+    // Covered structurally by test/fuse_z80_test.
+    skip("IORQ-01", "libz80 IM1 vector fetch never reaches PortDispatch::in — needs core-level spy (zxnext.vhd:2705)");
 
     // RMW-01: OUT 0xFE sets border then beeper latch. VHDL 2582.
     {
@@ -1110,8 +1118,12 @@ static void test_group_iorq() {
               DETAIL("border=%u expected 7", b));
     }
 
-    // CTN-01 / CTN-02: contended-port timing is verified by the libz80
-    // opcode suite; dispatcher-level contention is not observable here.
+    // CTN-01 / CTN-02: contended-port timing is observable only inside
+    // the libz80 T-state accounting path, not via PortDispatch's public
+    // in()/out() boundary. The FUSE Z80 opcode suite covers contended-IO
+    // T-state patterns end-to-end.
+    skip("CTN-01", "contended-port T-states verified in libz80 FUSE suite, not observable at PortDispatch boundary");
+    skip("CTN-02", "uncontended IN A,(nn) T-states verified in libz80 FUSE suite, not observable at PortDispatch boundary");
 }
 
 // ── Group G. DivMMC automap ────────────────────────────────────────────
@@ -1145,7 +1157,10 @@ static void test_group_automap() {
               DETAIL("divmmc before=0x%02x after=0x%02x", before, after));
     }
 
-    // AMAP-01: hotkey_expbus_freeze observable. No debug hook today. STUB.
+    // AMAP-01: DivMMC enable diff freezes expansion bus
+    // (hotkey_expbus_freeze, zxnext.vhd:2180). Not observable — no debug
+    // accessor on Emulator/DivMmc exposes the expansion-bus freeze state.
+    skip("AMAP-01", "hotkey_expbus_freeze state not exposed via emulator debug API (zxnext.vhd:2180)");
 }
 
 // ── Group H. Wired-OR / read-data gating ───────────────────────────────
@@ -1208,8 +1223,8 @@ static void test_group_wired_or() {
 
 static void print_summary() {
     printf("\n================================================================\n");
-    printf("I/O Port Dispatch compliance: %d passed / %d total (%d failed)\n",
-           g_pass, g_total, g_fail);
+    printf("I/O Port Dispatch compliance: %d passed / %d total (%d failed, %zu skipped)\n",
+           g_pass, g_total, g_fail, g_skips.size());
     printf("================================================================\n");
     if (g_fail) {
         printf("Failures (expected where the emulator has known gaps per\n");
@@ -1219,6 +1234,12 @@ static void print_summary() {
                 printf("  [%s] %s: %s\n",
                        r.group.c_str(), r.id.c_str(), r.description.c_str());
             }
+        }
+    }
+    if (!g_skips.empty()) {
+        printf("\nSkipped plan rows (unreachable via PortDispatch unit tier):\n");
+        for (auto& p : g_skips) {
+            printf("  SKIP %-12s %s\n", p.first, p.second);
         }
     }
 }
