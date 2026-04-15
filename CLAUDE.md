@@ -34,6 +34,8 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - Update task status on the main plan whenever a task is finished
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - When a commit is made, check that the FEATURES.md and TODO.md files are updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update to these files.
+- When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
+- When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
 
 ## ChangeLog file
 
@@ -63,6 +65,14 @@ cmake --build build -j$(nproc) 2>&1 | tail -5
 The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable is at `build/jnext`.
 
 ## Testing
+
+> **Before authoring, rewriting, or un-skipping any subsystem unit test
+> plan**, read [doc/design/UNIT-TEST-PLAN-EXECUTION.md](doc/design/UNIT-TEST-PLAN-EXECUTION.md).
+> It documents the VHDL-as-oracle rule, the pass/fail/skip distinction,
+> the 1:1:1 emulator-fix-plus-unskip process, the independent-review
+> requirement, and why all of that exists (the coverage-theatre audit).
+> The process is mandatory for every test plan rewrite and every Task 3
+> emulator fix that touches subsystem tests.
 
 ### FUSE Z80 opcode test suite
 
