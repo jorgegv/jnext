@@ -11,7 +11,8 @@ void NextReg::reset() {
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x03] = 0x00;  // machine type: ZXNext
-    selected_   = 0;
+    // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
+    selected_   = 0x24;
 }
 
 void NextReg::select(uint8_t reg) { selected_ = reg; }
