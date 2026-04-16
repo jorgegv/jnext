@@ -138,6 +138,21 @@ The reviewer's job is triage, not rewriting:
 1. **VHDL fidelity sampling.** Pick 10+ assertions at random across groups
    and verify the VHDL citation actually matches what VHDL says. Silent
    drift from the cited line is the most common author mistake.
+1a. **Stimulus-through-VHDL tracing (mandatory for fail and skip rows).**
+   For every failing or skipped row, trace the test's *stimulus* through
+   the cited VHDL process and verify that the oracle value is *reachable*
+   under that stimulus. A correct VHDL citation on the oracle is necessary
+   but not sufficient — the stimulus must actually produce the expected
+   signal path. Example failure mode: TS-10 cited `turbosound.vhd:123-127`
+   (panning gate) which is real VHDL, but the test stimulus only activated
+   channel A; in ABC stereo routing `R = B + C = 0`, so `R > 0` was
+   unreachable regardless of panning. The oracle was structurally wrong
+   despite citing a valid VHDL line. Similarly, DMA item 6 cited
+   `dma.vhd:426` as a pre-transfer check, but the VHDL state machine
+   reaches that line *after* the byte has been transferred at
+   `TRANSFERING_WRITE_1`, making the "0 bytes transferred" oracle wrong.
+   Both slipped through multiple reviews because reviewers verified the
+   citation existed without simulating the stimulus through the VHDL.
 2. **Failure classification.** For every failing assertion, classify:
    - **(A) Test harness bug** — helper function wrong, stimulus wrong,
      coordinate-space confusion. Example from Phase 2: the Sprites
@@ -467,6 +482,28 @@ as-oracle rule, the skip/fail distinction, the 1:1:1 emulator-fix rule,
 the required independent review, the honest-numbers-in-plan-files
 discipline — exists specifically to make theatre impossible to reintroduce
 without someone noticing.
+
+A second wave of theatre was discovered in April 2026 session 2026-04-17:
+**false-failure rows** — test oracles that cite valid VHDL lines but whose
+stimulus cannot produce the expected value. These are the mirror image of
+false-pass (SX-02): instead of encoding the C++ as oracle, they encode a
+plausible-sounding VHDL citation that nobody traced through end-to-end.
+Concretely:
+
+- Turbosound TS-10/TS-42: oracle expected `R > 0` under a stimulus that
+  only activated channel A. VHDL stereo routing `R = B + C` yields R=0
+  when B=C=0 regardless of panning. The test had been classified as
+  "confirmed real emulator bug" across 4 reviews.
+- DMA zero-length (9.8/14.6/14.7): oracle expected 0 bytes transferred
+  when `block_len=0`, but the VHDL increments the counter at
+  `TRANSFERING_WRITE_1` (after the byte is already transferred) and checks
+  at `TRANSFERING_WRITE_4`. One byte always transfers. The VHDL author's
+  own `--TO DO` comment at line 426 flagged the ambiguity.
+
+Both survived because the review process implicitly trusts failing rows as
+"known emulator bugs" — the same blind spot that the SX-02 incident exposed
+for passing rows. The fix is §4 rule 1a: trace the test stimulus through
+the VHDL for every row, not just verify the citation string.
 
 If any of these rules feel like friction during real work, that is
 intentional friction. The friction is the prevention. Do not file a
