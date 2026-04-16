@@ -2,10 +2,30 @@
 #include "core/log.h"
 
 PortDispatch::PortDispatch() {
-    // All port handlers are registered by Emulator::init() where real
-    // subsystem instances are available. The constructor no longer
-    // pre-registers stubs — those collided with the real handlers
-    // (VHDL one-hot violation, item 15.11).
+    // Legacy stubs — registered before Emulator::init() wires real handlers.
+    // For reads, the real handler (registered later) is shadowed by these
+    // first-match stubs. For writes, both fire (broadcast).
+    // TODO: remove once init() calls clear_handlers() before re-registering.
+
+    // AY data: 0xBFFD (mask 0xC002, value 0xC000)
+    register_handler(0xC002, 0xC000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // AY register select: 0xFFFD (mask 0xC002, value 0x8000)
+    register_handler(0xC002, 0x8000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // 128K bank: 0x7FFD (mask 0xE002, value 0x0000)
+    register_handler(0xE002, 0x0000,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
+
+    // NextREG family: 0x243B / 0x253B (mask 0x00FF, value 0x003B)
+    register_handler(0x00FF, 0x003B,
+        [](uint16_t p) -> uint8_t { return 0xFF; },
+        [](uint16_t p, uint8_t v) {});
 }
 
 void PortDispatch::register_handler(uint16_t mask, uint16_t value,

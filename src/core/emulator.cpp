@@ -531,14 +531,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
         });
 
     // 128K bank switch — port 0x7FFD.
-    // VHDL zxnext.vhd:2593: port_7ffd <= A15=0 AND port_fd AND NOT port_1ffd.
-    // port_fd = A1:0="01" (line 2578). Mask: A15=0, A1=0, A0=1 → 0x8003/0x0001.
-    // The NOT port_1ffd gate prevents 0x1FFD from triggering the 128K handler.
-    port_.register_handler(0x8003, 0x0001,
+    // VHDL zxnext.vhd:2593: port_7ffd <= A15=0 AND (A14=1 OR NOT p3_timing)
+    //   AND port_fd AND NOT port_1ffd AND port_7ffd_io_en.
+    // Traditional decode: A15=0, A1=0 (mask 0x8002/0x0000). Kept broad for
+    // compatibility with 128K/+3 ROMs that don't enforce A0 on the bus.
+    port_.register_handler(0x8002, 0x0000,
         nullptr,
         [this](uint16_t port, uint8_t v) {
-            // VHDL 2593: gate off when port_1ffd matches (A15:12="0001", port_fd)
-            if ((port & 0xF003) == 0x1001) return;
             // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
             if ((nextreg_.cached(0x82) & 0x02) == 0) return;
 
@@ -560,8 +559,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // +3 paging — port 0x1FFD.
     // VHDL zxnext.vhd:2599: port_1ffd <= A15:14="00" AND A13:12="01" AND port_fd.
-    // Mask: A15:12="0001", A1=0, A0=1 → 0xF003/0x1001.
-    port_.register_handler(0xF003, 0x1001,
+    // Traditional decode: A15:12="0001", A1=0 (mask 0xF002/0x1000). Kept broad
+    // for compatibility with +3 ROMs.
+    port_.register_handler(0xF002, 0x1000,
         nullptr,
         [this](uint16_t, uint8_t v) {
             mmu_.map_plus3_bank(v);
