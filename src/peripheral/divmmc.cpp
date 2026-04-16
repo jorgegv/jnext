@@ -76,7 +76,7 @@ void DivMmc::write_control(uint8_t val) {
 }
 
 uint8_t DivMmc::read_control() const {
-    return control_reg_;
+    return control_reg_ & 0xCF;  // bits 5:4 masked to zero per VHDL zxnext.vhd:4190
 }
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
