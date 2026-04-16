@@ -1,27 +1,30 @@
 # ChangeLog
 
-## (2026-04-14)
+## (2026-04-16)
 
 ### User Features
 - 640px native framebuffer for tilemap 80-col and Layer 2 640x256 modes
 - Floating bus emulation enabled for all machine types
+- Compositor blend modes 110 (additive) and 111 (subtractive)
+- Pentagon, Kempston joystick, mouse, and ULA+ ports now respond
 
 ### Developer Features
 - Debugger: improved interrupt and tilemap split-screen debugging
 
 ### Bug Fixes
 - Z80 instruction timing and contention fixes — games now run at correct speed
-- DMA burst mode prescaler — covox/PCM audio plays at correct speed
 - NEX loader: palette, sprite, transparency, and init fixes
-- Tilemap rendering, scrolling, and 80-col pixel addressing
-- L2 640x256 clip dropping columns 256-319
-- Z80N opcode fixes: PIXELAD, BRLC, BSRF, LDIRSCALE
+- Tilemap rendering, scrolling, control-bit swap, and 80-col pixel addressing
+- Compositor NR 0x14 palette-compare transparency for ULA and Layer 2
+- Port dispatch exclusive routing and VHDL-correct decode masks
+- NR 0x82-0x85 port-enable register defaults and gating
+- DivMMC mapram OR-latch, read_control mask, ROM3 automap gating
+- DMA prescaler, ULA frame timing, AY envelope, SPI decode, MMU reset
 
 ### Internal JNEXT Development
-- FUSE Z80 opcode tests: 1356/1356 (100%)
-- Z80N VHDL compliance tests: 78/78 pass
-- 16 subsystem VHDL compliance test suites: 1079/1179 pass (92%)
-- Internal Z80N core feasibility plan (from VHDL T80N sources)
+- Subsystem compliance tests: 1150/1171 pass (98%)
+- Regression suite: 34/34 clean
+- 15 emulator fixes + 9 test reclassifications across 21 backlog items
 
 ## v0.91.0
 
