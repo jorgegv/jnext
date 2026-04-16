@@ -38,5 +38,8 @@
 |        | 1h   | Phase 9: Task 3 spec drafted — full 1788-row audit, 3 waves of 5, pass/fail/skip taxonomy  |
 |        | 3h   | Phase 9: Task 3 audit Waves 1-3 — 15 parallel agents, 15 subsystem reports + master summary|
 |        | 1h   | Phase 9: Task 3 remediation — 11 findings + 5 UNCLEAR cleared, matrix 1010/89/689/0        |
+| 16/4   | 2h   | Phase 9: Tasks 2+3 DONE (Z80/Z80N audit+fix). Task 1 partial (6 items, +11 rows)           |
+|        | 4h   | Phase 9: Task 1 items 4,6b,8,25 + 9 reclassified (+27 rows, 19/21 resolved)               |
+|        | 3h   | Phase 9: Task 1 items 14+15 — compositor+port dispatch fixes, exclusive dispatch (+27 rows) |
 |        |      |                                                                                            |
-| TOTAL: | 111h |                                                                                            |
+| TOTAL: | 120h |                                                                                            |

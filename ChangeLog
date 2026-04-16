@@ -1,5 +1,25 @@
 # ChangeLog
 
+## v0.92.0
+
+### User Features
+- Compositor blend modes 110 (additive) and 111 (subtractive) now render correctly
+- Pentagon 0xDFFD, Kempston joystick, mouse, and ULA+ ports now respond
+
+### Bug Fixes
+- Compositor NR 0x14 palette-compare transparency for ULA and Layer 2
+- VHDL-correct port decode masks for AY, 128K bank, +3 paging, CTC range
+- Port dispatch now uses exclusive routing (most-specific-match-wins) instead of broadcast writes
+- NR 0x82-0x85 port-enable register defaults and gating per VHDL
+- DivMMC mapram OR-latch, read_control bit mask, ROM3 automap gating
+- ULA frame completion timing, tilemap control-bit swap, AY envelope hold
+- SPI write_cs decode, MMU reset slot clobber, RAM default size 768→1792 KB
+
+### Internal JNEXT Development
+- Subsystem compliance tests: 1150/1171 pass (98%, was 92%)
+- Regression suite: 34/34 (fully clean)
+- 15 emulator fixes + 9 test reclassifications across 21 backlog items
+
 ## (2026-04-14)
 
 ### User Features
