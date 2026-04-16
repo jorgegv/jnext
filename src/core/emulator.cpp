@@ -539,6 +539,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
         [this](uint16_t port, uint8_t v) {
             // VHDL 2593: gate off when port_1ffd matches (A15:12="0001", port_fd)
             if ((port & 0xF003) == 0x1001) return;
+            // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
+            if ((nextreg_.cached(0x82) & 0x02) == 0) return;
 
             mmu_.map_128k_bank(v);
             // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
@@ -662,9 +664,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // also matches (e.g. 0xDFFD), the AY write is suppressed.
     // VHDL 2771: port_fffd_rd does NOT gate on port_dffd — reads at
     // overlapping addresses still return AY data.
+    // VHDL 2647: port_fffd decode includes port_ay_io_en = internal_port_enable(16)
+    // = NR 0x84 bit 0. When disabled, the port does not decode and the read
+    // falls through to the floating bus default.
     port_.register_handler(0xC007, 0xC005,
-        [this](uint16_t) -> uint8_t { return turbosound_.reg_read(false); },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            return turbosound_.reg_read(false);
+        },
         [this](uint16_t port, uint8_t val) {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
             // VHDL 2772: port_fffd_wr <= iowr and port_fffd and not port_dffd
             if ((port & 0xF003) == 0xD001) return;  // port_dffd match → skip
             turbosound_.reg_addr(val);
@@ -672,9 +681,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
     // Decode: A15:14="10", A2=1, port_fd (A1:0="01") → mask 0xC007/0x8005.
+    // VHDL 2648: port_bffd includes port_ay_io_en gating.
     port_.register_handler(0xC007, 0x8005,
         nullptr,
-        [this](uint16_t, uint8_t val) { turbosound_.reg_write(val); });
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            turbosound_.reg_write(val);
+        });
 
     // DAC ports — Soundrive Mode 1 (most common)
     // Channel A (left):  port 0x1F
@@ -789,10 +802,17 @@ bool Emulator::init(const EmulatorConfig& cfg)
         [this](uint16_t) -> uint8_t { return uart_.read(2); },
         [this](uint16_t, uint8_t val) { uart_.write(2, val); });
 
-    // DivMMC control — port 0xE3
+    // DivMMC control — port 0xE3.
+    // VHDL zxnext.vhd:2412: port_divmmc_io_en <= internal_port_enable(8) = NR 0x83 bit 0.
     port_.register_handler(0x00FF, 0x00E3,
-        [this](uint16_t) -> uint8_t { return divmmc_.read_control(); },
-        [this](uint16_t, uint8_t val) { divmmc_.write_control(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x01) == 0) return 0xFF;
+            return divmmc_.read_control();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x01) == 0) return;
+            divmmc_.write_control(val);
+        });
 
     // Kempston joystick 1 (0x001F) and 2 (0x0037). VHDL zxnext.vhd:2674-2675.
     // Reads return 0x00 (no buttons pressed). Full joystick subsystem is
