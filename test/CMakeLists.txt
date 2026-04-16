@@ -37,11 +37,23 @@ target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug
 target_include_directories(mmu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME mmu_tests COMMAND mmu_test)
 
-# NextREG register file compliance test
+# NextREG register file compliance test (bare NextReg class)
 add_executable(nextreg_test nextreg/nextreg_test.cpp)
 target_link_libraries(nextreg_test PRIVATE jnext_port)
 target_include_directories(nextreg_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nextreg_tests COMMAND nextreg_test)
+
+# NextREG integration test (full-machine reset defaults via port path)
+# Links the full emulator because RST-xx defaults are owned by subsystem
+# classes, not the bare NextReg register file. See item 7 in
+# .prompts/2026-04-17.md and memory/project_nextreg_integration_test.md.
+add_executable(nextreg_integration_test nextreg/nextreg_integration_test.cpp)
+target_link_libraries(nextreg_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nextreg_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nextreg_integration_tests COMMAND nextreg_integration_test)
 
 # Input subsystem compliance test
 add_executable(input_test input/input_test.cpp)

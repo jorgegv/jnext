@@ -516,6 +516,31 @@ bool Emulator::init(const EmulatorConfig& cfg)
         if (v & 0x08) im2_.raise(Im2Level::CTC_3);
     });
 
+    // --- VHDL reset defaults (written through nextreg_.write so both
+    //     regs_[] and subsystem handlers see the correct initial values) ---
+    //
+    // These defaults are spec'd by zxnext.vhd lines 4926-5100.  They must
+    // be written AFTER handlers are installed so the write callbacks can
+    // propagate the values into the owning subsystems (palette, renderer,
+    // MMU, etc.).  Without this, regs_[] stays at the fill(0) value from
+    // NextReg::reset() and Z80 reads of these registers return wrong data.
+
+    nextreg_.write(0x12, 0x08);  // L2 active bank (zxnext.vhd:4945)
+    nextreg_.write(0x14, 0xE3);  // global transparent colour (RRRGGGBB magenta)
+    nextreg_.write(0x42, 0x07);  // ULANext format (default ink mask)
+    nextreg_.write(0x4A, 0xE3);  // fallback RGB colour (magenta)
+    nextreg_.write(0x4B, 0xE3);  // sprite transparent index (zxnext.vhd:5003)
+    nextreg_.write(0x4C, 0x0F);  // tilemap transparent index (zxnext.vhd:5004)
+
+    // MMU page defaults — VHDL zxnext.vhd:4610-4618.
+    // mmu_.reset() already set internal slots; this synchronises regs_[].
+    {
+        static constexpr uint8_t mmu_defaults[8] =
+            {0xFF, 0xFF, 0x0A, 0x0B, 0x04, 0x05, 0x00, 0x01};
+        for (int i = 0; i < 8; ++i)
+            nextreg_.write(static_cast<uint8_t>(0x50 + i), mmu_defaults[i]);
+    }
+
     // --- Port dispatch handlers ---
 
     // Layer 2 control — port 0x123B (full 16-bit match).
