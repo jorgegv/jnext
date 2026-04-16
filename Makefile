@@ -13,7 +13,7 @@ RESET := \033[0m
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       kloc-count regression \
+       kloc-count regression unit-test \
        bump bump-patch bump-minor bump-major version
 .SILENT:
 
@@ -106,6 +106,49 @@ clean: debug-clean release-clean gui-clean
 # Run the full regression test suite (FUSE Z80 opcodes + screenshot tests)
 regression:
 	bash test/regression.sh
+
+# Run all subsystem unit tests in parallel and report results
+unit-test:
+	@BUILD=build; \
+	TMPDIR=$$(mktemp -d); \
+	TESTS="fuse_z80_test z80n_test rewind_test copper_test mmu_test nextreg_test \
+	       nextreg_integration_test input_test ctc_test layer2_test uart_test \
+	       divmmc_test sprites_test compositor_test ula_test port_test audio_test \
+	       dma_test tilemap_test"; \
+	for t in $$TESTS; do \
+		bin="$$BUILD/test/$$t"; \
+		if [ ! -x "$$bin" ]; then continue; fi; \
+		( \
+			case $$t in \
+				fuse_z80_test) $$bin $$BUILD/test/fuse ;; \
+				z80n_test)     $$bin $$BUILD/test/z80n  ;; \
+				*)             $$bin                    ;; \
+			esac >$$TMPDIR/$$t.out 2>&1; \
+			echo $$? >$$TMPDIR/$$t.rc \
+		) & \
+	done; \
+	wait; \
+	printf "\n$(BOLD)Subsystem unit test results:$(RESET)\n\n"; \
+	pass=0; fail=0; skip=0; \
+	for t in $$TESTS; do \
+		rc_file="$$TMPDIR/$$t.rc"; \
+		if [ ! -f "$$rc_file" ]; then \
+			printf "  $(CYAN)%-34s$(RESET) \033[33mSKIP\033[0m (not built)\n" "$$t"; \
+			skip=$$((skip + 1)); \
+			continue; \
+		fi; \
+		rc=$$(cat $$rc_file); \
+		summary=$$(grep -E '^(Results:|Live:|=== Results|=== Summary|Total:|I/O Port)' $$TMPDIR/$$t.out | tail -1 | sed 's/^[[:space:]]*//'); \
+		if [ $$rc -eq 0 ]; then \
+			printf "  $(CYAN)%-34s$(RESET) \033[32mPASS\033[0m  %s\n" "$$t" "$$summary"; \
+			pass=$$((pass + 1)); \
+		else \
+			printf "  $(CYAN)%-34s$(RESET) \033[31mFAIL\033[0m  %s\n" "$$t" "$$summary"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	printf "\n$(BOLD)Total: %d pass, %d fail, %d skip$(RESET)\n\n" $$pass $$fail $$skip; \
+	rm -rf $$TMPDIR
 
 # Count lines of code (excluding comments and blanks), per directory and total
 kloc-count:
