@@ -261,11 +261,18 @@ void AyChip::update_envelope()
     if ((shape & 0x08) == 0) {
         // C=0: shapes 0-7
         // Attack=0 (\___) or Attack=1 (/___)  — single cycle, then hold
+        // VHDL ym2149.vhd:412-421: boundary checks use pre-update vol.
+        // C++ checks post-update, so shift by one step:
+        //   VHDL is_bot_p1 (pre-update vol=1) → C++ is_bot (post-update vol=0)
+        //   VHDL is_top (pre-update vol=31)   → C++ is_top_m1 (post-update vol=30...
+        //     no: post-update wraps to 0). Staying with is_top since the C++
+        //     check-after-update model holds at the boundary value directly.
         if (!env_inc_) {
-            // Counting down
-            if (is_bot_p1) env_hold_ = true;
+            // Counting down: hold at vol=0 (VHDL holds at pre-update vol=1,
+            // vol decrements to 0 simultaneously → same steady state)
+            if (is_bot) env_hold_ = true;
         } else {
-            // Counting up
+            // Counting up: hold at vol=31
             if (is_top) env_hold_ = true;
         }
     } else if (shape & 0x01) {
