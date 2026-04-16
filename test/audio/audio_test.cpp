@@ -1418,17 +1418,23 @@ static void g_ts_selection() {
     }
 
     // TS-10 - reset sets all psg*_pan="11".
+    // Stimulus must activate all three AY channels (A, B, C) at nonzero
+    // volume so that both L and R are nonzero under ABC stereo routing
+    // (L = A + B, R = B + C per turbosound.vhd:186-192).  With only
+    // channel A active, R = B + C = 0 regardless of panning.
     {
         TurboSound ts;
         ts.set_enabled(true);
         ts.set_ay_mode(true);
         ts.reg_addr(0x00);
-        ts.reg_addr(7); ts.reg_write(0x3F);
-        ts.reg_addr(8); ts.reg_write(0x0F);
+        ts.reg_addr(7); ts.reg_write(0x3F);   // mixer: all pass-through
+        ts.reg_addr(8); ts.reg_write(0x0F);    // ch A vol = 15
+        ts.reg_addr(9); ts.reg_write(0x0F);    // ch B vol = 15
+        ts.reg_addr(10); ts.reg_write(0x0F);   // ch C vol = 15
         settle(ts);
         check("TS-10", "default pan=11 -> both L and R non-zero",
               ts.pcm_left() > 0 && ts.pcm_right() > 0,
-              fmt("L=%u R=%u VHDL turbosound.vhd:123-127",
+              fmt("L=%u R=%u VHDL turbosound.vhd:123-127,186-192",
                   ts.pcm_left(), ts.pcm_right()));
     }
 }
@@ -1677,20 +1683,25 @@ static void g_ts_panning() {
     }
 
     // TS-42 - pan=01 R only.
+    // All three channels must be active so R = B + C > 0 under ABC
+    // stereo routing (turbosound.vhd:186-192).  Pan=01 gates L off
+    // (bit 1=0) and passes R (bit 0=1) per turbosound.vhd:323-329.
     {
         TurboSound ts;
         ts.set_enabled(true);
         ts.set_ay_mode(true);
-        ts.reg_addr(0xBF);
-        ts.reg_addr(0x9E);
-        ts.reg_addr(0x9D);
-        ts.reg_addr(0xBF);
-        ts.reg_addr(7); ts.reg_write(0x3F);
-        ts.reg_addr(8); ts.reg_write(0x0F);
+        ts.reg_addr(0xBF);       // PSG0 pan=01, select PSG0
+        ts.reg_addr(0x9E);       // PSG1 pan=00
+        ts.reg_addr(0x9D);       // PSG2 pan=00
+        ts.reg_addr(0xBF);       // re-select PSG0
+        ts.reg_addr(7); ts.reg_write(0x3F);   // mixer: all pass-through
+        ts.reg_addr(8); ts.reg_write(0x0F);    // ch A vol = 15
+        ts.reg_addr(9); ts.reg_write(0x0F);    // ch B vol = 15
+        ts.reg_addr(10); ts.reg_write(0x0F);   // ch C vol = 15
         settle(ts);
         check("TS-42", "pan=01 -> L=0 and R>0",
               ts.pcm_left() == 0 && ts.pcm_right() > 0,
-              fmt("L=%u R=%u VHDL turbosound.vhd:323-329",
+              fmt("L=%u R=%u VHDL turbosound.vhd:186-192,323-329",
                   ts.pcm_left(), ts.pcm_right()));
     }
 
