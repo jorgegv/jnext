@@ -9,8 +9,10 @@ void NextReg::reset() {
     // Reset defaults from VHDL / ZX Next documentation
     regs_[0x00] = 0x0A;  // machine ID: ZX Spectrum Next (VHDL g_machine_id = X"0A")
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
-    regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x03] = 0x00;  // machine type: ZXNext
+    regs_[0x05] = 0x40;  // joy config: VHDL zxnext.vhd:1105-1106 (nr_05 not cleared on soft reset)
+    regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
+    regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
     // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
     selected_   = 0x24;
 }
