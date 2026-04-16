@@ -41,13 +41,13 @@ void VideoTiming::init(MachineType type)
 void VideoTiming::advance(int tstates)
 {
     // Each CPU T-state at 3.5 MHz corresponds to 2 pixel ticks at 7 MHz.
-    int ticks = tstates * 2;
-
-    hc_ += static_cast<uint16_t>(ticks);
+    // Use int for accumulation to avoid uint16_t overflow when advancing
+    // large T-state counts (e.g. 69888 T-states = 139776 ticks > 65535).
+    int hc = static_cast<int>(hc_) + tstates * 2;
 
     // Wrap horizontal counter into next lines.
-    while (hc_ >= static_cast<uint16_t>(hc_max_)) {
-        hc_ -= static_cast<uint16_t>(hc_max_);
+    while (hc >= hc_max_) {
+        hc -= hc_max_;
         ++vc_;
 
         if (vc_ >= static_cast<uint16_t>(vc_max_)) {
@@ -55,6 +55,8 @@ void VideoTiming::advance(int tstates)
             frame_done_ = true;
         }
     }
+
+    hc_ = static_cast<uint16_t>(hc);
 }
 
 bool VideoTiming::in_display() const
