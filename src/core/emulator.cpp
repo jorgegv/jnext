@@ -530,12 +530,16 @@ bool Emulator::init(const EmulatorConfig& cfg)
             mmu_.set_l2_write_port(val, layer2_.active_bank());
         });
 
-    // 128K bank switch — port 0x7FFD decoded by address-line masking.
-    // A15=0, A1=0 → mask 0x8002, match 0x0000.
-    // Port 0x7FFD = 0111 1111 1111 1101: A15=0 ✓, A1=0 ✓ → matches.
-    port_.register_handler(0x8002, 0x0000,
+    // 128K bank switch — port 0x7FFD.
+    // VHDL zxnext.vhd:2593: port_7ffd <= A15=0 AND port_fd AND NOT port_1ffd.
+    // port_fd = A1:0="01" (line 2578). Mask: A15=0, A1=0, A0=1 → 0x8003/0x0001.
+    // The NOT port_1ffd gate prevents 0x1FFD from triggering the 128K handler.
+    port_.register_handler(0x8003, 0x0001,
         nullptr,
-        [this](uint16_t, uint8_t v) {
+        [this](uint16_t port, uint8_t v) {
+            // VHDL 2593: gate off when port_1ffd matches (A15:12="0001", port_fd)
+            if ((port & 0xF003) == 0x1001) return;
+
             mmu_.map_128k_bank(v);
             // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
             //   128K: odd banks (1,3,5,7) are contended
@@ -552,9 +556,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
             z80_set_page_contended(7, slot3_contended);
         });
 
-    // +3 paging — port 0x1FFD (mask 0xF002, match 0x1000).
-    // Only active on +3/+2A models. Bits: 0=special mode, 2:1=config, 2=ROM high bit.
-    port_.register_handler(0xF002, 0x1000,
+    // +3 paging — port 0x1FFD.
+    // VHDL zxnext.vhd:2599: port_1ffd <= A15:14="00" AND A13:12="01" AND port_fd.
+    // Mask: A15:12="0001", A1=0, A0=1 → 0xF003/0x1001.
+    port_.register_handler(0xF003, 0x1001,
         nullptr,
         [this](uint16_t, uint8_t v) {
             mmu_.map_plus3_bank(v);
@@ -641,18 +646,33 @@ bool Emulator::init(const EmulatorConfig& cfg)
         nullptr,
         [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
 
+    // Pentagon 0xDFFD extended bank register. VHDL zxnext.vhd:2596.
+    // Decode: A15:12="1101", port_fd (A1:0="01") → mask 0xF003/0xD001.
+    // Write-only in VHDL (no port_dffd_rd signal); reads at 0xDFFD fall
+    // through to port_fffd_rd (AY select) per VHDL line 2771.
+    port_.register_handler(0xF003, 0xD001,
+        nullptr,
+        [](uint16_t, uint8_t) { /* Pentagon bank stub — write accepted, no state yet */ });
+
     // --- Audio port handlers ---
 
-    // AY register select — port 0xFFFD (mask 0xC002, value 0xC000).
-    // Write: selects AY register or changes active AY chip / panning.
-    // Read: returns selected register contents.
-    port_.register_handler(0xC002, 0xC000,
+    // AY register select — port 0xFFFD. VHDL zxnext.vhd:2647.
+    // Decode: A15:14="11", A2=1, port_fd (A1:0="01") → mask 0xC007/0xC005.
+    // VHDL 2772: port_fffd_wr gated by NOT port_dffd — when port_dffd
+    // also matches (e.g. 0xDFFD), the AY write is suppressed.
+    // VHDL 2771: port_fffd_rd does NOT gate on port_dffd — reads at
+    // overlapping addresses still return AY data.
+    port_.register_handler(0xC007, 0xC005,
         [this](uint16_t) -> uint8_t { return turbosound_.reg_read(false); },
-        [this](uint16_t, uint8_t val) { turbosound_.reg_addr(val); });
+        [this](uint16_t port, uint8_t val) {
+            // VHDL 2772: port_fffd_wr <= iowr and port_fffd and not port_dffd
+            if ((port & 0xF003) == 0xD001) return;  // port_dffd match → skip
+            turbosound_.reg_addr(val);
+        });
 
-    // AY data write — port 0xBFFD (mask 0xC002, value 0x8000).
-    // Write: writes data to selected register on active AY.
-    port_.register_handler(0xC002, 0x8000,
+    // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
+    // Decode: A15:14="10", A2=1, port_fd (A1:0="01") → mask 0xC007/0x8005.
+    port_.register_handler(0xC007, 0x8005,
         nullptr,
         [this](uint16_t, uint8_t val) { turbosound_.reg_write(val); });
 
@@ -773,6 +793,37 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0x00FF, 0x00E3,
         [this](uint16_t) -> uint8_t { return divmmc_.read_control(); },
         [this](uint16_t, uint8_t val) { divmmc_.write_control(val); });
+
+    // Kempston joystick 1 (0x001F) and 2 (0x0037). VHDL zxnext.vhd:2674-2675.
+    // Reads return 0x00 (no buttons pressed). Full joystick subsystem is
+    // item 17 implementation debt; these stubs satisfy the handler-exists test.
+    port_.register_handler(0x00FF, 0x001F,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        nullptr);
+    port_.register_handler(0x00FF, 0x0037,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        nullptr);
+
+    // Kempston mouse: buttons (0xFADF), X (0xFBDF), Y (0xFFDF).
+    // VHDL zxnext.vhd:2668-2670. Stub: returns 0 (no movement/buttons).
+    port_.register_handler(0xFFFF, 0xFADF,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        nullptr);
+    port_.register_handler(0xFFFF, 0xFBDF,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        nullptr);
+    port_.register_handler(0xFFFF, 0xFFDF,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        nullptr);
+
+    // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:2685-2686.
+    // Stub: accepts writes, reads back 0x00.
+    port_.register_handler(0xFFFF, 0xBF3B,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        [](uint16_t, uint8_t) {});
+    port_.register_handler(0xFFFF, 0xFF3B,
+        [](uint16_t) -> uint8_t { return 0x00; },
+        [](uint16_t, uint8_t) {});
 
     // --- Magic Port (debug output) ---
     if (cfg.magic_port_enabled) {
