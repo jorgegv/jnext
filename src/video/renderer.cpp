@@ -174,92 +174,95 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 // composite_scanline — combine layers per NextREG 0x15 priority
 // ---------------------------------------------------------------------------
 //
-// VHDL compositor (zxnext.vhd ~7218):
-//   The 3-bit layer_priority value determines the stacking order.
-//   Within each mode, layers are checked top-to-bottom: the first
-//   non-transparent layer wins.
+// VHDL compositor (zxnext.vhd ~7090-7354):
+//   Stage 2 determines transparency per layer, merges ULA+Tilemap, then
+//   applies the 3-bit layer_priority mode to pick the output pixel.
 //
-//   The ULA/Tilemap combination: in the VHDL, ULA and Tilemap share the
-//   "U" slot.  When tilemap is enabled, tilemap pixels replace ULA pixels
-//   (unless the tilemap pixel is transparent, or the per-tile ula_over flag
-//   is set, in which case ULA shows through).
+//   Transparency detection (VHDL 7100-7123):
+//     ULA:    palette RGB[8:1] == NR 0x14 OR ula_clipped OR ula_en=0
+//     Layer2: palette RGB[8:1] == NR 0x14 OR pixel_en=0
+//     Sprite: pixel_en=0 only (no RGB compare)
+//     TM:     pixel_en=0 OR (text_mode AND palette RGB==NR 0x14) OR tm_en=0
 //
-//   We combine ULA + Tilemap into a single "U" layer before priority
-//   compositing to match the VHDL behavior.
+//   ULA/TM merge (VHDL 7115-7116):
+//     ulatm_transparent = ula_transparent AND tm_transparent
+//     ulatm_rgb = TM when TM opaque AND (TM above OR ULA transparent),
+//                 else ULA
 
 void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int width)
 {
+    // Pre-compute NR 0x14 transparency reference (RGB portion only).
+    // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
+    const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_) & 0x00FFFFFF;
+
     for (int x = 0; x < width; ++x) {
         const uint32_t ula_px  = ula_line_[x];
         const uint32_t l2_px   = layer2_line_[x];
         const uint32_t spr_px  = sprite_line_[x];
         const uint32_t tm_px   = tilemap_line_[x];
 
-        // Combine ULA + Tilemap into the "U" layer.
-        // VHDL: tilemap replaces ULA unless tilemap is transparent or
-        // the per-tile ula_over flag is set (ULA has priority over that tile).
+        // --- Transparency detection (VHDL 7100-7123) ---
+        const bool ula_transp = is_transparent(ula_px) ||
+                                ((ula_px & 0x00FFFFFF) == nr14_rgb);
+        const bool l2_transp  = is_transparent(l2_px) ||
+                                ((l2_px & 0x00FFFFFF) == nr14_rgb);
+        const bool spr_transp = is_transparent(spr_px);
+        const bool tm_transp  = is_transparent(tm_px);
+
+        // --- ULA/TM merge (VHDL 7115-7116) ---
+        // ulatm_transparent = ula_transparent AND tm_transparent
+        const bool ulatm_transp = ula_transp && tm_transp;
+        // ulatm_rgb: TM when TM opaque AND (above OR ULA transparent), else ULA
         uint32_t u_px;
-        if (!is_transparent(tm_px) && !ula_over_flags_[x]) {
+        if (!tm_transp && (!ula_over_flags_[x] || ula_transp)) {
             u_px = tm_px;
-        } else if (!is_transparent(tm_px) && ula_over_flags_[x]) {
-            // ULA over tilemap: use ULA if opaque, else tilemap
-            u_px = ula_px;  // ULA is always opaque in standard mode
         } else {
-            u_px = ula_px;
+            u_px = ula_transp ? TRANSPARENT : ula_px;
         }
 
-        const bool u_opaque   = !is_transparent(u_px);
-        const bool l2_opaque  = !is_transparent(l2_px);
-        const bool spr_opaque = !is_transparent(spr_px);
-
-        // VHDL: compositor default is the fallback colour (shown when all layers transparent).
         uint32_t result = fallback_argb;
 
-        // Apply priority order: first non-transparent layer wins.
-        // The naming convention: S=Sprites, L=Layer2, U=ULA+Tilemap.
-        // Order is listed top-to-bottom (highest priority first).
         switch (layer_priority_) {
-            case 0:  // SLU — Sprites on top, then Layer2, then ULA
-                if (spr_opaque)       result = spr_px;
-                else if (l2_opaque)   result = l2_px;
-                else if (u_opaque)    result = u_px;
+            case 0:  // SLU (VHDL 7218)
+                if (!spr_transp)        result = spr_px;
+                else if (!l2_transp)    result = l2_px;
+                else if (!ulatm_transp) result = u_px;
                 break;
 
-            case 1:  // LSU — Layer2 on top, then Sprites, then ULA
-                if (l2_opaque)        result = l2_px;
-                else if (spr_opaque)  result = spr_px;
-                else if (u_opaque)    result = u_px;
+            case 1:  // LSU (VHDL 7230)
+                if (!l2_transp)         result = l2_px;
+                else if (!spr_transp)   result = spr_px;
+                else if (!ulatm_transp) result = u_px;
                 break;
 
-            case 2:  // SUL — Sprites on top, then ULA, then Layer2
-                if (spr_opaque)       result = spr_px;
-                else if (u_opaque)    result = u_px;
-                else if (l2_opaque)   result = l2_px;
+            case 2:  // SUL (VHDL 7240)
+                if (!spr_transp)        result = spr_px;
+                else if (!ulatm_transp) result = u_px;
+                else if (!l2_transp)    result = l2_px;
                 break;
 
-            case 3:  // LUS — Layer2 on top, then ULA, then Sprites
-                if (l2_opaque)        result = l2_px;
-                else if (u_opaque)    result = u_px;
-                else if (spr_opaque)  result = spr_px;
+            case 3:  // LUS (VHDL 7252)
+                if (!l2_transp)         result = l2_px;
+                else if (!ulatm_transp) result = u_px;
+                else if (!spr_transp)   result = spr_px;
                 break;
 
-            case 4:  // USL — ULA on top, then Sprites, then Layer2
-                if (u_opaque)         result = u_px;
-                else if (spr_opaque)  result = spr_px;
-                else if (l2_opaque)   result = l2_px;
+            case 4:  // USL (VHDL 7262)
+                if (!ulatm_transp)      result = u_px;
+                else if (!spr_transp)   result = spr_px;
+                else if (!l2_transp)    result = l2_px;
                 break;
 
-            case 5:  // ULS — ULA on top, then Layer2, then Sprites
-                if (u_opaque)         result = u_px;
-                else if (l2_opaque)   result = l2_px;
-                else if (spr_opaque)  result = spr_px;
+            case 5:  // ULS (VHDL 7274)
+                if (!ulatm_transp)      result = u_px;
+                else if (!l2_transp)    result = l2_px;
+                else if (!spr_transp)   result = spr_px;
                 break;
 
-            default:  // Modes 6,7 are blending (deferred to Phase 8)
-                // Fall back to SLU for now.
-                if (spr_opaque)       result = spr_px;
-                else if (l2_opaque)   result = l2_px;
-                else if (u_opaque)    result = u_px;
+            default:  // Modes 6,7 — blend (not yet implemented)
+                if (!spr_transp)        result = spr_px;
+                else if (!l2_transp)    result = l2_px;
+                else if (!ulatm_transp) result = u_px;
                 break;
         }
 
@@ -272,6 +275,7 @@ void Renderer::save_state(StateWriter& w) const
     ula_.save_state(w);
     w.write_u8(layer_priority_);
     w.write_u8(fallback_colour_);
+    w.write_u8(transparent_rgb_);
     w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }
 
@@ -280,5 +284,6 @@ void Renderer::load_state(StateReader& r)
     ula_.load_state(r);
     layer_priority_ = r.read_u8();
     fallback_colour_ = r.read_u8();
+    transparent_rgb_ = r.read_u8();
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }

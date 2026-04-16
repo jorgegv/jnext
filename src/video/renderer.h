@@ -42,6 +42,7 @@ public:
     void reset() {
         layer_priority_ = 0;        // SLU
         fallback_colour_ = 0xE3;    // default transparent index
+        transparent_rgb_ = 0xE3;    // NR 0x14 default
         fallback_per_line_.fill(0xE3);
         ula_.reset();
     }
@@ -61,6 +62,12 @@ public:
     /// In the VHDL, this also replaces the ULA border colour.
     void set_fallback_colour(uint8_t val) { fallback_colour_ = val; }
     uint8_t fallback_colour() const { return fallback_colour_; }
+
+    /// Set the transparent colour index (NextREG 0x14).
+    /// VHDL zxnext.vhd:7100 — palette RGB[8:1] is compared against this
+    /// value for ULA and Layer 2 transparency determination.
+    void set_transparent_rgb(uint8_t val) { transparent_rgb_ = val; }
+    uint8_t transparent_rgb() const { return transparent_rgb_; }
 
     /// Snapshot the current fallback colour for a given scanline.
     /// Called during the frame loop so per-line copper changes are preserved.
@@ -105,6 +112,7 @@ private:
     Ula ula_;
     uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
     uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)
+    uint8_t transparent_rgb_ = 0xE3; // NextREG 0x14 (default transparent colour)
 
     /// Per-scanline fallback colour snapshot.
     /// Populated during the frame loop by snapshot_fallback_for_line().

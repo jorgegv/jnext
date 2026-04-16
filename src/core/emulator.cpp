@@ -170,8 +170,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
     });
 
     // Register 0x14: Global transparency colour (Layer2/ULA/LoRes)
+    // VHDL zxnext.vhd:7100 — compared against palette RGB[8:1] for
+    // ULA and Layer 2 transparency at the compositor stage.
     nextreg_.set_write_handler(0x14, [this](uint8_t v) {
         palette_.set_global_transparency(v);
+        renderer_.set_transparent_rgb(v);
     });
 
     // Register 0x40: Palette index
