@@ -440,6 +440,13 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.set_write_handler(0xBA, [this](uint8_t v) { divmmc_.set_entry_timing_0(v); });
     nextreg_.set_write_handler(0xBB, [this](uint8_t v) { divmmc_.set_entry_points_1(v); });
 
+    // Register 0x85: Port-enable register 4 — read packing.
+    // VHDL zxnext.vhd:6138: read returns reset_type & "000" & enable(3:0).
+    // Bits 6:4 always read back as zero.
+    nextreg_.set_read_handler(0x85, [this]() -> uint8_t {
+        return nextreg_.cached(0x85) & 0x8F;
+    });
+
     // Register 0x8C: Alternate ROM control
     //   bit 7 = enable alt rom
     //   bit 6 = alt rom visible only during writes
@@ -1593,6 +1600,15 @@ int Emulator::execute_single_instruction()
 
 void Emulator::reset()
 {
+    // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
+    // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
+    // they are preserved. Save the port-enable state and reset_type before
+    // init() triggers a second nextreg_.reset() that would lose them.
+    const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
+    const uint8_t save_82 = nextreg_.cached(0x82);
+    const uint8_t save_83 = nextreg_.cached(0x83);
+    const uint8_t save_84 = nextreg_.cached(0x84);
+
     clock_.reset();
     scheduler_.reset();
     frame_cycle_ = 0;
@@ -1609,6 +1625,13 @@ void Emulator::reset()
 
     // Re-run init to restore consistent state (reloads ROM, rewires handlers).
     init(config_);
+
+    // Restore port-enable registers per reset_type semantics.
+    if (!reset_type_1) {
+        nextreg_.write(0x82, save_82);
+        nextreg_.write(0x83, save_83);
+        nextreg_.write(0x84, save_84);
+    }
 }
 
 // ---------------------------------------------------------------------------
