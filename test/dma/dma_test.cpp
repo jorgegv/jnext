@@ -1094,21 +1094,22 @@ void group9_mem_to_mem() {
               fmt("n=%d  VHDL dma.vhd:426", n));
     }
 
-    // 9.8 Block length = 0 edge case — ZXN.  VHDL dma.vhd:426 comparison
-    // `counter_s < block_len_s` is false immediately when both are 0, so
-    // the transition is directly to FINISH_DMA with 0 bytes transferred.
-    // Known emulator bug (Task 2 / Task 3 backlog item 6): the C++ loop
-    // transfers one byte before checking `counter >= block_len`, so this
-    // row is expected to FAIL on current main.  Do not patch src/.
+    // 9.8 Block length = 0 edge case — ZXN.  VHDL state machine at
+    // dma.vhd:359-437 transfers the byte at TRANSFERING_WRITE_1 (:361
+    // increments counter), then checks `counter_s < block_len_s` at
+    // TRANSFERING_WRITE_4 (:426).  With block_len=0, ZXN counter starts
+    // at 0 (LOAD, :665), first byte transfers, counter becomes 1,
+    // 1 < 0 is false (unsigned) -> FINISH_DMA.  One byte is transferred.
+    // The VHDL author's own "TO DO" comment at :426 flags this edge case.
     {
         fresh(dma);
         g_mem[0x8000] = 0xEE;
         program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0);
         int n = run_to_idle(dma);
-        check("9.8", "Block length = 0 transfers 0 bytes (ZXN)",
-              n == 0 && g_mem[0x9000] == 0x00,
-              fmt("n=%d dst=0x%02X  VHDL dma.vhd:426 "
-                  "(KNOWN EMU BUG: counter>=block_len post-increment)",
+        check("9.8", "Block length = 0 transfers 1 byte (ZXN)",
+              n == 1 && g_mem[0x9000] == 0xEE,
+              fmt("n=%d dst=0x%02X  VHDL dma.vhd:361,426 (counter "
+                  "incremented at WRITE_1, checked at WRITE_4)",
                   n, g_mem[0x9000]));
     }
 }
@@ -1613,30 +1614,30 @@ void group14_counter() {
                   n, g_mem[0x9005], g_mem[0x9006]));
     }
 
-    // 14.6 ZXN block_len=0 transfers 0 bytes.  Same known emulator bug as
-    // 9.8 — the plan-row assertion is the VHDL expectation and the test
-    // is expected to FAIL on current main (Task 3 backlog item 6).
+    // 14.6 ZXN block_len=0 transfers 1 byte.  VHDL dma.vhd:361 increments
+    // counter at TRANSFERING_WRITE_1 (after the byte is transferred), then
+    // :426 checks `counter_s < block_len_s` at WRITE_4.  Counter starts at
+    // 0 (LOAD, :665), becomes 1 after first byte, 1 < 0 is false → FINISH.
     {
         fresh(dma);
         g_mem[0x8000] = 0xDE;
         program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0);
         int n = run_to_idle(dma);
-        check("14.6", "ZXN block_len=0: 0 bytes transferred",
-              n == 0,
-              fmt("n=%d  VHDL dma.vhd:426 "
-                  "(KNOWN EMU BUG: counter>=block_len post-increment)", n));
+        check("14.6", "ZXN block_len=0: 1 byte transferred",
+              n == 1,
+              fmt("n=%d  VHDL dma.vhd:361,426", n));
     }
 
-    // 14.7 Z80 block_len=0 transfers 0 bytes.  Same known emulator bug.
+    // 14.7 Z80 block_len=0 transfers 1 byte.  Z80 counter starts at 0xFFFF
+    // (LOAD, :667), wraps to 0x0000 after first byte, 0 < 0 → FINISH.
     {
         fresh(dma);
         g_mem[0x8000] = 0xCA;
         program_mem_to_mem_AB(dma, 0x8000, 0x9000, 0, /*z80_mode=*/true);
         int n = run_to_idle(dma);
-        check("14.7", "Z80 block_len=0: 0 bytes transferred",
-              n == 0,
-              fmt("n=%d  VHDL dma.vhd:426 "
-                  "(KNOWN EMU BUG: counter>=block_len post-increment)", n));
+        check("14.7", "Z80 block_len=0: 1 byte transferred",
+              n == 1,
+              fmt("n=%d  VHDL dma.vhd:361,426,667", n));
     }
 
     // 14.8 Counter readback via read sequence.
