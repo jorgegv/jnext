@@ -314,11 +314,15 @@ void group2_40col() {
                    "VHDL tilemap.vhd:322 — attr(2) inverts effective_y");
     }
 
-    // TM-15: rotate swaps X and Y. Place value 1 only at (x=0,y=0), value 2
-    // only at (x=0,y=7). Without rotate scanline 0 pixel 0 = val 1.
-    // With rotate at scanline 7 pixel 0 = val 1 (original 0,0) — the Y
-    // axis now indexes the old X axis; at scanline 0 pixel 7 = val 1.
-    // VHDL: tilemap.vhd:323-324 transformed_x/y swap when rotate=1.
+    // TM-15: rotate produces a 90° rotation, not a pure transpose.
+    // VHDL tilemap.vhd:320-324:
+    //   eff_x_mirror = attr(3) XOR attr(1)   → with rotate=1, x_mirror=0: eff_x_mirror=1
+    //   effective_x = NOT abs_x               (mirrored)
+    //   effective_y = abs_y                   (no y_mirror)
+    //   transformed_x = effective_y           (rotate=1 → swap)
+    //   transformed_y = effective_x
+    // For pixel (abs_x=0, abs_y=0): tx=0, ty=NOT(0)=7 → reads row 7 col 0 = val 2
+    // For pixel (abs_x=7, abs_y=0): tx=0, ty=NOT(7)=0 → reads row 0 col 0 = val 1
     {
         fresh(tm, pal, ram);
         paint_tm_palette_entry(pal, 0x01, 0xE0);
@@ -331,12 +335,11 @@ void group2_40col() {
         write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x02);   // rotate
         tm.set_enabled(true);
         auto s0 = render_line(tm, 0, ram, pal);
-        // Under rotate, scanline 0 pixel 0 reads original (y=0,x=0) = val 1;
-        // pixel 7 reads original (y=7,x=0) = val 2.
+        // 90° rotation: pixel 0 reads (tx=0,ty=7)=val2; pixel 7 reads (tx=0,ty=0)=val1
         check_pred("TM-15",
-                   s0.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s0.pixels[7] == pal.tilemap_colour(0x02),
-                   "VHDL tilemap.vhd:323-324 — rotate swaps transformed X/Y");
+                   s0.pixels[0] == pal.tilemap_colour(0x02) &&
+                   s0.pixels[7] == pal.tilemap_colour(0x01),
+                   "VHDL tilemap.vhd:320-324 — rotate is 90° (swap + XOR mirror)");
     }
 
     // TM-16: rotate + X-mirror cancel: effective_x_mirror = 1 XOR 1 = 0.
@@ -440,6 +443,13 @@ void group4_512tile() {
     set_group("G4 512-tile");
     Tilemap tm; PaletteManager pal; Ram ram;
 
+    // 512-tile mode needs 512 * 32 = 16384 bytes of tile defs — the full
+    // 16K bank 5.  DEF_MAP_BASE (0x2C → 0x16C00) overlaps tile 256's
+    // data at DEF_DEF_BASE + 256*32 = 0x16C00.  Move the map to bank 7
+    // (bit 7 = 1 in the base register) so there's no overlap.
+    constexpr uint8_t  MAP512_REG = 0x80;  // bit 7=1 (bank 7), offset=0
+    const     uint32_t MAP512_BASE = BANK7 + 0;  // 0x1C000
+
     // TM-30: 512-tile mode activated via bit 1 of NR 0x6B.
     // VHDL: tilemap.vhd:194 mode_512_i = control(1).
     {
@@ -448,8 +458,9 @@ void group4_512tile() {
         paint_tm_palette_entry(pal, 0x02, 0x03);
         fill_tile_pattern(ram, DEF_DEF_BASE,   0, 1);
         fill_tile_pattern(ram, DEF_DEF_BASE, 256, 2);
+        tm.set_map_base(MAP512_REG);
         // attr bit 0 = 1 → in 512-tile mode selects tile 256.
-        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 0, 0x01);
+        write_map2(ram, MAP512_BASE, 0, 0, 40, 0, 0x01);
         tm.set_control(0x82);   // enable + mode_512
         auto s = render_line(tm, 0, ram, pal);
         check("TM-30", s.pixels[0], pal.tilemap_colour(0x02),
@@ -464,8 +475,9 @@ void group4_512tile() {
         paint_tm_palette_entry(pal, 0x02, 0x03);
         fill_tile_pattern(ram, DEF_DEF_BASE,   0, 1);
         fill_tile_pattern(ram, DEF_DEF_BASE, 256, 2);
-        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 0, 0x00);   // bit 0 = 0 → tile 0
-        write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 0, 0x01);   // bit 0 = 1 → tile 256
+        tm.set_map_base(MAP512_REG);
+        write_map2(ram, MAP512_BASE, 0, 0, 40, 0, 0x00);   // bit 0 = 0 → tile 0
+        write_map2(ram, MAP512_BASE, 1, 0, 40, 0, 0x01);   // bit 0 = 1 → tile 256
         tm.set_control(0x82);
         auto s = render_line(tm, 0, ram, pal);
         check_pred("TM-31",
