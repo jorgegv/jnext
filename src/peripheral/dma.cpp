@@ -576,12 +576,18 @@ int Dma::execute_burst(int max_bytes) {
             break;
         }
 
-        // In burst mode, transfer one byte then wait for prescaler cycles.
-        // VHDL: waits until DMA_timer_s(13:5) >= prescaler, i.e. prescaler*32 master cycles.
-        if (mode_ == 2) {  // burst
-            if (port_b_prescaler_ > 0) {
-                burst_wait_ = static_cast<int64_t>(port_b_prescaler_) * 32;
-            }
+        // VHDL dma.vhd:424 enters WAITING_CYCLES whenever prescaler > 0,
+        // regardless of transfer mode (continuous, burst, or byte).
+        // In burst mode, the CPU bus is released during the wait (:441-449);
+        // in other modes the bus stays held (CPU stalled).
+        // is_active() handles the burst vs non-burst distinction.
+        if (port_b_prescaler_ > 0) {
+            burst_wait_ = static_cast<int64_t>(port_b_prescaler_) * 32;
+            break;
+        }
+
+        // Burst mode: one byte per enable even without prescaler.
+        if (mode_ == 2) {
             break;
         }
     }
