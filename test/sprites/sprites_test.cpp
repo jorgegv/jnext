@@ -738,23 +738,12 @@ static void group4() {
               DETAIL("y=%d", info.y));
     }
 
-    // G4.XY-04 — Y MSB honored with 5th byte (y=256).
-    {
-        fresh(spr, pal);
-        pal.set_sprite_transparency(0xE3);
-        upload_pattern_8bpp_solid(spr, 0, 0x44);
-        set5(spr, 0, 0, 0x00, 0x00, 0x80, 0x01); // attr4(0)=1 -> y=256
-        // Line 256 does not normally render in non-over-border mode because
-        // clip_y2 defaults to 0xBF and non-over-border remaps y clips.
-        // Enable over_border so y=256 is visible.
-        spr.set_over_border(true);
-        uint32_t line[320]; clear_line(line);
-        spr.render_scanline(line, 256, pal);
-        check("G4.XY-04",
-              "attr3(6)=1, attr4(0)=1 -> y_msb honored, pixel at y=256 (796)",
-              pixel_index(line, 0) == 0x44,
-              DETAIL("got=%d", pixel_index(line, 0)));
-    }
+    // G4.XY-04 removed: the original test expected a sprite at y=256 to
+    // render in over-border mode, but VHDL clip_y2_i is 8-bit — y_e_v
+    // maxes at 255 (sprites.vhd:1048,1053), so y=256 is always clipped.
+    // The 9-bit Y coordinate (SpriteAttr::y() returns 0-511) is correct
+    // for the sprite→scanline comparison, but the clip window can't open
+    // past y=255.  No valid VHDL-derivable oracle exists for this row.
 
     // G4.XY-05 — x=319 renders last valid column.
     {
