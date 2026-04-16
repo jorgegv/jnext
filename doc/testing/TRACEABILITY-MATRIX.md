@@ -10,7 +10,7 @@
 | Memory/MMU       | 143       | 143     | 64   | 2    | 77        | 0       | `6d1a057000`      |
 | ULA Video        | 122       | 122     | 47   | 0    | 75        | 0       | `7c56b92000`      |
 | Layer2           | 97        | 97      | 91   | 4    | 2         | 0       | `fcbd9aed61`      |
-| Sprites          | 132       | 132     | 121  | 1    | 10        | 0       | `28f5afb540`      |
+| Sprites          | 131       | 131     | 121  | 0    | 10        | 0       | `28f5afb540`      |
 | Tilemap          | 69        | 69      | 38   | 13   | 18        | 0       | `a3e1196000`      |
 | Copper           | 76        | 76      | 66   | 0    | 10        | 0       | `fcbd9aed61`      |
 | Compositor       | 115       | 115     | 91   | 24   | 0         | 0       | `fcbd9aed61`      |
@@ -534,7 +534,7 @@ Last-touch commit: `28f5afb5407e564db0970f142782fceba1b33936` (`28f5afb540`)
 | G4.XY-01   | Sprite at (0,0) opaque fills [0..15] on line 0               | —               | pass    | test/sprites/sprites_test.cpp:705  |
 | G4.XY-02   | X MSB (attr2(0)=1) gives x=256+attr0                         | —               | pass    | test/sprites/sprites_test.cpp:717  |
 | G4.XY-03   | Y MSB requires 5th byte; else forced to 0                    | —               | pass    | test/sprites/sprites_test.cpp:736  |
-| G4.XY-04   | Y MSB honored with 5th byte                                  | —               | fail    | test/sprites/sprites_test.cpp:753  |
+| G4.XY-04   | *(removed: y=256 always clipped — clip_y2_i 8-bit, sprites.vhd:1053)* | —      | —       | —                                  |
 | G4.XY-05   | x=319 renders last valid column                              | —               | pass    | test/sprites/sprites_test.cpp:768  |
 | G4.XY-06   | x=320 fully off-screen, x-wrap 1× (mask 11111) still render… | —               | pass    | test/sprites/sprites_test.cpp:785  |
 | G4.XY-07   | 2× scale wrap-around, sprite starts at x=300                 | —               | pass    | test/sprites/sprites_test.cpp:805  |
