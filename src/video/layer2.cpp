@@ -51,13 +51,13 @@ void Layer2::set_control(uint8_t val)
 
 static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr)
 {
-    // VHDL: layer2_bank_eff = (('0' & bank(6:4)) + 1) & bank(3:0)
-    // This converts a 16K bank number into an 8-bit SRAM bank number.
-    // In our emulator, we just use 16K bank * 16384 + offset.
-    int bank_16k = active_bank;
+    // VHDL layer2.vhd:172: layer2_bank_eff = (('0' & bank(6:4)) + 1) & bank(3:0)
+    // The +1 on the upper 3 bits offsets L2 into physical SRAM above bank 0.
+    int upper = ((active_bank >> 4) & 0x07) + 1;
+    int bank_eff = (upper << 4) | (active_bank & 0x0F);
     int sub_bank = static_cast<int>(l2_addr >> 14);      // which 16K chunk (0-4)
     int offset   = static_cast<int>(l2_addr & 0x3FFF);   // offset within 16K
-    return static_cast<uint32_t>((bank_16k + sub_bank) * 16384 + offset);
+    return static_cast<uint32_t>((bank_eff + sub_bank) * 16384 + offset);
 }
 
 void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
