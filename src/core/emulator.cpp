@@ -721,13 +721,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // --- Phase 5 peripheral port handlers ---
 
-    // CTC channels 0-3: ports 0x183B, 0x193B, 0x1A3B, 0x1B3B
-    for (int ch = 0; ch < 4; ++ch) {
-        uint16_t p = static_cast<uint16_t>(0x183B + (ch << 8));
-        port_.register_handler(0xFFFF, p,
-            [this, ch](uint16_t) -> uint8_t { return ctc_.read(ch); },
-            [this, ch](uint16_t, uint8_t val) { ctc_.write(ch, val); });
-    }
+    // CTC channels 0-3: VHDL zxnext.vhd:2690 — cpu_a(15:11)="00011"
+    // plus LSB = 0x3B. Covers 0x183B..0x1F3B; channel from bits 9:8.
+    port_.register_handler(0xF8FF, 0x183B,
+        [this](uint16_t p) -> uint8_t {
+            return ctc_.read((p >> 8) & 3);
+        },
+        [this](uint16_t p, uint8_t val) {
+            ctc_.write((p >> 8) & 3, val);
+        });
 
     // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat)
     port_.register_handler(0x00FF, 0x006B,
