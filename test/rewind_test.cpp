@@ -221,7 +221,7 @@ static int test_snapshot_roundtrip()
     size_t snap_size = measure.position();
     printf("  Snapshot size: %zu bytes\n", snap_size);
     CHECK(snap_size > 0, "snapshot size > 0");
-    CHECK(snap_size < 3 * 1024 * 1024, "snapshot < 3 MB (sanity check)");
+    CHECK(snap_size < 2 * 1024 * 1024, "snapshot < 2 MB (sanity check)");
 
     // First snapshot.
     std::vector<uint8_t> buf1(snap_size, 0);
