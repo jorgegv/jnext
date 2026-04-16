@@ -6,6 +6,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 
 | Subsystem             |     Live |     Pass |   Fail |    Skip |    Rate | Notes                                                  |
 |-----------------------|---------:|---------:|-------:|--------:|--------:|--------------------------------------------------------|
+| FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | Clean. FUSE data-driven opcode test suite              |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | Clean. All opcodes verified against VHDL               |
 | Copper                |       66 |       66 |      0 |      10 |    100% | Clean. Skips: NR 0x64 offset, cycle-accurate bus, NMI  |
 | Memory/MMU            |       66 |       66 |      0 |      77 |    100% | Clean. Skips: contention timing, DivMMC overlay, altrom|
@@ -22,6 +23,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (AY+DAC+Beeper) |      127 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
 | DMA                   |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       51 |       51 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **1171** | **1150** | **21** | **642** | **98%** |                                                        |
+| **Total**             | **2527** | **2506** | **21** | **642** | **99%** |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
