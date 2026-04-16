@@ -39,19 +39,39 @@ void SpiMaster::attach_device(int cs_id, SpiDevice* device) {
 }
 
 void SpiMaster::write_cs(uint8_t val) {
-    if (val != cs_) {
-        spi_log()->debug("CS change {:#04x} → {:#04x} (SD card {})",
-                         cs_, val, (val & 0x01) ? "deselected" : "SELECTED");
+    // VHDL zxnext.vhd:3311-3322 decodes the CPU byte into a recognized
+    // CS pattern. Unrecognized values collapse to 0xFF (all deselected).
+    uint8_t decoded;
+    if ((val & 0x03) == 0x02) {
+        // SD card 0 (bit 1 clear, bit 0 set — ignoring swap for now)
+        decoded = 0xFE;  // only bit 0 low
+    } else if ((val & 0x03) == 0x01) {
+        // SD card 1 (bit 0 clear, bit 1 set — ignoring swap for now)
+        decoded = 0xFD;  // only bit 1 low
+    } else if (val == 0xFB) {
+        decoded = 0xFB;  // RPI0
+    } else if (val == 0xF7) {
+        decoded = 0xF7;  // RPI1
+    // 0x7F = Flash select, but gated by config mode (zxnext.vhd:3319).
+    // Config mode is not modelled at this level, so Flash select is not
+    // recognized here. If needed, the caller can set cs_ directly.
+    } else {
+        decoded = 0xFF;  // all deselected
+    }
+
+    if (decoded != cs_) {
+        spi_log()->debug("CS change {:#04x} → {:#04x} (raw={:#04x}, SD card {})",
+                         cs_, decoded, val, (decoded & 0x01) ? "deselected" : "SELECTED");
         // Notify devices that lost chip select (CS went from low to high)
         for (int i = 0; i < kMaxDevices; ++i) {
             bool was_selected = !(cs_ & (1 << i));
-            bool now_selected = !(val & (1 << i));
+            bool now_selected = !(decoded & (1 << i));
             if (was_selected && !now_selected && devices_[i]) {
                 devices_[i]->deselect();
             }
         }
     }
-    cs_ = val;
+    cs_ = decoded;
 }
 
 uint8_t SpiMaster::read_cs() const {
