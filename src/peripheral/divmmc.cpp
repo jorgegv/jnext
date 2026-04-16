@@ -84,53 +84,66 @@ uint8_t DivMmc::read_control() const {
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     if (!is_m1 || !enabled_) return;
 
-    // Auto-map trigger addresses from NextREG 0xB8 (entry_points_0_).
-    // Each bit enables automap on the corresponding RST address.
+    // RST entry points from NR 0xB8 (entry_points_0_).
+    // VHDL zxnext.vhd:2892-2905 splits RST triggers into two paths:
+    //   Main path (automap_instant/delayed_on):  entry_valid_0_[bit]=1
+    //   ROM3 path (automap_rom3_instant/delayed): entry_valid_0_[bit]=0
+    //     AND i_automap_rom3_active (divmmc.vhd:130,148)
+    // When valid=1: automap fires unconditionally (any ROM context).
+    // When valid=0: automap only fires if ROM3 is the current ROM.
     static constexpr uint16_t rst_addrs[8] = {
         0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
     };
     for (int i = 0; i < 8; ++i) {
         if ((entry_points_0_ & (1 << i)) && pc == rst_addrs[i]) {
-            if (!automap_active_) {
-                divmmc_log()->debug("automap ON at PC={:#06x}", pc);
+            bool valid = (entry_valid_0_ & (1 << i)) != 0;
+            if (valid || rom3_active_) {
+                if (!automap_active_) {
+                    divmmc_log()->debug("automap ON at PC={:#06x} (valid={} rom3={})",
+                                        pc, valid, rom3_active_);
+                }
+                automap_active_ = true;
             }
-            automap_active_ = true;
             return;
         }
     }
 
-    // Auto-map trigger from NextREG 0xBB (entry_points_1_).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066) {  // NMI instant
+    // Non-RST entry points from NR 0xBB (entry_points_1_).
+    // NMI (0x0066, BB[1]) uses automap_nmi_instant_on, gated by
+    // i_automap_active (main path), not rom3_active.
+    // Tape traps (BB[2-5]) are all rom3_delayed_on, requiring
+    // i_automap_rom3_active (divmmc.vhd:130).
+    if ((entry_points_1_ & 0x02) && pc == 0x0066) {  // NMI — main path
         if (!automap_active_) {
             divmmc_log()->debug("automap ON at PC=0x0066 (NMI)");
         }
         automap_active_ = true;
         return;
     }
-    if ((entry_points_1_ & 0x04) && pc == 0x04C6) {  // tape trap (esxdos)
+    if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_) {
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x04C6 (tape trap)");
+            divmmc_log()->debug("automap ON at PC=0x04C6 (tape trap, ROM3)");
         }
         automap_active_ = true;
         return;
     }
-    if ((entry_points_1_ & 0x08) && pc == 0x0562) {  // tape trap (esxdos)
+    if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_) {
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x0562 (tape trap)");
+            divmmc_log()->debug("automap ON at PC=0x0562 (tape trap, ROM3)");
         }
         automap_active_ = true;
         return;
     }
-    if ((entry_points_1_ & 0x10) && pc == 0x04D7) {  // tape trap (nextzxos)
+    if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_) {
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap nextzxos)");
+            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap, ROM3)");
         }
         automap_active_ = true;
         return;
     }
-    if ((entry_points_1_ & 0x20) && pc == 0x056A) {  // tape trap (nextzxos)
+    if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_) {
         if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x056A (tape trap nextzxos)");
+            divmmc_log()->debug("automap ON at PC=0x056A (tape trap, ROM3)");
         }
         automap_active_ = true;
         return;

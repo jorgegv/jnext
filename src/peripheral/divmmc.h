@@ -93,6 +93,13 @@ public:
         return ram_.data() + page * kRamPageSize;
     }
 
+    // ── ROM3 active signal (from MMU / SRAM address generator) ───────
+    /// Set whether ROM3 is the currently selected ROM.  VHDL
+    /// sram_divmmc_automap_rom3_en (zxnext.vhd:3138) gates the ROM3
+    /// automap path in divmmc.vhd:130,148.
+    void set_rom3_active(bool v) { rom3_active_ = v; }
+    bool rom3_active() const { return rom3_active_; }
+
     // ── NextREG automap configuration (0xB8–0xBB) ──────────────────
     void set_entry_points_0(uint8_t val) { entry_points_0_ = val; }
     void set_entry_valid_0(uint8_t val)  { entry_valid_0_ = val; }
@@ -115,6 +122,7 @@ private:
     uint8_t control_reg_ = 0;           // raw control register value
 
     bool automap_active_ = false;       // auto-map currently engaged
+    bool rom3_active_    = false;       // ROM3 is current ROM (from MMU/SRAM)
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default
