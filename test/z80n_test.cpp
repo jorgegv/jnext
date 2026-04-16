@@ -225,12 +225,18 @@ static bool compare_state(const Z80Cpu& cpu, const TestMemory& mem,
     chk("IY", r.IY, expected.IY);
     chk("SP", r.SP, expected.SP);
     chk("PC", r.PC, expected.PC);
+    chk("MEMPTR", r.MEMPTR, expected.MEMPTR);
     chk("I", r.I, expected.I);
     chk("R", r.R, expected.R);
     chk("IFF1", r.IFF1, expected.IFF1);
     chk("IFF2", r.IFF2, expected.IFF2);
     chk("IM", r.IM, expected.IM);
     chk("halted", r.halted ? 1u : 0u, static_cast<unsigned>(expected.halted));
+    // NOTE: T-state comparison is not possible here because the Z80N
+    // interception path in z80_cpu.cpp bypasses libz80's tstates counter.
+    // Adding tstates accumulation requires a src/ change (Task 1 scope).
+    // The expected tstates values in tests.expected are preserved for
+    // future use once the emulator is fixed.
 
     // Check expected memory
     for (auto& mb : expected.mem_blocks) {

@@ -226,6 +226,7 @@ static bool compare_state(const Z80Cpu& cpu, const TestMemory& mem,
     chk("IY", r.IY, expected.IY);
     chk("SP", r.SP, expected.SP);
     chk("PC", r.PC, expected.PC);
+    chk("MEMPTR", r.MEMPTR, expected.MEMPTR);
     chk("I", r.I, expected.I);
     chk("R", r.R, expected.R);
     chk("IFF1", r.IFF1, expected.IFF1);

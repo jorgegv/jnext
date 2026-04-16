@@ -10,7 +10,7 @@ opcodes.
 The base Z80 instruction set is validated by the FUSE test suite. The Z80N
 extensions (all ED-prefixed) have different I/O requirements, looping
 semantics, and flag behaviour that make them unsuitable for the FUSE runner.
-This suite provides ~110 hand-computed test cases covering all 30 Z80N
+This suite provides 85 hand-computed test cases covering all 30 Z80N
 instructions, using the same file format and runner pattern as the FUSE tests.
 
 ## Architecture
@@ -53,7 +53,7 @@ Unused registers carry sentinel values to verify preservation.
 ```
 test/
   z80n/
-    tests.in              # Initial state for ~110 test cases
+    tests.in              # Initial state for 85 test cases
     tests.expected        # Expected state after execution
   z80n_test.cpp           # Test runner executable
   CMakeLists.txt          # Updated: new executable + CTest registration
@@ -64,42 +64,42 @@ doc/design/
 
 ## Test Case Catalog
 
-All instructions are ED-prefixed. Approximately 110 test cases grouped by
+All instructions are ED-prefixed. 85 test cases grouped by
 instruction.
 
 | Opcode   | Mnemonic        | Tests | Notes                                    |
 |----------|-----------------|------:|------------------------------------------|
-| ED 23    | SWAPNIB         |     4 | Swap A nibbles; flags preserved          |
-| ED 24    | MIRROR A        |     4 | Bit-reverse A; flags preserved           |
-| ED 27 nn | TEST n          |     5 | AND A,n without storing; full flag set   |
+| ED 23    | SWAPNIB         |     3 | Swap A nibbles; flags preserved          |
+| ED 24    | MIRROR A        |     5 | Bit-reverse A; flags preserved           |
+| ED 27 nn | TEST n          |     4 | AND A,n without storing; full flag set   |
 | ED 28    | BSLA DE,B       |     4 | Barrel shift left arithmetic             |
 | ED 29    | BSRA DE,B       |     4 | Barrel shift right arithmetic (sign ext) |
-| ED 2A    | BSRL DE,B       |     4 | Barrel shift right logical               |
-| ED 2B    | BSRF DE,B       |     4 | Barrel shift right fill (1-fill)         |
+| ED 2A    | BSRL DE,B       |     3 | Barrel shift right logical               |
+| ED 2B    | BSRF DE,B       |     3 | Barrel shift right fill (1-fill)         |
 | ED 2C    | BRLC DE,B       |     4 | Barrel rotate left circular              |
 | ED 30    | MUL DE          |     4 | D * E -> DE; no flags                    |
 | ED 31    | ADD HL,A        |     4 | 16+8 add; updates C flag only            |
-| ED 32    | ADD DE,A        |     3 | 16+8 add; updates C flag only            |
-| ED 33    | ADD BC,A        |     3 | 16+8 add; updates C flag only            |
+| ED 32    | ADD DE,A        |     2 | 16+8 add; updates C flag only            |
+| ED 33    | ADD BC,A        |     2 | 16+8 add; updates C flag only            |
 | ED 34    | ADD HL,nn       |     3 | 16+16 add; no flags affected             |
-| ED 35    | ADD DE,nn       |     3 | 16+16 add; no flags affected             |
-| ED 36    | ADD BC,nn       |     3 | 16+16 add; no flags affected             |
+| ED 35    | ADD DE,nn       |     1 | 16+16 add; no flags affected             |
+| ED 36    | ADD BC,nn       |     1 | 16+16 add; no flags affected             |
 | ED 8A    | PUSH nn         |     3 | Push 16-bit immediate; big-endian opcode |
-| ED 90    | OUTINB          |     3 | OUT (C),mem[HL]; HL++; B unchanged       |
+| ED 90    | OUTINB          |     1 | OUT (C),mem[HL]; HL++; B unchanged       |
 | ED 91    | NEXTREG n,v     |     2 | Write to NextREG via I/O                 |
 | ED 92    | NEXTREG n,A     |     2 | Write A to NextREG via I/O               |
-| ED 93    | PIXELDN         |     5 | Move HL down one pixel row               |
+| ED 93    | PIXELDN         |     6 | Move HL down one pixel row               |
 | ED 94    | PIXELAD         |     4 | Compute ULA address from D,E coords     |
-| ED 95    | SETAE           |     3 | Set A to pixel mask from E               |
+| ED 95    | SETAE           |     4 | Set A to pixel mask from E               |
 | ED 98    | JP (C)          |     3 | Jump via IN; needs configurable port     |
-| ED A4    | LDIX            |     4 | LDI with transparency skip              |
-| ED A5    | LDWS            |     4 | Load, L++, D++; flags from INC D        |
-| ED AC    | LDDX            |     3 | LDD with transparency skip              |
-| ED B4    | LDIRX           |     3 | Repeating LDIX; internal loop            |
-| ED B6    | LDIRSCALE       |     3 | LDIRX with stride from BC'              |
-| ED B7    | LDPIRX          |     3 | Pattern-fill with transparency           |
-| ED BC    | LDDRX           |     3 | Repeating LDDX; internal loop            |
-|          | **Total**       | **~110** |                                       |
+| ED A4    | LDIX            |     2 | LDI with transparency skip              |
+| ED A5    | LDWS            |     3 | Load, L++, D++; flags from INC D        |
+| ED AC    | LDDX            |     2 | LDD with transparency skip              |
+| ED B4    | LDIRX           |     2 | Repeating LDIX; internal loop            |
+| ED B6    | LDIRSCALE       |     1 | LDIRX with stride (BC' stride commented out in VHDL) |
+| ED B7    | LDPIRX          |     2 | Pattern-fill with transparency           |
+| ED BC    | LDDRX           |     1 | Repeating LDDX; internal loop            |
+|          | **Total**       |  **85** |                                       |
 
 ## Special Handling
 
@@ -181,7 +181,7 @@ the existing FUSE phase:
   PASS: 1356/1356 opcodes passed
 
 [z80n]    Running Z80N extended opcode tests...
-  PASS: 110/110 opcodes passed
+  PASS: 85/85 opcodes passed
 
 Running screenshot tests...
   ...
