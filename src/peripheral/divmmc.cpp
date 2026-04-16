@@ -66,10 +66,10 @@ bool DivMmc::load_rom(const std::string& path) {
 // ── Port 0xE3 ─────────────────────────────────────────────────────────
 
 void DivMmc::write_control(uint8_t val) {
-    control_reg_ = val;
     conmem_ = (val & 0x80) != 0;
-    mapram_ = (val & 0x40) != 0;
+    mapram_ = mapram_ || ((val & 0x40) != 0);  // OR-latch per VHDL zxnext.vhd:4182-4183
     bank_   = val & 0x0F;
+    control_reg_ = (val & ~0x40) | (mapram_ ? 0x40 : 0x00);  // reflect latched bit 6
 
     divmmc_log()->debug("write control={:#04x} conmem={} mapram={} bank={}",
                         val, conmem_, mapram_, bank_);
