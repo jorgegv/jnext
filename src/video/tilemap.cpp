@@ -33,11 +33,18 @@ void Tilemap::reset()
 
 void Tilemap::set_control(uint8_t val)
 {
+    // VHDL tilemap.vhd:189-195 control_i mapping:
+    //   bit 7 = enable (directly in nextreg, not in control_i(6:0))
+    //   bit 6 = mode (40/80 col)
+    //   bit 5 = strip_flags (eliminate tilemap attribute byte)
+    //   bit 3 = textmode (extend palette offset to 7 bits)
+    //   bit 1 = 512-tile mode
+    //   bit 0 = tm_on_top (tilemap always above ULA)
     control_raw_ = val;
     enabled_     = (val & 0x80) != 0;
     mode_80col_  = (val & 0x40) != 0;
-    text_mode_   = (val & 0x20) != 0;
-    force_attr_  = (val & 0x10) != 0;
+    force_attr_  = (val & 0x20) != 0;   // bit 5 = strip_flags
+    text_mode_   = (val & 0x08) != 0;   // bit 3 = textmode
     mode_512_    = (val & 0x02) != 0;
     ula_on_top_  = (val & 0x01) != 0;
 }
