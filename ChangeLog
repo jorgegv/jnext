@@ -1,6 +1,6 @@
 # ChangeLog
 
-## (2026-04-16)
+## v0.92.0
 
 ### User Features
 - 640px native framebuffer for tilemap 80-col and Layer 2 640x256 modes
