@@ -1462,7 +1462,8 @@ void group12_transfer_modes() {
     // by mode, so WAITING_CYCLES fires in continuous mode too.
     {
         fresh(dma);
-        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(i);
+        // Source data starts at 0xA0 (non-zero) so written-byte counting works
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0xA0 + i);
         zxn(dma, 0x7D);
         zxn(dma, 0x00); zxn(dma, 0x80);
         zxn(dma, 0x04); zxn(dma, 0x00);
@@ -1477,15 +1478,13 @@ void group12_transfer_modes() {
         // NOT guarded by R4_mode_s, so continuous mode pauses between bytes
         // when a prescaler is set.  Expected: after one execute_burst,
         // exactly 1 byte has been written and DMA is still TRANSFERRING
-        // (waiting).  Known emulator gap — dma.cpp:581 only applies
-        // burst_wait_ when mode_==2; this row is expected to FAIL on main.
+        // (waiting for prescaler to expire before next byte).
         dma.execute_burst(1000);
         int written = 0;
         for (int i = 0; i < 4; ++i) if (g_mem[0x9000 + i] != 0) ++written;
         check("12.7", "Continuous+prescaler: one byte then wait (TRANSFERRING)",
               written == 1 && dma.state() == Dma::State::TRANSFERRING,
-              fmt("written=%d state=%d  VHDL dma.vhd:424 "
-                  "(KNOWN EMU GAP: C++ only honours prescaler in burst mode)",
+              fmt("written=%d state=%d  VHDL dma.vhd:424",
                   written, (int)dma.state()));
     }
 

@@ -76,8 +76,15 @@ public:
     int execute_burst(int max_bytes);
 
     /// Returns true when DMA is actively transferring (CPU should stall).
-    /// In burst mode, returns false during prescaler wait (CPU runs freely).
-    bool is_active() const { return state_ == State::TRANSFERRING && burst_wait_ == 0; }
+    /// VHDL dma.vhd:441-449: in burst mode, CPU bus is released during
+    /// prescaler wait (CPU runs freely); in continuous/byte mode, bus
+    /// stays held (CPU stalled even during prescaler wait).
+    bool is_active() const {
+        if (state_ != State::TRANSFERRING) return false;
+        if (burst_wait_ == 0) return true;
+        // During prescaler wait: burst releases CPU, others don't
+        return mode_ != 2;
+    }
 
     /// Tick the burst prescaler wait counter.  Called each emulator step
     /// with the number of master clock cycles that just elapsed.
