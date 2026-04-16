@@ -1400,6 +1400,9 @@ static void g_ts_selection() {
     }
 
     // TS-09 - pan bits[6:5] captured at select time.
+    // All channels active so R_sum = B + C > 0 before gating; pan=10
+    // (bit 0=0) must zero R via turbosound.vhd:327, proving the gate
+    // is doing the work, not the routing.
     {
         TurboSound ts;
         ts.set_enabled(true);
@@ -1409,11 +1412,13 @@ static void g_ts_selection() {
         ts.reg_addr(0x9D); // PSG2 pan=00
         ts.reg_addr(0xDF); // re-select PSG0 (pan already latched 10)
         ts.reg_addr(7); ts.reg_write(0x3F);
-        ts.reg_addr(8); ts.reg_write(0x0F);
+        ts.reg_addr(8); ts.reg_write(0x0F);    // ch A vol = 15
+        ts.reg_addr(9); ts.reg_write(0x0F);    // ch B vol = 15
+        ts.reg_addr(10); ts.reg_write(0x0F);   // ch C vol = 15
         settle(ts);
         check("TS-09", "pan bits[6:5]=10 at select time -> PSG0 L only",
               ts.pcm_left() > 0 && ts.pcm_right() == 0,
-              fmt("L=%u R=%u VHDL turbosound.vhd:132-134",
+              fmt("L=%u R=%u VHDL turbosound.vhd:132-134,323-327",
                   ts.pcm_left(), ts.pcm_right()));
     }
 
@@ -1665,6 +1670,8 @@ static void g_ts_panning() {
     skip("TS-40", "pan=11 both channels covered by TS-10");
 
     // TS-41 - pan=10 L only.
+    // All channels active so R_sum = B + C > 0 before gating; pan=10
+    // (bit 0=0) must zero R via turbosound.vhd:327, proving the gate.
     {
         TurboSound ts;
         ts.set_enabled(true);
@@ -1674,11 +1681,13 @@ static void g_ts_panning() {
         ts.reg_addr(0x9D);
         ts.reg_addr(0xDF);
         ts.reg_addr(7); ts.reg_write(0x3F);
-        ts.reg_addr(8); ts.reg_write(0x0F);
+        ts.reg_addr(8); ts.reg_write(0x0F);    // ch A vol = 15
+        ts.reg_addr(9); ts.reg_write(0x0F);    // ch B vol = 15
+        ts.reg_addr(10); ts.reg_write(0x0F);   // ch C vol = 15
         settle(ts);
         check("TS-41", "pan=10 -> L>0 and R=0",
               ts.pcm_left() > 0 && ts.pcm_right() == 0,
-              fmt("L=%u R=%u VHDL turbosound.vhd:323-329",
+              fmt("L=%u R=%u VHDL turbosound.vhd:323-327",
                   ts.pcm_left(), ts.pcm_right()));
     }
 
