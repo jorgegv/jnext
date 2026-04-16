@@ -943,10 +943,11 @@ static void test_group_expbus() {
 static void test_group_precedence() {
     set_group("Group E — precedence / collision");
 
-    // PR-01-CUR: document the read/write asymmetry bug. Plan row targets
-    // current behaviour: register one handler for 0x00FE, then register a
-    // second that overlaps; `write` calls both, `read` returns only the
-    // first match. port_dispatch.cpp:35-42 vs :52-59.
+    // PR-01-CUR: verify exclusive dispatch. Both reads and writes use
+    // most-specific-match-wins. When two handlers have the same specificity
+    // (same mask), the first registered wins for both reads AND writes —
+    // no broadcast, no asymmetry. This matches the VHDL one-hot model
+    // (zxnext.vhd:2696-2699).
     {
         PortDispatch pd;
         pd.clear_handlers();
@@ -962,13 +963,11 @@ static void test_group_precedence() {
         uint8_t rd_val = pd.read(0x00FE);
         pd.write(0x00FE, 0x00);
 
-        // VHDL contract (one-hot wired-OR, zxnext.vhd:2696-2699) requires
-        // register_handler to REFUSE the overlap. Current C++ does not.
-        // This test pins the asymmetry: read = first-match-wins (rd1=1,
-        // rd2=0), write = broadcast (wr1=1, wr2=1).
+        // Exclusive dispatch: first handler wins for both read and write
+        // (same specificity → first-registered wins). No broadcast.
         check("PR-01-CUR",
-              "Current dispatcher: read=first-match, write=broadcast (asymmetry)",
-              rd_val == 0x11 && rd1 == 1 && rd2 == 0 && wr1 == 1 && wr2 == 1,
+              "Exclusive dispatch: read and write both route to first handler only",
+              rd_val == 0x11 && rd1 == 1 && rd2 == 0 && wr1 == 1 && wr2 == 0,
               DETAIL("rd_val=0x%02x rd1=%d rd2=%d wr1=%d wr2=%d",
                      rd_val, rd1, rd2, wr1, wr2));
     }

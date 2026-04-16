@@ -533,11 +533,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // 128K bank switch — port 0x7FFD.
     // VHDL zxnext.vhd:2593: port_7ffd <= A15=0 AND (A14=1 OR NOT p3_timing)
     //   AND port_fd AND NOT port_1ffd AND port_7ffd_io_en.
-    // Traditional decode: A15=0, A1=0 (mask 0x8002/0x0000). Kept broad for
-    // compatibility with 128K/+3 ROMs that don't enforce A0 on the bus.
-    port_.register_handler(0x8002, 0x0000,
+    // port_fd = A1:0="01" (line 2578). Mask: A15=0, A1=0, A0=1 → 0x8003/0x0001.
+    // With exclusive dispatch (most-specific-match-wins), the +3 handler
+    // (mask 0xF003) naturally wins over this handler for 0x1FFD addresses,
+    // implementing the VHDL NOT port_1ffd gate without explicit code.
+    port_.register_handler(0x8003, 0x0001,
         nullptr,
         [this](uint16_t port, uint8_t v) {
+            // VHDL 2593: on +3 timing, require A14=1
+            if (config_.type == MachineType::ZX_PLUS3 && (port & 0x4000) == 0) return;
             // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
             if ((nextreg_.cached(0x82) & 0x02) == 0) return;
 
@@ -559,9 +563,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // +3 paging — port 0x1FFD.
     // VHDL zxnext.vhd:2599: port_1ffd <= A15:14="00" AND A13:12="01" AND port_fd.
-    // Traditional decode: A15:12="0001", A1=0 (mask 0xF002/0x1000). Kept broad
-    // for compatibility with +3 ROMs.
-    port_.register_handler(0xF002, 0x1000,
+    // Mask: A15:12="0001", A1=0, A0=1 → 0xF003/0x1001.
+    port_.register_handler(0xF003, 0x1001,
         nullptr,
         [this](uint16_t, uint8_t v) {
             mmu_.map_plus3_bank(v);
@@ -674,8 +677,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
         },
         [this](uint16_t port, uint8_t val) {
             if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
-            // VHDL 2772: port_fffd_wr <= iowr and port_fffd and not port_dffd
-            if ((port & 0xF003) == 0xD001) return;  // port_dffd match → skip
+            // VHDL 2772: NOT port_dffd gate is handled by exclusive dispatch —
+            // Pentagon handler (mask 0xF003, 6 bits) is more specific than
+            // this AY handler (mask 0xC007, 5 bits), so Pentagon wins for
+            // 0xDFFD writes and this handler is never called.
             turbosound_.reg_addr(val);
         });
 
