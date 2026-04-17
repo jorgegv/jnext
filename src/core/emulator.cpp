@@ -824,9 +824,15 @@ bool Emulator::init(const EmulatorConfig& cfg)
 
     // Register 0x09: Peripheral 4
     //   bits 7:5 = per-chip mono mode (bit 7=AY#2, 6=AY#1, 5=AY#0)
-    //   bit 3 = sprites over border (already handled above)
+    //   bit 3 = sprites over border + DivMMC mapram-latch clear
+    //           (VHDL zxnext.vhd:4184-4185 — writes bit 3=1 force
+    //            port_e3_reg(6) := '0')
     nextreg_.set_write_handler(0x09, [this](uint8_t v) {
         sprites_.set_over_border((v & 0x08) != 0);
+        // E3-05: clear DivMMC mapram OR-latch when bit 3 is set.
+        if (v & 0x08) {
+            divmmc_.clear_mapram();
+        }
         // Mono mode: bit 7=AY#2, bit 6=AY#1, bit 5=AY#0
         // Map to TurboSound: bit 0=AY#0, bit 1=AY#1, bit 2=AY#2
         uint8_t mono = 0;
