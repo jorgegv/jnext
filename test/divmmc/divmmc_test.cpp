@@ -1105,23 +1105,60 @@ void group_ss() {
               fmt("got=%02x", v));
     }
 
-    // SS-02..SS-05: sd_swap decode logic from zxnext.vhd:3308-3314.
-    // VHDL transforms cpu_do(1:0) according to sd_swap (NR 0x0A[5]).
-    // The C++ SpiMaster stores the raw CS byte verbatim — there is no
-    // sd_swap input and no transform of the low two bits. All four
-    // rows are unreachable without wiring NR 0x0A[5] into SpiMaster.
-    skip("SS-02",
-         "No emulator path: sd_swap decode not modelled, write_cs stores "
-         "raw byte (VHDL zxnext.vhd:3308)");
-    skip("SS-03",
-         "No emulator path: sd_swap decode not modelled "
-         "(VHDL zxnext.vhd:3308)");
-    skip("SS-04",
-         "No emulator path: sd_swap=1 path not modelled "
-         "(VHDL zxnext.vhd:3308)");
-    skip("SS-05",
-         "No emulator path: sd_swap=1 reverse mapping not modelled "
-         "(VHDL zxnext.vhd:3308)");
+    // SS-02..SS-05: sd_swap decode logic. VHDL zxnext.vhd:3311-3314.
+    //   sd_swap=0: cpu_do(1:0)=10 → port_e7_reg=0xFE (SD0)
+    //              cpu_do(1:0)=01 → port_e7_reg=0xFD (SD1)
+    //   sd_swap=1: cpu_do(1:0)=10 → port_e7_reg=0xFD (SD1, swapped)
+    //              cpu_do(1:0)=01 → port_e7_reg=0xFE (SD0, swapped)
+    // RPI0/RPI1 branches are unaffected (swap is SD-only).
+
+    // SS-02: sd_swap=0, write 0xFE → SD0 pattern 0xFE.
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(false);
+        m.write_cs(0xFE);
+        check("SS-02",
+              "sd_swap=0: write 0xFE selects SD0 (0xFE) "
+              "(VHDL zxnext.vhd:3311)",
+              m.read_cs() == 0xFE,
+              fmt("got=%02x exp=FE", m.read_cs()));
+    }
+
+    // SS-03: sd_swap=0, write 0xFD → SD1 pattern 0xFD.
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(false);
+        m.write_cs(0xFD);
+        check("SS-03",
+              "sd_swap=0: write 0xFD selects SD1 (0xFD) "
+              "(VHDL zxnext.vhd:3313)",
+              m.read_cs() == 0xFD,
+              fmt("got=%02x exp=FD", m.read_cs()));
+    }
+
+    // SS-04: sd_swap=1, write 0xFE → swapped to SD1 (0xFD).
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(true);
+        m.write_cs(0xFE);
+        check("SS-04",
+              "sd_swap=1: write 0xFE maps to SD1 pattern 0xFD "
+              "(VHDL zxnext.vhd:3311)",
+              m.read_cs() == 0xFD,
+              fmt("got=%02x exp=FD", m.read_cs()));
+    }
+
+    // SS-05: sd_swap=1, write 0xFD → swapped to SD0 (0xFE).
+    {
+        SpiMaster m; m.reset();
+        m.set_sd_swap(true);
+        m.write_cs(0xFD);
+        check("SS-05",
+              "sd_swap=1: write 0xFD maps to SD0 pattern 0xFE "
+              "(VHDL zxnext.vhd:3313)",
+              m.read_cs() == 0xFE,
+              fmt("got=%02x exp=FE", m.read_cs()));
+    }
 
     // SS-06: Write 0xFB selects RPI0. VHDL: zxnext.vhd:3318.
     // Emulator stores verbatim, and bit 2 clear selects device index 2.
