@@ -7,9 +7,18 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
-BOLD  := \033[1m
-CYAN  := \033[36m
-RESET := \033[0m
+# ANSI color palette (matches user prompt theme: 256-color mode)
+RESET     := \033[0m
+BOLD      := \033[1m
+CYAN      := \033[36m
+FG_BLACK  := \033[38;5;0m
+FG_WHITE  := \033[38;5;15m
+BG_PASS   := \033[48;5;81m
+BG_SKIP   := \033[48;5;220m
+BG_FAIL   := \033[48;5;161m
+BADGE_PASS := $(FG_BLACK)$(BG_PASS)
+BADGE_SKIP := $(FG_BLACK)$(BG_SKIP)
+BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
@@ -134,7 +143,7 @@ unit-test:
 	for t in $$TESTS; do \
 		rc_file="$$TMPDIR/$$t.rc"; \
 		if [ ! -f "$$rc_file" ]; then \
-			printf "  $(CYAN)%-34s$(RESET) \033[38;5;0;43m SKIP \033[0m  (not built)\n" "$$t"; \
+			printf "  $(CYAN)%-34s$(RESET) $(BADGE_SKIP) SKIP $(RESET)  (not built)\n" "$$t"; \
 			suites_skip=$$((suites_skip + 1)); \
 			continue; \
 		fi; \
@@ -149,13 +158,13 @@ unit-test:
 		sum_failed=$$((sum_failed + t_failed)); \
 		sum_skipped=$$((sum_skipped + t_skipped)); \
 		if [ $$rc -ne 0 ] || [ "$$t_failed" -gt 0 ] 2>/dev/null; then \
-			printf "  $(CYAN)%-34s$(RESET) \033[1;97;41m FAIL \033[0m  %s\n" "$$t" "$$line"; \
+			printf "  $(CYAN)%-34s$(RESET) $(BADGE_FAIL) FAIL $(RESET)  %s\n" "$$t" "$$line"; \
 			suites_fail=$$((suites_fail + 1)); \
 		elif [ "$$t_skipped" -gt 0 ] 2>/dev/null; then \
-			printf "  $(CYAN)%-34s$(RESET) \033[38;5;0;43m SKIP \033[0m  %s\n" "$$t" "$$line"; \
+			printf "  $(CYAN)%-34s$(RESET) $(BADGE_SKIP) SKIP $(RESET)  %s\n" "$$t" "$$line"; \
 			suites_pass=$$((suites_pass + 1)); \
 		else \
-			printf "  $(CYAN)%-34s$(RESET) \033[1;97;42m PASS \033[0m  %s\n" "$$t" "$$line"; \
+			printf "  $(CYAN)%-34s$(RESET) $(BADGE_PASS) PASS $(RESET)  %s\n" "$$t" "$$line"; \
 			suites_pass=$$((suites_pass + 1)); \
 		fi; \
 	done; \
