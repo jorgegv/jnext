@@ -27,6 +27,17 @@ void SpiMaster::reset() {
     cs_ = 0xFF;       // all CS lines deasserted (active-low)
     rx_data_ = 0xFF;  // VHDL resets miso_dat to all ones
     devices_.fill(nullptr);
+    // NB: sd_swap_ is NOT cleared on soft reset. It tracks NR 0x0A bit 5,
+    // which in VHDL lives in the NextREG register file and is driven by
+    // software writes, not by the spi-master/port_e7 reset path
+    // (zxnext.vhd:3308-3322 only resets port_e7_reg on `reset`).
+}
+
+void SpiMaster::set_sd_swap(bool v) {
+    if (sd_swap_ != v) {
+        spi_log()->debug("sd_swap={}", v ? 1 : 0);
+    }
+    sd_swap_ = v;
 }
 
 void SpiMaster::attach_device(int cs_id, SpiDevice* device) {
@@ -41,17 +52,24 @@ void SpiMaster::attach_device(int cs_id, SpiDevice* device) {
 void SpiMaster::write_cs(uint8_t val) {
     // VHDL zxnext.vhd:3311-3322 decodes the CPU byte into a recognized
     // CS pattern. Unrecognized values collapse to 0xFF (all deselected).
+    //
+    // NR 0x0A bit 5 (sd_swap) inverts the SD0/SD1 mapping. In VHDL:
+    //   cpu_do(1 downto 0) = "10"  → "111111" & not sd_swap & sd_swap
+    //   cpu_do(1 downto 0) = "01"  → "111111" & sd_swap & not sd_swap
+    // so the decode still *matches* the raw cpu_do bits (no swap on the
+    // match), but the stored CS pattern flips when sd_swap=1. RPI/Flash/
+    // else branches all compare against the raw cpu_do — sd_swap is SD-only.
     uint8_t decoded;
     if ((val & 0x03) == 0x02) {
-        // SD card 0 (bit 1 clear, bit 0 set — ignoring swap for now)
-        decoded = 0xFE;  // only bit 0 low
+        // SD card select: raw bits 1:0 = "10" → SD0, or SD1 when swapped.
+        decoded = sd_swap_ ? 0xFD : 0xFE;
     } else if ((val & 0x03) == 0x01) {
-        // SD card 1 (bit 0 clear, bit 1 set — ignoring swap for now)
-        decoded = 0xFD;  // only bit 1 low
+        // SD card select: raw bits 1:0 = "01" → SD1, or SD0 when swapped.
+        decoded = sd_swap_ ? 0xFE : 0xFD;
     } else if (val == 0xFB) {
-        decoded = 0xFB;  // RPI0
+        decoded = 0xFB;  // RPI0 — not affected by sd_swap
     } else if (val == 0xF7) {
-        decoded = 0xF7;  // RPI1
+        decoded = 0xF7;  // RPI1 — not affected by sd_swap
     // 0x7F = Flash select, but gated by config mode (zxnext.vhd:3319).
     // Config mode is not modelled at this level, so Flash select is not
     // recognized here. If needed, the caller can set cs_ directly.
@@ -122,10 +140,16 @@ void SpiMaster::save_state(StateWriter& w) const
 {
     w.write_u8(cs_);
     w.write_u8(rx_data_);
+    // sd_swap_ appended at end. The save/load pair feeds the in-process
+    // rewind ring buffer (size measured per-run in Emulator::init), so
+    // cross-build snapshot compatibility is not a concern here — every
+    // run writes and reads using the same layout.
+    w.write_bool(sd_swap_);
 }
 
 void SpiMaster::load_state(StateReader& r)
 {
     cs_      = r.read_u8();
     rx_data_ = r.read_u8();
+    sd_swap_ = r.read_bool();
 }

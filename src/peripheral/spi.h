@@ -60,6 +60,13 @@ public:
     /// Port 0xE7 read — return current CS state.
     uint8_t read_cs() const;
 
+    // ── NR 0x0A bit 5: SD-card swap ───────────────────────────────
+    /// When true, inverts the SD0/SD1 decoding on port 0xE7 writes
+    /// (VHDL zxnext.vhd:3308-3322 — `cpu_do_swap` XORs bits 1:0 with
+    /// `nr_0a_sd_swap` for the SD-select match only).
+    void set_sd_swap(bool v);
+    bool sd_swap() const { return sd_swap_; }
+
     /// Port 0xEB write — start an SPI transfer.
     /// The byte is exchanged with the currently selected device (if any)
     /// and the received byte is stored for a subsequent read_data() call.
@@ -75,6 +82,7 @@ public:
 private:
     uint8_t cs_ = 0xFF;          // CS register — all lines deasserted (active-low)
     uint8_t rx_data_ = 0xFF;     // last byte received from device
+    bool    sd_swap_ = false;    // NR 0x0A bit 5 — invert SD0/SD1 mapping
 
     std::array<SpiDevice*, kMaxDevices> devices_{};  // attached backends (non-owning)
 
