@@ -47,16 +47,20 @@ structural problems that together made the pass rate coverage theatre:
 This rebuild derives every expected value from a specific line in
 `zxnext.vhd`. No expected value is taken from the C++ implementation.
 
-**Current status (2026-04-15):** test code rewritten and merged to main.
-Honest pass rate: **90/114 live, 0 stub**. 24 failures are all legitimate
-Task 3 emulator gaps, independently VHDL-verified: (1) NR 0x14 palette-
-compare transparency absent (C++ uses ARGB alpha); (2) blend modes 110/111
-unimplemented (`src/video/renderer.cpp:259` SLU fallback); (3) stencil mode
-(NR 0x68 bit 0) absent; (4) ULA/TM blend mode (NR 0x68 bits 6:5) absent;
-(5) L2 palette bit 15 priority promotion absent; (6) border exception for
-modes 011/100/101 absent; (7) NR 0x15[0] global `sprite_en` gating absent
-at compositor; (8) per-line stage-0 latch for NR 0x15/NR 0x14 absent; (9)
-blank output visibility at `composite_scanline` boundary absent.
+**Current status (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
+All 15 previously-failing tests fixed this session:
+- (3) Stencil mode (NR 0x68 bit 0) implemented with tm_enabled gate.
+- (5) L2 palette bit 15 priority promotion added across all 8 modes.
+- (6) Border exception for modes 011/100/101 with correct 3-way VHDL condition.
+- (7) NR 0x15[0] global sprite_en gating at compositor boundary.
+- BL-27 test oracle corrected (VHDL 7314 gates sub formula on mix_rgb_transparent).
+- Save/load state extended for sprite_en_, stencil_mode_, tm_enabled_.
+- Per-scanline clear + hi-res doubling for layer2_priority_ and ula_border_ arrays.
+
+**Known runtime wiring gaps** (compositor logic correct, data pipeline incomplete):
+- layer2_priority_[] not populated at runtime (PaletteManager discards bit 15).
+- ula_border_[] not populated at runtime (ULA render path doesn't mark border pixels).
+- Both are driven directly by tests; full wiring deferred to a follow-up task.
 
 ### NR 0x15 bit-field clarification
 

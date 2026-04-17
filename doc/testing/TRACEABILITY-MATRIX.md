@@ -13,7 +13,7 @@
 | Sprites          | 125       | 125     | 115  | 0    | 10        | 0       | `28f5afb540`      |
 | Tilemap          | 69        | 69      | 51   | 0    | 18        | 0       | `a3e1196000`      |
 | Copper           | 76        | 76      | 66   | 0    | 10        | 0       | `fcbd9aed61`      |
-| Compositor       | 114       | 114     | 99   | 15   | 0         | 0       | `bf41439`         |
+| Compositor       | 114       | 114     | 114  | 0    | 0         | 0       | `3fda139`         |
 | Audio            | 197       | 197     | 127  | 0    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 156     | 121  | 0    | 35        | 0       | `deeb9f6000`      |
 | DivMMC+SPI       | 123       | 123     | 67   | 0    | 56        | 0       | `d4ea4e1`         |
@@ -23,7 +23,7 @@
 | IO Port Dispatch | 86        | 86      | 78   | 2    | 6         | 0       | `28e7356`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1776** non-Z80N plan rows (+ 30 Z80N), **1776** mapped to tests, **0** missing. Aggregate per-row status across all 15 non-Z80N subsystems: **1068 pass, 18 fail, 695 skip, 0 missing**. Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1776** non-Z80N plan rows (+ 30 Z80N), **1776** mapped to tests, **0** missing. Aggregate per-row status across all 15 non-Z80N subsystems: **1083 pass, 3 fail, 695 skip, 0 missing**. Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -805,7 +805,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 
-Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
+Last-touch commit: `3fda139` (compositor 5-feature fix: sprite_en, L2 priority, border, stencil, BL-27 oracle)
 
 | Test ID            | Plan row title                                               | VHDL file:line   | Status  | Test file:line                           |
 |--------------------|--------------------------------------------------------------|------------------|---------|------------------------------------------|
@@ -817,7 +817,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | TR-15              | Compositor is resolution-agnostic at the ULA input boundary… | —                | pass    | test/compositor/compositor_test.cpp:253  |
 | TR-16              | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → UL… | —                | pass    | test/compositor/compositor_test.cpp:272  |
 | TR-17              | `ula_border_2` is ignored by stage-2 mix in modes 000/001/0… | —                | pass    | test/compositor/compositor_test.cpp:290  |
-| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | fail    | test/compositor/compositor_test.cpp:311  |
+| TR-42              | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin… | —                | pass    | test/compositor/compositor_test.cpp:311  |
 | TR-20              | Tilemap text-mode RGB compare                                | —                | pass    | test/compositor/compositor_test.cpp:324  |
 | TR-21              | Tilemap non-text (attribute) ignores RGB compare             | —                | pass    | test/compositor/compositor_test.cpp:341  |
 | TR-22              | Tilemap `pixel_en=0` transparent regardless of mode          | —                | pass    | test/compositor/compositor_test.cpp:354  |
@@ -852,25 +852,25 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | PRI-011-LUS-3      | Mode 011, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:662  |
 | PRI-011-LUS-US     | Mode 011, U(non-border)+S                                    | —                | pass    | test/compositor/compositor_test.cpp:663  |
 | PRI-011-LUS-S      | Mode 011, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:664  |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | fail    | test/compositor/compositor_test.cpp:690  |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp                          | —                | pass    | test/compositor/compositor_test.cpp:690  |
 | PRI-100-USL-3      | Mode 100, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:667  |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | fail    | test/compositor/compositor_test.cpp:703  |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗                      | —                | pass    | test/compositor/compositor_test.cpp:703  |
 | PRI-100-USL-L      | Mode 100, L only                                             | —                | pass    | test/compositor/compositor_test.cpp:668  |
 | PRI-101-ULS-3      | Mode 101, all three                                          | —                | pass    | test/compositor/compositor_test.cpp:671  |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | fail    | test/compositor/compositor_test.cpp:719  |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp                           | —                | pass    | test/compositor/compositor_test.cpp:719  |
 | PRI-101-ULS-S      | Mode 101, S only                                             | —                | pass    | test/compositor/compositor_test.cpp:672  |
 | PRI-B-0            | In every mode 000..101 with all three transparent, fallback… | —                | pass    | test/compositor/compositor_test.cpp:744  |
 | PRI-B-1            | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparen… | —                | pass    | test/compositor/compositor_test.cpp:755  |
 | PRI-B-2            | Mode 001: even if sprite opaque, L2 opaque beats it          | —                | pass    | test/compositor/compositor_test.cpp:767  |
-| L2P-10             | Promotion in mode 000 over sprite                            | —                | fail    | test/compositor/compositor_test.cpp:787  |
-| L2P-11             | Promotion in mode 010 over sprite                            | —                | fail    | test/compositor/compositor_test.cpp:788  |
-| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | fail    | test/compositor/compositor_test.cpp:789  |
-| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | fail    | test/compositor/compositor_test.cpp:790  |
+| L2P-10             | Promotion in mode 000 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:787  |
+| L2P-11             | Promotion in mode 010 over sprite                            | —                | pass    | test/compositor/compositor_test.cpp:788  |
+| L2P-12             | Promotion in mode 100 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:789  |
+| L2P-13             | Promotion in mode 101 over sprite (L2 above U)               | —                | pass    | test/compositor/compositor_test.cpp:790  |
 | L2P-14             | No-op in mode 001 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:791  |
 | L2P-15             | No-op in mode 011 (L2 already top)                           | —                | pass    | test/compositor/compositor_test.cpp:792  |
 | L2P-16             | `layer2_transparent=1` suppresses promotion                  | —                | pass    | test/compositor/compositor_test.cpp:814  |
-| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | fail    | test/compositor/compositor_test.cpp:837  |
-| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | fail    | test/compositor/compositor_test.cpp:851  |
+| L2P-17             | Promotion in mode 110 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:837  |
+| L2P-18             | Promotion in mode 111 (blend): L2 promoted shows blend outp… | —                | pass    | test/compositor/compositor_test.cpp:851  |
 | BL-10              | Add no clamp                                                 | —                | fail    | test/compositor/compositor_test.cpp:902  |
 | BL-11              | Add clamp hi                                                 | —                | fail    | test/compositor/compositor_test.cpp:915  |
 | BL-12              | Add 0+0                                                      | —                | pass    | test/compositor/compositor_test.cpp:928  |
@@ -885,9 +885,9 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | BL-24              | Sub, mix_top opaque wins over blend                          | —                | fail    | test/compositor/compositor_test.cpp:1057 |
 | BL-25              | Sub, sprite between                                          | —                | pass    | test/compositor/compositor_test.cpp:1069 |
 | BL-26              | Sub, mix_bot fallback                                        | —                | fail    | test/compositor/compositor_test.cpp:1081 |
-| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | fail    | test/compositor/compositor_test.cpp:1095 |
-| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | fail    | test/compositor/compositor_test.cpp:1111 |
-| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | fail    | test/compositor/compositor_test.cpp:1125 |
+| BL-27              | Sub, final L2-only fallback shows blended L2                 | —                | pass    | test/compositor/compositor_test.cpp:1095 |
+| BL-28              | L2 priority bit overrides blend (mode 110)                   | —                | pass    | test/compositor/compositor_test.cpp:1111 |
+| BL-29              | L2 priority bit overrides blend (mode 111)                   | —                | pass    | test/compositor/compositor_test.cpp:1125 |
 | UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1153 |
 | UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1166 |
 | UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1179 |
@@ -897,8 +897,8 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | UTB-41             | Mode 01, below=1                                             | —                | pass    | test/compositor/compositor_test.cpp:1241 |
 | STEN-10            | Bitwise AND                                                  | —                | pass    | test/compositor/compositor_test.cpp:1269 |
 | STEN-11            | AND with zero                                                | —                | pass    | test/compositor/compositor_test.cpp:1284 |
-| STEN-12            | ULA transparent → stencil transparent                        | —                | fail    | test/compositor/compositor_test.cpp:1298 |
-| STEN-13            | TM transparent → stencil transparent                         | —                | fail    | test/compositor/compositor_test.cpp:1312 |
+| STEN-12            | ULA transparent → stencil transparent                        | —                | pass    | test/compositor/compositor_test.cpp:1298 |
+| STEN-13            | TM transparent → stencil transparent                         | —                | pass    | test/compositor/compositor_test.cpp:1312 |
 | STEN-14            | Both transparent → transparent                               | —                | pass    | test/compositor/compositor_test.cpp:1323 |
 | STEN-15            | Stencil inactive if `tm_en=0` (even with bit set)            | —                | pass    | test/compositor/compositor_test.cpp:1337 |
 | STEN-16            | Stencil inactive if `ula_en=0`                               | —                | pass    | test/compositor/compositor_test.cpp:1350 |
