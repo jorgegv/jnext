@@ -353,12 +353,13 @@ static void group1() {
               spr.read_attr_byte(0x20, 0) == 0xAB);
     }
 
-    // G1.AT-12 — mirror write priority vs pending cpu write (sprites.vhd:704-715).
-    // C++ surface has no concurrent arbitration; we can only observe that
-    // write_attr_byte takes immediate effect. Mark stub.
-    stub("G1.AT-12",
-         "mirror write priority over pending CPU write",
-         "C++ engine has no concurrent port/mirror arbitration surface");
+    // G1.AT-12 — GENUINELY UNOBSERVABLE (not a skip).
+    // VHDL lines 704-715 model a same-clock-edge arbitration where a mirror
+    // write (via NR 0x34/0x75-79) pre-empts a concurrent port 0x57 CPU write.
+    // The C++ surface serializes writes (one method call at a time), so the
+    // "pending CPU write" + "incoming mirror write" race never exists.
+    // Observable outcomes (mirror writes land in the selected slot, CPU writes
+    // land in theirs) are already covered by G1.AT-10 / G1.AT-11.
 }
 
 // ---------------------------------------------------------------------------
@@ -1202,15 +1203,16 @@ static void group9() {
               pixel_index(line, 0) == 241);
     }
 
-    // G9.RO-03 / G9.RO-04 — exact VHDL delta arithmetic (-16 / +16) is
-    // not directly observable from the C++ API (no FSM single-stepping).
-    // The effect is captured end-to-end by G9.MI-04 + G9.RO-01. Stub.
-    stub("G9.RO-03",
-         "Rotate+xmirror delta=-16 exact counter",
-         "C++ rendering masks internal FSM counters (817)");
-    stub("G9.RO-04",
-         "Rotate alone delta=+16 exact counter",
-         "C++ rendering masks internal FSM counters (819)");
+    // G9.RO-03 / G9.RO-04 — COVERED ELSEWHERE (not a skip).
+    // These rows test the exact VHDL pattern_addr_delta counter values
+    // (-16 when xmirror+rotate, +16 when rotate alone; sprites.vhd:817-819).
+    // The delta is an internal FSM counter; the C++ engine computes the
+    // equivalent pattern row/col directly from rotate/x_mirror_eff flags.
+    // The observable effect (rendered pixel layout) is already fully covered:
+    //   - rotate+xmirror end-to-end: G9.MI-04 (xmirror alone, delta -1) +
+    //     G9.RO-01 (rotate+xmirror, swapped pattern addressing)
+    //   - rotate alone end-to-end: G9.RO-02 (rotate=1 activates x_mirror_eff)
+    // No observable behavior remains uncovered.
 }
 
 // ---------------------------------------------------------------------------
@@ -1826,17 +1828,95 @@ static void group12() {
               DETAIL("50=%d", pixel_index(line, 50)));
     }
 
-    // G12.RP-03 — rel N6 inherited from anchor H bit.
-    // Non-trivially observable via a 4bpp render path; C++ engine computes
-    // 'anchor.h4bit' and passes it. Stub — surface does not expose anchor_h.
-    stub("G12.RP-03",
-         "Rel N6 = anchor_h AND rel attr4(6)",
-         "Cannot directly observe anchor_h latch via C++ API (802)");
+    // G12.RP-03 — Rel effective N6 = anchor_h AND rel.byte4(5)
+    // (sprites.vhd:802 spr_cur_n6 <= spr_cur_attr_4(6) AND spr_cur_h; combined
+    //  with 785 spr_rel_attr_4(6) <= sprite_attr_4(5); and 801 spr_cur_h <=
+    //  spr_cur_attr_4(7) AND sprite_attr_3(6) which collapses to anchor_h for
+    //  rels per 785 spr_rel_attr_4(7) <= anchor_h).
+    //
+    // Strategy: place distinct data in pattern 0 halves (N6=0 and N6=1), with
+    // a 4bpp anchor so eff.h4bit=1 forces the 4bpp decode path. The rendered
+    // pixel index reveals which N6 half was addressed.
+    //
+    // Pattern bank 0 layout:
+    //   bytes 0..127   = 0x55  (N6=0 half, nibbles {5,5})
+    //   bytes 128..255 = 0xAA  (N6=1 half, nibbles {A,A})
+    //
+    // With anchor_h=1, pal_offset=0:
+    //   rel.byte4(5)=0 → effective_N6=0 → 4bpp byte @ addr 0   = 0x55 → pix 0x05
+    //   rel.byte4(5)=1 → effective_N6=1 → 4bpp byte @ addr 128 = 0xAA → pix 0x0A
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0x55);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
+        // Anchor at (0,0): H=1 (4bpp), pattern 0, no N6, type-0, no scale.
+        set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);
+        // Rel at (50,0): rel marker 01, rel_n6=0 (bit5=0), no add.
+        // attr4 = 0b01000000 = 0x40.
+        set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);
+        uint32_t l_n0[320]; clear_line(l_n0);
+        spr.render_scanline(l_n0, 0, pal);
+        // Re-run with rel_n6=1: attr4 = 0b01100000 = 0x60.
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0x55);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
+        set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);       // anchor 4bpp
+        set5(spr, 1, 50, 0, 0x00, 0x80, 0x60);      // rel N6=1
+        uint32_t l_n1[320]; clear_line(l_n1);
+        spr.render_scanline(l_n1, 0, pal);
+        check("G12.RP-03",
+              "Rel effective N6 = anchor_h AND rel.byte4(5) (785,802)",
+              pixel_index(l_n0, 50) == 0x05 && pixel_index(l_n1, 50) == 0x0A,
+              DETAIL("n6=0 px=%d (want 5) n6=1 px=%d (want 10)",
+                     pixel_index(l_n0, 50), pixel_index(l_n1, 50)));
+    }
 
-    // G12.RP-04 — 4bpp rel inherits H from anchor.
-    stub("G12.RP-04",
-         "4bpp rel inherits H from anchor",
-         "Cannot directly observe anchor H inheritance via C++ API (785)");
+    // G12.RP-04 — 4bpp rel inherits H from anchor (sprites.vhd:785
+    //   spr_rel_attr_4(7) <= anchor_h).
+    //
+    // Strategy: the rel marker forces rel.byte4(7:6)="01", so the rel itself
+    // cannot set its own H bit. The resolved sprite's H therefore depends
+    // ENTIRELY on anchor_h. Rendering with the same rel under an 8bpp anchor
+    // vs a 4bpp anchor must switch decode modes.
+    //
+    // Pattern bank 0 layout (same as G12.RP-03):
+    //   bytes 0..127   = 0x55  bytes 128..255 = 0xAA
+    //
+    // With pal_offset=0:
+    //   anchor_h=1 (4bpp path): byte@0=0x55, upper nibble=5 → pixel 0x05
+    //   anchor_h=0 (8bpp path): byte@0=0x55, 8bpp decode = (5+0)<<4|5 = 0x55
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0x55);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
+        // Anchor slot 0: H=1 (4bpp), pattern 0, no N6, type-0, no scale.
+        set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);
+        // Rel slot 1 at (50,0): rel marker only. byte4=0x40 (no N6, no add).
+        set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);
+        uint32_t l_4[320]; clear_line(l_4);
+        spr.render_scanline(l_4, 0, pal);
+        // Re-run with anchor 8bpp (H=0): anchor byte4 = 0x00.
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0x55);
+        for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
+        set5(spr, 0, 0, 0, 0x00, 0x80, 0x00);       // anchor 8bpp (H=0)
+        set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);      // same rel
+        uint32_t l_8[320]; clear_line(l_8);
+        spr.render_scanline(l_8, 0, pal);
+        check("G12.RP-04",
+              "4bpp anchor -> rel renders 4bpp; 8bpp anchor -> rel 8bpp (785)",
+              pixel_index(l_4, 50) == 0x05 && pixel_index(l_8, 50) == 0x55,
+              DETAIL("anchor4bpp px=%d (want 5) anchor8bpp px=%d (want 85)",
+                     pixel_index(l_4, 50), pixel_index(l_8, 50)));
+    }
 
     // G12.NG-01 — relative sprite with no prior anchor (fresh reset).
     // Review fix: VHDL sprites.vhd:893-897 explicitly resets anchor_vis<='0'
@@ -2249,11 +2329,11 @@ static void group15() {
               none && (spr.read_status() & 0x03) == 0);
     }
 
-    // G15.NG-06 — rel with x3(8)=1 but attr3(6)=0 unreachable by construction
-    // (rels require attr3(6)=1). Plan documents this as unreachable.
-    stub("G15.NG-06",
-         "Unreachable: rel requires attr3(6)=1",
-         "Plan marks this row unreachable by construction (756)");
+    // G15.NG-06 — UNREACHABLE BY CONSTRUCTION (not a skip).
+    // VHDL sprites.vhd:756 defines spr_relative = attr3(6)=1 AND attr4(7:6)="01".
+    // A sprite with attr3(6)=0 is NEVER a relative regardless of other bits,
+    // so the "rel with x3(8)=1 but attr3(6)=0" scenario cannot be constructed.
+    // The plan row is documented unreachable.
 
     // G15.NG-07 — negative offset wraps in 9-bit, sprite off-screen.
     // Review fix: anchor.xmirror=1 negates the signed rel X offset before
