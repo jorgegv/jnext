@@ -110,8 +110,7 @@ void wire_nr_to_cu(NextReg& nr, Copper& cu) {
     nr.set_write_handler(0x61, [&cu](uint8_t v) { cu.write_reg_0x61(v); });
     nr.set_write_handler(0x62, [&cu](uint8_t v) { cu.write_reg_0x62(v); });
     nr.set_write_handler(0x63, [&cu](uint8_t v) { cu.write_reg_0x63(v); });
-    // NR 0x64 has no Copper C++ handler (plan-doc Open Question #5); we do
-    // not install a forwarder. OFS-* tests are SKIP_* accordingly.
+    nr.set_write_handler(0x64, [&cu](uint8_t v) { cu.write_reg_0x64(v); });
 }
 
 // Directly set the byte pointer nr_copper_addr[10..0] via NR 0x61/0x62
@@ -1061,21 +1060,125 @@ void group5_timing() {
     }
 }
 
-// ── Group 6: Vertical offset (NR 0x64) — SKIPPED ──────────────────────
-// The Copper C++ class has no NR 0x64 handler and no cvc model. execute()
-// receives raw vc from the caller. Realising OFS-01..OFS-06 requires
-// adding an offset field to Copper (Task 3 work, not a test).
+// ── Group 6: Vertical offset (NR 0x64) ────────────────────────────────
+// VHDL zxnext.vhd:1197,5024,5442,6090 and zxula_timing.vhd:455-472.
+// JNEXT model: Copper holds offset_ (NR 0x64) and c_max_vc_ (timing
+// config). execute() computes cvc_effective = (vc + offset_) mod
+// (c_max_vc_ + 1) for WAIT compares and mode-11 restart detection.
 
 void group6_offset() {
     set_group("G6 Offset");
-    skip("OFS-01", "NR 0x64 / cvc not modelled in Copper class");
-    skip("OFS-02", "NR 0x64 / cvc not modelled in Copper class");
-    skip("OFS-03", "NR 0x64 / cvc not modelled in Copper class");
-    skip("OFS-04", "NR 0x64 readback not exposed");
-    skip("OFS-05", "NR 0x64 reset not observable (no accessor)");
-    skip("OFS-06",
-         "c_max_vc timing-model wrap not observable — cvc is 50/60Hz/HDMI "
-         "dependent; see COPPER-TEST-PLAN-DESIGN.md Open Question #3");
+    Copper  cu;
+    NextReg nr;
+    wire_nr_to_cu(nr, cu);
+
+    // OFS-01: Default offset = 0 (zxnext.vhd:5024).
+    // After reset, NR 0x64 read returns 0.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        check("OFS-01", "Default offset = 0 after reset (5024)",
+              cu.read_reg_0x64() == 0,
+              fmt("got=%02x", cu.read_reg_0x64()));
+    }
+
+    // OFS-02: Non-zero offset loads cvc (zxula_timing.vhd:462).
+    // With offset=0x20 and raw vc=0, cvc_effective=0x20. A WAIT(hpos=0,
+    // vpos=0x20) at raw vc=0 must match (cvc==vpos).
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        int moves = 0;
+        nr.set_write_handler(0x40, [&](uint8_t) { ++moves; });
+        nr.write(0x64, 0x20);                           // NR 0x64 <- 0x20
+        program_word(cu, 0, enc_wait(0, 0x20));
+        program_word(cu, 1, enc_move(0x40, 0xAA));
+        set_mode(cu, 1);
+        // hc=12 is the first hc that satisfies the WAIT hthreshold
+        // (hpos<<3)+12. At raw vc=0, cvc_effective=0x20, so WAIT(0,0x20)
+        // fires and MOVE writes NR 0x40 on the next tick.
+        cu.execute(12, 0, nr);   // WAIT fires -> PC advances
+        cu.execute(12, 0, nr);   // MOVE fires -> pulse
+        cu.execute(12, 0, nr);   // move_pending clear
+        check("OFS-02",
+              "offset=0x20: WAIT(0,0x20) fires at raw vc=0 (462)",
+              moves == 1,
+              fmt("moves=%d", moves));
+    }
+
+    // OFS-03: WAIT resolves on cvc, not raw vc (zxula_timing.vhd:462,
+    // copper.vhd:94). offset=10, WAIT(0,10). At raw vc=0, cvc=10 so
+    // the WAIT matches on the FIRST active scanline (not on raw vc=10).
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        int moves = 0;
+        uint8_t last = 0;
+        nr.set_write_handler(0x40, [&](uint8_t v) { ++moves; last = v; });
+        nr.write(0x64, 10);
+        program_word(cu, 0, enc_wait(0, 10));
+        program_word(cu, 1, enc_move(0x40, 0x77));
+        set_mode(cu, 1);
+        cu.execute(12, 0, nr);   // vc=0: cvc=10 -> WAIT fires
+        cu.execute(12, 0, nr);   // MOVE fires
+        cu.execute(12, 0, nr);   // clear pending
+        check("OFS-03",
+              "WAIT(0,10) + offset=10 fires at raw vc=0 (cvc, 462/94)",
+              moves == 1 && last == 0x77,
+              fmt("moves=%d last=%02x", moves, last));
+    }
+
+    // OFS-04: Offset read-back (zxnext.vhd:6090).
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        nr.write(0x64, 0x80);
+        check("OFS-04", "NR 0x64 read-back returns written value (6090)",
+              cu.read_reg_0x64() == 0x80,
+              fmt("got=%02x", cu.read_reg_0x64()));
+    }
+
+    // OFS-05: Offset reset clears to 0 (zxnext.vhd:5024).
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        nr.write(0x64, 0xFF);
+        cu.reset();                                     // hard reset
+        check("OFS-05", "Hard reset clears offset to 0 (5024)",
+              cu.read_reg_0x64() == 0,
+              fmt("got=%02x", cu.read_reg_0x64()));
+    }
+
+    // OFS-06: cvc wraps at c_max_vc (zxula_timing.vhd:463-464, copper.vhd:80).
+    // Use a tiny c_max_vc (5) so the test can exercise the wrap quickly.
+    // Mode=11 restarts PC to 0 when cvc==0 && hc==0 (after wrap). With
+    // offset=0, cvc=vc mod (c_max_vc+1) = vc mod 6, so restart fires at
+    // raw vc in {0, 6, 12, ...}.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        cu.set_c_max_vc(5);
+        int moves = 0;
+        nr.set_write_handler(0x40, [&](uint8_t) { ++moves; });
+        program_word(cu, 0, enc_move(0x40, 0x55));
+        // Remaining slots are already 0 (NOP) from reset.
+        set_mode(cu, 3);  // mode 11
+        // Step through 12 lines (two full c_max_vc cycles).
+        // At each line, tick hc=0 (may trigger mode-11 restart) then
+        // hc=12 (may execute the pending MOVE).
+        for (int vc = 0; vc < 12; ++vc) {
+            cu.execute(0,  vc, nr);   // mode-11 restart cycle
+            cu.execute(12, vc, nr);   // MOVE executes (or move_pending clears)
+            cu.execute(24, vc, nr);   // post-move clear
+        }
+        // Two restarts -> two MOVEs (at vc=0 and vc=6 where cvc wraps).
+        check("OFS-06",
+              "cvc wraps at c_max_vc; mode-11 restart re-fires MOVE (463-464)",
+              moves == 2,
+              fmt("moves=%d (want 2)", moves));
+        // Restore default for subsequent groups.
+        cu.set_c_max_vc(311);
+    }
 }
 
 // ── Group 7: NextREG write arbitration ────────────────────────────────
@@ -1572,7 +1675,7 @@ int main() {
     group3_wait();          std::printf("  Group G3 WAIT           done\n");
     group4_modes();         std::printf("  Group G4 Modes          done\n");
     group5_timing();        std::printf("  Group G5 Timing         done\n");
-    group6_offset();        std::printf("  Group G6 Offset         done (all SKIP)\n");
+    group6_offset();        std::printf("  Group G6 Offset         done\n");
     group7_arbitration();   std::printf("  Group G7 Arbitration    done\n");
     group8_self_modifying();std::printf("  Group G8 Self-mod       done\n");
     group9_edge();          std::printf("  Group G9 Edge           done\n");
