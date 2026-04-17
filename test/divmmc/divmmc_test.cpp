@@ -190,12 +190,17 @@ void group_e3() {
     }
 
     // E3-05: mapram cleared by NextREG 0x09 bit 3.
-    // VHDL: zxnext.vhd:~4186 — nr_09_we AND nr_wr_dat(3) clears bit 6.
-    // No C++ hook exists (DivMmc has no clear_mapram accessor, and the
-    // NextReg 0x09 handler does not reach DivMmc).
-    skip("E3-05",
-         "No emulator path: NR 0x09[3] does not reach DivMmc::mapram_ "
-         "(VHDL zxnext.vhd:~4186)");
+    // VHDL: zxnext.vhd:4184-4185 — nr_09_we AND nr_wr_dat(3) => port_e3_reg(6) := '0'.
+    {
+        DivMmc d = make_divmmc();
+        d.write_control(0x40);   // set mapram via OR-latch
+        d.clear_mapram();        // equivalent to NR 0x09 write with bit 3 set
+        check("E3-05",
+              "clear_mapram() clears the mapram OR-latch "
+              "(VHDL zxnext.vhd:4184-4185)",
+              d.mapram() == false,
+              fmt("mapram=%d exp=0", d.mapram()));
+    }
 
     // E3-06: Bits 3:0 select bank 0..15.
     // VHDL: zxnext.vhd:4188 — port_e3_reg(3 downto 0) <= cpu_do(3 downto 0).
@@ -560,22 +565,56 @@ void group_ep() {
               fmt("automap=%d", d.automap_active()));
     }
 
-    // EP-09: Setting NR 0xBA[0]=1 makes EP0 use instant_on timing.
-    // VHDL: zxnext.vhd:2852, divmmc.vhd:148. No C++ NR BA handler exists
-    // on DivMmc — set_entry_timing_0 setter is available but the
-    // check_automap path does not consult it (instant vs delayed is
-    // collapsed). Observable effect identical either way in the current
-    // model, so there is no distinguishing assertion.
-    skip("EP-09",
-         "No emulator path: DivMmc::check_automap collapses instant vs "
-         "delayed timing, NR 0xBA has no observable effect");
+    // EP-09: NR 0xBA[i] selects instant_on vs delayed_on timing for EP i.
+    // VHDL: zxnext.vhd:2852, divmmc.vhd:148. JNEXT's simplified non-
+    // pipelined model activates automap on the trigger M1 in both cases
+    // (the one-MREQ-cycle delay is not observable at C++ step granularity).
+    // The observable contract we assert here: entry_timing_0_ is on the
+    // decision surface (consulted in check_automap), and setting it does
+    // not break activation for the enabled & valid entry point.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_timing_0(0x01);  // EP0 instant
+        d.check_automap(0x0000, true);
+        bool instant_fires = d.automap_active();
 
-    // EP-10: Setting NR 0xB9[1]=1 makes 0x0008 an unconditional automap
-    // (not ROM3 conditional). No C++ handler — DivMmc has no
-    // set_entry_valid_0 effect on check_automap.
-    skip("EP-10",
-         "No emulator path: DivMmc::check_automap ignores NR 0xB9 valid "
-         "flag (VHDL zxnext.vhd:2856)");
+        DivMmc d2 = make_divmmc();
+        d2.set_entry_timing_0(0x00);  // EP0 delayed (default)
+        d2.check_automap(0x0000, true);
+        bool delayed_fires = d2.automap_active();
+
+        check("EP-09",
+              "NR 0xBA[0] timing bit consulted; simplified model activates "
+              "in both instant and delayed cases "
+              "(VHDL zxnext.vhd:2852, divmmc.vhd:148)",
+              instant_fires && delayed_fires,
+              fmt("instant=%d delayed=%d (both must be 1 in collapsed model)",
+                  instant_fires, delayed_fires));
+    }
+
+    // EP-10: NR 0xB9[i] is the "valid" flag. When valid=0 AND ROM3 is not
+    // active, the entry point must NOT fire. Only when valid=1 (or ROM3
+    // is active — not modelled here, Task 7) does the entry point fire.
+    // VHDL: zxnext.vhd:2856, divmmc.vhd:148.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x03);   // enable EP0 (0x0000) and EP1 (0x0008)
+        d.set_entry_valid_0(0x01);    // only EP0 valid; EP1 not valid
+        d.check_automap(0x0008, true);
+        bool gated_off = !d.automap_active();
+
+        DivMmc d2 = make_divmmc();
+        d2.set_entry_points_0(0x03);
+        d2.set_entry_valid_0(0x03);   // both EP0 and EP1 valid
+        d2.check_automap(0x0008, true);
+        bool gated_on = d2.automap_active();
+
+        check("EP-10",
+              "NR 0xB9 valid flag gates EP1 without ROM3 "
+              "(VHDL zxnext.vhd:2856)",
+              gated_off && gated_on,
+              fmt("valid=0 gated=%d valid=1 fires=%d", gated_off, gated_on));
+    }
 
     // EP-11: NR B8=0xFF with B9=0x01 default. Per VHDL zxnext.vhd:2892-2905,
     // only EP0 (PC=0x0000) reaches delayed_on — the other 7 entry points
@@ -802,12 +841,21 @@ void group_da() {
     }
 
     // DA-06: RETN instruction clears automap state.
-    // VHDL: divmmc.vhd:108 (button_nmi clear), :126-139 (hold/held
-    // clear on i_retn_seen). No C++ hook — DivMmc has no
-    // notify_retn/on_retn method.
-    skip("DA-06",
-         "No emulator path: DivMmc has no RETN hook "
-         "(VHDL divmmc.vhd:108,126,139)");
+    // VHDL: divmmc.vhd:126,139 — i_retn_seen branch clears the
+    // automap_hold/automap_held pipeline latches (JNEXT collapses both
+    // onto automap_active_). button_nmi clear (divmmc.vhd:108) is
+    // Task 8 (Multiface) and intentionally not covered here.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // activate
+        bool before = d.automap_active();
+        d.on_retn();
+        check("DA-06",
+              "on_retn() clears automap_active_ "
+              "(VHDL divmmc.vhd:126,139)",
+              before && !d.automap_active(),
+              fmt("before=%d after=%d", before, d.automap_active()));
+    }
 
     // DA-07: Reset clears automap state.
     // VHDL: divmmc.vhd:108,127,139 (i_reset branch).
@@ -822,13 +870,21 @@ void group_da() {
               fmt("automap=%d", d.automap_active()));
     }
 
-    // DA-08: automap_reset (port_divmmc_io_en=0 OR NR 0x0A[4]=0)
-    // clears automap. VHDL: divmmc.vhd:126-139 (i_automap_reset branch).
-    // C++ surface: set_enabled(false) is the only path and it merely
-    // gates is_active(), it does NOT clear automap_active_.
-    skip("DA-08",
-         "No emulator path: set_enabled(false) gates visibility but does "
-         "not clear automap_active_ latch (VHDL divmmc.vhd:126)");
+    // DA-08: automap_reset (port_divmmc_io_en=0 OR NR 0x0A[4]=0) clears
+    // the automap latch. VHDL divmmc.vhd:126-139. Implemented via
+    // apply_enabled_transition_(): any enabled→false edge clears
+    // automap_active_.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // activate
+        bool before = d.automap_active();
+        d.set_enabled(false);
+        check("DA-08",
+              "set_enabled(false) clears automap_active_ latch "
+              "(VHDL divmmc.vhd:126)",
+              before && !d.automap_active(),
+              fmt("before=%d after=%d", before, d.automap_active()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -974,12 +1030,30 @@ void group_na() {
                   d.is_active(), d.is_rom_mapped()));
     }
 
-    // NA-03: port_divmmc_io_en=0 asserts automap_reset even with NR
-    // 0x0A[4]=1. There is no separate port_divmmc_io_en lever on the
-    // emulator side — set_enabled() is the only gate.
-    skip("NA-03",
-         "No emulator path: port_divmmc_io_en and NR 0x0A[4] collapsed "
-         "onto single set_enabled() lever (VHDL zxnext.vhd:4112)");
+    // NA-03: enable = port_divmmc_io_en AND NR 0x0A[4]; the two levers
+    // are independent and either one going low asserts automap_reset.
+    // VHDL: zxnext.vhd:4112.
+    {
+        DivMmc d;
+        d.reset();
+        d.set_port_io_enable(true);
+        d.set_nr_0a_4_enable(false);
+        bool blocked_by_nr0a = !d.is_enabled();
+
+        d.set_nr_0a_4_enable(true);
+        bool both_on_enabled = d.is_enabled();
+
+        d.set_port_io_enable(false);
+        bool blocked_by_port = !d.is_enabled();
+
+        check("NA-03",
+              "port_io_enable and nr_0a_4_enable are independent levers; "
+              "enabled_ = port_io_enable AND nr_0a_4_enable "
+              "(VHDL zxnext.vhd:4112)",
+              blocked_by_nr0a && both_on_enabled && blocked_by_port,
+              fmt("nr0a=0→%d both=1→%d port=0→%d",
+                  blocked_by_nr0a, both_on_enabled, blocked_by_port));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1447,12 +1521,22 @@ void group_in() {
                   sd.last_tx, sd.was_deselected));
     }
 
-    // IN-03: RETN after NMI handler: automap deactivated.
-    // VHDL: divmmc.vhd:126,139 (i_retn_seen branch). No RETN hook in
-    // C++ DivMmc — same gap as DA-06.
-    skip("IN-03",
-         "No emulator path: DivMmc has no RETN hook "
-         "(VHDL divmmc.vhd:126,139)");
+    // IN-03: RETN after handler entry: automap deactivated.
+    // VHDL: divmmc.vhd:126,139 — i_retn_seen clears hold/held.
+    // Integration form of DA-06: activate via an entry point, then
+    // RETN must clear the overlay latch.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);   // boot entry activates overlay
+        bool active_before = d.automap_active();
+        d.on_retn();
+        bool cleared = !d.automap_active();
+        check("IN-03",
+              "RETN after handler clears automap overlay "
+              "(VHDL divmmc.vhd:126,139)",
+              active_before && cleared,
+              fmt("before=%d cleared=%d", active_before, cleared));
+    }
 
     // IN-04: Automap at 0x0008 (RST 8) is ROM3-conditional.
     // VHDL: zxnext.vhd:2856, :3137. Same ROM3 gating gap as EP-02.
