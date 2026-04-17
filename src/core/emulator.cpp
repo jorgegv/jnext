@@ -351,6 +351,17 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.set_write_handler(0x62, [this](uint8_t v) { copper_.write_reg_0x62(v); });
     nextreg_.set_write_handler(0x63, [this](uint8_t v) { copper_.write_reg_0x63(v); });
 
+    // Register 0x64: Copper vertical line offset (NR 0x64).
+    // VHDL: zxnext.vhd:5442 (write), :6090 (read-back), :6723 (wired
+    //       into zxula_timing.vhd i_cu_offset).
+    nextreg_.set_write_handler(0x64, [this](uint8_t v) { copper_.write_reg_0x64(v); });
+    nextreg_.set_read_handler (0x64, [this]() -> uint8_t { return copper_.read_reg_0x64(); });
+
+    // Program the Copper c_max_vc wrap to match the active machine timing.
+    // Per zxula_timing.vhd the wrap is (lines_per_frame - 1). This is a
+    // config-time setter; Copper::reset() intentionally does not clear it.
+    copper_.set_c_max_vc(timing_.lines_per_frame - 1);
+
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
     // Page 0xFF = map ROM into the slot (VHDL: mmu_A21_wr_en = '0' when page = xFF).
     for (int i = 0; i < 8; ++i) {
