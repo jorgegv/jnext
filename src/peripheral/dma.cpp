@@ -75,6 +75,40 @@ Dma::AddrMode Dma::dst_addr_mode() const {
     return static_cast<AddrMode>(mode);
 }
 
+// ── Timing → cycle-count mapping (VHDL dma.vhd:313-316, :365-368) ────
+//
+// The VHDL READ and WRITE state machines decode the 2-bit timing byte
+// into the number of cycles spent on each transfer phase:
+//    "00" -> READ_2 / WRITE_2  (4 cycles)
+//    "01" -> READ_3 / WRITE_3  (3 cycles)
+//    "10" -> READ_4 / WRITE_4  (2 cycles)
+//    "11" -> when others -> same as "00" (4 cycles)
+//
+// These helpers return the configured cycle counts for the side
+// (source = read, destination = write) matching the current
+// transfer direction.
+static uint8_t timing_to_cycles(uint8_t t) {
+    switch (t & 0x03) {
+    case 0x00: return 4;
+    case 0x01: return 3;
+    case 0x02: return 2;
+    case 0x03: return 4;
+    }
+    return 4;  // unreachable
+}
+
+uint8_t Dma::read_cycles() const {
+    // Source side: A->B reads from port A (R1), B->A reads from port B (R2).
+    uint8_t t = dir_a_to_b_ ? port_a_timing_ : port_b_timing_;
+    return timing_to_cycles(t);
+}
+
+uint8_t Dma::write_cycles() const {
+    // Dest side: A->B writes to port B (R2), B->A writes to port A (R1).
+    uint8_t t = dir_a_to_b_ ? port_b_timing_ : port_a_timing_;
+    return timing_to_cycles(t);
+}
+
 // ─── Register write protocol ─────────────────────────────────────────
 
 void Dma::write(uint8_t val, bool z80_compat) {

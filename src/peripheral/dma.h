@@ -119,6 +119,24 @@ public:
     AddrMode    dst_addr_mode() const;
     TransferMode transfer_mode() const { return static_cast<TransferMode>(mode_); }
 
+    /// R1 port A timing byte (2-bit value: 00/01/10/11).
+    /// VHDL: R1_portA_timming_byte_s (dma.vhd:88).
+    uint8_t     port_a_timing() const { return port_a_timing_; }
+
+    /// R2 port B timing byte (2-bit value: 00/01/10/11).
+    /// VHDL: R2_portB_timming_byte_s (dma.vhd:100).
+    uint8_t     port_b_timing() const { return port_b_timing_; }
+
+    /// Number of read cycles configured for the current transfer direction.
+    /// Source side: A->B uses R1 (port_a_timing_); B->A uses R2 (port_b_timing_).
+    /// Cycle count mapping: 00->4, 01->3, 10->2, 11->4 (VHDL dma.vhd:311-325).
+    uint8_t     read_cycles()  const;
+
+    /// Number of write cycles configured for the current transfer direction.
+    /// Dest side: A->B uses R2 (port_b_timing_); B->A uses R1 (port_a_timing_).
+    /// Cycle count mapping: 00->4, 01->3, 10->2, 11->4 (VHDL dma.vhd:363-377).
+    uint8_t     write_cycles() const;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
