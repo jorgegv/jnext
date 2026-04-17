@@ -157,11 +157,13 @@ private:
     std::array<uint16_t, 320> scroll_x_per_line_{};
     std::array<uint8_t, 320>  scroll_y_per_line_{};
 
-    // Clip window
-    uint8_t  clip_x1_        = 0;
-    uint8_t  clip_x2_        = 159;     // tilemap default (X coords internally doubled)
-    uint8_t  clip_y1_        = 0;
-    uint8_t  clip_y2_        = 255;
+    // Clip window — VHDL reset defaults from zxnext.vhd:4977-4980
+    // (0x00 / 0x9F / 0x00 / 0xFF cover the full 320x256 visible area;
+    // X coords are internally doubled at render, giving pixel-x 0..319).
+    uint8_t  clip_x1_        = 0;       // = 0x00
+    uint8_t  clip_x2_        = 159;     // = 0x9F
+    uint8_t  clip_y1_        = 0;       // = 0x00
+    uint8_t  clip_y2_        = 255;     // = 0xFF
 
     // Helpers
     static uint32_t decode_base_addr(uint8_t reg_val);

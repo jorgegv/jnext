@@ -180,6 +180,10 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int clip_xlo_320 = static_cast<int>(clip_x1_) * 2;
     const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
 
+    // Shift that maps screen_x to the 320-pixel clip domain.  Hoisted out
+    // of the per-pixel loop — only 80-col render_width=640 needs to halve.
+    const int clip_x_shift = (mode_80col_ && render_width == 640) ? 1 : 0;
+
     const uint8_t transp_idx = palette.tilemap_transparency();
 
     // Use per-scanline scroll values (captured during the frame loop).
@@ -234,17 +238,10 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int out_width = mode_80col_ ? render_width : 320;
 
     for (int screen_x = 0; screen_x < out_width; ++screen_x) {
-        // Per-pixel X-clip — map screen_x to the 320-pixel clip domain and
-        // blank to transparent when outside [clip_x1*2, clip_x2*2+1]
-        // (VHDL tilemap.vhd:416-417, 424).
-        //   - 40-col (out_width=320): pixel_x_320 = screen_x
-        //   - 80-col render_width=640: pixel_x_320 = screen_x >> 1
-        //   - 80-col render_width=320: pixel_x_320 = screen_x
-        int pixel_x_320;
-        if (mode_80col_ && render_width == 640)
-            pixel_x_320 = screen_x >> 1;
-        else
-            pixel_x_320 = screen_x;
+        // Per-pixel X-clip — blank to transparent when screen_x (mapped to
+        // the 320-pixel clip domain via clip_x_shift) falls outside
+        // [clip_x1*2, clip_x2*2+1] (VHDL tilemap.vhd:416-417, 424).
+        const int pixel_x_320 = screen_x >> clip_x_shift;
         if (pixel_x_320 < clip_xlo_320 || pixel_x_320 > clip_xhi_320) {
             dst[screen_x] = 0u;  // transparent — skip rest of per-pixel work
             continue;
