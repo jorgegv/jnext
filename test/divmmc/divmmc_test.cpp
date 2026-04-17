@@ -990,34 +990,25 @@ void group_na() {
 void group_sm() {
     set_group("11. SRAM mapping");
 
-    // SM-01..SM-07: the physical SRAM address ladder lives in the
-    // top-level memory resolver (mmu/memory.cpp) and is not exposed
-    // on DivMmc. DivMmc itself owns the ROM/RAM buffers but does not
-    // publish their 22-bit SRAM addresses, nor does it compete with
-    // Layer 2 / ROMCS in a priority chain. All seven rows are
-    // structural observations about the higher-level resolver and are
-    // unreachable from this test.
-    skip("SM-01",
-         "No emulator path: SRAM ROM address ladder not exposed "
-         "(VHDL zxnext.vhd:3084)");
-    skip("SM-02",
-         "No emulator path: SRAM RAM bank 0 address not exposed "
-         "(VHDL zxnext.vhd:3087)");
-    skip("SM-03",
-         "No emulator path: SRAM RAM bank 3 address not exposed "
-         "(VHDL zxnext.vhd:3087)");
-    skip("SM-04",
-         "No emulator path: SRAM RAM bank 15 address not exposed "
-         "(VHDL zxnext.vhd:3087)");
-    skip("SM-05",
-         "No emulator path: DivMMC/Layer2 priority is resolved outside "
-         "DivMmc (VHDL zxnext.vhd:3091)");
-    skip("SM-06",
-         "No emulator path: DivMMC/ROMCS priority is resolved outside "
-         "DivMmc (VHDL zxnext.vhd:3094)");
-    skip("SM-07",
-         "No emulator path: ROMCS->DivMMC bank 14/15 aliasing is outside "
-         "DivMmc (VHDL zxnext.vhd:3097)");
+    // SM-01..SM-07 — category A (physical hardware layout artifact).
+    //
+    // The VHDL SRAM address ladder (zxnext.vhd:3084-3097) maps DivMMC
+    // ROM and RAM banks into a single 22-bit SRAM address space shared
+    // with Layer 2 and ROMCS. JNEXT keeps RAM and ROM in separate
+    // buffers owned by DivMmc, with no physical +32 page offset and no
+    // cross-object priority chain — DivMMC/Layer 2/ROMCS arbitration is
+    // resolved in `src/memory/mmu.cpp`, not in `DivMmc`. None of the
+    // seven rows expose a software-visible difference and all are
+    // unreachable from this unit test. Same shape as Layer 2
+    // G7-01..03/05a-c already in-repo.
+    //
+    // SM-01: SRAM ROM address ladder    (VHDL zxnext.vhd:3084)
+    // SM-02: SRAM RAM bank 0 address    (VHDL zxnext.vhd:3087)
+    // SM-03: SRAM RAM bank 3 address    (VHDL zxnext.vhd:3087)
+    // SM-04: SRAM RAM bank 15 address   (VHDL zxnext.vhd:3087)
+    // SM-05: DivMMC vs Layer2 priority  (VHDL zxnext.vhd:3091)
+    // SM-06: DivMMC vs ROMCS priority   (VHDL zxnext.vhd:3094)
+    // SM-07: ROMCS->DivMMC bank 14/15 aliasing (VHDL zxnext.vhd:3097)
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1083,11 +1074,14 @@ void group_ss() {
               fmt("got=%02x", m.read_cs()));
     }
 
-    // SS-08: Write 0x7F in config mode selects Flash.
-    // VHDL: zxnext.vhd:3324 — gated by config_mode/reset_type bit 2.
-    skip("SS-08",
-         "No emulator path: flash select gating (config_mode) not "
-         "modelled (VHDL zxnext.vhd:3324)");
+    // SS-08 — will-not-implement (Flash device out of JNEXT scope).
+    //
+    // VHDL zxnext.vhd:3324 — write 0x7F with config_mode asserted
+    // selects the external config Flash used only to reflash TBBlue
+    // firmware. JNEXT does not emulate the Flash backend nor the
+    // config_mode gating signal; see 2026-04-17f session handover
+    // for the scope decision (Flash + RPI are dropped from the
+    // roadmap, together with MX-01/02/05 below).
 
     // SS-09: Write 0x7F outside config mode -> all deselected (0xFF).
     // VHDL: zxnext.vhd:3326 — flash select blocked. Emulator stores raw.
@@ -1242,33 +1236,23 @@ void group_sx() {
               fmt("got=%02x exp=C3 (independent write/read paths)", v));
     }
 
-    // SX-06: SPI transfer is 16 clock cycles (8 bits x 2 edges).
-    // VHDL: spi_master.vhd:86, 95-97.
-    skip("SX-06",
-         "No emulator path: SPI state counter not modelled, transfers "
-         "are instantaneous (VHDL spi_master.vhd:86,95-97)");
-
-    // SX-07: o_spi_sck = state_r(0). VHDL: spi_master.vhd:172.
-    skip("SX-07",
-         "No emulator path: SCK output not exposed "
-         "(VHDL spi_master.vhd:172)");
-
-    // SX-08: MOSI outputs MSB first. VHDL: spi_master.vhd:173.
-    skip("SX-08",
-         "No emulator path: MOSI pin-level output not exposed "
-         "(VHDL spi_master.vhd:173)");
-
-    // SX-09: MISO sampled on delayed rising SCK edge.
-    // VHDL: spi_master.vhd:148-156.
-    skip("SX-09",
-         "No emulator path: MISO bit-level sampling not modelled "
-         "(VHDL spi_master.vhd:148-156)");
-
-    // SX-10: Back-to-back transfers: new transfer starts on last state.
-    // VHDL: spi_master.vhd:82.
-    skip("SX-10",
-         "No emulator path: state_last pipelined restart not modelled "
-         "(VHDL spi_master.vhd:82)");
+    // SX-06..SX-10 — category B (VHDL-internal pipeline signals).
+    //
+    // JNEXT's `SpiMaster` (src/peripheral/spi.cpp) is intentionally a
+    // zero-latency byte wrapper: each `write_data()` triggers a full
+    // exchange synchronously and `read_data()` honours the single-
+    // stage pipeline delay already covered by SX-01..05 and ML-03/05.
+    // Modelling cycle-accurate SPI internals (16-cycle state counter,
+    // SCK/MOSI pin-level output, bit-level MISO sampling, back-to-back
+    // pipelined restart) would require a full FSM rewrite with no
+    // functional benefit — SD card protocol works end-to-end on the
+    // byte boundary.
+    //
+    // SX-06: SPI transfer is 16 clock cycles (VHDL spi_master.vhd:86,95-97)
+    // SX-07: o_spi_sck = state_r(0)          (VHDL spi_master.vhd:172)
+    // SX-08: MOSI outputs MSB first          (VHDL spi_master.vhd:173)
+    // SX-09: MISO sampled on delayed rising SCK (VHDL spi_master.vhd:148-156)
+    // SX-10: state_last pipelined restart    (VHDL spi_master.vhd:82)
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1279,34 +1263,22 @@ void group_sx() {
 void group_st() {
     set_group("14. SPI state machine");
 
-    // ST-01..ST-08: the state counter, spi_wait_n and idle/last flags
-    // are not exposed anywhere in C++ — SpiMaster is a zero-latency
-    // byte wrapper and has no state_r, spi_wait_n, spi_begin or
-    // state_last observables.
-    skip("ST-01",
-         "No emulator path: state_r idle flag not modelled "
-         "(VHDL spi_master.vhd:87,93)");
-    skip("ST-02",
-         "No emulator path: spi_begin transition not modelled "
-         "(VHDL spi_master.vhd:82,94-95)");
-    skip("ST-03",
-         "No emulator path: state counter increment not modelled "
-         "(VHDL spi_master.vhd:96-97)");
-    skip("ST-04",
-         "No emulator path: state wrap to idle not modelled "
-         "(VHDL spi_master.vhd:96-97)");
-    skip("ST-05",
-         "No emulator path: spi_wait_n signal not exposed "
-         "(VHDL spi_master.vhd:177)");
-    skip("ST-06",
-         "No emulator path: spi_wait_n signal not exposed "
-         "(VHDL spi_master.vhd:177)");
-    skip("ST-07",
-         "No emulator path: pipelined transfer begin condition not "
-         "modelled (VHDL spi_master.vhd:82)");
-    skip("ST-08",
-         "No emulator path: mid-transfer rd/wr suppression not modelled "
-         "(VHDL spi_master.vhd:82)");
+    // ST-01..ST-08 — category B (VHDL-internal pipeline signals).
+    //
+    // Same rationale as SX-06..10 above: the state counter, spi_wait_n
+    // and idle/last flags never surface in JNEXT's byte-wrapper
+    // `SpiMaster`. Modelling a cycle-accurate SPI FSM is architectural
+    // scope expansion for no functional benefit — SD card end-to-end
+    // protocol works on the byte boundary.
+    //
+    // ST-01: state_r idle flag              (VHDL spi_master.vhd:87,93)
+    // ST-02: spi_begin transition           (VHDL spi_master.vhd:82,94-95)
+    // ST-03: state counter increment        (VHDL spi_master.vhd:96-97)
+    // ST-04: state wrap to idle             (VHDL spi_master.vhd:96-97)
+    // ST-05: spi_wait_n signal exposure     (VHDL spi_master.vhd:177)
+    // ST-06: spi_wait_n signal exposure     (VHDL spi_master.vhd:177)
+    // ST-07: pipelined begin condition      (VHDL spi_master.vhd:82)
+    // ST-08: mid-transfer rd/wr suppression (VHDL spi_master.vhd:82)
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1317,17 +1289,17 @@ void group_st() {
 void group_ml() {
     set_group("15. MISO latch");
 
-    // ML-01: MISO bits shifted in on delayed rising SCK.
-    // VHDL: spi_master.vhd:152-155.
-    skip("ML-01",
-         "No emulator path: bit-level ishift_r not modelled "
-         "(VHDL spi_master.vhd:152-155)");
-
-    // ML-02: Full byte latched into miso_dat on state_last_d.
-    // VHDL: spi_master.vhd:164-165.
-    skip("ML-02",
-         "No emulator path: state_last_d-timed miso_dat latch not "
-         "modelled (VHDL spi_master.vhd:164-165)");
+    // ML-01 — category B (VHDL-internal pipeline signal).
+    // Bit-level ishift_r shifted in on delayed rising SCK
+    // (VHDL spi_master.vhd:152-155) is not modelled: the byte-wrapper
+    // `SpiMaster` captures the full response atomically inside
+    // `write_data()` / `read_data()`. Byte-level behaviour is covered
+    // by SX-01..05 and ML-03/05.
+    //
+    // ML-02 — category B (VHDL-internal pipeline signal).
+    // state_last_d-timed miso_dat latch (VHDL spi_master.vhd:164-165)
+    // is not observable at the byte boundary. ML-03 asserts the
+    // resulting held-value semantics, ML-05 asserts the reset value.
 
     // ML-03: miso_dat holds value until next transfer completes.
     // Observable: two consecutive reads with the same device response
@@ -1348,12 +1320,10 @@ void group_ml() {
               fmt("a=%02x b=%02x", a, b));
     }
 
-    // ML-04: Input and output shift registers are independent.
-    // VHDL: spi_master.vhd:102-117 vs :119-157. Not observable at the
-    // byte-level C++ API.
-    skip("ML-04",
-         "No emulator path: ishift_r vs oshift_r independence not "
-         "observable at byte level (VHDL spi_master.vhd:102-157)");
+    // ML-04 — category B (VHDL-internal pipeline signal).
+    // ishift_r vs oshift_r independence (VHDL spi_master.vhd:102-117
+    // vs :119-157) is not observable at the byte-level C++ API — both
+    // paths collapse to synchronous byte exchanges in `SpiMaster`.
 
     // ML-05: Reset sets ishift_r to all 1s.
     // VHDL: spi_master.vhd:151-152. The observable proxy is that the
@@ -1373,11 +1343,10 @@ void group_ml() {
               fmt("got=%02x exp=FF", v));
     }
 
-    // ML-06: 16 cycles minimum between read/write operations.
-    // VHDL: spi_master.vhd:86-100 comment.
-    skip("ML-06",
-         "No emulator path: 16-cycle minimum not modelled, transfers "
-         "instantaneous (VHDL spi_master.vhd:86-100)");
+    // ML-06 — category B (VHDL-internal pipeline signal).
+    // 16-cycle minimum between read/write operations
+    // (VHDL spi_master.vhd:86-100 comment) is moot: JNEXT's zero-
+    // latency byte wrapper exposes no such timing constraint.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1388,16 +1357,18 @@ void group_ml() {
 void group_mx() {
     set_group("16. MISO mux");
 
-    // MX-01: Flash has highest priority.
-    // VHDL: zxnext.vhd:3278. No flash backend or priority ladder in C++.
-    skip("MX-01",
-         "No emulator path: flash MISO source not wired "
-         "(VHDL zxnext.vhd:3278)");
-
-    // MX-02: RPI is second priority. VHDL: zxnext.vhd:3279.
-    skip("MX-02",
-         "No emulator path: RPI MISO source priority not modelled "
-         "(VHDL zxnext.vhd:3279)");
+    // MX-01, MX-02 — will-not-implement (Flash + RPI out of JNEXT scope).
+    //
+    // VHDL zxnext.vhd:3278-3279 cascades Flash (highest priority) and
+    // RPI (second priority) above SD on the MISO source multiplexer.
+    // Flash is used only to reflash TBBlue firmware; RPI is an
+    // accelerator peripheral. Neither is on the JNEXT roadmap, so the
+    // priority cascade collapses to "SD / default (0xFF)" — already
+    // covered by MX-03/04 below. See 2026-04-17f handover for scope
+    // decision.
+    //
+    // MX-01: Flash MISO source highest priority (VHDL zxnext.vhd:3278)
+    // MX-02: RPI  MISO source second priority   (VHDL zxnext.vhd:3279)
 
     // MX-03: SD is third priority. Observable by attaching an SD device
     // to CS 0 and selecting it. VHDL: zxnext.vhd:3280.
@@ -1429,12 +1400,11 @@ void group_mx() {
               fmt("got=%02x", v));
     }
 
-    // MX-05: Priority Flash > RPI > SD > default.
-    // VHDL: zxnext.vhd:3278-3280 cascaded if-else. Priority ladder not
-    // implemented in the C++ SpiMaster.
-    skip("MX-05",
-         "No emulator path: device priority cascade not implemented "
-         "(VHDL zxnext.vhd:3278-3280)");
+    // MX-05 — will-not-implement (cascade moot without Flash/RPI).
+    // VHDL zxnext.vhd:3278-3280 cascaded if-else Flash > RPI > SD >
+    // default is reduced to SD > default in JNEXT (see MX-01/02
+    // scope decision). MX-03 + MX-04 together cover the reduced
+    // cascade end-to-end.
 }
 
 // ══════════════════════════════════════════════════════════════════════
