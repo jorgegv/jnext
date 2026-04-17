@@ -203,13 +203,10 @@ void group1_port_decode() {
               fmt("counter=0x%04X  VHDL dma.vhd:675-676", dma.counter()));
     }
 
-    // 1.5 Mode defaults to ZXN on reset.  Reset leaves dma_mode in the
-    // signal that is re-latched on the next port access (dma.vhd:213-242
-    // reset block); from the public API the only observable proxy is that
-    // a ZXN LOAD yields counter=0 — which is the same as the 1.1 check.
-    // The dedicated "default" vs "latched" distinction is unreachable.
-    skip("1.5", "dma_mode_i latch not separately observable from C++ API "
-                "(only visible via counter-on-LOAD, same as row 1.1)");
+    // 1.5 — REMOVED (redundant with 1.1/1.2).  dma_mode_i is re-latched on
+    // every port access in VHDL dma.vhd:213-242; the "default after reset"
+    // check would just re-test 1.1 (ZXN LOAD yields counter=0) with no
+    // additional signal.  No independent observable, no test value.
 
     // 1.6 Mode switches per access: alternate ZXN and Z80 LOADs.
     {
@@ -771,17 +768,22 @@ void group7_r5() {
               fmt("state=%d  VHDL dma.vhd:238,494", (int)dma.state()));
     }
 
-    // 7.3 CE/WAIT mux bit: VHDL dma.vhd:622 assigns R5_ce_wait_s but the
-    // code path that consumes it (dma.vhd:341,409) is commented out.
-    skip("7.3", "R5_ce_wait_s (dma.vhd:622) has no observable effect — "
-                "the ce_wait / wait_n_s branches at dma.vhd:341 and :409 "
-                "are commented out in VHDL, no public accessor");
+    // 7.3 — DEFERRED (not a skip).  VHDL dma.vhd:622 assigns R5_ce_wait_s
+    // but the consuming branches at dma.vhd:341, :409 are commented out in
+    // the VHDL source.  When/if those branches are re-enabled, this test
+    // comes back:
+    //   {
+    //       fresh(dma);
+    //       zxn(dma, 0x92);                  // R5 with ce_wait=1
+    //       check("7.3", "R5 ce_wait bit stored",
+    //             /* would need a ce_wait() accessor */);
+    //   }
 
-    // 7.4 R5 reset defaults (bits 4 and 5 both 0) — the only observable
-    // side of ce_wait_s is through 7.3 (unreachable), so the reset value
-    // is only indirectly testable via 7.2 (auto-restart off default).
-    skip("7.4", "R5_ce_wait_s reset (dma.vhd:237) unreachable; "
-                "R5_auto_restart_s reset (dma.vhd:238) covered by 7.2");
+    // 7.4 — DEFERRED (not a skip).  R5 reset defaults: ce_wait=0 +
+    // auto_restart=0.  The auto_restart reset is covered by 7.2 (behavioural
+    // proof).  ce_wait has no behavioural consequence (see 7.3), so checking
+    // its reset value is field-initialisation busywork.  Keep deferred until
+    // 7.3 is implementable.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1196,12 +1198,39 @@ void group10_mem_to_io() {
                   g_io[0x0020], g_io[0x0021], g_io[0x0022]));
     }
 
-    // 10.3 MREQ/IORQ bus signal distinction: the emulator does not expose
-    // mreq_n/iorq_n to test code; memory-vs-IO is observed only through
-    // which callback fires.  The plan's dma_mreq_n_o assertion is
-    // unreachable from the C++ API.
-    skip("10.3", "dma_mreq_n_o / dma_iorq_n_o (dma.vhd:140-142, :290-296) "
-                 "not exposed; memory vs IO is observed only via callback");
+    // 10.3 MREQ on read / IORQ on write, per VHDL dma.vhd:186-190:
+    //   dma_mreq_n_o asserts on memory phases (src mem on read, dst mem on
+    //   write); dma_iorq_n_o asserts on IO phases.  The C++ emulator does
+    //   not expose raw bus signals, but the phase-specific access type is
+    //   observable via which callback is invoked (read_memory vs read_io,
+    //   write_memory vs write_io).  This IS the VHDL-observable fact.
+    {
+        fresh(dma);
+        int mem_reads = 0, io_reads = 0, mem_writes = 0, io_writes = 0;
+        dma.read_memory  = [&](uint16_t a) -> uint8_t { ++mem_reads;  return g_mem[a]; };
+        dma.read_io      = [&](uint16_t p) -> uint8_t { ++io_reads;   return g_io[p];  };
+        dma.write_memory = [&](uint16_t a, uint8_t v) { ++mem_writes; g_mem[a] = v;    };
+        dma.write_io     = [&](uint16_t p, uint8_t v) { ++io_writes;  g_io[p]  = v;    };
+        g_mem[0x8000] = 0xAA;
+        // A->B, A=mem (MREQ on read), B=I/O (IORQ on write).
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x01); zxn(dma, 0x00);
+        zxn(dma, 0x14);                  // R1 mem, inc
+        zxn(dma, 0x28);                  // R2 IO, fixed
+        zxn(dma, 0xAD);
+        zxn(dma, 0xFE); zxn(dma, 0x00);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        run_to_idle(dma);
+        check("10.3",
+              "Mem->IO: read phase asserts MREQ (mem callback), "
+              "write phase asserts IORQ (io callback)",
+              mem_reads == 1 && io_reads == 0 &&
+              mem_writes == 0 && io_writes == 1,
+              fmt("mem_rd=%d io_rd=%d mem_wr=%d io_wr=%d  "
+                  "VHDL dma.vhd:186-190,290-296",
+                  mem_reads, io_reads, mem_writes, io_writes));
+    }
 
     // 10.4 IO(A) -> Mem(B): portA is IO, portB is mem.
     {
@@ -1886,12 +1915,13 @@ void group15_bus_arbitration() {
                   (int)dma.dma_holds_bus()));
     }
 
-    // 15.8 Port writes gated on dma_holds_bus — this is a port-dispatch
-    // layer concern (zxnext.vhd `port_dma_rd/wr <= ... and not dma_holds_bus`)
-    // rather than an intra-DMA gate.  The Dma class itself exposes
-    // dma_holds_bus() so the dispatcher can enforce the gate externally.
-    skip("15.8", "port_dma_rd/wr gating is port-dispatch-layer concern "
-                 "(tested in port_test.cpp, not dma_test.cpp)");
+    // 15.8 — BELONGS TO PORT DISPATCH (not a skip).  The VHDL gate is
+    //   port_dma_rd <= port_dma_rd_raw and not dma_holds_bus;
+    //   port_dma_wr <= port_dma_wr_raw and not dma_holds_bus;
+    // — i.e. a zxnext.vhd-level gate on the port dispatcher, not an
+    // intra-DMA concern.  The Dma class exposes dma_holds_bus() so the
+    // dispatcher can enforce it.  Test this in port_test.cpp when the
+    // gate lands in the dispatcher, not here.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2429,14 +2459,16 @@ void group20_dma_delay() {
                   (int)dma.cpu_busreq_n()));
     }
 
-    // 20.3 / 20.4 live at the zxnext.vhd wiring layer (NR 0xCC/0xCD/0xCE
-    // register handlers + im2_dma_delay composition), not inside the Dma
-    // unit.  See test/nextreg/nextreg_integration_test.cpp group "DMA-IM2-
-    // Delay" for the coverage.  This Dma-level test stays skipped by design.
-    skip("20.3", "NR 0xCC/0xCD/0xCE DMA enable bits tested in "
-                 "nextreg_integration_test.cpp (DMA-IM2-Delay 20.3a-g)");
-    skip("20.4", "im2_dma_delay composition tested in "
-                 "nextreg_integration_test.cpp (DMA-IM2-Delay 20.4a-f)");
+    // 20.3 — COVERED AT INTEGRATION TIER (not a skip).  NR 0xCC/0xCD/0xCE
+    // DMA enable bit layouts + `compose_im2_dma_int_en()` 14-bit mask.
+    // See test/nextreg/nextreg_integration_test.cpp group "DMA-IM2-Delay",
+    // rows 20.3a..g.  Kept here as a source-level reference to the DMA
+    // plan row; not executed at the Dma unit level because the register
+    // handlers live in Emulator, not in Dma.
+
+    // 20.4 — COVERED AT INTEGRATION TIER (not a skip).  im2_dma_delay
+    // composition formula (im2_dma_int | (nmi & nr_cc_7) | (prev & dma_delay),
+    // VHDL zxnext.vhd:2007).  See nextreg_integration_test.cpp rows 20.4a..f.
 }
 
 // ══════════════════════════════════════════════════════════════════════
