@@ -244,11 +244,14 @@ void Ctc::handle_zc_to(int channel) {
         on_interrupt(channel);
     }
 
-    // Daisy-chain: trigger the next channel
-    if (channel < 3) {
-        ctc_log()->trace("ch{} ZC/TO -> trigger ch{}", channel, channel + 1);
-        if (channels_[channel + 1].trigger()) {
-            handle_zc_to(channel + 1);
+    // Daisy-chain: trigger the next channel (ring topology).
+    // VHDL zxnext.vhd:4084: i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3)
+    // ch0←ch3, ch1←ch0, ch2←ch1, ch3←ch2.
+    {
+        int next = (channel + 1) & 3;
+        ctc_log()->trace("ch{} ZC/TO -> trigger ch{}", channel, next);
+        if (channels_[next].trigger()) {
+            handle_zc_to(next);
         }
     }
 }
