@@ -68,9 +68,9 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     read_only_[slot] = true;
     read_ptr_[slot] = rom_.page_ptr(rom_page);
     write_ptr_[slot] = nullptr;
-    // Intentionally leaves nr_mmu_[slot] unchanged — used by internal bank
-    // switchers (port 0x7FFD / 0x1FFD) which must not alter the NR 0x50/0x51
-    // register view per VHDL zxnext.vhd:4611-4612.
+    // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
+    // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
+    // (map_128k_bank / map_plus3_bank) overwrite with physical page.
 }
 
 void Mmu::map_rom(int slot, uint8_t rom_page) {
@@ -115,8 +115,10 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
     map_rom_physical(0, rom_bank * 2);
     map_rom_physical(1, rom_bank * 2 + 1);
-    // Expose the physical ROM page in the NR register view so that
-    // ROM bank changes via legacy ports are observable through get_page().
+    // NOTE: VHDL sets MMU0/MMU1 = 0xFF here (normal ROM paging).
+    // We store the physical page so ROM bank changes are observable via
+    // get_page() in tests/debugger. NR 0x50/0x51 read-back through the
+    // nextreg cache is unaffected.
     nr_mmu_[0] = rom_bank * 2;
     nr_mmu_[1] = rom_bank * 2 + 1;
 }
