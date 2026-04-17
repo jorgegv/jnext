@@ -31,21 +31,10 @@
 |        | 2h   | Phase 9: Task 5 Step 5 Phase 1 (6 theatre subsystem plans rebuilt from VHDL + reviews)     |
 |        | 3h   | Phase 9: Task 5 Step 5 Phase 2 (6 theatre test suites rewritten, 2 waves, 89.7% honest)    |
 |        | 1h   | Phase 9: Task 5 Step 6 traceability matrix + UNIT-TEST-PLAN-EXECUTION doc + reorg          |
-| 15/4   | 6h   | Phase 9: Task 1 all 9 older suites refactored to Phase 2 per-row idiom (3 waves, merged)   |
-|        | 1h   | Phase 9: Task 1 doc refresh — plans + EMULATOR-DESIGN-PLAN + matrix summary + backlog 21-31|
-|        | 2h   | Phase 9: Matrix per-row refresh script + extend to 15 subsystems + 6 dropped-row fixups    |
-|        | 2h   | Phase 9: Task 2 partial — 4 cheap fixes merged (items 1/5/21/22), SX-02 false-pass found   |
-|        | 1h   | Phase 9: Task 3 spec drafted — full 1788-row audit, 3 waves of 5, pass/fail/skip taxonomy  |
-|        | 3h   | Phase 9: Task 3 audit Waves 1-3 — 15 parallel agents, 15 subsystem reports + master summary|
-|        | 1h   | Phase 9: Task 3 remediation — 11 findings + 5 UNCLEAR cleared, matrix 1010/89/689/0        |
-| 16/4   | 2h   | Phase 9: Tasks 2+3 DONE (Z80/Z80N audit+fix). Task 1 partial (6 items, +11 rows)           |
-|        | 4h   | Phase 9: Task 1 items 4,6b,8,25 + 9 reclassified (+27 rows, 19/21 resolved)               |
-|        | 3h   | Phase 9: Task 1 items 14+15 — compositor+port dispatch fixes, exclusive dispatch (+27 rows) |
-| 17/4   | 3h   | Phase 9: Task 1 items 7+27/28 — NextREG integration tests, SPI pipeline delay, make unit-test |
-|        | 3h   | Phase 9: Task 1 compositor 15 failures fixed (sprite_en, L2 priority, border, stencil, blend) |
-|        | 1h   | Release v0.92.0 — ChangeLog, test status, version bump                                     |
-|        | 3h   | Phase 9: Last 3 failures fixed (CTC ring wrap, +3 ROM-high, Specdrum 0xDF read)            |
-|        | 2h   | Phase 9: I2C ACK phase off-by-one fix (intermittent DS1307 RTC failures)                   |
-|        | 1h   | Task 2: Uniform test output format + color-coded Makefile unit-test target                  |
+| 15/4   | 10h  | Phase 9: 9 older suites refactored, matrix refresh, 4 emu fixes, traceability docs         |
+|        | 6h   | Phase 9: Full 1788-row audit (3 waves), remediation, matrix 1010/89/689/0                  |
+| 16/4   | 9h   | Phase 9: Tasks 2+3 DONE, Task 1 19/21 items resolved, compositor+port dispatch fixes      |
+| 17/4   | 7h   | Phase 9: Task 1 DONE — NextREG integration, SPI pipeline, compositor 15 fails, v0.92.0    |
+|        | 6h   | Phase 9: Last 3 fails fixed, I2C ACK bug, uniform test output, v0.93.0                    |
 |        |      |                                                                                            |
 | TOTAL: | 133h |                                                                                            |
