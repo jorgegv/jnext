@@ -81,7 +81,7 @@ public:
     /// stays held (CPU stalled even during prescaler wait).
     bool is_active() const {
         if (state_ != State::TRANSFERRING) return false;
-        if (burst_wait_ == 0) return true;
+        if (!in_waiting_cycles_) return true;
         // During prescaler wait: burst releases CPU, others don't
         return mode_ != 2;
     }
@@ -118,6 +118,17 @@ public:
     AddrMode    src_addr_mode() const;
     AddrMode    dst_addr_mode() const;
     TransferMode transfer_mode() const { return static_cast<TransferMode>(mode_); }
+
+    // CPU-speed input (matches VHDL turbo_i: 00=3.5MHz, 01=7MHz, 10=14MHz, 11=28MHz).
+    // Default 0 (3.5MHz) at reset.  NOTE: this is an input signal, not reset by soft reset.
+    void    set_turbo(uint8_t t)   { turbo_ = t & 0x03; }
+    uint8_t turbo() const          { return turbo_; }
+
+    // DMA_timer_s — 14-bit prescaler counter.  Exposed for test observation.
+    uint16_t dma_timer() const     { return dma_timer_s_; }
+
+    // Top 9 bits (bits 13..5) used in prescaler comparison.
+    uint16_t dma_timer_hi9() const { return (dma_timer_s_ >> 5) & 0x1FF; }
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -198,8 +209,30 @@ private:
     bool     status_at_least_one_ = false;   // status_atleastone
     bool     status_end_of_block_ = false;   // !status_endofblock_n (inverted for clarity)
 
-    // Burst mode prescaler wait (master clock cycles remaining before next byte)
-    int64_t  burst_wait_ = 0;
+    // Cycle-accurate DMA_timer_s (VHDL dma.vhd:129 — 14 bits).  Driven by
+    // tick_burst_wait() and reset on entering TRANSFERING_READ_1 (VHDL :309).
+    uint16_t dma_timer_s_ = 0;
+
+    // Latched CPU-speed input (VHDL turbo_i).  00=3.5MHz → +8/clk,
+    // 01=7MHz → +4/clk, 10=14MHz → +2/clk, 11=28MHz → +1/clk (VHDL :249-255).
+    uint8_t  turbo_ = 0;
+
+    // Mirrors the VHDL WAITING_CYCLES state (dma.vhd:439-464).  Set true
+    // after a byte transfer when the prescaler gate trips; cleared when
+    // the gate opens and the next byte is read.  Without this flag, the
+    // first execute_burst() call after DMA enable would see timer=0 vs
+    // prescaler>0 and bail out *before* transferring the first byte —
+    // but the VHDL state machine reaches WAITING_CYCLES only after one
+    // byte has traversed TRANSFERING_READ_1..TRANSFERING_WRITE_4.
+    bool     in_waiting_cycles_ = false;
+
+    // VHDL dma.vhd:424 / :451 wait gate:
+    //   R2_portB_preescaler_s > 0 AND ('0' & preescaler) > DMA_timer_s(13:5)
+    // When true, the DMA is paused waiting for the prescaler to expire.
+    bool prescaler_wait_active() const {
+        return port_b_prescaler_ > 0 &&
+               static_cast<uint16_t>(port_b_prescaler_) > dma_timer_hi9();
+    }
 
     // ── Write/read state machine ──────────────────────────────────────
 
