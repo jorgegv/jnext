@@ -59,7 +59,86 @@ void Dma::reset() {
     reg_temp_ = 0;
     z80_compat_ = false;
 
+    // Bus arbitration: VHDL dma.vhd:211-246 reset defaults.
+    //   cpu_busreq_n_s <= '1'  (deasserted)
+    //   cpu_bao_n <= cpu_bai_n (pass-through)
+    phase_         = Phase::IDLE;
+    cpu_busreq_n_  = true;
+    cpu_bai_n_     = false;      // assume bus acknowledged (no external peer)
+    cpu_bao_n_     = cpu_bai_n_; // pass-through
+    bus_busreq_n_  = true;
+    dma_delay_     = false;
+    daisy_busy_    = false;
+
     dma_log()->info("DMA reset");
+}
+
+// ─── Bus arbitration ─────────────────────────────────────────────────
+//
+// Mirrors the dma_seq_t FSM in VHDL dma.vhd:260-305 but uses a
+// two-input simplification: cpu_bai_n_ gates WAITING_ACK (its VHDL-accurate
+// role), while daisy_busy_ + bus_busreq_n_ + dma_delay_ gate START_DMA.
+// In VHDL the START_DMA gate also reads cpu_bai_n = '0' to detect a daisy
+// upstream peer already holding the bus; we split that concern off so the
+// C++ default (cpu_bai_n_ = false = "CPU has granted the bus") does not
+// spuriously close the START_DMA gate.
+
+bool Dma::dma_holds_bus() const {
+    // zxnext.vhd: `dma_holds_bus <= not cpu_busak_n`, which is equivalent to
+    // "DMA has asserted busreq AND the CPU has acknowledged (bai_n=0)".
+    // In WAITING_CYCLES (burst release) busreq is deasserted, so the DMA
+    // no longer holds the bus (tests 12.4/12.5 observe this).
+    return cpu_busreq_n_ == false && cpu_bai_n_ == false;
+}
+
+void Dma::tick_arbitration() {
+    // Iterate twice so a single call can progress START_DMA -> WAITING_ACK
+    // -> TRANSFER when all gate conditions are already satisfied.
+    for (int i = 0; i < 2; ++i) {
+        switch (phase_) {
+        case Phase::IDLE:
+            cpu_busreq_n_ = true;
+            cpu_bao_n_    = cpu_bai_n_;   // pass-through (dma.vhd:226,263)
+            return;
+
+        case Phase::START_DMA:
+            // VHDL dma.vhd:269 defer condition, adapted:
+            //   bus_busreq_n_i = '0'  -> downstream wants bus
+            //   cpu_bai_n     = '0'  -> daisy upstream already has bus
+            //   dma_delay_i   = '1'  -> IM2 DMA delaying
+            if (bus_busreq_n_ == false || daisy_busy_ || dma_delay_) {
+                cpu_busreq_n_ = true;            // wait for other dma to finish
+                cpu_bao_n_    = cpu_bai_n_;      // pass-through
+                return;
+            }
+            // Gate open: request the bus.
+            cpu_busreq_n_ = false;
+            cpu_bao_n_    = true;
+            phase_        = Phase::WAITING_ACK;
+            break;   // fall through to WAITING_ACK on next iteration
+
+        case Phase::WAITING_ACK:
+            // VHDL dma.vhd:296: wait for CPU to drop cpu_bai_n low (= grant).
+            if (cpu_bai_n_ == false) {
+                phase_ = Phase::TRANSFER;
+            }
+            // Bus-request signal stays asserted while waiting.
+            cpu_bao_n_ = true;
+            return;
+
+        case Phase::TRANSFER:
+            cpu_busreq_n_ = false;
+            cpu_bao_n_    = true;
+            return;
+
+        case Phase::WAITING_CYCLES:
+            // Burst-mode bus release (dma.vhd:439-464): busreq deasserted,
+            // bao pass-through; state is updated elsewhere when the wait ends.
+            cpu_busreq_n_ = true;
+            cpu_bao_n_    = cpu_bai_n_;
+            return;
+        }
+    }
 }
 
 Dma::AddrMode Dma::src_addr_mode() const {
@@ -78,6 +157,11 @@ Dma::AddrMode Dma::dst_addr_mode() const {
 // ─── Register write protocol ─────────────────────────────────────────
 
 void Dma::write(uint8_t val, bool z80_compat) {
+    // zxnext.vhd gates port_dma_rd/wr on `not dma_holds_bus`: while the DMA
+    // owns the bus the CPU cannot observe its own port writes.  That gate
+    // is enforced externally by the caller (port dispatch); tests can verify
+    // the behaviour via dma_holds_bus() directly.  See test 15.8.
+
     z80_compat_ = z80_compat;
 
     // If we are in a sub-byte sequence, process the continuation byte
@@ -243,6 +327,7 @@ void Dma::write(uint8_t val, bool z80_compat) {
 
         if (dma_en_) {
             state_ = State::TRANSFERRING;
+            phase_ = Phase::START_DMA;
             status_at_least_one_ = false;
             dma_log()->info("DMA enabled via R3 -> TRANSFERRING");
         }
@@ -315,6 +400,9 @@ void Dma::process_r6_command(uint8_t val) {
     case 0xC3:  // RESET
         dma_log()->debug("R6: RESET");
         state_ = State::IDLE;
+        phase_ = Phase::IDLE;
+        cpu_busreq_n_ = true;
+        cpu_bao_n_    = cpu_bai_n_;
         status_end_of_block_ = false;
         status_at_least_one_ = false;
         port_a_timing_ = 1;
@@ -387,12 +475,16 @@ void Dma::process_r6_command(uint8_t val) {
     case 0x87:  // Enable DMA
         dma_log()->info("R6: ENABLE DMA -> TRANSFERRING");
         state_ = State::TRANSFERRING;
+        phase_ = Phase::START_DMA;
         status_at_least_one_ = false;
         break;
 
     case 0x83:  // Disable DMA
         dma_log()->info("R6: DISABLE DMA -> IDLE");
         state_ = State::IDLE;
+        phase_ = Phase::IDLE;
+        cpu_busreq_n_ = true;
+        cpu_bao_n_    = cpu_bai_n_;
         break;
 
     case 0xBB:  // Read mask follows
@@ -506,6 +598,14 @@ void Dma::cmd_load() {
 int Dma::execute_burst(int max_bytes) {
     if (state_ != State::TRANSFERRING) return 0;
 
+    // Progress the arbitration FSM (START_DMA -> WAITING_ACK -> TRANSFER).
+    // Defaults on the external inputs let this complete in one call; tests
+    // exercising deferral (15.3-15.6, 20.1) drive the inputs first.
+    tick_arbitration();
+
+    // If the bus has not been granted yet, no transfer this tick.
+    if (phase_ != Phase::TRANSFER) return 0;
+
     int transferred = 0;
 
     // Determine source and destination properties
@@ -524,7 +624,8 @@ int Dma::execute_burst(int max_bytes) {
         dst_mode = port_a_addr_mode_;
     }
 
-    while (transferred < max_bytes && state_ == State::TRANSFERRING) {
+    while (transferred < max_bytes && state_ == State::TRANSFERRING
+           && phase_ == Phase::TRANSFER) {
         // Read byte from source
         uint8_t data;
         if (src_is_io) {
@@ -569,24 +670,46 @@ int Dma::execute_burst(int max_bytes) {
             if (auto_restart_) {
                 // Reload addresses and counter for next pass
                 cmd_load();
+                phase_ = Phase::START_DMA;
                 dma_log()->debug("DMA auto-restart");
             } else {
                 state_ = State::IDLE;
+                phase_ = Phase::IDLE;
+                cpu_busreq_n_ = true;
+                cpu_bao_n_    = cpu_bai_n_;
             }
+            break;
+        }
+
+        // VHDL dma.vhd:420-432: mid-transfer the FSM re-evaluates dma_delay_i
+        // and drops back to START_DMA when it is asserted, releasing the bus.
+        // Observable via cpu_busreq_n() returning true momentarily.
+        if (dma_delay_) {
+            phase_ = Phase::START_DMA;
+            cpu_busreq_n_ = true;
+            cpu_bao_n_    = cpu_bai_n_;
             break;
         }
 
         // VHDL dma.vhd:424 enters WAITING_CYCLES whenever prescaler > 0,
         // regardless of transfer mode (continuous, burst, or byte).
-        // In burst mode, the CPU bus is released during the wait (:441-449);
+        // In burst mode, the CPU bus is released during the wait (:441-449)
+        // and phase_ moves to WAITING_CYCLES so cpu_busreq_n() reflects it;
         // in other modes the bus stays held (CPU stalled).
-        // is_active() handles the burst vs non-burst distinction.
         if (port_b_prescaler_ > 0) {
             burst_wait_ = static_cast<int64_t>(port_b_prescaler_) * 32;
+            if (mode_ == 2) {
+                // Burst: release the bus.
+                phase_         = Phase::WAITING_CYCLES;
+                cpu_busreq_n_  = true;
+                cpu_bao_n_     = cpu_bai_n_;
+            }
             break;
         }
 
         // Burst mode: one byte per enable even without prescaler.
+        // VHDL loops back through START_DMA each byte, but with no prescaler
+        // the bus is never released, so we keep phase_ = TRANSFER.
         if (mode_ == 2) {
             break;
         }
@@ -599,6 +722,14 @@ void Dma::tick_burst_wait(uint64_t master_cycles) {
     if (burst_wait_ > 0) {
         burst_wait_ -= static_cast<int64_t>(master_cycles);
         if (burst_wait_ < 0) burst_wait_ = 0;
+        // When the burst-mode prescaler wait expires, the DMA must re-
+        // arbitrate (VHDL dma.vhd:451-460 returns through START_DMA).
+        // Test 12.5 observes cpu_busreq_n() going back to false after this,
+        // so drive arbitration immediately using the current inputs.
+        if (burst_wait_ == 0 && phase_ == Phase::WAITING_CYCLES) {
+            phase_ = Phase::START_DMA;
+            tick_arbitration();
+        }
     }
 }
 
@@ -631,6 +762,15 @@ void Dma::save_state(StateWriter& w) const
     w.write_u8(static_cast<uint8_t>(rd_seq_));
     w.write_u8(reg_temp_);
     w.write_bool(z80_compat_);
+
+    // Bus arbitration (appended at the end for backward-compat).
+    w.write_u8(static_cast<uint8_t>(phase_));
+    w.write_bool(cpu_busreq_n_);
+    w.write_bool(cpu_bao_n_);
+    w.write_bool(cpu_bai_n_);
+    w.write_bool(bus_busreq_n_);
+    w.write_bool(dma_delay_);
+    w.write_bool(daisy_busy_);
 }
 
 void Dma::load_state(StateReader& r)
@@ -662,4 +802,12 @@ void Dma::load_state(StateReader& r)
     rd_seq_              = static_cast<RdSeq>(r.read_u8());
     reg_temp_            = r.read_u8();
     z80_compat_          = r.read_bool();
+
+    phase_          = static_cast<Phase>(r.read_u8());
+    cpu_busreq_n_   = r.read_bool();
+    cpu_bao_n_      = r.read_bool();
+    cpu_bai_n_      = r.read_bool();
+    bus_busreq_n_   = r.read_bool();
+    dma_delay_      = r.read_bool();
+    daisy_busy_     = r.read_bool();
 }
