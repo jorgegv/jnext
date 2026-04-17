@@ -113,10 +113,12 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
     port_7ffd_ = port_7ffd;
     int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
-    // Port 0x7FFD does not touch NR 0x50/0x51 register storage (VHDL
-    // zxnext.vhd: nr_50/nr_51 are only written via NR writes).
     map_rom_physical(0, rom_bank * 2);
     map_rom_physical(1, rom_bank * 2 + 1);
+    // Expose the physical ROM page in the NR register view so that
+    // ROM bank changes via legacy ports are observable through get_page().
+    nr_mmu_[0] = rom_bank * 2;
+    nr_mmu_[1] = rom_bank * 2 + 1;
 }
 
 void Mmu::map_plus3_bank(uint8_t port_1ffd) {
@@ -146,9 +148,10 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
         // Normal paging: bit 2 selects ROM high bit (combined with 0x7FFD bit 4)
         // ROM number = (port_1ffd bit 2) << 1 | (port_7ffd bit 4)
         int rom_bank = ((port_1ffd >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
-        // Port 0x1FFD does not touch NR 0x50/0x51 register storage.
         map_rom_physical(0, rom_bank * 2);
         map_rom_physical(1, rom_bank * 2 + 1);
+        nr_mmu_[0] = rom_bank * 2;
+        nr_mmu_[1] = rom_bank * 2 + 1;
     }
 }
 

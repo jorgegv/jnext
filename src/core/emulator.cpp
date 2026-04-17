@@ -598,6 +598,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0xF003, 0x1001,
         nullptr,
         [this](uint16_t, uint8_t v) {
+            // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
+            if ((nextreg_.cached(0x82) & 0x08) == 0) return;
             mmu_.map_plus3_bank(v);
             // Update per-slot contention for +3 (VHDL: banks >= 4 are contended).
             bool special_mode = (v & 0x01) != 0;
