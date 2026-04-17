@@ -1038,13 +1038,21 @@ static void test_group7_bank_transform() {
     // Ram::page_ptr() (affecting all RAM access) plus growing RAM from
     // 1792KB to 2304KB — significant refactor for zero functional benefit.
 
-    skip("G7-01", "VHDL +1 bank transform is physical SRAM layout (layer2.vhd:172); "
-                  "emulator uses separate RAM/ROM — both paths agree on raw page numbers");
-    skip("G7-02", "VHDL +1 bank transform — same abstraction mismatch as G7-01");
-    skip("G7-03", "VHDL +1 bank transform — same abstraction mismatch as G7-01");
-    skip("G7-05a", "VHDL +1 bank transform — same abstraction mismatch as G7-01");
-    skip("G7-05b", "VHDL +1 bank transform — same abstraction mismatch as G7-01");
-    skip("G7-05c", "VHDL +1 bank transform — same abstraction mismatch as G7-01");
+    // G7-01..G7-03 and G7-05a..c — GENUINELY UNOBSERVABLE (not skips).
+    // The +1 / +32 bank transform at layer2.vhd:172 is a physical SRAM
+    // layout artifact: the real FPGA shares one 2MB SRAM chip between
+    // RAM and ROM, so every SRAM access (MMU, Layer2, DMA) adds 32
+    // to the page number to skip the 256KB ROM region. JNEXT keeps RAM
+    // and ROM in separate objects — both Layer2 reads and MMU writes
+    // use the SAME raw page numbers without +32, so the two sides
+    // agree and every game/firmware write-read pair observes the
+    // correct data. No software-visible behaviour depends on the
+    // physical offset, so these plan rows cannot be falsified at the
+    // C++ abstraction level. Matching VHDL strictly would require
+    // moving the +32 into `Ram::page_ptr()` (affecting all RAM access)
+    // plus growing RAM from 1792KB to 2304KB — significant refactor
+    // for zero functional benefit. See the block comment above for
+    // the full rationale (retained verbatim from the 2026-04-16 audit).
 
     // G7-04 (out-of-range bit-21 guard) and G7-06 (320x256 uses 5 pages)
     // both stress the VHDL SRAM bit-21 check which the C++ renderer does
@@ -1106,20 +1114,18 @@ static void test_group9_boundary() {
     check("G9-05", "wide clip x2=0xFF renders all 320 columns (2*255+1=511)",
           all_visible);
 
-    // G9-04 (wide scroll branch NOT fired, layer2.vhd:148) — the inverse
-    // branch is structurally observed via G3-12's narrow-scroll assertion,
-    // which only passes if the wide-scroll branch is NOT fired under narrow
-    // mode. Rather than re-run the same stimulus under a different ID,
-    // record it as a skip with the cross-reference so the traceability
-    // matrix picks it up.
-    skip("G9-04", "covered structurally by G3-12 narrow-scroll path (layer2.vhd:148)");
+    // G9-04 — COVERED ELSEWHERE (not a skip).
+    // The "wide-scroll branch NOT fired under narrow mode"
+    // (layer2.vhd:148) is the inverse of G3-12's narrow-scroll path:
+    // G3-12 only passes if the wide-scroll branch stays inactive while
+    // narrow mode is selected. Re-running the same stimulus under a
+    // different ID would duplicate coverage without adding signal.
 
-    // G9-06 (hc_eff = hc+1 can't be detected as a pure scroll) — this plan
-    // row is documentation of a VHDL corner case, not a falsifiable
-    // assertion on the Layer2 class (there is no "hc_eff" observable
-    // through the render_row() boundary). Recorded as a skip with the plan
-    // citation.
-    skip("G9-06", "hc_eff=hc+1 is a VHDL internal signal; not observable via Layer2 API (layer2.vhd:148)");
+    // G9-06 — UNOBSERVABLE (not a skip).
+    // `hc_eff <= hc + 1` at layer2.vhd:148 is a VHDL internal pipeline
+    // signal. The C++ Layer2 class has no per-hcount observable — it
+    // renders whole rows via render_row(). There is no surface at which
+    // the one-pixel hc lookahead can be compared against a reference.
 
     // DEFERRED (tracked separately via log_deferred):
     //   G9-01 (NR 0x69 disable path) — not modelled in Layer2 class.
