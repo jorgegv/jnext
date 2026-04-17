@@ -959,12 +959,14 @@ static void group6() {
               pixel_index(line, 0) == 0x40);
     }
 
-    // G6.CL-05 — over_border=1: x_s=x1*2, x_e=x2*2+1.
+    // G6.CL-05 — over_border=1 + border_clip_en=1: x_s=x1*2, x_e=x2*2+1
+    // (sprites.vhd:1049-1053). Clip applies only when border_clip_en=1.
     // clip_x1=0x40 -> x_s=0x80; sprite x=0x60 cols 96..111 should be clipped
     // entirely (96 < 128). Sprite x=0x80 cols 128..143 visible.
     {
         fresh(spr, pal);
         spr.set_over_border(true);
+        spr.set_border_clip_en(true);           // enable clip in over-border
         spr.set_clip_x1(0x40);
         spr.set_clip_x2(0x80);
         upload_pattern_8bpp_solid(spr, 0, 0x50);
@@ -979,8 +981,11 @@ static void group6() {
     }
 
     // G6.CL-06 — suppressed outside clip (rendering probe).
+    // Test runs in default over_border=true (fresh() default) so
+    // border_clip_en must be set for the clip to take effect.
     {
         fresh(spr, pal);
+        spr.set_border_clip_en(true);           // enable clip in over-border
         spr.set_clip_x1(0x20);
         upload_pattern_8bpp_solid(spr, 0, 0x60);
         set4(spr, 0, 10, 50, 0x00, 0x80);
@@ -1430,11 +1435,34 @@ static void group11() {
               pixel_index(line, 0) == 0x20);
     }
 
-    // G11.OB-03 — over_border=1 + clip_en: the emulator does not expose
-    // a separate border_clip_en flag (NR 0x15 bit 5). Stub.
-    stub("G11.OB-03",
-         "over_border=1 + border_clip_en=1 clipping",
-         "NR 0x15 bit 5 (border_clip_en) not surfaced in C++ engine");
+    // G11.OB-03 — over_border=1 + border_clip_en=1 applies clip window
+    // (sprites.vhd:1049-1053: xs = clip_x1<<1, xe = clip_x2<<1|1,
+    //  ys = clip_y1, ye = clip_y2).
+    //
+    // With clip_x1=10/clip_x2=20 -> window x 20..41; clip_y1=10/clip_y2=20
+    // -> window y 10..20. A sprite at (0, 10) spans x 0..15 (outside x
+    // window -> clipped); a sprite at (20, 10) spans x 20..35 (inside
+    // window -> rendered).
+    {
+        fresh(spr, pal);
+        spr.set_over_border(true);
+        spr.set_border_clip_en(true);
+        spr.set_clip_x1(10);
+        spr.set_clip_x2(20);
+        spr.set_clip_y1(10);
+        spr.set_clip_y2(20);
+        upload_pattern_8bpp_solid(spr, 0, 0x30);
+        set4(spr, 0, 0,  10, 0x00, 0x80);   // outside clip
+        set4(spr, 1, 20, 10, 0x00, 0x80);   // inside clip
+        uint32_t line[320]; clear_line(line);
+        spr.render_scanline(line, 10, pal);
+        check("G11.OB-03",
+              "over_border=1 + border_clip_en=1 applies clip window "
+              "(1049-1053)",
+              pixel_index(line, 0) == -1 && pixel_index(line, 20) == 0x30,
+              DETAIL("x0=%d (want -1) x20=%d (want 48)",
+                     pixel_index(line, 0), pixel_index(line, 20)));
+    }
 
     // G11.OB-04 — over_border=0: vcounter >= 224 suppressed.
     {
@@ -2085,16 +2113,64 @@ static void group13() {
               (spr.read_status() & 0x02) == 0);
     }
 
-    // G13.OT-02..OT-04 — cycle-budget overtime not modelled in C++ engine.
-    stub("G13.OT-02",
-         "128 visible anchors on one line -> overtime",
-         "C++ engine lacks per-line cycle budget; max_sprites_ flag unused");
-    stub("G13.OT-03",
-         "Overtime independent of collision",
-         "See G13.OT-02");
-    stub("G13.OT-04",
-         "Both flags accumulate",
-         "See G13.OT-02");
+    // G13.OT-02 — 128 visible in-range anchors on one line exceed the
+    // per-scanline cycle budget, so overtime bit 1 is set
+    // (sprites.vhd:977 sprites_overtime <= state_s /= S_IDLE and
+    //  line_reset_re = "01" — behavioural approximation in sprites.cpp
+    //  with SPR_LINE_BUDGET_CYCLES = 1792; 128 + 128*16 = 2176 > 1792).
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x11);
+        for (int i = 0; i < 128; ++i) {
+            set4(spr, i, 0, 0, 0x00, 0x80);   // visible, pattern 0, in range
+        }
+        spr.read_status();                     // clear any sticky state
+        uint32_t line[320]; clear_line(line);
+        spr.render_scanline(line, 0, pal);
+        uint8_t s = spr.read_status();
+        check("G13.OT-02",
+              "128 visible anchors -> overtime bit 1 (977)",
+              (s & 0x02) == 0x02,
+              DETAIL("status=0x%02X", s));
+    }
+
+    // G13.OT-03 — overtime is independent of collision. Use transparent
+    // pattern bytes so line_occupied never records writes and collision
+    // bit stays 0, but cycle budget still blown.
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0x00);
+        upload_pattern_8bpp_solid(spr, 0, 0x00);   // all transparent
+        for (int i = 0; i < 128; ++i) {
+            set4(spr, i, 0, 0, 0x00, 0x80);
+        }
+        spr.read_status();
+        uint32_t line[320]; clear_line(line);
+        spr.render_scanline(line, 0, pal);
+        uint8_t s = spr.read_status();
+        check("G13.OT-03",
+              "Overtime fires without collision (977 independent of 991)",
+              (s & 0x02) == 0x02 && (s & 0x01) == 0x00,
+              DETAIL("status=0x%02X", s));
+    }
+
+    // G13.OT-04 — both overtime and collision flags accumulate in bits 1
+    // and 0 respectively (sprites.vhd:990-991 both OR into status_reg_s).
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x11);   // opaque, all pixels
+        for (int i = 0; i < 128; ++i) {
+            set4(spr, i, 0, 0, 0x00, 0x80);        // all at same position
+        }
+        spr.read_status();
+        uint32_t line[320]; clear_line(line);
+        spr.render_scanline(line, 0, pal);
+        uint8_t s = spr.read_status();
+        check("G13.OT-04",
+              "Overtime and collision both set (977,991)",
+              (s & 0x03) == 0x03,
+              DETAIL("status=0x%02X", s));
+    }
 
     // G13.SR-01 — status bits 7:2 always 0.
     {
