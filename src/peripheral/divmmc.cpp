@@ -79,6 +79,19 @@ uint8_t DivMmc::read_control() const {
     return control_reg_ & 0xCF;  // bits 5:4 masked to zero per VHDL zxnext.vhd:4190
 }
 
+// ── RETN hook ─────────────────────────────────────────────────────────
+
+void DivMmc::on_retn() {
+    // VHDL divmmc.vhd:126,139 — i_retn_seen clears automap hold/held.
+    // In JNEXT's collapsed model this is just automap_active_.
+    // button_nmi clear (divmmc.vhd:108) belongs to Task 8 (Multiface);
+    // intentionally not handled here.
+    if (automap_active_) {
+        divmmc_log()->debug("RETN: automap cleared");
+        automap_active_ = false;
+    }
+}
+
 // ── Auto-mapping ──────────────────────────────────────────────────────
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
