@@ -1,6 +1,6 @@
 # Test Plan Traceability Matrix
 
-> Updated 2026-04-16 from main at commit `de2356c`. This document is the canonical map from plan row → test ID → VHDL citation → test location for the 16 jnext subsystem unit test suites. See doc/testing/UNIT-TEST-PLAN-EXECUTION.md for the authoring process and doc/design/EMULATOR-DESIGN-PLAN.md §Phase 9 for the task tree.
+> Updated 2026-04-17 from main at commit `d4ea4e1`. This document is the canonical map from plan row → test ID → VHDL citation → test location for the 16 jnext subsystem unit test suites. See doc/testing/UNIT-TEST-PLAN-EXECUTION.md for the authoring process and doc/design/EMULATOR-DESIGN-PLAN.md §Phase 9 for the task tree.
 
 ## Summary
 
@@ -16,14 +16,14 @@
 | Compositor       | 114       | 114     | 99   | 15   | 0         | 0       | `bf41439`         |
 | Audio            | 197       | 197     | 127  | 0    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 156     | 121  | 0    | 35        | 0       | `deeb9f6000`      |
-| DivMMC+SPI       | 123       | 123     | 64   | 3    | 56        | 0       | `c9d057e000`      |
+| DivMMC+SPI       | 123       | 123     | 67   | 0    | 56        | 0       | `d4ea4e1`         |
 | CTC+Interrupts   | 150       | 150     | 43   | 1    | 106       | 0       | `9591481000`      |
 | UART+I2C/RTC     | 105       | 105     | 58   | 0    | 48        | 0       | `628d01f000`      |
-| NextREG          | 64        | 64      | 17   | 0    | 47        | 0       | `75fe6da000`      |
+| NextREG          | 64        | 64      | 17   | 0    | 47        | 0       | `48985bd`         |
 | IO Port Dispatch | 86        | 86      | 78   | 2    | 6         | 0       | `28e7356`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1776** non-Z80N plan rows (+ 30 Z80N), **1776** mapped to tests, **0** missing. Aggregate per-row status across all 15 non-Z80N subsystems: **1065 pass, 21 fail, 695 skip, 0 missing**. Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1776** non-Z80N plan rows (+ 30 Z80N), **1776** mapped to tests, **0** missing. Aggregate per-row status across all 15 non-Z80N subsystems: **1068 pass, 18 fail, 695 skip, 0 missing**. Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -1294,7 +1294,7 @@ Last-touch commit: `651ea41d76a30d6745a4a83c7fa79d859d61ae77` (`651ea41d76`)
 
 ## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`
 
-Last-touch commit: `86dc8f85dcd38b25259a532ebea3b7b0ac998a15` (`86dc8f85dc`)
+Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 
 | Test ID          | Plan row title                                               | VHDL file:line | Status  | Test file:line                   |
 |------------------|--------------------------------------------------------------|----------------|---------|----------------------------------|
@@ -1383,11 +1383,11 @@ Last-touch commit: `86dc8f85dcd38b25259a532ebea3b7b0ac998a15` (`86dc8f85dc`)
 | SS-07            | Write 0xF7: selects RPI1 (bit 3 = 0)                         | —              | pass    | test/divmmc/divmmc_test.cpp:1078 |
 | SS-08            | Write 0x7F in config mode: selects Flash                     | —              | skip    | test/divmmc/divmmc_test.cpp:1087 |
 | SS-09            | Write 0x7F outside config mode: all deselected (0xFF)        | —              | fail    | test/divmmc/divmmc_test.cpp:1097 |
-| SS-10            | Write any other value: all deselected (0xFF)                 | —              | fail    | test/divmmc/divmmc_test.cpp:1110 |
+| SS-10            | Write any other value: all deselected (0xFF)                 | —              | pass    | test/divmmc/divmmc_test.cpp:1110 |
 | SS-11            | Only one device selected at a time                           | —              | fail    | test/divmmc/divmmc_test.cpp:1124 |
 | SX-01            | Write to port 0xEB: sends byte via MOSI                      | —              | pass    | test/divmmc/divmmc_test.cpp:1149 |
 | SX-02            | Read from port 0xEB: sends 0xFF via MOSI, receives MISO      | —              | pass    | test/divmmc/divmmc_test.cpp:1177 |
-| SX-03            | Read returns PREVIOUS exchange result                        | —              | fail    | test/divmmc/divmmc_test.cpp:1199 |
+| SX-03            | Read returns PREVIOUS exchange result                        | —              | pass    | test/divmmc/divmmc_test.cpp:1199 |
 | SX-04            | First read after reset returns 0xFF                          | —              | pass    | test/divmmc/divmmc_test.cpp:1213 |
 | SX-05            | Write 0xAA then read: read returns MISO from write cycle     | —              | pass    | test/divmmc/divmmc_test.cpp:1234 |
 | SX-06            | SPI transfer is 16 clock cycles (8 bits x 2 edges)           | —              | skip    | test/divmmc/divmmc_test.cpp:1243 |
@@ -1407,7 +1407,7 @@ Last-touch commit: `86dc8f85dcd38b25259a532ebea3b7b0ac998a15` (`86dc8f85dc`)
 | ML-02            | Full byte latched into `miso_dat` on `state_last_d`          | —              | skip    | test/divmmc/divmmc_test.cpp:1324 |
 | ML-03            | `miso_dat` holds value until next transfer completes         | —              | pass    | test/divmmc/divmmc_test.cpp:1340 |
 | ML-04            | Input and output shift registers are independent             | —              | skip    | test/divmmc/divmmc_test.cpp:1350 |
-| ML-05            | Reset sets `ishift_r` to all 1s                              | —              | fail    | test/divmmc/divmmc_test.cpp:1365 |
+| ML-05            | Reset sets `ishift_r` to all 1s                              | —              | pass    | test/divmmc/divmmc_test.cpp:1365 |
 | ML-06            | 16 cycles minimum between read/write operations              | —              | skip    | test/divmmc/divmmc_test.cpp:1374 |
 | MX-01            | Flash selected: MISO from flash                              | —              | skip    | test/divmmc/divmmc_test.cpp:1389 |
 | MX-02            | RPI selected: MISO from RPI                                  | —              | skip    | test/divmmc/divmmc_test.cpp:1394 |
