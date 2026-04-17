@@ -237,7 +237,13 @@ void Ctc::set_int_enable(uint8_t mask) {
     }
 }
 
-void Ctc::handle_zc_to(int channel) {
+void Ctc::handle_zc_to(int channel, int depth) {
+    // Guard: max one full pass around the 4-channel ring.  VHDL uses
+    // edge detection with one-cycle delay so cascading beyond 4 channels
+    // is physically impossible; this prevents stack overflow if a
+    // pathological all-counter TC=1 ring is configured.
+    if (depth >= 4) return;
+
     // Fire interrupt if enabled
     if (channels_[channel].int_enabled() && on_interrupt) {
         ctc_log()->debug("ch{} ZC/TO -> interrupt", channel);
@@ -247,14 +253,11 @@ void Ctc::handle_zc_to(int channel) {
     // Daisy-chain: trigger the next channel (ring topology).
     // VHDL zxnext.vhd:4084: i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3)
     // ch0←ch3, ch1←ch0, ch2←ch1, ch3←ch2.
-    // Note: VHDL uses edge detection with one-cycle delay, so the ring
-    // cannot cascade instantaneously. Our synchronous recursion could
-    // overflow with a pathological all-counter TC=1 ring config.
     {
         int next = (channel + 1) & 3;
         ctc_log()->trace("ch{} ZC/TO -> trigger ch{}", channel, next);
         if (channels_[next].trigger()) {
-            handle_zc_to(next);
+            handle_zc_to(next, depth + 1);
         }
     }
 }

@@ -132,6 +132,7 @@ private:
     std::array<CtcChannel, 4> channels_;
 
     /// Handle ZC/TO output from a channel: fire interrupt callback and
-    /// trigger the next channel in the daisy-chain.
-    void handle_zc_to(int channel);
+    /// trigger the next channel in the daisy-chain.  depth guards against
+    /// infinite recursion in pathological all-counter TC=1 ring configs.
+    void handle_zc_to(int channel, int depth = 0);
 };
