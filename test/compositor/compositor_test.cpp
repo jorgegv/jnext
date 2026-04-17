@@ -131,7 +131,16 @@ static void clear_layers(Renderer& r) {
         r.sprite_line_[i]  = TRANSP;
         r.tilemap_line_[i] = TRANSP;
         r.ula_over_flags_[i] = false;
+        r.layer2_priority_[i] = false;
+        r.ula_border_[i]   = false;
     }
+    // Default to sprite_en=true (normal game state); tests that need
+    // sprite_en=0 (TR-42) set it explicitly.
+    r.sprite_en_ = true;
+    // Default to stencil off and TM disabled; tests that need them set
+    // them explicitly.
+    r.stencil_mode_ = false;
+    r.tm_enabled_ = false;
 }
 
 static uint32_t composite_one(Renderer& r, uint32_t fb_argb) {
@@ -294,14 +303,12 @@ static void test_TR() {
 
     // TR-42: NR 0x15[0] sprite_en=0 forces sprite_pixel_en_2=0 for all
     //        sprite pixels at the compositor. VHDL zxnext.vhd:6934, 6819,
-    //        7118. Emulator has no global sprite_en at the Renderer
-    //        boundary — the test sets sprite_line_ to opaque, then the
-    //        VHDL oracle (sprite_en=0) says "sprite transparent at
-    //        compositor" => fallback. This will fail until the Renderer
-    //        honours the global sprite_en bit.
+    //        7118. The test sets sprite_line_ to opaque, then disables
+    //        sprite_en so the compositor forces sprite transparent.
     {
         clear_layers(r);
         r.set_layer_priority(0);
+        r.sprite_en_ = false;                   // NR 0x15 bit 0 = 0
         r.sprite_line_[0] = PIX_S;              // engine delivered pixel_en=1
         // VHDL oracle: with NR 0x15[0]=0 the compositor sees the sprite
         // as transparent; only fallback would display.
@@ -675,15 +682,12 @@ static void test_PRI() {
 
     // PRI-011-LUS-border: mode 011 border exception. ula_border_2=1,
     // tm_transparent=1, sprite opaque, ULA opaque => sprite shows
-    // through (VHDL zxnext.vhd:7256 exception clause). Emulator has
-    // no border flag; asserting VHDL oracle: S wins. The emulator
-    // will currently return PIX_ULA because its LUS branch checks
-    // L2 -> U -> S with U opaque; this row is expected to FAIL
-    // until Task 3 adds the border-exception path.
+    // through (VHDL zxnext.vhd:7256 exception clause).
     {
         clear_layers(r);
         r.set_layer_priority(3);                // 011 LUS
         r.ula_line_[0]    = PIX_ULA;            // ULA opaque (border)
+        r.ula_border_[0]  = true;               // mark as border pixel
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // VHDL oracle: border exception fires -> ULA suppressed -> S wins.
@@ -698,6 +702,7 @@ static void test_PRI() {
         clear_layers(r);
         r.set_layer_priority(4);                // 100 USL
         r.ula_line_[0]    = PIX_ULA;
+        r.ula_border_[0]  = true;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("PRI-100-USL-border",
@@ -713,6 +718,7 @@ static void test_PRI() {
         clear_layers(r);
         r.set_layer_priority(5);                // 101 ULS
         r.ula_line_[0]    = PIX_ULA;
+        r.ula_border_[0]  = true;
         r.layer2_line_[0] = PIX_L2;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
@@ -795,7 +801,7 @@ static void test_L2P() {
         clear_layers(r);
         r.set_layer_priority(row.mode);
         if (row.U) r.ula_line_[0]    = PIX_ULA;
-        if (row.L) r.layer2_line_[0] = PIX_L2;
+        if (row.L) { r.layer2_line_[0] = PIX_L2; r.layer2_priority_[0] = true; }
         if (row.S) r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check(row.id, "L2 priority-bit promotion (VHDL case branch)",
@@ -817,12 +823,13 @@ static void test_L2P() {
     }
 
     // L2P-17: mode 110 (blend add) with L2 priority bit => blend RGB shown.
-    //        VHDL 7300. Emulator does not implement blend modes; will fail.
+    //        VHDL 7300.
     {
         clear_layers(r);
         r.set_layer_priority(6);                // 110
         r.ula_line_[0]    = PIX_ULA;
         r.layer2_line_[0] = PIX_L2;
+        r.layer2_priority_[0] = true;
         r.sprite_line_[0] = PIX_S;
         // VHDL oracle: L2 priority bit forces the blend output as top.
         // With the test colours, compute the per-channel blend add (clamped to 7).
@@ -845,6 +852,7 @@ static void test_L2P() {
         r.set_layer_priority(7);                // 111
         r.ula_line_[0]    = PIX_ULA;
         r.layer2_line_[0] = PIX_L2;
+        r.layer2_priority_[0] = true;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         bool is_blendish = (got != PIX_S) && (got != PIX_ULA) && (got != PIX_L2);
@@ -1083,26 +1091,29 @@ static void test_BL() {
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
 
-    // BL-27: mode 111 only L2 opaque => subtracted (L2+0). VHDL 7350.
-    //        per-channel: R=3+0=3 (<=4) -> 0 ; G=4+0=4 (<=4) -> 0 ; B=3+0=3 (<=4) -> 0.
+    // BL-27: mode 111 only L2 opaque, ULA transparent. VHDL 7314/7350.
+    //        mix_rgb_transparent=1 => subtractive formula SKIPPED (VHDL 7314).
+    //        Raw sums pass through: (3+0, 4+0, 3+0) = (3, 4, 3).
+    //        Output = mixer_argb with unmodified L2 channels.
     {
         clear_layers(r);
         r.set_layer_priority(7);
         uint8_t c = rgb8(3,4,3);
         r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(3,0), bl_sub(4,0), bl_sub(3,0)));
-        check("BL-27", "mode 111: only L2 opaque => L2-5 clamped (VHDL 7350)",
+        // VHDL: formula gated on mix_rgb_transparent — skipped here, raw L2 passes through.
+        uint32_t expected = Renderer::rrrgggbb_to_argb(c);
+        check("BL-27", "mode 111: only L2 opaque, sub formula skipped (VHDL 7314,7350)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
 
     // BL-28: L2 priority bit overrides blend in mode 110. VHDL 7300.
-    //        Emulator has no priority bit — test pins oracle.
     {
         clear_layers(r);
         r.set_layer_priority(6);
         r.layer2_line_[0]  = PIX_L2;
+        r.layer2_priority_[0] = true;
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
@@ -1118,6 +1129,7 @@ static void test_BL() {
         clear_layers(r);
         r.set_layer_priority(7);
         r.layer2_line_[0]  = PIX_L2;
+        r.layer2_priority_[0] = true;
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
@@ -1256,10 +1268,11 @@ static void test_STEN() {
     r.reset();
 
     // STEN-10: Bitwise AND — ULA=all1 (0xFF), TM=0xE0 (R3=7, rest 0). Oracle:
-    //          stencil = 0xE0. Emulator: no stencil, tm replaces ula in U slot
-    //          => result = TM's ARGB. Compare to stencil oracle.
+    //          stencil = 0xE0. Compare to stencil oracle.
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
+        r.tm_enabled_ = true;
         r.set_layer_priority(0);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(0xFF);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0xE0);
@@ -1275,6 +1288,8 @@ static void test_STEN() {
     //          result not transparent.
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
+        r.tm_enabled_ = true;
         r.set_layer_priority(0);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(0xFF);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0x00);
@@ -1289,6 +1304,8 @@ static void test_STEN() {
     // STEN-12: ULA transparent => stencil transparent. VHDL 7112.
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
+        r.tm_enabled_ = true;
         r.set_layer_priority(0);
         r.ula_line_[0]     = TRANSP;
         r.tilemap_line_[0] = PIX_TM;
@@ -1303,6 +1320,8 @@ static void test_STEN() {
     // STEN-13: TM transparent => stencil transparent. VHDL 7112.
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
+        r.tm_enabled_ = true;
         r.set_layer_priority(0);
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = TRANSP;
@@ -1317,6 +1336,8 @@ static void test_STEN() {
     // STEN-14: Both transparent => stencil transparent.
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
+        r.tm_enabled_ = true;
         r.set_layer_priority(0);
         uint32_t fb = Renderer::rrrgggbb_to_argb(0xE3);
         uint32_t got = composite_one(r, fb);
@@ -1330,6 +1351,7 @@ static void test_STEN() {
     //          result = ULA (non-stencil path).
     {
         clear_layers(r);
+        r.stencil_mode_ = true;
         r.set_layer_priority(0);
         r.ula_line_[0] = PIX_ULA;
         r.tilemap_line_[0] = TRANSP;            // tm_en=0
