@@ -1261,7 +1261,7 @@ int main() {
     group15_enable_below();  std::printf("  G15 Enable/below done\n");
 
     std::printf("\n========================================================\n");
-    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
                 g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     std::printf("\nPer-group breakdown:\n");

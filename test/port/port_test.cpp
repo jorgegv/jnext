@@ -1219,7 +1219,7 @@ static void test_group_wired_or() {
 
 static void print_summary() {
     printf("\n================================================================\n");
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            g_total + (int)g_skips.size(), g_pass, g_fail, g_skips.size());
     printf("================================================================\n");
     if (g_fail) {

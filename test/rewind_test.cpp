@@ -289,6 +289,6 @@ int main()
     test_snapshot_roundtrip();
     test_step_back_disabled();
 
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: 0\n", pass_count + fail_count, pass_count, fail_count);
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", pass_count + fail_count, pass_count, fail_count);
     return fail_count > 0 ? 1 : 0;
 }

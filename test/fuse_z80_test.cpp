@@ -398,7 +398,7 @@ int main(int argc, char* argv[]) {
     // Summary
     printf("\nFUSE Z80 Test Results\n");
     printf("=====================\n");
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %d\n\n",
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n\n",
            total, passed, failed, skipped);
 
     if (!failures.empty()) {

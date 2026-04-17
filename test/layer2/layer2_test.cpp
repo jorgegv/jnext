@@ -1188,7 +1188,7 @@ int main() {
     log_deferred();
 
     printf("\n================================================\n");
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            g_total + (int)g_skips.size(), g_pass, g_fail, g_skips.size());
 
     if (!g_skips.empty()) {

@@ -1573,7 +1573,7 @@ int main() {
     group_in();  std::printf("  §17 Integration          done\n");
 
     std::printf("\n======================================================\n");
-    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
                 g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     // Per-group breakdown

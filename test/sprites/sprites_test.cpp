@@ -2305,7 +2305,7 @@ int main() {
     group15();
 
     printf("\n============================================\n");
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %d\n",
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
            g_pass + g_fail + g_stub, g_pass, g_fail, g_stub);
 
     // Per-group breakdown.

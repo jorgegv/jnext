@@ -648,7 +648,7 @@ int main() {
     test_port_fe_format();  printf("  Group: FE     done\n");
 
     printf("\n=====================================================\n");
-    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %d\n",
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
            g_total + static_cast<int>(g_skipped.size()), g_pass, g_fail,
            static_cast<int>(g_skipped.size()));
     printf("\nPer-group breakdown (live rows only; skipped rows tallied separately):\n");
