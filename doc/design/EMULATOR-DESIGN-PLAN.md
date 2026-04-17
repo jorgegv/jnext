@@ -991,7 +991,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
     - ✓ `--rzx-record FILE`
     - ✓ `--record FILE` (records video with audio)
     - ✓ `--speed PERCENT` (emulator throttle: 50=half, 100=normal, 200=2x, 400=4x)
-- [ ] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - **PUBLIC RELEASE**
+- [x] **Milestone**: v0.9 release (NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - **PUBLIC RELEASE**
 
 ### Phase 9 - CI, Quality and Release
 
@@ -1011,27 +1011,25 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] 11-dapr-isometric - verified and fixed
   - [x] dapr-mathfunc - verified and fixed - Works the same in JNext, ZesarUX and CSpect
 
-- [ ] For each emulator module, do an exhaustive analysis of VHDL code for that module and all its functions and modes, generate a test plan for VHDL->Code compliance check. DO NOT, UNDER ANY CIRCUMSTANCE, USE THE EXISTING C++ CODE AS A REFERENCE FOR THE TESTS! We need the tests for verifying the C++ code! - Subsystems to generate test plans for (numbers below reflect state post Task 5 Step 2 emulator-free test fixes and Step 5 Phase 2 theatre rebuilds; see `.prompts/2026-04-14.md` Task 5 Completion Status):
-  - [x] Z80N processor (FUSE Z80 1356/1356 + Z80N 78/78 compliance suite, VHDL-derived) — [Z80N-COMPLIANCE-TEST-SUITE.md](../testing/Z80N-COMPLIANCE-TEST-SUITE.md)
-  - [x] Memory — MMU & RAM (143 rows, 64/66 live pass (97.0%), 77 skip, 2 fail — RST-01/02 `Mmu::reset()` slot clobber; refactored to Phase 2 per-row idiom Wave 1 task1-wave1-mmu) — [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md)
-  - [x] ULA Video (122 rows, 47/48 live pass (97.9%), 75 skip, 1 fail — S13.14 frame_done T-state flip retained as regression witness; refactored Wave 3 task1-wave3-ula) — [ULA-VIDEO-TEST-PLAN-DESIGN.md](../testing/ULA-VIDEO-TEST-PLAN-DESIGN.md)
-  - [x] Layer 2 (89/95 live, 6 failures — all from missing `+1` bank transform; retracted prior 61/61 theatre) — [LAYER2-TEST-PLAN-DESIGN.md](../testing/LAYER2-TEST-PLAN-DESIGN.md)
-  - [x] Sprites (115/116 live, 10 stub, 1 failure — Y clip 8-bit; retracted prior 48/48 theatre) — [SPRITES-TEST-PLAN-DESIGN.md](../testing/SPRITES-TEST-PLAN-DESIGN.md)
-  - [x] Tilemap (69 rows, 38/51 live pass (74.5%), 18 skip, 13 fail — 10 control-bit swap anti-tests replaced, plus NEW TM-15 rotate X/Y swap, TM-30/31 512-mode 9-bit tile index; refactored Wave 3 task1-wave3-tilemap) — [TILEMAP-TEST-PLAN-DESIGN.md](../testing/TILEMAP-TEST-PLAN-DESIGN.md)
-  - [x] Copper (66/66 live, 10 stub, 0 failures; retracted prior 69/69 theatre) — [COPPER-TEST-PLAN-DESIGN.md](../testing/COPPER-TEST-PLAN-DESIGN.md)
-  - [x] Compositor (90/114 live, 24 failures — blend modes 110/111, stencil, ULA/TM blend, palette-compare transparency, border exception, sprite_en gating, per-line latches, L2 palette promotion, blank visibility; retracted prior 74/74 theatre) — [COMPOSITOR-TEST-PLAN-DESIGN.md](../testing/COMPOSITOR-TEST-PLAN-DESIGN.md)
-  - [x] Audio — AY/YM2149 + DAC + Beeper (197 rows, 121/127 live pass (95.3%), 73 skip, 6 fail — AY-81/102/110/122 envelope hold family (wider than shape-0/9), TS-10/TS-42 Turbosound pan; refactored Wave 1 task1-wave1-audio) — [AUDIO-TEST-PLAN-DESIGN.md](../testing/AUDIO-TEST-PLAN-DESIGN.md)
-  - [x] DMA (156 rows, 116/121 live pass (95.9%), 35 skip, 5 fail — 9.8/14.6/14.7 block_len=0, 12.6 byte-mode NEW, 12.7 continuous+prescaler NEW; refactored Wave 1 task1-wave1-dma) — [DMA-TEST-PLAN-DESIGN.md](../testing/DMA-TEST-PLAN-DESIGN.md)
-  - [x] DivMMC + SPI / SD card (123 rows, 53/67 live pass (79.1%), 56 skip, 14 fail — E3-04 mapram OR-latch, E3-07/08 bits 5:4 mask, 6 ROM3 gating rows (EP-02/03/11, NR-01/02/05), 3 SS-write decode rows (SS-09/10/11), SPI pipeline SX-03, SpiMaster reset ML-05; refactored Wave 2 task1-wave2-divmmc) — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](../testing/DIVMMC-SPI-TEST-PLAN-DESIGN.md)
-  - [x] CTC + Interrupt controller (150 rows, 43/44 live pass (97.7%), 106 skip, 1 fail — CTC-CH-01 ch3→ch0 ring wrap; 106 skips = IM2 fabric/pulse/ULA-INT/NR 0xC0-0xCE/DMA/UNQ/JOY subsystems not implemented in jnext tree; refactored Wave 3 task1-wave3-ctc) — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](../testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
-  - [x] UART + I2C / RTC (105 rows, 48/60 live pass (80.0%), 46 skip, 12 fail — 9 collapse to `i2c.cpp:101` false-STOP bug, 3 new SEL-02/05/DUAL-02 UART select-mask bit6→bit3 bug `uart.cpp:299` vs VHDL `uart.vhd:371`; refactored Wave 2 task1-wave2-uart) — [UART-I2C-TEST-PLAN-DESIGN.md](../testing/UART-I2C-TEST-PLAN-DESIGN.md)
-  - [x] NextREG (64 rows, 16/17 live pass (94.1%), 47 skip, 1 fail — NEW SEL-02 `NextReg::reset()` sets `selected_=0` but VHDL `zxnext.vhd:4594-4596` specifies 0x24. 47 skips reflect that most plan rows are integration-tier (belong to subsystem handlers); refactored Wave 2 task1-wave2-nextreg) — [NEXTREG-TEST-PLAN-DESIGN.md](../testing/NEXTREG-TEST-PLAN-DESIGN.md)
-  - [x] I/O Port Dispatch (64/82 live, 6 stub, 18 failures — NR 0x82-0x85 gating absent, Pentagon/Kempston/mouse/ULA+ handlers missing, `register_handler` overlap asymmetry; retracted prior 78/78 theatre) — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](../testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
-  - [x] Keyboard + Joystick (21/23 live, 126 skip, 2 failures — NR 0x05/NR 0x0B reset defaults zeroed by `NextReg::reset()`; 126 skips = entire joystick/mouse/NMI/port-0xFE subsystems not in C++; retracted prior 71/71 theatre) — [INPUT-TEST-PLAN-DESIGN.md](../testing/INPUT-TEST-PLAN-DESIGN.md)
+- [x] For each emulator module, generate a VHDL-derived compliance test plan and test suite. 16 subsystem plans in `doc/testing/`, each with per-row VHDL citations:
+  - [x] Z80N — [Z80N-COMPLIANCE-TEST-SUITE.md](../testing/Z80N-COMPLIANCE-TEST-SUITE.md)
+  - [x] Memory/MMU — [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md)
+  - [x] ULA Video — [ULA-VIDEO-TEST-PLAN-DESIGN.md](../testing/ULA-VIDEO-TEST-PLAN-DESIGN.md)
+  - [x] Layer 2 — [LAYER2-TEST-PLAN-DESIGN.md](../testing/LAYER2-TEST-PLAN-DESIGN.md)
+  - [x] Sprites — [SPRITES-TEST-PLAN-DESIGN.md](../testing/SPRITES-TEST-PLAN-DESIGN.md)
+  - [x] Tilemap — [TILEMAP-TEST-PLAN-DESIGN.md](../testing/TILEMAP-TEST-PLAN-DESIGN.md)
+  - [x] Copper — [COPPER-TEST-PLAN-DESIGN.md](../testing/COPPER-TEST-PLAN-DESIGN.md)
+  - [x] Compositor — [COMPOSITOR-TEST-PLAN-DESIGN.md](../testing/COMPOSITOR-TEST-PLAN-DESIGN.md)
+  - [x] Audio (AY+DAC+Beeper) — [AUDIO-TEST-PLAN-DESIGN.md](../testing/AUDIO-TEST-PLAN-DESIGN.md)
+  - [x] DMA — [DMA-TEST-PLAN-DESIGN.md](../testing/DMA-TEST-PLAN-DESIGN.md)
+  - [x] DivMMC+SPI — [DIVMMC-SPI-TEST-PLAN-DESIGN.md](../testing/DIVMMC-SPI-TEST-PLAN-DESIGN.md)
+  - [x] CTC+Interrupts — [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](../testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md)
+  - [x] UART+I2C/RTC — [UART-I2C-TEST-PLAN-DESIGN.md](../testing/UART-I2C-TEST-PLAN-DESIGN.md)
+  - [x] NextREG — [NEXTREG-TEST-PLAN-DESIGN.md](../testing/NEXTREG-TEST-PLAN-DESIGN.md)
+  - [x] I/O Port Dispatch — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](../testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
+  - [x] Input (Keyboard+Joystick) — [INPUT-TEST-PLAN-DESIGN.md](../testing/INPUT-TEST-PLAN-DESIGN.md)
 
-  **Unit-test totals post-Phase 2: 1133/1244 live pass (91.1%), 152 honest skips/stubs, 91 legitimate emulator-bug failures** (all in Task 3 backlog, VHDL-verified, no test-harness bugs remain).
-
-- [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). All emulator-bug failures resolved: **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. Fixes: compositor (15), port dispatch (2), CTC (1), I2C (1), NextREG integration, SPI pipeline, +3 ROM-high, NR 0x82 gating.
+- [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
