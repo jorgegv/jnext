@@ -148,6 +148,31 @@ public:
     // Top 9 bits (bits 13..5) used in prescaler comparison.
     uint16_t dma_timer_hi9() const { return (dma_timer_s_ >> 5) & 0x1FF; }
 
+    // ── Bus arbitration (VHDL dma.vhd:267-302, zxnext.vhd dma_holds_bus) ──
+    //
+    // Active-low signals mirror the VHDL ports; all "accessor" methods
+    // return the latched value of the corresponding VHDL signal.  Inputs
+    // default to values that let START_DMA -> TRANSFER auto-advance so
+    // tests which do not exercise arbitration see no change in behaviour.
+
+    /// cpu_busreq_n_o (VHDL dma.vhd:194).  True = deasserted (idle or deferred),
+    /// false = asserted (DMA wants the bus).
+    bool cpu_busreq_n() const { return cpu_busreq_n_; }
+
+    /// cpu_bao_n (daisy-chain pass-through out).  Tracks cpu_bai_n_ when the
+    /// DMA is idle/deferred; driven high while the DMA owns the bus.
+    bool cpu_bao_n() const { return cpu_bao_n_; }
+
+    /// True when the DMA currently holds the bus (bus granted + transferring).
+    /// Mirrors zxnext.vhd `dma_holds_bus <= not cpu_busak_n`.
+    bool dma_holds_bus() const;
+
+    // Bus-arbitration inputs (all active-low, mirroring VHDL ports).
+    void set_cpu_bai_n(bool v)     { cpu_bai_n_    = v; }
+    void set_bus_busreq_n(bool v)  { bus_busreq_n_ = v; }
+    void set_dma_delay(bool v)     { dma_delay_    = v; }
+    void set_daisy_busy(bool v)    { daisy_busy_   = v; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -182,6 +207,24 @@ private:
 
     /// Perform the LOAD command: set src/dst from port A/B addresses per direction.
     void cmd_load();
+
+    /// Advance the bus-arbitration FSM one tick (VHDL dma.vhd:260-305).
+    /// Called at the top of execute_burst to resolve START_DMA -> WAITING_ACK
+    /// -> TRANSFER transitions and to re-acquire the bus on WAITING_CYCLES exit.
+    void tick_arbitration();
+
+    // ── Bus-arbitration phase FSM (VHDL dma_seq_t) ───────────────────
+    //
+    // Mirrors dma.vhd:107 dma_seq_t but collapses the three per-byte
+    // TRANSFERING_* sub-states and the FINISH_DMA state into Phase::TRANSFER
+    // (and Phase::IDLE) since those are not observable via this class.
+    enum class Phase : uint8_t {
+        IDLE,            // dma.vhd IDLE  (cpu_busreq_n=1, not transferring)
+        START_DMA,       // requesting bus, checking defer conditions
+        WAITING_ACK,     // busreq asserted, waiting for CPU to ack via bai_n=0
+        TRANSFER,        // DMA owns the bus, moving bytes
+        WAITING_CYCLES   // burst-mode prescaler wait with bus released
+    };
 
     // ── DMA registers (matching VHDL signal names) ────────────────────
 
@@ -258,4 +301,19 @@ private:
     RdSeq    rd_seq_ = RdSeq::STATUS;
     uint8_t  reg_temp_ = 0;              // stores base register byte for sub-byte sequencing
     bool     z80_compat_ = false;        // current DMA mode (latched on each port access)
+
+    // ── Bus arbitration state (VHDL dma.vhd:107, 194, 211-305) ────────
+    //
+    // Outputs (active-low) — reflect the VHDL signals of the same name.
+    // Inputs default to values that permit START_DMA -> TRANSFER to auto-
+    // advance in a single execute_burst() call; tests that wish to
+    // exercise deferral drive them explicitly via the setters above.
+
+    Phase    phase_          = Phase::IDLE;
+    bool     cpu_busreq_n_   = true;    // output: deasserted at reset
+    bool     cpu_bao_n_      = true;    // output: cpu_bao_n <= cpu_bai_n (dma.vhd:226)
+    bool     cpu_bai_n_      = false;   // input:  bus already ack'd by default
+    bool     bus_busreq_n_   = true;    // input:  no downstream bus request
+    bool     dma_delay_      = false;   // input:  IM2 DMA not delaying
+    bool     daisy_busy_     = false;   // input:  daisy-chain not busy
 };
