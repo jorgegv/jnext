@@ -1031,22 +1031,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
-- [ ] **Reduce SKIPs — implement missing features** to un-skip the 696 plan rows that have VHDL-traced tests but no C++ implementation yet. Work per-subsystem, one branch per feature, with code review and regression:
+- [ ] **Reduce SKIPs — implement missing features** to un-skip the 696 plan rows that have VHDL-traced tests but no C++ implementation yet. Work per-subsystem, one branch per feature, with code review and regression. Order below prioritises biggest wins (low-skip, mostly algorithmic) before the larger subsystem lifts that require substantial new code:
+  - [ ] DMA (35 skip) — burst/continuous timing, edge cases
+  - [ ] Tilemap (18 skip) — stencil mode, UDG, below-ULA priority
+  - [ ] Sprites (10 skip) — overtime, border-clip, anchor-H latch
+  - [ ] Copper (10 skip) — NR 0x64 offset, cycle-accurate bus, NMI
+  - [ ] Layer 2 (8 skip) — SRAM +1 transform
+  - [ ] Port Dispatch (6 skip) — Pentagon 0xDFFD, expbus gating
+  - [ ] DivMMC+SPI (56 skip) — automap edge cases, ROM overlay paths
+  - [ ] UART+I2C/RTC (48 skip) — RTC BCD registers, register pointer, I2C sequential reads
+  - [ ] NextREG (47 skip) — integration-tier defaults owned by subsystem handlers
+  - [ ] NextREG integration (1 skip) — RST-09 clip read cycling
   - [ ] Input (126 skip) — joystick, mouse, NMI, port 0xFE subsystems
   - [ ] CTC+Interrupts (106 skip) — IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE, DMA int wire
   - [ ] Memory/MMU (77 skip) — contention timing, DivMMC overlay, altrom
   - [ ] ULA Video (75 skip) — contention, hi-res modes, interrupt edge
   - [ ] Audio (73 skip) — DAC channel enables, stereo routing
-  - [ ] DivMMC+SPI (56 skip) — automap edge cases, ROM overlay paths
-  - [ ] UART+I2C/RTC (48 skip) — RTC BCD registers, register pointer, I2C sequential reads
-  - [ ] NextREG (47 skip) — integration-tier defaults owned by subsystem handlers
-  - [ ] DMA (35 skip) — burst/continuous timing, edge cases
-  - [ ] Tilemap (18 skip) — stencil mode, UDG, below-ULA priority
-  - [ ] Copper (10 skip) — NR 0x64 offset, cycle-accurate bus, NMI
-  - [ ] Sprites (10 skip) — overtime, border-clip, anchor-H latch
-  - [ ] Layer 2 (8 skip) — SRAM +1 transform
-  - [ ] Port Dispatch (6 skip) — Pentagon 0xDFFD, expbus gating
-  - [ ] NextREG integration (1 skip) — RST-09 clip read cycling
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
