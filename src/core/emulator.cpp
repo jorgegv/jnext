@@ -241,6 +241,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
     //   bit 0 = sprites visible
     nextreg_.set_write_handler(0x15, [this](uint8_t v) {
         sprites_.set_zero_on_top((v & 0x40) != 0);
+        sprites_.set_border_clip_en((v & 0x20) != 0);  // bit 5 — VHDL sprites.vhd 1044
         sprites_.set_over_border((v & 0x02) != 0);
         sprites_.set_sprites_visible((v & 0x01) != 0);
         renderer_.set_sprite_en((v & 0x01) != 0);      // VHDL 6934/7118
