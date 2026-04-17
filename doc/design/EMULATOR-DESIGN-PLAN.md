@@ -1032,8 +1032,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
 - [ ] **Reduce SKIPs — implement missing features** to un-skip the 696 plan rows that have VHDL-traced tests but no C++ implementation yet. Work per-subsystem, one branch per feature, with code review and regression. Order below prioritises biggest wins (low-skip, mostly algorithmic) before the larger subsystem lifts that require substantial new code:
-  - [ ] DMA (35 skip) — burst/continuous timing, edge cases
-  - [ ] Tilemap (18 skip) — stencil mode, UDG, below-ULA priority
+  - [x] DMA (35 skip → 0) — Wave 1 A/B/C + Feature D (IM2 delay); 150/0/0; port 0x6B/0x0B gated on dma_holds_bus in port_test
+  - [x] Tilemap (18 skip → 0) — Feature A clip enforcement, Feature B NR 0x6B bit 4 palette-select; 59/0/0
   - [ ] Sprites (10 skip) — overtime, border-clip, anchor-H latch
   - [ ] Copper (10 skip) — NR 0x64 offset, cycle-accurate bus, NMI
   - [ ] Layer 2 (8 skip) — SRAM +1 transform
