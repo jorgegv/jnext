@@ -43,6 +43,9 @@ public:
         layer_priority_ = 0;        // SLU
         fallback_colour_ = 0xE3;    // default transparent index
         transparent_rgb_ = 0xE3;    // NR 0x14 default
+        sprite_en_ = false;         // NR 0x15 bit 0 default (VHDL: 0)
+        stencil_mode_ = false;      // NR 0x68 bit 0 default (VHDL: 0)
+        tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
         fallback_per_line_.fill(0xE3);
         ula_.reset();
     }
@@ -68,6 +71,20 @@ public:
     /// value for ULA and Layer 2 transparency determination.
     void set_transparent_rgb(uint8_t val) { transparent_rgb_ = val; }
     uint8_t transparent_rgb() const { return transparent_rgb_; }
+
+    /// Global sprite enable (NextREG 0x15 bit 0).
+    /// VHDL zxnext.vhd:6934/7118 — when false, all sprite pixels are
+    /// forced transparent at the compositor stage.
+    void set_sprite_en(bool v) { sprite_en_ = v; }
+
+    /// Stencil mode (NextREG 0x68 bit 0, ula_blend_mode bits 1:0).
+    /// VHDL zxnext.vhd:7112-7113 — when active AND tm_en=1, ULA/TM merge
+    /// uses bitwise AND instead of priority-based selection.
+    void set_stencil_mode(bool v) { stencil_mode_ = v; }
+
+    /// Tilemap enabled flag (NR 0x6B bit 7). Stencil mode (VHDL 7130)
+    /// requires tm_en to be active.
+    void set_tm_enabled(bool v) { tm_enabled_ = v; }
 
     /// Snapshot the current fallback colour for a given scanline.
     /// Called during the frame loop so per-line copper changes are preserved.
@@ -113,6 +130,9 @@ private:
     uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
     uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)
     uint8_t transparent_rgb_ = 0xE3; // NextREG 0x14 (default transparent colour)
+    bool sprite_en_ = false;         // NextREG 0x15 bit 0 (VHDL default: disabled)
+    bool stencil_mode_ = false;      // NextREG 0x68 bit 0 (VHDL: stencil AND mode)
+    bool tm_enabled_ = false;        // NR 0x6B bit 7 (VHDL: tilemap enable)
 
     /// Per-scanline fallback colour snapshot.
     /// Populated during the frame loop by snapshot_fallback_for_line().
@@ -128,6 +148,8 @@ private:
     std::array<uint32_t, FB_WIDTH_HI> sprite_line_{};
     std::array<uint32_t, FB_WIDTH_HI> tilemap_line_{};
     std::array<bool, FB_WIDTH_HI>     ula_over_flags_{};  // tilemap per-tile ULA priority
+    std::array<bool, FB_WIDTH_HI>     layer2_priority_{}; // palette bit 15 (L2 promotion)
+    std::array<bool, FB_WIDTH_HI>     ula_border_{};      // true when pixel is border region
 
     /// True when any 640px layer is active this frame.
     bool hi_res_active_ = false;

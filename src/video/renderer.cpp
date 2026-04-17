@@ -43,6 +43,8 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         std::fill_n(sprite_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(tilemap_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(ula_over_flags_.begin(), composite_width_, false);
+        std::fill_n(layer2_priority_.begin(), composite_width_, false);
+        std::fill_n(ula_border_.begin(), composite_width_, false);
 
         // --- Render each layer for this scanline ---
         const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
@@ -127,10 +129,12 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // Pixel-double 320px layers in-place when hi-res is active.
         // Must go right-to-left to avoid overwriting source pixels.
         if (hi_res_active_) {
-            // ULA (always 320px)
+            // ULA (always 320px) + border flag
             for (int x = FB_WIDTH - 1; x >= 0; --x) {
                 ula_line_[x * 2 + 1] = ula_line_[x];
                 ula_line_[x * 2]     = ula_line_[x];
+                ula_border_[x * 2 + 1] = ula_border_[x];
+                ula_border_[x * 2]     = ula_border_[x];
             }
 
             // Sprites (always 320px)
@@ -144,6 +148,8 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 for (int x = FB_WIDTH - 1; x >= 0; --x) {
                     layer2_line_[x * 2 + 1] = layer2_line_[x];
                     layer2_line_[x * 2]     = layer2_line_[x];
+                    layer2_priority_[x * 2 + 1] = layer2_priority_[x];
+                    layer2_priority_[x * 2]     = layer2_priority_[x];
                 }
             }
 
@@ -226,58 +232,99 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                                 ((ula_px & 0x00FFFFFF) == nr14_rgb);
         const bool l2_transp  = is_transparent(l2_px) ||
                                 ((l2_px & 0x00FFFFFF) == nr14_rgb);
-        const bool spr_transp = is_transparent(spr_px);
+        // VHDL 6934/7118: sprite_en=0 forces all sprites transparent.
+        const bool spr_transp = is_transparent(spr_px) || !sprite_en_;
         const bool tm_transp  = is_transparent(tm_px);
 
-        // --- ULA/TM merge (VHDL 7115-7116) ---
-        // ulatm_transparent = ula_transparent AND tm_transparent
-        const bool ulatm_transp = ula_transp && tm_transp;
-        // ulatm_rgb: TM when TM opaque AND (above OR ULA transparent), else ULA
+        // L2 priority promotion flag (VHDL 7220 etc.: palette bit 15).
+        const bool l2_prio = !l2_transp && layer2_priority_[x];
+        // Border exception flag (VHDL 7256/7266/7278: ula_border_2).
+        const bool ula_border = ula_border_[x];
+
+        // --- ULA/TM merge (VHDL 7112-7116) ---
         uint32_t u_px;
-        if (!tm_transp && (!ula_over_flags_[x] || ula_transp)) {
-            u_px = tm_px;
+        bool ulatm_transp;
+        if (stencil_mode_ && tm_enabled_) {
+            // Stencil mode (VHDL 7112-7113): bitwise AND of ULA and TM RGB.
+            // stencil_transparent = ula_transp OR tm_transp.
+            if (ula_transp || tm_transp) {
+                ulatm_transp = true;
+                u_px = TRANSPARENT;
+            } else {
+                ulatm_transp = false;
+                // Per-channel AND in 3/3/2 bit space
+                uint8_t r = argb_r3(ula_px) & argb_r3(tm_px);
+                uint8_t g = argb_g3(ula_px) & argb_g3(tm_px);
+                uint8_t b = argb_b2(ula_px) & argb_b2(tm_px);
+                u_px = channels_to_argb(r, g, b);
+            }
         } else {
-            u_px = ula_transp ? TRANSPARENT : ula_px;
+            // Normal ULA/TM merge (VHDL 7115-7116)
+            ulatm_transp = ula_transp && tm_transp;
+            if (!tm_transp && (!ula_over_flags_[x] || ula_transp)) {
+                u_px = tm_px;
+            } else {
+                u_px = ula_transp ? TRANSPARENT : ula_px;
+            }
         }
 
         uint32_t result = fallback_argb;
 
         switch (layer_priority_) {
             case 0:  // SLU (VHDL 7218)
-                if (!spr_transp)        result = spr_px;
-                else if (!l2_transp)    result = l2_px;
-                else if (!ulatm_transp) result = u_px;
+                if (l2_prio)                result = l2_px;   // VHDL 7220
+                else if (!spr_transp)       result = spr_px;
+                else if (!l2_transp)        result = l2_px;
+                else if (!ulatm_transp)     result = u_px;
                 break;
 
             case 1:  // LSU (VHDL 7230)
-                if (!l2_transp)         result = l2_px;
-                else if (!spr_transp)   result = spr_px;
-                else if (!ulatm_transp) result = u_px;
+                if (l2_prio)                result = l2_px;   // VHDL 7232 (no-op: L2 already top)
+                else if (!l2_transp)        result = l2_px;
+                else if (!spr_transp)       result = spr_px;
+                else if (!ulatm_transp)     result = u_px;
                 break;
 
             case 2:  // SUL (VHDL 7240)
-                if (!spr_transp)        result = spr_px;
-                else if (!ulatm_transp) result = u_px;
-                else if (!l2_transp)    result = l2_px;
+                if (l2_prio)                result = l2_px;   // VHDL 7242
+                else if (!spr_transp)       result = spr_px;
+                else if (!ulatm_transp)     result = u_px;
+                else if (!l2_transp)        result = l2_px;
                 break;
 
-            case 3:  // LUS (VHDL 7252)
-                if (!l2_transp)         result = l2_px;
-                else if (!ulatm_transp) result = u_px;
-                else if (!spr_transp)   result = spr_px;
+            case 3: {  // LUS (VHDL 7252)
+                // Border exception (VHDL 7256): suppress U when border AND
+                // tm transparent AND sprite opaque (all three required).
+                const bool border_exc = ula_border && tm_transp && !spr_transp;
+                const bool u_eff = !ulatm_transp && !border_exc;
+                if (l2_prio)                result = l2_px;   // VHDL 7254
+                else if (!l2_transp)        result = l2_px;
+                else if (u_eff)             result = u_px;
+                else if (!spr_transp)       result = spr_px;
                 break;
+            }
 
-            case 4:  // USL (VHDL 7262)
-                if (!ulatm_transp)      result = u_px;
-                else if (!spr_transp)   result = spr_px;
-                else if (!l2_transp)    result = l2_px;
+            case 4: {  // USL (VHDL 7262)
+                // Border exception (VHDL 7266): all three conditions required.
+                const bool border_exc = ula_border && tm_transp && !spr_transp;
+                const bool u_eff = !ulatm_transp && !border_exc;
+                if (l2_prio)                result = l2_px;   // VHDL 7264
+                else if (u_eff)             result = u_px;
+                else if (!spr_transp)       result = spr_px;
+                else if (!l2_transp)        result = l2_px;
                 break;
+            }
 
-            case 5:  // ULS (VHDL 7274)
-                if (!ulatm_transp)      result = u_px;
-                else if (!l2_transp)    result = l2_px;
-                else if (!spr_transp)   result = spr_px;
+            case 5: {  // ULS (VHDL 7274)
+                // Border exception (VHDL 7278): all three conditions required.
+                const bool border_exc = ula_border && tm_transp && !spr_transp;
+                const bool u_eff = !ulatm_transp && !border_exc;
+                if (l2_prio)                result = l2_px;   // VHDL 7276
+                else if (u_eff)             result = u_px;
+                else if (!l2_transp)        result = l2_px;
+                else if (!spr_transp)       result = spr_px;
                 break;
+            }
 
             case 6: {  // Blend additive — VHDL 7286-7310
                 // ULA blend mode "00" (default): mix_rgb=ULA, mix_top=TM
@@ -300,11 +347,11 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                 const uint32_t mixer_argb = channels_to_argb(r_out, g_out, b_out);
 
                 // Output chain (VHDL 7300-7310)
-                // L2 priority promotion skipped (not yet implemented)
-                if      (!mix_top_transp) result = tm_px;
-                else if (!spr_transp)     result = spr_px;
-                else if (!mix_bot_transp) result = tm_px;
-                else if (!l2_transp)      result = mixer_argb;
+                if (l2_prio)                  result = mixer_argb;  // VHDL 7300
+                else if (!mix_top_transp)     result = tm_px;
+                else if (!spr_transp)         result = spr_px;
+                else if (!mix_bot_transp)     result = tm_px;
+                else if (!l2_transp)          result = mixer_argb;
                 break;
             }
 
@@ -325,7 +372,8 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                 uint8_t g_sum = l2_g + mx_g;
                 uint8_t b_sum = l2_b + mx_b;
 
-                // Subtraction formula only when mix_rgb not transparent (VHDL 7314)
+                // Subtractive formula gated on mix_rgb not transparent (VHDL 7314).
+                // When mix_rgb IS transparent, raw sums pass through unchanged.
                 if (!mix_rgb_transp) {
                     auto sub = [](uint8_t s) -> uint8_t {
                         if (s <= 4) return 0;
@@ -340,10 +388,11 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                 const uint32_t mixer_argb = channels_to_argb(r_sum & 7, g_sum & 7, b_sum & 3);
 
                 // Output chain (VHDL 7342-7352)
-                if      (!mix_top_transp) result = tm_px;
-                else if (!spr_transp)     result = spr_px;
-                else if (!mix_bot_transp) result = tm_px;
-                else if (!l2_transp)      result = mixer_argb;
+                if (l2_prio)                  result = mixer_argb;  // VHDL 7342
+                else if (!mix_top_transp)     result = tm_px;
+                else if (!spr_transp)         result = spr_px;
+                else if (!mix_bot_transp)     result = tm_px;
+                else if (!l2_transp)          result = mixer_argb;
                 break;
             }
         }
@@ -358,6 +407,9 @@ void Renderer::save_state(StateWriter& w) const
     w.write_u8(layer_priority_);
     w.write_u8(fallback_colour_);
     w.write_u8(transparent_rgb_);
+    w.write_u8(sprite_en_ ? 1 : 0);
+    w.write_u8(stencil_mode_ ? 1 : 0);
+    w.write_u8(tm_enabled_ ? 1 : 0);
     w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }
 
@@ -367,5 +419,8 @@ void Renderer::load_state(StateReader& r)
     layer_priority_ = r.read_u8();
     fallback_colour_ = r.read_u8();
     transparent_rgb_ = r.read_u8();
+    sprite_en_    = r.read_u8() != 0;
+    stencil_mode_ = r.read_u8() != 0;
+    tm_enabled_   = r.read_u8() != 0;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }

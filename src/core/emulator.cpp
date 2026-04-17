@@ -243,6 +243,7 @@ bool Emulator::init(const EmulatorConfig& cfg)
         sprites_.set_zero_on_top((v & 0x40) != 0);
         sprites_.set_over_border((v & 0x02) != 0);
         sprites_.set_sprites_visible((v & 0x01) != 0);
+        renderer_.set_sprite_en((v & 0x01) != 0);      // VHDL 6934/7118
         renderer_.set_layer_priority((v >> 2) & 0x07);
     });
 
@@ -326,7 +327,10 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.set_write_handler(0x31, [this](uint8_t v) { tilemap_.set_scroll_y(v); });
 
     // Register 0x6B: Tilemap control
-    nextreg_.set_write_handler(0x6B, [this](uint8_t v) { tilemap_.set_control(v); });
+    nextreg_.set_write_handler(0x6B, [this](uint8_t v) {
+        tilemap_.set_control(v);
+        renderer_.set_tm_enabled((v & 0x80) != 0);  // VHDL 7130: stencil gate
+    });
 
     // Register 0x6C: Tilemap default attribute
     nextreg_.set_write_handler(0x6C, [this](uint8_t v) { tilemap_.set_default_attr(v); });
@@ -422,6 +426,8 @@ bool Emulator::init(const EmulatorConfig& cfg)
     //   bits 2:0 = reserved
     nextreg_.set_write_handler(0x68, [this](uint8_t v) {
         renderer_.ula().set_ula_enabled((v & 0x80) == 0);
+        // VHDL 7112: ula_blend_mode bits 6:5 (stencil when bit 0 set)
+        renderer_.set_stencil_mode((v & 0x01) != 0);
     });
 
     // Register 0x69: Display Control 1
