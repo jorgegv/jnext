@@ -130,9 +130,9 @@ public:
 
 private:
     void rebuild_ptr(int slot);
-    // Map a ROM page into a slot without updating nr_mmu_ (used by the
-    // port 0x7FFD / 0x1FFD paging paths, which must leave the NR 0x50/0x51
-    // register view untouched per VHDL zxnext.vhd:4611-4612).
+    // Map a ROM page into a slot without updating nr_mmu_ (callers
+    // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes
+    // the physical page for test/debugger observability).
     void map_rom_physical(int slot, uint8_t rom_page);
 
     Ram& ram_;
