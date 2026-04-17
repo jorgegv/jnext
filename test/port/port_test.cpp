@@ -690,15 +690,14 @@ static void test_group_nr_gating() {
               DETAIL("latch before=0x%02x after=0x%02x", before, after));
     }
 
-    // NR82-02 — UPSTREAM GAP (not a skip).
-    // NR 0x82 bit 2 gates port 0xDFFD (Pentagon extended bank) per
-    // VHDL zxnext.vhd:2400 (port_dffd_io_en <= internal_port_enable(2)).
-    // JNEXT has a 0xDFFD handler STUB (emulator.cpp:731-733) that accepts
-    // the write but stores no state and drives no Pentagon bank register.
-    // A gate on a stub has no observable effect. Implementing the gate
-    // alone would not produce a falsifiable assertion — we need the full
-    // Pentagon 0xDFFD bank state first. Revisit when Pentagon banking is
-    // wired up; the gating code is a 1-line addition at that point.
+    // NR82-02: bit 2 gates port 0xDFFD (Pentagon extended bank) per
+    // VHDL zxnext.vhd:2400. Blocked on the upstream Pentagon 0xDFFD
+    // handler, which is currently a stub (emulator.cpp:731-733) with no
+    // state. A gate on a stub has no falsifiable observable. Revisit
+    // when Pentagon banking is wired up — gating itself is a 1-line add.
+    skip("NR82-02",
+         "Pentagon 0xDFFD handler is a stub — gate on stub has no "
+         "observable; implement Pentagon bank state first (zxnext.vhd:2400)");
 
     // NR82-03: bit 3 gates 0x1FFD. VHDL 2401.
     {

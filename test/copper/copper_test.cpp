@@ -1316,16 +1316,16 @@ void group7_arbitration() {
                   n40, saw_40, n07, saw_07));
     }
 
-    // ARB-06 — GENUINELY DEFERRED (not a skip).
-    // Copper writes to NR 0x02 triggering MF/DivMMC NMI
-    // (zxnext.vhd:3830-3832: nmi_cu_02_we <= copper_req=1 and
-    //  copper_nr_reg=0x02 → nmi_gen_nr_mf / nmi_gen_nr_divmmc).
-    // Blocked by two upstream gaps, not by the Copper subsystem:
-    //   1. JNEXT has no NR 0x02 NMI-request write handler (neither
-    //      CPU-side nor Copper-side path exists in src/port/nextreg).
-    //   2. The MF / DivMMC NMI edge-generation wiring is not in place.
-    // Implementing the full NMI-from-NR-0x02 path belongs to the NMI
-    // subsystem remediation (Input/CTC plans), not to Copper.
+    // ARB-06: Copper writes to NR 0x02 triggering MF/DivMMC NMI per
+    // VHDL zxnext.vhd:3830-3832 (nmi_cu_02_we <= copper_req=1 and
+    // copper_nr_reg=0x02 -> nmi_gen_nr_mf / nmi_gen_nr_divmmc).
+    // Blocked on two upstream gaps outside the Copper subsystem:
+    //   1. No NR 0x02 NMI-request write handler in src/port/nextreg.
+    //   2. MF / DivMMC NMI edge-generation wiring is not in place.
+    // Belongs to NMI-subsystem remediation (Input / CTC plans).
+    skip("ARB-06",
+         "NR 0x02 NMI-request infrastructure not implemented — blocked "
+         "on NMI subsystem remediation (zxnext.vhd:3830-3832)");
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────
