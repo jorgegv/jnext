@@ -90,16 +90,21 @@ void SpiMaster::write_data(uint8_t val) {
 }
 
 uint8_t SpiMaster::read_data() {
-    // Read path: get the next response byte FROM the device.
-    // Independent of write path (no pipeline delay).
+    // VHDL spi_master.vhd:162-166: miso_dat is latched from the input
+    // shift register at state_last_d (one cycle AFTER the transfer ends).
+    // This means a read returns the result of the PREVIOUS transfer, not
+    // the one just started. The new transfer's result is stored for the
+    // next read.
+    uint8_t prev = rx_data_;
     SpiDevice* dev = active_device();
     if (dev) {
         rx_data_ = dev->send();
-        spi_log()->debug("read → rx={:#04x}", rx_data_);
-    } else {
-        rx_data_ = 0xFF;
+        spi_log()->debug("read → returning prev={:#04x}, new rx={:#04x}",
+                         prev, rx_data_);
     }
-    return rx_data_;
+    // No device → rx_data_ unchanged (VHDL: miso_dat only updates on
+    // state_last_d, which requires an active transfer).
+    return prev;
 }
 
 SpiDevice* SpiMaster::active_device() const {
