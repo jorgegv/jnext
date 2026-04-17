@@ -242,6 +242,14 @@ bool Emulator::init(const EmulatorConfig& cfg)
         sprites_.set_over_border((v & 0x08) != 0);
     });
 
+    // Register 0x0A: Peripheral 2 / SD-card swap
+    //   bit 5 = sd_swap — invert SD0/SD1 mapping on port 0xE7 writes
+    // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
+    // Other bits of NR 0x0A (mouse / Kempston-II config) are not wired yet.
+    nextreg_.set_write_handler(0x0A, [this](uint8_t v) {
+        spi_.set_sd_swap((v & 0x20) != 0);
+    });
+
     // Register 0x15: Sprite and layer system setup
     //   bit 7 = LoRes enable (deferred)
     //   bit 6 = sprite priority (0=sprite 0 on top when zero_on_top)
