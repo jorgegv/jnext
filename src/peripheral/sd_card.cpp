@@ -79,9 +79,11 @@ void SdCardDevice::deselect() {
 }
 
 uint8_t SdCardDevice::exchange(uint8_t tx) {
-    // Legacy full-duplex exchange — not used directly in the ZesarUX-style model.
-    // Kept for interface compatibility.
-    receive(tx);
+    // Legacy full-duplex exchange — not used directly by SpiMaster
+    // (write_data calls receive(), read_data calls send()).
+    // MISO-during-write intentionally dropped: exchange() models the
+    // write-then-read as two sequential steps, not a single pipeline.
+    (void)receive(tx);
     return send();
 }
 
