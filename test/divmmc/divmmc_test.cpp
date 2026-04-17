@@ -895,27 +895,30 @@ void group_da() {
 void group_tm() {
     set_group("7. Instant vs delayed");
 
-    // TM-01..TM-05: all require modelling of automap_hold/automap_held
-    // pipeline (two-process M1+MREQ edge latch). The C++ model collapses
-    // everything into a single automap_active_ boolean latched on
-    // check_automap() so there is nothing to distinguish instant vs
-    // delayed, nothing to observe at MREQ rising edge, nothing to
-    // probe mid-M1.
+    // TM-01..TM-05: VHDL automap_hold/automap_held is a two-stage pipeline
+    // latched on M1+MREQ edges (divmmc.vhd:123-148). JNEXT collapses both
+    // stages into a single automap_active_ boolean. Category G (behavioural
+    // simplification) — observable by VHDL conformance, but the simplified
+    // model maps correctly for all known DivMMC ROMs (esxDOS boot verified).
+    // All five deferred to Task 7 (DivMMC RST activation correctness —
+    // automap pipeline + ROM3-conditional). Revisit when a concrete title
+    // is found to misbehave under the current model — NextZXOS diagnosis
+    // in progress, see session 2026-04-17f handover.
     skip("TM-01",
-         "No emulator path: automap_hold/held pipeline not modelled "
-         "(VHDL divmmc.vhd:123-148)");
+         "Deferred to Task 7 (automap pipeline): automap_hold/held not "
+         "modelled, category G (VHDL divmmc.vhd:123-148)");
     skip("TM-02",
-         "No emulator path: delayed_on pipeline not modelled "
-         "(VHDL divmmc.vhd:129)");
+         "Deferred to Task 7 (automap pipeline): delayed_on stage not "
+         "modelled, category G (VHDL divmmc.vhd:129)");
     skip("TM-03",
-         "No emulator path: MREQ_n rising-edge latch not modelled "
-         "(VHDL divmmc.vhd:141-142)");
+         "Deferred to Task 7 (automap pipeline): MREQ_n rising-edge latch "
+         "not modelled, category G (VHDL divmmc.vhd:141-142)");
     skip("TM-04",
-         "No emulator path: M1+MREQ gating for automap_hold not modelled "
-         "(VHDL divmmc.vhd:128)");
+         "Deferred to Task 7 (automap pipeline): M1+MREQ gating for "
+         "automap_hold not modelled, category G (VHDL divmmc.vhd:128)");
     skip("TM-05",
-         "No emulator path: automap_held persistence across non-off "
-         "fetches not modelled (VHDL divmmc.vhd:131)");
+         "Deferred to Task 7 (automap pipeline): automap_held persistence "
+         "across non-off fetches, category G (VHDL divmmc.vhd:131)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -926,18 +929,24 @@ void group_tm() {
 void group_r3() {
     set_group("8. ROM3 conditional");
 
-    // R3-01..R3-03: require ROM3/altrom/Layer2/ROMCS state to be
-    // observable to DivMmc. None of these signals are plumbed into
-    // DivMmc — it has no i_automap_rom3_active input equivalent.
+    // R3-01..R3-03: ROM3-conditional automap activation. VHDL composes
+    // sram_divmmc_automap_en/rom3_en from ROM3/altrom/Layer2/ROMCS state
+    // (zxnext.vhd:3137-3138). JNEXT has DivMmc::set_rom3_active() but the
+    // other feeders (altrom, Layer2 override, ROMCS) are not plumbed.
+    // Deferred to Task 7 (DivMMC RST activation correctness — automap
+    // pipeline + ROM3-conditional). Simplified model works for typical
+    // DivMMC ROM boot (esxDOS verified); NextZXOS diagnosis may require
+    // this, see session 2026-04-17f handover.
     skip("R3-01",
-         "No emulator path: sram_divmmc_automap_rom3_en not modelled "
+         "Deferred to Task 7 (ROM3 conditional): composite "
+         "sram_divmmc_automap_rom3_en not modelled "
          "(VHDL zxnext.vhd:3137-3138)");
     skip("R3-02",
-         "No emulator path: ROM page selection not observable to DivMmc "
-         "(VHDL zxnext.vhd:3137)");
+         "Deferred to Task 7 (ROM3 conditional): ROM page selection not "
+         "observable to DivMmc (VHDL zxnext.vhd:3137)");
     skip("R3-03",
-         "No emulator path: Layer 2 mapping override not observable to "
-         "DivMmc (VHDL zxnext.vhd:3137)");
+         "Deferred to Task 7 (ROM3 conditional): Layer 2 mapping override "
+         "not observable to DivMmc (VHDL zxnext.vhd:3137)");
 
     // R3-04: sram_divmmc_automap_en = sram_pre_override(2). Roughly
     // corresponds to the i_en gate modelled in CM-09.
@@ -963,33 +972,39 @@ void group_r3() {
 void group_nm() {
     set_group("9. NMI / button");
 
-    // NM-01..NM-08: DivMmc has no button_nmi_ flag, no
-    // set_divmmc_button() API, no o_disable_nmi output. Entire NMI
-    // lifecycle is absent from the emulator.
+    // NM-01..NM-08: DivMMC NMI button lifecycle. VHDL divmmc.vhd:105-150
+    // models a latched button_nmi signal that enters the automap pipeline
+    // alongside RST entry points, and o_disable_nmi suppresses re-entry
+    // until the handler completes. JNEXT has no NMI button consumer today.
+    // Deferred to Task 8 (Multiface peripheral): the button_nmi latch has
+    // no downstream user until the Multiface peripheral is modelled
+    // (catches NMI → maps MF ROM → menu). Copper ARB-06 shares this
+    // dependency (NR 0x02 NMI-request infrastructure). See session
+    // 2026-04-17f handover.
     skip("NM-01",
-         "No emulator path: button_nmi flag not modelled "
-         "(VHDL divmmc.vhd:108-111)");
+         "Deferred to Task 8 (Multiface): button_nmi latch has no "
+         "consumer (VHDL divmmc.vhd:108-111)");
     skip("NM-02",
-         "No emulator path: automap_nmi_*_on signals not gated on "
+         "Deferred to Task 8 (Multiface): automap_nmi_*_on not gated on "
          "button_nmi (VHDL divmmc.vhd:120-121)");
     skip("NM-03",
-         "No emulator path: button_nmi gating not modelled "
+         "Deferred to Task 8 (Multiface): button_nmi gating not modelled "
          "(VHDL divmmc.vhd:120)");
     skip("NM-04",
-         "No emulator path: button_nmi reset clear not modelled "
-         "(VHDL divmmc.vhd:108)");
+         "Deferred to Task 8 (Multiface): button_nmi reset clear not "
+         "modelled (VHDL divmmc.vhd:108)");
     skip("NM-05",
-         "No emulator path: button_nmi automap_reset clear not modelled "
-         "(VHDL divmmc.vhd:108)");
+         "Deferred to Task 8 (Multiface): button_nmi automap_reset clear "
+         "not modelled (VHDL divmmc.vhd:108)");
     skip("NM-06",
-         "No emulator path: button_nmi RETN clear not modelled "
-         "(VHDL divmmc.vhd:108)");
+         "Deferred to Task 8 (Multiface): button_nmi RETN clear not "
+         "modelled (VHDL divmmc.vhd:108)");
     skip("NM-07",
-         "No emulator path: button_nmi clear on automap_held=1 not "
-         "modelled (VHDL divmmc.vhd:112-113)");
+         "Deferred to Task 8 (Multiface): button_nmi clear on "
+         "automap_held=1 not modelled (VHDL divmmc.vhd:112-113)");
     skip("NM-08",
-         "No emulator path: o_disable_nmi output not exposed "
-         "(VHDL divmmc.vhd:150)");
+         "Deferred to Task 8 (Multiface): o_disable_nmi output has no "
+         "consumer (VHDL divmmc.vhd:150)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1575,10 +1590,16 @@ void group_in() {
               fmt("before=%d cleared=%d", active_before, cleared));
     }
 
-    // IN-04: Automap at 0x0008 (RST 8) is ROM3-conditional.
-    // VHDL: zxnext.vhd:2856, :3137. Same ROM3 gating gap as EP-02.
+    // IN-04: RST 0x08 activation is ROM3-conditional when NR 0xB9 bit 1
+    // is clear. VHDL zxnext.vhd:2856, :3137 — requires composite
+    // sram_divmmc_automap_rom3_en feeder (ROM3 AND altrom AND ...).
+    // Deferred to Task 7 (DivMMC RST activation correctness — automap
+    // pipeline + ROM3-conditional), same dependency as R3-01..03.
+    // NextZXOS boot diagnosis may promote this task; see session
+    // 2026-04-17f handover.
     skip("IN-04",
-         "No emulator path: ROM3 conditional activation not modelled "
+         "Deferred to Task 7 (ROM3 conditional): composite feeder for "
+         "sram_divmmc_automap_rom3_en not modelled "
          "(VHDL zxnext.vhd:2856,3137)");
 
     // IN-05: Rapid SPI exchanges: back-to-back without idle gap.
