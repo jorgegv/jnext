@@ -1102,14 +1102,17 @@ void group_ss() {
     }
 
     // SS-10: Write any other value -> all deselected (0xFF).
-    // VHDL: zxnext.vhd:3328-3330 — default OTHERS => 0xFF.
-    // Emulator stores raw; expect VHDL contract.
+    // VHDL zxnext.vhd:3322 — default OTHERS => 0xFF.
+    // Value 0x00 has bits 1:0="00", which doesn't match the SD card
+    // branches ("10"/"01") or the exact-match branches (0xFB/0xF7/0x7F),
+    // so it falls through to the VHDL default → all ones.
+    // (Previously used 0x12, but bits 1:0="10" matches the SD card branch.)
     {
         SpiMaster m; m.reset();
-        m.write_cs(0x12);  // not a recognised SS pattern
+        m.write_cs(0x00);  // bits 1:0="00" — hits VHDL default branch
         check("SS-10",
               "Write unrecognised value: all deselected (0xFF) "
-              "(VHDL zxnext.vhd:3328)",
+              "(VHDL zxnext.vhd:3322)",
               m.read_cs() == 0xFF,
               fmt("got=%02x exp=FF", m.read_cs()));
     }
