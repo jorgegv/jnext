@@ -424,9 +424,19 @@ void group3_r1() {
               fmt("mode=%d  VHDL dma.vhd:543", (int)dma.src_addr_mode()));
     }
 
-    // 3.6 R1 timing byte not observable: no cycle counter on the public API.
-    skip("3.6", "R1_portA_timming_byte_s (dma.vhd:776) has no C++ accessor "
-                "and no cycle-counter observable through Dma callbacks");
+    // 3.6 R1 timing byte programmable via R1 sub-byte (bit6=1 makes a
+    // timing byte follow).  VHDL dma.vhd:776 / :312-317.  Write timing "10"
+    // (fastest) via R1 base 0x54 (bit2=1 R1, bit4=0 dec, bit6=1 timing), then
+    // the timing sub-byte with bits[1:0]=10.
+    {
+        fresh(dma);
+        zxn(dma, 0x54);                  // R1: addr mode 00, timing follows
+        zxn(dma, 0x02);                  // timing sub-byte: 10 (fastest 2-cyc)
+        check("3.6", "R1 timing byte stored (00/01/10/11)",
+              dma.port_a_timing() == 0x02,
+              fmt("port_a_timing=0x%02X  VHDL dma.vhd:776",
+                  dma.port_a_timing()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -499,9 +509,19 @@ void group4_r2() {
               fmt("mode=%d  VHDL dma.vhd:560", (int)dma.dst_addr_mode()));
     }
 
-    // 4.6 R2 timing byte not observable.
-    skip("4.6", "R2_portB_timming_byte_s (dma.vhd:790) has no C++ accessor "
-                "and no cycle-counter observable through Dma callbacks");
+    // 4.6 R2 timing byte programmable via R2 sub-byte (bit6=1 makes a
+    // timing byte follow).  VHDL dma.vhd:790 / :319-324.  Write timing "10"
+    // via R2 base 0x40 (bits[2:0]=000 R2, bit6=1 timing follow), then the
+    // timing sub-byte with bits[1:0]=10.
+    {
+        fresh(dma);
+        zxn(dma, 0x40);                  // R2: timing follow
+        zxn(dma, 0x02);                  // timing sub-byte: 10
+        check("4.6", "R2 timing byte stored (00/01/10/11)",
+              dma.port_b_timing() == 0x02,
+              fmt("port_b_timing=0x%02X  VHDL dma.vhd:790",
+                  dma.port_b_timing()));
+    }
 
     // 4.7 R2 prescaler byte is programmable but only observable through
     // burst-mode wait behaviour (exercised in 12.3).  The setter path itself
@@ -786,13 +806,26 @@ void group8_r6_commands() {
     }
 
     // 8.2 0xC7 Reset port A timing to "01".  VHDL dma.vhd:648.
-    // Not publicly observable (no timing accessor).
-    skip("8.2", "0xC7 resets R1_portA_timming_byte_s (dma.vhd:648) "
-                "which has no C++ accessor");
+    {
+        fresh(dma);
+        zxn(dma, 0x54); zxn(dma, 0x02);  // program port A timing = 10
+        zxn(dma, 0xC7);                  // reset port A timing
+        check("8.2", "0xC7 resets port A timing to 01",
+              dma.port_a_timing() == 0x01,
+              fmt("port_a_timing=0x%02X  VHDL dma.vhd:648",
+                  dma.port_a_timing()));
+    }
 
     // 8.3 0xCB Reset port B timing to "01".  VHDL dma.vhd:651.
-    skip("8.3", "0xCB resets R2_portB_timming_byte_s (dma.vhd:651) "
-                "which has no C++ accessor");
+    {
+        fresh(dma);
+        zxn(dma, 0x40); zxn(dma, 0x02);  // program port B timing = 10
+        zxn(dma, 0xCB);                  // reset port B timing
+        check("8.3", "0xCB resets port B timing to 01",
+              dma.port_b_timing() == 0x01,
+              fmt("port_b_timing=0x%02X  VHDL dma.vhd:651",
+                  dma.port_b_timing()));
+    }
 
     // 8.4 0xCF LOAD clears status_endofblock_n.  VHDL dma.vhd:654.
     // Observable via status byte read (bit5=endofblock_n).
@@ -1421,13 +1454,52 @@ void group12_transfer_modes() {
     }
 
     // 12.4 Burst mode bus-release timing: `cpu_busreq_n_s <= '1'` in
-    // WAITING_CYCLES (dma.vhd:439-446).  BUSREQ_N is not exposed.
-    skip("12.4", "cpu_busreq_n_s deassertion in WAITING_CYCLES (dma.vhd:446) "
-                 "is not exposed on the Dma public API");
+    // WAITING_CYCLES (dma.vhd:445).  With a burst-mode prescaler wait, the
+    // DMA drops BUSREQ so the CPU can run.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x12;
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x04); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x50);                  // R2 timing follow
+        zxn(dma, 0x21);                  // timing + prescaler follow
+        zxn(dma, 0x08);                  // prescaler = 8
+        zxn(dma, 0xCD);                  // R4 burst + portB
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        dma.execute_burst(1000);
+        check("12.4", "Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released)",
+              dma.cpu_busreq_n() == true,
+              fmt("cpu_busreq_n=%d  VHDL dma.vhd:445",
+                  (int)dma.cpu_busreq_n()));
+    }
 
-    // 12.5 Bus re-request after prescaler expires.
-    skip("12.5", "BUSREQ re-request path (dma.vhd:451-460) requires bus "
-                 "signal observation not exposed by Dma");
+    // 12.5 After the prescaler wait expires, the DMA re-requests the bus
+    // (VHDL dma.vhd:451-460 — WAITING_CYCLES returns to START_DMA which
+    // re-asserts cpu_busreq_n=0).
+    {
+        fresh(dma);
+        for (int i = 0; i < 2; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x40 + i);
+        zxn(dma, 0x7D);
+        zxn(dma, 0x00); zxn(dma, 0x80);
+        zxn(dma, 0x02); zxn(dma, 0x00);
+        zxn(dma, 0x14);
+        zxn(dma, 0x50);
+        zxn(dma, 0x21);
+        zxn(dma, 0x01);                  // prescaler = 1
+        zxn(dma, 0xCD);
+        zxn(dma, 0x00); zxn(dma, 0x90);
+        zxn(dma, 0xCF); zxn(dma, 0x87);
+        dma.execute_burst(1000);         // one byte then wait (bus released)
+        dma.set_turbo(0);                // +8 per clock
+        dma.tick_burst_wait(8);          // timer reaches 64 > prescaler*32
+        check("12.5", "After prescaler expires: cpu_busreq_n re-asserted",
+              dma.cpu_busreq_n() == false,
+              fmt("cpu_busreq_n=%d  VHDL dma.vhd:451-460",
+                  (int)dma.cpu_busreq_n()));
+    }
 
     // 12.6 R4 mode "00" (byte mode) — VHDL dma.vhd:426 is not gated by
     // R4_mode_s: the block-length check runs in every mode, so the DMA
@@ -1491,8 +1563,23 @@ void group12_transfer_modes() {
     // 12.8 Prescaler vs timer comparison with CPU speed scaling.
     // VHDL dma.vhd:424,444 compare `R2_portB_preescaler_s > DMA_timer_s(13:5)`
     // where the timer increments by 8/4/2/1 per clock at 3.5/7/14/28 MHz.
-    skip("12.8", "turbo_i / DMA_timer_s scaling (dma.vhd:109-159) not "
-                 "modelled in C++ Dma (no CPU-speed input)");
+    // Observable: at 28 MHz (turbo=11), 8x more master clocks are needed
+    // to advance the comparison value than at 3.5 MHz.
+    {
+        Dma d1, d2;
+        fresh(d1);
+        fresh(d2);
+        d1.set_turbo(0);                 // 3.5 MHz: +8/clock
+        d2.set_turbo(3);                 // 28 MHz:  +1/clock
+        d1.tick_burst_wait(4);
+        d2.tick_burst_wait(32);
+        check("12.8",
+              "Prescaler vs timer scales with turbo_i (8x clocks at 28MHz)",
+              d1.dma_timer_hi9() == d2.dma_timer_hi9() &&
+                  d1.dma_timer_hi9() == 1,
+              fmt("t1_hi9=%u t2_hi9=%u  VHDL dma.vhd:424",
+                  d1.dma_timer_hi9(), d2.dma_timer_hi9()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1524,25 +1611,64 @@ void group13_prescaler_timing() {
                   (int)before, (int)dma.state()));
     }
 
-    // 13.2 Prescaler>0 at 3.5 MHz: exact wait-cycle math is unreachable.
-    skip("13.2", "Prescaler wait-cycle count at 3.5MHz (dma.vhd:159) "
-                 "not observable — no turbo_i input and no exposed DMA_timer_s");
+    // 13.2 At turbo=00 (3.5 MHz), DMA_timer_s increments by 8 per clock.
+    // VHDL dma.vhd:251.  Starting from 0, N clocks yield timer = 8*N.
+    {
+        fresh(dma);
+        dma.set_turbo(0);
+        dma.tick_burst_wait(10);
+        check("13.2", "turbo=00 (3.5MHz): timer += 8 per clock",
+              dma.dma_timer() == 80,
+              fmt("timer=%u (expected 80)  VHDL dma.vhd:251",
+                  dma.dma_timer()));
+    }
 
-    // 13.3 7 MHz behaviour.
-    skip("13.3", "Prescaler wait-cycle count at 7MHz (dma.vhd:158) "
-                 "not observable — no turbo_i input");
+    // 13.3 turbo=01 (7 MHz): +4 per clock.  VHDL dma.vhd:252.
+    {
+        fresh(dma);
+        dma.set_turbo(1);
+        dma.tick_burst_wait(10);
+        check("13.3", "turbo=01 (7MHz): timer += 4 per clock",
+              dma.dma_timer() == 40,
+              fmt("timer=%u (expected 40)  VHDL dma.vhd:252",
+                  dma.dma_timer()));
+    }
 
-    // 13.4 14 MHz behaviour.
-    skip("13.4", "Prescaler wait-cycle count at 14MHz (dma.vhd:158) "
-                 "not observable — no turbo_i input");
+    // 13.4 turbo=10 (14 MHz): +2 per clock.  VHDL dma.vhd:253.
+    {
+        fresh(dma);
+        dma.set_turbo(2);
+        dma.tick_burst_wait(10);
+        check("13.4", "turbo=10 (14MHz): timer += 2 per clock",
+              dma.dma_timer() == 20,
+              fmt("timer=%u (expected 20)  VHDL dma.vhd:253",
+                  dma.dma_timer()));
+    }
 
-    // 13.5 28 MHz behaviour.
-    skip("13.5", "Prescaler wait-cycle count at 28MHz (dma.vhd:158) "
-                 "not observable — no turbo_i input");
+    // 13.5 turbo=11 (28 MHz): +1 per clock.  VHDL dma.vhd:254.
+    {
+        fresh(dma);
+        dma.set_turbo(3);
+        dma.tick_burst_wait(10);
+        check("13.5", "turbo=11 (28MHz): timer += 1 per clock",
+              dma.dma_timer() == 10,
+              fmt("timer=%u (expected 10)  VHDL dma.vhd:254",
+                  dma.dma_timer()));
+    }
 
-    // 13.6 Prescaler comparison path (timer bits 13:5).
-    skip("13.6", "Prescaler vs timer(13:5) comparison (dma.vhd:424) "
-                 "needs DMA_timer_s which is not exposed in Dma");
+    // 13.6 Prescaler is compared against DMA_timer_s bits(13:5), so the
+    // comparison granularity is 32 timer units.  VHDL dma.vhd:424.
+    {
+        fresh(dma);
+        // timer = 32 -> hi9 = 1.  At prescaler=1, 1 > 1 is false (gate open).
+        dma.set_turbo(3);                // +1 per clock
+        dma.tick_burst_wait(32);
+        uint16_t hi9 = dma.dma_timer_hi9();
+        check("13.6", "Prescaler comparison uses timer bits(13:5)",
+              dma.dma_timer() == 32 && hi9 == 1,
+              fmt("timer=%u hi9=%u  VHDL dma.vhd:424",
+                  dma.dma_timer(), hi9));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1667,15 +1793,105 @@ void group14_counter() {
 
 void group15_bus_arbitration() {
     set_group("G15 Bus Arb");
+    Dma dma;
 
-    skip("15.1", "cpu_busreq_n_o (dma.vhd:267-281) not exposed on Dma");
-    skip("15.2", "WAITING_ACK / cpu_bai_n (dma.vhd:285-298) not exposed");
-    skip("15.3", "cpu_busreq_n_s=1 in IDLE (dma.vhd:213-242) not exposed");
-    skip("15.4", "bus_busreq_n_i external deferral (dma.vhd:267-281) not wired");
-    skip("15.5", "cpu_bai_n daisy-chain deferral (dma.vhd:267-281) not wired");
-    skip("15.6", "dma_delay_i IM2 deferral (dma.vhd:267-281) not wired");
-    skip("15.7", "zxnext.vhd address/data mux on dma_holds_bus not modelled");
-    skip("15.8", "port_dma_rd/wr gating on dma_holds_bus (zxnext.vhd) not modelled");
+    // 15.1 DMA asserts cpu_busreq_n=0 while transferring (VHDL dma.vhd:278).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x11;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        dma.execute_burst(1);
+        check("15.1", "TRANSFER: cpu_busreq_n asserted (false)",
+              dma.cpu_busreq_n() == false,
+              fmt("cpu_busreq_n=%d  VHDL dma.vhd:278",
+                  (int)dma.cpu_busreq_n()));
+    }
+
+    // 15.2 WAITING_ACK waits for cpu_bai_n=0 (VHDL dma.vhd:296).  Drive
+    // cpu_bai_n=true (no ack); no bytes should transfer.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x22;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        dma.set_cpu_bai_n(true);         // no ack: stays in WAITING_ACK
+        int n_before = dma.execute_burst(4);
+        dma.set_cpu_bai_n(false);        // ack arrives
+        int n_after = dma.execute_burst(4);
+        check("15.2", "WAITING_ACK gates transfer on cpu_bai_n",
+              n_before == 0 && n_after > 0,
+              fmt("before=%d after=%d  VHDL dma.vhd:296",
+                  n_before, n_after));
+    }
+
+    // 15.3 In IDLE, cpu_busreq_n=1 (deasserted).  VHDL dma.vhd:225,262.
+    {
+        fresh(dma);
+        check("15.3", "IDLE: cpu_busreq_n deasserted (true)",
+              dma.state() == Dma::State::IDLE &&
+                  dma.cpu_busreq_n() == true,
+              fmt("state=%d busreq_n=%d  VHDL dma.vhd:225,262",
+                  (int)dma.state(), (int)dma.cpu_busreq_n()));
+    }
+
+    // 15.4 set_bus_busreq_n(false) at START_DMA: DMA defers (VHDL dma.vhd:269).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x44;
+        dma.set_bus_busreq_n(false);     // external device holds bus
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n = dma.execute_burst(4);
+        check("15.4", "bus_busreq_n=0 at START_DMA: DMA defers",
+              n == 0 && dma.cpu_busreq_n() == true,
+              fmt("n=%d busreq_n=%d  VHDL dma.vhd:269",
+                  n, (int)dma.cpu_busreq_n()));
+    }
+
+    // 15.5 set_daisy_busy(true) at START_DMA: DMA defers (VHDL dma.vhd:269
+    // — the cpu_bai_n=0 "upstream busy" gate, modelled as daisy_busy_).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x55;
+        dma.set_daisy_busy(true);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n = dma.execute_burst(4);
+        check("15.5", "daisy_busy=true at START_DMA: DMA defers",
+              n == 0 && dma.cpu_busreq_n() == true,
+              fmt("n=%d busreq_n=%d  VHDL dma.vhd:269",
+                  n, (int)dma.cpu_busreq_n()));
+    }
+
+    // 15.6 set_dma_delay(true) at START_DMA: DMA defers (VHDL dma.vhd:269).
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x66;
+        dma.set_dma_delay(true);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n = dma.execute_burst(4);
+        check("15.6", "dma_delay=1 at START_DMA: DMA defers",
+              n == 0 && dma.cpu_busreq_n() == true,
+              fmt("n=%d busreq_n=%d  VHDL dma.vhd:269",
+                  n, (int)dma.cpu_busreq_n()));
+    }
+
+    // 15.7 dma_holds_bus is true while DMA has the bus (busreq + ack).
+    // Mirrors zxnext.vhd `dma_holds_bus <= not cpu_busak_n`.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x77;
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        dma.execute_burst(1);
+        check("15.7", "dma_holds_bus=true while transferring",
+              dma.dma_holds_bus() == true,
+              fmt("dma_holds_bus=%d  VHDL zxnext.vhd dma_holds_bus",
+                  (int)dma.dma_holds_bus()));
+    }
+
+    // 15.8 Port writes gated on dma_holds_bus — this is a port-dispatch
+    // layer concern (zxnext.vhd `port_dma_rd/wr <= ... and not dma_holds_bus`)
+    // rather than an intra-DMA gate.  The Dma class itself exposes
+    // dma_holds_bus() so the dispatcher can enforce the gate externally.
+    skip("15.8", "port_dma_rd/wr gating is port-dispatch-layer concern "
+                 "(tested in port_test.cpp, not dma_test.cpp)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2128,9 +2344,17 @@ void group19_reset() {
                   dma.src_addr(), dma.dst_addr()));
     }
 
-    // 19.4 0xC3 resets both port timings to "01".  Not observable.
-    skip("19.4", "0xC3 port timing reset (dma.vhd:641-642) unobservable "
-                 "— no C++ accessor for R1/R2 timing");
+    // 19.4 0xC3 resets both port timings to "01".  VHDL dma.vhd:641-642.
+    {
+        fresh(dma);
+        zxn(dma, 0x54); zxn(dma, 0x02);  // port A timing = 10
+        zxn(dma, 0x40); zxn(dma, 0x02);  // port B timing = 10
+        zxn(dma, 0xC3);                  // soft reset
+        check("19.4", "0xC3 resets both port timings to 01",
+              dma.port_a_timing() == 0x01 && dma.port_b_timing() == 0x01,
+              fmt("A=0x%02X B=0x%02X  VHDL dma.vhd:641-642",
+                  dma.port_a_timing(), dma.port_b_timing()));
+    }
 
     // 19.5 0xC3 resets prescaler to 0x00.  Only indirectly observable via
     // continuous-mode runs-to-IDLE behaviour (row 4.8).
@@ -2171,8 +2395,40 @@ void group19_reset() {
 
 void group20_dma_delay() {
     set_group("G20 DMA Delay");
-    skip("20.1", "dma_delay_i START_DMA gate (dma.vhd:267-281) not wired into Dma");
-    skip("20.2", "dma_delay_i mid-transfer re-entry (dma.vhd:420-432) not wired");
+    Dma dma;
+
+    // 20.1 dma_delay_i asserted at START_DMA blocks the transfer
+    // (VHDL dma.vhd:269).  Observable: n=0 transfers with delay set.
+    {
+        fresh(dma);
+        g_mem[0x8000] = 0x81;
+        dma.set_dma_delay(true);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        int n_deferred = dma.execute_burst(4);
+        dma.set_dma_delay(false);
+        int n_ok = dma.execute_burst(4);
+        check("20.1", "dma_delay=1 blocks START_DMA; deasserting proceeds",
+              n_deferred == 0 && n_ok > 0,
+              fmt("deferred=%d ok=%d  VHDL dma.vhd:269",
+                  n_deferred, n_ok));
+    }
+
+    // 20.2 Mid-transfer dma_delay_i=1: DMA drops back to START_DMA and
+    // releases the bus (VHDL dma.vhd:427-428).  Observable: after the
+    // byte that triggered the delay, cpu_busreq_n returns to true.
+    {
+        fresh(dma);
+        for (int i = 0; i < 4; ++i) g_mem[0x8000 + i] = static_cast<uint8_t>(0x90 + i);
+        program_mem_to_mem_AB(dma, 0x8000, 0x9000, 4);
+        dma.execute_burst(1);            // one byte, bus asserted
+        dma.set_dma_delay(true);
+        dma.execute_burst(1);            // trips mid-transfer delay
+        check("20.2", "dma_delay mid-transfer: cpu_busreq_n released",
+              dma.cpu_busreq_n() == true,
+              fmt("busreq_n=%d  VHDL dma.vhd:427-428",
+                  (int)dma.cpu_busreq_n()));
+    }
+
     skip("20.3", "NextRegs 0xCC/0xCD/0xCE IM2 DMA enable bits (zxnext.vhd) "
                  "not handled in Dma");
     skip("20.4", "im2_dma_delay composition (zxnext.vhd) not modelled");
@@ -2186,16 +2442,74 @@ void group20_dma_delay() {
 
 void group21_timing_bytes() {
     set_group("G21 Timing Bytes");
-    skip("21.1", "R1/R2 timing '00' -> READ_1..READ_2 4-cycle path "
-                 "(dma.vhd:313,365) not cycle-observable");
-    skip("21.2", "Timing '01' -> 3-cycle (dma.vhd:314,366) not cycle-observable");
-    skip("21.3", "Timing '10' -> 2-cycle (dma.vhd:315,367) not cycle-observable");
-    skip("21.4", "Timing '11' -> 4-cycle fallthrough (dma.vhd:316,368) "
-                 "not cycle-observable");
-    skip("21.5", "Source read-timing selection via R0_dir_AtoB_s "
-                 "(dma.vhd:311,319) not cycle-observable");
-    skip("21.6", "Dest write-timing selection via R0_dir_AtoB_s "
-                 "(dma.vhd:363,371) not cycle-observable");
+    Dma dma;
+
+    // 21.1-21.4 Cycle mapping from the 2-bit timing byte.  VHDL dma.vhd:
+    // 313,365 (00->4), 314,366 (01->3), 315,367 (10->2), 316,368 (11->4
+    // `when others`).  Program A->B so read_cycles() uses R1 (port A).
+    {
+        fresh(dma);
+        zxn(dma, 0x05);                  // R0 dir A->B (no sub-bytes)
+        zxn(dma, 0x54); zxn(dma, 0x00);  // R1 timing = 00
+        check("21.1", "Timing 00 -> 4 cycles",
+              dma.read_cycles() == 4,
+              fmt("read_cycles=%u  VHDL dma.vhd:313", dma.read_cycles()));
+    }
+    {
+        fresh(dma);
+        zxn(dma, 0x05);
+        zxn(dma, 0x54); zxn(dma, 0x01);
+        check("21.2", "Timing 01 -> 3 cycles",
+              dma.read_cycles() == 3,
+              fmt("read_cycles=%u  VHDL dma.vhd:314", dma.read_cycles()));
+    }
+    {
+        fresh(dma);
+        zxn(dma, 0x05);
+        zxn(dma, 0x54); zxn(dma, 0x02);
+        check("21.3", "Timing 10 -> 2 cycles",
+              dma.read_cycles() == 2,
+              fmt("read_cycles=%u  VHDL dma.vhd:315", dma.read_cycles()));
+    }
+    {
+        fresh(dma);
+        zxn(dma, 0x05);
+        zxn(dma, 0x54); zxn(dma, 0x03);
+        check("21.4", "Timing 11 -> 4 cycles (when others)",
+              dma.read_cycles() == 4,
+              fmt("read_cycles=%u  VHDL dma.vhd:316", dma.read_cycles()));
+    }
+
+    // 21.5 A->B uses R1 for read; B->A uses R2.  VHDL dma.vhd:311 vs :319.
+    {
+        fresh(dma);
+        // A->B: R1 timing 10 (2-cyc), R2 timing 00 (4-cyc).  read should be 2.
+        zxn(dma, 0x05);
+        zxn(dma, 0x54); zxn(dma, 0x02);  // R1 = 10
+        zxn(dma, 0x40); zxn(dma, 0x00);  // R2 = 00
+        uint8_t ab_read = dma.read_cycles();
+        // B->A: R1 timing 10, R2 timing 00.  read should be 4 (R2 selected).
+        zxn(dma, 0x01);                  // R0 dir B->A (bit2=0, bit0=1)
+        uint8_t ba_read = dma.read_cycles();
+        check("21.5", "Read timing selects R1 (A->B) vs R2 (B->A)",
+              ab_read == 2 && ba_read == 4,
+              fmt("ab=%u ba=%u  VHDL dma.vhd:311 vs :319", ab_read, ba_read));
+    }
+
+    // 21.6 A->B uses R2 for write; B->A uses R1.  VHDL dma.vhd:371 vs :364.
+    {
+        fresh(dma);
+        zxn(dma, 0x05);
+        zxn(dma, 0x54); zxn(dma, 0x02);  // R1 = 10
+        zxn(dma, 0x40); zxn(dma, 0x00);  // R2 = 00
+        uint8_t ab_write = dma.write_cycles();  // A->B uses R2 = 00 -> 4
+        zxn(dma, 0x01);                         // B->A
+        uint8_t ba_write = dma.write_cycles();  // B->A uses R1 = 10 -> 2
+        check("21.6", "Write timing selects R2 (A->B) vs R1 (B->A)",
+              ab_write == 4 && ba_write == 2,
+              fmt("ab=%u ba=%u  VHDL dma.vhd:371 vs :364",
+                  ab_write, ba_write));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
