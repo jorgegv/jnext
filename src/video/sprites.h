@@ -94,6 +94,11 @@ public:
     /// display area (0).
     void set_over_border(bool val) { over_border_ = val; }
 
+    /// NextREG 0x15 bit 5: border-clip enable.  When 0 and over_border=1,
+    /// the sprite clip window is ignored and the full 320x256 area is drawn
+    /// (VHDL sprites.vhd lines 1043-1048).  Default is 0 at power-on.
+    void set_border_clip_en(bool val) { border_clip_en_ = val; }
+
     // -----------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------
@@ -208,6 +213,7 @@ private:
     bool       sprites_visible_ = false;
     bool       over_border_     = false;
     bool       zero_on_top_     = false;
+    bool       border_clip_en_  = false;  // NR 0x15 bit 5; default 0 (no border clip)
 
     // Clip window (VHDL defaults: 0x00,0xFF,0x00,0xBF)
     uint8_t    clip_x1_ = 0;

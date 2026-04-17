@@ -35,6 +35,7 @@ void SpriteEngine::reset()
     sprites_visible_  = false;
     over_border_      = false;
     zero_on_top_      = false;
+    border_clip_en_   = false;
 
     clip_x1_          = 0;
     clip_x2_          = 255;
@@ -435,7 +436,7 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
 
     // Determine clip window bounds.
     //
-    // VHDL reference (sprites.vhd lines 1048-1059, zxula_timing.vhd):
+    // VHDL reference (sprites.vhd lines 1043-1059, zxula_timing.vhd):
     //   Sprite coordinates are in absolute framebuffer space (whc domain):
     //     whc 0    = left border start
     //     whc 32   = display area start
@@ -444,7 +445,10 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     //   There is NO automatic +32 offset — sprite X maps directly to the
     //   line buffer address (spr_cur_hcount <= spr_cur_x).
     //
-    //   When over_border='1': clip coords map directly to pixel positions.
+    //   When over_border='1' and border_clip_en='0': clip window is IGNORED,
+    //     full 320x256 area is drawn (x_s=0..319, y_s=0..255).
+    //   When over_border='1' and border_clip_en='1': clip coords map directly
+    //     to pixel positions.
     //     x_s = clip_x1 << 1,  x_e = (clip_x2 << 1) | 1
     //     y_s = clip_y1,        y_e = clip_y2
     //   When over_border='0': clip coords are shifted by +32 into display area.
@@ -454,10 +458,16 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     int clip_xs, clip_xe, clip_ys, clip_ye;
 
     if (over_border_) {
-        clip_xs = clip_x1_ * 2;
-        clip_xe = clip_x2_ * 2 + 1;
-        clip_ys = clip_y1_;
-        clip_ye = clip_y2_;
+        if (!border_clip_en_) {
+            // Full 320x256 area — clip window ignored.
+            clip_xs = 0;   clip_xe = 319;
+            clip_ys = 0;   clip_ye = 255;
+        } else {
+            clip_xs = clip_x1_ * 2;
+            clip_xe = clip_x2_ * 2 + 1;
+            clip_ys = clip_y1_;
+            clip_ye = clip_y2_;
+        }
     } else {
         // Non-over-border: clip window shifted into buffer space (+32).
         // From VHDL: (('0' & val(7:5)) + 1) & val(4:0)
@@ -627,6 +637,7 @@ void SpriteEngine::save_state(StateWriter& w) const
     w.write_u8(clip_y1_); w.write_u8(clip_y2_);
     w.write_bool(collision_);
     w.write_bool(max_sprites_);
+    w.write_bool(border_clip_en_);
 }
 
 void SpriteEngine::load_state(StateReader& r)
@@ -650,4 +661,5 @@ void SpriteEngine::load_state(StateReader& r)
     clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
     collision_ = r.read_bool();
     max_sprites_ = r.read_bool();
+    border_clip_en_ = r.read_bool();
 }
