@@ -234,36 +234,56 @@ void I2cController::on_scl_falling() {
         break;
 
     case State::ACK_ADDR:
-        // Device drives ACK (low) or NACK (high)
-        if (active_device_) {
-            sda_in_ = 0; // ACK
-            i2c_log()->debug("I2C ACK address");
+        // The ACK phase spans a full clock cycle.  The first falling edge
+        // (after the 8th data bit rising) drives the ACK/NACK.  The second
+        // falling edge (after the master's ACK clock rising) transitions to
+        // DATA.  We use bit_count_ != 0 to distinguish: it is 8 on the
+        // first falling (set by the 8th rising), reset to 0 afterward.
+        if (bit_count_ != 0) {
+            // First falling: drive ACK
+            if (active_device_) {
+                sda_in_ = 0; // ACK
+                i2c_log()->debug("I2C ACK address");
+            } else {
+                sda_in_ = 1; // NACK — no device
+                i2c_log()->debug("I2C NACK address (no device)");
+            }
+            bit_count_ = 0;
         } else {
-            sda_in_ = 1; // NACK — no device
-            i2c_log()->debug("I2C NACK address (no device)");
+            // Second falling: transition to DATA phase
+            state_ = State::DATA;
+            shift_reg_ = 0;
+            // For reads, place MSB on SDA so the master can sample it
+            // on the first data clock rising edge.
+            if (is_read_ && active_device_) {
+                sda_in_ = (read_data_ >> 7) & 0x01;
+            }
         }
-        // Transition to DATA phase
-        state_ = State::DATA;
-        bit_count_ = 0;
-        shift_reg_ = 0;
         break;
 
     case State::ACK_DATA:
-        if (is_read_) {
-            // Master has ACKed/NACKed; prepare next byte
-            sda_in_ = 1; // release for master ACK
-            if (active_device_ && sda_out_ == 0) {
-                // Master ACKed — load next byte
-                read_data_ = active_device_->transfer(0, true);
+        if (bit_count_ != 0) {
+            // First falling: drive ACK / release for master ACK
+            if (is_read_) {
+                sda_in_ = 1; // release for master ACK/NACK
+            } else {
+                sda_in_ = (active_device_) ? 0 : 1;
+                i2c_log()->debug("I2C {} data write", active_device_ ? "ACK" : "NACK");
             }
+            bit_count_ = 0;
         } else {
-            // Write direction: device drives ACK
-            sda_in_ = (active_device_) ? 0 : 1;
-            i2c_log()->debug("I2C {} data write", active_device_ ? "ACK" : "NACK");
+            // Second falling: sample master ACK for reads, load next byte
+            if (is_read_ && active_device_) {
+                if (sda_out_ == 0) {
+                    // Master ACKed — load next byte
+                    read_data_ = active_device_->transfer(0, true);
+                }
+                // Place MSB of next byte (or keep last if NACKed)
+                sda_in_ = (read_data_ >> 7) & 0x01;
+            }
+            state_ = State::DATA;
+            shift_reg_ = 0;
         }
-        state_ = State::DATA;
-        bit_count_ = 0;
-        shift_reg_ = 0;
         break;
     }
 }
