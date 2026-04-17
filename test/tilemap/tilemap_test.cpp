@@ -580,14 +580,13 @@ void group5_textmode() {
                    "in textmode, not transform controls");
     }
 
-    // TM-44: text-mode transparency comparison is at the RGB stage, not
-    // the 4-bit-index stage. Tilemap class only exposes the 1bpp pipeline
-    // up to palette lookup; the RGB compare against nr_14_global
-    // transparent happens in the compositor. Cannot be exercised from the
-    // Tilemap public API.
-    // VHDL: tilemap.vhd:426-429, zxnext.vhd:7109.
-    skip("TM-44",
-         "text-mode RGB transparency lives in compositor, not Tilemap class");
+    // TM-44 — COVERED AT COMPOSITOR TIER (not a skip).  Text-mode RGB
+    // transparency comparison (tilemap.vhd:426-429, zxnext.vhd:7109)
+    // happens at the post-palette RGB stage in the compositor.  See
+    // test/compositor/compositor_test.cpp group "TR" row TR-20 (TM text-
+    // mode RGB==NR0x14 => tm_transparent) and TR-21 (non-text ignores the
+    // RGB compare).  Kept here as a source-level reference to the
+    // tilemap plan row.
 }
 
 // ── Group 6: Strip flags (force_attr) mode ──────────────────────────────
@@ -1028,17 +1027,15 @@ void group10_transparency() {
               "VHDL tilemap.vhd:427 — custom transp idx 0x07 disables pixel");
     }
 
-    // TM-93: text-mode transparency uses the post-palette RGB comparison
-    // (zxnext.vhd:7109) — not reachable from the Tilemap class, which
-    // only exercises the 4-bit index path up to palette lookup.
-    skip("TM-93",
-         "textmode RGB transparency compared in compositor, not Tilemap");
+    // TM-93 — COVERED AT COMPOSITOR TIER (not a skip).  Textmode RGB
+    // transparency (zxnext.vhd:7109) is verified at
+    // test/compositor/compositor_test.cpp row TR-20.
 
-    // TM-94: distinction between index-based and RGB-based transparency
-    // pipelines lives in zxnext.vhd compositor (pixel_en_f selection).
-    // Out of scope for the Tilemap unit test.
-    skip("TM-94",
-         "pixel_en_f selection is compositor logic, not Tilemap class");
+    // TM-94 — COVERED AT COMPOSITOR TIER (not a skip).  pixel_en_f
+    // selection between index- and RGB-based transparency pipelines
+    // (zxnext.vhd compositor) is verified at compositor_test.cpp rows
+    // TR-21 (non-text ignores RGB compare) and TR-22 (tm_pixel_en=0 →
+    // transparent).
 }
 
 // ── Group 11: Palette selection / pixel composition ─────────────────────
@@ -1179,10 +1176,11 @@ void group13_priority() {
               "VHDL tilemap.vhd:388 — attr(0)=1 with tm_on_top=0 sets below=1");
     }
 
-    // TM-123: compositor rule `ulatm_rgb = tm when below=0 or ula_transp`
-    // lives in zxnext.vhd:7116 — not reachable from Tilemap class.
-    skip("TM-123",
-         "below/ULA compositor decision in zxnext.vhd, not Tilemap class");
+    // TM-123 — COVERED AT COMPOSITOR TIER (not a skip).  The ULA/TM
+    // layering decision `ulatm_rgb = tm when below=0 or ula_transp`
+    // (zxnext.vhd:7116) is verified at compositor_test.cpp group "UTB"
+    // rows UTB-10 (TM above: TM wins) and UTB-11 (TM below: ULA wins),
+    // plus UTB-30/31/40/41 exercising the NR 0x68 mode matrix.
 
     // TM-124: tm_on_top overrides the per-tile below bit even in 512 mode.
     // VHDL: tilemap.vhd:388 — NOT tm_on_top_q gates the whole OR term.
@@ -1215,25 +1213,23 @@ void group13_priority() {
 
 void group14_stencil() {
     set_group("G14 Stencil");
-    // Stencil mode (NR 0x68 ula_stencil_mode) is a compositor feature.
-    // VHDL: zxnext.vhd:7112-7113. The Tilemap class emits pixels and
-    // below flags only; stencil AND between ULA and TM happens downstream.
-    skip("TM-130", "stencil mode is compositor logic (zxnext.vhd:7112)");
-    skip("TM-131", "stencil transparency combination is compositor logic");
+    // TM-130 / TM-131 — COVERED AT COMPOSITOR TIER (not skips).  Stencil
+    // mode (NR 0x68 ula_stencil_mode, VHDL zxnext.vhd:7112-7113) is a
+    // compositor feature: stencil_rgb = ula_rgb AND tm_rgb, stencil
+    // transparency = ula_transp OR tm_transp.  See compositor_test.cpp
+    // group "STEN" rows STEN-10 (bitwise AND) and STEN-11 (AND with zero).
 }
 
 // ── Group 15: Enable / below interaction ────────────────────────────────
 
 void group15_enable_below() {
     set_group("G15 Enable/below");
-    // VHDL: zxnext.vhd:6863 defines below when tm_en=0: below = NOT tm_on_top.
-    // This combination is realised in the compositor (tm_pixel_below_1)
-    // and cannot be observed from the Tilemap class, which short-circuits
-    // the whole scanline when enabled_=false.
-    skip("TM-140",
-         "disabled-tilemap below logic is compositor (zxnext.vhd:6863)");
-    skip("TM-141",
-         "disabled-tilemap below logic is compositor (zxnext.vhd:6863)");
+    // TM-140 / TM-141 — COVERED AT COMPOSITOR TIER (not skips).  When
+    // tm_en=0, VHDL zxnext.vhd:6863 derives below = NOT tm_on_top in the
+    // compositor's tm_pixel_below_1 path.  Tilemap::render_scanline
+    // short-circuits when enabled_=false, so this check cannot land at
+    // the Tilemap layer.  See compositor_test.cpp row TR-23 (tm_en=0 →
+    // TM transparent) for the downstream verification.
 }
 
 } // namespace
