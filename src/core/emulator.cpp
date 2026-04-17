@@ -749,8 +749,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     port_.register_handler(0xFFFF, 0x00FB, nullptr,
         [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(3, val); });
 
-    // Specdrum: port 0xDF → channels A+D
-    port_.register_handler(0x00FF, 0x00DF, nullptr,
+    // Specdrum: port 0xDF → channels A+D.  VHDL zxnext.vhd:2674 routes
+    // 0xDF reads through port_1f (joystick 1) when the combo gate fires
+    // (dac_mono_AD_df_io_en AND NOT mouse_io_en AND port_1f_io_en).
+    // Read returns 0x00 (no buttons) matching the Kempston 1 stub.
+    port_.register_handler(0x00FF, 0x00DF,
+        [](uint16_t) -> uint8_t { return 0x00; },
         [this](uint16_t, uint8_t val) {
             if (dac_enabled_) { dac_.write_channel(0, val); dac_.write_channel(3, val); }
         });
