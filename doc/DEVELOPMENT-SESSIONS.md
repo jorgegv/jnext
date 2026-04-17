@@ -41,5 +41,11 @@
 | 16/4   | 2h   | Phase 9: Tasks 2+3 DONE (Z80/Z80N audit+fix). Task 1 partial (6 items, +11 rows)           |
 |        | 4h   | Phase 9: Task 1 items 4,6b,8,25 + 9 reclassified (+27 rows, 19/21 resolved)               |
 |        | 3h   | Phase 9: Task 1 items 14+15 — compositor+port dispatch fixes, exclusive dispatch (+27 rows) |
+| 17/4   | 3h   | Phase 9: Task 1 items 7+27/28 — NextREG integration tests, SPI pipeline delay, make unit-test |
+|        | 3h   | Phase 9: Task 1 compositor 15 failures fixed (sprite_en, L2 priority, border, stencil, blend) |
+|        | 1h   | Release v0.92.0 — ChangeLog, test status, version bump                                     |
+|        | 3h   | Phase 9: Last 3 failures fixed (CTC ring wrap, +3 ROM-high, Specdrum 0xDF read)            |
+|        | 2h   | Phase 9: I2C ACK phase off-by-one fix (intermittent DS1307 RTC failures)                   |
+|        | 1h   | Task 2: Uniform test output format + color-coded Makefile unit-test target                  |
 |        |      |                                                                                            |
-| TOTAL: | 120h |                                                                                            |
+| TOTAL: | 133h |                                                                                            |

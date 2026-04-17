@@ -1,5 +1,20 @@
 # ChangeLog
 
+## v0.93.0
+
+### Bug Fixes
+- CTC channel chaining now uses ring topology (ch3→ch0) matching VHDL
+- +3 ROM-high bit via port 0x1FFD now observable + NR 0x82 bit 3 gating
+- Specdrum port 0xDF read handler for VHDL port_1f combo gate
+- I2C ACK phase off-by-one — read data was shifted left by one bit
+
+### Internal JNEXT Development
+- Subsystem compliance tests: 1086/1086 pass, 0 fail (696 skip)
+- Regression suite: 34/34 clean
+- Uniform test output format across all 19 test suites
+- Color-coded `make unit-test` target with per-suite totals
+- Version bumping procedure documented in CLAUDE.md
+
 ## v0.92.0
 
 ### User Features
