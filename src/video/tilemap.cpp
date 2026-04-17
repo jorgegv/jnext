@@ -17,6 +17,7 @@ void Tilemap::reset()
     force_attr_    = false;
     mode_512_      = false;
     ula_on_top_    = false;
+    palette_sel_   = false;   // NR 0x6B bit 4 defaults to 0
     default_attr_  = 0;
     // VHDL defaults: map base = 0x2C (offset 44 → 0x6C00), tile defs = 0x0C (offset 12 → 0x4C00)
     map_base_raw_  = 0x2C;
@@ -37,6 +38,7 @@ void Tilemap::set_control(uint8_t val)
     //   bit 7 = enable (directly in nextreg, not in control_i(6:0))
     //   bit 6 = mode (40/80 col)
     //   bit 5 = strip_flags (eliminate tilemap attribute byte)
+    //   bit 4 = nr_6b_tm_palette_select (tilemap palette 0/1 for render)
     //   bit 3 = textmode (extend palette offset to 7 bits)
     //   bit 1 = 512-tile mode
     //   bit 0 = tm_on_top (tilemap always above ULA)
@@ -44,6 +46,7 @@ void Tilemap::set_control(uint8_t val)
     enabled_     = (val & 0x80) != 0;
     mode_80col_  = (val & 0x40) != 0;
     force_attr_  = (val & 0x20) != 0;   // bit 5 = strip_flags
+    palette_sel_ = (val & 0x10) != 0;   // bit 4 = VHDL nr_6b_tm_palette_select
     text_mode_   = (val & 0x08) != 0;   // bit 3 = textmode
     mode_512_    = (val & 0x02) != 0;
     ula_on_top_  = (val & 0x01) != 0;
@@ -382,6 +385,7 @@ void Tilemap::save_state(StateWriter& w) const
     w.write_u8(scroll_y_);
     w.write_u8(clip_x1_); w.write_u8(clip_x2_);
     w.write_u8(clip_y1_); w.write_u8(clip_y2_);
+    w.write_bool(palette_sel_);   // NR 0x6B bit 4
 }
 
 void Tilemap::load_state(StateReader& r)
@@ -402,4 +406,5 @@ void Tilemap::load_state(StateReader& r)
     scroll_y_ = r.read_u8();
     clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
     clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
+    palette_sel_ = r.read_bool();   // NR 0x6B bit 4
 }

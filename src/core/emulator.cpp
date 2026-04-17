@@ -330,6 +330,9 @@ bool Emulator::init(const EmulatorConfig& cfg)
     nextreg_.set_write_handler(0x6B, [this](uint8_t v) {
         tilemap_.set_control(v);
         renderer_.set_tm_enabled((v & 0x80) != 0);  // VHDL 7130: stencil gate
+        // VHDL nr_6b_tm_palette_select (bit 4) — drives the tilemap palette
+        // lookup at render time.  Must come from NR 0x6B, NOT from NR 0x43.
+        palette_.set_active_tilemap_palette((v & 0x10) != 0);
     });
 
     // Register 0x6C: Tilemap default attribute

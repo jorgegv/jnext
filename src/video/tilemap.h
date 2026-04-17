@@ -29,10 +29,11 @@ public:
     // -----------------------------------------------------------------
 
     /// NextREG 0x6B — Tilemap control.
-    ///   bit 7 = enabled (handled separately, see set_enabled)
+    ///   bit 7 = enabled
     ///   bit 6 = 80-column mode
-    ///   bit 5 = text mode (extend palette offset, no rotate/mirror)
-    ///   bit 4 = force attribute (use default_attr for all tiles)
+    ///   bit 5 = force attribute / strip flags (use default_attr for all tiles)
+    ///   bit 4 = tilemap palette select (VHDL nr_6b_tm_palette_select)
+    ///   bit 3 = text mode (extend palette offset, no rotate/mirror)
     ///   bit 1 = 512 tile mode (attr bit 0 becomes tile index bit 8)
     ///   bit 0 = ULA-over-tilemap (per-tile priority bit)
     void set_control(uint8_t val);
@@ -65,6 +66,11 @@ public:
     /// Enable/disable tilemap rendering (bit 7 of NextREG 0x6B).
     void set_enabled(bool en) { enabled_ = en; }
     bool enabled() const { return enabled_; }
+
+    /// Tilemap palette select (bit 4 of NextREG 0x6B).
+    /// VHDL: nr_6b_tm_palette_select — selects tilemap palette 0 vs 1 at
+    /// render time.  Independent from the NR 0x43 palette-I/O target field.
+    bool palette_sel() const { return palette_sel_; }
 
     /// Snapshot current scroll values for a given scanline (called per-line).
     void snapshot_scroll_for_line(int line) {
@@ -125,6 +131,7 @@ private:
     bool     force_attr_     = false;
     bool     mode_512_       = false;
     bool     ula_on_top_     = false;   // global ULA-over-tilemap flag
+    bool     palette_sel_    = false;   // NR 0x6B bit 4 — tilemap palette select
 
     uint8_t  default_attr_   = 0;       // NextREG 0x6C
 
