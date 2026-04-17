@@ -247,6 +247,9 @@ void Ctc::handle_zc_to(int channel) {
     // Daisy-chain: trigger the next channel (ring topology).
     // VHDL zxnext.vhd:4084: i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3)
     // ch0←ch3, ch1←ch0, ch2←ch1, ch3←ch2.
+    // Note: VHDL uses edge detection with one-cycle delay, so the ring
+    // cannot cascade instantaneously. Our synchronous recursion could
+    // overflow with a pathological all-counter TC=1 ring config.
     {
         int next = (channel + 1) & 3;
         ctc_log()->trace("ch{} ZC/TO -> trigger ch{}", channel, next);

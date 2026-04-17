@@ -538,9 +538,8 @@ void section4_chaining() {
     //     ch2.clk_trg = ch1.zc_to,  ch3.clk_trg = ch2.zc_to.
     // This is a ring, not a line.
 
-    // CTC-CH-01 — ch0.clk_trg = ch3.zc_to (wrap-around). The jnext
-    // handle_zc_to() only chains N→N+1 for N<3, so ch3→ch0 wrap is
-    // missing. Known emulator bug — leave failing per process manual §2.
+    // CTC-CH-01 — ch0.clk_trg = ch3.zc_to (ring wrap-around).
+    // VHDL zxnext.vhd:4084: i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3).
     {
         fresh(ctc);
         // ch3 timer: fastest ZC/TO
@@ -554,8 +553,7 @@ void section4_chaining() {
         uint8_t after = ctc.read(0);
         check("CTC-CH-01", after == static_cast<uint8_t>(before - 1),
               "zxnext.vhd:4084 ch0.clk_trg = ch3.zc_to (ring wrap)",
-              fmt("before=0x%02x after=0x%02x (known: emulator ch3→ch0 wrap missing)",
-                  before, after));
+              fmt("before=0x%02x after=0x%02x", before, after));
     }
 
     // CTC-CH-02 — ch1.clk_trg = ch0.zc_to.
