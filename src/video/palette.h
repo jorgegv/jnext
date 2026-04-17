@@ -136,6 +136,22 @@ public:
     void set_tilemap_transparency(uint8_t val) { tilemap_transparency_ = val & 0x0F; }
     uint8_t tilemap_transparency() const { return tilemap_transparency_; }
 
+    // -----------------------------------------------------------------
+    // Active tilemap palette select (NR 0x6B bit 4)
+    // -----------------------------------------------------------------
+    //
+    // VHDL authority: nr_6b_tm_palette_select drives the tilemap palette
+    // lookup at render time.  It is a SEPARATE bit from the NR 0x43
+    // palette-I/O target field; writes to NR 0x43 must not affect it.
+    // The emulator routes NR 0x6B writes to this setter from the NR 0x6B
+    // write handler in core/emulator.cpp.
+
+    /// Set the active tilemap palette (false = palette 0, true = palette 1).
+    void set_active_tilemap_palette(bool second) { active_tm_second_ = second; }
+
+    /// Query the active tilemap palette select (mostly for tests / debug).
+    bool active_tilemap_palette() const { return active_tm_second_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -163,7 +179,7 @@ private:
     bool active_ula_second_   = false;   // bit 1 of 0x43
     bool active_l2_second_    = false;   // bit 2 of 0x43
     bool active_spr_second_   = false;   // bit 3 of 0x43
-    bool active_tm_second_    = false;   // derived: tilemap uses same select as target
+    bool active_tm_second_    = false;   // driven by NR 0x6B bit 4 (VHDL nr_6b_tm_palette_select)
     bool ulanext_mode_        = false;   // bit 0 of 0x43
 
     // 9-bit write state machine

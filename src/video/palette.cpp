@@ -145,18 +145,16 @@ void PaletteManager::write_control(uint8_t val)
     active_ula_second_ = (val & 0x02) != 0;
     ulanext_mode_      = (val & 0x01) != 0;
 
-    // Tilemap active palette is determined by whether we're targeting
-    // tilemap first or second in the target_palette_ field, but for
-    // rendering we use the same select bits pattern. The hardware
-    // doesn't have a separate "active tilemap" bit — it's implicit
-    // from the palette select field. We'll track it separately based
-    // on which tilemap palette was last targeted for writing.
-    // For now, tilemap active follows the target if tilemap is selected.
-    if (target_palette_ == PaletteId::TILEMAP_FIRST)
-        active_tm_second_ = false;
-    else if (target_palette_ == PaletteId::TILEMAP_SECOND)
-        active_tm_second_ = true;
-
+    // NOTE: active_tm_second_ is NOT derived from NR 0x43 here.  Per VHDL,
+    // the authoritative tilemap palette select for rendering is
+    // nr_6b_tm_palette_select (NR 0x6B bit 4).  NR 0x43 only selects the
+    // read/write target palette for palette-I/O; it must not change which
+    // tilemap palette the compositor uses at render time.  The correct
+    // update path is core/emulator.cpp -> PaletteManager::set_active_tilemap_palette()
+    // from the NR 0x6B write handler.
+    // (Earlier code derived active_tm_second_ from target_palette_ here as a
+    // workaround; that was removed to match VHDL.)
+    //
     // Reset 9-bit write state on control change.
     nine_bit_first_written_ = false;
 }
