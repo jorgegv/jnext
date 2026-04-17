@@ -503,6 +503,31 @@ bool Emulator::init(const EmulatorConfig& cfg)
         });
     }
 
+    // Registers 0xCC/0xCD/0xCE: IM2 DMA delay enables
+    // VHDL zxnext.vhd:5629-5637 (write), :6257-6263 (read).
+    nextreg_.set_write_handler(0xCC, [this](uint8_t v) {
+        nr_cc_dma_delay_on_nmi_ = (v & 0x80) != 0;
+        nr_cc_dma_delay_en_ula_ = v & 0x03;
+    });
+    nextreg_.set_read_handler(0xCC, [this]() -> uint8_t {
+        return static_cast<uint8_t>((nr_cc_dma_delay_on_nmi_ ? 0x80 : 0) |
+                                    (nr_cc_dma_delay_en_ula_ & 0x03));
+    });
+    nextreg_.set_write_handler(0xCD, [this](uint8_t v) {
+        nr_cd_dma_delay_en_ctc_ = v;
+    });
+    nextreg_.set_read_handler(0xCD, [this]() -> uint8_t {
+        return nr_cd_dma_delay_en_ctc_;
+    });
+    nextreg_.set_write_handler(0xCE, [this](uint8_t v) {
+        nr_ce_dma_delay_en_uart1_ = (v >> 4) & 0x07;
+        nr_ce_dma_delay_en_uart0_ = v & 0x07;
+    });
+    nextreg_.set_read_handler(0xCE, [this]() -> uint8_t {
+        return static_cast<uint8_t>(((nr_ce_dma_delay_en_uart1_ & 0x07) << 4) |
+                                    (nr_ce_dma_delay_en_uart0_ & 0x07));
+    });
+
     // Register 0x20: Generate maskable interrupt / read pending status
     nextreg_.set_read_handler(0x20, [this]() -> uint8_t {
         // bit 7=line, bit 6=ula, bits 3:0=ctc 3:0
@@ -2161,4 +2186,42 @@ bool Emulator::stop_recording()
     mixer_.set_record_callback(nullptr);
 
     return video_recorder_.stop();
+}
+
+// ─── IM2 DMA delay composition (NR 0xCC/0xCD/0xCE + zxnext.vhd:1957-2007) ──
+
+uint16_t Emulator::compose_im2_dma_int_en() const
+{
+    // VHDL zxnext.vhd:1957-1958.
+    //   im2_dma_int_en(13) = nr_ce_2_654(2)   -- UART1 Tx
+    //   im2_dma_int_en(12) = nr_ce_2_210(2)   -- UART0 Tx
+    //   im2_dma_int_en(11) = nr_cc_0_10(0)    -- ULA frame
+    //   im2_dma_int_en(10..3) = nr_cd_1(7..0) -- CTC 7..0
+    //   im2_dma_int_en(2)  = nr_ce_2_654(1) OR (0)  -- UART1 Rx / Rx-error
+    //   im2_dma_int_en(1)  = nr_ce_2_210(1) OR (0)  -- UART0 Rx / Rx-error
+    //   im2_dma_int_en(0)  = nr_cc_0_10(1)          -- line
+    const uint8_t ce1 = nr_ce_dma_delay_en_uart1_ & 0x07;
+    const uint8_t ce0 = nr_ce_dma_delay_en_uart0_ & 0x07;
+    const uint8_t cc  = nr_cc_dma_delay_en_ula_   & 0x03;
+    uint16_t m = 0;
+    if (ce1 & 0x04) m |= (1u << 13);
+    if (ce0 & 0x04) m |= (1u << 12);
+    if (cc  & 0x01) m |= (1u << 11);
+    m |= static_cast<uint16_t>(nr_cd_dma_delay_en_ctc_) << 3;
+    if (ce1 & 0x03) m |= (1u << 2);
+    if (ce0 & 0x03) m |= (1u << 1);
+    if (cc  & 0x02) m |= (1u << 0);
+    return m;
+}
+
+bool Emulator::update_im2_dma_delay(bool im2_dma_int, bool nmi_activated, bool dma_delay)
+{
+    // VHDL zxnext.vhd:2005-2007:
+    //   im2_dma_delay <= im2_dma_int OR (nmi AND nr_cc_7) OR (im2_dma_delay AND dma_delay)
+    const bool next = im2_dma_int
+                      || (nmi_activated && nr_cc_dma_delay_on_nmi_)
+                      || (im2_dma_delay_latched_ && dma_delay);
+    im2_dma_delay_latched_ = next;
+    dma_.set_dma_delay(next);
+    return next;
 }

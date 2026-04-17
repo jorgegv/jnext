@@ -2429,9 +2429,14 @@ void group20_dma_delay() {
                   (int)dma.cpu_busreq_n()));
     }
 
-    skip("20.3", "NextRegs 0xCC/0xCD/0xCE IM2 DMA enable bits (zxnext.vhd) "
-                 "not handled in Dma");
-    skip("20.4", "im2_dma_delay composition (zxnext.vhd) not modelled");
+    // 20.3 / 20.4 live at the zxnext.vhd wiring layer (NR 0xCC/0xCD/0xCE
+    // register handlers + im2_dma_delay composition), not inside the Dma
+    // unit.  See test/nextreg/nextreg_integration_test.cpp group "DMA-IM2-
+    // Delay" for the coverage.  This Dma-level test stays skipped by design.
+    skip("20.3", "NR 0xCC/0xCD/0xCE DMA enable bits tested in "
+                 "nextreg_integration_test.cpp (DMA-IM2-Delay 20.3a-g)");
+    skip("20.4", "im2_dma_delay composition tested in "
+                 "nextreg_integration_test.cpp (DMA-IM2-Delay 20.4a-f)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
