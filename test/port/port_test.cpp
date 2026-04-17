@@ -531,6 +531,47 @@ static void test_group_registration() {
               DETAIL("dma6b=0x%02x dma0b=0x%02x", s1, s2));
     }
 
+    // REG-22-BUS: port_dma_rd/wr gated on dma_holds_bus.  VHDL zxnext.vhd:
+    //   port_dma_rd <= port_dma_rd_raw and not dma_holds_bus;
+    //   port_dma_wr <= port_dma_wr_raw and not dma_holds_bus;
+    // While the DMA is mid-transfer (holds the bus), port writes to 0x6B /
+    // 0x0B must be ignored and reads must return the gated-off value.  This
+    // covers DMA plan row 15.8 (a dispatcher-layer concern, not Dma-unit).
+    {
+        // Program a 4-byte mem->mem transfer and start it.  Only transfer
+        // 1 byte so the DMA stays in TRANSFER phase with 3 bytes pending.
+        emu.port().out(0x006B, 0xC3);    // DMA reset → IDLE
+        const uint8_t prog[] = {
+            0x7D, 0x00, 0x80, 0x04, 0x00,   // R0 A->B, src=0x8000, len=4
+            0x14,                            // R1 mem, inc
+            0x10,                            // R2 mem, inc
+            0xAD, 0x00, 0x90,                // R4 continuous, dst=0x9000
+            0xCF,                            // LOAD
+            0x87,                            // ENABLE — phase = START_DMA
+        };
+        for (uint8_t b : prog) emu.port().out(0x006B, b);
+
+        // One burst step: phase advances START_DMA -> WAITING_ACK ->
+        // TRANSFER, transfers 1 byte, leaves phase = TRANSFER with 3 bytes
+        // still pending (block_len=4).  dma_holds_bus() now returns true.
+        emu.dma().execute_burst(1);
+        bool held = emu.dma().dma_holds_bus();
+
+        // Attempt a RESET via the port.  The dispatcher gate must drop
+        // this — DMA state must remain TRANSFERRING.
+        emu.port().out(0x006B, 0xC3);
+        bool still_transferring = (emu.dma().state() == Dma::State::TRANSFERRING);
+
+        // Read must also be gated: returns 0xFF, not a real status byte.
+        uint8_t rd = emu.port().in(0x006B);
+
+        check("REG-22-BUS",
+              "port_dma_rd/wr silenced while dma_holds_bus (VHDL:2643 + gate)",
+              held && still_transferring && rd == 0xFF,
+              DETAIL("held=%d state_transferring=%d read=0x%02x",
+                     (int)held, (int)still_transferring, rd));
+    }
+
     // REG-23: CTC 0x183B range. VHDL zxnext.vhd:2690.
     {
         emu.port().out(0x183B, 0x03);           // write channel-0 timer constant

@@ -831,13 +831,24 @@ bool Emulator::init(const EmulatorConfig& cfg)
             ctc_.write((p >> 8) & 3, val);
         });
 
-    // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat)
+    // DMA — port 0x6B (ZXN mode) and port 0x0B (Z80-DMA compat).
+    // VHDL zxnext.vhd: port_dma_rd/wr <= port_dma_rd_raw/wr_raw AND NOT
+    // dma_holds_bus — the DMA port is gated at the dispatcher layer while
+    // the DMA controller holds the bus.  Matches DMA plan row 15.8.
     port_.register_handler(0x00FF, 0x006B,
-        [this](uint16_t) -> uint8_t { return dma_.read(); },
-        [this](uint16_t, uint8_t val) { dma_.write(val, false); });
+        [this](uint16_t) -> uint8_t {
+            return dma_.dma_holds_bus() ? 0xFF : dma_.read();
+        },
+        [this](uint16_t, uint8_t val) {
+            if (!dma_.dma_holds_bus()) dma_.write(val, false);
+        });
     port_.register_handler(0x00FF, 0x000B,
-        [this](uint16_t) -> uint8_t { return dma_.read(); },
-        [this](uint16_t, uint8_t val) { dma_.write(val, true); });
+        [this](uint16_t) -> uint8_t {
+            return dma_.dma_holds_bus() ? 0xFF : dma_.read();
+        },
+        [this](uint16_t, uint8_t val) {
+            if (!dma_.dma_holds_bus()) dma_.write(val, true);
+        });
 
     // SPI chip select (0xE7) and data (0xEB)
     port_.register_handler(0x00FF, 0x00E7,

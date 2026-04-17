@@ -1915,13 +1915,11 @@ void group15_bus_arbitration() {
                   (int)dma.dma_holds_bus()));
     }
 
-    // 15.8 — BELONGS TO PORT DISPATCH (not a skip).  The VHDL gate is
-    //   port_dma_rd <= port_dma_rd_raw and not dma_holds_bus;
-    //   port_dma_wr <= port_dma_wr_raw and not dma_holds_bus;
-    // — i.e. a zxnext.vhd-level gate on the port dispatcher, not an
-    // intra-DMA concern.  The Dma class exposes dma_holds_bus() so the
-    // dispatcher can enforce it.  Test this in port_test.cpp when the
-    // gate lands in the dispatcher, not here.
+    // 15.8 — COVERED AT DISPATCHER LAYER (not a skip).  The VHDL gate
+    //   port_dma_rd/wr <= port_dma_rd_raw/wr_raw AND NOT dma_holds_bus
+    // sits at the port dispatcher, not inside the Dma module.  See
+    // test/port/port_test.cpp row REG-22-BUS for the coverage.  Kept here
+    // as a source-level reference to the DMA plan row.
 }
 
 // ══════════════════════════════════════════════════════════════════════
