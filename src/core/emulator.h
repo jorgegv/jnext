@@ -381,6 +381,44 @@ private:
     uint8_t  im2_int_enable_[3]  = {0x81, 0, 0};  ///< 0xC4-0xC6 (soft reset defaults)
     uint8_t  im2_int_status_[3]  = {};     ///< 0xC8-0xCA
 
+    // --- IM2 DMA delay enables (NextREG 0xCC / 0xCD / 0xCE) ---
+    // VHDL zxnext.vhd:1259-1262, :5629-5637, :6257-6263.
+    // NR 0xCC bit 7   = dma delay on NMI    (nr_cc_dma_int_en_0_7)
+    // NR 0xCC bits 1:0 = dma delay enable for ULA/line ints (nr_cc_dma_int_en_0_10)
+    // NR 0xCD bits 7:0 = dma delay enable for CTC channels 7:0 (nr_cd_dma_int_en_1)
+    // NR 0xCE bits 6:4 = dma delay enable, UART1 Tx/Rx/Rx-error (nr_ce_dma_int_en_2_654)
+    // NR 0xCE bits 2:0 = dma delay enable, UART0 Tx/Rx/Rx-error (nr_ce_dma_int_en_2_210)
+    bool     nr_cc_dma_delay_on_nmi_   = false;  ///< NR 0xCC bit 7
+    uint8_t  nr_cc_dma_delay_en_ula_   = 0;      ///< NR 0xCC bits 1:0
+    uint8_t  nr_cd_dma_delay_en_ctc_   = 0;      ///< NR 0xCD bits 7:0
+    uint8_t  nr_ce_dma_delay_en_uart1_ = 0;      ///< NR 0xCE bits 6:4
+    uint8_t  nr_ce_dma_delay_en_uart0_ = 0;      ///< NR 0xCE bits 2:0
+    bool     im2_dma_delay_latched_    = false;  ///< VHDL zxnext.vhd:2005-2007
+
+public:
+    /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.
+    /// VHDL zxnext.vhd:1957-1958.  Returned bit layout (MSB to LSB):
+    ///   bit 13 = NR CE[6]  (UART1 Tx)
+    ///   bit 12 = NR CE[2]  (UART0 Tx)
+    ///   bit 11 = NR CC[0]  (ULA)
+    ///   bits 10:3 = NR CD[7:0]  (CTC 7..0)
+    ///   bit 2  = NR CE[5] | NR CE[4]  (UART1 Rx / Rx-error)
+    ///   bit 1  = NR CE[1] | NR CE[0]  (UART0 Rx / Rx-error)
+    ///   bit 0  = NR CC[1]  (line)
+    uint16_t compose_im2_dma_int_en() const;
+
+    /// Compute the next im2_dma_delay output given the three inputs, per
+    /// VHDL zxnext.vhd:2007:
+    ///   im2_dma_delay_next = im2_dma_int OR (nmi_activated AND nr_cc_bit7)
+    ///                        OR (im2_dma_delay_prev AND dma_delay)
+    /// Updates the latched previous value and returns the new output.
+    bool update_im2_dma_delay(bool im2_dma_int, bool nmi_activated, bool dma_delay);
+
+    /// Read-only view of the latched im2_dma_delay (for tests).
+    bool im2_dma_delay() const { return im2_dma_delay_latched_; }
+
+private:
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------

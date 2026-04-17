@@ -74,8 +74,18 @@ std::string hex2(uint8_t v) {
     return buf;
 }
 
+std::string hex4(uint16_t v) {
+    char buf[10];
+    std::snprintf(buf, sizeof(buf), "0x%04x", v);
+    return buf;
+}
+
 std::string detail_eq(uint8_t got, uint8_t expected) {
     return "got=" + hex2(got) + " expected=" + hex2(expected);
+}
+
+std::string detail_eq(uint16_t got, uint16_t expected) {
+    return "got=" + hex4(got) + " expected=" + hex4(expected);
 }
 
 } // namespace
@@ -96,6 +106,12 @@ static bool build_next_emulator(Emulator& emu) {
 static uint8_t nr_read(Emulator& emu, uint8_t reg) {
     emu.port().out(0x243B, reg);
     return emu.port().in(0x253B);
+}
+
+// Write NextREG register through the real port path.
+static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
 }
 
 // ── 3. Reset Defaults (RST-01..09) — integration tier ────────────────
@@ -263,6 +279,156 @@ static void test_reset_defaults(Emulator& emu) {
          "are added to Emulator::init().");
 }
 
+// ── DMA IM2 delay integration (DMA plan rows 20.3, 20.4) ──────────────
+//
+// These rows were skipped in dma_test.cpp because NR 0xCC/0xCD/0xCE and the
+// im2_dma_delay composition live at the zxnext.vhd level, not inside the
+// standalone Dma class.  They are verified here through the full emulator.
+//
+// VHDL: zxnext.vhd:1957-1958 (int_en composition), :2005-2007 (delay
+// composition), :5629-5637 (register writes), :6257-6263 (readback).
+
+static void test_dma_im2_delay(Emulator& emu) {
+    set_group("DMA-IM2-Delay");
+
+    // 20.3 — Writes to NR 0xCC/0xCD/0xCE are captured and read back with
+    // the exact VHDL bit layout (no spurious bits).
+    {
+        nr_write(emu, 0xCC, 0x83);       // bit7=1 (NMI), bits1:0=11
+        uint8_t got = nr_read(emu, 0xCC);
+        check("20.3a",
+              "NR 0xCC readback masks to bits 7 and 1:0 "
+              "[zxnext.vhd:6257]",
+              got == 0x83, detail_eq(got, 0x83));
+    }
+    {
+        nr_write(emu, 0xCC, 0x7F);       // bit7=0, bits6:2 ignored, bits1:0=11
+        uint8_t got = nr_read(emu, 0xCC);
+        check("20.3b",
+              "NR 0xCC ignores bits 6:2 on readback "
+              "[zxnext.vhd:5629-5630]",
+              got == 0x03, detail_eq(got, 0x03));
+    }
+    {
+        nr_write(emu, 0xCD, 0xA5);       // full 8 bits used for CTC 7..0
+        uint8_t got = nr_read(emu, 0xCD);
+        check("20.3c",
+              "NR 0xCD readback preserves all 8 bits (CTC 7..0) "
+              "[zxnext.vhd:5633, :6260]",
+              got == 0xA5, detail_eq(got, 0xA5));
+    }
+    {
+        nr_write(emu, 0xCE, 0xFF);       // bits 7/3 should not be stored
+        uint8_t got = nr_read(emu, 0xCE);
+        check("20.3d",
+              "NR 0xCE readback masks to bits 6:4 + 2:0 (bits 7,3 zero) "
+              "[zxnext.vhd:5636-5637, :6263]",
+              got == 0x77, detail_eq(got, 0x77));
+    }
+
+    // 20.3 composition — the 14-bit im2_dma_int_en mask assembled from NR
+    // bit fields must match VHDL zxnext.vhd:1957-1958.
+    {
+        // Drive every NR bit set: NR CC=0x83 (keeps bit7 + bits1:0), NR CD=0xFF,
+        // NR CE=0x77.  Expected mask = 0x3FFF (all 14 bits).
+        nr_write(emu, 0xCC, 0x83);
+        nr_write(emu, 0xCD, 0xFF);
+        nr_write(emu, 0xCE, 0x77);
+        uint16_t m = emu.compose_im2_dma_int_en();
+        check("20.3e",
+              "im2_dma_int_en = 0x3FFF when all NR enable bits are set "
+              "[zxnext.vhd:1957-1958]",
+              m == 0x3FFF, detail_eq(m, static_cast<uint16_t>(0x3FFF)));
+    }
+    {
+        // Sparse enable: NR CC bit 0 (ULA) — maps to im2_dma_int_en[11].
+        nr_write(emu, 0xCC, 0x01);
+        nr_write(emu, 0xCD, 0x00);
+        nr_write(emu, 0xCE, 0x00);
+        uint16_t m = emu.compose_im2_dma_int_en();
+        check("20.3f",
+              "NR CC[0] alone -> im2_dma_int_en[11] "
+              "[zxnext.vhd:1957]",
+              m == (1u << 11),
+              detail_eq(m, static_cast<uint16_t>(1u << 11)));
+    }
+    {
+        // NR CE UART0 Rx or Rx-error: bits 1 or 0 of ce_210 OR together
+        // into im2_dma_int_en[1].
+        nr_write(emu, 0xCC, 0x00);
+        nr_write(emu, 0xCD, 0x00);
+        nr_write(emu, 0xCE, 0x01);       // UART0 Rx-error
+        uint16_t m1 = emu.compose_im2_dma_int_en();
+        nr_write(emu, 0xCE, 0x02);       // UART0 Rx
+        uint16_t m2 = emu.compose_im2_dma_int_en();
+        check("20.3g",
+              "NR CE[0] or CE[1] -> im2_dma_int_en[1] (UART0 Rx OR) "
+              "[zxnext.vhd:1958]",
+              m1 == (1u << 1) && m2 == (1u << 1),
+              detail_eq(m1, static_cast<uint16_t>(1u << 1)));
+    }
+
+    // 20.4 — im2_dma_delay = im2_dma_int OR (nmi AND nr_cc_7)
+    //                        OR (im2_dma_delay_prev AND dma_delay).
+    // VHDL zxnext.vhd:2007.  We exercise each disjunct explicitly.
+    {
+        // Reset latch first by writing NR CC/CD/CE=0 and running a cycle
+        // with all inputs deasserted.
+        nr_write(emu, 0xCC, 0x00);
+        nr_write(emu, 0xCD, 0x00);
+        nr_write(emu, 0xCE, 0x00);
+        emu.update_im2_dma_delay(false, false, false);
+        bool latched = emu.im2_dma_delay();
+        check("20.4a", "All inputs deasserted -> im2_dma_delay=0",
+              latched == false, detail_eq(static_cast<uint8_t>(latched ? 1 : 0), uint8_t{0}));
+    }
+    {
+        // Disjunct 1: im2_dma_int=1 alone.
+        bool out = emu.update_im2_dma_delay(true, false, false);
+        check("20.4b",
+              "im2_dma_int=1 -> im2_dma_delay=1 [zxnext.vhd:2007]",
+              out == true, detail_eq(static_cast<uint8_t>(out ? 1 : 0), uint8_t{1}));
+        // Reset back.
+        emu.update_im2_dma_delay(false, false, false);
+    }
+    {
+        // Disjunct 2a: nmi=1 AND nr_cc_7=0 -> stays 0.
+        nr_write(emu, 0xCC, 0x00);
+        bool out = emu.update_im2_dma_delay(false, true, false);
+        check("20.4c",
+              "nmi=1 & nr_cc_7=0 -> im2_dma_delay=0 [zxnext.vhd:2007]",
+              out == false, detail_eq(static_cast<uint8_t>(out ? 1 : 0), uint8_t{0}));
+    }
+    {
+        // Disjunct 2b: nmi=1 AND nr_cc_7=1 -> 1.
+        nr_write(emu, 0xCC, 0x80);       // bit7=1
+        bool out = emu.update_im2_dma_delay(false, true, false);
+        check("20.4d",
+              "nmi=1 & nr_cc_7=1 -> im2_dma_delay=1 [zxnext.vhd:2007]",
+              out == true, detail_eq(static_cast<uint8_t>(out ? 1 : 0), uint8_t{1}));
+    }
+    {
+        // Disjunct 3: latched previous=1 AND dma_delay=1 -> stays 1 even
+        // though im2_dma_int=0 and nmi=0.  Start from the latched state left
+        // by the previous step.
+        bool prev = emu.im2_dma_delay();
+        bool out = emu.update_im2_dma_delay(false, false, true);
+        check("20.4e",
+              "latched_prev=1 & dma_delay=1 -> im2_dma_delay stays 1 "
+              "[zxnext.vhd:2007]",
+              prev == true && out == true,
+              detail_eq(static_cast<uint8_t>(out ? 1 : 0), uint8_t{1}));
+    }
+    {
+        // Disjunct 3 negation: latched=1 AND dma_delay=0 -> drops to 0.
+        bool out = emu.update_im2_dma_delay(false, false, false);
+        check("20.4f",
+              "latched_prev=1 & dma_delay=0 -> im2_dma_delay drops to 0 "
+              "[zxnext.vhd:2007]",
+              out == false, detail_eq(static_cast<uint8_t>(out ? 1 : 0), uint8_t{0}));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -278,6 +444,9 @@ int main() {
 
     test_reset_defaults(emu);
     std::printf("  Group: Reset-Integration — done\n");
+
+    test_dma_im2_delay(emu);
+    std::printf("  Group: DMA-IM2-Delay — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
