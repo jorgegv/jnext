@@ -784,10 +784,8 @@ int main() {
         }
     }
 
-    std::printf("\n=== Summary: %d live checks, %d pass, %d fail, %zu skipped",
-                g_total, g_pass, g_fail, g_skipped.size());
-    std::printf(" (plan rows covered: %zu + 1 extra) ===\n",
-                static_cast<size_t>(g_total) - 1 + g_skipped.size());
+    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+                g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     return g_fail > 0 ? 1 : 0;
 }

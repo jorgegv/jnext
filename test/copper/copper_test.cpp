@@ -1487,9 +1487,8 @@ int main() {
     group10_reset();        std::printf("  Group G10 Reset         done\n");
 
     std::printf("\n================================================\n");
-    std::printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) std::printf(" (%d FAILED)", g_fail);
-    std::printf("\n");
+    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+                g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     // Per-group breakdown
     std::printf("\nPer-group breakdown:\n");

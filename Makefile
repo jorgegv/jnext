@@ -129,25 +129,40 @@ unit-test:
 	done; \
 	wait; \
 	printf "\n$(BOLD)Subsystem unit test results:$(RESET)\n\n"; \
-	pass=0; fail=0; skip=0; \
+	suites_pass=0; suites_fail=0; suites_skip=0; \
+	sum_total=0; sum_passed=0; sum_failed=0; sum_skipped=0; \
 	for t in $$TESTS; do \
 		rc_file="$$TMPDIR/$$t.rc"; \
 		if [ ! -f "$$rc_file" ]; then \
-			printf "  $(CYAN)%-34s$(RESET) \033[33mSKIP\033[0m (not built)\n" "$$t"; \
-			skip=$$((skip + 1)); \
+			printf "  $(CYAN)%-34s$(RESET) \033[1;33mSKIP\033[0m  (not built)\n" "$$t"; \
+			suites_skip=$$((suites_skip + 1)); \
 			continue; \
 		fi; \
 		rc=$$(cat $$rc_file); \
-		summary=$$(grep -E '^(Results:|Live:|=== Results|=== Summary|Total:|I/O Port)' $$TMPDIR/$$t.out | tail -1 | sed 's/^[[:space:]]*//'); \
-		if [ $$rc -eq 0 ]; then \
-			printf "  $(CYAN)%-34s$(RESET) \033[32mPASS\033[0m  %s\n" "$$t" "$$summary"; \
-			pass=$$((pass + 1)); \
+		line=$$(grep '^Total:' $$TMPDIR/$$t.out | tail -1); \
+		t_total=$$(echo "$$line" | sed 's/.*Total: *\([0-9]*\).*/\1/'); \
+		t_passed=$$(echo "$$line" | sed 's/.*Passed: *\([0-9]*\).*/\1/'); \
+		t_failed=$$(echo "$$line" | sed 's/.*Failed: *\([0-9]*\).*/\1/'); \
+		t_skipped=$$(echo "$$line" | sed 's/.*Skipped: *\([0-9]*\).*/\1/'); \
+		sum_total=$$((sum_total + t_total)); \
+		sum_passed=$$((sum_passed + t_passed)); \
+		sum_failed=$$((sum_failed + t_failed)); \
+		sum_skipped=$$((sum_skipped + t_skipped)); \
+		if [ $$rc -ne 0 ] || [ "$$t_failed" -gt 0 ] 2>/dev/null; then \
+			printf "  $(CYAN)%-34s$(RESET) \033[1;31mFAIL\033[0m  %s\n" "$$t" "$$line"; \
+			suites_fail=$$((suites_fail + 1)); \
+		elif [ "$$t_skipped" -gt 0 ] 2>/dev/null; then \
+			printf "  $(CYAN)%-34s$(RESET) \033[1;33mSKIP\033[0m  %s\n" "$$t" "$$line"; \
+			suites_pass=$$((suites_pass + 1)); \
 		else \
-			printf "  $(CYAN)%-34s$(RESET) \033[31mFAIL\033[0m  %s\n" "$$t" "$$summary"; \
-			fail=$$((fail + 1)); \
+			printf "  $(CYAN)%-34s$(RESET) \033[1;32mPASS\033[0m  %s\n" "$$t" "$$line"; \
+			suites_pass=$$((suites_pass + 1)); \
 		fi; \
 	done; \
-	printf "\n$(BOLD)Total: %d pass, %d fail, %d skip$(RESET)\n\n" $$pass $$fail $$skip; \
+	printf "\n$(BOLD)Total: %d  Passed: %d  Failed: %d  Skipped: %d$(RESET)\n" \
+		$$sum_total $$sum_passed $$sum_failed $$sum_skipped; \
+	printf "$(BOLD)Suites: %d pass, %d fail, %d skip$(RESET)\n\n" \
+		$$suites_pass $$suites_fail $$suites_skip; \
 	rm -rf $$TMPDIR
 
 # Count lines of code (excluding comments and blanks), per directory and total

@@ -1219,8 +1219,8 @@ static void test_group_wired_or() {
 
 static void print_summary() {
     printf("\n================================================================\n");
-    printf("I/O Port Dispatch compliance: %d passed / %d total (%d failed, %zu skipped)\n",
-           g_pass, g_total, g_fail, g_skips.size());
+    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+           g_total + (int)g_skips.size(), g_pass, g_fail, g_skips.size());
     printf("================================================================\n");
     if (g_fail) {
         printf("Failures (expected where the emulator has known gaps per\n");

@@ -1188,10 +1188,8 @@ int main() {
     log_deferred();
 
     printf("\n================================================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) printf(" (%d FAILED)", g_fail);
-    if (!g_skips.empty()) printf(", %zu skipped", g_skips.size());
-    printf("\n");
+    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+           g_total + (int)g_skips.size(), g_pass, g_fail, g_skips.size());
 
     if (!g_skips.empty()) {
         printf("\nSkipped plan rows:\n");

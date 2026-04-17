@@ -1210,10 +1210,8 @@ int main() {
     test_group12_gating();      std::printf("  Group GATE  done\n");
 
     std::printf("\n===============================\n");
-    std::printf("Live: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) std::printf(" (%d failing)", g_fail);
-    std::printf("\n");
-    std::printf("Skipped: %zu plan rows\n", g_skipped.size());
+    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+                g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     if (!g_skipped.empty()) {
         std::printf("\nSkipped rows:\n");

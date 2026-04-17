@@ -1710,9 +1710,8 @@ int main() {
     test_RST();        printf("  Group: RST — done\n");
 
     printf("\n=====================================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) printf(" (%d FAILED)", g_fail);
-    printf("\n");
+    printf("Total: %d  Passed: %d  Failed: %d  Skipped: 0\n",
+           g_total, g_pass, g_fail);
 
     // Per-group breakdown
     printf("\nPer-group breakdown:\n");

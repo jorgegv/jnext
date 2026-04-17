@@ -2205,9 +2205,8 @@ int main() {
     g_io();            std::printf("  7   IO -- done\n");
 
     std::printf("\n====================================================\n");
-    std::printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) std::printf(" (%d FAILED)", g_fail);
-    std::printf(", %zu skipped\n", g_skipped.size());
+    std::printf("Total: %d  Passed: %d  Failed: %d  Skipped: %zu\n",
+                g_total + (int)g_skipped.size(), g_pass, g_fail, g_skipped.size());
 
     if (!g_skipped.empty()) {
         std::printf("\nSkipped rows (facility not reachable via current API):\n");

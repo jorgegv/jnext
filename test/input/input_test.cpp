@@ -648,11 +648,10 @@ int main() {
     test_port_fe_format();  printf("  Group: FE     done\n");
 
     printf("\n=====================================================\n");
-    printf("Results: %d/%d passed", g_pass, g_total);
-    if (g_fail > 0) printf(" (%d FAILED)", g_fail);
-    printf(" [%d skipped — unrealisable with current C++ surface]",
+    printf("Total: %d  Passed: %d  Failed: %d  Skipped: %d\n",
+           g_total + static_cast<int>(g_skipped.size()), g_pass, g_fail,
            static_cast<int>(g_skipped.size()));
-    printf("\n\nPer-group breakdown (live rows only; skipped rows tallied separately):\n");
+    printf("\nPer-group breakdown (live rows only; skipped rows tallied separately):\n");
 
     std::string last_group;
     int gp = 0, gf = 0;
