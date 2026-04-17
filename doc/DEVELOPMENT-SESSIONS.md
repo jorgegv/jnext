@@ -34,7 +34,6 @@
 | 15/4   | 10h  | Phase 9: 9 older suites refactored, matrix refresh, 4 emu fixes, traceability docs         |
 |        | 6h   | Phase 9: Full 1788-row audit (3 waves), remediation, matrix 1010/89/689/0                  |
 | 16/4   | 9h   | Phase 9: Tasks 2+3 DONE, Task 1 19/21 items resolved, compositor+port dispatch fixes      |
-| 17/4   | 7h   | Phase 9: Task 1 DONE — NextREG integration, SPI pipeline, compositor 15 fails, v0.92.0    |
-|        | 6h   | Phase 9: Last 3 fails fixed, I2C ACK bug, uniform test output, v0.93.0                    |
+| 17/4   | 7h   | Phase 9: v0.92.0+v0.93.0, Task 3 SKIP reduction (7 subsystems), DivMMC+SPI 4-phase plan    |
 |        |      |                                                                                            |
-| TOTAL: | 133h |                                                                                            |
+| TOTAL: | 127h |                                                                                            |
