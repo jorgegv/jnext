@@ -25,6 +25,9 @@ DivMmc::DivMmc()
 }
 
 void DivMmc::reset() {
+    // NB: enable-flag state (port_io_enable_, nr_0a_4_enable_, enabled_) is
+    // preserved across soft reset — VHDL zxnext.vhd:4112 derives these from
+    // NR/port signals that are not cleared by the divmmc automap_reset path.
     conmem_ = false;
     mapram_ = false;
     bank_ = 0;
@@ -79,6 +82,48 @@ uint8_t DivMmc::read_control() const {
     return control_reg_ & 0xCF;  // bits 5:4 masked to zero per VHDL zxnext.vhd:4190
 }
 
+// E3-05: NR 0x09 bit 3 clears the port_e3_reg(6) OR-latch (mapram).
+// VHDL zxnext.vhd:4184-4185.
+void DivMmc::clear_mapram() {
+    mapram_ = false;
+    control_reg_ &= ~0x40;
+    divmmc_log()->debug("clear_mapram (NR 0x09 bit 3)");
+}
+
+// ── Enable-flag levers (NA-03, DA-08) ─────────────────────────────────
+
+void DivMmc::apply_enabled_transition_(bool prev_enabled) {
+    enabled_ = port_io_enable_ && nr_0a_4_enable_;
+    if (prev_enabled && !enabled_) {
+        // DA-08: mirror VHDL i_automap_reset (divmmc.vhd:126) on any
+        // enabled→disabled edge — hold/held latches are cleared, so the
+        // automap combinational output goes low immediately.
+        if (automap_active_) {
+            divmmc_log()->debug("automap OFF (enable cleared)");
+        }
+        automap_active_ = false;
+    }
+}
+
+void DivMmc::set_enabled(bool en) {
+    bool prev = enabled_;
+    port_io_enable_ = en;
+    nr_0a_4_enable_ = en;
+    apply_enabled_transition_(prev);
+}
+
+void DivMmc::set_port_io_enable(bool v) {
+    bool prev = enabled_;
+    port_io_enable_ = v;
+    apply_enabled_transition_(prev);
+}
+
+void DivMmc::set_nr_0a_4_enable(bool v) {
+    bool prev = enabled_;
+    nr_0a_4_enable_ = v;
+    apply_enabled_transition_(prev);
+}
+
 // ── Auto-mapping ──────────────────────────────────────────────────────
 
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
@@ -97,10 +142,19 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     for (int i = 0; i < 8; ++i) {
         if ((entry_points_0_ & (1 << i)) && pc == rst_addrs[i]) {
             bool valid = (entry_valid_0_ & (1 << i)) != 0;
+            // EP-09: NR 0xBA bit i selects instant_on vs delayed_on in VHDL
+            // (zxnext.vhd:2892-2894).  JNEXT's simplified per-M1 model maps
+            // the overlay on the trigger fetch itself in both cases (the VHDL
+            // pipeline delay of one mreq cycle between instant and delayed is
+            // not observable at C++ step granularity), so `instant` is only
+            // part of the decision surface for future pipeline accuracy — the
+            // observable automap edge is identical for both timings today.
+            bool instant = (entry_timing_0_ & (1 << i)) != 0;
+            (void)instant;  // reserved for pipeline-accurate refinement
             if (valid || rom3_active_) {
                 if (!automap_active_) {
-                    divmmc_log()->debug("automap ON at PC={:#06x} (valid={} rom3={})",
-                                        pc, valid, rom3_active_);
+                    divmmc_log()->debug("automap ON at PC={:#06x} (valid={} instant={} rom3={})",
+                                        pc, valid, instant, rom3_active_);
                 }
                 automap_active_ = true;
             }
@@ -243,6 +297,9 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
 
 void DivMmc::save_state(StateWriter& w) const
 {
+    // Persist the composite enable flag.  The individual port_io_enable_
+    // and nr_0a_4_enable_ levers are reconstructed on load from enabled_
+    // (see load_state below) since pre-NA-03 snapshots do not carry them.
     w.write_bool(enabled_);
     w.write_bool(conmem_);
     w.write_bool(mapram_);
@@ -259,6 +316,9 @@ void DivMmc::save_state(StateWriter& w) const
 void DivMmc::load_state(StateReader& r)
 {
     enabled_        = r.read_bool();
+    // NA-03: keep the split levers consistent with the composite flag.
+    port_io_enable_ = enabled_;
+    nr_0a_4_enable_ = enabled_;
     conmem_         = r.read_bool();
     mapram_         = r.read_bool();
     bank_           = r.read_u8();

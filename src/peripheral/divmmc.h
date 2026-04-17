@@ -75,11 +75,31 @@ public:
     /// Writes to read-only regions are silently ignored.
     void write(uint16_t addr, uint8_t val);
 
+    /// Clear the mapram OR-latch (bit 6 of port 0xE3).
+    /// VHDL zxnext.vhd:4184-4185 — writing NR 0x09 with bit 3 set
+    /// forces port_e3_reg(6) := '0'. JNEXT exposes this as a dedicated
+    /// entry point called by the emulator's NR 0x09 handler.
+    void clear_mapram();
+
     // ── Enable/disable ────────────────────────────────────────────
 
-    /// Enable or disable the entire DivMMC subsystem.
-    void set_enabled(bool en) { enabled_ = en; }
+    /// Enable or disable the entire DivMMC subsystem (legacy, single lever).
+    /// VHDL models enable as (port_divmmc_io_en AND nr_0a_divmmc_automap_en);
+    /// this convenience setter collapses both independent flags onto a single
+    /// boolean, preserving legacy callers.  Any enabled→disabled transition
+    /// also clears automap_active_ (mirrors VHDL i_automap_reset path,
+    /// divmmc.vhd:126).
+    void set_enabled(bool en);
     bool is_enabled() const { return enabled_; }
+
+    /// NA-03 split: individual levers for the two VHDL enable sources.
+    /// VHDL zxnext.vhd:4112 — divmmc_automap_reset = (port_divmmc_io_en=0) OR
+    /// (nr_0a_divmmc_automap_en=0).  JNEXT models each independently so tests
+    /// (and future emulator wiring) can toggle them separately.
+    void set_port_io_enable(bool v);
+    void set_nr_0a_4_enable(bool v);
+    bool port_io_enable() const { return port_io_enable_; }
+    bool nr_0a_4_enable() const { return nr_0a_4_enable_; }
 
     // ── Accessors for debug / testing ─────────────────────────────
 
@@ -115,7 +135,14 @@ public:
     void load_state(class StateReader& r);
 
 private:
-    bool enabled_ = false;              // DivMMC subsystem enabled
+    // NA-03: the effective enable is (port_io_enable_ AND nr_0a_4_enable_).
+    // set_enabled() writes both for back-compat; the split setters write
+    // only one flag each.  apply_enabled_transition_() recomputes enabled_
+    // and clears automap_active_ on any true→false edge (DA-08).
+    bool port_io_enable_ = false;       // NR 0x83 bit 0 gated port enable
+    bool nr_0a_4_enable_ = false;       // NR 0x0A bit 4 automap enable
+    bool enabled_ = false;              // = port_io_enable_ AND nr_0a_4_enable_
+    void apply_enabled_transition_(bool prev_enabled);
     bool conmem_ = false;               // bit 7 of control register
     bool mapram_ = false;               // bit 6 of control register
     uint8_t bank_ = 0;                  // bits 3:0 of control register
