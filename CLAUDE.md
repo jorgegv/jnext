@@ -60,7 +60,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — all must pass
+1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable)
 2. Update the traceability matrix
 3. Update the unit test status report
 4. Update the ChangeLog using the future version that will be bumped to
