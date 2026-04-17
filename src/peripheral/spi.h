@@ -11,8 +11,10 @@ public:
     virtual uint8_t exchange(uint8_t tx) = 0;
 
     /// Receive a byte from host (command/data write path).
+    /// Returns the MISO byte the device drives during this transfer
+    /// (VHDL: full-duplex SPI — every write is also a read).
     /// Default implementation calls exchange() for compatibility.
-    virtual void receive(uint8_t tx) { exchange(tx); }
+    virtual uint8_t receive(uint8_t tx) { return exchange(tx); }
 
     /// Send next response byte to host (read path).
     /// Default implementation calls exchange(0xFF) for compatibility.

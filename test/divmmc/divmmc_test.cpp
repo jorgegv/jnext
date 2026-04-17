@@ -109,9 +109,10 @@ public:
         ++exchange_count;
         return next_response;
     }
-    void receive(uint8_t tx) override {
+    uint8_t receive(uint8_t tx) override {
         last_tx = tx;
         ++exchange_count;
+        return next_response;
     }
     uint8_t send() override {
         // Aligns with SpiDevice base class default `send() { return

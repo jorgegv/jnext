@@ -79,13 +79,14 @@ uint8_t SpiMaster::read_cs() const {
 }
 
 void SpiMaster::write_data(uint8_t val) {
-    // Write path: feed a command/data byte TO the device.
-    // Does NOT consume response bytes (matches ZesarUX/CSpect model
-    // where write and read paths are independent).
+    // VHDL spi_master.vhd:82,111-112: writes trigger a full-duplex SPI
+    // exchange — MOSI sends val, MISO is sampled, and miso_dat is updated
+    // at state_last_d. Capture the device's MISO byte in rx_data_ so that
+    // a subsequent read_data() returns it (pipeline delay).
     SpiDevice* dev = active_device();
     if (dev) {
-        dev->receive(val);
-        spi_log()->debug("write tx={:#04x}", val);
+        rx_data_ = dev->receive(val);
+        spi_log()->debug("write tx={:#04x}, rx={:#04x}", val, rx_data_);
     }
 }
 

@@ -50,7 +50,9 @@ public:
     uint8_t exchange(uint8_t tx) override;
 
     /// Receive a command/data byte from host (write path).
-    void receive(uint8_t tx) override;
+    /// Returns 0xFF (MISO idle) — the card doesn't respond on MISO during
+    /// command reception in real hardware.
+    uint8_t receive(uint8_t tx) override;
 
     /// Send next response byte to host (read path).
     uint8_t send() override;

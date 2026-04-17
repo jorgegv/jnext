@@ -85,11 +85,12 @@ uint8_t SdCardDevice::exchange(uint8_t tx) {
     return send();
 }
 
-void SdCardDevice::receive(uint8_t tx) {
+uint8_t SdCardDevice::receive(uint8_t tx) {
     // Write path: receive command/data bytes from the host.
-    // This handles ONLY the command reception side — it does NOT
-    // produce response bytes (those come from send()).
-    if (!file_.is_open()) return;
+    // Returns 0xFF — in real hardware the SD card holds MISO high during
+    // command reception (VHDL: miso_dat captures whatever is on the wire,
+    // which is 0xFF when the card isn't actively responding).
+    if (!file_.is_open()) return 0xFF;
 
     switch (state_) {
         case State::IDLE:
@@ -150,6 +151,7 @@ void SdCardDevice::receive(uint8_t tx) {
             }
             break;
     }
+    return 0xFF;
 }
 
 uint8_t SdCardDevice::send() {
