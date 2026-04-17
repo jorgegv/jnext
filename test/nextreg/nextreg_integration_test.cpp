@@ -429,6 +429,59 @@ static void test_dma_im2_delay(Emulator& emu) {
     }
 }
 
+// ── Tilemap clip NR routing (Tilemap plan rows TM-114, TM-115) ────────
+
+static void test_tilemap_clip_nr(Emulator& emu) {
+    set_group("Tilemap-Clip-NR");
+
+    // Baseline: reset clip indices to known-zero state.
+    nr_write(emu, 0x1C, 0x08);       // bit 3 = reset tilemap clip index
+
+    // TM-114 — 4 successive writes to NR 0x1B cycle through
+    // x1 → x2 → y1 → y2.  VHDL zxnext.vhd:5242-5290 (nr_1b_tm_clip_idx
+    // cycles 0..3).  Emulator clip_tm_idx_ at emulator.cpp:285-292.
+    {
+        nr_write(emu, 0x1B, 0x11);   // idx 0 → clip_x1
+        nr_write(emu, 0x1B, 0x22);   // idx 1 → clip_x2
+        nr_write(emu, 0x1B, 0x33);   // idx 2 → clip_y1
+        nr_write(emu, 0x1B, 0x44);   // idx 3 → clip_y2
+        const auto& tm = emu.tilemap();
+        bool ok = tm.clip_x1() == 0x11 && tm.clip_x2() == 0x22 &&
+                  tm.clip_y1() == 0x33 && tm.clip_y2() == 0x44;
+        char detail[128];
+        snprintf(detail, sizeof(detail),
+                 "x1=%02X x2=%02X y1=%02X y2=%02X (expected 11/22/33/44)",
+                 tm.clip_x1(), tm.clip_x2(), tm.clip_y1(), tm.clip_y2());
+        check("TM-114",
+              "NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order "
+              "[zxnext.vhd:5242-5290]",
+              ok, detail);
+    }
+
+    // TM-115 — NR 0x1C bit 3 = 1 resets the tilemap clip write index.
+    // After the 4-write cycle of TM-114, idx is back at 0.  Advance idx
+    // to 2 by writing twice, then reset via NR 0x1C bit 3, then write
+    // once: the write must land on x1 (idx=0), not on y1 (idx=2).
+    {
+        nr_write(emu, 0x1B, 0xA1);   // idx 0 → x1 = 0xA1 (idx → 1)
+        nr_write(emu, 0x1B, 0xA2);   // idx 1 → x2 = 0xA2 (idx → 2)
+        // Reset tm clip idx via NR 0x1C bit 3.
+        nr_write(emu, 0x1C, 0x08);
+        // Next write must target idx 0 = x1, overwriting 0xA1 with 0x77.
+        nr_write(emu, 0x1B, 0x77);
+        const auto& tm = emu.tilemap();
+        bool ok = tm.clip_x1() == 0x77 && tm.clip_x2() == 0xA2;
+        char detail[128];
+        snprintf(detail, sizeof(detail),
+                 "x1=%02X x2=%02X (expected x1=77 x2=A2)",
+                 tm.clip_x1(), tm.clip_x2());
+        check("TM-115",
+              "NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 "
+              "[emulator.cpp:304-308]",
+              ok, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -447,6 +500,9 @@ int main() {
 
     test_dma_im2_delay(emu);
     std::printf("  Group: DMA-IM2-Delay — done\n");
+
+    test_tilemap_clip_nr(emu);
+    std::printf("  Group: Tilemap-Clip-NR — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

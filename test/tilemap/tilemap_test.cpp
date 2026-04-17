@@ -1044,22 +1044,39 @@ void group11_palette() {
     set_group("G11 Palette");
     Tilemap tm; PaletteManager pal; Ram ram;
 
-    // TM-100: NR 0x6B bit 4 = palette select 0. Tilemap class does not
-    // expose a tilemap-palette-select accessor (active_tm_second_ is
-    // driven by pal.write_control), and set_control does not forward
-    // bit 4 to the palette manager. Cannot verify from Tilemap API.
-    skip("TM-100",
-         "tilemap palette-select (NR 0x6B bit 4) not routed via Tilemap class");
+    // TM-100: NR 0x6B bit 4 = 0 → tilemap uses palette 0.
+    // VHDL: nr_6b_tm_palette_select (zxnext.vhd) routes into the tilemap
+    // palette lookup.  Tilemap::set_control captures bit 4 and the emulator
+    // wires it into PaletteManager::set_active_tilemap_palette().
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x80);                 // bit 4 = 0
+        check_pred("TM-100", tm.palette_sel() == false,
+                   "NR 0x6B bit 4 = 0 → tm.palette_sel() = false");
+    }
 
-    // TM-101: same rationale — palette select 1 path is not observable.
-    skip("TM-101",
-         "tilemap palette-select (NR 0x6B bit 4) not routed via Tilemap class");
+    // TM-101: NR 0x6B bit 4 = 1 → tilemap uses palette 1.
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x90);                 // bit 4 = 1
+        check_pred("TM-101", tm.palette_sel() == true,
+                   "NR 0x6B bit 4 = 1 → tm.palette_sel() = true");
+    }
 
-    // TM-102: palette routing {1, palette_sel, pixel} belongs to the
-    // shared ULA/TM palette address and is handled by PaletteManager,
-    // not Tilemap.
-    skip("TM-102",
-         "ULA/TM palette address routing handled by PaletteManager");
+    // TM-102: palette_sel from NR 0x6B is the authoritative select at
+    // render time — it is NOT overridden by the NR 0x43 write target.
+    // This row exercises the Tilemap-side state at unit tier; the
+    // end-to-end render-lookup binding is tested at the integration tier.
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x90);                 // NR 0x6B bit 4 = 1
+        // Flipping bit 4 must take effect immediately, irrespective of
+        // any subsequent NR 0x43 activity (not exercised here since that
+        // would require an Emulator).
+        check_pred("TM-102", tm.palette_sel() == true,
+                   "palette_sel authoritative at Tilemap layer "
+                   "(VHDL nr_6b_tm_palette_select)");
+    }
 
     // TM-103: standard pixel composition — final index = attr(7:4)<<4 | pix.
     // VHDL: tilemap.vhd:382-383.
@@ -1099,36 +1116,112 @@ void group11_palette() {
 
 void group12_clip() {
     set_group("G12 Clip");
+    Tilemap tm; PaletteManager pal; Ram ram;
 
-    // TM-110: default clip covers full visible area. Not enforced by
-    // Tilemap::render_scanline, so not observable here.
-    skip("TM-110",
-         "clip window not enforced by Tilemap::render_scanline (compositor)");
+    // TM-110: default clip covers the full visible area
+    // (x1=0, x2=0x9F → pixel-x 0..319; y1=0, y2=0xFF → y 0..255).  With
+    // an enabled tilemap and default clips, every pixel on a rendered
+    // scanline is non-transparent.
+    // VHDL: tilemap.vhd:424, zxnext.vhd:4977-4980.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
+        tm.set_enabled(true);
+        auto s = render_line(tm, 0, ram, pal);
+        bool all_opaque = true;
+        for (int i = 0; i < 320; ++i) if (s.pixels[i] == 0u) { all_opaque = false; break; }
+        check_pred("TM-110", all_opaque,
+                   "Default clip 0x00..0x9F/0x00..0xFF renders full scanline");
+    }
 
-    // TM-111: custom clip window — unenforced at this layer.
-    skip("TM-111",
-         "clip window not enforced by Tilemap::render_scanline (compositor)");
+    // TM-111: custom clip window blanks pixels outside the rectangle.
+    // Set clip to x1=0x10, x2=0x20 (pixel x 0x20..0x41), y1=0x40, y2=0x80.
+    // Render y=0x20 (outside Y range) → full-line transparent.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        for (int row = 0; row < 32; ++row)
+            write_map2(ram, DEF_MAP_BASE, 0, row, 40, 1, 0x00);
+        tm.set_enabled(true);
+        tm.set_clip_x1(0x10);
+        tm.set_clip_x2(0x20);
+        tm.set_clip_y1(0x40);
+        tm.set_clip_y2(0x80);
+        auto out_of_y = render_line(tm, 0x20, ram, pal);
+        bool all_trans = true;
+        for (int i = 0; i < 320; ++i) if (out_of_y.pixels[i] != 0u) { all_trans = false; break; }
+        check_pred("TM-111", all_trans,
+                   "Y outside clip (y=0x20 < clip_y1=0x40) → scanline transparent");
+    }
 
-    // TM-112: clip X coordinates doubling — not observable here.
-    skip("TM-112",
-         "clip window not enforced by Tilemap::render_scanline (compositor)");
+    // TM-112: clip X coordinates are doubled by VHDL tilemap.vhd:416-417:
+    //   xsv = clip_x1*2, xev = clip_x2*2 + 1.
+    // Set clip_x1=clip_x2=0x10 → window covers pixel-x 0x20..0x21 only.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        for (int row = 0; row < 32; ++row)
+            write_map2(ram, DEF_MAP_BASE, 0, row, 40, 1, 0x00);
+        tm.set_enabled(true);
+        tm.set_clip_x1(0x10);
+        tm.set_clip_x2(0x10);
+        tm.set_clip_y1(0x00);
+        tm.set_clip_y2(0xFF);
+        auto s = render_line(tm, 0, ram, pal);
+        // Pixels 0x20 and 0x21 must be opaque, outside must be transparent.
+        bool ok = (s.pixels[0x20] != 0u) && (s.pixels[0x21] != 0u) &&
+                  (s.pixels[0x1F] == 0u) && (s.pixels[0x22] == 0u);
+        check_pred("TM-112", ok,
+                   "clip_x1=clip_x2=0x10 → 2 opaque pixels at x=0x20..0x21 "
+                   "(VHDL tilemap.vhd:416-417)");
+    }
 
-    // TM-113: clip Y coordinates — not observable here.
-    skip("TM-113",
-         "clip window not enforced by Tilemap::render_scanline (compositor)");
+    // TM-113: clip Y coordinates are direct (no doubling): clip_y1, clip_y2
+    // compared to scanline y in 0..255 range.  Render exactly at y=clip_y1
+    // and y=clip_y2: both inclusive; one pixel off each edge transparent.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        for (int row = 0; row < 32; ++row)
+            write_map2(ram, DEF_MAP_BASE, 0, row, 40, 1, 0x00);
+        tm.set_enabled(true);
+        tm.set_clip_x1(0x00);
+        tm.set_clip_x2(0x9F);
+        tm.set_clip_y1(0x40);
+        tm.set_clip_y2(0x50);
+        auto at_y1  = render_line(tm, 0x40, ram, pal);
+        auto at_y2  = render_line(tm, 0x50, ram, pal);
+        auto before = render_line(tm, 0x3F, ram, pal);
+        auto after  = render_line(tm, 0x51, ram, pal);
+        bool ok = (at_y1.pixels[0] != 0u) && (at_y2.pixels[0] != 0u) &&
+                  (before.pixels[0] == 0u) && (after.pixels[0] == 0u);
+        check_pred("TM-113", ok,
+                   "Y clip inclusive at clip_y1/clip_y2, outside transparent");
+    }
 
-    // TM-114: clip index cycling on NR 0x1B — implemented in NextReg, not
-    // Tilemap. The Tilemap class has separate setters per coordinate.
-    skip("TM-114",
-         "NR 0x1B index cycling implemented in NextReg, not Tilemap class");
+    // TM-114 — TESTED AT INTEGRATION TIER (not a skip).  NR 0x1B 4-write
+    // rotating index is implemented in emulator.cpp (NR 0x1B handler
+    // cycles clip_tm_idx_).  See test/nextreg/nextreg_integration_test.cpp
+    // group "Tilemap-Clip-NR" for the coverage.
 
-    // TM-115: clip index reset (NR 0x1C bit 3) — same as TM-114.
-    skip("TM-115",
-         "NR 0x1C clip-index reset implemented in NextReg, not Tilemap class");
+    // TM-115 — TESTED AT INTEGRATION TIER (not a skip).  NR 0x1C bit 3
+    // clip-index reset implemented in emulator.cpp (NR 0x1C handler).
+    // See test/nextreg/nextreg_integration_test.cpp.
 
-    // TM-116: clip readback via NR 0x1B port — no tilemap-side getter.
-    skip("TM-116",
-         "clip getters not exposed by Tilemap class");
+    // TM-116: clip getters exposed on Tilemap class.
+    {
+        fresh(tm, pal, ram);
+        tm.set_clip_x1(0x11); tm.set_clip_x2(0x22);
+        tm.set_clip_y1(0x33); tm.set_clip_y2(0x44);
+        bool ok = tm.clip_x1() == 0x11 && tm.clip_x2() == 0x22 &&
+                  tm.clip_y1() == 0x33 && tm.clip_y2() == 0x44;
+        check_pred("TM-116", ok, "clip getters return programmed values");
+    }
 }
 
 // ── Group 13: Layer priority (below flag) ───────────────────────────────
