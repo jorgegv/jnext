@@ -219,6 +219,33 @@ private:
     mutable bool collision_     = false;
     mutable bool max_sprites_   = false;
 
+    // Per-scanline cycle budget for the sprite engine's overtime model.
+    //
+    // Behavioural approximation of the VHDL sprite FSM
+    // (sprites.vhd:285 state_t, :830-864 transitions, :977 sprites_overtime).
+    // The FSM runs on the master clock and must QUALIFY all 128 slots plus
+    // PROCESS (render) each visible in-range sprite before the next
+    // line_reset pulse — if it is still busy when the next line starts,
+    // bit 1 of the status register is latched.
+    //
+    // We model this with a per-sprite cycle cost:
+    //   - 1 QUALIFY cycle per slot (always charged, all 128 slots)
+    //   - width() PROCESS cycles per visible in-range sprite (16/32/64/128)
+    //
+    // Budget rationale (not an exact hardware timing — a calibration point
+    // matched to documented ZX Next informal limits):
+    //   - 128 slots × QUALIFY = 128 cycles (always)
+    //   - 100 visible 16-px anchors on one line = 1600 PROCESS cycles
+    //     -> total 1728 <= 1792 (no overtime) — matches the commonly cited
+    //     "~100 sprites per line" figure.
+    //   - 128 visible 16-px anchors on one line = 2176 cycles -> overtime
+    //     fires (G13.OT-02 expectation).
+    // This is not an exact VHDL cycle count; the FSM actually runs at the
+    // master clock with per-state latencies, but the emulator renders a
+    // full line in a single call and has no per-cycle stepping. Use the
+    // above budget as a single calibrated threshold.
+    static constexpr int SPR_LINE_BUDGET_CYCLES = 1792;
+
     // Anchor state for composite sprite chains
     struct AnchorState {
         bool     type1      = false;  // type 0 vs type 1

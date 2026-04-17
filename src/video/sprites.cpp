@@ -364,6 +364,49 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
         }
     }
 
+    // -------------------------------------------------------------------
+    // Per-scanline cycle budget accounting (sprites.vhd:977).
+    //
+    // Approximate the VHDL sprite FSM: it QUALIFIEs every one of the 128
+    // slots (always charged) and PROCESSes any visible sprite whose scaled
+    // Y range covers this scanline. If the accumulated cost exceeds
+    // SPR_LINE_BUDGET_CYCLES the hardware would still be busy when the
+    // next line_reset fires, latching the overtime bit.
+    //
+    // This is a behavioural model — not an exact per-cycle FSM — tuned to
+    // the documented informal "~100 sprites per line" limit while allowing
+    // the 128-full-line extreme case to trip the flag (test G13.OT-02).
+    // Gated by sprites_visible_ (checked at the top of this method), so
+    // disabling sprites globally prevents any accumulation.
+    // -------------------------------------------------------------------
+    int line_cycles = 0;
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        // QUALIFY cycle (always charged, mirrors FSM visiting every slot).
+        line_cycles += 1;
+
+        const SpriteAttr& eff = effective[i];
+        if (!eff.visible())
+            continue;
+
+        // Mirror the scanline-overlap test used in render_sprite_scanline:
+        // 9-bit Y, scaled height, with modular wrap.
+        int y_offset = y - eff.y();
+        if (y_offset < 0)
+            y_offset += 512;
+        int scaled_height = SPRITE_SIZE << eff.y_scale();
+        if (y_offset < 0 || y_offset >= scaled_height)
+            continue;
+
+        // PROCESS cycles: one per horizontal pattern column rendered.
+        // width() already accounts for x_scale (16/32/64/128). This over-
+        // counts offscreen / clipped columns slightly compared to the
+        // hardware, which is conservative (hardware also PROCESSes them
+        // even when the pixel is discarded by the clip window).
+        line_cycles += eff.width();
+    }
+    if (line_cycles > SPR_LINE_BUDGET_CYCLES)
+        max_sprites_ = true;
+
     // Line-occupied tracker for collision detection (320 pixels max).
     bool line_occupied[DISPLAY_WIDTH] = {};
 
