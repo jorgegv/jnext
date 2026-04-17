@@ -156,6 +156,27 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     if (!enabled_ || y < 0 || y >= 256)
         return;
 
+    // Clip window — VHDL tilemap.vhd:424 pixel_en_s gates the pixel output
+    // against [clip_x1*2, clip_x2*2+1] horizontal and [clip_y1, clip_y2]
+    // vertical.  When pixel_en_s=0 the downstream pixel is forced
+    // transparent.  X coords are doubled (tilemap.vhd:416-417); Y coords
+    // are direct.
+    //
+    // Output width (matches logic further below).
+    const int clip_out_width = mode_80col_ ? render_width : 320;
+
+    // Y-clip short-circuit — entire scanline outside clip rectangle.
+    if (y < clip_y1_ || y > clip_y2_) {
+        for (int i = 0; i < clip_out_width; ++i)
+            dst[i] = 0u;  // transparent (ARGB8888 zero-alpha)
+        return;
+    }
+
+    // X-clip bounds in 320-pixel domain (integer to avoid 8-bit wrap since
+    // clip_x2_*2+1 can reach 0x13F = 319).
+    const int clip_xlo_320 = static_cast<int>(clip_x1_) * 2;
+    const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
+
     const uint8_t transp_idx = palette.tilemap_transparency();
 
     // Use per-scanline scroll values (captured during the frame loop).
@@ -210,6 +231,22 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int out_width = mode_80col_ ? render_width : 320;
 
     for (int screen_x = 0; screen_x < out_width; ++screen_x) {
+        // Per-pixel X-clip — map screen_x to the 320-pixel clip domain and
+        // blank to transparent when outside [clip_x1*2, clip_x2*2+1]
+        // (VHDL tilemap.vhd:416-417, 424).
+        //   - 40-col (out_width=320): pixel_x_320 = screen_x
+        //   - 80-col render_width=640: pixel_x_320 = screen_x >> 1
+        //   - 80-col render_width=320: pixel_x_320 = screen_x
+        int pixel_x_320;
+        if (mode_80col_ && render_width == 640)
+            pixel_x_320 = screen_x >> 1;
+        else
+            pixel_x_320 = screen_x;
+        if (pixel_x_320 < clip_xlo_320 || pixel_x_320 > clip_xhi_320) {
+            dst[screen_x] = 0u;  // transparent — skip rest of per-pixel work
+            continue;
+        }
+
         // In 80-col mode with render_width=640: 1:1 mapping (no downsampling).
         // In 80-col mode with render_width=320: 2:1 downsampling (show left pixel).
         // In 40-col mode: direct 1:1 mapping at 320px.

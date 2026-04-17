@@ -86,6 +86,14 @@ public:
     void set_clip_y1(uint8_t v) { clip_y1_ = v; }
     void set_clip_y2(uint8_t v) { clip_y2_ = v; }
 
+    // Clip-window getters (VHDL zxnext.vhd:4977-4980 reset defaults:
+    // x1=0x00, x2=0x9F, y1=0x00, y2=0xFF).  X coords are internally
+    // doubled by the clip comparator (tilemap.vhd:416-417).
+    uint8_t clip_x1() const { return clip_x1_; }
+    uint8_t clip_x2() const { return clip_x2_; }
+    uint8_t clip_y1() const { return clip_y1_; }
+    uint8_t clip_y2() const { return clip_y2_; }
+
     // -----------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------
