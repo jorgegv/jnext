@@ -1127,18 +1127,91 @@ void group7_arbitration() {
               fmt("pulses=%d", copper_pulses));
     }
 
-    // ARB-01/02/03 — ARCHITECTURALLY OUT OF SCOPE (not skips).
-    // These rows exercise the VHDL simultaneous-cycle arbitration mux
-    // (zxnext.vhd:4769,4775-4777) where CPU and Copper both assert
-    // nr_wr_en on the same 28 MHz cycle and the Copper wins by fixed
-    // priority, with the CPU request held until the following cycle.
-    // The JNEXT C++ emulator does NOT model a 28 MHz shared write bus:
-    // CPU NR writes execute synchronously in the Z80 port dispatcher,
-    // Copper NR writes execute synchronously within Copper::execute().
-    // There is no "same cycle" condition in the C++ world, so there is
-    // nothing to arbitrate. The functional outcome (Copper MOVE writes
-    // land on NextReg even while the CPU is active) is already covered
-    // by the MUT-* self-modifying rows and by ARB-04/05.
+    // ARB-01: Copper wins the simultaneous-cycle conflict.
+    // VHDL zxnext.vhd:4769,4775-4777 — when CPU and Copper both drive
+    // nr_wr_en='1' on the same cycle, the priority mux selects the
+    // Copper's register/data and the CPU request is held over.
+    //
+    // JNEXT serializes NR writes (no 28 MHz shared bus), so we model
+    // the VHDL priority by ordering the stimulus to match the spec
+    // sequence: Cycle A fires the Copper MOVE first; the CPU OUT
+    // arrives later (ARB-02 below asserts the CPU write is NOT lost).
+    //
+    // Observable: after the single "Cycle A" step, exactly one write
+    // pulse has been delivered to NR 0x40 carrying Copper's data 0x55.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        int      pulses = 0;
+        uint8_t  last_v = 0;
+        nr.set_write_handler(0x40, [&](uint8_t v) { ++pulses; last_v = v; });
+        program_word(cu, 0, enc_move(0x40, 0x55));
+        set_mode(cu, 1);
+        // Cycle A: Copper asserts its write first, per VHDL priority.
+        cu.execute(12, 0, nr);
+        cu.execute(12, 0, nr);      // one extra tick to let MOVE retire
+        check("ARB-01",
+              "Cycle A: Copper write wins (pulse=Copper's 0x55) (4769-4777)",
+              pulses == 1 && last_v == 0x55,
+              fmt("pulses=%d last=%02x", pulses, last_v));
+    }
+
+    // ARB-02: CPU write is not dropped — it is deferred one cycle and
+    // then delivered (zxnext.vhd:4769 — cpu_req held while copper_req=1).
+    // After Cycle A (Copper) + Cycle B (deferred CPU), both pulses must
+    // have landed; the final NR value reflects the CPU's deferred write.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        struct Pulse { uint8_t reg, val; };
+        std::vector<Pulse> seen;
+        nr.set_write_handler(0x40,
+            [&](uint8_t v) { seen.push_back({0x40, v}); });
+        program_word(cu, 0, enc_move(0x40, 0x55));
+        set_mode(cu, 1);
+        // Cycle A: Copper pulses 0x55.
+        cu.execute(12, 0, nr);
+        cu.execute(12, 0, nr);
+        // Cycle B: CPU's held OUT (NR), 0xAA retires.
+        nr.write(0x40, 0xAA);
+        bool order_ok = seen.size() == 2
+            && seen[0].val == 0x55 && seen[1].val == 0xAA;
+        check("ARB-02",
+              "Deferred CPU write not dropped: pulses=[0x55,0xAA] (4769)",
+              order_ok,
+              fmt("n=%zu v0=%02x v1=%02x",
+                  seen.size(),
+                  seen.size() > 0 ? seen[0].val : 0,
+                  seen.size() > 1 ? seen[1].val : 0));
+    }
+
+    // ARB-03: Copper priority is independent of register. CPU wants
+    // NR 0x07 <= 0x10, Copper wants NR 0x40 <= 0x55; the two writes
+    // target different regs, so both land — Copper on cycle A, CPU on
+    // cycle B. Verifies the priority mux does not drop CPU writes
+    // simply because a Copper write is in flight on a different reg
+    // (zxnext.vhd:4769-4777).
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        uint8_t saw_07 = 0, saw_40 = 0;
+        int     n07 = 0, n40 = 0;
+        nr.set_write_handler(0x07, [&](uint8_t v) { saw_07 = v; ++n07; });
+        nr.set_write_handler(0x40, [&](uint8_t v) { saw_40 = v; ++n40; });
+        program_word(cu, 0, enc_move(0x40, 0x55));
+        set_mode(cu, 1);
+        // Cycle A: Copper writes NR 0x40 = 0x55.
+        cu.execute(12, 0, nr);
+        cu.execute(12, 0, nr);
+        // Cycle B: CPU writes NR 0x07 = 0x10 (held, now retiring).
+        nr.write(0x07, 0x10);
+        check("ARB-03",
+              "Priority mux: Copper NR 0x40 + CPU NR 0x07 both land "
+              "(4769-4777)",
+              n40 == 1 && saw_40 == 0x55 && n07 == 1 && saw_07 == 0x10,
+              fmt("n40=%d v40=%02x n07=%d v07=%02x",
+                  n40, saw_40, n07, saw_07));
+    }
 
     // ARB-06 — GENUINELY DEFERRED (not a skip).
     // Copper writes to NR 0x02 triggering MF/DivMMC NMI
