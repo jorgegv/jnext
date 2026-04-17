@@ -1941,6 +1941,14 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u8(clip_spr_idx_);
     w.write_u8(clip_ula_idx_);
     w.write_u8(clip_tm_idx_);
+
+    // IM2 DMA delay enables (NR 0xCC/0xCD/0xCE) + latched output.
+    w.write_bool(nr_cc_dma_delay_on_nmi_);
+    w.write_u8(nr_cc_dma_delay_en_ula_);
+    w.write_u8(nr_cd_dma_delay_en_ctc_);
+    w.write_u8(nr_ce_dma_delay_en_uart1_);
+    w.write_u8(nr_ce_dma_delay_en_uart0_);
+    w.write_bool(im2_dma_delay_latched_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -1992,6 +2000,13 @@ void Emulator::load_state(StateReader& r)
     clip_spr_idx_ = r.read_u8();
     clip_ula_idx_ = r.read_u8();
     clip_tm_idx_  = r.read_u8();
+
+    nr_cc_dma_delay_on_nmi_    = r.read_bool();
+    nr_cc_dma_delay_en_ula_    = r.read_u8();
+    nr_cd_dma_delay_en_ctc_    = r.read_u8();
+    nr_ce_dma_delay_en_uart1_  = r.read_u8();
+    nr_ce_dma_delay_en_uart0_  = r.read_u8();
+    im2_dma_delay_latched_     = r.read_bool();
 }
 
 // ---------------------------------------------------------------------------
@@ -2189,6 +2204,20 @@ bool Emulator::stop_recording()
 }
 
 // ─── IM2 DMA delay composition (NR 0xCC/0xCD/0xCE + zxnext.vhd:1957-2007) ──
+//
+// STAGED WIRING — the NR 0xCC/0xCD/0xCE handlers above store the enable bits
+// and `update_im2_dma_delay()` models the VHDL composition formula, but the
+// function is NOT yet called from the emulator tick/interrupt path.  The
+// three real inputs (im2_dma_int, nmi_activated, dma_delay) come from:
+//   - IM2 interrupt controller firing AND-gated by `compose_im2_dma_int_en()`
+//   - NMI edge (Z80 nmi request)
+//   - dma_delay output of the Z80 RETN/RETI decoder
+// Until those signals are threaded into a tick-level call to
+// update_im2_dma_delay(), Dma::set_dma_delay() only ever receives false at
+// runtime, i.e. the IM2 DMA deferral feature is inert outside of tests.
+// This is acceptable as a staged landing: the plumbing, VHDL-correct
+// composition, and coverage are in place; final signal wiring is tracked
+// as Feature E in the SKIP-reduction plan.
 
 uint16_t Emulator::compose_im2_dma_int_en() const
 {
