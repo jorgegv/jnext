@@ -52,7 +52,11 @@ void Dma::reset() {
     status_at_least_one_ = false;
     status_end_of_block_ = false;
 
-    burst_wait_ = 0;
+    // VHDL dma.vhd:231 — DMA_timer_s cleared on reset.
+    // turbo_ is NOT reset: it's a hardware input (VHDL :211-246 reset block
+    // does not assign turbo_i).
+    dma_timer_s_ = 0;
+    in_waiting_cycles_ = false;
 
     wr_seq_ = WrSeq::IDLE;
     rd_seq_ = RdSeq::STATUS;
@@ -278,6 +282,7 @@ void Dma::write(uint8_t val, bool z80_compat) {
         if (dma_en_) {
             state_ = State::TRANSFERRING;
             status_at_least_one_ = false;
+            in_waiting_cycles_ = false;
             dma_log()->info("DMA enabled via R3 -> TRANSFERRING");
         }
 
@@ -356,6 +361,7 @@ void Dma::process_r6_command(uint8_t val) {
         port_b_prescaler_ = 0;
         ce_wait_ = false;
         auto_restart_ = false;
+        in_waiting_cycles_ = false;
         break;
 
     case 0xC7:  // Reset port A timing
@@ -422,11 +428,13 @@ void Dma::process_r6_command(uint8_t val) {
         dma_log()->info("R6: ENABLE DMA -> TRANSFERRING");
         state_ = State::TRANSFERRING;
         status_at_least_one_ = false;
+        in_waiting_cycles_ = false;
         break;
 
     case 0x83:  // Disable DMA
         dma_log()->info("R6: DISABLE DMA -> IDLE");
         state_ = State::IDLE;
+        in_waiting_cycles_ = false;
         break;
 
     case 0xBB:  // Read mask follows
@@ -540,6 +548,18 @@ void Dma::cmd_load() {
 int Dma::execute_burst(int max_bytes) {
     if (state_ != State::TRANSFERRING) return 0;
 
+    // VHDL dma.vhd:439-464 — while the state machine is in WAITING_CYCLES
+    // it loops on itself until the prescaler comparison opens.  Model:
+    // if we previously latched "waiting", keep returning 0 until a tick
+    // has advanced DMA_timer_s enough for the gate to open.  The flag
+    // (rather than prescaler_wait_active() alone) is what keeps the
+    // VERY FIRST byte from being skipped: on enable, timer=0 but the
+    // VHDL machine is at IDLE/START_DMA, not WAITING_CYCLES.
+    if (in_waiting_cycles_) {
+        if (prescaler_wait_active()) return 0;
+        in_waiting_cycles_ = false;
+    }
+
     int transferred = 0;
 
     // Determine source and destination properties
@@ -559,6 +579,11 @@ int Dma::execute_burst(int max_bytes) {
     }
 
     while (transferred < max_bytes && state_ == State::TRANSFERRING) {
+        // VHDL dma.vhd:309 — entering TRANSFERING_READ_1 clears DMA_timer_s.
+        // Reset the timer at the START of each source-byte read so the
+        // prescaler comparison measures the post-read elapsed time.
+        dma_timer_s_ = 0;
+
         // Read byte from source
         uint8_t data;
         if (src_is_io) {
@@ -607,16 +632,19 @@ int Dma::execute_burst(int max_bytes) {
             } else {
                 state_ = State::IDLE;
             }
+            in_waiting_cycles_ = false;
             break;
         }
 
-        // VHDL dma.vhd:424 enters WAITING_CYCLES whenever prescaler > 0,
-        // regardless of transfer mode (continuous, burst, or byte).
-        // In burst mode, the CPU bus is released during the wait (:441-449);
-        // in other modes the bus stays held (CPU stalled).
-        // is_active() handles the burst vs non-burst distinction.
-        if (port_b_prescaler_ > 0) {
-            burst_wait_ = static_cast<int64_t>(port_b_prescaler_) * 32;
+        // VHDL dma.vhd:424 enters WAITING_CYCLES whenever the prescaler
+        // comparison is active, regardless of transfer mode.  With the
+        // per-byte timer reset above, DMA_timer_s(13:5) is still 0 here,
+        // so any nonzero prescaler immediately trips the wait gate.
+        // In burst mode the CPU bus is released during the wait
+        // (:441-449); in other modes the bus stays held.  is_active()
+        // handles the burst vs non-burst distinction.
+        if (prescaler_wait_active()) {
+            in_waiting_cycles_ = true;
             break;
         }
 
@@ -630,12 +658,32 @@ int Dma::execute_burst(int max_bytes) {
 }
 
 void Dma::tick_burst_wait(uint64_t master_cycles) {
-    if (burst_wait_ > 0) {
-        burst_wait_ -= static_cast<int64_t>(master_cycles);
-        if (burst_wait_ < 0) burst_wait_ = 0;
+    // VHDL dma.vhd:249-255 — DMA_timer_s increments per clock by a value
+    // that depends on turbo_i (higher turbo = smaller increment, so
+    // prescaler waits take more real clocks):
+    //   "00" 3.5MHz → +8, "01" 7MHz → +4, "10" 14MHz → +2, "11" 28MHz → +1
+    uint16_t inc_per_clock;
+    switch (turbo_ & 0x03) {
+        case 0x00: inc_per_clock = 8; break;
+        case 0x01: inc_per_clock = 4; break;
+        case 0x02: inc_per_clock = 2; break;
+        default:   inc_per_clock = 1; break;
     }
+    // Accumulate in 32-bit, then mask to 14 bits to match the VHDL register
+    // width (dma.vhd:129).  The maximum in-wait growth is prescaler*32 =
+    // 255*32 = 8160 < 16384, so no in-wait wrap can confuse the gate.
+    uint32_t next = static_cast<uint32_t>(dma_timer_s_) +
+                    static_cast<uint32_t>(inc_per_clock) *
+                    static_cast<uint32_t>(master_cycles);
+    dma_timer_s_ = static_cast<uint16_t>(next & 0x3FFF);
 }
 
+// NOTE: snapshot format changed with the cycle-accurate prescaler timer.
+// The old `burst_wait_` u16 field has been removed; `turbo_` (u8),
+// `dma_timer_s_` (u16), and `in_waiting_cycles_` (bool) are now appended
+// at the end.  Old snapshots are not forward-compatible — this is an
+// unreleased dev build and there is no schema version in StateReader/
+// Writer, so the break is clean.
 void Dma::save_state(StateWriter& w) const
 {
     w.write_bool(dir_a_to_b_);
@@ -660,11 +708,13 @@ void Dma::save_state(StateWriter& w) const
     w.write_u16(counter_);
     w.write_bool(status_at_least_one_);
     w.write_bool(status_end_of_block_);
-    w.write_u16(static_cast<uint16_t>(burst_wait_ > 0 ? burst_wait_ : 0));
     w.write_u8(static_cast<uint8_t>(wr_seq_));
     w.write_u8(static_cast<uint8_t>(rd_seq_));
     w.write_u8(reg_temp_);
     w.write_bool(z80_compat_);
+    w.write_u8(turbo_);
+    w.write_u16(dma_timer_s_);
+    w.write_bool(in_waiting_cycles_);
 }
 
 void Dma::load_state(StateReader& r)
@@ -691,9 +741,11 @@ void Dma::load_state(StateReader& r)
     counter_             = r.read_u16();
     status_at_least_one_ = r.read_bool();
     status_end_of_block_ = r.read_bool();
-    burst_wait_          = r.read_u16();
     wr_seq_              = static_cast<WrSeq>(r.read_u8());
     rd_seq_              = static_cast<RdSeq>(r.read_u8());
     reg_temp_            = r.read_u8();
     z80_compat_          = r.read_bool();
+    turbo_               = r.read_u8() & 0x03;
+    dma_timer_s_         = r.read_u16() & 0x3FFF;
+    in_waiting_cycles_   = r.read_bool();
 }
