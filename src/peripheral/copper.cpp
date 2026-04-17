@@ -56,6 +56,11 @@ void Copper::reset() {
     move_pending_ = false;
     write_addr_ = 0;
     write_data_stored_ = 0;
+    // VHDL zxnext.vhd:5024 — nr_64_copper_offset resets to 0.
+    offset_ = 0;
+    // NOTE: c_max_vc_ is timing-mode configuration (not hardware state).
+    // It is NOT cleared on reset — the Emulator sets it once at init-time
+    // via set_c_max_vc() and it persists across soft resets.
 }
 
 void Copper::on_vsync() {
@@ -82,8 +87,15 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
         return;  // VHDL: no execution on the cycle where mode changes
     }
 
-    // Mode 11: reset PC at frame start
-    if (mode_ == 3 && vc == 0 && hc == 0) {
+    // Mode 11: reset PC when cvc==0 and hc==0.
+    //
+    // VHDL zxnext.vhd:3950 wires the Copper's vcount_i to cvc (the
+    // offset-adjusted counter from zxula_timing.vhd:455-472), and
+    // copper.vhd:80 matches vcount_i==0 & hcount_i==0 as the mode-11
+    // restart condition. So with offset != 0 the restart point shifts
+    // along with cvc — matching the VHDL behaviour, not raw vc.
+    int cvc_restart = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
+    if (mode_ == 3 && cvc_restart == 0 && hc == 0) {
         pc_ = 0;
         move_pending_ = false;
         return;
@@ -107,14 +119,22 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
     uint16_t instr = instructions_[pc_ & 0x3FF];
 
     if (is_wait(instr)) {
-        // WAIT: compare vc == vpos AND hc >= (hpos << 3) + 12
+        // WAIT: compare cvc_effective == vpos AND hc >= (hpos << 3) + 12.
+        //
+        // VHDL (zxula_timing.vhd:455-472): cvc reloads to the vertical
+        // offset on the first active display line, then increments per
+        // line and wraps to 0 when it reaches c_max_vc. The emulator
+        // passes a vc that is already 0 at the first active line, so we
+        // model the VHDL cvc as (vc + offset_) mod (c_max_vc_ + 1).
         int vpos = wait_vpos(instr);
         int hthresh = wait_hpos_threshold(instr);
+        int cvc_effective = (vc + static_cast<int>(offset_)) % (c_max_vc_ + 1);
 
-        if (vc == vpos && hc >= hthresh) {
+        if (cvc_effective == vpos && hc >= hthresh) {
             // Condition met — advance past this WAIT
             pc_ = (pc_ + 1) & 0x3FF;
-            Log::copper()->trace("WAIT satisfied at vc={} hc={}, PC now {}", vc, hc, pc_);
+            Log::copper()->trace("WAIT satisfied at cvc={} (vc={} off={}) hc={}, PC now {}",
+                                 cvc_effective, vc, offset_, hc, pc_);
         }
         // Otherwise stall (do nothing, stay at this instruction)
 
@@ -233,6 +253,10 @@ void Copper::save_state(StateWriter& w) const
     w.write_bool(move_pending_);
     w.write_u16(write_addr_);
     w.write_u8(write_data_stored_);
+    // NR 0x64 vertical offset (appended after existing sequence).
+    // c_max_vc_ is timing-mode config, not persisted — it is re-set by
+    // the Emulator at init-time from the machine timing model.
+    w.write_u8(offset_);
 }
 
 void Copper::load_state(StateReader& r)
@@ -244,4 +268,5 @@ void Copper::load_state(StateReader& r)
     move_pending_      = r.read_bool();
     write_addr_        = r.read_u16();
     write_data_stored_ = r.read_u8();
+    offset_            = r.read_u8();
 }
