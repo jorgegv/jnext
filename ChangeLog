@@ -9,7 +9,7 @@
 - I2C ACK phase off-by-one — read data was shifted left by one bit
 
 ### Internal JNEXT Development
-- Subsystem compliance tests: 1086/1086 pass, 0 fail (696 skip)
+- Unit tests: 2556 pass, 0 fail, 696 skip (3252 total across 19 suites)
 - Regression suite: 34/34 clean
 - Uniform test output format across all 19 test suites
 - Color-coded `make unit-test` target with per-suite totals
