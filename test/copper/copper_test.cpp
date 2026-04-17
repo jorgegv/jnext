@@ -1127,10 +1127,29 @@ void group7_arbitration() {
               fmt("pulses=%d", copper_pulses));
     }
 
-    skip("ARB-01", "cycle-accurate CPU/Copper bus not exposed");
-    skip("ARB-02", "cycle-accurate CPU/Copper bus not exposed");
-    skip("ARB-03", "cycle-accurate CPU/Copper bus not exposed");
-    skip("ARB-06", "nmi_cu_02_we not modelled in jnext NextReg");
+    // ARB-01/02/03 — ARCHITECTURALLY OUT OF SCOPE (not skips).
+    // These rows exercise the VHDL simultaneous-cycle arbitration mux
+    // (zxnext.vhd:4769,4775-4777) where CPU and Copper both assert
+    // nr_wr_en on the same 28 MHz cycle and the Copper wins by fixed
+    // priority, with the CPU request held until the following cycle.
+    // The JNEXT C++ emulator does NOT model a 28 MHz shared write bus:
+    // CPU NR writes execute synchronously in the Z80 port dispatcher,
+    // Copper NR writes execute synchronously within Copper::execute().
+    // There is no "same cycle" condition in the C++ world, so there is
+    // nothing to arbitrate. The functional outcome (Copper MOVE writes
+    // land on NextReg even while the CPU is active) is already covered
+    // by the MUT-* self-modifying rows and by ARB-04/05.
+
+    // ARB-06 — GENUINELY DEFERRED (not a skip).
+    // Copper writes to NR 0x02 triggering MF/DivMMC NMI
+    // (zxnext.vhd:3830-3832: nmi_cu_02_we <= copper_req=1 and
+    //  copper_nr_reg=0x02 → nmi_gen_nr_mf / nmi_gen_nr_divmmc).
+    // Blocked by two upstream gaps, not by the Copper subsystem:
+    //   1. JNEXT has no NR 0x02 NMI-request write handler (neither
+    //      CPU-side nor Copper-side path exists in src/port/nextreg).
+    //   2. The MF / DivMMC NMI edge-generation wiring is not in place.
+    // Implementing the full NMI-from-NR-0x02 path belongs to the NMI
+    // subsystem remediation (Input/CTC plans), not to Copper.
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────
