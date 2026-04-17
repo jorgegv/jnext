@@ -56,6 +56,17 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - Try to coalesce similar features or fixes in a single description if possible
 - The goal os this file is to give the emulator USERS an overview of the most important things happened since the last version. It's NOT meant to be an exhaustive list of changes at all. It's not meant to be a development diary for the emulator itself either.
 
+## Version bumping
+
+When the user asks to bump the version, follow these steps in order:
+
+1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — all must pass
+2. Update the traceability matrix
+3. Update the unit test status report
+4. Update the ChangeLog using the future version that will be bumped to
+5. Commit all the above changes
+6. Bump the version by running `make bump-<bump_type>` (where bump_type is `patch`, `minor`, or `major`) — this will bump the version in `version.yaml`, commit, and create a new git tag
+
 ## Building
 
 ```bash
