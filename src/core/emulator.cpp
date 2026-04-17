@@ -703,9 +703,11 @@ bool Emulator::init(const EmulatorConfig& cfg)
     // Write: bits 5:3 = video mode (0=standard, 1=standard_1, 2=hi-colour, 6=hi-res).
     //        bits 2:0 = screen bank (0=primary 0x4000, 1=alternate 0x6000).
     // Read is not implemented on real hardware; omit read handler.
+    // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
     port_.register_handler(0xFFFF, 0x00FF,
         nullptr,
         [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x82) & 0x01) == 0) return;
             renderer_.ula().set_screen_mode(val);
         });
 

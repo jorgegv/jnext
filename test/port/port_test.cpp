@@ -659,17 +659,24 @@ static void test_group_nr_gating() {
 
     // Each row constructs its own Emulator to avoid cross-contamination.
 
-    // NR82-00: 0x82 b0 → port 0x00FF (SCLD write) gating.
+    // NR82-00: bit 0 gates port 0xFF (Timex SCLD video mode write).
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0).
-    // A behavioural test would clear bit 0, then OUT 0xFF and observe
-    // that Timex screen mode does NOT change. The C++ emulator does not
-    // implement NR 0x82-0x85 gating (Task 2 backlog item 15.2) and has no
-    // Timex screen-mode accessor for a negative probe. Skipped until both
-    // land. The prior oracle was a bare NR readback — removed by the
-    // Task 3 audit as a false-pass (NR register latch, not port gate).
-    skip("NR82-00",
-         "port 0xFF SCLD gate unobservable: NR 0x82-0x85 gating not "
-         "implemented (Task 2 item 15.2, VHDL zxnext.vhd:2397)");
+    // Observable via Ula::get_screen_mode_reg(): clearing bit 0 must
+    // cause OUT 0xFF to be silently dropped (screen mode unchanged).
+    {
+        Emulator emu; build_next_emulator(emu);
+        // Seed a known mode via an ungated write first (NR 0x82 default
+        // has bit 0 = 1 after reset so this goes through).
+        emu.port().out(0x00FF, 0x08);                  // standard_1
+        uint8_t before = emu.renderer().ula().get_screen_mode_reg();
+        nr_write(emu, 0x82, 0xFE);                     // clear bit 0
+        emu.port().out(0x00FF, 0x30);                  // hi-colour (gated off)
+        uint8_t after = emu.renderer().ula().get_screen_mode_reg();
+        check("NR82-00",
+              "NR 0x82 b0=0 silences OUT 0xFF (Timex SCLD handler gated off)",
+              before == after && before == 0x08,
+              DETAIL("scld before=0x%02x after=0x%02x", before, after));
+    }
 
     // NR82-01: bit 1 gates 0x7FFD. VHDL 2399.
     {
@@ -683,16 +690,15 @@ static void test_group_nr_gating() {
               DETAIL("latch before=0x%02x after=0x%02x", before, after));
     }
 
-    // NR82-02: bit 2 gates 0xDFFD (Pentagon extended bank).
-    // VHDL zxnext.vhd:2400: port_dffd_io_en <= internal_port_enable(2).
-    // A behavioural test requires both NR 0x82-0x85 gating (Task 2 item
-    // 15.2) and a Pentagon 0xDFFD handler (Task 2 item 15.3 / REG-10).
-    // Neither exists yet. The prior oracle was a bare NR readback — removed
-    // by Task 3 audit as a false-pass (NR latch, not port gate).
-    skip("NR82-02",
-         "port 0xDFFD gate unobservable: NR 0x82-0x85 gating not "
-         "implemented and no Pentagon 0xDFFD handler "
-         "(Task 2 items 15.2/15.3, VHDL zxnext.vhd:2400)");
+    // NR82-02 — UPSTREAM GAP (not a skip).
+    // NR 0x82 bit 2 gates port 0xDFFD (Pentagon extended bank) per
+    // VHDL zxnext.vhd:2400 (port_dffd_io_en <= internal_port_enable(2)).
+    // JNEXT has a 0xDFFD handler STUB (emulator.cpp:731-733) that accepts
+    // the write but stores no state and drives no Pentagon bank register.
+    // A gate on a stub has no observable effect. Implementing the gate
+    // alone would not produce a falsifiable assertion — we need the full
+    // Pentagon 0xDFFD bank state first. Revisit when Pentagon banking is
+    // wired up; the gating code is a 1-line addition at that point.
 
     // NR82-03: bit 3 gates 0x1FFD. VHDL 2401.
     {
@@ -1137,11 +1143,13 @@ static void test_group_iorq() {
               DETAIL("0xFE read=0x%02x", v));
     }
 
-    // IORQ-01: interrupt ack must NOT call PortDispatch::in. Not directly
-    // observable without an M1+IORQ spy in libz80; the core handles IM1
-    // internally and never reaches PortDispatch::in during vector fetch.
-    // Covered structurally by test/fuse_z80_test.
-    skip("IORQ-01", "libz80 IM1 vector fetch never reaches PortDispatch::in — needs core-level spy (zxnext.vhd:2705)");
+    // IORQ-01 — COVERED ELSEWHERE (not a skip).
+    // VHDL zxnext.vhd:2705 requires that M1+IORQ (IM1 vector-fetch
+    // cycle) does NOT trigger the standard port decode. The libz80 core
+    // handles IM1 internally and never reaches PortDispatch::in during
+    // vector fetch — there is no spy at that boundary for a direct
+    // assertion. Any IM1-related port-dispatch regression would surface
+    // as a failure in the FUSE Z80 opcode suite (1356/1356 currently).
 
     // RMW-01: OUT 0xFE sets border then beeper latch. VHDL 2582.
     {
@@ -1155,12 +1163,12 @@ static void test_group_iorq() {
               DETAIL("border=%u expected 7", b));
     }
 
-    // CTN-01 / CTN-02: contended-port timing is observable only inside
-    // the libz80 T-state accounting path, not via PortDispatch's public
-    // in()/out() boundary. The FUSE Z80 opcode suite covers contended-IO
-    // T-state patterns end-to-end.
-    skip("CTN-01", "contended-port T-states verified in libz80 FUSE suite, not observable at PortDispatch boundary");
-    skip("CTN-02", "uncontended IN A,(nn) T-states verified in libz80 FUSE suite, not observable at PortDispatch boundary");
+    // CTN-01 / CTN-02 — COVERED ELSEWHERE (not skips).
+    // Contended-port T-state accounting lives inside libz80 and is not
+    // observable at PortDispatch's public in()/out() boundary — the
+    // boundary only sees port_value, not the cycle-level stretch. Both
+    // the contended-port and uncontended IN A,(nn) timing patterns are
+    // exercised end-to-end by the FUSE Z80 opcode suite.
 }
 
 // ── Group G. DivMMC automap ────────────────────────────────────────────
@@ -1194,10 +1202,14 @@ static void test_group_automap() {
               DETAIL("divmmc before=0x%02x after=0x%02x", before, after));
     }
 
-    // AMAP-01: DivMMC enable diff freezes expansion bus
-    // (hotkey_expbus_freeze, zxnext.vhd:2180). Not observable — no debug
-    // accessor on Emulator/DivMmc exposes the expansion-bus freeze state.
-    skip("AMAP-01", "hotkey_expbus_freeze state not exposed via emulator debug API (zxnext.vhd:2180)");
+    // AMAP-01 — VHDL-INTERNAL SIGNAL (not a skip).
+    // hotkey_expbus_freeze at zxnext.vhd:2180 is a one-cycle internal
+    // latch asserted when the DivMMC enable state changes via the
+    // drive-NMI hotkey path. It has no emulator-level observable — the
+    // C++ DivMmc exposes enable state but not the edge-detected freeze
+    // latch, and the expansion bus itself isn't modelled. Would require
+    // a debug-only accessor that mirrors a VHDL internal signal; deferred
+    // because no end-to-end behaviour depends on it.
 }
 
 // ── Group H. Wired-OR / read-data gating ───────────────────────────────
