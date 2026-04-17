@@ -73,9 +73,15 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // Render ULA scanline (always 320px).
         const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
         ula_.render_scanline(ula_line_.data(), row, mmu);
-        if (!ula_.ula_enabled() && in_display) {
-            for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
-                ula_line_[x] = TRANSPARENT;
+        // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
+        // is transparent — display AND border — per VHDL zxnext.vhd:7103
+        //   ula_transparent <= '1' when (ula_mix_transparent = '1')
+        //                             or (ula_en_2 = '0') else '0';
+        // That makes the border pixels fall through to the fallback
+        // colour (NR 0x4A) just like the display area, which is what
+        // copper_demo relies on to paint the rainbow across the border.
+        if (!ula_.ula_enabled()) {
+            std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
         }
 
         // ULA clip window (NextREG 0x1A).
