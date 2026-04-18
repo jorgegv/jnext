@@ -19,8 +19,10 @@
 //
 // Bare-NextReg surface notes (see src/port/nextreg.{h,cpp}):
 //   * regs_[0..255] + selected_ + per-register read/write handlers.
-//   * Reset only applies 4 hard-coded defaults: NR 0x00=0x0A, 0x01=0x32,
-//     0x03=0x00, 0x07=0x00, and selected_=0. Everything else resets to 0.
+//   * Reset only applies 4 hard-coded defaults: NR 0x00=0x08 (HWID_EMULATORS —
+//     deliberate deviation from VHDL X"0A", see integration test MID-01),
+//     0x01=0x32, 0x03=0x00, 0x07=0x00, and selected_=0. Everything else
+//     resets to 0.
 //   * No read-only enforcement, no clip-window cycling, no palette sub_idx
 //     latch, no machine-config state machine, no copper arbitration.
 //   * Those facilities live in peripheral subsystems (MMU, Layer2,

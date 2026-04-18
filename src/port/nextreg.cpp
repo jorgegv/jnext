@@ -15,7 +15,16 @@ void NextReg::reset() {
 
     regs_.fill(0);
     // Reset defaults from VHDL / ZX Next documentation
-    regs_[0x00] = 0x0A;  // machine ID: ZX Spectrum Next (VHDL g_machine_id = X"0A")
+    // Machine ID: JNEXT DEVIATES from VHDL here on purpose.
+    //   VHDL: g_machine_id = X"0A" (ZX Spectrum Next Issue 2/4/5 top-level
+    //   generic in zxnext_top_issue{2,4,5}.vhd:35).
+    //   jnext: 0x08 (HWID_EMULATORS) — the TBBlue-firmware convention so
+    //   NextZXOS can take its emulator-aware boot paths (e.g. skip
+    //   FPGA-flash-specific behaviour). Reporting 0x0A makes NextZXOS
+    //   treat us as real hardware and dive into the config/flashing
+    //   flow, which fails for emulator-mounted images.
+    //   Covered by test MID-01 in test/nextreg/nextreg_integration_test.cpp.
+    regs_[0x00] = 0x08;
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x03] = 0x00;  // machine type: ZXNext
     regs_[0x05] = 0x40;  // joy config: VHDL zxnext.vhd:1105-1106 (nr_05 not cleared on soft reset)

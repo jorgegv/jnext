@@ -124,6 +124,25 @@ static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
 static void test_reset_defaults(Emulator& emu) {
     set_group("Reset-Integration");
 
+    // MID-01 — NR 0x00 machine ID.
+    //
+    // DELIBERATE DEVIATION FROM VHDL.  VHDL generic
+    // g_machine_id = X"0A" in zxnext_top_issue{2,4,5}.vhd:35 (ZX Spectrum
+    // Next real-hardware identifier).  jnext returns 0x08 instead — the
+    // TBBlue firmware convention for HWID_EMULATORS.  Reporting 0x0A makes
+    // NextZXOS treat jnext as real hardware and divert into the
+    // FPGA-flash / Configuration flow, which fails for emulator-mounted
+    // SD images (observed 2026-04-18 while diagnosing NextZXOS boot).
+    // Reporting 0x08 lets NextZXOS take its emulator-aware boot paths.
+    // Source: src/port/nextreg.cpp:18 — reset default for NR 0x00.
+    {
+        uint8_t got = nr_read(emu, 0x00);
+        check("MID-01",
+              "NR 0x00 machine ID reset=0x08 (HWID_EMULATORS; jnext "
+              "deviates from VHDL g_machine_id=X\"0A\" on purpose)",
+              got == 0x08, detail_eq(got, 0x08));
+    }
+
     // RST-01 — NR 0x14 global transparent colour.
     // VHDL zxnext.vhd:4947 — nr_14_global_transparent <= X"E3" on reset.
     {
