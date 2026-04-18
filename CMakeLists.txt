@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 
 # Read version from version.yaml (single source of truth).
+# Re-run CMake automatically when version.yaml changes so the generated
+# build/generated/version.h (and JNEXT_VERSION_STRING baked into the binary)
+# stay in sync with `make bump-*`.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/version.yaml")
 include(cmake/GenerateVersion.cmake)
 project(jnext VERSION "${VER_MAJOR}.${VER_MINOR}.${VER_PATCH}" LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
