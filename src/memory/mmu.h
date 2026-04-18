@@ -37,9 +37,21 @@ public:
     // of the normal ROM serving path. See zxnext.vhd:3044-3050. Writes are
     // permitted through this path (sram_pre_rdonly<='0' at line 3049) — this
     // is how tbblue.fw's load_roms() populates the Spectrum/DivMMC/MF ROMs
-    // in SRAM before triggering RESET_SOFT. Override order per VHDL:
-    // MF > MMU-RAM > config_mode > sram_rom (boot ROM overlay is upstream of
-    // the whole SRAM path, so it still wins).
+    // in SRAM before triggering RESET_SOFT.
+    //
+    // Priority per VHDL SRAM arbiter (zxnext.vhd:3084-3132). The config_mode
+    // branch at line 3050 sets sram_pre_override="110" — DivMMC (bit 2) and
+    // Layer 2 (bit 1) overrides stay enabled. The arbiter then picks, in
+    // order:
+    //   Boot ROM overlay (upstream of the SRAM arbiter, wins over all)
+    //   > MF overlay / MMU-RAM slot (pre-arbiter at lines 3029-3043)
+    //   > DivMMC ROM/RAM    (arbiter line 3084, 3092)
+    //   > Layer 2 write-map (arbiter line 3100)
+    //   > ROMCS / Altrom    (arbiter line 3108, 3116)
+    //   > sram_pre_A21_A13  (arbiter line 3124 — this is the config_mode or
+    //                        normal sram_rom fallthrough)
+    // So the C++ hot path checks DivMMC and Layer 2 BEFORE falling into the
+    // config_mode routing for ROM slots.
     void set_config_mode(bool enabled) { config_mode_ = enabled; }
     void set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
 
@@ -56,23 +68,9 @@ public:
         if (boot_rom_en_ && addr < boot_rom_size_) {
             return boot_rom_[addr];
         }
-        int slot = addr >> 13;
-        // Config-mode routing (VHDL zxnext.vhd:3044-3050): when nr_03_config_mode
-        // is set, reads from 0x0000-0x3FFF on ROM-mapped slots bypass DivMMC and
-        // normal ROM serving, going straight to SRAM at bank nr_04_romram_bank.
-        // RAM-mapped slots fall through (MMU-RAM mapping wins at zxnext.vhd:3037).
-        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
-            const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
-            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
-            if (debug_state_ && debug_state_->active() &&
-                debug_state_->breakpoints().has_any_watchpoints() &&
-                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                debug_state_->set_data_bp_hit(true);
-                debug_state_->set_data_bp_addr(addr);
-            }
-            return val;
-        }
-        // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active
+        // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active.
+        // VHDL arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode
+        // SRAM routing, so it is checked before the config-mode fallthrough.
         if (divmmc_ && addr < 0x4000) {
             uint8_t val;
             if (divmmc_read(addr, val)) {
@@ -85,6 +83,22 @@ public:
                 }
                 return val;
             }
+        }
+        int slot = addr >> 13;
+        // Config-mode routing (VHDL zxnext.vhd:3044-3050, arbiter line 3124):
+        // with nr_03_config_mode=1 on a ROM-mapped 0x0000-0x3FFF slot, the
+        // SRAM address comes from nr_04_romram_bank instead of sram_rom.
+        // RAM-mapped slots win at zxnext.vhd:3037.
+        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
+            }
+            return val;
         }
         const uint8_t* ptr = read_ptr_[slot];
         if (!ptr) return 0xFF;
@@ -107,21 +121,14 @@ public:
             debug_state_->set_data_bp_hit(true);
             debug_state_->set_data_bp_addr(addr);
         }
-        int slot = addr >> 13;
-        // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
-        // writes to 0x0000-0x3FFF on ROM-mapped slots route to SRAM at bank
-        // nr_04_romram_bank instead of being silently dropped. This is how
-        // tbblue.fw's load_roms() populates ROM content in SRAM.
-        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
-            uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
-            if (p) p[addr & 0x1FFF] = val;
-            return;
-        }
-        // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active
+        // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active.
+        // Arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode SRAM
+        // routing, so DivMMC is checked before the config-mode fallthrough.
         if (divmmc_ && addr < 0x4000) {
             if (divmmc_write(addr, val)) return;
         }
-        // Layer 2 write-over: redirect writes to L2 RAM banks.
+        // Layer 2 write-over: redirect writes to L2 RAM banks. Arbiter line
+        // 3100 places Layer 2 above the config_mode path too.
         if (l2_write_enable_ && addr < 0xC000) {
             int segment = addr / 0x4000;  // 0, 1, or 2
             if (l2_segment_mask_ & (1 << segment)) {
@@ -133,6 +140,16 @@ public:
                 if (p) p[offset & 0x1FFF] = val;
                 return;
             }
+        }
+        int slot = addr >> 13;
+        // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
+        // writes to 0x0000-0x3FFF on ROM-mapped slots route to SRAM at bank
+        // nr_04_romram_bank instead of being silently dropped. This is how
+        // tbblue.fw's load_roms() populates ROM content in SRAM.
+        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            if (p) p[addr & 0x1FFF] = val;
+            return;
         }
         if (read_only_[slot]) return;
         uint8_t* ptr = write_ptr_[slot];

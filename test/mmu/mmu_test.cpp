@@ -880,6 +880,47 @@ void test_cat13_config_mode() {
                   p0 ? p0[0] : 0xEE,
                   p510 ? fmt("0x%02X", p510[0]).c_str() : "<oob>"));
     }
+
+    // CFG-07: out-of-range nr_04 banks (page >= ram size) → read returns 0xFF
+    // and write is silently dropped. VHDL zxnext.vhd:3045 allows a full 8-bit
+    // bank (Issue-5 board, line 5732) so nr_04=0xFF addresses SRAM page 510,
+    // which is past the 1.75 MB fixture. ram_.page_ptr() returns nullptr and
+    // the Mmu hot path falls back to 0xFF / drop.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0xFF);   // → page 510 (OOB for 1.75 MB)
+        f.mmu.write(0x0000, 0xC3);           // must be dropped, not crash
+        const uint8_t v = f.mmu.read(0x0000);
+        check("CFG-07",
+              "out-of-range nr_04 bank → read 0xFF + write drop — Ram::page_ptr nullptr fallback",
+              v == 0xFF,
+              fmt("read(0x0000)=0x%02X expected=0xFF", v));
+    }
+
+    // CFG-08: setter API round-trip — toggle config_mode on/off and change
+    // nr_04, confirm the MMU hot path sees the updated values. Exercises
+    // that the Emulator-pushed mirror tracks the live state across
+    // transitions (matches the NR 0x03 / NR 0x04 write-handler contract).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_nr_04_romram_bank(0x00);
+        f.mmu.write(0x0000, 0xAA);           // config_mode=0 → dropped at ROM slot
+        uint8_t* p0 = f.ram.page_ptr(0);
+        const uint8_t dropped = p0 ? p0[0] : 0xEE;
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x30);   // bank 0x30 → pages 96, 97 (in-range)
+        f.mmu.write(0x0001, 0xBB);           // config_mode=1 + nr_04=0x30 → page 96
+        uint8_t* p96 = f.ram.page_ptr(96);
+        const uint8_t routed = p96 ? p96[1] : 0xEE;
+        check("CFG-08",
+              "set_config_mode / set_nr_04_romram_bank toggle between drop and route",
+              dropped != 0xAA && routed == 0xBB,
+              fmt("dropped=0x%02X routed=0x%02X", dropped, routed));
+    }
 }
 
 // ── Category 14: Address translation ──────────────────────────────────
