@@ -125,11 +125,23 @@ public:
     void deselect() override { was_deselected = true; }
 };
 
-// Fresh enabled DivMmc with default (soft-reset) NR 0xB8/B9/BA/BB values.
+// Fresh enabled DivMmc.  The VHDL soft-reset default for NR 0xBA
+// (entry_timing_0_) is 0x00 — all RST entry points configured as
+// "delayed-on", meaning an M1 fetch at the entry point activates automap
+// only on the NEXT M1, not the current one (per the automap_hold→held
+// pipeline, VHDL divmmc.vhd:128-148).
+//
+// Most pre-existing tests were written against the earlier collapsed
+// single-cycle model and assume a single M1 fetch activates automap. To
+// keep those tests concise, this helper overrides NR 0xBA to 0xFF (all
+// instant-on), so single-fetch activation works. Tests that explicitly
+// exercise the instant vs delayed distinction (TM-01..05) set
+// entry_timing_0_ directly.
 DivMmc make_divmmc() {
     DivMmc d;
     d.reset();
     d.set_enabled(true);
+    d.set_entry_timing_0(0xFF);   // all-instant for test convenience
     return d;
 }
 
@@ -448,13 +460,18 @@ void group_am() {
 
     // AM-04: automap active, then deactivated via 0x1FF8 range.
     // VHDL: divmmc.vhd:131 (delayed_off), zxnext.vhd non-RST NR BB[6].
+    // The delayed-off signal clears hold on the triggering M1, but the
+    // automap combinational output still reads 1 during that fetch because
+    // held carries the previous value. Deactivation is visible on the
+    // NEXT M1, so we do a third fetch to let held propagate.
     {
         DivMmc d = make_divmmc();
         trigger(d);                      // activate at 0x0000
-        d.check_automap(0x1FF8, true);   // deactivation range
+        d.check_automap(0x1FF8, true);   // deactivation-range trigger
+        d.check_automap(0x0003, true);   // next M1 — held propagates 0
         bool ok = !d.automap_active() && !d.is_active();
         check("AM-04",
-              "automap deactivates on M1 at 0x1FF8 "
+              "automap deactivates via 0x1FF8 (visible on next M1) "
               "(VHDL divmmc.vhd:131)",
               ok,
               fmt("automap=%d act=%d",
@@ -565,31 +582,39 @@ void group_ep() {
               fmt("automap=%d", d.automap_active()));
     }
 
-    // EP-09: NR 0xBA[i] selects instant_on vs delayed_on timing for EP i.
-    // VHDL: zxnext.vhd:2852, divmmc.vhd:148. JNEXT's simplified non-
-    // pipelined model activates automap on the trigger M1 in both cases
-    // (the one-MREQ-cycle delay is not observable at C++ step granularity).
-    // The observable contract we assert here: entry_timing_0_ is on the
-    // decision surface (consulted in check_automap), and setting it does
-    // not break activation for the enabled & valid entry point.
+    // EP-09: NR 0xBA[i] selects instant_on vs delayed_on for EP i.
+    // VHDL zxnext.vhd:2852, divmmc.vhd:129-148: instant_on contributes to
+    // the combinational `automap` output same-cycle (line 148); delayed_on
+    // contributes only to `hold` (line 129), which propagates to `held`
+    // between M1 fetches, so activation is visible starting the NEXT fetch.
+    // Task 7 Branch A now actually differentiates these — assert the
+    // observable delay.
     {
+        // Instant: EP0 with timing[0]=1 activates on the triggering M1.
         DivMmc d = make_divmmc();
-        d.set_entry_timing_0(0x01);  // EP0 instant
+        d.set_entry_timing_0(0x01);
         d.check_automap(0x0000, true);
-        bool instant_fires = d.automap_active();
+        const bool instant_fires_same_cycle = d.automap_active();
 
+        // Delayed: EP0 with timing[0]=0 does NOT activate on the
+        // triggering M1; it activates on the next M1.
         DivMmc d2 = make_divmmc();
-        d2.set_entry_timing_0(0x00);  // EP0 delayed (default)
+        d2.set_entry_timing_0(0x00);
         d2.check_automap(0x0000, true);
-        bool delayed_fires = d2.automap_active();
+        const bool delayed_fires_same_cycle = d2.automap_active();
+        d2.check_automap(0x0003, true);   // any non-trigger PC
+        const bool delayed_fires_next = d2.automap_active();
 
         check("EP-09",
-              "NR 0xBA[0] timing bit consulted; simplified model activates "
-              "in both instant and delayed cases "
-              "(VHDL zxnext.vhd:2852, divmmc.vhd:148)",
-              instant_fires && delayed_fires,
-              fmt("instant=%d delayed=%d (both must be 1 in collapsed model)",
-                  instant_fires, delayed_fires));
+              "NR 0xBA[0]: instant activates same-cycle; delayed activates "
+              "on the next M1 fetch (VHDL divmmc.vhd:128-148)",
+              instant_fires_same_cycle &&
+              !delayed_fires_same_cycle && delayed_fires_next,
+              fmt("instant_same=%d delayed_same=%d delayed_next=%d "
+                  "(expected 1,0,1)",
+                  instant_fires_same_cycle,
+                  delayed_fires_same_cycle,
+                  delayed_fires_next));
     }
 
     // EP-10: NR 0xB9[i] is the "valid" flag. When valid=0 AND ROM3 is not
@@ -776,26 +801,30 @@ void group_nr() {
 void group_da() {
     set_group("6. Deactivation");
 
-    // DA-01: M1 at 0x1FF8 with automap held: deactivates.
-    // VHDL: zxnext.vhd NR BB[6]=1; divmmc.vhd:131.
+    // DA-01: M1 at 0x1FF8 with automap held: deactivates on the NEXT M1.
+    // VHDL: zxnext.vhd NR BB[6]=1; divmmc.vhd:131. The off trigger clears
+    // hold during its fetch; the held latch propagates to 0 between fetches;
+    // the following M1 observes automap=0.
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x0000, true);   // activate
-        d.check_automap(0x1FF8, true);   // deactivate
+        d.check_automap(0x1FF8, true);   // off trigger
+        d.check_automap(0x0003, true);   // held propagates 0
         check("DA-01",
-              "M1 at 0x1FF8 deactivates held automap "
+              "M1 at 0x1FF8 deactivates held automap (next-fetch visible) "
               "(VHDL divmmc.vhd:131)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
 
-    // DA-02: M1 at 0x1FFF: deactivates (upper bound).
+    // DA-02: M1 at 0x1FFF: deactivates (upper bound of off range).
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x0000, true);
-        d.check_automap(0x1FFF, true);
+        d.check_automap(0x1FFF, true);   // off trigger
+        d.check_automap(0x0003, true);   // held propagates 0
         check("DA-02",
-              "M1 at 0x1FFF deactivates held automap "
+              "M1 at 0x1FFF deactivates held automap (next-fetch visible) "
               "(VHDL divmmc.vhd:131)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
@@ -895,30 +924,104 @@ void group_da() {
 void group_tm() {
     set_group("7. Instant vs delayed");
 
-    // TM-01..TM-05: VHDL automap_hold/automap_held is a two-stage pipeline
-    // latched on M1+MREQ edges (divmmc.vhd:123-148). JNEXT collapses both
-    // stages into a single automap_active_ boolean. Category G (behavioural
-    // simplification) — observable by VHDL conformance, but the simplified
-    // model maps correctly for all known DivMMC ROMs (esxDOS boot verified).
-    // All five deferred to Task 7 (DivMMC RST activation correctness —
-    // automap pipeline + ROM3-conditional). Revisit when a concrete title
-    // is found to misbehave under the current model — NextZXOS diagnosis
-    // in progress, see session 2026-04-17f handover.
-    skip("TM-01",
-         "Deferred to Task 7 (automap pipeline): automap_hold/held not "
-         "modelled, category G (VHDL divmmc.vhd:123-148)");
-    skip("TM-02",
-         "Deferred to Task 7 (automap pipeline): delayed_on stage not "
-         "modelled, category G (VHDL divmmc.vhd:129)");
-    skip("TM-03",
-         "Deferred to Task 7 (automap pipeline): MREQ_n rising-edge latch "
-         "not modelled, category G (VHDL divmmc.vhd:141-142)");
-    skip("TM-04",
-         "Deferred to Task 7 (automap pipeline): M1+MREQ gating for "
-         "automap_hold not modelled, category G (VHDL divmmc.vhd:128)");
-    skip("TM-05",
-         "Deferred to Task 7 (automap pipeline): automap_held persistence "
-         "across non-off fetches, category G (VHDL divmmc.vhd:131)");
+    // Task 7 Branch A implements the VHDL two-stage automap pipeline
+    // (divmmc.vhd:123-148): automap_hold latches on M1+MREQ low with the
+    // current-cycle OR of instant/delayed/held-minus-off; automap_held
+    // latches from hold on MREQ rising edge. The combinational output
+    // (line 148) is `held OR instant_on`, so instant matches fire the
+    // same cycle while delayed matches fire only via held-promotion on
+    // the next M1.
+
+    // TM-01: instant_on (NR 0xBA bit=1) activates automap on the
+    // triggering M1 via the combinational OR (held || instant). After the
+    // first fetch, held is still 0 (it latches from hold on the NEXT MREQ
+    // rising edge, which corresponds to the start of the NEXT M1 call in
+    // our per-M1 model). On the second fetch, held promotes to 1.
+    {
+        DivMmc d = make_divmmc();            // timing_0_=0xFF (all instant)
+        d.check_automap(0x0000, true);
+        const bool active_1 = d.automap_active();
+        const bool hold_1  = d.automap_hold();
+        const bool held_1  = d.automap_held();
+        d.check_automap(0x0003, true);
+        const bool held_2  = d.automap_held();
+        check("TM-01",
+              "instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); "
+              "held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from "
+              "hold on MREQ rising edge)",
+              active_1 && hold_1 && !held_1 && held_2,
+              fmt("fetch1 active=%d hold=%d held=%d; fetch2 held=%d",
+                  active_1, hold_1, held_1, held_2));
+    }
+
+    // TM-02: delayed_on (NR 0xBA bit=0) sets hold/held this M1 but the
+    // combinational output remains 0 because it reads the PREVIOUS held
+    // value. Activation is visible on the next M1.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_timing_0(0x00);          // all delayed
+        d.check_automap(0x0000, true);
+        bool active_same = d.automap_active();
+        bool hold_same  = d.automap_hold();
+        // Next M1 at a non-trigger PC: held promotes from the previous
+        // hold and active reads 1.
+        d.check_automap(0x0003, true);
+        bool active_next = d.automap_active();
+        check("TM-02",
+              "delayed_on: hold=1 this M1, active stays 0; next M1 active=1 "
+              "(VHDL divmmc.vhd:129,141,148)",
+              hold_same && !active_same && active_next,
+              fmt("hold_same=%d active_same=%d active_next=%d "
+                  "(expected 1,0,1)",
+                  hold_same, active_same, active_next));
+    }
+
+    // TM-03: MREQ rising-edge latch — `held` carries forward between M1
+    // fetches. Seed hold via an instant fetch, then on a subsequent
+    // non-trigger fetch the held value is still visible and drives active.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);       // instant → hold=1, held=1
+        // Now a non-trigger, non-off fetch. Per VHDL line 129, hold =
+        // held AND NOT off = 1. Held latches from hold at start of this
+        // call. Active = held OR instant = 1 OR 0 = 1.
+        d.check_automap(0x0100, true);
+        check("TM-03",
+              "held persists across non-trigger M1 via hold propagation "
+              "(VHDL divmmc.vhd:141-142)",
+              d.automap_held() && d.automap_active(),
+              fmt("held=%d active=%d", d.automap_held(), d.automap_active()));
+    }
+
+    // TM-04: is_m1=false does NOT update hold (VHDL divmmc.vhd:128 gates
+    // the hold process on `cpu_mreq_n='0' AND cpu_m1_n='0'`). A non-M1
+    // access at an entry-point address must not activate automap.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, /*is_m1=*/false);
+        check("TM-04",
+              "non-M1 access at entry-point does not set hold/active "
+              "(VHDL divmmc.vhd:128 gates on M1+MREQ)",
+              !d.automap_active() && !d.automap_hold() && !d.automap_held(),
+              fmt("active=%d hold=%d held=%d",
+                  d.automap_active(), d.automap_hold(), d.automap_held()));
+    }
+
+    // TM-05: held persistence across multiple non-off M1 fetches. Once
+    // activated, automap stays on through fetches that don't match any
+    // entry point or off trigger.
+    {
+        DivMmc d = make_divmmc();
+        d.check_automap(0x0000, true);       // activate
+        for (int i = 0; i < 5; ++i) {
+            d.check_automap(static_cast<uint16_t>(0x0100 + i * 3), true);
+        }
+        check("TM-05",
+              "held persists across 5 non-trigger M1 fetches "
+              "(VHDL divmmc.vhd:131 — held AND NOT off keeps hold at 1)",
+              d.automap_active(),
+              fmt("active=%d after 5 non-trigger fetches", d.automap_active()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1032,10 +1135,13 @@ void group_na() {
     }
 
     // NA-02: NR 0x0A[4]=1 releases automap_reset -> automap can function.
+    // Uses explicit all-instant timing to observe single-fetch activation
+    // (default reset state is timing=0 = all delayed).
     {
         DivMmc d;
         d.reset();
         d.set_enabled(true);
+        d.set_entry_timing_0(0xFF);
         d.check_automap(0x0000, true);
         check("NA-02",
               "enable=true releases reset, automap functions "

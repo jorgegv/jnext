@@ -33,6 +33,8 @@ void DivMmc::reset() {
     bank_ = 0;
     control_reg_ = 0;
     automap_active_ = false;
+    automap_hold_   = false;
+    automap_held_   = false;
     entry_points_0_ = 0x83;  // soft reset default
     entry_valid_0_  = 0x01;
     entry_timing_0_ = 0x00;
@@ -95,13 +97,15 @@ void DivMmc::clear_mapram() {
 void DivMmc::apply_enabled_transition_(bool prev_enabled) {
     enabled_ = port_io_enable_ && nr_0a_4_enable_;
     if (prev_enabled && !enabled_) {
-        // DA-08: mirror VHDL i_automap_reset (divmmc.vhd:126) on any
-        // enabled→disabled edge — hold/held latches are cleared, so the
-        // automap combinational output goes low immediately.
+        // DA-08: mirror VHDL i_automap_reset (divmmc.vhd:126,139) on any
+        // enabled→disabled edge — both hold and held latches are cleared,
+        // so the combinational automap output goes low immediately.
         if (automap_active_) {
             divmmc_log()->debug("automap OFF (enable cleared)");
         }
         automap_active_ = false;
+        automap_hold_   = false;
+        automap_held_   = false;
     }
 }
 
@@ -127,14 +131,15 @@ void DivMmc::set_nr_0a_4_enable(bool v) {
 // ── RETN hook ─────────────────────────────────────────────────────────
 
 void DivMmc::on_retn() {
-    // VHDL divmmc.vhd:126,139 — i_retn_seen clears automap hold/held.
-    // In JNEXT's collapsed model this is just automap_active_.
+    // VHDL divmmc.vhd:126,139 — i_retn_seen clears automap hold AND held.
     // button_nmi clear (divmmc.vhd:108) belongs to Task 8 (Multiface);
     // intentionally not handled here.
-    if (automap_active_) {
+    if (automap_active_ || automap_hold_ || automap_held_) {
         divmmc_log()->debug("RETN: automap cleared");
-        automap_active_ = false;
     }
+    automap_active_ = false;
+    automap_hold_   = false;
+    automap_held_   = false;
 }
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
@@ -142,87 +147,96 @@ void DivMmc::on_retn() {
 void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     if (!is_m1 || !enabled_) return;
 
-    // RST entry points from NR 0xB8 (entry_points_0_).
-    // VHDL zxnext.vhd:2892-2905 splits RST triggers into two paths:
-    //   Main path (automap_instant/delayed_on):  entry_valid_0_[bit]=1
-    //   ROM3 path (automap_rom3_instant/delayed): entry_valid_0_[bit]=0
-    //     AND i_automap_rom3_active (divmmc.vhd:130,148)
-    // When valid=1: automap fires unconditionally (any ROM context).
-    // When valid=0: automap only fires if ROM3 is the current ROM.
+    // VHDL divmmc.vhd:123-148 two-stage automap pipeline.
+    //
+    // Per-M1 model: the VHDL `automap_hold` FF clocks on M1+MREQ-low during
+    // the fetch; `automap_held` clocks on the subsequent MREQ rising edge.
+    // We collapse a full fetch into one call here: first latch hold → held
+    // (simulating the MREQ rising edge that separates the previous M1 from
+    // this one), then decode this PC against entry points to update hold,
+    // then compute the combinational `automap` output for reads during this
+    // M1 (held OR any instant_on match this cycle).
+    //
+    // VHDL line 148 shows that `automap` output is the OR of:
+    //   held
+    //   (main_active AND instant_on)            — fires SAME cycle as detection
+    //   (rom3_active AND rom3_instant_on)       — ditto for ROM3 path
+    // Meanwhile `hold` (line 128-131) loads from the OR of instant+delayed
+    // matches or the previous held (minus off), so delayed-on matches
+    // activate on the NEXT M1 via the held promotion.
+
+    // Step 1: Latch hold → held. Simulates the MREQ rising edge that
+    // separates the previous M1's memory cycle from this one (VHDL line 141).
+    automap_held_ = automap_hold_;
+
+    // Step 2: Decode this PC. For each entry point we need: does it match,
+    // is it currently enabled, and is its configured timing instant or
+    // delayed. NR 0xB8 (entry_points_0_) enables RST 0x00..0x38; NR 0xBA
+    // (entry_timing_0_) sets per-entry instant (1) vs delayed (0) timing;
+    // NR 0xB9 (entry_valid_0_) gates each RST entry on "main path" (bit=1)
+    // vs "ROM3 only path" (bit=0).
+    bool instant_match = false;
+    bool delayed_match = false;
+    bool off_match     = false;
+
     static constexpr uint16_t rst_addrs[8] = {
         0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
     };
     for (int i = 0; i < 8; ++i) {
         if ((entry_points_0_ & (1 << i)) && pc == rst_addrs[i]) {
-            bool valid = (entry_valid_0_ & (1 << i)) != 0;
-            // EP-09: NR 0xBA bit i selects instant_on vs delayed_on in VHDL
-            // (zxnext.vhd:2892-2894).  JNEXT's simplified per-M1 model maps
-            // the overlay on the trigger fetch itself in both cases (the VHDL
-            // pipeline delay of one mreq cycle between instant and delayed is
-            // not observable at C++ step granularity), so `instant` is only
-            // part of the decision surface for future pipeline accuracy — the
-            // observable automap edge is identical for both timings today.
-            bool instant = (entry_timing_0_ & (1 << i)) != 0;
-            (void)instant;  // reserved for pipeline-accurate refinement
+            const bool valid = (entry_valid_0_ & (1 << i)) != 0;
+            const bool instant = (entry_timing_0_ & (1 << i)) != 0;
+            // Main path fires unconditionally when valid=1; ROM3 path fires
+            // only when ROM3 is the selected ROM (VHDL divmmc.vhd:130,148
+            // gates i_automap_rom3_* on i_automap_rom3_active).
             if (valid || rom3_active_) {
-                if (!automap_active_) {
-                    divmmc_log()->debug("automap ON at PC={:#06x} (valid={} instant={} rom3={})",
-                                        pc, valid, instant, rom3_active_);
-                }
-                automap_active_ = true;
+                if (instant) instant_match = true;
+                else         delayed_match = true;
             }
-            return;
+            goto decode_done;
         }
     }
 
-    // Non-RST entry points from NR 0xBB (entry_points_1_).
-    // NMI (0x0066, BB[1]) uses automap_nmi_instant_on, gated by
-    // i_automap_active (main path), not rom3_active.
-    // Tape traps (BB[2-5]) are all rom3_delayed_on, requiring
-    // i_automap_rom3_active (divmmc.vhd:130).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066) {  // NMI — main path
-        if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x0066 (NMI)");
-        }
-        automap_active_ = true;
-        return;
-    }
-    if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_) {
-        if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x04C6 (tape trap, ROM3)");
-        }
-        automap_active_ = true;
-        return;
-    }
-    if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_) {
-        if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x0562 (tape trap, ROM3)");
-        }
-        automap_active_ = true;
-        return;
-    }
-    if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_) {
-        if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x04D7 (tape trap, ROM3)");
-        }
-        automap_active_ = true;
-        return;
-    }
-    if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_) {
-        if (!automap_active_) {
-            divmmc_log()->debug("automap ON at PC=0x056A (tape trap, ROM3)");
-        }
-        automap_active_ = true;
-        return;
+    // Non-RST entry points from NR 0xBB (entry_points_1_). VHDL timing is
+    // documented in zxnext.vhd around :2892-2905. NMI@0x0066 uses
+    // automap_nmi_instant_on (Task 8 scope, main path). Tape traps at
+    // 0x04C6/0x0562/0x04D7/0x056A use rom3_delayed_on (ROM3 only).
+    if ((entry_points_1_ & 0x02) && pc == 0x0066) {
+        // NMI instant-on (Task 8 will also gate this on button_nmi).
+        instant_match = true;
+    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_) {
+        delayed_match = true;
+    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_) {
+        delayed_match = true;
+    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_) {
+        delayed_match = true;
+    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_) {
+        delayed_match = true;
+    } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
+        // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
+        off_match = true;
     }
 
-    // Auto-unmap: addresses 0x1FF8-0x1FFF when enabled (bit 6 of 0xBB = 1)
-    // VHDL: divmmc_automap_delayed_off <= '1' when ... nr_bb_divmmc_ep_1(6) = '1'
-    if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
-        if (automap_active_) {
-            divmmc_log()->debug("automap OFF at PC={:#06x}", pc);
-        }
-        automap_active_ = false;
+decode_done:
+    // Step 3: Update hold for this M1. VHDL divmmc.vhd:128-131.
+    // hold = (any instant or delayed match) OR (held AND NOT off).
+    const bool prev_hold = automap_hold_;
+    automap_hold_ = instant_match || delayed_match ||
+                    (automap_held_ && !off_match);
+
+    // Step 4: Combinational `automap` output for reads during this M1.
+    // held covers previous-cycle carry; instant_match activates same-cycle.
+    // VHDL divmmc.vhd:148.
+    const bool prev_active = automap_active_;
+    automap_active_ = automap_held_ || instant_match;
+
+    if (automap_active_ != prev_active || automap_hold_ != prev_hold) {
+        divmmc_log()->debug(
+            "automap @PC={:#06x}: hold={}→{} held={} active={}→{} "
+            "(instant={} delayed={} off={})",
+            pc, prev_hold, automap_hold_, automap_held_,
+            prev_active, automap_active_,
+            instant_match, delayed_match, off_match);
     }
 }
 
@@ -323,6 +337,9 @@ void DivMmc::save_state(StateWriter& w) const
     w.write_u8(entry_valid_0_);
     w.write_u8(entry_timing_0_);
     w.write_u8(entry_points_1_);
+    // Two-stage automap latch state (Task 7 Branch A).
+    w.write_bool(automap_hold_);
+    w.write_bool(automap_held_);
     w.write_bytes(ram_.data(), ram_.size());
 }
 
@@ -341,5 +358,7 @@ void DivMmc::load_state(StateReader& r)
     entry_valid_0_  = r.read_u8();
     entry_timing_0_ = r.read_u8();
     entry_points_1_ = r.read_u8();
+    automap_hold_   = r.read_bool();
+    automap_held_   = r.read_bool();
     r.read_bytes(ram_.data(), ram_.size());
 }

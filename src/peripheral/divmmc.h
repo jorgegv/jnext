@@ -113,6 +113,14 @@ public:
     uint8_t bank() const { return bank_; }
     bool automap_active() const { return automap_active_; }
 
+    // Two-stage automap latch accessors (VHDL divmmc.vhd:123-148).
+    // automap_hold_ is set on M1+MREQ-low at an entry-point PC (line 128);
+    // automap_held_ latches from hold on MREQ rising edge (line 141). The
+    // combinational automap output is (held OR instant_on-matches-this-cycle).
+    // Task 7 exposes them for the TM-01..05 tests in divmmc_test.cpp.
+    bool automap_hold() const { return automap_hold_; }
+    bool automap_held() const { return automap_held_; }
+
     const uint8_t* rom_data() const { return rom_.data(); }
     const uint8_t* ram_page(int page) const {
         return ram_.data() + page * kRamPageSize;
@@ -153,7 +161,15 @@ private:
     uint8_t bank_ = 0;                  // bits 3:0 of control register
     uint8_t control_reg_ = 0;           // raw control register value
 
-    bool automap_active_ = false;       // auto-map currently engaged
+    bool automap_active_ = false;       // combinational: held OR instant_on this-cycle
+    // VHDL automap_hold/automap_held two-stage latch (divmmc.vhd:123-148).
+    // automap_hold_ is set during the M1 fetch when an entry point matches or
+    // when held was on and the current fetch is not an off-trigger; it holds
+    // across subsequent non-M1 accesses. automap_held_ promotes from hold on
+    // the MREQ rising edge (at the end of the M1's memory cycle) and persists
+    // as the base for the next M1's `automap` output.
+    bool automap_hold_   = false;
+    bool automap_held_   = false;
     bool rom3_active_    = false;       // ROM3 is current ROM (from MMU/SRAM)
 
     // NextREG automap configuration (0xB8–0xBB)
