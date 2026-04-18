@@ -8,9 +8,11 @@
 /// SD card SPI-mode emulation backend.
 ///
 /// Implements the SpiDevice interface to emulate an SD card in SPI mode.
-/// Supports CMD0 (GO_IDLE), CMD8 (SEND_IF_COND), CMD17 (READ_SINGLE_BLOCK),
+/// Supports CMD0 (GO_IDLE), CMD8 (SEND_IF_COND), CMD12 (STOP_TRANSMISSION),
+/// CMD17 (READ_SINGLE_BLOCK), CMD18 (READ_MULTIPLE_BLOCK),
 /// CMD24 (WRITE_SINGLE_BLOCK), CMD55+ACMD41 (SD_SEND_OP_COND), and CMD58
-/// (READ_OCR).  This is sufficient for NextZXOS / esxdos SD card access.
+/// (READ_OCR).  This is sufficient for NextZXOS / esxdos SD card access and
+/// the tbblue.fw firmware boot path which uses CMD18 to stream /TBBLUE.FW.
 ///
 /// The backing store is an `.img` file (raw disk image) opened for read/write.
 ///
@@ -18,6 +20,10 @@
 ///   Host sends command (6 bytes: 0x40|cmd, arg[3:0], crc)
 ///   Card responds with R1 (1 byte), then optional data.
 ///   CMD17: R1, then 0xFE token, then 512 bytes data, then 2 CRC bytes.
+///   CMD18: first block uses the same shape as CMD17 (NCR + R1 + 0xFE
+///          + 512 + CRC); subsequent blocks skip NCR/R1 and stream only
+///          0xFE + 512 + CRC after each CRC-byte finishes.  Continues
+///          until host issues CMD12 STOP_TRANSMISSION or deasserts CS.
 ///   CMD24: R1, host sends 0xFE token, 512 bytes data, 2 CRC bytes,
 ///          card responds with data response token.
 class SdCardDevice : public SpiDevice {
@@ -41,6 +47,8 @@ public:
         data_crc_count_ = 0;
         initialized_ = false;
         app_cmd_ = false;
+        multi_block_ = false;
+        multi_block_sector_ = 0;
     }
 
     /// Returns true if an image is mounted.
@@ -90,9 +98,23 @@ private:
     bool initialized_ = false;   // After ACMD41 completes
     bool app_cmd_ = false;       // Next command is ACMD (preceded by CMD55)
 
+    // CMD18 multi-block read: true between CMD18 and CMD12/CS-deassert.
+    // When a block's CRC finishes inside send(), we re-prime data_block_ from
+    // multi_block_sector_ and emit another 0xFE+data+CRC block instead of
+    // going IDLE.
+    bool     multi_block_        = false;
+    uint32_t multi_block_sector_ = 0;  // next sector to send after current block
+
     // Backing store
     std::fstream file_;
     uint64_t file_size_ = 0;
+
+    // NOTE: SdCardDevice is intentionally NOT a Saveable.  The rewind
+    // snapshot ring currently skips the SD back end.  If this class is
+    // ever serialised, the CMD18 stream state (multi_block_,
+    // multi_block_sector_, plus state_/resp_buf_/resp_idx_/data_idx_/
+    // data_crc_count_/data_block_ for mid-block snapshots) must be
+    // included so rewinding mid-stream doesn't corrupt the host view.
 
     // Command processing
     void process_command();
@@ -101,6 +123,7 @@ private:
     void cmd8_send_if_cond();
     void cmd12_stop_transmission();
     void cmd17_read_single_block();
+    void cmd18_read_multiple_block();
     void cmd24_write_single_block();
     void cmd55_app_cmd();
     void cmd58_read_ocr();

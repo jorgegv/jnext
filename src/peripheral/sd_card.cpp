@@ -74,6 +74,10 @@ void SdCardDevice::deselect() {
     data_idx_ = 0;
     data_crc_count_ = 0;
     app_cmd_ = false;
+    // CMD18 multi-block mode is aborted by CS deassert (real cards terminate
+    // the stream on CS high without needing CMD12 in SPI mode).
+    multi_block_        = false;
+    multi_block_sector_ = 0;
     // Note: initialized_ is NOT reset — the card stays initialized
     sd_log()->debug("CS deasserted — protocol state reset to IDLE");
 }
@@ -150,6 +154,15 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 resp_idx_ = 0;
                 data_idx_ = 0;
                 data_crc_count_ = 0;
+                // Defensive: any new command in-flight during a CMD18
+                // stream also terminates the multi-block state, even
+                // if it isn't CMD12.  The SD spec only legalises
+                // CMD12 or CS-deassert as abort mechanisms, but a
+                // mis-behaving host (or a test) that sends a different
+                // command mid-stream must not leave multi_block_ set
+                // and silently resume after the new command's block.
+                multi_block_        = false;
+                multi_block_sector_ = 0;
             }
             break;
     }
@@ -186,6 +199,39 @@ uint8_t SdCardDevice::send() {
             if (data_crc_count_ < 2) {
                 data_crc_count_++;
                 return 0x00;
+            }
+            // Block complete.  For CMD18 multi-block mode, load the next
+            // sector and re-prime for another 0xFE+data+CRC cycle.  Emit one
+            // 0xFF as inter-block filler so the host's "skip until non-0xFF
+            // then expect 0xFE" token-poll (see rcvr_datablock in tbblue
+            // src/firmware/app/src/ff/diskio.c:156-164) finds the new token
+            // on a subsequent read rather than the same byte that terminated
+            // the previous block's CRC.
+            if (multi_block_) {
+                uint64_t byte_addr =
+                    static_cast<uint64_t>(multi_block_sector_) * 512;
+                if (byte_addr + 512 > file_size_) {
+                    // Past end of image — abort the stream cleanly.
+                    sd_log()->warn(
+                        "CMD18 read past end of image at sector={}; "
+                        "ending multi-block stream", multi_block_sector_);
+                    multi_block_        = false;
+                    multi_block_sector_ = 0;
+                    state_              = State::IDLE;
+                    return 0xFF;
+                }
+                file_.seekg(static_cast<std::streamoff>(byte_addr),
+                            std::ios::beg);
+                file_.read(reinterpret_cast<char*>(data_block_), 512);
+                sd_log()->trace(
+                    "CMD18 next block sector={} (byte={:#010x})",
+                    multi_block_sector_, byte_addr);
+                ++multi_block_sector_;
+                resp_buf_       = { 0xFE };   // just the data token between blocks
+                resp_idx_       = 0;
+                data_idx_       = 0;
+                data_crc_count_ = 0;
+                return 0xFF;                   // inter-block filler
             }
             state_ = State::IDLE;
             return 0xFF;
@@ -225,6 +271,7 @@ void SdCardDevice::process_command() {
         case 8:  cmd8_send_if_cond(); break;
         case 12: cmd12_stop_transmission(); break;
         case 17: cmd17_read_single_block(); break;
+        case 18: cmd18_read_multiple_block(); break;
         case 24: cmd24_write_single_block(); break;
         case 55: cmd55_app_cmd(); break;
         case 58: cmd58_read_ocr(); break;
@@ -261,6 +308,9 @@ void SdCardDevice::cmd12_stop_transmission() {
     // Abort any in-progress multi-block transfer and return to idle.
     data_idx_ = 0;
     data_crc_count_ = 0;
+    // Terminate CMD18 streaming if active.
+    multi_block_        = false;
+    multi_block_sector_ = 0;
     // CMD12 has "stuff bytes" before R1 — the firmware reads 8 stuff bytes
     // before polling for R1 (see TBBLUE.FW code at 0x7AB0).
     // Provide 8 stuff bytes (0xFF) + NCR (0xFF) + R1 to ensure the R1 poll
@@ -301,6 +351,49 @@ void SdCardDevice::cmd17_read_single_block() {
     data_idx_ = 0;
     data_crc_count_ = 0;
     state_ = State::SENDING_DATA;
+}
+
+void SdCardDevice::cmd18_read_multiple_block() {
+    // CMD18 READ_MULTIPLE_BLOCK: like CMD17 for the FIRST block
+    // (NCR + R1 + 0xFE + 512 + CRC), but after the block's CRC the card
+    // continues streaming more (token + 512 + CRC) for sector+1, sector+2,
+    // ...  until the host issues CMD12 STOP_TRANSMISSION (or deselects CS
+    // in SPI mode).  See send()'s SENDING_DATA branch for the
+    // between-blocks re-prime logic.
+    uint32_t sector     = cmd_arg();
+    uint64_t byte_addr  = static_cast<uint64_t>(sector) * 512;
+    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK sector={} (byte={:#010x})",
+                    sector, byte_addr);
+
+    if (!initialized_) {
+        queue_r1(0x01);
+        return;
+    }
+
+    if (byte_addr + 512 > file_size_) {
+        sd_log()->warn(
+            "CMD18 read past end of image: sector={} byte={:#010x} size={}",
+            sector, byte_addr, file_size_);
+        queue_r1(0x00);
+        resp_buf_.push_back(0x08);  // data error token: out of range
+        state_ = State::RESPONDING;
+        return;
+    }
+
+    // Load first block.
+    file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
+    file_.read(reinterpret_cast<char*>(data_block_), 512);
+
+    // First-block response is the normal CMD17 shape: NCR + R1 + token +
+    // 512 + CRC.  Subsequent blocks emitted in send() skip NCR/R1 and
+    // send only token + 512 + CRC.
+    resp_buf_           = { 0xFF, 0x00, 0xFE };
+    resp_idx_           = 0;
+    data_idx_           = 0;
+    data_crc_count_     = 0;
+    multi_block_        = true;
+    multi_block_sector_ = sector + 1;  // next sector to stream
+    state_              = State::SENDING_DATA;
 }
 
 void SdCardDevice::cmd24_write_single_block() {

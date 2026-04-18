@@ -85,6 +85,12 @@ target_link_libraries(divmmc_test PRIVATE jnext_peripheral)
 target_include_directories(divmmc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME divmmc_tests COMMAND divmmc_test)
 
+# SD card SPI state machine compliance test
+add_executable(sdcard_test sdcard/sdcard_test.cpp)
+target_link_libraries(sdcard_test PRIVATE jnext_peripheral)
+target_include_directories(sdcard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdcard_tests COMMAND sdcard_test)
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
