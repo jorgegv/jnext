@@ -221,11 +221,18 @@ public:
     void load_state(class StateReader& r);
 
     // VHDL zxnext.vhd:2964 mmu_A21_A13 formula: logical MMU page →
-    // physical SRAM page. In Next mode (rom_in_sram_=true) logical pages
-    // 0x00..0x1F get +0x20 so port_7FFD bank 0 lands on SRAM page 0x20
-    // (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM). Exceptions per VHDL
-    // zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B) and bank 7 lower
-    // (page 0x0E) bypass the shift — they live in dedicated dual-port VRAM.
+    // physical SRAM page. In Next mode (rom_in_sram_=true) the formula
+    //   sram = ((1 + (page >> 5)) & 0x0F) << 5 | (page & 0x1F)
+    // simplifies to `sram = page + 0x20` for pages 0x00..0xDF (wraps for
+    // 0xE0..0xFF — those map to SRAM 0x00..0x1F). firmware NR 0x50-0x57
+    // writes use logical pages; port_7FFD bank 0 yields logical 0 which
+    // maps to SRAM 0x20 (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM).
+    //
+    // Exceptions per VHDL zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B)
+    // and bank 7 lower (page 0x0E) bypass the shift — they live in
+    // dedicated dual-port VRAM. Our emulator and the ULA VRAM fetch use
+    // physical pages 0x0A/0x0B/0x0E for the dual-port banks; matching
+    // VHDL exactly means keeping those logical values un-shifted.
     //
     // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
     // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
@@ -233,7 +240,6 @@ public:
     // Non-Next mode passes the value through unchanged.
     uint8_t to_sram_page(uint8_t logical) const {
         if (!rom_in_sram_) return logical;
-        if (logical >= 0x20) return logical;
         if (logical == 0x0A || logical == 0x0B || logical == 0x0E) return logical;
         return static_cast<uint8_t>(logical + 0x20);
     }
