@@ -13,6 +13,14 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - FPGA VHDL source (authoritative hardware spec): `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/`
 - Design plans in directory `doc/design`
 
+### External references
+
+- NextREG Machine ID register reference: <https://wiki.specnext.dev/Machine_ID_Register>
+- Boot sequence (authoritative): <https://wiki.specnext.dev/Boot_Sequence>
+- TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`): <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt>
+- TBBlue firmware source (GPLv3): <https://gitlab.com/thesmog358/tbblue/-/tree/master>
+  - Contains the `TBBLUE.FW` / `TBBLUE.TBU` source: the IPL + boot module that reads the SD and shows the "Press SPACEBAR for menu" / Configuration screens.
+
 ## General guidance
 
 - Use an Agent Team when working on different tasks
