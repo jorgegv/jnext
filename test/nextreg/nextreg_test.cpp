@@ -510,10 +510,12 @@ static void test_cfg() {
     //   - machine type is only writable while config mode is active
     //
     // The bare NextReg class stores NR 0x03 as a plain byte with no
-    // config-mode FSM, no XOR, and no mode gating. Every CFG-xx row
-    // exercises behaviour that only exists in the integration-tier
-    // write_handler for NR 0x03 (owned by the machine-type manager in
-    // EmulatorConfig/Mmu).
+    // XOR for dt_lock and no machine-timing commit. Those live in the
+    // integration-tier write_handler. However, the config_mode state is
+    // owned by NextReg (VHDL zxnext.vhd:1102 power-on default + state
+    // transitions at zxnext.vhd:5147-5151), so CFG-03/04 can be exercised
+    // directly against apply_nr_03_config_mode_transition() and
+    // nr_03_config_mode().
 
     skip("CFG-01",
          "NR 0x03 bits 6:4 timing change is machine-type-manager "
@@ -523,18 +525,83 @@ static void test_cfg() {
          "NR 0x03 bit 3 dt_lock XOR toggle is machine-type-manager "
          "write_handler state, not bare NextReg "
          "[zxnext.vhd:5121-5151]");
-    skip("CFG-03",
-         "NR 0x03 bits 2:0=111 config-mode enter is machine-type-manager "
-         "write_handler state, not bare NextReg "
-         "[zxnext.vhd:5121-5151]");
-    skip("CFG-04",
-         "NR 0x03 bits 2:0=001..100 machine-type commit is "
-         "machine-type-manager write_handler state, not bare NextReg "
-         "[zxnext.vhd:5121-5151]");
+
+    // CFG-03 — bits[2:0]=111 re-enters config_mode.
+    // VHDL zxnext.vhd:5147-5148. State starts at 1 after reset; driving it
+    // from 0 back to 1 exercises the "set" edge.
+    {
+        NextReg nr;
+        nr.apply_nr_03_config_mode_transition(0x01);  // exit
+        bool was_cleared = !nr.nr_03_config_mode();
+        nr.apply_nr_03_config_mode_transition(0x07);  // re-enter (bits 111)
+        bool reentered  = nr.nr_03_config_mode();
+        check("CFG-03",
+              "NR 0x03 bits[2:0]=111 re-enters config_mode "
+              "[zxnext.vhd:5147-5148]",
+              was_cleared && reentered,
+              std::string("after exit=") + (was_cleared ? "0" : "1") +
+              " after re-enter=" + (reentered ? "1" : "0"));
+    }
+
+    // CFG-04 — bits[2:0]=001..110 (except 111, except 000) clears config_mode.
+    // VHDL zxnext.vhd:5149-5150. Sample all six triggering values; each must
+    // land at config_mode=0 starting from config_mode=1.
+    {
+        bool all_ok = true;
+        std::string fail_vals;
+        for (uint8_t v : {0x01, 0x02, 0x03, 0x04, 0x05, 0x06}) {
+            NextReg nr;                                   // fresh: starts at 1
+            nr.apply_nr_03_config_mode_transition(v);
+            if (nr.nr_03_config_mode()) {
+                all_ok = false;
+                char buf[8]; std::snprintf(buf, sizeof(buf), "0x%02x ", v);
+                fail_vals += buf;
+            }
+        }
+        check("CFG-04",
+              "NR 0x03 bits[2:0]=001..110 clears config_mode "
+              "[zxnext.vhd:5149-5150]",
+              all_ok,
+              all_ok ? std::string{} : "still-1 values: " + fail_vals);
+    }
+
     skip("CFG-05",
          "NR 0x03 config-mode gating of machine-type writes is "
          "machine-type-manager write_handler state, not bare NextReg "
          "[zxnext.vhd:5121-5151]");
+
+    // CFG-06 — bits[2:0]=000 is a no-op (neither sets nor clears config_mode).
+    // VHDL zxnext.vhd:5147-5151 (implicit "else" branch is no-change).
+    {
+        NextReg nr;                                          // starts at 1
+        nr.apply_nr_03_config_mode_transition(0x00);
+        bool stayed_1 = nr.nr_03_config_mode();
+
+        nr.apply_nr_03_config_mode_transition(0x01);         // clear
+        nr.apply_nr_03_config_mode_transition(0x00);         // should stay 0
+        bool stayed_0 = !nr.nr_03_config_mode();
+
+        check("CFG-06",
+              "NR 0x03 bits[2:0]=000 is a no-op (no change to config_mode) "
+              "[zxnext.vhd:5147-5151 no-change branch]",
+              stayed_1 && stayed_0,
+              std::string("from-1 stay=") + (stayed_1 ? "1" : "0") +
+              " from-0 stay=" + (stayed_0 ? "0" : "1"));
+    }
+
+    // CFG-07 — power-on default is config_mode=1.
+    // VHDL zxnext.vhd:1102  signal nr_03_config_mode : std_logic := '1'.
+    // NextReg::reset() must leave the FSM in the set state.
+    {
+        NextReg nr;
+        nr.apply_nr_03_config_mode_transition(0x01);  // clear first
+        nr.reset();                                    // re-reset
+        bool back_to_1 = nr.nr_03_config_mode();
+        check("CFG-07",
+              "reset() restores config_mode=1 (power-on default) "
+              "[zxnext.vhd:1102]",
+              back_to_1, std::string("got=") + (back_to_1 ? "1" : "0"));
+    }
 }
 
 // ── 8. Palette Registers (PAL-01..06) ────────────────────────────────

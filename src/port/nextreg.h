@@ -28,12 +28,24 @@ public:
     // Direct access to cached register value (bypasses read handler)
     uint8_t cached(uint8_t reg) const { return regs_[reg]; }
 
+    // VHDL nr_03_config_mode state (zxnext.vhd:1102 default '1' at power-on,
+    // transitioned only by NR 0x03 writes via bits[2:0] — see zxnext.vhd:5147-5151):
+    //   bits[2:0] = 111   → config_mode = 1 (re-enter)
+    //   bits[2:0] = 001-100 → config_mode = 0 (exit; also commits machine_type)
+    //   bits[2:0] = 000   → no change
+    // Owned by NextReg so it survives selected register shuffling. The rule
+    // engine itself lives in Emulator's NR 0x03 write_handler, which calls
+    // apply_nr_03_config_mode_transition() with the written low 3 bits.
+    bool nr_03_config_mode() const { return nr_03_config_mode_; }
+    void apply_nr_03_config_mode_transition(uint8_t low3);
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
 private:
     std::array<uint8_t, 256> regs_{};
     uint8_t selected_ = 0x24;  // VHDL zxnext.vhd:4594-4596 reset default
+    bool nr_03_config_mode_ = true;  // VHDL zxnext.vhd:1102 power-on default '1'
     std::array<std::function<void(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
 };

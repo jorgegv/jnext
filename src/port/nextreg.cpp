@@ -43,6 +43,30 @@ void NextReg::reset() {
     regs_[0x85] = 0x8F;  // bit7=reset_type(1), bits6:4=0, bits3:0=0xF (enables)
     // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
     selected_   = 0x24;
+
+    // VHDL zxnext.vhd:1102 — nr_03_config_mode defaults '1' at power-on (signal
+    // initialiser, re-asserted on hard reset). Soft resets don't clear it
+    // either, as there is no code path that resets the signal other than via
+    // NR 0x03 writes; safest and VHDL-faithful is to re-default on reset().
+    nr_03_config_mode_ = true;
+}
+
+void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {
+    // VHDL zxnext.vhd:5147-5151 state machine on NR 0x03 bits[2:0]:
+    //   111           → set   (re-enter config_mode)
+    //   000           → no change
+    //   001..110 else → clear (exit config_mode; machine_type commit happens
+    //                          in the emulator-tier handler, gated by the
+    //                          CURRENT config_mode at write time per line 5137)
+    const uint8_t t = low3 & 0x07;
+    if (t == 0x07) {
+        if (!nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode ← 1 (write bits 111)");
+        nr_03_config_mode_ = true;
+    } else if (t != 0x00) {
+        if (nr_03_config_mode_) Log::nextreg()->debug("NR 0x03: config_mode ← 0 (write bits {:03b})", t);
+        nr_03_config_mode_ = false;
+    }
+    // t == 0x00: no change
 }
 
 void NextReg::select(uint8_t reg) { selected_ = reg; }
@@ -82,10 +106,15 @@ void NextReg::save_state(StateWriter& w) const
 {
     w.write_u8(selected_);
     w.write_bytes(regs_.data(), 256);
+    // nr_03_config_mode_ appended at the end. Feeds the in-process rewind
+    // ring buffer only, so snapshot format compatibility across builds is
+    // not a concern here.
+    w.write_bool(nr_03_config_mode_);
 }
 
 void NextReg::load_state(StateReader& r)
 {
     selected_ = r.read_u8();
     r.read_bytes(regs_.data(), 256);
+    nr_03_config_mode_ = r.read_bool();
 }

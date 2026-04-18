@@ -430,15 +430,24 @@ bool Emulator::init(const EmulatorConfig& cfg)
         }
     });
 
-    // Register 0x03: Machine type (bits 2:0 = machine timing)
-    // Writing to this register also disables the boot ROM overlay
-    // (VHDL: bootrom_en <= '0' on any write to nr_03).
+    // Register 0x03: Machine type + config_mode transitions.
+    // - Writing to this register disables the boot ROM overlay
+    //   (VHDL: bootrom_en <= '0' on any write to nr_03).
+    // - VHDL zxnext.vhd:5147-5151 state machine on bits[2:0]:
+    //     111           → config_mode ← 1 (re-enter)
+    //     000           → no change
+    //     001..110 else → config_mode ← 0 (exit; machine_type committed only
+    //                     if PREVIOUS config_mode was 1, per zxnext.vhd:5137)
+    //   The state is owned by NextReg so it persists across the per-register
+    //   write path; apply_nr_03_config_mode_transition() encapsulates the rule.
     nextreg_.set_write_handler(0x03, [this](uint8_t v) {
         if (mmu_.boot_rom_enabled()) {
             mmu_.set_boot_rom_enabled(false);
             Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
         }
-        Log::emulator()->info("Machine type set to {:#04x} via NextREG 0x03", v);
+        nextreg_.apply_nr_03_config_mode_transition(v);
+        Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
+                              v, nextreg_.nr_03_config_mode() ? 1 : 0);
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4 (with auto-increment)

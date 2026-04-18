@@ -204,6 +204,8 @@ NR 0x03 has special behaviour (lines 5121-5151):
 | CFG-03 | Write NR 0x03 bits 2:0 = 111 | Config mode entered |
 | CFG-04 | Write NR 0x03 bits 2:0 = 001-100 | Machine type set, config mode exited |
 | CFG-05 | Machine type only writable in config mode | Protected |
+| CFG-06 | Write NR 0x03 bits 2:0 = 000 | No change to config_mode (no-op) |
+| CFG-07 | Power-on / reset default | `nr_03_config_mode = 1` (`zxnext.vhd:1102`) |
 
 ### 8. Palette Registers (0x40-0x44)
 
