@@ -962,6 +962,26 @@ void test_cat13_config_mode() {
               after == 0x11,
               fmt("after=0x%02X expected=0x11", after));
     }
+
+    // CFG-11: toggle rom_in_sram true → false re-points ROM slots back at
+    // rom_. Covers the review defense-in-depth: set_rom_in_sram() routes via
+    // rebuild_ptr() for every slot, so the sentinel (page==0xFF) and RAM
+    // paths stay consistent.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        uint8_t* ram0 = f.ram.page_ptr(0);
+        if (ram0) ram0[0] = 0x7C;            // SRAM-side distinguisher
+        f.mmu.set_rom_in_sram(true);
+        const uint8_t on  = f.mmu.read(0x0000);   // → ram_[0][0] = 0x7C
+        f.mmu.set_rom_in_sram(false);
+        const uint8_t off = f.mmu.read(0x0000);   // → rom_[0][0] = 0x00 (fixture tag)
+        check("CFG-11",
+              "set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer",
+              on == 0x7C && off == 0x00,
+              fmt("on=0x%02X off=0x%02X (expected 0x7C, 0x00)", on, off));
+    }
 }
 
 // ── Category 14: Address translation ──────────────────────────────────

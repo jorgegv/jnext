@@ -56,14 +56,14 @@ public:
     void set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
 
     // Enable VHDL-faithful ROM-in-SRAM serving: ROM-mapped slots read from
-    // ram_.page_ptr(rom_page) (SRAM pages 0..7) instead of rom_.page_ptr().
-    // Matches zxnext.vhd:3052 sram_pre_A21_A13 <= "000000" & sram_rom &
-    // cpu_a(13) — on real HW there is no separate ROM chip, the Spectrum ROM
-    // lives in SRAM banks 0..3 (8 pages × 8 KB = 4 × 16 KB banks). Called by
-    // Emulator::init() for the Next machine AFTER copying rom_ content into
-    // ram_ pages 0..7. With this enabled, tbblue.fw's load_roms() writes via
-    // config_mode routing and subsequent normal-mode ROM reads both hit the
-    // same SRAM pages, which is what makes NextZXOS boot after RESET_SOFT.
+    // ram_.page_ptr(rom_page) instead of rom_.page_ptr(). Matches zxnext.vhd:
+    // 3052 sram_pre_A21_A13 <= "000000" & sram_rom & cpu_a(13). sram_rom is
+    // 2 bits, so the address spans SRAM pages 0..7 (4 × 16 KB ROM banks, the
+    // same 64 KB that tbblue's Rom object holds). Called by Emulator::init()
+    // for the Next machine AFTER copying rom_ content into ram_ pages 0..7.
+    // With this enabled, tbblue.fw's load_roms() writes via config_mode
+    // routing and subsequent normal-mode ROM reads both hit the same SRAM
+    // pages, which is what makes NextZXOS boot after RESET_SOFT.
     // Default false: 48K/128K/+3/Pentagon keep serving ROM from rom_.
     void set_rom_in_sram(bool en);
     bool rom_in_sram() const { return rom_in_sram_; }

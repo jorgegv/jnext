@@ -85,13 +85,9 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
 
 void Mmu::set_rom_in_sram(bool en) {
     rom_in_sram_ = en;
-    // Any ROM slot whose read_ptr was captured before the flag change needs
-    // re-pointing so the hot path sees the new backing (rom_ ↔ ram_).
-    for (int i = 0; i < 8; ++i) {
-        if (read_only_[i]) {
-            read_ptr_[i] = rom_in_sram_ ? ram_.page_ptr(slots_[i]) : rom_.page_ptr(slots_[i]);
-        }
-    }
+    // Re-point every slot through rebuild_ptr so the unmapped-sentinel
+    // (page==0xFF) and RAM/ROM branches stay consistent with the flag.
+    for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 }
 
 void Mmu::map_rom(int slot, uint8_t rom_page) {
