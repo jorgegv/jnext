@@ -81,15 +81,22 @@ public:
     /// @param palette      Palette manager for Layer 2 colour lookup.
     /// @param render_width Output width: 320 or 640. When 640 and resolution
     ///                     is 640×256, renders both nibbles per byte.
+    /// @param rom_in_sram  Next-mode flag — when true, apply VHDL zxnext.vhd:
+    ///                     2964 +0x20 shift (in 8K-page units = +16 in 16K-
+    ///                     bank units) to the active bank so the Layer 2
+    ///                     fetch hits the same SRAM region that the MMU
+    ///                     writes to via Mmu::to_sram_page.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette,
-                         int render_width = 320) const;
+                         int render_width = 320,
+                         bool rom_in_sram = false) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                const PaletteManager& palette, uint8_t bank,
-                               int render_width = 320);
+                               int render_width = 320,
+                               bool rom_in_sram = false);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

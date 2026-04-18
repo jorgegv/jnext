@@ -49,34 +49,51 @@ void Layer2::set_control(uint8_t val)
 //   Physical RAM offset = layer2_addr_eff * 2 bytes (SRAM words)
 //   But in our emulator, RAM is byte-addressed from bank base.
 
-static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr)
+static inline uint32_t compute_ram_addr(uint8_t active_bank, uint32_t l2_addr,
+                                        bool rom_in_sram)
 {
     // VHDL layer2.vhd:172 applies a +1 bank transform to skip ROM banks
-    // in the shared physical SRAM.  In the emulator, RAM and ROM are separate
-    // objects, and the MMU also uses raw page numbers without the +1.  Both
+    // in the shared physical SRAM. In the emulator, RAM and ROM are separate
+    // objects, and the MMU also uses raw page numbers without the +1. Both
     // paths must agree, so we use the raw bank number here too.
+    //
+    // Next mode (rom_in_sram=true): the effective SRAM page per VHDL
+    // zxnext.vhd:2964 mmu_A21_A13 formula adds +0x20 in 8K-page units,
+    // i.e. +16 in 16K-bank units. The Mmu does the same in to_sram_page
+    // for RAM slot reads, so firmware MMU writes to bank N land at the
+    // same SRAM location that Layer 2 fetches here (N+16).
     int bank_16k = active_bank;
     int sub_bank = static_cast<int>(l2_addr >> 14);      // which 16K chunk (0-4)
     int offset   = static_cast<int>(l2_addr & 0x3FFF);   // offset within 16K
-    return static_cast<uint32_t>((bank_16k + sub_bank) * 16384 + offset);
+    int final_bank = bank_16k + sub_bank;
+    if (rom_in_sram && final_bank < 16) {
+        // Bank 5 / bank 7-lower dual-port VRAM exception (Mmu::to_sram_page).
+        // Layer 2 wouldn't normally use bank 5 or bank 7 as its data banks,
+        // but guard anyway so the shift matches Mmu's rule byte-for-byte.
+        bool is_bank5_page = (final_bank == 5);                 // pages 0x0A, 0x0B
+        bool is_bank7_lower = (final_bank * 2) == 0x0E;         // page 0x0E (bank 7 low)
+        if (!is_bank5_page && !is_bank7_lower) final_bank += 16;
+    }
+    return static_cast<uint32_t>(final_bank * 16384 + offset);
 }
 
 void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                    const PaletteManager& palette, uint8_t bank,
-                                   int render_width)
+                                   int render_width, bool rom_in_sram)
 {
     const bool saved_enabled = enabled_;
     const uint8_t saved_bank = active_bank_;
     enabled_      = true;
     active_bank_  = bank;
-    render_scanline(dst, row, ram, palette, render_width);
+    render_scanline(dst, row, ram, palette, render_width, rom_in_sram);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
 
 void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                              const PaletteManager& palette,
-                             int render_width) const
+                             int render_width,
+                             bool rom_in_sram) const
 {
     if (!enabled_)
         return;
@@ -117,7 +134,7 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                 continue;
 
             uint32_t l2_addr = l2_addr_base + src_x;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
+            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
             uint8_t pixel = ram.read(ram_addr);
 
             uint8_t colour_idx = static_cast<uint8_t>(
@@ -160,7 +177,7 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
             // Column-major: addr = x * 256 + y (17-bit).
             uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
+            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
             uint8_t pixel = ram.read(ram_addr);
 
             uint8_t colour_idx = static_cast<uint8_t>(
@@ -201,7 +218,7 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                 continue;
 
             uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr);
+            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
             uint8_t byte = ram.read(ram_addr);
 
             // High nibble = left pixel.
