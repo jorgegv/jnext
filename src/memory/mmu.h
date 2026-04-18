@@ -179,6 +179,15 @@ public:
     // Apply +3 special paging: port 0x1FFD
     void map_plus3_bank(uint8_t port_1ffd);
 
+    // Currently selected ROM bank 0..3 (VHDL sram_rom signal, derived from
+    // port_1ffd bit 2 << 1 | port_7ffd bit 4). Used by Task 7 ROM3-conditional
+    // automap gating (zxnext.vhd:3052,3138 — sram_pre_rom3 feeder).
+    uint8_t current_rom_bank() const {
+        return static_cast<uint8_t>(((port_1ffd_ >> 2) & 1) << 1 |
+                                    ((port_7ffd_ >> 4) & 1));
+    }
+    bool rom3_selected() const { return current_rom_bank() == 3; }
+
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 

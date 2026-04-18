@@ -672,6 +672,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((nextreg_.cached(0x82) & 0x02) == 0) return;
 
             mmu_.map_128k_bank(v);
+            // Push the new ROM3 state into DivMmc. VHDL zxnext.vhd:3138
+            // composites sram_divmmc_automap_rom3_en from sram_pre_rom3
+            // (derived from sram_rom == "11"); Task 7 Branch B exposes the
+            // ROM-selection signal to DivMmc so entry points with NR 0xB9
+            // bit=0 gate correctly on ROM3 (EP1..EP7 path).
+            divmmc_.set_rom3_active(mmu_.rom3_selected());
             // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
             //   128K: odd banks (1,3,5,7) are contended
             //   +3:   banks >= 4 (4,5,6,7) are contended
@@ -696,6 +702,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
             if ((nextreg_.cached(0x82) & 0x08) == 0) return;
             mmu_.map_plus3_bank(v);
+            // Push the new ROM3 state to DivMmc (Task 7 Branch B).
+            divmmc_.set_rom3_active(mmu_.rom3_selected());
             // Update per-slot contention for +3 (VHDL: banks >= 4 are contended).
             bool special_mode = (v & 0x01) != 0;
             if (special_mode) {
@@ -1189,6 +1197,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         mmu_.set_nr_04_romram_bank(nextreg_.nr_04_romram_bank());
     }
+
+    // Sync ROM3-selected into DivMmc (Task 7 Branch B). On hard reset the
+    // MMU resets port_7ffd/port_1ffd to 0, so rom3 is false. On soft reset
+    // the port state is also zeroed by mmu_.reset() — subsequent port
+    // writes will re-push. Kept here so DivMmc::rom3_active_ starts in sync.
+    divmmc_.set_rom3_active(mmu_.rom3_selected());
 
     // DivMMC ROM loading
     if (!cfg.divmmc_rom_path.empty()) {

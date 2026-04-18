@@ -1044,24 +1044,58 @@ void group_tm() {
 void group_r3() {
     set_group("8. ROM3 conditional");
 
-    // R3-01..R3-03: ROM3-conditional automap activation. VHDL composes
-    // sram_divmmc_automap_en/rom3_en from ROM3/altrom/Layer2/ROMCS state
-    // (zxnext.vhd:3137-3138). JNEXT has DivMmc::set_rom3_active() but the
-    // other feeders (altrom, Layer2 override, ROMCS) are not plumbed.
-    // Deferred to Task 7 (DivMMC RST activation correctness — automap
-    // pipeline + ROM3-conditional). Simplified model works for typical
-    // DivMMC ROM boot (esxDOS verified); NextZXOS diagnosis may require
-    // this, see session 2026-04-17f handover.
-    skip("R3-01",
-         "Deferred to Task 7 (ROM3 conditional): composite "
-         "sram_divmmc_automap_rom3_en not modelled "
-         "(VHDL zxnext.vhd:3137-3138)");
-    skip("R3-02",
-         "Deferred to Task 7 (ROM3 conditional): ROM page selection not "
-         "observable to DivMmc (VHDL zxnext.vhd:3137)");
+    // R3-01..R3-03: ROM3-conditional automap activation. Task 7 Branch B
+    // plumbs the ROM-selection signal from MMU into DivMmc via
+    // set_rom3_active(); Emulator pushes on port 0x7FFD/0x1FFD writes.
+    // The full VHDL composite `sram_divmmc_automap_rom3_en` at zxnext.vhd:
+    // 3138 also factors in altrom and Layer 2 read-map; those feeders are
+    // out of scope here (R3-03 remains skip — see below).
+
+    // R3-01: when ROM3 is the selected ROM, an entry point configured as
+    // "ROM3-only" (NR 0xB9 bit=0) activates automap. VHDL divmmc.vhd:130
+    // gates (i_automap_rom3_active AND rom3_*_on) into the hold formula.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x02);          // enable EP1 (RST 0x08)
+        d.set_entry_valid_0(0x00);           // EP1 is ROM3-only path
+        d.set_entry_timing_0(0xFF);          // instant (test-convenient)
+        d.set_rom3_active(true);
+        d.check_automap(0x0008, true);
+        check("R3-01",
+              "ROM3-only entry (NR 0xB9 bit=0) fires when rom3_active=1 "
+              "(VHDL zxnext.vhd:2856,3138 + divmmc.vhd:130)",
+              d.automap_active(),
+              fmt("active=%d rom3=%d", d.automap_active(), d.rom3_active()));
+    }
+
+    // R3-02: same entry point, ROM3 NOT selected — automap must stay off.
+    // This is the EP-02/EP-03-tightening mentioned in the Task 7 prompt:
+    // prior to Branch B these would fire wrongly because ROM3 wasn't
+    // observable.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x02);
+        d.set_entry_valid_0(0x00);           // ROM3-only
+        d.set_entry_timing_0(0xFF);
+        d.set_rom3_active(false);            // ROM3 NOT selected
+        d.check_automap(0x0008, true);
+        check("R3-02",
+              "ROM3-only entry does NOT fire when rom3_active=0 "
+              "(VHDL zxnext.vhd:2856 gates on sram_pre_rom3)",
+              !d.automap_active(),
+              fmt("active=%d rom3=%d", d.automap_active(), d.rom3_active()));
+    }
+
+    // R3-03: Layer 2 read-map overrides the ROM3 automap path in VHDL
+    // (sram_divmmc_automap_rom3_en includes `NOT sram_layer2_map_en`).
+    // jnext currently models Layer 2 as a WRITE-over only (Mmu::
+    // set_l2_write_port); the separate read-map that masks ROM accesses
+    // is not plumbed through the DivMmc gate. Left skipped — the Layer 2
+    // read-map subsystem is out of scope for Task 7.
     skip("R3-03",
-         "Deferred to Task 7 (ROM3 conditional): Layer 2 mapping override "
-         "not observable to DivMmc (VHDL zxnext.vhd:3137)");
+         "Layer 2 read-map feeder not plumbed — VHDL zxnext.vhd:3138 "
+         "sram_layer2_map_en gate requires Layer 2 read-map state "
+         "(separate subsystem: Mmu set_l2_write_port handles writes only)");
 
     // R3-04: sram_divmmc_automap_en = sram_pre_override(2). Roughly
     // corresponds to the i_en gate modelled in CM-09.
@@ -1708,17 +1742,31 @@ void group_in() {
               fmt("before=%d cleared=%d", active_before, cleared));
     }
 
-    // IN-04: RST 0x08 activation is ROM3-conditional when NR 0xB9 bit 1
-    // is clear. VHDL zxnext.vhd:2856, :3137 — requires composite
-    // sram_divmmc_automap_rom3_en feeder (ROM3 AND altrom AND ...).
-    // Deferred to Task 7 (DivMMC RST activation correctness — automap
-    // pipeline + ROM3-conditional), same dependency as R3-01..03.
-    // NextZXOS boot diagnosis may promote this task; see session
-    // 2026-04-17f handover.
-    skip("IN-04",
-         "Deferred to Task 7 (ROM3 conditional): composite feeder for "
-         "sram_divmmc_automap_rom3_en not modelled "
-         "(VHDL zxnext.vhd:2856,3137)");
+    // IN-04: integration form of R3-01/R3-02. With default NR state
+    // (NR 0xB8=0x83 enables EP0..1, NR 0xB9=0x01 flags only EP0 as main
+    // path), RST 0x08 is ROM3-only. Without rom3_active it must not
+    // activate; with rom3_active it must. Covered by Task 7 Branch B
+    // (MMU→DivMmc ROM3 plumbing).
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_timing_0(0xFF);          // instant for single-fetch observability
+        d.set_rom3_active(false);
+        d.check_automap(0x0008, true);
+        const bool fired_without_rom3 = d.automap_active();
+        d.reset();
+        d.set_enabled(true);
+        d.set_entry_timing_0(0xFF);
+        d.set_rom3_active(true);
+        d.check_automap(0x0008, true);
+        const bool fired_with_rom3 = d.automap_active();
+        check("IN-04",
+              "RST 0x08 fires only when rom3_active=1 with default "
+              "NR 0xB9=0x01 (EP1 flagged ROM3-only) "
+              "(VHDL zxnext.vhd:2856,3138)",
+              !fired_without_rom3 && fired_with_rom3,
+              fmt("without_rom3=%d with_rom3=%d (expected 0,1)",
+                  fired_without_rom3, fired_with_rom3));
+    }
 
     // IN-05: Rapid SPI exchanges: back-to-back without idle gap.
     // Observable: two consecutive writes both reach the device.
