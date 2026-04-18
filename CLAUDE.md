@@ -162,3 +162,29 @@ ROMs are loaded from `/usr/share/fuse/` by default (FUSE emulator package):
 - Pentagon: `128p-0.rom`, `128p-1.rom`
 
 Override with `--roms-directory DIR`.
+
+### ZX Spectrum Next boot assets
+
+For booting NextZXOS / tbblue firmware, three files are needed:
+- `roms/nextboot.rom` — 8 KB FPGA bootloader (overlays at 0x0000-0x1FFF).
+- `roms/enNxtmmc.rom` — 8 KB DivMMC ROM (esxdos-compat FS driver).
+- A NextZXOS SD-card image mounted via `--sd-card`.
+
+**Canonical NextZXOS test image: `roms/nextzxos-1gb-fat32fix.img`.**
+The original `roms/nextzxos-1gb.img` uses 32 KB clusters on a 1 GB
+partition and ends up with only 32 758 data clusters — below the FAT32
+spec minimum of 65 525 — so tbblue.fw's FatFs (correctly, per spec)
+rejects it as "not an FAT filesystem" (see
+`project_nextzxos_task9_stagec.md` in memory for the full trace). The
+`-fat32fix.img` variant uses 8 KB clusters (261 877 clusters, valid
+FAT32) and is what subsequent work should target. CSpect's built-in SD
+driver tolerates the under-clustered variant; ours doesn't, and there is
+no reason to relax it — firmware-faithful is the right posture. Typical
+boot invocation:
+
+```bash
+./build/jnext --machine next \
+    --boot-rom roms/nextboot.rom \
+    --divmmc-rom roms/enNxtmmc.rom \
+    --sd-card  roms/nextzxos-1gb-fat32fix.img
+```
