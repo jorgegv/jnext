@@ -205,14 +205,16 @@ static void test_cmd18_stream(SdCardDevice& sd) {
     bool tok3 = wait_token(sd, 32);
     uint8_t b3[512] = {}; if (tok3) read_block(sd, b3);
 
-    // CMD18-03: CMD12 during stream aborts cleanly, state returns to
-    // IDLE and a subsequent CMD17 on the same card works again.
+    // CMD18-03: CMD12 mid-stream must leave the card in a state where
+    // a subsequent CMD17 (with NO card re-init and NO CS deassert)
+    // still works.  Reviewer nit 2: previous version did reset +
+    // init_card between CMD12 and CMD17, which wiped the state under
+    // test.  This version only does the CMD12 stop + a CS bounce
+    // (matching what the firmware's disk_read tail does via
+    // deselect()).
     (void)send_cmd_r1(sd, 12, 0);
     sd.deselect();
 
-    // Re-use the card after CMD12 to verify it is not stuck.
-    sd.reset();
-    init_card(sd);
     uint8_t r1_post = send_cmd_r1(sd, 17, 5);
     bool tok_post = wait_token(sd);
     uint8_t post[512] = {}; if (tok_post) read_block(sd, post);
@@ -240,6 +242,56 @@ static void test_cmd18_stream(SdCardDevice& sd) {
           "r1_post=" + std::to_string(r1_post) +
           " tok_post=" + (tok_post ? "1" : "0") +
           " post0=" + std::to_string(post[0]));
+}
+
+static void test_cmd18_end_of_image(SdCardDevice& sd) {
+    // CMD18-05: Starting CMD18 two sectors before end-of-image
+    // (image is 16 sectors; start at sector 14) must cleanly stream
+    // sectors 14 and 15 and then terminate — no garbage, no infinite
+    // 0xFE-emission, and the card must go back to IDLE so a follow-up
+    // CMD17 on the same card works.  Covers the multi_block_ past-end
+    // warn+IDLE branch in send().
+    sd.reset();
+    init_card(sd);
+    uint8_t r1 = send_cmd_r1(sd, 18, 14);
+    bool tok14 = wait_token(sd);
+    uint8_t b14[512] = {}; if (tok14) read_block(sd, b14);
+    bool tok15 = wait_token(sd, 32);
+    uint8_t b15[512] = {}; if (tok15) read_block(sd, b15);
+
+    // Now drain a few more bytes — should be 0xFF (IDLE), NOT another
+    // 0xFE token.  If our end-of-image guard is broken, the host would
+    // see a bogus 0xFE followed by garbage data and fail downstream.
+    bool seen_spurious_token = false;
+    for (int i = 0; i < 16; ++i) {
+        if (spi_read(sd) == 0xFE) { seen_spurious_token = true; break; }
+    }
+
+    // CS bounce to clean up before next command (matches host path).
+    sd.deselect();
+
+    // A fresh CMD17 after the end-of-image termination should still work.
+    uint8_t r1_after = send_cmd_r1(sd, 17, 2);
+    bool tok_after = wait_token(sd);
+    uint8_t after[512] = {}; if (tok_after) read_block(sd, after);
+    sd.deselect();
+
+    check("CMD18-05",
+          "CMD18 that hits end-of-image (sectors 14..15) terminates "
+          "cleanly; no spurious token; follow-up CMD17 works",
+          (r1 == 0x00)
+              && tok14 && b14[0] == 0x0E
+              && tok15 && b15[0] == 0x0F
+              && !seen_spurious_token
+              && (r1_after == 0x00) && tok_after && after[0] == 0x02,
+          "r1=" + std::to_string(r1) +
+          " tok14=" + (tok14 ? "1" : "0") +
+          " b14_0=" + std::to_string(b14[0]) +
+          " tok15=" + (tok15 ? "1" : "0") +
+          " b15_0=" + std::to_string(b15[0]) +
+          " spurious=" + (seen_spurious_token ? "1" : "0") +
+          " r1_after=" + std::to_string(r1_after) +
+          " after_0=" + std::to_string(after[0]));
 }
 
 static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
@@ -286,6 +338,7 @@ int main() {
     test_init(sd);
     test_cmd17_read(sd);
     test_cmd18_stream(sd);
+    test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
 
     sd.unmount();

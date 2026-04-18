@@ -154,6 +154,15 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 resp_idx_ = 0;
                 data_idx_ = 0;
                 data_crc_count_ = 0;
+                // Defensive: any new command in-flight during a CMD18
+                // stream also terminates the multi-block state, even
+                // if it isn't CMD12.  The SD spec only legalises
+                // CMD12 or CS-deassert as abort mechanisms, but a
+                // mis-behaving host (or a test) that sends a different
+                // command mid-stream must not leave multi_block_ set
+                // and silently resume after the new command's block.
+                multi_block_        = false;
+                multi_block_sector_ = 0;
             }
             break;
     }

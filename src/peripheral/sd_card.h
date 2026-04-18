@@ -20,10 +20,10 @@
 ///   Host sends command (6 bytes: 0x40|cmd, arg[3:0], crc)
 ///   Card responds with R1 (1 byte), then optional data.
 ///   CMD17: R1, then 0xFE token, then 512 bytes data, then 2 CRC bytes.
-///   CMD18: R1, then for EACH block: 0xFE token + 512 data + 2 CRC.
-///          Continues streaming blocks until host issues CMD12
-///          (STOP_TRANSMISSION) which aborts the stream.  No R1 is sent
-///          between blocks — only the data token is needed to demarcate.
+///   CMD18: first block uses the same shape as CMD17 (NCR + R1 + 0xFE
+///          + 512 + CRC); subsequent blocks skip NCR/R1 and stream only
+///          0xFE + 512 + CRC after each CRC-byte finishes.  Continues
+///          until host issues CMD12 STOP_TRANSMISSION or deasserts CS.
 ///   CMD24: R1, host sends 0xFE token, 512 bytes data, 2 CRC bytes,
 ///          card responds with data response token.
 class SdCardDevice : public SpiDevice {
@@ -108,6 +108,13 @@ private:
     // Backing store
     std::fstream file_;
     uint64_t file_size_ = 0;
+
+    // NOTE: SdCardDevice is intentionally NOT a Saveable.  The rewind
+    // snapshot ring currently skips the SD back end.  If this class is
+    // ever serialised, the CMD18 stream state (multi_block_,
+    // multi_block_sector_, plus state_/resp_buf_/resp_idx_/data_idx_/
+    // data_crc_count_/data_block_ for mid-block snapshots) must be
+    // included so rewinding mid-stream doesn't corrupt the host view.
 
     // Command processing
     void process_command();
