@@ -1183,6 +1183,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         }
         mmu_.set_rom_in_sram(true);
+        // Task 12 fix: force 128K bank mapping refresh so slots 6/7 land
+        // on the Next-correct SRAM pages (base 0x20 + bank*2 per VHDL
+        // zxnext.vhd:2964). The default Mmu::reset() seeds slots_[6]=0x00,
+        // slots_[7]=0x01 which alias ROM-in-SRAM — writes to 0xC000-0xFFFF
+        // would then corrupt ROM/FATFS. Calling map_128k_bank(0) re-routes
+        // slot 6/7 to SRAM pages 0x20/0x21 (RAMPAGE_RAMSPECCY area).
+        mmu_.map_128k_bank(0);
     }
 
     // Activate Next config-mode SRAM routing only when we're booting through

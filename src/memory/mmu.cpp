@@ -121,9 +121,16 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     bool rom_select = (port_7ffd >> 4) & 1;
     paging_locked_ = (port_7ffd >> 5) & 1;
 
-    // Slots 6-7: selected RAM bank
-    set_page(6, bank * 2);
-    set_page(7, bank * 2 + 1);
+    // Slots 6-7: selected RAM bank.
+    // Next mode: VHDL (zxnext.vhd:2964) applies a +0x20 shift so port_7ffd
+    // bank 0 lands on SRAM page 32 (RAMPAGE_RAMSPECCY area), NOT page 0
+    // which is ROM-in-SRAM. Without this shift, slot 6/7 writes alias the
+    // Spectrum ROM region and corrupt tbblue.fw's FATFS/FIL globals stored
+    // in upper RAM at the first-byte-of-cluster boundary (Task 12 root cause).
+    // Non-Next machines use the legacy bank*2 mapping.
+    uint8_t speccy_base = rom_in_sram_ ? 0x20 : 0x00;
+    set_page(6, speccy_base + bank * 2);
+    set_page(7, speccy_base + bank * 2 + 1);
 
     // Slots 0-1: ROM selection
     // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)
