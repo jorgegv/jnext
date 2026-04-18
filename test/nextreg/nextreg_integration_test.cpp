@@ -552,10 +552,20 @@ static void test_soft_reset(Emulator& emu) {
               before == 0x5A && after == 0x00, detail);
     }
 
-    // SR-03: boot_rom_en_ must survive soft reset. Disable it, then
-    // RESET_SOFT, then observe it stays disabled. VHDL bootrom_en is only
-    // driven by reset_hard (zxnext_top_issue5.vhd:1493-1611).
+    // SR-03: boot_rom_en_ must survive soft reset even when a boot ROM is
+    // loaded. Without a boot ROM, Mmu::reset() never re-enables the
+    // overlay (it gates on boot_rom_ pointer) — so this test would pass
+    // vacuously. Load a small fake boot ROM via mmu_.set_boot_rom() so
+    // the subsequent mmu_.reset() inside init() actually tries to
+    // re-enable; then soft_reset()'s explicit restore must keep it off.
+    //
+    // VHDL mechanism (zxnext.vhd:1101 default '1', :5109-5111 re-enabled
+    // inside `if reset=1` only when nr_03_config_mode='1', :5122 cleared
+    // by NR 0x03 write): after firmware clears config_mode via NR 0x03
+    // bits[2:0]∈{001..110}, a soft reset leaves bootrom_en at 0.
     {
+        static uint8_t fake_boot_rom[8192] = {};
+        emu.mmu().set_boot_rom(fake_boot_rom, sizeof(fake_boot_rom));
         emu.mmu().set_boot_rom_enabled(false);
         const bool before = emu.mmu().boot_rom_enabled();
         nr_write(emu, 0x02, 0x01);              // RESET_SOFT
@@ -563,9 +573,11 @@ static void test_soft_reset(Emulator& emu) {
         char detail[64];
         snprintf(detail, sizeof(detail), "before=%d after=%d", before, after);
         check("SR-03",
-              "boot_rom_en_ survives RESET_SOFT (not in soft-reset domain) "
-              "[zxnext_top_issue5.vhd:1493-1611]",
+              "boot_rom_en_ cleared state survives RESET_SOFT with boot ROM loaded "
+              "[zxnext.vhd:1101,5109-5111,5122]",
               before == false && after == false, detail);
+        // Clear the pointer so later tests don't see a phantom boot ROM.
+        emu.mmu().set_boot_rom(nullptr, 0);
     }
 
     // SR-04: RESET_ESPBUS alone (bit 7) is a peripheral-bus reset signal
@@ -589,6 +601,38 @@ static void test_soft_reset(Emulator& emu) {
         check("SR-05",
               "NR 0x02=0x03 (RESET_HARD|RESET_SOFT): hard wins, SRAM zeroed",
               after == 0x00, detail_eq(after, uint8_t{0x00}));
+    }
+
+    // SR-06: the Next ROM-in-SRAM window (ram_ pages 0..7) is the CORE
+    // surface of Branch 3 — tbblue.fw's load_roms() writes the selected
+    // machine's ROM there before RESET_SOFT, and NextZXOS boot depends on
+    // that content surviving. Write a marker byte directly into ram_ page
+    // 4 (inside the window, bypasses the Mmu to avoid config_mode routing
+    // interference), trigger soft reset, verify the byte survives.
+    {
+        uint8_t* p4 = emu.ram().page_ptr(4);
+        if (p4) p4[0x0100] = 0xEE;
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const uint8_t after = p4 ? p4[0x0100] : 0xFF;
+        check("SR-06",
+              "ROM-in-SRAM window (ram_ pages 0..7) survives RESET_SOFT "
+              "[Branch 3 core: tbblue-loaded ROMs persist across reset]",
+              after == 0xEE, detail_eq(after, uint8_t{0xEE}));
+    }
+
+    // SR-07: hard reset re-seeds the ROM-in-SRAM window from rom_ (which
+    // for the Next fixture has 0xFF for pages 2..7 — only 48.rom pages
+    // 0..1 were loaded). After RESET_HARD, ram_ page 4 byte should revert
+    // to the seed value (0xFF), confirming the full reinit path runs.
+    {
+        uint8_t* p4 = emu.ram().page_ptr(4);
+        if (p4) p4[0x0100] = 0x5A;              // Pollute with non-seed value.
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        const uint8_t after = emu.ram().page_ptr(4)[0x0100];
+        check("SR-07",
+              "ROM-in-SRAM window re-seeded from rom_ on RESET_HARD "
+              "[Branch 2 seed loop runs on hard reset but not soft]",
+              after == 0xFF, detail_eq(after, uint8_t{0xFF}));
     }
 }
 
