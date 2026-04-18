@@ -921,6 +921,47 @@ void test_cat13_config_mode() {
               dropped != 0xAA && routed == 0xBB,
               fmt("dropped=0x%02X routed=0x%02X", dropped, routed));
     }
+
+    // CFG-09: rom_in_sram=true makes ROM-slot reads come from ram_ pages 0..7
+    // instead of rom_.page_ptr(). VHDL zxnext.vhd:3052: sram_pre_A21_A13 <=
+    // "000000" & sram_rom & cpu_a(13) — normal-mode ROM reads on the Next
+    // target SRAM pages 0..7, not a separate ROM chip. Proof: seed a byte in
+    // each backing, toggle rom_in_sram, observe the pointer follows.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);        // disable Branch 1 routing to isolate Branch 2
+        // Fixture tags rom_ pages with (page<<4 | offset_lo); rom_[0][0] = 0x00.
+        // Seed a distinguishable byte in ram_ page 0 so we can tell the two apart.
+        uint8_t* ram0 = f.ram.page_ptr(0);
+        if (ram0) ram0[0] = 0x7C;
+        const uint8_t via_rom = f.mmu.read(0x0000);  // rom_in_sram=false → rom_[0][0] = 0x00
+        f.mmu.set_rom_in_sram(true);
+        const uint8_t via_sram = f.mmu.read(0x0000); // rom_in_sram=true → ram_[0][0] = 0x7C
+        check("CFG-09",
+              "rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052",
+              via_rom == 0x00 && via_sram == 0x7C,
+              fmt("via_rom=0x%02X via_sram=0x%02X (expected 0x00, 0x7C)", via_rom, via_sram));
+    }
+
+    // CFG-10: writes to ROM slots while rom_in_sram=true AND config_mode=0
+    // are still silently dropped. ROM-in-SRAM only changes where READS come
+    // from; the VHDL sram_pre_rdonly signal still flags the slot read-only
+    // outside config_mode (zxnext.vhd:3056).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        uint8_t* ram0 = f.ram.page_ptr(0);
+        if (ram0) ram0[0x0100] = 0x11;
+        f.mmu.write(0x0100, 0x99);
+        const uint8_t after = ram0 ? ram0[0x0100] : 0xEE;
+        check("CFG-10",
+              "rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly",
+              after == 0x11,
+              fmt("after=0x%02X expected=0x11", after));
+    }
 }
 
 // ── Category 14: Address translation ──────────────────────────────────

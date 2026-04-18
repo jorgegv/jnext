@@ -46,7 +46,9 @@ void Mmu::rebuild_ptr(int slot) {
     if (page == 0xFF || read_only_[slot]) {
         // ROM or unmapped
         if (read_only_[slot]) {
-            read_ptr_[slot] = rom_.page_ptr(page);
+            // VHDL-faithful Next mode serves ROM from SRAM pages 0..7
+            // (zxnext.vhd:3052). Other machines use the separate rom_ buffer.
+            read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
             write_ptr_[slot] = nullptr;
         } else {
             read_ptr_[slot] = nullptr;
@@ -73,11 +75,23 @@ void Mmu::map_rom_physical(int slot, uint8_t rom_page) {
     Log::memory()->debug("MMU slot {} → ROM page {} (physical)", slot, rom_page);
     slots_[slot] = rom_page;
     read_only_[slot] = true;
-    read_ptr_[slot] = rom_.page_ptr(rom_page);
+    // Next mode: read from SRAM pages 0..7 (ROM-in-SRAM). Non-Next: rom_.
+    read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(rom_page) : rom_.page_ptr(rom_page);
     write_ptr_[slot] = nullptr;
     // Leaves nr_mmu_[slot] unchanged; callers update it as needed.
     // reset() seeds 0xFF (VHDL ROM sentinel); legacy paging callers
     // (map_128k_bank / map_plus3_bank) overwrite with physical page.
+}
+
+void Mmu::set_rom_in_sram(bool en) {
+    rom_in_sram_ = en;
+    // Any ROM slot whose read_ptr was captured before the flag change needs
+    // re-pointing so the hot path sees the new backing (rom_ ↔ ram_).
+    for (int i = 0; i < 8; ++i) {
+        if (read_only_[i]) {
+            read_ptr_[i] = rom_in_sram_ ? ram_.page_ptr(slots_[i]) : rom_.page_ptr(slots_[i]);
+        }
+    }
 }
 
 void Mmu::map_rom(int slot, uint8_t rom_page) {
@@ -181,6 +195,7 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(boot_rom_en_);
     w.write_bool(config_mode_);
     w.write_u8(nr_04_romram_bank_);
+    w.write_bool(rom_in_sram_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -196,6 +211,7 @@ void Mmu::load_state(StateReader& r)
     boot_rom_en_     = r.read_bool();
     config_mode_       = r.read_bool();
     nr_04_romram_bank_ = r.read_u8();
+    rom_in_sram_       = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

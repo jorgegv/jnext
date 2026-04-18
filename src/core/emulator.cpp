@@ -1130,6 +1130,28 @@ bool Emulator::init(const EmulatorConfig& cfg)
         }
     }
 
+    // ROM-in-SRAM activation for the Next machine (Task 11 Branch 2):
+    // VHDL zxnext.vhd:3052 routes normal-mode ROM reads through SRAM pages
+    // 0..7 (sram_rom selects which 8 KB bank). Seed those pages from the
+    // file-loaded rom_ buffer so first boot runs as if the flash had
+    // programmed the SRAM. tbblue.fw's load_roms() (via config_mode routing
+    // from Branch 1) then rewrites these same pages to install the selected
+    // machine's ROM before RESET_SOFT. After mmu_.set_rom_in_sram(true), all
+    // ROM-slot read_ptr_ entries re-point at ram_ pages — Z80 never reads
+    // from rom_ directly again in Next mode.
+    if (cfg.type == MachineType::ZXN_ISSUE2) {
+        for (int p = 0; p < 8; ++p) {
+            const uint8_t* src = rom_.page_ptr(static_cast<uint16_t>(p));
+            uint8_t*       dst = ram_.page_ptr(static_cast<uint16_t>(p));
+            if (src && dst) std::memcpy(dst, src, 0x2000);
+        }
+        mmu_.set_rom_in_sram(true);
+        // NOTE: on soft reset, Emulator::reset() → init() re-runs this copy,
+        // which currently wipes tbblue-loaded NextZXOS content in SRAM pages
+        // 0..7. Branch 3 (soft-reset SRAM preservation) will bypass the
+        // re-copy so the loaded ROMs survive the RESET_SOFT.
+    }
+
     // Activate Next config-mode SRAM routing only when we're booting through
     // the FPGA boot ROM. VHDL zxnext.vhd:1102 defaults config_mode='1' at
     // power-on; in our emulator that state is only reachable for the boot-ROM
