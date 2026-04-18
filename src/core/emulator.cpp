@@ -20,13 +20,14 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {}
 // Public interface
 // ---------------------------------------------------------------------------
 
-bool Emulator::init(const EmulatorConfig& cfg)
+bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
     timing_ = machine_timing(cfg.type);
-    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={} lines={} tstates/line={}",
+    Log::emulator()->info("Initializing emulator: machine_type={} cpu_speed={} lines={} tstates/line={}{}",
                           static_cast<int>(cfg.type), cpu_speed_str(cfg.cpu_speed),
-                          timing_.lines_per_frame, timing_.tstates_per_line);
+                          timing_.lines_per_frame, timing_.tstates_per_line,
+                          preserve_memory ? "  [preserve_memory=1 soft-reset]" : "");
 
     // Apply CPU speed to the clock.
     clock_.reset();
@@ -43,9 +44,14 @@ bool Emulator::init(const EmulatorConfig& cfg)
     frame_num_   = 0;
     replay_mode_ = false;
 
-    // Subsystem resets.
-    ram_.reset();
-    rom_.reset();
+    // Subsystem resets. RAM and the separate Rom buffer are skipped on
+    // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
+    // window pages 0..7 for Next) survives RESET_SOFT, matching VHDL: SRAM
+    // is not in any reset domain (only the FF-based subsystems are).
+    if (!preserve_memory) {
+        ram_.reset();
+        rom_.reset();
+    }
     mmu_.reset();
     nextreg_.reset();
     palette_.reset();
@@ -422,12 +428,21 @@ bool Emulator::init(const EmulatorConfig& cfg)
         line_int_value_ = (line_int_value_ & 0x100) | v;
     });
 
-    // Register 0x02: Reset control (soft reset on write)
+    // Register 0x02: Reset control.
+    //   bit 0 = RESET_SOFT (tbblue hardware.h) → preserve SRAM, drop FFs
+    //   bit 1 = RESET_HARD → full hard reset (same as power-on)
+    //   bit 7 = RESET_ESPBUS → peripheral-bus ESP reset signal, no-op here
+    // Hard takes priority over soft if both bits are set (unusual but
+    // VHDL-faithful: a hard reset supersedes a soft reset).
     nextreg_.set_write_handler(0x02, [this](uint8_t v) {
-        if (v & 0x01) {
-            Log::emulator()->info("Soft reset triggered via NextREG 0x02");
+        if (v & 0x02) {
+            Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x})", v);
             reset();
+        } else if (v & 0x01) {
+            Log::emulator()->info("Soft reset triggered via NextREG 0x02 ({:#04x})", v);
+            soft_reset();
         }
+        // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.
     });
 
     // Register 0x03: Machine type + config_mode transitions.
@@ -1066,7 +1081,12 @@ bool Emulator::init(const EmulatorConfig& cfg)
     //   +3:      plus3-0.rom + plus3-1.rom + plus3-2.rom + plus3-3.rom (16K each) or plus3.rom (64K)
     //   next:    48.rom (fallback for non-NextZXOS mode)
     //   pentagon: 128-0.rom + 128-1.rom (same as 128K)
-    {
+    //
+    // Skipped on soft reset (preserve_memory=true) — the rom_ buffer and
+    // the Next ROM-in-SRAM window already hold whatever tbblue.fw just
+    // installed, and reloading from disk would overwrite NextZXOS with the
+    // default 48.rom.
+    if (!preserve_memory) {
         std::string dir = cfg.roms_directory;
         if (!dir.empty() && dir.back() != '/') dir += '/';
 
@@ -1114,8 +1134,14 @@ bool Emulator::init(const EmulatorConfig& cfg)
         Log::emulator()->info("Machine type: {} (ROMs from '{}')", machine_type_str(cfg.type), cfg.roms_directory);
     }
 
-    // Boot ROM loading (FPGA bootloader — highest priority overlay)
-    if (!cfg.boot_rom_path.empty()) {
+    // Boot ROM loading (FPGA bootloader — highest priority overlay).
+    // Skipped on soft reset: the Emulator-owned boot_rom_ vector already
+    // has the contents, and Mmu::reset() preserves the set_boot_rom pointer
+    // via its boot_rom_ member. VHDL bootrom_en is NOT in the soft-reset
+    // domain — once nextboot.rom disables the overlay via NR 0x03, it stays
+    // off across RESET_SOFT so the Z80 boots into the NewlZXOS ROM in SRAM.
+    // The post-init block below explicitly clears boot_rom_en on soft reset.
+    if (!preserve_memory && !cfg.boot_rom_path.empty()) {
         std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
         if (bf.is_open()) {
             auto sz = bf.tellg();
@@ -1130,26 +1156,25 @@ bool Emulator::init(const EmulatorConfig& cfg)
         }
     }
 
-    // ROM-in-SRAM activation for the Next machine (Task 11 Branch 2):
+    // ROM-in-SRAM activation for the Next machine (Task 11 Branch 2).
     // VHDL zxnext.vhd:3052 routes normal-mode ROM reads through SRAM pages
-    // 0..7 (sram_rom selects which 8 KB bank). Seed those pages from the
-    // file-loaded rom_ buffer so first boot runs as if the flash had
-    // programmed the SRAM. tbblue.fw's load_roms() (via config_mode routing
-    // from Branch 1) then rewrites these same pages to install the selected
-    // machine's ROM before RESET_SOFT. After mmu_.set_rom_in_sram(true), all
-    // ROM-slot read_ptr_ entries re-point at ram_ pages — Z80 never reads
-    // from rom_ directly again in Next mode.
+    // 0..7 (sram_rom selects which 8 KB bank). On first init we seed those
+    // pages from the file-loaded rom_ buffer so first boot runs as if the
+    // flash had programmed the SRAM. tbblue.fw's load_roms() (via Branch 1
+    // config_mode routing) then rewrites these pages to install the
+    // selected machine's ROM before RESET_SOFT. The seed is skipped on
+    // soft reset so the tbblue-loaded content survives (Branch 3). After
+    // mmu_.set_rom_in_sram(true) all ROM-slot read_ptr_ entries re-point at
+    // ram_ pages — Z80 never reads from rom_ directly again in Next mode.
     if (cfg.type == MachineType::ZXN_ISSUE2) {
-        for (int p = 0; p < 8; ++p) {
-            const uint8_t* src = rom_.page_ptr(static_cast<uint16_t>(p));
-            uint8_t*       dst = ram_.page_ptr(static_cast<uint16_t>(p));
-            if (src && dst) std::memcpy(dst, src, 0x2000);
+        if (!preserve_memory) {
+            for (int p = 0; p < 8; ++p) {
+                const uint8_t* src = rom_.page_ptr(static_cast<uint16_t>(p));
+                uint8_t*       dst = ram_.page_ptr(static_cast<uint16_t>(p));
+                if (src && dst) std::memcpy(dst, src, 0x2000);
+            }
         }
         mmu_.set_rom_in_sram(true);
-        // NOTE: on soft reset, Emulator::reset() → init() re-runs this copy,
-        // which currently wipes tbblue-loaded NextZXOS content in SRAM pages
-        // 0..7. Branch 3 (soft-reset SRAM preservation) will bypass the
-        // re-copy so the loaded ROMs survive the RESET_SOFT.
     }
 
     // Activate Next config-mode SRAM routing only when we're booting through
@@ -1874,6 +1899,59 @@ void Emulator::reset()
 
     // Re-run init to restore consistent state (reloads ROM, rewires handlers).
     init(config_);
+
+    // Restore port-enable registers per reset_type semantics.
+    if (!reset_type_1) {
+        nextreg_.write(0x82, save_82);
+        nextreg_.write(0x83, save_83);
+        nextreg_.write(0x84, save_84);
+    }
+}
+
+void Emulator::soft_reset()
+{
+    // Soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
+    // Preserves: RAM (including Next ROM-in-SRAM window pages 0..7), Rom
+    // buffer, boot_rom_en state (VHDL: bootrom_en not in soft-reset domain),
+    // NR 0x82-0x84 per NR 0x85 bit 7 semantics.
+    // Resets: clock, scheduler, frame state, CPU, MMU slot map, NextReg
+    // register file (except the port-enable trio), peripherals (via init).
+    const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
+    const uint8_t save_82 = nextreg_.cached(0x82);
+    const uint8_t save_83 = nextreg_.cached(0x83);
+    const uint8_t save_84 = nextreg_.cached(0x84);
+    // VHDL bootrom_en survives soft reset — capture the current state so we
+    // can restore it after Mmu::reset() re-enables the overlay.
+    const bool prev_boot_rom_en = mmu_.boot_rom_enabled();
+
+    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM + boot_rom_en={}",
+                          prev_boot_rom_en);
+
+    clock_.reset();
+    scheduler_.reset();
+    frame_cycle_ = 0;
+
+    // No ram_.reset() — SRAM survives. mmu_.reset() is re-run inside init().
+    nextreg_.reset();
+    cpu_.reset();
+    im2_.reset();
+    keyboard_.reset();
+
+    // Clear framebuffer to black (not part of emulated state).
+    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
+
+    // Re-run init with preserve_memory=true: skip RAM/ROM reinit and the
+    // SRAM-from-rom seed so the ROM window keeps whatever tbblue.fw just
+    // installed. Handler wiring, boot_rom_ pointer, DivMMC/SPI etc. are
+    // re-initialised as on hard reset.
+    init(config_, /*preserve_memory=*/true);
+
+    // bootrom_en is not in the soft-reset domain (VHDL zxnext_top_issue5.vhd:
+    // 1493-1611 show boot-ROM-enable FFs driven only by reset_hard_ph, not
+    // reset_soft). Restore the pre-reset value — nextboot.rom runs only on
+    // hard reset; subsequent soft resets boot straight into whatever the
+    // firmware installed in SRAM.
+    mmu_.set_boot_rom_enabled(prev_boot_rom_en);
 
     // Restore port-enable registers per reset_type semantics.
     if (!reset_type_1) {

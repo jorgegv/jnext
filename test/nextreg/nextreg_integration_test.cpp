@@ -501,6 +501,97 @@ static void test_tilemap_clip_nr(Emulator& emu) {
     }
 }
 
+// ── Soft reset vs hard reset (NR 0x02 bits 0/1) ──────────────────────
+//
+// VHDL: tbblue hardware.h defines RESET_SOFT=0x01, RESET_HARD=0x02,
+// RESET_ESPBUS=0x80. Soft reset preserves SRAM (not in the reset domain);
+// hard reset is equivalent to power-on. Also zxnext_top_issue5.vhd:1493-
+// 1611 — bootrom_en is set by reset_hard only, so it survives soft reset.
+// This is the mechanism NextZXOS relies on: tbblue.fw loads ROMs into
+// SRAM via config_mode routing (Branch 1), writes NR 0x03 to exit config
+// mode, then writes NR 0x02=RESET_SOFT; after the reset Z80 boots into
+// the just-installed ROM at SRAM bank 0, with boot_rom overlay still
+// disabled.
+
+static void test_soft_reset(Emulator& emu) {
+    set_group("Soft-Reset");
+
+    // SR-01..05 use Z80 address 0x4000 (slot 2, default page 0x0A). Slot 2
+    // is RAM-mapped at reset so writes land in ram_.page_ptr(0x0A), which
+    // is OUTSIDE the Next ROM-in-SRAM seed window (pages 0..7). That lets
+    // SR-01 observe soft-reset preserves the page, and SR-02 observe
+    // hard-reset zeroes it without being re-seeded from rom_.
+
+    // SR-01: write a marker byte into SRAM via the Mmu write path, trigger
+    // NR 0x02=RESET_SOFT, observe the byte survives.
+    {
+        emu.mmu().write(0x4000, 0xA5);
+        const uint8_t before = emu.mmu().read(0x4000);
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const uint8_t after = emu.mmu().read(0x4000);
+        char detail[128];
+        snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
+        check("SR-01",
+              "NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents "
+              "[VHDL: SRAM not in reset domain]",
+              before == 0xA5 && after == 0xA5, detail);
+    }
+
+    // SR-02: same marker location, trigger NR 0x02=RESET_HARD, observe
+    // SRAM is zeroed. Hard reset returns the emulator to power-on state.
+    {
+        emu.mmu().write(0x4000, 0x5A);
+        const uint8_t before = emu.mmu().read(0x4000);
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        const uint8_t after = emu.mmu().read(0x4000);
+        char detail[128];
+        snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
+        check("SR-02",
+              "NR 0x02=0x02 (RESET_HARD) zeroes SRAM "
+              "[full power-on reinit]",
+              before == 0x5A && after == 0x00, detail);
+    }
+
+    // SR-03: boot_rom_en_ must survive soft reset. Disable it, then
+    // RESET_SOFT, then observe it stays disabled. VHDL bootrom_en is only
+    // driven by reset_hard (zxnext_top_issue5.vhd:1493-1611).
+    {
+        emu.mmu().set_boot_rom_enabled(false);
+        const bool before = emu.mmu().boot_rom_enabled();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT
+        const bool after = emu.mmu().boot_rom_enabled();
+        char detail[64];
+        snprintf(detail, sizeof(detail), "before=%d after=%d", before, after);
+        check("SR-03",
+              "boot_rom_en_ survives RESET_SOFT (not in soft-reset domain) "
+              "[zxnext_top_issue5.vhd:1493-1611]",
+              before == false && after == false, detail);
+    }
+
+    // SR-04: RESET_ESPBUS alone (bit 7) is a peripheral-bus reset signal
+    // on real HW; in jnext we have no ESP, so it is a no-op. SRAM must not
+    // be touched.
+    {
+        emu.mmu().write(0x4000, 0x3C);
+        nr_write(emu, 0x02, 0x80);              // RESET_ESPBUS only
+        const uint8_t after = emu.mmu().read(0x4000);
+        check("SR-04",
+              "NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched",
+              after == 0x3C, detail_eq(after, uint8_t{0x3C}));
+    }
+
+    // SR-05: hard-reset wins over soft when both bits are set (bit 1 | bit 0).
+    // VHDL SRAM is zeroed on hard reset — verify the hard path is taken.
+    {
+        emu.mmu().write(0x4000, 0xC3);
+        nr_write(emu, 0x02, 0x03);              // RESET_HARD | RESET_SOFT
+        const uint8_t after = emu.mmu().read(0x4000);
+        check("SR-05",
+              "NR 0x02=0x03 (RESET_HARD|RESET_SOFT): hard wins, SRAM zeroed",
+              after == 0x00, detail_eq(after, uint8_t{0x00}));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -522,6 +613,9 @@ int main() {
 
     test_tilemap_clip_nr(emu);
     std::printf("  Group: Tilemap-Clip-NR — done\n");
+
+    test_soft_reset(emu);
+    std::printf("  Group: Soft-Reset — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

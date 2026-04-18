@@ -68,7 +68,12 @@ public:
     /// Initialize all subsystems from config.
     /// Returns true on success, false if a required resource is missing
     /// (e.g. ROM file not found).
-    bool init(const EmulatorConfig& cfg);
+    ///
+    /// `preserve_memory` — when true, SKIP ram_.reset() / rom_.reset() /
+    /// ROM-from-disk loading / boot-ROM reload / SRAM-from-rom seeding.
+    /// Used by soft_reset() to keep tbblue-loaded NextZXOS content in SRAM
+    /// across a RESET_SOFT (VHDL: SRAM is not in the reset domain).
+    bool init(const EmulatorConfig& cfg, bool preserve_memory = false);
 
     /// Advance emulation by exactly one video frame.
     ///
@@ -81,6 +86,13 @@ public:
 
     /// Perform a hard reset: reinitialize all subsystems, clear RAM, reload ROM.
     void reset();
+
+    /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
+    /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
+    /// RAM contents (including the Next ROM-in-SRAM window), ROM buffer,
+    /// boot-ROM overlay state, and other non-FF state. Matches VHDL
+    /// zxnext_top_issue5.vhd:836-880 (soft reset domain subset).
+    void soft_reset();
 
     /// Load a raw binary file into RAM at `org` and set PC to `pc`.
     /// Called after init() when --inject is used.  Returns true on success.
