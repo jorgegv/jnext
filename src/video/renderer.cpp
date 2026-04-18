@@ -54,7 +54,7 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (layer2.enabled()) {
             if (layer2.is_wide() || in_display) {
                 layer2.render_scanline(layer2_line_.data(), row, ram, palette,
-                                       composite_width_);
+                                       composite_width_, mmu.rom_in_sram());
             }
         }
 

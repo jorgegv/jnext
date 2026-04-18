@@ -47,7 +47,9 @@ void Mmu::rebuild_ptr(int slot) {
         // ROM or unmapped
         if (read_only_[slot]) {
             // VHDL-faithful Next mode serves ROM from SRAM pages 0..7
-            // (zxnext.vhd:3052). Other machines use the separate rom_ buffer.
+            // (zxnext.vhd:3052, sram_rom & cpu_a(13)). rom_page is a ROM-
+            // area index (0..7), NOT a logical MMU page, so it skips the
+            // to_sram_page shift. Other machines use the separate rom_ buffer.
             read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(page) : rom_.page_ptr(page);
             write_ptr_[slot] = nullptr;
         } else {
@@ -55,7 +57,8 @@ void Mmu::rebuild_ptr(int slot) {
             write_ptr_[slot] = nullptr;
         }
     } else {
-        uint8_t* p = ram_.page_ptr(page);
+        // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
+        uint8_t* p = ram_.page_ptr(to_sram_page(page));
         read_ptr_[slot] = p;
         write_ptr_[slot] = p;
     }
@@ -121,16 +124,13 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     bool rom_select = (port_7ffd >> 4) & 1;
     paging_locked_ = (port_7ffd >> 5) & 1;
 
-    // Slots 6-7: selected RAM bank.
-    // Next mode: VHDL (zxnext.vhd:2964) applies a +0x20 shift so port_7ffd
-    // bank 0 lands on SRAM page 32 (RAMPAGE_RAMSPECCY area), NOT page 0
-    // which is ROM-in-SRAM. Without this shift, slot 6/7 writes alias the
-    // Spectrum ROM region and corrupt tbblue.fw's FATFS/FIL globals stored
-    // in upper RAM at the first-byte-of-cluster boundary (Task 12 root cause).
-    // Non-Next machines use the legacy bank*2 mapping.
-    uint8_t speccy_base = rom_in_sram_ ? 0x20 : 0x00;
-    set_page(6, speccy_base + bank * 2);
-    set_page(7, speccy_base + bank * 2 + 1);
+    // Slots 6-7: selected RAM bank. Store the LOGICAL page (VHDL
+    // mem_active_page semantics); to_sram_page() inside rebuild_ptr()
+    // applies the VHDL zxnext.vhd:2964 +0x20 shift for Next mode. Non-
+    // Next machines stay at the legacy bank*2 mapping via the pass-through
+    // branch in to_sram_page.
+    set_page(6, static_cast<uint8_t>(bank * 2));
+    set_page(7, static_cast<uint8_t>(bank * 2 + 1));
 
     // Slots 0-1: ROM selection
     // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)

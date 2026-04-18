@@ -147,9 +147,13 @@ public:
             if (l2_segment_mask_ & (1 << segment)) {
                 // Write to L2 RAM: each segment is 16K = 2 pages.
                 // L2 bank N → pages N*2, N*2+1; three consecutive banks.
+                // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
+                // L2 write-over lands on the same SRAM region Layer 2's
+                // compute_ram_addr fetches from (both shift +0x20 in Next).
                 uint16_t l2_page = static_cast<uint16_t>((l2_bank_ + segment) * 2);
                 uint16_t offset = addr % 0x4000;
-                uint8_t* p = ram_.page_ptr(l2_page + (offset >> 13));
+                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
+                uint8_t* p = ram_.page_ptr(phys_page);
                 if (p) p[offset & 0x1FFF] = val;
                 return;
             }
@@ -215,6 +219,24 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    // VHDL zxnext.vhd:2964 mmu_A21_A13 formula: logical MMU page →
+    // physical SRAM page. In Next mode (rom_in_sram_=true) logical pages
+    // 0x00..0x1F get +0x20 so port_7FFD bank 0 lands on SRAM page 0x20
+    // (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM). Exceptions per VHDL
+    // zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B) and bank 7 lower
+    // (page 0x0E) bypass the shift — they live in dedicated dual-port VRAM.
+    //
+    // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
+    // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
+    // to SRAM page +0x20 but the renderer reads from the un-shifted page).
+    // Non-Next mode passes the value through unchanged.
+    uint8_t to_sram_page(uint8_t logical) const {
+        if (!rom_in_sram_) return logical;
+        if (logical >= 0x20) return logical;
+        if (logical == 0x0A || logical == 0x0B || logical == 0x0E) return logical;
+        return static_cast<uint8_t>(logical + 0x20);
+    }
 
 private:
     void rebuild_ptr(int slot);
