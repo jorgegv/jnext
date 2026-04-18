@@ -35,7 +35,7 @@ static void print_usage(const char* prog) {
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img)\n"
-        "  --machine-type TYPE  Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
+        "  --machine TYPE       Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
         "  --roms-directory DIR Directory containing ROM files (default: /usr/share/fuse)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
@@ -127,7 +127,7 @@ int main(int argc, char* argv[]) {
             screenshot_delay = std::stoi(argv[++i]);
         } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
             auto_exit_delay = std::stoi(argv[++i]);
-        } else if (arg == "--machine-type" && i + 1 < argc) {
+        } else if (arg == "--machine" && i + 1 < argc) {
             if (!parse_machine_type(argv[++i], machine_type)) {
                 fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", argv[i]);
                 return 1;

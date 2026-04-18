@@ -745,12 +745,12 @@ test/scripts/
 
 ```bash
 # Run a single test
-./build/jnext --headless --machine-type next \
+./build/jnext --headless --machine next \
     --load test/programs/palette_test.nex \
     --script test/scripts/unit/test_palette_init.dbg
 
 # Run with test report
-./build/jnext --headless --machine-type next \
+./build/jnext --headless --machine next \
     --load test/programs/palette_test.nex \
     --script test/scripts/unit/test_palette_init.dbg \
     --test-report-xml /tmp/results.xml

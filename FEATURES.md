@@ -63,7 +63,7 @@
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
 
 ## CLI
-- `--machine-type`, `--roms-directory`, `--load`, `--headless`
+- `--machine`, `--roms-directory`, `--load`, `--headless`
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--boot-rom`, `--divmmc-rom`, `--sd-card`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`

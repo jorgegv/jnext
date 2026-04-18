@@ -106,7 +106,7 @@ Each test is a headless emulator run that:
 3. Captures a screenshot after rendering
 4. Compares against a reference image (pixel-perfect)
 
-Tests use `--headless --machine-type next` with the standard delayed-screenshot
+Tests use `--headless --machine next` with the standard delayed-screenshot
 mechanism.
 
 ### Test Data Layout
@@ -433,7 +433,7 @@ make -C demo tilemap_tests
 
 ```bash
 # Individual test
-./build/jnext --headless --machine-type next \
+./build/jnext --headless --machine next \
     --load test/tilemap/test_tm_basic.nex \
     --delayed-screenshot /tmp/tm_test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5

@@ -163,7 +163,7 @@ while IFS= read -r line; do
 
     cmd=("timeout" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
-         "--machine-type" "$machine_type"
+         "--machine" "$machine_type"
          "--delayed-screenshot" "$out_img"
          "--delayed-screenshot-time" "$delay_secs"
          "--delayed-automatic-exit" "$exit_delay")

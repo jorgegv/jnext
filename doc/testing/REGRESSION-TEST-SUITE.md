@@ -26,7 +26,7 @@ The emulation runs as fast as possible, making it ideal for automated testing.
 
 ```bash
 ./build/jnext --headless \
-    --machine-type 48k \
+    --machine 48k \
     --delayed-screenshot /tmp/screenshot.png \
     --delayed-screenshot-time 3 \
     --delayed-automatic-exit 5

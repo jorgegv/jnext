@@ -475,7 +475,7 @@ Debug
 
 Example:
 ```bash
-./build/jnext --headless --machine-type next \
+./build/jnext --headless --machine next \
     --load demo/my_program.nex \
     --rewind-buffer-size 200 \
     --script test/scripts/rewind_test.dbg

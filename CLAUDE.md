@@ -116,13 +116,13 @@ bash test/generate-references.sh
 The `--headless` option runs without display/audio for automated testing:
 
 ```bash
-./build/jnext --headless --machine-type 48k \
+./build/jnext --headless --machine 48k \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
 
 Key options:
-- `--machine-type TYPE` — `48k`, `128k`, `plus3`, `pentagon`, `next` (default)
+- `--machine TYPE` — `48k`, `128k`, `plus3`, `pentagon`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
 - `--roms-directory DIR` — ROM files location (default: `/usr/share/fuse`)
 - `--delayed-screenshot FILE` — save PNG screenshot after delay

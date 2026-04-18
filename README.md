@@ -118,7 +118,7 @@ Debugger keyboard shortcuts:
 
 | Option                        | Description                                                          |
 |-------------------------------|----------------------------------------------------------------------|
-| `--machine-type TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)                 |
+| `--machine TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)                 |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
 | `--roms-directory DIR`        | ROM directory (default: `/usr/share/fuse`)                           |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
@@ -215,7 +215,7 @@ Override the ROM directory with `--roms-directory DIR`.
 ./build/gui-release/jnext
 
 # Run as ZX Spectrum 48K
-./build/gui-release/jnext --machine-type 48k
+./build/gui-release/jnext --machine 48k
 
 # Load and run a NEX file
 ./build/gui-release/jnext --load game.nex
@@ -233,7 +233,7 @@ Override the ROM directory with `--roms-directory DIR`.
 ./build/gui-release/jnext --inject program.bin --inject-org 8000
 
 # Headless screenshot for CI testing
-./build/gui-release/jnext --headless --machine-type 48k \
+./build/gui-release/jnext --headless --machine 48k \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```

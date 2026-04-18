@@ -6,7 +6,7 @@ and cannot be run as part of the automated regression suite.
 Run them manually with:
 
 ```bash
-./build/jnext --machine-type next --load demo/dapr-nexlib+tests/test00alltests/<nex_file>
+./build/jnext --machine next --load demo/dapr-nexlib+tests/test00alltests/<nex_file>
 ```
 
 ## Tests
