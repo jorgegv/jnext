@@ -31,6 +31,18 @@ public:
     void set_boot_rom_enabled(bool en) { boot_rom_en_ = en; }
     bool boot_rom_enabled() const { return boot_rom_en_; }
 
+    // VHDL nr_03_config_mode + nr_04_romram_bank mirror.
+    // When config_mode=1, CPU accesses to 0x0000-0x3FFF on ROM-mapped slots
+    // route to SRAM at `(nr_04_romram_bank << 1) | slot` (8 KB pages) instead
+    // of the normal ROM serving path. See zxnext.vhd:3044-3050. Writes are
+    // permitted through this path (sram_pre_rdonly<='0' at line 3049) — this
+    // is how tbblue.fw's load_roms() populates the Spectrum/DivMMC/MF ROMs
+    // in SRAM before triggering RESET_SOFT. Override order per VHDL:
+    // MF > MMU-RAM > config_mode > sram_rom (boot ROM overlay is upstream of
+    // the whole SRAM path, so it still wins).
+    void set_config_mode(bool enabled) { config_mode_ = enabled; }
+    void set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
+
     // DivMMC memory overlay — set by Emulator when DivMMC is initialized.
     // Kept as raw pointer for zero-overhead hot path.
     void set_divmmc(DivMmc* d) { divmmc_ = d; }
@@ -43,6 +55,22 @@ public:
         // Boot ROM overlay: highest priority at 0x0000-0x1FFF (VHDL bootrom_en)
         if (boot_rom_en_ && addr < boot_rom_size_) {
             return boot_rom_[addr];
+        }
+        int slot = addr >> 13;
+        // Config-mode routing (VHDL zxnext.vhd:3044-3050): when nr_03_config_mode
+        // is set, reads from 0x0000-0x3FFF on ROM-mapped slots bypass DivMMC and
+        // normal ROM serving, going straight to SRAM at bank nr_04_romram_bank.
+        // RAM-mapped slots fall through (MMU-RAM mapping wins at zxnext.vhd:3037).
+        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
+            }
+            return val;
         }
         // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active
         if (divmmc_ && addr < 0x4000) {
@@ -58,7 +86,6 @@ public:
                 return val;
             }
         }
-        int slot = addr >> 13;
         const uint8_t* ptr = read_ptr_[slot];
         if (!ptr) return 0xFF;
         uint8_t val = ptr[addr & 0x1FFF];
@@ -80,6 +107,16 @@ public:
             debug_state_->set_data_bp_hit(true);
             debug_state_->set_data_bp_addr(addr);
         }
+        int slot = addr >> 13;
+        // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
+        // writes to 0x0000-0x3FFF on ROM-mapped slots route to SRAM at bank
+        // nr_04_romram_bank instead of being silently dropped. This is how
+        // tbblue.fw's load_roms() populates ROM content in SRAM.
+        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            if (p) p[addr & 0x1FFF] = val;
+            return;
+        }
         // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active
         if (divmmc_ && addr < 0x4000) {
             if (divmmc_write(addr, val)) return;
@@ -97,7 +134,6 @@ public:
                 return;
             }
         }
-        int slot = addr >> 13;
         if (read_only_[slot]) return;
         uint8_t* ptr = write_ptr_[slot];
         if (!ptr) return;
@@ -150,6 +186,15 @@ private:
     bool    l2_write_enable_  = false;
     uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
+
+    // NR 0x03 config_mode + NR 0x04 romram_bank mirror (pushed by Emulator
+    // from NextReg handlers). Default false because these signals only exist
+    // on the Next; Emulator::init() activates config_mode for ZXN machines
+    // after nextreg_.reset() (which sets nr_03_config_mode_=true per VHDL
+    // zxnext.vhd:1102). For non-Next machines we must not route through
+    // SRAM bank 0 at boot — they have no NextREG.
+    bool    config_mode_        = false;
+    uint8_t nr_04_romram_bank_  = 0;
 
     // Boot ROM overlay (non-owning pointer into Emulator-owned storage)
     const uint8_t* boot_rom_ = nullptr;

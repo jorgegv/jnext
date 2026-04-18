@@ -700,9 +700,17 @@ void test_cat11_rom_selection() {
 
     // ROM-08: ROM is read-only. VHDL zxnext.vhd:2933-3133 decode treats
     // ROM slots as read-disable/write-inhibit.
+    //
+    // VHDL gates this on config_mode (zxnext.vhd:3044-3050): while config_mode=1
+    // writes to a ROM slot *are* honoured, routed to SRAM bank nr_04_romram_bank.
+    // That is how tbblue.fw's load_roms() populates Spectrum ROM in SRAM before
+    // the soft reset. Set config_mode=0 here so we observe the normal-mode
+    // read-only behaviour the test is asserting. The config-mode routing path
+    // is covered by Category 13 below.
     {
         Fixture f;
         f.fresh();  // slots 0,1 are ROM from reset
+        f.mmu.set_config_mode(false);
         const uint8_t before = f.mmu.read(0x0000);
         f.mmu.write(0x0000, static_cast<uint8_t>(before ^ 0xA5));
         const uint8_t after = f.mmu.read(0x0000);
@@ -736,16 +744,142 @@ void test_cat12_altrom() {
 }
 
 // ── Category 13: Config mode (NR 0x03/0x04) ───────────────────────────
-// VHDL: zxnext.vhd:3044-3050. Config mode ROMRAM bank mapping is not
-// exposed on the Mmu API — the ROMRAM routing runs in the zxnext.vhd
-// decode layer.
+// VHDL: zxnext.vhd:3044-3050. While nr_03_config_mode='1', CPU accesses
+// to 0x0000-0x3FFF on ROM-mapped slots are routed to SRAM at bank
+// nr_04_romram_bank (8 KB pages, 9-bit address = nr_04<<1 | slot).
+// Writes are allowed (sram_pre_rdonly<='0', line 3049). MMU-RAM mapping
+// wins over config_mode (line 3037), and boot ROM overlay wins over the
+// whole SRAM path.
 
 void test_cat13_config_mode() {
     set_group("Cat13 config mode (NR 0x03/0x04)");
-    skip("CFG-01", "no NR 0x03/0x04 config-mode handler on Mmu — ROMRAM mapping unobservable");
-    skip("CFG-02", "no NR 0x03/0x04 config-mode handler on Mmu — off-state unobservable");
-    skip("CFG-03", "no NR 0x03/0x04 config-mode handler on Mmu — ROMRAM write unobservable");
-    skip("CFG-04", "no NR 0x03/0x04 config-mode handler on Mmu — reset state unobservable");
+
+    // CFG-01: config_mode=1 + NR 0x04 routes 0x0000-0x3FFF ROM-slot writes
+    // to SRAM bank (nr_04<<1 | slot). Write via MMU, read back via
+    // ram.page_ptr() to prove the bank landing. Emulator::init() pushes
+    // config_mode=1 for ZXN machines; here we drive it directly since the
+    // Mmu unit fixture is machine-type-agnostic.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x02);   // bank 2 → pages 4,5 (slots 0,1)
+        f.mmu.write(0x0000, 0xA5);
+        f.mmu.write(0x2001, 0x5A);
+        const uint8_t* p4 = f.ram.page_ptr(4);
+        const uint8_t* p5 = f.ram.page_ptr(5);
+        const bool ok = p4 && p5 && p4[0x0000] == 0xA5 && p5[0x0001] == 0x5A;
+        check("CFG-01",
+              "config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050",
+              ok,
+              fmt("p4[0]=0x%02X p5[1]=0x%02X", p4 ? p4[0] : 0xEE, p5 ? p5[1] : 0xEE));
+    }
+
+    // CFG-02: config_mode=1 reads from 0x0000-0x3FFF on ROM-slot return
+    // SRAM bank contents (not rom_.page_ptr() content). Seed SRAM directly,
+    // then read via MMU under config_mode.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x03);   // bank 3 → pages 6,7
+        uint8_t* p6 = f.ram.page_ptr(6);
+        uint8_t* p7 = f.ram.page_ptr(7);
+        if (p6) p6[0x0100] = 0xDE;
+        if (p7) p7[0x0200] = 0xAD;
+        const uint8_t got0 = f.mmu.read(0x0100);   // slot 0 → page 6
+        const uint8_t got1 = f.mmu.read(0x2200);   // slot 1 → page 7
+        check("CFG-02",
+              "config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050",
+              got0 == 0xDE && got1 == 0xAD,
+              fmt("got0=0x%02X got1=0x%02X (expected 0xDE, 0xAD)", got0, got1));
+    }
+
+    // CFG-03: MMU-RAM mapping wins over config_mode (VHDL line 3037 checks
+    // mmu_A21_A13(8)=0 before line 3044 checks config_mode). set_page() on
+    // slot 0 puts a real RAM page there; writes must land in that RAM page,
+    // not in the NR 0x04-selected SRAM bank.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x05);   // bank 5 → pages 10,11 (if routing fires)
+        f.mmu.set_page(0, 0x20);             // slot 0 → RAM page 0x20 (not ROM)
+        f.mmu.write(0x0010, 0xC3);
+        uint8_t* mapped = f.ram.page_ptr(0x20);
+        uint8_t* would_be_cfg = f.ram.page_ptr(10);
+        const bool ok = mapped && mapped[0x0010] == 0xC3 &&
+                        (!would_be_cfg || would_be_cfg[0x0010] != 0xC3);
+        check("CFG-03",
+              "MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037",
+              ok,
+              fmt("mapped[0x10]=0x%02X cfg_bank[0x10]=0x%02X",
+                  mapped ? mapped[0x0010] : 0xEE,
+                  would_be_cfg ? would_be_cfg[0x0010] : 0xEE));
+    }
+
+    // CFG-04: config_mode exits with set_config_mode(false). Writes to
+    // 0x0000-0x3FFF on ROM slots revert to the normal read-only behaviour
+    // (ROM-08 covers this path, CFG-04 just verifies the toggle).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_04_romram_bank(0x00);
+        f.mmu.set_config_mode(false);
+        uint8_t* p0 = f.ram.page_ptr(0);
+        const uint8_t bank0_before = p0 ? p0[0x0050] : 0xEE;
+        f.mmu.write(0x0050, 0xFA);
+        const uint8_t bank0_after = p0 ? p0[0x0050] : 0xEE;
+        check("CFG-04",
+              "config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed",
+              bank0_before == bank0_after,
+              fmt("bank0[0x50] before=0x%02X after=0x%02X", bank0_before, bank0_after));
+    }
+
+    // CFG-05: address bit 13 picks the upper/lower 8 KB of the selected
+    // 16 KB ROM bank. VHDL line 3045: sram_pre_A21_A13 = nr_04 & cpu_a(13).
+    // slot 0 (addr 0x0000-0x1FFF) → SRAM page nr_04*2 + 0
+    // slot 1 (addr 0x2000-0x3FFF) → SRAM page nr_04*2 + 1
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x04);   // bank 4 → pages 8, 9
+        f.mmu.write(0x0000, 0x11);           // → page 8 [0]
+        f.mmu.write(0x2000, 0x22);           // → page 9 [0]
+        uint8_t* p8 = f.ram.page_ptr(8);
+        uint8_t* p9 = f.ram.page_ptr(9);
+        check("CFG-05",
+              "addr bit 13 selects upper/lower 8 KB of nr_04 bank — VHDL zxnext.vhd:3045 (nr_04<<1 | cpu_a(13))",
+              p8 && p9 && p8[0] == 0x11 && p9[0] == 0x22,
+              fmt("p8[0]=0x%02X p9[0]=0x%02X (expected 0x11 0x22)",
+                  p8 ? p8[0] : 0xEE, p9 ? p9[0] : 0xEE));
+    }
+
+    // CFG-06: Mmu::reset() leaves config_mode unchanged (Emulator::init() is
+    // the owner, since config_mode is a Next-only signal — a 48K MMU reset
+    // must not arm Next routing). nr_04_romram_bank is reset to 0x00 per
+    // VHDL zxnext.vhd:1104. We verify by: pre-set config_mode=true and
+    // nr_04=0xFF; call reset; observe nr_04 went back to 0 while
+    // config_mode stayed at 1 (the owner's choice).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0xFF);
+        f.mmu.reset();
+        // After reset: config_mode is still true (pushed by us above),
+        // nr_04 is 0 (VHDL default) → a slot-0 write must land at page 0.
+        f.mmu.write(0x0000, 0x77);
+        uint8_t* p0   = f.ram.page_ptr(0);
+        uint8_t* p510 = f.ram.page_ptr(510);   // where nr_04=0xFF<<1 | 0 would land
+        check("CFG-06",
+              "Mmu::reset() clears nr_04_romram_bank to 0 (VHDL zxnext.vhd:1104); config_mode is Emulator-owned",
+              p0 && p0[0] == 0x77 && (!p510 || p510[0] != 0x77),
+              fmt("p0[0]=0x%02X p510[0]=%s",
+                  p0 ? p0[0] : 0xEE,
+                  p510 ? fmt("0x%02X", p510[0]).c_str() : "<oob>"));
+    }
 }
 
 // ── Category 14: Address translation ──────────────────────────────────
@@ -1020,8 +1154,27 @@ void test_cat18_priority() {
     // PRI-06: altrom overrides normal ROM — no NR 0x8C handler on Mmu.
     skip("PRI-06", "no NR 0x8C handler on Mmu — altrom priority unobservable");
 
-    // PRI-07: config mode overrides ROM — no NR 0x03/0x04 handler on Mmu.
-    skip("PRI-07", "no NR 0x03/0x04 handler on Mmu — config-mode priority unobservable");
+    // PRI-07: config-mode routing overrides the normal ROM serving path.
+    // VHDL zxnext.vhd:3044-3050: at ROM-mapped slots with config_mode=1, a
+    // CPU access goes to SRAM via nr_04_romram_bank instead of reading from
+    // the rom_ buffer. Proof: a seeded SRAM bank is visible under
+    // config_mode=1 but not under config_mode=0 (where the same read returns
+    // rom_ content tagged by the fixture).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(true);
+        f.mmu.set_nr_04_romram_bank(0x06);   // bank 6 → SRAM pages 12, 13
+        uint8_t* p12 = f.ram.page_ptr(12);
+        if (p12) p12[0x0010] = 0x9A;
+        const uint8_t cfg_on  = f.mmu.read(0x0010);
+        f.mmu.set_config_mode(false);
+        const uint8_t cfg_off = f.mmu.read(0x0010);
+        check("PRI-07",
+              "config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052",
+              cfg_on == 0x9A && cfg_off != 0x9A,
+              fmt("cfg_on=0x%02X cfg_off=0x%02X (expected 0x9A / !=0x9A)", cfg_on, cfg_off));
+    }
 }
 
 } // namespace

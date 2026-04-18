@@ -39,6 +39,17 @@ public:
     bool nr_03_config_mode() const { return nr_03_config_mode_; }
     void apply_nr_03_config_mode_transition(uint8_t low3);
 
+    // VHDL nr_04_romram_bank (zxnext.vhd:1104 default 0x00, written by NR 0x04).
+    // Selects the 8 KB SRAM bank that CPU accesses to 0x0000-0x3FFF are routed
+    // through while config_mode=1 (see zxnext.vhd:3044-3050). Owned by NextReg
+    // so the value survives selected-register shuffling; the MMU consults the
+    // Emulator-pushed mirror rather than reaching back through NextReg.
+    // VHDL issue-5 boards take all 8 bits (line 5732); older boards mask bit 7
+    // (line 5717). We keep the full 8 bits and let out-of-range banks fall
+    // back to 0xFF reads via Ram::page_ptr() returning nullptr.
+    uint8_t nr_04_romram_bank() const { return nr_04_romram_bank_; }
+    void    set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -46,6 +57,7 @@ private:
     std::array<uint8_t, 256> regs_{};
     uint8_t selected_ = 0x24;  // VHDL zxnext.vhd:4594-4596 reset default
     bool nr_03_config_mode_ = true;  // VHDL zxnext.vhd:1102 power-on default '1'
+    uint8_t nr_04_romram_bank_ = 0;  // VHDL zxnext.vhd:1104 power-on default 0x00
     std::array<std::function<void(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
 };

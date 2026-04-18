@@ -446,8 +446,21 @@ bool Emulator::init(const EmulatorConfig& cfg)
             Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
         }
         nextreg_.apply_nr_03_config_mode_transition(v);
+        // Mirror config_mode into Mmu so the fast-path read/write routing
+        // (VHDL zxnext.vhd:3044-3050) tracks the NextReg state.
+        mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
+    });
+
+    // Register 0x04: ROM/RAM bank select used by tbblue.fw's load_roms() to
+    // populate Spectrum/DivMMC/Multiface ROMs in SRAM while config_mode=1.
+    // VHDL zxnext.vhd:1104,5716-5732 — we take all 8 bits (Issue-5 behaviour);
+    // out-of-range banks fall back to 0xFF reads via Ram::page_ptr()==nullptr.
+    nextreg_.set_write_handler(0x04, [this](uint8_t v) {
+        nextreg_.set_nr_04_romram_bank(v);
+        mmu_.set_nr_04_romram_bank(v);
+        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4 (with auto-increment)
@@ -1115,6 +1128,19 @@ bool Emulator::init(const EmulatorConfig& cfg)
         } else {
             Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
         }
+    }
+
+    // Activate Next config-mode SRAM routing only when we're booting through
+    // the FPGA boot ROM. VHDL zxnext.vhd:1102 defaults config_mode='1' at
+    // power-on; in our emulator that state is only reachable for the boot-ROM
+    // boot path (where the boot ROM overlay masks the routing until
+    // nextboot.rom / tbblue.fw run). Direct --load NEX/TAP/TZX starts have no
+    // firmware to drive NR 0x03, so keeping config_mode=0 here lets ROM reads
+    // fall through to the normal slot path. NR 0x03 writes keep mirroring
+    // config_mode_ into the Mmu live thereafter.
+    if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
+        mmu_.set_config_mode(nextreg_.nr_03_config_mode());
+        mmu_.set_nr_04_romram_bank(nextreg_.nr_04_romram_bank());
     }
 
     // DivMMC ROM loading

@@ -20,6 +20,13 @@ void Mmu::reset() {
     l2_write_enable_ = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
+    // nr_04_romram_bank resets to 0 (VHDL zxnext.vhd:1104). config_mode stays
+    // at its current value — it's pushed in by Emulator per machine type so
+    // a reset on a 48K/128K/+3 machine doesn't spuriously activate Next-only
+    // SRAM routing. Next machines will re-push config_mode=true via the NR
+    // 0x03 handler on first write (matches tbblue.fw's boot flow), and via
+    // Emulator::init() directly after nextreg_.reset() for power-on parity.
+    nr_04_romram_bank_ = 0;
     // Re-enable boot ROM on reset (if loaded) — matches VHDL bootrom_en init.
     if (boot_rom_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
@@ -172,6 +179,8 @@ void Mmu::save_state(StateWriter& w) const
     w.write_u8(l2_segment_mask_);
     w.write_u8(l2_bank_);
     w.write_bool(boot_rom_en_);
+    w.write_bool(config_mode_);
+    w.write_u8(nr_04_romram_bank_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -185,6 +194,8 @@ void Mmu::load_state(StateReader& r)
     l2_segment_mask_ = r.read_u8();
     l2_bank_         = r.read_u8();
     boot_rom_en_     = r.read_bool();
+    config_mode_       = r.read_bool();
+    nr_04_romram_bank_ = r.read_u8();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

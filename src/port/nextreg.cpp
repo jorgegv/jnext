@@ -49,6 +49,9 @@ void NextReg::reset() {
     // either, as there is no code path that resets the signal other than via
     // NR 0x03 writes; safest and VHDL-faithful is to re-default on reset().
     nr_03_config_mode_ = true;
+
+    // VHDL zxnext.vhd:1104 — nr_04_romram_bank defaults 0x00 at power-on.
+    nr_04_romram_bank_ = 0;
 }
 
 void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {
@@ -110,6 +113,7 @@ void NextReg::save_state(StateWriter& w) const
     // ring buffer only, so snapshot format compatibility across builds is
     // not a concern here.
     w.write_bool(nr_03_config_mode_);
+    w.write_u8(nr_04_romram_bank_);
 }
 
 void NextReg::load_state(StateReader& r)
@@ -117,4 +121,5 @@ void NextReg::load_state(StateReader& r)
     selected_ = r.read_u8();
     r.read_bytes(regs_.data(), 256);
     nr_03_config_mode_ = r.read_bool();
+    nr_04_romram_bank_ = r.read_u8();
 }
