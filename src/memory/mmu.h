@@ -182,6 +182,19 @@ public:
     // Currently selected ROM bank 0..3 (VHDL sram_rom signal, derived from
     // port_1ffd bit 2 << 1 | port_7ffd bit 4). Used by Task 7 ROM3-conditional
     // automap gating (zxnext.vhd:3052,3138 — sram_pre_rom3 feeder).
+    //
+    // Known gaps (Task 7 Branch B scope does not cover — revisit if needed):
+    //   * 48K-mode: VHDL zxnext.vhd:2985 hardwires sram_rom3='1' when
+    //     machine_type_48='1'. Our implementation reports bank 0 regardless
+    //     of machine type. Impact is nil in practice — DivMMC tests target
+    //     Next mode, and 48K-mode automap is not a tested path.
+    //   * altrom (NR 0x8C): VHDL zxnext.vhd:3138 factors altrom enable into
+    //     sram_divmmc_automap_rom3_en. We ignore it — an altrom-masked ROM
+    //     bank would still report by its underlying sram_rom bits.
+    //   * Next-mode port_1ffd bit 2 is normally gated by NR 0x82 bit 3; a
+    //     direct write to port_1ffd on Next mode could make this function
+    //     return a ROM3 claim when VHDL would not. Safe in the configured
+    //     boot path; fragile if firmware goes off-script.
     uint8_t current_rom_bank() const {
         return static_cast<uint8_t>(((port_1ffd_ >> 2) & 1) << 1 |
                                     ((port_7ffd_ >> 4) & 1));
