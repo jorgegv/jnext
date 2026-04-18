@@ -981,30 +981,42 @@ void group_tm() {
     // non-trigger fetch the held value is still visible and drives active.
     {
         DivMmc d = make_divmmc();
-        d.check_automap(0x0000, true);       // instant → hold=1, held=1
-        // Now a non-trigger, non-off fetch. Per VHDL line 129, hold =
-        // held AND NOT off = 1. Held latches from hold at start of this
-        // call. Active = held OR instant = 1 OR 0 = 1.
+        d.check_automap(0x0000, true);       // instant → hold=1, held=0
+        // Per VHDL line 131 the held-carry term is `(automap_held and not
+        // (i_automap_active and i_automap_delayed_off))`. Held latches
+        // from hold at the start of this next call (our per-M1 model for
+        // the MREQ rising edge between fetches). Active = held || instant
+        // = 1 || 0 = 1.
         d.check_automap(0x0100, true);
         check("TM-03",
               "held persists across non-trigger M1 via hold propagation "
-              "(VHDL divmmc.vhd:141-142)",
+              "(VHDL divmmc.vhd:141-142,131)",
               d.automap_held() && d.automap_active(),
               fmt("held=%d active=%d", d.automap_held(), d.automap_active()));
     }
 
     // TM-04: is_m1=false does NOT update hold (VHDL divmmc.vhd:128 gates
-    // the hold process on `cpu_mreq_n='0' AND cpu_m1_n='0'`). A non-M1
-    // access at an entry-point address must not activate automap.
+    // the hold process on `cpu_mreq_n='0' AND cpu_m1_n='0'`). Strong
+    // form: first activate via an instant M1 (so there IS real state),
+    // then a NON-M1 fetch at an entry-point PC. Held must still promote
+    // from the previous hold (normal per-fetch carry), but the non-M1
+    // fetch itself must not alter hold.
     {
         DivMmc d = make_divmmc();
-        d.check_automap(0x0000, /*is_m1=*/false);
+        d.check_automap(0x0000, true);       // instant activation (hold=1, held=0)
+        const bool pre_active = d.automap_active();
+        const bool pre_hold   = d.automap_hold();
+        // Non-M1 access at 0x0008 (another entry-point) — must be ignored.
+        d.check_automap(0x0008, /*is_m1=*/false);
+        const bool post_active = d.automap_active();
+        const bool post_hold   = d.automap_hold();
+        const bool post_held   = d.automap_held();
         check("TM-04",
-              "non-M1 access at entry-point does not set hold/active "
+              "non-M1 access at entry-point does NOT alter hold/held "
               "(VHDL divmmc.vhd:128 gates on M1+MREQ)",
-              !d.automap_active() && !d.automap_hold() && !d.automap_held(),
-              fmt("active=%d hold=%d held=%d",
-                  d.automap_active(), d.automap_hold(), d.automap_held()));
+              pre_active && pre_hold && post_active && post_hold && !post_held,
+              fmt("pre act=%d hold=%d; post act=%d hold=%d held=%d",
+                  pre_active, pre_hold, post_active, post_hold, post_held));
     }
 
     // TM-05: held persistence across multiple non-off M1 fetches. Once
