@@ -27,16 +27,17 @@ foundation for all memory access in the emulator. This test suite validates:
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
 
-Measured on main 2026-04-20 post-Phase-1a-fix + Phase 2 C merge:
+Measured on main 2026-04-20 post-Phase-2-A merge:
 
-- **143 plan rows total**, mapped 1:1 to test IDs (150 check()+skip() calls in test).
-- **100 pass, 0 fail, 50 skip.**
+- **145 plan rows total** (DFF-08 + EF7-05 added by Phase 2 A), mapped 1:1 to test IDs (152 check()+skip() calls in test).
+- **113 pass, 0 fail, 39 skip.**
 - Phase 2 C0 (commit `354fa14`) landed NR 0x08 bit 7 paging unlock — un-skipped P7F-14 and LCK-04.
 - Phase 1a re-triage: un-skipped BNK-01..04 (dual-port bypass outcome tests). MMU-12, ADR-09, ADR-10 were initially un-skipped but REVERTED to skip() after independent critic review flagged SX-02 anti-pattern (tests encoded JNEXT's `to_sram_page` truncation as the oracle instead of VHDL's `sram_pre_active=0` floating-bus semantics per zxnext.vhd:3060-3061).
 - Phase 2 C (`fix/mmu-branch-c`) un-skipped 16 rows: ROM-01..07 (machine-type / sram_rom accessor per zxnext.vhd:2981-3008), ALT-01..07 + ALT-09 (NR 0x8C altrom register storage + decoded accessors), plus a bonus un-skip for RW-02 in the integration tier via the NR 0x08 read handler (bit 7 = NOT paging-lock, bit 6 = contention-disable).
 - Phase 2 C also added `Mmu::reset(bool hard)` overload: VHDL-faithful soft reset now preserves `paging_locked_`, `contention_disabled_`, and NR 0x8C bits 3:0 across RESET_SOFT (all three previously cleared unconditionally — a pre-existing divergence from C0 that Branch C took care of while adding the NR 0x08 bit 6 + NR 0x8C state). VHDL citations: zxnext.vhd:1730 (hard-reset signal), 2253-2256 (NR 0x8C nibble copy), 3646-3648 (port_7ffd_reg clear), 4930-4935 (contention_disable clear).
+- Phase 2 A (`fix/mmu-branch-a`) un-skipped 12 rows (DFF-01..07, LCK-03, EF7-01..04) and added 2 new rows (DFF-08, EF7-05) covering soft-reset preservation — all 14 passing. Implemented `Mmu::write_port_dffd` (lock-gated per VHDL:3691) + `Mmu::write_port_eff7` (ungated per VHDL:3781); EFF7 bit 3 re-maps slots 0/1 to RAM pages 0x00/0x01 per VHDL:4636-4644; DFFD bank composition `port_7ffd(2:0) | (port_dffd(4:0)<<3)` per VHDL:3763-3766. Soft reset preserves both registers (VHDL:3687, :3777) AND their downstream page-map effects (DFFD→MMU6/7, EFF7→MMU0/1) via a post-seed `apply_legacy_paging_()` call in `Mmu::reset(false)` — emulator must re-assert because our MMU state is imperative where VHDL is combinational.
 - **Previously-listed RST-01/RST-02 failures**: already fixed by earlier reset-seed work — all eight RST rows pass (MMU0/MMU1 seed to the 0xFF ROM sentinel per VHDL zxnext.vhd:4611-4618).
-- **Remaining 50 skips blocked by** Phase 2 branches A (ports 0xDFFD + 0xEFF7), B (NR 0x8E + NR 0x8F unified-paging), D1 (ContentionModel inputs: mem_active_page, CPU speed, Pentagon timing), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier, 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — need full sram_pre_rdonly wiring), and NR 0x12/0x13 shadow (integration tier).
+- **Remaining 39 skips blocked by** Phase 2 branches B (NR 0x8E + NR 0x8F unified-paging; LCK-05 and LCK-07 shared with A/B), D1 (ContentionModel inputs: mem_active_page, CPU speed, Pentagon timing), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier, 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — need full sram_pre_rdonly wiring), and NR 0x12/0x13 shadow (integration tier).
 - **VHDL-deviation backlog from Phase 1a critic:** MMU-12 / ADR-09 / ADR-10 observable: page ≥0xE0 on a RAM slot. VHDL inactivates; JNEXT wraps via `to_sram_page` and reads ROM-in-SRAM page 0 instead. Real deviation, no known software impact today. Fix: either gate RAM slots on mmu_A21_A13(8) or document the simplification.
 - **Pre-existing soft-reset divergence (informational):** `nr_04_romram_bank_` is cleared unconditionally on every Mmu reset; VHDL (zxnext.vhd:1104) initialises the signal with no reset process — holds across both domains. Benign for current boot path (firmware rewrites NR 0x04 before each config_mode entry). Flagged as backlog.
 
@@ -465,6 +466,7 @@ in the 0-16K region.
 | DFF-05  | Max bank (DFFD=0x0F,7FFD=7)   | DFFD ← 0x0F, 7FFD ← 0x07   | port_7ffd_bank = 127                  |
 | DFF-06  | Locked by 7FFD bit 5          | Lock, DFFD ← 0x01           | DFFD register unchanged               |
 | DFF-07  | Bit 4 (Profi DFFD override)   | DFFD ← 0x10                 | No effect (Profi disabled in VHDL)    |
+| DFF-08  | Soft reset preserves DFFD     | DFFD ← 0x0F, reset(false)   | port_dffd_reg preserved, MMU6/7 reflect preserved bank (VHDL:3687) |
 
 ### Category 5: +3 Paging (Port 0x1FFD)
 
@@ -529,6 +531,7 @@ in the 0-16K region.
 | EF7-02  | Bit 3 = 0 → ROM at 0x0000        | EFF7 ← 0x00               | MMU0=0xFF, MMU1=0xFF (on next paging change)  |
 | EF7-03  | Bit 2 = 1 disables Pent-1024     | NR 0x8F=0x03, EFF7 ← 0x04 | pentagon_1024_en = 0, lock is NOT overridden   |
 | EF7-04  | Reset state                       | After reset                | port_eff7_reg_2 = 0, port_eff7_reg_3 = 0     |
+| EF7-05  | Soft reset preserves EFF7 + RAM-at-0 | EFF7 ← 0x0C, reset(false) | port_eff7_reg_{2,3} preserved, slots 0/1 stay RAM (VHDL:3777) |
 
 ### Category 11: ROM Selection
 
