@@ -192,13 +192,29 @@ void test_cat1_slot_assignment() {
     }
 
     // MMU-12: page 0xE0 — VHDL zxnext.vhd:2964 sets mmu_A21_A13(8)='1',
-    // which the SRAM decode treats as ROM/overflow. The C++ Mmu surface
-    // does not model the (8)-bit overflow path: set_page just clamps the
-    // pointer to nullptr via ram.page_ptr(0xE0) out of range. That
-    // behaviour is observable (reads return 0xFF) but it does not
-    // distinguish "ROM path taken" from "unmapped". Plan row cannot
-    // confirm the ROM-path branch. Skip.
-    skip("MMU-12", "no observable mmu_A21_A13(8) overflow→ROM branch on Mmu surface");
+    // routing to ROM. In JNEXT the observable is Next-mode-specific: with
+    // rom_in_sram_=true, to_sram_page(0xE0) = 0xE0 + 0x20 = 0x100 which
+    // truncates to 0x00 (uint8_t wrap). SRAM page 0x00 is the ROM-in-SRAM
+    // seed area (pages 0..7 hold the Spectrum ROM after
+    // Emulator::init()). So page 0xE0 on a Next-mode slot read returns
+    // the byte at ram.page_ptr(0)[offset] — exactly the ROM path VHDL
+    // takes. Stamp a distinguisher into ram.page_ptr(0) and observe the
+    // read returns it, confirming the ROM-branch equivalent.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        uint8_t* ram0 = f.ram.page_ptr(0);
+        if (ram0) ram0[0x1234] = 0xA7;   // distinguisher in ROM-in-SRAM page 0
+        f.mmu.set_rom_in_sram(true);     // Next mode: enable to_sram_page shift
+        f.mmu.set_page(4, 0xE0);         // slot 4 @ 0x8000, logical page 0xE0
+        const uint8_t v = f.mmu.read(0x9234);  // 0x8000 + 0x1234
+        check("MMU-12",
+              "page 0xE0 in Next mode wraps mmu_A21_A13(8)→'1', lands on "
+              "ROM-in-SRAM page 0 — VHDL zxnext.vhd:2964",
+              v == 0xA7,
+              fmt("read=0x%02X expected=0xA7 (ram_[0][0x1234] distinguisher)", v));
+    }
 
     // MMU-13: read-back of NR 0x50..0x57 after writes (registers retain
     // last-written value). VHDL zxnext.vhd:1018-1025.
@@ -351,7 +367,15 @@ void test_cat3_port_7ffd() {
     // P7F-11: shadow screen select (port_7ffd_reg(3)). Mmu has no
     // shadow-screen accessor — that signal is consumed by the ULA, not
     // the memory subsystem API.
-    skip("P7F-11", "no Mmu accessor for port_7ffd_reg(3) shadow-screen bit");
+    // P7F-11: port_7ffd bit 3 selects shadow screen (bank 7 instead of
+    // bank 5). This signal drives ULA VRAM fetch, not Mmu paging. The
+    // Mmu has no shadow-screen accessor because the bit is routed to
+    // Ula directly in Emulator::init. Integration-tier: add an assertion
+    // in nextreg_integration_test.cpp that writes port_7FFD with bit 3
+    // set and observes ULA rendering from bank 7.
+    skip("P7F-11",
+         "port_7ffd(3) drives ULA VRAM fetch, not Mmu — integration-tier "
+         "[re-home to nextreg_integration_test.cpp or ula_test.cpp]");
 
     // P7F-12: lock bit (port_7ffd_reg(5)) — subsequent bank switches
     // should be ignored. VHDL zxnext.vhd:3814.
@@ -543,7 +567,13 @@ void test_cat5_port_1ffd() {
 
     // P1F-07: motor bit (port_1ffd_reg(3)) independent of paging — the
     // disk motor signal is routed to the FDC, not the Mmu.
-    skip("P1F-07", "port 0x1FFD bit 3 (disk motor) not observable on Mmu");
+    // P1F-07: port_1FFD bit 3 is the +3 disk motor on/off. Not a memory
+    // concern — routed to the +3 FDC. JNEXT does not model the FDC
+    // (category-G behavioural simplification — no known software needs
+    // it). If we ever emulate the +3 FDC, add a real test there.
+    skip("P1F-07",
+         "port_1FFD(3) = +3 disk motor; not modelled in JNEXT "
+         "(category-G behavioural simplification; revisit if FDC emulation lands)");
 }
 
 // ── Category 6: +3 special paging modes ───────────────────────────────
@@ -1065,12 +1095,50 @@ void test_cat14_addr_translation() {
               fmt("page 0x%02X: ram[page][0]=0x%02X expected=0x5A", r.page, v));
     }
 
-    // ADR-09 / ADR-10: pages 0xE0 and 0xFF — VHDL sets mmu_A21_A13(8)='1'
-    // and the SRAM decode diverts to ROM/overflow. The C++ Mmu surface
-    // does not distinguish "ROM path from overflow" from "unmapped RAM";
-    // set_page for out-of-range pages just yields a null ram pointer.
-    skip("ADR-09", "no observable mmu_A21_A13(8) overflow→ROM branch on Mmu surface");
-    skip("ADR-10", "no observable mmu_A21_A13(8) overflow→ROM branch on Mmu surface");
+    // ADR-09: page 0xE0 — see MMU-12 for the same invariant. Observable
+    // in Next mode via the to_sram_page(0xE0)=0x100→wrap→0x00 path, which
+    // lands on the ROM-in-SRAM seed area. Stamp a byte into ram page 0
+    // and read it back through the slot.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        uint8_t* ram0 = f.ram.page_ptr(0);
+        if (ram0) ram0[0x0000] = 0xD1;
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(4, 0xE0);
+        const uint8_t v = f.mmu.read(0x8000);
+        check("ADR-09",
+              "page 0xE0 wraps to ROM-in-SRAM page 0 (overflow→ROM) — "
+              "VHDL zxnext.vhd:2964 mmu_A21_A13(8)",
+              v == 0xD1,
+              fmt("read=0x%02X expected=0xD1 (ram_[0][0])", v));
+    }
+
+    // ADR-10: page 0xFE — mmu_A21_A13(8)='1' path, to_sram_page wraps to
+    // 0xFE+0x20=0x11E → truncates to 0x1E. SRAM page 0x1E is past the
+    // ROM-in-SRAM seed window but is a valid RAM page. Observable: stamp
+    // ram.page_ptr(0x1E) first, then set_page(slot, 0xFE), read.
+    //
+    // (Page 0xFF is deliberately NOT tested here because JNEXT short-
+    // circuits it as an explicit ROM sentinel — see
+    // src/memory/mmu.cpp:46 in rebuild_ptr — consistent with VHDL
+    // zxnext.vhd:4611-4612 MMU0/MMU1 = 0xFF reset default.)
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        uint8_t* ram1e = f.ram.page_ptr(0x1E);
+        if (ram1e) ram1e[0x0000] = 0xDE;
+        f.mmu.set_page(4, 0xFE);
+        const uint8_t v = f.mmu.read(0x8000);
+        check("ADR-10",
+              "page 0xFE wraps to SRAM 0x1E (mmu_A21_A13=0x11E, 8-bit trunc) "
+              "— VHDL zxnext.vhd:2964",
+              v == 0xDE,
+              fmt("read=0x%02X expected=0xDE (ram_[0x1E][0])", v));
+    }
 }
 
 // ── Category 15: Bank 5/7 special pages ───────────────────────────────
@@ -1082,10 +1150,88 @@ void test_cat14_addr_translation() {
 void test_cat15_bank57() {
     set_group("Cat15 bank5/bank7 pages");
 
-    skip("BNK-01", "no sram_bank5/sram_active flag accessor on Mmu for page 0x0A");
-    skip("BNK-02", "no sram_bank5/sram_active flag accessor on Mmu for page 0x0B");
-    skip("BNK-03", "no sram_bank7/sram_active flag accessor on Mmu for page 0x0E");
-    skip("BNK-04", "no sram_bank7 flag accessor on Mmu to confirm 0x0F is NOT bank7");
+    // BNK-01..04: VHDL zxnext.vhd:2961-2962 mark pages 0x0A/0x0B (bank 5)
+    // and 0x0E (bank 7 lower) as dual-port bypass pages that skip the
+    // +0x20 shift in Next mode. JNEXT models this in to_sram_page()
+    // (mmu.h:241-245). The observable is: in Next mode (rom_in_sram_=1)
+    // a slot mapped to page 0x0A writes to SRAM page 0x0A directly — NOT
+    // to the shifted page 0x2A. Compare against a non-bypass page like
+    // 0x0F which DOES shift to 0x2F.
+
+    // BNK-01 — page 0x0A bypasses the shift in Next mode.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(4, 0x0A);             // slot 4 @ 0x8000, logical 0x0A
+        f.mmu.write(0x8000, 0x5A);
+        // Bypass means the write lands on physical SRAM page 0x0A (not 0x2A).
+        const uint8_t at_0a = f.ram.page_ptr(0x0A)[0];
+        const uint8_t at_2a = f.ram.page_ptr(0x2A)[0];
+        check("BNK-01",
+              "page 0x0A bypasses +0x20 shift in Next mode (dual-port bank 5) "
+              "— VHDL zxnext.vhd:2961-2962",
+              at_0a == 0x5A && at_2a != 0x5A,
+              fmt("ram[0x0A][0]=0x%02X ram[0x2A][0]=0x%02X (want 0x5A at 0x0A only)",
+                  at_0a, at_2a));
+    }
+
+    // BNK-02 — page 0x0B bypasses the shift (bank 5 upper half).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(4, 0x0B);
+        f.mmu.write(0x8000, 0x5B);
+        const uint8_t at_0b = f.ram.page_ptr(0x0B)[0];
+        const uint8_t at_2b = f.ram.page_ptr(0x2B)[0];
+        check("BNK-02",
+              "page 0x0B bypasses +0x20 shift in Next mode (dual-port bank 5) "
+              "— VHDL zxnext.vhd:2961-2962",
+              at_0b == 0x5B && at_2b != 0x5B,
+              fmt("ram[0x0B][0]=0x%02X ram[0x2B][0]=0x%02X (want 0x5B at 0x0B only)",
+                  at_0b, at_2b));
+    }
+
+    // BNK-03 — page 0x0E bypasses the shift (bank 7 lower half).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(4, 0x0E);
+        f.mmu.write(0x8000, 0x7E);
+        const uint8_t at_0e = f.ram.page_ptr(0x0E)[0];
+        const uint8_t at_2e = f.ram.page_ptr(0x2E)[0];
+        check("BNK-03",
+              "page 0x0E bypasses +0x20 shift in Next mode (dual-port bank 7 lo) "
+              "— VHDL zxnext.vhd:2961-2962",
+              at_0e == 0x7E && at_2e != 0x7E,
+              fmt("ram[0x0E][0]=0x%02X ram[0x2E][0]=0x%02X (want 0x7E at 0x0E only)",
+                  at_0e, at_2e));
+    }
+
+    // BNK-04 — page 0x0F is NOT a bypass page: it gets the normal +0x20
+    // shift in Next mode. Write via slot → lands on SRAM page 0x2F (not
+    // 0x0F). Negative counterpart of BNK-01..03.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        f.mmu.set_rom_in_sram(true);
+        f.mmu.set_page(4, 0x0F);
+        f.mmu.write(0x8000, 0x7F);
+        const uint8_t at_0f = f.ram.page_ptr(0x0F)[0];
+        const uint8_t at_2f = f.ram.page_ptr(0x2F)[0];
+        check("BNK-04",
+              "page 0x0F is NOT dual-port — gets +0x20 shift like any RAM page "
+              "— VHDL zxnext.vhd:2961-2962 (bypass only for 0x0A/0x0B/0x0E)",
+              at_2f == 0x7F && at_0f != 0x7F,
+              fmt("ram[0x0F][0]=0x%02X ram[0x2F][0]=0x%02X (want 0x7F at 0x2F only)",
+                  at_0f, at_2f));
+    }
 
     // BNK-05: CPU round-trip through page 0x0A — write via slot, read
     // via slot. VHDL zxnext.vhd:2933-3133 guarantees the CPU sees its
@@ -1191,7 +1337,10 @@ void test_cat17_l2_mapping() {
 
     // L2M-02: L2 read-enable — port_123b read path is not on the Mmu
     // surface; Mmu only consumes the write-over bit.
-    skip("L2M-02", "Mmu exposes only L2 write-over port — L2 read-enable path unobservable");
+    skip("L2M-02",
+         "Mmu exposes only L2 write-over (port 0x123B) — read-enable path "
+         "is separate Layer2 overlay (VHDL zxnext.vhd:3100-3107); deferred "
+         "to Branch D2 (L2 read-port feature)");
 
     // L2M-03: auto-segment (port_123b bits 7:6 = 11) maps the segment to
     // cpu_a(15:14). Exercise through the write path: enable write-over
@@ -1239,10 +1388,19 @@ void test_cat17_l2_mapping() {
     // set_l2_write_port takes the active bank as a direct argument;
     // there is no NR 0x12/0x13 distinction on the Mmu surface — the
     // shadow/active selection lives in NextReg.
-    skip("L2M-05", "Mmu takes active bank directly — no NR 0x12 shadow/active selection on this surface");
+    // L2M-05/06: NR 0x12/0x13 shadow/active bank selection lives in NextReg,
+    // not Mmu. Mmu::set_l2_write_port() takes the active bank directly as
+    // a parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
+    // time. Integration-tier behaviour (cross-subsystem wiring, not a bare
+    // Mmu property).
+    skip("L2M-05",
+         "NR 0x12 active/shadow selection lives in NextReg → Emulator "
+         "plumbing, not bare Mmu surface — integration-tier");
 
     // L2M-06: L2 shadow bank from NR 0x13 — same reason.
-    skip("L2M-06", "Mmu takes active bank directly — no NR 0x13 shadow selection on this surface");
+    skip("L2M-06",
+         "NR 0x13 shadow bank lives in NextReg → Emulator plumbing, not "
+         "bare Mmu surface — integration-tier");
 }
 
 // ── Category 18: Memory decode priority ───────────────────────────────
