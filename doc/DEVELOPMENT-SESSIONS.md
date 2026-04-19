@@ -35,5 +35,7 @@
 |        | 6h   | Phase 9: Full 1788-row audit (3 waves), remediation, matrix 1010/89/689/0                  |
 | 16/4   | 9h   | Phase 9: Tasks 2+3 DONE, Task 1 19/21 items resolved, compositor+port dispatch fixes      |
 | 17/4   | 7h   | Phase 9: v0.92.0+v0.93.0, Task 3 SKIP reduction (7 subsystems), DivMMC+SPI 4-phase plan    |
+| 18/4   | 6h   | Phase 2: MMU+NextREG un-skips (B/D1/D2/E), Option C 0xFF sentinel, NR 0x8E bit-3 gate      |
+| 19/4   | 4h   | Task (c): Ram 1792→2048 KB fix, DivMMC 0x0066 automap gate on button_nmi (VHDL:120)        |
 |        |      |                                                                                            |
-| TOTAL: | 127h |                                                                                            |
+| TOTAL: | 137h |                                                                                            |
