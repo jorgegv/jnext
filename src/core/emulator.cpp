@@ -876,10 +876,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x08: Peripheral 3
+    //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
     //   bit 5 = stereo mode (0=ABC, 1=ACB)
     //   bit 3 = DAC enable
     //   bit 1 = TurboSound enable
+    // VHDL zxnext.vhd:3654-3656 — nr_08_we=1 AND nr_wr_dat(7)=1 clears
+    // port_7ffd_reg(5), which drops port_7ffd_locked (zxnext.vhd:3769).
+    // Bit 7 is the write-strobe only; it is not stored (read-back at
+    // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
+    // just written).
     nextreg_.set_write_handler(0x08, [this](uint8_t v) {
+        if (v & 0x80) mmu_.unlock_paging();
         turbosound_.set_stereo_mode((v >> 5) & 1);
         dac_enabled_ = (v >> 3) & 1;
         turbosound_.set_enabled((v >> 1) & 1);
