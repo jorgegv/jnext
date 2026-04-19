@@ -387,6 +387,9 @@ public:
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
 
+    // Last +3 paging register value (needed by NR 0x8E/0x8F tests + debugger)
+    uint8_t port_1ffd() const { return port_1ffd_; }
+
     // Apply +3 special paging: port 0x1FFD
     void map_plus3_bank(uint8_t port_1ffd);
 
