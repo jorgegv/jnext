@@ -67,7 +67,7 @@ This two-level design means:
 | Component       | Size         | Notes                                                     |
 |-----------------|--------------|-----------------------------------------------------------|
 | CPU registers   | ~30 bytes    | Z80Registers + IFF + IM + halted                          |
-| RAM             | 1792 KB      | Full backing store copy (112 × 16 KB banks)               |
+| RAM             | 2048 KB      | Full backing store copy (128 × 16 KB banks)               |
 | MMU             | ~20 bytes    | slots[8], port_7ffd_, port_1ffd_, flags                   |
 | NextREG cache   | 256 bytes    | Cached register values                                    |
 | Palette         | ~4 KB        | 8 palettes × 256 × 2 bytes (9-bit)                        |
@@ -244,7 +244,7 @@ These call `save_state`/`load_state` on every subsystem in a defined order:
 void Emulator::save_state(StateWriter& w) const {
     clock_.save_state(w);           // uint64_t cycle
     cpu_.save_state(w);             // Z80Registers
-    ram_.save_state(w);             // 1792KB buffer (112 banks × 16 KB)
+    ram_.save_state(w);             // 2048KB buffer (128 banks × 16 KB)
     mmu_.save_state(w);             // slots, ports, flags
     nextreg_.save_state(w);         // 256 register cache
     ula_.save_state(w);
@@ -525,7 +525,7 @@ Each subsystem listed below requires `save_state(StateWriter&) const` and
 | Subsystem    | Class      | Key fields to serialise                                                                                     |
 |--------------|------------|-------------------------------------------------------------------------------------------------------------|
 | CPU          | `Z80Cpu`   | `Z80Registers` (all fields)                                                                                 |
-| RAM          | `Ram`      | Full `data_` buffer (1792 KB, 112 × 16 KB banks)                                                            |
+| RAM          | `Ram`      | Full `data_` buffer (2048 KB, 128 × 16 KB banks)                                                            |
 | MMU          | `Mmu`      | `slots_[8]`, `port_7ffd_`, `port_1ffd_`, `l2_write_enable_`, `l2_segment_mask_`, `l2_bank_`, `boot_rom_en_` |
 | NextREG      | `NextReg`  | 256-byte register cache                                                                                     |
 | ULA          | `Ula`      | Screen bank select, flash state, border colour                                                              |
@@ -641,7 +641,7 @@ replay, audio resumes from the replay target position. This produces a brief aud
 | Snapshot serialisation has a bug in one subsystem, causing divergence after restore | High     | Integration test: save → restore → run → compare screenshots (pixel-perfect)         |
 | Scheduler queue is non-empty at frame boundary                                      | Medium   | Assert queue is empty before snapshot; investigate if not                            |
 | Audio glitch on rewind                                                              | Low      | Expected and documented; flush SDL audio buffer on rewind start                      |
-| RAM copy is too slow (1792 KB per frame at 50 Hz)                                   | Low      | Benchmark first; if too slow, use dirty-page bitfield (112 dirty flags × 16 KB each) |
+| RAM copy is too slow (2048 KB per frame at 50 Hz)                                   | Low      | Benchmark first; if too slow, use dirty-page bitfield (128 dirty flags × 16 KB each) |
 | UART FIFO state diverges on restore if real UART is connected                       | Low      | Disable UART rewind integration if external UART configured                          |
 | DivMMC SRAM state includes DivMMC ROM (8KB read-only)                               | None     | ROM never changes; only SRAM needs serialising                                       |
 | RewindBuffer takes too much memory                                                  | Low      | Default 500 frames (~900 MB); configurable; warn if > 2 GB requested                 |
