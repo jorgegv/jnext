@@ -1036,7 +1036,7 @@ static void test_group7_bank_transform() {
     // difference because both write and read paths use the same raw page
     // numbers.  Matching VHDL strictly would require applying +32 inside
     // Ram::page_ptr() (affecting all RAM access) plus growing RAM from
-    // 1792KB to 2304KB — significant refactor for zero functional benefit.
+    // 2048KB to 2304KB — significant refactor for zero functional benefit.
 
     // G7-01..G7-03 and G7-05a..c — GENUINELY UNOBSERVABLE (not skips).
     // The +1 / +32 bank transform at layer2.vhd:172 is a physical SRAM
@@ -1050,7 +1050,7 @@ static void test_group7_bank_transform() {
     // physical offset, so these plan rows cannot be falsified at the
     // C++ abstraction level. Matching VHDL strictly would require
     // moving the +32 into `Ram::page_ptr()` (affecting all RAM access)
-    // plus growing RAM from 1792KB to 2304KB — significant refactor
+    // plus growing RAM from 2048KB to 2304KB — significant refactor
     // for zero functional benefit. See the block comment above for
     // the full rationale (retained verbatim from the 2026-04-16 audit).
 

@@ -88,14 +88,15 @@ std::string fmt(const char* fmt_str, ...) {
 
 // ── Fixture ──────────────────────────────────────────────────────────
 
-// 1792 KB RAM = 224 pages of 8K, matches the widest legal MMU page index
-// (pages 0x00..0xDF) per VHDL zxnext.vhd:2964 address formula.
+// Default Ram size (2048 KB = 256 pages of 8K) matches the widest legal
+// MMU logical page index (0x00..0xDF via VHDL zxnext.vhd:2964 address
+// formula, which maps logical 0xDF to physical 0xFF).
 struct Fixture {
     Ram ram;
     Rom rom;
     Mmu mmu;
 
-    Fixture() : ram(1792 * 1024), rom(), mmu(ram, rom) {
+    Fixture() : ram(), rom(), mmu(ram, rom) {
         // Tag every ROM page with (page<<4 | offset_lo) so ROM reads are
         // distinguishable from RAM in the subsequent tests.
         for (int page = 0; page < 8; ++page) {

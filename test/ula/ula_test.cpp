@@ -144,7 +144,7 @@ struct UlaBed {
     Rom rom;
     Mmu mmu;
     Ula ula;
-    UlaBed() : ram(1792 * 1024), rom(), mmu(ram, rom) {
+    UlaBed() : ram(), rom(), mmu(ram, rom) {
         mmu.reset();
         mmu.set_page(2, 10);  // bank 5 page 10 → 0x4000
         mmu.set_page(3, 11);  // bank 5 page 11 → 0x6000
