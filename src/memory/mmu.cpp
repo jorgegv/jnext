@@ -19,6 +19,20 @@ void Mmu::reset() {
     paging_locked_ = false;
     // VHDL zxnext.vhd:4935 — nr_08_contention_disable <= '0' on hard reset.
     contention_disabled_ = false;
+    // VHDL zxnext.vhd:2254-2256 — on hard reset, nr_8c_altrom(7:4) is
+    // reloaded from (3:0). Bits 3:0 themselves are preserved across reset
+    // (they model the "altrom bits to reload on reset" defaults). Soft
+    // resets do NOT fire this copy in the VHDL process; Mmu::reset()
+    // here does not distinguish hard vs soft reset, so the copy runs on
+    // every reset. Consequence: a NR 0x8C write setting bits 3:0 will
+    // survive, and the effective control bits 7:4 re-derive from them
+    // each reset. Branch C does not architect the soft-reset split;
+    // follow-up work owns the distinction (also applies to C0's
+    // paging_locked_ reset).
+    {
+        const uint8_t lo = nr_8c_reg_ & 0x0F;
+        nr_8c_reg_ = static_cast<uint8_t>((lo << 4) | lo);
+    }
     l2_write_enable_ = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
@@ -201,8 +215,10 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(config_mode_);
     w.write_u8(nr_04_romram_bank_);
     w.write_bool(rom_in_sram_);
-    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6).
+    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6)
+    // and the full nr_8c_altrom register byte (VHDL zxnext.vhd:387).
     w.write_bool(contention_disabled_);
+    w.write_u8(nr_8c_reg_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -225,6 +241,7 @@ void Mmu::load_state(StateReader& r)
     // StateReader bounds-check will flag it. We rely on save_state always
     // matching the same code generation so load_state is safe to read.
     contention_disabled_ = r.read_bool();
+    nr_8c_reg_           = r.read_u8();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

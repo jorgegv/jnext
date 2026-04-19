@@ -198,6 +198,30 @@ public:
     void set_contention_disabled(bool v) { contention_disabled_ = v; }
     bool contention_disabled() const { return contention_disabled_; }
 
+    // ---------------------------------------------------------------
+    // NR 0x8C — Alternate ROM (altrom) control
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:2247-2265 stores the full 8-bit register and exposes
+    //   nr_8c_altrom_en        = bit 7
+    //   nr_8c_altrom_rw        = bit 6
+    //   nr_8c_altrom_lock_rom1 = bit 5
+    //   nr_8c_altrom_lock_rom0 = bit 4
+    // Read-back (zxnext.vhd:6156) returns the full byte. Hard reset
+    // (zxnext.vhd:2255) copies the lower nibble into the upper nibble —
+    // bits 3:0 are power-on defaults ('0000' here) that are preserved
+    // across reset and become the effective control bits on each reset.
+    //
+    // This branch adds the register storage + accessors. The altrom
+    // address override (zxnext.vhd:2981-3001, 3021) in the SRAM arbiter
+    // is NOT implemented here — it is deferred to a follow-up that wires
+    // sram_alt_en and the +3/48K/Next branch selection into the read path.
+    void    set_nr_8c(uint8_t v) { nr_8c_reg_ = v; }
+    uint8_t get_nr_8c() const { return nr_8c_reg_; }
+    bool    nr_8c_altrom_en()        const { return (nr_8c_reg_ & 0x80) != 0; }
+    bool    nr_8c_altrom_rw()        const { return (nr_8c_reg_ & 0x40) != 0; }
+    bool    nr_8c_altrom_lock_rom1() const { return (nr_8c_reg_ & 0x20) != 0; }
+    bool    nr_8c_altrom_lock_rom0() const { return (nr_8c_reg_ & 0x10) != 0; }
+
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
 
@@ -285,6 +309,11 @@ private:
     // NR 0x08 read handler can compose bit 6 without reaching into the
     // ContentionModel (Branch D will rehome).
     bool           contention_disabled_ = false;
+    // VHDL nr_8c_altrom (zxnext.vhd:387 default X"00", written at
+    // zxnext.vhd:2257, read back at zxnext.vhd:6156). Hard reset copies
+    // bits 3:0 into bits 7:4 (zxnext.vhd:2255); bits 3:0 themselves are
+    // never cleared by reset.
+    uint8_t        nr_8c_reg_ = 0;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
 

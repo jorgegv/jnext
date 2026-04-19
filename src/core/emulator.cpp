@@ -529,11 +529,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x8C: Alternate ROM control
-    //   bit 7 = enable alt rom
-    //   bit 6 = alt rom visible only during writes
-    //   bits 5:4 = lock ROM1/ROM0
+    //   bit 7 = nr_8c_altrom_en        (VHDL zxnext.vhd:2262)
+    //   bit 6 = nr_8c_altrom_rw        (zxnext.vhd:2263)
+    //   bit 5 = nr_8c_altrom_lock_rom1 (zxnext.vhd:2264)
+    //   bit 4 = nr_8c_altrom_lock_rom0 (zxnext.vhd:2265)
+    //   bits 3:0 = reset-defaults for 7:4 (copied on hard reset, zxnext.vhd:2255)
+    // Mirror the full byte on Mmu (Branch C: register storage + accessors;
+    // SRAM arbiter override is a follow-up). Retain the Rom-side mirror
+    // (rom_.set_alt_rom_config) so existing consumers of Rom::alt_rom_*
+    // keep working until they migrate to Mmu.
     nextreg_.set_write_handler(0x8C, [this](uint8_t v) {
+        mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
+    });
+    nextreg_.set_read_handler(0x8C, [this]() -> uint8_t {
+        return mmu_.get_nr_8c();
     });
 
     // --- NextREG interrupt control registers (0xC0-0xCF) ---
