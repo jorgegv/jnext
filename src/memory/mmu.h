@@ -305,6 +305,40 @@ public:
         return paging_locked_ && !pentagon_1024_en();
     }
 
+    // ---------------------------------------------------------------
+    // NR 0x8E — Unified paging (write-only, read-back re-composed)
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:3662-3671 (port_7ffd_reg updates),
+    //      zxnext.vhd:3696-3704 (port_dffd_reg updates),
+    //      zxnext.vhd:3726-3735 (port_1ffd_reg updates),
+    //      zxnext.vhd:6158-6159 (read-back composition).
+    //
+    // Write layout (nr_wr_dat):
+    //   bit 7 → port_dffd_reg(0)   [when bit 3 = 1; also port_dffd_reg(2:1)="00"]
+    //   bit 6 → port_7ffd_reg(2)   [when bit 3 = 1]
+    //   bit 5 → port_7ffd_reg(1)   [when bit 3 = 1]
+    //   bit 4 → port_7ffd_reg(0)   [when bit 3 = 1]
+    //   bit 3 = "bank select" mode enable. When 1, writes the RAM-bank
+    //           fields above, clears port_dffd_reg(3) (non-Profi), and
+    //           zeroes port_dffd_reg(2:1) via the "00" prefix.
+    //   bit 2 → port_1ffd_reg(0) (special mode enable). Also gates
+    //           port_7ffd_reg(4) update: when bit 2 = 0, 7FFD(4) ← bit 0.
+    //           When bit 2 = 1, 7FFD(4) is preserved.
+    //   bit 1 → port_1ffd_reg(2)  (ROM-high bit)
+    //   bit 0 → port_1ffd_reg(1)  (+3 config bit). Also → 7FFD(4) when bit 2 = 0.
+    //
+    // Lock bypass: VHDL:3662, 3696, 3726 — all three register updates on
+    // nr_8e_we are in the `elsif` chain AFTER the locked-gated write path,
+    // so they always fire regardless of port_7ffd_locked. LCK-07 (plan).
+    //
+    // Read-back formula from VHDL:6159:
+    //   {dffd(0), 7ffd(2), 7ffd(1), 7ffd(0), '1', 1ffd(0), 1ffd(2),
+    //    (7ffd(4) AND NOT 1ffd(0)) OR (1ffd(1) AND 1ffd(0))}
+    //
+    // Bit 3 on read is always '1' — a spec sentinel, NOT the bit written.
+    void write_nr_8e(uint8_t v);
+    uint8_t read_nr_8e() const;
+
     // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
     // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
     // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator

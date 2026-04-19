@@ -319,6 +319,84 @@ void Mmu::write_nr_8f(uint8_t v) {
     apply_legacy_paging_();
 }
 
+// NR 0x8E — Unified paging (write).
+// VHDL zxnext.vhd:3662-3670 (port_7ffd_reg),
+//      zxnext.vhd:3696-3704 (port_dffd_reg),
+//      zxnext.vhd:3726-3734 (port_1ffd_reg).
+// The three update processes are in `elsif nr_8e_we='1'` branches, so they
+// always fire regardless of port_7ffd_locked — NR 0x8E bypasses the lock
+// (LCK-07). After the register updates VHDL:3813 flags nr_8e_we into
+// port_memory_change_dly which triggers the MMU0..7 rebuild.
+void Mmu::write_nr_8e(uint8_t v) {
+    Log::memory()->debug("NR 0x8E write: v={:#04x}", v);
+    const bool bank_mode = (v & 0x08) != 0;  // bit 3
+
+    // port_7ffd_reg updates (VHDL:3662-3670):
+    //   if bit 3 = 1: 7FFD(2:0) <= nr_wr_dat(6 downto 4)
+    //   if bit 2 = 0: 7FFD(4)   <= nr_wr_dat(0)
+    if (bank_mode) {
+        // 7FFD(2)=bit6, 7FFD(1)=bit5, 7FFD(0)=bit4
+        const uint8_t bits = static_cast<uint8_t>((v >> 4) & 0x07);
+        port_7ffd_ = static_cast<uint8_t>((port_7ffd_ & ~0x07) | bits);
+    }
+    if ((v & 0x04) == 0) {
+        // 7FFD(4) <- nr_wr_dat(0)
+        if (v & 0x01) port_7ffd_ |= 0x10;
+        else          port_7ffd_ &= ~0x10;
+    }
+
+    // port_dffd_reg updates (VHDL:3696-3704, profi=0):
+    //   if bit 3 = 1 (AND profi=0): dffd(3) <= '0'
+    //   if bit 3 = 1:              dffd(2:0) <= "00" & nr_wr_dat(7)
+    if (bank_mode) {
+        // Clear dffd(3) (N8E-06).
+        port_dffd_reg_ &= static_cast<uint8_t>(~0x08);
+        // dffd(0) <- bit 7; dffd(2:1) <- "00".
+        port_dffd_reg_ &= static_cast<uint8_t>(~0x07);
+        if (v & 0x80) port_dffd_reg_ |= 0x01;
+    }
+
+    // port_1ffd_reg updates (VHDL:3726-3734):
+    //   1FFD(2) <= nr_wr_dat(1)
+    //   1FFD(1) <= nr_wr_dat(0)
+    //   1FFD(0) <= nr_wr_dat(2)
+    // Note: port_1ffd_ stores the raw 8-bit port value with bits 2:0
+    // meaningful — matches VHDL port_1ffd_reg's 3-bit layout.
+    uint8_t new_1ffd = static_cast<uint8_t>(port_1ffd_ & ~0x07);
+    if (v & 0x02) new_1ffd |= 0x04;  // 1FFD(2) <- bit 1
+    if (v & 0x01) new_1ffd |= 0x02;  // 1FFD(1) <- bit 0
+    if (v & 0x04) new_1ffd |= 0x01;  // 1FFD(0) <- bit 2
+    port_1ffd_ = new_1ffd;
+
+    // Rebuild MMU0..7 per VHDL:3813 port_memory_change_dly (nr_8e_we path).
+    apply_legacy_paging_();
+}
+
+// NR 0x8E — read-back. VHDL zxnext.vhd:6158-6159:
+//   port_253b_dat <= dffd(0) & 7ffd(2) & 7ffd(1) & 7ffd(0) & '1' &
+//                    1ffd(0) & 1ffd(2) &
+//                    ((7ffd(4) AND NOT 1ffd(0)) OR (1ffd(1) AND 1ffd(0)));
+// Bit 3 on read is a fixed '1', independent of the bit 3 that was written.
+uint8_t Mmu::read_nr_8e() const {
+    const uint8_t dffd0 = static_cast<uint8_t>(port_dffd_reg_ & 0x01);
+    const uint8_t p7ffd = port_7ffd_;
+    const uint8_t p1ffd = port_1ffd_;
+    const uint8_t bit7 = dffd0;                                           // dffd(0)
+    const uint8_t bit6 = static_cast<uint8_t>((p7ffd >> 2) & 0x01);       // 7ffd(2)
+    const uint8_t bit5 = static_cast<uint8_t>((p7ffd >> 1) & 0x01);       // 7ffd(1)
+    const uint8_t bit4 = static_cast<uint8_t>((p7ffd >> 0) & 0x01);       // 7ffd(0)
+    const uint8_t bit3 = 1;                                               // '1'
+    const uint8_t bit2 = static_cast<uint8_t>((p1ffd >> 0) & 0x01);       // 1ffd(0) special
+    const uint8_t bit1 = static_cast<uint8_t>((p1ffd >> 2) & 0x01);       // 1ffd(2) rom-high
+    const uint8_t rom_hi = static_cast<uint8_t>((p7ffd >> 4) & 0x01);     // 7ffd(4)
+    const uint8_t sp    = static_cast<uint8_t>((p1ffd >> 0) & 0x01);      // 1ffd(0)
+    const uint8_t cfg1  = static_cast<uint8_t>((p1ffd >> 1) & 0x01);      // 1ffd(1)
+    const uint8_t bit0 = static_cast<uint8_t>((rom_hi & (1 - sp)) | (cfg1 & sp));
+    return static_cast<uint8_t>((bit7 << 7) | (bit6 << 6) | (bit5 << 5) |
+                                (bit4 << 4) | (bit3 << 3) | (bit2 << 2) |
+                                (bit1 << 1) | (bit0 << 0));
+}
+
 void Mmu::map_plus3_bank(uint8_t port_1ffd) {
     // VHDL zxnext.vhd:3718 gates the port_1ffd_reg write on
     // `port_7ffd_locked = '0'`. Same Pentagon-1024 override as 7FFD/DFFD.
