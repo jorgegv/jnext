@@ -352,6 +352,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
         clip_tm_idx_ = (clip_tm_idx_ + 1) & 0x03;
     });
+    // NR 0x1B read: pure combinatorial 4-way mux over tilemap clip coords
+    // selected by clip_tm_idx_ (zxnext.vhd:5971-5977). Reading does NOT
+    // advance the idx — only writes advance it (zxnext.vhd:5276).
+    nextreg_.set_read_handler(0x1B, [this]() -> uint8_t {
+        switch (clip_tm_idx_) {
+            case 0:  return tilemap_.clip_x1();
+            case 1:  return tilemap_.clip_x2();
+            case 2:  return tilemap_.clip_y1();
+            default: return tilemap_.clip_y2();
+        }
+    });
 
     // Register 0x1C: Clip window control
     //   Read: bits 7:6=tilemap idx, 5:4=ULA idx, 3:2=sprite idx, 1:0=L2 idx
