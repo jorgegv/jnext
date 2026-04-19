@@ -397,8 +397,15 @@ void Mmu::write_nr_8e(uint8_t v) {
     if (v & 0x04) new_1ffd |= 0x01;  // 1FFD(0) <- bit 2
     port_1ffd_ = new_1ffd;
 
-    // Rebuild MMU0..7 per VHDL:3813 port_memory_change_dly (nr_8e_we path).
-    apply_legacy_paging_();
+    // Rebuild MMU0..7 per VHDL:3813 port_memory_change_dly (nr_8e_we
+    // path). MMU6/MMU7 rebuild is suppressed when NR 0x8E bit 3 = 0 —
+    // VHDL:3814 drives port_memory_ram_change_dly = NOT(nr_8e_we AND NOT
+    // nr_wr_dat(3)), and the MMU6/7 update at VHDL:4677 is gated on that
+    // signal. MMU0/MMU1 are rebuilt unconditionally (VHDL:4619-4644).
+    if (v & 0x08) {
+        apply_legacy_ram_slots_();
+    }
+    apply_legacy_rom_slots_();
 }
 
 // NR 0x8E — read-back. VHDL zxnext.vhd:6158-6159:
