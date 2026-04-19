@@ -200,6 +200,64 @@ public:
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
 
+    // ---------------------------------------------------------------
+    // Port 0xDFFD — Profi / Next extended paging (extra bank bits)
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:3683-3708 stores cpu_do(4:0) into port_dffd_reg and
+    // cpu_do(6) into a separate port_dffd_reg_6 signal. The write is
+    // gated by `port_7ffd_locked='0' OR nr_8f_mapping_mode_profi='1'`
+    // (VHDL:3691). The register feeds port_7ffd_bank composition at
+    // zxnext.vhd:3763-3766:
+    //   bank(2:0) = port_7ffd_reg(2:0)      [primary 3 bits of bank]
+    //   bank(4:3) = port_dffd_reg(1:0)      [non-Pentagon]
+    //   bank(5)   = port_dffd_reg(2)        [non-Pentagon]
+    //   bank(6)   = port_dffd_reg(3)        [non-Pentagon, non-Profi]
+    // Bit 4 is the Profi mapping-mode DFFD override — VHDL:3797 forces
+    // nr_8f_mapping_mode_profi='0' unconditionally in the synthesizable
+    // build, so bit 4 is stored but has no downstream effect in JNEXT.
+    //
+    // On each write the composed bank feeds MMU6/MMU7 via the shared
+    // port_memory_change_dly path (VHDL:4619-4682). We mirror that by
+    // re-running the bank composition at the end of write_port_dffd so
+    // the MMU register view reflects the new extra bits immediately.
+    //
+    // Decode: VHDL:2596 port_dffd <= A15:12="1101" AND port_fd (A1:0="01").
+    // Registered in Emulator::init under mask 0xF003 / match 0xD001.
+    void write_port_dffd(uint8_t v);
+    // Observable on port_dffd_reg (bits 4:0). Used by tests to verify the
+    // 5-bit storage + lock-gating contract. Bit 4 stores the Profi override,
+    // bits 0..3 feed the bank composition.
+    uint8_t port_dffd_reg() const { return port_dffd_reg_; }
+
+    // ---------------------------------------------------------------
+    // Port 0xEFF7 — Pentagon-1024 disable / RAM-at-0x0000
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:3774-3785 stores cpu_do(2) into port_eff7_reg_2 and
+    // cpu_do(3) into port_eff7_reg_3 on each port_eff7_wr pulse. Both
+    // flags are cleared on `reset='1'` (VHDL:3778-3779).
+    //
+    // Effects:
+    //   * port_eff7_reg_3 (bit 3): on the next paging-register change,
+    //     force RAM-at-0x0000 — MMU0=0x00, MMU1=0x01 — instead of the
+    //     default MMU0=MMU1=0xFF ROM sentinel (VHDL:4636-4644).
+    //   * port_eff7_reg_2 (bit 2): when NR 0x8F mapping mode = Pentagon-1024
+    //     (nr_8f_mapping_mode="11"), EFF7(2)=1 disables the 1024K extension
+    //     (nr_8f_mapping_mode_pentagon_1024_en = '0', VHDL:3801). The
+    //     pentagon_1024_en signal in turn feeds the lock-override at
+    //     VHDL:3769 — EFF7(2)=1 prevents the override from firing.
+    //     NR 0x8F handling is not on the Mmu surface (Branch B owns it);
+    //     storing the bit here is enough for Branch B to compose the gate.
+    //
+    // Decode: VHDL:2604 port_eff7 <= A15:12="1110" AND port_f7_lsb=(A7:0="F7").
+    // A14:13 are don't-care, so the decode spans 0xE0F7..0xEFF7 — the
+    // canonical documented address is 0xEFF7.
+    // Registered in Emulator::init under mask 0xF0FF / match 0xE0F7.
+    void write_port_eff7(uint8_t v);
+    // Observable on the stored 2-bit state — used by tests and by Branch B's
+    // NR 0x8F handler to gate Pentagon-1024 mode.
+    bool port_eff7_ram_at_0000() const { return port_eff7_reg_3_; }  // bit 3
+    bool port_eff7_disable_p1024() const { return port_eff7_reg_2_; } // bit 2
+
     // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
     // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
     // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator
@@ -370,6 +428,12 @@ private:
     // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes
     // the physical page for test/debugger observability).
     void map_rom_physical(int slot, uint8_t rom_page);
+    // Rebuild slots 0/1 (ROM or RAM-at-0x0000) and slots 6/7 (composed
+    // bank) from the current port_7ffd_ / port_1ffd_ / port_dffd_reg_ /
+    // port_eff7_reg_3_ state. Shared by map_128k_bank, write_port_dffd,
+    // write_port_eff7 — the three entry points matching VHDL's
+    // port_memory_change_dly rebuild (zxnext.vhd:4619-4682).
+    void apply_legacy_paging_();
 
     Ram& ram_;
     Rom& rom_;
@@ -396,6 +460,23 @@ private:
     MachineType    machine_type_ = MachineType::ZXN_ISSUE2;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
+
+    // VHDL port_dffd_reg (zxnext.vhd:3688, 5 bits cpu_do(4:0)). Feeds the
+    // port_7ffd_bank composition at VHDL:3764-3766. Bit 4 is the Profi
+    // DFFD override (VHDL:3769); Profi mode is forced off in the VHDL
+    // synthesizable build (VHDL:3797), so bit 4 is stored but has no
+    // downstream effect in JNEXT. Hard-reset only per VHDL:3686-3690
+    // (gated on `reset='1'`).
+    uint8_t        port_dffd_reg_ = 0;
+
+    // VHDL port_eff7_reg_2 / port_eff7_reg_3 (zxnext.vhd:3778-3782). Stored
+    // as two separate bits in VHDL; mirrored here as a single uint8_t with
+    // only bits 2 and 3 meaningful. Hard-reset only per VHDL:3777-3779.
+    // bit 3 → RAM-at-0x0000 mode (MMU0/1 = 0x00/0x01 on next paging change,
+    //         VHDL:4636-4644).
+    // bit 2 → disables Pentagon-1024 extension (VHDL:3801).
+    bool           port_eff7_reg_2_ = false;
+    bool           port_eff7_reg_3_ = false;
 
     // Layer 2 write-over state
     bool    l2_write_enable_  = false;

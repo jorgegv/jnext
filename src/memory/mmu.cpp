@@ -31,6 +31,18 @@ void Mmu::reset(bool hard) {
     if (hard) {
         contention_disabled_ = false;
     }
+    // VHDL zxnext.vhd:3686-3690 — port_dffd_reg <= (others => '0') is
+    // gated on `reset='1'`. The existing Branch C architectural decision
+    // treats the whole `reset='1'` family as hard-only (port_7ffd_reg,
+    // nr_08_contention_disable, nr_8c_altrom) so port_dffd_reg + the
+    // port_eff7_reg pair follow the same pattern. Soft reset preserves
+    // them; this matches the firmware invariant that a RESET_SOFT does
+    // not re-bind the extended-paging configuration the bootloader set.
+    if (hard) {
+        port_dffd_reg_ = 0;
+        port_eff7_reg_2_ = false;
+        port_eff7_reg_3_ = false;
+    }
     // VHDL zxnext.vhd:2253-2256 — the lo→hi nibble copy on nr_8c_altrom
     // is gated on `reset='1'` (hard only). Soft reset preserves the full
     // 8-bit register. Bits 3:0 themselves are not cleared by the VHDL
@@ -137,37 +149,98 @@ void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
                           l2_write_enable_, l2_segment_mask_, l2_bank_);
 }
 
+// VHDL zxnext.vhd:3763-3766 bank composition. Builds the 7-bit
+// port_7ffd_bank value from port_7ffd_reg(2:0) + port_dffd_reg(3:0).
+// Pentagon mapping mode is not on the Mmu surface (Branch B territory);
+// JNEXT is hard-wired as non-Pentagon/non-Profi, which matches the VHDL
+// synthesizable default (VHDL:3797 forces nr_8f_mapping_mode_profi='0').
+static inline uint8_t compose_legacy_bank(uint8_t port_7ffd, uint8_t port_dffd) {
+    // bank(2:0) = port_7ffd_reg(2:0)
+    // bank(4:3) = port_dffd_reg(1:0)  (non-Pentagon, VHDL:3764)
+    // bank(5)   = port_dffd_reg(2)    (non-Pentagon, VHDL:3765)
+    // bank(6)   = port_dffd_reg(3)    (non-Pentagon, non-Profi, VHDL:3766)
+    return static_cast<uint8_t>((port_7ffd & 0x07) |
+                                ((port_dffd & 0x0F) << 3));
+}
+
+// Apply slots 6/7 (RAM bank composed from 7FFD+DFFD) and slots 0/1
+// (ROM or RAM-at-0x0000) from the current register state. Called by
+// map_128k_bank (after the lock gate), write_port_dffd, and
+// write_port_eff7 — all three correspond to VHDL's port_memory_change_dly
+// rebuild at zxnext.vhd:4619-4682 which fires on 7ffd/1ffd/dffd/eff7 writes.
+void Mmu::apply_legacy_paging_() {
+    // Slots 6-7: selected RAM bank composed with port_dffd_reg extra bits
+    // (VHDL zxnext.vhd:3763-3766). Store the LOGICAL page (VHDL
+    // mem_active_page semantics); to_sram_page() inside rebuild_ptr()
+    // applies the VHDL zxnext.vhd:2964 +0x20 shift for Next mode.
+    uint8_t bank = compose_legacy_bank(port_7ffd_, port_dffd_reg_);
+    set_page(6, static_cast<uint8_t>(bank * 2));
+    set_page(7, static_cast<uint8_t>(bank * 2 + 1));
+
+    // Slots 0-1: ROM selection (VHDL zxnext.vhd:4619-4644).
+    // Default: MMU0=MMU1=0xFF (ROM sentinel). If port_eff7_reg_3=1 → force
+    // MMU0=0x00, MMU1=0x01 (RAM-at-0x0000 mode, VHDL:4636-4644).
+    // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)
+    // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
+    if (port_eff7_reg_3_) {
+        set_page(0, 0x00);
+        set_page(1, 0x01);
+    } else {
+        int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
+        map_rom_physical(0, rom_bank * 2);
+        map_rom_physical(1, rom_bank * 2 + 1);
+        // NOTE: VHDL sets MMU0/MMU1 = 0xFF here (normal ROM paging).
+        // We store the physical page so ROM bank changes are observable via
+        // get_page() in tests/debugger. NR 0x50/0x51 read-back through the
+        // nextreg cache is unaffected.
+        nr_mmu_[0] = rom_bank * 2;
+        nr_mmu_[1] = rom_bank * 2 + 1;
+    }
+}
+
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
     if (paging_locked_) {
         Log::memory()->trace("128K bank switch ignored (paging locked)");
         return;
     }
     Log::memory()->debug("128K bank switch: port_7ffd={:#04x}", port_7ffd);
-    uint8_t bank = port_7ffd & 0x07;
-    bool rom_select = (port_7ffd >> 4) & 1;
     paging_locked_ = (port_7ffd >> 5) & 1;
-
-    // Slots 6-7: selected RAM bank. Store the LOGICAL page (VHDL
-    // mem_active_page semantics); to_sram_page() inside rebuild_ptr()
-    // applies the VHDL zxnext.vhd:2964 +0x20 shift for Next mode. Non-
-    // Next machines stay at the legacy bank*2 mapping via the pass-through
-    // branch in to_sram_page.
-    set_page(6, static_cast<uint8_t>(bank * 2));
-    set_page(7, static_cast<uint8_t>(bank * 2 + 1));
-
-    // Slots 0-1: ROM selection
-    // 128K: bit 4 selects ROM 0 or 1 (2 ROMs)
-    // +3: combines bit 4 with port_1ffd_ bit 2 for 4-ROM selection
     port_7ffd_ = port_7ffd;
-    int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | (rom_select ? 1 : 0);
-    map_rom_physical(0, rom_bank * 2);
-    map_rom_physical(1, rom_bank * 2 + 1);
-    // NOTE: VHDL sets MMU0/MMU1 = 0xFF here (normal ROM paging).
-    // We store the physical page so ROM bank changes are observable via
-    // get_page() in tests/debugger. NR 0x50/0x51 read-back through the
-    // nextreg cache is unaffected.
-    nr_mmu_[0] = rom_bank * 2;
-    nr_mmu_[1] = rom_bank * 2 + 1;
+    apply_legacy_paging_();
+}
+
+void Mmu::write_port_dffd(uint8_t v) {
+    // VHDL zxnext.vhd:3691 — port_dffd write gated by
+    //   port_7ffd_locked='0' OR nr_8f_mapping_mode_profi='1'
+    // JNEXT tracks the Profi mode on the NR 0x8F handler surface (not on
+    // Mmu); VHDL:3797 forces profi='0' in the synthesizable build, so we
+    // drop the profi branch and gate purely on paging_locked_.
+    if (paging_locked_) {
+        Log::memory()->trace("port 0xDFFD write ignored (paging locked)");
+        return;
+    }
+    Log::memory()->debug("port 0xDFFD write: v={:#04x}", v);
+    // VHDL zxnext.vhd:3693 stores cpu_do(4:0). Bits 5-7 are NOT stored.
+    // (port_dffd_reg_6 is a separate signal for disk-motor composition
+    // in the +3 branch; JNEXT does not model the +3 FDC, so we discard it.)
+    port_dffd_reg_ = static_cast<uint8_t>(v & 0x1F);
+    // VHDL zxnext.vhd:4619 — port_memory_change_dly rebuilds MMU0..7 on
+    // any paging-port write. Bypass the paging_locked gate (we verified
+    // above it was unlocked when this write arrived).
+    apply_legacy_paging_();
+}
+
+void Mmu::write_port_eff7(uint8_t v) {
+    // VHDL zxnext.vhd:3780-3782 — always accepted (no lock gate).
+    Log::memory()->debug("port 0xEFF7 write: v={:#04x}", v);
+    port_eff7_reg_2_ = (v & 0x04) != 0;
+    port_eff7_reg_3_ = (v & 0x08) != 0;
+    // VHDL zxnext.vhd:4619-4644 — port_memory_change_dly fires on EFF7
+    // writes too; MMU0/1 pick up the new RAM-at-0x0000 choice immediately.
+    // VHDL line 4619 does NOT gate the rebuild on the paging lock, so we
+    // rebuild unconditionally (mirrors the hardware behaviour that an
+    // EFF7 write flips 0x0000 even when 7FFD is locked).
+    apply_legacy_paging_();
 }
 
 void Mmu::map_plus3_bank(uint8_t port_1ffd) {
@@ -228,6 +301,12 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(contention_disabled_);
     w.write_u8(nr_8c_reg_);
     w.write_u8(static_cast<uint8_t>(machine_type_));
+    // Phase 2 A appended state — extended-paging ports (0xDFFD + 0xEFF7).
+    // port_dffd_reg_ holds cpu_do(4:0) per VHDL zxnext.vhd:3693; the
+    // port_eff7 flags are two single bits per VHDL zxnext.vhd:3781-3782.
+    w.write_u8(port_dffd_reg_);
+    w.write_bool(port_eff7_reg_2_);
+    w.write_bool(port_eff7_reg_3_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -252,6 +331,10 @@ void Mmu::load_state(StateReader& r)
     contention_disabled_ = r.read_bool();
     nr_8c_reg_           = r.read_u8();
     machine_type_        = static_cast<MachineType>(r.read_u8());
+    // Phase 2 A appended state — extended-paging ports (0xDFFD + 0xEFF7).
+    port_dffd_reg_   = r.read_u8();
+    port_eff7_reg_2_ = r.read_bool();
+    port_eff7_reg_3_ = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
