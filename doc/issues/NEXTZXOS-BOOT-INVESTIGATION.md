@@ -1,176 +1,181 @@
-# NextZXOS Boot Investigation
+# NextZXOS Boot Investigation — Investigation Journal
 
-## Current Status (2026-04-01)
+This document is the chronological journal of the NextZXOS boot effort on JNext.
+All relevant findings, hypotheses, attempts, and conclusions are kept here, one
+entry per session.  New investigation notes go at the **bottom** (most recent
+first was rejected to keep the narrative readable).
 
-**Branch:** `fix-nextzxos-boot`
+- **Goal:** boot the official NextZXOS / tbblue firmware from an SD image all
+  the way to the NextZXOS welcome screen / BASIC prompt.
+- **Authoritative hardware spec:** `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/zxnext.vhd`
+  and friends.
+- **TBBLUE firmware (GPLv3):** <https://gitlab.com/thesmog358/tbblue/-/tree/master/src/firmware>
+- **Canonical SD image used for testing:** `roms/nextzxos-1gb-fat32fix.img`
+  (the `-fat32fix` variant uses 8 KB clusters / 261 877 data clusters — valid
+  FAT32 per FatFs. The original `roms/nextzxos-1gb.img` has 32 KB clusters /
+  32 758 data clusters, below the FAT spec minimum of 65 525 → rejected by
+  tbblue.fw's FatFs. See 2026-04-18 Stage C.)
+- **Typical boot command:**
+  ```
+  ./build/jnext --machine next \
+      --boot-rom roms/nextboot.rom \
+      --divmmc-rom roms/enNxtmmc.rom \
+      --sd-card   roms/nextzxos-1gb-fat32fix.img
+  ```
 
-The firmware boot sequence completes successfully — all ROMs load, display shows
-"Firmware v1.44.db / Core v3.02.00", machine type 0xb3 is set, and soft reset
-triggers. However, **ROM data does not reach the correct RAM pages** after soft
-reset. The CPU at 0x0000 finds boot loader residue instead of the Spectrum ROM.
+Related documents:
 
-Root cause is fully analyzed. The closest fix attempt (config page write
-recording + soft_reset replay) got 96K of ROM data correctly recorded and
-replayed, but had remaining issues with DivMMC automap state after soft_reset.
+- `doc/design/FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md` — design plan for bypassing
+  tbblue.fw by initialising NextZXOS from the emulator directly (Task 13).
+- `doc/analysis/WAY-FORWARD-2026-03-31.md` — project state + strategy overview
+  written when the investigation first hit a wall.
 
 ---
 
-## Boot Sequence Overview
+## Boot sequence overview (reference)
 
 ```
-Boot ROM phase:
+Boot ROM phase (nextboot.rom):
   CMD12 → CMD0 → CMD8 → ACMD41 → CMD58 (SD init)
   → reads TBBLUE.FW from SD (~55 sectors)
   → NR 0x07=0x03 (28 MHz), NR 0x03=0xB0 (disable boot ROM)
-  → JP 0x6000 (start firmware)
+  → JP 0x6000 (start tbblue.fw)
 
-Post-boot firmware (at 0x6000):
+tbblue.fw (at 0x6000, SDCC-built, crt0 sets SP=0xFFFF):
   CMD12 → CMD0 → CMD8 → ACMD41 → CMD58 (SD reinit via diskio.c)
-  → f_mount → f_open config.ini → reads config ✓
-  → f_open menu.def → reads menu config ✓
-  → check_coreversion() → returns (HWID_EMULATORS=0x08) ✓
-  → display_bootscreen() → reads TBBLUE.FW screens data ✓
-  → load_keymap() → writes keymap to config page bank 0 ✓
-  → load_roms() → writes ESXMMC, Multiface, Spectrum ROM via config pages ✓
-  → init_registers() → sets NR 0x05, 0x06, 0x08, 0x09, 0x0A, etc. ✓
-  → NR 0x03=0xB3 (machine type +3, config_mode OFF) ✓
-  → NR 0x02=0x01 (soft reset) ✓
+  → f_mount → f_open config.ini → reads config
+  → f_open menu.def → reads menu config
+  → check_coreversion() → returns (HWID_EMULATORS=0x08)
+  → display_bootscreen() → reads TBBLUE.FW screens data
+  → load_keymap() → writes keymap to config page bank 0
+  → load_roms() → writes DivMMC, MF, +3 ROMs (banks 0..3) via config pages
+  → init_registers() → sets NR 0x05, 0x06, 0x08, 0x09, 0x0A, NR 0x82-0x85
+  → NR 0x03=0xB3 (machine type +3, config_mode OFF)
+  → NR 0x02=0x01 (soft reset)
 
-After soft reset:
-  CPU at PC=0x0000 → reads from MMU slots 0-1 (RAM pages 0x00, 0x01)
-  → pages contain boot loader residue, NOT Spectrum ROM → garbage execution
+Post soft-reset:
+  enNextZX.rom at 0x0000 = F3 C3 EF 00 = DI; JP 0x00EF
+  → NR 0x07=3, NR 0x03=0xB0, NR 0xC0=0x08 (stackless NMI)
+  → NR 0x82-0x85=0xFF; NR 0x80/0x81/0x8A/0x8F=0
+  → LDIR clear of 0x5800-0x5AFF (attr area, L=0)
+  → 112-bank RAM test (NR 0x56 sweep 0x00..0xDE)
+  → Peripheral init (NR 0x05/0x06/0x08/0x0A/0xD8/0x8E/0xB8-0xBB/0xC0)
+  → LD SP, 0x5BFF ; RST 0x20 ; IM 1
+  → Should hand control to NextZXOS…
 ```
 
 ---
 
-## SPI Model (rewritten 2026-03-29)
+## Key architectural facts (authoritative)
 
-### ZesarUX Comparison
+### VHDL `nr_03_config_mode` state machine
 
-Reference: `/home/jorgegv/src/spectrum/zesarux/src/storage/mmc.c`
+`zxnext.vhd:1102` — power-on default `= '1'`. State machine at
+`zxnext.vhd:5137-5151`:
 
-The original model used VHDL-accurate full-duplex SPI with pipeline delay. This
-caused response byte offsets, leftover data corrupting subsequent commands, and
-CMD8 R7 response issues.
+- NR 0x03 write bits `[2:0] = 111` → `config_mode <= '1'`
+- NR 0x03 write bits `[2:0] = 001..100` → `config_mode <= '0'` (machine type commits)
+- NR 0x03 write bits `[2:0] = 000` → no change
+- Machine-type select is **ignored unless `config_mode = '1'`**
 
-The rewritten model uses **independent read/write paths** matching ZesarUX:
-- `receive(tx)` — command/data write path
-- `send()` — response read path
-- `deselect()` — CS high resets all protocol state to IDLE
+Signal gates (non-exhaustive): `zxnext.vhd:2102, 3044, 3319, 5167, 5192, 5209,
+5682, 5700, 6370`.
 
-### Response Formats (verified against firmware diskio.c)
+### VHDL MMU page mapping (the +0x20 shift)
+
+`zxnext.vhd:2964` — `mmu_A21_A13` formula:
 
 ```
-CMD0:  NCR(0xFF) + R1(0x01)
-CMD8:  NCR(0xFF) + R1(0x01) + R7(0x00, 0x00, 0x01, check_pattern)
-CMD12: 8×0xFF (stuff bytes) + NCR(0xFF) + R1
-CMD17: NCR(0xFF) + R1(0x00) + 0xFE (data token) + 512 data + 2 CRC
-CMD18: NCR(0xFF) + R1(0x00) + [0xFE + 512 data + 2 CRC] per block + 0xFF gap
-CMD58: NCR(0xFF) + R1 + OCR(4 bytes: 0xC0=CCS+powered, 0xFF, 0x80, 0x00)
-ACMD41: NCR(0xFF) + R1(0x00)
+mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7:5))) & mem_active_page(4:0);
 ```
 
-### Firmware SPI Protocol (from diskio.c)
+Equivalent to `sram = (page + 0x20) mod 256` with two dual-port exceptions
+(`zxnext.vhd:2961-2962`): bank 5 (pages 0x0A/0x0B) and bank 7 lower (page 0x0E)
+bypass the shift.
 
-```c
-send_cmd():
-  select()              // CS low (0xFE to port 0xE7) + 1 dummy read
-  xmit_mmc(buf, 6)     // send 6-byte command
-  if (CMD12) rcvr_mmc(buf, 8)  // skip 8 stuff bytes
-  wait_response()       // read up to 250 bytes until non-0xFF
-  return R1
+**Implication:** in Next mode the MMU stores *logical* pages (what firmware
+writes to NR 0x50-0x57 / port 0x7FFD), and applies the shift at every SRAM
+access site. Writes via config_mode (`NR 0x04`) use an **unshifted** path per
+`zxnext.vhd:3045`.
 
-disk_read():
-  if (count == 1): CMD17 + rcvr_datablock(buf, 512)
-  else: CMD18 + loop { rcvr_datablock(buf, 512); buf += 512 } + CMD12
-  deselect()
+### VHDL DivMMC automap (summary)
 
-rcvr_datablock():
-  loop up to 5000: read byte, break if != 0xFF
-  check byte == 0xFE (data token)
-  rcvr_mmc(buf, 512)   // read 512 data bytes
-  rcvr_mmc(d, 2)       // discard 2 CRC bytes
+Source: `device/divmmc.vhd`, `zxnext.vhd`.
+
+**Power-on defaults:**
+- `nr_0a_divmmc_automap_en = '0'` → automap **disabled**
+- `nr_03_config_mode = '1'` → config mode ON
+- `nr_83_internal_port_enable = all '1'` → port 0xE3 enabled
+- `nr_b8_divmmc_ep_0 = 0x83`, `nr_b9_divmmc_ep_valid_0 = 0x01` → only RST 0x0000 valid
+- `nr_ba_ep_timing_0 = 0x00` → all entry points delayed
+
+**Activation** (6 pathways, M1 cycle only): RST entry points gated by `entry_points_0
+AND entry_valid_0`; NMI (0x0066) via `entry_points_1` bits 0-1; ROM3 substitution /
+tape traps via `entry_points_1` bits 2-5; instant vs delayed selected by
+`entry_timing_0`; delayed = activates on NEXT M1+MREQ, instant = same cycle.
+
+**Deactivation:**
+- RETN instruction (`i_retn_seen` clears `automap_hold` and `automap_held`)
+- Delayed off: PC at 0x1FF8-0x1FFF when NR 0xBB bit 6 = 1
+- Automap reset: forced when `port_divmmc_io_en='0'` OR `nr_0a_divmmc_automap_en='0'`
+- Hard/soft reset clears `automap_hold`/`automap_held`
+
+**Hold logic (`divmmc.vhd:123-148`):**
+```
+On M1+MREQ cycle:
+  automap_hold = (triggers) OR (automap_held AND NOT (active AND delayed_off))
+When MREQ deasserts:
+  automap_held = automap_hold
+Final:
+  automap = (NOT automap_reset) AND (automap_held OR instant_triggers)
+```
+Automap persists when execution leaves 0x0000-0x3FFF — only the specific
+deactivation conditions clear it.
+
+**Memory priority (`zxnext.vhd:3081-3133`):**
+```
+1. DivMMC ROM (divmmc_rom_en AND override bit 2) → rdonly=1, writes DISCARDED
+2. DivMMC RAM (divmmc_ram_en AND override bit 2) → rdonly varies
+3. Layer 2 write-over
+4. ROMCS (expansion bus)
+5. Alt ROM
+6. Default: config page (if config_mode) or normal MMU
 ```
 
----
+DivMMC has priority over config page. Writes to DivMMC ROM area are **silently
+lost**, not redirected.
 
-## Firmware Source Architecture
+### VHDL SPI master (pipeline delay)
 
-Source: `https://gitlab.com/thesmog358/tbblue/-/tree/master/src/firmware` (GPLv3)
-Local clone: `/tmp/tbblue-firmware/src/firmware/`
+`spi_master.vhd:82` — `spi_begin <= '1' when ... (i_spi_rd = '1' or i_spi_wr = '1')`.
+Both reads and writes trigger a transfer.  Reads return the **previous** byte;
+the new transfer result lands in `miso_dat` at `state_last_d`.
 
-### Two Independent SD Card Drivers
-
-| Component    | Boot Loader (`loader/`)              | Post-Boot Firmware (`app/`)            |
-|--------------|--------------------------------------|----------------------------------------|
-| **SD init**  | `mmc.s` (Z80 asm)                   | `diskio.c` (FatFs diskio layer, C)     |
-| **FAT**      | `fat.c` (hand-rolled FAT16/32)      | `ff.c` (Chan's FatFs library)          |
-| **Entry**    | `main.c` → `MMC_Init()` → loads FW  | `boot.c` → `f_mount()` → `f_open()`   |
-| **Runs at**  | 0x0000 (boot ROM overlay)            | 0x6000 (loaded into RAM)               |
-
-### Firmware Build Configuration
-
-From `app/Makefile`:
+Emulator equivalent in `spi.cpp::read_data()`:
 ```
-CC = sdcc
-CFLAGS = -mz80 --opt-code-size
-LDFLAGS = -mz80 --code-loc 0x6010 --data-loc 0 --no-std-crt0
-ROFLAGS = -D_FS_READONLY=1 -D_FS_MINIMIZE=1
+uint8_t prev = rx_data_;
+rx_data_ = dev->exchange(0xFF);
+return prev;
 ```
+Getting this wrong causes either infinite polling or missed responses.
 
-CRT0 (`app/src/crt0.s`):
-```asm
-.org 0x6000
-ld sp, #0xFFFF      ; stack at top of memory (slot 7, page 0x01)
-di
-call gsinit         ; zero BSS, copy initializers
-call _main
-jp _exit
-```
+### TBBLUE firmware layout (app/)
 
-### Firmware Memory Layout
+From `app/Makefile`: `sdcc --code-loc 0x6010 --data-loc 0 --no-std-crt0`.
 
-- **0x0000-0x1FFF**: `_DATA` + `_INITIALIZED` + `_BSS` (firmware globals: ~8K)
-  - Includes: FATFS (~552 bytes), FIL, line[256], fwMap[512], scratch[512], etc.
-  - On real hardware: config page RAM (bank 0, pages 0x00/0x01)
-  - In emulator with automap ON: DivMMC ROM (0x0000-0x1FFF) + DivMMC RAM (0x2000-0x3FFF)
-- **0x4000-0x5FFF**: ULA screen RAM (bank 5, pages 0x0A/0x0B)
-- **0x6000-0x600F**: CRT0 startup code
-- **0x6010+**: `_CODE` (firmware functions)
-- **0xFFFF downward**: Stack (in slot 7 = page 0x01)
+- **0x0000-0x1FFF** `_DATA + _INITIALIZED + _BSS`: ~8 KB of firmware globals
+  including **FATFS** (~552 bytes), `FIL`, `line[256]`, `fwMap[512]`,
+  `scratch[512]`. On real HW this is config-page RAM (bank 0, pages 0x00/0x01).
+  In emulator-with-automap, DivMMC ROM covers 0x0000-0x1FFF and DivMMC RAM
+  covers 0x2000-0x3FFF.
+- **0x4000-0x5FFF** ULA screen RAM (bank 5, pages 0x0A/0x0B).
+- **0x6000** CRT0 `LD SP,0xFFFF; DI; CALL gsinit; CALL _main; JP _exit`.
+- **0x6010+** `_CODE`.
+- **Stack** descends from 0xFFFF (slot 7 = page 0x01).
 
-### Key Functions
+Other build flags: `ROFLAGS = -D_FS_READONLY=1 -D_FS_MINIMIZE=1`.
 
-- `boot.c:main()` — firmware entry point, calls all phases
-- `boot.c:check_coreversion()` — skips flash check when `mach_id == HWID_EMULATORS` (0x08)
-- `boot.c:display_bootscreen()` — reads screen data from TBBLUE.FW into config page
-- `boot.c:load_keymap()` — reads keymap file to config page bank 0
-- `boot.c:load_roms()` → `loadFile()` — reads ROM files to config page banks
-- `boot.c:init_registers()` — writes NR 0x05/0x06/0x08/0x09/0x0A (enables DivMMC automap)
-- `fwfile.c:fwOpenAndSeek()` — opens TBBLUE.FW, reads 512-byte block map
-- `fwfile.c:fwRead()` — reads data from TBBLUE.FW via f_read
-- `config.c:load_config()` — reads config.ini and menu.def
-- `videomagic.c:videoTestActive()` — checks magic string at config page bank 2
-- `misc.c:getCoreBoot()` — checks magic string at config page bank 6
-
-### loadFile() Pattern
-
-```c
-void loadFile(unsigned char destpage, unsigned char numpages, unsigned int blocklen) {
-    REG_NUM = REG_RAMPAGE;       // NR 0x04
-    while (numpages--) {
-        REG_VAL = destpage++;    // select config page bank
-        res = f_read(&Fil, (unsigned char *)0, blocklen, &bl);  // read into 0x0000
-    }
-}
-```
-
-This writes ROM data to address 0x0000 via the config page mechanism. Each
-`destpage` maps a different 16K RAM bank to slots 0-1.
-
-### TBBLUE.FW Block Map
-
-From the SD image (sector 193377, first 512 bytes):
+### TBBLUE.FW block map (from SD image, sector 193377, first 512 bytes)
 
 | Block | ID                | Start (sectors) | Length (sectors) | Size     |
 |-------|-------------------|-----------------|------------------|----------|
@@ -184,255 +189,612 @@ From the SD image (sector 193377, first 512 bytes):
 | 7     | FW_BLK_RESET      | 219             | 398              | 204K     |
 | 8     | FW_BLK_SCREENS    | 220             | 73               | 37K      |
 
-Constants: `FW_L2_PAL_SIZE=227`, `RAMPAGE_ROMSPECCY=0x00`, `RAMPAGE_ROMDIVMMC=0x04`,
-`RAMPAGE_ROMMF=0x05`, `RAMPAGE_ALTROM0=0x06`.
+Constants: `FW_L2_PAL_SIZE=227`, `RAMPAGE_ROMSPECCY=0x00`,
+`RAMPAGE_ROMDIVMMC=0x04`, `RAMPAGE_ROMMF=0x05`, `RAMPAGE_ALTROM0=0x06`,
+`HWID_EMULATORS=0x08` (our emulator reports this from NR 0x00).
 
 ---
 
-## VHDL DivMMC Automap Behavior
+## Journal
 
-Source: `device/divmmc.vhd`, `zxnext.vhd`
+### 2026-03-22 — Initial task: boot from SD image
 
-### Key Defaults at Power-On
+Baseline task: "Test NextZXOS boot from SD image" (Task 11 of the 2026-03-22
+prompt). Investigation not yet started; acts as scope marker.
 
-- `nr_0a_divmmc_automap_en = '0'` → **automap DISABLED**
-- `nr_03_config_mode = '1'` → config mode ON
-- `nr_83_internal_port_enable = all '1'` → port 0xE3 enabled
-- `nr_b8_divmmc_ep_0 = 0x83` → RST 0x00, 0x08, 0x38 enabled
-- `nr_b9_divmmc_ep_valid_0 = 0x01` → only RST 0x0000 valid by default
+### 2026-03-29 — SPI model rewrite (matching ZesarUX)
 
-### Automap Activation/Deactivation
+Reference: `/home/jorgegv/src/spectrum/zesarux/src/storage/mmc.c`.
 
-**Activation** (M1 cycle only):
-- RST entry points: gated by `entry_points_0` AND `entry_valid_0`
-- NMI (0x0066): bits 0-1 of `entry_points_1`
-- Tape traps: bits 2-5 of `entry_points_1`
-- Delayed vs instant: controlled by `entry_timing_0`
+The original SPI used VHDL-accurate full-duplex with pipeline delay; that caused
+response byte offsets, leftover data corrupting subsequent commands, and CMD8
+R7 response issues.  The rewrite uses **independent read/write paths** like
+ZesarUX:
 
-**Deactivation:**
-- RETN instruction (`i_retn_seen` clears `automap_hold` and `automap_held`)
-- Delayed off: PC at 0x1FF8-0x1FFF when NR 0xBB bit 6 = 1
-- Automap reset: forced when `port_divmmc_io_en='0'` OR `nr_0a_divmmc_automap_en='0'`
-- Hard/soft reset clears `automap_hold`/`automap_held`
+- `receive(tx)` — command/data write path
+- `send()` — response read path
+- `deselect()` — CS high resets all protocol state to IDLE
 
-### Memory Priority (zxnext.vhd lines 3081-3133)
-
+Response formats, verified against firmware `diskio.c`:
 ```
-1. DivMMC ROM (divmmc_rom_en AND override bit 2) → rdonly=1, writes DISCARDED
-2. DivMMC RAM (divmmc_ram_en AND override bit 2) → rdonly varies
-3. Layer 2 write-over
-4. ROMCS (expansion bus)
-5. Alt ROM
-6. Default: config page (if config_mode) or normal MMU
+CMD0:  NCR(0xFF) + R1(0x01)
+CMD8:  NCR(0xFF) + R1(0x01) + R7(0x00, 0x00, 0x01, check_pattern)
+CMD12: 8×0xFF (stuff bytes) + NCR(0xFF) + R1
+CMD17: NCR(0xFF) + R1(0x00) + 0xFE (data token) + 512 data + 2 CRC
+CMD18: NCR(0xFF) + R1(0x00) + [0xFE + 512 data + 2 CRC] per block + 0xFF gap
+CMD58: NCR(0xFF) + R1 + OCR(4 bytes: 0xC0=CCS+powered, 0xFF, 0x80, 0x00)
+ACMD41: NCR(0xFF) + R1(0x00)
 ```
 
-DivMMC ALWAYS has higher priority than config page. Writes to DivMMC ROM area
-(0x0000-0x1FFF when mapped) are silently lost — NOT redirected to config page.
+Firmware `send_cmd()` sequence (from `diskio.c`): `select()` (CS low + 1 dummy
+read); `xmit_mmc(buf, 6)`; if CMD12 `rcvr_mmc(buf, 8)` skip stuff bytes;
+`wait_response()` reads up to 250 bytes until non-0xFF; return R1.
 
-### Config Mode Address Decode (zxnext.vhd ~line 3044)
+Boot ROM now works fully.  **Blocker at session end:** post-boot firmware reads
+MBR+BPB correctly but retries 3× — issue is NOT SPI (data verified byte-perfect).
+Likely BPB processing logic or a missing emulator feature.
 
-```vhdl
-elsif nr_03_config_mode = '1' then
-   sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13);
-   sram_pre_override <= "110";   -- DivMMC & Layer 2 CAN still override
-```
+**Commits:** `5bef014` (SPI rewrite, split read/write, CS deselect, CMD1),
+`971aaee` (NCR busy byte before R1), `7723008` (CMD12 stuff bytes).
 
-Even in config mode, DivMMC can override. On real hardware this is irrelevant
-because automap is OFF at boot. In the emulator, automap is ON, causing conflict.
+### 2026-03-31 — Debugging features + first big investigation
 
----
+Added CLI options `--delayed-screenshot`, `--delayed-screenshot-time`,
+`--delayed-automatic-exit` to allow headless automated testing. Comprehensive
+analysis written at `doc/analysis/WAY-FORWARD-2026-03-31.md`.
 
-## The Root Cause: DivMMC / Config Page Conflict
+Task 2 status: "NextZXOS boot — root cause fully analyzed, closest approach was
+config page write recording + soft_reset replay (96K across 6 banks replayed,
+but DivMMC automap reset needed on soft_reset)."
 
-### On Real Hardware (automap OFF)
+Commits: `9e4243b` (CLI options).
 
-1. Boot ROM loads firmware, disables itself
-2. Firmware runs at 0x6000; globals at 0x0000 are in config page RAM (bank 0)
-3. Config mode ON; automap OFF → no DivMMC interference
-4. FatFs reads/writes globals consistently through config page RAM
-5. `loadFile()` switches config page banks, writes ROM data to 0x0000
-6. ROM data overwrites firmware globals (including FATFS at ~0x03C8)
-7. FatFs f_read clips reads at cluster boundary (~13 sectors per call)
-8. After first cluster read, FATFS is corrupted by ROM data at 0x0000
-9. **On real hardware this works because:** (analysis uncertain — see below)
-10. Firmware enables automap via NR 0x0A, triggers soft reset
-11. Post-reset: DivMMC ROM runs briefly (esxdos init → RETN), then Spectrum ROM
+### 2026-04-01 — Root cause analysis: DivMMC / config page conflict
 
-### In Emulator (automap ON)
+**Branch:** `fix-nextzxos-boot` (not merged at the time).
 
-1. Boot ROM loads firmware, disables itself
-2. Automap triggers at PC=0x0000 → DivMMC active
-3. DivMMC ROM at 0x0000-0x1FFF (reads: esxdos; writes: DISCARDED)
-4. DivMMC RAM at 0x2000-0x3FFF (reads/writes: consistent)
-5. Firmware globals that happen to be in 0x2000+ work via DivMMC RAM
-6. esxdos ROM byte at offset 0x003A = 0x00 → FatFs sees "not mounted" → mounts OK
-7. `loadFile()` writes ROM data: slot 0 (0x0000-0x1FFF) → discarded; slot 1 (0x2000-0x3FFF) → DivMMC RAM
-8. Config page RAM (pages 0x00/0x01) never receives the ROM data
-9. After soft reset, pages 0x00/0x01 have boot loader residue → garbage execution
+**Status:** firmware boot sequence completes — all ROMs load, display shows
+"Firmware v1.44.db / Core v3.02.00", machine type 0xB3 set, soft reset
+triggers.  But ROM data does not reach the correct RAM pages after soft reset.
+The CPU at 0x0000 finds boot-loader residue instead of Spectrum ROM.
 
-### The Chicken-and-Egg
+**What works:**
+- Boot ROM loads TBBLUE.FW from SD image
+- Post-boot FatFs mounts FAT32, reads `config.ini`, `menu.def`
+- Firmware loads all ROMs (keymap, ESXMMC, Multiface, Spectrum)
+- Firmware displays "Firmware v1.44.db / Core v3.02.00"
+- Machine type 0xB3 (+3) set, soft reset triggered
+- Machine ID 0x08 (HWID_EMULATORS) correctly returned
 
-- **Automap ON**: firmware completes all phases; ROM data intercepted by DivMMC
-- **Automap OFF**: config page works correctly; FatFs self-corrupts because
-  f_read's destination buffer at 0x0000 overlaps FATFS structure
+**The fundamental conflict:**
+1. Firmware globals (FATFS, FIL, line[], etc.) live at 0x0000-0x1FFF
+2. Config-page writes (ROM loading) also target 0x0000-0x3FFF
+3. On real VHDL hardware: automap OFF → no DivMMC → config page provides consistent storage
+4. In emulator: automap ON → DivMMC ROM at 0x0000-0x1FFF, DivMMC RAM at 0x2000-0x3FFF
 
-### FatFs Self-Corruption Detail
+**Why automap MUST stay ON in the emulator:**
+- With automap OFF, config-page RAM is at 0x0000-0x3FFF (correct)
+- But FatFs `f_read` writes ROM data to 0x0000, overwriting its own FATFS struct at ~0x03C8
+- FatFs reads one CLUSTER at a time (clip at cluster boundary in `f_read`, `ff.c ~3555`)
+- After first cluster read (13-14 sectors), FATFS is corrupted → can't follow chain
+- Result: "Error reading TBBLUE.FW data!" from `fwfile.c:fwRead`
 
-Chan's FatFs `f_read()` (ff.c ~line 3555):
+**Why automap ON "works" (but data goes wrong place):**
+- DivMMC ROM at 0x0000-0x1FFF: reads return esxdos code, writes discarded
+- DivMMC RAM at 0x2000-0x3FFF: consistent read/write for FatFs globals
+- esxdos byte at offset 0x003A happens to be 0x00 → FatFs sees "not mounted" → fresh mount
+- FatFs works because its critical structures (FATFS, FIL) are in 0x2000+ DivMMC RAM range
+- Config page writes intercepted by DivMMC: slot 0 discarded, slot 1 to DivMMC RAM
+
+**The chicken-and-egg:**
+- Automap ON: firmware completes but config-page writes are intercepted by DivMMC
+- Automap OFF: config-page writes land correctly but FatFs self-corrupts during `f_read`
+
+**FatFs self-corruption detail** (`ff.c ~3555`):
 ```c
-if (csect + cc > fs->csize) {   /* Clip at cluster boundary */
+if (csect + cc > fs->csize) {    /* Clip at cluster boundary */
     cc = fs->csize - csect;
 }
 disk_read(fs->drv, rbuff, sect, cc);
 ```
+With cluster size 16 and 13 sectors remaining in the current cluster, `disk_read`
+gets 13 sectors. After ~1 sector (512 bytes) the FATFS struct at ~0x03C8 is
+overwritten. `_FS_MINIMIZE=1` means no fast-seek or cluster-map.
 
-FatFs reads at most one cluster at a time. With cluster size 16 and 13 sectors
-remaining in the current cluster, disk_read gets 13 sectors. Data is written to
-the destination buffer starting at 0x0000. After ~1 sector (512 bytes), the
-FATFS structure at ~0x03C8 is overwritten. When f_read loops back for the next
-cluster, `get_fat()` reads corrupted data → `FR_DISK_ERR` or `FR_INT_ERR`.
-
-The firmware source confirms `_FS_MINIMIZE=1` (read-only, no multi-cluster
-optimization). No fast-seek or cluster-map features.
-
-### Unresolved Question
-
-How does this work on real hardware? The same FatFs code, same cluster size,
-same self-corruption should occur. Possible explanations (not yet verified):
-
-1. The pre-built firmware binary may use different `--data-loc` than the source
-   Makefile shows, placing FATFS above the write range
-2. The real hardware's SD image may have TBBLUE.FW at a cluster boundary,
-   giving more sectors in the first cluster (enough to complete the full read)
-3. The firmware binary on the SD image may be a different version than the
-   source code, with different memory layout or FatFs configuration
-4. There may be a VHDL mechanism that provides a "shadow" write path during
-   config mode that we haven't identified
-
----
-
-## Approaches Tried
-
-### Successfully Fixed
-
-| Fix | Description | Commit |
-|-----|-------------|--------|
-| Split SPI model | Independent read/write paths matching ZesarUX | 5bef014 |
-| CS deselect | Reset protocol state on CS change | 5bef014 |
-| CMD1 support | SEND_OP_COND for boot ROM MMC init | 5bef014 |
-| NCR byte | 0xFF prepended to R1 responses | 971aaee |
-| CMD12 stuff bytes | 8×0xFF before R1 for firmware compatibility | 7723008 |
-| Machine ID | NextREG 0x00 = 0x08 (HWID_EMULATORS) | 93dc7bc |
-| Boot ROM SRAM | Writable boot ROM for loader variables | 6b947ec |
-| Config mode sync | NR 0x03 syncs config_mode to DivMMC | 6b947ec |
-| FAT32 image | Fixed SD image for correct BPB/FAT32 | 93dc7bc |
-| CMD18 multi-block | Multi-block read with inter-block gaps | 93dc7bc |
-
-### Attempted But Insufficient (2026-04-01)
+**Approaches tried and failed this session:**
 
 | # | Approach | Result |
 |---|----------|--------|
 | 1 | DivMmc `config_mode_=true` initially | DivMMC inactive; fwRead fails (FATFS overwrite) |
 | 2 | Write-only bypass (skip DivMMC writes when config_mode) | Read/write asymmetry breaks globals |
 | 3 | Shadow writes (dual to DivMMC + config page) | Config page slots still ROM (read-only) early in boot |
-| 4 | Default config page on boot ROM disable | Config page set up; fwRead still fails (FATFS overwrite) |
+| 4 | Default config page on boot-ROM disable | Config page set up; fwRead still fails |
 | 5 | Config page write recording + soft_reset replay | **96K replayed correctly**; screen corrupted because DivMMC automap not reset on soft_reset |
 | 6 | Automap OFF (matching VHDL default) | "Error reading TBBLUE.FW data!" (FatFs self-corruption) |
 | 7 | DivMmc `config_mode_=false` + automap OFF | Same as #6 |
 
-### Previous Attempts (2026-03-30, from memory)
+**Previous-session attempts (2026-03-30, from memory):**
 
 | # | Approach | Result |
 |---|----------|--------|
 | A | config_mode_ starting true (matching VHDL) | Broke boot ROM (DivMMC ROM not mapped) |
 | B | Skip DivMMC for all writes < 0x4000 when config_mode | Broke boot ROM (DivMMC RAM buffers) |
-| C | Skip DivMMC when config_mode AND boot_rom_en=false | Broke boot ROM (config_mode starts true) |
+| C | Skip DivMMC when config_mode AND boot_rom_en=false | Broke boot ROM |
 | D | DivMMC automap disabled by default | Firmware hung after 3 config page writes |
 | E | divmmc_write returns false for slot 0 when config_mode | Same as C |
 | F | entry_valid_0_ mask in check_automap | Caused boot failures |
 | G | RETN detection (ED 45) clearing automap | Never triggered during boot |
 
----
-
-## Closest Fix: Approach #5 (Write Recording + Replay)
-
-This approach got the furthest. Implementation:
-
-1. When NR 0x04 is written during config mode, start recording all writes to
-   0x0000-0x3FFF in a side buffer keyed by config page bank
-2. DivMMC automap stays ON → firmware uses DivMMC RAM for globals → FatFs works
-3. Config page writes are intercepted by DivMMC (as before) but ALSO recorded
-4. At soft_reset, replay all recorded writes to the correct RAM pages
-
-**Result:** 96K recorded across 6 banks (0-5), successfully replayed.
-
-**Remaining issues to fix:**
+**Closest fix (Approach #5):** record all config-mode writes to 0x0000-0x3FFF
+while automap is ON; replay them to correct RAM pages at soft_reset. 96K
+recorded across 6 banks (0-5), successfully replayed. Remaining issues:
 - DivMMC `automap_active_` must be cleared during soft_reset (VHDL resets
   `automap_hold`/`automap_held` on soft reset). Without this, DivMMC ROM
   overrides the replayed Spectrum ROM at 0x0000.
-- After DivMMC reset, CPU at PC=0x0000 triggers fresh automap (if
-  `automap_enabled_` was set by firmware via NR 0x0A). DivMMC ROM runs esxdos
-  init → RETN → automap off → Spectrum ROM executes.
+- After DivMMC reset, CPU at PC=0x0000 triggers fresh automap. DivMMC ROM runs
+  esxdos init → RETN → automap off → Spectrum ROM executes.
 - Need to verify replayed data is correct (first bytes should be
   `F3 AF 11 FF FF C3 CB 11` for the 48K ROM).
 - Bank 5 replay overwrites ULA screen RAM — acceptable since Spectrum ROM
-  reinitializes the screen.
+  reinitialises the screen.
 
----
+**Unresolved question:** how does this work on real hardware? The same FatFs
+code, same cluster size, same self-corruption should occur. Possible
+explanations (not verified):
+1. The pre-built firmware binary may use different `--data-loc` than the source
+   Makefile shows, placing FATFS above the write range.
+2. The real-hardware SD image may have TBBLUE.FW at a cluster boundary, giving
+   more sectors in the first cluster (enough to complete the full read).
+3. The firmware binary on the SD image may be a different version with
+   different memory layout or FatFs configuration.
+4. There may be a VHDL mechanism that provides a "shadow" write path during
+   config mode that we haven't identified.
 
-## SD Card Image Details
-
+**SD card image details:**
 ```
-Image: roms/nextzxos-1gb-fat32fix.img (1GB)
+Image: roms/nextzxos-1gb-fat32fix.img (1 GB)
 Partition: FAT32, starts at sector 63
 BPB: 512 B/sector, 16 sect/cluster, 32 reserved, 2 FATs, 2048 sect/FAT
 Root cluster: 2, data start: sector 4191
 TBBLUE.FW: cluster 11826 (sector 193375), offset 2 sectors
-  Clusters 11826-11835 (contiguous), total 160 sectors = 80K
+  Clusters 11826-11835 (contiguous), 160 sectors = 80 KB
 ```
 
----
-
-## Key Emulator Files
+**Key emulator files at this point:**
 
 | File | Role |
 |------|------|
 | `src/core/emulator.cpp` | NR 0x02 (reset), NR 0x03 (machine type/config), NR 0x04 (config page), NR 0x0A (automap enable), soft_reset() |
-| `src/memory/mmu.h` | `read()`/`write()` hot paths, boot ROM overlay, DivMMC overlay, config page, L2 write-over |
+| `src/memory/mmu.h` | `read()`/`write()` hot paths, boot-ROM overlay, DivMMC overlay, config page, L2 write-over |
 | `src/memory/mmu.cpp` | `set_config_page()`, `divmmc_read/write()` helpers |
 | `src/peripheral/divmmc.h` | `is_active()`, automap state, config_mode_, entry points |
 | `src/peripheral/divmmc.cpp` | `check_automap()`, `on_retn()`, `write()` (slot 0 read-only) |
 | `src/peripheral/sd_card.cpp` | SD card SPI model, all CMD handlers |
-| `src/peripheral/spi.cpp` | SPI master, CS handling, read/write dispatch |
+| `src/peripheral/spi.cpp` | SPI master, CS handling |
 | `src/port/nextreg.cpp` | NextREG defaults (machine ID 0x08 at line 9) |
 
+### 2026-04-18 — Task 9 Stage A: `nr_03_config_mode` state machine
+
+Context: previous memory claimed "boot runs to soft reset; 7 failed fix
+attempts."  Post DivMMC+SPI Phases 1-4 (session 2026-04-17g) + machine-ID 0x08
+fix, boot now reaches tbblue.fw's embedded **Config tool** and displays
+"ZX Spectrum Next Configuration" + "Error opening 'menu.ini/.def'!".
+CSpect shows the welcome page from `/nextzxos/autoexec.1st` instead — different
+flow.
+
+**Proved correct (not the bug):**
+
+1. **SD byte delivery** — for every observed `CMD17 READ_SINGLE_BLOCK`, the
+   first 8 bytes our emulator sends match the raw image byte-for-byte
+   (sectors 0 / 63 / 610 / 197922 verified).
+2. **SPI pipeline byte count** — each CMD17 is 6 writes + 518 reads (1 NCR +
+   1 R1 + 1 token 0xFE + 512 data + 2 CRC + 1 trailing 0xFF). Matches SD SPI
+   spec.
+3. **Z80 reads all 512 bytes per sector** — not a short-read.
+4. **Machine ID** — `src/port/nextreg.cpp:18` returns 0x08 (HWID_EMULATORS).
+
+**SD activity pattern observed:**
+- **Pass 1** (nextboot.rom + tbblue.fw first-stage loader): full SD init
+  (CMD0/8/55/ACMD41/58), CMD17 sector=0 (MBR), CMD17 sector=63 (VBR), CMD17
+  sector=610 × 2 (root directory cluster), then CMD17 sector=197922..197976
+  (55 consecutive sectors of `/TBBLUE.FW` — ~28 KB of first-stage code).
+- **Pass 2/3/4** (after tbblue.fw first-stage takes over): full SD re-init,
+  then CMD17 sector=0, CMD17 sector=63, stop. Never reads FAT, never reads
+  `/machines/next/`, never reads `menu.def`.
+
+The divergence lives in tbblue.fw's first-stage code: re-inits SD correctly but
+refuses to proceed past VBR validation.  Most likely: an FPGA/NR-state gate
+(probably `nr_03_config_mode`) holds it there because we don't clear
+config_mode.
+
+**Plan A → B → C:**
+
+- **Stage A (in progress this session):** model `nr_03_config_mode` as a proper
+  state machine. Add `bool nr_03_config_mode_ = true;` to `NextReg`; install a
+  write_handler for NR 0x03 implementing the `001-100 → 0`, `111 → 1`,
+  `000 → no change` transition rules.  Expose getter.  Initially don't wire
+  the gated behaviours — verify boot change from state tracking alone.
+- **Stage B (if A insufficient):** accept tbblue.fw Config tool may be
+  faithful real-HW first-boot behaviour.  Add CSpect-style fast-boot flag or
+  auto-clear config_mode in headless mode.
+- **Stage C (if still stuck):** extract `/TBBLUE.FW`, disassemble the
+  first-stage Z80 code, trace the "normal boot" vs "Config tool" decision
+  point.
+
+Commits: `e73df39` (auto-regen version.h), `0077d3e` (rename --machine-type
+→ --machine), `396a63a` (NR 0x00 = 0x08 = HWID_EMULATORS).
+
+### 2026-04-18 — Task 9 Stage C findings: two stacked bugs
+
+After Stage A+B didn't unblock, Stage C reading tbblue.fw source narrowed the
+failure to two **stacked** bugs.
+
+**Bug 1 — SD image format (not a jnext bug).**  `roms/nextzxos-1gb.img`
+(the supplied official-looking image) is 1024 MB with `SecPerClus = 64`
+(32 KB clusters). That yields `(2097089 - 547) / 64 = 32758` data clusters.
+FAT spec defines FAT32 as `clusters > MAX_FAT16 = 0xFFF5 (65525)`; the image
+has fewer, so tbblue.fw's FatFs (`ff.c`) categorises it as FAT16 at
+`ff.c:3145`, then the FAT16 branch at `ff.c:3159` returns `FR_NO_FILESYSTEM`
+because `n_rootdir = 0` (the VBR has FAT32 layout, not FAT16). Three
+consecutive `f_open` calls in `load_config()` (`config.ini`, `menu.ini`,
+`menu.def`) each re-trigger `find_volume` → same rejection → `display_error("Error
+opening 'menu.ini/.def'!")` and `for(;;)` halt. CSpect must use its own FS
+driver that tolerates this image.
+
+**Bug 2 — missing CMD18 (READ_MULTIPLE_BLOCK).** Once the image is reformatted
+with valid FAT32 parameters (512 MB, 4 KB clusters, 130 557 clusters),
+tbblue.fw's mount succeeds.  Boot progresses further — 76 CMD17 reads reaching
+`/TBBLUE.FW` content at sectors 4120+, plus directory traversal reads. Then
+`sd_card.cpp` logs `unhandled CMD18 arg=0x0000110b` and tbblue.fw shows
+"Error reading TBBLUE.FW data!".  Our `SdCardDevice::process_command` had no
+case for CMD18 and fell through to `queue_r1(initialized_ ? 0x00 : 0x01)` which
+responds with R1=0x00 but **no data** — FatFs `rcvr_datablock` waits for the
+0xFE token and eventually times out.
+
+**Why the earlier byte-for-byte SD check didn't surface Bug 1:** the byte
+delivery was correct; the CONTENT (the VBR's BPB) described a filesystem that
+FatFs rejected. No byte-level validation can catch this — the bytes are valid,
+it's the semantics that violate spec.
+
+**Empirical reproduction** (build a valid FAT32 image from files in
+`/tmp/nextzxos-extract/`):
+```bash
+rm -f /tmp/test-fat32.img
+dd if=/dev/zero of=/tmp/test-fat32.img bs=1M count=512
+(echo o; echo n; echo p; echo 1; echo 2048; echo ''; echo t; echo c; echo w) \
+    | fdisk /tmp/test-fat32.img
+mformat -i /tmp/test-fat32.img@@$((2048*512)) -F -c 8 -T $((512*2048 - 2048)) \
+        -h 255 -s 63 ::
+mcopy -i ...@@$((2048*512)) .../TBBLUE.FW  "::TBBLUE.FW"
+mcopy -i ...@@$((2048*512)) .../TBBLUE.TBU "::TBBLUE.TBU"
+mmd   -i ...@@$((2048*512)) "::machines" "::machines/next"
+mcopy -i ...@@$((2048*512)) .../menu.def    "::machines/next/menu.def"
+```
+
+Source references (tbblue repo at `/home/jorgegv/src/spectrum/tbblue`):
+- `src/firmware/app/src/ff/ff.c:3145` — `if (nclst <= MAX_FAT16) fmt = FS_FAT16;`
+- `src/firmware/app/src/ff/ff.c:3159` — `if (fs->n_rootdir == 0) return FR_NO_FILESYSTEM;`
+- `src/firmware/app/src/ff/ff.c:379-381` — `MAX_FAT12/16/32` constants.
+- `src/firmware/app/src/config.c:345-354` — `load_config()` trying menu.ini then menu.def.
+- `src/firmware/app/src/misc.c:31-46` — `display_error()` is fatal.
+- `src/firmware/app/src/ff/diskio.c:152-170` — `rcvr_datablock()` polls for 0xFE.
+
+**Useful BPB constants (from the under-clustered image):**
+- MBR partition 0: `bootable=0x80, type=0x0C, StLba=63`.
+- VBR BPB: `BytsPerSec=512, SecPerClus=64, RsvdSecCnt=33, NumFATs=2,
+  FATSz32=257, TotSec32=2097089, RootClus32=2`.
+- For valid FAT32 on 1 GB: `SecPerClus` must be ≤ 16 (8 KB clusters).
+
+**Follow-up decided:** implement CMD18 (READ_MULTIPLE_BLOCK) in
+`src/peripheral/sd_card.cpp` (R1=0x00, then repeat `[0xFE + 512 bytes + 2 CRC]`
+until host sends CMD12 STOP_TRANSMISSION).  The canonical test image becomes
+`roms/nextzxos-1gb-fat32fix.img` (valid FAT32).  The under-clustered image
+stays as `roms/nextzxos-1gb.img` for historical reference — do not relax our
+SD driver to accept it (firmware-faithful is the right posture).
+
+Commits: `93dc7bc` (machine ID, FAT32 image, CMD18, soft reset — this batch).
+
+### 2026-04-18 — Task 11: NextZXOS architectural prerequisites
+
+Goal: implement the 4 VHDL prerequisites needed before tbblue.fw can soft-reset
+into enNextZX.rom. Merged in 3 branches / 6 commits `f3c42ff..88a1c15`.
+
+- **Branch 1 — NR 0x04 + config_mode SRAM routing** (merged `f3c42ff..7d0b0fa`):
+  - VHDL `zxnext.vhd:3044-3050` config-mode memory routing for 0x0000-0x3FFF ROM slots.
+  - NR 0x04 (`romram_bank`) handler added to NextReg + mirrored into Mmu.
+  - Reviewer corrected priority: Boot ROM > MF > MMU-RAM > DivMMC > Layer 2 >
+    config_mode > sram_rom (VHDL arbiter `zxnext.vhd:3084-3132`).
+
+- **Branch 2 — ROM-in-SRAM serving** (merged `75d87fb..00fe3ab`):
+  - VHDL `zxnext.vhd:3052` — Next ROM lives in SRAM pages 0..7, no separate
+    ROM chip.
+  - `Emulator::init()` seeds `ram_` pages 0..7 from `rom_` at hard reset;
+    `Mmu::set_rom_in_sram(true)` re-points ROM-slot `read_ptr_` at `ram_`.
+
+- **Branch 3 — soft-reset preserves SRAM + boot_rom_en** (merged
+  `eb78d43..88a1c15`):
+  - `Emulator::init(cfg, preserve_memory)` overload gates
+    ram/rom/boot-reload/SRAM-seed.
+  - New `Emulator::soft_reset()` preserves RAM and restores `boot_rom_en`
+    across `Mmu::reset`.
+  - NR 0x02 handler: bit 0 → soft, bit 1 → hard (hard wins), bit 7 → no-op.
+    VHDL cited at `zxnext.vhd:1101,5109-5111,5122` for `bootrom_en`.
+
+**Tests:** Unit 2668/0/565 (+19 across all 3 branches: CFG-01..11, PRI-07,
+SR-01..07). Regression 34/0/0 throughout.
+
+**Empirical result:** tbblue.fw still stalls at **3 NR 0x04 writes**
+(`0x02, 0x06, 0x00`) before reaching `load_roms()` or `RESET_SOFT`.  My fixes
+are never exercised because firmware hangs upstream.  Boot symptom unchanged
+vs. pre-Branch-1.  Do NOT revisit Task 11 mechanics when debugging further —
+the VHDL-cited paths are correct.
+
+### 2026-04-18 — Task 12: MMU slot 6/7 aliased ROM-in-SRAM (ROOT CAUSE FOUND)
+
+Task 12 was framed as "firmware stalls at 3 NR 0x04 writes upstream of
+RESET_SOFT". Turned out to be a one-line MMU bug, not firmware-interaction.
+
+**Trace fingerprint (pre-fix, on canonical `roms/nextzxos-1gb-fat32fix.img`):**
+- NR 0x03 = 0xB0 → boot ROM disabled, config_mode=1
+- NR 0x03 = 0x00 → config_mode stays 1 (000 = no change)
+- NR 0x02 = 0x80 → RESET_ESPBUS only (no-op for us)
+- NR 0x2B palette init (24 writes)
+- NR 0x04 = 0x02, then NR 0x11/0x05/0x09, then NR 0x04 = 0x06, then NR 0x04 = 0x00
+- Silence for 80+ seconds. No more NR writes. No SD CMD17/18 reads.
+
+The (0x02, 0x06, 0x00) NR 0x04 pattern is menu/config-parse paging, NOT
+`load_roms()`.  Expected `load_roms()` pattern for 128K mode: NR 0x04 = 0x04
+(DivMMC), 0x05 (MF), 0x00, 0x01 (Speccy).
+
+**Root cause:** `Mmu::map_128k_bank(port_7ffd)` mapped port_7ffd bank N to
+SRAM pages `N*2` and `N*2+1`.  In Next mode with `rom_in_sram_=true`
+(Task 11 Branch 2), SRAM pages 0-7 hold ROM-in-SRAM (Spectrum ROM).  So
+bank 0 (port_7ffd=0 reset default) put slots 6/7 on SRAM pages 0/1 —
+**aliased with the ROM area**.
+
+tbblue.fw's FATFS global lives at RAM 0xCA94-0xCCC2 (slot 6).  When
+`display_bootscreen()` called `fwRead((uchar*)0x0000, 0x2800)`, the 10 KB
+write into 0x0000-0x27FF went via config_mode NR 0x04 = 0x00 routing to
+SRAM page 0.  **Same physical page as FATFS.**  FATFS was silently overwritten
+at offsets 0xA94-0xCC2 → `get_fat()` returned garbage → `f_read` aborted →
+`display_error("Error reading TBBLUE.FW data!")`.
+
+**VHDL citation:** `zxnext.vhd:2964` —
+```
+mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7:5))) & mem_active_page(4:0);
+```
++0x20 shift on the MSBs. For `mem_active_page = 0`: SRAM page 0x20
+(RAMPAGE_RAMSPECCY base), NOT page 0.
+
+**Fix (commit `5896384`, 2 hunks):**
+- `src/memory/mmu.cpp::map_128k_bank`: when `rom_in_sram_=true`, `base = 0x20`;
+  legacy 0 otherwise. Non-Next paths unchanged.
+- `src/core/emulator.cpp::init()`: after `mmu_.set_rom_in_sram(true)`, call
+  `mmu_.map_128k_bank(0)` to refresh slots 6/7 from their RESET_PAGES seed
+  (RESET_PAGES still has raw 0x00, 0x01 — tbblue.fw never writes port_7FFD
+  during its prologue, so without this refresh the buggy values persist from
+  reset).
+
+**Empirical post-fix:** firmware reaches `load_roms()` and displays
+"Loading ROM: enNextZX.rom... OK!". Task 12's RESET_SOFT-stall fingerprint is
+eliminated. NextZXOS boot still doesn't complete — separate bug downstream.
+
+**Latent issue (not fixed):** `src/core/nex_loader.cpp` and other `set_page()`
+callers still use raw `bank*2` (no +0x20 shift). Works today for NEX content
+that avoids bank 0, but is technically wrong under the same VHDL rule.
+
+Commits: `5896384` (Task 12 map_128k_bank fix), `4dbceb7` (Task 12 root-cause
+notes + Task 13 bypass-tbblue-fw plan).
+
+### 2026-04-18 — Task 12c deep analysis: the +0x20 shift is architectural
+
+After Task 12 fixed slot 6/7, NextZXOS stalled at the next layer. Investigation
+showed that **slot 4/5 alias** with SRAM pages 0x04/0x05 (DIVMMC/MF ROM pages)
+is the same pattern as Task 12 but at a different slot.
+
+**Empirical PC trace this session:**
+- Firmware runs clean through spacebar wait loop (65535 iters of
+  `videoTestActive` calling `B796 → B974 strncmp`).
+- After wait loop: `vdp_clear`, `load_keymap` (keymap NR 0x28-0x2B writes),
+  `load_roms`.
+- `load_roms` sequence: NR 0x04 = 0x04 (DivMMC), 0x05 (MF), 0x00, 0x01,
+  0x02 (Speccy banks 0/1/2).
+- **Immediately after NR 0x04 = 0x02 write, firmware's slot-4 content is
+  clobbered** — at RAM 0x9F8B the bytes are now `c6 05 cd 65 07` (ROM), not
+  the app code.
+- Next instruction fetch lands in ROM garbage; flow eventually reaches
+  PC 0x9F8B → `CALL 0x0765` which jumps into Speccy ROM area. Emulator
+  oscillates in 0x0000-0x1EA3 (Speccy ROM execution from slot 0/1 via
+  config_mode NR 0x04 = 0x02). No NR 0x02 RESET_SOFT, no further firmware
+  progress.
+
+**Places that need the +0x20 shift in Next mode (audit):**
+1. **`Mmu::slots_[6]/[7]`** — FIXED by Task 12.
+2. **`Mmu::slots_[2]/[3]`** (bank 5 VRAM 0x4000-0x7FFF) — NOT FIXED. RESET_PAGES
+   seeds 0x0A/0x0B. In Next mode should be 0x2A/0x2B.
+3. **`Mmu::slots_[4]/[5]`** (bank 2 at 0x8000-0xBFFF) — NOT FIXED. RESET_PAGES
+   seeds 0x04/0x05. In Next mode should be 0x24/0x25. **This is today's stall.**
+4. **ULA bank-5 VRAM fetch** — hardcoded physical pages 0x0A/0x0B in
+   `src/video/ula.cpp`. In Next mode should read 0x2A/0x2B — only if slot 2/3
+   writes also go there. Currently internally consistent; moving them together
+   is required.
+5. **Tilemap bank-5/7 fetch** — same pattern as ULA.
+6. **Sprite SRAM fetch** — not audited; subagent flagged likely correct.
+7. **Layer 2** — has its own separate +1 bank transform (different concept).
+8. **`nex_loader.cpp:342-347` `entry_bank * 2`** — latent bug in Next mode.
+9. **`Emulator::init` ROM-in-SRAM seed** (`emulator.cpp:1268-1274`): copies
+   `rom_.page_ptr(p) → ram_.page_ptr(p)` for p=0..7 — correct (matches VHDL
+   ROM-in-SRAM layout).
+
+**Why the narrow slot-4/5-only attempt broke things (Task 12b revert):**
+- (a) ULA still reads bank-5 VRAM from SRAM 0x0A/0x0B → screen rendering
+  diverged.
+- (b) The app code tbblue.fw's ROM layer wrote into slot-3 RAM (0x6000-0x7FFF)
+  at emulator boot time landed at SRAM page 0x0B (via `ram_.write(0x6000+i,
+  val)` during nextboot.rom execution which did NOT go through shifted slot
+  mapping). After shift, slot 3 pointed to 0x2B → empty → CPU ran garbage from
+  0x6000 and tbblue.fw's `main()` kept restarting from crt0.
+
+**Conclusion:** fix is architectural, not local. Our MMU stores physical SRAM
+indices where VHDL stores logical MMU pages. Centralise the shift.
+
+**Independent reviewer recommendation:** (a) introduce `Mmu::to_sram_page`
+helper; (b) apply at every `ram_` access site in Next mode; (c) retire
+Task 12's per-site `speccy_base`.
+
+No commits this day beyond the revert restoring clean state. Test state
+preserved: 2676/0/557 unit, 34/0/0 regression.
+
+### 2026-04-19 — Task 12c: architectural fix landed
+
+Three iterations before the fix was correct:
+
+- **First attempt.** Apply shift in `rebuild_ptr` + retire `speccy_base`.
+  Unit tests pass. Regression: 4 Layer 2 tests fail (dapr-l2empty, etc.).
+  Root cause: Layer 2 renderer reads raw SRAM banks while MMU writes go
+  through the shift → divergence.
+- **Narrow-fix attempt.** Only shift slots 4/5 in `set_rom_in_sram`. Broke 20
+  regression tests because NEX loaders write via `mmu.set_page` which would
+  need to shift too, but Layer 2 renderer wouldn't — same mismatch, wider.
+- **Final fix.** Universal helper + thread `rom_in_sram` flag into Layer 2
+  renderer's `compute_ram_addr` AND into the port-0x123B L2 write-over path in
+  `mmu.h`. Both paths now apply `to_sram_page`. 2676/0/557 + 34/0/0 clean.
+
+**Helper rule (final):**
+```cpp
+uint8_t Mmu::to_sram_page(uint8_t logical) const {
+    if (!rom_in_sram_) return logical;
+    if (logical == 0x0A || logical == 0x0B || logical == 0x0E) return logical;
+    return static_cast<uint8_t>(logical + 0x20);
+}
+```
+Matches VHDL `zxnext.vhd:2964` with bank-5/7-lower dual-port exceptions from
+`zxnext.vhd:2961-2962`.
+
+**Second commit** (`6920a63`) removed the `>= 0x20` short-circuit after
+discovering NextZXOS post-RESET_SOFT writes NR 0x56/0x57 with logical 0x20+
+values that VHDL shifts to 0x40+. Full VHDL formula now applied (wraps at
+0x100; pages ≥ 0xE0 wrap to SRAM 0x00..0x1F).
+
+**Commits:**
+- `9737640` — helper + Layer 2 shift + retire `speccy_base`.
+- `6920a63` — apply shift across full page range.
+- `7abbe51` — merge `task12c-centralise-shift-helper`.
+
+**Empirical result post-fix:**
+- `load_roms` completes ALL 4 +3 ROM banks (previously stalled at bank 2).
+- `init_registers` runs — NR 0x05/0x06/0x08/0x09/0x0A + NR 0x82-0x85 all
+  written.
+- NR 0x03 = 0xB3 (machine-type +3 commit) writes; NR 0x02 = 0x01 (RESET_SOFT)
+  fires.
+- `Emulator::soft_reset()` runs.
+- CPU resumes at 0x0000. enNextZX.rom content at 0x0000 = `F3 C3 EF 00` =
+  `DI; JP 0x00EF`.
+- At 0x00EF: NR 0x07=3, NR 0x03=0xB0, NR 0xC0=0x08 (stackless NMI),
+  NR 0x82-0x85=0xFF, NR 0x80/0x81/0x8A/0x8F=0, NR 0x06 RMW, LDIR clear of
+  0x5800-0x5AFF.
+- RAM test PASS 1 at 0x0130 (112 iterations, NR 0x56 sweep 0x00..0xDE).
+- RAM test PASS 2 at 0x018E (112 iterations verifying 0xBB marker).
+- Post-test init: NR 0xD8=0x01, NR 0x05=0x5A, NR 0x08=0x4E, NR 0x06=0xAB/0xA8,
+  NR 0x0A=0x10, various NR 0x8E writes, NR 0xB8-0xBB, NR 0xC0.
+- At 0x01D1: `LD SP, 0x5BFF`. At 0x01D4: `RST 0x20`. At 0x01DB: `IM 1`.
+- CPU eventually settles into DivMMC-automapped IM1 handler (PC samples
+  oscillate in 0x0038..0x006E + 0x1FF9, SP=0x26E9).
+
+**Visible state:** blue vertical stripes on display, 8-pixel period, across
+the full 256×192 area; border black.  VRAM content (via `debug_dump_vram`
+helper, reverted after the session):
+```
+attr [0x5800..0x581F]: 00 39 00 39 00 39 00 39 00 39 00 39 ...
+pixel [0x4000..0x401F]: 00 39 00 39 00 39 00 39 ...
+```
+Attribute 0x39 = `00 111 001` = blue ink on white paper. With pixel bytes 0x39
+in those cells, 5 blue pixels out of 8 → observed stripe pattern. Attributes
+were supposedly cleared at enNextZX.rom:0x012A (LDIR with L=0) but something
+later rewrites them.
+
+**Ruled-out hypotheses (session 2026-04-19):**
+- **SP leak (0xFFFF → 0x26E9 post-reset) is NOT a leak.** `enNxtmmc.rom:0x0052`
+  does `LD SP, 0x26ED` — DivMMC IM1 handler's private stack base. SP
+  fluctuating between 0x26E7..0x26ED is normal.
+- **Stackless NMI (NR 0xC0 bit 3)** is unhandled in our emulator, but no
+  caller of `cpu_.request_nmi()` exists anywhere, so no NMIs fire to leak
+  stack. Per VHDL `zxnext.vhd:5597-5599`: bit 7:5 `nr_c0_im2_vector`, bit 3
+  `nr_c0_stackless_nmi`, bit 0 `nr_c0_int_mode_pulse_0_im2_1`. 0x08 sets bit 3
+  only; bit 0 = 0 → pulse mode (IM1-style). So **IM2 hardware mode is NOT in
+  play** (earlier misreading corrected by user).
+- **DivMMC automap** is working correctly on IM1. `enNxtmmc.rom` at 0x38 is
+  `C3 E5 00` (`JP 0x00E5`); at 0x42 is `C3 F9 1F` (`JP 0x1FF9`). CPU runs
+  `enNxtmmc.rom`'s handler at 0x00E5, not `enNextZX.rom`'s 0x0038. Handler
+  ends cleanly with `EI; RET`.
+
+**Likely remaining issue (top suspect, not yet verified):** `enNextZX.rom` at
+0x01D4 does `RST 0x20`.  In +3 BASIC `RST 0x20` is the
+"NEXT-BYTE-FROM-ROM-TABLE" subroutine — it expects the caller's return address
+to point to a ROM table, reads the byte, advances PC, returns.  If ROM content
+at 0x0000 isn't exactly enNextZX bytes (ROM-in-SRAM preservation across
+soft_reset, or interaction with DivMMC automap), `RST 0x20` reads garbage and
+BASIC goes off the rails → the 0x00/0x39 VRAM pattern may be BASIC
+interpreter error output.
+
+**Other hypotheses for the stripes (ordered by likelihood):**
+2. **Peripheral gap.** NR 0x8E (MMU advanced) gets 6 writes — if our handler
+   drops meaningful state, subsequent reads could be wrong. NR 0xB8-0xBB are
+   mystery registers.
+3. **DivMMC state mishandled.** Automap has been tested for single-M1 entry
+   but RAM test + peripheral init path may push it through edge cases not
+   covered (8 of 17 DivMMC SKIPs are Task 8 Multiface deps; 1 is Layer 2
+   read-map feeder).
+4. **Unintended L2 write-over.** Port 0x123B sets `l2_write_enable_`. If
+   post-reset code accidentally enables L2 write-over for segments covering
+   0x4000-0x7FFF, CPU writes would go to L2 RAM at shifted SRAM pages — not
+   bank 5. Need to check whether `enNextZX.rom` touches port 0x123B post-reset.
+
+**Sites NOT yet audited (deferred follow-up):**
+- Tilemap bank-5/7 base fetch — stays physical 0x0A/0x0E (bank-5/7 dual-port
+  match).
+- Sprite SRAM fetch.
+- Copper memory access.
+- DMA RAM access.
+- NEX-loader `entry_bank * 2` — now correct by accident because `set_page` +
+  `rebuild_ptr` apply the helper, but NEX loader's `write_to_page` TEMP_SLOT=7
+  path also consistent.
+- SNA / SZX loaders — follow NEX pattern; likely fine.
+- NR 0xC0 bit 3 (stackless NMI) — unhandled. Not relevant today, will matter
+  once Multiface peripheral lands.
+
+**Tests:** 2676/0/557 unit, 34/0/0 regression — unchanged across Task 12c
+commits.
+
+**Decision at EOD:** rather than chase the post-reset `RST 0x20` path with
+another speculative round, address the Memory/MMU (77 skip) and NextREG
+(48 skip) gaps first.  Rationale: momentum from Task 12c; NR 0xC0 bit 3 is a
+known unhandled bit that may surface as a SKIP; any MMU/NextREG gaps
+affecting NextZXOS will surface during the work; measurable progress every
+session vs high-variance debug.  After both subsystems are clean, re-attempt
+NextZXOS boot.
+
 ---
 
-## Firmware Source Key Files
-
-| File | Role |
-|------|------|
-| `app/src/boot.c` | `main()`, `loadFile()`, `load_roms()`, `display_bootscreen()`, `init_registers()` |
-| `app/src/fwfile.c` | `fwOpenAndSeek()`, `fwRead()`, `fwSeek()` — TBBLUE.FW block access |
-| `app/src/config.c` | `load_config()` — reads config.ini, menu.def |
-| `app/src/ff/diskio.c` | `disk_initialize()`, `disk_read()`, `send_cmd()`, `rcvr_datablock()` |
-| `app/src/ff/ff.c` | Chan's FatFs — `f_read()` at line 3500, cluster boundary clip at ~3555 |
-| `app/src/videomagic.c` | `videoTestActive()` — reads magic from config page bank 2 |
-| `app/src/misc.c` | `getCoreBoot()` — reads magic from config page bank 6, `disable_bootrom()` |
-| `app/src/crt0.s` | CRT0: SP=0xFFFF, gsinit, call main |
-| `app/Makefile` | Build flags: `--data-loc 0 --code-loc 0x6010 --no-std-crt0` |
-| `hardware.h` | HWID_EMULATORS=0x08, RAMPAGE constants, register definitions |
-| `loader/src/main.c` | Boot loader: `mem = 0x6000`, reads TBBLUE.FW blocks, `jp 0x6000` |
-
----
-
-## Commits
+## Commit index (all dates)
 
 | Hash | Date | Description |
 |------|------|-------------|
 | 5bef014 | 2026-03-29 | SPI model rewrite: split read/write, CS deselect, CMD1 |
 | 971aaee | 2026-03-29 | NCR busy byte before R1 |
 | 7723008 | 2026-03-29 | CMD12 stuff bytes (8×0xFF) |
-| 93dc7bc | 2026-03-30 | Machine ID, FAT32 image, CMD18, soft reset |
+| 93dc7bc | 2026-03-30 | Machine ID 0x08, FAT32 image, CMD18, soft reset |
 | 6b947ec | 2026-03-31 | Writable boot ROM SRAM, config_mode sync, automap control |
 | 9e4243b | 2026-04-01 | Delayed screenshot + automatic exit CLI options |
+| e73df39 | 2026-04-18 | Build: auto-regenerate version.h when version.yaml changes |
+| 0077d3e | 2026-04-18 | CLI: rename --machine-type to --machine |
+| 396a63a | 2026-04-18 | nextreg: NR 0x00 machine ID = 0x08 (HWID_EMULATORS) |
+| f3c42ff…7d0b0fa | 2026-04-18 | Task 11 Branch 1 — NR 0x04 + config_mode SRAM routing |
+| 75d87fb…00fe3ab | 2026-04-18 | Task 11 Branch 2 — ROM-in-SRAM serving |
+| eb78d43…88a1c15 | 2026-04-18 | Task 11 Branch 3 — soft_reset preserves SRAM + boot_rom_en |
+| 5896384 | 2026-04-18 | fix(mmu): Task 12 — +0x20 shift for 128K bank in Next mode |
+| 4dbceb7 | 2026-04-18 | doc: Task 12 root-cause fix notes + Task 13 bypass plan |
+| 9737640 | 2026-04-19 | fix(mmu): Task 12c — centralise +0x20 shift in `to_sram_page` helper |
+| 6920a63 | 2026-04-19 | fix(mmu): Task 12c — apply `to_sram_page` across full page range |
+| 7abbe51 | 2026-04-19 | Merge branch 'task12c-centralise-shift-helper' |
+| f15a58c | 2026-04-19 | doc(prompt): add Task 12c status block |
