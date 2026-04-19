@@ -189,32 +189,32 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:199 |
 | BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:201 |
 | BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:202 |
-| CON-01  | 48K: bank 5 contended                                        | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-02  | 48K: bank 5 hi contended                                     | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-03  | 48K: bank 0 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-04  | 48K: bank 7 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-05  | 128K: odd banks contended                                    | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-06  | 128K: even banks not contended                               | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-07  | +3: banks >= 4 contended                                     | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-08  | +3: banks < 4 not contended                                  | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-09  | High page never contended                                    | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-10  | NR 0x08 bit 6 disables contention                            | —               | skip    | test/mmu/mmu_test.cpp:204 |
-| CON-11  | Speed > 3.5 MHz no contention                                | —               | skip    | test/mmu/mmu_test.cpp:205 |
-| CON-12  | Pentagon timing no contention                                | —               | skip    | test/mmu/mmu_test.cpp:205 |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:207 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:209 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:210 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:212 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:214 |
-| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:216 |
-| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:216 |
-| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:218 |
-| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:218 |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:220 |
-| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:221 |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:222 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:222 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:224 |
+| CON-01  | 48K: bank 5 contended                                        | —               | pass    | test/mmu/mmu_test.cpp:206 |
+| CON-02  | 48K: bank 5 hi contended                                     | —               | pass    | test/mmu/mmu_test.cpp:207 |
+| CON-03  | 48K: bank 0 not contended                                    | —               | pass    | test/mmu/mmu_test.cpp:208 |
+| CON-04  | 48K: bank 7 not contended                                    | —               | pass    | test/mmu/mmu_test.cpp:209 |
+| CON-05  | 128K: odd banks contended                                    | —               | pass    | test/mmu/mmu_test.cpp:210 |
+| CON-06  | 128K: even banks not contended                               | —               | pass    | test/mmu/mmu_test.cpp:211 |
+| CON-07  | +3: banks >= 4 contended                                     | —               | pass    | test/mmu/mmu_test.cpp:213 |
+| CON-08  | +3: banks < 4 not contended                                  | —               | pass    | test/mmu/mmu_test.cpp:214 |
+| CON-09  | High page never contended                                    | —               | pass    | test/mmu/mmu_test.cpp:215 |
+| CON-10  | NR 0x08 bit 6 disables contention                            | —               | pass    | test/mmu/mmu_test.cpp:216 |
+| CON-11  | Speed > 3.5 MHz no contention                                | —               | pass    | test/mmu/mmu_test.cpp:217 |
+| CON-12  | Pentagon timing no contention                                | —               | pass    | test/mmu/mmu_test.cpp:219 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:224 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:226 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:227 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:229 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:231 |
+| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:232 |
+| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:233 |
+| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:234 |
+| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:235 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:236 |
+| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:237 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:238 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:239 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:241 |
 
 ### Extra coverage (not in plan)
 
