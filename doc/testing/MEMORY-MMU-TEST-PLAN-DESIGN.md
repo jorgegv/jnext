@@ -627,7 +627,8 @@ Physical address = `mmu_A21_A13 << 13`.
 |---------|-----------------------------------|---------------------------------|---------------------------------------|
 | L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MMU page | MMU0→page 0x20, L2 bank 8, write 0x0000=0xAB, read via MMU | MMU page 0x20 unchanged (L2 write landed in physical page 0x10) |
 | L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision) | MMU0→page 0x10, L2 bank 8, write 0x0000=0xAB, read via MMU | MMU page 0x10 reads 0xAB — same SRAM per VHDL zxnext.vhd:2964,2969,2971 |
-| L2M-02  | L2 read-enable maps 0-16K        | port_123b read_en=1, seg=00     | Reads from L2 bank, not ROM/MMU       |
+| L2M-02a | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank | MMU0→page 0x20 (0x55), L2 bank 8 page 0x10=0xA7, set_l2_port(0x04,8), read(0x0000) | 0xA7 — L2 bank wins per VHDL zxnext.vhd:2969,3077,3100 |
+| L2M-02b | L2 read-enable OFF → MMU slot wins (discriminative) | Same setup as 02a but set_l2_port(0x00,8) | 0x55 — MMU slot per VHDL zxnext.vhd:3077 (sram_pre_layer2_rd_en required) |
 | L2M-03  | L2 auto segment follows A(15:14) | port_123b seg=11                | Segment = cpu_a(15:14)                |
 | L2M-04  | L2 does NOT map 48K-64K          | port_123b seg=11, access 0xC000 | MMU used, not L2                       |
 | L2M-05  | L2 bank from NR 0x12             | NR 0x12 = bank, shadow=0       | L2 base bank matches NR 0x12          |
