@@ -15,12 +15,13 @@ register encoding, and arbitration between CPU and copper requesters.
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-nextreg`).
 
-Measured on main 2026-04-20 post-Phase-1b (commit `e647cd0`):
+Measured on main 2026-04-20 post-Phase-1b fix:
 
 - **64 plan rows total**.
 - **Bare test** (`test/nextreg/nextreg_test.cpp`): 21 pass / 0 fail / 35 skip. Reduced from 45 skip by re-homing 10 integration-tier rows (RST-01..08, MMU-01, PE-04) as source comments pointing at `nextreg_integration_test.cpp`.
-- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): 45 pass / 0 fail / 17 skip. Added 28 new integration-tier rows (RO-01..06, SEL-03, CLIP-01..08, PAL-01..06, PE-05, RW-01..02, CFG-01/02/05) during Phase 1b.
-- **Emulator Bug backlog items surfaced by integration rewrites** (all `skip()`'d in integration test with specific backlog notes): RO-02/SEL-03 (NR 0x00 RO enforcement missing), CLIP-01..05 (Layer2/Sprite subsystem public clip getters missing), CLIP-07/08 (NR 0x1C/0x18 read handlers missing), PAL-01/03/06 (palette auto-inc + sub_idx semantics diverge), PE-05 (NR 0x89 default not seeded), RW-01/02 (NR 0x07/0x08 read handlers missing), CFG-02 (dt_lock XOR not modelled). 15 items to be addressed in future branches.
+- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): 43 pass / **3 fail** / 16 skip out of 62 rows. Added 28 integration rows during Phase 1b covering RO-01..06, SEL-03, CLIP-01..08, PAL-01..06, PE-05, RW-01..02, CFG-01/02/05. After 2026-04-20 critic pass, 3 palette rows (PAL-01, PAL-03, PAL-06) converted from SKIP → real FAIL per §2 (facility exists in `src/video/palette.cpp`; converting to SKIP would have hidden real emulator bugs — coverage-theatre anti-pattern). RO-04 and CFG-01 converted from pass/tautology → SKIP with VHDL-correct backlog notes.
+- **Emulator Bug backlog items surfaced**: PAL-01 (auto-inc advance broken), PAL-03 (NR 0x44 9-bit sub_idx or test-harness issue), PAL-06 (NR 0x43 bit 7 auto-inc-disable not effective). PE-05 (NR 0x89 default should be 0x8F not 0xFF — layout matches NR 0x85 per VHDL:6147-6150). RO-04 (VHDL g_sub_version=0x03, JNEXT leaves regs_[0x0E]=0x00). CFG-01 (NR 0x03 read is composed, not raw register). CFG-02 (dt_lock XOR not modelled). RO-02/SEL-03 (NR 0x00 RO enforcement — regs_[0] round-trips writes). CLIP-01..05 (Layer2/Sprite/Ula public clip getters + `Emulator::ula()` accessor missing). CLIP-07/08 (NR 0x18/0x1C read handlers missing). RW-01/02 (NR 0x07/0x08 read handlers missing).
+- **Matrix-tooling gap:** `test/refresh-traceability-matrix.py` does not scan `nextreg_integration_test.cpp`, so Phase 1b integration rewrites are invisible to the per-row matrix table and the 3 FAILs above are not counted in the aggregate. Tracked in TRACEABILITY-MATRIX.md. Backlog: extend refresh script.
 - **(D) plan nit**: plan mixes bare-tier rows with integration-tier rows without labelling. Future plan refresh should tag each row with its intended test tier (bare / subsystem / integration). Test file's skip reasons document the tier boundary inline.
 
 ## Authoritative VHDL Source

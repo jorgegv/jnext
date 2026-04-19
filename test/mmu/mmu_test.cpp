@@ -191,30 +191,30 @@ void test_cat1_slot_assignment() {
               fmt("ram[0xDF][0]=0x%02X expected=0x11", v));
     }
 
-    // MMU-12: page 0xE0 — VHDL zxnext.vhd:2964 sets mmu_A21_A13(8)='1',
-    // routing to ROM. In JNEXT the observable is Next-mode-specific: with
-    // rom_in_sram_=true, to_sram_page(0xE0) = 0xE0 + 0x20 = 0x100 which
-    // truncates to 0x00 (uint8_t wrap). SRAM page 0x00 is the ROM-in-SRAM
-    // seed area (pages 0..7 hold the Spectrum ROM after
-    // Emulator::init()). So page 0xE0 on a Next-mode slot read returns
-    // the byte at ram.page_ptr(0)[offset] — exactly the ROM path VHDL
-    // takes. Stamp a distinguisher into ram.page_ptr(0) and observe the
-    // read returns it, confirming the ROM-branch equivalent.
-    {
-        Fixture f;
-        f.fresh();
-        f.mmu.set_config_mode(false);
-        uint8_t* ram0 = f.ram.page_ptr(0);
-        if (ram0) ram0[0x1234] = 0xA7;   // distinguisher in ROM-in-SRAM page 0
-        f.mmu.set_rom_in_sram(true);     // Next mode: enable to_sram_page shift
-        f.mmu.set_page(4, 0xE0);         // slot 4 @ 0x8000, logical page 0xE0
-        const uint8_t v = f.mmu.read(0x9234);  // 0x8000 + 0x1234
-        check("MMU-12",
-              "page 0xE0 in Next mode wraps mmu_A21_A13(8)→'1', lands on "
-              "ROM-in-SRAM page 0 — VHDL zxnext.vhd:2964",
-              v == 0xA7,
-              fmt("read=0x%02X expected=0xA7 (ram_[0][0x1234] distinguisher)", v));
-    }
+    // MMU-12: page 0xE0 on a RAM slot.
+    //
+    // REVERTED FROM OUTCOME TEST 2026-04-20 AFTER INDEPENDENT REVIEW.
+    // The earlier attempt asserted page 0xE0 "wraps to ROM-in-SRAM page 0"
+    // — that was encoding JNEXT's truncation bug as the oracle (SX-02
+    // pattern). VHDL-correct behaviour per zxnext.vhd:3060-3061: for
+    // slots 2..7 (cpu_a(15:14) ≠ "00"), `sram_pre_active <= (not
+    // mmu_A21_A13(8)) and …`. When mmu_A21_A13(8)='1' (page ≥0xE0),
+    // sram_pre_active='0' → memory inactive, CPU read returns floating
+    // bus (typically 0xFF). JNEXT's `Mmu::rebuild_ptr` uses
+    // `to_sram_page()` which truncates 0xE0+0x20=0x100 to 0x00 and
+    // reads ram_.page_ptr(0) — lands on ROM-in-SRAM. **This is a real
+    // emulator deviation from VHDL.**
+    //
+    // Backlog: either (a) gate RAM slots so page ≥0xE0 returns 0xFF
+    // (floating bus), or (b) leave as documented known deviation and
+    // note in src/memory/mmu.h the wrap claim is JNEXT-specific not
+    // VHDL-faithful.
+    skip("MMU-12",
+         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
+         "sram_pre_active=0 (floating bus). JNEXT truncates via "
+         "to_sram_page and reads ROM-in-SRAM page 0 instead — real "
+         "deviation [backlog: gate slots on mmu_A21_A13(8) or "
+         "document deviation in mmu.h:231-245 comment]");
 
     // MMU-13: read-back of NR 0x50..0x57 after writes (registers retain
     // last-written value). VHDL zxnext.vhd:1018-1025.
@@ -1095,50 +1095,21 @@ void test_cat14_addr_translation() {
               fmt("page 0x%02X: ram[page][0]=0x%02X expected=0x5A", r.page, v));
     }
 
-    // ADR-09: page 0xE0 — see MMU-12 for the same invariant. Observable
-    // in Next mode via the to_sram_page(0xE0)=0x100→wrap→0x00 path, which
-    // lands on the ROM-in-SRAM seed area. Stamp a byte into ram page 0
-    // and read it back through the slot.
-    {
-        Fixture f;
-        f.fresh();
-        f.mmu.set_config_mode(false);
-        uint8_t* ram0 = f.ram.page_ptr(0);
-        if (ram0) ram0[0x0000] = 0xD1;
-        f.mmu.set_rom_in_sram(true);
-        f.mmu.set_page(4, 0xE0);
-        const uint8_t v = f.mmu.read(0x8000);
-        check("ADR-09",
-              "page 0xE0 wraps to ROM-in-SRAM page 0 (overflow→ROM) — "
-              "VHDL zxnext.vhd:2964 mmu_A21_A13(8)",
-              v == 0xD1,
-              fmt("read=0x%02X expected=0xD1 (ram_[0][0])", v));
-    }
-
-    // ADR-10: page 0xFE — mmu_A21_A13(8)='1' path, to_sram_page wraps to
-    // 0xFE+0x20=0x11E → truncates to 0x1E. SRAM page 0x1E is past the
-    // ROM-in-SRAM seed window but is a valid RAM page. Observable: stamp
-    // ram.page_ptr(0x1E) first, then set_page(slot, 0xFE), read.
-    //
-    // (Page 0xFF is deliberately NOT tested here because JNEXT short-
-    // circuits it as an explicit ROM sentinel — see
-    // src/memory/mmu.cpp:46 in rebuild_ptr — consistent with VHDL
-    // zxnext.vhd:4611-4612 MMU0/MMU1 = 0xFF reset default.)
-    {
-        Fixture f;
-        f.fresh();
-        f.mmu.set_config_mode(false);
-        f.mmu.set_rom_in_sram(true);
-        uint8_t* ram1e = f.ram.page_ptr(0x1E);
-        if (ram1e) ram1e[0x0000] = 0xDE;
-        f.mmu.set_page(4, 0xFE);
-        const uint8_t v = f.mmu.read(0x8000);
-        check("ADR-10",
-              "page 0xFE wraps to SRAM 0x1E (mmu_A21_A13=0x11E, 8-bit trunc) "
-              "— VHDL zxnext.vhd:2964",
-              v == 0xDE,
-              fmt("read=0x%02X expected=0xDE (ram_[0x1E][0])", v));
-    }
+    // ADR-09 / ADR-10 — REVERTED FROM OUTCOME TESTS 2026-04-20 AFTER
+    // INDEPENDENT REVIEW (same SX-02 pattern as MMU-12). Earlier attempt
+    // asserted "page 0xE0 / 0xFE wraps to ROM-in-SRAM / SRAM 0x1E"; that
+    // encodes JNEXT's `to_sram_page` truncation as the oracle. VHDL
+    // zxnext.vhd:3060-3061 for slots 2..7 sets `sram_pre_active=0`
+    // whenever mmu_A21_A13(8)='1', which is floating-bus, NOT a wrap.
+    // See MMU-12 for the backlog item.
+    skip("ADR-09",
+         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
+         "floating bus; JNEXT wraps via to_sram_page — real deviation "
+         "[backlog: same as MMU-12]");
+    skip("ADR-10",
+         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
+         "floating bus; JNEXT wraps via to_sram_page — real deviation "
+         "[backlog: same as MMU-12]");
 }
 
 // ── Category 15: Bank 5/7 special pages ───────────────────────────────

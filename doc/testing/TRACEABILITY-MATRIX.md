@@ -7,7 +7,7 @@
 | Subsystem        | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
-| Memory/MMU       | 143       | 143     | 73   | 0    | 70        | 0       | `354fa14`         |
+| Memory/MMU       | 143       | 143     | 73   | 0    | 70        | 0       | HEAD              |
 | ULA Video        | 122       | 122     | 48   | 0    | 75        | 0       | `7c56b92000`      |
 | Layer2           | 97        | 97      | 89   | 0    | 8         | 0       | `fcbd9aed61`      |
 | Sprites          | 125       | 125     | 115  | 0    | 10        | 0       | `28f5afb540`      |
@@ -23,7 +23,11 @@
 | IO Port Dispatch | 86        | 86      | 80   | 0    | 6         | 0       | `ba19f6f`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1788** non-Z80N plan rows (+ 30 Z80N), **1720** mapped to tests, **68** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after C0 paging-unlock + Phase 1b NextREG integration rewrites): **1176 pass, 0 fail, 544 skip, 68 missing**. The 68 missing rows are plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04, plus subsystem-level consolidations). Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1788** non-Z80N plan rows (+ 30 Z80N), **1720** mapped to tests, **68** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after C0 paging-unlock + Phase 1a/1b fixes): **1173 pass, 0 fail, 547 skip, 68 missing** (script-tracked).
+
+**Known matrix-tooling gap (flagged by 2026-04-20 critic review):** `test/refresh-traceability-matrix.py` only scans the per-subsystem bare test files, not `test/nextreg/nextreg_integration_test.cpp`. Consequently, the Phase 1b integration rewrites are **not reflected in the per-row tables** for NextREG — the bare-test entries for RO/SEL/CLIP/PAL/RW/CFG/PE rows still show `skip` even where integration coverage exists. Additionally, the 3 palette FAILs surfaced by Phase 1b (PAL-01, PAL-03, PAL-06 in `nextreg_integration_test.cpp`) are not counted in the aggregate `0 fail`. Actual integration-suite state: 43 pass / 3 fail / 16 skip out of 62 rows. Backlog: extend the refresh script to scan integration test files and merge status with the bare entries.
+
+The 68 missing rows are plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04, plus subsystem-level consolidations). Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -81,138 +85,138 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | MMU-09  | Write NR 0x50 = 0xFF                                         | —               | pass    | test/mmu/mmu_test.cpp:158 |
 | MMU-10  | High page (NR 0x54 = 0x40)                                   | —               | pass    | test/mmu/mmu_test.cpp:173 |
 | MMU-11  | Max page (NR 0x54 = 0xDF)                                    | —               | pass    | test/mmu/mmu_test.cpp:188 |
-| MMU-12  | Page 0xE0 overflows to ROM                                   | —               | skip    | test/mmu/mmu_test.cpp:201 |
-| MMU-13  | Read-back NR 0x50-0x57                                       | —               | pass    | test/mmu/mmu_test.cpp:216 |
-| MMU-14  | Write/read pattern all slots                                 | —               | pass    | test/mmu/mmu_test.cpp:234 |
-| MMU-15  | Slot boundary (0x1FFF/0x2000)                                | —               | pass    | test/mmu/mmu_test.cpp:252 |
-| RST-01  | MMU0 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:276 |
-| RST-02  | MMU1 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:277 |
-| RST-03  | MMU2 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:278 |
-| RST-04  | MMU3 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:279 |
-| RST-05  | MMU4 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:280 |
-| RST-06  | MMU5 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:281 |
-| RST-07  | MMU6 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:282 |
-| RST-08  | MMU7 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:283 |
-| P7F-01  | Bank 0 select                                                | —               | pass    | test/mmu/mmu_test.cpp:305 |
-| P7F-02  | Bank 1 select                                                | —               | pass    | test/mmu/mmu_test.cpp:306 |
-| P7F-03  | Bank 2 select                                                | —               | pass    | test/mmu/mmu_test.cpp:307 |
-| P7F-04  | Bank 3 select                                                | —               | pass    | test/mmu/mmu_test.cpp:308 |
-| P7F-05  | Bank 4 select                                                | —               | pass    | test/mmu/mmu_test.cpp:309 |
-| P7F-06  | Bank 5 select                                                | —               | pass    | test/mmu/mmu_test.cpp:310 |
-| P7F-07  | Bank 6 select                                                | —               | pass    | test/mmu/mmu_test.cpp:311 |
-| P7F-08  | Bank 7 select                                                | —               | pass    | test/mmu/mmu_test.cpp:312 |
-| P7F-09  | ROM 0 select                                                 | —               | pass    | test/mmu/mmu_test.cpp:333 |
-| P7F-10  | ROM 1 select (bit 4)                                         | —               | pass    | test/mmu/mmu_test.cpp:345 |
-| P7F-11  | Shadow screen (bit 3)                                        | —               | skip    | test/mmu/mmu_test.cpp:354 |
-| P7F-12  | Lock bit (bit 5)                                             | —               | pass    | test/mmu/mmu_test.cpp:365 |
-| P7F-13  | Locked write rejected                                        | —               | pass    | test/mmu/mmu_test.cpp:383 |
-| P7F-14  | NR 0x08 bit 7 unlocks                                        | zxnext.vhd:3654 | pass    | test/mmu/mmu_test.cpp:411 |
-| P7F-15  | Full register preserved                                      | —               | pass    | test/mmu/mmu_test.cpp:427 |
-| DFF-01  | Extra bit 0                                                  | —               | skip    | test/mmu/mmu_test.cpp:442 |
-| DFF-02  | Extra bit 1                                                  | —               | skip    | test/mmu/mmu_test.cpp:443 |
-| DFF-03  | Extra bit 2                                                  | —               | skip    | test/mmu/mmu_test.cpp:444 |
-| DFF-04  | Extra bit 3                                                  | —               | skip    | test/mmu/mmu_test.cpp:445 |
-| DFF-05  | Max bank (DFFD=0x0F,7FFD=7)                                  | —               | skip    | test/mmu/mmu_test.cpp:446 |
-| DFF-06  | Locked by 7FFD bit 5                                         | —               | skip    | test/mmu/mmu_test.cpp:447 |
-| DFF-07  | Bit 4 (Profi DFFD override)                                  | —               | skip    | test/mmu/mmu_test.cpp:448 |
-| P1F-01  | ROM bank 0 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:467 |
-| P1F-02  | ROM bank 1 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:479 |
-| P1F-03  | ROM bank 2 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:491 |
-| P1F-04  | ROM bank 3 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:503 |
-| P1F-05  | Special mode enable                                          | —               | pass    | test/mmu/mmu_test.cpp:524 |
-| P1F-06  | Locked by 7FFD bit 5                                         | —               | pass    | test/mmu/mmu_test.cpp:538 |
-| P1F-07  | Motor bit independent                                        | —               | skip    | test/mmu/mmu_test.cpp:546 |
-| SPE-01  | 00 (1FFD=0x01)                                               | —               | pass    | test/mmu/mmu_test.cpp:563 |
-| SPE-02  | 01 (1FFD=0x03)                                               | —               | pass    | test/mmu/mmu_test.cpp:565 |
-| SPE-03  | 10 (1FFD=0x05)                                               | —               | pass    | test/mmu/mmu_test.cpp:567 |
-| SPE-04  | 11 (1FFD=0x07)                                               | —               | pass    | test/mmu/mmu_test.cpp:569 |
-| SPE-05  | Exit special mode                                            | —               | pass    | test/mmu/mmu_test.cpp:599 |
-| LCK-01  | 7FFD bit 5 locks 7FFD writes                                 | —               | pass    | test/mmu/mmu_test.cpp:620 |
-| LCK-02  | 7FFD bit 5 locks 1FFD writes                                 | —               | pass    | test/mmu/mmu_test.cpp:633 |
-| LCK-03  | 7FFD bit 5 locks DFFD writes                                 | —               | skip    | test/mmu/mmu_test.cpp:640 |
-| LCK-04  | NR 0x08 bit 7 clears lock                                    | zxnext.vhd:3654 | pass    | test/mmu/mmu_test.cpp:660 |
-| LCK-05  | Pentagon-1024 overrides lock                                 | —               | skip    | test/mmu/mmu_test.cpp:669 |
-| LCK-06  | MMU writes bypass lock                                       | —               | pass    | test/mmu/mmu_test.cpp:679 |
-| LCK-07  | NR 0x8E bypasses lock                                        | —               | skip    | test/mmu/mmu_test.cpp:686 |
-| N8E-01  | Bank select (bit 3=1)                                        | —               | skip    | test/mmu/mmu_test.cpp:697 |
-| N8E-02  | ROM select (bit 3=0, bit 2=0)                                | —               | skip    | test/mmu/mmu_test.cpp:698 |
-| N8E-03  | Special mode via 8E                                          | —               | skip    | test/mmu/mmu_test.cpp:699 |
-| N8E-04  | Special + config bits                                        | —               | skip    | test/mmu/mmu_test.cpp:700 |
-| N8E-05  | Read-back format                                             | —               | skip    | test/mmu/mmu_test.cpp:701 |
-| N8E-06  | Bank select clears DFFD(3)                                   | —               | skip    | test/mmu/mmu_test.cpp:702 |
-| N8F-01  | Standard mode (default)                                      | —               | skip    | test/mmu/mmu_test.cpp:712 |
-| N8F-02  | Pentagon 512K                                                | —               | skip    | test/mmu/mmu_test.cpp:713 |
-| N8F-03  | Pentagon 1024K                                               | —               | skip    | test/mmu/mmu_test.cpp:714 |
-| N8F-04  | Pentagon 1024K disabled by EFF7                              | —               | skip    | test/mmu/mmu_test.cpp:715 |
-| N8F-05  | Pentagon bank(6) always 0                                    | —               | skip    | test/mmu/mmu_test.cpp:716 |
-| EF7-01  | Bit 3 = RAM at 0x0000                                        | —               | skip    | test/mmu/mmu_test.cpp:725 |
-| EF7-02  | Bit 3 = 0 → ROM at 0x0000                                    | —               | skip    | test/mmu/mmu_test.cpp:726 |
-| EF7-03  | Bit 2 = 1 disables Pent-1024                                 | —               | skip    | test/mmu/mmu_test.cpp:727 |
-| EF7-04  | Reset state                                                  | —               | skip    | test/mmu/mmu_test.cpp:728 |
-| ROM-01  | 48K always ROM 0                                             | —               | skip    | test/mmu/mmu_test.cpp:742 |
-| ROM-02  | 128K ROM 0                                                   | —               | skip    | test/mmu/mmu_test.cpp:743 |
-| ROM-03  | 128K ROM 1                                                   | —               | skip    | test/mmu/mmu_test.cpp:744 |
-| ROM-04  | +3 ROM 0                                                     | —               | skip    | test/mmu/mmu_test.cpp:745 |
-| ROM-05  | +3 ROM 1                                                     | —               | skip    | test/mmu/mmu_test.cpp:746 |
-| ROM-06  | +3 ROM 2                                                     | —               | skip    | test/mmu/mmu_test.cpp:747 |
-| ROM-07  | +3 ROM 3                                                     | —               | skip    | test/mmu/mmu_test.cpp:748 |
-| ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:766 |
-| ROM-09  | ROM with altrom_rw = 1                                       | —               | skip    | test/mmu/mmu_test.cpp:774 |
-| ALT-01  | Enable altrom                                                | —               | skip    | test/mmu/mmu_test.cpp:784 |
-| ALT-02  | Disable altrom                                               | —               | skip    | test/mmu/mmu_test.cpp:785 |
-| ALT-03  | Altrom read/write enable                                     | —               | skip    | test/mmu/mmu_test.cpp:786 |
-| ALT-04  | Altrom read-only                                             | —               | skip    | test/mmu/mmu_test.cpp:787 |
-| ALT-05  | Lock ROM1                                                    | —               | skip    | test/mmu/mmu_test.cpp:788 |
-| ALT-06  | Lock ROM0                                                    | —               | skip    | test/mmu/mmu_test.cpp:789 |
-| ALT-07  | Reset preserves bits 3:0                                     | —               | skip    | test/mmu/mmu_test.cpp:790 |
-| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:791 |
-| ALT-09  | Read-back                                                    | —               | skip    | test/mmu/mmu_test.cpp:792 |
-| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:821 |
-| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:841 |
-| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:862 |
-| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:882 |
-| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:104 |
-| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:104 |
-| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:104 |
-| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:105 |
-| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:105 |
-| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:105 |
-| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:105 |
-| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:105 |
-| ADR-09  | 0xE0                                                         | —               | skip    | test/mmu/mmu_test.cpp:107 |
-| ADR-10  | 0xFF                                                         | —               | skip    | test/mmu/mmu_test.cpp:107 |
-| BNK-01  | Page 0x0A → bank5 path                                       | —               | skip    | test/mmu/mmu_test.cpp:108 |
-| BNK-02  | Page 0x0B → bank5 path                                       | —               | skip    | test/mmu/mmu_test.cpp:108 |
-| BNK-03  | Page 0x0E → bank7 path                                       | —               | skip    | test/mmu/mmu_test.cpp:108 |
-| BNK-04  | Page 0x0F → normal SRAM                                      | —               | skip    | test/mmu/mmu_test.cpp:108 |
-| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:109 |
-| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:111 |
-| CON-01  | 48K: bank 5 contended                                        | —               | skip    | test/mmu/mmu_test.cpp:112 |
-| CON-02  | 48K: bank 5 hi contended                                     | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-03  | 48K: bank 0 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-04  | 48K: bank 7 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-05  | 128K: odd banks contended                                    | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-06  | 128K: even banks not contended                               | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-07  | +3: banks >= 4 contended                                     | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-08  | +3: banks < 4 not contended                                  | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-09  | High page never contended                                    | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-10  | NR 0x08 bit 6 disables contention                            | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-11  | Speed > 3.5 MHz no contention                                | —               | skip    | test/mmu/mmu_test.cpp:113 |
-| CON-12  | Pentagon timing no contention                                | —               | skip    | test/mmu/mmu_test.cpp:114 |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:116 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:118 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:119 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:121 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:123 |
-| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:126 |
-| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:126 |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:127 |
-| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:128 |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:129 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:130 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:132 |
+| MMU-12  | Page 0xE0 overflows to ROM                                   | —               | skip    | test/mmu/mmu_test.cpp:212 |
+| MMU-13  | Read-back NR 0x50-0x57                                       | —               | pass    | test/mmu/mmu_test.cpp:232 |
+| MMU-14  | Write/read pattern all slots                                 | —               | pass    | test/mmu/mmu_test.cpp:250 |
+| MMU-15  | Slot boundary (0x1FFF/0x2000)                                | —               | pass    | test/mmu/mmu_test.cpp:268 |
+| RST-01  | MMU0 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:292 |
+| RST-02  | MMU1 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:293 |
+| RST-03  | MMU2 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:294 |
+| RST-04  | MMU3 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:295 |
+| RST-05  | MMU4 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:296 |
+| RST-06  | MMU5 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:297 |
+| RST-07  | MMU6 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:298 |
+| RST-08  | MMU7 after reset                                             | —               | pass    | test/mmu/mmu_test.cpp:299 |
+| P7F-01  | Bank 0 select                                                | —               | pass    | test/mmu/mmu_test.cpp:321 |
+| P7F-02  | Bank 1 select                                                | —               | pass    | test/mmu/mmu_test.cpp:322 |
+| P7F-03  | Bank 2 select                                                | —               | pass    | test/mmu/mmu_test.cpp:323 |
+| P7F-04  | Bank 3 select                                                | —               | pass    | test/mmu/mmu_test.cpp:324 |
+| P7F-05  | Bank 4 select                                                | —               | pass    | test/mmu/mmu_test.cpp:325 |
+| P7F-06  | Bank 5 select                                                | —               | pass    | test/mmu/mmu_test.cpp:326 |
+| P7F-07  | Bank 6 select                                                | —               | pass    | test/mmu/mmu_test.cpp:327 |
+| P7F-08  | Bank 7 select                                                | —               | pass    | test/mmu/mmu_test.cpp:328 |
+| P7F-09  | ROM 0 select                                                 | —               | pass    | test/mmu/mmu_test.cpp:349 |
+| P7F-10  | ROM 1 select (bit 4)                                         | —               | pass    | test/mmu/mmu_test.cpp:361 |
+| P7F-11  | Shadow screen (bit 3)                                        | —               | skip    | test/mmu/mmu_test.cpp:376 |
+| P7F-12  | Lock bit (bit 5)                                             | —               | pass    | test/mmu/mmu_test.cpp:389 |
+| P7F-13  | Locked write rejected                                        | —               | pass    | test/mmu/mmu_test.cpp:407 |
+| P7F-14  | NR 0x08 bit 7 unlocks                                        | zxnext.vhd:3654 | pass    | test/mmu/mmu_test.cpp:435 |
+| P7F-15  | Full register preserved                                      | —               | pass    | test/mmu/mmu_test.cpp:451 |
+| DFF-01  | Extra bit 0                                                  | —               | skip    | test/mmu/mmu_test.cpp:466 |
+| DFF-02  | Extra bit 1                                                  | —               | skip    | test/mmu/mmu_test.cpp:467 |
+| DFF-03  | Extra bit 2                                                  | —               | skip    | test/mmu/mmu_test.cpp:468 |
+| DFF-04  | Extra bit 3                                                  | —               | skip    | test/mmu/mmu_test.cpp:469 |
+| DFF-05  | Max bank (DFFD=0x0F,7FFD=7)                                  | —               | skip    | test/mmu/mmu_test.cpp:470 |
+| DFF-06  | Locked by 7FFD bit 5                                         | —               | skip    | test/mmu/mmu_test.cpp:471 |
+| DFF-07  | Bit 4 (Profi DFFD override)                                  | —               | skip    | test/mmu/mmu_test.cpp:472 |
+| P1F-01  | ROM bank 0 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:491 |
+| P1F-02  | ROM bank 1 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:503 |
+| P1F-03  | ROM bank 2 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:515 |
+| P1F-04  | ROM bank 3 (+3 mode)                                         | —               | pass    | test/mmu/mmu_test.cpp:527 |
+| P1F-05  | Special mode enable                                          | —               | pass    | test/mmu/mmu_test.cpp:548 |
+| P1F-06  | Locked by 7FFD bit 5                                         | —               | pass    | test/mmu/mmu_test.cpp:562 |
+| P1F-07  | Motor bit independent                                        | —               | skip    | test/mmu/mmu_test.cpp:574 |
+| SPE-01  | 00 (1FFD=0x01)                                               | —               | pass    | test/mmu/mmu_test.cpp:593 |
+| SPE-02  | 01 (1FFD=0x03)                                               | —               | pass    | test/mmu/mmu_test.cpp:595 |
+| SPE-03  | 10 (1FFD=0x05)                                               | —               | pass    | test/mmu/mmu_test.cpp:597 |
+| SPE-04  | 11 (1FFD=0x07)                                               | —               | pass    | test/mmu/mmu_test.cpp:599 |
+| SPE-05  | Exit special mode                                            | —               | pass    | test/mmu/mmu_test.cpp:629 |
+| LCK-01  | 7FFD bit 5 locks 7FFD writes                                 | —               | pass    | test/mmu/mmu_test.cpp:650 |
+| LCK-02  | 7FFD bit 5 locks 1FFD writes                                 | —               | pass    | test/mmu/mmu_test.cpp:663 |
+| LCK-03  | 7FFD bit 5 locks DFFD writes                                 | —               | skip    | test/mmu/mmu_test.cpp:670 |
+| LCK-04  | NR 0x08 bit 7 clears lock                                    | zxnext.vhd:3654 | pass    | test/mmu/mmu_test.cpp:690 |
+| LCK-05  | Pentagon-1024 overrides lock                                 | —               | skip    | test/mmu/mmu_test.cpp:699 |
+| LCK-06  | MMU writes bypass lock                                       | —               | pass    | test/mmu/mmu_test.cpp:709 |
+| LCK-07  | NR 0x8E bypasses lock                                        | —               | skip    | test/mmu/mmu_test.cpp:716 |
+| N8E-01  | Bank select (bit 3=1)                                        | —               | skip    | test/mmu/mmu_test.cpp:727 |
+| N8E-02  | ROM select (bit 3=0, bit 2=0)                                | —               | skip    | test/mmu/mmu_test.cpp:728 |
+| N8E-03  | Special mode via 8E                                          | —               | skip    | test/mmu/mmu_test.cpp:729 |
+| N8E-04  | Special + config bits                                        | —               | skip    | test/mmu/mmu_test.cpp:730 |
+| N8E-05  | Read-back format                                             | —               | skip    | test/mmu/mmu_test.cpp:731 |
+| N8E-06  | Bank select clears DFFD(3)                                   | —               | skip    | test/mmu/mmu_test.cpp:732 |
+| N8F-01  | Standard mode (default)                                      | —               | skip    | test/mmu/mmu_test.cpp:742 |
+| N8F-02  | Pentagon 512K                                                | —               | skip    | test/mmu/mmu_test.cpp:743 |
+| N8F-03  | Pentagon 1024K                                               | —               | skip    | test/mmu/mmu_test.cpp:744 |
+| N8F-04  | Pentagon 1024K disabled by EFF7                              | —               | skip    | test/mmu/mmu_test.cpp:745 |
+| N8F-05  | Pentagon bank(6) always 0                                    | —               | skip    | test/mmu/mmu_test.cpp:746 |
+| EF7-01  | Bit 3 = RAM at 0x0000                                        | —               | skip    | test/mmu/mmu_test.cpp:755 |
+| EF7-02  | Bit 3 = 0 → ROM at 0x0000                                    | —               | skip    | test/mmu/mmu_test.cpp:756 |
+| EF7-03  | Bit 2 = 1 disables Pent-1024                                 | —               | skip    | test/mmu/mmu_test.cpp:757 |
+| EF7-04  | Reset state                                                  | —               | skip    | test/mmu/mmu_test.cpp:758 |
+| ROM-01  | 48K always ROM 0                                             | —               | skip    | test/mmu/mmu_test.cpp:772 |
+| ROM-02  | 128K ROM 0                                                   | —               | skip    | test/mmu/mmu_test.cpp:773 |
+| ROM-03  | 128K ROM 1                                                   | —               | skip    | test/mmu/mmu_test.cpp:774 |
+| ROM-04  | +3 ROM 0                                                     | —               | skip    | test/mmu/mmu_test.cpp:775 |
+| ROM-05  | +3 ROM 1                                                     | —               | skip    | test/mmu/mmu_test.cpp:776 |
+| ROM-06  | +3 ROM 2                                                     | —               | skip    | test/mmu/mmu_test.cpp:777 |
+| ROM-07  | +3 ROM 3                                                     | —               | skip    | test/mmu/mmu_test.cpp:778 |
+| ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:796 |
+| ROM-09  | ROM with altrom_rw = 1                                       | —               | skip    | test/mmu/mmu_test.cpp:804 |
+| ALT-01  | Enable altrom                                                | —               | skip    | test/mmu/mmu_test.cpp:814 |
+| ALT-02  | Disable altrom                                               | —               | skip    | test/mmu/mmu_test.cpp:815 |
+| ALT-03  | Altrom read/write enable                                     | —               | skip    | test/mmu/mmu_test.cpp:816 |
+| ALT-04  | Altrom read-only                                             | —               | skip    | test/mmu/mmu_test.cpp:817 |
+| ALT-05  | Lock ROM1                                                    | —               | skip    | test/mmu/mmu_test.cpp:818 |
+| ALT-06  | Lock ROM0                                                    | —               | skip    | test/mmu/mmu_test.cpp:819 |
+| ALT-07  | Reset preserves bits 3:0                                     | —               | skip    | test/mmu/mmu_test.cpp:820 |
+| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:821 |
+| ALT-09  | Read-back                                                    | —               | skip    | test/mmu/mmu_test.cpp:822 |
+| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:851 |
+| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:871 |
+| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:892 |
+| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:912 |
+| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
+| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
+| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
+| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
+| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
+| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
+| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
+| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
+| ADR-09  | 0xE0                                                         | —               | skip    | test/mmu/mmu_test.cpp:110 |
+| ADR-10  | 0xFF                                                         | —               | skip    | test/mmu/mmu_test.cpp:110 |
+| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:114 |
+| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:116 |
+| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:117 |
+| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:119 |
+| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:121 |
+| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:122 |
+| CON-01  | 48K: bank 5 contended                                        | —               | skip    | test/mmu/mmu_test.cpp:124 |
+| CON-02  | 48K: bank 5 hi contended                                     | —               | skip    | test/mmu/mmu_test.cpp:124 |
+| CON-03  | 48K: bank 0 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:124 |
+| CON-04  | 48K: bank 7 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:124 |
+| CON-05  | 128K: odd banks contended                                    | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-06  | 128K: even banks not contended                               | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-07  | +3: banks >= 4 contended                                     | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-08  | +3: banks < 4 not contended                                  | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-09  | High page never contended                                    | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-10  | NR 0x08 bit 6 disables contention                            | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-11  | Speed > 3.5 MHz no contention                                | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| CON-12  | Pentagon timing no contention                                | —               | skip    | test/mmu/mmu_test.cpp:125 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:130 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:131 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:133 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:135 |
+| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:136 |
+| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:137 |
+| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:139 |
+| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:139 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:140 |
+| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:141 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:142 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:143 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:145 |
 
 ### Extra coverage (not in plan)
 

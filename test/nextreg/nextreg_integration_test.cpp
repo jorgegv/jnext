@@ -681,20 +681,20 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x32, detail_eq(got, 0x32));
     }
 
-    // RO-04 — NR 0x0E sub-version. VHDL g_sub_version. JNEXT currently
-    // leaves regs_[0x0E]=0x00 (not seeded). Expected pass is whatever the
-    // reset seed is; if that's wrong, file the discrepancy. Plan row
-    // asserts the register returns the g_sub_version generic. Since we
-    // report core 3.02 and g_sub_version matches TBBlue core 3.02.00, the
-    // expected value per the standard build is 0x00 (sub_version = 0 for
-    // x.y.0 releases).
-    {
-        uint8_t got = nr_read(emu, 0x0E);
-        check("RO-04",
-              "NR 0x0E sub-version reset=0x00 (core 3.02.00) "
-              "[VHDL g_sub_version generic — JNEXT default unset]",
-              got == 0x00, detail_eq(got, 0x00));
-    }
+    // RO-04 — NR 0x0E sub-version. VHDL `g_sub_version = X"03"` (set in
+    // zxnext_top_issue2.vhd:38 and zxnext_top_issue4.vhd:38); the read
+    // mux at zxnext.vhd:5917-5918 returns g_sub_version verbatim. JNEXT
+    // never seeds regs_[0x0E] — it stays 0x00 after reset. That is a
+    // real seed-default gap, not a test-authoring choice.
+    //
+    // FIXED 2026-04-20 after critic (was previously a false-pass with
+    // oracle 0x00 taken from the JNEXT default rather than VHDL). Now
+    // skipped with a specific backlog note; convert to pass only after
+    // src/port/nextreg.cpp seeds regs_[0x0E] = 0x03.
+    skip("RO-04",
+         "VHDL g_sub_version = 0x03 (zxnext_top_issue2.vhd:38), JNEXT "
+         "defaults regs_[0x0E] = 0x00 — seed-default gap "
+         "[backlog: add regs_[0x0E] = 0x03 in NextReg::reset]");
 
     // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue.
     // JNEXT leaves regs_[0x0F]=0x00, which corresponds to "no board
@@ -817,15 +817,34 @@ static void test_palette(Emulator& emu) {
     // Select Layer 2 palette via NR 0x43 bits 6:4 = 000.
     nr_write(emu, 0x43, 0x00);
 
-    // PAL-01 — palette auto-increment after NR 0x41 write. Empirical
-    // observation 2026-04-20: pal[0] gets overwritten by the second
-    // write's value (auto-inc apparently not advancing the pointer), so
-    // the two writes end up at the same index. Possibly a test-harness
-    // issue (palette-select state carries over from NR 0x43 = 0x00), or
-    // a genuine palette bug in the subsystem. Needs investigation.
-    skip("PAL-01",
-         "palette auto-increment semantics diverge from VHDL — needs "
-         "investigation [backlog: audit Palette::set_index/write flow]");
+    // PAL-01 — NR 0x40 sets the palette index; NR 0x41 writes the 8-bit
+    // value AND auto-increments the index. VHDL zxnext.vhd:4918-4920 +
+    // palette write dispatch. Facility IS implemented in JNEXT
+    // (src/video/palette.cpp:142 gates auto-inc, :252-257 advances
+    // index), so per UNIT-TEST-PLAN-EXECUTION.md §2 this is a FAIL, not
+    // a SKIP — "facility exists but produces wrong value". First-run
+    // observation: two consecutive NR 0x41 writes both land at the same
+    // index (pal[0]=0x03 pal[1]=0x03 when we expect pal[0]=0xFC and
+    // pal[1]=0x03). Real emulator bug, to be fixed in a future palette-
+    // audit branch.
+    //
+    // FIXED 2026-04-20 after critic (was SKIP, hiding the bug).
+    {
+        nr_write(emu, 0x43, 0x00);           // L2 palette, auto-inc enabled
+        nr_write(emu, 0x40, 0x00);           // index 0
+        nr_write(emu, 0x41, 0xFC);
+        nr_write(emu, 0x41, 0x03);           // auto-inc → index 1
+        nr_write(emu, 0x40, 0x00);
+        uint8_t got0 = nr_read(emu, 0x41);
+        nr_write(emu, 0x40, 0x01);
+        uint8_t got1 = nr_read(emu, 0x41);
+        check("PAL-01",
+              "NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 "
+              "[zxnext.vhd:4918-4920 palette write]",
+              got0 == 0xFC && got1 == 0x03,
+              "pal[0]=" + hex2(got0) + " pal[1]=" + hex2(got1) +
+              " (want 0xFC / 0x03)");
+    }
 
     // PAL-02 — NR 0x41 8-bit round-trip.
     {
@@ -839,14 +858,26 @@ static void test_palette(Emulator& emu) {
               got == 0xA5, detail_eq(got, 0xA5));
     }
 
-    // PAL-03 — NR 0x44 9-bit write uses sub_idx latch in VHDL. JNEXT's
-    // behaviour diverges: after write-pair the upper-8 readback returns
-    // stale data from a previous index (observed 2026-04-20). Likely the
-    // sub_idx latch is not modelled or the palette index advances
-    // differently. Needs investigation together with PAL-01.
-    skip("PAL-03",
-         "NR 0x44 sub_idx latch behaviour diverges from VHDL — needs "
-         "investigation [backlog: audit Palette 9-bit write pipeline]");
+    // PAL-03 — NR 0x44 9-bit palette write via sub_idx latch. VHDL
+    // zxnext.vhd:4918-4920. Facility IS implemented in JNEXT
+    // (src/video/palette.cpp:190-210 — nine_bit_first_written_ latch),
+    // so per UNIT-TEST-PLAN-EXECUTION.md §2 this is a FAIL, not a SKIP.
+    //
+    // FIXED 2026-04-20 after critic (was SKIP, hiding the bug).
+    {
+        nr_write(emu, 0x43, 0x00);           // L2 palette
+        nr_write(emu, 0x40, 0x20);
+        nr_write(emu, 0x44, 0xCC);           // first write: upper 8 bits
+        nr_write(emu, 0x44, 0x81);           // second write: priority + LSB; advances pointer
+        nr_write(emu, 0x40, 0x20);           // re-select idx 0x20
+        uint8_t got41 = nr_read(emu, 0x41);
+        bool ok = got41 == 0xCC;
+        check("PAL-03",
+              "NR 0x44 9-bit write: upper 8 bits land at selected idx "
+              "[zxnext.vhd:4918-4920 palette sub_idx latch]",
+              ok,
+              "NR41@0x20=" + hex2(got41) + " (want 0xCC)");
+    }
 
     // PAL-04 — NR 0x41 read returns the stored 8-bit palette value at the
     // currently selected index (covered by PAL-02 above, added for
@@ -876,15 +907,30 @@ static void test_palette(Emulator& emu) {
               "NR44=" + hex2(got) + " (want bits 7 and 0 set)");
     }
 
-    // PAL-06 — NR 0x43 bit 7 should DISABLE auto-increment so two writes
-    // land at the same index. Observed 2026-04-20: both pal[0x50] and
-    // pal[0x51] equal 0x22 — suggesting the second write did something at
-    // 0x51 too. Either NR 0x43 bit 7 handling is missing, or there's an
-    // interaction with palette-select. Needs investigation together with
-    // PAL-01/PAL-03.
-    skip("PAL-06",
-         "NR 0x43 bit 7 auto-increment disable not effective — needs "
-         "investigation [backlog: audit Palette auto-inc gating]");
+    // PAL-06 — NR 0x43 bit 7 disables palette auto-increment. VHDL
+    // zxnext.vhd:4918-4920. Facility IS implemented in JNEXT
+    // (src/video/palette.cpp:142 reads NR 0x43 bit 7 into
+    // auto_inc_disabled_, :252-257 gates advance_index()), so per §2
+    // this is a FAIL not a SKIP.
+    //
+    // FIXED 2026-04-20 after critic (was SKIP, hiding the bug).
+    {
+        nr_write(emu, 0x43, 0x80);           // bit 7 = 1 → auto-inc disabled
+        nr_write(emu, 0x40, 0x50);
+        nr_write(emu, 0x41, 0x11);
+        nr_write(emu, 0x41, 0x22);           // MUST overwrite pal[0x50]; pointer stays
+        nr_write(emu, 0x40, 0x50);
+        uint8_t got50 = nr_read(emu, 0x41);
+        nr_write(emu, 0x40, 0x51);
+        uint8_t got51 = nr_read(emu, 0x41);
+        nr_write(emu, 0x43, 0x00);           // restore default
+        check("PAL-06",
+              "NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 "
+              "keeps pointer on 0x50, pal[0x51] untouched "
+              "[zxnext.vhd:4918-4920]",
+              got50 == 0x22 && got51 != 0x22,
+              "pal[0x50]=" + hex2(got50) + " pal[0x51]=" + hex2(got51));
+    }
 }
 
 // ── PE-05: NR 0x86-0x89 bus port-enable defaults ────────────────────
@@ -897,14 +943,21 @@ static void test_palette(Emulator& emu) {
 static void test_pe_05(Emulator& emu) {
     set_group("Port-Enable-Bus");
     (void)emu;
-    // PE-05 — NR 0x86-0x89 bus-side port enables. Empirical observation
-    // 2026-04-20: NR 0x86-0x88 default to 0xFF (OK), but NR 0x89 reads
-    // 0x00 instead of 0xFF. The bus-reset path that seeds NR 0x89 is
-    // missing. Backlog: seed regs_[0x89] = 0xFF in NextReg::reset() (or
-    // in the corresponding bus-reset wiring) per VHDL zxnext.vhd:5052-5068.
+    // PE-05 — NR 0x86-0x89 bus-side port enables. VHDL zxnext.vhd:
+    // 6147-6150 reads NR 0x89 as `nr_89_bus_port_reset_type & "000" &
+    // nr_89_bus_port_enable`. Reset defaults (zxnext.vhd:1234-1235):
+    // nr_89_bus_port_reset_type='1', nr_89_bus_port_enable=(others=>'1').
+    // So the correct read oracle for NR 0x89 is 0x8F (bit 7 = 1, bits
+    // 6:4 = 000, bits 3:0 = 1111), same layout/value as NR 0x85 (which
+    // is tested correctly at RST-08).
+    //
+    // FIXED 2026-04-20 after critic (note previously said "seed
+    // regs_[0x89]=0xFF" which was wrong — should be 0x8F per VHDL).
     skip("PE-05",
-         "NR 0x89 bus port enable default missing (0x86-0x88 correct) "
-         "[backlog: seed regs_[0x89]=0xFF in NextReg::reset()]");
+         "NR 0x89 bus port enable default 0x00; VHDL zxnext.vhd:"
+         "6147-6150 specifies 0x8F (bit 7 + 4-bit enable). JNEXT "
+         "does not seed regs_[0x89] "
+         "[backlog: seed regs_[0x89]=0x8F in NextReg::reset()]");
 }
 
 // ── RW-01, RW-02: asymmetric read/write registers ────────────────────
@@ -947,21 +1000,22 @@ static void test_rw_asymmetric(Emulator& emu) {
 static void test_cfg_integration(Emulator& emu) {
     set_group("Machine-Cfg");
 
-    // CFG-01 — NR 0x03 bits 6:4 change machine timing.
-    // Without a dedicated read handler in JNEXT, the written byte round-
-    // trips through regs_[0x03]. Verify the upper nibble is preserved on
-    // read. A deeper test (verifying the ULA retimes) belongs in the ULA
-    // subsystem integration test.
-    {
-        nr_write(emu, 0x03, 0x50);           // bits 6:4 = 101, bits 2:0 = 000 (no-op)
-        uint8_t got = nr_read(emu, 0x03);
-        bool timing_kept = (got & 0x70) == 0x50;
-        check("CFG-01",
-              "NR 0x03 bits 6:4 timing bits round-trip on read "
-              "[zxnext.vhd:5121-5151]",
-              timing_kept,
-              "NR 0x03=" + hex2(got) + " (want bits 6:4 = 101)");
-    }
+    // CFG-01 — VHDL zxnext.vhd:5893-5894 reads NR 0x03 as
+    // `nr_palette_sub_idx & nr_03_machine_timing & nr_03_user_dt_lock &
+    // nr_03_machine_type` — a COMPOSED format, not a raw register read.
+    // JNEXT stores NR 0x03 as a plain byte and round-trips it; asserting
+    // that upper-nibble round-trips is tautological (it would pass on
+    // any byte-storage register).
+    //
+    // FIXED 2026-04-20 after critic (was a passing tautology). Converted
+    // to SKIP with a pointer to the proper fix: observe
+    // nr_03_machine_timing via a subsystem accessor (ULA retime state or
+    // a new machine-type getter) rather than reading back regs_[0x03].
+    skip("CFG-01",
+         "NR 0x03 timing bits 6:4 read is composed from "
+         "nr_03_machine_timing (zxnext.vhd:5893-5894), not a raw register "
+         "round-trip. JNEXT returns regs_[0x03] verbatim — tautology "
+         "[backlog: observe ULA retime state via new accessor]");
 
     // CFG-02 — NR 0x03 bit 3 XOR-toggles dt_lock in VHDL
     // (zxnext.vhd:5121-5151). JNEXT does not model dt_lock at all —
