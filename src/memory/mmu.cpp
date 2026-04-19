@@ -43,6 +43,11 @@ void Mmu::reset(bool hard) {
         port_eff7_reg_2_ = false;
         port_eff7_reg_3_ = false;
     }
+    // VHDL zxnext.vhd:3787-3794 — nr_8f_mapping_mode has NO reset process;
+    // the value persists across hard and soft reset alike. The signal
+    // declaration default `:= (others => '0')` at VHDL:888 is only the
+    // FPGA-configuration-time power-on value, already mirrored by the
+    // default member initializer on nr_8f_mode_. Do NOT reset it here.
     // VHDL zxnext.vhd:2253-2256 — the lo→hi nibble copy on nr_8c_altrom
     // is gated on `reset='1'` (hard only). Soft reset preserves the full
     // 8-bit register. Bits 3:0 themselves are not cleared by the VHDL
@@ -171,17 +176,41 @@ void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
 }
 
 // VHDL zxnext.vhd:3763-3766 bank composition. Builds the 7-bit
-// port_7ffd_bank value from port_7ffd_reg(2:0) + port_dffd_reg(3:0).
-// Pentagon mapping mode is not on the Mmu surface (Branch B territory);
-// JNEXT is hard-wired as non-Pentagon/non-Profi, which matches the VHDL
-// synthesizable default (VHDL:3797 forces nr_8f_mapping_mode_profi='0').
-static inline uint8_t compose_legacy_bank(uint8_t port_7ffd, uint8_t port_dffd) {
-    // bank(2:0) = port_7ffd_reg(2:0)
-    // bank(4:3) = port_dffd_reg(1:0)  (non-Pentagon, VHDL:3764)
-    // bank(5)   = port_dffd_reg(2)    (non-Pentagon, VHDL:3765)
-    // bank(6)   = port_dffd_reg(3)    (non-Pentagon, non-Profi, VHDL:3766)
-    return static_cast<uint8_t>((port_7ffd & 0x07) |
-                                ((port_dffd & 0x0F) << 3));
+// port_7ffd_bank value from port_7ffd_reg + port_dffd_reg, branching on
+// the NR 0x8F mapping mode (Pentagon-512 / Pentagon-1024 / standard).
+// Profi mode is forced off (VHDL:3797) so we drop that branch.
+//
+// Standard (non-Pentagon):
+//   bank(2:0) = port_7ffd_reg(2:0)            (VHDL:3763)
+//   bank(4:3) = port_dffd_reg(1:0)            (VHDL:3764, else branch)
+//   bank(5)   = port_dffd_reg(2)              (VHDL:3765, else branch)
+//   bank(6)   = port_dffd_reg(3)              (VHDL:3766, else branch)
+//
+// Pentagon modes (pentagon_en() true):
+//   bank(2:0) = port_7ffd_reg(2:0)            (VHDL:3763)
+//   bank(4:3) = port_7ffd_reg(7:6)            (VHDL:3764, when branch)
+//   bank(5)   = pentagon_1024_en AND 7ffd(5)  (VHDL:3765, when branch)
+//   bank(6)   = '0'                           (VHDL:3766, when branch)
+// In Pentagon-512 (pentagon_1024_en=0), bank(5) always 0.
+// In Pentagon-1024-en (nr_8f=="11" AND EFF7(2)=0), bank(5) = 7FFD(5) —
+// which promotes the paging-lock bit into a bank-select bit. The lock
+// is also bypassed via effective_paging_locked() to match VHDL:3769.
+uint8_t Mmu::compose_bank_() const {
+    const uint8_t p7ffd = port_7ffd_;
+    const uint8_t pdffd = port_dffd_reg_;
+    uint8_t bank = static_cast<uint8_t>(p7ffd & 0x07);           // bits 2:0
+    if (pentagon_en()) {
+        bank |= static_cast<uint8_t>(((p7ffd >> 6) & 0x03) << 3);     // 4:3
+        if (pentagon_1024_en()) {
+            bank |= static_cast<uint8_t>(((p7ffd >> 5) & 0x01) << 5); // 5
+        }
+        // bank(6) forced 0 in Pentagon modes — N8F-05.
+    } else {
+        bank |= static_cast<uint8_t>(((pdffd >> 0) & 0x03) << 3);     // 4:3
+        bank |= static_cast<uint8_t>(((pdffd >> 2) & 0x01) << 5);     // 5
+        bank |= static_cast<uint8_t>(((pdffd >> 3) & 0x01) << 6);     // 6
+    }
+    return bank;
 }
 
 // Apply slots 6/7 (RAM bank composed from 7FFD+DFFD) and slots 0/1
@@ -194,7 +223,7 @@ void Mmu::apply_legacy_paging_() {
     // (VHDL zxnext.vhd:3763-3766). Store the LOGICAL page (VHDL
     // mem_active_page semantics); to_sram_page() inside rebuild_ptr()
     // applies the VHDL zxnext.vhd:2964 +0x20 shift for Next mode.
-    uint8_t bank = compose_legacy_bank(port_7ffd_, port_dffd_reg_);
+    uint8_t bank = compose_bank_();
     set_page(6, static_cast<uint8_t>(bank * 2));
     set_page(7, static_cast<uint8_t>(bank * 2 + 1));
 
@@ -220,11 +249,20 @@ void Mmu::apply_legacy_paging_() {
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
-    if (paging_locked_) {
+    // VHDL zxnext.vhd:3650 gates the port_7ffd_reg write on
+    // `port_7ffd_locked = '0'`. port_7ffd_locked itself (VHDL:3769) is
+    // dropped to 0 whenever Pentagon-1024 mode is enabled (nr_8f=="11" AND
+    // EFF7(2)=0), so the Pentagon-1024 lock-override applies here too.
+    // effective_paging_locked() models the full VHDL:3769 gate.
+    if (effective_paging_locked()) {
         Log::memory()->trace("128K bank switch ignored (paging locked)");
         return;
     }
     Log::memory()->debug("128K bank switch: port_7ffd={:#04x}", port_7ffd);
+    // VHDL:3769 — port_7ffd_reg(5) is the raw lock bit; the lock is active
+    // unless pentagon_1024_en overrides. Store the bit verbatim; the
+    // effective gate composes with nr_8f_mode_ / port_eff7_reg_2_ at use
+    // sites via effective_paging_locked().
     paging_locked_ = (port_7ffd >> 5) & 1;
     port_7ffd_ = port_7ffd;
     apply_legacy_paging_();
@@ -233,10 +271,12 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
 void Mmu::write_port_dffd(uint8_t v) {
     // VHDL zxnext.vhd:3691 — port_dffd write gated by
     //   port_7ffd_locked='0' OR nr_8f_mapping_mode_profi='1'
-    // JNEXT tracks the Profi mode on the NR 0x8F handler surface (not on
-    // Mmu); VHDL:3797 forces profi='0' in the synthesizable build, so we
-    // drop the profi branch and gate purely on paging_locked_.
-    if (paging_locked_) {
+    // Profi is forced '0' at VHDL:3797, so we drop that branch. But
+    // port_7ffd_locked itself (VHDL:3769) is dropped to '0' by
+    // pentagon_1024_en, so a locked 7FFD(5) does NOT block DFFD writes
+    // when we are in Pentagon-1024 mode with EFF7(2)=0. Model this with
+    // effective_paging_locked().
+    if (effective_paging_locked()) {
         Log::memory()->trace("port 0xDFFD write ignored (paging locked)");
         return;
     }
@@ -265,8 +305,24 @@ void Mmu::write_port_eff7(uint8_t v) {
     apply_legacy_paging_();
 }
 
+// NR 0x8F — Mapping Mode (Pentagon / Pentagon-1024).
+// VHDL zxnext.vhd:3787-3794 stores nr_wr_dat(1:0) into nr_8f_mapping_mode.
+// VHDL:3813 flags nr_8f_we into port_memory_change_dly so MMU0..7 rebuild
+// on the next clock. We re-run apply_legacy_paging_ immediately: bank(4:3)
+// / bank(5) / bank(6) composition depends on the new mode (VHDL:3764-3766),
+// and port_7ffd_locked can flip via VHDL:3769 — the latter affects future
+// writes, not the current slot view, but the rebuild still produces the
+// correct MMU6/7 pages for the new composition.
+void Mmu::write_nr_8f(uint8_t v) {
+    Log::memory()->debug("NR 0x8F write: v={:#04x}", v);
+    nr_8f_mode_ = static_cast<uint8_t>(v & 0x03);
+    apply_legacy_paging_();
+}
+
 void Mmu::map_plus3_bank(uint8_t port_1ffd) {
-    if (paging_locked_) {
+    // VHDL zxnext.vhd:3718 gates the port_1ffd_reg write on
+    // `port_7ffd_locked = '0'`. Same Pentagon-1024 override as 7FFD/DFFD.
+    if (effective_paging_locked()) {
         Log::memory()->trace("+3 bank switch ignored (paging locked)");
         return;
     }
@@ -329,6 +385,10 @@ void Mmu::save_state(StateWriter& w) const
     w.write_u8(port_dffd_reg_);
     w.write_bool(port_eff7_reg_2_);
     w.write_bool(port_eff7_reg_3_);
+    // Phase 2 B appended state — NR 0x8F mapping mode (2 bits).
+    // VHDL zxnext.vhd:3787-3794 has no reset process, so the value persists
+    // across reset and must round-trip.
+    w.write_u8(nr_8f_mode_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -357,6 +417,8 @@ void Mmu::load_state(StateReader& r)
     port_dffd_reg_   = r.read_u8();
     port_eff7_reg_2_ = r.read_bool();
     port_eff7_reg_3_ = r.read_bool();
+    // Phase 2 B appended state — NR 0x8F mapping mode (2 bits stored in u8).
+    nr_8f_mode_      = static_cast<uint8_t>(r.read_u8() & 0x03);
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
