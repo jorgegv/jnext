@@ -182,7 +182,7 @@ From `zxnext.vhd` lines 5242-5290:
 | CLIP-05 | Write NR 0x1C bit 2 = 1 | ULA clip index resets to 0 |
 | CLIP-06 | Write NR 0x1C bit 3 = 1 | TM clip index resets to 0 |
 | CLIP-07 | Read NR 0x1C | Returns all four 2-bit indices packed |
-| CLIP-08 | Read NR 0x18 cycles through clip values | Sequential reads cycle |
+| CLIP-08 | Read NR 0x18 returns coord at current idx | Combinatorial mux over L2 clip coords — read does NOT advance idx (backlog: add read_handler for 0x18) |
 | CLIP-09 | Read NR 0x1B twice with no intervening write | Both reads return same value (read does NOT advance idx — VHDL-faithful invariant) |
 | CLIP-10 | Write NR 0x1B once, read NR 0x1C | bits 7:6 = 01 (tm idx advanced to 1) |
 
