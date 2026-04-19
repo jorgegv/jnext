@@ -120,6 +120,30 @@ public:
                 return val;
             }
         }
+        // Layer 2 read-over: redirect reads to L2 RAM banks. VHDL arbiter
+        // at zxnext.vhd:3100 puts Layer 2 above config_mode, altrom, MMU,
+        // and ROMCS (and below DivMMC ROM/RAM). Mirrors the write-side
+        // block below: same segment check, same (l2_bank_+segment)*2
+        // page computation, same to_sram_page() shift, same offset
+        // arithmetic — both come from the shared layer2_active_page
+        // formula at zxnext.vhd:2969.
+        if (l2_read_enable_ && addr < 0xC000) {
+            int segment = addr / 0x4000;  // 0, 1, or 2
+            if (l2_segment_mask_ & (1 << segment)) {
+                uint16_t l2_page = static_cast<uint16_t>((l2_bank_ + segment) * 2);
+                uint16_t offset = addr % 0x4000;
+                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
+                const uint8_t* p = ram_.page_ptr(phys_page);
+                uint8_t val = p ? p[offset & 0x1FFF] : 0xFF;
+                if (debug_state_ && debug_state_->active() &&
+                    debug_state_->breakpoints().has_any_watchpoints() &&
+                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                    debug_state_->set_data_bp_hit(true);
+                    debug_state_->set_data_bp_addr(addr);
+                }
+                return val;
+            }
+        }
         int slot = addr >> 13;
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, arbiter line 3124):
         // with nr_03_config_mode=1 on a ROM-mapped 0x0000-0x3FFF slot, the
