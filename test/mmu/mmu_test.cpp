@@ -463,13 +463,128 @@ void test_cat3_port_7ffd() {
 
 void test_cat4_port_dffd() {
     set_group("Cat4 port 0xDFFD");
-    skip("DFF-01", "no port 0xDFFD handler on Mmu — extra bank bit 0 unobservable");
-    skip("DFF-02", "no port 0xDFFD handler on Mmu — extra bank bit 1 unobservable");
-    skip("DFF-03", "no port 0xDFFD handler on Mmu — extra bank bit 2 unobservable");
-    skip("DFF-04", "no port 0xDFFD handler on Mmu — extra bank bit 3 unobservable");
-    skip("DFF-05", "no port 0xDFFD handler on Mmu — max-bank composition unobservable");
-    skip("DFF-06", "no port 0xDFFD handler on Mmu — lock interaction unobservable");
-    skip("DFF-07", "no port 0xDFFD handler on Mmu — Profi DFFD(4) override unobservable");
+
+    // DFFD feeds port_7ffd_bank composition per VHDL zxnext.vhd:3763-3766:
+    //   bank(2:0) = port_7ffd_reg(2:0)
+    //   bank(4:3) = port_dffd_reg(1:0)    (non-Pentagon, line 3764)
+    //   bank(5)   = port_dffd_reg(2)      (non-Pentagon, line 3765)
+    //   bank(6)   = port_dffd_reg(3)      (non-Pentagon, non-Profi, line 3766)
+    // Slots 6/7 then load from port_7ffd_bank & '0' / & '1' via VHDL:4679-4680.
+    // JNEXT is hard-wired non-Pentagon/non-Profi (VHDL:3797 forces profi='0');
+    // the composition becomes simply bank = (7FFD & 7) | ((DFFD & 0x0F) << 3).
+
+    // DFF-01: DFFD bit 0 → bank(3)=1 → bank 8 → MMU6=0x10, MMU7=0x11.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.write_port_dffd(0x01);
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-01",
+              "DFFD bit 0 → port_7ffd_bank(3) — VHDL zxnext.vhd:3764,4679-4680",
+              g6 == 0x10 && g7 == 0x11,
+              fmt("MMU6=0x%02X (exp 0x10) MMU7=0x%02X (exp 0x11)", g6, g7));
+    }
+
+    // DFF-02: DFFD bit 1 → bank(4)=1 → bank 16 → MMU6=0x20, MMU7=0x21.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.write_port_dffd(0x02);
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-02",
+              "DFFD bit 1 → port_7ffd_bank(4) — VHDL zxnext.vhd:3764,4679-4680",
+              g6 == 0x20 && g7 == 0x21,
+              fmt("MMU6=0x%02X (exp 0x20) MMU7=0x%02X (exp 0x21)", g6, g7));
+    }
+
+    // DFF-03: DFFD bit 2 → bank(5)=1 → bank 32 → MMU6=0x40, MMU7=0x41.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.write_port_dffd(0x04);
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-03",
+              "DFFD bit 2 → port_7ffd_bank(5) — VHDL zxnext.vhd:3765,4679-4680",
+              g6 == 0x40 && g7 == 0x41,
+              fmt("MMU6=0x%02X (exp 0x40) MMU7=0x%02X (exp 0x41)", g6, g7));
+    }
+
+    // DFF-04: DFFD bit 3 → bank(6)=1 → bank 64 → MMU6=0x80, MMU7=0x81.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.write_port_dffd(0x08);
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-04",
+              "DFFD bit 3 → port_7ffd_bank(6) — VHDL zxnext.vhd:3766,4679-4680",
+              g6 == 0x80 && g7 == 0x81,
+              fmt("MMU6=0x%02X (exp 0x80) MMU7=0x%02X (exp 0x81)", g6, g7));
+    }
+
+    // DFF-05: Max composition: 7FFD=0x07, DFFD=0x0F → bank=127 →
+    // MMU6=0xFE, MMU7=0xFF. Verifies the full 7-bit bank.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x07);
+        f.mmu.write_port_dffd(0x0F);
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-05",
+              "DFFD=0x0F + 7FFD=0x07 → bank 127 — VHDL zxnext.vhd:3763-3766,4679-4680",
+              g6 == 0xFE && g7 == 0xFF,
+              fmt("MMU6=0x%02X (exp 0xFE) MMU7=0x%02X (exp 0xFF)", g6, g7));
+    }
+
+    // DFF-06: Locked by 7FFD bit 5 — DFFD write ignored. VHDL zxnext.vhd:3691
+    // gates port_dffd write on (port_7ffd_locked='0' OR profi='1'). JNEXT is
+    // non-Profi (VHDL:3797), so lock alone is sufficient to block. Register
+    // stays at its pre-lock value.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x20);           // lock (bit 5), bank 0
+        const uint8_t pre = f.mmu.port_dffd_reg();
+        f.mmu.write_port_dffd(0x01);         // attempted extra-bank set
+        const uint8_t post = f.mmu.port_dffd_reg();
+        const uint8_t g6 = f.mmu.get_page(6);
+        const uint8_t g7 = f.mmu.get_page(7);
+        check("DFF-06",
+              "DFFD write gated by 7FFD lock — VHDL zxnext.vhd:3691",
+              pre == 0 && post == 0 && g6 == 0x00 && g7 == 0x01,
+              fmt("pre=0x%02X post=0x%02X MMU6=0x%02X MMU7=0x%02X "
+                  "(want all zero/bank-0)", pre, post, g6, g7));
+    }
+
+    // DFF-07: DFFD bit 4 is the Profi DFFD override (VHDL:3769 feeds the
+    // port_7ffd_locked signal via nr_8f_mapping_mode_profi). VHDL:3797
+    // forces profi='0' unconditionally, so bit 4 is stored (VHDL:3693 →
+    // cpu_do(4:0)) but has no downstream banking effect — bank composition
+    // at VHDL:3763-3766 is unchanged. Observable: port_dffd_reg() returns
+    // the stored bit 4 = 1, MMU6/7 stay at the 7FFD=0 baseline.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.write_port_dffd(0x10);
+        const uint8_t reg = f.mmu.port_dffd_reg();
+        const uint8_t g6  = f.mmu.get_page(6);
+        const uint8_t g7  = f.mmu.get_page(7);
+        check("DFF-07",
+              "DFFD(4) stored but no effect on bank (Profi forced off) "
+              "— VHDL zxnext.vhd:3693,3797",
+              reg == 0x10 && g6 == 0x00 && g7 == 0x01,
+              fmt("port_dffd_reg=0x%02X MMU6=0x%02X MMU7=0x%02X "
+                  "(exp 0x10, 0x00, 0x01)", reg, g6, g7));
+    }
 }
 
 // ── Category 5: +3 paging (port 0x1FFD) ───────────────────────────────
@@ -666,8 +781,26 @@ void test_cat7_paging_lock() {
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
 
-    // LCK-03: 7FFD bit 5 locks DFFD writes. No DFFD path on Mmu.
-    skip("LCK-03", "no port 0xDFFD handler on Mmu — lock-gating unobservable");
+    // LCK-03: 7FFD bit 5 locks DFFD writes. VHDL zxnext.vhd:3691 gates
+    // the port_dffd write on `port_7ffd_locked='0' OR profi='1'`; JNEXT is
+    // non-Profi (VHDL:3797), so the lock alone blocks the write. Observable
+    // via port_dffd_reg() staying at its pre-lock value, and MMU6/7 holding
+    // their pre-lock bank=0 pages (0x00/0x01) rather than the composed
+    // bank=8 pages (0x10/0x11) that an accepted write would have produced.
+    // Sister assertion to DFF-06 — duplicate coverage at the category level.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x20);           // lock (bit 5), bank 0
+        f.mmu.write_port_dffd(0x01);         // would set extra bank bit 0
+        const uint8_t reg = f.mmu.port_dffd_reg();
+        const uint8_t g6  = f.mmu.get_page(6);
+        const uint8_t g7  = f.mmu.get_page(7);
+        check("LCK-03",
+              "7FFD(5) lock blocks DFFD write — VHDL zxnext.vhd:3691",
+              reg == 0 && g6 == 0x00 && g7 == 0x01,
+              fmt("port_dffd_reg=0x%02X MMU6=0x%02X MMU7=0x%02X", reg, g6, g7));
+    }
 
     // LCK-04: NR 0x08 bit 7 clears the lock — exercised via Mmu's
     // unlock_paging() entry point. VHDL zxnext.vhd:3654-3656 clears
@@ -694,9 +827,17 @@ void test_cat7_paging_lock() {
                   locked6, unlocked6));
     }
 
-    // LCK-05: Pentagon-1024 overrides lock. No NR 0x8F / EFF7 handler
-    // on Mmu surface.
-    skip("LCK-05", "no NR 0x8F or port 0xEFF7 handler on Mmu — Pentagon-1024 override unobservable");
+    // LCK-05: Pentagon-1024 overrides the 7FFD lock via the VHDL:3769 gate
+    //   port_7ffd_locked <= '0' when pentagon_1024_en='1' or (profi and DFFD(4))
+    //   ... else port_7ffd_reg(5)
+    // port_eff7_reg_2 feeds the pentagon_1024_en signal (VHDL:3801); Phase 2 A
+    // exposes it via Mmu::port_eff7_disable_p1024(). The NR 0x8F decoder that
+    // actually sets pentagon_1024_en lives outside the Mmu class — Branch B
+    // owns it — so the end-to-end "lock-override active" observable is not on
+    // the Mmu surface as-is. Leave skipped; Branch B drives the unskip.
+    skip("LCK-05",
+         "NR 0x8F decoder not on Mmu — Branch B owns the pentagon_1024_en composition "
+         "that overrides port_7ffd_locked (VHDL zxnext.vhd:3769,3801)");
 
     // LCK-06: direct MMU slot writes (NR 0x50..0x57) bypass the paging
     // lock. VHDL: NR writes go through nextreg_register_select, not
@@ -752,10 +893,95 @@ void test_cat9_nr_8f() {
 
 void test_cat10_port_eff7() {
     set_group("Cat10 port 0xEFF7");
-    skip("EF7-01", "no port 0xEFF7 handler on Mmu — RAM-at-0x0000 mode unobservable");
-    skip("EF7-02", "no port 0xEFF7 handler on Mmu — ROM-at-0x0000 default unobservable");
-    skip("EF7-03", "no port 0xEFF7 handler on Mmu — Pentagon-1024 disable unobservable");
-    skip("EF7-04", "no port 0xEFF7 handler on Mmu — reset state unobservable");
+
+    // EF7-01: EFF7 bit 3 = 1 forces RAM at 0x0000. VHDL zxnext.vhd:4636-4644
+    // takes the MMU0=0x00, MMU1=0x01 branch whenever port_eff7_reg_3='1',
+    // overriding the usual MMU0=MMU1=0xFF (ROM sentinel) path. The rebuild
+    // fires on any paging-port write including EFF7 itself (VHDL:4619
+    // port_memory_change_dly). Observable: slots 0/1 flip out of ROM mode
+    // and the MMU register view shows the RAM pages 0x00 / 0x01.
+    {
+        Fixture f;
+        f.fresh();
+        // Reset seeds MMU0/1 as ROM (is_slot_rom=true). Trigger the swap.
+        f.mmu.write_port_eff7(0x08);
+        const bool rom0 = f.mmu.is_slot_rom(0);
+        const bool rom1 = f.mmu.is_slot_rom(1);
+        const uint8_t g0 = f.mmu.get_page(0);
+        const uint8_t g1 = f.mmu.get_page(1);
+        check("EF7-01",
+              "EFF7(3)=1 → MMU0=0x00, MMU1=0x01 (RAM at 0x0000) "
+              "— VHDL zxnext.vhd:4636-4644",
+              !rom0 && !rom1 && g0 == 0x00 && g1 == 0x01,
+              fmt("rom0=%d rom1=%d MMU0=0x%02X MMU1=0x%02X "
+                  "(exp 0,0,0x00,0x01)", rom0, rom1, g0, g1));
+    }
+
+    // EF7-02: EFF7 bit 3 = 0 keeps ROM at 0x0000. Start by flipping to RAM
+    // mode (EF7-01), then clear and re-trigger: MMU0/1 should return to the
+    // ROM path (is_slot_rom=true). VHDL:4641-4644 takes the else branch and
+    // restores the ROM sentinel semantics; our emulator stores the physical
+    // ROM page in nr_mmu_[] (see mmu.cpp comment on map_128k_bank) rather
+    // than VHDL's 0xFF — that behaviour is a pre-existing deviation covered
+    // by P7F-09/10. The observable that distinguishes ROM-at-0x0000 from
+    // RAM-at-0x0000 is is_slot_rom(), which is what we assert here.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_eff7(0x08);         // RAM at 0x0000 (EF7-01 state)
+        f.mmu.write_port_eff7(0x00);         // back to ROM at 0x0000
+        const bool rom0 = f.mmu.is_slot_rom(0);
+        const bool rom1 = f.mmu.is_slot_rom(1);
+        check("EF7-02",
+              "EFF7(3)=0 → ROM at 0x0000 (slots 0,1 read-only) "
+              "— VHDL zxnext.vhd:4641-4644",
+              rom0 && rom1,
+              fmt("is_slot_rom(0)=%d is_slot_rom(1)=%d (exp 1,1)",
+                  rom0, rom1));
+    }
+
+    // EF7-03: EFF7 bit 2 disables Pentagon-1024 extension. VHDL zxnext.vhd:
+    // 3801 gates nr_8f_mapping_mode_pentagon_1024_en on NR 0x8F="11" AND
+    // port_eff7_reg_2='0'; setting EFF7(2)=1 forces pentagon_1024_en='0'
+    // regardless of NR 0x8F. NR 0x8F itself is not on the Mmu surface
+    // (Branch B owns it); the Mmu-side contract is that EFF7(2)=1 is stored
+    // and observable via port_eff7_disable_p1024(), which Branch B uses to
+    // compose the gate. The full lock-override outcome (locked=0 vs 1) is
+    // an integration-tier assertion driven from the NR 0x8F test.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_eff7(0x04);
+        check("EF7-03",
+              "EFF7(2)=1 → port_eff7_disable_p1024 set (feeds VHDL:3801 gate) "
+              "— VHDL zxnext.vhd:3781,3801",
+              f.mmu.port_eff7_disable_p1024() && !f.mmu.port_eff7_ram_at_0000(),
+              fmt("disable_p1024=%d ram_at_0000=%d (exp 1,0)",
+                  f.mmu.port_eff7_disable_p1024(),
+                  f.mmu.port_eff7_ram_at_0000()));
+    }
+
+    // EF7-04: Hard reset clears port_eff7_reg_{2,3}. VHDL zxnext.vhd:3777-3779
+    //   if reset = '1' then
+    //      port_eff7_reg_2 <= '0';
+    //      port_eff7_reg_3 <= '0';
+    // Both bits start cleared at power-on. Write non-zero, confirm the
+    // accessors report set, then reset(hard) and confirm clear.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_eff7(0x0C);         // both bits 2 and 3 set
+        const bool pre2 = f.mmu.port_eff7_disable_p1024();
+        const bool pre3 = f.mmu.port_eff7_ram_at_0000();
+        f.mmu.reset(true);                   // hard reset
+        const bool post2 = f.mmu.port_eff7_disable_p1024();
+        const bool post3 = f.mmu.port_eff7_ram_at_0000();
+        check("EF7-04",
+              "hard reset clears port_eff7_reg_{2,3} — VHDL zxnext.vhd:3777-3779",
+              pre2 && pre3 && !post2 && !post3,
+              fmt("pre bit2=%d bit3=%d post bit2=%d bit3=%d (exp 1,1,0,0)",
+                  pre2, pre3, post2, post3));
+    }
 }
 
 // ── Category 11: ROM selection ────────────────────────────────────────
