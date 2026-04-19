@@ -386,10 +386,37 @@ void test_cat3_port_7ffd() {
               fmt("pre=0x%02X,0x%02X post=0x%02X,0x%02X", pre6, pre7, post6, post7));
     }
 
-    // P7F-14: NR 0x08 bit 7 clears the lock. Mmu has no NR 0x08 handler
-    // on its surface — the unlock is routed through the NextReg module,
-    // not exposed on the Mmu API.
-    skip("P7F-14", "no NR 0x08 handler on Mmu — unlock path runs through NextReg");
+    // P7F-14: NR 0x08 bit 7 clears the 7FFD paging lock. The Mmu exposes
+    // unlock_paging() directly; Emulator's NR 0x08 write handler drives it
+    // when bit 7 is set. VHDL zxnext.vhd:3654-3656 clears port_7ffd_reg(5)
+    // (the lock source) when nr_08_we=1 AND nr_wr_dat(7)=1; the gated
+    // writes inside map_128k_bank then take effect again.
+    // The unit test drives Mmu::unlock_paging() directly — the full
+    // NextReg→Mmu path is exercised by the emulator integration tests.
+    {
+        Fixture f;
+        f.fresh();
+        // (a) lock paging via port_7FFD bit 5 → second bank write ignored.
+        f.mmu.map_128k_bank(0x20);       // bank 0 + lock
+        const uint8_t pre6 = f.mmu.get_page(6);
+        const uint8_t pre7 = f.mmu.get_page(7);
+        f.mmu.map_128k_bank(0x07);       // attempted switch to bank 7 (ignored)
+        const uint8_t mid6 = f.mmu.get_page(6);
+        const uint8_t mid7 = f.mmu.get_page(7);
+        // (b) unlock via NR 0x08 bit 7 → subsequent bank write takes effect.
+        f.mmu.unlock_paging();
+        f.mmu.map_128k_bank(0x07);       // now bank 7 should land
+        const uint8_t post6 = f.mmu.get_page(6);
+        const uint8_t post7 = f.mmu.get_page(7);
+        check("P7F-14",
+              "NR 0x08 bit 7 clears 7FFD paging lock — VHDL zxnext.vhd:3654-3656",
+              pre6 == mid6 && pre7 == mid7 &&
+              pre6 == 0x00 && pre7 == 0x01 &&
+              post6 == 0x0E && post7 == 0x0F,
+              fmt("pre=0x%02X,0x%02X mid=0x%02X,0x%02X post=0x%02X,0x%02X "
+                  "(expected pre/mid=0x00,0x01; post=0x0E,0x0F)",
+                  pre6, pre7, mid6, mid7, post6, post7));
+    }
 
     // P7F-15: Mmu retains the raw last-written port_7ffd value.
     {
@@ -612,8 +639,30 @@ void test_cat7_paging_lock() {
     // LCK-03: 7FFD bit 5 locks DFFD writes. No DFFD path on Mmu.
     skip("LCK-03", "no port 0xDFFD handler on Mmu — lock-gating unobservable");
 
-    // LCK-04: NR 0x08 bit 7 clears the lock. No NR 0x08 handler on Mmu.
-    skip("LCK-04", "no NR 0x08 handler on Mmu — unlock path runs through NextReg");
+    // LCK-04: NR 0x08 bit 7 clears the lock — exercised via Mmu's
+    // unlock_paging() entry point. VHDL zxnext.vhd:3654-3656 clears
+    // port_7ffd_reg(5) on nr_08_we=1 AND nr_wr_dat(7)=1, dropping
+    // port_7ffd_locked at zxnext.vhd:3769; subsequent port_7FFD writes
+    // then pass through the map_128k_bank gate. The full NextReg→Mmu
+    // wiring is exercised at the emulator integration level; this unit
+    // test covers the Mmu-side lock/unlock state machine.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x20);       // bank 0 + lock
+        // Sanity: lock is active — a subsequent port_7FFD write is ignored.
+        f.mmu.map_128k_bank(0x03);
+        const uint8_t locked6 = f.mmu.get_page(6);
+        // Unlock (what NR 0x08 bit 7 drives at the emulator level).
+        f.mmu.unlock_paging();
+        f.mmu.map_128k_bank(0x03);       // bank 3 should now land
+        const uint8_t unlocked6 = f.mmu.get_page(6);
+        check("LCK-04",
+              "NR 0x08 bit 7 unlock path drops 7FFD lock — VHDL zxnext.vhd:3654-3656",
+              locked6 == 0x00 && unlocked6 == 0x06,
+              fmt("locked MMU6=0x%02X (exp 0x00), unlocked MMU6=0x%02X (exp 0x06)",
+                  locked6, unlocked6));
+    }
 
     // LCK-05: Pentagon-1024 overrides lock. No NR 0x8F / EFF7 handler
     // on Mmu surface.

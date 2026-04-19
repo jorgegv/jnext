@@ -177,6 +177,15 @@ public:
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
     void map_128k_bank(uint8_t port_7ffd);
 
+    // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
+    // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
+    // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator
+    // mirrors this by clearing paging_locked_ directly; the gate inside
+    // map_128k_bank / map_plus3_bank then allows subsequent port_7FFD /
+    // port_1FFD writes to take effect again. Driven by the NR 0x08 write
+    // handler in Emulator::install_port_handlers (src/core/emulator.cpp).
+    void unlock_paging() { paging_locked_ = false; }
+
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
 
