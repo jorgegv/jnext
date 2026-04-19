@@ -221,8 +221,9 @@ void Mmu::write_port_dffd(uint8_t v) {
     }
     Log::memory()->debug("port 0xDFFD write: v={:#04x}", v);
     // VHDL zxnext.vhd:3693 stores cpu_do(4:0). Bits 5-7 are NOT stored.
-    // (port_dffd_reg_6 is a separate signal for disk-motor composition
-    // in the +3 branch; JNEXT does not model the +3 FDC, so we discard it.)
+    // Bit 6 (port_dffd_reg_6) is consumed by Profi MMU4/5 composition
+    // (VHDL:4660) and Multiface readback (VHDL:4314), neither of which
+    // is on the Mmu surface. Drop silently.
     port_dffd_reg_ = static_cast<uint8_t>(v & 0x1F);
     // VHDL zxnext.vhd:4619 — port_memory_change_dly rebuilds MMU0..7 on
     // any paging-port write. Bypass the paging_locked gate (we verified

@@ -585,6 +585,40 @@ void test_cat4_port_dffd() {
               fmt("port_dffd_reg=0x%02X MMU6=0x%02X MMU7=0x%02X "
                   "(exp 0x10, 0x00, 0x01)", reg, g6, g7));
     }
+
+    // DFF-08: Soft reset preserves port_dffd_reg. VHDL zxnext.vhd:3686-3688
+    //   if reset = '1' then
+    //      port_dffd_reg <= (others => '0');
+    // The `reset='1'` signal is the hard-only reset line (Branch C
+    // architectural decision: the whole `reset='1'` family is hard-only,
+    // soft resets leave these registers alone). Firmware invariant: a
+    // RESET_SOFT must not re-bind the extended-paging configuration the
+    // bootloader set. Write a non-zero DFFD value, soft-reset, and assert
+    // the register AND the resulting MMU6/7 composition are preserved.
+    // Uses DFFD=0x0F + 7FFD=0x07 (same as DFF-05) so the expected bank is
+    // 127 → MMU6=0xFE, MMU7=0xFF via VHDL:3763-3766,4679-4680.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x07);
+        f.mmu.write_port_dffd(0x0F);
+        const uint8_t pre_reg = f.mmu.port_dffd_reg();
+        const uint8_t pre_g6  = f.mmu.get_page(6);
+        const uint8_t pre_g7  = f.mmu.get_page(7);
+        f.mmu.reset(false);                  // soft reset
+        const uint8_t post_reg = f.mmu.port_dffd_reg();
+        const uint8_t post_g6  = f.mmu.get_page(6);
+        const uint8_t post_g7  = f.mmu.get_page(7);
+        check("DFF-08",
+              "soft reset preserves port_dffd_reg + MMU6/7 composition "
+              "— VHDL zxnext.vhd:3686-3688",
+              pre_reg == 0x0F && pre_g6 == 0xFE && pre_g7 == 0xFF &&
+              post_reg == 0x0F && post_g6 == 0xFE && post_g7 == 0xFF,
+              fmt("pre reg=0x%02X MMU6=0x%02X MMU7=0x%02X / "
+                  "post reg=0x%02X MMU6=0x%02X MMU7=0x%02X "
+                  "(exp 0x0F, 0xFE, 0xFF on both sides)",
+                  pre_reg, pre_g6, pre_g7, post_reg, post_g6, post_g7));
+    }
 }
 
 // ── Category 5: +3 paging (port 0x1FFD) ───────────────────────────────
@@ -981,6 +1015,42 @@ void test_cat10_port_eff7() {
               pre2 && pre3 && !post2 && !post3,
               fmt("pre bit2=%d bit3=%d post bit2=%d bit3=%d (exp 1,1,0,0)",
                   pre2, pre3, post2, post3));
+    }
+
+    // EF7-05: Soft reset preserves port_eff7_reg_{2,3}. VHDL zxnext.vhd:
+    // 3777-3779 gates the clear of both bits on `reset='1'` (hard only).
+    // Per Branch C's architectural decision the whole `reset='1'` family
+    // is hard-only; soft resets leave these registers alone, consistent
+    // with the firmware invariant that a RESET_SOFT does not re-bind the
+    // extended-paging configuration. VHDL:3781 decodes cpu_do(2) into
+    // port_eff7_reg_2 and cpu_do(3) into port_eff7_reg_3, so writing 0x0C
+    // sets both RAM-at-0x0000 (bit 3) and disable-P1024 (bit 2). After a
+    // soft reset we assert (a) both accessors still report set and (b)
+    // slots 0/1 remain RAM — i.e. VHDL:4636-4644 still resolves MMU0/1
+    // via the eff7(3)=1 branch on the subsequent rebuild.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_eff7(0x0C);         // bits 2 and 3 both set
+        const bool pre_ram0000  = f.mmu.port_eff7_ram_at_0000();
+        const bool pre_disp1024 = f.mmu.port_eff7_disable_p1024();
+        const bool pre_rom0     = f.mmu.is_slot_rom(0);
+        const bool pre_rom1     = f.mmu.is_slot_rom(1);
+        f.mmu.reset(false);                  // soft reset
+        const bool post_ram0000  = f.mmu.port_eff7_ram_at_0000();
+        const bool post_disp1024 = f.mmu.port_eff7_disable_p1024();
+        const bool post_rom0     = f.mmu.is_slot_rom(0);
+        const bool post_rom1     = f.mmu.is_slot_rom(1);
+        check("EF7-05",
+              "soft reset preserves port_eff7_reg_{2,3} + RAM-at-0x0000 "
+              "— VHDL zxnext.vhd:3777-3779",
+              pre_ram0000 && pre_disp1024 && !pre_rom0 && !pre_rom1 &&
+              post_ram0000 && post_disp1024 && !post_rom0 && !post_rom1,
+              fmt("pre ram0000=%d disp1024=%d rom0=%d rom1=%d / "
+                  "post ram0000=%d disp1024=%d rom0=%d rom1=%d "
+                  "(exp 1,1,0,0 on both sides)",
+                  pre_ram0000, pre_disp1024, pre_rom0, pre_rom1,
+                  post_ram0000, post_disp1024, post_rom0, post_rom1));
     }
 }
 
