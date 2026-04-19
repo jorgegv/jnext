@@ -52,7 +52,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         ram_.reset();
         rom_.reset();
     }
-    mmu_.reset();
+    // preserve_memory=true == soft reset (RESET_SOFT / NR 0x02 bit 0).
+    // VHDL distinguishes the two reset domains: some MMU-side flip-flops
+    // only clear on the hard `reset` signal (zxnext.vhd:1730
+    // `reset <= i_RESET`). Thread the distinction through so soft reset
+    // preserves nr_8c_altrom upper nibble, nr_08_contention_disable, and
+    // the 7FFD paging lock per VHDL zxnext.vhd:2253-2256 / 4930-4935 /
+    // 3646-3648.
+    mmu_.reset(/*hard=*/!preserve_memory);
     nextreg_.reset();
     palette_.reset();
     layer2_.reset();
@@ -80,6 +87,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     psg_accum_ = 0;
     sample_accum_ = 0;
     dac_enabled_ = false;
+    // VHDL zxnext.vhd:1115-1120 reset defaults for NR 0x08 stored bits.
+    // nr_08_psg_stereo_mode, nr_08_dac_en, nr_08_port_ff_rd_en,
+    // nr_08_psg_turbosound_en, nr_08_keyboard_issue2 all default '0';
+    // nr_08_internal_speaker_en defaults '1' (bit 4).
+    nr_08_stored_low_ = 0x10;
 
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
@@ -101,6 +113,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
     contention_.build(cfg.type);
+
+    // Push machine type into Mmu so Mmu::current_sram_rom() matches the
+    // VHDL zxnext.vhd:2981-3008 sram_rom selection (48K always 0, +3 uses
+    // 2-bit rom bank, Next/128K/Pentagon use 1-bit). Altrom lock bits
+    // override per VHDL for +3 and Next variants.
+    mmu_.set_machine_type(cfg.type);
 
     // Build FUSE Z80 core's internal contention tables.  These provide
     // per-access contention for opcode fetches, data reads/writes, and
@@ -524,11 +542,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x8C: Alternate ROM control
-    //   bit 7 = enable alt rom
-    //   bit 6 = alt rom visible only during writes
-    //   bits 5:4 = lock ROM1/ROM0
+    //   bit 7 = nr_8c_altrom_en        (VHDL zxnext.vhd:2262)
+    //   bit 6 = nr_8c_altrom_rw        (zxnext.vhd:2263)
+    //   bit 5 = nr_8c_altrom_lock_rom1 (zxnext.vhd:2264)
+    //   bit 4 = nr_8c_altrom_lock_rom0 (zxnext.vhd:2265)
+    //   bits 3:0 = reset-defaults for 7:4 (copied on hard reset, zxnext.vhd:2255)
+    // Mirror the full byte on Mmu (Branch C: register storage + accessors;
+    // SRAM arbiter override is a follow-up). Retain the Rom-side mirror
+    // (rom_.set_alt_rom_config) so existing consumers of Rom::alt_rom_*
+    // keep working until they migrate to Mmu.
     nextreg_.set_write_handler(0x8C, [this](uint8_t v) {
+        mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
+    });
+    nextreg_.set_read_handler(0x8C, [this]() -> uint8_t {
+        return mmu_.get_nr_8c();
     });
 
     // --- NextREG interrupt control registers (0xC0-0xCF) ---
@@ -877,6 +905,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x08: Peripheral 3
     //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
+    //   bit 6 = contention disable (VHDL zxnext.vhd:5176 nr_08_contention_disable)
     //   bit 5 = stereo mode (0=ABC, 1=ACB)
     //   bit 3 = DAC enable
     //   bit 1 = TurboSound enable
@@ -884,12 +913,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_7ffd_reg(5), which drops port_7ffd_locked (zxnext.vhd:3769).
     // Bit 7 is the write-strobe only; it is not stored (read-back at
     // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
-    // just written).
+    // just written). Bit 6 IS stored (read back via eff_nr_08_contention_disable).
     nextreg_.set_write_handler(0x08, [this](uint8_t v) {
         if (v & 0x80) mmu_.unlock_paging();
+        mmu_.set_contention_disabled((v >> 6) & 1);
         turbosound_.set_stereo_mode((v >> 5) & 1);
         dac_enabled_ = (v >> 3) & 1;
         turbosound_.set_enabled((v >> 1) & 1);
+        // Mirror the stored bits (5/4/3/2/1/0) for NR 0x08 read-back per
+        // VHDL zxnext.vhd:5906. Bit 7 is write-strobe-only (not stored),
+        // and bit 6 is kept live on mmu_ (contention_disabled_). The
+        // remaining bits are composed from this cache so read matches the
+        // last write for those signals the emulator does not drive from
+        // live subsystem state (internal speaker bit 4, port_ff_rd bit 2,
+        // keyboard issue2 bit 0).
+        nr_08_stored_low_ = v & 0x3F;
+    });
+
+    // Register 0x08 read-back composition per VHDL zxnext.vhd:5906:
+    //   port_253b_dat <= (not port_7ffd_locked) & eff_nr_08_contention_disable &
+    //                    nr_08_psg_stereo_mode & nr_08_internal_speaker_en &
+    //                    nr_08_dac_en & nr_08_port_ff_rd_en &
+    //                    nr_08_psg_turbosound_en & nr_08_keyboard_issue2;
+    // Bit 7 is derived live from the paging lock; bit 6 from mmu_'s
+    // contention_disabled_ (which is also what the write handler drives).
+    // Bits 5..0 are served from the last-write mirror nr_08_stored_low_.
+    nextreg_.set_read_handler(0x08, [this]() -> uint8_t {
+        uint8_t v = 0;
+        if (!mmu_.paging_locked())        v |= 0x80;
+        if (mmu_.contention_disabled())   v |= 0x40;
+        v |= nr_08_stored_low_ & 0x3F;
+        return v;
     });
 
     // Register 0x09: Peripheral 4
@@ -1916,7 +1970,9 @@ void Emulator::reset()
     frame_cycle_ = 0;
 
     ram_.reset();
-    mmu_.reset();
+    // Emulator::reset() is a hard reset (see header — "Perform a hard
+    // reset: reinitialize all subsystems, clear RAM, reload ROM").
+    mmu_.reset(/*hard=*/true);
     nextreg_.reset();
     cpu_.reset();
     im2_.reset();
@@ -2167,6 +2223,9 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u8(nr_ce_dma_delay_en_uart1_);
     w.write_u8(nr_ce_dma_delay_en_uart0_);
     w.write_bool(im2_dma_delay_latched_);
+
+    // Branch C: NR 0x08 read mirror (bits 5..0 of last NR 0x08 write).
+    w.write_u8(nr_08_stored_low_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -2225,6 +2284,9 @@ void Emulator::load_state(StateReader& r)
     nr_ce_dma_delay_en_uart1_  = r.read_u8();
     nr_ce_dma_delay_en_uart0_  = r.read_u8();
     im2_dma_delay_latched_     = r.read_bool();
+
+    // Branch C: NR 0x08 read mirror.
+    nr_08_stored_low_ = r.read_u8();
 }
 
 // ---------------------------------------------------------------------------

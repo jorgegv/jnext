@@ -766,16 +766,102 @@ void test_cat10_port_eff7() {
 void test_cat11_rom_selection() {
     set_group("Cat11 ROM selection");
 
-    // ROM-01/02/03/04/05/06/07: machine-type-dependent ROM-page resolution
-    // is not exposed on the Mmu surface (no current_rom_page accessor
-    // and no machine-type input on Mmu itself).
-    skip("ROM-01", "no machine-type or sram_rom accessor on Mmu — 48K ROM 0 unobservable");
-    skip("ROM-02", "no machine-type or sram_rom accessor on Mmu — 128K ROM 0 unobservable");
-    skip("ROM-03", "no machine-type or sram_rom accessor on Mmu — 128K ROM 1 unobservable");
-    skip("ROM-04", "no machine-type or sram_rom accessor on Mmu — +3 ROM 0 unobservable");
-    skip("ROM-05", "no machine-type or sram_rom accessor on Mmu — +3 ROM 1 unobservable");
-    skip("ROM-06", "no machine-type or sram_rom accessor on Mmu — +3 ROM 2 unobservable");
-    skip("ROM-07", "no machine-type or sram_rom accessor on Mmu — +3 ROM 3 unobservable");
+    // ROM-01..07: machine-type-dependent sram_rom selection. Branch C.3
+    // exposes Mmu::set_machine_type + Mmu::current_sram_rom modelling the
+    // VHDL zxnext.vhd:2981-3008 selector. Each row drives the port state
+    // per plan and checks current_sram_rom() returns the expected sram_rom
+    // bit pattern.
+
+    // ROM-01: 48K machine always reports sram_rom = 0 (VHDL zxnext.vhd:2984).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX48K);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-01",
+              "48K machine sram_rom = 0 — VHDL zxnext.vhd:2984",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-02: 128K ROM 0 — port_7ffd bit 4 = 0. VHDL zxnext.vhd:3003-3005
+    // (Next/128K: sram_rom = '0' & port_1ffd_rom(0), where port_1ffd_rom(0)
+    // derives from port_7ffd(4) when port_1ffd(2)=0).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX128K);
+        f.mmu.map_128k_bank(0x00);  // 7ffd(4)=0
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-02",
+              "128K ROM 0: 7FFD(4)=0 → sram_rom=0 — VHDL zxnext.vhd:3003-3005",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-03: 128K ROM 1 — port_7ffd bit 4 = 1.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX128K);
+        f.mmu.map_128k_bank(0x10);  // 7ffd(4)=1
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-03",
+              "128K ROM 1: 7FFD(4)=1 → sram_rom=1 — VHDL zxnext.vhd:3003-3005",
+              v == 1, fmt("sram_rom=%u expected=1", v));
+    }
+
+    // ROM-04: +3 ROM 0 — 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00.
+    // VHDL zxnext.vhd:2993-2995 (no altrom lock: sram_rom = port_1ffd_rom).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x00);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-04",
+              "+3 ROM 0: 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00 — VHDL zxnext.vhd:2993",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-05: +3 ROM 1 — 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_plus3_bank(0x00);
+        f.mmu.map_128k_bank(0x10);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-05",
+              "+3 ROM 1: 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01 — VHDL zxnext.vhd:2993",
+              v == 1, fmt("sram_rom=%u expected=1", v));
+    }
+
+    // ROM-06: +3 ROM 2 — 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10.
+    // map_plus3_bank receives port_1ffd directly; bit 2 = 4 → value 0x04.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x04);  // 1FFD(2)=1, normal (bit 0 = 0)
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-06",
+              "+3 ROM 2: 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10 — VHDL zxnext.vhd:2993",
+              v == 2, fmt("sram_rom=%u expected=2", v));
+    }
+
+    // ROM-07: +3 ROM 3 — 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_plus3_bank(0x04);
+        f.mmu.map_128k_bank(0x10);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-07",
+              "+3 ROM 3: 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11 — VHDL zxnext.vhd:2993",
+              v == 3, fmt("sram_rom=%u expected=3", v));
+    }
 
     // ROM-08: ROM is read-only. VHDL zxnext.vhd:2933-3133 decode treats
     // ROM slots as read-disable/write-inhibit.
@@ -799,27 +885,142 @@ void test_cat11_rom_selection() {
               fmt("before=0x%02X after=0x%02X", before, after));
     }
 
-    // ROM-09: altrom_rw=1 makes ROM space writable. No NR 0x8C handler
-    // on Mmu surface.
-    skip("ROM-09", "no NR 0x8C handler on Mmu — altrom_rw path unobservable");
+    // ROM-09: altrom_rw=1 makes ROM space writable via altrom write-over.
+    // VHDL zxnext.vhd:3056 — sram_pre_rdonly <= not (nr_8c_altrom_en and
+    // nr_8c_altrom_rw). Mmu now stores the NR 0x8C register (Branch C.2)
+    // but the SRAM arbiter override in zxnext.vhd:2981-3001/3021/3056 is
+    // not yet wired — Mmu's write path does not yet clear read-only on
+    // ROM slots when altrom_en+altrom_rw are set. Follow-up branch owns
+    // the arbiter plumbing.
+    skip("ROM-09",
+         "NR 0x8C register stored on Mmu (Branch C.2) but sram_pre_rdonly "
+         "override (zxnext.vhd:3056) not wired — follow-up owns arbiter plumbing");
 }
 
 // ── Category 12: Alternate ROM (NR 0x8C) ──────────────────────────────
-// VHDL: zxnext.vhd:2247-2265. Mmu class does not consume NR 0x8C at all
-// — the altrom address override happens in the zxnext.vhd decode layer
-// before the MMU pointer is formed.
+// VHDL: zxnext.vhd:2247-2265. Branch C.2 adds NR 0x8C register storage
+// + decoded flag accessors on Mmu (set_nr_8c / get_nr_8c /
+// nr_8c_altrom_{en,rw,lock_rom0,lock_rom1}). The altrom ADDRESS OVERRIDE
+// in the SRAM arbiter (zxnext.vhd:2981-3001, 3021, 3056) is NOT wired
+// by Branch C — ALT-08 remains skipped for that reason.
 
 void test_cat12_altrom() {
     set_group("Cat12 alternate ROM (NR 0x8C)");
-    skip("ALT-01", "no NR 0x8C handler on Mmu — altrom enable unobservable");
-    skip("ALT-02", "no NR 0x8C handler on Mmu — altrom disable unobservable");
-    skip("ALT-03", "no NR 0x8C handler on Mmu — altrom rw unobservable");
-    skip("ALT-04", "no NR 0x8C handler on Mmu — altrom ro unobservable");
-    skip("ALT-05", "no NR 0x8C handler on Mmu — lock ROM1 unobservable");
-    skip("ALT-06", "no NR 0x8C handler on Mmu — lock ROM0 unobservable");
-    skip("ALT-07", "no NR 0x8C handler on Mmu — reset preservation unobservable");
-    skip("ALT-08", "no NR 0x8C handler on Mmu — altrom SRAM address formula unobservable");
-    skip("ALT-09", "no NR 0x8C read-back on Mmu — register unreachable");
+
+    // ALT-01: altrom enable. VHDL zxnext.vhd:2262 nr_8c_altrom_en = bit 7.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x80);
+        check("ALT-01",
+              "NR 0x8C bit 7 → altrom_en — VHDL zxnext.vhd:2262",
+              f.mmu.nr_8c_altrom_en() && !f.mmu.nr_8c_altrom_rw() &&
+              !f.mmu.nr_8c_altrom_lock_rom0() && !f.mmu.nr_8c_altrom_lock_rom1(),
+              fmt("en=%d rw=%d lk0=%d lk1=%d (expected 1,0,0,0)",
+                  f.mmu.nr_8c_altrom_en(), f.mmu.nr_8c_altrom_rw(),
+                  f.mmu.nr_8c_altrom_lock_rom0(), f.mmu.nr_8c_altrom_lock_rom1()));
+    }
+
+    // ALT-02: altrom disable. bit 7 = 0 clears nr_8c_altrom_en.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x80);
+        f.mmu.set_nr_8c(0x00);
+        check("ALT-02",
+              "NR 0x8C bit 7 = 0 → altrom_en cleared — VHDL zxnext.vhd:2262",
+              !f.mmu.nr_8c_altrom_en(),
+              fmt("en=%d (expected 0)", f.mmu.nr_8c_altrom_en()));
+    }
+
+    // ALT-03: altrom_rw=1. VHDL zxnext.vhd:2263 nr_8c_altrom_rw = bit 6.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0xC0);  // en | rw
+        check("ALT-03",
+              "NR 0x8C bit 6 → altrom_rw — VHDL zxnext.vhd:2263",
+              f.mmu.nr_8c_altrom_en() && f.mmu.nr_8c_altrom_rw(),
+              fmt("en=%d rw=%d (expected 1,1)",
+                  f.mmu.nr_8c_altrom_en(), f.mmu.nr_8c_altrom_rw()));
+    }
+
+    // ALT-04: altrom read-only. bit 6 = 0 clears nr_8c_altrom_rw.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x80);  // en, no rw
+        check("ALT-04",
+              "NR 0x8C bit 6 = 0 → altrom_rw cleared (read-only altrom) "
+              "— VHDL zxnext.vhd:2263",
+              f.mmu.nr_8c_altrom_en() && !f.mmu.nr_8c_altrom_rw(),
+              fmt("en=%d rw=%d (expected 1,0)",
+                  f.mmu.nr_8c_altrom_en(), f.mmu.nr_8c_altrom_rw()));
+    }
+
+    // ALT-05: Lock ROM1. VHDL zxnext.vhd:2264 nr_8c_altrom_lock_rom1 = bit 5.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0xA0);  // en | lock_rom1
+        check("ALT-05",
+              "NR 0x8C bit 5 → altrom_lock_rom1 — VHDL zxnext.vhd:2264",
+              f.mmu.nr_8c_altrom_lock_rom1() && !f.mmu.nr_8c_altrom_lock_rom0(),
+              fmt("lk1=%d lk0=%d (expected 1,0)",
+                  f.mmu.nr_8c_altrom_lock_rom1(), f.mmu.nr_8c_altrom_lock_rom0()));
+    }
+
+    // ALT-06: Lock ROM0. VHDL zxnext.vhd:2265 nr_8c_altrom_lock_rom0 = bit 4.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x90);  // en | lock_rom0
+        check("ALT-06",
+              "NR 0x8C bit 4 → altrom_lock_rom0 — VHDL zxnext.vhd:2265",
+              f.mmu.nr_8c_altrom_lock_rom0() && !f.mmu.nr_8c_altrom_lock_rom1(),
+              fmt("lk0=%d lk1=%d (expected 1,0)",
+                  f.mmu.nr_8c_altrom_lock_rom0(), f.mmu.nr_8c_altrom_lock_rom1()));
+    }
+
+    // ALT-07: Reset copies bits 3:0 into 7:4 per VHDL zxnext.vhd:2254-2256
+    //   if reset='1' then nr_8c_altrom(7:4) <= nr_8c_altrom(3:0); end if;
+    // The low nibble models reset defaults that survive reset and clone
+    // into the upper nibble. Starting from 0x85 (upper nibble 0x8, lower
+    // 0x5), one reset should yield bits 7:4 = 0x5 and bits 3:0 = 0x5 = 0x55.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0x85);
+        f.mmu.reset();
+        const uint8_t post = f.mmu.get_nr_8c();
+        check("ALT-07",
+              "hard reset copies NR 0x8C bits 3:0 into bits 7:4 "
+              "— VHDL zxnext.vhd:2254-2256",
+              post == 0x55,
+              fmt("NR 0x8C after reset=0x%02X expected=0x55", post));
+    }
+
+    // ALT-08: altrom SRAM address formula = "0000011" & alt_128_n & a(13).
+    // VHDL zxnext.vhd:2981-3001 (sram_rom override) + 3021 (sram_pre_alt_en).
+    // Branch C.2 stores the NR 0x8C register but does NOT wire the SRAM
+    // arbiter override; the observable address translation is unreachable
+    // from the Mmu surface as-is.
+    skip("ALT-08",
+         "NR 0x8C SRAM address override (zxnext.vhd:2981-3001, 3021) not "
+         "wired — Branch C.2 stores register only; follow-up owns arbiter");
+
+    // ALT-09: Read-back returns the stored register value. VHDL
+    // zxnext.vhd:6156 port_253b_dat <= nr_8c_altrom.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_nr_8c(0xA5);
+        const uint8_t v = f.mmu.get_nr_8c();
+        check("ALT-09",
+              "NR 0x8C read-back returns stored byte — VHDL zxnext.vhd:6156",
+              v == 0xA5,
+              fmt("NR 0x8C read=0x%02X expected=0xA5", v));
+    }
 }
 
 // ── Category 13: Config mode (NR 0x03/0x04) ───────────────────────────

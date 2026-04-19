@@ -7,7 +7,7 @@
 | Subsystem        | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
-| Memory/MMU       | 143       | 143     | 73   | 0    | 70        | 0       | HEAD              |
+| Memory/MMU       | 143       | 143     | 89   | 0    | 54        | 0       | HEAD              |
 | ULA Video        | 122       | 122     | 48   | 0    | 75        | 0       | `7c56b92000`      |
 | Layer2           | 97        | 97      | 89   | 0    | 8         | 0       | `fcbd9aed61`      |
 | Sprites          | 125       | 125     | 115  | 0    | 10        | 0       | `28f5afb540`      |
@@ -23,11 +23,7 @@
 | IO Port Dispatch | 86        | 86      | 80   | 0    | 6         | 0       | `ba19f6f`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1788** non-Z80N plan rows (+ 30 Z80N), **1720** mapped to tests, **68** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after C0 paging-unlock + Phase 1a/1b fixes): **1173 pass, 0 fail, 547 skip, 68 missing** (script-tracked).
-
-**Known matrix-tooling gap (flagged by 2026-04-20 critic review):** `test/refresh-traceability-matrix.py` only scans the per-subsystem bare test files, not `test/nextreg/nextreg_integration_test.cpp`. Consequently, the Phase 1b integration rewrites are **not reflected in the per-row tables** for NextREG — the bare-test entries for RO/SEL/CLIP/PAL/RW/CFG/PE rows still show `skip` even where integration coverage exists. Additionally, the 3 palette FAILs surfaced by Phase 1b (PAL-01, PAL-03, PAL-06 in `nextreg_integration_test.cpp`) are not counted in the aggregate `0 fail`. Actual integration-suite state: 43 pass / 3 fail / 16 skip out of 62 rows. Backlog: extend the refresh script to scan integration test files and merge status with the bare entries.
-
-The 68 missing rows are plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04, plus subsystem-level consolidations). Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1788** non-Z80N plan rows (+ 30 Z80N), **1720** mapped to tests, **68** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after C0 paging-unlock + Phase 1b NextREG integration rewrites): **1176 pass, 0 fail, 544 skip, 68 missing**. The 68 missing rows are plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04, plus subsystem-level consolidations). Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -153,70 +149,70 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | EF7-02  | Bit 3 = 0 → ROM at 0x0000                                    | —               | skip    | test/mmu/mmu_test.cpp:756 |
 | EF7-03  | Bit 2 = 1 disables Pent-1024                                 | —               | skip    | test/mmu/mmu_test.cpp:757 |
 | EF7-04  | Reset state                                                  | —               | skip    | test/mmu/mmu_test.cpp:758 |
-| ROM-01  | 48K always ROM 0                                             | —               | skip    | test/mmu/mmu_test.cpp:772 |
-| ROM-02  | 128K ROM 0                                                   | —               | skip    | test/mmu/mmu_test.cpp:773 |
-| ROM-03  | 128K ROM 1                                                   | —               | skip    | test/mmu/mmu_test.cpp:774 |
-| ROM-04  | +3 ROM 0                                                     | —               | skip    | test/mmu/mmu_test.cpp:775 |
-| ROM-05  | +3 ROM 1                                                     | —               | skip    | test/mmu/mmu_test.cpp:776 |
-| ROM-06  | +3 ROM 2                                                     | —               | skip    | test/mmu/mmu_test.cpp:777 |
-| ROM-07  | +3 ROM 3                                                     | —               | skip    | test/mmu/mmu_test.cpp:778 |
-| ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:796 |
-| ROM-09  | ROM with altrom_rw = 1                                       | —               | skip    | test/mmu/mmu_test.cpp:804 |
-| ALT-01  | Enable altrom                                                | —               | skip    | test/mmu/mmu_test.cpp:814 |
-| ALT-02  | Disable altrom                                               | —               | skip    | test/mmu/mmu_test.cpp:815 |
-| ALT-03  | Altrom read/write enable                                     | —               | skip    | test/mmu/mmu_test.cpp:816 |
-| ALT-04  | Altrom read-only                                             | —               | skip    | test/mmu/mmu_test.cpp:817 |
-| ALT-05  | Lock ROM1                                                    | —               | skip    | test/mmu/mmu_test.cpp:818 |
-| ALT-06  | Lock ROM0                                                    | —               | skip    | test/mmu/mmu_test.cpp:819 |
-| ALT-07  | Reset preserves bits 3:0                                     | —               | skip    | test/mmu/mmu_test.cpp:820 |
-| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:821 |
-| ALT-09  | Read-back                                                    | —               | skip    | test/mmu/mmu_test.cpp:822 |
-| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:851 |
-| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:871 |
-| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:892 |
-| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:912 |
-| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
-| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
-| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:107 |
-| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
-| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
-| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
-| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
-| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:108 |
-| ADR-09  | 0xE0                                                         | —               | skip    | test/mmu/mmu_test.cpp:110 |
-| ADR-10  | 0xFF                                                         | —               | skip    | test/mmu/mmu_test.cpp:110 |
-| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:114 |
-| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:116 |
-| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:117 |
-| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:119 |
-| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:121 |
-| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:122 |
-| CON-01  | 48K: bank 5 contended                                        | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| CON-02  | 48K: bank 5 hi contended                                     | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| CON-03  | 48K: bank 0 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| CON-04  | 48K: bank 7 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:124 |
-| CON-05  | 128K: odd banks contended                                    | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-06  | 128K: even banks not contended                               | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-07  | +3: banks >= 4 contended                                     | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-08  | +3: banks < 4 not contended                                  | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-09  | High page never contended                                    | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-10  | NR 0x08 bit 6 disables contention                            | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-11  | Speed > 3.5 MHz no contention                                | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| CON-12  | Pentagon timing no contention                                | —               | skip    | test/mmu/mmu_test.cpp:125 |
-| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:128 |
-| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:130 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:131 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:133 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:135 |
-| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:136 |
-| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:137 |
-| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:139 |
-| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:139 |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:140 |
-| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:141 |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:142 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:143 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:145 |
+| ROM-01  | 48K always ROM 0                                             | zxnext.vhd:2984 | pass    | test/mmu/mmu_test.cpp:781 |
+| ROM-02  | 128K ROM 0                                                   | zxnext.vhd:3003 | pass    | test/mmu/mmu_test.cpp:795 |
+| ROM-03  | 128K ROM 1                                                   | zxnext.vhd:3003 | pass    | test/mmu/mmu_test.cpp:807 |
+| ROM-04  | +3 ROM 0                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:821 |
+| ROM-05  | +3 ROM 1                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:834 |
+| ROM-06  | +3 ROM 2                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:848 |
+| ROM-07  | +3 ROM 3                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:861 |
+| ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:882 |
+| ROM-09  | ROM with altrom_rw = 1                                       | —               | skip    | test/mmu/mmu_test.cpp:895 |
+| ALT-01  | Enable altrom                                                | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:915 |
+| ALT-02  | Disable altrom                                               | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:930 |
+| ALT-03  | Altrom read/write enable                                     | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:941 |
+| ALT-04  | Altrom read-only                                             | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:953 |
+| ALT-05  | Lock ROM1                                                    | zxnext.vhd:2264 | pass    | test/mmu/mmu_test.cpp:966 |
+| ALT-06  | Lock ROM0                                                    | zxnext.vhd:2265 | pass    | test/mmu/mmu_test.cpp:978 |
+| ALT-07  | Reset preserves bits 3:0                                     | zxnext.vhd:2254 | pass    | test/mmu/mmu_test.cpp:996 |
+| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:100 |
+| ALT-09  | Read-back                                                    | zxnext.vhd:6156 | pass    | test/mmu/mmu_test.cpp:101 |
+| CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:105 |
+| CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:107 |
+| CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:109 |
+| CFG-04  | Config mode at reset                                         | —               | pass    | test/mmu/mmu_test.cpp:111 |
+| ADR-01  | 0x00                                                         | —               | pass    | test/mmu/mmu_test.cpp:127 |
+| ADR-02  | 0x01                                                         | —               | pass    | test/mmu/mmu_test.cpp:127 |
+| ADR-03  | 0x0A                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-04  | 0x0B                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-05  | 0x0E                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-06  | 0x10                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-07  | 0x20                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-08  | 0xDF                                                         | —               | pass    | test/mmu/mmu_test.cpp:128 |
+| ADR-09  | 0xE0                                                         | —               | skip    | test/mmu/mmu_test.cpp:130 |
+| ADR-10  | 0xFF                                                         | —               | skip    | test/mmu/mmu_test.cpp:131 |
+| BNK-01  | Page 0x0A → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:134 |
+| BNK-02  | Page 0x0B → bank5 path                                       | —               | pass    | test/mmu/mmu_test.cpp:136 |
+| BNK-03  | Page 0x0E → bank7 path                                       | —               | pass    | test/mmu/mmu_test.cpp:138 |
+| BNK-04  | Page 0x0F → normal SRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:140 |
+| BNK-05  | Bank5 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:141 |
+| BNK-06  | Bank7 read/write functional                                  | —               | pass    | test/mmu/mmu_test.cpp:143 |
+| CON-01  | 48K: bank 5 contended                                        | —               | skip    | test/mmu/mmu_test.cpp:144 |
+| CON-02  | 48K: bank 5 hi contended                                     | —               | skip    | test/mmu/mmu_test.cpp:144 |
+| CON-03  | 48K: bank 0 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:144 |
+| CON-04  | 48K: bank 7 not contended                                    | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-05  | 128K: odd banks contended                                    | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-06  | 128K: even banks not contended                               | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-07  | +3: banks >= 4 contended                                     | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-08  | +3: banks < 4 not contended                                  | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-09  | High page never contended                                    | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-10  | NR 0x08 bit 6 disables contention                            | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-11  | Speed > 3.5 MHz no contention                                | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| CON-12  | Pentagon timing no contention                                | —               | skip    | test/mmu/mmu_test.cpp:145 |
+| L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:148 |
+| L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:150 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:151 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:153 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:155 |
+| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:156 |
+| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:157 |
+| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:159 |
+| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:159 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:160 |
+| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:161 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:162 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:163 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:165 |
 
 ### Extra coverage (not in plan)
 
@@ -1749,49 +1745,49 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | RST-08  | After reset, read NR 0x82-0x85                         | —              | missing | missing                           |
 | RST-09  | After reset, read NR 0x1B clip                         | —              | skip    | test/nextreg/nextreg_test.cpp:246 |
 | RW-01   | 0x07                                                   | —              | skip    | test/nextreg/nextreg_test.cpp:262 |
-| RW-02   | 0x08                                                   | —              | skip    | test/nextreg/nextreg_test.cpp:269 |
-| RW-03   | 0x12                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:279 |
-| RW-04   | 0x14                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:291 |
-| RW-05   | 0x15                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:304 |
-| RW-06   | 0x16                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:315 |
-| RW-07   | 0x42                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:326 |
-| RW-08   | 0x43                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:340 |
-| RW-09   | 0x4A                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:351 |
-| RW-10   | 0x50-57                                                | —              | pass    | test/nextreg/nextreg_test.cpp:375 |
-| RW-11   | 0x7F                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:386 |
-| RW-12   | 0x6B                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:398 |
-| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | —              | skip    | test/nextreg/nextreg_test.cpp:421 |
-| CLIP-02 | Write NR 0x18 five times                               | —              | skip    | test/nextreg/nextreg_test.cpp:424 |
-| CLIP-03 | Write NR 0x1C bit 0 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:427 |
-| CLIP-04 | Write NR 0x1C bit 1 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:430 |
-| CLIP-05 | Write NR 0x1C bit 2 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:433 |
-| CLIP-06 | Write NR 0x1C bit 3 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:436 |
-| CLIP-07 | Read NR 0x1C                                           | —              | skip    | test/nextreg/nextreg_test.cpp:439 |
-| CLIP-08 | Read NR 0x18 cycles through clip values                | —              | skip    | test/nextreg/nextreg_test.cpp:443 |
+| RW-02   | 0x08                                                   | zxnext.vhd:5906 | missing | missing                                                  |
+| RW-03   | 0x12                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:278 |
+| RW-04   | 0x14                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:290 |
+| RW-05   | 0x15                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:303 |
+| RW-06   | 0x16                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:314 |
+| RW-07   | 0x42                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:325 |
+| RW-08   | 0x43                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:339 |
+| RW-09   | 0x4A                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:350 |
+| RW-10   | 0x50-57                                                | —              | pass    | test/nextreg/nextreg_test.cpp:374 |
+| RW-11   | 0x7F                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:385 |
+| RW-12   | 0x6B                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:397 |
+| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | —              | skip    | test/nextreg/nextreg_test.cpp:420 |
+| CLIP-02 | Write NR 0x18 five times                               | —              | skip    | test/nextreg/nextreg_test.cpp:423 |
+| CLIP-03 | Write NR 0x1C bit 0 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:426 |
+| CLIP-04 | Write NR 0x1C bit 1 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:429 |
+| CLIP-05 | Write NR 0x1C bit 2 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:432 |
+| CLIP-06 | Write NR 0x1C bit 3 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:435 |
+| CLIP-07 | Read NR 0x1C                                           | —              | skip    | test/nextreg/nextreg_test.cpp:438 |
+| CLIP-08 | Read NR 0x18 cycles through clip values                | —              | skip    | test/nextreg/nextreg_test.cpp:442 |
 | MMU-01  | Reset defaults                                         | —              | missing | missing                           |
-| MMU-02  | Write NR 0x52 = 0x20, read back                        | —              | pass    | test/nextreg/nextreg_test.cpp:465 |
-| MMU-03  | Write port 0x7FFD, check MMU6/7                        | —              | skip    | test/nextreg/nextreg_test.cpp:475 |
-| MMU-04  | NextREG write overrides port write                     | —              | skip    | test/nextreg/nextreg_test.cpp:481 |
-| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | —              | skip    | test/nextreg/nextreg_test.cpp:506 |
-| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | —              | skip    | test/nextreg/nextreg_test.cpp:510 |
-| CFG-03  | Write NR 0x03 bits 2:0 = 111                           | —              | pass    | test/nextreg/nextreg_test.cpp:524 |
-| CFG-04  | Write NR 0x03 bits 2:0 = 001-100                       | —              | pass    | test/nextreg/nextreg_test.cpp:547 |
-| CFG-05  | Machine type only writable in config mode              | —              | skip    | test/nextreg/nextreg_test.cpp:554 |
-| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | —              | skip    | test/nextreg/nextreg_test.cpp:605 |
-| PAL-02  | Write NR 0x41 (8-bit colour)                           | —              | skip    | test/nextreg/nextreg_test.cpp:608 |
-| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | —              | skip    | test/nextreg/nextreg_test.cpp:611 |
-| PAL-04  | Read NR 0x41                                           | —              | skip    | test/nextreg/nextreg_test.cpp:614 |
-| PAL-05  | Read NR 0x44                                           | —              | skip    | test/nextreg/nextreg_test.cpp:617 |
-| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | —              | skip    | test/nextreg/nextreg_test.cpp:620 |
-| PE-01   | Write NR 0x82 = 0x00                                   | —              | pass    | test/nextreg/nextreg_test.cpp:637 |
-| PE-02   | Read NR 0x82 after write                               | —              | pass    | test/nextreg/nextreg_test.cpp:649 |
-| PE-03   | Disable joystick port (bit 6)                          | —              | skip    | test/nextreg/nextreg_test.cpp:658 |
+| MMU-02  | Write NR 0x52 = 0x20, read back                        | —              | pass    | test/nextreg/nextreg_test.cpp:464 |
+| MMU-03  | Write port 0x7FFD, check MMU6/7                        | —              | skip    | test/nextreg/nextreg_test.cpp:474 |
+| MMU-04  | NextREG write overrides port write                     | —              | skip    | test/nextreg/nextreg_test.cpp:480 |
+| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | —              | skip    | test/nextreg/nextreg_test.cpp:505 |
+| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | —              | skip    | test/nextreg/nextreg_test.cpp:509 |
+| CFG-03  | Write NR 0x03 bits 2:0 = 111                           | —              | pass    | test/nextreg/nextreg_test.cpp:523 |
+| CFG-04  | Write NR 0x03 bits 2:0 = 001-100                       | —              | pass    | test/nextreg/nextreg_test.cpp:546 |
+| CFG-05  | Machine type only writable in config mode              | —              | skip    | test/nextreg/nextreg_test.cpp:553 |
+| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | —              | skip    | test/nextreg/nextreg_test.cpp:604 |
+| PAL-02  | Write NR 0x41 (8-bit colour)                           | —              | skip    | test/nextreg/nextreg_test.cpp:607 |
+| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | —              | skip    | test/nextreg/nextreg_test.cpp:610 |
+| PAL-04  | Read NR 0x41                                           | —              | skip    | test/nextreg/nextreg_test.cpp:613 |
+| PAL-05  | Read NR 0x44                                           | —              | skip    | test/nextreg/nextreg_test.cpp:616 |
+| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | —              | skip    | test/nextreg/nextreg_test.cpp:619 |
+| PE-01   | Write NR 0x82 = 0x00                                   | —              | pass    | test/nextreg/nextreg_test.cpp:636 |
+| PE-02   | Read NR 0x82 after write                               | —              | pass    | test/nextreg/nextreg_test.cpp:648 |
+| PE-03   | Disable joystick port (bit 6)                          | —              | skip    | test/nextreg/nextreg_test.cpp:657 |
 | PE-04   | Reset with reset_type=1                                | —              | missing | missing                           |
-| PE-05   | Reset with bus reset_type=0                            | —              | skip    | test/nextreg/nextreg_test.cpp:668 |
-| COP-01  | CPU write NR 0x15                                      | —              | pass    | test/nextreg/nextreg_test.cpp:685 |
-| COP-02  | Copper write NR 0x15 simultaneously                    | —              | skip    | test/nextreg/nextreg_test.cpp:694 |
-| COP-03  | CPU write while copper active                          | —              | skip    | test/nextreg/nextreg_test.cpp:701 |
-| COP-04  | Copper register limited to 0x7F                        | —              | skip    | test/nextreg/nextreg_test.cpp:709 |
+| PE-05   | Reset with bus reset_type=0                            | —              | skip    | test/nextreg/nextreg_test.cpp:667 |
+| COP-01  | CPU write NR 0x15                                      | —              | pass    | test/nextreg/nextreg_test.cpp:684 |
+| COP-02  | Copper write NR 0x15 simultaneously                    | —              | skip    | test/nextreg/nextreg_test.cpp:693 |
+| COP-03  | CPU write while copper active                          | —              | skip    | test/nextreg/nextreg_test.cpp:700 |
+| COP-04  | Copper register limited to 0x7F                        | —              | skip    | test/nextreg/nextreg_test.cpp:708 |
 
 ### Extra coverage (not in plan)
 

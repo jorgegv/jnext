@@ -27,15 +27,18 @@ foundation for all memory access in the emulator. This test suite validates:
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
 
-Measured on main 2026-04-20 post-Phase-1a fix:
+Measured on main 2026-04-20 post-Phase-1a-fix + Phase 2 C merge:
 
 - **143 plan rows total**, mapped 1:1 to test IDs (150 check()+skip() calls in test).
-- **84/150 live pass**, 0 fail, 66 skip.
-- Phase 2 C0 landed NR 0x08 bit 7 paging unlock — un-skipped P7F-14 and LCK-04.
+- **100 pass, 0 fail, 50 skip.**
+- Phase 2 C0 (commit `354fa14`) landed NR 0x08 bit 7 paging unlock — un-skipped P7F-14 and LCK-04.
 - Phase 1a re-triage: un-skipped BNK-01..04 (dual-port bypass outcome tests). MMU-12, ADR-09, ADR-10 were initially un-skipped but REVERTED to skip() after independent critic review flagged SX-02 anti-pattern (tests encoded JNEXT's `to_sram_page` truncation as the oracle instead of VHDL's `sram_pre_active=0` floating-bus semantics per zxnext.vhd:3060-3061).
-- **Remaining skips (66) blocked by** Phase 2 branches C (NR 0x08 bit 6 + NR 0x8C + machine-type — in review), A (ports 0xDFFD + 0xEFF7), B (NR 0x8E + NR 0x8F), D1 (ContentionModel inputs), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier.
-- **Soft-reset semantic divergences (pre-existing + Branch C candidates, flagged by 2026-04-20 critics):** VHDL preserves `port_7ffd_locked`, `nr_8c_altrom` bits 3:0, and `nr_08_contention_disable` across soft reset; JNEXT's `Mmu::reset()` (called from `Emulator::init(preserve_memory=true)` on soft reset) currently clears all three. Minimum fix: add `Mmu::reset(bool hard)` overload and gate the VHDL-only-on-hard state transitions. Backlog item blocking NextZXOS boot follow-up.
+- Phase 2 C (`fix/mmu-branch-c`) un-skipped 16 rows: ROM-01..07 (machine-type / sram_rom accessor per zxnext.vhd:2981-3008), ALT-01..07 + ALT-09 (NR 0x8C altrom register storage + decoded accessors), plus a bonus un-skip for RW-02 in the integration tier via the NR 0x08 read handler (bit 7 = NOT paging-lock, bit 6 = contention-disable).
+- Phase 2 C also added `Mmu::reset(bool hard)` overload: VHDL-faithful soft reset now preserves `paging_locked_`, `contention_disabled_`, and NR 0x8C bits 3:0 across RESET_SOFT (all three previously cleared unconditionally — a pre-existing divergence from C0 that Branch C took care of while adding the NR 0x08 bit 6 + NR 0x8C state). VHDL citations: zxnext.vhd:1730 (hard-reset signal), 2253-2256 (NR 0x8C nibble copy), 3646-3648 (port_7ffd_reg clear), 4930-4935 (contention_disable clear).
+- **Previously-listed RST-01/RST-02 failures**: already fixed by earlier reset-seed work — all eight RST rows pass (MMU0/MMU1 seed to the 0xFF ROM sentinel per VHDL zxnext.vhd:4611-4618).
+- **Remaining 50 skips blocked by** Phase 2 branches A (ports 0xDFFD + 0xEFF7), B (NR 0x8E + NR 0x8F unified-paging), D1 (ContentionModel inputs: mem_active_page, CPU speed, Pentagon timing), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier, 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — need full sram_pre_rdonly wiring), and NR 0x12/0x13 shadow (integration tier).
 - **VHDL-deviation backlog from Phase 1a critic:** MMU-12 / ADR-09 / ADR-10 observable: page ≥0xE0 on a RAM slot. VHDL inactivates; JNEXT wraps via `to_sram_page` and reads ROM-in-SRAM page 0 instead. Real deviation, no known software impact today. Fix: either gate RAM slots on mmu_A21_A13(8) or document the simplification.
+- **Pre-existing soft-reset divergence (informational):** `nr_04_romram_bank_` is cleared unconditionally on every Mmu reset; VHDL (zxnext.vhd:1104) initialises the signal with no reset process — holds across both domains. Benign for current boot path (firmware rewrites NR 0x04 before each config_mode entry). Flagged as backlog.
 
 ## VHDL Architecture Summary
 

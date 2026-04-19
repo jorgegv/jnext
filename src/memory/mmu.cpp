@@ -12,11 +12,34 @@
 static constexpr uint8_t RESET_PAGES[8] = {0xFF, 0xFF, 0x0A, 0x0B, 0x04, 0x05, 0x00, 0x01};
 
 Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
-    reset();
+    // Constructor — power-on reset, equivalent to the top-level `reset`
+    // signal in VHDL (zxnext.vhd:1730 `reset <= i_RESET`).
+    reset(true);
 }
 
-void Mmu::reset() {
-    paging_locked_ = false;
+void Mmu::reset(bool hard) {
+    // paging_locked_ mirrors port_7ffd_reg(5) → port_7ffd_locked
+    // (zxnext.vhd:3769 derives the latter from the former). The VHDL
+    // reset at zxnext.vhd:3646-3648 gates the `port_7ffd_reg <= (others
+    // => '0')` assignment on `reset='1'` (hard only). Soft resets leave
+    // the lock state — and thus bit 5 — untouched.
+    if (hard) {
+        paging_locked_ = false;
+    }
+    // VHDL zxnext.vhd:4930-4935 — nr_08_contention_disable <= '0' is
+    // gated on `reset='1'` (hard only). Soft reset preserves the flag.
+    if (hard) {
+        contention_disabled_ = false;
+    }
+    // VHDL zxnext.vhd:2253-2256 — the lo→hi nibble copy on nr_8c_altrom
+    // is gated on `reset='1'` (hard only). Soft reset preserves the full
+    // 8-bit register. Bits 3:0 themselves are not cleared by the VHDL
+    // process; they persist as "altrom bits to reload on reset" defaults,
+    // and the copy re-derives bits 7:4 on each hard reset.
+    if (hard) {
+        const uint8_t lo = nr_8c_reg_ & 0x0F;
+        nr_8c_reg_ = static_cast<uint8_t>((lo << 4) | lo);
+    }
     l2_write_enable_ = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
@@ -199,6 +222,12 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(config_mode_);
     w.write_u8(nr_04_romram_bank_);
     w.write_bool(rom_in_sram_);
+    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6),
+    // the full nr_8c_altrom register byte (VHDL zxnext.vhd:387), and machine_type_
+    // for sram_rom selection (zxnext.vhd:2981-3008).
+    w.write_bool(contention_disabled_);
+    w.write_u8(nr_8c_reg_);
+    w.write_u8(static_cast<uint8_t>(machine_type_));
 }
 
 void Mmu::load_state(StateReader& r)
@@ -215,6 +244,14 @@ void Mmu::load_state(StateReader& r)
     config_mode_       = r.read_bool();
     nr_04_romram_bank_ = r.read_u8();
     rom_in_sram_       = r.read_bool();
+    // Branch C appended state — keep load tolerant of older streams that
+    // do not carry these fields yet. save_state writes them; if the stream
+    // predates Branch C, the reader will short-read and the caller's
+    // StateReader bounds-check will flag it. We rely on save_state always
+    // matching the same code generation so load_state is safe to read.
+    contention_disabled_ = r.read_bool();
+    nr_8c_reg_           = r.read_u8();
+    machine_type_        = static_cast<MachineType>(r.read_u8());
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
