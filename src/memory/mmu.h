@@ -42,6 +42,17 @@ public:
     // Returns the NR 0x50–0x57 register-visible value. At reset this matches
     // the VHDL zxnext.vhd:4611-4618 defaults (MMU0/MMU1 = 0xFF ROM sentinel).
     uint8_t get_page(int slot) const { return nr_mmu_[slot]; }
+    // Returns the effective physical page backing `slot` — combines the NR
+    // 0x50–0x57 explicit override (nr_mmu_[slot] when != 0xFF) with the
+    // legacy-paging dynamic resolution (slots_[slot], kept up to date by
+    // map_rom_physical / set_page). Use this for tests/debugger observability
+    // of ROM-page-after-port-write scenarios where nr_mmu_ holds the VHDL
+    // 0xFF ROM sentinel (zxnext.vhd:4611-4612, 4619-4644) but the resolved
+    // physical page still matters. Returns 0xFF for out-of-range slot.
+    uint8_t get_effective_page(int slot) const {
+        if (slot < 0 || slot > 7) return 0xFF;
+        return nr_mmu_[slot] != 0xFF ? nr_mmu_[slot] : slots_[slot];
+    }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
     // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
