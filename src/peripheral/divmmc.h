@@ -133,6 +133,16 @@ public:
     void set_rom3_active(bool v) { rom3_active_ = v; }
     bool rom3_active() const { return rom3_active_; }
 
+    // ── NMI-button latch (Multiface / Drive-button source) ──────────
+    /// Set the latched DivMMC NMI-button signal. VHDL divmmc.vhd:108-111
+    /// latches `button_nmi` when the Multiface/NMI-button peripheral
+    /// asserts its trigger; line 120 gates `automap_nmi_instant_on` on
+    /// this latch. Until a button source is wired (Task 8, Multiface),
+    /// this stays false — which keeps the 0x0066 instant-on path gated
+    /// off in the emulator, matching VHDL behaviour on a quiescent core.
+    void set_button_nmi(bool v) { button_nmi_ = v; }
+    bool button_nmi() const { return button_nmi_; }
+
     // ── NextREG automap configuration (0xB8–0xBB) ──────────────────
     void set_entry_points_0(uint8_t val) { entry_points_0_ = val; }
     void set_entry_valid_0(uint8_t val)  { entry_valid_0_ = val; }
@@ -171,6 +181,11 @@ private:
     bool automap_hold_   = false;
     bool automap_held_   = false;
     bool rom3_active_    = false;       // ROM3 is current ROM (from MMU/SRAM)
+    // VHDL divmmc.vhd:108-111 — latched NMI-button signal. Consumed by
+    // the PC=0x0066 instant-on path (line 120) and the NMI-button clear
+    // path (line 108). Set by the Multiface / NMI-button source; stays
+    // false until Task 8 wires a button peripheral.
+    bool button_nmi_     = false;
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default
