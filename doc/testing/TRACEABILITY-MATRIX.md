@@ -1,29 +1,29 @@
 # Test Plan Traceability Matrix
 
-> Updated 2026-04-17 from main at commit `ae96d6b`. This document is the canonical map from plan row → test ID → VHDL citation → test location for the 16 jnext subsystem unit test suites. See doc/testing/UNIT-TEST-PLAN-EXECUTION.md for the authoring process and doc/design/EMULATOR-DESIGN-PLAN.md §Phase 9 for the task tree.
+> Updated 2026-04-20 from main at HEAD. This document is the canonical map from plan row → test ID → VHDL citation → test location for the 16 jnext subsystem unit test suites. See doc/testing/UNIT-TEST-PLAN-EXECUTION.md for the authoring process and doc/design/EMULATOR-DESIGN-PLAN.md §Phase 9 for the task tree.
 
 ## Summary
 
 | Subsystem        | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
-| Memory/MMU       | 145       | 145     | 119  | 0    | 26        | 0       | HEAD              |
-| ULA Video        | 122       | 122     | 48   | 0    | 75        | 0       | `7c56b92000`      |
-| Layer2           | 97        | 97      | 89   | 0    | 8         | 0       | `fcbd9aed61`      |
-| Sprites          | 125       | 125     | 115  | 0    | 10        | 0       | `28f5afb540`      |
-| Tilemap          | 69        | 69      | 51   | 0    | 18        | 0       | `a3e1196000`      |
-| Copper           | 76        | 76      | 66   | 0    | 10        | 0       | `fcbd9aed61`      |
-| Compositor       | 114       | 114     | 114  | 0    | 0         | 0       | `3fda139`         |
-| Audio            | 197       | 197     | 127  | 0    | 73        | 0       | `178c41c000`      |
-| DMA              | 156       | 156     | 121  | 0    | 35        | 0       | `deeb9f6000`      |
-| DivMMC+SPI       | 123       | 123     | 67   | 0    | 56        | 0       | `d4ea4e1`         |
+| Memory/MMU       | 145       | 145     | 132  | 0    | 13        | 0       | HEAD              |
+| ULA Video        | 122       | 122     | 47   | 0    | 75        | 0       | `7c56b92000`      |
+| Layer2           | 97        | 91      | 91   | 0    | 0         | 6       | `fcbd9aed61`      |
+| Sprites          | 132       | 127     | 127  | 0    | 0         | 5       | `28f5afb540`      |
+| Tilemap          | 69        | 59      | 59   | 0    | 0         | 10      | `a3e1196000`      |
+| Copper           | 76        | 76      | 75   | 0    | 1         | 0       | `fcbd9aed61`      |
+| Compositor       | 115       | 115     | 115  | 0    | 0         | 0       | `3fda139`         |
+| Audio            | 197       | 197     | 124  | 0    | 73        | 0       | `178c41c000`      |
+| DMA              | 156       | 151     | 151  | 0    | 0         | 5       | `deeb9f6000`      |
+| DivMMC+SPI       | 123       | 95      | 86   | 0    | 9         | 28      | `d4ea4e1`         |
 | CTC+Interrupts   | 150       | 150     | 44   | 0    | 106       | 0       | `8bd9fe0`         |
-| UART+I2C/RTC     | 105       | 105     | 58   | 0    | 48        | 0       | `eee344d`         |
-| NextREG          | 64        | 54      | 19   | 0    | 35        | 10      | HEAD              |
-| IO Port Dispatch | 86        | 86      | 80   | 0    | 6         | 0       | `ba19f6f`         |
+| UART+I2C/RTC     | 105       | 105     | 57   | 0    | 48        | 0       | `eee344d`         |
+| NextREG          | 64        | 53      | 19   | 0    | 34        | 11      | HEAD              |
+| IO Port Dispatch | 90        | 86      | 85   | 0    | 1         | 4       | `ba19f6f`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1722** mapped to tests, **68** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after Phase 2 C + A + A.1 + B MMU un-skips): **1222 pass, 0 fail, 499 skip, 69 missing**. The 68 missing rows are plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04, plus subsystem-level consolidations). Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1721** mapped to tests, **69** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after Phase 2 C/A/A.1/B/D1/D2/E un-skips): **1235 pass, 0 fail, 486 skip, 69 missing**. The 69 missing rows include plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04), subsystem-level consolidations, and NextREG CLIP-09/CLIP-10 newly added in the clip-cycling plan section (sub-letter variants CLIP-09a/09b exist in the test binary but the matrix script maps plan rows by literal ID — backlog: extend script to recognise sub-letter prefixes). Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
