@@ -817,13 +817,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
 
-    // Pentagon 0xDFFD extended bank register. VHDL zxnext.vhd:2596.
+    // Port 0xDFFD — Profi/Next extended paging. VHDL zxnext.vhd:2596.
     // Decode: A15:12="1101", port_fd (A1:0="01") → mask 0xF003/0xD001.
     // Write-only in VHDL (no port_dffd_rd signal); reads at 0xDFFD fall
     // through to port_fffd_rd (AY select) per VHDL line 2771.
+    // Phase 2 A: forwards to Mmu::write_port_dffd which stores bits 4:0 and
+    // re-composes MMU6/7 with the extra bank bits per VHDL:3763-3766.
     port_.register_handler(0xF003, 0xD001,
         nullptr,
-        [](uint16_t, uint8_t) { /* Pentagon bank stub — write accepted, no state yet */ });
+        [this](uint16_t, uint8_t v) { mmu_.write_port_dffd(v); });
+
+    // Port 0xEFF7 — Pentagon-1024 disable / RAM-at-0x0000. VHDL zxnext.vhd:2604.
+    // Decode: A15:12="1110", port_f7_lsb (low byte = 0xF7) → A14:13 are
+    // don't-care so decode spans 0xE0F7..0xEFF7 (mask 0xF0FF / match 0xE0F7).
+    // 0xEFF7 is the canonical documented address. Write-only per VHDL:3780-3785
+    // (no port_eff7_rd path). Forwards to Mmu::write_port_eff7 which stores
+    // bits 2,3 and re-runs the port_memory_change_dly MMU0/1 rebuild so the
+    // RAM-at-0x0000 swap (bit 3) lands immediately per VHDL:4619-4644.
+    port_.register_handler(0xF0FF, 0xE0F7,
+        nullptr,
+        [this](uint16_t, uint8_t v) { mmu_.write_port_eff7(v); });
 
     // --- Audio port handlers ---
 
