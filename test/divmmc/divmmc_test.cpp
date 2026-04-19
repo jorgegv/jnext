@@ -1123,6 +1123,44 @@ void group_r3() {
 void group_nm() {
     set_group("9. NMI / button");
 
+    // DM-NMI-BTN-OFF / DM-NMI-BTN-ON: pin the VHDL divmmc.vhd:120
+    // gating of automap_nmi_instant_on on the latched button_nmi
+    // signal. NR 0xBB bit 1 enables the 0x0066 entry point (see VHDL
+    // zxnext.vhd:2907 — divmmc_automap_nmi_instant_on = port_00xx_msb
+    // AND port_66_lsb AND nr_bb_divmmc_ep_1(1)); the instant-on still
+    // additionally requires button_nmi=1 per divmmc.vhd:120. Without
+    // that additional gate we would spuriously automap on any PC=0x0066
+    // fetch reached via normal control flow — which was the NextZXOS
+    // enNextZX.rom hang symptom fixed in this commit series.
+    //
+    // NR 0xBB soft-reset default is 0xCD (zxnext.vhd:5090); bit 1 is 0
+    // by default, so these tests explicitly set bit 1 to isolate the
+    // button_nmi gate from the NR 0xBB enable.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x02);   // enable 0x0066 entry point
+        // button_nmi_ is cleared by reset(); make_divmmc() does not set it.
+        d.check_automap(0x0066, true);
+        check("DM-NMI-BTN-OFF",
+              "PC=0x0066 M1 with NR BB[1]=1 but button_nmi=0: automap "
+              "stays off (VHDL divmmc.vhd:120)",
+              !d.automap_active(),
+              fmt("automap=%d button_nmi=%d",
+                  d.automap_active(), d.button_nmi()));
+    }
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x02);   // enable 0x0066 entry point
+        d.set_button_nmi(true);
+        d.check_automap(0x0066, true);
+        check("DM-NMI-BTN-ON",
+              "PC=0x0066 M1 with NR BB[1]=1 and button_nmi=1: "
+              "instant-on automap activates (VHDL divmmc.vhd:120)",
+              d.automap_active(),
+              fmt("automap=%d button_nmi=%d",
+                  d.automap_active(), d.button_nmi()));
+    }
+
     // NM-01..NM-08: DivMMC NMI button lifecycle. VHDL divmmc.vhd:105-150
     // models a latched button_nmi signal that enters the automap pipeline
     // alongside RST entry points, and o_disable_nmi suppresses re-entry
