@@ -4,6 +4,7 @@
 #include "rom.h"
 #include "cpu/z80_cpu.h"
 #include "debug/debug_state.h"
+#include "memory/contention.h"   // for MachineType
 
 class DivMmc;  // forward declaration for overlay
 
@@ -250,6 +251,58 @@ public:
     }
     bool rom3_selected() const { return current_rom_bank() == 3; }
 
+    // Machine-type injection for sram_rom selection. VHDL zxnext.vhd:2981-3008
+    // branches on machine_type_48 / machine_type_p3 to select sram_rom:
+    //   48K : sram_rom = "00" (always ROM 0, unless altrom locks override)
+    //   +3  : sram_rom = nr_8c_altrom_lock_rom1 & _lock_rom0 when any altrom
+    //          lock bit is set, else port_1ffd_rom (2-bit, bit1=1ffd(2),
+    //          bit0=7ffd(4))
+    //   Next: sram_rom = '0' & (altrom_lock_rom1 if any lock) else
+    //          '0' & port_1ffd_rom(0)  (1-bit effective; high bit always 0)
+    // Pentagon follows the 128K legacy ROM selection (same as Next but
+    // without Next-specific altrom semantics).
+    //
+    // Default ZXN_ISSUE2 — call set_machine_type from Emulator::init.
+    void set_machine_type(MachineType t) { machine_type_ = t; }
+    MachineType machine_type() const { return machine_type_; }
+
+    // Compute the VHDL sram_rom value (0..3) that the SRAM arbiter would
+    // feed into the ROM address (zxnext.vhd:3052 sram_pre_A21_A13 =
+    // "000000" & sram_rom & cpu_a(13)) for the currently configured
+    // machine type + port_7FFD / port_1FFD / NR 0x8C altrom state.
+    //
+    // Branch C.3 models the cases:
+    //   48K  → always 0 (altrom locks do not select a different ROM bank on
+    //          the physical 48K machine; they only override sram_alt_128_n
+    //          which the C++ model does not track yet).
+    //   128K / PENTAGON → port_7ffd(4) select between ROM 0 / 1.
+    //   +3   → 2-bit bank = (port_1ffd(2), port_7ffd(4)); altrom locks
+    //          override to (lock_rom1, lock_rom0) when either lock bit is
+    //          set per zxnext.vhd:2988-2991.
+    //   ZXN  → 1-bit bank = port_1ffd_rom(0) (= bit 0 of current_rom_bank);
+    //          altrom lock overrides to (0, lock_rom1) per zxnext.vhd:2998-3001.
+    uint8_t current_sram_rom() const {
+        switch (machine_type_) {
+            case MachineType::ZX48K:
+                return 0;
+            case MachineType::ZX128K:
+            case MachineType::PENTAGON:
+                return static_cast<uint8_t>((port_7ffd_ >> 4) & 1);
+            case MachineType::ZX_PLUS3:
+                if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
+                    return static_cast<uint8_t>((nr_8c_altrom_lock_rom1() ? 2 : 0) |
+                                                (nr_8c_altrom_lock_rom0() ? 1 : 0));
+                }
+                return current_rom_bank();
+            case MachineType::ZXN_ISSUE2:
+            default:
+                if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
+                    return static_cast<uint8_t>(nr_8c_altrom_lock_rom1() ? 1 : 0);
+                }
+                return static_cast<uint8_t>(current_rom_bank() & 1);
+        }
+    }
+
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 
@@ -314,6 +367,11 @@ private:
     // bits 3:0 into bits 7:4 (zxnext.vhd:2255); bits 3:0 themselves are
     // never cleared by reset.
     uint8_t        nr_8c_reg_ = 0;
+    // VHDL machine_type_48/p3 in zxnext.vhd:2981-3008 drive sram_rom
+    // selection. Stored here so current_sram_rom() can match VHDL per
+    // machine type. Default ZXN_ISSUE2 matches Emulator's default Next
+    // config; non-Next machines push via set_machine_type().
+    MachineType    machine_type_ = MachineType::ZXN_ISSUE2;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
 

@@ -107,6 +107,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (emulator_config.h now includes contention.h for this definition).
     contention_.build(cfg.type);
 
+    // Push machine type into Mmu so Mmu::current_sram_rom() matches the
+    // VHDL zxnext.vhd:2981-3008 sram_rom selection (48K always 0, +3 uses
+    // 2-bit rom bank, Next/128K/Pentagon use 1-bit). Altrom lock bits
+    // override per VHDL for +3 and Next variants.
+    mmu_.set_machine_type(cfg.type);
+
     // Build FUSE Z80 core's internal contention tables.  These provide
     // per-access contention for opcode fetches, data reads/writes, and
     // internal timing delays — matching real hardware more accurately

@@ -215,10 +215,12 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(config_mode_);
     w.write_u8(nr_04_romram_bank_);
     w.write_bool(rom_in_sram_);
-    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6)
-    // and the full nr_8c_altrom register byte (VHDL zxnext.vhd:387).
+    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6),
+    // the full nr_8c_altrom register byte (VHDL zxnext.vhd:387), and machine_type_
+    // for sram_rom selection (zxnext.vhd:2981-3008).
     w.write_bool(contention_disabled_);
     w.write_u8(nr_8c_reg_);
+    w.write_u8(static_cast<uint8_t>(machine_type_));
 }
 
 void Mmu::load_state(StateReader& r)
@@ -242,6 +244,7 @@ void Mmu::load_state(StateReader& r)
     // matching the same code generation so load_state is safe to read.
     contention_disabled_ = r.read_bool();
     nr_8c_reg_           = r.read_u8();
+    machine_type_        = static_cast<MachineType>(r.read_u8());
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

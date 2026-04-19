@@ -736,16 +736,102 @@ void test_cat10_port_eff7() {
 void test_cat11_rom_selection() {
     set_group("Cat11 ROM selection");
 
-    // ROM-01/02/03/04/05/06/07: machine-type-dependent ROM-page resolution
-    // is not exposed on the Mmu surface (no current_rom_page accessor
-    // and no machine-type input on Mmu itself).
-    skip("ROM-01", "no machine-type or sram_rom accessor on Mmu — 48K ROM 0 unobservable");
-    skip("ROM-02", "no machine-type or sram_rom accessor on Mmu — 128K ROM 0 unobservable");
-    skip("ROM-03", "no machine-type or sram_rom accessor on Mmu — 128K ROM 1 unobservable");
-    skip("ROM-04", "no machine-type or sram_rom accessor on Mmu — +3 ROM 0 unobservable");
-    skip("ROM-05", "no machine-type or sram_rom accessor on Mmu — +3 ROM 1 unobservable");
-    skip("ROM-06", "no machine-type or sram_rom accessor on Mmu — +3 ROM 2 unobservable");
-    skip("ROM-07", "no machine-type or sram_rom accessor on Mmu — +3 ROM 3 unobservable");
+    // ROM-01..07: machine-type-dependent sram_rom selection. Branch C.3
+    // exposes Mmu::set_machine_type + Mmu::current_sram_rom modelling the
+    // VHDL zxnext.vhd:2981-3008 selector. Each row drives the port state
+    // per plan and checks current_sram_rom() returns the expected sram_rom
+    // bit pattern.
+
+    // ROM-01: 48K machine always reports sram_rom = 0 (VHDL zxnext.vhd:2984).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX48K);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-01",
+              "48K machine sram_rom = 0 — VHDL zxnext.vhd:2984",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-02: 128K ROM 0 — port_7ffd bit 4 = 0. VHDL zxnext.vhd:3003-3005
+    // (Next/128K: sram_rom = '0' & port_1ffd_rom(0), where port_1ffd_rom(0)
+    // derives from port_7ffd(4) when port_1ffd(2)=0).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX128K);
+        f.mmu.map_128k_bank(0x00);  // 7ffd(4)=0
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-02",
+              "128K ROM 0: 7FFD(4)=0 → sram_rom=0 — VHDL zxnext.vhd:3003-3005",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-03: 128K ROM 1 — port_7ffd bit 4 = 1.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX128K);
+        f.mmu.map_128k_bank(0x10);  // 7ffd(4)=1
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-03",
+              "128K ROM 1: 7FFD(4)=1 → sram_rom=1 — VHDL zxnext.vhd:3003-3005",
+              v == 1, fmt("sram_rom=%u expected=1", v));
+    }
+
+    // ROM-04: +3 ROM 0 — 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00.
+    // VHDL zxnext.vhd:2993-2995 (no altrom lock: sram_rom = port_1ffd_rom).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x00);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-04",
+              "+3 ROM 0: 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00 — VHDL zxnext.vhd:2993",
+              v == 0, fmt("sram_rom=%u expected=0", v));
+    }
+
+    // ROM-05: +3 ROM 1 — 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_plus3_bank(0x00);
+        f.mmu.map_128k_bank(0x10);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-05",
+              "+3 ROM 1: 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01 — VHDL zxnext.vhd:2993",
+              v == 1, fmt("sram_rom=%u expected=1", v));
+    }
+
+    // ROM-06: +3 ROM 2 — 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10.
+    // map_plus3_bank receives port_1ffd directly; bit 2 = 4 → value 0x04.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_128k_bank(0x00);
+        f.mmu.map_plus3_bank(0x04);  // 1FFD(2)=1, normal (bit 0 = 0)
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-06",
+              "+3 ROM 2: 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10 — VHDL zxnext.vhd:2993",
+              v == 2, fmt("sram_rom=%u expected=2", v));
+    }
+
+    // ROM-07: +3 ROM 3 — 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        f.mmu.map_plus3_bank(0x04);
+        f.mmu.map_128k_bank(0x10);
+        const uint8_t v = f.mmu.current_sram_rom();
+        check("ROM-07",
+              "+3 ROM 3: 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11 — VHDL zxnext.vhd:2993",
+              v == 3, fmt("sram_rom=%u expected=3", v));
+    }
 
     // ROM-08: ROM is read-only. VHDL zxnext.vhd:2933-3133 decode treats
     // ROM slots as read-disable/write-inhibit.
