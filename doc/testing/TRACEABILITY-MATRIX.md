@@ -203,18 +203,18 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CON-12  | Pentagon timing no contention                                | —               | pass    | test/mmu/mmu_test.cpp:219 |
 | L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | —               | pass    | test/mmu/mmu_test.cpp:224 |
 | L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:226 |
-| L2M-02  | L2 read-enable maps 0-16K                                    | —               | skip    | test/mmu/mmu_test.cpp:227 |
-| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:229 |
-| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:231 |
-| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:232 |
-| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:233 |
-| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:234 |
-| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:235 |
-| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:236 |
-| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:237 |
-| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:238 |
-| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:239 |
-| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:241 |
+| L2M-02  | L2 read-enable maps 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:228 |
+| L2M-03  | L2 auto segment follows A(15:14)                             | —               | pass    | test/mmu/mmu_test.cpp:232 |
+| L2M-04  | L2 does NOT map 48K-64K                                      | —               | pass    | test/mmu/mmu_test.cpp:234 |
+| L2M-05  | L2 bank from NR 0x12                                         | —               | skip    | test/mmu/mmu_test.cpp:235 |
+| L2M-06  | L2 shadow bank from NR 0x13                                  | —               | skip    | test/mmu/mmu_test.cpp:236 |
+| PRI-01  | DivMMC ROM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:238 |
+| PRI-02  | DivMMC RAM overrides MMU                                     | —               | skip    | test/mmu/mmu_test.cpp:238 |
+| PRI-03  | L2 overrides MMU in 0-16K                                    | —               | pass    | test/mmu/mmu_test.cpp:239 |
+| PRI-04  | L2 does not override DivMMC                                  | —               | skip    | test/mmu/mmu_test.cpp:240 |
+| PRI-05  | MMU page in upper 48K                                        | —               | pass    | test/mmu/mmu_test.cpp:241 |
+| PRI-06  | Altrom overrides normal ROM                                  | —               | skip    | test/mmu/mmu_test.cpp:242 |
+| PRI-07  | Config mode overrides ROM                                    | —               | pass    | test/mmu/mmu_test.cpp:244 |
 
 ### Extra coverage (not in plan)
 
@@ -1356,19 +1356,19 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | TM-05            | Held automap persists across non-deactivating fetches        | —              | pass    | test/divmmc/divmmc_test.cpp:1031 |
 | R3-01            | M1 at 0x0008 with ROM3 active: automap triggers              | —              | pass    | test/divmmc/divmmc_test.cpp:1064 |
 | R3-02            | M1 at 0x0008 with ROM0 active: no automap                    | —              | pass    | test/divmmc/divmmc_test.cpp:1082 |
-| R3-03            | M1 at 0x0008 with Layer 2 mapped: no automap                 | —              | skip    | test/divmmc/divmmc_test.cpp:1095 |
-| R3-04            | `automap_active` (non-ROM3 path) always enabled when DivMMC… | —              | pass    | test/divmmc/divmmc_test.cpp:1108 |
-| NM-01            | DivMMC button press sets `button_nmi`                        | —              | skip    | test/divmmc/divmmc_test.cpp:1133 |
-| NM-02            | M1 at 0x0066 with button_nmi: automap_nmi triggers           | —              | skip    | test/divmmc/divmmc_test.cpp:1136 |
-| NM-03            | M1 at 0x0066 without button_nmi: no NMI automap              | —              | skip    | test/divmmc/divmmc_test.cpp:1139 |
-| NM-04            | button_nmi cleared by reset                                  | —              | skip    | test/divmmc/divmmc_test.cpp:1142 |
-| NM-05            | button_nmi cleared by automap_reset                          | —              | skip    | test/divmmc/divmmc_test.cpp:1145 |
-| NM-06            | button_nmi cleared by RETN                                   | —              | skip    | test/divmmc/divmmc_test.cpp:1148 |
-| NM-07            | button_nmi cleared when automap_held becomes 1               | —              | skip    | test/divmmc/divmmc_test.cpp:1151 |
-| NM-08            | `o_disable_nmi` = automap OR button_nmi                      | —              | skip    | test/divmmc/divmmc_test.cpp:1154 |
-| NA-01            | NR 0x0A[4]=0 (default): automap_reset asserted               | —              | pass    | test/divmmc/divmmc_test.cpp:1176 |
-| NA-02            | NR 0x0A[4]=1: automap_reset deasserted                       | —              | pass    | test/divmmc/divmmc_test.cpp:1192 |
-| NA-03            | port_divmmc_io_en=0: automap_reset asserted                  | —              | pass    | test/divmmc/divmmc_test.cpp:1216 |
+| R3-03            | M1 at 0x0008 with Layer 2 mapped: no automap                 | —              | skip    | test/divmmc/divmmc_test.cpp:1096 |
+| R3-04            | `automap_active` (non-ROM3 path) always enabled when DivMMC… | —              | pass    | test/divmmc/divmmc_test.cpp:1110 |
+| NM-01            | DivMMC button press sets `button_nmi`                        | —              | skip    | test/divmmc/divmmc_test.cpp:1135 |
+| NM-02            | M1 at 0x0066 with button_nmi: automap_nmi triggers           | —              | skip    | test/divmmc/divmmc_test.cpp:1138 |
+| NM-03            | M1 at 0x0066 without button_nmi: no NMI automap              | —              | skip    | test/divmmc/divmmc_test.cpp:1141 |
+| NM-04            | button_nmi cleared by reset                                  | —              | skip    | test/divmmc/divmmc_test.cpp:1144 |
+| NM-05            | button_nmi cleared by automap_reset                          | —              | skip    | test/divmmc/divmmc_test.cpp:1147 |
+| NM-06            | button_nmi cleared by RETN                                   | —              | skip    | test/divmmc/divmmc_test.cpp:1150 |
+| NM-07            | button_nmi cleared when automap_held becomes 1               | —              | skip    | test/divmmc/divmmc_test.cpp:1153 |
+| NM-08            | `o_disable_nmi` = automap OR button_nmi                      | —              | skip    | test/divmmc/divmmc_test.cpp:1156 |
+| NA-01            | NR 0x0A[4]=0 (default): automap_reset asserted               | —              | pass    | test/divmmc/divmmc_test.cpp:1178 |
+| NA-02            | NR 0x0A[4]=1: automap_reset deasserted                       | —              | pass    | test/divmmc/divmmc_test.cpp:1194 |
+| NA-03            | port_divmmc_io_en=0: automap_reset asserted                  | —              | pass    | test/divmmc/divmmc_test.cpp:1218 |
 | SM-01            | DivMMC ROM maps to SRAM address 0x010000-0x011FFF            | —              | missing | missing                          |
 | SM-02            | DivMMC RAM bank 0 maps to SRAM 0x020000                      | —              | missing | missing                          |
 | SM-03            | DivMMC RAM bank 3 maps to SRAM 0x026000                      | —              | missing | missing                          |
@@ -1376,22 +1376,22 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | SM-05            | DivMMC has priority over Layer 2 mapping                     | —              | missing | missing                          |
 | SM-06            | DivMMC has priority over ROMCS                               | —              | missing | missing                          |
 | SM-07            | ROMCS maps to DivMMC banks 14 and 15                         | —              | missing | missing                          |
-| SS-01            | Reset: port_e7_reg = 0xFF (all deselected)                   | —              | pass    | test/divmmc/divmmc_test.cpp:1268 |
-| SS-02            | Write 0x01 (sd_swap=0): selects SD1                          | —              | pass    | test/divmmc/divmmc_test.cpp:1287 |
-| SS-03            | Write 0x02 (sd_swap=0): selects SD0                          | —              | pass    | test/divmmc/divmmc_test.cpp:1299 |
-| SS-04            | Write 0x01 with sd_swap=1: selects SD0 (swapped)             | —              | pass    | test/divmmc/divmmc_test.cpp:1311 |
-| SS-05            | Write 0x02 with sd_swap=1: selects SD1 (swapped)             | —              | pass    | test/divmmc/divmmc_test.cpp:1323 |
-| SS-06            | Write 0xFB: selects RPI0 (bit 2 = 0)                         | —              | pass    | test/divmmc/divmmc_test.cpp:1337 |
-| SS-07            | Write 0xF7: selects RPI1 (bit 3 = 0)                         | —              | pass    | test/divmmc/divmmc_test.cpp:1348 |
+| SS-01            | Reset: port_e7_reg = 0xFF (all deselected)                   | —              | pass    | test/divmmc/divmmc_test.cpp:1270 |
+| SS-02            | Write 0x01 (sd_swap=0): selects SD1                          | —              | pass    | test/divmmc/divmmc_test.cpp:1289 |
+| SS-03            | Write 0x02 (sd_swap=0): selects SD0                          | —              | pass    | test/divmmc/divmmc_test.cpp:1301 |
+| SS-04            | Write 0x01 with sd_swap=1: selects SD0 (swapped)             | —              | pass    | test/divmmc/divmmc_test.cpp:1313 |
+| SS-05            | Write 0x02 with sd_swap=1: selects SD1 (swapped)             | —              | pass    | test/divmmc/divmmc_test.cpp:1325 |
+| SS-06            | Write 0xFB: selects RPI0 (bit 2 = 0)                         | —              | pass    | test/divmmc/divmmc_test.cpp:1339 |
+| SS-07            | Write 0xF7: selects RPI1 (bit 3 = 0)                         | —              | pass    | test/divmmc/divmmc_test.cpp:1350 |
 | SS-08            | Write 0x7F in config mode: selects Flash                     | —              | missing | missing                          |
-| SS-09            | Write 0x7F outside config mode: all deselected (0xFF)        | —              | pass    | test/divmmc/divmmc_test.cpp:1370 |
-| SS-10            | Write any other value: all deselected (0xFF)                 | —              | pass    | test/divmmc/divmmc_test.cpp:1386 |
-| SS-11            | Only one device selected at a time                           | —              | pass    | test/divmmc/divmmc_test.cpp:1400 |
-| SX-01            | Write to port 0xEB: sends byte via MOSI                      | —              | pass    | test/divmmc/divmmc_test.cpp:1425 |
-| SX-02            | Read from port 0xEB: sends 0xFF via MOSI, receives MISO      | —              | pass    | test/divmmc/divmmc_test.cpp:1453 |
-| SX-03            | Read returns PREVIOUS exchange result                        | —              | pass    | test/divmmc/divmmc_test.cpp:1475 |
-| SX-04            | First read after reset returns 0xFF                          | —              | pass    | test/divmmc/divmmc_test.cpp:1489 |
-| SX-05            | Write 0xAA then read: read returns MISO from write cycle     | —              | pass    | test/divmmc/divmmc_test.cpp:1510 |
+| SS-09            | Write 0x7F outside config mode: all deselected (0xFF)        | —              | pass    | test/divmmc/divmmc_test.cpp:1372 |
+| SS-10            | Write any other value: all deselected (0xFF)                 | —              | pass    | test/divmmc/divmmc_test.cpp:1388 |
+| SS-11            | Only one device selected at a time                           | —              | pass    | test/divmmc/divmmc_test.cpp:1402 |
+| SX-01            | Write to port 0xEB: sends byte via MOSI                      | —              | pass    | test/divmmc/divmmc_test.cpp:1427 |
+| SX-02            | Read from port 0xEB: sends 0xFF via MOSI, receives MISO      | —              | pass    | test/divmmc/divmmc_test.cpp:1455 |
+| SX-03            | Read returns PREVIOUS exchange result                        | —              | pass    | test/divmmc/divmmc_test.cpp:1477 |
+| SX-04            | First read after reset returns 0xFF                          | —              | pass    | test/divmmc/divmmc_test.cpp:1491 |
+| SX-05            | Write 0xAA then read: read returns MISO from write cycle     | —              | pass    | test/divmmc/divmmc_test.cpp:1512 |
 | SX-06            | SPI transfer is 16 clock cycles (8 bits x 2 edges)           | —              | missing | missing                          |
 | SX-07            | SCK output matches state_r[0]                                | —              | missing | missing                          |
 | SX-08            | MOSI outputs MSB first                                       | —              | missing | missing                          |
@@ -1407,22 +1407,22 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | ST-08            | Read/write during mid-transfer: ignored                      | —              | missing | missing                          |
 | ML-01            | MISO bits shifted in on delayed rising SCK                   | —              | missing | missing                          |
 | ML-02            | Full byte latched into `miso_dat` on `state_last_d`          | —              | missing | missing                          |
-| ML-03            | `miso_dat` holds value until next transfer completes         | —              | pass    | test/divmmc/divmmc_test.cpp:1594 |
+| ML-03            | `miso_dat` holds value until next transfer completes         | —              | pass    | test/divmmc/divmmc_test.cpp:1596 |
 | ML-04            | Input and output shift registers are independent             | —              | missing | missing                          |
-| ML-05            | Reset sets `ishift_r` to all 1s                              | —              | pass    | test/divmmc/divmmc_test.cpp:1617 |
+| ML-05            | Reset sets `ishift_r` to all 1s                              | —              | pass    | test/divmmc/divmmc_test.cpp:1619 |
 | ML-06            | 16 cycles minimum between read/write operations              | —              | missing | missing                          |
 | MX-01            | Flash selected: MISO from flash                              | —              | missing | missing                          |
 | MX-02            | RPI selected: MISO from RPI                                  | —              | missing | missing                          |
-| MX-03            | SD selected: MISO from SD                                    | —              | pass    | test/divmmc/divmmc_test.cpp:1661 |
-| MX-04            | No device selected: MISO reads as 1                          | —              | pass    | test/divmmc/divmmc_test.cpp:1674 |
+| MX-03            | SD selected: MISO from SD                                    | —              | pass    | test/divmmc/divmmc_test.cpp:1663 |
+| MX-04            | No device selected: MISO reads as 1                          | —              | pass    | test/divmmc/divmmc_test.cpp:1676 |
 | MX-05            | Priority: Flash > RPI > SD > default                         | —              | missing | missing                          |
-| IN-01            | Boot sequence: automap at 0x0000, DivMMC ROM mapped          | —              | pass    | test/divmmc/divmmc_test.cpp:1700 |
-| IN-02            | SD card init: select SD0, exchange bytes, deselect           | —              | pass    | test/divmmc/divmmc_test.cpp:1720 |
-| IN-03            | RETN after NMI handler: automap deactivated, normal ROM      | —              | pass    | test/divmmc/divmmc_test.cpp:1738 |
-| IN-04            | Automap at 0x0008 (RST 8): ROM3 conditional                  | —              | pass    | test/divmmc/divmmc_test.cpp:1762 |
-| IN-05            | Rapid SPI exchanges: back-to-back without idle gap           | —              | pass    | test/divmmc/divmmc_test.cpp:1780 |
-| IN-06            | conmem override during automap: conmem takes priority        | —              | pass    | test/divmmc/divmmc_test.cpp:1794 |
-| IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | —              | pass    | test/divmmc/divmmc_test.cpp:1818 |
+| IN-01            | Boot sequence: automap at 0x0000, DivMMC ROM mapped          | —              | pass    | test/divmmc/divmmc_test.cpp:1702 |
+| IN-02            | SD card init: select SD0, exchange bytes, deselect           | —              | pass    | test/divmmc/divmmc_test.cpp:1722 |
+| IN-03            | RETN after NMI handler: automap deactivated, normal ROM      | —              | pass    | test/divmmc/divmmc_test.cpp:1740 |
+| IN-04            | Automap at 0x0008 (RST 8): ROM3 conditional                  | —              | pass    | test/divmmc/divmmc_test.cpp:1764 |
+| IN-05            | Rapid SPI exchanges: back-to-back without idle gap           | —              | pass    | test/divmmc/divmmc_test.cpp:1782 |
+| IN-06            | conmem override during automap: conmem takes priority        | —              | pass    | test/divmmc/divmmc_test.cpp:1796 |
+| IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | —              | pass    | test/divmmc/divmmc_test.cpp:1820 |
 
 ### Extra coverage (not in plan)
 
