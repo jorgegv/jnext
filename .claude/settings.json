@@ -52,7 +52,8 @@
       "Bash(tail:*)",
       "Bash(tee:*)",
       "Write",
-      "Bash(./build/test/nextreg_integration_test)"
+      "Bash(./build/test/nextreg_integration_test)",
+      "Bash(./build/test/nextreg_integration_test:*)"
     ]
   }
 }
