@@ -969,6 +969,147 @@ to `get_effective_page`. Also `src/debugger/memory_panel.cpp:133` has a
 dead `uint8_t page` assignment — delete the line rather than swap (the
 local `page` variable is never read after the assignment).
 
+### 2026-04-19 — Task (c): Ram size + DivMMC 0x0066 automap gate (two fixes landed)
+
+Opened with Task (c) from the 20260420 EOD handover: "dig into write_nr_8e
+v=0x08" (the pinned diagnostic from yesterday). Traced pre/post state dump
+around every `NR 0x8E` / `NR 0x50-0x57` / port 0x7FFD write. Root cause
+turned out to have **nothing to do with** `write_nr_8e` decoding — that
+path was verified line-by-line against VHDL:3662-3734 and is correct.
+
+#### Fix 1 — Default Ram size 1792 → 2048 KB (merge `75b7cdc`)
+
+The firmware's RAM test (PC=0x0199/0x019D in `enNextZX.rom`) iterates
+logical pages `0x00-0xFF` via `NR 0x56/0x57`. VHDL `mmu_A21_A13` at
+`zxnext.vhd:2964` maps logical pages to physical via
+`((1 + top3bits) << 5) | bottom5bits` — a 9-bit output. At our then-default
+`Ram` size of 1792 KB (224 physical pages, indices 0x00-0xDF), logical
+page 0xC0 maps to physical 0xE0 which is **out of bounds**. Test fails at
+page 0xC0, firmware enters an error handler that writes NR 0x8E=0x02 then
+NR 0x8E=0x08 and jumps to an error-display routine in the printer buffer —
+manifesting as the magenta/yellow stripes "stuck at 6s" screen.
+
+Bumping `Ram` default to 2048 KB (256 pages = 2 MB, matching real Next
+2A/2B hardware) makes every logical page up to 0xDF map to a valid
+physical page (0x20-0xFF). With that fix applied, the RAM-test iteration
+swept all 112 banks cleanly and boot advanced to the **TBBlue firmware
+splash** ("Press SPACEBAR for menu", "Firmware v1.44.db / Core v3.02.00").
+
+Commits:
+- `b43cbfa` — fix(memory): bump default Ram size 1792→2048 KB for NextZXOS boot
+- `de7a095` — fix(tests): widen rewind snap bound + drop stale explicit Ram(1792*1024) in mmu/ula fixtures
+- `71fb0b2` — docs(tests): update mmu_test CFG-07 comment for 2 MB default Ram
+
+Critic caught `test/rewind_test.cpp:224` assertion (`snap_size < 2 MB`)
+failing because Ram snapshot alone now ≈ 2 MB; round 2 widens to 3 MB.
+MMU/ULA test fixtures using explicit `Ram(1792*1024)` were stale — dropped
+to default. Comment polish in round 3 (`mmu_test.cpp:1761` "past the 1.75
+MB fixture" → "past the 2 MB default Ram fixture (256 pages)").
+
+Full regression clean (34/0/0), aggregate 2761/0/499.
+
+**Post-Fix 1 boot state:** boot advances to TBBlue splash (frames 100-230),
+clears screen (frame 250), enters loading-log phase (frame 253+) showing
+`Loading ROM: / enNextZX.rom...OK!` in yellow-on-black at the bottom; upper
+portion of paper area is a multicolor 8×8 attribute-cell mosaic (firmware's
+RAM-test visual progress indicator, plus earlier log lines being overpainted).
+Around frame 300, boot hangs at the classic magenta/yellow vertical stripes.
+
+Comparison with **real Next** screenshots (shared by user) at the same
+boot moment showed the loader log is supposed to include four entries
+(`keymap.bin`, `enNxtmmc.rom`, `enNextMf.rom`, `enNextZX.rom`) plus a
+"Sinclair ZX Spectrum Next" logo with 4-diagonal color bars. Our emulator
+shows only the `enNextZX.rom` line visible. User asked whether Multiface
+emulation is the missing piece; diagnostic ruled that out — all four ROMs
+are present on the SD image at `/machines/next/` and all 113 SD sector
+reads complete within ~1 s of emulated time (verified with sdcard=debug
+trace). The missing logo and earlier log lines are an **upstream rendering
+gap** (attribute-byte memory stale), not a peripheral gap.
+
+Reference screenshots saved in `doc/issues/nextzxos-boot-screens/`:
+- `00-tbblue-splash-100frames.png` — TBBlue logo + video-mode prompt
+- `00b-tbblue-splash-spacebar-prompt-200frames.png` — "Press SPACEBAR for menu" overlay
+- `01a-splash-clearing-250frames.png` — splash clearing transition
+- `01b-log-phase-early-253frames.png` — loader log phase (chaotic mosaic + "Loading ROM:" line)
+- `01-ennextzx-rom-loading-260frames.png` — same state at frame 260 (the one user reviewed)
+- `02-ram-test-stripes-300frames.png` — classic magenta/yellow-stripes hang
+- `03-post-0066-gate-ram-test-loop-500frames.png` — post-Fix-2 state (black screen)
+
+#### Fix 2 — DivMMC 0x0066 instant-on automap gate (merge `b57bb85`)
+
+With Fix 1 landed and SD-read trace showing all four ROMs load, the
+magenta/yellow-stripes hang persisted. Instrumented the CPU M1 path with
+`[ESX-TRACE]` (full register dump at anchor PCs) and DivMMC `check_automap`
+with `[AM-TRACE]` (automap state per-M1). Captured the loop:
+
+```
+PC=0x0035 active=false              ← firmware in normal ROM (enNextZX.rom)
+PC=0x0066 active=TRUE (instant=TRUE) ← spurious automap activation!
+PC=0x006a active=true                ← DivMMC ROM now mapped, fetches wrong code
+PC=0x006e active=true
+PC=0x1EA0 active=true
+PC=0x1FF9 hold=false held=true (off=true)
+PC=0x0030 active=false
+PC=0x0031..0x0035 active=false
+PC=0x0066 active=TRUE               ← spuriously re-fires, loop
+```
+
+At `enNextZX.rom:0x0066` the bytes are `ED 45` (RETN) — a legitimate
+subroutine used by firmware as "RET + re-enable interrupts". Our
+`DivMmc::check_automap` at `src/peripheral/divmmc.cpp:204-211` had a
+pre-existing GAP (flagged in-line: "Fix owner: Task 8 (Multiface) —
+button_nmi latch has no downstream consumer today") that fires
+`instant_match = true` UNCONDITIONALLY at PC=0x0066, ignoring the VHDL
+`button_nmi` latch gate at `divmmc.vhd:120`. Spurious automap activation
+mapped `enNxtmmc.rom` onto slot 0; CPU fetched `ED 8A 00 01` (Z80N PUSH
+0x0100) at 0x006A instead of normal ROM bytes `E3 4E 23 46`; firmware
+entered a synthetic esxDOS dispatcher loop with junk registers (L=0xFE,
+HL=0xFFFE) leaking 2 bytes per iteration on the stack — and never recovered.
+
+Fix: add `button_nmi_` boolean member to `DivMmc`, default `false`, AND
+the `pc == 0x0066` instant-on branch with it. `set_button_nmi(bool)`
+setter stays as an API surface for Task 8 (Multiface) to wire later. Zero
+behavioral change today (trigger never fires), forward-compatible with
+Multiface. Reset clears `button_nmi_` (VHDL:108 `i_reset` path).
+Serialisation appended at end-of-stream per project policy.
+
+Commits:
+- `5544b34` — refactor(divmmc): add button_nmi_ latch + save/load + reset clear
+- `1a8e307` — fix(divmmc): gate PC=0x0066 instant-on automap on button_nmi (VHDL:120)
+- `3ac6d50` — test(divmmc): pin DM-NMI-BTN-OFF / DM-NMI-BTN-ON at PC=0x0066 gating
+
+Tests: DM-NMI-BTN-OFF (button_nmi=false, expect no activation) and
+DM-NMI-BTN-ON (button_nmi=true, expect activation) discriminate both
+directions of the fix. Round-1 critic verified: `divmmc.vhd:108-120`,
+NR 0xBB default (`zxnext.vhd:5090 = 0xCD`, bit 1 = 0 — the per-entry
+enable is also off by default, so firmware must have explicitly enabled
+bit 1 during boot for the spurious trigger to have fired; NR 0xBB write
+handler at `emulator.cpp:564` is correctly wired, so this is a real
+trigger path). Regression clean (34/0/0), divmmc_test 88/0/9 (+2 pass).
+
+**Post-Fix 2 boot state:** the 0x006A synthetic-dispatcher hang is gone.
+Port 0xE3 writes drop from 27 792/8s to **0**. Firmware now advances to a
+RAM-test multi-pass loop at `enNextZX.rom:0x0168` (ED B8 = LDDR). PC
+sampler + tripwire diagnostic (first-hit per 256-byte PC page) showed
+128 unique pages visited in the first 1.3 s wall clock, then **no new
+pages for the remaining 28.7 s** — a structural infinite loop.
+
+NR 0x56 trace showed firmware cycles through all 112 RAM banks in
+sequence (`0x00, 0x02, 0x04, ..., 0xDE`), then **wraps back to 0x00** and
+restarts — ≈208 complete passes per bank in 15 s wall clock, ≈23 000
+bank tests total. Per-bank tests pass (no same-bank retry), but some
+whole-suite termination condition never triggers. Firmware polls NR
+0x1E/0x1F (active video line) ~233 times each during the loop, suggesting
+vsync-synced progress timing — possibly the missed termination condition.
+
+**Next session (d) plan:** reverse-engineer the RAM-test outer loop in
+`enNextZX.rom` starting around `0x018E` (the fall-through point of the
+DJNZ at `0x016C`). Identify the exit condition (likely depends on a
+specific NR read, port state, or memory value); find which our emulator
+returns a wrong value for; fix it. Candidates: NR 0x1E/0x1F timing skew,
+a peripheral status register we don't update correctly, or a memory
+aliasing issue at a specific bank boundary.
+
 ---
 
 ## Commit index (all dates)
@@ -1001,3 +1142,12 @@ local `page` variable is never read after the assignment).
 | 0920224 | 2026-04-20 | fix(mmu): NR 0x8E bit-3=0 suppresses MMU6/7 rebuild (VHDL:3814) |
 | e67ba75 | 2026-04-20 | test(nextreg): N8E-RAM-PRESERVE-0 / N8E-RAM-REBUILD-1 for NR 0x8E bit-3 gate |
 | 0cdf1bf | 2026-04-20 | Merge branch 'fix/mmu-nr8e-ram-gate' — NR 0x8E ram-slots gate landed |
+| b43cbfa | 2026-04-19 | fix(memory): bump default Ram size 1792→2048 KB for NextZXOS boot |
+| de7a095 | 2026-04-19 | fix(tests): widen rewind snap bound + drop stale Ram(1792*1024) |
+| 71fb0b2 | 2026-04-19 | docs(tests): update mmu_test CFG-07 comment for 2 MB default Ram |
+| 75b7cdc | 2026-04-19 | Merge branch 'fix/ram-size-2mb' — Task (c) Fix 1 landed |
+| b483e98 | 2026-04-19 | feat(cli): --delayed-screenshot-frames for frame-accurate timing |
+| 5544b34 | 2026-04-19 | refactor(divmmc): add button_nmi_ latch + save/load + reset clear |
+| 1a8e307 | 2026-04-19 | fix(divmmc): gate PC=0x0066 instant-on automap on button_nmi (VHDL:120) |
+| 3ac6d50 | 2026-04-19 | test(divmmc): pin DM-NMI-BTN-OFF / DM-NMI-BTN-ON at PC=0x0066 gating |
+| b57bb85 | 2026-04-19 | Merge branch 'fix/divmmc-0066-button-nmi-gate' — Task (c) Fix 2 landed |
