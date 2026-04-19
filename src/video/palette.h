@@ -79,6 +79,14 @@ public:
     void write_8bit(uint8_t val);
 
     // -----------------------------------------------------------------
+    // NextREG 0x41 — Palette Value (8-bit read)
+    // -----------------------------------------------------------------
+    // VHDL zxnext.vhd:6038-6039 — reads nr_palette_dat(8 downto 1), i.e. the
+    // upper 8 bits of the 9-bit RGB333 value at the currently selected
+    // target palette + index. Pure read, does not mutate palette state.
+    uint8_t read_8bit() const;
+
+    // -----------------------------------------------------------------
     // NextREG 0x44 — Palette Value (9-bit write, two consecutive writes)
     // -----------------------------------------------------------------
     // First write:  RRRGGGBB (8 bits)

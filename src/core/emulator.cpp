@@ -220,6 +220,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x41, [this](uint8_t v) {
         palette_.write_8bit(v);
     });
+    // VHDL zxnext.vhd:6038-6039 — NR 0x41 read returns nr_palette_dat(8:1),
+    // i.e. the upper 8 bits of the stored RGB333 at the currently selected
+    // target palette + index. Without this handler, reads return the stale
+    // regs_[0x41] last-write value, masking palette-state bugs (PAL-01/03/06).
+    nextreg_.set_read_handler(0x41, [this]() -> uint8_t {
+        return palette_.read_8bit();
+    });
 
     // Register 0x43: Palette control
     nextreg_.set_write_handler(0x43, [this](uint8_t v) {
