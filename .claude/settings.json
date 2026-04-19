@@ -53,7 +53,8 @@
       "Bash(tee:*)",
       "Write",
       "Bash(./build/test/nextreg_integration_test)",
-      "Bash(./build/test/nextreg_integration_test:*)"
+      "Bash(./build/test/nextreg_integration_test:*)",
+      "Bash(awk '/^class Mmu/,/^};/' /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-a562cf38/src/memory/mmu.h)"
     ],
     "additionalDirectories": [
       "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests"

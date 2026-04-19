@@ -776,6 +776,201 @@ NextZXOS boot.
 
 ---
 
+### 2026-04-20 — Phase 2 boot regression, Option C, NR 0x8E bit-3 gate
+
+**Starting state.** Phase 2 A/A.1/B/C/D1/D2/E MMU+NextREG SKIP-reduction
+ladder had landed earlier in the day (7+ merges, tests 2759/0/499). Session
+opened with the user's instruction "try boot, I think it will fail. Analyze
+and come back with suggestions." The concern was well-founded: boot rendered
+**black screen** instead of the 2026-04-19 blue-stripes baseline.
+
+**Bisection → offending commit `e42d3df`** — Phase 2 C's `feat(core): wire
+NR 0x8E/0x8F to Mmu` (22 lines in `emulator.cpp` routing the two NextREG
+handlers to `Mmu::write_nr_8e` / `Mmu::write_nr_8f`). Before this commit
+those NextREG writes were stubs; after it they call `apply_legacy_paging_()`
+every time, which is where the regression surfaces.
+
+#### Fix 1 — Option C (merge `60ee5fe`)
+
+Pre-existing latent bug: `apply_legacy_paging_()` and `map_plus3_bank()`
+wrote the derived physical ROM page into `nr_mmu_[0]`/`nr_mmu_[1]` instead
+of VHDL's `0xFF` sentinel ("legacy ROM paging slot"). A comment at
+`src/memory/mmu.cpp:253-258` admitted the deviation — "for test/debugger
+observability". While no caller wrote to NR 0x8E/0x8F, the deviation was
+invisible. After `e42d3df`, firmware writes trigger `apply_legacy_paging_`
+and the deviation compounds downstream.
+
+**My initial framing was wrong.** I proposed a guard-on-sentinel fix (skip
+the legacy rebuild when `nr_mmu_[i] != 0xFF`, to preserve explicit NR
+0x50/0x51 overrides across NR 0x8F writes). An author agent STOPPED mid-
+implementation and flagged the error: `zxnext.vhd:4607-4700` is a **clocked
+sequential process** (rising-edge `if/elsif` chain), NOT a combinatorial
+priority mux. When `port_memory_change_dly` fires — which happens on every
+port 7FFD/1FFD/DFFD/EFF7 write AND on every NR 0x8E/NR 0x8F write per
+`zxnext.vhd:3813` — the process unconditionally executes `MMU0 <= X"FF";
+MMU1 <= X"FF";` (`zxnext.vhd:4642-4645` in the non-special / non-EFF7.3
+branch). Prior NR 0x50/0x51 explicit overrides are **stomped on the very
+next port/mode write** by VHDL itself, last-writer-wins. I verified against
+the VHDL directly before accepting the author's framing.
+
+**Actual Option C fix (commits `5001376` + `d4507fc`):**
+- `apply_legacy_paging_` else-branch and `map_plus3_bank` normal-paging
+  else-branch now write `nr_mmu_[0] = 0xFF; nr_mmu_[1] = 0xFF;` — matches
+  VHDL:4642-4645.
+- New accessor `Mmu::get_effective_page(slot)` in `src/memory/mmu.h`:
+  returns `nr_mmu_[slot]` when explicit (`!= 0xFF`), else `slots_[slot]`
+  (the resolved mapping cache). Bridges the VHDL register-visible value
+  to the physical-page observability that tests/debugger want.
+- Test-code sweep: `port_test` rows `REG-09` and `NR82-03` that asserted
+  physical ROM page after a 0x1FFD write via `get_page(0)` now use
+  `get_effective_page(0)` — identical semantics, VHDL-correct accessor.
+  Both flipped FAIL → PASS. `mmu_test` and `nextreg_integration_test`
+  needed no updates (no row was asserting the clobbered value directly).
+
+**Post-Option-C boot test: still black.** VHDL-faithful for MMU0/1 but
+doesn't recover blue stripes. A second, independent regression mechanism
+was suspected.
+
+#### Fix 2 — NR 0x8E bit-3 ram-slots gate (merge `0cdf1bf`)
+
+Diagnostic: temporarily stub `apply_legacy_paging_()` inside `write_nr_8e`
+and `write_nr_8f` to no-ops. **Boot recovers to blue stripes.** So the
+regression is entirely in the rebuild-on-mode-change path. Next sub-step:
+re-enable `write_nr_8f` only → blue stripes. So **`write_nr_8e` alone is
+the culprit.** Firmware trace during ~8 s boot window: 6 NR 0x8E writes
+(values 0x02, 0x08, 0x03, 0x00, 0x01, 0x02) and 1 NR 0x8F write (0x00).
+
+VHDL divergence located at `zxnext.vhd:3814`:
+```
+port_memory_ram_change_dly <= not (nr_8e_we and not nr_wr_dat(3));
+```
+And the MMU6/7 update at `zxnext.vhd:4677`:
+```
+elsif port_1ffd_special_old = '1' or port_memory_ram_change_dly = '1' then
+    MMU6 <= port_7ffd_bank & '0';
+    MMU7 <= port_7ffd_bank & '1';
+end if;
+```
+So `port_memory_ram_change_dly` is `'0'` exactly when
+`(nr_8e_we='1' AND nr_wr_dat(3)='0')`. On those NR 0x8E writes MMU6/7
+rebuild is **suppressed**. Every other trigger (port 7FFD/1FFD/DFFD/EFF7,
+NR 0x8F, NR 0x8E with bit 3 set) yields `ram_change_dly='1'` and rebuilds
+normally. **MMU0/1 rebuild is separate and unconditional** — still driven
+by `port_memory_change_dly` per VHDL:4619-4646.
+
+Our `apply_legacy_paging_()` unconditionally rebuilt **both** halves on
+every trigger. 5 of the 6 firmware NR 0x8E writes have bit 3 = 0; all 5
+were stomping MMU6/7 away from whatever firmware had set them to.
+
+**Fix (commits `c59ec7f` + `0920224` + `e67ba75`):**
+- **Refactor.** Split `apply_legacy_paging_()` into
+  `apply_legacy_rom_slots_()` (slots 0/1, VHDL:4619-4646) and
+  `apply_legacy_ram_slots_()` (slots 6/7, VHDL:4677-4680). Convenience
+  wrapper preserves ram-then-rom order for the default both-halves
+  callers (port writes, NR 0x8F, soft reset, `map_plus3_bank`).
+- **Gate.** `write_nr_8e` now does:
+  ```cpp
+  if (v & 0x08) apply_legacy_ram_slots_();
+  apply_legacy_rom_slots_();
+  ```
+  Bit 3 = `nr_wr_dat(3)` per the VHDL gate.
+- **New integration tests** in `test/nextreg/nextreg_integration_test.cpp`:
+  - `N8E-RAM-PRESERVE-0` — NR 0x56 = 0x20 override survives NR 0x8E = 0x00
+    (bit 3 = 0) write. Asserts slot 6 still 0x20 after the mode write.
+  - `N8E-RAM-REBUILD-1` — bank 3 via `map_128k_bank(0x03)`, NR 0x56 = 0x20
+    override, then NR 0x8E = 0x08 (bit 3 = 1, bits 6:4 = 0 → forces 7FFD
+    bank = 0). Asserts slot 6 == 0x00 after (rebuild happened).
+- **Plan doc rows** in `doc/testing/NEXTREG-TEST-PLAN-DESIGN.md` for both,
+  citing VHDL:3814 and :4677.
+
+**Rebase wrinkle.** The author agent's worktree forked from stale
+`6a38dd1` (pre-Option-C base). Round-1 critic caught that the refactored
+`apply_legacy_rom_slots_()` and `map_plus3_bank` bodies had silently
+reverted Option C's `0xFF` sentinel back to the old `rom_bank*2` physical
+page. Rebasing onto `main` resolved cleanly (no conflicts — git's
+three-way merge adopted main's sentinel into the refactored code). Round-2
+critic confirmed the sentinel was preserved across both sites post-rebase.
+Lesson (logged): always pass author agents the exact base SHA in the brief
+so no ambiguity about `main` state.
+
+#### Test state post-both-merges
+- **Unit aggregate:** 2761 / 0 / 499 (+2 from the new NR 0x8E tests; was
+  2759 at session start).
+- **Regression:** 34 / 0 / 0.
+- Per binary: `mmu_test` 155/142/0/13 (unchanged), `nextreg_integration`
+  68/55/0/13 (+2 pass), `port_test` 83/82/0/1 (+1 from Option C),
+  `fuse_z80` 1356/1356.
+
+#### Boot state post-both-merges: **still black**
+
+Both fixes are VHDL-faithful and test-clean but the boot outcome is
+identical to the pre-fix regression. Further diagnostic (temporarily
+commenting out individual calls in `write_nr_8e`):
+
+| Stub configuration | Boot outcome |
+|---|---|
+| All `apply_legacy_*` calls stubbed | **Blue stripes** (2026-04-19 baseline) |
+| Only `apply_legacy_rom_slots_()` stubbed (ram gate left in place) | **Black** |
+| Landed fix (ram gated on bit 3, rom unconditional) | **Black** |
+
+The ram-gate suppresses 5 of the 6 firmware NR 0x8E writes, but the single
+`v=0x08` (bit 3 = 1) write is enough to break boot on its own. That write
+forces `port_7ffd_(2:0) ← 0` (VHDL-faithful per `zxnext.vhd:3662-3670`) and
+then rebuilds MMU6/7 to bank 0 (pages 0/1). Real hardware would do exactly
+the same on that write, so **firmware is designed to handle this** — meaning
+either:
+1. Our `write_nr_8e` port-update decoding diverges from VHDL somewhere
+   before the rebuild (the 7FFD / 1FFD / DFFD update logic at
+   `src/memory/mmu.cpp` lines ~371-398).
+2. There is another VHDL-faithfulness gap elsewhere — most likely in
+   `apply_legacy_rom_slots_` which derives `rom_bank` solely from
+   `port_7ffd_` bit 4 + `port_1ffd_` bit 2 and **ignores NR 0x8C altrom**.
+   If firmware writes NR 0x8C before the v=0x08 NR 0x8E, our ROM slot
+   derivation is missing that input.
+3. Something firmware touches between the soft-reset and the v=0x08 write
+   leaves emulator state in a place where VHDL's MMU6/7 ← bank-0 rebuild
+   is harmless but ours isn't.
+
+**Next session plan (user-agreed):** task (c) — dig into the v=0x08
+regression with instrumentation. Concrete starting points:
+1. Bit-by-bit verify every line of `write_nr_8e` port-update decoding
+   against `zxnext.vhd:3662-3670` (port_7ffd_reg), `:3696-3704`
+   (port_dffd_reg), `:3726-3734` (port_1ffd_reg). The critic confirmed the
+   *gate* structure but did not independently check every bit-assignment.
+2. Audit `apply_legacy_rom_slots_` for NR 0x8C altrom / NR 0x8E altrom
+   interactions. VHDL `mmu_A21_A13` for slots 0/1 consults altrom
+   state; our derivation doesn't.
+3. Instrument: log `slots_[0..7]`, `nr_mmu_[0..7]`, `port_7ffd_`,
+   `port_1ffd_`, `port_dffd_reg_`, `port_eff7_reg_3_`, `nr_8c_reg_`, SP,
+   PC immediately before and after the v=0x08 write. Compare to what
+   VHDL would compute for each signal.
+4. Cross-reference with CSpect behaviour if accessible — CSpect tolerates
+   some things our emulator doesn't (see 2026-04-18 Stage C lesson), and
+   real-hardware traces (if available) are ground truth.
+
+**Explicitly out of scope for task (c):** re-litigating Option C or the
+NR 0x8E bit-3 gate. Both are VHDL-faithful, tested, and independently
+reviewed.
+
+#### Architectural insight logged
+VHDL MMU register-file updates (`zxnext.vhd:4607-4700`) are **clocked
+sequential** — the `elsif` ladder pattern means last-write-in-time wins,
+not a priority mux. When reading VHDL register-file processes, don't
+assume priority semantics from the syntactic ordering of branches. This
+framing error cost the first Option C iteration.
+
+#### Queued follow-up (not blocking boot work)
+Debugger UI UX regression from Option C (critic noted, not blocking):
+`src/debugger/mmu_panel.cpp:112` (`MmuPanel::refresh`) and
+`src/debugger/memory_panel.cpp:197` (`MemoryPanel::update_page_selector`)
+display `mmu.get_page(slot)` which now shows `0xFF` sentinel for slots
+0/1 in legacy ROM mode instead of the derived physical page. Swap both
+to `get_effective_page`. Also `src/debugger/memory_panel.cpp:133` has a
+dead `uint8_t page` assignment — delete the line rather than swap (the
+local `page` variable is never read after the assignment).
+
+---
+
 ## Commit index (all dates)
 
 | Hash | Date | Description |
@@ -798,3 +993,11 @@ NextZXOS boot.
 | 6920a63 | 2026-04-19 | fix(mmu): Task 12c — apply `to_sram_page` across full page range |
 | 7abbe51 | 2026-04-19 | Merge branch 'task12c-centralise-shift-helper' |
 | f15a58c | 2026-04-19 | doc(prompt): add Task 12c status block |
+| e42d3df | 2026-04-19 | feat(core): wire NR 0x8E/0x8F to Mmu — introduces black-screen boot regression |
+| 5001376 | 2026-04-20 | fix(mmu): apply_legacy_paging_ writes 0xFF sentinel (VHDL-faithful) — Option C |
+| d4507fc | 2026-04-20 | test(port): switch ROM-page-after-port-write asserts to get_effective_page |
+| 60ee5fe | 2026-04-20 | Merge branch 'fix/mmu-legacy-paging-sentinel' — Option C landed |
+| c59ec7f | 2026-04-20 | refactor(mmu): split apply_legacy_paging_ into rom / ram halves |
+| 0920224 | 2026-04-20 | fix(mmu): NR 0x8E bit-3=0 suppresses MMU6/7 rebuild (VHDL:3814) |
+| e67ba75 | 2026-04-20 | test(nextreg): N8E-RAM-PRESERVE-0 / N8E-RAM-REBUILD-1 for NR 0x8E bit-3 gate |
+| 0cdf1bf | 2026-04-20 | Merge branch 'fix/mmu-nr8e-ram-gate' — NR 0x8E ram-slots gate landed |
