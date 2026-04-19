@@ -21,7 +21,7 @@ public:
     void set_pending_inject(const std::string& file, uint16_t org,
                             uint16_t pc, int delay_frames);
     void set_pending_load(const std::string& file, int delay_frames);
-    void set_delayed_screenshot(const std::string& file, int delay_seconds);
+    void set_delayed_screenshot(const std::string& file, int delay_frames);
     void set_delayed_exit(int delay_seconds);
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }

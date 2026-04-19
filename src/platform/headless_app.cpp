@@ -33,11 +33,11 @@ void HeadlessApp::set_pending_load(const std::string& file, int delay_frames) {
     Log::platform()->info("--load: will load '{}' after {} frame(s)", file, delay_frames);
 }
 
-void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_seconds) {
+void HeadlessApp::set_delayed_screenshot(const std::string& file, int delay_frames) {
     screenshot_file_ = file;
-    screenshot_countdown_ = delay_seconds * 50;
-    Log::platform()->info("--delayed-screenshot: will save '{}' after {} second(s)",
-                           file, delay_seconds);
+    screenshot_countdown_ = delay_frames;
+    Log::platform()->info("--delayed-screenshot: will save '{}' after {} frame(s)",
+                           file, delay_frames);
 }
 
 void HeadlessApp::set_delayed_exit(int delay_seconds) {

@@ -39,6 +39,7 @@ static void print_usage(const char* prog) {
         "  --roms-directory DIR Directory containing ROM files (default: /usr/share/fuse)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
+        "  --delayed-screenshot-frames N  Delay in frames (overrides --delayed-screenshot-time)\n"
         "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
         "  --headless               Run without display/audio (for automated testing)\n"
         "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
@@ -78,8 +79,9 @@ int main(int argc, char* argv[]) {
     std::string divmmc_rom;
     std::string sd_card_image;
     std::string screenshot_file;
-    int         screenshot_delay = 10;  // default 10 seconds
-    int         auto_exit_delay = -1;   // -1 = disabled
+    int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
+    int         screenshot_delay_frames = -1; // -1 = unset; if set, overrides screenshot_delay
+    int         auto_exit_delay = -1;         // -1 = disabled
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     std::string roms_directory = "/usr/share/fuse";
@@ -125,6 +127,8 @@ int main(int argc, char* argv[]) {
             screenshot_file = argv[++i];
         } else if (arg == "--delayed-screenshot-time" && i + 1 < argc) {
             screenshot_delay = std::stoi(argv[++i]);
+        } else if (arg == "--delayed-screenshot-frames" && i + 1 < argc) {
+            screenshot_delay_frames = std::stoi(argv[++i]);
         } else if (arg == "--delayed-automatic-exit" && i + 1 < argc) {
             auto_exit_delay = std::stoi(argv[++i]);
         } else if (arg == "--machine" && i + 1 < argc) {
@@ -204,8 +208,11 @@ int main(int argc, char* argv[]) {
 
         if (!app.init(argc, argv)) return 1;
 
-        if (!screenshot_file.empty())
-            app.set_delayed_screenshot(screenshot_file, screenshot_delay);
+        if (!screenshot_file.empty()) {
+            int frames = (screenshot_delay_frames >= 0) ? screenshot_delay_frames
+                                                        : screenshot_delay * 50;
+            app.set_delayed_screenshot(screenshot_file, frames);
+        }
         if (auto_exit_delay >= 0)
             app.set_delayed_exit(auto_exit_delay);
         if (!inject_file.empty())

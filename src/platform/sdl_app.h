@@ -25,8 +25,8 @@ public:
     /// Schedule a file load (e.g. .nex) after `delay_frames` frames.
     void set_pending_load(const std::string& file, int delay_frames);
 
-    /// Schedule a screenshot after `delay_seconds` seconds.
-    void set_delayed_screenshot(const std::string& file, int delay_seconds);
+    /// Schedule a screenshot after `delay_frames` frames.
+    void set_delayed_screenshot(const std::string& file, int delay_frames);
 
     /// Schedule automatic exit after `delay_seconds` seconds.
     void set_delayed_exit(int delay_seconds);
