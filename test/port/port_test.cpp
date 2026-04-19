@@ -352,9 +352,12 @@ static void test_group_registration() {
         build_plus3_emulator(emu3);
         // Observable: slot 0 (ROM) page changes when ROM-high bit toggles.
         // VHDL zxnext.vhd:2599; Mmu::map_plus3_bank.
-        uint8_t p0_before = emu3.mmu().get_page(0);
+        // Use get_effective_page: legacy ROM paging sets nr_mmu_[0]=0xFF
+        // (VHDL zxnext.vhd:4611-4612), so get_page would return the sentinel
+        // rather than the derived physical page.
+        uint8_t p0_before = emu3.mmu().get_effective_page(0);
         emu3.port().out(0x1FFD, 0x04);
-        uint8_t p0_after  = emu3.mmu().get_page(0);
+        uint8_t p0_after  = emu3.mmu().get_effective_page(0);
         check("REG-09",
               "OUT 0x1FFD on +3 remaps slot 0 via ROM-high bit",
               p0_before != p0_after,
@@ -705,9 +708,12 @@ static void test_group_nr_gating() {
         nr_write(emu3, 0x82, 0xF7);
         // Observable via slot 0 ROM page: if 0x1FFD is gated off, writing
         // the ROM-high bit must NOT remap slot 0.
-        uint8_t before = emu3.mmu().get_page(0);
+        // Use get_effective_page so the assertion observes the derived
+        // physical page (nr_mmu_[0]=0xFF sentinel under legacy ROM paging
+        // per VHDL zxnext.vhd:4611-4612).
+        uint8_t before = emu3.mmu().get_effective_page(0);
         emu3.port().out(0x1FFD, 0x04);
-        uint8_t after  = emu3.mmu().get_page(0);
+        uint8_t after  = emu3.mmu().get_effective_page(0);
         check("NR82-03", "NR 0x82 b3=0 silences OUT 0x1FFD on +3",
               before == after,
               DETAIL("slot0 before=0x%02x after=0x%02x", before, after));

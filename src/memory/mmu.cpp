@@ -250,12 +250,12 @@ void Mmu::apply_legacy_paging_() {
         int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
         map_rom_physical(0, rom_bank * 2);
         map_rom_physical(1, rom_bank * 2 + 1);
-        // NOTE: VHDL sets MMU0/MMU1 = 0xFF here (normal ROM paging).
-        // We store the physical page so ROM bank changes are observable via
-        // get_page() in tests/debugger. NR 0x50/0x51 read-back through the
-        // nextreg cache is unaffected.
-        nr_mmu_[0] = rom_bank * 2;
-        nr_mmu_[1] = rom_bank * 2 + 1;
+        // VHDL zxnext.vhd:4611-4612,4619-4644 — MMU0/MMU1 hold 0xFF whenever
+        // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
+        // derived dynamically from port_7ffd / port_1ffd / NR 0x8C / NR 0x8E.
+        // Use get_effective_page(slot) to observe the derived page.
+        nr_mmu_[0] = 0xFF;
+        nr_mmu_[1] = 0xFF;
     }
 }
 
@@ -439,8 +439,11 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
         int rom_bank = ((port_1ffd >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
         map_rom_physical(0, rom_bank * 2);
         map_rom_physical(1, rom_bank * 2 + 1);
-        nr_mmu_[0] = rom_bank * 2;
-        nr_mmu_[1] = rom_bank * 2 + 1;
+        // VHDL zxnext.vhd:4611-4612,4619-4644 — MMU0/MMU1 hold 0xFF whenever
+        // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
+        // derived dynamically. Use get_effective_page(slot) to observe it.
+        nr_mmu_[0] = 0xFF;
+        nr_mmu_[1] = 0xFF;
     }
 }
 
