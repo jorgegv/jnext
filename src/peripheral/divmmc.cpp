@@ -202,13 +202,16 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     // documented in zxnext.vhd around :2892-2905. NMI@0x0066 uses
     // automap_nmi_instant_on (Task 8 scope, main path). Tape traps at
     // 0x04C6/0x0562/0x04D7/0x056A use rom3_delayed_on (ROM3 only).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066) {
-        // NMI instant-on. GAP: VHDL divmmc.vhd:120 gates
-        // automap_nmi_instant_on on button_nmi (the latched NMI-button
-        // signal). We currently fire unconditionally at 0x0066, so a plain
-        // RST 0x66 / IM 1 INT outside a button-press path would spuriously
-        // activate automap. Fix owner: Task 8 (Multiface) — button_nmi
-        // latch has no downstream consumer today.
+    if ((entry_points_1_ & 0x02) && pc == 0x0066 && button_nmi_) {
+        // NMI instant-on. VHDL divmmc.vhd:120 gates automap_nmi_instant_on
+        // on the latched `button_nmi` signal — the automap only fires on
+        // a PC=0x0066 fetch when the NMI-button has actually been pressed.
+        // We track this via button_nmi_, which stays false until a future
+        // Multiface / NMI-button source sets it via set_button_nmi(). With
+        // no button consumer wired yet, this branch is effectively off —
+        // matching VHDL behaviour on a quiescent core and preventing a
+        // spurious automap activation on any ordinary control-flow path
+        // that happens to reach 0x0066 (e.g. enNextZX.rom subroutines).
         instant_match = true;
     } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_) {
         delayed_match = true;
