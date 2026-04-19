@@ -35,6 +35,7 @@ void DivMmc::reset() {
     automap_active_ = false;
     automap_hold_   = false;
     automap_held_   = false;
+    button_nmi_     = false;  // VHDL divmmc.vhd:108 — reset clears latch
     entry_points_0_ = 0x83;  // soft reset default
     entry_valid_0_  = 0x01;
     entry_timing_0_ = 0x00;
@@ -345,6 +346,8 @@ void DivMmc::save_state(StateWriter& w) const
     // Two-stage automap latch state (Task 7 Branch A).
     w.write_bool(automap_hold_);
     w.write_bool(automap_held_);
+    // NMI-button latch (VHDL divmmc.vhd:108-111).
+    w.write_bool(button_nmi_);
     w.write_bytes(ram_.data(), ram_.size());
 }
 
@@ -365,5 +368,11 @@ void DivMmc::load_state(StateReader& r)
     entry_points_1_ = r.read_u8();
     automap_hold_   = r.read_bool();
     automap_held_   = r.read_bool();
+    // NMI-button latch (VHDL divmmc.vhd:108-111). Appended to the
+    // snapshot stream — consistent with the Task 7 Branch A additions
+    // above (hold/held). Pre-existing snapshots from before this commit
+    // are not backward-compatible; the project has historically treated
+    // save-state format as tied to build version.
+    button_nmi_     = r.read_bool();
     r.read_bytes(ram_.data(), ram_.size());
 }
