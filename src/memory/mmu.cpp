@@ -74,6 +74,27 @@ void Mmu::reset(bool hard) {
     // (already seeded above). Use map_rom_physical so nr_mmu_ is untouched.
     map_rom_physical(0, 0);
     map_rom_physical(1, 1);
+
+    // Soft reset only: the VHDL paging registers (port_7ffd_reg / port_dffd_reg
+    // / port_eff7_reg_*) are preserved across a soft reset (the reset tree at
+    // zxnext.vhd:1730 gates the register clears on `reset='1'`, hard-only).
+    // On real hardware MMU0..MMU7 are composed combinationally every cycle
+    // from those registers (zxnext.vhd:4619-4682), so the preserved register
+    // state immediately re-asserts its page mapping. Our imperative model
+    // must re-apply that composition manually — otherwise the register
+    // accessors still report the preserved values but the seeded
+    // RESET_PAGES + ROM mapping above silently overrides the effect.
+    //
+    // apply_legacy_paging_() covers both halves: MMU6/7 from
+    // port_7ffd_ + port_dffd_reg_ (VHDL:3763-3766, 4677-4680), and the
+    // MMU0/1 RAM-at-0x0000 override when port_eff7_reg_3_=1
+    // (VHDL:4636-4644). On hard reset all three source registers are
+    // already 0 above, so re-applying would be a no-op — but skipping it
+    // keeps the hard-reset path byte-for-byte identical to the prior
+    // RESET_PAGES + map_rom_physical(0/1) sequence.
+    if (!hard) {
+        apply_legacy_paging_();
+    }
 }
 
 void Mmu::rebuild_ptr(int slot) {
