@@ -376,7 +376,7 @@ static void test_group2_resolution_modes() {
     render_row(l2, ram, pal, buf, 10);
     check("G2-06", "wide: (0,10) and (1,10) indices differ by 1 (column pitch)",
           buf[0] == pal.layer2_colour(static_cast<uint8_t>(10)) &&
-          buf[1] == pal.layer2_colour(static_cast<uint8_t>(10 ^ 1)),
+          buf[1] == pal.layer2_colour(static_cast<uint8_t>(0xA ^ 1)),
           DETAIL("b0=0x%08X b1=0x%08X", buf[0], buf[1]));
 
     // ---------- G2-08: wide y=255 visible ----------
