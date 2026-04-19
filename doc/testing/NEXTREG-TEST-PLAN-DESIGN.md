@@ -17,10 +17,10 @@ Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-nextreg
 
 Measured on main 2026-04-20 post-Phase-1b fix:
 
-- **64 plan rows total**.
+- **66 plan rows total** (added CLIP-09/10 on 2026-04-20 Phase-2-E for the NR 0x1B read-handler un-skip round).
 - **Bare test** (`test/nextreg/nextreg_test.cpp`): 21 pass / 0 fail / 35 skip. Reduced from 45 skip by re-homing 10 integration-tier rows (RST-01..08, MMU-01, PE-04) as source comments pointing at `nextreg_integration_test.cpp`.
-- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): 43 pass / **3 fail** / 16 skip out of 62 rows. Added 28 integration rows during Phase 1b covering RO-01..06, SEL-03, CLIP-01..08, PAL-01..06, PE-05, RW-01..02, CFG-01/02/05. After 2026-04-20 critic pass, 3 palette rows (PAL-01, PAL-03, PAL-06) converted from SKIP → real FAIL per §2 (facility exists in `src/video/palette.cpp`; converting to SKIP would have hidden real emulator bugs — coverage-theatre anti-pattern). RO-04 and CFG-01 converted from pass/tautology → SKIP with VHDL-correct backlog notes.
-- **Emulator Bug backlog items surfaced**: PAL-01 (auto-inc advance broken), PAL-03 (NR 0x44 9-bit sub_idx or test-harness issue), PAL-06 (NR 0x43 bit 7 auto-inc-disable not effective). PE-05 (NR 0x89 default should be 0x8F not 0xFF — layout matches NR 0x85 per VHDL:6147-6150). RO-04 (VHDL g_sub_version=0x03, JNEXT leaves regs_[0x0E]=0x00). CFG-01 (NR 0x03 read is composed, not raw register). CFG-02 (dt_lock XOR not modelled). RO-02/SEL-03 (NR 0x00 RO enforcement — regs_[0] round-trips writes). CLIP-01..05 (Layer2/Sprite/Ula public clip getters + `Emulator::ula()` accessor missing). CLIP-07/08 (NR 0x18/0x1C read handlers missing). RW-01/02 (NR 0x07/0x08 read handlers missing).
+- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): 53 pass / 0 fail / 13 skip out of 66 rows. Added 28 integration rows during Phase 1b covering RO-01..06, SEL-03, CLIP-01..08, PAL-01..06, PE-05, RW-01..02, CFG-01/02/05. After 2026-04-20 critic pass, 3 palette rows (PAL-01, PAL-03, PAL-06) converted from SKIP → real FAIL per §2 (facility exists in `src/video/palette.cpp`; converting to SKIP would have hidden real emulator bugs — coverage-theatre anti-pattern). RO-04 and CFG-01 converted from pass/tautology → SKIP with VHDL-correct backlog notes. Phase-2-E (2026-04-20) installed NR 0x1B read handler (combinatorial mux over tilemap clip coords — zxnext.vhd:5971-5977) and un-skipped RST-09 + CLIP-07 (CLIP-07 was a stale skip — NR 0x1C read handler had already been installed in Phase 1b); added CLIP-09/10 as discriminative rows for the read-vs-write idx-advance invariant.
+- **Emulator Bug backlog items surfaced**: PAL-01 (auto-inc advance broken), PAL-03 (NR 0x44 9-bit sub_idx or test-harness issue), PAL-06 (NR 0x43 bit 7 auto-inc-disable not effective). PE-05 (NR 0x89 default should be 0x8F not 0xFF — layout matches NR 0x85 per VHDL:6147-6150). RO-04 (VHDL g_sub_version=0x03, JNEXT leaves regs_[0x0E]=0x00). CFG-01 (NR 0x03 read is composed, not raw register). CFG-02 (dt_lock XOR not modelled). RO-02/SEL-03 (NR 0x00 RO enforcement — regs_[0] round-trips writes). CLIP-01..05 (Layer2/Sprite/Ula public clip getters + `Emulator::ula()` accessor missing). CLIP-08 (NR 0x18 Layer2 read handler missing — combinatorial mux per zxnext.vhd:5947-5953). RW-01/02 (NR 0x07/0x08 read handlers missing).
 - **Matrix-tooling gap:** `test/refresh-traceability-matrix.py` does not scan `nextreg_integration_test.cpp`, so Phase 1b integration rewrites are invisible to the per-row matrix table and the 3 FAILs above are not counted in the aggregate. Tracked in TRACEABILITY-MATRIX.md. Backlog: extend refresh script.
 - **(D) plan nit**: plan mixes bare-tier rows with integration-tier rows without labelling. Future plan refresh should tag each row with its intended test tier (bare / subsystem / integration). Test file's skip reasons document the tier boundary inline.
 
@@ -183,6 +183,8 @@ From `zxnext.vhd` lines 5242-5290:
 | CLIP-06 | Write NR 0x1C bit 3 = 1 | TM clip index resets to 0 |
 | CLIP-07 | Read NR 0x1C | Returns all four 2-bit indices packed |
 | CLIP-08 | Read NR 0x18 cycles through clip values | Sequential reads cycle |
+| CLIP-09 | Read NR 0x1B twice with no intervening write | Both reads return same value (read does NOT advance idx — VHDL-faithful invariant) |
+| CLIP-10 | Write NR 0x1B once, read NR 0x1C | bits 7:6 = 01 (tm idx advanced to 1) |
 
 ### 6. MMU Registers (0x50-0x57)
 
