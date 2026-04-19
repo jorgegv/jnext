@@ -8,6 +8,12 @@ void ContentionModel::build(MachineType type) {
     // Reset VHDL-faithful gate inputs to their power-on defaults and then
     // seed pentagon_timing_ from the committed machine type so callers
     // don't have to remember to flip the flag after build().
+    //
+    // NOTE: this clears all four contention gate inputs (mem_active_page,
+    // cpu_speed, pentagon_timing, contention_disable) — safe today because
+    // build() is only called from Emulator::init(). If ever hot-called at
+    // runtime to switch machine types, re-seed cpu_speed from NR 0x07 and
+    // contention_disable from NR 0x08 after the build() call.
     mem_active_page_    = 0;
     cpu_speed_          = 0;
     contention_disable_ = false;
