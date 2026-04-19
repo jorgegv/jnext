@@ -263,12 +263,11 @@ static void test_roundtrip() {
          "NR 0x07 CPU speed read format (actual+requested packed) owned "
          "by speed FSM, not bare NextReg [zxnext.vhd ~5156]");
 
-    // RW-02 — zxnext.vhd ~5168 NR 0x08: bit 7 on read = NOT port_7ffd_lock.
-    // Write/read asymmetry is owned by the Mmu 7FFD lock state, not bare
-    // NextReg.
-    skip("RW-02",
-         "NR 0x08 bit7 read=NOT port_7ffd_lock — asymmetric format "
-         "owned by Mmu, not bare NextReg [zxnext.vhd ~5168]");
+    // RW-02 — COVERED AT nextreg_integration_test.cpp RW-Asymmetric group;
+    // re-homed. Bare NextReg can't observe port_7ffd_locked / contention
+    // disable state — the asymmetric read is owned by Mmu and is exercised
+    // via an Emulator-level fixture in the integration suite (VHDL
+    // zxnext.vhd:5906 composes bit 7 = NOT port_7ffd_locked).
 
     // RW-03 — NR 0x12 L2 active bank: plain 8-bit register in VHDL with
     // no read-side transform. Bare round-trip is the spec.
