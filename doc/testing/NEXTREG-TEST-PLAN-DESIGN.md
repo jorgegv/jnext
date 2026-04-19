@@ -196,6 +196,8 @@ From `zxnext.vhd` lines 4607-4700:
 | MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
 | MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
 | MMU-04 | NextREG write overrides port write | Last writer wins |
+| N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | MMU6 stays 0x20 — VHDL:3814 drives `port_memory_ram_change_dly='0'`, :4677 skips MMU6/7 update |
+| N8E-RAM-REBUILD-1  | port_7ffd=0x03, NR 0x56=0x20 override, then NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) | MMU6 becomes 0x00 — 7FFD(2:0) forced to 0 by NR 0x8E bit 3 branch, :4677 rebuild runs and clobbers override |
 
 ### 7. Machine Config Registers
 

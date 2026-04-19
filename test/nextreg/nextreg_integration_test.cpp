@@ -1172,6 +1172,73 @@ static void test_cfg_integration(Emulator& emu) {
     }
 }
 
+// ── N8E RAM-gate: NR 0x8E bit 3 gates MMU6/7 rebuild ─────────────────
+//
+// VHDL zxnext.vhd:3814 drives port_memory_ram_change_dly =
+//   NOT(nr_8e_we AND NOT nr_wr_dat(3))
+// so an NR 0x8E write with bit 3 = 0 drives the signal to '0' and the
+// MMU6/7 update at :4677 is gated off. MMU0/1 still rebuild because
+// port_memory_change_dly (:3813) is independent of bit 3.
+//
+// These two rows pin the gate: with a prior NR 0x56 override in place,
+// an NR 0x8E bit-3=0 write must PRESERVE the override; an NR 0x8E
+// bit-3=1 write must REBUILD from port_7ffd_bank (clobbering the
+// override).
+
+static void test_n8e_ram_gate(Emulator& emu) {
+    set_group("N8E-RAM-Gate");
+
+    // N8E-RAM-PRESERVE-0 — NR 0x56 override survives NR 0x8E bit-3=0 write.
+    //
+    // VHDL: :3814 port_memory_ram_change_dly='0' when nr_8e_we=1 AND
+    // nr_wr_dat(3)=0 → :4677 MMU6/7 update skipped. The prior NR 0x56
+    // value remains in place.
+    //
+    // Override value 0x20: non-zero, distinct from any bank*2 value the
+    // compose_bank_ rebuild would produce from post-reset state
+    // (port_7ffd_=0, port_dffd_=0 → bank=0 → pages 0/1). So a stomping
+    // rebuild would flip nr_mmu_[6] to 0x00 and get_page(6)=0x00 — the
+    // test distinguishes preservation from unconditional rebuild.
+    {
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD — deterministic state
+        nr_write(emu, 0x56, 0x20);              // establish override on slot 6
+        const uint8_t before = emu.mmu().get_page(6);
+        nr_write(emu, 0x8E, 0x00);              // bit 3 = 0 → suppress MMU6/7 rebuild
+        const uint8_t after  = emu.mmu().get_page(6);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
+        check("N8E-RAM-PRESERVE-0",
+              "NR 0x56 override survives NR 0x8E write with bit 3 = 0 "
+              "[zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate]",
+              before == 0x20 && after == 0x20, detail);
+    }
+
+    // N8E-RAM-REBUILD-1 — NR 0x8E bit-3=1 DOES rebuild MMU6/7 from
+    // port_7ffd_bank, clobbering a prior NR 0x56 override.
+    //
+    // Setup: port_7ffd_=0x03 (bank 3 baseline) → NR 0x56=0x20 override →
+    // NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) forces 7FFD(2:0)=0, so
+    // compose_bank_ yields bank 0 → set_page(6, 0) runs.
+    //
+    // VHDL: :3814 port_memory_ram_change_dly='1' when nr_wr_dat(3)=1,
+    // so :4677 MMU6/7 update runs and overwrites the override.
+    {
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        emu.mmu().map_128k_bank(0x03);          // port_7ffd_=0x03 → bank=3
+        nr_write(emu, 0x56, 0x20);              // override slot 6
+        const uint8_t before = emu.mmu().get_page(6);
+        nr_write(emu, 0x8E, 0x08);              // bit 3 = 1, bits 6:4 = 000
+                                                // → 7FFD(2:0) ← 0 → bank=0
+        const uint8_t after  = emu.mmu().get_page(6);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
+        check("N8E-RAM-REBUILD-1",
+              "NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank "
+              "[zxnext.vhd:3814, :4677]",
+              before == 0x20 && after == 0x00, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1217,6 +1284,9 @@ int main() {
 
     test_soft_reset(emu);
     std::printf("  Group: Soft-Reset — done\n");
+
+    test_n8e_ram_gate(emu);
+    std::printf("  Group: N8E-RAM-Gate — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
