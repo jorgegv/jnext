@@ -184,6 +184,47 @@ void PaletteManager::write_8bit(uint8_t val)
 }
 
 // ---------------------------------------------------------------------------
+// NextREG 0x41 — 8-bit palette read (RRRGGGBB)
+// ---------------------------------------------------------------------------
+//
+// VHDL zxnext.vhd:6038-6039 — reading NR 0x41 returns nr_palette_dat(8:1),
+// the upper 8 bits of the 9-bit RGB333 value at the target + index selected
+// by NR 0x43 / NR 0x40. Pure read: does not mutate nine_bit latch or index.
+
+uint8_t PaletteManager::read_8bit() const
+{
+    int bank = (static_cast<int>(target_palette_) >= 4) ? 1 : 0;
+    uint16_t rgb333 = 0;
+
+    switch (target_palette_) {
+        case PaletteId::ULA_FIRST:
+        case PaletteId::ULA_SECOND: {
+            uint8_t idx = index_ & 0x0F;  // matches write_entry masking
+            rgb333 = ula_rgb333_[bank][idx];
+            break;
+        }
+        case PaletteId::LAYER2_FIRST:
+        case PaletteId::LAYER2_SECOND:
+            rgb333 = layer2_rgb333_[bank][index_];
+            break;
+        case PaletteId::SPRITE_FIRST:
+        case PaletteId::SPRITE_SECOND:
+            rgb333 = sprite_rgb333_[bank][index_];
+            break;
+        case PaletteId::TILEMAP_FIRST:
+        case PaletteId::TILEMAP_SECOND:
+            rgb333 = tilemap_rgb333_[bank][index_];
+            break;
+    }
+
+    // RGB333 → RRRGGGBB (discard blue LSB: bit 0 of the 9-bit value).
+    uint8_t r3 = (rgb333 >> 6) & 0x07;
+    uint8_t g3 = (rgb333 >> 3) & 0x07;
+    uint8_t b3 = rgb333        & 0x07;
+    return static_cast<uint8_t>((r3 << 5) | (g3 << 2) | (b3 >> 1));
+}
+
+// ---------------------------------------------------------------------------
 // NextREG 0x44 — 9-bit palette write (two consecutive writes)
 // ---------------------------------------------------------------------------
 
