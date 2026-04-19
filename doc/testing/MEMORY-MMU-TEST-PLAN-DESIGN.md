@@ -27,17 +27,20 @@ foundation for all memory access in the emulator. This test suite validates:
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
 
-Measured on main 2026-04-20 post-Phase-2-A merge:
+Measured on main 2026-04-20 post-Phase-2-B merge:
 
-- **145 plan rows total** (DFF-08 + EF7-05 added by Phase 2 A), mapped 1:1 to test IDs (152 check()+skip() calls in test).
-- **113 pass, 0 fail, 39 skip.**
+- **145 plan rows total** (N8E-05 split into 05a/05b in test — aggregated by matrix script per SUBLETTERS rule; 153 check()+skip() calls in test).
+- **127 pass, 0 fail, 26 skip.**
+- Phase 2 B (`fix/mmu-branch-b`) un-skipped 13 rows: N8E-01..06 (unified paging write + read-back, NR 0x8E bypasses paging lock, bit 3=1 clears DFFD(3)), N8F-01..05 (mapping modes incl. Pentagon-512/1024 bank composition, EFF7(2) gates P1024 lock override, bank(6) forced 0 in Pentagon modes), LCK-05 (Pentagon-1024 overrides lock via `effective_paging_locked()`), LCK-07 (NR 0x8E bypasses lock). Added `nr_8f_mode_` storage + `compose_bank_` helper replacing the Branch-A `apply_legacy_paging_` bank-math. VHDL citations: zxnext.vhd:3662-3734 (NR 0x8E write decode), 3763-3769 (Pentagon bank composition), 3787-3794 (NR 0x8F storage — no reset process; declaration-level default only per VHDL:888), 3801 (pentagon_1024_en final composition), 6159 (NR 0x8E read-back formula).
+- **NR 0x8F reset**: does NOT clear `nr_8f_mode_` on either hard OR soft reset. VHDL has no reset process for `nr_8f_mapping_mode`; FPGA configuration-time default is the only zero event. Deviates from Branch C convention but matches VHDL exactly.
 - Phase 2 C0 (commit `354fa14`) landed NR 0x08 bit 7 paging unlock — un-skipped P7F-14 and LCK-04.
 - Phase 1a re-triage: un-skipped BNK-01..04 (dual-port bypass outcome tests). MMU-12, ADR-09, ADR-10 were initially un-skipped but REVERTED to skip() after independent critic review flagged SX-02 anti-pattern (tests encoded JNEXT's `to_sram_page` truncation as the oracle instead of VHDL's `sram_pre_active=0` floating-bus semantics per zxnext.vhd:3060-3061).
 - Phase 2 C (`fix/mmu-branch-c`) un-skipped 16 rows: ROM-01..07 (machine-type / sram_rom accessor per zxnext.vhd:2981-3008), ALT-01..07 + ALT-09 (NR 0x8C altrom register storage + decoded accessors), plus a bonus un-skip for RW-02 in the integration tier via the NR 0x08 read handler (bit 7 = NOT paging-lock, bit 6 = contention-disable).
 - Phase 2 C also added `Mmu::reset(bool hard)` overload: VHDL-faithful soft reset now preserves `paging_locked_`, `contention_disabled_`, and NR 0x8C bits 3:0 across RESET_SOFT (all three previously cleared unconditionally — a pre-existing divergence from C0 that Branch C took care of while adding the NR 0x08 bit 6 + NR 0x8C state). VHDL citations: zxnext.vhd:1730 (hard-reset signal), 2253-2256 (NR 0x8C nibble copy), 3646-3648 (port_7ffd_reg clear), 4930-4935 (contention_disable clear).
 - Phase 2 A (`fix/mmu-branch-a`) un-skipped 12 rows (DFF-01..07, LCK-03, EF7-01..04) and added 2 new rows (DFF-08, EF7-05) covering soft-reset preservation — all 14 passing. Implemented `Mmu::write_port_dffd` (lock-gated per VHDL:3691) + `Mmu::write_port_eff7` (ungated per VHDL:3781); EFF7 bit 3 re-maps slots 0/1 to RAM pages 0x00/0x01 per VHDL:4636-4644; DFFD bank composition `port_7ffd(2:0) | (port_dffd(4:0)<<3)` per VHDL:3763-3766. Soft reset preserves both registers (VHDL:3687, :3777) AND their downstream page-map effects (DFFD→MMU6/7, EFF7→MMU0/1) via a post-seed `apply_legacy_paging_()` call in `Mmu::reset(false)` — emulator must re-assert because our MMU state is imperative where VHDL is combinational.
+- Phase 2 A.1 (`fix/palette-pal-bugs`) resolved 3 palette FAILs surfaced by Phase 1b's integration rewrite (PAL-01/03/06). Root cause: NR 0x41 read handler returned stale `regs_[0x41]`; write-side was already correct. Fix added `PaletteManager::read_8bit(target, idx)` + wired NR 0x41 reader in `src/core/emulator.cpp:220`. VHDL: zxnext.vhd:6038-6039. Aggregate unit went 2721/3/527 → 2724/0/527.
 - **Previously-listed RST-01/RST-02 failures**: already fixed by earlier reset-seed work — all eight RST rows pass (MMU0/MMU1 seed to the 0xFF ROM sentinel per VHDL zxnext.vhd:4611-4618).
-- **Remaining 39 skips blocked by** Phase 2 branches B (NR 0x8E + NR 0x8F unified-paging; LCK-05 and LCK-07 shared with A/B), D1 (ContentionModel inputs: mem_active_page, CPU speed, Pentagon timing), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier, 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — need full sram_pre_rdonly wiring), and NR 0x12/0x13 shadow (integration tier).
+- **Remaining 26 skips blocked by** Phase 2 branches D1 (ContentionModel inputs: mem_active_page, CPU speed, Pentagon timing), D2 (Layer 2 read-port), plus 3 DivMmc-overlay rows (PRI-01/02/04) destined for integration tier, 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — need full sram_pre_rdonly wiring), and NR 0x12/0x13 shadow (integration tier).
 - **VHDL-deviation backlog from Phase 1a critic:** MMU-12 / ADR-09 / ADR-10 observable: page ≥0xE0 on a RAM slot. VHDL inactivates; JNEXT wraps via `to_sram_page` and reads ROM-in-SRAM page 0 instead. Real deviation, no known software impact today. Fix: either gate RAM slots on mmu_A21_A13(8) or document the simplification.
 - **Pre-existing soft-reset divergence (informational):** `nr_04_romram_bank_` is cleared unconditionally on every Mmu reset; VHDL (zxnext.vhd:1104) initialises the signal with no reset process — holds across both domains. Benign for current boot path (firmware rewrites NR 0x04 before each config_mode entry). Flagged as backlog.
 
@@ -506,7 +509,7 @@ in the 0-16K region.
 
 | ID      | Test                              | Write        | Expected                                      |
 |---------|-----------------------------------|--------------|-----------------------------------------------|
-| N8E-01  | Bank select (bit 3=1)             | 0x8E ← 0xB8 | 7FFD(2:0)=0x07(bits6:4), dffd(0)=1(bit7)     |
+| N8E-01  | Bank select (bit 3=1)             | 0x8E ← 0xB8 | 7FFD(2:0)=0x03(bits6:4), dffd(0)=1(bit7)     |
 | N8E-02  | ROM select (bit 3=0, bit 2=0)    | 0x8E ← 0x01 | 7FFD(4)=1 (bit 0), ROM 1 selected             |
 | N8E-03  | Special mode via 8E               | 0x8E ← 0x04 | port_1ffd_reg(0)=1, special mode enabled      |
 | N8E-04  | Special + config bits             | 0x8E ← 0x07 | 1ffd_reg = (2:0) = special=1, bits=11         |
