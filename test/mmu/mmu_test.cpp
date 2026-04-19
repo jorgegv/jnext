@@ -2182,17 +2182,37 @@ void test_cat16_contention() {
               fmt("is_contended_access=%d expected=0", r ? 1 : 0));
     }
 
-    // CON-12: Pentagon timing disables contention. build(PENTAGON) seeds
-    // pentagon_timing_=true — VHDL zxnext.vhd:4481 machine_timing_pentagon.
+    // CON-12a: Pentagon machine falls through machine_type switch.
+    // build(PENTAGON) seeds pentagon_timing_=true, and PENTAGON also
+    // falls out of the 48K/128K/+3 branches in is_contended_access() so
+    // this row alone would pass even if the pentagon_timing gate were
+    // broken. CON-12b below discriminates the gate from the switch
+    // fall-through — VHDL zxnext.vhd:4481 (pentagon_timing gate).
     {
         ContentionModel m = make_cm(MachineType::PENTAGON);
         m.set_mem_active_page(0x0A);
         const bool r = m.is_contended_access();
-        check("CON-12",
-              "pentagon_timing gates enable off — VHDL zxnext.vhd:4481",
+        check("CON-12a",
+              "Pentagon machine falls through machine_type switch — VHDL zxnext.vhd:4481 (pentagon_timing gate)",
               r == false,
               fmt("is_contended_access=%d expected=0 (pentagon_timing=%d)",
                   r ? 1 : 0, m.pentagon_timing() ? 1 : 0));
+    }
+
+    // CON-12b: discriminative pentagon_timing gate.
+    // Use ZX48K + mem_active_page=0x0A (which would otherwise be contended
+    // per VHDL:4490 bits 3:1 == "101") then flip pentagon_timing ON and
+    // confirm the enable gate (VHDL:4481 `not machine_timing_pentagon`)
+    // zeros the result. This discriminates the gate from the Pentagon
+    // machine-type switch fall-through.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0A);
+        m.set_pentagon_timing(true);
+        check("CON-12b",
+              "pentagon_timing flag gates 48K bank 5 contention off — VHDL zxnext.vhd:4481",
+              m.is_contended_access() == false,
+              fmt("is_contended_access=%d", m.is_contended_access()));
     }
 }
 

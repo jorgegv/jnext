@@ -617,7 +617,8 @@ Physical address = `mmu_A21_A13 << 13`.
 | CON-09  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
 | CON-10  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
 | CON-11  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
-| CON-12  | Pentagon timing no contention      | Pent   | 3.5 MHz | 0x0A  | Not contended    |
+| CON-12a | Pentagon timing: machine type falls through switch | Pent | 3.5 MHz | 0x0A | Not contended    |
+| CON-12b | Pentagon timing: gate zeros 48K bank 5 contention  | 48K  | 3.5 MHz | 0x0A + set_pentagon_timing(true) | Not contended |
 
 ### Category 17: Layer 2 Memory Mapping
 
