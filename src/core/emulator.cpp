@@ -112,7 +112,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
+    // build() also seeds pentagon_timing_ from MachineType (VHDL
+    // zxnext.vhd:4481 machine_timing_pentagon); seed cpu_speed from the
+    // boot-time config so i_contention_en matches the initial NR 0x07
+    // state (VHDL zxnext.vhd:1300 cpu_speed power-on "00"). NR 0x03 does
+    // not currently have a runtime machine-type commit path, so the
+    // pentagon_timing seeding from build() is sufficient for now.
     contention_.build(cfg.type);
+    contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
 
     // Push machine type into Mmu so Mmu::current_sram_rom() matches the
     // VHDL zxnext.vhd:2981-3008 sram_rom selection (48K always 0, +3 uses
@@ -187,10 +194,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x07: CPU speed selector
     //   0 = 3.5 MHz, 1 = 7 MHz, 2 = 14 MHz, 3 = 28 MHz
+    // VHDL zxnext.vhd:1300 nr_07_cpu_speed reset "00"; zxnext.vhd:5789-5791,5817
+    // stores the 2-bit field; zxnext.vhd:4481 feeds it into i_contention_en
+    // (any non-zero speed disables memory contention).
     nextreg_.set_write_handler(0x07, [this](uint8_t v) {
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
         Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
         clock_.set_cpu_speed(speed);
+        contention_.set_cpu_speed(v & 0x03);
     });
 
     // Register 0x12: Layer 2 active RAM bank
@@ -959,6 +970,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x08, [this](uint8_t v) {
         if (v & 0x80) mmu_.unlock_paging();
         mmu_.set_contention_disabled((v >> 6) & 1);
+        // Mirror NR 0x08 bit 6 into ContentionModel's i_contention_en gate
+        // (VHDL zxnext.vhd:1380 default '0', zxnext.vhd:5823 stored on write,
+        // zxnext.vhd:4481 feeds eff_nr_08_contention_disable).
+        contention_.set_contention_disable(((v >> 6) & 1) != 0);
         turbosound_.set_stereo_mode((v >> 5) & 1);
         dac_enabled_ = (v >> 3) & 1;
         turbosound_.set_enabled((v >> 1) & 1);
