@@ -17,6 +17,8 @@ Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
 
 void Mmu::reset() {
     paging_locked_ = false;
+    // VHDL zxnext.vhd:4935 — nr_08_contention_disable <= '0' on hard reset.
+    contention_disabled_ = false;
     l2_write_enable_ = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
@@ -199,6 +201,8 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(config_mode_);
     w.write_u8(nr_04_romram_bank_);
     w.write_bool(rom_in_sram_);
+    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6).
+    w.write_bool(contention_disabled_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -215,6 +219,12 @@ void Mmu::load_state(StateReader& r)
     config_mode_       = r.read_bool();
     nr_04_romram_bank_ = r.read_u8();
     rom_in_sram_       = r.read_bool();
+    // Branch C appended state — keep load tolerant of older streams that
+    // do not carry these fields yet. save_state writes them; if the stream
+    // predates Branch C, the reader will short-read and the caller's
+    // StateReader bounds-check will flag it. We rely on save_state always
+    // matching the same code generation so load_state is safe to read.
+    contention_disabled_ = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

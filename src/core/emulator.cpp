@@ -80,6 +80,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     psg_accum_ = 0;
     sample_accum_ = 0;
     dac_enabled_ = false;
+    // VHDL zxnext.vhd:1115-1120 reset defaults for NR 0x08 stored bits.
+    // nr_08_psg_stereo_mode, nr_08_dac_en, nr_08_port_ff_rd_en,
+    // nr_08_psg_turbosound_en, nr_08_keyboard_issue2 all default '0';
+    // nr_08_internal_speaker_en defaults '1' (bit 4).
+    nr_08_stored_low_ = 0x10;
 
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
@@ -877,6 +882,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x08: Peripheral 3
     //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
+    //   bit 6 = contention disable (VHDL zxnext.vhd:5176 nr_08_contention_disable)
     //   bit 5 = stereo mode (0=ABC, 1=ACB)
     //   bit 3 = DAC enable
     //   bit 1 = TurboSound enable
@@ -884,12 +890,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_7ffd_reg(5), which drops port_7ffd_locked (zxnext.vhd:3769).
     // Bit 7 is the write-strobe only; it is not stored (read-back at
     // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
-    // just written).
+    // just written). Bit 6 IS stored (read back via eff_nr_08_contention_disable).
     nextreg_.set_write_handler(0x08, [this](uint8_t v) {
         if (v & 0x80) mmu_.unlock_paging();
+        mmu_.set_contention_disabled((v >> 6) & 1);
         turbosound_.set_stereo_mode((v >> 5) & 1);
         dac_enabled_ = (v >> 3) & 1;
         turbosound_.set_enabled((v >> 1) & 1);
+        // Mirror the stored bits (5/4/3/2/1/0) for NR 0x08 read-back per
+        // VHDL zxnext.vhd:5906. Bit 7 is write-strobe-only (not stored),
+        // and bit 6 is kept live on mmu_ (contention_disabled_). The
+        // remaining bits are composed from this cache so read matches the
+        // last write for those signals the emulator does not drive from
+        // live subsystem state (internal speaker bit 4, port_ff_rd bit 2,
+        // keyboard issue2 bit 0).
+        nr_08_stored_low_ = v & 0x3F;
+    });
+
+    // Register 0x08 read-back composition per VHDL zxnext.vhd:5906:
+    //   port_253b_dat <= (not port_7ffd_locked) & eff_nr_08_contention_disable &
+    //                    nr_08_psg_stereo_mode & nr_08_internal_speaker_en &
+    //                    nr_08_dac_en & nr_08_port_ff_rd_en &
+    //                    nr_08_psg_turbosound_en & nr_08_keyboard_issue2;
+    // Bit 7 is derived live from the paging lock; bit 6 from mmu_'s
+    // contention_disabled_ (which is also what the write handler drives).
+    // Bits 5..0 are served from the last-write mirror nr_08_stored_low_.
+    nextreg_.set_read_handler(0x08, [this]() -> uint8_t {
+        uint8_t v = 0;
+        if (!mmu_.paging_locked())        v |= 0x80;
+        if (mmu_.contention_disabled())   v |= 0x40;
+        v |= nr_08_stored_low_ & 0x3F;
+        return v;
     });
 
     // Register 0x09: Peripheral 4
@@ -2167,6 +2198,9 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u8(nr_ce_dma_delay_en_uart1_);
     w.write_u8(nr_ce_dma_delay_en_uart0_);
     w.write_bool(im2_dma_delay_latched_);
+
+    // Branch C: NR 0x08 read mirror (bits 5..0 of last NR 0x08 write).
+    w.write_u8(nr_08_stored_low_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -2225,6 +2259,9 @@ void Emulator::load_state(StateReader& r)
     nr_ce_dma_delay_en_uart1_  = r.read_u8();
     nr_ce_dma_delay_en_uart0_  = r.read_u8();
     im2_dma_delay_latched_     = r.read_bool();
+
+    // Branch C: NR 0x08 read mirror.
+    nr_08_stored_low_ = r.read_u8();
 }
 
 // ---------------------------------------------------------------------------

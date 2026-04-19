@@ -375,6 +375,15 @@ private:
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
 
+    /// NR 0x08 bits 5..0 mirror for read-back composition per VHDL
+    /// zxnext.vhd:5906. Bit 7 is write-strobe-only (derived from paging
+    /// lock on read); bit 6 lives on Mmu as contention_disabled_. Bits
+    /// 5..0 are stored in VHDL as individual signals (stereo, internal
+    /// speaker, DAC en, port_ff_rd en, turbosound en, issue2 keyboard);
+    /// we cache them collectively here so NR 0x08 reads return the last
+    /// written value for signals not yet hooked to live subsystem state.
+    uint8_t nr_08_stored_low_ = 0;
+
     // --- Line interrupt state (NextREG 0x22/0x23) ---
     bool     line_int_enabled_   = false;  ///< NextREG 0x22 bit 1
     bool     ula_int_disabled_   = false;  ///< NextREG 0x22 bit 2

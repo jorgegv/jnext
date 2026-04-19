@@ -926,15 +926,51 @@ static void test_rw_asymmetric(Emulator& emu) {
          "[backlog: add read_handler packing speed FSM state]");
 
     // RW-02 — NR 0x08 bit 7 on read should return NOT port_7ffd_locked.
-    // JNEXT has no read_handler on NR 0x08, so bit 7 returns whatever
-    // was last written (bare regs_[0x08]). C0 added the WRITE side (bit
-    // 7 write → mmu_.unlock_paging()); the READ side belongs to a
-    // follow-up branch. Backlog: install read_handler on NR 0x08 that
-    // composes bits[7]=!mmu.paging_locked(), bits[5,3,1] from current
-    // state.
-    skip("RW-02",
-         "NR 0x08 bit 7 read (= NOT port_7ffd_locked) not implemented — "
-         "C0 added write side only [backlog: add read_handler on NR 0x08]");
+    // VHDL zxnext.vhd:5906 composes port_253b_dat for NR 0x08 as
+    //   (not port_7ffd_locked) & eff_nr_08_contention_disable & stereo &
+    //   spkr & dac & port_ff & turbosound & issue2.
+    // Branch C installed a read_handler on NR 0x08 that drives bit 7 from
+    // Mmu::paging_locked() and bit 6 from Mmu::contention_disabled(). The
+    // low 6 bits mirror the last write (see nr_08_stored_low_ in Emulator).
+    //
+    // Sequence:
+    //   1. Write port_7FFD with bit 5 set → lock paging.
+    //   2. Read NR 0x08: expect bit 7 = 0 (locked).
+    //   3. Write NR 0x08 with bit 7 set → clear paging lock (write-strobe).
+    //   4. Read NR 0x08: expect bit 7 = 1 (unlocked).
+    //   5. Write NR 0x08 with bit 6 set → contention_disable = 1, stored.
+    //   6. Read NR 0x08: expect bit 6 = 1 (and bit 7 still = 1).
+    {
+        // 1. Lock paging via direct Z80 OUT to port 0x7FFD (tested via
+        //    the port dispatch; we reach into emu.port() directly here
+        //    since nr_write/nr_read already do that for NextREG ports).
+        emu.port().out(0x7FFD, 0x20);  // bit 5 set → lock
+        uint8_t locked = nr_read(emu, 0x08);
+        bool bit7_locked_clear = (locked & 0x80) == 0;
+
+        // 3/4. Write bit 7 to clear the lock, then re-read.
+        nr_write(emu, 0x08, 0x80);
+        uint8_t unlocked = nr_read(emu, 0x08);
+        bool bit7_unlocked_set = (unlocked & 0x80) != 0;
+
+        // 5/6. Drive bit 6 (contention_disable). Keep bit 7 unset so the
+        //      write is not re-issuing the unlock strobe (harmless either
+        //      way, but clearer without).
+        nr_write(emu, 0x08, 0x40);
+        uint8_t cd_on = nr_read(emu, 0x08);
+        bool bit6_set = (cd_on & 0x40) != 0;
+        bool bit7_still_set = (cd_on & 0x80) != 0;
+
+        const bool ok = bit7_locked_clear && bit7_unlocked_set &&
+                        bit6_set && bit7_still_set;
+        check("RW-02",
+              "NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = "
+              "nr_08_contention_disable [zxnext.vhd:5906]",
+              ok,
+              "locked_read=" + hex2(locked) +
+              " unlocked_read=" + hex2(unlocked) +
+              " cd_on_read=" + hex2(cd_on));
+    }
 }
 
 // ── CFG-01, CFG-02, CFG-05: machine-config state ─────────────────────

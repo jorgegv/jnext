@@ -185,6 +185,18 @@ public:
     // port_1FFD writes to take effect again. Driven by the NR 0x08 write
     // handler in Emulator::install_port_handlers (src/core/emulator.cpp).
     void unlock_paging() { paging_locked_ = false; }
+    // Observable on the 7FFD lock state (used by NR 0x08 read to compose
+    // bit 7 = NOT port_7ffd_locked per zxnext.vhd:5906).
+    bool paging_locked() const { return paging_locked_; }
+
+    // NR 0x08 bit 6 "contention disable" storage. VHDL zxnext.vhd:5176
+    // sets nr_08_contention_disable <= nr_wr_dat(6); the value feeds the
+    // ula_contention enable at line 4481 and is read back at line 5906.
+    // Branch D will rehome this into ContentionModel; for now Mmu owns
+    // the flag so the NR 0x08 write/read handlers have somewhere to store
+    // and compose the bit.
+    void set_contention_disabled(bool v) { contention_disabled_ = v; }
+    bool contention_disabled() const { return contention_disabled_; }
 
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
@@ -268,6 +280,11 @@ private:
     uint8_t*       write_ptr_[8];
     bool           read_only_[8];
     bool           paging_locked_ = false;
+    // VHDL nr_08_contention_disable (zxnext.vhd:1114 default '0', written
+    // at zxnext.vhd:5176, read back at zxnext.vhd:5906). Stored here so the
+    // NR 0x08 read handler can compose bit 6 without reaching into the
+    // ContentionModel (Branch D will rehome).
+    bool           contention_disabled_ = false;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
 
