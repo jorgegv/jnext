@@ -44,6 +44,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - When a commit is made, check that the FEATURES.md and TODO.md files are updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update to these files.
 - When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
 - When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
+- For git commands that run against another directory (e.g. a worktree), always use `git -C /abs/path <cmd> ...` instead of `cd /abs/path && git <cmd> ...`. The `-C` flag avoids shell-state side effects and keeps the current working directory stable across tool calls. It also avoids needless permission prompts to the user.
 
 ## ChangeLog file
 
