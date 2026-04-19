@@ -184,7 +184,7 @@ zxnext-emulator/
 │   │   └── im2.h / .cpp           IM2 interrupt controller + daisy-chain
 │   ├── memory/
 │   │   ├── mmu.h / .cpp           8×8K slot mapping, fast dispatch tables
-│   │   ├── ram.h / .cpp           768K / 1792K RAM backing store
+│   │   ├── ram.h / .cpp           768K / 2048K RAM backing store
 │   │   ├── rom.h / .cpp           4×16K ROM banks + Alt ROM
 │   │   └── contention.h / .cpp    per-machine pre-computed contention LUTs
 │   ├── video/
@@ -315,7 +315,7 @@ run_frame():
 - Layer 2 mapping (NextREG `0x123B`) overlays MMU for read or write
 
 **RAM** (`src/memory/ram.h`)
-- Flat `std::vector<uint8_t>` of 768 KB (expandable to 1792 KB)
+- Flat `std::vector<uint8_t>` of 768 KB (expandable to 2048 KB)
 - 16K banks / 8K pages as simple index arithmetic
 
 **ROM** (`src/memory/rom.h`)

@@ -68,7 +68,7 @@ All source lives under `cores/zxnext/src/`:
 ### Memory Map (CPU view)
 - 8×8K MMU slots covering the 64K address space (native ZX Next banking)
 - Traditional 128K banking also supported via ports `0x7FFD` / `0x1FFD` / `0xDFFD`
-- 768K RAM (unexpanded) or 1792K (expanded), organized as 16K banks / 8K pages
+- 768K RAM (unexpanded) or 2048K (expanded), organized as 16K banks / 8K pages
 - 64K ROM (4 slots, +3-compatible) + 32K user-programmable Alt ROM
 - External 2 MB SRAM on physical pins; accessed by both CPU and Layer 2 video
 

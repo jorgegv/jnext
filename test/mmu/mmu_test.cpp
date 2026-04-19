@@ -88,14 +88,15 @@ std::string fmt(const char* fmt_str, ...) {
 
 // ── Fixture ──────────────────────────────────────────────────────────
 
-// 1792 KB RAM = 224 pages of 8K, matches the widest legal MMU page index
-// (pages 0x00..0xDF) per VHDL zxnext.vhd:2964 address formula.
+// Default Ram size (2048 KB = 256 pages of 8K) matches the widest legal
+// MMU logical page index (0x00..0xDF via VHDL zxnext.vhd:2964 address
+// formula, which maps logical 0xDF to physical 0xFF).
 struct Fixture {
     Ram ram;
     Rom rom;
     Mmu mmu;
 
-    Fixture() : ram(1792 * 1024), rom(), mmu(ram, rom) {
+    Fixture() : ram(), rom(), mmu(ram, rom) {
         // Tag every ROM page with (page<<4 | offset_lo) so ROM reads are
         // distinguishable from RAM in the subsequent tests.
         for (int page = 0; page < 8; ++page) {
@@ -1757,13 +1758,13 @@ void test_cat13_config_mode() {
     // CFG-07: out-of-range nr_04 banks (page >= ram size) → read returns 0xFF
     // and write is silently dropped. VHDL zxnext.vhd:3045 allows a full 8-bit
     // bank (Issue-5 board, line 5732) so nr_04=0xFF addresses SRAM page 510,
-    // which is past the 1.75 MB fixture. ram_.page_ptr() returns nullptr and
-    // the Mmu hot path falls back to 0xFF / drop.
+    // which is past the 2 MB default Ram fixture (256 pages). ram_.page_ptr()
+    // returns nullptr and the Mmu hot path falls back to 0xFF / drop.
     {
         Fixture f;
         f.fresh();
         f.mmu.set_config_mode(true);
-        f.mmu.set_nr_04_romram_bank(0xFF);   // → page 510 (OOB for 1.75 MB)
+        f.mmu.set_nr_04_romram_bank(0xFF);   // → page 510 (OOB for 2 MB)
         f.mmu.write(0x0000, 0xC3);           // must be dropped, not crash
         const uint8_t v = f.mmu.read(0x0000);
         check("CFG-07",
