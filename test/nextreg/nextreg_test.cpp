@@ -234,33 +234,20 @@ static void test_reset_defaults() {
     // defeats the test's purpose. Defer all 9 RST-xx rows to the
     // integration tier.
 
-    skip("RST-01",
-         "NR 0x14 global transparent default=0xE3 owned by Compositor "
-         "reset wiring, not bare NextReg [zxnext.vhd:4926-5100]");
-    skip("RST-02",
-         "NR 0x15 layer priority default=0x00 owned by Compositor "
-         "reset wiring [zxnext.vhd:4926-5100]");
-    skip("RST-03",
-         "NR 0x4A fallback RGB default=0xE3 owned by Compositor "
-         "reset wiring [zxnext.vhd:4926-5100]");
-    skip("RST-04",
-         "NR 0x42 ULANext format default=0x07 owned by ULA reset "
-         "wiring [zxnext.vhd:4926-5100]");
-    skip("RST-05",
-         "NR 0x50-0x57 MMU defaults owned by Mmu reset, not bare "
-         "NextReg [zxnext.vhd:4610-4618]");
-    skip("RST-06",
-         "NR 0x68 ULA control (bit7=NOT ula_en) default owned by ULA "
-         "reset wiring [zxnext.vhd:4926-5100]");
-    skip("RST-07",
-         "NR 0x0B I/O mode default=0x01 owned by Input reset wiring "
-         "[zxnext.vhd:4926-5100]");
-    skip("RST-08",
-         "NR 0x82-0x85 internal port enables default=0xFF owned by "
-         "port-enable reset wiring [zxnext.vhd:5052-5068]");
+    // RST-01..08, RST-10..12: COVERED AT nextreg_integration_test.cpp
+    // (Reset-Integration group, same IDs). Full-machine construction
+    // attaches the subsystems that own the VHDL defaults, and port-path
+    // NR reads return the correct values. Not a skip — just re-homed.
+
+    // RST-09 stays as a skip because even at the integration tier, clip
+    // READ cycling on NR 0x1B is not implemented (write cycling is, in
+    // emulator.cpp:304-308). The tilemap clip defaults live in
+    // TilemapEngine and are not exposed via the NextREG read path.
     skip("RST-09",
-         "NR 0x1B tilemap clip default (0,0x9F,0,0xFF) owned by "
-         "TilemapEngine reset wiring [zxnext.vhd:5242-5290]");
+         "NR 0x1B clip READ cycling not implemented; tilemap clip "
+         "defaults live in TilemapEngine, not readable via NR port "
+         "[zxnext.vhd:5242-5290]. Also skipped at integration tier. "
+         "Un-skip when clip READ handlers land in Emulator::init.");
 }
 
 // ── 4. Read/Write Round-Trip (RW-01..12) ─────────────────────────────
@@ -463,11 +450,10 @@ static void test_clip_cycling() {
 static void test_mmu() {
     set_group("MMU");
 
-    // MMU-01 — zxnext.vhd:4610-4618 MMU reset defaults. The Mmu subsystem
-    // owns these; bare NextReg has no MMU reset at all.
-    skip("MMU-01",
-         "NR 0x50-0x57 MMU reset defaults owned by Mmu, not bare "
-         "NextReg [zxnext.vhd:4610-4618]");
+    // MMU-01 — zxnext.vhd:4610-4618 MMU reset defaults. COVERED AT
+    // nextreg_integration_test.cpp Reset-Integration RST-05, which reads
+    // NR 0x50-0x57 through the port path and matches the VHDL defaults.
+    // Not a skip — re-homed to integration tier.
 
     // MMU-02 — plain write/read round-trip on a single MMU page slot.
     // NextREG-side storage is transparent; the Mmu mirror lives in the
@@ -673,11 +659,9 @@ static void test_port_enables() {
          "NR 0x82 bit6 gating of port 0x1F decoder lives in "
          "PortDispatch, not bare NextReg [zxnext.vhd:2392-2442]");
 
-    // PE-04 — internal port-enable reset defaults (0xFF) are applied by
-    // the subsystem that wires the write_handler, per Task 2 item 7.
-    skip("PE-04",
-         "NR 0x82-0x85 reset default 0xFF owned by integration-tier "
-         "wiring, not bare NextReg [zxnext.vhd:5052-5068]");
+    // PE-04 — internal port-enable reset defaults (0xFF for 0x82-0x84;
+    // 0x8F for 0x85 because bits 6:4 are always-zero on read per VHDL).
+    // COVERED AT nextreg_integration_test.cpp Reset-Integration RST-08.
 
     // PE-05 — bus-side port-enable reset defaults (0xFF) come from the
     // bus reset path, not the main reset.
