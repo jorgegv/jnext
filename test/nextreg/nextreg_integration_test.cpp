@@ -283,19 +283,19 @@ static void test_reset_defaults(Emulator& emu) {
     }
 
     // RST-09 — NR 0x1B tilemap clip window defaults.
-    // VHDL zxnext.vhd:5242-5290 — tilemap clip resets to
-    //   x1=0, x2=0x9F, y1=0, y2=0xFF.
-    // The clip window is written via a 4-write rotating index on NR 0x1B.
-    // Reading NR 0x1B should cycle through the clip values. However, the
-    // current emulator does not implement clip READ cycling on NR 0x1B
-    // (only write cycling is implemented). The tilemap clip defaults live
-    // inside the TilemapEngine subsystem and are not directly readable via
-    // the NextREG port path without a read handler.
-    skip("RST-09",
-         "NR 0x1B clip read cycling not implemented — tilemap clip "
-         "defaults owned by TilemapEngine, not readable via NR port "
-         "[zxnext.vhd:5242-5290]. Un-skip when clip READ handlers "
-         "are added to Emulator::init().");
+    // NR 0x1B is a 4-way combinatorial mux over tilemap clip coords
+    // (x1/x2/y1/y2) selected by clip_tm_idx_. Post-reset idx=00 so a
+    // single read returns x1, whose default is 0x00 per VHDL
+    // zxnext.vhd:4977-4981. Per VHDL:5971-5977 the read is purely
+    // combinatorial and does NOT advance idx — the CLIP-09 row below
+    // exercises that invariant.
+    {
+        uint8_t got = nr_read(emu, 0x1B);
+        check("RST-09",
+              "NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 "
+              "[zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
 }
 
 // ── DMA IM2 delay integration (DMA plan rows 20.3, 20.4) ──────────────
@@ -790,18 +790,98 @@ static void test_clip_cycling(Emulator& emu) {
               "x1=" + hex2(tm.clip_x1()) + " (want 0xAA)");
     }
 
-    // CLIP-07, CLIP-08 — NR 0x1C / NR 0x18 read-side cycling needs a
-    // read_handler installed on those registers that packs the idx state
-    // or cycles through x1/x2/y1/y2. JNEXT has neither, so regs_[0x1C] /
-    // regs_[0x18] just return the last written byte. Backlog: add
-    // read_handlers that pack the L2/Sprite/ULA/Tilemap idx state for
-    // NR 0x1C, and cycle through per-window clip values for NR 0x18-0x1B.
-    skip("CLIP-07",
-         "NR 0x1C read handler missing — packed idx readback not implemented "
-         "[backlog: add read_handler for 0x1C]");
+    // CLIP-07 — NR 0x1C read packs the 4 clip-window indices.
+    // VHDL zxnext.vhd:5979-5980:
+    //   port_253b_dat <= tm_idx & ula_idx & sprite_idx & layer2_idx
+    // Each field is 2 bits; bits 7:6 = tm, 5:4 = ULA, 3:2 = sprite,
+    // 1:0 = Layer2. Post-reset all four indices are 0 so the read
+    // returns 0x00. After one write to NR 0x1B, clip_tm_idx_ advances
+    // to 1 (zxnext.vhd:5276) so bits 7:6 = 01 → 0x40.
+    {
+        // Ensure all 4 indices are at zero: NR 0x1C bits 3:0 = 1111 resets
+        // all (tm, ULA, sprite, L2).
+        nr_write(emu, 0x1C, 0x0F);
+        uint8_t got = nr_read(emu, 0x1C);
+        check("CLIP-07a",
+              "NR 0x1C read post-all-reset packs idx=0000 → 0x00 "
+              "[zxnext.vhd:5979-5980]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // After one 0x1B write, tm idx advances 0 → 1; other 3 still 0.
+        nr_write(emu, 0x1C, 0x0F);           // reset all four idx
+        nr_write(emu, 0x1B, 0x55);           // write x1 → idx 0→1
+        uint8_t got = nr_read(emu, 0x1C);
+        check("CLIP-07b",
+              "NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40 "
+              "[zxnext.vhd:5276 write increments idx; :5979-5980 packing]",
+              got == 0x40, detail_eq(got, uint8_t{0x40}));
+    }
+
+    // CLIP-08 — NR 0x18 Layer2 clip read is a combinatorial mux over
+    // Layer2 clip coords (zxnext.vhd:5947-5953). JNEXT has no read
+    // handler installed for 0x18, so regs_[0x18] just returns the
+    // last written byte — distinct from the VHDL semantics. Out of
+    // scope for this phase (tilemap-only); covered by a future
+    // Layer2 clip read-handler branch.
     skip("CLIP-08",
-         "NR 0x18 read handler missing — clip value cycling not implemented "
-         "[backlog: add read_handler for 0x18 that cycles x1/x2/y1/y2]");
+         "NR 0x18 read handler missing — combinatorial mux over Layer2 "
+         "clip coords not installed [backlog: add read_handler for 0x18 "
+         "per zxnext.vhd:5947-5953]");
+
+    // CLIP-09 — VHDL-faithful invariant: NR 0x1B read does NOT advance
+    // clip_tm_idx_. Per zxnext.vhd:5971-5977 the read is a pure
+    // combinatorial mux with no side effect; only writes advance idx
+    // (zxnext.vhd:5276). Two consecutive reads must return the same
+    // value. Also verify with idx != 0: writing NR 0x1B three times
+    // advances idx 0→1→2→3, selecting y2 (default 0xFF). Two reads
+    // then both return 0xFF; if a buggy impl advanced idx on read,
+    // the second would wrap to idx=0 and return x1.
+    {
+        // Seed a known x1, then reset idx so both reads hit x1.
+        nr_write(emu, 0x1C, 0x08);           // reset tm idx to 0
+        nr_write(emu, 0x1B, 0x77);           // x1 ← 0x77 (idx 0→1)
+        nr_write(emu, 0x1C, 0x08);           // reset tm idx back to 0
+        uint8_t r1 = nr_read(emu, 0x1B);
+        uint8_t r2 = nr_read(emu, 0x1B);
+        check("CLIP-09a",
+              "NR 0x1B read does NOT advance idx (two consecutive reads equal) "
+              "[zxnext.vhd:5971-5977 — combinatorial, no idx increment]",
+              r1 == r2 && r1 == 0x77,
+              "r1=" + hex2(r1) + " r2=" + hex2(r2));
+    }
+    {
+        // Advance idx to 3 via 3 writes; idx=3 selects y2 (default 0xFF).
+        // Use values that won't corrupt later assertions: write x1/x2/y1
+        // with 0x11/0x22/0x33 — y2 remains at reset default 0xFF.
+        nr_write(emu, 0x1C, 0x08);           // reset tm idx to 0
+        nr_write(emu, 0x1B, 0x11);           // x1 ← 0x11, idx 0→1
+        nr_write(emu, 0x1B, 0x22);           // x2 ← 0x22, idx 1→2
+        nr_write(emu, 0x1B, 0x33);           // y1 ← 0x33, idx 2→3
+        uint8_t r1 = nr_read(emu, 0x1B);     // idx=3 → y2 = 0xFF (default)
+        uint8_t r2 = nr_read(emu, 0x1B);     // still idx=3 if read is pure
+        check("CLIP-09b",
+              "NR 0x1B reads at idx=3 both return y2=0xFF (reset default); "
+              "read does not wrap idx [zxnext.vhd:5971-5977]",
+              r1 == 0xFF && r2 == 0xFF,
+              "r1=" + hex2(r1) + " r2=" + hex2(r2));
+    }
+
+    // CLIP-10 — Discriminative: NR 0x1B write advances idx AND NR 0x1C
+    // reflects that advance. VHDL zxnext.vhd:5276 increments
+    // nr_1b_tm_clip_idx on write; :5980 packs it into NR 0x1C bits 7:6.
+    {
+        nr_write(emu, 0x1C, 0x0F);           // reset all four idx to 0
+        nr_write(emu, 0x1B, 0xAA);           // write x1 → idx 0→1
+        const auto& tm = emu.tilemap();
+        uint8_t got_1c = nr_read(emu, 0x1C);
+        check("CLIP-10",
+              "NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C "
+              "bits 7:6 = 01 (0x40) "
+              "[zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing]",
+              tm.clip_x1() == 0xAA && got_1c == 0x40,
+              "x1=" + hex2(tm.clip_x1()) + " nr_1c=" + hex2(got_1c));
+    }
 }
 
 // ── PAL-01..06: Palette write pipeline and read-back ────────────────
