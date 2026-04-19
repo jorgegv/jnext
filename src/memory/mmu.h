@@ -556,11 +556,24 @@ private:
     // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes
     // the physical page for test/debugger observability).
     void map_rom_physical(int slot, uint8_t rom_page);
-    // Rebuild slots 0/1 (ROM or RAM-at-0x0000) and slots 6/7 (composed
-    // bank) from the current port_7ffd_ / port_1ffd_ / port_dffd_reg_ /
-    // port_eff7_reg_3_ state. Shared by map_128k_bank, write_port_dffd,
-    // write_port_eff7 — the three entry points matching VHDL's
-    // port_memory_change_dly rebuild (zxnext.vhd:4619-4682).
+    // Rebuild slots 6/7 (RAM bank) from the current port_7ffd_ /
+    // port_dffd_reg_ state. Mirrors VHDL zxnext.vhd:4677-4680, whose
+    // update is gated on port_memory_ram_change_dly (:3814). Every
+    // trigger fires this path EXCEPT an NR 0x8E write with bit 3 = 0,
+    // whose suppression is honoured by the caller in write_nr_8e.
+    void apply_legacy_ram_slots_();
+    // Rebuild slots 0/1 (ROM area) from the current port_7ffd_ /
+    // port_1ffd_ / port_eff7_reg_3_ state. Mirrors VHDL
+    // zxnext.vhd:4619-4646, which fires whenever port_memory_change_dly
+    // is '1' (every port 7FFD/1FFD/DFFD/EFF7 and every NR 0x8E / NR 0x8F
+    // write, per :3813). Honours the port_eff7_reg_3 / RAM-at-0x0000
+    // override.
+    void apply_legacy_rom_slots_();
+    // Convenience: rebuild both halves. Used by port 7FFD/1FFD/DFFD/EFF7
+    // writes, the NR 0x8F handler, and the soft-reset path — all
+    // triggers where port_memory_ram_change_dly='1' (default case).
+    // NR 0x8E has its own path in write_nr_8e that calls the halves
+    // independently so the bit-3=0 suppression can be honoured.
     void apply_legacy_paging_();
     // Compose the 7-bit port_7ffd_bank per VHDL zxnext.vhd:3763-3766,
     // branching on pentagon_en() / pentagon_1024_en().

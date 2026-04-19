@@ -224,12 +224,12 @@ uint8_t Mmu::compose_bank_() const {
     return bank;
 }
 
-// Apply slots 6/7 (RAM bank composed from 7FFD+DFFD) and slots 0/1
-// (ROM or RAM-at-0x0000) from the current register state. Called by
-// map_128k_bank (after the lock gate), write_port_dffd, and
-// write_port_eff7 — all three correspond to VHDL's port_memory_change_dly
-// rebuild at zxnext.vhd:4619-4682 which fires on 7ffd/1ffd/dffd/eff7 writes.
-void Mmu::apply_legacy_paging_() {
+// Rebuild slots 6/7 (RAM bank) from port_7ffd_ / port_dffd_reg_.
+// VHDL zxnext.vhd:4677-4680 — gated by port_memory_ram_change_dly
+// (:3814). Every port/NR paging trigger fires this EXCEPT an NR 0x8E
+// write with bit 3 = 0; the NR 0x8E handler honours that by bypassing
+// this helper rather than calling it.
+void Mmu::apply_legacy_ram_slots_() {
     // Slots 6-7: selected RAM bank composed with port_dffd_reg extra bits
     // (VHDL zxnext.vhd:3763-3766). Store the LOGICAL page (VHDL
     // mem_active_page semantics); to_sram_page() inside rebuild_ptr()
@@ -237,7 +237,13 @@ void Mmu::apply_legacy_paging_() {
     uint8_t bank = compose_bank_();
     set_page(6, static_cast<uint8_t>(bank * 2));
     set_page(7, static_cast<uint8_t>(bank * 2 + 1));
+}
 
+// Rebuild slots 0/1 (ROM area) from port_7ffd_ / port_1ffd_ /
+// port_eff7_reg_3_. VHDL zxnext.vhd:4619-4646 — fires whenever
+// port_memory_change_dly='1' (every port 7FFD/1FFD/DFFD/EFF7 and every
+// NR 0x8E / NR 0x8F write, per :3813).
+void Mmu::apply_legacy_rom_slots_() {
     // Slots 0-1: ROM selection (VHDL zxnext.vhd:4619-4644).
     // Default: MMU0=MMU1=0xFF (ROM sentinel). If port_eff7_reg_3=1 → force
     // MMU0=0x00, MMU1=0x01 (RAM-at-0x0000 mode, VHDL:4636-4644).
@@ -257,6 +263,18 @@ void Mmu::apply_legacy_paging_() {
         nr_mmu_[0] = 0xFF;
         nr_mmu_[1] = 0xFF;
     }
+}
+
+// Apply slots 6/7 (RAM) and slots 0/1 (ROM) from the current register
+// state. Called by map_128k_bank (after the lock gate), write_port_dffd,
+// write_port_eff7, write_nr_8f, and the soft-reset path — all triggers
+// where VHDL's port_memory_ram_change_dly='1', so the unconditional
+// both-halves rebuild is correct. NR 0x8E is handled separately in
+// write_nr_8e. Order: RAM first, ROM second — preserved from the
+// pre-refactor monolithic helper.
+void Mmu::apply_legacy_paging_() {
+    apply_legacy_ram_slots_();
+    apply_legacy_rom_slots_();
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
