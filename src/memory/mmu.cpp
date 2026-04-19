@@ -12,24 +12,31 @@
 static constexpr uint8_t RESET_PAGES[8] = {0xFF, 0xFF, 0x0A, 0x0B, 0x04, 0x05, 0x00, 0x01};
 
 Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
-    reset();
+    // Constructor — power-on reset, equivalent to the top-level `reset`
+    // signal in VHDL (zxnext.vhd:1730 `reset <= i_RESET`).
+    reset(true);
 }
 
-void Mmu::reset() {
-    paging_locked_ = false;
-    // VHDL zxnext.vhd:4935 — nr_08_contention_disable <= '0' on hard reset.
-    contention_disabled_ = false;
-    // VHDL zxnext.vhd:2254-2256 — on hard reset, nr_8c_altrom(7:4) is
-    // reloaded from (3:0). Bits 3:0 themselves are preserved across reset
-    // (they model the "altrom bits to reload on reset" defaults). Soft
-    // resets do NOT fire this copy in the VHDL process; Mmu::reset()
-    // here does not distinguish hard vs soft reset, so the copy runs on
-    // every reset. Consequence: a NR 0x8C write setting bits 3:0 will
-    // survive, and the effective control bits 7:4 re-derive from them
-    // each reset. Branch C does not architect the soft-reset split;
-    // follow-up work owns the distinction (also applies to C0's
-    // paging_locked_ reset).
-    {
+void Mmu::reset(bool hard) {
+    // paging_locked_ mirrors port_7ffd_reg(5) → port_7ffd_locked
+    // (zxnext.vhd:3769 derives the latter from the former). The VHDL
+    // reset at zxnext.vhd:3646-3648 gates the `port_7ffd_reg <= (others
+    // => '0')` assignment on `reset='1'` (hard only). Soft resets leave
+    // the lock state — and thus bit 5 — untouched.
+    if (hard) {
+        paging_locked_ = false;
+    }
+    // VHDL zxnext.vhd:4930-4935 — nr_08_contention_disable <= '0' is
+    // gated on `reset='1'` (hard only). Soft reset preserves the flag.
+    if (hard) {
+        contention_disabled_ = false;
+    }
+    // VHDL zxnext.vhd:2253-2256 — the lo→hi nibble copy on nr_8c_altrom
+    // is gated on `reset='1'` (hard only). Soft reset preserves the full
+    // 8-bit register. Bits 3:0 themselves are not cleared by the VHDL
+    // process; they persist as "altrom bits to reload on reset" defaults,
+    // and the copy re-derives bits 7:4 on each hard reset.
+    if (hard) {
         const uint8_t lo = nr_8c_reg_ & 0x0F;
         nr_8c_reg_ = static_cast<uint8_t>((lo << 4) | lo);
     }

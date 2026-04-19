@@ -12,8 +12,30 @@ class Mmu : public MemoryInterface {
 public:
     Mmu(Ram& ram, Rom& rom);
 
-    // Reset MMU to power-on state (from VHDL zxnext.vhd)
-    void reset();
+    // Reset MMU to power-on state (from VHDL zxnext.vhd).
+    //
+    // The `hard` flag selects the VHDL reset domain:
+    //   * hard=true  — the top-level `reset` signal (`reset <= i_RESET`,
+    //                  zxnext.vhd:1730). Clears ALL reset-domain state.
+    //   * hard=false — soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
+    //                  Preserves state that is only gated on the hard
+    //                  `reset='1'` signal in VHDL — specifically:
+    //                    - nr_8c_altrom bits 7:4 (zxnext.vhd:2253-2256)
+    //                    - nr_08_contention_disable (zxnext.vhd:4935)
+    //                    - port_7ffd_reg / paging lock (zxnext.vhd:3646-3648)
+    //                  All FF-based state that VHDL clears on both hard
+    //                  and soft reset still clears here (slots, nr_04, L2
+    //                  write-enable, bootrom_en overlay, etc.).
+    //
+    // Callers:
+    //   * Emulator::init(cfg, preserve_memory=false)  → reset(true)  [hard]
+    //   * Emulator::init(cfg, preserve_memory=true)   → reset(false) [soft]
+    //   * Emulator::reset()                            → reset(true)  [hard]
+    void reset(bool hard);
+    // Backwards-compatible overload: defaults to hard reset (power-on
+    // semantics). Callers that have not yet been threaded through the
+    // hard/soft distinction still behave as before.
+    void reset() { reset(true); }
 
     // Set slot to page number; rebuilds fast-dispatch pointer
     void set_page(int slot, uint8_t page);

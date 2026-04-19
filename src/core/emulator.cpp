@@ -52,7 +52,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         ram_.reset();
         rom_.reset();
     }
-    mmu_.reset();
+    // preserve_memory=true == soft reset (RESET_SOFT / NR 0x02 bit 0).
+    // VHDL distinguishes the two reset domains: some MMU-side flip-flops
+    // only clear on the hard `reset` signal (zxnext.vhd:1730
+    // `reset <= i_RESET`). Thread the distinction through so soft reset
+    // preserves nr_8c_altrom upper nibble, nr_08_contention_disable, and
+    // the 7FFD paging lock per VHDL zxnext.vhd:2253-2256 / 4930-4935 /
+    // 3646-3648.
+    mmu_.reset(/*hard=*/!preserve_memory);
     nextreg_.reset();
     palette_.reset();
     layer2_.reset();
@@ -1963,7 +1970,9 @@ void Emulator::reset()
     frame_cycle_ = 0;
 
     ram_.reset();
-    mmu_.reset();
+    // Emulator::reset() is a hard reset (see header — "Perform a hard
+    // reset: reinitialize all subsystems, clear RAM, reload ROM").
+    mmu_.reset(/*hard=*/true);
     nextreg_.reset();
     cpu_.reset();
     im2_.reset();
