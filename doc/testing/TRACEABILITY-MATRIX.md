@@ -7,7 +7,7 @@
 | Subsystem        | Plan rows | In-test | Pass | Fail | Skip/Stub | Missing | Last-touch commit |
 |------------------|----------:|--------:|-----:|-----:|----------:|--------:|-------------------|
 | Z80N             | 30        | 0       | —    | —    | —         | 30      | `8d0cf05a15`      |
-| Memory/MMU       | 143       | 143     | 73   | 0    | 70        | 0       | `354fa14`         |
+| Memory/MMU       | 143       | 143     | 89   | 0    | 54        | 0       | HEAD (fix/mmu-branch-c) |
 | ULA Video        | 122       | 122     | 48   | 0    | 75        | 0       | `7c56b92000`      |
 | Layer2           | 97        | 97      | 89   | 0    | 8         | 0       | `fcbd9aed61`      |
 | Sprites          | 125       | 125     | 115  | 0    | 10        | 0       | `28f5afb540`      |
@@ -149,24 +149,24 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | EF7-02  | Bit 3 = 0 → ROM at 0x0000                                    | —               | skip    | test/mmu/mmu_test.cpp:726 |
 | EF7-03  | Bit 2 = 1 disables Pent-1024                                 | —               | skip    | test/mmu/mmu_test.cpp:727 |
 | EF7-04  | Reset state                                                  | —               | skip    | test/mmu/mmu_test.cpp:728 |
-| ROM-01  | 48K always ROM 0                                             | —               | skip    | test/mmu/mmu_test.cpp:742 |
-| ROM-02  | 128K ROM 0                                                   | —               | skip    | test/mmu/mmu_test.cpp:743 |
-| ROM-03  | 128K ROM 1                                                   | —               | skip    | test/mmu/mmu_test.cpp:744 |
-| ROM-04  | +3 ROM 0                                                     | —               | skip    | test/mmu/mmu_test.cpp:745 |
-| ROM-05  | +3 ROM 1                                                     | —               | skip    | test/mmu/mmu_test.cpp:746 |
-| ROM-06  | +3 ROM 2                                                     | —               | skip    | test/mmu/mmu_test.cpp:747 |
-| ROM-07  | +3 ROM 3                                                     | —               | skip    | test/mmu/mmu_test.cpp:748 |
+| ROM-01  | 48K always ROM 0                                             | zxnext.vhd:2984 | pass    | test/mmu/mmu_test.cpp:751 |
+| ROM-02  | 128K ROM 0                                                   | zxnext.vhd:3003 | pass    | test/mmu/mmu_test.cpp:765 |
+| ROM-03  | 128K ROM 1                                                   | zxnext.vhd:3003 | pass    | test/mmu/mmu_test.cpp:777 |
+| ROM-04  | +3 ROM 0                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:791 |
+| ROM-05  | +3 ROM 1                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:804 |
+| ROM-06  | +3 ROM 2                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:818 |
+| ROM-07  | +3 ROM 3                                                     | zxnext.vhd:2993 | pass    | test/mmu/mmu_test.cpp:831 |
 | ROM-08  | ROM is read-only                                             | —               | pass    | test/mmu/mmu_test.cpp:766 |
 | ROM-09  | ROM with altrom_rw = 1                                       | —               | skip    | test/mmu/mmu_test.cpp:774 |
-| ALT-01  | Enable altrom                                                | —               | skip    | test/mmu/mmu_test.cpp:784 |
-| ALT-02  | Disable altrom                                               | —               | skip    | test/mmu/mmu_test.cpp:785 |
-| ALT-03  | Altrom read/write enable                                     | —               | skip    | test/mmu/mmu_test.cpp:786 |
-| ALT-04  | Altrom read-only                                             | —               | skip    | test/mmu/mmu_test.cpp:787 |
-| ALT-05  | Lock ROM1                                                    | —               | skip    | test/mmu/mmu_test.cpp:788 |
-| ALT-06  | Lock ROM0                                                    | —               | skip    | test/mmu/mmu_test.cpp:789 |
-| ALT-07  | Reset preserves bits 3:0                                     | —               | skip    | test/mmu/mmu_test.cpp:790 |
-| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:791 |
-| ALT-09  | Read-back                                                    | —               | skip    | test/mmu/mmu_test.cpp:792 |
+| ALT-01  | Enable altrom                                                | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:885 |
+| ALT-02  | Disable altrom                                               | zxnext.vhd:2262 | pass    | test/mmu/mmu_test.cpp:900 |
+| ALT-03  | Altrom read/write enable                                     | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:911 |
+| ALT-04  | Altrom read-only                                             | zxnext.vhd:2263 | pass    | test/mmu/mmu_test.cpp:923 |
+| ALT-05  | Lock ROM1                                                    | zxnext.vhd:2264 | pass    | test/mmu/mmu_test.cpp:936 |
+| ALT-06  | Lock ROM0                                                    | zxnext.vhd:2265 | pass    | test/mmu/mmu_test.cpp:948 |
+| ALT-07  | Reset preserves bits 3:0                                     | zxnext.vhd:2254 | pass    | test/mmu/mmu_test.cpp:966 |
+| ALT-08  | Altrom address 128K                                          | —               | skip    | test/mmu/mmu_test.cpp:978 |
+| ALT-09  | Read-back                                                    | zxnext.vhd:6156 | pass    | test/mmu/mmu_test.cpp:989 |
 | CFG-01  | Config mode maps ROMRAM                                      | —               | pass    | test/mmu/mmu_test.cpp:821 |
 | CFG-02  | Config mode off → normal ROM                                 | —               | pass    | test/mmu/mmu_test.cpp:841 |
 | CFG-03  | ROMRAM bank writeable                                        | —               | pass    | test/mmu/mmu_test.cpp:862 |
@@ -1745,7 +1745,7 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | RST-08  | After reset, read NR 0x82-0x85                         | —              | missing | missing                           |
 | RST-09  | After reset, read NR 0x1B clip                         | —              | skip    | test/nextreg/nextreg_test.cpp:246 |
 | RW-01   | 0x07                                                   | —              | skip    | test/nextreg/nextreg_test.cpp:262 |
-| RW-02   | 0x08                                                   | —              | skip    | test/nextreg/nextreg_test.cpp:269 |
+| RW-02   | 0x08                                                   | zxnext.vhd:5906 | missing | re-homed → test/nextreg/nextreg_integration_test.cpp:966 |
 | RW-03   | 0x12                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:279 |
 | RW-04   | 0x14                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:291 |
 | RW-05   | 0x15                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:304 |

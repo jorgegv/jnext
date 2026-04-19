@@ -26,12 +26,38 @@ foundation for all memory access in the emulator. This test suite validates:
 ## Current status
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
-Measured on main post-merge (commit `6d1a057`):
+Refreshed 2026-04-20 after Phase 2 C (`fix/mmu-branch-c`) un-skipped 16 rows
+(NR 0x08 bit 6 / read handler, NR 0x8C altrom register, machine-type
+sram_rom selection):
 
 - **143 plan rows total**, mapped 1:1 to test IDs
-- **64/66 live pass (97.0%)**, 2 fail, 77 skip
-- **Fails (C-class legitimate emulator bugs, Task 2 backlog item 5)**: RST-01, RST-02 — `Mmu::reset()` clobbers slots_[0..1] to 0/1 via `map_rom(0,0)/map_rom(1,1)`, VHDL `zxnext.vhd:4611-4612` sets MMU0=MMU1=0xFF (ROM sentinel).
-- **Skips**: 77 rows blocked by thin `Mmu` public API — NR 0x8E/8F/8C/03/04, ports 0xDFFD/0xEFF7, machine-type ROM selection, altrom, config-mode, sram_bank5/7 flags, contention model inputs (no `mem_active_page`/speed/Pentagon), NR 0x12/0x13 shadow, DivMmc overlay fixture. These rows are genuinely unreachable on the bare Mmu surface — a thicker Mmu facade or integration tests are needed to convert them.
+- **89 pass, 0 fail, 54 skip** (prior on `6d1a057`: 73 pass / 70 skip; Phase 2
+  C flipped ROM-01..07 + ALT-01..07 + ALT-09 = 16 rows pass)
+- **Previously-listed RST-01/RST-02 failures**: fixed by earlier reset-seed
+  work — all eight RST rows now pass (MMU0/MMU1 seed to the 0xFF ROM
+  sentinel per VHDL `zxnext.vhd:4611-4618`).
+- **Remaining 54 skips**: NR 0x8E/0x8F unified-paging, ports 0xDFFD/0xEFF7,
+  sram_bank5/7 flags, full contention-model inputs (no `mem_active_page`/
+  speed/Pentagon), NR 0x12/0x13 shadow, DivMmc overlay fixture, plus
+  altrom SRAM-arbiter overrides (ALT-08, ROM-09). These rows need either a
+  thicker Mmu facade or integration-tier tests to convert.
+
+### Phase 2 C overview (2026-04-20)
+
+Four commits added VHDL-faithful Mmu public state for the un-skipped rows:
+
+1. `feat(mmu): NR 0x08 bit 6 contention-disable + NR 0x08 read handler`
+   — `Mmu::set_contention_disabled` / `contention_disabled()`; read-handler
+   composes bit 7 (NOT paging-lock) | bit 6 (contention-disable) | low-6 mirror.
+2. `feat(mmu): NR 0x8C altrom register storage` — `Mmu::set_nr_8c` /
+   `get_nr_8c` + decoded accessors. Reset nibble copy gated on hard reset.
+3. `feat(mmu): machine-type accessor + current_sram_rom` — `Mmu::
+   set_machine_type` / `machine_type()` / `current_sram_rom()` modelling
+   VHDL `zxnext.vhd:2981-3008` per machine.
+4. `feat(mmu): Mmu::reset(bool hard) overload for VHDL-faithful soft
+   reset` — threads hard/soft distinction for nr_8c_altrom nibble copy,
+   nr_08_contention_disable, and paging lock (all gated on `reset='1'`
+   hard in VHDL).
 
 ## VHDL Architecture Summary
 
