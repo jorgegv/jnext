@@ -471,13 +471,22 @@ public:
     void map_rom(int slot, uint8_t rom_page);
 
     // ---------------------------------------------------------------
-    // Layer 2 write-over control (driven by port 0x123B)
+    // Layer 2 read/write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------
 
-    /// Configure Layer 2 write-mapping from port 0x123B value.
-    ///   bit 0: write-map enable
-    ///   bits 7:6: segment select (00=0x0000, 01=0x4000, 10=0x8000, 11=all)
-    void set_l2_write_port(uint8_t val, uint8_t active_bank);
+    /// Configure Layer 2 read + write mapping from port 0x123B value.
+    ///   bit 0: write-map enable (l2_write_enable_)
+    ///   bit 2: read-map  enable (l2_read_enable_)
+    ///   bits 7:6: segment select (00=0x0000, 01=0x4000, 10=0x8000, 11=all — SHARED)
+    /// VHDL zxnext.vhd:905-912 (signals), 3904-3928 (handler), 3077 (arbiter gate).
+    /// Read and write share a single segment register (port_123b_layer2_map_segment
+    /// is one 2-bit signal, not two).
+    void set_l2_port(uint8_t val, uint8_t active_bank);
+
+    // Observable on the latched enable bits. Both are exposed so tests can
+    // verify the latch independently of driving the read or write paths.
+    bool l2_read_enable()  const { return l2_read_enable_; }
+    bool l2_write_enable() const { return l2_write_enable_; }
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -572,9 +581,14 @@ private:
     // power-on value.
     uint8_t        nr_8f_mode_ = 0;
 
-    // Layer 2 write-over state
+    // Layer 2 read/write-over state. VHDL zxnext.vhd:905-912 carries separate
+    // wr_en and rd_en signals but a SHARED segment register
+    // (port_123b_layer2_map_segment, one 2-bit signal used by both directions).
+    // The arbiter at zxnext.vhd:3077 selects between them on cpu_rd_n — the
+    // two directions are mutually exclusive per cycle.
     bool    l2_write_enable_  = false;
-    uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2
+    bool    l2_read_enable_   = false;  // port 0x123B bit 2 (VHDL zxnext.vhd:3918)
+    uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2 (shared)
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
 
     // NR 0x03 config_mode + NR 0x04 romram_bank mirror (pushed by Emulator

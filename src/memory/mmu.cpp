@@ -57,7 +57,11 @@ void Mmu::reset(bool hard) {
         const uint8_t lo = nr_8c_reg_ & 0x0F;
         nr_8c_reg_ = static_cast<uint8_t>((lo << 4) | lo);
     }
+    // VHDL zxnext.vhd:3907-3913 — port 0x123B Layer 2 latches clear on
+    // `reset='1'` (top-level reset, i.e. both hard and soft in our model
+    // since the signal chain is unconditional from the top-level reset).
     l2_write_enable_ = false;
+    l2_read_enable_  = false;
     l2_segment_mask_ = 0;
     l2_bank_ = 8;
     // nr_04_romram_bank resets to 0 (VHDL zxnext.vhd:1104). config_mode stays
@@ -161,18 +165,25 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
     if (slot >= 0 && slot < 8) nr_mmu_[slot] = 0xFF;
 }
 
-void Mmu::set_l2_write_port(uint8_t val, uint8_t active_bank) {
-    l2_write_enable_ = (val & 0x01) != 0;
+void Mmu::set_l2_port(uint8_t val, uint8_t active_bank) {
+    // VHDL zxnext.vhd:3915-3920 — on port 0x123B write with cpu_do(4)=0:
+    //   port_123b_layer2_map_wr_en    <= cpu_do(0)  (bit 0)
+    //   port_123b_layer2_map_rd_en    <= cpu_do(2)  (bit 2)
+    //   port_123b_layer2_map_segment  <= cpu_do(7:6) (bits 7:6, SHARED rd+wr)
+    // Read and write enable share the same segment register — one segment
+    // field is selected by the arbiter at VHDL:3077 on cpu_rd_n.
+    l2_write_enable_ = (val & 0x01) != 0;  // bit 0
+    l2_read_enable_  = (val & 0x04) != 0;  // bit 2
     l2_bank_ = active_bank;
     uint8_t seg = (val >> 6) & 0x03;
     switch (seg) {
         case 0: l2_segment_mask_ = 0x01; break;  // 0x0000-0x3FFF
         case 1: l2_segment_mask_ = 0x02; break;  // 0x4000-0x7FFF
         case 2: l2_segment_mask_ = 0x04; break;  // 0x8000-0xBFFF
-        case 3: l2_segment_mask_ = 0x07; break;  // all three
+        case 3: l2_segment_mask_ = 0x07; break;  // all three (auto-segment)
     }
-    Log::memory()->debug("L2 write-over: enable={} segment_mask={:#04x} bank={}",
-                          l2_write_enable_, l2_segment_mask_, l2_bank_);
+    Log::memory()->debug("L2 port: wr={} rd={} segment_mask={:#04x} bank={}",
+                          l2_write_enable_, l2_read_enable_, l2_segment_mask_, l2_bank_);
 }
 
 // VHDL zxnext.vhd:3763-3766 bank composition. Builds the 7-bit
@@ -467,6 +478,10 @@ void Mmu::save_state(StateWriter& w) const
     // VHDL zxnext.vhd:3787-3794 has no reset process, so the value persists
     // across reset and must round-trip.
     w.write_u8(nr_8f_mode_);
+    // Phase 2 D2 appended state — Layer 2 read-enable latch
+    // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918). Write-enable and
+    // segment mask/bank are already persisted above.
+    w.write_bool(l2_read_enable_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -497,6 +512,9 @@ void Mmu::load_state(StateReader& r)
     port_eff7_reg_3_ = r.read_bool();
     // Phase 2 B appended state — NR 0x8F mapping mode (2 bits stored in u8).
     nr_8f_mode_      = static_cast<uint8_t>(r.read_u8() & 0x03);
+    // Phase 2 D2 appended state — Layer 2 read-enable latch
+    // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918).
+    l2_read_enable_  = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

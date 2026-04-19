@@ -2235,9 +2235,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x20);           // slot 0 → physical page 0x20
-        f.mmu.set_l2_write_port(0x01, 8);  // enable L2 write-over, seg=00, bank 8
+        f.mmu.set_l2_port(0x01, 8);  // enable L2 write-over, seg=00, bank 8
         f.mmu.write(0x0000, 0xAB);
-        f.mmu.set_l2_write_port(0x00, 8);  // disable L2 write-over
+        f.mmu.set_l2_port(0x00, 8);  // disable L2 write-over
         const uint8_t mmu_side = f.ram.page_ptr(0x20)[0];
         const uint8_t l2_side  = f.ram.page_ptr(0x10)[0];
         check("L2M-01",
@@ -2255,9 +2255,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x10);           // slot 0 IS the L2 alias page
-        f.mmu.set_l2_write_port(0x01, 8);  // L2 bank 8 → physical pages 0x10/0x11
+        f.mmu.set_l2_port(0x01, 8);  // L2 bank 8 → physical pages 0x10/0x11
         f.mmu.write(0x0000, 0xAB);
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t via_mmu = f.mmu.read(0x0000);
         check("L2M-01b",
               "L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969",
@@ -2282,11 +2282,11 @@ void test_cat17_l2_mapping() {
         f.mmu.set_page(0, 0x20);
         f.mmu.set_page(2, 0x22);
         f.mmu.set_page(4, 0x24);
-        f.mmu.set_l2_write_port(0xC1, 8);  // bits 7:6=11 (seg=all), enable
+        f.mmu.set_l2_port(0xC1, 8);  // bits 7:6=11 (seg=all), enable
         f.mmu.write(0x0000, 0x10);         // → L2 bank 8 (page 0x10)
         f.mmu.write(0x4000, 0x11);         // → L2 bank 9 (page 0x12)
         f.mmu.write(0x8000, 0x12);         // → L2 bank 10 (page 0x14)
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t a = f.ram.page_ptr(0x10)[0];
         const uint8_t b = f.ram.page_ptr(0x12)[0];
         const uint8_t c = f.ram.page_ptr(0x14)[0];
@@ -2304,9 +2304,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(6, 0x30);
-        f.mmu.set_l2_write_port(0xC1, 8);
+        f.mmu.set_l2_port(0xC1, 8);
         f.mmu.write(0xC000, 0xCD);
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t mmu_side = f.ram.page_ptr(0x30)[0];
         check("L2M-04",
               "L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077",
@@ -2314,13 +2314,13 @@ void test_cat17_l2_mapping() {
               fmt("MMU page 0x30[0]=0x%02X expected=0xCD (L2 must not intercept)", mmu_side));
     }
 
-    // L2M-05: L2 base bank from NR 0x12 (active). Mmu's
-    // set_l2_write_port takes the active bank as a direct argument;
-    // there is no NR 0x12/0x13 distinction on the Mmu surface — the
-    // shadow/active selection lives in NextReg.
+    // L2M-05: L2 base bank from NR 0x12 (active). Mmu's set_l2_port
+    // takes the active bank as a direct argument; there is no NR 0x12/0x13
+    // distinction on the Mmu surface — the shadow/active selection lives
+    // in NextReg.
     // L2M-05/06: NR 0x12/0x13 shadow/active bank selection lives in NextReg,
-    // not Mmu. Mmu::set_l2_write_port() takes the active bank directly as
-    // a parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
+    // not Mmu. Mmu::set_l2_port() takes the active bank directly as a
+    // parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
     // time. Integration-tier behaviour (cross-subsystem wiring, not a bare
     // Mmu property).
     skip("L2M-05",
@@ -2359,9 +2359,9 @@ void test_cat18_priority() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x30);           // MMU slot 0 → physical page 0x30
-        f.mmu.set_l2_write_port(0x01, 16); // L2 bank 16 → physical page 0x20
+        f.mmu.set_l2_port(0x01, 16); // L2 bank 16 → physical page 0x20
         f.mmu.write(0x0000, 0x9E);
-        f.mmu.set_l2_write_port(0x00, 16);
+        f.mmu.set_l2_port(0x00, 16);
         const uint8_t mmu_side = f.ram.page_ptr(0x30)[0];
         const uint8_t l2_side  = f.ram.page_ptr(0x20)[0];
         check("PRI-03",
