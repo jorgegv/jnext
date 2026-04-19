@@ -258,6 +258,87 @@ public:
     bool port_eff7_ram_at_0000() const { return port_eff7_reg_3_; }  // bit 3
     bool port_eff7_disable_p1024() const { return port_eff7_reg_2_; } // bit 2
 
+    // ---------------------------------------------------------------
+    // NR 0x8F — Mapping Mode (Pentagon-128/512/1024)
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:3787-3794, 3798-3801. Stores the 2-bit
+    // nr_8f_mapping_mode.
+    //   00 = standard (default)
+    //   01 = reserved (profi in source, forced off at line 3797)
+    //   10 = Pentagon 512K
+    //   11 = Pentagon 1024K
+    //
+    // In Pentagon modes the port_7ffd_bank composition at VHDL:3764-3766
+    // uses 7FFD(7:6) for bank(4:3) (instead of DFFD(1:0)), forces bank(6)
+    // to 0, and — in Pentagon-1024 mode when EFF7(2)=0 — promotes 7FFD(5)
+    // from the paging-lock bit into bank(5). The Pentagon-1024 gate also
+    // overrides port_7ffd_locked via VHDL:3769.
+    //
+    // Reset semantics (VHDL fidelity): VHDL declares
+    //   signal nr_8f_mapping_mode : std_logic_vector(1 downto 0) := (others => '0');
+    // with NO reset process — the write at line 3790-3792 only fires on
+    // nr_8f_we=1. That means neither hard nor soft reset clears the value;
+    // the default-init '00' is the FPGA-configuration-time initial state
+    // (equivalent to power-on, modelled here by the default member
+    // initializer). reset(bool) leaves nr_8f_mode_ alone.
+    void write_nr_8f(uint8_t v);
+    // Observable on the 2-bit stored value. Tests and internal composition
+    // both consume it.
+    uint8_t nr_8f_mode() const { return nr_8f_mode_; }
+
+    // Derived gates matching VHDL:3798-3801 exactly.
+    //   pentagon (3798): mode=="10" OR pentagon_1024_en
+    //   pentagon_1024   (3799): mode=="11"
+    //   pentagon_1024_en(3801): pentagon_1024 AND NOT port_eff7_reg_2
+    bool pentagon_1024_en() const {
+        return (nr_8f_mode_ == 0x03) && !port_eff7_reg_2_;
+    }
+    bool pentagon_en() const {
+        return (nr_8f_mode_ == 0x02) || pentagon_1024_en();
+    }
+
+    // Effective lock state from VHDL:3769. Pentagon-1024-en overrides the
+    // 7FFD(5) lock (drops port_7ffd_locked to 0). Profi branch is always
+    // false in JNEXT (VHDL:3797). Returned value controls the write gates
+    // in map_128k_bank / map_plus3_bank / write_port_dffd.
+    bool effective_paging_locked() const {
+        return paging_locked_ && !pentagon_1024_en();
+    }
+
+    // ---------------------------------------------------------------
+    // NR 0x8E — Unified paging (write-only, read-back re-composed)
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:3662-3671 (port_7ffd_reg updates),
+    //      zxnext.vhd:3696-3704 (port_dffd_reg updates),
+    //      zxnext.vhd:3726-3735 (port_1ffd_reg updates),
+    //      zxnext.vhd:6158-6159 (read-back composition).
+    //
+    // Write layout (nr_wr_dat):
+    //   bit 7 → port_dffd_reg(0)   [when bit 3 = 1; also port_dffd_reg(2:1)="00"]
+    //   bit 6 → port_7ffd_reg(2)   [when bit 3 = 1]
+    //   bit 5 → port_7ffd_reg(1)   [when bit 3 = 1]
+    //   bit 4 → port_7ffd_reg(0)   [when bit 3 = 1]
+    //   bit 3 = "bank select" mode enable. When 1, writes the RAM-bank
+    //           fields above, clears port_dffd_reg(3) (non-Profi), and
+    //           zeroes port_dffd_reg(2:1) via the "00" prefix.
+    //   bit 2 → port_1ffd_reg(0) (special mode enable). Also gates
+    //           port_7ffd_reg(4) update: when bit 2 = 0, 7FFD(4) ← bit 0.
+    //           When bit 2 = 1, 7FFD(4) is preserved.
+    //   bit 1 → port_1ffd_reg(2)  (ROM-high bit)
+    //   bit 0 → port_1ffd_reg(1)  (+3 config bit). Also → 7FFD(4) when bit 2 = 0.
+    //
+    // Lock bypass: VHDL:3662, 3696, 3726 — all three register updates on
+    // nr_8e_we are in the `elsif` chain AFTER the locked-gated write path,
+    // so they always fire regardless of port_7ffd_locked. LCK-07 (plan).
+    //
+    // Read-back formula from VHDL:6159:
+    //   {dffd(0), 7ffd(2), 7ffd(1), 7ffd(0), '1', 1ffd(0), 1ffd(2),
+    //    (7ffd(4) AND NOT 1ffd(0)) OR (1ffd(1) AND 1ffd(0))}
+    //
+    // Bit 3 on read is always '1' — a spec sentinel, NOT the bit written.
+    void write_nr_8e(uint8_t v);
+    uint8_t read_nr_8e() const;
+
     // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
     // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
     // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator
@@ -434,6 +515,9 @@ private:
     // write_port_eff7 — the three entry points matching VHDL's
     // port_memory_change_dly rebuild (zxnext.vhd:4619-4682).
     void apply_legacy_paging_();
+    // Compose the 7-bit port_7ffd_bank per VHDL zxnext.vhd:3763-3766,
+    // branching on pentagon_en() / pentagon_1024_en().
+    uint8_t compose_bank_() const;
 
     Ram& ram_;
     Rom& rom_;
@@ -477,6 +561,13 @@ private:
     // bit 2 → disables Pentagon-1024 extension (VHDL:3801).
     bool           port_eff7_reg_2_ = false;
     bool           port_eff7_reg_3_ = false;
+
+    // VHDL nr_8f_mapping_mode (zxnext.vhd:888 default "00", written at
+    // zxnext.vhd:3790-3792, read back at zxnext.vhd:6162). VHDL has NO
+    // reset process — the value persists across both hard and soft reset.
+    // The default member init below models the FPGA-configuration-time
+    // power-on value.
+    uint8_t        nr_8f_mode_ = 0;
 
     // Layer 2 write-over state
     bool    l2_write_enable_  = false;

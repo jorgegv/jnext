@@ -861,17 +861,36 @@ void test_cat7_paging_lock() {
                   locked6, unlocked6));
     }
 
-    // LCK-05: Pentagon-1024 overrides the 7FFD lock via the VHDL:3769 gate
-    //   port_7ffd_locked <= '0' when pentagon_1024_en='1' or (profi and DFFD(4))
-    //   ... else port_7ffd_reg(5)
-    // port_eff7_reg_2 feeds the pentagon_1024_en signal (VHDL:3801); Phase 2 A
-    // exposes it via Mmu::port_eff7_disable_p1024(). The NR 0x8F decoder that
-    // actually sets pentagon_1024_en lives outside the Mmu class — Branch B
-    // owns it — so the end-to-end "lock-override active" observable is not on
-    // the Mmu surface as-is. Leave skipped; Branch B drives the unskip.
-    skip("LCK-05",
-         "NR 0x8F decoder not on Mmu — Branch B owns the pentagon_1024_en composition "
-         "that overrides port_7ffd_locked (VHDL zxnext.vhd:3769,3801)");
+    // LCK-05: Pentagon-1024 overrides the 7FFD lock. VHDL zxnext.vhd:3769
+    //   port_7ffd_locked <= '0' when (pentagon_1024_en = '1') or ...
+    //                       else port_7ffd_reg(5);
+    // with pentagon_1024_en gated on mode="11" AND NOT EFF7(2) (VHDL:3801).
+    // Phase 2 B landed Mmu::write_nr_8f + effective_paging_locked() so the
+    // override is now observable end-to-end.
+    {
+        Fixture f;
+        f.fresh();
+        // Baseline: lock via 7FFD(5)=1, bank 0.
+        f.mmu.map_128k_bank(0x20);
+        // Confirm the lock actually blocks further legacy writes (sanity).
+        f.mmu.map_128k_bank(0x03);
+        const uint8_t locked_mmu6 = f.mmu.get_page(6);
+        // Enable Pentagon-1024 mapping mode — VHDL:3790-3792 stores
+        // nr_wr_dat(1:0) into nr_8f_mapping_mode.
+        f.mmu.write_nr_8f(0x03);
+        // After Pentagon-1024-en, effective_paging_locked() drops to 0
+        // (VHDL:3769 branch). A 7FFD write now takes effect. In Pentagon-
+        // 1024 mode, bank(2:0)=7ffd(2:0), bank(4:3)=7ffd(7:6),
+        // bank(5)=pentagon_1024_en AND 7ffd(5). Here 7FFD=0x07 → bank=7.
+        f.mmu.map_128k_bank(0x07);
+        const uint8_t unlocked_mmu6 = f.mmu.get_page(6);
+        const uint8_t unlocked_mmu7 = f.mmu.get_page(7);
+        check("LCK-05",
+              "pentagon_1024_en drops port_7ffd_locked — VHDL zxnext.vhd:3769,3801",
+              locked_mmu6 == 0x00 && unlocked_mmu6 == 0x0E && unlocked_mmu7 == 0x0F,
+              fmt("locked MMU6=0x%02X (exp 0x00), unlocked MMU6=0x%02X MMU7=0x%02X (exp 0x0E/0x0F)",
+                  locked_mmu6, unlocked_mmu6, unlocked_mmu7));
+    }
 
     // LCK-06: direct MMU slot writes (NR 0x50..0x57) bypass the paging
     // lock. VHDL: NR writes go through nextreg_register_select, not
@@ -887,38 +906,316 @@ void test_cat7_paging_lock() {
               fmt("MMU6=0x%02X expected=0x10", f.mmu.get_page(6)));
     }
 
-    // LCK-07: NR 0x8E bypasses lock. No NR 0x8E handler on Mmu.
-    skip("LCK-07", "no NR 0x8E handler on Mmu — unified paging register unobservable");
+    // LCK-07: NR 0x8E write bypasses the 7FFD paging lock. VHDL
+    //   zxnext.vhd:3662-3670 (7FFD reg), 3696-3704 (DFFD reg),
+    //   3726-3734 (1FFD reg) — the three `elsif nr_8e_we='1'` branches are
+    //   NOT gated on port_7ffd_locked. Phase 2 B landed Mmu::write_nr_8e
+    //   so the bypass is now observable.
+    {
+        Fixture f;
+        f.fresh();
+        // Lock paging: 7FFD=0x20 sets bit 5 (bank 0 + lock).
+        f.mmu.map_128k_bank(0x20);
+        // Sanity: a legacy 7FFD write is now blocked.
+        f.mmu.map_128k_bank(0x03);
+        const uint8_t pre_mmu6 = f.mmu.get_page(6);
+        // NR 0x8E write with bit 3 = 1: 7FFD(2:0) <- bits(6:4) = 011 = 3;
+        // DFFD(0) <- bit 7 = 1; DFFD(3:1) <- 0. Standard-mode bank
+        // composition: bank(2:0)=3, bank(4:3)=DFFD(1:0)=0b01, bank(5)=0,
+        // bank(6)=0 → bank = 3 | (1<<3) = 0x0B. MMU6=0x16, MMU7=0x17.
+        // 0xB8 = 1011_1000 (bit7=1, bit3=1, bits 6:4=011, others 0).
+        f.mmu.write_nr_8e(0xB8);
+        const uint8_t post_mmu6 = f.mmu.get_page(6);
+        const uint8_t post_mmu7 = f.mmu.get_page(7);
+        check("LCK-07",
+              "NR 0x8E write bypasses 7FFD(5) lock — VHDL zxnext.vhd:3662,3696,3726",
+              pre_mmu6 == 0x00 && post_mmu6 == 0x16 && post_mmu7 == 0x17,
+              fmt("pre MMU6=0x%02X (exp 0x00), post MMU6=0x%02X MMU7=0x%02X (exp 0x16/0x17)",
+                  pre_mmu6, post_mmu6, post_mmu7));
+    }
 }
 
 // ── Category 8: NR 0x8E unified paging ────────────────────────────────
-// VHDL: zxnext.vhd:3662-3734. The Mmu class does not implement NR 0x8E
-// directly; that register is decoded in the NextReg module which then
-// drives the port_7ffd/_1ffd/_dffd signals. None of it is reachable from
-// the Mmu public API.
+// VHDL: zxnext.vhd:3662-3734 (write decomposition to 7FFD/DFFD/1FFD),
+//       zxnext.vhd:6158-6159 (read-back composition).
+// Phase 2 B: Mmu::write_nr_8e / read_nr_8e on the public API.
 
 void test_cat8_nr_8e() {
     set_group("Cat8 NR 0x8E unified paging");
-    skip("N8E-01", "no NR 0x8E handler on Mmu — bank-select path unobservable");
-    skip("N8E-02", "no NR 0x8E handler on Mmu — ROM-select path unobservable");
-    skip("N8E-03", "no NR 0x8E handler on Mmu — special-mode path unobservable");
-    skip("N8E-04", "no NR 0x8E handler on Mmu — special+config path unobservable");
-    skip("N8E-05", "no NR 0x8E handler on Mmu — read-back path unobservable");
-    skip("N8E-06", "no NR 0x8E handler on Mmu — dffd(3) clear-on-write unobservable");
+
+    // N8E-01: Bank-select path (bit 3 = 1). VHDL:3665 7ffd(2:0) <=
+    //   nr_wr_dat(6:4). VHDL:3703 dffd(2:0) <= "00" & nr_wr_dat(7).
+    //   Write 0xB8 = 1011_1000 (bit 3=1 bank mode, bits 6:4=011, bit 7=1):
+    //     7FFD(2:0) <- 0b011 = 3  (bit6=0, bit5=1, bit4=1)
+    //     DFFD(0)   <- 1
+    //     DFFD(2:1) <- 00
+    //     DFFD(3)   <- 0 (clear-on-write, N8E-06)
+    //   Bank = 7FFD(2:0) | (DFFD(1:0)<<3) | (DFFD(2)<<5) | (DFFD(3)<<6)
+    //        = 3 | (0b01 << 3) = 0x0B → MMU6=0x16, MMU7=0x17.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8e(0xB8);
+        const uint8_t mmu6 = f.mmu.get_page(6);
+        const uint8_t mmu7 = f.mmu.get_page(7);
+        const uint8_t dffd = f.mmu.port_dffd_reg();
+        check("N8E-01",
+              "NR 0x8E bit 3=1 stores 7FFD(2:0)<-bits(6:4), DFFD(0)<-bit7 — "
+              "VHDL zxnext.vhd:3662-3670,3696-3704",
+              mmu6 == 0x16 && mmu7 == 0x17 && (dffd & 0x01) == 0x01,
+              fmt("MMU6=0x%02X MMU7=0x%02X DFFD=0x%02X "
+                  "(exp 0x16/0x17, DFFD(0)=1)", mmu6, mmu7, dffd));
+    }
+
+    // N8E-02: ROM-select path (bit 3=0, bit 2=0 → 7FFD(4) <- bit 0).
+    //   VHDL:3669 `if nr_wr_dat(2) = '0' then 7FFD(4) <= nr_wr_dat(0)`.
+    //   Write 0x01 = 0000_0001: bit 3=0 (no bank), bit 2=0 (allow 7FFD(4)
+    //   update), bit 0=1 → 7FFD(4)=1. Observable via current_rom_bank()
+    //   which reads 7FFD(4) (zxnext.vhd:3772 port_1ffd_rom = 1ffd(2) & 7ffd(4)).
+    //   Also 1FFD(2) <- bit 1 = 0; 1FFD(1) <- bit 0 = 1; 1FFD(0) <- bit 2 = 0.
+    //   current_rom_bank = 1ffd(2)<<1 | 7ffd(4) = 0<<1 | 1 = 1.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8e(0x01);
+        const uint8_t rom_bank = f.mmu.current_rom_bank();
+        const uint8_t p7ffd    = f.mmu.port_7ffd();
+        check("N8E-02",
+              "NR 0x8E bit 2=0 routes bit 0 to 7FFD(4) (ROM-high) — "
+              "VHDL zxnext.vhd:3668-3670",
+              rom_bank == 0x01 && (p7ffd & 0x10) != 0,
+              fmt("rom_bank=%u 7FFD=0x%02X (exp rom_bank=1, 7FFD(4)=1)",
+                  rom_bank, p7ffd));
+    }
+
+    // N8E-03: Special-mode via NR 0x8E (bit 2=1). VHDL:3734
+    //   1ffd_reg(0) <= nr_wr_dat(2). Write 0x04 = 0000_0100:
+    //     1FFD(0) <- 1 (special mode enable)
+    //     1FFD(2) <- bit 1 = 0
+    //     1FFD(1) <- bit 0 = 0
+    //     7FFD(4) <- NOT updated (bit 2 = 1 gates it, VHDL:3668)
+    //   Observable via port_1ffd() bit 0.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8e(0x04);
+        const uint8_t p1ffd = f.mmu.port_1ffd();
+        check("N8E-03",
+              "NR 0x8E bit 2=1 sets 1FFD(0) special-mode — "
+              "VHDL zxnext.vhd:3734",
+              (p1ffd & 0x01) == 0x01,
+              fmt("1FFD=0x%02X (exp bit 0 = 1)", p1ffd));
+    }
+
+    // N8E-04: Special + config bits (bit 2=1 + bits 1:0). VHDL:3732-3734
+    //   port_1ffd_reg(2) <= nr_wr_dat(1), port_1ffd_reg(1) <= nr_wr_dat(0),
+    //   port_1ffd_reg(0) <= nr_wr_dat(2).
+    //   Write 0x07 = 0000_0111: 1FFD(2)=1, 1FFD(1)=1, 1FFD(0)=1 →
+    //   port_1ffd() bits 2:0 = 0b111 = 7.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8e(0x07);
+        const uint8_t p1ffd = f.mmu.port_1ffd();
+        check("N8E-04",
+              "NR 0x8E bit 2:0=111 sets 1FFD bits 2:1:0 in that VHDL order — "
+              "VHDL zxnext.vhd:3732-3734",
+              (p1ffd & 0x07) == 0x07,
+              fmt("1FFD=0x%02X (exp bits 2:0 = 111)", p1ffd));
+    }
+
+    // N8E-05: Read-back format. VHDL zxnext.vhd:6158-6159
+    //   port_253b_dat <= dffd(0) & 7ffd(2:0) & '1' & 1ffd(0) & 1ffd(2) &
+    //     ((7ffd(4) AND NOT 1ffd(0)) OR (1ffd(1) AND 1ffd(0)));
+    // Case A: set 7FFD(2:0)=0b101, 7FFD(4)=1, DFFD(0)=1, 1FFD all 0.
+    //   Read = 1 & 101 & 1 & 0 & 0 & (1 AND 1) = 1011_1001 = 0xB9.
+    // Case B: same but 1FFD(0)=1 (special) → bit 0 = (1ffd(1) AND 1ffd(0))
+    //   = (0 AND 1) = 0 → read = 1 & 101 & 1 & 1 & 0 & 0 = 1011_1100 = 0xBC.
+    //   Bit 3 of the read is always '1' (VHDL spec sentinel).
+    {
+        Fixture f;
+        f.fresh();
+        // Drive state with NR 0x8E writes: bit 3=1 + bits 7/6/5/4 = 1/1/0/1
+        // gives 7FFD(2:0) = bits(6:4) = 0b101 and DFFD(0)=1.
+        // 0x8E write 0xD8 = 1101_1000 → bits 6:4 = 101, bit 7=1, bit 3=1.
+        f.mmu.write_nr_8e(0xD8);
+        // Now set 7FFD(4) via a bit2=0,bit0=1 write that preserves bank.
+        // 0x8E write 0x01 = bit 2=0 allows 7FFD(4) <- bit 0 = 1.
+        f.mmu.write_nr_8e(0x01);
+        // Case A: 1FFD(0)=0 is the default. Verify read-back.
+        const uint8_t read_a = f.mmu.read_nr_8e();
+        // 0x01 also sets 1FFD(1)=1 (bit 0 -> 1FFD(1)). So cfg1=1 but
+        // 1ffd(0)=0 → bit 0 = 7ffd(4) AND NOT 0 = 1. Read:
+        //   {dffd(0)=1, 7ffd(2)=1, 7ffd(1)=0, 7ffd(0)=1, '1',
+        //    1ffd(0)=0, 1ffd(2)=0, bit0=1} = 1010_1_001 = 0xA9.
+        // Wait: 7ffd(2:0)=0b101 → 7ffd(2)=1, 7ffd(1)=0, 7ffd(0)=1.
+        // Expected: bit7=1 bit6=1 bit5=0 bit4=1 bit3=1 bit2=0 bit1=0 bit0=1
+        //           = 1101_1001 = 0xD9.
+        check("N8E-05a",
+              "NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — "
+              "VHDL zxnext.vhd:6158-6159",
+              read_a == 0xD9,
+              fmt("read=0x%02X (exp 0xD9)", read_a));
+        // Case B: enable special mode (1ffd(0)=1) — read bit 2 goes to 1,
+        // and bit 0 flips to cfg1. Write 0x8E=0x05 (bit 2=1, bit 0=1).
+        // This update preserves existing 7FFD(4) (bit 2=1 gates it) and
+        // rewrites 1FFD bits: 1FFD(2)=bit1=0, 1FFD(1)=bit0=1, 1FFD(0)=bit2=1.
+        // Bank select (bit 3=0) does NOT touch 7FFD(2:0) or DFFD. So 7FFD
+        // keeps (2:0)=0b101, DFFD(0)=1, 7FFD(4)=1.
+        f.mmu.write_nr_8e(0x05);
+        const uint8_t read_b = f.mmu.read_nr_8e();
+        // bit0 = (7ffd(4)=1 AND NOT 1ffd(0)=1) OR (1ffd(1)=1 AND 1ffd(0)=1)
+        //      = (1 AND 0) OR (1 AND 1) = 1.
+        // bit2 = 1ffd(0) = 1. bit 1 = 1ffd(2) = 0.
+        // Read = 1_1_0_1_1_1_0_1 = 0xDD.
+        check("N8E-05b",
+              "NR 0x8E read-back bit 0 flips with 1FFD(0) selector — "
+              "VHDL zxnext.vhd:6159",
+              read_b == 0xDD,
+              fmt("read=0x%02X (exp 0xDD)", read_b));
+    }
+
+    // N8E-06: Bank-select mode clears DFFD(3). VHDL:3698-3700
+    //   `if nr_8f_mapping_mode_profi='0' and nr_wr_dat(3)='1'
+    //    then dffd_reg(3) <= '0'`. JNEXT has profi forced off.
+    //   Prime DFFD(3)=1 via a port_dffd write, then write NR 0x8E with
+    //   bit 3 = 1 and observe DFFD(3) clears.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_dffd(0x08);  // dffd(3) <- 1 (cpu_do(3) stored)
+        const uint8_t before = f.mmu.port_dffd_reg();
+        f.mmu.write_nr_8e(0x08);  // bit 3 = 1, no other bits set
+        const uint8_t after = f.mmu.port_dffd_reg();
+        check("N8E-06",
+              "NR 0x8E bit 3=1 clears DFFD(3) (non-Profi) — "
+              "VHDL zxnext.vhd:3698-3700",
+              (before & 0x08) == 0x08 && (after & 0x08) == 0x00,
+              fmt("before DFFD=0x%02X (exp bit 3=1), after DFFD=0x%02X (exp bit 3=0)",
+                  before, after));
+    }
 }
 
 // ── Category 9: Mapping modes (NR 0x8F) ───────────────────────────────
-// VHDL: zxnext.vhd:3640-3814 port_7ffd_bank composition. Mmu does not
-// consume NR 0x8F; the mapping-mode selector lives in the NextReg/port
-// dispatch layer.
+// VHDL: zxnext.vhd:3787-3801 (mode storage + pentagon_*_en derivations),
+//       zxnext.vhd:3763-3766 (port_7ffd_bank composition branches).
+// Phase 2 B: Mmu::write_nr_8f + pentagon_en / pentagon_1024_en /
+// effective_paging_locked on the public API.
 
 void test_cat9_nr_8f() {
     set_group("Cat9 NR 0x8F mapping mode");
-    skip("N8F-01", "no NR 0x8F handler on Mmu — standard mode unobservable");
-    skip("N8F-02", "no NR 0x8F handler on Mmu — Pentagon-512 bank composition unobservable");
-    skip("N8F-03", "no NR 0x8F handler on Mmu — Pentagon-1024 bank composition unobservable");
-    skip("N8F-04", "no NR 0x8F handler on Mmu — EFF7(2) gating unobservable");
-    skip("N8F-05", "no NR 0x8F handler on Mmu — Pentagon bank(6) constant unobservable");
+
+    // N8F-01: Standard mode (mapping_mode = 00). VHDL:3764-3766 else
+    //   branches: bank(4:3) = DFFD(1:0); bank(5) = DFFD(2); bank(6) =
+    //   DFFD(3). Set 7FFD(2:0)=7 and DFFD(3:0)=0b0111=7, expect
+    //   bank = 7 | (7 << 3) = 63 = 0x3F → MMU6=0x7E, MMU7=0x7F.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8f(0x00);  // standard
+        f.mmu.map_128k_bank(0x07);
+        f.mmu.write_port_dffd(0x07);
+        const uint8_t mmu6 = f.mmu.get_page(6);
+        const uint8_t mmu7 = f.mmu.get_page(7);
+        check("N8F-01",
+              "standard mapping mode uses DFFD for bank(4:3)/(5)/(6) — "
+              "VHDL zxnext.vhd:3764-3766 else branches",
+              mmu6 == 0x7E && mmu7 == 0x7F,
+              fmt("MMU6=0x%02X MMU7=0x%02X (exp 0x7E/0x7F)", mmu6, mmu7));
+    }
+
+    // N8F-02: Pentagon-512 (mapping_mode = 10). VHDL:3764 when-branch
+    //   bank(4:3) <= 7FFD(7:6) (instead of DFFD). VHDL:3765 when-branch
+    //   bank(5) = pentagon_1024_en AND 7FFD(5); in 512 mode
+    //   pentagon_1024_en=0 so bank(5)=0. VHDL:3766 bank(6)=0 in Pentagon.
+    //   7FFD=0xC7 (bits 7:6=11, bits 2:0=111) → bank = 7 | (3<<3) = 31 = 0x1F.
+    //   MMU6=0x3E, MMU7=0x3F.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8f(0x02);  // Pentagon-512
+        f.mmu.map_128k_bank(0xC7);
+        const uint8_t mmu6 = f.mmu.get_page(6);
+        const uint8_t mmu7 = f.mmu.get_page(7);
+        check("N8F-02",
+              "Pentagon-512 mode uses 7FFD(7:6) for bank(4:3) — "
+              "VHDL zxnext.vhd:3764 when-branch",
+              mmu6 == 0x3E && mmu7 == 0x3F,
+              fmt("MMU6=0x%02X MMU7=0x%02X (exp 0x3E/0x3F)", mmu6, mmu7));
+    }
+
+    // N8F-03: Pentagon-1024 (mapping_mode = 11, EFF7(2)=0). VHDL:3765
+    //   when-branch bank(5) = pentagon_1024_en AND 7FFD(5) = 7FFD(5) here.
+    //   VHDL:3801 pentagon_1024_en = (mode=11) AND NOT EFF7(2).
+    //   VHDL:3769 port_7ffd_locked = '0' when pentagon_1024_en=1, so the
+    //   7FFD write with bit 5 = 1 is not blocked by the lock gate —
+    //   effective_paging_locked() models this.
+    //   7FFD=0xE7 (bits 7:6=11, bit 5=1, bits 2:0=111) → bank = 7 | (3<<3)
+    //   | (1<<5) = 63 = 0x3F → MMU6=0x7E, MMU7=0x7F.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8f(0x03);   // Pentagon-1024 (EFF7(2) default 0)
+        f.mmu.map_128k_bank(0xE7);
+        const uint8_t mmu6 = f.mmu.get_page(6);
+        const uint8_t mmu7 = f.mmu.get_page(7);
+        check("N8F-03",
+              "Pentagon-1024 mode promotes 7FFD(5) into bank(5) — "
+              "VHDL zxnext.vhd:3765,3801",
+              mmu6 == 0x7E && mmu7 == 0x7F,
+              fmt("MMU6=0x%02X MMU7=0x%02X (exp 0x7E/0x7F)", mmu6, mmu7));
+    }
+
+    // N8F-04: EFF7(2)=1 disables the Pentagon-1024 extension. VHDL:3801
+    //   pentagon_1024_en = (mode="11") AND NOT EFF7(2) — with EFF7(2)=1
+    //   pentagon_1024_en drops to 0, so pentagon_en (VHDL:3798) =
+    //   (mode=="10" OR pentagon_1024_en) = (FALSE OR 0) = 0. Bank
+    //   composition falls back to the standard (DFFD-fed) branch. Also
+    //   port_7ffd_locked returns to 7FFD(5) — if 7FFD(5)=1 the write is
+    //   blocked. Exercise with bit 5 = 0 to keep the write path open.
+    //   7FFD=0xC7 (bits 7:6=11, bit 5=0, bits 2:0=111), DFFD=0b00001 (dffd(0)=1)
+    //   so standard bank = 7 | (1<<3) = 15 = 0x0F → MMU6=0x1E, MMU7=0x1F.
+    //   Pentagon-1024 would have given bank = 7 | (3<<3) | 0 = 0x1F.
+    //   The distinction proves EFF7(2) gated the override.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_nr_8f(0x03);        // request Pentagon-1024
+        f.mmu.write_port_eff7(0x04);    // EFF7(2)=1 → disables 1024-en
+        f.mmu.write_port_dffd(0x01);    // DFFD(0)=1
+        f.mmu.map_128k_bank(0xC7);      // 7FFD(7:6)=11, bit 5=0
+        const uint8_t mmu6 = f.mmu.get_page(6);
+        const uint8_t mmu7 = f.mmu.get_page(7);
+        check("N8F-04",
+              "EFF7(2)=1 gates pentagon_1024_en off → standard bank composition — "
+              "VHDL zxnext.vhd:3798,3801",
+              mmu6 == 0x1E && mmu7 == 0x1F,
+              fmt("MMU6=0x%02X MMU7=0x%02X (exp 0x1E/0x1F)", mmu6, mmu7));
+    }
+
+    // N8F-05: Pentagon modes force bank(6)=0. VHDL:3766
+    //   bank(6) <= '0' when pentagon='1' or profi='1' else DFFD(3).
+    //   Prime DFFD(3)=1 (would drive bank(6)=1 in standard mode), then
+    //   enable Pentagon-512 and confirm bank(6) drops to 0.
+    //   7FFD=0x00, DFFD=0x08 → standard bank = 0|0|0|64 = 64 = 0x40 →
+    //   MMU6=0x80, MMU7=0x81. Pentagon bank = 0 → MMU6=0x00, MMU7=0x01.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.write_port_dffd(0x08);   // DFFD(3)=1
+        f.mmu.map_128k_bank(0x00);     // 7FFD all 0
+        // Sanity: standard-mode composition first (mode still 00).
+        const uint8_t std_mmu6 = f.mmu.get_page(6);
+        f.mmu.write_nr_8f(0x02);       // Pentagon-512
+        const uint8_t p_mmu6 = f.mmu.get_page(6);
+        const uint8_t p_mmu7 = f.mmu.get_page(7);
+        check("N8F-05",
+              "Pentagon mode forces bank(6)=0 regardless of DFFD(3) — "
+              "VHDL zxnext.vhd:3766",
+              std_mmu6 == 0x80 && p_mmu6 == 0x00 && p_mmu7 == 0x01,
+              fmt("std MMU6=0x%02X (exp 0x80), pentagon MMU6=0x%02X MMU7=0x%02X "
+                  "(exp 0x00/0x01)", std_mmu6, p_mmu6, p_mmu7));
+    }
 }
 
 // ── Category 10: Port 0xEFF7 ──────────────────────────────────────────

@@ -566,6 +566,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return mmu_.get_nr_8c();
     });
 
+    // Register 0x8E: Unified paging (VHDL zxnext.vhd:3662-3671 / 3696-3704 /
+    // 3726-3734 writes; read-back at zxnext.vhd:6158-6159).
+    //   Write: decomposes into 7FFD/DFFD/1FFD register updates; bit 3 =
+    //          bank-select enable, bit 2 = special mode, bypasses 7FFD lock.
+    //   Read:  re-composes from current 7FFD/DFFD/1FFD state; bit 3 = '1'.
+    nextreg_.set_write_handler(0x8E, [this](uint8_t v) {
+        mmu_.write_nr_8e(v);
+    });
+    nextreg_.set_read_handler(0x8E, [this]() -> uint8_t {
+        return mmu_.read_nr_8e();
+    });
+
+    // Register 0x8F: Mapping Mode (VHDL zxnext.vhd:3787-3794 / 6162).
+    //   bits 1:0 = mapping mode — 00 standard, 10 Pentagon-512, 11
+    //              Pentagon-1024. Bits 7:2 always read as 0.
+    nextreg_.set_write_handler(0x8F, [this](uint8_t v) {
+        mmu_.write_nr_8f(v);
+    });
+    nextreg_.set_read_handler(0x8F, [this]() -> uint8_t {
+        return static_cast<uint8_t>(mmu_.nr_8f_mode() & 0x03);
+    });
+
     // --- NextREG interrupt control registers (0xC0-0xCF) ---
 
     // Register 0xC0: Interrupt control
