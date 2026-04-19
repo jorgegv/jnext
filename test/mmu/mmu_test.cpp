@@ -2235,9 +2235,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x20);           // slot 0 → physical page 0x20
-        f.mmu.set_l2_write_port(0x01, 8);  // enable L2 write-over, seg=00, bank 8
+        f.mmu.set_l2_port(0x01, 8);  // enable L2 write-over, seg=00, bank 8
         f.mmu.write(0x0000, 0xAB);
-        f.mmu.set_l2_write_port(0x00, 8);  // disable L2 write-over
+        f.mmu.set_l2_port(0x00, 8);  // disable L2 write-over
         const uint8_t mmu_side = f.ram.page_ptr(0x20)[0];
         const uint8_t l2_side  = f.ram.page_ptr(0x10)[0];
         check("L2M-01",
@@ -2255,9 +2255,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x10);           // slot 0 IS the L2 alias page
-        f.mmu.set_l2_write_port(0x01, 8);  // L2 bank 8 → physical pages 0x10/0x11
+        f.mmu.set_l2_port(0x01, 8);  // L2 bank 8 → physical pages 0x10/0x11
         f.mmu.write(0x0000, 0xAB);
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t via_mmu = f.mmu.read(0x0000);
         check("L2M-01b",
               "L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969",
@@ -2265,12 +2265,43 @@ void test_cat17_l2_mapping() {
               fmt("MMU read through slot 0 = 0x%02X expected=0xAB (same SRAM as L2 bank 8)", via_mmu));
     }
 
-    // L2M-02: L2 read-enable — port_123b read path is not on the Mmu
-    // surface; Mmu only consumes the write-over bit.
-    skip("L2M-02",
-         "Mmu exposes only L2 write-over (port 0x123B) — read-enable path "
-         "is separate Layer2 overlay (VHDL zxnext.vhd:3100-3107); deferred "
-         "to Branch D2 (L2 read-port feature)");
+    // L2M-02a: L2 read-over redirects 0x0000-0x3FFF reads to the L2 bank
+    // instead of returning the byte from the MMU-mapped slot. Picks an
+    // MMU page disjoint from the L2-bank physical pages so the outcome
+    // is observable as a distinct sentinel. VHDL zxnext.vhd:2969,3077,3100.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(0, 0x20);                  // slot 0 → physical page 0x20
+        f.ram.page_ptr(0x20)[0] = 0x55;           // MMU-side sentinel
+        f.ram.page_ptr(0x10)[0] = 0xA7;           // L2 bank 8 → physical page 0x10
+        f.mmu.set_l2_port(0x04, 8);               // bit 2 = read-enable, seg=00 (0x0000-0x3FFF)
+        const uint8_t got = f.mmu.read(0x0000);
+        f.mmu.set_l2_port(0x00, 8);
+        check("L2M-02a",
+              "L2 read-over returns L2 bank byte, not MMU slot — VHDL zxnext.vhd:2969,3077,3100",
+              got == 0xA7,
+              fmt("read(0x0000)=0x%02X expected=0xA7 (L2 bank 8 page 0x10); MMU-side sentinel was 0x55", got));
+    }
+
+    // L2M-02b: discriminative — clearing bit 2 disables L2 read-over and
+    // the CPU read returns the MMU slot byte. Without the read_enable
+    // latch this test would fail because the redirect would fire
+    // unconditionally (VHDL zxnext.vhd:3077 sram_layer2_map_en requires
+    // sram_pre_layer2_rd_en when cpu_rd_n='0').
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(0, 0x20);
+        f.ram.page_ptr(0x20)[0] = 0x55;
+        f.ram.page_ptr(0x10)[0] = 0xA7;
+        f.mmu.set_l2_port(0x00, 8);               // bit 2 = 0 → read-enable OFF
+        const uint8_t got = f.mmu.read(0x0000);
+        check("L2M-02b",
+              "L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate",
+              got == 0x55,
+              fmt("read(0x0000)=0x%02X expected=0x55 (MMU slot 0 page 0x20); L2 sentinel was 0xA7", got));
+    }
 
     // L2M-03: auto-segment (port_123b bits 7:6 = 11) maps the segment to
     // cpu_a(15:14). Exercise through the write path: enable write-over
@@ -2282,11 +2313,11 @@ void test_cat17_l2_mapping() {
         f.mmu.set_page(0, 0x20);
         f.mmu.set_page(2, 0x22);
         f.mmu.set_page(4, 0x24);
-        f.mmu.set_l2_write_port(0xC1, 8);  // bits 7:6=11 (seg=all), enable
+        f.mmu.set_l2_port(0xC1, 8);  // bits 7:6=11 (seg=all), enable
         f.mmu.write(0x0000, 0x10);         // → L2 bank 8 (page 0x10)
         f.mmu.write(0x4000, 0x11);         // → L2 bank 9 (page 0x12)
         f.mmu.write(0x8000, 0x12);         // → L2 bank 10 (page 0x14)
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t a = f.ram.page_ptr(0x10)[0];
         const uint8_t b = f.ram.page_ptr(0x12)[0];
         const uint8_t c = f.ram.page_ptr(0x14)[0];
@@ -2304,9 +2335,9 @@ void test_cat17_l2_mapping() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(6, 0x30);
-        f.mmu.set_l2_write_port(0xC1, 8);
+        f.mmu.set_l2_port(0xC1, 8);
         f.mmu.write(0xC000, 0xCD);
-        f.mmu.set_l2_write_port(0x00, 8);
+        f.mmu.set_l2_port(0x00, 8);
         const uint8_t mmu_side = f.ram.page_ptr(0x30)[0];
         check("L2M-04",
               "L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077",
@@ -2314,13 +2345,13 @@ void test_cat17_l2_mapping() {
               fmt("MMU page 0x30[0]=0x%02X expected=0xCD (L2 must not intercept)", mmu_side));
     }
 
-    // L2M-05: L2 base bank from NR 0x12 (active). Mmu's
-    // set_l2_write_port takes the active bank as a direct argument;
-    // there is no NR 0x12/0x13 distinction on the Mmu surface — the
-    // shadow/active selection lives in NextReg.
+    // L2M-05: L2 base bank from NR 0x12 (active). Mmu's set_l2_port
+    // takes the active bank as a direct argument; there is no NR 0x12/0x13
+    // distinction on the Mmu surface — the shadow/active selection lives
+    // in NextReg.
     // L2M-05/06: NR 0x12/0x13 shadow/active bank selection lives in NextReg,
-    // not Mmu. Mmu::set_l2_write_port() takes the active bank directly as
-    // a parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
+    // not Mmu. Mmu::set_l2_port() takes the active bank directly as a
+    // parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
     // time. Integration-tier behaviour (cross-subsystem wiring, not a bare
     // Mmu property).
     skip("L2M-05",
@@ -2359,9 +2390,9 @@ void test_cat18_priority() {
         Fixture f;
         f.fresh();
         f.mmu.set_page(0, 0x30);           // MMU slot 0 → physical page 0x30
-        f.mmu.set_l2_write_port(0x01, 16); // L2 bank 16 → physical page 0x20
+        f.mmu.set_l2_port(0x01, 16); // L2 bank 16 → physical page 0x20
         f.mmu.write(0x0000, 0x9E);
-        f.mmu.set_l2_write_port(0x00, 16);
+        f.mmu.set_l2_port(0x00, 16);
         const uint8_t mmu_side = f.ram.page_ptr(0x30)[0];
         const uint8_t l2_side  = f.ram.page_ptr(0x20)[0];
         check("PRI-03",

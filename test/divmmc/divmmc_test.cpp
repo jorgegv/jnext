@@ -1088,14 +1088,16 @@ void group_r3() {
 
     // R3-03: Layer 2 read-map overrides the ROM3 automap path in VHDL
     // (sram_divmmc_automap_rom3_en includes `NOT sram_layer2_map_en`).
-    // jnext currently models Layer 2 as a WRITE-over only (Mmu::
-    // set_l2_write_port); the separate read-map that masks ROM accesses
-    // is not plumbed through the DivMmc gate. Left skipped — the Layer 2
-    // read-map subsystem is out of scope for Task 7.
+    // Phase 2 D2 added the L2 read-map latch to Mmu (set_l2_port) and
+    // a read-side redirect in Mmu::read(), but the cross-subsystem feeder
+    // that lets DivMmc observe sram_layer2_map_en and suppress ROM3 automap
+    // is still not plumbed. Left skipped — that feeder is a DivMmc-side
+    // gate, not on the Mmu surface, and out of scope for Task 7 / D2.
     skip("R3-03",
-         "Layer 2 read-map feeder not plumbed — VHDL zxnext.vhd:3138 "
-         "sram_layer2_map_en gate requires Layer 2 read-map state "
-         "(separate subsystem: Mmu set_l2_write_port handles writes only)");
+         "Layer 2 read-map feeder into DivMmc not plumbed — VHDL "
+         "zxnext.vhd:3138 sram_divmmc_automap_rom3_en gate expects "
+         "NOT sram_layer2_map_en, but Mmu L2 read state is not "
+         "exposed to DivMmc. Mmu::set_l2_port now latches the bit.");
 
     // R3-04: sram_divmmc_automap_en = sram_pre_override(2). Roughly
     // corresponds to the i_en gate modelled in CM-09.

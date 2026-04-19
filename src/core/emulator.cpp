@@ -713,15 +713,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- Port dispatch handlers ---
 
     // Layer 2 control — port 0x123B (full 16-bit match).
-    // Write: bit 0 = write-map enable (CPU writes to L2 RAM banks)
-    //        bit 1 = Layer 2 visible
-    //        bits 7:6 = segment select for write-mapping (00/01/10=single, 11=all)
-    // Read:  returns last written value.
+    // VHDL zxnext.vhd:3904-3928. When cpu_do(4)=0:
+    //   bit 0 = write-map enable (CPU writes to L2 RAM banks)
+    //   bit 1 = Layer 2 visible
+    //   bit 2 = read-map  enable (CPU reads from L2 RAM banks — Phase 2 D2)
+    //   bit 3 = shadow-bank select (not on Mmu surface)
+    //   bits 7:6 = segment select (shared read+write)
+    // When cpu_do(4)=1: bits 2:0 are the Layer 2 offset register (not
+    // implemented on the Mmu surface — see project docs for D2 scope).
+    // Read-side port handler (port_123b_dat at VHDL:3933) is pre-existing
+    // divergence and out of D2 scope; nullptr preserved.
     port_.register_handler(0xFFFF, 0x123B,
         nullptr,
         [this](uint16_t, uint8_t val) {
             layer2_.set_enabled((val & 0x02) != 0);
-            mmu_.set_l2_write_port(val, layer2_.active_bank());
+            mmu_.set_l2_port(val, layer2_.active_bank());
         });
 
     // 128K bank switch — port 0x7FFD.
