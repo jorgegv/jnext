@@ -2028,27 +2028,192 @@ void test_cat15_bank57() {
 }
 
 // ── Category 16: Memory contention ────────────────────────────────────
-// VHDL: zxnext.vhd:4481-4496 contention enable, timing-mode banks,
-// speed & Pentagon gating. The C++ ContentionModel only exposes
-// set_contended_slot + is_contended_address; it has no input for
-// mem_active_page, no machine-type contention table, no speed/NR 0x08
-// gating, and no Pentagon-timing flag. All plan rows that would need
-// those inputs are unobservable on the current API.
+// VHDL: zxnext.vhd:4481 contention enable gate —
+//   i_contention_en = (not eff_nr_08_contention_disable)
+//                 AND (not machine_timing_pentagon)
+//                 AND (not cpu_speed(1)) AND (not cpu_speed(0));
+// VHDL: zxnext.vhd:4489-4493 memory-side decode —
+//   mem_contend = '0' when mem_active_page(7:4) /= "0000"
+//                 else '1' when 48K  and page(3:1) = "101"
+//                 else '1' when 128K and page(1)   = '1'
+//                 else '1' when +3   and page(3)   = '1'
+//                 else '0';
+// These gates are combined by ContentionModel::is_contended_access().
+// The C++ API exposes page/speed/pentagon/disable inputs that map 1:1 to
+// the VHDL signals so the gate can be observed without wiring the
+// runtime tick-loop (out of scope for this phase).
 
 void test_cat16_contention() {
     set_group("Cat16 memory contention");
-    skip("CON-01", "ContentionModel lacks mem_active_page input — 48K bank 5 contention gating unobservable");
-    skip("CON-02", "ContentionModel lacks mem_active_page input — 48K bank 5 hi contention gating unobservable");
-    skip("CON-03", "ContentionModel lacks mem_active_page input — 48K non-bank-5 gating unobservable");
-    skip("CON-04", "ContentionModel lacks mem_active_page input — 48K bank 7 gating unobservable");
-    skip("CON-05", "ContentionModel lacks mem_active_page input — 128K odd-bank gating unobservable");
-    skip("CON-06", "ContentionModel lacks mem_active_page input — 128K even-bank gating unobservable");
-    skip("CON-07", "ContentionModel lacks mem_active_page input — +3 bank≥4 gating unobservable");
-    skip("CON-08", "ContentionModel lacks mem_active_page input — +3 bank<4 gating unobservable");
-    skip("CON-09", "ContentionModel lacks mem_active_page(7:4)=0000 gate — high-page path unobservable");
-    skip("CON-10", "ContentionModel lacks NR 0x08 contention_disable input — gating unobservable");
-    skip("CON-11", "ContentionModel lacks CPU speed input — speed gating unobservable");
-    skip("CON-12", "ContentionModel lacks Pentagon timing input — mode gating unobservable");
+
+    // Fixture helper: machine-type-only setup. build() seeds
+    // pentagon_timing_ from MachineType; all other gate inputs default
+    // to their VHDL power-on values (page=0, speed=0, disable=false) so
+    // rows that want to test a single input can flip just that one.
+    auto make_cm = [](MachineType t) {
+        ContentionModel m;
+        m.build(t);
+        return m;
+    };
+
+    // CON-01: 48K page 0x0A (bank 5) — VHDL zxnext.vhd:4490 page(3:1)="101" → contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0A);
+        const bool r = m.is_contended_access();
+        check("CON-01",
+              "48K page 0x0A contended — VHDL zxnext.vhd:4490",
+              r == true,
+              fmt("is_contended_access=%d expected=1", r ? 1 : 0));
+    }
+
+    // CON-02: 48K page 0x0B — low nibble 1011, bits 3:1 = 101 → contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0B);
+        const bool r = m.is_contended_access();
+        check("CON-02",
+              "48K page 0x0B contended — VHDL zxnext.vhd:4490",
+              r == true,
+              fmt("is_contended_access=%d expected=1", r ? 1 : 0));
+    }
+
+    // CON-03: 48K page 0x00 — bits 3:1 = 000 ≠ 101 → not contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x00);
+        const bool r = m.is_contended_access();
+        check("CON-03",
+              "48K page 0x00 not contended — VHDL zxnext.vhd:4490",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-04: 48K page 0x0E — low nibble 1110, bits 3:1 = 111 ≠ 101 → not contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0E);
+        const bool r = m.is_contended_access();
+        check("CON-04",
+              "48K page 0x0E not contended — VHDL zxnext.vhd:4490",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-05: 128K page 0x03 (odd bank) — bit 1 = 1 → contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX128K);
+        m.set_mem_active_page(0x03);
+        const bool r = m.is_contended_access();
+        check("CON-05",
+              "128K page 0x03 contended — VHDL zxnext.vhd:4491",
+              r == true,
+              fmt("is_contended_access=%d expected=1", r ? 1 : 0));
+    }
+
+    // CON-06: 128K page 0x04 (bank 2 even half) — bit 1 = 0 → not contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX128K);
+        m.set_mem_active_page(0x04);
+        const bool r = m.is_contended_access();
+        check("CON-06",
+              "128K page 0x04 not contended — VHDL zxnext.vhd:4491",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-07: +3 page 0x08 (bank 4) — bit 3 = 1 → contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX_PLUS3);
+        m.set_mem_active_page(0x08);
+        const bool r = m.is_contended_access();
+        check("CON-07",
+              "+3 page 0x08 contended — VHDL zxnext.vhd:4492",
+              r == true,
+              fmt("is_contended_access=%d expected=1", r ? 1 : 0));
+    }
+
+    // CON-08: +3 page 0x06 (bank 3) — bit 3 = 0 → not contended.
+    {
+        ContentionModel m = make_cm(MachineType::ZX_PLUS3);
+        m.set_mem_active_page(0x06);
+        const bool r = m.is_contended_access();
+        check("CON-08",
+              "+3 page 0x06 not contended — VHDL zxnext.vhd:4492",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-09: 48K page 0x10 — high nibble 0001 ≠ 0000 → not contended
+    // regardless of low-nibble pattern (VHDL zxnext.vhd:4489 first guard).
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x10);
+        const bool r = m.is_contended_access();
+        check("CON-09",
+              "page(7:4)!=0 never contended — VHDL zxnext.vhd:4489",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-10: NR 0x08 bit 6 disables contention (enable gate) — page 0x0A
+    // would otherwise contend on 48K. VHDL zxnext.vhd:4481 eff_nr_08_contention_disable.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0A);
+        m.set_contention_disable(true);
+        const bool r = m.is_contended_access();
+        check("CON-10",
+              "contention_disable gates enable off — VHDL zxnext.vhd:4481",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-11: Any non-zero cpu_speed (7/14/28 MHz) disables contention.
+    // VHDL zxnext.vhd:4481 "(not cpu_speed(1)) AND (not cpu_speed(0))".
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0A);
+        m.set_cpu_speed(1);  // 7 MHz
+        const bool r = m.is_contended_access();
+        check("CON-11",
+              "cpu_speed!=0 gates enable off — VHDL zxnext.vhd:4481",
+              r == false,
+              fmt("is_contended_access=%d expected=0", r ? 1 : 0));
+    }
+
+    // CON-12a: Pentagon machine falls through machine_type switch.
+    // build(PENTAGON) seeds pentagon_timing_=true, and PENTAGON also
+    // falls out of the 48K/128K/+3 branches in is_contended_access() so
+    // this row alone would pass even if the pentagon_timing gate were
+    // broken. CON-12b below discriminates the gate from the switch
+    // fall-through — VHDL zxnext.vhd:4481 (pentagon_timing gate).
+    {
+        ContentionModel m = make_cm(MachineType::PENTAGON);
+        m.set_mem_active_page(0x0A);
+        const bool r = m.is_contended_access();
+        check("CON-12a",
+              "Pentagon machine falls through machine_type switch — VHDL zxnext.vhd:4481 (pentagon_timing gate)",
+              r == false,
+              fmt("is_contended_access=%d expected=0 (pentagon_timing=%d)",
+                  r ? 1 : 0, m.pentagon_timing() ? 1 : 0));
+    }
+
+    // CON-12b: discriminative pentagon_timing gate.
+    // Use ZX48K + mem_active_page=0x0A (which would otherwise be contended
+    // per VHDL:4490 bits 3:1 == "101") then flip pentagon_timing ON and
+    // confirm the enable gate (VHDL:4481 `not machine_timing_pentagon`)
+    // zeros the result. This discriminates the gate from the Pentagon
+    // machine-type switch fall-through.
+    {
+        ContentionModel m = make_cm(MachineType::ZX48K);
+        m.set_mem_active_page(0x0A);
+        m.set_pentagon_timing(true);
+        check("CON-12b",
+              "pentagon_timing flag gates 48K bank 5 contention off — VHDL zxnext.vhd:4481",
+              m.is_contended_access() == false,
+              fmt("is_contended_access=%d", m.is_contended_access()));
+    }
 }
 
 // ── Category 17: Layer 2 memory mapping ───────────────────────────────
