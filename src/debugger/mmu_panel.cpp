@@ -109,7 +109,11 @@ void MmuPanel::refresh() {
     auto& mmu = emulator_->mmu();
 
     for (int s = 0; s < 8; ++s) {
-        uint8_t page = mmu.get_page(s);
+        // get_effective_page returns the physical page in use: the explicit NR
+        // 0x50-0x57 value when set (nr_mmu_[s] != 0xFF), else the derived page
+        // from legacy paging. get_page() would show 0xFF for legacy slots 0/1
+        // after Option C.
+        uint8_t page = mmu.get_effective_page(s);
         bool is_rom = mmu.is_slot_rom(s);
 
         slot_page_[s]->setText(QString::asprintf("%02X", page));

@@ -130,7 +130,6 @@ uint8_t MemoryPanel::read_byte(uint16_t addr) const {
         // Slot view: read the specific 8K page in that slot.
         // addr is 0x0000..0x1FFF within the page.
         int slot = mode - 1;
-        uint8_t page = emulator_->mmu().get_page(slot);
         // Read directly from RAM at page offset.
         uint16_t phys = static_cast<uint16_t>(addr & 0x1FFF);
         // Pages 0xFF and below are RAM pages; ROM pages are special.
@@ -194,7 +193,9 @@ void MemoryPanel::update_page_selector() {
     if (!emulator_ || !page_selector_) return;
 
     for (int i = 0; i < 8; ++i) {
-        uint8_t page = emulator_->mmu().get_page(i);
+        // get_effective_page: physical page in use (explicit NR 0x50-0x57 or
+        // derived legacy page). get_page() would show 0xFF for legacy ROM slots.
+        uint8_t page = emulator_->mmu().get_effective_page(i);
         page_selector_->setItemText(i + 1,
             QString("Slot %1 (page %2)").arg(i).arg(page, 2, 16, QChar('0')).toUpper());
     }
