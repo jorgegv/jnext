@@ -192,30 +192,28 @@ void test_cat1_slot_assignment() {
               fmt("ram[0xDF][0]=0x%02X expected=0x11", v));
     }
 
-    // MMU-12: page 0xE0 on a RAM slot.
+    // MMU-12: page 0xE0 on a RAM slot (slots 2..7) → floating bus.
     //
-    // REVERTED FROM OUTCOME TEST 2026-04-20 AFTER INDEPENDENT REVIEW.
-    // The earlier attempt asserted page 0xE0 "wraps to ROM-in-SRAM page 0"
-    // — that was encoding JNEXT's truncation bug as the oracle (SX-02
-    // pattern). VHDL-correct behaviour per zxnext.vhd:3060-3061: for
-    // slots 2..7 (cpu_a(15:14) ≠ "00"), `sram_pre_active <= (not
-    // mmu_A21_A13(8)) and …`. When mmu_A21_A13(8)='1' (page ≥0xE0),
-    // sram_pre_active='0' → memory inactive, CPU read returns floating
-    // bus (typically 0xFF). JNEXT's `Mmu::rebuild_ptr` uses
-    // `to_sram_page()` which truncates 0xE0+0x20=0x100 to 0x00 and
-    // reads ram_.page_ptr(0) — lands on ROM-in-SRAM. **This is a real
-    // emulator deviation from VHDL.**
-    //
-    // Backlog: either (a) gate RAM slots so page ≥0xE0 returns 0xFF
-    // (floating bus), or (b) leave as documented known deviation and
-    // note in src/memory/mmu.h the wrap claim is JNEXT-specific not
-    // VHDL-faithful.
-    skip("MMU-12",
-         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
-         "sram_pre_active=0 (floating bus). JNEXT truncates via "
-         "to_sram_page and reads ROM-in-SRAM page 0 instead — real "
-         "deviation [backlog: gate slots on mmu_A21_A13(8) or "
-         "document deviation in mmu.h:231-245 comment]");
+    // VHDL zxnext.vhd:3060-3061 — for cpu_a(15:14) ≠ "00" (slots 2..7):
+    //   sram_pre_active <= (not mmu_A21_A13(8)) and (not mem_active_bank5)
+    //                      and (not mem_active_bank7);
+    // The mmu_A21_A13 formula at zxnext.vhd:2964 sets bit 8 = '1' whenever
+    // mem_active_page(7 downto 5) = "111", i.e. page >= 0xE0. With
+    // sram_pre_active = '0', the SRAM is inactive and the CPU read
+    // receives the floating bus — 0xFF in practice, since nothing drives
+    // the bus. Mmu::rebuild_ptr now gates RAM slots 2..7 on page >= 0xE0
+    // and leaves read_ptr_ = nullptr; Mmu::read falls through to the
+    // "unmapped → 0xFF" branch.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(4, 0xE0);          // slot 4 = 0x8000..0x9FFF
+        const uint8_t v = f.mmu.read(0x8000);
+        check("MMU-12",
+              "page 0xE0 on RAM slot 4 → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061",
+              v == 0xFF,
+              fmt("read(0x8000) with slot4=0xE0: 0x%02X expected=0xFF", v));
+    }
 
     // MMU-13: read-back of NR 0x50..0x57 after writes (registers retain
     // last-written value). VHDL zxnext.vhd:1018-1025.
@@ -1890,21 +1888,35 @@ void test_cat14_addr_translation() {
               fmt("page 0x%02X: ram[page][0]=0x%02X expected=0x5A", r.page, v));
     }
 
-    // ADR-09 / ADR-10 — REVERTED FROM OUTCOME TESTS 2026-04-20 AFTER
-    // INDEPENDENT REVIEW (same SX-02 pattern as MMU-12). Earlier attempt
-    // asserted "page 0xE0 / 0xFE wraps to ROM-in-SRAM / SRAM 0x1E"; that
-    // encodes JNEXT's `to_sram_page` truncation as the oracle. VHDL
-    // zxnext.vhd:3060-3061 for slots 2..7 sets `sram_pre_active=0`
-    // whenever mmu_A21_A13(8)='1', which is floating-bus, NOT a wrap.
-    // See MMU-12 for the backlog item.
-    skip("ADR-09",
-         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
-         "floating bus; JNEXT wraps via to_sram_page — real deviation "
-         "[backlog: same as MMU-12]");
-    skip("ADR-10",
-         "VHDL zxnext.vhd:3060-3061: page ≥0xE0 on RAM slot → "
-         "floating bus; JNEXT wraps via to_sram_page — real deviation "
-         "[backlog: same as MMU-12]");
+    // ADR-09 / ADR-10 — floating bus for page ≥ 0xE0 on RAM slots 2..7.
+    //
+    // VHDL zxnext.vhd:3060-3061 sets sram_pre_active='0' for any RAM slot
+    // (cpu_a(15:14) ≠ "00") when mmu_A21_A13(8)='1'. Per the formula at
+    // zxnext.vhd:2964, bit 8 = '1' iff mem_active_page(7:5)="111" i.e.
+    // page >= 0xE0. Inactive SRAM → CPU read = floating bus (0xFF). The
+    // C++ gate lives in Mmu::rebuild_ptr (RAM-slot branch); set_page on
+    // slots 2..7 with page >= 0xE0 installs a null read_ptr so read()
+    // falls through to the "unmapped → 0xFF" return.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(4, 0xE0);          // slot 4 = 0x8000
+        const uint8_t v = f.mmu.read(0x8000);
+        check("ADR-09",
+              "page 0xE0 on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061",
+              v == 0xFF,
+              fmt("read(0x8000) with slot4=0xE0: 0x%02X expected=0xFF", v));
+    }
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_page(4, 0xFE);          // slot 4 = 0x8000
+        const uint8_t v = f.mmu.read(0x8000);
+        check("ADR-10",
+              "page 0xFE on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061",
+              v == 0xFF,
+              fmt("read(0x8000) with slot4=0xFE: 0x%02X expected=0xFF", v));
+    }
 }
 
 // ── Category 15: Bank 5/7 special pages ───────────────────────────────
