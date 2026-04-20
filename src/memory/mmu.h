@@ -156,6 +156,26 @@ public:
             }
         }
         int slot = addr >> 13;
+        // Alt-ROM read override (VHDL zxnext.vhd:3021, 3078, 3116-3123).
+        // Fires only on ROM-mapped slots in 0x0000-0x3FFF when config_mode
+        // is OFF (VHDL:3050 sets override(0)=0 in config_mode → altrom
+        // disabled by VHDL:3078 first clause). Per VHDL:3078 fourth clause,
+        // the read path takes altrom ONLY when sram_pre_rdonly=1 — i.e.
+        // when altrom_rw=0 (read-only altrom). When altrom_rw=1 the read
+        // falls through to the normal ROM/sram_pre path (firmware uses that
+        // mode to write-over altrom while keeping reads on the live ROM).
+        if (nr_8c_altrom_en() && !nr_8c_altrom_rw() &&
+            !config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
+            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
+            }
+            return val;
+        }
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, arbiter line 3124):
         // with nr_03_config_mode=1 on a ROM-mapped 0x0000-0x3FFF slot, the
         // SRAM address comes from nr_04_romram_bank instead of sram_rom.
@@ -217,6 +237,21 @@ public:
             }
         }
         int slot = addr >> 13;
+        // Alt-ROM write override (VHDL zxnext.vhd:3056, 3078, 3116-3123).
+        // Fires only on ROM-mapped slots in 0x0000-0x3FFF when config_mode
+        // is OFF (config_mode forces override(0)=0 at VHDL:3050 → altrom
+        // disabled). Per VHDL:3078, the write path takes altrom ONLY when
+        // sram_pre_rdonly=0 — i.e. when altrom_en+altrom_rw=1. The byte
+        // lands in the alt-ROM SRAM area selected by altrom_sram_page_().
+        // Reads under the same en+rw=1 mode stay on the normal ROM path
+        // (VHDL:3078 fourth clause), so this is a true "write-over": the
+        // CPU patches alt-ROM without disturbing the visible ROM.
+        if (nr_8c_altrom_en() && nr_8c_altrom_rw() &&
+            !config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
+            if (p) p[addr & 0x1FFF] = val;
+            return;
+        }
         // Config-mode routing (VHDL zxnext.vhd:3044-3050, sram_pre_rdonly<='0'):
         // writes to 0x0000-0x3FFF on ROM-mapped slots route to SRAM at bank
         // nr_04_romram_bank instead of being silently dropped. This is how
@@ -408,10 +443,15 @@ public:
     // bits 3:0 are power-on defaults ('0000' here) that are preserved
     // across reset and become the effective control bits on each reset.
     //
-    // This branch adds the register storage + accessors. The altrom
-    // address override (zxnext.vhd:2981-3001, 3021) in the SRAM arbiter
-    // is NOT implemented here — it is deferred to a follow-up that wires
-    // sram_alt_en and the +3/48K/Next branch selection into the read path.
+    // The SRAM arbiter consumes these flags via the read()/write() hot
+    // path. The altrom address override (zxnext.vhd:2981-3001, 3021,
+    // 3056, 3078, 3116-3123) is wired through altrom_sram_page_(): when
+    // altrom_en=1+altrom_rw=0 the read path redirects 0x0000-0x3FFF
+    // ROM-mapped accesses into the alt-ROM SRAM region (pages 12..15),
+    // and when altrom_en+altrom_rw=1 the write path redirects ROM-slot
+    // writes there (the en+rw=1 read still falls through to the live
+    // ROM/sram_pre path per VHDL:3078 fourth clause — the canonical
+    // "write-over" semantics).
     void    set_nr_8c(uint8_t v) { nr_8c_reg_ = v; }
     uint8_t get_nr_8c() const { return nr_8c_reg_; }
     bool    nr_8c_altrom_en()        const { return (nr_8c_reg_ & 0x80) != 0; }
@@ -551,6 +591,51 @@ public:
     }
 
 private:
+    // Compute the 8K SRAM page index for an alt-ROM access at `addr`
+    // (addr in [0x0000, 0x3FFF]). VHDL zxnext.vhd:3117:
+    //   sram_A21_A13 = "0000011" & sram_pre_alt_128_n & sram_pre_A21_A13(0)
+    // with sram_pre_A21_A13(0) = cpu_a(13). The 9-bit sram_A21_A13 selects
+    // an 8K SRAM page (Ram::page_ptr is 8K-indexed), so the page index is:
+    //   page = 0x0C | (alt_128_n << 1) | (addr >> 13)
+    // covering pages 12..15 — the Alt-ROM region documented at
+    // zxnext.vhd:2924-2925 (Alt ROM0 128K at SRAM 0x018000..0x01BFFF =
+    // pages 12-13, Alt ROM1 48K at 0x01C000..0x01FFFF = pages 14-15).
+    //
+    // sram_pre_alt_128_n is computed per machine type (zxnext.vhd:2981-3008):
+    //   48K   : alt_128_n = NOT((NOT lock_rom1) AND lock_rom0)
+    //   +3    : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
+    //   ZXN/  : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
+    //   Pent.   (Pentagon follows the 128K legacy ROM path → port_7ffd(4))
+    // port_1ffd_rom(0) is bit 0 of the 2-bit ROM bank, derived from
+    // port_1ffd(2)<<1 | port_7ffd(4) → equivalently (port_7ffd_ >> 4) & 1.
+    inline uint8_t altrom_sram_page_(uint16_t addr) const {
+        const bool lk1 = nr_8c_altrom_lock_rom1();
+        const bool lk0 = nr_8c_altrom_lock_rom0();
+        bool alt_128_n;
+        switch (machine_type_) {
+            case MachineType::ZX48K:
+                // zxnext.vhd:2986
+                alt_128_n = !((!lk1) && lk0);
+                break;
+            case MachineType::ZX_PLUS3:
+                // zxnext.vhd:2988-2995
+                if (lk1 || lk0) alt_128_n = lk1;
+                else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
+                break;
+            case MachineType::ZX128K:
+            case MachineType::PENTAGON:
+            case MachineType::ZXN_ISSUE2:
+            default:
+                // zxnext.vhd:2998-3005 (ZXN branch — Pentagon/128K share
+                // the same 1-bit port_1ffd_rom(0) selector via current_rom_bank).
+                if (lk1 || lk0) alt_128_n = lk1;
+                else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
+                break;
+        }
+        const uint8_t a13 = static_cast<uint8_t>((addr >> 13) & 1);
+        return static_cast<uint8_t>(0x0C | (alt_128_n ? 0x02 : 0x00) | a13);
+    }
+
     void rebuild_ptr(int slot);
     // Map a ROM page into a slot without updating nr_mmu_ (callers
     // set nr_mmu_ themselves: reset() seeds 0xFF, legacy paging writes

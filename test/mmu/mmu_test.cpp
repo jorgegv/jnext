@@ -1478,14 +1478,35 @@ void test_cat11_rom_selection() {
 
     // ROM-09: altrom_rw=1 makes ROM space writable via altrom write-over.
     // VHDL zxnext.vhd:3056 — sram_pre_rdonly <= not (nr_8c_altrom_en and
-    // nr_8c_altrom_rw). Mmu now stores the NR 0x8C register (Branch C.2)
-    // but the SRAM arbiter override in zxnext.vhd:2981-3001/3021/3056 is
-    // not yet wired — Mmu's write path does not yet clear read-only on
-    // ROM slots when altrom_en+altrom_rw are set. Follow-up branch owns
-    // the arbiter plumbing.
-    skip("ROM-09",
-         "NR 0x8C register stored on Mmu (Branch C.2) but sram_pre_rdonly "
-         "override (zxnext.vhd:3056) not wired — follow-up owns arbiter plumbing");
+    // nr_8c_altrom_rw); when both flags are 1, ROM-slot writes are no
+    // longer silently dropped. Per VHDL:3078 fourth clause the write
+    // arbiter routes the byte into the alt-ROM SRAM region (pages 12..15
+    // per VHDL:3117 / SRAM layout at zxnext.vhd:2924-2925), while reads
+    // under en+rw=1 stay on the live ROM/sram_pre path. We assert both
+    // halves: (a) the ROM-slot write is accepted (not dropped), observed
+    // directly in the alt-ROM SRAM page; (b) toggling to altrom_en=1+rw=0
+    // (read-only altrom mode) makes the just-written byte visible at the
+    // same CPU address — closing the loop on "altrom is writable".
+    {
+        Fixture f;
+        f.fresh();              // slots 0/1 are ROM (read_only_=true)
+        f.mmu.set_config_mode(false);
+        // Default machine_type_=ZXN_ISSUE2, port_7ffd_=0 → port_1ffd_rom(0)=0,
+        // no altrom locks → alt_128_n=0 → alt-ROM 8K page = 0x0C (12) for
+        // a13=0, 0x0D (13) for a13=1. Address 0x0000 → page 12, offset 0.
+        f.mmu.set_nr_8c(0xC0);                  // altrom_en | altrom_rw
+        f.mmu.write(0x0000, 0x5A);
+        const uint8_t in_altram = f.ram.page_ptr(12)[0];
+        // Switch to altrom_en=1, altrom_rw=0 → read path redirects to alt-ROM.
+        f.mmu.set_nr_8c(0x80);
+        const uint8_t read_back = f.mmu.read(0x0000);
+        check("ROM-09",
+              "altrom_en+altrom_rw=1 routes ROM-slot writes to the alt-ROM "
+              "SRAM region — VHDL zxnext.vhd:3056, 3078, 3117",
+              in_altram == 0x5A && read_back == 0x5A,
+              fmt("ram[12][0]=0x%02X read(0x0000)|en=1,rw=0=0x%02X expected=0x5A/0x5A",
+                  in_altram, read_back));
+    }
 }
 
 // ── Category 12: Alternate ROM (NR 0x8C) ──────────────────────────────
@@ -1592,13 +1613,30 @@ void test_cat12_altrom() {
     }
 
     // ALT-08: altrom SRAM address formula = "0000011" & alt_128_n & a(13).
-    // VHDL zxnext.vhd:2981-3001 (sram_rom override) + 3021 (sram_pre_alt_en).
-    // Branch C.2 stores the NR 0x8C register but does NOT wire the SRAM
-    // arbiter override; the observable address translation is unreachable
-    // from the Mmu surface as-is.
-    skip("ALT-08",
-         "NR 0x8C SRAM address override (zxnext.vhd:2981-3001, 3021) not "
-         "wired — Branch C.2 stores register only; follow-up owns arbiter");
+    // VHDL zxnext.vhd:2981-3001 (sram_rom override) + 3021 (sram_pre_alt_en)
+    // + 3078 (read-path arbiter takes altrom when sram_pre_rdonly=1).
+    // With altrom_en=1, altrom_rw=0 and no lock bits, on the ZXN_ISSUE2
+    // default machine type with port_7ffd_=0, the alt_128_n selector
+    // resolves to 0 (port_1ffd_rom(0) = bit 4 of port_7ffd = 0). Thus
+    // alt-ROM 8K page = 0x0C | 0 | (addr>>13) = 12 for a13=0, 13 for
+    // a13=1. Observe by seeding the alt-ROM SRAM page directly and
+    // asserting the CPU read returns the sentinel, not the normal ROM.
+    {
+        Fixture f;
+        f.fresh();                         // slots 0/1 ROM, config_mode off
+        f.mmu.set_config_mode(false);
+        // Seed alt-ROM SRAM page 12 (addr 0x0000 maps here when alt_128_n=0).
+        uint8_t* p12 = f.ram.page_ptr(12);
+        if (p12) p12[0x0000] = 0xC3;
+        f.mmu.set_nr_8c(0x80);             // altrom_en=1, altrom_rw=0
+        const uint8_t v = f.mmu.read(0x0000);
+        check("ALT-08",
+              "altrom SRAM address formula routes 0x0000 to SRAM page 12 "
+              "when alt_128_n=0 — VHDL zxnext.vhd:2981-3001, 3021, 3078, 3117",
+              v == 0xC3,
+              fmt("altrom-read(0x0000)=0x%02X expected=0xC3 "
+                  "(alt-ROM SRAM page 12, a13=0)", v));
+    }
 
     // ALT-09: Read-back returns the stored register value. VHDL
     // zxnext.vhd:6156 port_253b_dat <= nr_8c_altrom.
@@ -2433,8 +2471,32 @@ void test_cat18_priority() {
               fmt("ram[0x40][0]=0x%02X expected=0x12", v));
     }
 
-    // PRI-06: altrom overrides normal ROM — no NR 0x8C handler on Mmu.
-    skip("PRI-06", "no NR 0x8C handler on Mmu — altrom priority unobservable");
+    // PRI-06: altrom overrides normal ROM in the decode priority ladder.
+    // VHDL zxnext.vhd:3078 — when altrom_en=1 AND sram_pre_rdonly=1 (i.e.
+    // altrom_rw=0), the read arbiter takes altrom BEFORE the normal ROM
+    // path. Observable: seed alt-ROM SRAM page 12 with a sentinel that
+    // differs from whatever the normal ROM would return for the same CPU
+    // address; flip altrom_en 0→1 and assert the read value flips to the
+    // sentinel. Framed as priority ("altrom > normal ROM") rather than
+    // address translation (same observable, different framing from ALT-08).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_config_mode(false);
+        // Seed alt-ROM SRAM page 12 with a sentinel distinct from ROM byte 0.
+        uint8_t* p12 = f.ram.page_ptr(12);
+        if (p12) p12[0x0000] = 0x7E;
+        f.mmu.set_nr_8c(0x00);             // altrom disabled → normal ROM
+        const uint8_t rom_side = f.mmu.read(0x0000);
+        f.mmu.set_nr_8c(0x80);             // altrom_en=1, altrom_rw=0
+        const uint8_t alt_side = f.mmu.read(0x0000);
+        check("PRI-06",
+              "altrom overrides normal ROM when altrom_en=1, altrom_rw=0 "
+              "— VHDL zxnext.vhd:3078 arbiter priority",
+              rom_side != 0x7E && alt_side == 0x7E,
+              fmt("altrom_en=0 read=0x%02X (should not be 0x7E), "
+                  "altrom_en=1 read=0x%02X (should be 0x7E)", rom_side, alt_side));
+    }
 
     // PRI-07: config-mode routing overrides the normal ROM serving path.
     // VHDL zxnext.vhd:3044-3050: at ROM-mapped slots with config_mode=1, a
