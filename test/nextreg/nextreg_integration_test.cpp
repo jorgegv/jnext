@@ -824,12 +824,50 @@ static void test_clip_cycling(Emulator& emu) {
               hex2(l2.clip_x2()));
     }
 
-    skip("CLIP-04",
-         "Sprite NR 0x1C bit 1 reset needs SpriteEngine public clip_* getters — integration-gap "
-         "[zxnext.vhd:5242-5290]");
-    skip("CLIP-05",
-         "ULA NR 0x1C bit 2 reset needs Emulator::ula() accessor — integration-gap "
-         "[zxnext.vhd:5242-5290]");
+    // CLIP-04 — NR 0x1C bit 1 resets the sprite clip idx (VHDL zxnext.vhd:
+    // 5242-5290). Cycle NR 0x19 four times to set x1/x2/y1/y2, reset the
+    // sprite idx via NR 0x1C bit 1, then a fresh NR 0x19 write must land
+    // on x1. Only x1 is overwritten post-reset; x2/y1/y2 keep their values.
+    {
+        nr_write(emu, 0x1C, 0x02);           // reset sprite clip idx to 0
+        nr_write(emu, 0x19, 0x10);           // x1 ← 0x10, idx 0→1
+        nr_write(emu, 0x19, 0x20);           // x2 ← 0x20, idx 1→2
+        nr_write(emu, 0x19, 0x30);           // y1 ← 0x30, idx 2→3
+        nr_write(emu, 0x19, 0x40);           // y2 ← 0x40, idx 3→0 (wrap)
+        nr_write(emu, 0x1C, 0x02);           // reset sprite clip idx to 0
+        nr_write(emu, 0x19, 0x50);           // must land on x1
+        const auto& sp = emu.sprites();
+        check("CLIP-04",
+              "NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 "
+              "[zxnext.vhd:5242-5290]",
+              sp.clip_x1() == 0x50 && sp.clip_x2() == 0x20 &&
+              sp.clip_y1() == 0x30 && sp.clip_y2() == 0x40,
+              "x1=" + hex2(sp.clip_x1()) + " (want 0x50) x2=" +
+              hex2(sp.clip_x2()) + " y1=" + hex2(sp.clip_y1()) +
+              " y2=" + hex2(sp.clip_y2()));
+    }
+
+    // CLIP-05 — NR 0x1C bit 2 resets the ULA clip idx (VHDL zxnext.vhd:
+    // 5242-5290). Mirrors CLIP-04 but with NR 0x1A (writes) and NR 0x1C
+    // bit 2 (reset).
+    {
+        nr_write(emu, 0x1C, 0x04);           // reset ULA clip idx to 0
+        nr_write(emu, 0x1A, 0x10);           // x1 ← 0x10, idx 0→1
+        nr_write(emu, 0x1A, 0x20);           // x2 ← 0x20, idx 1→2
+        nr_write(emu, 0x1A, 0x30);           // y1 ← 0x30, idx 2→3
+        nr_write(emu, 0x1A, 0x40);           // y2 ← 0x40, idx 3→0 (wrap)
+        nr_write(emu, 0x1C, 0x04);           // reset ULA clip idx to 0
+        nr_write(emu, 0x1A, 0x50);           // must land on x1
+        const auto& u = emu.ula();
+        check("CLIP-05",
+              "NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 "
+              "[zxnext.vhd:5242-5290]",
+              u.clip_x1() == 0x50 && u.clip_x2() == 0x20 &&
+              u.clip_y1() == 0x30 && u.clip_y2() == 0x40,
+              "x1=" + hex2(u.clip_x1()) + " (want 0x50) x2=" +
+              hex2(u.clip_x2()) + " y1=" + hex2(u.clip_y1()) +
+              " y2=" + hex2(u.clip_y2()));
+    }
 
     // CLIP-06 — NR 0x1C bit 3 resets tilemap clip index. Tilemap has a
     // public clip_x1() getter so this one DOES work end-to-end.

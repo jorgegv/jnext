@@ -189,6 +189,7 @@ public:
     PaletteManager& palette() { return palette_; }
     Layer2&       layer2()    { return layer2_; }
     SpriteEngine& sprites()   { return sprites_; }
+    Ula&          ula()       { return renderer_.ula(); }
     Tilemap&      tilemap()   { return tilemap_; }
     Copper&       copper()    { return copper_; }
     Ctc&          ctc()       { return ctc_; }
