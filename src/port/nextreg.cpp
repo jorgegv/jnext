@@ -30,6 +30,10 @@ void NextReg::reset() {
     regs_[0x05] = 0x40;  // joy config: VHDL zxnext.vhd:1105-1106 (nr_05 not cleared on soft reset)
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
+    // Sub-version: VHDL g_sub_version = X"03" generic in
+    // zxnext_top_issue2.vhd:38 (also issue4/issue5). Read mux at
+    // zxnext.vhd:5917-5918 returns g_sub_version verbatim.
+    regs_[0x0E] = 0x03;
     // Port-enable registers: VHDL zxnext.vhd:1226-1230, 5052-5057.
     if (reset_type_1) {
         regs_[0x82] = 0xFF;
@@ -41,6 +45,12 @@ void NextReg::reset() {
         regs_[0x84] = saved_84;
     }
     regs_[0x85] = 0x8F;  // bit7=reset_type(1), bits6:4=0, bits3:0=0xF (enables)
+    // NR 0x89 bus port enables: VHDL zxnext.vhd:1234-1235 —
+    // nr_89_bus_port_reset_type='1' and nr_89_bus_port_enable=(others=>'1').
+    // Read mux at zxnext.vhd:6147-6150 composes
+    //   nr_89_bus_port_reset_type & "000" & nr_89_bus_port_enable
+    // → 0x8F (bit7=1, bits6:4=0, bits3:0=0xF).
+    regs_[0x89] = 0x8F;
     // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
     selected_   = 0x24;
 
