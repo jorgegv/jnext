@@ -715,15 +715,14 @@ void test_cat5_port_1ffd() {
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
 
-    // P1F-07: motor bit (port_1ffd_reg(3)) independent of paging — the
-    // disk motor signal is routed to the FDC, not the Mmu.
-    // P1F-07: port_1FFD bit 3 is the +3 disk motor on/off. Not a memory
-    // concern — routed to the +3 FDC. JNEXT does not model the FDC
-    // (category-G behavioural simplification — no known software needs
-    // it). If we ever emulate the +3 FDC, add a real test there.
-    skip("P1F-07",
-         "port_1FFD(3) = +3 disk motor; not modelled in JNEXT "
-         "(category-G behavioural simplification; revisit if FDC emulation lands)");
+    // WONT P1F-07 — port_1FFD bit 3 is the +3 disk motor enable. This
+    // bit is routed to the +3 FDC, not to the Mmu. jnext does not model
+    // the +3 FDC at all (no disk drive emulation). Category WONT
+    // (explicit decision record; refinement of unobservable-audit G).
+    // **Decision (2026-04-21)**: won't implement the +3 FDC for this
+    // project; NextZXOS and typical software work with jnext's tape /
+    // SD / NEX loaders. If +3 FDC emulation ever lands, re-home this
+    // row to an fdc_test.cpp.
 }
 
 // ── Category 6: +3 special paging modes ───────────────────────────────
