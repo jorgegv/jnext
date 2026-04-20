@@ -1319,31 +1319,68 @@ static void test_cfg_integration(Emulator& emu) {
     set_group("Machine-Cfg");
 
     // CFG-01 — VHDL zxnext.vhd:5893-5894 reads NR 0x03 as
-    // `nr_palette_sub_idx & nr_03_machine_timing & nr_03_user_dt_lock &
-    // nr_03_machine_type` — a COMPOSED format, not a raw register read.
-    // JNEXT stores NR 0x03 as a plain byte and round-trips it; asserting
-    // that upper-nibble round-trips is tautological (it would pass on
-    // any byte-storage register).
+    //   port_253b_dat <= nr_palette_sub_idx & nr_03_machine_timing(2:0) &
+    //                    nr_03_user_dt_lock & nr_03_machine_type(2:0)
+    // i.e. a COMPOSED format, not a raw register read. After reset, the
+    // VHDL signal defaults (zxnext.vhd:1099-1103) are:
+    //   nr_03_machine_timing = "011" (+3 timing)
+    //   nr_03_user_dt_lock   = '0'
+    //   nr_03_machine_type   = "011" (+3 machine type)
+    // JNEXT now tracks these on NextReg and installs a read_handler on
+    // NR 0x03 composing the byte per :5894 (palette_sub_idx not modeled →
+    // bit 7 = 0). So after-reset NR 0x03 should read 0x33: bit 7 = 0,
+    // bits[6:4] = 011, bit 3 = 0, bits[2:0] = 011.
     //
-    // FIXED 2026-04-20 after critic (was a passing tautology). Converted
-    // to SKIP with a pointer to the proper fix: observe
-    // nr_03_machine_timing via a subsystem accessor (ULA retime state or
-    // a new machine-type getter) rather than reading back regs_[0x03].
-    skip("CFG-01",
-         "NR 0x03 timing bits 6:4 read is composed from "
-         "nr_03_machine_timing (zxnext.vhd:5893-5894), not a raw register "
-         "round-trip. JNEXT returns regs_[0x03] verbatim — tautology "
-         "[backlog: observe ULA retime state via new accessor]");
+    // CFG-01 pins bits[6:4]: they must match the VHDL default timing code
+    // "011" (+3), not whatever byte was last written to NR 0x03.
+    {
+        uint8_t got = nr_read(emu, 0x03);
+        uint8_t timing_bits = static_cast<uint8_t>((got >> 4) & 0x07);
+        check("CFG-01",
+              "NR 0x03 bits[6:4] compose from nr_03_machine_timing "
+              "(reset default \"011\") [zxnext.vhd:1099, 5893-5894]",
+              timing_bits == 0x03,
+              std::string("got bits[6:4]=") + std::to_string(timing_bits) +
+              " full byte=" + detail_eq(got, 0x33));
+    }
 
-    // CFG-02 — NR 0x03 bit 3 XOR-toggles dt_lock in VHDL
-    // (zxnext.vhd:5121-5151). JNEXT does not model dt_lock at all —
-    // NR 0x03 is a plain register that round-trips writes. Confirmed by
-    // the RW-asymmetric test (after two bit-3 writes, read stays 0x08).
-    // Backlog: add dt_lock 1-bit state to the machine-type manager and
-    // an NR 0x03 write_handler that XOR-toggles it when bit 3 = 1.
-    skip("CFG-02",
-         "NR 0x03 bit 3 dt_lock XOR not modelled — "
-         "[backlog: add dt_lock state + NR 0x03 bit 3 XOR handler]");
+    // CFG-02 — NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock
+    // (zxnext.vhd:5135 — nr_03_user_dt_lock <= nr_03_user_dt_lock XOR
+    // nr_wr_dat(3), unconditional). The read (zxnext.vhd:5894) exposes
+    // the current dt_lock as bit 3.
+    //
+    // Sequence:
+    //   1. Ensure config_mode = 1 (write 0x07 → bits[2:0]=111 re-enters).
+    //   2. Write 0x08 (bit 3 = 1) → toggles dt_lock from 0 → 1.
+    //   3. Read NR 0x03, assert bit 3 = 1.
+    //   4. Write 0x08 again (bit 3 = 1) → toggles dt_lock from 1 → 0.
+    //   5. Read NR 0x03, assert bit 3 = 0.
+    //
+    // The reads are straightforward byte reads; bits[6:4] and bits[2:0]
+    // are asserted in CFG-01 / CFG-05 respectively, so CFG-02 pins only
+    // bit 3.
+    {
+        // Re-enter config_mode (CFG-05 may have cleared it if order is
+        // not guaranteed). Bits[2:0] = 111 → config_mode ← 1.
+        nr_write(emu, 0x03, 0x07);
+
+        nr_write(emu, 0x03, 0x08);  // toggle dt_lock 0 → 1
+        uint8_t got1 = nr_read(emu, 0x03);
+        bool dtlock_on = (got1 & 0x08) != 0;
+
+        nr_write(emu, 0x03, 0x08);  // toggle dt_lock 1 → 0
+        uint8_t got2 = nr_read(emu, 0x03);
+        bool dtlock_off = (got2 & 0x08) == 0;
+
+        check("CFG-02",
+              "NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read "
+              "composes bit 3 from that state [zxnext.vhd:5121-5151, 5894]",
+              dtlock_on && dtlock_off,
+              std::string("after first toggle bit3=") + (dtlock_on ? "1" : "0") +
+              " after second toggle bit3=" + (dtlock_off ? "0" : "1") +
+              " (reads got1=" + detail_eq(got1, 0x3B) +
+              " got2=" + detail_eq(got2, 0x33) + ")");
+    }
 
     // CFG-05 — NR 0x03 bits 2:0 ∈ {001..100} commit machine type, but
     // only when config_mode = 1 at write time. VHDL zxnext.vhd:5137.

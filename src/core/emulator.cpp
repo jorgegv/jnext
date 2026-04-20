@@ -537,17 +537,78 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                     if PREVIOUS config_mode was 1, per zxnext.vhd:5137)
     //   The state is owned by NextReg so it persists across the per-register
     //   write path; apply_nr_03_config_mode_transition() encapsulates the rule.
+    // - VHDL zxnext.vhd:5124-5135 updates nr_03_machine_timing (bits[6:4],
+    //   gated on bit 7 = 1, user_dt_lock = 0, bit 3 = 0) and XOR-toggles
+    //   nr_03_user_dt_lock from bit 3 on every write.
+    // - VHDL zxnext.vhd:5137-5145 commits nr_03_machine_type from bits[2:0]
+    //   (values 001..100) but ONLY when config_mode = 1 at write time — so
+    //   this must happen BEFORE apply_nr_03_config_mode_transition() flips
+    //   the mode bit.
     nextreg_.set_write_handler(0x03, [this](uint8_t v) {
         if (mmu_.boot_rom_enabled()) {
             mmu_.set_boot_rom_enabled(false);
             Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
         }
+
+        // Machine-timing update (VHDL :5124-5133). The gate checks the
+        // PREVIOUS dt_lock — the XOR on :5135 happens after this block in
+        // VHDL (same clock edge), so it doesn't matter whether we sequence
+        // them strictly; we follow the source order for readability.
+        const bool bit7 = (v & 0x80) != 0;
+        const bool bit3 = (v & 0x08) != 0;
+        if (bit7 && !nextreg_.nr_03_user_dt_lock() && !bit3) {
+            const uint8_t tim_sel = static_cast<uint8_t>((v >> 4) & 0x07);
+            uint8_t new_timing;
+            switch (tim_sel) {
+                case 0x00: new_timing = 0x01; break;  // 48K timing
+                case 0x01: new_timing = 0x01; break;
+                case 0x02: new_timing = 0x02; break;  // 128K
+                case 0x03: new_timing = 0x03; break;  // +3
+                case 0x04: new_timing = 0x04; break;  // Pentagon
+                default:   new_timing = 0x03; break;  // VHDL :5131 others
+            }
+            nextreg_.set_nr_03_machine_timing(new_timing);
+        }
+
+        // dt_lock XOR-toggle (VHDL :5135) — unconditional XOR with bit 3.
+        nextreg_.set_nr_03_user_dt_lock(nextreg_.nr_03_user_dt_lock() ^ bit3);
+
+        // Machine-type commit (VHDL :5137-5145) — gated on CURRENT config_mode.
+        if (nextreg_.nr_03_config_mode()) {
+            const uint8_t typ_sel = static_cast<uint8_t>(v & 0x07);
+            switch (typ_sel) {
+                case 0x01: nextreg_.set_nr_03_machine_type(0x01); break;
+                case 0x02: nextreg_.set_nr_03_machine_type(0x02); break;
+                case 0x03: nextreg_.set_nr_03_machine_type(0x03); break;
+                case 0x04: nextreg_.set_nr_03_machine_type(0x04); break;
+                default: /* VHDL :5143 others => null (no change) */ break;
+            }
+        }
+
+        // config_mode FSM — must run AFTER machine-type commit so the commit
+        // sees the PREVIOUS config_mode (VHDL :5137 reads the pre-write value).
         nextreg_.apply_nr_03_config_mode_transition(v);
         // Mirror config_mode into Mmu so the fast-path read/write routing
         // (VHDL zxnext.vhd:3044-3050) tracks the NextReg state.
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
+    });
+
+    // Register 0x03 read: composed per VHDL zxnext.vhd:5894 —
+    //   port_253b_dat <= nr_palette_sub_idx & nr_03_machine_timing(2:0) &
+    //                    nr_03_user_dt_lock & nr_03_machine_type(2:0)
+    // JNEXT does not model nr_palette_sub_idx (palette-aux selector used
+    // only by the NR 0x44 / NR 0x41 sub-index toggle), so bit 7 reads 0
+    // until that FSM lands. All other bits come from the state fields on
+    // NextReg, which track the VHDL signals faithfully.
+    nextreg_.set_read_handler(0x03, [this]() -> uint8_t {
+        const uint8_t timing = static_cast<uint8_t>(nextreg_.nr_03_machine_timing() & 0x07);
+        const uint8_t mtype  = static_cast<uint8_t>(nextreg_.nr_03_machine_type()   & 0x07);
+        const uint8_t dtlock = nextreg_.nr_03_user_dt_lock() ? 1 : 0;
+        // palette_sub_idx not modeled → 0. bits[7]=0, [6:4]=timing, [3]=dtlock,
+        // [2:0]=machine_type.
+        return static_cast<uint8_t>((0u << 7) | (timing << 4) | (dtlock << 3) | mtype);
     });
 
     // Register 0x04: ROM/RAM bank select used by tbblue.fw's load_roms() to
