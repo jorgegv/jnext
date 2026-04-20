@@ -149,14 +149,21 @@ unit-test:
 		fi; \
 		rc=$$(cat $$rc_file); \
 		line=$$(grep '^Total:' $$TMPDIR/$$t.out | tail -1); \
-		t_total=$$(echo "$$line" | sed 's/.*Total: *\([0-9]*\).*/\1/'); \
-		t_passed=$$(echo "$$line" | sed 's/.*Passed: *\([0-9]*\).*/\1/'); \
-		t_failed=$$(echo "$$line" | sed 's/.*Failed: *\([0-9]*\).*/\1/'); \
-		t_skipped=$$(echo "$$line" | sed 's/.*Skipped: *\([0-9]*\).*/\1/'); \
+		if [ -z "$$line" ]; then \
+			t_total=0; t_passed=0; t_failed=0; t_skipped=0; \
+		else \
+			t_total=$$(echo "$$line" | sed 's/.*Total: *\([0-9]*\).*/\1/'); \
+			t_passed=$$(echo "$$line" | sed 's/.*Passed: *\([0-9]*\).*/\1/'); \
+			t_failed=$$(echo "$$line" | sed 's/.*Failed: *\([0-9]*\).*/\1/'); \
+			t_skipped=$$(echo "$$line" | sed 's/.*Skipped: *\([0-9]*\).*/\1/'); \
+		fi; \
 		sum_total=$$((sum_total + t_total)); \
 		sum_passed=$$((sum_passed + t_passed)); \
 		sum_failed=$$((sum_failed + t_failed)); \
 		sum_skipped=$$((sum_skipped + t_skipped)); \
+		if [ -n "$$line" ]; then \
+			printf "%s\t%s\t%s\t%s\t%s\n" "$$t" "$${t_total:-0}" "$${t_passed:-0}" "$${t_failed:-0}" "$${t_skipped:-0}" >> $$TMPDIR/summary.tsv; \
+		fi; \
 		if [ $$rc -ne 0 ] || [ "$$t_failed" -gt 0 ] 2>/dev/null; then \
 			printf "  $(CYAN)%-34s$(RESET) $(BADGE_FAIL) FAIL $(RESET)  %s\n" "$$t" "$$line"; \
 			suites_fail=$$((suites_fail + 1)); \
@@ -172,6 +179,13 @@ unit-test:
 		$$sum_total $$sum_passed $$sum_failed $$sum_skipped; \
 	printf "$(BOLD)Suites: %d pass, %d fail, %d skip$(RESET)\n\n" \
 		$$suites_pass $$suites_fail $$suites_skip; \
+	if [ -s $$TMPDIR/summary.tsv ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
+		if bash test/refresh-subsystem-status.sh $$TMPDIR/summary.tsv test/SUBSYSTEM-TESTS-STATUS.md; then \
+			printf "$(BOLD)Dashboard refreshed:$(RESET) test/SUBSYSTEM-TESTS-STATUS.md\n\n"; \
+		else \
+			printf "$(BOLD)Warning:$(RESET) dashboard refresh failed\n\n"; \
+		fi; \
+	fi; \
 	rm -rf $$TMPDIR
 
 # Count lines of code (excluding comments and blanks), per directory and total

@@ -54,7 +54,8 @@
       "Write",
       "Bash(./build/test/nextreg_integration_test)",
       "Bash(./build/test/nextreg_integration_test:*)",
-      "Bash(awk '/^class Mmu/,/^};/' /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-a562cf38/src/memory/mmu.h)"
+      "Bash(awk '/^class Mmu/,/^};/' /home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-a562cf38/src/memory/mmu.h)",
+      "Bash(chmod +x /home/jorgegv/src/spectrum/jnext/test/refresh-subsystem-status.sh)"
     ],
     "additionalDirectories": [
       "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests"
