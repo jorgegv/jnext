@@ -683,18 +683,15 @@ static void test_readonly_registers(Emulator& emu) {
 
     // RO-04 — NR 0x0E sub-version. VHDL `g_sub_version = X"03"` (set in
     // zxnext_top_issue2.vhd:38 and zxnext_top_issue4.vhd:38); the read
-    // mux at zxnext.vhd:5917-5918 returns g_sub_version verbatim. JNEXT
-    // never seeds regs_[0x0E] — it stays 0x00 after reset. That is a
-    // real seed-default gap, not a test-authoring choice.
-    //
-    // FIXED 2026-04-20 after critic (was previously a false-pass with
-    // oracle 0x00 taken from the JNEXT default rather than VHDL). Now
-    // skipped with a specific backlog note; convert to pass only after
-    // src/port/nextreg.cpp seeds regs_[0x0E] = 0x03.
-    skip("RO-04",
-         "VHDL g_sub_version = 0x03 (zxnext_top_issue2.vhd:38), JNEXT "
-         "defaults regs_[0x0E] = 0x00 — seed-default gap "
-         "[backlog: add regs_[0x0E] = 0x03 in NextReg::reset]");
+    // mux at zxnext.vhd:5917-5918 returns g_sub_version verbatim. Seeded
+    // at src/port/nextreg.cpp.
+    {
+        uint8_t got = nr_read(emu, 0x0E);
+        check("RO-04",
+              "NR 0x0E sub-version reset=0x03 "
+              "[zxnext_top_issue2.vhd:38 g_sub_version]",
+              got == 0x03, detail_eq(got, 0x03));
+    }
 
     // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue.
     // JNEXT leaves regs_[0x0F]=0x00, which corresponds to "no board
@@ -1046,22 +1043,20 @@ static void test_pe_03(Emulator& /*emu*/) {
 
 static void test_pe_05(Emulator& emu) {
     set_group("Port-Enable-Bus");
-    (void)emu;
     // PE-05 — NR 0x86-0x89 bus-side port enables. VHDL zxnext.vhd:
     // 6147-6150 reads NR 0x89 as `nr_89_bus_port_reset_type & "000" &
     // nr_89_bus_port_enable`. Reset defaults (zxnext.vhd:1234-1235):
     // nr_89_bus_port_reset_type='1', nr_89_bus_port_enable=(others=>'1').
     // So the correct read oracle for NR 0x89 is 0x8F (bit 7 = 1, bits
     // 6:4 = 000, bits 3:0 = 1111), same layout/value as NR 0x85 (which
-    // is tested correctly at RST-08).
-    //
-    // FIXED 2026-04-20 after critic (note previously said "seed
-    // regs_[0x89]=0xFF" which was wrong — should be 0x8F per VHDL).
-    skip("PE-05",
-         "NR 0x89 bus port enable default 0x00; VHDL zxnext.vhd:"
-         "6147-6150 specifies 0x8F (bit 7 + 4-bit enable). JNEXT "
-         "does not seed regs_[0x89] "
-         "[backlog: seed regs_[0x89]=0x8F in NextReg::reset()]");
+    // is tested correctly at RST-08). Seeded at src/port/nextreg.cpp.
+    {
+        uint8_t got = nr_read(emu, 0x89);
+        check("PE-05",
+              "NR 0x89 bus port enable reset=0x8F "
+              "[zxnext.vhd:1234-1235, 6147-6150]",
+              got == 0x8F, detail_eq(got, 0x8F));
+    }
 }
 
 // ── RW-01, RW-02: asymmetric read/write registers ────────────────────
