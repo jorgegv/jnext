@@ -192,6 +192,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // --- NextREG write handlers ---
 
+    // Register 0x00: Machine ID (read-only).
+    // VHDL zxnext.vhd:5884-5885 — read dispatch routes nr_register=X"00"
+    // unconditionally to g_machine_id; writes have no handler in the VHDL
+    // write dispatch, so they are discarded. We install a read_handler that
+    // always returns 0x08 (HWID_EMULATORS), making any stale byte written
+    // into regs_[0] invisible. JNEXT deliberately reports 0x08 instead of
+    // the VHDL g_machine_id=X"0A" so NextZXOS takes its emulator-aware boot
+    // paths — see NextReg::reset() comment at src/port/nextreg.cpp:18.
+    nextreg_.set_read_handler(0x00, []() -> uint8_t { return 0x08; });
+
     // Register 0x07: CPU speed selector
     //   0 = 3.5 MHz, 1 = 7 MHz, 2 = 14 MHz, 3 = 28 MHz
     // VHDL zxnext.vhd:1300 nr_07_cpu_speed reset "00"; zxnext.vhd:5789-5791,5817

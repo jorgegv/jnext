@@ -661,15 +661,22 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x08, detail_eq(got, 0x08));
     }
 
-    // RO-02 — NR 0x00 read-only enforcement missing in JNEXT: no
-    // read_handler is registered on NR 0x00, and NextReg::write() stores
-    // the written byte in regs_[0] unconditionally, so a subsequent read
-    // returns the written value instead of g_machine_id. Real gap.
-    // Backlog: install a read_handler on NR 0x00 that always returns 0x08
-    // (HWID_EMULATORS), ignoring regs_[0].
-    skip("RO-02",
-         "NR 0x00 RO enforcement missing — write round-trips through "
-         "regs_[0] [backlog: add read_handler for 0x00 returning 0x08]");
+    // RO-02 — NR 0x00 read-only enforcement.
+    // VHDL zxnext.vhd:5884-5885 — read dispatch routes nr_register=X"00"
+    // unconditionally to g_machine_id, regardless of any prior write; NR
+    // 0x00 has no write handler in the VHDL write dispatch (writes are
+    // discarded). JNEXT installs a read_handler in Emulator::init that
+    // always returns 0x08 (HWID_EMULATORS), so a write to NR 0x00 must
+    // never be observable via a subsequent read.
+    {
+        nr_write(emu, 0x00, 0x42);
+        uint8_t got = nr_read(emu, 0x00);
+        check("RO-02",
+              "NR 0x00 read-only: write 0x42 then read returns 0x08 "
+              "[zxnext.vhd:5884-5885 — read routed to g_machine_id; "
+              "no write handler; JNEXT reports HWID_EMULATORS=0x08]",
+              got == 0x08, detail_eq(got, 0x08));
+    }
 
     // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02).
     // Seeded at src/port/nextreg.cpp:28.
@@ -731,11 +738,21 @@ static void test_readonly_registers(Emulator& emu) {
 
 static void test_sel_03(Emulator& emu) {
     set_group("Selection");
-    (void)emu;
-    // SEL-03 — same root cause as RO-02: NR 0x00 RO enforcement missing.
-    // Backlog: add read_handler on NR 0x00 returning 0x08.
-    skip("SEL-03",
-         "NR 0x00 RO enforcement missing — see RO-02 backlog note");
+    // SEL-03 — same invariant as RO-02, framed via the selection path:
+    // select NR 0x00 (OUT 0x243B,0x00), write via the selected-register
+    // port (OUT 0x253B,0x42), read back via the selected-register port
+    // (IN 0x253B). Must still return 0x08.
+    // VHDL zxnext.vhd:5884-5885 — NR 0x00 read is hard-wired to
+    // g_machine_id; writes have no handler and are discarded.
+    {
+        nr_write(emu, 0x00, 0x42);
+        uint8_t got = nr_read(emu, 0x00);
+        check("SEL-03",
+              "NR 0x00 via select+write+read path returns 0x08 "
+              "(selection pathway respects read-only) "
+              "[zxnext.vhd:5884-5885]",
+              got == 0x08, detail_eq(got, 0x08));
+    }
 }
 
 // ── CLIP-01..08: Clip-window 4-write cycling and NR 0x1C reset ──────
