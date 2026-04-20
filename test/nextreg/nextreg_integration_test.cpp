@@ -1156,13 +1156,39 @@ static void test_palette(Emulator& emu) {
 // PortDispatch (or in the handler closure) so that OUT (0x243B),0x82 /
 // OUT (0x253B),0xBF followed by IN A,(0x1F) returns 0xFF.
 
-static void test_pe_03(Emulator& /*emu*/) {
+static void test_pe_03(Emulator& emu) {
     set_group("Port-Enable-0x1F");
-    skip("PE-03",
-         "NR 0x82 bit 6 gate on port 0x1F not implemented — Kempston "
-         "handler is registered unconditionally (src/core/emulator.cpp:"
-         "1119). VHDL zxnext.vhd:2392-2442 [backlog: install NR 0x82 "
-         "bit 6 gate on port_1f_en]");
+
+    // VHDL zxnext.vhd:2392-2407 — port_1f_io_en = internal_port_enable(6),
+    // whose low byte is nr_82_internal_port_enable when expbus is disabled.
+    // Reset default nr_82_internal_port_enable = 0xFF (zxnext.vhd:1226, 5054)
+    // so bit 6 = 1 and the Kempston handler responds. Clearing bit 6
+    // (NR 0x82 = 0xBF) removes port 0x1F from the internal bus and a
+    // read must return the unhandled-port floating-bus value (0xFF).
+    // Re-enabling bit 6 must restore the Kempston handler response.
+    //
+    // JNEXT's Kempston 1 stub returns 0x00 (no buttons) when enabled —
+    // see src/core/emulator.cpp Kempston-1 handler. The test oracle is
+    // the gating behaviour, not the stub value.
+
+    // 1. Reset default: bit 6 = 1, expect Kempston stub (0x00).
+    uint8_t enabled = emu.port().in(0x001F);
+
+    // 2. Clear bit 6 (NR 0x82 = 0xBF): expect floating bus (0xFF).
+    nr_write(emu, 0x82, 0xBF);
+    uint8_t gated = emu.port().in(0x001F);
+
+    // 3. Re-enable bit 6 (NR 0x82 = 0xFF): expect Kempston stub (0x00).
+    nr_write(emu, 0x82, 0xFF);
+    uint8_t re_enabled = emu.port().in(0x001F);
+
+    const bool ok = (enabled == 0x00) && (gated == 0xFF) && (re_enabled == 0x00);
+    check("PE-03",
+          "NR 0x82 bit 6 gates port 0x1F (Kempston 1): "
+          "bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442]",
+          ok,
+          "enabled=" + hex2(enabled) + " gated=" + hex2(gated) +
+          " re_enabled=" + hex2(re_enabled));
 }
 
 static void test_pe_05(Emulator& emu) {
@@ -1193,13 +1219,46 @@ static void test_rw_asymmetric(Emulator& emu) {
     set_group("RW-Asymmetric");
     (void)emu;
 
-    // RW-01 — NR 0x07 CPU-speed packed read (actual bits[1:0],
-    // requested bits[5:4]) is not implemented. JNEXT's NR 0x07 is a plain
-    // register that round-trips the last written byte. Backlog: install
-    // read_handler on NR 0x07 that returns (actual<<0)|(requested<<4).
-    skip("RW-01",
-         "NR 0x07 packed read (actual + requested) not implemented "
-         "[backlog: add read_handler packing speed FSM state]");
+    // RW-01 — NR 0x07 CPU-speed packed read.
+    // VHDL zxnext.vhd:5902-5903:
+    //   port_253b_dat <= "00" & cpu_speed & "00" & nr_07_cpu_speed;
+    // → bits[5:4] = actual cpu_speed, bits[1:0] = requested nr_07_cpu_speed,
+    //   other bits 0.
+    //
+    // JNEXT does not model the expbus speed override (VHDL zxnext.vhd:
+    // 5816-5820 assigns cpu_speed <= nr_07_cpu_speed when expbus_en='0'),
+    // so the effective actual speed tracks the requested value directly —
+    // i.e. after a write of v (low 2 bits), the composed read is
+    // ((v & 3) << 4) | (v & 3).
+    //
+    // Sequence: write 0x02 (request 7 MHz), expect read == 0x22;
+    // write 0x03 (request 28 MHz), expect read == 0x33; write 0x00
+    // (request 3.5 MHz), expect read == 0x00. Upper two bits and bits
+    // [3:2] must be zero regardless of what was written (they are hard
+    // constants in the VHDL read format).
+    nr_write(emu, 0x07, 0x02);
+    uint8_t r2 = nr_read(emu, 0x07);
+
+    nr_write(emu, 0x07, 0x03);
+    uint8_t r3 = nr_read(emu, 0x07);
+
+    nr_write(emu, 0x07, 0x00);
+    uint8_t r0 = nr_read(emu, 0x07);
+
+    // Also check that a write with upper bits set still reads back the
+    // VHDL-composed format (upper bits masked to 00, bits[3:2] masked
+    // to 00). Write 0xFF → only the low 2 bits (= 3) are captured →
+    // read should be 0x33.
+    nr_write(emu, 0x07, 0xFF);
+    uint8_t rf = nr_read(emu, 0x07);
+
+    const bool ok = (r2 == 0x22) && (r3 == 0x33) && (r0 == 0x00) && (rf == 0x33);
+    check("RW-01",
+          "NR 0x07 read = (actual<<4) | requested, pads 0 in bits[7:6] "
+          "and bits[3:2] [zxnext.vhd:5902-5903]",
+          ok,
+          "r(0x02)=" + hex2(r2) + " r(0x03)=" + hex2(r3) +
+          " r(0x00)=" + hex2(r0) + " r(0xFF)=" + hex2(rf));
 
     // RW-02 — NR 0x08 bit 7 on read should return NOT port_7ffd_locked.
     // VHDL zxnext.vhd:5906 composes port_253b_dat for NR 0x08 as
