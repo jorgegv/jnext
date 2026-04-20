@@ -122,6 +122,21 @@ void Mmu::rebuild_ptr(int slot) {
             write_ptr_[slot] = nullptr;
         }
     } else {
+        // RAM slot: apply the VHDL floating-bus gate (zxnext.vhd:3060-3061).
+        // For slots 2..7 (cpu_a(15:14) ≠ "00"), the early-decode process
+        // drives `sram_pre_active <= (not mmu_A21_A13(8)) and …`. The VHDL
+        // formula at zxnext.vhd:2964 sets mmu_A21_A13(8)='1' whenever
+        // mem_active_page(7 downto 5) = "111", i.e. page >= 0xE0. When
+        // sram_pre_active is '0' the SRAM is inactive: CPU reads return
+        // the floating bus (0xFF in practice, nothing drives the bus) and
+        // writes are dropped. Slots 0/1 take a different VHDL branch at
+        // line 3029 (mf_mem_en / config_mode / sram_rom) and must not be
+        // gated here — they keep their ROM/config-mode routing.
+        if (slot >= 2 && page >= 0xE0) {
+            read_ptr_[slot]  = nullptr;
+            write_ptr_[slot] = nullptr;
+            return;
+        }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
         uint8_t* p = ram_.page_ptr(to_sram_page(page));
         read_ptr_[slot] = p;
