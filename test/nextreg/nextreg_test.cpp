@@ -658,20 +658,28 @@ static void test_copper_arbitration() {
               got == 0x3C, detail_eq(got, 0x3C));
     }
 
-    // COP-02 — simultaneous CPU+Copper write on the nr_wr_* bus (copper
-    // wins) is cycle-accurate arbitration that does not exist in the
-    // bare NextReg surface. No ticking, no dual-requester mux.
-    skip("COP-02",
-         "simultaneous CPU+Copper write arbitration requires "
-         "cycle-accurate nr_wr_* bus not exposed by bare NextReg "
-         "[zxnext.vhd:4706-4777]");
-
-    // COP-03 — CPU-wait-when-copper-active is the other half of the
-    // same cycle-accurate arbitration missing from the bare surface.
-    skip("COP-03",
-         "CPU-wait-while-copper-active requires cycle-accurate "
-         "arbitration bus not exposed by bare NextReg "
-         "[zxnext.vhd:4706-4777]");
+    // WONT COP-02 / WONT COP-03 — cycle-accurate CPU+Copper nr_wr_* bus
+    // arbitration (VHDL zxnext.vhd:4706-4777). VHDL uses a 4-process state
+    // machine (copper_requester/d + cpu_requester/d + copper_req edge-pulse
+    // + cpu_req with wait-while-copper-active guard at :4769) feeding a
+    // combinatorial mux at :4775-4777 where copper_req wins on contested
+    // cycles and cpu_req is held back until copper_req clears.
+    //
+    // COP-02 asserts "Copper wins on the contested cycle"; COP-03 asserts
+    // "CPU is held until Copper releases".
+    //
+    // **Decision (2026-04-21): won't implement.** Rationale: jnext
+    // serialises both write paths at the C++ call level, so both CPU and
+    // Copper writes land — just without cycle-level overlap. No known
+    // Copper demo or NextZXOS boot path depends on the exact cycle
+    // ordering. Un-skipping would require a cycle-granularity tick API +
+    // dual-requester injection point (test-harness engineering, not
+    // emulator work) for zero user-visible payoff. Re-open if concrete
+    // software reveals a divergence.
+    //
+    // Category WONT (a refinement of feedback_unobservable_audit_rule.md
+    // G — intentional behavioural simplification with documented reason;
+    // distinct from F upstream-gap which is a real TODO).
 
     // COP-04 — zxnext.vhd:4706-4777: copper-side register index is
     // masked to 7 bits (MSB forced to 0). The mask is applied inside
