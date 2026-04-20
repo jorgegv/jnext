@@ -213,6 +213,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         clock_.set_cpu_speed(speed);
         contention_.set_cpu_speed(v & 0x03);
     });
+    // NR 0x07 read is a COMPOSED format, not a raw register round-trip.
+    // VHDL zxnext.vhd:5902-5903:
+    //   port_253b_dat <= "00" & cpu_speed & "00" & nr_07_cpu_speed;
+    // i.e. bits[5:4] = actual cpu_speed, bits[1:0] = requested nr_07_cpu_speed.
+    // JNEXT does not model the expbus speed override (VHDL zxnext.vhd:5816-5820
+    // assigns cpu_speed <= nr_07_cpu_speed when expbus_en = '0'), so the
+    // effective actual speed tracks the requested value directly (the
+    // write handler above drives both clock_ and contention_ from the
+    // low 2 bits of the last write, which live in regs_[0x07]).
+    nextreg_.set_read_handler(0x07, [this]() -> uint8_t {
+        const uint8_t req = nextreg_.cached(0x07) & 0x03;
+        const uint8_t act = req;  // expbus not modelled — actual follows requested
+        return static_cast<uint8_t>((act << 4) | req);
+    });
 
     // Register 0x12: Layer 2 active RAM bank
     nextreg_.set_write_handler(0x12, [this](uint8_t v) {
@@ -1137,8 +1151,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Kempston joystick 1 (0x001F) and 2 (0x0037). VHDL zxnext.vhd:2674-2675.
     // Reads return 0x00 (no buttons pressed). Full joystick subsystem is
     // item 17 implementation debt; these stubs satisfy the handler-exists test.
+    //
+    // Kempston 1 (port 0x001F) is gated by NR 0x82 bit 6 — VHDL
+    // zxnext.vhd:2392-2407 maps port_1f_io_en = internal_port_enable(6),
+    // whose low byte is nr_82_internal_port_enable (expbus disabled).
+    // Reset default nr_82_internal_port_enable = 0xFF (zxnext.vhd:1226,
+    // 5054), so bit 6 = 1 and Kempston responds at power-on. When the
+    // firmware clears bit 6 (OUT NR 0x82, 0xBF), the port decodes as
+    // unhandled and the floating bus default (0xFF) must be returned.
     port_.register_handler(0x00FF, 0x001F,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0xFF;
+            return 0x00;
+        },
         nullptr);
     port_.register_handler(0x00FF, 0x0037,
         [](uint16_t) -> uint8_t { return 0x00; },
