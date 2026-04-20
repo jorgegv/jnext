@@ -22,10 +22,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Sprites               |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Compositor            |      114 |      114 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | ULA Video             |      123 |       48 |      0 |      75 |    100% | Clean. Skips: contention, hi-res modes, interrupt edge |
-| I/O Port Dispatch     |       83 |       82 |      0 |       1 |    100% | Clean. 1 skip: remaining edge case                     |
+| I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. 1 skip: remaining edge case                     |
 | Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3229** | **2787** |  **0** | **442** | **100%**|                                                        |
+| **Total**             | **3229** | **2788** |  **0** | **441** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

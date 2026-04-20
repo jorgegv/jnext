@@ -693,14 +693,25 @@ static void test_group_nr_gating() {
               DETAIL("latch before=0x%02x after=0x%02x", before, after));
     }
 
-    // NR82-02: bit 2 gates port 0xDFFD (Pentagon extended bank) per
-    // VHDL zxnext.vhd:2400. Blocked on the upstream Pentagon 0xDFFD
-    // handler, which is currently a stub (emulator.cpp:731-733) with no
-    // state. A gate on a stub has no falsifiable observable. Revisit
-    // when Pentagon banking is wired up — gating itself is a 1-line add.
-    skip("NR82-02",
-         "Pentagon 0xDFFD handler is a stub — gate on stub has no "
-         "observable; implement Pentagon bank state first (zxnext.vhd:2400)");
+    // NR82-02: bit 2 of NR 0x82 gates port 0xDFFD per VHDL zxnext.vhd:2400.
+    // The 0xDFFD handler is fully wired for Next/Profi extended paging
+    // (Mmu::write_port_dffd, src/memory/mmu.cpp) with port_dffd_reg()
+    // accessor on Mmu. Observable: when bit 2 = 0, a 0xDFFD write does
+    // NOT update port_dffd_reg; when bit 2 = 1 (reset default), it does.
+    {
+        Emulator emu; build_next_emulator(emu);
+        // Seed NR 0x82 with bit 2 cleared (0xFB mask) and set initial dffd
+        // via an ungated write first. Reset default is 0xFF so the first
+        // write goes through unimpeded.
+        emu.port().out(0xDFFD, 0x00);
+        uint8_t before = emu.mmu().port_dffd_reg();
+        nr_write(emu, 0x82, 0xFB);              // clear bit 2
+        emu.port().out(0xDFFD, 0x1F);           // would normally set dffd(4:0)=0x1F
+        uint8_t after = emu.mmu().port_dffd_reg();
+        check("NR82-02", "NR 0x82 b2=0 silences OUT 0xDFFD",
+              before == after,
+              DETAIL("port_dffd_reg before=0x%02x after=0x%02x", before, after));
+    }
 
     // NR82-03: bit 3 gates 0x1FFD. VHDL 2401.
     {

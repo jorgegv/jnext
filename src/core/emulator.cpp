@@ -987,11 +987,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Decode: A15:12="1101", port_fd (A1:0="01") → mask 0xF003/0xD001.
     // Write-only in VHDL (no port_dffd_rd signal); reads at 0xDFFD fall
     // through to port_fffd_rd (AY select) per VHDL line 2771.
+    // VHDL zxnext.vhd:2400 — port_dffd write is gated by
+    // internal_port_enable(2) = nr_82_internal_port_enable(2). When NR 0x82
+    // bit 2 = 0, the port is silenced and the write is dropped.
     // Phase 2 A: forwards to Mmu::write_port_dffd which stores bits 4:0 and
     // re-composes MMU6/7 with the extra bank bits per VHDL:3763-3766.
     port_.register_handler(0xF003, 0xD001,
         nullptr,
-        [this](uint16_t, uint8_t v) { mmu_.write_port_dffd(v); });
+        [this](uint16_t, uint8_t v) {
+            if ((nextreg_.cached(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
+            mmu_.write_port_dffd(v);
+        });
 
     // Port 0xEFF7 — Pentagon-1024 disable / RAM-at-0x0000. VHDL zxnext.vhd:2604.
     // Decode: A15:12="1110", port_f7_lsb (low byte = 0xF7) → A14:13 are
