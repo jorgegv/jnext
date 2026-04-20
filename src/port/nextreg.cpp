@@ -62,6 +62,16 @@ void NextReg::reset() {
 
     // VHDL zxnext.vhd:1104 — nr_04_romram_bank defaults 0x00 at power-on.
     nr_04_romram_bank_ = 0;
+
+    // VHDL zxnext.vhd:1099-1103 — power-on defaults for the NR 0x03 state:
+    //   nr_03_machine_timing = "011" (+3 timing)
+    //   nr_03_user_dt_lock   = '0'
+    //   nr_03_machine_type   = "011" (+3 machine type)
+    // These survive the selected-register shuffle and are composed into the
+    // NR 0x03 read at zxnext.vhd:5894.
+    nr_03_machine_timing_ = 0x03;
+    nr_03_user_dt_lock_   = false;
+    nr_03_machine_type_   = 0x03;
 }
 
 void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {
@@ -124,6 +134,10 @@ void NextReg::save_state(StateWriter& w) const
     // not a concern here.
     w.write_bool(nr_03_config_mode_);
     w.write_u8(nr_04_romram_bank_);
+    // NR 0x03 composed-read state (VHDL zxnext.vhd:1099-1103, :5894).
+    w.write_u8(nr_03_machine_timing_);
+    w.write_bool(nr_03_user_dt_lock_);
+    w.write_u8(nr_03_machine_type_);
 }
 
 void NextReg::load_state(StateReader& r)
@@ -132,4 +146,7 @@ void NextReg::load_state(StateReader& r)
     r.read_bytes(regs_.data(), 256);
     nr_03_config_mode_ = r.read_bool();
     nr_04_romram_bank_ = r.read_u8();
+    nr_03_machine_timing_ = r.read_u8() & 0x07;
+    nr_03_user_dt_lock_   = r.read_bool();
+    nr_03_machine_type_   = r.read_u8() & 0x07;
 }

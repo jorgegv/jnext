@@ -50,6 +50,27 @@ public:
     uint8_t nr_04_romram_bank() const { return nr_04_romram_bank_; }
     void    set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
 
+    // VHDL nr_03_machine_timing (zxnext.vhd:1099 default "011") — 3-bit ULA/
+    // machine timing selector updated from NR 0x03 bits[6:4] under the gate
+    // at zxnext.vhd:5124 (bit 7 = 1, user_dt_lock = 0, bit 3 = 0). Composed
+    // into the NR 0x03 read at zxnext.vhd:5894.
+    uint8_t nr_03_machine_timing() const { return nr_03_machine_timing_; }
+    void    set_nr_03_machine_timing(uint8_t v) { nr_03_machine_timing_ = v & 0x07; }
+
+    // VHDL nr_03_user_dt_lock (zxnext.vhd:1100 default '0') — 1-bit lock state
+    // XOR-toggled by every NR 0x03 write with bit 3 = 1 (zxnext.vhd:5135).
+    // Once set, gates further machine-timing writes (zxnext.vhd:5124).
+    // Composed as bit 3 of the NR 0x03 read (zxnext.vhd:5894).
+    bool nr_03_user_dt_lock() const { return nr_03_user_dt_lock_; }
+    void set_nr_03_user_dt_lock(bool v) { nr_03_user_dt_lock_ = v; }
+
+    // VHDL nr_03_machine_type (zxnext.vhd:1103 default "011") — 3-bit machine
+    // type selector updated from NR 0x03 bits[2:0] when config_mode=1 at
+    // write time (zxnext.vhd:5137-5145). Composed as bits[2:0] of the NR 0x03
+    // read (zxnext.vhd:5894).
+    uint8_t nr_03_machine_type() const { return nr_03_machine_type_; }
+    void    set_nr_03_machine_type(uint8_t v) { nr_03_machine_type_ = v & 0x07; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -58,6 +79,9 @@ private:
     uint8_t selected_ = 0x24;  // VHDL zxnext.vhd:4594-4596 reset default
     bool nr_03_config_mode_ = true;  // VHDL zxnext.vhd:1102 power-on default '1'
     uint8_t nr_04_romram_bank_ = 0;  // VHDL zxnext.vhd:1104 power-on default 0x00
+    uint8_t nr_03_machine_timing_ = 0x03;  // VHDL zxnext.vhd:1099 "011" default
+    bool    nr_03_user_dt_lock_   = false; // VHDL zxnext.vhd:1100 '0' default
+    uint8_t nr_03_machine_type_   = 0x03;  // VHDL zxnext.vhd:1103 "011" default
     std::array<std::function<void(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
 };
