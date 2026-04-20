@@ -1055,9 +1055,11 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [x] Golden-output visual regression tests — `test/regression.sh` + `test/generate-references.sh`
 - [ ] CI golden-output visual regression tests integration
 
-- [ ] General code refactor and tidy up (/simplify)
-- [ ] Replacement of magic number with named constants where possible
-- [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
+- [ ] General optimization plan
+  - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review.
+  - [ ] General code refactor and tidy up (/simplify)
+  - [ ] Replacement of magic number with named constants where possible
+  - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
   - **Note:** At 400% speed (5ms frame timer), emulator only reaches ~75 FPS with 100% CPU usage instead of the expected 200 FPS. Profiling must identify the bottleneck and verify that 400% (200 FPS) is achievable.
 
 - [ ] Generate binary packages: Fedora, Debian/Ubuntu
