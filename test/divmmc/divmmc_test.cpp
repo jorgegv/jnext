@@ -1290,6 +1290,29 @@ void group_sm() {
     // SM-05: DivMMC vs Layer2 priority  (VHDL zxnext.vhd:3091)
     // SM-06: DivMMC vs ROMCS priority   (VHDL zxnext.vhd:3094)
     // SM-07: ROMCS->DivMMC bank 14/15 aliasing (VHDL zxnext.vhd:3097)
+
+    // ── Re-homed from test/mmu/mmu_test.cpp (Cat18 decode priority) ──
+    //
+    // PRI-01/02/04 are the Mmu-side view of the same DivMMC-vs-everything
+    // priority ladder that SM-05/06 tracks here. They were skipped in
+    // mmu_test.cpp because exercising them requires a live DivMmc fixture
+    // (automap state, ROM/RAM banks, NR 0xB8/0xB9 config) wired into the
+    // Mmu overlay path (Mmu::set_divmmc + divmmc_read/divmmc_write), which
+    // is out of scope for a bare Mmu unit. They are also out of scope for
+    // this bare DivMmc unit — the cross-object arbitration lives in
+    // src/memory/mmu.cpp, not in DivMmc itself — so coverage needs either
+    // a dedicated Mmu+DivMmc integration fixture or full-Emulator wiring.
+    //
+    // Tracked for the Task 3 backlog; not counted toward pass/fail here.
+    skip("PRI-01",
+         "DivMMC ROM overrides MMU (zxnext.vhd:3084) — needs Mmu+DivMmc "
+         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
+    skip("PRI-02",
+         "DivMMC RAM overrides MMU (zxnext.vhd:3087) — needs Mmu+DivMmc "
+         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
+    skip("PRI-04",
+         "DivMMC beats Layer 2 (zxnext.vhd:3091) — needs Mmu+DivMmc "
+         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
 }
 
 // ══════════════════════════════════════════════════════════════════════
