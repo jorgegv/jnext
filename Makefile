@@ -116,10 +116,14 @@ clean: debug-clean release-clean gui-clean
 regression:
 	bash test/regression.sh
 
-# Run all subsystem unit tests in parallel and report results
+# Run all subsystem unit tests in parallel and report results.
+# Writes a summary TSV to build/test-summary.tsv for `unit-test-dashboard`
+# to consume; TMPDIR stays local (per-recipe shell) and is cleaned up here.
 unit-test:
 	@BUILD=build; \
 	TMPDIR=$$(mktemp -d); \
+	SUMMARY=$$BUILD/test-summary.tsv; \
+	rm -f $$SUMMARY; \
 	TESTS="fuse_z80_test z80n_test rewind_test copper_test mmu_test nextreg_test \
 	       nextreg_integration_test input_test ctc_test layer2_test uart_test \
 	       divmmc_test sdcard_test sprites_test compositor_test ula_test port_test \
@@ -162,7 +166,7 @@ unit-test:
 		sum_failed=$$((sum_failed + t_failed)); \
 		sum_skipped=$$((sum_skipped + t_skipped)); \
 		if [ -n "$$line" ]; then \
-			printf "%s\t%s\t%s\t%s\t%s\n" "$$t" "$${t_total:-0}" "$${t_passed:-0}" "$${t_failed:-0}" "$${t_skipped:-0}" >> $$TMPDIR/summary.tsv; \
+			printf "%s\t%s\t%s\t%s\t%s\n" "$$t" "$${t_total:-0}" "$${t_passed:-0}" "$${t_failed:-0}" "$${t_skipped:-0}" >> $$SUMMARY; \
 		fi; \
 		if [ $$rc -ne 0 ] || [ "$$t_failed" -gt 0 ] 2>/dev/null; then \
 			printf "  $(CYAN)%-34s$(RESET) $(BADGE_FAIL) FAIL $(RESET)  %s\n" "$$t" "$$line"; \
@@ -179,17 +183,23 @@ unit-test:
 		$$sum_total $$sum_passed $$sum_failed $$sum_skipped; \
 	printf "$(BOLD)Suites: %d pass, %d fail, %d skip$(RESET)\n\n" \
 		$$suites_pass $$suites_fail $$suites_skip; \
+	rm -rf $$TMPDIR
 
-# Run all unit tests and refresh the dashboard status file
+# Run all unit tests and refresh the dashboard status file. Depends on
+# unit-test which writes build/test-summary.tsv; this target consumes and
+# removes it.
 unit-test-dashboard: unit-test
-	if [ -s $$TMPDIR/summary.tsv ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
-		if bash test/refresh-subsystem-status.sh $$TMPDIR/summary.tsv test/SUBSYSTEM-TESTS-STATUS.md; then \
+	@SUMMARY=build/test-summary.tsv; \
+	if [ -s $$SUMMARY ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
+		if bash test/refresh-subsystem-status.sh $$SUMMARY test/SUBSYSTEM-TESTS-STATUS.md; then \
 			printf "$(BOLD)Dashboard refreshed:$(RESET) test/SUBSYSTEM-TESTS-STATUS.md\n\n"; \
 		else \
 			printf "$(BOLD)Warning:$(RESET) dashboard refresh failed\n\n"; \
 		fi; \
+	else \
+		printf "$(BOLD)Warning:$(RESET) dashboard refresh skipped (no $$SUMMARY — did unit-test produce any rows?)\n\n"; \
 	fi; \
-	rm -rf $$TMPDIR
+	rm -f $$SUMMARY
 
 # Count lines of code (excluding comments and blanks), per directory and total
 kloc-count:

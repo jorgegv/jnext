@@ -15,16 +15,19 @@ register encoding, and arbitration between CPU and copper requesters.
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-nextreg`).
 
-Measured on main 2026-04-20 post-Task-3 NextREG Phase 2 Wave 1 merges:
+Measured on main 2026-04-20 post-Task-3 NextREG Phase 2 Wave 2 merges:
 
 - **66 plan rows total** (CLIP-09/10 added 2026-04-20 Phase-2-E).
-- **Bare test** (`test/nextreg/nextreg_test.cpp`): 21 pass / 0 fail / **2 skip** (COP-02, COP-03 — cycle-accurate CPU+Copper bus arbitration requires a harness the bare surface cannot drive). Phase 1 (2026-04-20) re-homed 32 bare skip()s to source comments pointing at the covering test.
-- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): **63 pass / 0 fail / 6 skip** out of 69 rows (up from 55/14 after Wave 1). Three Wave-1 features merged:
-  - **Feature A** (commit 0dc128e, merged): NR 0x00 RO read_handler returning 0x08 (HWID_EMULATORS) via `src/core/emulator.cpp`. Un-skipped RO-02 + SEL-03. VHDL zxnext.vhd:5884-5885.
-  - **Feature B** (commit 2cdc1f3, merged): reset seed defaults regs_[0x0E]=0x03 + regs_[0x89]=0x8F via `src/port/nextreg.cpp`. Un-skipped RO-04 + PE-05. VHDL zxnext_top_issue2.vhd:38 + zxnext.vhd:1234-1235,6149-6150.
-  - **Feature C** (commit cc51018, merged): NR 0x18 read_handler (pure combinatorial mux, no idx side-effect per VHDL zxnext.vhd:5947-5953) + public Layer2 `clip_x1/x2/y1/y2()` getters via `src/core/emulator.cpp` + `src/video/layer2.h`. Un-skipped CLIP-01/02/03/08.
-- **Remaining 6 skips (Wave 2 targets)**: RW-01 (NR 0x07 packed read — speed FSM accessor), CFG-01 (NR 0x03 composed timing read — ULA retime state accessor), CFG-02 (NR 0x03 bit 3 dt_lock XOR), CLIP-04 (SpriteEngine public clip_* getters), CLIP-05 (Emulator::ula() accessor), PE-03 (NR 0x82 bit 6 gate on port 0x1F Kempston handler at src/core/emulator.cpp:1119).
-- **Matrix-tooling gap:** `test/refresh-traceability-matrix.pl` scans the one `nextreg_test.cpp` file per subsystem; Phase 1 re-homed skip()s show as `missing` (43 rows) and Wave 1 un-skips in integration don't flip the matrix aggregate (still 19 pass / 2 skip / 43 miss). The covering test location is captured as a source comment on each re-homed row; a proper fix lives in [doc/design/REQUIREMENTS-DATABASE.md](../design/REQUIREMENTS-DATABASE.md) (future work).
+- **Bare test** (`test/nextreg/nextreg_test.cpp`): 21 pass / 0 fail / **2 skip** (COP-02, COP-03 — cycle-accurate CPU+Copper bus arbitration requires a harness the bare surface cannot drive; category F per feedback_unobservable_audit_rule.md). Phase 1 (2026-04-20) re-homed 32 bare skip()s to source comments pointing at the covering test.
+- **Integration test** (`test/nextreg/nextreg_integration_test.cpp`): **69 pass / 0 fail / 0 skip** out of 69 rows — FULLY GREEN. Six features merged across two waves:
+  - **Wave 1 Feature A** (commit 0dc128e, merged in 504e646): NR 0x00 RO read_handler returning 0x08 (HWID_EMULATORS) via `src/core/emulator.cpp`. Un-skipped RO-02 + SEL-03. VHDL zxnext.vhd:5884-5885.
+  - **Wave 1 Feature B** (commit 2cdc1f3, merged in 77a7106): reset seed defaults regs_[0x0E]=0x03 + regs_[0x89]=0x8F via `src/port/nextreg.cpp`. Un-skipped RO-04 + PE-05. VHDL zxnext_top_issue2.vhd:38 + zxnext.vhd:1234-1235, 6149-6150.
+  - **Wave 1 Feature C** (commit cc51018, merged in f6cb811): NR 0x18 read_handler (pure combinatorial mux, no idx side-effect per VHDL zxnext.vhd:5947-5953) + public Layer2 `clip_x1/x2/y1/y2()` getters via `src/core/emulator.cpp` + `src/video/layer2.h`. Un-skipped CLIP-01/02/03/08.
+  - **Wave 2 Feature D** (commit e6e2a1a): NR 0x07 packed read (VHDL-spec bits[5:4]=actual & bits[1:0]=requested per zxnext.vhd:5902-5903) + NR 0x82 bit 6 gate on port 0x1F Kempston 1 handler (VHDL:2392-2407). Un-skipped RW-01 + PE-03.
+  - **Wave 2 Feature E** (commit 28921ce): full NR 0x03 state machine — machine_timing + dt_lock + machine_type — with save/load round-trip + VHDL-spec reset defaults (VHDL:1099-1103, 5124-5151, 5894). Un-skipped CFG-01 + CFG-02.
+  - **Wave 2 Feature F** (commit 1fd1f36): SpriteEngine clip_x1/x2/y1/y2() public getters + Emulator::ula() accessor (Ula class already had clip_* getters). Un-skipped CLIP-04 + CLIP-05.
+- **Matrix-tooling gap:** `test/refresh-traceability-matrix.pl` scans the one `nextreg_test.cpp` file per subsystem; Phase 1 re-homed skip()s show as `missing` (43 rows) and Wave 1/2 un-skips in integration don't flip the matrix aggregate (still 19 pass / 2 skip / 43 miss for NextREG). The covering test location is captured as a source comment on each re-homed row; a proper fix lives in [doc/design/REQUIREMENTS-DATABASE.md](../design/REQUIREMENTS-DATABASE.md) (future work).
+- **Remaining known gap (nit)**: NR 0x03 read bit 7 returns 0 — jnext does not model `nr_palette_sub_idx`. Acceptable until palette-subindex work lands (inert at current software boundaries).
 - **(D) plan nit**: plan mixes bare-tier rows with integration-tier rows without labelling. Future plan refresh should tag each row with its intended test tier (bare / subsystem / integration). Test file's skip reasons document the tier boundary inline.
 
 ## Authoritative VHDL Source
