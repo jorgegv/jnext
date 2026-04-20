@@ -329,6 +329,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
         clip_l2_idx_ = (clip_l2_idx_ + 1) & 0x03;
     });
+    // NR 0x18 read: pure combinatorial 4-way mux over Layer 2 clip coords
+    // selected by clip_l2_idx_ (zxnext.vhd:5947-5953). Reading does NOT
+    // advance the idx — only writes advance it (zxnext.vhd:5249).
+    nextreg_.set_read_handler(0x18, [this]() -> uint8_t {
+        switch (clip_l2_idx_) {
+            case 0:  return layer2_.clip_x1();
+            case 1:  return layer2_.clip_x2();
+            case 2:  return layer2_.clip_y1();
+            default: return layer2_.clip_y2();
+        }
+    });
 
     // Register 0x19: Sprite clip window
     nextreg_.set_write_handler(0x19, [this](uint8_t v) {

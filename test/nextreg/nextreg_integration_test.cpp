@@ -765,23 +765,65 @@ static void test_sel_03(Emulator& emu) {
 static void test_clip_cycling(Emulator& emu) {
     set_group("Clip-Cycle");
 
-    // CLIP-01..05 (Layer 2 / Sprite / ULA 4-write cycling and NR 0x1C
-    // per-window reset) require public getters on the respective subsystem
-    // classes (Layer2/SpriteEngine/Ula) + an Emulator::ula() accessor that
-    // don't exist yet. Observing the cycling end-to-end via rendering would
-    // need a full frame render + pixel probe, far out of scope for the
-    // integration-tier rewrite pass. Deferred — kept as skip() in the bare
-    // test with an integration-gap note; un-skip as part of a future branch
-    // that either adds the getters or writes a rendering-based observer.
-    skip("CLIP-01",
-         "Layer2 cycling needs Layer2 public clip_* getters — integration-gap "
-         "[zxnext.vhd:5242-5290]");
-    skip("CLIP-02",
-         "Layer2 idx wrap needs Layer2 public clip_* getters — integration-gap "
-         "[zxnext.vhd:5242-5290]");
-    skip("CLIP-03",
-         "Layer2 NR 0x1C bit 0 reset needs Layer2 public clip_* getters — integration-gap "
-         "[zxnext.vhd:5242-5290]");
+    // CLIP-01 — NR 0x18 4-write cycle lands x1, x2, y1, y2 in order.
+    // VHDL zxnext.vhd:5242-5249: writes to NR 0x18 dispatch to
+    // nr_18_layer2_clip_{x1,x2,y1,y2} selected by nr_18_layer2_clip_idx,
+    // and the idx is incremented after each write.
+    {
+        // Reset L2 clip idx to 0 via NR 0x1C bit 0 (zxnext.vhd:5278-5281).
+        nr_write(emu, 0x1C, 0x01);
+        nr_write(emu, 0x18, 0x11);           // x1 ← 0x11, idx 0→1
+        nr_write(emu, 0x18, 0x22);           // x2 ← 0x22, idx 1→2
+        nr_write(emu, 0x18, 0x33);           // y1 ← 0x33, idx 2→3
+        nr_write(emu, 0x18, 0x44);           // y2 ← 0x44, idx 3→0 (wrap)
+        const auto& l2 = emu.layer2();
+        check("CLIP-01",
+              "NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 "
+              "[zxnext.vhd:5242-5249]",
+              l2.clip_x1() == 0x11 && l2.clip_x2() == 0x22 &&
+              l2.clip_y1() == 0x33 && l2.clip_y2() == 0x44,
+              "x1=" + hex2(l2.clip_x1()) + " x2=" + hex2(l2.clip_x2()) +
+              " y1=" + hex2(l2.clip_y1()) + " y2=" + hex2(l2.clip_y2()));
+    }
+
+    // CLIP-02 — NR 0x18 idx wraps mod-4: the fifth write overwrites x1.
+    // VHDL zxnext.vhd:5249: nr_18_layer2_clip_idx <= nr_18_layer2_clip_idx + 1
+    // (2-bit counter — natural mod-4 wrap).
+    {
+        nr_write(emu, 0x1C, 0x01);           // reset L2 idx to 0
+        nr_write(emu, 0x18, 0xA1);           // x1 ← 0xA1, idx 0→1
+        nr_write(emu, 0x18, 0xA2);           // x2 ← 0xA2, idx 1→2
+        nr_write(emu, 0x18, 0xA3);           // y1 ← 0xA3, idx 2→3
+        nr_write(emu, 0x18, 0xA4);           // y2 ← 0xA4, idx 3→0 (wrap)
+        nr_write(emu, 0x18, 0xBE);           // idx wrapped → x1 ← 0xBE
+        const auto& l2 = emu.layer2();
+        check("CLIP-02",
+              "NR 0x18 fifth write wraps back to x1 (mod-4 idx) "
+              "[zxnext.vhd:5242-5249]",
+              l2.clip_x1() == 0xBE && l2.clip_x2() == 0xA2 &&
+              l2.clip_y1() == 0xA3 && l2.clip_y2() == 0xA4,
+              "x1=" + hex2(l2.clip_x1()) + " x2=" + hex2(l2.clip_x2()) +
+              " y1=" + hex2(l2.clip_y1()) + " y2=" + hex2(l2.clip_y2()));
+    }
+
+    // CLIP-03 — NR 0x1C bit 0 resets Layer 2 clip idx. Writing NR 0x18
+    // after the reset lands the value in x1 regardless of prior idx.
+    // VHDL zxnext.vhd:5278-5281.
+    {
+        nr_write(emu, 0x1C, 0x01);           // reset L2 idx to 0
+        nr_write(emu, 0x18, 0x01);           // x1 ← 0x01, idx 0→1
+        nr_write(emu, 0x18, 0x02);           // x2 ← 0x02, idx 1→2
+        nr_write(emu, 0x1C, 0x01);           // reset L2 idx to 0
+        nr_write(emu, 0x18, 0xCC);           // must land on x1
+        const auto& l2 = emu.layer2();
+        check("CLIP-03",
+              "NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 "
+              "[zxnext.vhd:5278-5281]",
+              l2.clip_x1() == 0xCC,
+              "x1=" + hex2(l2.clip_x1()) + " (want 0xCC) x2=" +
+              hex2(l2.clip_x2()));
+    }
+
     skip("CLIP-04",
          "Sprite NR 0x1C bit 1 reset needs SpriteEngine public clip_* getters — integration-gap "
          "[zxnext.vhd:5242-5290]");
@@ -832,16 +874,43 @@ static void test_clip_cycling(Emulator& emu) {
               got == 0x40, detail_eq(got, uint8_t{0x40}));
     }
 
-    // CLIP-08 — NR 0x18 Layer2 clip read is a combinatorial mux over
-    // Layer2 clip coords (zxnext.vhd:5947-5953). JNEXT has no read
-    // handler installed for 0x18, so regs_[0x18] just returns the
-    // last written byte — distinct from the VHDL semantics. Out of
-    // scope for this phase (tilemap-only); covered by a future
-    // Layer2 clip read-handler branch.
-    skip("CLIP-08",
-         "NR 0x18 read handler missing — combinatorial mux over Layer2 "
-         "clip coords not installed [backlog: add read_handler for 0x18 "
-         "per zxnext.vhd:5947-5953]");
+    // CLIP-08 — NR 0x18 read is a combinatorial 4-way mux over the Layer 2
+    // clip coords selected by nr_18_layer2_clip_idx (zxnext.vhd:5947-5953).
+    // Reads do NOT advance the idx (no assignment in the read block); only
+    // writes do (zxnext.vhd:5249). We therefore seed all four coords, then
+    // walk the idx via successive writes (re-writing the same value to
+    // avoid clobbering) and read between advances to observe each slot.
+    {
+        // Seed all four slots with distinct values, idx wraps back to 0.
+        nr_write(emu, 0x1C, 0x01);           // reset L2 idx to 0
+        nr_write(emu, 0x18, 0x11);           // x1 ← 0x11, idx 0→1
+        nr_write(emu, 0x18, 0x22);           // x2 ← 0x22, idx 1→2
+        nr_write(emu, 0x18, 0x33);           // y1 ← 0x33, idx 2→3
+        nr_write(emu, 0x18, 0x44);           // y2 ← 0x44, idx 3→0
+
+        // idx = 0 → read returns x1.
+        uint8_t r_x1 = nr_read(emu, 0x18);
+
+        // Advance idx 0→1 by re-writing x1 with the same value.
+        nr_write(emu, 0x18, 0x11);
+        uint8_t r_x2 = nr_read(emu, 0x18);   // idx = 1 → x2
+
+        // Advance idx 1→2 by re-writing x2.
+        nr_write(emu, 0x18, 0x22);
+        uint8_t r_y1 = nr_read(emu, 0x18);   // idx = 2 → y1
+
+        // Advance idx 2→3 by re-writing y1.
+        nr_write(emu, 0x18, 0x33);
+        uint8_t r_y2 = nr_read(emu, 0x18);   // idx = 3 → y2
+
+        check("CLIP-08",
+              "NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances "
+              "[zxnext.vhd:5947-5953]",
+              r_x1 == 0x11 && r_x2 == 0x22 &&
+              r_y1 == 0x33 && r_y2 == 0x44,
+              "r_x1=" + hex2(r_x1) + " r_x2=" + hex2(r_x2) +
+              " r_y1=" + hex2(r_y1) + " r_y2=" + hex2(r_y2));
+    }
 
     // CLIP-09 — VHDL-faithful invariant: NR 0x1B read does NOT advance
     // clip_tm_idx_. Per zxnext.vhd:5971-5977 the read is a pure
