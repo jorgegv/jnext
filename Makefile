@@ -179,6 +179,9 @@ unit-test:
 		$$sum_total $$sum_passed $$sum_failed $$sum_skipped; \
 	printf "$(BOLD)Suites: %d pass, %d fail, %d skip$(RESET)\n\n" \
 		$$suites_pass $$suites_fail $$suites_skip; \
+
+# Run all unit tests and refresh the dashboard status file
+unit-test-dashboard: unit-test
 	if [ -s $$TMPDIR/summary.tsv ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \
 		if bash test/refresh-subsystem-status.sh $$TMPDIR/summary.tsv test/SUBSYSTEM-TESTS-STATUS.md; then \
 			printf "$(BOLD)Dashboard refreshed:$(RESET) test/SUBSYSTEM-TESTS-STATUS.md\n\n"; \
