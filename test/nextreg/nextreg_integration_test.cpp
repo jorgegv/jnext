@@ -1508,19 +1508,24 @@ static void test_layer2_bank_nr(Emulator& emu) {
               active == 0x2A && rb == 0x2A, detail);
     }
 
-    // L2M-05b — NR 0x12 bit 7 is discarded (7-bit field per VHDL).
-    // VHDL zxnext.vhd:4945: assignment is to (6:0) only.
+    // L2M-05b — NR 0x12 bit 7 is discarded on BOTH write and readback.
+    // VHDL zxnext.vhd:4945 stores bits (6:0); VHDL:5930 reads
+    // '0' & nr_12_layer2_active_bank (7-bit). The two halves must agree
+    // — a naive raw-regs_[] readback on the bare NextReg would return the
+    // unmasked byte and fail the rb assertion; only the NR 0x12 read_handler
+    // that pulls from Layer2 delivers the VHDL-spec 7-bit read.
     {
         nr_write(emu, 0x12, 0xC5);              // 0b1100_0101 → keep 0x45
         const uint8_t active = emu.layer2().active_bank();
+        const uint8_t rb     = nr_read(emu, 0x12);
         char detail[96];
         std::snprintf(detail, sizeof(detail),
-                      "active=0x%02X expected=0x45 (bit 7 masked)",
-                      active);
+                      "active=0x%02X read=0x%02X expected=0x45 (bit 7 masked)",
+                      active, rb);
         check("L2M-05b",
-              "NR 0x12 top bit is masked — only bits 6:0 stored "
-              "[zxnext.vhd:4945 nr_12_layer2_active_bank(6:0)]",
-              active == 0x45, detail);
+              "NR 0x12 top bit masked on write (Layer2 state) AND on readback "
+              "(VHDL read-handler) [zxnext.vhd:4945 + 5930]",
+              active == 0x45 && rb == 0x45, detail);
     }
 
     // L2M-06 — NR 0x13 write lands in layer2 shadow_bank (7-bit field).
@@ -1539,18 +1544,21 @@ static void test_layer2_bank_nr(Emulator& emu) {
               shadow == 0x3B && rb == 0x3B, detail);
     }
 
-    // L2M-06b — NR 0x13 bit 7 is discarded (7-bit field per VHDL).
+    // L2M-06b — NR 0x13 bit 7 is discarded on BOTH write and readback.
+    // Mirrors L2M-05b for the shadow-bank register.
+    // VHDL zxnext.vhd:4946 + 5931.
     {
         nr_write(emu, 0x13, 0xB8);              // 0b1011_1000 → keep 0x38
         const uint8_t shadow = emu.layer2().shadow_bank();
+        const uint8_t rb     = nr_read(emu, 0x13);
         char detail[96];
         std::snprintf(detail, sizeof(detail),
-                      "shadow=0x%02X expected=0x38 (bit 7 masked)",
-                      shadow);
+                      "shadow=0x%02X read=0x%02X expected=0x38 (bit 7 masked)",
+                      shadow, rb);
         check("L2M-06b",
-              "NR 0x13 top bit is masked — only bits 6:0 stored "
-              "[zxnext.vhd:4946 nr_13_layer2_shadow_bank(6:0)]",
-              shadow == 0x38, detail);
+              "NR 0x13 top bit masked on write (Layer2 state) AND on readback "
+              "(VHDL read-handler) [zxnext.vhd:4946 + 5931]",
+              shadow == 0x38 && rb == 0x38, detail);
     }
 }
 

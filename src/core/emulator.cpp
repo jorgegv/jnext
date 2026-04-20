@@ -232,10 +232,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x12, [this](uint8_t v) {
         layer2_.set_active_bank(v);
     });
+    // VHDL zxnext.vhd:5930 — port_253b_dat <= '0' & nr_12_layer2_active_bank;
+    // read returns the 7-bit authoritative state, bit 7 always 0. Bare
+    // NextReg::write stores the raw byte in regs_[0x12], so without this
+    // read_handler a write of 0xC5 would read back 0xC5 instead of the
+    // VHDL-spec 0x45. Pull directly from Layer2 where the masked value lives.
+    nextreg_.set_read_handler(0x12, [this]() -> uint8_t {
+        return layer2_.active_bank() & 0x7F;
+    });
 
     // Register 0x13: Layer 2 shadow RAM bank
     nextreg_.set_write_handler(0x13, [this](uint8_t v) {
         layer2_.set_shadow_bank(v);
+    });
+    // VHDL zxnext.vhd:5931 — port_253b_dat <= '0' & nr_13_layer2_shadow_bank;
+    // same pattern as NR 0x12 read above — 7-bit masked read from Layer2.
+    nextreg_.set_read_handler(0x13, [this]() -> uint8_t {
+        return layer2_.shadow_bank() & 0x7F;
     });
 
     // Register 0x14: Global transparency colour (Layer2/ULA/LoRes)
