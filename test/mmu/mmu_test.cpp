@@ -366,15 +366,11 @@ void test_cat3_port_7ffd() {
     // P7F-11: shadow screen select (port_7ffd_reg(3)). Mmu has no
     // shadow-screen accessor — that signal is consumed by the ULA, not
     // the memory subsystem API.
-    // P7F-11: port_7ffd bit 3 selects shadow screen (bank 7 instead of
-    // bank 5). This signal drives ULA VRAM fetch, not Mmu paging. The
-    // Mmu has no shadow-screen accessor because the bit is routed to
-    // Ula directly in Emulator::init. Integration-tier: add an assertion
-    // in nextreg_integration_test.cpp that writes port_7FFD with bit 3
-    // set and observes ULA rendering from bank 7.
-    skip("P7F-11",
-         "port_7ffd(3) drives ULA VRAM fetch, not Mmu — integration-tier "
-         "[re-home to nextreg_integration_test.cpp or ula_test.cpp]");
+    // P7F-11 — COVERED AT test/ula/ula_test.cpp S15.02 (and tracked at
+    // S15.04). port_7ffd(3) drives ULA VRAM fetch, not Mmu paging: the
+    // signal routes straight to Ula in Emulator::init and is observed by
+    // UlaBed rendering from bank 7 (page 14). Not a skip here — re-homed
+    // to the ULA integration tier.
 
     // P7F-12: lock bit (port_7ffd_reg(5)) — subsequent bank switches
     // should be ignored. VHDL zxnext.vhd:3814.
@@ -2399,19 +2395,19 @@ void test_cat17_l2_mapping() {
     // takes the active bank as a direct argument; there is no NR 0x12/0x13
     // distinction on the Mmu surface — the shadow/active selection lives
     // in NextReg.
-    // L2M-05/06: NR 0x12/0x13 shadow/active bank selection lives in NextReg,
-    // not Mmu. Mmu::set_l2_port() takes the active bank directly as a
-    // parameter — Emulator resolves NR 0x12 vs 0x13 at handler-wiring
-    // time. Integration-tier behaviour (cross-subsystem wiring, not a bare
-    // Mmu property).
-    skip("L2M-05",
-         "NR 0x12 active/shadow selection lives in NextReg → Emulator "
-         "plumbing, not bare Mmu surface — integration-tier");
+    // L2M-05 — COVERED AT test/nextreg/nextreg_integration_test.cpp
+    // L2-Bank-NR (L2M-05/L2M-05b). NR 0x12 active-bank dispatch lives in
+    // Emulator::init (handler registered at src/core/emulator.cpp:232)
+    // and stores in Layer2::set_active_bank — not on the Mmu surface. The
+    // integration test writes NR 0x12 through the real port path and
+    // observes emu.layer2().active_bank(). Not a skip here — re-homed to
+    // the NextREG integration tier.
 
-    // L2M-06: L2 shadow bank from NR 0x13 — same reason.
-    skip("L2M-06",
-         "NR 0x13 shadow bank lives in NextReg → Emulator plumbing, not "
-         "bare Mmu surface — integration-tier");
+    // L2M-06 — COVERED AT test/nextreg/nextreg_integration_test.cpp
+    // L2-Bank-NR (L2M-06/L2M-06b). NR 0x13 shadow-bank dispatch is wired
+    // symmetrically at src/core/emulator.cpp:237 and stored via
+    // Layer2::set_shadow_bank. Not a skip here — re-homed to the NextREG
+    // integration tier.
 }
 
 // ── Category 18: Memory decode priority ───────────────────────────────
@@ -2423,14 +2419,17 @@ void test_cat17_l2_mapping() {
 void test_cat18_priority() {
     set_group("Cat18 decode priority");
 
-    // PRI-01: DivMMC ROM overrides MMU. DivMmc is an out-of-line pointer
-    // in Mmu; to exercise this row we would need a real DivMmc fixture
-    // with automap state, SD-card ROM page, and NR 0xB8/0xB9 config.
-    // That is DivMmc test territory — Mmu cannot drive those states.
-    skip("PRI-01", "DivMmc overlay requires full DivMmc fixture — out of scope for Mmu unit test");
+    // PRI-01 — TRACKED AT test/divmmc/divmmc_test.cpp group_sm() (SM-05
+    // family). DivMMC ROM priority over MMU (VHDL zxnext.vhd:3084) needs
+    // an Mmu+DivMmc integration fixture — the cross-object arbitration
+    // lives in src/memory/mmu.cpp and is not exercisable from a bare Mmu
+    // nor from a bare DivMmc unit. Not a skip here — DivMMC test owns
+    // the tracking entry.
 
-    // PRI-02: DivMMC RAM overrides MMU — same reason.
-    skip("PRI-02", "DivMmc overlay requires full DivMmc fixture — out of scope for Mmu unit test");
+    // PRI-02 — TRACKED AT test/divmmc/divmmc_test.cpp group_sm() (SM-05
+    // family). DivMMC RAM priority over MMU (VHDL zxnext.vhd:3087) —
+    // same arbitration chain as PRI-01. Not a skip here — integration
+    // tier owns it.
 
     // PRI-03: L2 overrides MMU in 0-16K. This is the same behaviour
     // observed by L2M-01; duplicate the observation here with a
@@ -2452,9 +2451,10 @@ void test_cat18_priority() {
                   mmu_side, l2_side));
     }
 
-    // PRI-04: DivMMC beats L2. Same DivMmc fixture requirement as
-    // PRI-01/02.
-    skip("PRI-04", "DivMmc overlay requires full DivMmc fixture — out of scope for Mmu unit test");
+    // PRI-04 — TRACKED AT test/divmmc/divmmc_test.cpp group_sm() (SM-05
+    // family). DivMMC beats Layer 2 (VHDL zxnext.vhd:3091) — same
+    // arbitration chain as PRI-01/02. Not a skip here — integration
+    // tier owns it.
 
     // PRI-05: plain MMU path in the upper half of memory with no
     // overrides active. VHDL zxnext.vhd:2933-3133, 48-64K region uses

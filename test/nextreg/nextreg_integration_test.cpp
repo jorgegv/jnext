@@ -1478,6 +1478,82 @@ static void test_n8e_ram_gate(Emulator& emu) {
     }
 }
 
+// ── Layer 2 bank selection (MMU plan rows L2M-05, L2M-06) ─────────────
+//
+// These rows were skipped in the bare-Mmu test (test/mmu/mmu_test.cpp)
+// because the NR 0x12 (active bank) and NR 0x13 (shadow bank) write
+// dispatch lives in Emulator::init handler wiring (zxnext.vhd:4945-4946)
+// and stores in the Layer 2 subsystem, not in the bare Mmu surface.
+// Mmu::set_l2_port() takes the active bank directly as a parameter and
+// Emulator resolves NR 0x12 vs 0x13 at handler-wiring time.
+//
+// VHDL oracle: zxnext.vhd:4945 (nr_12 active) and :4946 (nr_13 shadow).
+
+static void test_layer2_bank_nr(Emulator& emu) {
+    set_group("L2-Bank-NR");
+
+    // L2M-05 — NR 0x12 write lands in layer2 active_bank (7-bit field).
+    // VHDL zxnext.vhd:4945: nr_12_layer2_active_bank <= nr_wr_dat(6:0).
+    {
+        nr_write(emu, 0x12, 0x2A);              // active bank ← 0x2A
+        const uint8_t active = emu.layer2().active_bank();
+        const uint8_t rb     = nr_read(emu, 0x12);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "active=0x%02X read=0x%02X expected=0x2A",
+                      active, rb);
+        check("L2M-05",
+              "NR 0x12 write sets Layer 2 active bank (7-bit) "
+              "[zxnext.vhd:4945 nr_12_layer2_active_bank]",
+              active == 0x2A && rb == 0x2A, detail);
+    }
+
+    // L2M-05b — NR 0x12 bit 7 is discarded (7-bit field per VHDL).
+    // VHDL zxnext.vhd:4945: assignment is to (6:0) only.
+    {
+        nr_write(emu, 0x12, 0xC5);              // 0b1100_0101 → keep 0x45
+        const uint8_t active = emu.layer2().active_bank();
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "active=0x%02X expected=0x45 (bit 7 masked)",
+                      active);
+        check("L2M-05b",
+              "NR 0x12 top bit is masked — only bits 6:0 stored "
+              "[zxnext.vhd:4945 nr_12_layer2_active_bank(6:0)]",
+              active == 0x45, detail);
+    }
+
+    // L2M-06 — NR 0x13 write lands in layer2 shadow_bank (7-bit field).
+    // VHDL zxnext.vhd:4946: nr_13_layer2_shadow_bank <= nr_wr_dat(6:0).
+    {
+        nr_write(emu, 0x13, 0x3B);              // shadow bank ← 0x3B
+        const uint8_t shadow = emu.layer2().shadow_bank();
+        const uint8_t rb     = nr_read(emu, 0x13);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "shadow=0x%02X read=0x%02X expected=0x3B",
+                      shadow, rb);
+        check("L2M-06",
+              "NR 0x13 write sets Layer 2 shadow bank (7-bit) "
+              "[zxnext.vhd:4946 nr_13_layer2_shadow_bank]",
+              shadow == 0x3B && rb == 0x3B, detail);
+    }
+
+    // L2M-06b — NR 0x13 bit 7 is discarded (7-bit field per VHDL).
+    {
+        nr_write(emu, 0x13, 0xB8);              // 0b1011_1000 → keep 0x38
+        const uint8_t shadow = emu.layer2().shadow_bank();
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "shadow=0x%02X expected=0x38 (bit 7 masked)",
+                      shadow);
+        check("L2M-06b",
+              "NR 0x13 top bit is masked — only bits 6:0 stored "
+              "[zxnext.vhd:4946 nr_13_layer2_shadow_bank(6:0)]",
+              shadow == 0x38, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1529,6 +1605,9 @@ int main() {
 
     test_n8e_ram_gate(emu);
     std::printf("  Group: N8E-RAM-Gate — done\n");
+
+    test_layer2_bank_nr(emu);
+    std::printf("  Group: L2-Bank-NR — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
