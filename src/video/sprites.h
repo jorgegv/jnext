@@ -82,6 +82,14 @@ public:
     /// NextREG 0x1C: sprite clip window Y2.
     void set_clip_y2(uint8_t val) { clip_y2_ = val; }
 
+    /// Observability getters for sprite clip window (NR 0x19 write state).
+    /// Mirror the Layer2/Tilemap/Ula convention so the NextREG integration
+    /// tests can verify the 4-write cycle + NR 0x1C bit 1 reset.
+    uint8_t clip_x1() const { return clip_x1_; }
+    uint8_t clip_x2() const { return clip_x2_; }
+    uint8_t clip_y1() const { return clip_y1_; }
+    uint8_t clip_y2() const { return clip_y2_; }
+
     /// NextREG 0x34 write: set sprite attribute slot index (alternative to
     /// port 0x303B).  bits 6:0 = sprite index, bit 7 = pattern MSB.
     void set_attr_slot(uint8_t val);
