@@ -19,11 +19,11 @@
 | DivMMC+SPI       | 123       | 95      | 86   | 0    | 9         | 28      | `d4ea4e1`         |
 | CTC+Interrupts   | 150       | 150     | 44   | 0    | 106       | 0       | `8bd9fe0`         |
 | UART+I2C/RTC     | 105       | 105     | 57   | 0    | 48        | 0       | `eee344d`         |
-| NextREG          | 64        | 53      | 19   | 0    | 34        | 11      | HEAD              |
+| NextREG          | 64        | 21      | 19   | 0    | 2         | 43      | HEAD              |
 | IO Port Dispatch | 90        | 86      | 85   | 0    | 1         | 4       | `ba19f6f`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1721** mapped to tests, **69** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.py` after Phase 2 C/A/A.1/B/D1/D2/E un-skips): **1235 pass, 0 fail, 486 skip, 69 missing**. The 69 missing rows include plan rows whose bare-test skip()s were moved to `nextreg_integration_test.cpp` / to source comments after re-homing (NextREG RST-01..08 + MMU-01 + PE-04), subsystem-level consolidations, and NextREG CLIP-09/CLIP-10 newly added in the clip-cycling plan section (sub-letter variants CLIP-09a/09b exist in the test binary but the matrix script maps plan rows by literal ID — backlog: extend script to recognise sub-letter prefixes). Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1689** mapped to tests, **101** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.pl` after NextREG Phase 1 re-homing): **1235 pass, 0 fail, 454 skip, 101 missing**. The 101 missing rows include NextREG Phase 1 (2026-04-20) which re-homed 32 bare-test skip()s to source comments pointing at the covering test (`nextreg_integration_test.cpp` for RO-01/03/05/06, RST-09, CLIP-01..08, PAL-01..06, CFG-01/02/05, PE-03/05, SEL-03, RW-01; `mmu_test.cpp` for MMU-03/04; `copper_test.cpp` ARB-04/MOV-02/07 for COP-04; Z80N suite for SEL-05); subsystem-level consolidations (NextREG RST-01..08 + MMU-01 + PE-04 from the earlier integration rewrite); and NextREG CLIP-09/CLIP-10 sub-letter-variant artefacts (CLIP-09a/09b exist in the binary but the matrix script maps plan rows by literal ID — backlog: extend script to recognise sub-letter prefixes AND cross-file re-homing). The re-homed rows are NOT genuinely dropped — see each Phase 1 source comment in `nextreg_test.cpp` for the authoritative covering location. Z80N stays permanently missing (FUSE data-driven runner, by design).
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -1728,15 +1728,15 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 |---------|--------------------------------------------------------|----------------|---------|-----------------------------------|
 | SEL-01  | Write 0x243B = 0x15, read 0x243B                       | —              | pass    | test/nextreg/nextreg_test.cpp:123 |
 | SEL-02  | Reset, read 0x243B                                     | —              | pass    | test/nextreg/nextreg_test.cpp:147 |
-| SEL-03  | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | —              | skip    | test/nextreg/nextreg_test.cpp:159 |
-| SEL-04  | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | —              | pass    | test/nextreg/nextreg_test.cpp:171 |
-| SEL-05  | NEXTREG ED 91 instruction                              | —              | skip    | test/nextreg/nextreg_test.cpp:183 |
-| RO-01   | Read NR 0x00                                           | —              | skip    | test/nextreg/nextreg_test.cpp:203 |
-| RO-02   | Write NR 0x00, read back                               | —              | skip    | test/nextreg/nextreg_test.cpp:206 |
-| RO-03   | Read NR 0x01                                           | —              | skip    | test/nextreg/nextreg_test.cpp:209 |
-| RO-04   | Read NR 0x0E                                           | —              | skip    | test/nextreg/nextreg_test.cpp:212 |
-| RO-05   | Read NR 0x0F                                           | —              | skip    | test/nextreg/nextreg_test.cpp:215 |
-| RO-06   | Read NR 0x1E/0x1F                                      | —              | skip    | test/nextreg/nextreg_test.cpp:218 |
+| SEL-03  | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | —              | missing | missing                           |
+| SEL-04  | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | —              | pass    | test/nextreg/nextreg_test.cpp:166 |
+| SEL-05  | NEXTREG ED 91 instruction                              | —              | missing | missing                           |
+| RO-01   | Read NR 0x00                                           | —              | missing | missing                           |
+| RO-02   | Write NR 0x00, read back                               | —              | missing | missing                           |
+| RO-03   | Read NR 0x01                                           | —              | missing | missing                           |
+| RO-04   | Read NR 0x0E                                           | —              | missing | missing                           |
+| RO-05   | Read NR 0x0F                                           | —              | missing | missing                           |
+| RO-06   | Read NR 0x1E/0x1F                                      | —              | missing | missing                           |
 | RST-01  | After reset, read NR 0x14                              | —              | missing | missing                           |
 | RST-02  | After reset, read NR 0x15                              | —              | missing | missing                           |
 | RST-03  | After reset, read NR 0x4A                              | —              | missing | missing                           |
@@ -1745,51 +1745,51 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | RST-06  | After reset, read NR 0x68                              | —              | missing | missing                           |
 | RST-07  | After reset, read NR 0x0B                              | —              | missing | missing                           |
 | RST-08  | After reset, read NR 0x82-0x85                         | —              | missing | missing                           |
-| RST-09  | After reset, read NR 0x1B clip                         | —              | skip    | test/nextreg/nextreg_test.cpp:246 |
-| RW-01   | 0x07                                                   | —              | skip    | test/nextreg/nextreg_test.cpp:262 |
+| RST-09  | After reset, read NR 0x1B clip                         | —              | missing | missing                           |
+| RW-01   | 0x07                                                   | —              | missing | missing                           |
 | RW-02   | 0x08                                                   | zxnext.vhd:5906 | missing | missing                                                  |
-| RW-03   | 0x12                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:278 |
-| RW-04   | 0x14                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:290 |
-| RW-05   | 0x15                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:303 |
-| RW-06   | 0x16                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:314 |
-| RW-07   | 0x42                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:325 |
-| RW-08   | 0x43                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:339 |
-| RW-09   | 0x4A                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:350 |
-| RW-10   | 0x50-57                                                | —              | pass    | test/nextreg/nextreg_test.cpp:374 |
-| RW-11   | 0x7F                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:385 |
-| RW-12   | 0x6B                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:397 |
-| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | —              | skip    | test/nextreg/nextreg_test.cpp:420 |
-| CLIP-02 | Write NR 0x18 five times                               | —              | skip    | test/nextreg/nextreg_test.cpp:423 |
-| CLIP-03 | Write NR 0x1C bit 0 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:426 |
-| CLIP-04 | Write NR 0x1C bit 1 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:429 |
-| CLIP-05 | Write NR 0x1C bit 2 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:432 |
-| CLIP-06 | Write NR 0x1C bit 3 = 1                                | —              | skip    | test/nextreg/nextreg_test.cpp:435 |
-| CLIP-07 | Read NR 0x1C                                           | —              | skip    | test/nextreg/nextreg_test.cpp:438 |
-| CLIP-08 | Read NR 0x18 cycles through clip values                | —              | skip    | test/nextreg/nextreg_test.cpp:442 |
+| RW-03   | 0x12                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:263 |
+| RW-04   | 0x14                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:275 |
+| RW-05   | 0x15                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:288 |
+| RW-06   | 0x16                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:299 |
+| RW-07   | 0x42                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:310 |
+| RW-08   | 0x43                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:324 |
+| RW-09   | 0x4A                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:335 |
+| RW-10   | 0x50-57                                                | —              | pass    | test/nextreg/nextreg_test.cpp:359 |
+| RW-11   | 0x7F                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:370 |
+| RW-12   | 0x6B                                                   | —              | pass    | test/nextreg/nextreg_test.cpp:382 |
+| CLIP-01 | Write NR 0x18 four times: 10,20,30,40                  | —              | missing | missing                           |
+| CLIP-02 | Write NR 0x18 five times                               | —              | missing | missing                           |
+| CLIP-03 | Write NR 0x1C bit 0 = 1                                | —              | missing | missing                           |
+| CLIP-04 | Write NR 0x1C bit 1 = 1                                | —              | missing | missing                           |
+| CLIP-05 | Write NR 0x1C bit 2 = 1                                | —              | missing | missing                           |
+| CLIP-06 | Write NR 0x1C bit 3 = 1                                | —              | missing | missing                           |
+| CLIP-07 | Read NR 0x1C                                           | —              | missing | missing                           |
+| CLIP-08 | Read NR 0x18 cycles through clip values                | —              | missing | missing                           |
 | MMU-01  | Reset defaults                                         | —              | missing | missing                           |
-| MMU-02  | Write NR 0x52 = 0x20, read back                        | —              | pass    | test/nextreg/nextreg_test.cpp:464 |
-| MMU-03  | Write port 0x7FFD, check MMU6/7                        | —              | skip    | test/nextreg/nextreg_test.cpp:474 |
-| MMU-04  | NextREG write overrides port write                     | —              | skip    | test/nextreg/nextreg_test.cpp:480 |
-| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | —              | skip    | test/nextreg/nextreg_test.cpp:505 |
-| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | —              | skip    | test/nextreg/nextreg_test.cpp:509 |
-| CFG-03  | Write NR 0x03 bits 2:0 = 111                           | —              | pass    | test/nextreg/nextreg_test.cpp:523 |
-| CFG-04  | Write NR 0x03 bits 2:0 = 001-100                       | —              | pass    | test/nextreg/nextreg_test.cpp:546 |
-| CFG-05  | Machine type only writable in config mode              | —              | skip    | test/nextreg/nextreg_test.cpp:553 |
-| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | —              | skip    | test/nextreg/nextreg_test.cpp:604 |
-| PAL-02  | Write NR 0x41 (8-bit colour)                           | —              | skip    | test/nextreg/nextreg_test.cpp:607 |
-| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | —              | skip    | test/nextreg/nextreg_test.cpp:610 |
-| PAL-04  | Read NR 0x41                                           | —              | skip    | test/nextreg/nextreg_test.cpp:613 |
-| PAL-05  | Read NR 0x44                                           | —              | skip    | test/nextreg/nextreg_test.cpp:616 |
-| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | —              | skip    | test/nextreg/nextreg_test.cpp:619 |
-| PE-01   | Write NR 0x82 = 0x00                                   | —              | pass    | test/nextreg/nextreg_test.cpp:636 |
-| PE-02   | Read NR 0x82 after write                               | —              | pass    | test/nextreg/nextreg_test.cpp:648 |
-| PE-03   | Disable joystick port (bit 6)                          | —              | skip    | test/nextreg/nextreg_test.cpp:657 |
+| MMU-02  | Write NR 0x52 = 0x20, read back                        | —              | pass    | test/nextreg/nextreg_test.cpp:441 |
+| MMU-03  | Write port 0x7FFD, check MMU6/7                        | —              | missing | missing                           |
+| MMU-04  | NextREG write overrides port write                     | —              | missing | missing                           |
+| CFG-01  | Write NR 0x03 bits 6:4 for timing                      | —              | missing | missing                           |
+| CFG-02  | Write NR 0x03 bit 3 toggles dt_lock                    | —              | missing | missing                           |
+| CFG-03  | Write NR 0x03 bits 2:0 = 111                           | —              | pass    | test/nextreg/nextreg_test.cpp:501 |
+| CFG-04  | Write NR 0x03 bits 2:0 = 001-100                       | —              | pass    | test/nextreg/nextreg_test.cpp:524 |
+| CFG-05  | Machine type only writable in config mode              | —              | missing | missing                           |
+| PAL-01  | Write NR 0x40 = 0x10 (palette index)                   | —              | missing | missing                           |
+| PAL-02  | Write NR 0x41 (8-bit colour)                           | —              | missing | missing                           |
+| PAL-03  | Write NR 0x44 twice (9-bit colour)                     | —              | missing | missing                           |
+| PAL-04  | Read NR 0x41                                           | —              | missing | missing                           |
+| PAL-05  | Read NR 0x44                                           | —              | missing | missing                           |
+| PAL-06  | Auto-increment disabled (NR 0x43 bit 7)                | —              | missing | missing                           |
+| PE-01   | Write NR 0x82 = 0x00                                   | —              | pass    | test/nextreg/nextreg_test.cpp:609 |
+| PE-02   | Read NR 0x82 after write                               | —              | pass    | test/nextreg/nextreg_test.cpp:621 |
+| PE-03   | Disable joystick port (bit 6)                          | —              | missing | missing                           |
 | PE-04   | Reset with reset_type=1                                | —              | missing | missing                           |
-| PE-05   | Reset with bus reset_type=0                            | —              | skip    | test/nextreg/nextreg_test.cpp:667 |
-| COP-01  | CPU write NR 0x15                                      | —              | pass    | test/nextreg/nextreg_test.cpp:684 |
-| COP-02  | Copper write NR 0x15 simultaneously                    | —              | skip    | test/nextreg/nextreg_test.cpp:693 |
-| COP-03  | CPU write while copper active                          | —              | skip    | test/nextreg/nextreg_test.cpp:700 |
-| COP-04  | Copper register limited to 0x7F                        | —              | skip    | test/nextreg/nextreg_test.cpp:708 |
+| PE-05   | Reset with bus reset_type=0                            | —              | missing | missing                           |
+| COP-01  | CPU write NR 0x15                                      | —              | pass    | test/nextreg/nextreg_test.cpp:655 |
+| COP-02  | Copper write NR 0x15 simultaneously                    | —              | skip    | test/nextreg/nextreg_test.cpp:664 |
+| COP-03  | CPU write while copper active                          | —              | skip    | test/nextreg/nextreg_test.cpp:671 |
+| COP-04  | Copper register limited to 0x7F                        | —              | missing | missing                           |
 
 ### Extra coverage (not in plan)
 

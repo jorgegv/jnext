@@ -150,15 +150,10 @@ static void test_selection() {
               sel_target == 0xA5, detail_eq(sel_target, 0xA5));
     }
 
-    // SEL-03 — NR 0x00 is read-only (g_machine_id), zxnext.vhd read
-    // dispatch ~line 5867 onwards returns the generic regardless of
-    // writes. Plan row tests that writing NR 0x00 does not change its
-    // readback. Bare NextReg has no read-only enforcement on NR 0x00; the
-    // RO lookup is installed by the subsystem that owns g_machine_id at
-    // integration time.
-    skip("SEL-03",
-         "NR 0x00 read-only enforcement lives in integration-tier "
-         "read_handler install, not bare NextReg class");
+    // SEL-03 — NR 0x00 read-only enforcement (g_machine_id, zxnext.vhd read
+    // dispatch ~line 5867). TRACKED AT nextreg_integration_test.cpp SEL-03
+    // (skip, same root cause — RO-02 missing read_handler). Re-homed: the
+    // integration suite owns the authoritative status. Not a skip here.
 
     // SEL-04 — zxnext.vhd read dispatch: NR 0x7F is a user-scratch
     // register with no RO handler, so a write+read round-trip must
@@ -176,13 +171,11 @@ static void test_selection() {
 
     // SEL-05 — Z80N NEXTREG (ED 91 rr,vv) writes NR rr with vv without
     // modifying nr_register (zxnext.vhd:4706-4777, cpu_requester_0 uses
-    // rr directly, port_243b_wr is not asserted). The bare NextReg class
-    // has no NEXTREG-instruction entry point; that opcode is decoded by
-    // the Z80 frontend which then calls nr.write(rr, vv) on the wired
-    // instance. Cannot exercise from bare class.
-    skip("SEL-05",
-         "Z80N ED 91 NEXTREG-instruction path is Z80-decoder territory, "
-         "not observable via bare NextReg class");
+    // rr directly, port_243b_wr is not asserted). COVERED AT
+    // test/z80n/z80n_test.cpp and fuse_z80_test (ED 91 opcode row).
+    // Bare NextReg has no NEXTREG-instruction entry point; decoded by
+    // the Z80 frontend which then calls nr.write(rr, vv). Not a skip
+    // here — covered by the Z80N compliance suite.
 }
 
 // ── 2. Read-Only Registers (RO-01..06) ───────────────────────────────
@@ -200,24 +193,21 @@ static void test_readonly() {
     // against a bare NextReg would be testing whatever the bare reset
     // happens to leave in regs_[], which is exactly the tautology the
     // test-plan-execution manual §1 forbids.
-    skip("RO-01",
-         "NR 0x00 machine ID lives in integration-tier read_handler "
-         "backed by VHDL g_machine_id generic [zxnext.vhd read dispatch]");
-    skip("RO-02",
-         "NR 0x00 write-then-read round-trip meaningless without the RO "
-         "read_handler installed [zxnext.vhd read dispatch]");
-    skip("RO-03",
-         "NR 0x01 core version lives in integration-tier read_handler "
-         "backed by VHDL g_version generic [zxnext.vhd read dispatch]");
-    skip("RO-04",
-         "NR 0x0E sub-version lives in integration-tier read_handler "
-         "backed by VHDL g_sub_version generic [zxnext.vhd read dispatch]");
-    skip("RO-05",
-         "NR 0x0F board issue (lower nibble) lives in integration-tier "
-         "read_handler backed by VHDL g_board_issue [zxnext.vhd read dispatch]");
-    skip("RO-06",
-         "NR 0x1E/0x1F active video line is cvc counter from VSync "
-         "pipeline, not bare NextReg state [zxnext.vhd read dispatch]");
+    //
+    //   RO-01 — COVERED AT nextreg_integration_test.cpp RO-01 (pass,
+    //           NR 0x00 reads g_machine_id = 0x08 HWID_EMULATORS).
+    //   RO-02 — TRACKED AT nextreg_integration_test.cpp RO-02 (skip,
+    //           real gap: NR 0x00 RO enforcement missing — regs_[0]
+    //           round-trips a user write).
+    //   RO-03 — COVERED AT nextreg_integration_test.cpp RO-03 (pass,
+    //           NR 0x01 reads g_version).
+    //   RO-04 — TRACKED AT nextreg_integration_test.cpp RO-04 (skip,
+    //           real gap: regs_[0x0E] not seeded to 0x03).
+    //   RO-05 — COVERED AT nextreg_integration_test.cpp RO-05 (pass,
+    //           NR 0x0F reads g_board_issue).
+    //   RO-06 — COVERED AT nextreg_integration_test.cpp RO-06 (pass,
+    //           NR 0x1E/0x1F read cvc counter from ULA VSync pipeline).
+    // Not a skip here — authoritative status lives at integration tier.
 }
 
 // ── 3. Reset Defaults (RST-01..09) ───────────────────────────────────
@@ -239,15 +229,11 @@ static void test_reset_defaults() {
     // attaches the subsystems that own the VHDL defaults, and port-path
     // NR reads return the correct values. Not a skip — just re-homed.
 
-    // RST-09 stays as a skip because even at the integration tier, clip
-    // READ cycling on NR 0x1B is not implemented (write cycling is, in
-    // emulator.cpp:304-308). The tilemap clip defaults live in
-    // TilemapEngine and are not exposed via the NextREG read path.
-    skip("RST-09",
-         "NR 0x1B clip READ cycling not implemented; tilemap clip "
-         "defaults live in TilemapEngine, not readable via NR port "
-         "[zxnext.vhd:5242-5290]. Also skipped at integration tier. "
-         "Un-skip when clip READ handlers land in Emulator::init.");
+    // RST-09 — NR 0x1B clip READ cycling. COVERED AT
+    // nextreg_integration_test.cpp RST-09 (pass, Tilemap-Clip-NR group).
+    // Tilemap clip defaults live in TilemapEngine; integration suite
+    // drives the port path with the full-machine fixture. Not a skip
+    // here — re-homed to integration tier.
 }
 
 // ── 4. Read/Write Round-Trip (RW-01..12) ─────────────────────────────
@@ -258,10 +244,9 @@ static void test_roundtrip() {
     // RW-01 — zxnext.vhd:~5156 NR 0x07 CPU-speed register: VHDL packs
     // bits (1:0)=actual_speed, (5:4)=requested_speed on read; write sets
     // (1:0). Readback differs from write — format is owned by the speed
-    // FSM, not bare NextReg.
-    skip("RW-01",
-         "NR 0x07 CPU speed read format (actual+requested packed) owned "
-         "by speed FSM, not bare NextReg [zxnext.vhd ~5156]");
+    // FSM, not bare NextReg. TRACKED AT nextreg_integration_test.cpp
+    // RW-01 (skip, real gap: read_handler packing speed FSM state
+    // not yet installed). Not a skip here — re-homed.
 
     // RW-02 — COVERED AT nextreg_integration_test.cpp RW-Asymmetric group;
     // re-homed. Bare NextReg can't observe port_7ffd_locked / contention
@@ -416,32 +401,24 @@ static void test_clip_cycling() {
     // state machine is installed as write_handlers by the Compositor /
     // Layer2 / SpriteEngine / TilemapEngine subsystems at Emulator
     // construction time. Cannot be exercised from bare NextReg.
-
-    skip("CLIP-01",
-         "L2 clip 4-way write cycling lives in Layer2 write_handler, "
-         "not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-02",
-         "L2 clip index wrap-around is Layer2 write_handler state, "
-         "not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-03",
-         "NR 0x1C bit0 L2 clip-index reset is Layer2 write_handler "
-         "state, not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-04",
-         "NR 0x1C bit1 sprite clip-index reset is SpriteEngine "
-         "write_handler state, not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-05",
-         "NR 0x1C bit2 ULA clip-index reset is ULA write_handler "
-         "state, not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-06",
-         "NR 0x1C bit3 tilemap clip-index reset is TilemapEngine "
-         "write_handler state, not bare NextReg [zxnext.vhd:5242-5290]");
-    skip("CLIP-07",
-         "NR 0x1C read-back of four packed 2-bit clip indices lives in "
-         "integration-tier read_handler, not bare NextReg "
-         "[zxnext.vhd:5242-5290]");
-    skip("CLIP-08",
-         "NR 0x18 sequential read cycling owned by Layer2 read_handler, "
-         "not bare NextReg [zxnext.vhd:5242-5290]");
+    //
+    //   CLIP-01 — TRACKED AT nextreg_integration_test.cpp CLIP-01 (skip,
+    //             needs Layer2 public clip_* getters).
+    //   CLIP-02 — TRACKED AT nextreg_integration_test.cpp CLIP-02 (skip,
+    //             needs Layer2 public clip_* getters).
+    //   CLIP-03 — TRACKED AT nextreg_integration_test.cpp CLIP-03 (skip,
+    //             needs Layer2 public clip_* getters).
+    //   CLIP-04 — TRACKED AT nextreg_integration_test.cpp CLIP-04 (skip,
+    //             needs SpriteEngine public clip_* getters).
+    //   CLIP-05 — TRACKED AT nextreg_integration_test.cpp CLIP-05 (skip,
+    //             needs Emulator::ula() accessor).
+    //   CLIP-06 — COVERED AT nextreg_integration_test.cpp CLIP-06 (pass,
+    //             tilemap clip-index reset observable via Tilemap path).
+    //   CLIP-07 — COVERED AT nextreg_integration_test.cpp CLIP-07a/07b
+    //             (pass, NR 0x1C packed read-back).
+    //   CLIP-08 — TRACKED AT nextreg_integration_test.cpp CLIP-08 (skip,
+    //             NR 0x18 read_handler not installed).
+    // Not a skip here — authoritative status lives at integration tier.
 }
 
 // ── 6. MMU Registers (MMU-01..04) ────────────────────────────────────
@@ -470,16 +447,17 @@ static void test_mmu() {
     // MMU-03 — writing port 0x7FFD must update MMU6/MMU7 via the
     // secondary port-path described in zxnext.vhd:4605. The bare NextReg
     // class has no port 0x7FFD decoder; the Mmu subsystem owns that
-    // coupling.
-    skip("MMU-03",
-         "port 0x7FFD -> NR 0x56/0x57 coupling lives in Mmu, not bare "
-         "NextReg [zxnext.vhd ~4605]");
+    // coupling. COVERED AT test/mmu/mmu_test.cpp Cat3 (P7F-01..08 bank
+    // selection + P7F-09..10 ROM selection), which exercises the port
+    // 0x7FFD write path and asserts the resulting NR 0x56/0x57 state via
+    // Mmu::get_page(6/7). Not a skip here — re-homed to MMU subsystem.
 
     // MMU-04 — last-writer-wins arbitration between NextREG path and
-    // port 0x7FFD path is again Mmu-owned state.
-    skip("MMU-04",
-         "NextREG vs port 0x7FFD last-writer-wins arbitration is Mmu "
-         "state, not bare NextReg [zxnext.vhd ~4605-4700]");
+    // port 0x7FFD path is Mmu-owned state. COVERED AT test/mmu/mmu_test.cpp
+    // Cat3 P7F-12 (lock bit) and LCK-01/02/06 (lock enforcement), plus
+    // Cat1 MMU-13/14 (NR 0x50-0x57 write/read round-trip). The arbitration
+    // semantics collapse to "both paths write to the same Mmu state",
+    // validated by the combined MMU + port tests. Not a skip here.
 }
 
 // ── 7. Machine Config (CFG-01..05) ───────────────────────────────────
@@ -502,14 +480,14 @@ static void test_cfg() {
     // directly against apply_nr_03_config_mode_transition() and
     // nr_03_config_mode().
 
-    skip("CFG-01",
-         "NR 0x03 bits 6:4 timing change is machine-type-manager "
-         "write_handler state, not bare NextReg "
-         "[zxnext.vhd:5121-5151]");
-    skip("CFG-02",
-         "NR 0x03 bit 3 dt_lock XOR toggle is machine-type-manager "
-         "write_handler state, not bare NextReg "
-         "[zxnext.vhd:5121-5151]");
+    // CFG-01 — NR 0x03 bits 6:4 machine-timing change. TRACKED AT
+    //   nextreg_integration_test.cpp CFG-01 (skip, real gap: read
+    //   composition via nr_03_machine_timing accessor not installed
+    //   on ULA retime state; bare read returns regs_[0x03] verbatim).
+    // CFG-02 — NR 0x03 bit 3 dt_lock XOR toggle. TRACKED AT
+    //   nextreg_integration_test.cpp CFG-02 (skip, real gap: dt_lock
+    //   state + NR 0x03 bit 3 XOR handler not modelled).
+    // Both re-homed to integration tier; not a skip here.
 
     // CFG-03 — bits[2:0]=111 re-enters config_mode.
     // VHDL zxnext.vhd:5147-5148. State starts at 1 after reset; driving it
@@ -550,10 +528,11 @@ static void test_cfg() {
               all_ok ? std::string{} : "still-1 values: " + fail_vals);
     }
 
-    skip("CFG-05",
-         "NR 0x03 config-mode gating of machine-type writes is "
-         "machine-type-manager write_handler state, not bare NextReg "
-         "[zxnext.vhd:5121-5151]");
+    // CFG-05 — NR 0x03 config-mode gating of machine-type writes.
+    // COVERED AT nextreg_integration_test.cpp CFG-05 (pass, Machine-Cfg
+    // group). Full-machine fixture installs the machine-type manager
+    // write_handler; integration test drives the gating via port 0x253B.
+    // Not a skip here — re-homed to integration tier.
 
     // CFG-06 — bits[2:0]=000 is a no-op (neither sets nor clears config_mode).
     // VHDL zxnext.vhd:5147-5151 (implicit "else" branch is no-change).
@@ -601,24 +580,18 @@ static void test_palette() {
     // auto-increment state all live in the palette subsystem (Layer2 /
     // Compositor side) — bare NextReg has none of them.
 
-    skip("PAL-01",
-         "NR 0x40 palette-index register sets palette-subsystem pointer, "
-         "not bare NextReg state [zxnext.vhd:4918-4920]");
-    skip("PAL-02",
-         "NR 0x41 8-bit palette write targets palette RAM in palette "
-         "subsystem, not bare NextReg [zxnext.vhd:4918-4920]");
-    skip("PAL-03",
-         "NR 0x44 9-bit palette write toggles sub_idx latch in palette "
-         "subsystem, not bare NextReg [zxnext.vhd:4918-4920]");
-    skip("PAL-04",
-         "NR 0x41 read returns palette_dat bits 8:1 from palette RAM "
-         "in palette subsystem, not bare NextReg [zxnext.vhd read dispatch]");
-    skip("PAL-05",
-         "NR 0x44 read returns priority+LSB from palette subsystem, "
-         "not bare NextReg [zxnext.vhd read dispatch]");
-    skip("PAL-06",
-         "NR 0x43 bit7 auto-increment disable gates palette-subsystem "
-         "pointer advance, not bare NextReg [zxnext.vhd:4918-4920]");
+    // PAL-01..06: all six palette-subsystem rows. COVERED AT
+    // nextreg_integration_test.cpp Palette group (all 6 passing on main
+    // after Phase 2 A.1 landed the NR 0x41 read_handler fix). Full-
+    // machine fixture wires NextReg + PaletteManager; integration suite
+    // is the authoritative home.
+    //   PAL-01 — NR 0x40 palette-index pointer (pass).
+    //   PAL-02 — NR 0x41 8-bit palette write (pass).
+    //   PAL-03 — NR 0x44 9-bit palette write + sub_idx latch (pass).
+    //   PAL-04 — NR 0x41 read returns palette_dat bits 8:1 (pass).
+    //   PAL-05 — NR 0x44 read returns priority+LSB (pass).
+    //   PAL-06 — NR 0x43 bit7 auto-increment gate (pass).
+    // Not a skip here — re-homed to integration tier.
 }
 
 // ── 9. Port Enable Registers (PE-01..05) ─────────────────────────────
@@ -652,21 +625,19 @@ static void test_port_enables() {
     }
 
     // PE-03 — joystick-port disable via NR 0x82 bit 6 gates the
-    // port_1f_dat decoder in PortDispatch. Bare NextReg does not decode
-    // ports.
-    skip("PE-03",
-         "NR 0x82 bit6 gating of port 0x1F decoder lives in "
-         "PortDispatch, not bare NextReg [zxnext.vhd:2392-2442]");
+    // port_1f_dat decoder in PortDispatch. TRACKED AT
+    // nextreg_integration_test.cpp PE-03 (skip, real gap: NR 0x82 bit 6
+    // gate on port 0x1F not wired in src/core/emulator.cpp:1119).
+    // Bare NextReg does not decode ports — re-homed to integration tier.
 
     // PE-04 — internal port-enable reset defaults (0xFF for 0x82-0x84;
     // 0x8F for 0x85 because bits 6:4 are always-zero on read per VHDL).
     // COVERED AT nextreg_integration_test.cpp Reset-Integration RST-08.
 
-    // PE-05 — bus-side port-enable reset defaults (0xFF) come from the
-    // bus reset path, not the main reset.
-    skip("PE-05",
-         "NR 0x86-0x89 bus-port-enable reset default 0xFF owned by bus "
-         "reset path, not bare NextReg [zxnext.vhd:5052-5068]");
+    // PE-05 — bus-side port-enable reset defaults. TRACKED AT
+    // nextreg_integration_test.cpp PE-05 (skip, real gap: regs_[0x89]
+    // not seeded to VHDL default 0x8F per zxnext.vhd:6147-6150).
+    // Not a skip here — re-homed to integration tier.
 }
 
 // ── 10. Copper Arbitration (COP-01..04) ──────────────────────────────
@@ -703,12 +674,11 @@ static void test_copper_arbitration() {
          "[zxnext.vhd:4706-4777]");
 
     // COP-04 — zxnext.vhd:4706-4777: copper-side register index is
-    // masked to 7 bits (MSB forced to 0). The mask is applied inside the
-    // Copper class, not NextReg, so a bare NextReg cannot see it.
-    skip("COP-04",
-         "copper register-index 7-bit mask applied in Copper class "
-         "before calling NextReg, not observable from bare NextReg "
-         "[zxnext.vhd:4706-4777]");
+    // masked to 7 bits (MSB forced to 0). The mask is applied inside
+    // the Copper class, not NextReg. COVERED AT test/copper/copper_test.cpp
+    // ARB-04 ("Copper cannot address NR 0x80..0xFF") and MOV-02/07
+    // (7-bit reg reaches NR 0x7F via MOVE). Not a skip here — re-homed
+    // to copper subsystem.
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

@@ -1020,6 +1020,30 @@ static void test_palette(Emulator& emu) {
 // Bare NextReg does not seed these. RST-08 (Reset-Integration) covers
 // NR 0x82-0x85; PE-05 is the bus-side parallel.
 
+// ── PE-03: NR 0x82 bit 6 gates port 0x1F (Kempston 1) ─────────────────
+//
+// VHDL zxnext.vhd:2392-2442 (internal port enable decode): port_1f_en is
+// composed from `nr_82_internal_port_enable(6) AND port_01_ff_io_en` so
+// NR 0x82 bit 6 = 0 masks port 0x1F off the internal bus. With the mask,
+// a read of port 0x1F falls through to the unhandled-port default
+// (floating bus, 0xFF); with bit 6 = 1 (VHDL reset default, NR 0x82 bit 6
+// reset 1 per zxnext.vhd:5052-5068), the Kempston handler responds.
+//
+// JNEXT currently registers the Kempston handler unconditionally in
+// Emulator::init (src/core/emulator.cpp:1119), ignoring NR 0x82 bit 6.
+// Real feature gap. Backlog: wire NR 0x82 bit 6 → port_1f_en gate in
+// PortDispatch (or in the handler closure) so that OUT (0x243B),0x82 /
+// OUT (0x253B),0xBF followed by IN A,(0x1F) returns 0xFF.
+
+static void test_pe_03(Emulator& /*emu*/) {
+    set_group("Port-Enable-0x1F");
+    skip("PE-03",
+         "NR 0x82 bit 6 gate on port 0x1F not implemented — Kempston "
+         "handler is registered unconditionally (src/core/emulator.cpp:"
+         "1119). VHDL zxnext.vhd:2392-2442 [backlog: install NR 0x82 "
+         "bit 6 gate on port_1f_en]");
+}
+
 static void test_pe_05(Emulator& emu) {
     set_group("Port-Enable-Bus");
     (void)emu;
@@ -1266,6 +1290,9 @@ int main() {
 
     test_palette(emu);
     std::printf("  Group: Palette — done\n");
+
+    test_pe_03(emu);
+    std::printf("  Group: Port-Enable-0x1F — done\n");
 
     test_pe_05(emu);
     std::printf("  Group: Port-Enable-Bus — done\n");
