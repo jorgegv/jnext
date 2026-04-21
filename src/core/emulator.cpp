@@ -137,6 +137,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // override per VHDL for +3 and Next variants.
     mmu_.set_machine_type(cfg.type);
 
+    // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
+    // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
+    im2_.set_machine_timing_48_or_p3(cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+
     // Build FUSE Z80 core's internal contention tables.  These provide
     // per-access contention for opcode fetches, data reads/writes, and
     // internal timing delays — matching real hardware more accurately

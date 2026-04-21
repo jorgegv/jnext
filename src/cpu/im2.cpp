@@ -60,6 +60,13 @@ void Im2Controller::reset() {
 // drives state<=state_next on rising edge.
 // -----------------------------------------------------------------------------
 void Im2Controller::tick(uint32_t /*master_cycles*/) {
+    // Pulse fabric runs BEFORE the wrapper/state-machine step because it
+    // needs to observe the rising edge of int_req, which is defined (VHDL
+    // im2_peripheral.vhd:101) as `int_req AND NOT int_req_d`. step_devices()
+    // updates int_req_d at the end of its own first phase, destroying the
+    // edge. Running step_pulse() first lets both halves sample the same
+    // pre-update state, matching the VHDL synchronous-update semantic.
+    step_pulse();
     step_devices();
 }
 
@@ -762,7 +769,103 @@ void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
     }
 }
 
-void Im2Controller::step_pulse()                        { /* Phase 2 Agent C */ }
+// -----------------------------------------------------------------------------
+// step_pulse() — VHDL zxnext.vhd:2012-2044 + im2_peripheral.vhd:184-194.
+//
+// Pulse-mode INT generator. On a rising edge of any qualifying pulse source,
+// drives pulse_int_n low and holds it low for a machine-specific duration:
+//   - 48K and +3       : 32 CPU cycles (pulse_count bit 5 becomes 1)
+//   - 128K and Pentagon: 36 CPU cycles (pulse_count bit 5 AND bit 2)
+//   - Next (ZXN)       : tracks whatever machine_timing_* NR 0x03 selects;
+//                        our set_machine_timing_48_or_p3(bool) toggles the
+//                        shorter variant when the Next is in 48K/+3 timing,
+//                        otherwise the 36-cycle variant applies.
+//
+// Per-device qualification (im2_peripheral.vhd:184-194):
+//   non-exception (EXCEPTION='0'):
+//     o_pulse_en = ((int_req AND i_int_en) OR i_int_unq) AND NOT im2_mode
+//   exception (EXCEPTION='1', only ULA, zxnext.vhd:1964):
+//     o_pulse_en = ((int_req AND i_int_en) OR i_int_unq)
+//                    AND ((im2_mode AND NOT z80_im2) OR NOT im2_mode)
+//
+// Note: `int_req` in VHDL is the edge-detected local pulse
+// (`i_int_req AND NOT int_req_d`), NOT the latched level. We reconstruct it
+// here from dev_[].int_req vs dev_[].int_req_d, which works because this
+// function runs before step_devices() updates int_req_d (see tick()).
+//
+// The peripheral block's `o_pulse_en` outputs are OR-reduced into the global
+// `pulse_int_en` (peripherals.vhd). We compute that OR across the 14 device
+// indices here.
+//
+// int_unq is a one-shot owned by Agent C (this function) — we clear it on
+// all devices when a pulse terminates. Agent D's comment in step_devices()
+// documents this hand-off ("cleared by the pulse fabric (Agent C, Wave 2)").
+// -----------------------------------------------------------------------------
+void Im2Controller::step_pulse() {
+    // Compute pulse_int_en = OR-reduction of per-device o_pulse_en.
+    bool pulse_en = false;
+    for (int i = 0; i < N; ++i) {
+        const Device& d = dev_[i];
+        // `int_req` local edge per VHDL im2_peripheral.vhd:101.
+        const bool int_req_edge = d.int_req && !d.int_req_d;
+        const bool qualified    = (int_req_edge && d.int_en) || d.int_unq;
+        if (!qualified) continue;
+
+        if (d.exception) {
+            // ULA path: fires in pulse mode always, or in IM2 mode when the
+            // CPU isn't itself in IM=2 (VHDL im2_peripheral.vhd:192).
+            if (!im2_mode_ || (im_mode_ != 2)) {
+                pulse_en = true;
+            }
+        } else {
+            // Non-exception path: fires only in pulse mode
+            // (VHDL im2_peripheral.vhd:186 — AND NOT i_mode_pulse_0_im2_1).
+            if (!im2_mode_) {
+                pulse_en = true;
+            }
+        }
+    }
+
+    // pulse_int_n sequencer per zxnext.vhd:2017-2031.
+    if (pulse_int_n_) {
+        // INT idle (high). Any pulse source starts a new pulse.
+        if (pulse_en) {
+            pulse_int_n_ = false;
+            pulse_count_ = 0;   // counter explicitly reset while pulse_int_n='1'
+                                // per zxnext.vhd:2037-2042 (process holds it 0
+                                // while pulse_int_n='1', increments otherwise).
+        }
+    } else {
+        // INT low — count up; terminate at machine-specific width.
+        // VHDL:
+        //   pulse_count_end = pulse_count(5) AND (machine_timing_48 OR
+        //                                         machine_timing_p3 OR
+        //                                         pulse_count(2));
+        // i.e. when bit 5 is set AND (48K-or-+3 OR bit 2 is set).
+        //   - 48K / +3 : terminates at count == 32 (bit5 first set).
+        //   - 128K / Pentagon / Next-default : needs bit5 AND bit2 → count == 36.
+        // VHDL's process (line 2035-2044) increments pulse_count ONLY while
+        // pulse_count_end='0'; after terminate the count freezes until the
+        // next "pulse_int_n='1'" cycle resets it. We mirror exactly.
+        const bool bit5 = (pulse_count_ & 0x20) != 0;
+        const bool bit2 = (pulse_count_ & 0x04) != 0;
+        const bool pulse_count_end = bit5 && (machine_48_or_p3_ || bit2);
+
+        if (pulse_count_end) {
+            pulse_int_n_ = true;
+            // Counter reset happens naturally on the next tick (via the
+            // pulse_int_n=='1' branch above) — mirrors VHDL line 2038.
+            // Clear the int_unq one-shots across all devices: the unqualified
+            // pulse has now fired and must not re-trigger. Wrapper-maintained
+            // latches (int_status, im2_int_req) stay as they are.
+            for (int k = 0; k < N; ++k) dev_[k].int_unq = false;
+        } else {
+            // Increment. uint8_t wrap is fine — termination gates at 32/36
+            // which are well inside 0..255.
+            pulse_count_ = static_cast<uint8_t>(pulse_count_ + 1);
+        }
+    }
+}
 
 uint8_t Im2Controller::compute_vector() const {
     // VHDL zxnext.vhd:1999 — im2_vector = nr_c0_im2_vector[2:0] & im2_vec[3:0] & '0'.
