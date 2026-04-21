@@ -111,6 +111,10 @@ void Keyboard::reset() {
     init_map();
     // All bits set = all keys released (active-low).
     std::memset(matrix_, 0xFF, sizeof(matrix_));
+    // Phase 1 scaffold additions — extended-key matrix + shift hysteresis.
+    ex_matrix_       = 0xFFFF;
+    shift_hist_[0]   = 0xFF;
+    shift_hist_[1]   = 0xFF;
 }
 
 void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
@@ -201,4 +205,34 @@ void Keyboard::tick_auto_type() {
         auto_frame_count_ = 0;
         auto_gap_ = true;  // enter gap before next key
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 scaffold additions (Task 3 Input)
+//
+// All four methods are compile-only stubs. Agent F (shift hysteresis)
+// and Agent G (extended-key matrix, NR 0xB0/0xB1) fill them in during
+// Phase 2.
+// ---------------------------------------------------------------------------
+
+void Keyboard::set_extended_key(int /*id*/, bool /*pressed*/) {
+    // Phase 1 stub — no-op. Agent G maps scancode → extended-key ID and
+    // flips the relevant bit in ex_matrix_.
+}
+
+void Keyboard::tick_scan() {
+    // Phase 1 stub — no-op. Agent F advances the shift-hysteresis
+    // confirm-on-two-agreements FSM each scan tick.
+}
+
+uint8_t Keyboard::nr_b0_byte() const {
+    // Phase 1 stub: return 0xFF (all keys released). Agent G replaces
+    // this with the VHDL bit-permutation at zxnext.vhd:6206-6208.
+    return 0xFF;
+}
+
+uint8_t Keyboard::nr_b1_byte() const {
+    // Phase 1 stub: return 0xFF (all keys released). Agent G replaces
+    // this with the VHDL bit-permutation at zxnext.vhd:6210-6212.
+    return 0xFF;
 }

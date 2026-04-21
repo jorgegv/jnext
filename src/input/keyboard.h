@@ -49,6 +49,33 @@ public:
     /// True if auto-type is currently active.
     bool auto_typing() const { return !auto_queue_.empty(); }
 
+    // -----------------------------------------------------------------------
+    // Phase 1 scaffold additions (Task 3 Input) — all stubs.
+    //
+    // Extended key matrix + two-scan shift hysteresis. The extended-key
+    // 16-bit register is read back on NR 0xB0 (bits 15..8) and NR 0xB1
+    // (bits 7..0) per zxnext.vhd:6206-6212. Shift hysteresis is the
+    // two-scan confirmation VHDL uses to debounce the SHIFT columns
+    // (Caps Shift = row 0 col 0, Symbol Shift = row 7 col 1); Agent F
+    // fills in the hysteresis FSM.
+    // -----------------------------------------------------------------------
+
+    /// Mark an extended-key ID as pressed / released. IDs follow the
+    /// VHDL i_KBD_EXTENDED_KEYS bit positions (see NR 0xB0/0xB1 read
+    /// compositions at zxnext.vhd:6206-6212). Phase 1 stub: no-op.
+    void set_extended_key(int id, bool pressed);
+
+    /// Advance the two-scan shift hysteresis by one scan tick. Called
+    /// from the Emulator frame loop (Agent F wires this). Phase 1 stub
+    /// is a no-op.
+    void tick_scan();
+
+    /// NR 0xB0 readback. Phase 1 stub returns 0xFF (all released).
+    uint8_t nr_b0_byte() const;
+
+    /// NR 0xB1 readback. Phase 1 stub returns 0xFF (all released).
+    uint8_t nr_b1_byte() const;
+
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.
     uint8_t matrix_[8];
@@ -59,4 +86,17 @@ private:
     std::vector<AutoKey> auto_queue_;
     int auto_frame_count_ = 0;
     bool auto_gap_ = false;  // true = in gap between keys
+
+    /// Extended-key 16-bit active-low register. Default 0xFFFF = all
+    /// keys released. Read via NR 0xB0 (low byte) and NR 0xB1 (high
+    /// byte) with the VHDL bit permutations at zxnext.vhd:6206-6212.
+    /// Phase 1: field declared but not yet populated — Agent G writes
+    /// the scancode→ID mapping and calls set_extended_key().
+    uint16_t ex_matrix_ = 0xFFFF;
+
+    /// Two-scan shift hysteresis buffer. shift_hist_[0] = current scan,
+    /// shift_hist_[1] = previous scan; Agent F implements the
+    /// confirm-on-two-agreements logic for Caps-Shift and Symbol-Shift.
+    /// Phase 1: field declared only.
+    uint8_t shift_hist_[2] = { 0xFF, 0xFF };
 };
