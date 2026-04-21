@@ -14,6 +14,7 @@
 - [2. Technology Choices](#2-technology-choices)
   - [2.1 Debugger UI Library Comparison](#21-debugger-ui-library-comparison)
 - [3. Architecture Overview](#3-architecture-overview)
+  - [3.1 VHDL → C++ subsystem mapping](#31-vhdl--c-subsystem-mapping)
 - [4. Project Structure](#4-project-structure)
 - [5. Module Specifications](#5-module-specifications)
   - [5.1 Clock \& Scheduler](#51-clock--scheduler)
@@ -169,37 +170,37 @@ decision. "Scope" = whether jnext intends to emulate the module. Modules
 marked `no` are physical-layer / FPGA-specific (replaced by SDL/Qt) or
 historical peripherals the project has decided not to model.
 
-| VHDL module(s) | Scope | C++ module | Comment |
-|---|---|---|---|
-| `cpu/t80n*.vhd` (soft-core Z80N) | yes | `src/cpu/z80_cpu.*` + FUSE Z80 core + `src/cpu/z80n_extensions.*` | Executes Z80 + Z80N opcodes; verified against FUSE compliance suite. |
-| `zxnext.vhd` + `zxnext_top_issue{2,4,5}.vhd` | yes | `src/core/emulator.*` | Top-level wiring. Board-issue deltas (pinout) are out-of-scope. |
-| `device/copper.vhd` | yes | `src/video/copper.*` | Video co-processor. |
-| `device/ctc.vhd` + `ctc_chan.vhd` | yes | `src/cpu/ctc.*` | 4× CTC channels, ZC/TO outputs. |
-| `device/im2_control.vhd` + `im2_device.vhd` + `im2_peripheral.vhd` + `device/peripherals.vhd` | yes | `src/cpu/im2.*` (**stub; expand to `Im2Controller` + `Im2Client` mixin**) | IM2 daisy chain, RETI/RETN decode, pulse fabric. Current 45-line stub covers none of the VHDL fabric. Real missing subsystem — schedule before CTC skip-reduction. |
-| `device/divmmc.vhd` | yes | `src/peripheral/divmmc.*` | DivMMC overlay + automap + NMI consumer. |
-| `device/dma.vhd` | yes | `src/peripheral/dma.*` | Zilog/datagear DMA. |
-| `device/multiface.vhd` | yes | `src/peripheral/multiface.*` (**Task 8, planned**) | Multiface cheat/debug cartridge. Plan skeleton at `doc/design/TASK-8-MULTIFACE-PLAN.md`. |
-| `video/zxula.vhd` + `zxula_timing.vhd` | yes | `src/video/ula.*` + `src/video/renderer.*` | Classic ULA + Next timing. |
-| `video/layer2.vhd` | yes | `src/video/layer2.*` | Layer 2 256×192×256 / 320×256×16. |
-| `video/sprites.vhd` | yes | `src/video/sprites.*` | Hardware sprite engine. |
-| `video/tilemap.vhd` | yes | `src/video/tilemap.*` | 40×32 / 80×32 tilemap. |
-| `video/lores.vhd` | yes | distributed (Compositor + NextREG + ULA) | LoRes 128×96 + Radastan 4-bit. Under-owned; 3 open questions in Compositor plan. |
-| `audio/ym2149.vhd` + `turbosound.vhd` | yes | `src/audio/ay.*` + `turbosound.*` | Triple-AY, Turbosound stereo routing. |
-| `audio/dac.vhd` + `pwm.vhd` | yes | `src/audio/dac.*` | 8-bit DAC output primitive. |
-| `audio/soundrive.vhd` | yes | `src/audio/soundrive.*` | Covox on ports 0x0F/0x1F/0xF1/0xF3. |
-| `audio/audio_mixer.vhd` | yes | `src/audio/mixer.*` | Stereo mixer + pan. |
-| `serial/spi_master.vhd` + `fifop.vhd` | yes | `src/peripheral/spi.*` | SPI master + FIFO for SD card. |
-| `serial/uart.vhd` + `uart_rx.vhd` + `uart_tx.vhd` | yes | `src/peripheral/uart.*` | ESP UART, prescaler. |
-| `input/keyboard/*`, `input/membrane/*`, `input/md6_*` | yes | `src/input/*` | Matrix keyboard + MD6 joystick + function keys. |
-| `input/membrane/emu_fnkeys.vhd` | partial | covered via `src/input/*` NR 0x06 | Host-F-key to Next-hotkey translation; internal debouncing/mux is physical-layer. |
-| `rom/bootrom*.vhd` | yes (data) | ROM files loaded from disk | Generated ROM blobs; jnext loads `nextboot.rom` + `enNxtmmc.rom`. |
-| `ram/dpram*.vhd`, `sdpram.vhd`, `tdpram.vhd` | no | `std::vector<uint8_t>` in `src/memory/ram.*` / `rom.*` | FPGA block-RAM primitives; abstracted. |
-| `audio/i2s*.vhd` | no | — | I2S external-DAC link; jnext outputs via SDL audio queue, not I2S. |
-| `input/keyboard/ps2_*.vhd` | no | SDL keyboard events | PS/2 serial protocol; SDL reports scancodes directly. |
-| `video/hdmi/*`, `video/vga/scan_convert.vhd`, `pll/*` | no | SDL/Qt framebuffer | HDMI/VGA output + scan converter + PLLs; jnext renders via SDL_Renderer/Qt. |
-| `misc/debounce.vhd`, `relaxation.vhd`, `synchronize.vhd`, `asymmetrical_debounce.vhd`, `symmetric_relaxation.vhd` | no | — | Hardware debouncing / metastability primitives; irrelevant to a software emulator. |
-| `misc/flashboot*.vhd` | no | — | FPGA configuration-ROM bootloader; jnext starts from C++ main(), not an FPGA bitstream. |
-| `serial/uart_old.vhd` | no | — | Legacy UART variant, superseded by `uart.vhd`. |
+| VHDL module(s)                                  | Scope   | C++ module                            | Comment                                                |
+|-------------------------------------------------|---------|---------------------------------------|--------------------------------------------------------|
+| `cpu/t80n*.vhd`                                 | yes     | `src/cpu/z80_cpu.*` + FUSE core       | Z80+Z80N, FUSE-verified                                |
+| `zxnext.vhd`, `zxnext_top_issue{2,4,5}.vhd`     | yes     | `src/core/emulator.*`                 | Top-level; board-issue pinout out of scope             |
+| `device/copper.vhd`                             | yes     | `src/video/copper.*`                  | Video co-processor                                     |
+| `device/ctc.vhd`, `ctc_chan.vhd`                | yes     | `src/cpu/ctc.*`                       | 4× channels, ZC/TO                                     |
+| `device/im2_*.vhd`, `peripherals.vhd`           | **gap** | `src/cpu/im2.*` (stub)                | IM2 fabric — expand to `Im2Controller`+`Im2Client`     |
+| `device/divmmc.vhd`                             | yes     | `src/peripheral/divmmc.*`             | Overlay + automap + NMI consumer                       |
+| `device/dma.vhd`                                | yes     | `src/peripheral/dma.*`                | Zilog/datagear DMA                                     |
+| `device/multiface.vhd`                          | **gap** | `src/peripheral/multiface.*` (Task 8) | Plan skeleton at `doc/design/TASK-8-MULTIFACE-PLAN.md` |
+| `video/zxula*.vhd`                              | yes     | `src/video/ula.*` + `renderer.*`      | Classic ULA + Next timing                              |
+| `video/layer2.vhd`                              | yes     | `src/video/layer2.*`                  | Layer 2 256×192×256 / 320×256×16                       |
+| `video/sprites.vhd`                             | yes     | `src/video/sprites.*`                 | Hardware sprites                                       |
+| `video/tilemap.vhd`                             | yes     | `src/video/tilemap.*`                 | 40/80 × 32 tilemap                                     |
+| `video/lores.vhd`                               | yes     | distributed (Compositor+NextREG+ULA)  | LoRes / Radastan; 3 open qs in Compositor              |
+| `audio/ym2149.vhd`, `turbosound.vhd`            | yes     | `src/audio/ay.*` + `turbosound.*`     | Triple-AY + stereo                                     |
+| `audio/dac.vhd`, `pwm.vhd`                      | yes     | `src/audio/dac.*`                     | 8-bit DAC                                              |
+| `audio/soundrive.vhd`                           | yes     | `src/audio/soundrive.*`               | Covox on 0x0F/0x1F/0xF1/0xF3                           |
+| `audio/audio_mixer.vhd`                         | yes     | `src/audio/mixer.*`                   | Stereo mix + pan                                       |
+| `serial/spi_master.vhd`, `fifop.vhd`            | yes     | `src/peripheral/spi.*`                | SPI + FIFO (SD)                                        |
+| `serial/uart*.vhd` (not `uart_old`)             | yes     | `src/peripheral/uart.*`               | ESP UART + prescaler                                   |
+| `input/keyboard/*`, `membrane/*`, `md6_*`       | yes     | `src/input/*`                         | Keyboard + MD6 + F-keys                                |
+| `input/membrane/emu_fnkeys.vhd`                 | partial | via `src/input/*` NR 0x06             | Host-F-key→hotkey; HW debounce out of scope            |
+| `rom/bootrom*.vhd`                              | data    | ROM files on disk                     | Blobs loaded from `nextboot.rom` / `enNxtmmc.rom`      |
+| `ram/dpram*.vhd`, `sdpram.vhd`, `tdpram.vhd`    | no      | `std::vector<uint8_t>`                | FPGA block-RAM primitives                              |
+| `audio/i2s*.vhd`                                | no      | —                                     | I2S; SDL audio queue used instead                      |
+| `input/keyboard/ps2_*.vhd`                      | no      | SDL key events                        | PS/2 protocol bypassed                                 |
+| `video/hdmi/*`, `vga/scan_convert.vhd`, `pll/*` | no      | SDL/Qt framebuffer                    | HDMI/VGA/PLL — SDL_Renderer/Qt                         |
+| `misc/{debounce,relaxation,synchronize,*}.vhd`  | no      | —                                     | HW debounce / metastability                            |
+| `misc/flashboot*.vhd`                           | no      | —                                     | FPGA config ROM                                        |
+| `serial/uart_old.vhd`                           | no      | —                                     | Legacy, superseded                                     |
 
 **Full audit record** (two independent critics, 2026-04-21) in memory
 at `project_vhdl_subsystem_coverage_audit_20260421.md`. Two genuine
