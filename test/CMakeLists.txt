@@ -81,7 +81,10 @@ add_test(NAME uart_tests COMMAND uart_test)
 
 # DivMMC + SPI compliance test
 add_executable(divmmc_test divmmc/divmmc_test.cpp)
-target_link_libraries(divmmc_test PRIVATE jnext_peripheral)
+# jnext_memory + jnext_debug added 2026-04-21: PRI-01/02/04 need a
+# Mmu+DivMmc integration fixture (re-homed from test/mmu/mmu_test.cpp
+# commit 7be3deb), which pulls Mmu/Ram/Rom and DebugState transitively.
+target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_debug)
 target_include_directories(divmmc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME divmmc_tests COMMAND divmmc_test)
 
