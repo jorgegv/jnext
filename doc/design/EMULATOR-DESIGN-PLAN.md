@@ -1044,12 +1044,13 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [~] DivMMC+SPI
   - [ ] UART+I2C/RTC
   - [ ] Input
-  - [ ] CTC+Interrupts
+  - [ ] CTC+Interrupts — the IM2 interrupt fabric is a real missing subsystem (`src/cpu/im2.*` is a 45-line stub); expand into `Im2Controller` + `Im2Client` mixin per VHDL `device/im2_*`, not bundled into `Ctc`. Schedule before CTC skip-reduction.
   - [ ] ULA Video
   - [ ] Audio
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
+  - [x] Reevaluate if all relevant subsystems are included - **done, all fine**
   - [x] Functional test plan (~demos) — regression screenshot tests (`test/regression.sh`) cover demo programs
   - [ ] Integration test plan — document cross-subsystem interaction scenarios (deferred items from subsystem plans)
 - [x] Golden-output visual regression tests — `test/regression.sh` + `test/generate-references.sh`
