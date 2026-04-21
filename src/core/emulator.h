@@ -398,10 +398,26 @@ private:
     uint8_t clip_tm_idx_   = 0;   ///< Tilemap clip write index (0-3)
 
     // --- IM2 hardware mode state (NextREG 0xC0–0xCF) ---
-    bool     im2_hw_mode_        = false;  ///< NextREG 0xC0 bit 0
-    uint8_t  im2_vector_base_    = 0;      ///< NextREG 0xC0 bits 7:5
-    uint8_t  im2_int_enable_[3]  = {0x81, 0, 0};  ///< 0xC4-0xC6 (soft reset defaults)
-    uint8_t  im2_int_status_[3]  = {};     ///< 0xC8-0xCA
+    //
+    // Phase 2 Wave 2 (Agent E): authoritative state now lives inside
+    // Im2Controller. These shadow fields are retained (a) for save/load
+    // wire-format compatibility and (b) because Agent G's ULA/line scheduler
+    // still writes im2_int_status_ pending migration.
+    bool     im2_hw_mode_        = false;  ///< Legacy shadow of NR 0xC0 bit 0 (deprecated; see Im2Controller::is_im2_mode)
+    uint8_t  im2_vector_base_    = 0;      ///< Legacy shadow of NR 0xC0 bits 7:5 (deprecated; see Im2Controller::vector_base)
+    uint8_t  im2_int_enable_[3]  = {0x81, 0, 0};  ///< Legacy shadow of 0xC4-0xC6 (deprecated; see Im2Controller::set_int_en_c4/c5/c6)
+    uint8_t  im2_int_status_[3]  = {};     ///< Legacy shadow of 0xC8-0xCA (deprecated; see Im2Controller::int_status_mask_c8/c9/ca)
+
+    // NR 0xC4 bit 7 (expansion-bus INT enable) — non-IM2 state, not held by
+    // Im2Controller. VHDL: nr_c4_int_en_0_expbus defaults '1' at reset
+    // (zxnext.vhd:5096). Stored here for NR 0xC4 readback.
+    bool     im2_c4_expbus_      = true;
+
+    // NR 0xC6 raw readback shadow — VHDL read (zxnext.vhd:6245):
+    //   port_253b_dat <= '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210
+    // Bits 7 and 3 always read as 0. We store the 6 meaningful bits verbatim
+    // so the read handler returns exactly what was written.
+    uint8_t  nr_c6_uart_int_en_  = 0;
 
     // --- IM2 DMA delay enables (NextREG 0xCC / 0xCD / 0xCE) ---
     // VHDL zxnext.vhd:1259-1262, :5629-5637, :6257-6263.

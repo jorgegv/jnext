@@ -97,17 +97,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
 
     // Reset line interrupt and IM2 hardware mode state.
+    // VHDL zxnext.vhd:5092-5096 reset defaults:
+    //   nr_c0_im2_vector          <= (others => '0');
+    //   nr_c0_stackless_nmi       <= '0';
+    //   nr_c0_int_mode_pulse_0_im2_1 <= '0';
+    //   nr_c4_int_en_0_expbus     <= '1';
     line_int_enabled_ = false;
     ula_int_disabled_ = false;
     line_int_value_ = 0;
     im2_hw_mode_ = false;
     im2_vector_base_ = 0;
-    im2_int_enable_[0] = 0x81;  // soft reset default: ULA + expansion bus enabled
+    im2_int_enable_[0] = 0x81;  // legacy shadow; soft reset: ULA + expbus enabled
     im2_int_enable_[1] = 0;
     im2_int_enable_[2] = 0;
     im2_int_status_[0] = 0;
     im2_int_status_[1] = 0;
     im2_int_status_[2] = 0;
+    im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
+    nr_c6_uart_int_en_ = 0;
 
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
@@ -723,46 +730,134 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // --- NextREG interrupt control registers (0xC0-0xCF) ---
+    //
+    // Phase 2 Wave 2 (Agent E): routed through Im2Controller instead of the
+    // previous shadow-store pattern. Each NR handler is now a thin adapter
+    // over the fabric API; the authoritative state lives inside Im2Controller.
 
-    // Register 0xC0: Interrupt control
-    //   bits 7:5 = programmable im2 vector high bits
-    //   bit 0 = hw im2 mode enable
+    // Register 0xC0: Interrupt control.
+    // VHDL zxnext.vhd:5596-5599 (write) + :6229-6230 (read).
+    //   Write format: VVV_0_S_MM_I
+    //     bits 7:5 = nr_c0_im2_vector (MSBs of IM2 vector)
+    //     bit  4   = 0 (unused)
+    //     bit  3   = nr_c0_stackless_nmi
+    //     bits 2:1 = (read-only; ignored on write) z80_im_mode
+    //     bit  0   = nr_c0_int_mode_pulse_0_im2_1  (0=pulse, 1=HW IM2)
+    //   Read format: matches write, with bits 2:1 reflecting the current
+    //   z80_im_mode latched by Agent A's RETI/RETN/IM decoder.
     nextreg_.set_write_handler(0xC0, [this](uint8_t v) {
-        im2_vector_base_ = v & 0xE0;
-        im2_hw_mode_ = (v & 0x01) != 0;
+        im2_.set_vector_base(static_cast<uint8_t>((v >> 5) & 0x07));
+        im2_.set_stackless_nmi((v & 0x08) != 0);
+        im2_.set_mode((v & 0x01) != 0);
+        // bits 2:1 are read-only (im_mode) — VHDL does not write them.
     });
     nextreg_.set_read_handler(0xC0, [this]() -> uint8_t {
-        uint8_t v = im2_vector_base_ & 0xE0;
-        // bits 2:1 = current interrupt mode (read-only)
-        v |= (cpu_.get_registers().IM & 0x03) << 1;
-        if (im2_hw_mode_) v |= 0x01;
+        uint8_t v = static_cast<uint8_t>((im2_.vector_base() & 0x07) << 5);
+        // bit 4 = '0' per VHDL concat.
+        if (im2_.stackless_nmi()) v |= 0x08;
+        v |= static_cast<uint8_t>((im2_.im_mode() & 0x03) << 1);
+        if (im2_.is_im2_mode())  v |= 0x01;
         return v;
     });
 
-    // Registers 0xC4-0xC6: Interrupt enable
+    // Registers 0xC4-0xC6: Interrupt enable.
+    // VHDL zxnext.vhd:5607-5617 (write) + :6238-6245 (read).
+    //
+    // NR 0xC4 — ula_int_en + expbus.
+    //   bit 7 = nr_c4_int_en_0_expbus (expansion-bus INT enable; non-IM2)
+    //   bit 1 = nr_22_line_interrupt_en (mirror of NR 0x22 bit 1)
+    //   bit 0 = (NOT written by NR 0xC4 — port_ff owns ULA int enable)
+    // Read format: E_00000_UU where UU = ula_int_en[1:0] = {line,ula}.
     nextreg_.set_write_handler(0xC4, [this](uint8_t v) {
-        // bit 0 = ULA, bit 1 = Line
-        im2_int_enable_[0] = v;
+        im2_.set_int_en_c4(v);
+        // Mirror NR 0xC4 bit 1 → nr_22_line_interrupt_en (VHDL:5610).
+        // Bit 0 is NOT written here per VHDL; port_ff owns ULA int enable.
+        line_int_enabled_ = (v & 0x02) != 0;
+        // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
+        im2_c4_expbus_ = (v & 0x80) != 0;
     });
-    nextreg_.set_write_handler(0xC5, [this](uint8_t v) {
-        // bits 7:0 = CTC channels 7:0
-        im2_int_enable_[1] = v;
-    });
-    nextreg_.set_write_handler(0xC6, [this](uint8_t v) {
-        // bit 6=UART1 Tx, bit 4=UART1 Rx, bit 2=UART0 Tx, bit 0=UART0 Rx
-        im2_int_enable_[2] = v;
+    nextreg_.set_read_handler(0xC4, [this]() -> uint8_t {
+        // VHDL :6239 — nr_c4_int_en_0_expbus & "00000" & ula_int_en
+        // ula_int_en = {nr_22_line_interrupt_en, NOT port_ff_interrupt_disable}
+        uint8_t v = 0;
+        if (im2_c4_expbus_)           v |= 0x80;
+        if (line_int_enabled_)        v |= 0x02;   // ula_int_en(1) = LINE
+        if (!ula_int_disabled_)       v |= 0x01;   // ula_int_en(0) = ULA
+        return v;
     });
 
-    // Registers 0xC8-0xCA: Interrupt status (read=status, write=clear)
-    for (int i = 0; i < 3; ++i) {
-        nextreg_.set_read_handler(static_cast<uint8_t>(0xC8 + i), [this, i]() -> uint8_t {
-            return im2_int_status_[i];
-        });
-        nextreg_.set_write_handler(static_cast<uint8_t>(0xC8 + i), [this, i](uint8_t v) {
-            // Writing set bits clears the corresponding status bits
-            im2_int_status_[i] &= ~v;
-        });
-    }
+    // NR 0xC5 — ctc_int_en (bits 7:0 = CTC7..CTC0).
+    // VHDL zxnext.vhd:4078 `nr_c5_we` also gates CTC i_int_en_wr;
+    // the CTC peripheral maintains its own int_enable state that drives
+    // the on_interrupt callback. We update BOTH sides so the fabric
+    // (im2_.set_int_en_c5) and the CTC's internal enable stay in sync.
+    nextreg_.set_write_handler(0xC5, [this](uint8_t v) {
+        ctc_.set_int_enable(v);
+        im2_.set_int_en_c5(v);
+    });
+    nextreg_.set_read_handler(0xC5, [this]() -> uint8_t {
+        // VHDL :6242 — port_253b_dat <= ctc_int_en
+        return ctc_.get_int_enable();
+    });
+
+    // NR 0xC6 — UART int enable (0_654_0_210 write format).
+    // VHDL zxnext.vhd:5615-5617: splits into nr_c6_int_en_2_654 and
+    // nr_c6_int_en_2_210 nibble fields; fabric ORs the low two bits of
+    // each for the RX int_en (line 1950).
+    nextreg_.set_write_handler(0xC6, [this](uint8_t v) {
+        im2_.set_int_en_c6(v);
+        nr_c6_uart_int_en_ = v & 0x77;   // mask out bits 7,3 (read as 0)
+    });
+    nextreg_.set_read_handler(0xC6, [this]() -> uint8_t {
+        // VHDL :6245 — '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210
+        return nr_c6_uart_int_en_;
+    });
+
+    // Registers 0xC8-0xCA: Interrupt status (read=status, write=clear).
+    // VHDL zxnext.vhd:1952-1955 (status-clear composition) + :6247-6254 (read).
+    //
+    // NR 0xC8 — LINE (bit 1) + ULA (bit 0).
+    nextreg_.set_write_handler(0xC8, [this](uint8_t v) {
+        if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::LINE);
+        if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::ULA);
+    });
+    nextreg_.set_read_handler(0xC8, [this]() -> uint8_t {
+        return im2_.int_status_mask_c8();
+    });
+
+    // NR 0xC9 — CTC 7..0 (each bit clears the corresponding CTC status).
+    // VHDL :1953: bits 3..10 of im2_status_clear are gated by nr_c9_we
+    // AND nr_wr_dat bits 0..7 respectively. CTC4..CTC7 bits are still
+    // honoured here (even though those devices are hardwired 0 upstream)
+    // to match VHDL literal decode.
+    nextreg_.set_write_handler(0xC9, [this](uint8_t v) {
+        if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::CTC0);
+        if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::CTC1);
+        if (v & 0x04) im2_.clear_status(Im2Controller::DevIdx::CTC2);
+        if (v & 0x08) im2_.clear_status(Im2Controller::DevIdx::CTC3);
+        if (v & 0x10) im2_.clear_status(Im2Controller::DevIdx::CTC4);
+        if (v & 0x20) im2_.clear_status(Im2Controller::DevIdx::CTC5);
+        if (v & 0x40) im2_.clear_status(Im2Controller::DevIdx::CTC6);
+        if (v & 0x80) im2_.clear_status(Im2Controller::DevIdx::CTC7);
+    });
+    nextreg_.set_read_handler(0xC9, [this]() -> uint8_t {
+        return im2_.int_status_mask_c9();
+    });
+
+    // NR 0xCA — UART (per VHDL :1952,:1954).
+    //   bit 6       = clear UART1 TX
+    //   bit 5 | b4  = clear UART1 RX (OR, either bit clears)
+    //   bit 2       = clear UART0 TX
+    //   bit 1 | b0  = clear UART0 RX (OR, either bit clears)
+    nextreg_.set_write_handler(0xCA, [this](uint8_t v) {
+        if (v & 0x40)          im2_.clear_status(Im2Controller::DevIdx::UART1_TX);
+        if (v & 0x30)          im2_.clear_status(Im2Controller::DevIdx::UART1_RX);
+        if (v & 0x04)          im2_.clear_status(Im2Controller::DevIdx::UART0_TX);
+        if (v & 0x03)          im2_.clear_status(Im2Controller::DevIdx::UART0_RX);
+    });
+    nextreg_.set_read_handler(0xCA, [this]() -> uint8_t {
+        return im2_.int_status_mask_ca();
+    });
 
     // Registers 0xCC/0xCD/0xCE: IM2 DMA delay enables
     // VHDL zxnext.vhd:5629-5637 (write), :6257-6263 (read).
@@ -789,23 +884,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                                     (nr_ce_dma_delay_en_uart0_ & 0x07));
     });
 
-    // Register 0x20: Generate maskable interrupt / read pending status
+    // Register 0x20: Generate unqualified maskable interrupt / read pending.
+    // VHDL zxnext.vhd:1946-1947 — NR 0x20 write drives im2_int_unq one-shots
+    // that bypass int_en (UNQ-04/05). Per VHDL bit layout:
+    //   bit 7 = unq LINE
+    //   bit 6 = unq ULA
+    //   bits 3:0 = unq CTC 3..0  (VHDL "ctc3 & ctc2 & ctc1 & ctc0" AND nr_wr_dat(3..0))
+    //
+    // Read returns currently-asserted int_status of the same set.
     nextreg_.set_read_handler(0x20, [this]() -> uint8_t {
-        // bit 7=line, bit 6=ula, bits 3:0=ctc 3:0
         uint8_t v = 0;
-        if (im2_int_status_[0] & 0x02) v |= 0x80;  // line
-        if (im2_int_status_[0] & 0x01) v |= 0x40;  // ula
-        v |= (im2_int_status_[1] & 0x0F);           // ctc 3:0
+        if (im2_.int_status(Im2Controller::DevIdx::LINE)) v |= 0x80;  // bit 7 = LINE
+        if (im2_.int_status(Im2Controller::DevIdx::ULA))  v |= 0x40;  // bit 6 = ULA
+        if (im2_.int_status(Im2Controller::DevIdx::CTC0)) v |= 0x01;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC1)) v |= 0x02;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC2)) v |= 0x04;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC3)) v |= 0x08;
         return v;
     });
     nextreg_.set_write_handler(0x20, [this](uint8_t v) {
-        // Writing set bits forces immediate interrupt generation
-        if (v & 0x80) im2_.raise(Im2Level::LINE_IRQ);
-        if (v & 0x40) im2_.raise(Im2Level::FRAME_IRQ);
-        if (v & 0x01) im2_.raise(Im2Level::CTC_0);
-        if (v & 0x02) im2_.raise(Im2Level::CTC_1);
-        if (v & 0x04) im2_.raise(Im2Level::CTC_2);
-        if (v & 0x08) im2_.raise(Im2Level::CTC_3);
+        // Per VHDL: each set bit drives int_unq for the matching device.
+        // raise_unq() is a one-shot: sets int_status + im2_int_req bypassing
+        // int_en, exactly matching UNQ-04 / UNQ-05 invariants.
+        if (v & 0x80) im2_.raise_unq(Im2Controller::DevIdx::LINE);
+        if (v & 0x40) im2_.raise_unq(Im2Controller::DevIdx::ULA);
+        if (v & 0x01) im2_.raise_unq(Im2Controller::DevIdx::CTC0);
+        if (v & 0x02) im2_.raise_unq(Im2Controller::DevIdx::CTC1);
+        if (v & 0x04) im2_.raise_unq(Im2Controller::DevIdx::CTC2);
+        if (v & 0x08) im2_.raise_unq(Im2Controller::DevIdx::CTC3);
     });
 
     // --- VHDL reset defaults (written through nextreg_.write so both
@@ -1326,23 +1432,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     dma_.write_io     = [this](uint16_t port, uint8_t val) { port_.write(port, val); };
 
     // --- Phase 5 IM2 interrupt wiring ---
+    //
+    // Phase 2 Wave 2 (Agent E): migrated from legacy raise(Im2Level::*) to
+    // DevIdx-based raise_req() so peripherals drive the real im2_peripheral
+    // wrapper (edge detect + im2_int_req latch). The callback indirection is
+    // preserved; only the target enum + API are updated.
 
     ctc_.on_interrupt = [this](int channel) {
-        Im2Level level = static_cast<Im2Level>(
-            static_cast<int>(Im2Level::CTC_0) + channel);
-        im2_.raise(level);
+        if (channel >= 0 && channel < 4) {
+            im2_.raise_req(static_cast<Im2Controller::DevIdx>(
+                static_cast<int>(Im2Controller::DevIdx::CTC0) + channel));
+        }
+        // Agent H (joy iomode) may extend this lambda to toggle
+        // joy_iomode_pin7 on channel 3; see merge coordination notes.
     };
 
+    // DMA is a "victim" of INT in the VHDL model (zxnext.vhd:2003-2008), not
+    // a priority-chain source. The scaffold keeps a legacy raise() here until
+    // Wave 3 Agent F wires NR 0xCC/CD/CE into Im2Controller::set_dma_int_en_mask
+    // and uses dma_int_pending()/dma_delay() to drive the delay latch. No
+    // DevIdx migration — DMA is not in the peripheral chain.
     dma_.on_interrupt = [this]() {
         im2_.raise(Im2Level::DMA);
     };
 
     uart_.on_tx_interrupt = [this](int channel) {
-        im2_.raise(channel == 0 ? Im2Level::UART_TX_0 : Im2Level::UART_TX_1);
+        im2_.raise_req(channel == 0 ? Im2Controller::DevIdx::UART0_TX
+                                    : Im2Controller::DevIdx::UART1_TX);
     };
 
     uart_.on_rx_interrupt = [this](int channel) {
-        im2_.raise(channel == 0 ? Im2Level::UART_RX_0 : Im2Level::UART_RX_1);
+        im2_.raise_req(channel == 0 ? Im2Controller::DevIdx::UART0_RX
+                                    : Im2Controller::DevIdx::UART1_RX);
     };
 
     // --- Phase 5 DivMMC overlay + I2C RTC + SD card ---
@@ -2422,6 +2543,8 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u8(im2_vector_base_);
     w.write_bytes(im2_int_enable_, 3);
     w.write_bytes(im2_int_status_, 3);
+    w.write_bool(im2_c4_expbus_);
+    w.write_u8(nr_c6_uart_int_en_);
     w.write_u8(clip_l2_idx_);
     w.write_u8(clip_spr_idx_);
     w.write_u8(clip_ula_idx_);
@@ -2484,6 +2607,8 @@ void Emulator::load_state(StateReader& r)
     im2_vector_base_  = r.read_u8();
     r.read_bytes(im2_int_enable_, 3);
     r.read_bytes(im2_int_status_, 3);
+    im2_c4_expbus_    = r.read_bool();
+    nr_c6_uart_int_en_ = r.read_u8();
     clip_l2_idx_  = r.read_u8();
     clip_spr_idx_ = r.read_u8();
     clip_ula_idx_ = r.read_u8();
