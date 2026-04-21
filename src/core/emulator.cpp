@@ -109,6 +109,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[1] = 0;
     im2_int_status_[2] = 0;
 
+    // VHDL zxnext.vhd:3516 — joy_iomode_pin7 resets to '1'.
+    joy_iomode_pin7_ = true;
+
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
@@ -1328,9 +1331,35 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- Phase 5 IM2 interrupt wiring ---
 
     ctc_.on_interrupt = [this](int channel) {
+        // Agent E (parallel branch) rewrites this raise() into raise_req()
+        // against the new DevIdx-based IM2 fabric. Keep Agent H's pin7
+        // toggle block (below) as an ADDITIONAL side-effect of the same
+        // callback: the merge resolution must preserve BOTH changes.
         Im2Level level = static_cast<Im2Level>(
             static_cast<int>(Im2Level::CTC_0) + channel);
         im2_.raise(level);
+
+        // --- Agent H: joy_iomode pin7 toggle on CTC ch3 ZC/TO ---
+        // VHDL zxnext.vhd:3512-3534 (process on rising edge of i_CLK_28).
+        // Only the "01" (ctc_zc_to-driven) case fires from this callback.
+        // The "00" continuous-assign case is handled where NR 0x0B is
+        // written (out of scope here); the "10"/"11" UART-driven cases
+        // are likewise out of scope.
+        // NR 0x0B bit layout (zxnext.vhd:5201-5203, reset 4939-4941):
+        //   bit 7    = nr_0b_joy_iomode_en   (reset '0')
+        //   bit 5:4  = nr_0b_joy_iomode      (reset "00")
+        //   bit 0    = nr_0b_joy_iomode_0    (reset '1')
+        if (channel == 3) {
+            const uint8_t nr0b = nextreg_.cached(0x0B);
+            const uint8_t iomode     = (nr0b >> 4) & 0x03;
+            const bool    iomode_0   = (nr0b & 0x01) != 0;
+            // VHDL zxnext.vhd:3521-3524:
+            //   if ctc_zc_to(3)='1' and (iomode_0='1' or pin7='0') then toggle.
+            // (ctc_zc_to(3)='1' is implicit: we are inside the ch3 callback.)
+            if (iomode == 0x01 && (iomode_0 || !joy_iomode_pin7_)) {
+                joy_iomode_pin7_ = !joy_iomode_pin7_;
+            }
+        }
     };
 
     dma_.on_interrupt = [this]() {
@@ -2437,6 +2466,9 @@ void Emulator::save_state(StateWriter& w) const
 
     // Branch C: NR 0x08 read mirror (bits 5..0 of last NR 0x08 write).
     w.write_u8(nr_08_stored_low_);
+
+    // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
+    w.write_bool(joy_iomode_pin7_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -2498,6 +2530,9 @@ void Emulator::load_state(StateReader& r)
 
     // Branch C: NR 0x08 read mirror.
     nr_08_stored_low_ = r.read_u8();
+
+    // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
+    joy_iomode_pin7_ = r.read_bool();
 }
 
 // ---------------------------------------------------------------------------
