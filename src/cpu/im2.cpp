@@ -68,6 +68,10 @@ void Im2Controller::tick(uint32_t /*master_cycles*/) {
     // pre-update state, matching the VHDL synchronous-update semantic.
     step_pulse();
     step_devices();
+    // im2_dma_delay latch (VHDL zxnext.vhd:2001-2010) is updated AFTER
+    // step_devices() so it observes this tick's device states + this tick's
+    // decoder-sourced dma_delay_ctrl_ pulse.
+    step_dma_delay();
 }
 
 // -----------------------------------------------------------------------------
@@ -400,13 +404,46 @@ void Im2Controller::set_stackless_nmi(bool v) { stackless_nmi_ = v; }
 bool Im2Controller::stackless_nmi() const    { return stackless_nmi_; }
 
 // -----------------------------------------------------------------------------
-// DMA int-enable — Phase 1 partial (storage only).
+// DMA int-enable — Wave 3 Agent F.
+//
+// set_dma_int_en_mask(): called by Emulator after any NR 0xCC/0xCD/0xCE write.
+// The mask layout (VHDL zxnext.vhd:1957-1958) mirrors im2_int_en (1949-1950)
+// bit-for-bit, so bit i of the mask maps to DevIdx i — i.e. the SAME priority
+// order as the per-device int_en array. We fan out to dev_[i].dma_int_en so
+// dma_int_pending() can AND with per-device state cheaply. Bits 7..10
+// (CTC4..CTC7) exist in the mask but the VHDL hardwires their peripheral
+// input to '0' (zxnext.vhd:4092); storing the mask bit anyway is harmless
+// because no peripheral will ever drive those device states away from S_0.
 // -----------------------------------------------------------------------------
 void Im2Controller::set_dma_int_en_mask(uint16_t mask14) {
     dma_int_en_mask14_ = static_cast<uint16_t>(mask14 & 0x3FFF);
+    for (int i = 0; i < N; ++i) {
+        dev_[i].dma_int_en = (dma_int_en_mask14_ >> i) & 0x1;
+    }
 }
-bool Im2Controller::dma_int_pending() const { return false; }
-bool Im2Controller::dma_delay() const       { return false; }
+
+// dma_int_pending() — VHDL im2_device.vhd:151 + peripherals.vhd OR-reduction.
+//   o_dma_int(i) = (state(i) /= S_0) AND i_dma_int_en(i)
+//   im2_dma_int  = OR of o_dma_int across all 14 devices
+bool Im2Controller::dma_int_pending() const {
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state != DevState::S_0 && dev_[i].dma_int_en) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// dma_delay() — latched im2_dma_delay per VHDL zxnext.vhd:2001-2010.
+//   im2_dma_delay <= im2_dma_int
+//                    OR (nmi_activated AND nr_cc_dma_int_en_0_7)
+//                    OR (im2_dma_delay AND dma_delay)        -- self-hold
+// Our NMI subsystem is missing (nmi_activated==false), so the second term is
+// dropped. The latch is updated once per tick() via step_dma_delay(); this
+// accessor simply returns the latched value.
+bool Im2Controller::dma_delay() const {
+    return im2_dma_delay_latched_;
+}
 
 // -----------------------------------------------------------------------------
 // Z80 integration — Phase 1 stubs.
@@ -865,6 +902,34 @@ void Im2Controller::step_pulse() {
             pulse_count_ = static_cast<uint8_t>(pulse_count_ + 1);
         }
     }
+}
+
+// step_dma_delay() — VHDL zxnext.vhd:2001-2010 (Agent F, Wave 3).
+//
+//   process (i_CLK_CPU)
+//      if rising_edge(i_CLK_CPU) then
+//         if reset = '1' then
+//            im2_dma_delay <= '0';
+//         else
+//            im2_dma_delay <= (im2_dma_int) or (nmi_activated and nr_cc_dma_int_en_0_7)
+//                              or (im2_dma_delay and dma_delay);
+//
+// Inputs:
+//   - im2_dma_int          = dma_int_pending()     (OR-reduction across devices)
+//   - nmi_activated        = false                 (NMI subsystem missing — DMA-04
+//                                                    stays as skip in ctc_test)
+//   - nr_cc_dma_int_en_0_7 = not tracked here      (its storage lives in Emulator's
+//                                                    nr_cc_dma_delay_on_nmi_)
+//   - dma_delay            = dma_delay_ctrl_       (decoder RETI SRL window)
+//
+// The "self-hold" term (im2_dma_delay AND dma_delay) extends the latched state
+// while the decoder keeps the SRL window asserted; once the window drops and
+// no new im2_dma_int is pending, the latch deasserts naturally.
+void Im2Controller::step_dma_delay() {
+    const bool dma_int = dma_int_pending();
+    const bool hold    = im2_dma_delay_latched_ && dma_delay_ctrl_;
+    im2_dma_delay_latched_ = dma_int || hold;
+    // NMI path intentionally omitted; see comment above.
 }
 
 uint8_t Im2Controller::compute_vector() const {
