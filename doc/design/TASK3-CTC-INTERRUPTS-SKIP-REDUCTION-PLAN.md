@@ -375,8 +375,8 @@ private:
     bool stackless_nmi_ = false;     // F-deferred
 
     // DMA delay latch (vhdl:2007)
-    uint8_t dma_int_en_mask14_ = 0;    // per-device enable
-    bool im2_dma_delay_latched_ = false;
+    uint16_t dma_int_en_mask14_ = 0;   // per-device enable (14 bits)
+    bool     im2_dma_delay_latched_ = false;
 
     // Which device got ACKed in the current IntAck cycle (for RETI → S_0)
     int last_acked_ = -1;
@@ -513,7 +513,7 @@ Out of scope: emulator.cpp NR handler rewiring (Phase 2 Agent E),
 
 **Expected delta:** 0 skip, +0 pass. Scaffold must compile and existing 44 CTC tests must still pass. Critic review (1 agent).
 
-### Phase 2 — Per-feature parallel agents (8 branches, max 3 concurrent)
+### Phase 2 — Per-feature parallel agents (8 branches, max 5 concurrent)
 
 Dependency DAG:
 ```
