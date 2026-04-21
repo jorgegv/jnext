@@ -197,6 +197,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     };
 
+    // Z80 IntAck vector fetch callback — when the Z80 enters an interrupt
+    // acknowledge M1 cycle, pull the vector from the IM2 fabric (Agent B's
+    // ack_vector() walks dev_[] priority order and latches the winning
+    // device into S_ACK). In pulse mode the fabric's state machine holds
+    // all devices at S_0, so ack_vector() returns 0xFF — byte-identical to
+    // the legacy cpu_.request_interrupt(0xFF) + int_vector_=0xFF path.
+    cpu_.on_int_ack = [this]() -> uint8_t {
+        return im2_.ack_vector();
+    };
+
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
     if (cfg.magic_breakpoint) {
         cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
@@ -2148,6 +2158,20 @@ void Emulator::run_frame()
 
             // Convert T-states to 28 MHz master cycles.
             master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
+
+            // Advance the IM2 controller one tick per instruction. This is
+            // coarser than the VHDL per-CLK_CPU-rising-edge model but is
+            // sufficient for:
+            //   - device state-machine transitions (S_0→S_REQ→S_ACK→S_ISR
+            //     → S_0), which react to per-M1 signals anyway;
+            //   - pulse fabric counter (coarser granularity stretches the
+            //     pulse duration beyond VHDL's 32/36 cycles but preserves
+            //     the outcome — INT low then high);
+            //   - DMA delay latch, which is sampled once per frame into
+            //     Dma::set_dma_delay at the top of run_frame().
+            // Test code that needs finer granularity can drive im2_.tick()
+            // directly (most ctc_test rows do).
+            im2_.tick(master_cycles);
 
             // Count instructions for RZX recording.
             if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;

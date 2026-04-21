@@ -125,9 +125,9 @@ unit-test:
 	SUMMARY=$$BUILD/test-summary.tsv; \
 	rm -f $$SUMMARY; \
 	TESTS="fuse_z80_test z80n_test rewind_test copper_test mmu_test nextreg_test \
-	       nextreg_integration_test input_test ctc_test layer2_test uart_test \
-	       divmmc_test sdcard_test sprites_test compositor_test ula_test port_test \
-	       audio_test dma_test tilemap_test"; \
+	       nextreg_integration_test input_test ctc_test ctc_int_test layer2_test \
+	       uart_test divmmc_test sdcard_test sprites_test compositor_test ula_test \
+	       port_test audio_test dma_test tilemap_test"; \
 	for t in $$TESTS; do \
 		bin="$$BUILD/test/$$t"; \
 		if [ ! -x "$$bin" ]; then continue; fi; \
