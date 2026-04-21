@@ -179,6 +179,9 @@ private:
     void advance_decoder(uint8_t opcode);
     void step_devices();
     void step_pulse();
+    // im2_dma_delay latch (VHDL zxnext.vhd:2001-2010) — Agent F, Wave 3.
+    // Runs after step_devices() in each tick(). See im2.cpp for details.
+    void step_dma_delay();
     uint8_t compute_vector() const;
     bool device_ieo(int i) const;
     void propagate_isr_serviced();

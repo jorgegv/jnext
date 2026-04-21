@@ -867,10 +867,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Registers 0xCC/0xCD/0xCE: IM2 DMA delay enables
-    // VHDL zxnext.vhd:5629-5637 (write), :6257-6263 (read).
+    // VHDL zxnext.vhd:5629-5637 (write), :6257-6263 (read), :1957-1958 (compose).
+    // Wave 3 Agent F: after any write, recompose the 14-bit mask and hand it
+    // to Im2Controller so dma_int_pending() observes the new per-device enables.
     nextreg_.set_write_handler(0xCC, [this](uint8_t v) {
         nr_cc_dma_delay_on_nmi_ = (v & 0x80) != 0;
         nr_cc_dma_delay_en_ula_ = v & 0x03;
+        im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
     });
     nextreg_.set_read_handler(0xCC, [this]() -> uint8_t {
         return static_cast<uint8_t>((nr_cc_dma_delay_on_nmi_ ? 0x80 : 0) |
@@ -878,6 +881,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
     nextreg_.set_write_handler(0xCD, [this](uint8_t v) {
         nr_cd_dma_delay_en_ctc_ = v;
+        im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
     });
     nextreg_.set_read_handler(0xCD, [this]() -> uint8_t {
         return nr_cd_dma_delay_en_ctc_;
@@ -885,6 +889,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0xCE, [this](uint8_t v) {
         nr_ce_dma_delay_en_uart1_ = (v >> 4) & 0x07;
         nr_ce_dma_delay_en_uart0_ = v & 0x07;
+        im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
     });
     nextreg_.set_read_handler(0xCE, [this]() -> uint8_t {
         return static_cast<uint8_t>(((nr_ce_dma_delay_en_uart1_ & 0x07) << 4) |
@@ -1478,10 +1483,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     };
 
     // DMA is a "victim" of INT in the VHDL model (zxnext.vhd:2003-2008), not
-    // a priority-chain source. The scaffold keeps a legacy raise() here until
-    // Wave 3 Agent F wires NR 0xCC/CD/CE into Im2Controller::set_dma_int_en_mask
-    // and uses dma_int_pending()/dma_delay() to drive the delay latch. No
-    // DevIdx migration — DMA is not in the peripheral chain.
+    // a priority-chain source. Wave 3 Agent F: NR 0xCC/CD/CE now drive
+    // Im2Controller::set_dma_int_en_mask (see the NR handlers above), and
+    // dma_int_pending()/dma_delay() feed the per-frame hook in run_frame()
+    // below. The legacy raise(Im2Level::DMA) is left in place as a vestigial
+    // save/load-schema artifact — Im2Level::DMA maps to DevIdx::ULA via
+    // to_devidx() (harmless because the legacy API path uses its own pending
+    // view keyed by Im2Level index) and the legacy mask bit is unused by any
+    // live code path. Candidate for removal in a future cleanup once every
+    // save-state reader is rebuilt.
     dma_.on_interrupt = [this]() {
         im2_.raise(Im2Level::DMA);
     };
@@ -1917,6 +1927,14 @@ void Emulator::stop_rzx_recording()
 
 void Emulator::run_frame()
 {
+    // Per-frame sample of the IM2 DMA-delay latch into the DMA peripheral.
+    // VHDL zxnext.vhd:2001-2010 models this as a per-CPU-clock latch, but
+    // the jnext architecture runs the DMA start-gate check coarsely, so a
+    // per-frame sample (user-resolved decision 2026-04-21, option A) is
+    // adequate for the currently-covered test rows (DMA-01/02/03/05, NR CC/CD/CE-01).
+    // Finer-grain wiring can be revisited if a specific workload requires it.
+    dma_.set_dma_delay(im2_.dma_delay());
+
     // Handle rewind step modes set by the GUI or scripting layer.
     // These are processed before the normal snapshot so we don't take a
     // snapshot of the "current" state before rewinding away from it.
