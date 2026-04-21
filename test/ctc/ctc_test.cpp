@@ -780,12 +780,15 @@ void section5_control_vector() {
               fmt("got 0x%02x", v));
     }
 
-    // CTC-CW-11 — ctc_chan.vhd:250-256: iowr = i_iowr AND NOT iowr_d.
-    // This is the rising-edge detection that prevents a held write signal
-    // from issuing multiple writes. jnext write() is a discrete call so
-    // the facility is not observable at this layer.
-    skip("CTC-CW-11",
-         "iowr rising-edge detect is not observable: jnext write() is a discrete API call");
+    // CTC-CW-11 — (D) structurally unreachable stimulus.
+    // ctc_chan.vhd:250-256 `iowr = i_iowr AND NOT iowr_d` is the VHDL
+    // rising-edge detect that prevents a held i_iowr signal from issuing
+    // multiple writes. jnext's write() is a discrete API call; there is
+    // no held-signal scenario to construct at this abstraction layer, so
+    // the invariant has no outcome-observable surface. Outcome-equivalent
+    // behaviour (exactly-one write per call, no double-writes) is covered
+    // end-to-end by every CTC-SM-* / CTC-CW-* check above, which would
+    // all fail if any single write() produced two register updates.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -834,10 +837,12 @@ void section6_nextreg_int_enable() {
 
     // CTC-NR-04 — zxnext.vhd constraint: nr_c5_we must not overlap
     // i_iowr because control_reg is a single-ported register updated by
-    // whichever strobe is active. jnext has no cycle-accurate bus model
-    // for this collision.
+    // whichever strobe is active. jnext serialises both write paths at
+    // the C++ call level; both writes land, no cycle-level overlap is
+    // constructible. WONT-conversion deferred by user 2026-04-21 pending
+    // later WONT-sweep audit; stays as skip in the meantime.
     skip("CTC-NR-04",
-         "NR 0xC5 vs port write overlap is not modelled (no shared strobe)");
+         "NR 0xC5 vs port-write overlap — cycle-accurate bus arbitration, review later");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -864,7 +869,12 @@ void section7_im2_control() {
     skip("IM2C-10", "im_mode=00 (IM0) detection outside CTC scope");
     skip("IM2C-11", "im_mode=01 (IM1) detection outside CTC scope");
     skip("IM2C-12", "im_mode=10 (IM2) detection outside CTC scope");
-    skip("IM2C-13", "falling-edge CLK_CPU update timing not observable");
+    // IM2C-13 — (B) VHDL-internal pipeline signal. im2_control.vhd updates
+    // im_mode on `falling_edge(i_CLK_CPU)`; a single-threaded tick-based
+    // emulator collapses rising and falling edges into one function call,
+    // so the half-cycle delay is unobservable. Outcome-equivalent behaviour
+    // (im_mode reflects the latest ED-4[6/E]/56 decode) is covered by
+    // IM2C-10/11/12 once the decoder lands (Agent A).
     skip("IM2C-14", "im_mode reset default not observable from Ctc");
 }
 
@@ -908,7 +918,11 @@ void section10_pulse_mode() {
     skip("PULSE-06", "128K/Pentagon pulse duration not modelled in Ctc");
     skip("PULSE-07", "pulse counter reset not exposed");
     skip("PULSE-08", "INT_n = pulse_int_n AND im2_int_n not composed in Ctc");
-    skip("PULSE-09", "o_BUS_INT_n not exposed");
+    // PULSE-09 — (B) VHDL-internal pipeline signal. zxnext.vhd drives
+    // `o_BUS_INT_n <= pulse_int_n AND im2_int_n` out to the expansion-bus
+    // connector. jnext has no modelled expansion bus at this layer; the
+    // compose is outcome-identical to PULSE-08 (internal INT_n to Z80)
+    // which Agent C covers once the pulse fabric lands.
 }
 
 void section11_im2_peripheral() {
@@ -921,16 +935,31 @@ void section11_im2_peripheral() {
     skip("IM2W-06", "o_int_status composite not exposed");
     skip("IM2W-07", "im2_reset_n composite not exposed");
     skip("IM2W-08", "int_unq bypass not modelled");
-    skip("IM2W-09", "isr_serviced cross-domain edge detect not observable");
+    // IM2W-09 — (B) VHDL-internal pipeline signal. im2_peripheral.vhd:137-148
+    // samples isr_serviced from the CLK_CPU domain into CLK_28 via
+    // `isr_serviced_d <= isr_serviced` + edge-detect
+    // `im2_isr_serviced <= isr_serviced AND NOT isr_serviced_d`. A single-
+    // threaded tick-based emulator collapses both domains into one call
+    // sequence, so the cross-domain delay is unobservable. Outcome (the
+    // one-cycle pulse that clears the pending latch) is covered by
+    // IM2W-02/03 once the wrapper lands (Agent D).
 }
 
 void section12_ula_line_int() {
     set_group("12. ULA/Line Int (skipped)");
-    skip("ULA-INT-01", "ULA HC/VC interrupt not in Ctc subsystem");
-    skip("ULA-INT-02", "port 0xFF interrupt disable not in Ctc subsystem");
-    skip("ULA-INT-03", "ula_int_en wiring not in Ctc subsystem");
+    // ULA-INT-01 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (ULA HC/VC interrupt fires at int_h/int_v — needs full Emulator +
+    // Ula + Im2Controller to observe; added in Phase 3).
+    // ULA-INT-02 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (port 0xFF bit suppresses ULA interrupt — needs port dispatch +
+    // ULA + Im2Controller wiring; added in Phase 3).
+    // ULA-INT-03 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (ula_int_en = NOT port_ff_interrupt_disable — same integration
+    // surface as ULA-INT-02; added in Phase 3).
     skip("ULA-INT-04", "line interrupt at cvc match not in Ctc subsystem");
-    skip("ULA-INT-05", "NR 0x22 line_interrupt_en not in Ctc subsystem");
+    // ULA-INT-05 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (NR 0x22 line_interrupt_en bit — needs NextREG + ULA integration;
+    // added in Phase 3).
     skip("ULA-INT-06", "line 0 → c_max_vc wrap not in Ctc subsystem");
     skip("ULA-INT-07", "im2 priority index 11 not modelled");
     skip("ULA-INT-08", "im2 priority index 0 not modelled");
@@ -940,16 +969,30 @@ void section12_ula_line_int() {
 void section13_nextreg_int_regs() {
     set_group("13. NR 0xC0-0xCE (skipped)");
     skip("NR-C0-01", "NR 0xC0 im2_vector MSBs not in Ctc scope");
-    skip("NR-C0-02", "NR 0xC0 stackless_nmi not in Ctc scope");
+    skip("NR-C0-02",
+         "NR 0xC0 stackless_nmi — blocked on NMI subsystem "
+         "(see memory/project_nmi_fragmented_status.md)");
     skip("NR-C0-03", "NR 0xC0 pulse/IM2 mode bit not in Ctc scope");
-    skip("NR-C0-04", "NR 0xC0 read format not exposed");
+    // NR-C0-04 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (NR 0xC0 readback composes vector-MSBs + stackless + im_mode +
+    // int_mode — needs full NextReg + Im2Controller integration; added
+    // in Phase 3).
     skip("NR-C4-01", "NR 0xC4 expbus int enable not in Ctc scope");
-    skip("NR-C4-02", "NR 0xC4 line_interrupt_en not in Ctc scope");
-    skip("NR-C4-03", "NR 0xC4 readback not exposed");
+    // NR-C4-02 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (NR 0xC4 bit 1 drives line_interrupt_en; needs NextReg + ULA
+    // integration; added in Phase 3).
+    // NR-C4-03 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (NR 0xC4 readback E_00000_UU — needs full NextReg readback path;
+    // added in Phase 3).
     skip("NR-C5-01", "duplicate of CTC-NR-01, covered in Section 6");
-    skip("NR-C5-02", "duplicate of CTC-NR-02, no readback accessor");
+    // NR-C5-02 — (E) redundant coverage. Duplicate of CTC-NR-02 in
+    // Section 6 which Agent E will un-skip (once the Ctc::get_int_enable()
+    // accessor + NR 0xC5 read path land). A second assertion here would
+    // add no invariant coverage.
     skip("NR-C6-01", "NR 0xC6 UART int_en not in Ctc scope");
-    skip("NR-C6-02", "NR 0xC6 read not in Ctc scope");
+    // NR-C6-02 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (NR 0xC6 readback format 0_654_0_210 — needs NextReg + UART
+    // integration; added in Phase 3).
     skip("NR-C8-01", "NR 0xC8 line/ULA status not in Ctc scope");
     skip("NR-C9-01", "NR 0xC9 CTC int status not exposed on Ctc class");
     skip("NR-CA-01", "NR 0xCA UART status not in Ctc scope");
@@ -968,8 +1011,12 @@ void section14_status_clear() {
     skip("ISC-06", "NR 0xCA UART1 RX clear not in Ctc scope");
     skip("ISC-07", "NR 0xCA UART0 RX clear not in Ctc scope");
     skip("ISC-08", "status re-set under pending clear not modelled");
-    skip("ISC-09", "legacy NR 0x20 read not in Ctc scope");
-    skip("ISC-10", "legacy NR 0x22 read not in Ctc scope");
+    // ISC-09 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (legacy NR 0x20 read returns mixed status line_ula_00_ctc6..ctc3
+    // — needs NextReg + Im2Controller integration; added in Phase 3).
+    // ISC-10 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // (legacy NR 0x22 read bit 7 = NOT pulse_int_n — needs pulse fabric
+    // + NextReg integration; added in Phase 3).
 }
 
 void section15_dma_int() {
@@ -977,7 +1024,9 @@ void section15_dma_int() {
     skip("DMA-01", "im2_dma_int OR-reduction not in Ctc scope");
     skip("DMA-02", "im2_dma_delay latch not in Ctc scope");
     skip("DMA-03", "dma_delay hold not in Ctc scope");
-    skip("DMA-04", "NMI-driven DMA delay not in Ctc scope");
+    skip("DMA-04",
+         "NMI-driven DMA delay — blocked on NMI subsystem "
+         "(see memory/project_nmi_fragmented_status.md)");
     skip("DMA-05", "DMA delay reset not exposed");
     skip("DMA-06", "per-peripheral DMA int enables via NR 0xCC-CE not in Ctc scope");
 }
