@@ -1797,24 +1797,42 @@ void Emulator::run_frame()
     // Schedule the ULA frame interrupt at vc=1, hc=0.
     // One line = timing_.tstates_per_line T-states; at 28 MHz that is
     // tstates_per_line * 8 master cycles.
+    //
+    // Routing: the ULA is priority slot 11 in the VHDL IM2 fabric
+    // (zxnext.vhd:1937, 1941 — im2_int_req bit 11 = ula_int_pulse). In
+    // pulse-mode (NR 0xC0 bit 0 = 0, the power-on default) the Z80 INT
+    // line is driven by the legacy `request_interrupt(0xFF)` path so
+    // 48K/128K frame-interrupt semantics are preserved. In IM2 mode the
+    // Z80 INT is asserted through `Im2Controller::int_line_asserted()`
+    // instead, so we must NOT also fire the legacy request in that case
+    // (would cause a double-fire).
     const uint64_t int_fire_offset = 1ULL * timing_.tstates_per_line * 8;
     if (!ula_int_disabled_) {
         scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
-                cpu_.request_interrupt(0xFF);
+                im2_.raise_req(Im2Controller::DevIdx::ULA);
+                if (!im2_.is_im2_mode()) {
+                    cpu_.request_interrupt(0xFF);
+                }
                 im2_int_status_[0] |= 0x01;  // ULA interrupt status
             });
     }
 
     // Schedule line interrupt if enabled.
+    // Routing: LINE is priority slot 0 in the VHDL IM2 fabric
+    // (zxnext.vhd:1937, 1941 — im2_int_req bit 0 = line_int_pulse, the
+    // highest-priority peripheral). Same pulse-vs-IM2 split as the ULA
+    // path above.
     if (line_int_enabled_ && line_int_value_ < static_cast<uint16_t>(timing_.lines_per_frame)) {
         uint64_t line_cycle = frame_cycle_ +
             static_cast<uint64_t>(line_int_value_) * timing_.master_cycles_per_line;
         scheduler_.schedule(line_cycle, EventType::CPU_INT,
             [this]() {
-                im2_.raise(Im2Level::LINE_IRQ);
+                im2_.raise_req(Im2Controller::DevIdx::LINE);
+                if (!im2_.is_im2_mode()) {
+                    cpu_.request_interrupt(0xFF);
+                }
                 im2_int_status_[0] |= 0x02;  // Line interrupt status
-                cpu_.request_interrupt(0xFF);
             });
     }
 
