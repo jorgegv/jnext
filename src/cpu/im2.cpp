@@ -255,31 +255,128 @@ bool Im2Controller::int_status(DevIdx d) const {
     return dv.int_status || dv.im2_int_req;
 }
 
+// -----------------------------------------------------------------------------
+// NR 0xC8 read — pack line/ULA into {0,0,0,0,0,0,LINE,ULA}.
+// VHDL zxnext.vhd:6247-6248:
+//     port_253b_dat <= "000000" & im2_int_status(0) & im2_int_status(11);
+// im2_int_status indices: 0 = LINE, 11 = ULA (per peripherals.vhd concat order
+// established at zxnext.vhd:1941-1944).
+// -----------------------------------------------------------------------------
 uint8_t Im2Controller::int_status_mask_c8() const {
-    // Phase 2 Agent E: pack line/ULA bits per zxnext.vhd:1952.
-    return 0;
-}
-
-uint8_t Im2Controller::int_status_mask_c9() const {
-    // Phase 2 Agent E: pack CTC 7..0 per zxnext.vhd:1953.
-    return 0;
-}
-
-uint8_t Im2Controller::int_status_mask_ca() const {
-    // Phase 2 Agent E: pack UART per zxnext.vhd:1954.
-    return 0;
+    uint8_t v = 0;
+    if (int_status(DevIdx::LINE)) v |= 0x02;   // bit 1 = LINE
+    if (int_status(DevIdx::ULA))  v |= 0x01;   // bit 0 = ULA
+    return v;
 }
 
 // -----------------------------------------------------------------------------
-// Enable-bit registers (NR 0xC4/C5/C6) — Phase 1 stubs.
+// NR 0xC9 read — pack CTC 7..0 into bits[7:0].
+// VHDL zxnext.vhd:6250-6251:
+//     port_253b_dat <= im2_int_status(10 downto 3);
+// im2_int_status indices: 3..10 = CTC0..CTC7. CTC4..CTC7 are hardwired 0
+// (zxnext.vhd:4092) so bits 4..7 of the byte are always 0 in practice.
+// -----------------------------------------------------------------------------
+uint8_t Im2Controller::int_status_mask_c9() const {
+    uint8_t v = 0;
+    if (int_status(DevIdx::CTC0)) v |= 0x01;
+    if (int_status(DevIdx::CTC1)) v |= 0x02;
+    if (int_status(DevIdx::CTC2)) v |= 0x04;
+    if (int_status(DevIdx::CTC3)) v |= 0x08;
+    if (int_status(DevIdx::CTC4)) v |= 0x10;
+    if (int_status(DevIdx::CTC5)) v |= 0x20;
+    if (int_status(DevIdx::CTC6)) v |= 0x40;
+    if (int_status(DevIdx::CTC7)) v |= 0x80;
+    return v;
+}
+
+// -----------------------------------------------------------------------------
+// NR 0xCA read — pack UART status per VHDL zxnext.vhd:6253-6254:
+//     port_253b_dat <=
+//        '0' & im2_int_status(13) & im2_int_status(2) & im2_int_status(2) &
+//        '0' & im2_int_status(12) & im2_int_status(1) & im2_int_status(1);
+// im2_int_status indices: 1=UART0_RX, 2=UART1_RX, 12=UART0_TX, 13=UART1_TX.
+// Note VHDL duplicates the RX status bit into both the "near-full" and "avail"
+// positions of the NR 0xCA byte (UART1_RX → bits 5 AND 4; UART0_RX → bits 1
+// AND 0). We mirror that exact pattern.
+// -----------------------------------------------------------------------------
+uint8_t Im2Controller::int_status_mask_ca() const {
+    const bool u1tx = int_status(DevIdx::UART1_TX);
+    const bool u1rx = int_status(DevIdx::UART1_RX);
+    const bool u0tx = int_status(DevIdx::UART0_TX);
+    const bool u0rx = int_status(DevIdx::UART0_RX);
+    uint8_t v = 0;
+    if (u1tx) v |= 0x40;   // bit 6 = UART1 TX
+    if (u1rx) v |= 0x30;   // bits 5,4 = UART1 RX (duplicated per VHDL)
+    if (u0tx) v |= 0x04;   // bit 2 = UART0 TX
+    if (u0rx) v |= 0x03;   // bits 1,0 = UART0 RX (duplicated per VHDL)
+    return v;
+}
+
+// -----------------------------------------------------------------------------
+// Enable-bit registers (NR 0xC4/C5/C6).
+//
+// Per-device fan-out into dev_[i].int_en so the wrapper-edge-detect path
+// (step_devices() Phase 1) latches im2_int_req only for enabled devices.
+//
+// VHDL im2_int_en composition (zxnext.vhd:1949-1950):
+//   bit 13 = nr_c6_int_en_2_654(2)            (UART1 TX)
+//   bit 12 = nr_c6_int_en_2_210(2)            (UART0 TX)
+//   bit 11 = ula_int_en(0)                    (ULA)
+//   bits 10..3 = ctc_int_en(7..0)             (CTC7..CTC0)
+//   bit  2 = nr_c6(1) OR nr_c6(0)             (UART1 RX — near-full | avail)
+//   bit  1 = nr_c6(1) OR nr_c6(0)             (UART0 RX — near-full | avail)
+//   bit  0 = ula_int_en(1)                    (LINE)
 // -----------------------------------------------------------------------------
 void Im2Controller::set_int_en(DevIdx d, bool en) {
     dev_[static_cast<int>(d)].int_en = en;
 }
 
-void Im2Controller::set_int_en_c4(uint8_t /*val*/) { /* Phase 2 Agent E */ }
-void Im2Controller::set_int_en_c5(uint8_t /*val*/) { /* Phase 2 Agent E */ }
-void Im2Controller::set_int_en_c6(uint8_t /*val*/) { /* Phase 2 Agent E */ }
+// NR 0xC4 — writes only bit 7 (expbus, out of fabric) and bit 1 (LINE enable,
+// mirrored into nr_22_line_interrupt_en per VHDL:5610). Bit 0 (ULA enable) is
+// NOT written by NR 0xC4 — port_ff bit 6 is the authoritative source. We
+// therefore update ONLY the LINE int_en bit here; ULA int_en is driven by the
+// emulator's port_ff handler (out of scope for this agent).
+void Im2Controller::set_int_en_c4(uint8_t val) {
+    set_int_en(DevIdx::LINE, (val & 0x02) != 0);
+    // Bit 0 (ULA) intentionally NOT set here — VHDL zxnext.vhd:5607-5610
+    // only drops bit 7 (expbus) and bit 1 (line) into storage.
+    // Bit 7 (expbus) is a non-IM2 enable used by expbus_disable_int; no DevIdx.
+}
+
+// NR 0xC5 — CTC 7:0 enable bits. Each bit i = int_en for CTCi.
+// Emulator.cpp also calls ctc_.set_int_enable(val) so the CTC peripheral's
+// own int_enable mirrors this — that's outside our scope here.
+void Im2Controller::set_int_en_c5(uint8_t val) {
+    set_int_en(DevIdx::CTC0, (val & 0x01) != 0);
+    set_int_en(DevIdx::CTC1, (val & 0x02) != 0);
+    set_int_en(DevIdx::CTC2, (val & 0x04) != 0);
+    set_int_en(DevIdx::CTC3, (val & 0x08) != 0);
+    set_int_en(DevIdx::CTC4, (val & 0x10) != 0);
+    set_int_en(DevIdx::CTC5, (val & 0x20) != 0);
+    set_int_en(DevIdx::CTC6, (val & 0x40) != 0);
+    set_int_en(DevIdx::CTC7, (val & 0x80) != 0);
+}
+
+// NR 0xC6 — UART enable bits. Write bit layout 0_654_0_210:
+//   bit 6 = UART1 TX enable
+//   bit 5 = UART1 RX near-full enable  ┐ ORed into UART1_RX int_en
+//   bit 4 = UART1 RX avail enable      ┘
+//   bit 2 = UART0 TX enable
+//   bit 1 = UART0 RX near-full enable  ┐ ORed into UART0_RX int_en
+//   bit 0 = UART0 RX avail enable      ┘
+// VHDL zxnext.vhd:5615-5617 stores bits {6,5,4} in nr_c6_int_en_2_654 and
+// {2,1,0} in nr_c6_int_en_2_210, then the fabric composer (line 1950) ORs
+// the low two bits of each 3-bit field for the RX int_en.
+void Im2Controller::set_int_en_c6(uint8_t val) {
+    const bool u1_tx = (val & 0x40) != 0;
+    const bool u1_rx = (val & 0x30) != 0;   // bit5 OR bit4
+    const bool u0_tx = (val & 0x04) != 0;
+    const bool u0_rx = (val & 0x03) != 0;   // bit1 OR bit0
+    set_int_en(DevIdx::UART1_TX, u1_tx);
+    set_int_en(DevIdx::UART1_RX, u1_rx);
+    set_int_en(DevIdx::UART0_TX, u0_tx);
+    set_int_en(DevIdx::UART0_RX, u0_rx);
+}
 
 // -----------------------------------------------------------------------------
 // NR 0xC0 state — stored/returned.
