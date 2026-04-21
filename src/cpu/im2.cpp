@@ -142,11 +142,13 @@ void Im2Controller::set_mask(uint16_t mask) {
 }
 
 void Im2Controller::on_reti() {
-    // Phase 1 compat: the pre-scaffold stub cleared active_[active_level_].
-    // We have no active_[] anymore — the DevIdx state machine in Phase 2
-    // handles S_ACK→S_ISR→S_0 transitions. For the legacy path there's
-    // nothing to do: has_pending() is driven by int_req which callers clear
-    // explicitly. Phase 2 Agent A wires the decoder into this entry point.
+    // Phase 2 Agent A: decoder emits reti_seen_pulse_ synchronously via
+    // on_m1_cycle(); the emulator-level lambda forwards that pulse to this
+    // entry point. For the legacy path there is nothing to do — int_req is
+    // cleared by callers on their own. Phase 2 Agent B will extend this
+    // method to walk the device daisy chain (S_ISR → S_0 for the
+    // acknowledged interrupter whose IEI is high, per im2_device.vhd:
+    // 123-128) and the corresponding IEI/IEO propagation.
 }
 
 // -----------------------------------------------------------------------------
@@ -240,8 +242,37 @@ uint8_t Im2Controller::ack_vector() {
     return 0xFF;
 }
 
-void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t /*opcode*/) {
-    // Phase 2 Agent A drives the RETI/RETN decoder here.
+// -----------------------------------------------------------------------------
+// RETI/RETN/IM-mode decoder — VHDL im2_control.vhd:70-240 faithful.
+//
+// Each call corresponds to the rising edge of T4 following an M1 cycle (i.e.
+// the VHDL `ifetch_fe_t3 = '1'` condition, lines 107 + 158). The emulator's
+// Z80 core invokes this once per opcode fetch with the freshly read byte.
+//
+// We clear the single-cycle pulses (reti_seen / retn_seen) up front so the
+// observer methods only return true for the tick in which a RETI/RETN opcode
+// was just decoded. The decoder FSM is delegated to advance_decoder().
+//
+// Derived flat signals are latched after the FSM step:
+//   - reti_decode_ is true while the decoder sits in S_ED_T4, matching
+//     VHDL line 233 (o_reti_decode <= '1' when state = S_ED_T4).
+//   - dma_delay_ctrl_ is true while the decoder is in any of the windows
+//     where the VHDL asserts o_dma_delay (line 238):
+//     {S_ED_T4, S_ED4D_T4, S_ED45_T4, S_SRL_T1, S_SRL_T2}.
+// -----------------------------------------------------------------------------
+void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t opcode) {
+    reti_seen_pulse_ = false;
+    retn_seen_pulse_ = false;
+
+    advance_decoder(opcode);
+
+    // Latch the flat signals off the *new* dec_state_ — see VHDL 233/238.
+    reti_decode_    = (dec_state_ == DecState::S_ED_T4);
+    dma_delay_ctrl_ = (dec_state_ == DecState::S_ED_T4)
+                   || (dec_state_ == DecState::S_ED4D_T4)
+                   || (dec_state_ == DecState::S_ED45_T4)
+                   || (dec_state_ == DecState::S_SRL_T1)
+                   || (dec_state_ == DecState::S_SRL_T2);
 }
 
 uint8_t Im2Controller::im_mode() const { return im_mode_; }
@@ -272,7 +303,104 @@ bool Im2Controller::ieo(DevIdx /*d*/) const {
 // -----------------------------------------------------------------------------
 // Private helpers — all stubs in Phase 1.
 // -----------------------------------------------------------------------------
-void Im2Controller::advance_decoder(uint8_t /*opcode*/) { /* Phase 2 Agent A */ }
+// -----------------------------------------------------------------------------
+// advance_decoder — RETI/RETN/IM-mode finite-state machine.
+//
+// Mirrors the VHDL process at im2_control.vhd:158-210 exactly, driving
+// `dec_state_` and setting:
+//   - reti_seen_pulse_ on the edge INTO S_ED4D_T4  (vhdl:234)
+//   - retn_seen_pulse_ on the edge INTO S_ED45_T4  (vhdl:236)
+//   - im_mode_         on ED 46/4E/66/6E (IM 0), ED 56/76 (IM 1),
+//                      ED 5E/7E (IM 2)              (vhdl:218-227)
+//
+// Each call represents one VHDL "ifetch falling-edge-of-T3" event — the
+// emulator's tick granularity collapses the rising/falling edge distinction
+// (IM2C-13 commented as B in the plan). Since our emulator only calls us at
+// the end of an opcode fetch, every invocation is equivalent to the VHDL
+// `ifetch_fe_t3 = '1'` branch in each state; for states with the "else"
+// (stay) branch we simply do nothing new.
+// -----------------------------------------------------------------------------
+void Im2Controller::advance_decoder(uint8_t opcode) {
+    switch (dec_state_) {
+
+        // vhdl:161-170
+        case DecState::S_0:
+            if      (opcode == 0xED) dec_state_ = DecState::S_ED_T4;
+            else if (opcode == 0xCB) dec_state_ = DecState::S_CB_T4;
+            else if (opcode == 0xDD || opcode == 0xFD)
+                                     dec_state_ = DecState::S_DDFD_T4;
+            // else stay in S_0
+            break;
+
+        // vhdl:171-180 + IM-mode decode vhdl:218-227
+        case DecState::S_ED_T4:
+            if (opcode == 0x4D) {
+                dec_state_       = DecState::S_ED4D_T4;
+                reti_seen_pulse_ = true;     // vhdl:234
+            } else if (opcode == 0x45) {
+                dec_state_       = DecState::S_ED45_T4;
+                retn_seen_pulse_ = true;     // vhdl:236
+            } else {
+                // IM-mode decode (vhdl:223-224):
+                //   match opcode (7:6)="01" and (2:0)="110", i.e.
+                //   ED 46/4E/66/6E → IM 0
+                //   ED 56/76       → IM 1
+                //   ED 5E/7E       → IM 2
+                if ((opcode & 0xC7) == 0x46) {
+                    // bit-decode per vhdl:224:
+                    //   im_mode <= (bit4 AND bit3) & (bit4 AND NOT bit3)
+                    // → IM 0 when bit4=0; IM 1 when bit4=1 & bit3=0;
+                    //   IM 2 when bit4=1 & bit3=1.
+                    const bool b4 = (opcode & 0x10) != 0;
+                    const bool b3 = (opcode & 0x08) != 0;
+                    if (!b4)        im_mode_ = 0;
+                    else if (!b3)   im_mode_ = 1;
+                    else            im_mode_ = 2;
+                }
+                dec_state_ = DecState::S_0;
+            }
+            break;
+
+        // vhdl:181-183 — ED 4D path joins the shared SRL delay window
+        case DecState::S_ED4D_T4:
+            dec_state_ = DecState::S_SRL_T1;
+            break;
+
+        // vhdl:190-192 — ED 45 path joins the shared SRL delay window
+        case DecState::S_ED45_T4:
+            dec_state_ = DecState::S_SRL_T1;
+            break;
+
+        // vhdl:186-189 — "extra states prevent accumulation of return
+        // addresses on the stack" (DMA-interruption guard).
+        case DecState::S_SRL_T1:
+            dec_state_ = DecState::S_SRL_T2;
+            break;
+        case DecState::S_SRL_T2:
+            dec_state_ = DecState::S_0;
+            break;
+
+        // vhdl:193-198 — CB is a one-opcode-lookahead prefix; the next
+        // fetched byte (the CB suboperation) unconditionally returns us
+        // to S_0. im_mode is not affected here.
+        case DecState::S_CB_T4:
+            dec_state_ = DecState::S_0;
+            break;
+
+        // vhdl:199-206 — DD/FD prefix chain: DD/FD keeps us in S_DDFD_T4
+        // (so DD FD DD ... stays here), an ED starts the RETI/RETN
+        // lookahead, anything else returns to S_0.
+        case DecState::S_DDFD_T4:
+            if      (opcode == 0xDD || opcode == 0xFD) {
+                // stay
+            } else if (opcode == 0xED) {
+                dec_state_ = DecState::S_ED_T4;
+            } else {
+                dec_state_ = DecState::S_0;
+            }
+            break;
+    }
+}
 void Im2Controller::step_devices()                      { /* Phase 2 Agent B */ }
 void Im2Controller::step_pulse()                        { /* Phase 2 Agent C */ }
 uint8_t Im2Controller::compute_vector() const           { return 0xFF; }

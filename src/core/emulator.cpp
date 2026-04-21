@@ -155,28 +155,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.check_automap(pc, true);
     };
 
-    // Install M1-cycle callback for RETI detection (ED 4D sequence) and
-    // RETN detection (ED 45 + undocumented aliases). RETI notifies the
-    // Im2Controller so it can clear the active interrupt level in the daisy
-    // chain; RETN notifies DivMmc so it can clear automap hold/held per
+    // Install M1-cycle callback. The RETI/RETN/IM-mode decoder state
+    // machine lives inside Im2Controller (matching VHDL
+    // im2_control.vhd:70-240); this closure is a thin forwarder that
+    // consumes the one-cycle pulses.
+    //
+    // RETI notifies the Im2Controller so it can clear the acknowledged
+    // interrupter in the daisy chain (Phase 2 Agent B will augment
+    // Im2Controller::on_reti() with the S_ISR → S_0 walk).
+    // RETN notifies DivMmc so it can clear automap hold/held per
     // VHDL divmmc.vhd:126,139 (i_retn_seen).
+    //
+    // Note: VHDL im2_control.vhd only detects canonical ED 45 as RETN
+    // (cpu_opcode = X"45" at line 137, used at line 236). Undocumented
+    // RETN aliases (0x55/0x5D/0x65/0x6D/0x75/0x7D) are NOT recognised
+    // by the FPGA's `o_retn_seen` pulse, so DivMMC on the real hardware
+    // does not clear automap on them either. The previous implementation
+    // here called divmmc_.on_retn() for those aliases, going beyond the
+    // VHDL spec; the VHDL-faithful behaviour is to clear only on 0x45.
     cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
-        static bool saw_ed = false;
-        if (opcode == 0xED) {
-            saw_ed = true;
-        } else {
-            if (saw_ed) {
-                if (opcode == 0x4D) {
-                    im2_.on_reti();
-                } else if (opcode == 0x45 || opcode == 0x55 || opcode == 0x5D
-                        || opcode == 0x65 || opcode == 0x6D || opcode == 0x75
-                        || opcode == 0x7D) {
-                    // RETN (documented 0x45 + undocumented aliases per
-                    // src/debug/disasm.cpp:890-898)
-                    divmmc_.on_retn();
-                }
-            }
-            saw_ed = false;
+        im2_.on_m1_cycle(pc, opcode);
+        if (im2_.retn_seen_this_cycle()) {
+            divmmc_.on_retn();
+        }
+        if (im2_.reti_seen_this_cycle()) {
+            im2_.on_reti();
         }
     };
 
