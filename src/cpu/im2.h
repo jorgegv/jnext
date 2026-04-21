@@ -182,4 +182,15 @@ private:
     uint8_t compute_vector() const;
     bool device_ieo(int i) const;
     void propagate_isr_serviced();
+
+    // Agent B state-machine half of step_devices().
+    // Invoked from step_devices() AFTER Agent D's wrapper-layer step for
+    // device i (edge detect → im2_int_req latch). Does ONLY the state-
+    // machine transitions in im2_device.vhd:102-132 (S_0/S_REQ/S_ACK/S_ISR).
+    //
+    // `iei` is the snapshot of device i's i_iei input sampled at the start
+    // of the tick, BEFORE any device transitions — mirrors VHDL's
+    // synchronous-update rule (state_next computed from current states,
+    // applied simultaneously at the next rising edge).
+    void step_state_machine_with_iei(int i, bool iei);
 };

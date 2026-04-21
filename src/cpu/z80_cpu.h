@@ -74,6 +74,18 @@ public:
     // Callback fired AFTER opcode fetch — used for RETI detection and IM2
     std::function<void(uint16_t pc, uint8_t opcode)> on_m1_cycle;
 
+    // Callback fired at the Z80 interrupt-acknowledge M1 cycle. Models the
+    // VHDL IM2 daisy-chain vector delivery (see im2_device.vhd:155 +
+    // peripherals.vhd:134-144 + zxnext.vhd:1999). When set AND an interrupt
+    // is being serviced, the returned byte is used as the IM2 vector byte
+    // delivered to the CPU; when unset, behaviour falls back to the legacy
+    // `request_interrupt(vector)` path (int_vector_ member).
+    //
+    // This is opt-in: when nullptr, execute() is byte-identical to the
+    // pre-callback behaviour — critical for preserving FUSE Z80 test
+    // compliance (1356/1356), since the FUSE suite does not install it.
+    std::function<uint8_t()> on_int_ack;
+
     // Magic breakpoint callback: fired when ED FF or DD 01 is executed.
     // If set and returns true, CPU should break to debugger.
     std::function<bool(uint16_t pc)> on_magic_breakpoint;

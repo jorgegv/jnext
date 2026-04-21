@@ -281,9 +281,22 @@ int Z80Cpu::execute() {
             // Pulse expired while interrupts were disabled — missed.
             int_pending_ = false;
         } else if (z80.iff1) {
-            Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", int_vector_, z80.pc.w);
+            // Resolve the vector byte for this IntAck cycle.
+            //
+            // Opt-in IM2 daisy-chain path: when on_int_ack is installed
+            // (Im2Controller wiring in the emulator), call it at the
+            // IntAck M1 cycle and use its returned byte as the vector.
+            // This mirrors VHDL im2_device.vhd:155 driving o_vec during
+            // S_ACK, OR-reduced by peripherals.vhd:134-144, captured at
+            // the CPU IntAck cycle per zxnext.vhd:1999.
+            //
+            // When not installed, fall back to the legacy int_vector_
+            // member (set via request_interrupt()). FUSE Z80 tests never
+            // install this callback, preserving 1356/1356 compliance.
+            uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
+            Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
             libspectrum_dword before = tstates;
-            int accepted = fuse_z80_interrupt(int_vector_);
+            int accepted = fuse_z80_interrupt(vector);
             sync_regs_from_fuse(regs_);
             if (accepted) {
                 int_pending_ = false;

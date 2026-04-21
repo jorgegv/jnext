@@ -237,6 +237,17 @@ void Ctc::set_int_enable(uint8_t mask) {
     }
 }
 
+uint8_t Ctc::get_int_enable() const {
+    // Mirror image of set_int_enable(): pack per-channel int_enabled()
+    // into bits 0..3. Bits 4..7 are always zero (CTC 4..7 hardwired to
+    // '0' per zxnext.vhd:4092). Consumed by the NR 0xC5 read path.
+    uint8_t mask = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (channels_[i].int_enabled()) mask |= static_cast<uint8_t>(1u << i);
+    }
+    return mask;
+}
+
 void Ctc::handle_zc_to(int channel, int depth) {
     // Guard: max one full pass around the 4-channel ring.  VHDL uses
     // edge detection with one-cycle delay so cascading beyond 4 channels

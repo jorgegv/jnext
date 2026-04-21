@@ -48,10 +48,19 @@ void Im2Controller::reset() {
 }
 
 // -----------------------------------------------------------------------------
-// Tick — Phase 1 stub. Phase 2 Agent B fills in device state machine stepping.
+// Tick — per-cycle advance.
+//
+// Phase 2 Agent B: advances the per-device IM2 state machine once per call.
+// The wrapper/edge-detect layer (int_req_d, im2_int_req latching, int_status)
+// lives in step_devices() below and is owned by Agent D; Agent B's state-
+// machine half is folded into step_devices() via step_state_machine().
+//
+// The scaffold Em invariant says tick() is called from Emulator::run_frame.
+// We treat each tick() as one "CLK_CPU rising edge" — VHDL im2_device.vhd:91
+// drives state<=state_next on rising edge.
 // -----------------------------------------------------------------------------
 void Im2Controller::tick(uint32_t /*master_cycles*/) {
-    // intentionally empty
+    step_devices();
 }
 
 // -----------------------------------------------------------------------------
@@ -142,13 +151,50 @@ void Im2Controller::set_mask(uint16_t mask) {
 }
 
 void Im2Controller::on_reti() {
-    // Phase 2 Agent A: decoder emits reti_seen_pulse_ synchronously via
-    // on_m1_cycle(); the emulator-level lambda forwards that pulse to this
-    // entry point. For the legacy path there is nothing to do — int_req is
-    // cleared by callers on their own. Phase 2 Agent B will extend this
-    // method to walk the device daisy chain (S_ISR → S_0 for the
-    // acknowledged interrupter whose IEI is high, per im2_device.vhd:
-    // 123-128) and the corresponding IEI/IEO propagation.
+    // Phase 2 Agent B — device-side effect of a RETI opcode.
+    //
+    // VHDL im2_device.vhd:123-128:
+    //     when S_ISR =>
+    //        if i_reti_seen = '1' and i_iei = '1' and i_im2_mode = '1' then
+    //           state_next <= S_0;
+    //
+    // Walk dev_[] in priority order; any device currently in S_ISR whose
+    // daisy-chain IEI is high returns to S_0. In VHDL only one device can
+    // be in S_ISR at a time in a non-nested ISR (IEI=0 downstream from an
+    // S_ISR device), but nested IM2 handlers can land multiple devices in
+    // S_ISR; the IEI=1 gate correctly resolves "only the innermost
+    // (highest-priority-active) clears".
+    //
+    // Agent A surfaces reti_seen_pulse_ via the decoder; step_devices()
+    // reads that pulse and does the same walk. This legacy entry point
+    // remains because the emulator's on_m1_cycle forwarder still calls
+    // im2_.on_reti() directly — keeping both paths converges on the same
+    // end state.
+    if (!im2_mode_) return;   // device SM is reset-held in pulse mode
+    // Snapshot IEI across all devices BEFORE any transition so that clearing
+    // a higher-priority S_ISR device does NOT cascade into the next device
+    // in the same RETI (matches VHDL simultaneous-update semantic; only one
+    // device clears per RETI).
+    bool iei_snap[N];
+    {
+        bool iei = true;  // device 0's hard-wired IEI
+        for (int k = 0; k < N; ++k) {
+            iei_snap[k]       = iei;
+            const Device& d = dev_[k];
+            bool ieo;
+            switch (d.state) {
+                case DevState::S_0:   ieo = iei;                  break;
+                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
+                default:              ieo = false;                break;
+            }
+            iei = ieo;
+        }
+    }
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state == DevState::S_ISR && iei_snap[i]) {
+            dev_[i].state = DevState::S_0;
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -262,15 +308,48 @@ bool Im2Controller::dma_delay() const       { return false; }
 // Z80 integration — Phase 1 stubs.
 // -----------------------------------------------------------------------------
 bool Im2Controller::int_line_asserted() const {
-    // Phase 2 Agent B wires the live INT line. For Phase 1 we return false;
-    // the legacy path remains via emulator polling has_pending() / get_vector().
+    // VHDL im2_device.vhd:150 per-device output:
+    //     o_int_n <= '0' when state = S_REQ and i_iei = '1' and i_im2_mode = '1'
+    // VHDL peripherals.vhd:146-156 AND-reduces o_int_n across all 14 devices:
+    //     o_int_n <= int_n(1) and int_n(2) ... and int_n(14)
+    // Equivalent: the aggregate line is low (asserted) iff ANY device drives
+    // its local o_int_n low — i.e., is in S_REQ with IEI high in IM2 mode.
+    if (!im2_mode_) return false;
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state != DevState::S_REQ) continue;
+        bool iei = (i == 0) ? true : device_ieo(i - 1);
+        if (iei) return true;
+    }
     return false;
 }
 
 uint8_t Im2Controller::ack_vector() {
-    // Phase 2 Agent B: latch device to S_ACK, return compose_vector(). For
-    // Phase 1 we return 0xFF (harmless default — legacy get_vector() still
-    // drives the live interrupt).
+    // Called by Z80Cpu at the IntAck M1 cycle (i_m1_n='0' and i_iorq_n='0').
+    //
+    // VHDL im2_device.vhd:111-116 S_REQ transition:
+    //     when S_REQ =>
+    //        if i_m1_n='0' and i_iorq_n='0' and i_iei='1' and i_im2_mode='1' then
+    //           state_next <= S_ACK;
+    //
+    // We walk dev_[] in priority order (index 0 = LINE = highest per VHDL
+    // zxnext.vhd:1941) and latch the first device that would be acked —
+    // at most one device can satisfy iei='1' because any higher-priority
+    // S_REQ blocks the chain (im2_device.vhd:141-142: IEO=IEI and reti_decode
+    // when state=S_REQ; reti_decode is typically 0 during IntAck, so the
+    // first S_REQ breaks the chain).
+    //
+    // Vector: im2_device.vhd:155 drives o_vec = i_vec while state = S_ACK or
+    // state_next = S_ACK. We compose at read time; the caller (CPU) latches
+    // the byte immediately.
+    if (!im2_mode_) return 0xFF;  // pulse mode: legacy int_vector_ drives
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state != DevState::S_REQ) continue;
+        bool iei = (i == 0) ? true : device_ieo(i - 1);
+        if (!iei) continue;
+        dev_[i].state = DevState::S_ACK;
+        last_acked_   = i;
+        return compute_vector();
+    }
     return 0xFF;
 }
 
@@ -326,14 +405,14 @@ Im2Controller::DevState Im2Controller::state(DevIdx d) const {
     return dev_[static_cast<int>(d)].state;
 }
 
-bool Im2Controller::ieo(DevIdx /*d*/) const {
-    // Phase 2 Agent B implements the daisy-chain propagation. For Phase 1
-    // return true (pass-through), matching a fully-idle chain.
-    return true;
+bool Im2Controller::ieo(DevIdx d) const {
+    // Public debug accessor — exposes the device's o_ieo signal, which is
+    // the IEI input of the NEXT device in the priority chain.
+    return device_ieo(static_cast<int>(d));
 }
 
 // -----------------------------------------------------------------------------
-// Private helpers — all stubs in Phase 1.
+// Private helpers.
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 // advance_decoder — RETI/RETN/IM-mode finite-state machine.
@@ -434,47 +513,34 @@ void Im2Controller::advance_decoder(uint8_t opcode) {
     }
 }
 
-// step_devices() — VHDL im2_peripheral.vhd per-CLK_28 pipeline.
+// step_devices() — VHDL im2_peripheral.vhd + im2_device.vhd per-tick pipeline.
 //
-// Three well-defined phases, called in order. Each subsequent Wave 1 agent
-// owns one phase; the comment structure exists to make cross-agent merges
-// trivial.
+// Three phases executed in order. Phase 1 (Agent D) runs the wrapper edge-
+// detect + im2_int_req latch so Phase 2 sees this cycle's latched state.
+// Phase 2 (Agent B) walks each device's state machine with IEI snapshotted
+// pre-transition so cascading S_ISR → S_0 clears don't fire on the same
+// tick. Phase 3 (Agent D) is a documented no-op because Agent B's state
+// machine handles the im2_int_req clear inline at S_ISR → S_0.
 //
-//   Phase 1 — wrapper edge detect + im2_int_req latch  (Agent D)
-//     Computes the rising edge of each device's i_int_req, updates int_status
-//     per VHDL :154-162, and sets the im2_int_req latch per VHDL :167-178.
-//
-//   Phase 2 — per-device state machine                 (Agent B)
-//     Advances S_0 / S_REQ / S_ACK / S_ISR transitions based on im2_int_req
-//     and the IEI daisy chain. Agent B plugs its body in at the marker below;
-//     Agent B also handles the im2_int_req clear-on-ISR-serviced inline during
-//     the S_ISR → S_0 transition (simpler than the explicit propagate() path).
-//
-//   Phase 3 — isr_serviced propagation cleanup         (Agent D, documented)
-//     Because Agent B clears im2_int_req inline during the S_ISR → S_0
-//     transition in Phase 2, the propagate_isr_serviced() helper below is a
-//     documented no-op. Kept as an explicit extension point in case a future
-//     refactor splits state transition from latch cleanup.
+// VHDL references:
+//   Phase 1: im2_peripheral.vhd:90-101 (edge) + :154-162 (int_status) +
+//            :167-178 (im2_int_req latch).
+//   Phase 2: im2_device.vhd:102-132 (S_0/S_REQ/S_ACK/S_ISR) + :136-146
+//            (IEO) + im2_peripheral.vhd:105 (reset held in pulse mode).
+//   Phase 3: im2_peripheral.vhd:137-148 (isr_serviced edge-detect) — VHDL
+//            semantics collapsed into the Phase-2 S_ISR → S_0 branch.
 void Im2Controller::step_devices() {
     // ── Phase 1: wrapper edge detect + im2_int_req latch (Agent D) ─────────
-    // VHDL im2_peripheral.vhd:
-    //   :90-101  int_req_d <= i_int_req  (delay) and
-    //            int_req   <= i_int_req AND NOT int_req_d (rising-edge pulse)
-    //   :154-162 int_status <= (int_req or i_int_unq)
-    //                       or (int_status and not i_int_status_clear)
-    //   :167-178 im2_int_req <= '1' if (i_int_unq = '1')
-    //                            or (int_req = '1' and i_int_en = '1')
-    //
-    // Note: int_unq bypasses i_int_en in both the status register (UNQ-05,
-    // :160) and the im2 latch (UNQ-04, :172). That invariant is preserved in
-    // raise_unq() (which sets all three fields directly) and here (the
-    // int_unq branch below does not gate on int_en).
+    // int_unq bypasses i_int_en in both the status register (UNQ-05) and the
+    // im2 latch (UNQ-04). raise_unq() also sets these fields directly so
+    // combinational collapse is observationally equivalent.
     for (int i = 0; i < N; ++i) {
         Device& d = dev_[i];
         const bool edge = d.int_req && !d.int_req_d;
 
-        // Set int_status on any edge (vhdl:160 — gated by neither int_en nor
-        // int_unq; the edge pulse itself is what the VHDL equation uses).
+        // Set int_status on any edge (vhdl:160 — gated by neither int_en
+        // nor int_unq; the edge pulse itself is what the VHDL equation
+        // uses).
         if (edge) {
             d.int_status = true;
         }
@@ -491,32 +557,173 @@ void Im2Controller::step_devices() {
             // Wave 2) after the pulse fires. Do NOT clear here.
         }
 
-        // Update delayed copy LAST so next tick's edge calculation sees this
-        // tick's int_req as the "previous" value.
+        // Update delayed copy LAST so next tick's edge calculation sees
+        // this tick's int_req as the "previous" value.
         d.int_req_d = d.int_req;
     }
 
-    // ── Phase 2: per-device state machine (Agent B will fill in here) ──────
-    // Agent B's branch inserts the state-machine step here on merge.
+    // ── Phase 2: per-device state machine (Agent B) ────────────────────────
+    // Snapshot per-device IEI derived from CURRENT (pre-transition) states
+    // — preserves VHDL synchronous-update semantic: clearing a higher-
+    // priority S_ISR device must NOT cascade into the next device in the
+    // same tick.
+    bool iei_snap[N];
+    {
+        bool iei = true;  // device 0's hard-wired IEI (zxnext.vhd:1984)
+        for (int k = 0; k < N; ++k) {
+            iei_snap[k]       = iei;
+            const Device& d = dev_[k];
+            bool ieo;
+            switch (d.state) {
+                case DevState::S_0:   ieo = iei;                  break;
+                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
+                default:              ieo = false;                break;  // S_ACK / S_ISR
+            }
+            iei = ieo;
+        }
+    }
+    for (int i = 0; i < N; ++i) {
+        step_state_machine_with_iei(i, iei_snap[i]);
+    }
+    // Note: reti_seen_pulse_ is a one-cycle pulse owned by Agent A's
+    // decoder; it's cleared on the next on_m1_cycle call.
 
     // ── Phase 3: isr_serviced cleanup (documented no-op, Agent D) ──────────
     propagate_isr_serviced();
 }
 
+void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
+    // Device-local state-machine half for device i. Mirrors
+    // im2_device.vhd:102-132 (S_0/S_REQ/S_ACK/S_ISR).
+    //
+    // VHDL im2_peripheral.vhd:105 gates the device's reset:
+    //     im2_reset_n <= i_mode_pulse_0_im2_1 and not i_reset;
+    // In pulse mode (im2_mode_ == false), im2_reset_n == '0' holds the
+    // state machine at S_0. We honour that here: no transitions in pulse
+    // mode; Agent C's pulse path drives interrupts instead.
+    if (!im2_mode_) {
+        dev_[i].state = DevState::S_0;
+        return;
+    }
+
+    Device& d = dev_[i];
+
+    switch (d.state) {
+        case DevState::S_0:
+            // VHDL:106 — state_next <= S_REQ when i_int_req='1' and i_m1_n='1'.
+            // Our tick model doesn't carry M1 directly; we approximate
+            // "not in an IntAck cycle" by the absence of any device in S_ACK.
+            // The real hardware can't transition S_0→S_REQ during an
+            // IntAck cycle anyway because the device wouldn't be idle. In
+            // practice `im2_int_req` is the latched output of the wrapper
+            // (Agent D), driven true by int_unq OR (int_req AND int_en).
+            if (d.im2_int_req) {
+                d.state = DevState::S_REQ;
+            }
+            break;
+
+        case DevState::S_REQ:
+            // VHDL:112 — state_next <= S_ACK when
+            //   i_m1_n='0' and i_iorq_n='0' and i_iei='1' and i_im2_mode='1'.
+            // The S_REQ→S_ACK transition is taken synchronously inside
+            // ack_vector() (the CPU-side entry point for the IntAck cycle).
+            // Nothing to do here on a plain tick.
+            //
+            // If im2_int_req is deasserted while we're still in S_REQ
+            // (e.g. enable bit cleared, or int_unq one-shot expired before
+            // ack), we stay in S_REQ per VHDL (S_REQ has no deassert
+            // fallback). The wrapper's isr_serviced pulse will clear the
+            // latch only when we later reach S_ISR→S_0. This matches VHDL
+            // behaviour: once a req is latched it persists until serviced.
+            //
+            // Note: iei is consumed by int_line_asserted()/ack_vector(),
+            // both of which derive it fresh from device_ieo(); we don't
+            // need it here.
+            (void)iei;
+            break;
+
+        case DevState::S_ACK:
+            // VHDL:117 — state_next <= S_ISR when i_m1_n='1' (i.e. the
+            // cycle AFTER the IntAck M1). In our model ack_vector() latches
+            // S_REQ→S_ACK in-cycle; the NEXT tick advances S_ACK→S_ISR.
+            d.state = DevState::S_ISR;
+            break;
+
+        case DevState::S_ISR:
+            // VHDL:123 — state_next <= S_0 when
+            //   i_reti_seen='1' and i_iei='1' and i_im2_mode='1'.
+            // Agent A owns reti_seen_pulse_; we consume it here.
+            // (The legacy on_reti() entry point also triggers the same
+            //  walk, so both RETI propagation paths converge.)
+            if (reti_seen_pulse_ && iei) {
+                d.state = DevState::S_0;
+                // Clear the im2_int_req latch inline — VHDL
+                // im2_peripheral.vhd:175 (clear via im2_isr_serviced).
+                d.im2_int_req = false;
+            }
+            break;
+    }
+}
+
 void Im2Controller::step_pulse()                        { /* Phase 2 Agent C */ }
-uint8_t Im2Controller::compute_vector() const           { return 0xFF; }
-bool Im2Controller::device_ieo(int /*i*/) const         { return true; }
+
+uint8_t Im2Controller::compute_vector() const {
+    // VHDL zxnext.vhd:1999 — im2_vector = nr_c0_im2_vector[2:0] & im2_vec[3:0] & '0'.
+    //   Bits 7:5 = nr_c0_im2_vector[2:0]   (vector_base_msb3_)
+    //   Bits 4:1 = im2_vec[3:0]            (index of S_ACK device)
+    //   Bit    0 = '0'                     (vectors are even-aligned)
+    //
+    // VHDL im2_device.vhd:155 drives o_vec<=i_vec only while state = S_ACK.
+    // Peripherals OR-reduce across all 14 devices (peripherals.vhd:134-144);
+    // since at most one device is in S_ACK at a time, the OR is a plain
+    // selection. When no device is in S_ACK, the OR-reduction is 0 — we
+    // mirror that. ack_vector() returns 0xFF for the no-qualifying-device
+    // fallback path; compute_vector() stays honest.
+    uint8_t idx = 0;
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state == DevState::S_ACK) {
+            idx = static_cast<uint8_t>(i & 0x0F);
+            break;
+        }
+    }
+    return static_cast<uint8_t>(((vector_base_msb3_ & 0x07) << 5) | (idx << 1));
+}
+
+bool Im2Controller::device_ieo(int i) const {
+    // VHDL im2_device.vhd:136-146 — IEO driven from state:
+    //   S_0   : o_ieo <= i_iei                   (pass through when idle)
+    //   S_REQ : o_ieo <= i_iei and reti_decode   (block unless RETI decode)
+    //   other : o_ieo <= '0'                     (S_ACK / S_ISR block all)
+    //
+    // Chain from device 0 upward. Device 0's i_iei is hardwired to '1'
+    // (peripherals.vhd:82 + zxnext.vhd:1984). Iterative walk; at most 14
+    // devices so O(N) per lookup and O(N²)=196 ops per tick worst case is
+    // negligible.
+    if (i < 0 || i >= N) return false;
+    bool iei = true;
+    for (int k = 0; k <= i; ++k) {
+        const Device& d = dev_[k];
+        bool ieo;
+        switch (d.state) {
+            case DevState::S_0:   ieo = iei;                  break;
+            case DevState::S_REQ: ieo = iei && reti_decode_;  break;
+            default:              ieo = false;                break;  // S_ACK / S_ISR
+        }
+        if (k == i) return ieo;
+        iei = ieo;
+    }
+    return iei;  // unreachable
+}
 
 // propagate_isr_serviced() — documented no-op.
 //
 // The VHDL model (im2_peripheral.vhd:137-148) detects a rising edge on the
 // isr_serviced signal from im2_device and uses that edge to clear im2_int_req
-// (line 175). In our single-threaded-tick emulator model, Agent B clears
-// im2_int_req inline during the state-machine's S_ISR → S_0 transition
-// (Phase 2 above) — that's simpler than carrying a prev_state_[] shadow here
-// and avoids split-brain over who owns the clear. This function is kept as an
-// explicit extension point for symmetry with the VHDL signal name; remove or
-// repurpose if Phase 2's merge needs a different split.
+// (line 175). In our single-threaded-tick emulator model, the state machine
+// clears im2_int_req inline during the S_ISR → S_0 transition (see
+// step_state_machine_with_iei above) — simpler than carrying a prev_state_[]
+// shadow and avoids split-brain over who owns the clear. This function is
+// kept as an explicit extension point for symmetry with the VHDL signal name.
 void Im2Controller::propagate_isr_serviced() {
     // Intentionally empty — see function comment.
 }

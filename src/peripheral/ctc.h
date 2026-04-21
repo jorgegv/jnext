@@ -117,6 +117,12 @@ public:
     /// Set interrupt enable bits for all channels (from NextREG).
     void set_int_enable(uint8_t mask);
 
+    /// Read back the 8-bit CTC interrupt-enable mask (NR 0xC5 read path).
+    /// Bits 0..3 reflect channel 0..3 `int_enabled()`; bits 4..7 are zero
+    /// because CTC channels 4..7 are hardwired to '0' in the Next VHDL
+    /// (zxnext.vhd:4092 — ctc_int_en[7:4] := "0000").
+    uint8_t get_int_enable() const;
+
     /// Callback fired when a channel generates ZC/TO and has interrupts enabled.
     /// Parameter is the channel index (0-3).
     std::function<void(int channel)> on_interrupt;
