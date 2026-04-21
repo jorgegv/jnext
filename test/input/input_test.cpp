@@ -306,15 +306,12 @@ static void test_kbd_standard() {
         uint8_t v = kb.read_rows(0x00);
         check("KBD-21", "all rows, single Z = 0x1D", v == 0x1D, DETAIL("got=0x%02X", v));
     }
-    // KBD-22: full port 0xFE byte assembly (bit7='1', bit6=EAR, bit5='1')
-    // per zxnext.vhd:3459. Keyboard::read_rows only returns bits 4..0;
-    // the '1' & EAR & '1' wrapper lives in the port dispatcher, which
-    // is not reachable from this unit test. NOT_IMPL.
-    skip("KBD-22", "port 0xFE full byte wrap = 0xBF (no key, EAR=0)",
-             "port 0xFE bit7/5 wrap");
-    // KBD-23: same wrapper with CS pressed. NOT_IMPL (same reason).
-    skip("KBD-23", "port 0xFE full byte wrap = 0xBE (CS pressed)",
-             "port 0xFE bit7/5 wrap");
+    // RE-HOME: KBD-22 — full port 0xFE byte assembly (bit7='1', bit6=EAR,
+    //   bit5='1') per zxnext.vhd:3459. Keyboard::read_rows only returns
+    //   bits 4..0; the '1' & EAR & '1' wrapper lives in the port dispatcher.
+    //   Row covered in test/input/input_int_integration_test.cpp (Phase 3).
+    // RE-HOME: KBD-23 — same wrapper with CS pressed. Same reason.
+    //   Row covered in test/input/input_int_integration_test.cpp (Phase 3).
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -325,11 +322,11 @@ static void test_kbd_standard() {
 static void test_kbdhys() {
     set_group("KBDHYS");
     skip("KBDHYS-01", "CS held one extra scan after release",
-             "membrane.vhd:190,232 shift hysteresis");
+             "Un-skip via task3-input-f-shifthys");
     skip("KBDHYS-02", "CS pressed across 3 scans reads pressed each scan",
-             "multi-scan membrane model");
+             "Un-skip via task3-input-f-shifthys");
     skip("KBDHYS-03", "i_cancel_extended_entries=1 forces ex matrix all-1s",
-             "membrane.vhd:183-186 cancel_extended");
+             "Un-skip via task3-input-f-shifthys");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -339,27 +336,27 @@ static void test_kbdhys() {
 static void test_ext() {
     set_group("EXT");
     // NR 0xB0 bits: ';' '"' ',' '.' UP DOWN LEFT RIGHT  (7..0)  — zxnext.vhd:6208
-    skip("EXT-01", "UP → NR 0xB0 bit 3 = 1", "extended-key matrix state");
-    skip("EXT-02", "DOWN → NR 0xB0 bit 2", "extended-key matrix state");
-    skip("EXT-03", "LEFT → NR 0xB0 bit 1", "extended-key matrix state");
-    skip("EXT-04", "RIGHT → NR 0xB0 bit 0", "extended-key matrix state");
-    skip("EXT-05", "';' → NR 0xB0 bit 7", "extended-key matrix state");
-    skip("EXT-06", "'\"' → NR 0xB0 bit 6", "extended-key matrix state");
-    skip("EXT-07", "',' → NR 0xB0 bit 5", "extended-key matrix state");
-    skip("EXT-08", "'.' → NR 0xB0 bit 4", "extended-key matrix state");
+    skip("EXT-01", "UP → NR 0xB0 bit 3 = 1", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-02", "DOWN → NR 0xB0 bit 2", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-03", "LEFT → NR 0xB0 bit 1", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-04", "RIGHT → NR 0xB0 bit 0", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-05", "';' → NR 0xB0 bit 7", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-06", "'\"' → NR 0xB0 bit 6", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-07", "',' → NR 0xB0 bit 5", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-08", "'.' → NR 0xB0 bit 4", "Un-skip via task3-input-g-extmatrix");
     // NR 0xB1 bits: DELETE EDIT BREAK INV TRU GRAPH CAPSLOCK EXTEND — zxnext.vhd:6212
-    skip("EXT-09",  "DELETE → NR 0xB1 bit 7", "extended-key matrix state");
-    skip("EXT-10",  "EDIT → NR 0xB1 bit 6", "extended-key matrix state");
-    skip("EXT-11",  "BREAK → NR 0xB1 bit 5", "extended-key matrix state");
-    skip("EXT-12",  "INV VIDEO → NR 0xB1 bit 4", "extended-key matrix state");
-    skip("EXT-13",  "TRUE VIDEO → NR 0xB1 bit 3", "extended-key matrix state");
-    skip("EXT-14",  "GRAPH → NR 0xB1 bit 2", "extended-key matrix state");
-    skip("EXT-15",  "CAPS LOCK → NR 0xB1 bit 1", "extended-key matrix state");
-    skip("EXT-16",  "EXTEND → NR 0xB1 bit 0", "extended-key matrix state");
-    skip("EXT-17",  "EDIT folded into row 3 on 0xF7FE", "membrane.vhd:237 ext-col fold");
-    skip("EXT-18",  "',' folded into row 5 on 0xDFFE", "membrane.vhd:239 ext-col fold");
-    skip("EXT-19",  "LEFT folded into row 7 on 0x7FFE", "membrane.vhd:240 ext-col fold");
-    skip("EXT-20",  "UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F", "extended-key matrix state");
+    skip("EXT-09",  "DELETE → NR 0xB1 bit 7", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-10",  "EDIT → NR 0xB1 bit 6", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-11",  "BREAK → NR 0xB1 bit 5", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-12",  "INV VIDEO → NR 0xB1 bit 4", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-13",  "TRUE VIDEO → NR 0xB1 bit 3", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-14",  "GRAPH → NR 0xB1 bit 2", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-15",  "CAPS LOCK → NR 0xB1 bit 1", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-16",  "EXTEND → NR 0xB1 bit 0", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-17",  "EDIT folded into row 3 on 0xF7FE", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-18",  "',' folded into row 5 on 0xDFFE", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-19",  "LEFT folded into row 7 on 0x7FFE", "Un-skip via task3-input-g-extmatrix");
+    skip("EXT-20",  "UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F", "Un-skip via task3-input-g-extmatrix");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -381,21 +378,21 @@ static void test_ext() {
 static void test_jmode() {
     set_group("JMODE");
     // JMODE-01: NR 0x05 = 0x00 → (joy0=000 S2, joy1=000 S2)
-    skip("JMODE-01", "NR 0x05=0x00 → (S2,S2)",      "joystick mode decoder");
+    skip("JMODE-01", "NR 0x05=0x00 → (S2,S2)",      "Un-skip via task3-input-a-joymode");
     // JMODE-02: NR 0x05 = 0x68 → (joy0=101 MD1, joy1=010 Cursor) — corrected byte
-    skip("JMODE-02", "NR 0x05=0x68 → (MD1,Cursor)", "joystick mode decoder");
+    skip("JMODE-02", "NR 0x05=0x68 → (MD1,Cursor)", "Un-skip via task3-input-a-joymode");
     // JMODE-02r: NR 0x05 = 0xC9 → (joy0=111 I/O, joy1=000 S2) — retracted row retained
-    skip("JMODE-02r","NR 0x05=0xC9 → (I/O,S2)",     "joystick mode decoder");
+    skip("JMODE-02r","NR 0x05=0xC9 → (I/O,S2)",     "Un-skip via task3-input-a-joymode");
     // JMODE-03: NR 0x05 = 0x40 → (001 Kempston 1, 000 S2)
-    skip("JMODE-03", "NR 0x05=0x40 → (Kempston1,S2)", "joystick mode decoder");
+    skip("JMODE-03", "NR 0x05=0x40 → (Kempston1,S2)", "Un-skip via task3-input-a-joymode");
     // JMODE-04: NR 0x05 = 0x08 → (100 Kempston 2, 000 S2) — corrected byte
-    skip("JMODE-04", "NR 0x05=0x08 → (Kempston2,S2)", "joystick mode decoder");
+    skip("JMODE-04", "NR 0x05=0x08 → (Kempston2,S2)", "Un-skip via task3-input-a-joymode");
     // JMODE-05: NR 0x05 = 0x88 → (110 MD 2, 000 S2)
-    skip("JMODE-05", "NR 0x05=0x88 → (MD2,S2)", "joystick mode decoder");
+    skip("JMODE-05", "NR 0x05=0x88 → (MD2,S2)", "Un-skip via task3-input-a-joymode");
     // JMODE-06: NR 0x05 = 0x22 → (000 S2, 110 MD2) — corrected byte
-    skip("JMODE-06", "NR 0x05=0x22 → (S2,MD2)", "joystick mode decoder");
+    skip("JMODE-06", "NR 0x05=0x22 → (S2,MD2)", "Un-skip via task3-input-a-joymode");
     // JMODE-07: NR 0x05 = 0x30 → (000 S2, 011 S1)
-    skip("JMODE-07", "NR 0x05=0x30 → (S2,S1)", "joystick mode decoder");
+    skip("JMODE-07", "NR 0x05=0x30 → (S2,S1)", "Un-skip via task3-input-a-joymode");
 
     // JMODE-08: cold-boot defaults for NR 0x05 — joy0="001", joy1="000".
     // Packed back into NR 0x05 per zxnext.vhd:5157-5158 :
@@ -423,25 +420,25 @@ static void test_jmode() {
 
 static void test_kemp() {
     set_group("KEMP");
-    skip("KEMP-01", "mode=Kempston1, R → port 0x1F = 0x01", "Kempston port 0x1F");
-    skip("KEMP-02", "mode=Kempston1, L → 0x02", "Kempston port 0x1F");
-    skip("KEMP-03", "mode=Kempston1, D → 0x04", "Kempston port 0x1F");
-    skip("KEMP-04", "mode=Kempston1, U → 0x08", "Kempston port 0x1F");
-    skip("KEMP-05", "mode=Kempston1, Fire1(B) → 0x10", "Kempston port 0x1F");
-    skip("KEMP-06", "mode=Kempston1, Fire2(C) → 0x20", "Kempston port 0x1F");
+    skip("KEMP-01", "mode=Kempston1, R → port 0x1F = 0x01", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-02", "mode=Kempston1, L → 0x02", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-03", "mode=Kempston1, D → 0x04", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-04", "mode=Kempston1, U → 0x08", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-05", "mode=Kempston1, Fire1(B) → 0x10", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-06", "mode=Kempston1, Fire2(C) → 0x20", "Un-skip via task3-input-b-kempmd3");
     // zxnext.vhd:3478 forces bits 7:6 to 0 in Kempston mode
-    skip("KEMP-07", "mode=Kempston1, A(bit6) masked → 0x00", "Kempston mask bits 7:6");
-    skip("KEMP-08", "mode=Kempston1, START(bit7) masked → 0x00", "Kempston mask bits 7:6");
-    skip("KEMP-09", "mode=Kempston1, U+D+L+R+F1+F2 → 0x3F", "Kempston port 0x1F");
-    skip("KEMP-10", "mode=Kempston2, U on left → 0x37=0x08", "Kempston port 0x37");
-    skip("KEMP-11", "mode=Kempston2, all dirs+F1+F2 → 0x37=0x3F", "Kempston port 0x37");
+    skip("KEMP-07", "mode=Kempston1, A(bit6) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-08", "mode=Kempston1, START(bit7) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-09", "mode=Kempston1, U+D+L+R+F1+F2 → 0x3F", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-10", "mode=Kempston2, U on left → 0x37=0x08", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-11", "mode=Kempston2, all dirs+F1+F2 → 0x37=0x3F", "Un-skip via task3-input-b-kempmd3");
     // zxnext.vhd:2454 port_1f_hw_en guard
     skip("KEMP-12", "joy0=000 (S2), port 0x1F not decoded (not joystick byte)",
-             "port_1f_hw_en guard");
-    skip("KEMP-13", "K1+K1, L.U + R.R → 0x1F = 0x09", "joyL or joyR at 0x1F");
-    skip("KEMP-14", "K1+K2 routing: 0x1F=0x08, 0x37=0x04", "dual-port routing");
+             "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-13", "K1+K1, L.U + R.R → 0x1F = 0x09", "Un-skip via task3-input-b-kempmd3");
+    skip("KEMP-14", "K1+K2 routing: 0x1F=0x08, 0x37=0x04", "Un-skip via task3-input-b-kempmd3");
     // zxnext.vhd:3478 MD mode bit 6 passes
-    skip("KEMP-15", "joy0=MD1, L.A → 0x1F bit6=1 (0x40)", "MD mode bit-6 pass");
+    skip("KEMP-15", "joy0=MD1, L.A → 0x1F bit6=1 (0x40)", "Un-skip via task3-input-b-kempmd3");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -451,17 +448,17 @@ static void test_kemp() {
 static void test_md3() {
     set_group("MD3");
     // MD-01: corrected expected is 0x5F (not 0x3F). zxnext.vhd:3478-3479, 3441
-    skip("MD-01", "mode=MD1, U+D+L+R+A+B → 0x1F = 0x5F", "MD 3-button routing");
-    skip("MD-02", "mode=MD1, START (bit7) → 0x1F = 0x80", "MD bit7 pass");
-    skip("MD-03", "mode=MD1, A (bit6) → 0x1F = 0x40", "MD bit6 pass");
-    skip("MD-04", "mode=MD1, Fire2/C (bit5) → 0x1F = 0x20", "MD 3-button routing");
-    skip("MD-05", "mode=MD1, START+A → 0x1F = 0xC0", "MD 3-button routing");
+    skip("MD-01", "mode=MD1, U+D+L+R+A+B → 0x1F = 0x5F", "Un-skip via task3-input-b-kempmd3");
+    skip("MD-02", "mode=MD1, START (bit7) → 0x1F = 0x80", "Un-skip via task3-input-b-kempmd3");
+    skip("MD-03", "mode=MD1, A (bit6) → 0x1F = 0x40", "Un-skip via task3-input-b-kempmd3");
+    skip("MD-04", "mode=MD1, Fire2/C (bit5) → 0x1F = 0x20", "Un-skip via task3-input-b-kempmd3");
+    skip("MD-05", "mode=MD1, START+A → 0x1F = 0xC0", "Un-skip via task3-input-b-kempmd3");
     skip("MD-06", "mode=Kempston1, START (bit7) → 0x1F = 0x00 (masked)",
-             "Kempston mask bits 7:6");
-    skip("MD-07", "joy0=MD2, L.U → 0x37 = 0x08", "MD port 0x37");
-    skip("MD-08", "joy1=MD2, R.U → 0x37 = 0x08", "MD port 0x37");
+             "Un-skip via task3-input-b-kempmd3");
+    skip("MD-07", "joy0=MD2, L.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
+    skip("MD-08", "joy1=MD2, R.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
     skip("MD-09", "joy0=MD1 and joy1=MD1 illegal combo — open question",
-             "dual MD1 routing");
+             "Un-skip via task3-input-b-kempmd3");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -475,27 +472,27 @@ static void test_md3() {
 
 static void test_md6() {
     set_group("MD6");
-    skip("MD6-01", "L.MODE → NR 0xB2 bit 0 = 1", "NR 0xB2 read-handler");
-    skip("MD6-02", "L.Y    → NR 0xB2 bit 1 = 1", "NR 0xB2 read-handler");
-    skip("MD6-03", "L.Z    → NR 0xB2 bit 2 = 1", "NR 0xB2 read-handler");
-    skip("MD6-04", "L.X    → NR 0xB2 bit 3 = 1", "NR 0xB2 read-handler");
-    skip("MD6-05", "R.MODE → NR 0xB2 bit 4 = 1", "NR 0xB2 read-handler");
-    skip("MD6-06", "R.Y    → NR 0xB2 bit 5 = 1", "NR 0xB2 read-handler");
-    skip("MD6-07", "R.Z    → NR 0xB2 bit 6 = 1", "NR 0xB2 read-handler");
-    skip("MD6-08", "R.X    → NR 0xB2 bit 7 = 1", "NR 0xB2 read-handler");
-    skip("MD6-09", "all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF", "NR 0xB2 read-handler");
+    skip("MD6-01", "L.MODE → NR 0xB2 bit 0 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-02", "L.Y    → NR 0xB2 bit 1 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-03", "L.Z    → NR 0xB2 bit 2 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-04", "L.X    → NR 0xB2 bit 3 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-05", "R.MODE → NR 0xB2 bit 4 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-06", "R.Y    → NR 0xB2 bit 5 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-07", "R.Z    → NR 0xB2 bit 6 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-08", "R.X    → NR 0xB2 bit 7 = 1", "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-09", "all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF", "Un-skip via task3-input-d-md6fsm");
     skip("MD6-10", "Kempston mode, L.X=1 still sets NR 0xB2 bit 3 (no gating)",
-             "NR 0xB2 read-handler");
+             "Un-skip via task3-input-d-md6fsm");
     // md6_joystick_connector_x2.vhd state machine walk
-    skip("MD6-11a", "init clear (state 0000, left)",            "md6_connector state machine");
-    skip("MD6-11b", "bits 7:6 latch at 0100 (left)",            "md6_connector state machine");
-    skip("MD6-11c", "bits 5:0 latch at 0110 (left)",            "md6_connector state machine");
-    skip("MD6-11d", "6-button detect at 1000 (left)",           "md6_connector state machine");
-    skip("MD6-11e", "extras latch at 1010 (left, 6-btn)",       "md6_connector state machine");
-    skip("MD6-11f", "bits 7:6 latch at 0101 (right)",           "md6_connector state machine");
-    skip("MD6-11g", "bits 5:0 latch at 0111 (right)",           "md6_connector state machine");
-    skip("MD6-11h", "extras latch at 1011 (right)",             "md6_connector state machine");
-    skip("MD6-11i", "3-button pad skips extras latch (left)",   "md6_connector state machine");
+    skip("MD6-11a", "init clear (state 0000, left)",            "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11b", "bits 7:6 latch at 0100 (left)",            "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11c", "bits 5:0 latch at 0110 (left)",            "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11d", "6-button detect at 1000 (left)",           "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11e", "extras latch at 1010 (left, 6-btn)",       "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11f", "bits 7:6 latch at 0101 (right)",           "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11g", "bits 5:0 latch at 0111 (right)",           "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11h", "extras latch at 1011 (right)",             "Un-skip via task3-input-d-md6fsm");
+    skip("MD6-11i", "3-button pad skips extras latch (left)",   "Un-skip via task3-input-d-md6fsm");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -505,17 +502,17 @@ static void test_md6() {
 
 static void test_sinclair() {
     set_group("SINC");
-    skip("SINC1-01", "mode=S1, LEFT → row 0xF7FE bit 0 (key 1) low",  "S1 joy→key adapter");
-    skip("SINC1-02", "mode=S1, RIGHT → row 0xF7FE bit 1 (key 2) low", "S1 joy→key adapter");
-    skip("SINC1-03", "mode=S1, DOWN → row 0xF7FE bit 2 (key 3) low",  "S1 joy→key adapter");
-    skip("SINC1-04", "mode=S1, UP → row 0xF7FE bit 3 (key 4) low",    "S1 joy→key adapter");
-    skip("SINC1-05", "mode=S1, FIRE → row 0xF7FE bit 4 (key 5) low",  "S1 joy→key adapter");
-    skip("SINC2-01", "mode=S2, LEFT → row 0xEFFE bit 3 (key 7) low",  "S2 joy→key adapter");
-    skip("SINC2-02", "mode=S2, RIGHT → row 0xEFFE bit 4 (key 6) low", "S2 joy→key adapter");
-    skip("SINC2-03", "mode=S2, DOWN → row 0xEFFE bit 2 (key 8) low",  "S2 joy→key adapter");
-    skip("SINC2-04", "mode=S2, UP → row 0xEFFE bit 1 (key 9) low",    "S2 joy→key adapter");
-    skip("SINC2-05", "mode=S2, FIRE → row 0xEFFE bit 0 (key 0) low",  "S2 joy→key adapter");
-    skip("SINC-06",  "S1+S2 both LEFT → row 0xE7FE AND both low",     "S1+S2 joy→key adapter");
+    skip("SINC1-01", "mode=S1, LEFT → row 0xF7FE bit 0 (key 1) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC1-02", "mode=S1, RIGHT → row 0xF7FE bit 1 (key 2) low", "Un-skip via task3-input-c-sinccurs");
+    skip("SINC1-03", "mode=S1, DOWN → row 0xF7FE bit 2 (key 3) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC1-04", "mode=S1, UP → row 0xF7FE bit 3 (key 4) low",    "Un-skip via task3-input-c-sinccurs");
+    skip("SINC1-05", "mode=S1, FIRE → row 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC2-01", "mode=S2, LEFT → row 0xEFFE bit 3 (key 7) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC2-02", "mode=S2, RIGHT → row 0xEFFE bit 4 (key 6) low", "Un-skip via task3-input-c-sinccurs");
+    skip("SINC2-03", "mode=S2, DOWN → row 0xEFFE bit 2 (key 8) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC2-04", "mode=S2, UP → row 0xEFFE bit 1 (key 9) low",    "Un-skip via task3-input-c-sinccurs");
+    skip("SINC2-05", "mode=S2, FIRE → row 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("SINC-06",  "S1+S2 both LEFT → row 0xE7FE AND both low",     "Un-skip via task3-input-c-sinccurs");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -524,12 +521,12 @@ static void test_sinclair() {
 
 static void test_cursor() {
     set_group("CURS");
-    skip("CURS-01", "mode=Cursor, LEFT → 0xF7FE bit 4 (key 5) low",  "Cursor joy→key adapter");
-    skip("CURS-02", "mode=Cursor, DOWN → 0xEFFE bit 4 (key 6) low",  "Cursor joy→key adapter");
-    skip("CURS-03", "mode=Cursor, UP → 0xEFFE bit 3 (key 7) low",    "Cursor joy→key adapter");
-    skip("CURS-04", "mode=Cursor, RIGHT → 0xEFFE bit 2 (key 8) low", "Cursor joy→key adapter");
-    skip("CURS-05", "mode=Cursor, FIRE → 0xEFFE bit 0 (key 0) low",  "Cursor joy→key adapter");
-    skip("CURS-06", "mode=Cursor, LEFT+RIGHT rows 3+4 AND",          "Cursor joy→key adapter");
+    skip("CURS-01", "mode=Cursor, LEFT → 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("CURS-02", "mode=Cursor, DOWN → 0xEFFE bit 4 (key 6) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("CURS-03", "mode=Cursor, UP → 0xEFFE bit 3 (key 7) low",    "Un-skip via task3-input-c-sinccurs");
+    skip("CURS-04", "mode=Cursor, RIGHT → 0xEFFE bit 2 (key 8) low", "Un-skip via task3-input-c-sinccurs");
+    skip("CURS-05", "mode=Cursor, FIRE → 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
+    skip("CURS-06", "mode=Cursor, LEFT+RIGHT rows 3+4 AND",          "Un-skip via task3-input-c-sinccurs");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -558,16 +555,16 @@ static void test_iomode() {
               v == 0x01,
               DETAIL("got=0x%02X (Task3 if nonzero default missing)", v));
     }
-    skip("IOMODE-02", "NR 0x0B=0x80 → joy_iomode_pin7 = 0", "pin7 mux");
-    skip("IOMODE-03", "NR 0x0B=0x81 → joy_iomode_pin7 = 1", "pin7 mux");
-    skip("IOMODE-04", "NR 0x0B=0x91 + ctc_zc_to(3) pulse → pin7 toggles", "pin7 mux");
-    skip("IOMODE-05", "NR 0x0B=0xA0 → pin7 = uart0_tx", "pin7 UART mux");
-    skip("IOMODE-06", "NR 0x0B=0xA1 → pin7 = uart1_tx", "pin7 UART mux");
-    skip("IOMODE-07", "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted",  "joy_uart_rx mux");
-    skip("IOMODE-08", "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted", "joy_uart_rx mux");
-    skip("IOMODE-09", "NR 0x0B=0xA0 → joy_uart_en = 1", "joy_uart_en gate");
-    skip("IOMODE-10", "NR 0x0B=0x80 → joy_uart_en = 0", "joy_uart_en gate");
-    skip("IOMODE-11", "NR 0x05 joy*=111 + NR 0x0B configured", "mode-111 interaction");
+    skip("IOMODE-02", "NR 0x0B=0x80 → joy_iomode_pin7 = 0", "Un-skip via task3-input-e-iomode");
+    skip("IOMODE-03", "NR 0x0B=0x81 → joy_iomode_pin7 = 1", "Un-skip via task3-input-e-iomode");
+    skip("IOMODE-04", "NR 0x0B=0x91 + ctc_zc_to(3) pulse → pin7 toggles", "Un-skip via task3-input-e-iomode");
+    skip("IOMODE-05", "NR 0x0B=0xA0 → pin7 = uart0_tx", "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-06", "NR 0x0B=0xA1 → pin7 = uart1_tx", "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-07", "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted",  "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-08", "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted", "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-09", "NR 0x0B=0xA0 → joy_uart_en = 1", "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-10", "NR 0x0B=0x80 → joy_uart_en = 0", "F: blocked on UART+I2C subsystem plan");
+    skip("IOMODE-11", "NR 0x05 joy*=111 + NR 0x0B configured", "Un-skip via task3-input-e-iomode");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -577,18 +574,27 @@ static void test_iomode() {
 
 static void test_mouse() {
     set_group("MOUSE");
-    skip("MOUSE-01", "0xFBDF → i_MOUSE_X (0x5A)", "Kempston mouse port 0xFBDF");
-    skip("MOUSE-02", "0xFFDF → i_MOUSE_Y (0xA5)", "Kempston mouse port 0xFFDF");
+    skip("MOUSE-01", "0xFBDF → i_MOUSE_X (0x5A)", "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-02", "0xFFDF → i_MOUSE_Y (0xA5)", "Un-skip via task3-input-h-mouse");
     skip("MOUSE-03", "0xFADF no buttons, wheel=0 → 0x0F (bit3=1, btns active-low)",
-             "Kempston mouse port 0xFADF");
-    skip("MOUSE-04", "0xFADF L button → bit 1 = 0", "Kempston mouse port 0xFADF");
-    skip("MOUSE-05", "0xFADF R button → bit 0 = 0", "Kempston mouse port 0xFADF");
-    skip("MOUSE-06", "0xFADF M button → bit 2 = 0", "Kempston mouse port 0xFADF");
-    skip("MOUSE-07", "0xFADF wheel=0xA → bits[7:4]=0xA", "Kempston mouse port 0xFADF");
-    skip("MOUSE-08", "port_mouse_io_en=0 → ports not decoded", "mouse enable gate");
-    skip("MOUSE-09", "NR 0x0A bit3=1 → host reverses L/R",    "mouse L/R reverse adapter");
-    skip("MOUSE-10", "wheel 4-bit unsigned wrap 0xF→0x0",     "wheel wrap port path");
-    skip("MOUSE-11", "nr_0a_mouse_dpi has no in-core effect", "DPI host adapter");
+             "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-04", "0xFADF L button → bit 1 = 0", "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-05", "0xFADF R button → bit 0 = 0", "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-06", "0xFADF M button → bit 2 = 0", "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-07", "0xFADF wheel=0xA → bits[7:4]=0xA", "Un-skip via task3-input-h-mouse");
+    skip("MOUSE-08", "port_mouse_io_en=0 → ports not decoded", "Un-skip via task3-input-h-mouse");
+    // G: MOUSE-09 — NR 0x0A bit3=1 → host reverses L/R.
+    //    Button reversal is host-adapter responsibility (PS/2 driver side).
+    //    NR 0x0A bit 3 (nr_0a_mouse_button_reverse, zxnext.vhd:5197) exists
+    //    but VHDL has no in-core consumer; button mapping happens outside.
+    // G: MOUSE-10 — wheel 4-bit unsigned wrap 0xF → 0x0.
+    //    Wheel wrap is 4-bit unsigned modulo-16 roll-over at VHDL level
+    //    (zxnext.vhd:3560, 104). "Signed wheel delta" semantics are host-
+    //    adapter responsibility; VHDL only exposes the raw 4-bit field.
+    // G: MOUSE-11 — nr_0a_mouse_dpi has no in-core effect.
+    //    NR 0x0A bits 1:0 (nr_0a_mouse_dpi, default "01", zxnext.vhd:1128,
+    //    5198) are exposed on o_MOUSE_CONTROL for a host-adapter DPI
+    //    divisor. No VHDL consumer uses this signal internally.
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -597,13 +603,13 @@ static void test_mouse() {
 
 static void test_nmi() {
     set_group("NMI");
-    skip("NMI-01", "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",     "NMI gating on NR 0x06");
-    skip("NMI-02", "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",     "NMI gating on NR 0x06");
-    skip("NMI-03", "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1", "NMI gating on NR 0x06");
-    skip("NMI-04", "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0", "NMI gating on NR 0x06");
-    skip("NMI-05", "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1", "software NMI path");
-    skip("NMI-06", "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert",      "software NMI path");
-    skip("NMI-07", "both hotkeys + both enables → both asserts",       "NMI gating on NR 0x06");
+    skip("NMI-01", "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",     "Un-skip via task3-input-i-nmigate");
+    skip("NMI-02", "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",     "Un-skip via task3-input-i-nmigate");
+    skip("NMI-03", "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1", "Un-skip via task3-input-i-nmigate");
+    skip("NMI-04", "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0", "Un-skip via task3-input-i-nmigate");
+    skip("NMI-05", "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1", "Un-skip via task3-input-i-nmigate");
+    skip("NMI-06", "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert",      "Un-skip via task3-input-i-nmigate");
+    skip("NMI-07", "both hotkeys + both enables → both asserts",       "Un-skip via task3-input-i-nmigate");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -613,18 +619,11 @@ static void test_nmi() {
 
 static void test_port_fe_format() {
     set_group("FE");
-    // FE-01: bits 7,5 always set; bit 6 = EAR input; bits 4..0 = membrane AND.
-    // Without EAR and no key pressed, VHDL byte = 1 & 0 & 1 & 11111 = 0xBF.
-    // Unit-test scope: Keyboard::read_rows returns only bits 4..0, which
-    // must equal 0x1F. The full-byte wrapper (zxnext.vhd:3459) is not
-    // reachable from here → NOT_IMPL for the 0xBF assertion itself.
-    skip("FE-01", "full port 0xFE = 0xBF (no key, EAR=0)", "port 0xFE wrapper");
-    skip("FE-02", "EAR=1 → bit 6 = 1",                     "port 0xFE wrapper");
-    skip("FE-03", "OUT 0xFE bit4=1 → bit 6 = 1 (issue-3)", "port 0xFE wrapper + NR 0x08");
-    skip("FE-04", "issue-2 MIC XOR EAR path",              "NR 0x08 bit0 issue-2 select");
-    // zxnext.vhd:3468 — expansion-bus AND with port_fe_bus
-    skip("FE-05", "expbus_eff_en=1, port_fe_bus D0=0 → ANDed bit 0 = 0",
-             "expansion bus AND at zxnext.vhd:3468");
+    // RE-HOME: FE-01..FE-05 — all rows test full port 0xFE byte assembly
+    //   (bits 7,5 always 1; bit 6 = EAR; bit 4 OUT-write issue-3; issue-2
+    //   MIC^EAR path via NR 0x08 bit 0; expansion-bus AND at
+    //   zxnext.vhd:3468). Not reachable from Keyboard::read_rows.
+    //   Rows covered in test/input/input_int_integration_test.cpp (Phase 3).
 }
 
 // ── main ────────────────────────────────────────────────────────────────
