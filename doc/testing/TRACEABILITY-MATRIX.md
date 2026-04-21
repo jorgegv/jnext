@@ -17,13 +17,15 @@
 | Audio            | 197       | 197     | 124  | 0    | 73        | 0       | `178c41c000`      |
 | DMA              | 156       | 151     | 151  | 0    | 0         | 5       | `deeb9f6000`      |
 | DivMMC+SPI       | 123       | 95      | 86   | 0    | 9         | 28      | `d4ea4e1`         |
-| CTC+Interrupts   | 150       | 150     | 44   | 0    | 106       | 0       | `8bd9fe0`         |
+| CTC+Interrupts   | 150       | 133     | 128  | 0    | 5         | 17      | `0336c20`         |
 | UART+I2C/RTC     | 105       | 105     | 57   | 0    | 48        | 0       | `eee344d`         |
 | NextREG          | 64        | 21      | 19   | 0    | 2         | 43      | HEAD              |
 | IO Port Dispatch | 90        | 86      | 85   | 0    | 1         | 4       | `ba19f6f`         |
 | Input            | 149       | 149     | 23   | 0    | 126       | 0       | `fcbd9aed61`      |
 
-Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1689** mapped to tests, **101** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-20 via `test/refresh-traceability-matrix.pl` after NextREG Phase 1 re-homing): **1235 pass, 0 fail, 454 skip, 101 missing**. The 101 missing rows include NextREG Phase 1 (2026-04-20) which re-homed 32 bare-test skip()s to source comments pointing at the covering test (`nextreg_integration_test.cpp` for RO-01/03/05/06, RST-09, CLIP-01..08, PAL-01..06, CFG-01/02/05, PE-03/05, SEL-03, RW-01; `mmu_test.cpp` for MMU-03/04; `copper_test.cpp` ARB-04/MOV-02/07 for COP-04; Z80N suite for SEL-05); subsystem-level consolidations (NextREG RST-01..08 + MMU-01 + PE-04 from the earlier integration rewrite); and NextREG CLIP-09/CLIP-10 sub-letter-variant artefacts (CLIP-09a/09b exist in the binary but the matrix script maps plan rows by literal ID — backlog: extend script to recognise sub-letter prefixes AND cross-file re-homing). The re-homed rows are NOT genuinely dropped — see each Phase 1 source comment in `nextreg_test.cpp` for the authoritative covering location. Z80N stays permanently missing (FUSE data-driven runner, by design).
+Totals: **1790** non-Z80N plan rows (+ 30 Z80N), **1672** mapped to tests, **118** missing. Aggregate per-row status across all 15 non-Z80N subsystems (refreshed 2026-04-21 after CTC+Interrupts Phase 3 landing; Task 3 CTC+Interrupts SKIP-reduction plan delta on `ctc_test.cpp`: **+84 pass, −101 skip, +17 re-homed to comments** — 10 re-home placeholders point at the new `test/ctc_int/ctc_int_integration_test.cpp`, 2 JOY rows re-home to the emulator/input integration layer, 5 rows B/D/E-merged with neighbours): **1319 pass, 0 fail, 353 skip, 118 missing**. The 118 missing rows include the earlier 101 (NextREG Phase 1 2026-04-20 re-homed 32 bare-test skip()s to source comments pointing at the covering test: `nextreg_integration_test.cpp` for RO-01/03/05/06, RST-09, CLIP-01..08, PAL-01..06, CFG-01/02/05, PE-03/05, SEL-03, RW-01; `mmu_test.cpp` for MMU-03/04; `copper_test.cpp` ARB-04/MOV-02/07 for COP-04; Z80N suite for SEL-05; subsystem-level consolidations NextREG RST-01..08 + MMU-01 + PE-04 from the earlier integration rewrite; and NextREG CLIP-09/CLIP-10 sub-letter-variant artefacts where CLIP-09a/09b exist in the binary but the matrix script maps plan rows by literal ID — backlog: extend script to recognise sub-letter prefixes AND cross-file re-homing) plus the 17 CTC+Interrupts Phase 0 re-home comments. The re-homed rows are NOT genuinely dropped — see each source comment in `nextreg_test.cpp` / `ctc_test.cpp` for the authoritative covering location. Z80N stays permanently missing (FUSE data-driven runner, by design).
+
+**CTC+Interrupts Task 3 session (2026-04-21)**: `ctc_test.cpp` transitioned from `150/44/0/106` to `133/128/0/5` (the 17 missing rows moved from `check()`/`skip()` to source-level re-home comments), and a new companion suite `test/ctc_int/ctc_int_integration_test.cpp` (10/10/0/0) was created to host the 10 integration-tier re-home targets (ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10). Underlying emulator change: the 45-line `src/cpu/im2.*` stub expanded into a full `Im2Controller` + `Im2Client` mixin (~171 lines .h + ~800 lines .cpp + new `src/cpu/im2_client.h`). Remaining 5 skips in `ctc_test.cpp` are all defensible: CTC-NR-04 (user review-later), NR-C0-02 + DMA-04 (NMI-blocked), ULA-INT-04 + ULA-INT-06 (re-home-later candidates to the integration suite). See `doc/testing/audits/task3-ctc-phase5.md` for the full row-by-row audit.
 
 OLDTEXT-TO-DELETE: Per-row Status inside the 9 refactored sections below: **543 pass, 53 fail, 533 skip, 0 missing** — refreshed 2026-04-15 by `test/refresh-traceability-matrix.py` against the Task 1 final commit. Three row-count corrections applied during the refresh: NextREG 66→64 (pseudo-header rows `0x82-85` / `0x86-89` removed), DivMMC+SPI 124→123 (pseudo-row `ROM3-conditional` removed), ULA Video section IDs normalized from `S0N.NN` to `SN.NN` to match the Phase 2 rewrite naming. **Task 1 (Waves 1-3, 2026-04-15) refactored all 9 older compliance suites to the Phase 2 per-row idiom** — MMU/DMA/Audio/NextREG/UART+I2C/DivMMC+SPI/CTC/Tilemap/ULA Video. Every non-Z80N plan row now has a 1:1 test ID and concrete pass/fail/skip status in the Summary. Z80N remains data-driven (FUSE runner) by design. Per-row Status columns inside the 9 refactored sections below are still `—` in this commit — the mechanical per-row extractor pass is deferred to a follow-up commit to keep the Task 1 merges focused on test-code and plan-level status. Aggregate numbers above are the authoritative signal for Waves 1-3 completion. Per-row `pass`/`fail` columns are left as `—` because this is a read-only traceability pass and tests were not executed. Skip counts are only populated for the 6 Phase 2 rewrite subsystems that use the `skip()` helper.
 
@@ -1443,9 +1445,11 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | SD-02   | SD card: deselect after reset           | —              | test/divmmc/divmmc_test.cpp:955 |
 | SD-03   | SD card: not mounted initially          | —              | test/divmmc/divmmc_test.cpp:962 |
 
-## CTC+Interrupts — `test/ctc/ctc_test.cpp`
+## CTC+Interrupts — `test/ctc/ctc_test.cpp` + `test/ctc_int/ctc_int_integration_test.cpp`
 
-Last-touch commit: `f7e1b035d7fb02d3c0c0176609dbc3db712deac5` (`f7e1b035d7`)
+Last-touch commit: `0336c20` (Phase 3 dashboard refresh; Phase 3 merge at `a397422`)
+
+Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5`; 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments (status `missing` below, with re-home target noted). 10 re-home rows now live as passes in the new companion suite `test/ctc_int/ctc_int_integration_test.cpp` (10/10/0/0). Remaining 5 skips: CTC-NR-04 (user review-later), NR-C0-02 + DMA-04 (NMI-blocked), ULA-INT-04 + ULA-INT-06 (re-home-candidate). See `doc/testing/audits/task3-ctc-phase5.md` for row-by-row rationale.
 
 | Test ID    | Plan row title                                               | VHDL file:line | Status  | Test file:line            |
 |------------|--------------------------------------------------------------|----------------|---------|---------------------------|
@@ -1491,114 +1495,114 @@ Last-touch commit: `f7e1b035d7fb02d3c0c0176609dbc3db712deac5` (`f7e1b035d7`)
 | CTC-CW-08  | External int_en_wr overrides D7 bit                          | —              | pass    | test/ctc/ctc_test.cpp:754 |
 | CTC-CW-09  | Hard reset clears control_reg to all zeros                   | —              | pass    | test/ctc/ctc_test.cpp:765 |
 | CTC-CW-10  | Hard reset clears time_constant_reg to 0x00                  | —              | pass    | test/ctc/ctc_test.cpp:778 |
-| CTC-CW-11  | Write edge: iowr is rising-edge detected (i_iowr AND NOT io… | —              | skip    | test/ctc/ctc_test.cpp:787 |
-| CTC-NR-01  | NextREG 0xC5 write: sets CTC interrupt enable bits [3:0]     | —              | pass    | test/ctc/ctc_test.cpp:809 |
-| CTC-NR-02  | NextREG 0xC5 read: returns ctc_int_en[7:0]                   | —              | skip    | test/ctc/ctc_test.cpp:820 |
-| CTC-NR-03  | CTC control word D7 also sets int_en independently           | —              | pass    | test/ctc/ctc_test.cpp:830 |
-| CTC-NR-04  | NextREG 0xC5 write does not overlap with port CTC write      | —              | skip    | test/ctc/ctc_test.cpp:839 |
-| IM2C-01    | ED prefix detected: enter S_ED_T4                            | —              | skip    | test/ctc/ctc_test.cpp:855 |
-| IM2C-02    | ED 4D sequence: o_reti_seen pulsed                           | —              | skip    | test/ctc/ctc_test.cpp:856 |
-| IM2C-03    | ED 45 sequence: o_retn_seen pulsed                           | —              | skip    | test/ctc/ctc_test.cpp:857 |
-| IM2C-04    | ED followed by non-4D/45: return to S_0                      | —              | skip    | test/ctc/ctc_test.cpp:858 |
-| IM2C-05    | o_reti_decode asserted during S_ED_T4                        | —              | skip    | test/ctc/ctc_test.cpp:859 |
-| IM2C-06    | CB prefix: enter S_CB_T4, wait for next fetch                | —              | skip    | test/ctc/ctc_test.cpp:860 |
-| IM2C-07    | DD/FD prefix chain: stay in S_DDFD_T4                        | —              | skip    | test/ctc/ctc_test.cpp:861 |
-| IM2C-08    | DMA delay: asserted during ED, ED4D, ED45, SRL states        | —              | skip    | test/ctc/ctc_test.cpp:862 |
-| IM2C-09    | SRL delay states: 2 extra cycles after RETI/RETN             | —              | skip    | test/ctc/ctc_test.cpp:863 |
-| IM2C-10    | IM mode detection: ED 46 = IM 0                              | —              | skip    | test/ctc/ctc_test.cpp:864 |
-| IM2C-11    | IM mode detection: ED 56 = IM 1                              | —              | skip    | test/ctc/ctc_test.cpp:865 |
-| IM2C-12    | IM mode detection: ED 5E = IM 2                              | —              | skip    | test/ctc/ctc_test.cpp:866 |
-| IM2C-13    | IM mode updates on falling edge of CLK_CPU                   | —              | skip    | test/ctc/ctc_test.cpp:867 |
-| IM2C-14    | IM mode default after reset: IM 0                            | —              | skip    | test/ctc/ctc_test.cpp:868 |
-| IM2D-01    | Interrupt request: S_0 -> S_REQ when i_int_req=1 and M1=high | —              | skip    | test/ctc/ctc_test.cpp:873 |
-| IM2D-02    | INT_n asserted in S_REQ when IEI=1 and IM2 mode              | —              | skip    | test/ctc/ctc_test.cpp:874 |
-| IM2D-03    | INT_n not asserted when IEI=0                                | —              | skip    | test/ctc/ctc_test.cpp:875 |
-| IM2D-04    | INT_n not asserted when not in IM2 mode                      | —              | skip    | test/ctc/ctc_test.cpp:876 |
-| IM2D-05    | Acknowledge: S_REQ -> S_ACK on M1=0, IORQ=0, IEI=1           | —              | skip    | test/ctc/ctc_test.cpp:877 |
-| IM2D-06    | S_ACK -> S_ISR when M1 returns high                          | —              | skip    | test/ctc/ctc_test.cpp:878 |
-| IM2D-07    | S_ISR -> S_0 on RETI seen with IEI=1                         | —              | skip    | test/ctc/ctc_test.cpp:879 |
-| IM2D-08    | S_ISR stays in S_ISR without RETI                            | —              | skip    | test/ctc/ctc_test.cpp:880 |
-| IM2D-09    | Vector output during S_ACK (or S_ACK transition)             | —              | skip    | test/ctc/ctc_test.cpp:881 |
-| IM2D-10    | Vector output = 0 when not in ACK                            | —              | skip    | test/ctc/ctc_test.cpp:882 |
-| IM2D-11    | o_isr_serviced pulsed on S_ISR -> S_0 transition             | —              | skip    | test/ctc/ctc_test.cpp:883 |
-| IM2D-12    | DMA interrupt: o_dma_int=1 whenever state != S_0 and dma_in… | —              | skip    | test/ctc/ctc_test.cpp:884 |
-| IM2P-01    | IEO = IEI in S_0 state (idle)                                | —              | skip    | test/ctc/ctc_test.cpp:889 |
-| IM2P-02    | IEO = IEI AND reti_decode in S_REQ state                     | —              | skip    | test/ctc/ctc_test.cpp:890 |
-| IM2P-03    | IEO = 0 in S_ACK and S_ISR states                            | —              | skip    | test/ctc/ctc_test.cpp:891 |
-| IM2P-04    | Highest-priority device (index 0) has IEI=1 always           | —              | skip    | test/ctc/ctc_test.cpp:892 |
-| IM2P-05    | Two simultaneous requests: lower index wins                  | —              | skip    | test/ctc/ctc_test.cpp:893 |
-| IM2P-06    | Lower-priority device queued while higher is serviced        | —              | skip    | test/ctc/ctc_test.cpp:894 |
-| IM2P-07    | After RETI of higher-priority ISR: lower device proceeds     | —              | skip    | test/ctc/ctc_test.cpp:895 |
-| IM2P-08    | Chain of 3: device 0 in ISR, device 1 requesting, device 2…  | —              | skip    | test/ctc/ctc_test.cpp:896 |
-| IM2P-09    | INT_n is AND of all device int_n signals                     | —              | skip    | test/ctc/ctc_test.cpp:897 |
-| IM2P-10    | Vector OR: only acknowledged device outputs non-zero vector  | —              | skip    | test/ctc/ctc_test.cpp:898 |
-| PULSE-01   | Pulse mode (nr_c0[0]=0): pulse_en from qualified int_req     | —              | skip    | test/ctc/ctc_test.cpp:903 |
-| PULSE-02   | IM2 mode (nr_c0[0]=1): pulse_en suppressed                   | —              | skip    | test/ctc/ctc_test.cpp:904 |
-| PULSE-03   | ULA exception (EXCEPTION='1'): pulse even in IM2 when CPU n… | —              | skip    | test/ctc/ctc_test.cpp:905 |
-| PULSE-04   | pulse_int_n goes low on pulse_en, stays low for count durat… | —              | skip    | test/ctc/ctc_test.cpp:906 |
-| PULSE-05   | 48K/+3 timing: pulse duration = 32 CPU cycles                | —              | skip    | test/ctc/ctc_test.cpp:907 |
-| PULSE-06   | 128K/Pentagon timing: pulse duration = 36 CPU cycles         | —              | skip    | test/ctc/ctc_test.cpp:908 |
-| PULSE-07   | Pulse counter resets when pulse_int_n=1                      | —              | skip    | test/ctc/ctc_test.cpp:909 |
-| PULSE-08   | INT_n to Z80 = pulse_int_n AND im2_int_n                     | —              | skip    | test/ctc/ctc_test.cpp:910 |
-| PULSE-09   | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n    | —              | skip    | test/ctc/ctc_test.cpp:911 |
-| IM2W-01    | Edge detection: int_req = i_int_req AND NOT int_req_d        | —              | skip    | test/ctc/ctc_test.cpp:916 |
-| IM2W-02    | im2_int_req latched: stays high until ISR serviced           | —              | skip    | test/ctc/ctc_test.cpp:917 |
-| IM2W-03    | im2_int_req cleared by im2_isr_serviced                      | —              | skip    | test/ctc/ctc_test.cpp:918 |
-| IM2W-04    | int_status set by int_req or int_unq                         | —              | skip    | test/ctc/ctc_test.cpp:919 |
-| IM2W-05    | int_status cleared by i_int_status_clear                     | —              | skip    | test/ctc/ctc_test.cpp:920 |
-| IM2W-06    | o_int_status = int_status OR im2_int_req                     | —              | skip    | test/ctc/ctc_test.cpp:921 |
-| IM2W-07    | im2_reset_n = mode_pulse AND NOT reset                       | —              | skip    | test/ctc/ctc_test.cpp:922 |
-| IM2W-08    | Unqualified interrupt (int_unq): bypasses int_en             | —              | skip    | test/ctc/ctc_test.cpp:923 |
-| IM2W-09    | isr_serviced edge detection across clock domains             | —              | skip    | test/ctc/ctc_test.cpp:924 |
-| ULA-INT-01 | ULA interrupt generated at specific HC/VC position           | —              | skip    | test/ctc/ctc_test.cpp:929 |
-| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (port_ff_interrupt_… | —              | skip    | test/ctc/ctc_test.cpp:930 |
-| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] = NOT port_ff_interrupt… | —              | skip    | test/ctc/ctc_test.cpp:931 |
-| ULA-INT-04 | Line interrupt at configurable scanline                      | —              | skip    | test/ctc/ctc_test.cpp:932 |
-| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en               | —              | skip    | test/ctc/ctc_test.cpp:933 |
-| ULA-INT-06 | Line interrupt scanline 0 maps to c_max_vc                   | —              | skip    | test/ctc/ctc_test.cpp:934 |
-| ULA-INT-07 | ULA interrupt is priority index 11                           | —              | skip    | test/ctc/ctc_test.cpp:935 |
-| ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | —              | skip    | test/ctc/ctc_test.cpp:936 |
-| ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | —              | skip    | test/ctc/ctc_test.cpp:937 |
-| NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | —              | skip    | test/ctc/ctc_test.cpp:942 |
-| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | —              | skip    | test/ctc/ctc_test.cpp:943 |
-| NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | —              | skip    | test/ctc/ctc_test.cpp:944 |
-| NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | skip    | test/ctc/ctc_test.cpp:945 |
-| NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | —              | skip    | test/ctc/ctc_test.cpp:946 |
-| NR-C4-02   | Write NextREG 0xC4: bit [1] = line interrupt enable          | —              | skip    | test/ctc/ctc_test.cpp:947 |
-| NR-C4-03   | Read NextREG 0xC4: returns expbus & ula_int_en               | —              | skip    | test/ctc/ctc_test.cpp:948 |
-| NR-C5-01   | Write NextREG 0xC5: CTC interrupt enable bits [3:0]          | —              | skip    | test/ctc/ctc_test.cpp:949 |
-| NR-C5-02   | Read NextREG 0xC5: returns ctc_int_en[7:0]                   | —              | skip    | test/ctc/ctc_test.cpp:950 |
-| NR-C6-01   | Write NextREG 0xC6: UART interrupt enable                    | —              | skip    | test/ctc/ctc_test.cpp:951 |
-| NR-C6-02   | Read NextREG 0xC6: returns 0_654_0_210                       | —              | skip    | test/ctc/ctc_test.cpp:952 |
-| NR-C8-01   | Read NextREG 0xC8: line and ULA interrupt status             | —              | skip    | test/ctc/ctc_test.cpp:953 |
-| NR-C9-01   | Read NextREG 0xC9: CTC interrupt status [10:3]               | —              | skip    | test/ctc/ctc_test.cpp:954 |
-| NR-CA-01   | Read NextREG 0xCA: UART interrupt status                     | —              | skip    | test/ctc/ctc_test.cpp:955 |
-| NR-CC-01   | Write NextREG 0xCC: DMA interrupt enable group 0             | —              | skip    | test/ctc/ctc_test.cpp:956 |
-| NR-CD-01   | Write NextREG 0xCD: DMA interrupt enable group 1             | —              | skip    | test/ctc/ctc_test.cpp:957 |
-| NR-CE-01   | Write NextREG 0xCE: DMA interrupt enable group 2             | —              | skip    | test/ctc/ctc_test.cpp:958 |
-| ISC-01     | Write NextREG 0xC8 bit 1: clear line interrupt status        | —              | skip    | test/ctc/ctc_test.cpp:963 |
-| ISC-02     | Write NextREG 0xC8 bit 0: clear ULA interrupt status         | —              | skip    | test/ctc/ctc_test.cpp:964 |
-| ISC-03     | Write NextREG 0xC9: clear individual CTC status bits         | —              | skip    | test/ctc/ctc_test.cpp:965 |
-| ISC-04     | Write NextREG 0xCA bit 6: clear UART1 TX status              | —              | skip    | test/ctc/ctc_test.cpp:966 |
-| ISC-05     | Write NextREG 0xCA bit 2: clear UART0 TX status              | —              | skip    | test/ctc/ctc_test.cpp:967 |
-| ISC-06     | Write NextREG 0xCA bits 5                                    | —              | skip    | test/ctc/ctc_test.cpp:968 |
-| ISC-07     | Write NextREG 0xCA bits 1                                    | —              | skip    | test/ctc/ctc_test.cpp:969 |
-| ISC-08     | Status bit re-set by new interrupt while clear pending       | —              | skip    | test/ctc/ctc_test.cpp:970 |
-| ISC-09     | Legacy NextREG 0x20 read: returns mixed status               | —              | skip    | test/ctc/ctc_test.cpp:971 |
-| ISC-10     | Legacy NextREG 0x22 read: includes pulse_int_n state         | —              | skip    | test/ctc/ctc_test.cpp:972 |
-| DMA-01     | im2_dma_int set when any peripheral has dma_int=1            | —              | skip    | test/ctc/ctc_test.cpp:977 |
-| DMA-02     | im2_dma_delay latched on im2_dma_int                         | —              | skip    | test/ctc/ctc_test.cpp:978 |
-| DMA-03     | im2_dma_delay held by dma_delay signal                       | —              | skip    | test/ctc/ctc_test.cpp:979 |
-| DMA-04     | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1      | —              | skip    | test/ctc/ctc_test.cpp:980 |
-| DMA-05     | DMA delay cleared on reset                                   | —              | skip    | test/ctc/ctc_test.cpp:981 |
-| DMA-06     | Per-peripheral DMA int enable via NextREGs 0xCC-0xCE         | —              | skip    | test/ctc/ctc_test.cpp:982 |
-| UNQ-01     | NextREG 0x20 write bit 7: unqualified line interrupt         | —              | skip    | test/ctc/ctc_test.cpp:987 |
-| UNQ-02     | NextREG 0x20 write bits [3:0]: unqualified CTC 0-3           | —              | skip    | test/ctc/ctc_test.cpp:988 |
-| UNQ-03     | NextREG 0x20 write bit 6: unqualified ULA interrupt          | —              | skip    | test/ctc/ctc_test.cpp:989 |
-| UNQ-04     | Unqualified interrupt bypasses int_en check                  | —              | skip    | test/ctc/ctc_test.cpp:990 |
-| UNQ-05     | Unqualified interrupt sets int_status                        | —              | skip    | test/ctc/ctc_test.cpp:991 |
-| JOY-01     | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7        | —              | skip    | test/ctc/ctc_test.cpp:996 |
-| JOY-02     | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0           | —              | skip    | test/ctc/ctc_test.cpp:997 |
+| CTC-CW-11  | Write edge: iowr is rising-edge detected (i_iowr AND NOT io… | —              | missing | D-comment: API discrete, merged into CTC-SM-*      |
+| CTC-NR-01  | NextREG 0xC5 write: sets CTC interrupt enable bits [3:0]     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| CTC-NR-02  | NextREG 0xC5 read: returns ctc_int_en[7:0]                   | —              | pass    | test/ctc/ctc_test.cpp                              |
+| CTC-NR-03  | CTC control word D7 also sets int_en independently           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| CTC-NR-04  | NextREG 0xC5 write does not overlap with port CTC write      | —              | skip    | test/ctc/ctc_test.cpp                              |
+| IM2C-01    | ED prefix detected: enter S_ED_T4                            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-02    | ED 4D sequence: o_reti_seen pulsed                           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-03    | ED 45 sequence: o_retn_seen pulsed                           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-04    | ED followed by non-4D/45: return to S_0                      | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-05    | o_reti_decode asserted during S_ED_T4                        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-06    | CB prefix: enter S_CB_T4, wait for next fetch                | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-07    | DD/FD prefix chain: stay in S_DDFD_T4                        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-08    | DMA delay: asserted during ED, ED4D, ED45, SRL states        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-09    | SRL delay states: 2 extra cycles after RETI/RETN             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-10    | IM mode detection: ED 46 = IM 0                              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-11    | IM mode detection: ED 56 = IM 1                              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-12    | IM mode detection: ED 5E = IM 2                              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2C-13    | IM mode updates on falling edge of CLK_CPU                   | —              | missing | B-comment: VHDL-internal clock edge, merged IM2C-10..12 |
+| IM2C-14    | IM mode default after reset: IM 0                            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-01    | Interrupt request: S_0 -> S_REQ when i_int_req=1 and M1=high | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-02    | INT_n asserted in S_REQ when IEI=1 and IM2 mode              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-03    | INT_n not asserted when IEI=0                                | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-04    | INT_n not asserted when not in IM2 mode                      | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-05    | Acknowledge: S_REQ -> S_ACK on M1=0, IORQ=0, IEI=1           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-06    | S_ACK -> S_ISR when M1 returns high                          | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-07    | S_ISR -> S_0 on RETI seen with IEI=1                         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-08    | S_ISR stays in S_ISR without RETI                            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-09    | Vector output during S_ACK (or S_ACK transition)             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-10    | Vector output = 0 when not in ACK                            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-11    | o_isr_serviced pulsed on S_ISR -> S_0 transition             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2D-12    | DMA interrupt: o_dma_int=1 whenever state != S_0 and dma_in… | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-01    | IEO = IEI in S_0 state (idle)                                | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-02    | IEO = IEI AND reti_decode in S_REQ state                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-03    | IEO = 0 in S_ACK and S_ISR states                            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-04    | Highest-priority device (index 0) has IEI=1 always           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-05    | Two simultaneous requests: lower index wins                  | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-06    | Lower-priority device queued while higher is serviced        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-07    | After RETI of higher-priority ISR: lower device proceeds     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-08    | Chain of 3: device 0 in ISR, device 1 requesting, device 2…  | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-09    | INT_n is AND of all device int_n signals                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2P-10    | Vector OR: only acknowledged device outputs non-zero vector  | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-01   | Pulse mode (nr_c0[0]=0): pulse_en from qualified int_req     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-02   | IM2 mode (nr_c0[0]=1): pulse_en suppressed                   | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-03   | ULA exception (EXCEPTION='1'): pulse even in IM2 when CPU n… | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-04   | pulse_int_n goes low on pulse_en, stays low for count durat… | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-05   | 48K/+3 timing: pulse duration = 32 CPU cycles                | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-06   | 128K/Pentagon timing: pulse duration = 36 CPU cycles         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-07   | Pulse counter resets when pulse_int_n=1                      | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-08   | INT_n to Z80 = pulse_int_n AND im2_int_n                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| PULSE-09   | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n    | —              | missing | B-comment: VHDL-internal bus pin, merged PULSE-08  |
+| IM2W-01    | Edge detection: int_req = i_int_req AND NOT int_req_d        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-02    | im2_int_req latched: stays high until ISR serviced           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-03    | im2_int_req cleared by im2_isr_serviced                      | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-04    | int_status set by int_req or int_unq                         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-05    | int_status cleared by i_int_status_clear                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-06    | o_int_status = int_status OR im2_int_req                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-07    | im2_reset_n = mode_pulse AND NOT reset                       | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-08    | Unqualified interrupt (int_unq): bypasses int_en             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| IM2W-09    | isr_serviced edge detection across clock domains             | —              | missing | B-comment: cross-domain pipeline, merged IM2W-03   |
+| ULA-INT-01 | ULA interrupt generated at specific HC/VC position           | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (port_ff_interrupt_… | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] = NOT port_ff_interrupt… | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| ULA-INT-04 | Line interrupt at configurable scanline                      | —              | skip    | test/ctc/ctc_test.cpp (re-home candidate)          |
+| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en               | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| ULA-INT-06 | Line interrupt scanline 0 maps to c_max_vc                   | —              | skip    | test/ctc/ctc_test.cpp (re-home candidate)          |
+| ULA-INT-07 | ULA interrupt is priority index 11                           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ULA-INT-08 | Line interrupt is priority index 0 (highest)                 | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C0-01   | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C0-02   | Write NextREG 0xC0: bit [3] = stackless NMI                  | —              | skip    | test/ctc/ctc_test.cpp (NMI-blocked F-keep)         |
+| NR-C0-03   | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C0-04   | Read NextREG 0xC0: returns vector, stackless, im_mode, int_… | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| NR-C4-01   | Write NextREG 0xC4: bit [7] = expansion bus int enable       | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C4-02   | Write NextREG 0xC4: bit [1] = line interrupt enable          | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| NR-C4-03   | Read NextREG 0xC4: returns expbus & ula_int_en               | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| NR-C5-01   | Write NextREG 0xC5: CTC interrupt enable bits [3:0]          | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C5-02   | Read NextREG 0xC5: returns ctc_int_en[7:0]                   | —              | missing | E-comment: duplicate of CTC-NR-02                  |
+| NR-C6-01   | Write NextREG 0xC6: UART interrupt enable                    | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C6-02   | Read NextREG 0xC6: returns 0_654_0_210                       | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| NR-C8-01   | Read NextREG 0xC8: line and ULA interrupt status             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-C9-01   | Read NextREG 0xC9: CTC interrupt status [10:3]               | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-CA-01   | Read NextREG 0xCA: UART interrupt status                     | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-CC-01   | Write NextREG 0xCC: DMA interrupt enable group 0             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-CD-01   | Write NextREG 0xCD: DMA interrupt enable group 1             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| NR-CE-01   | Write NextREG 0xCE: DMA interrupt enable group 2             | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-01     | Write NextREG 0xC8 bit 1: clear line interrupt status        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-02     | Write NextREG 0xC8 bit 0: clear ULA interrupt status         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-03     | Write NextREG 0xC9: clear individual CTC status bits         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-04     | Write NextREG 0xCA bit 6: clear UART1 TX status              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-05     | Write NextREG 0xCA bit 2: clear UART0 TX status              | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-06     | Write NextREG 0xCA bits 5                                    | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-07     | Write NextREG 0xCA bits 1                                    | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-08     | Status bit re-set by new interrupt while clear pending       | —              | pass    | test/ctc/ctc_test.cpp                              |
+| ISC-09     | Legacy NextREG 0x20 read: returns mixed status               | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| ISC-10     | Legacy NextREG 0x22 read: includes pulse_int_n state         | —              | missing | re-home: test/ctc_int/ctc_int_integration_test.cpp |
+| DMA-01     | im2_dma_int set when any peripheral has dma_int=1            | —              | pass    | test/ctc/ctc_test.cpp                              |
+| DMA-02     | im2_dma_delay latched on im2_dma_int                         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| DMA-03     | im2_dma_delay held by dma_delay signal                       | —              | pass    | test/ctc/ctc_test.cpp                              |
+| DMA-04     | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1      | —              | skip    | test/ctc/ctc_test.cpp (NMI-blocked F-keep)         |
+| DMA-05     | DMA delay cleared on reset                                   | —              | pass    | test/ctc/ctc_test.cpp                              |
+| DMA-06     | Per-peripheral DMA int enable via NextREGs 0xCC-0xCE         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| UNQ-01     | NextREG 0x20 write bit 7: unqualified line interrupt         | —              | pass    | test/ctc/ctc_test.cpp                              |
+| UNQ-02     | NextREG 0x20 write bits [3:0]: unqualified CTC 0-3           | —              | pass    | test/ctc/ctc_test.cpp                              |
+| UNQ-03     | NextREG 0x20 write bit 6: unqualified ULA interrupt          | —              | pass    | test/ctc/ctc_test.cpp                              |
+| UNQ-04     | Unqualified interrupt bypasses int_en check                  | —              | pass    | test/ctc/ctc_test.cpp                              |
+| UNQ-05     | Unqualified interrupt sets int_status                        | —              | pass    | test/ctc/ctc_test.cpp                              |
+| JOY-01     | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7        | —              | missing | re-home: emulator/input integration layer          |
+| JOY-02     | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0           | —              | missing | re-home: emulator/input integration layer          |
 
 ### Extra coverage (not in plan)
 
@@ -1607,6 +1611,23 @@ Last-touch commit: `f7e1b035d7fb02d3c0c0176609dbc3db712deac5` (`f7e1b035d7`)
 | MC-01   | 4 channels loaded with different TCs | —              | test/ctc/ctc_test.cpp:745 |
 | MC-02   | Channels decrement independently     | —              | test/ctc/ctc_test.cpp:758 |
 | MC-03   | Read invalid channel returns 0xFF    | —              | test/ctc/ctc_test.cpp:767 |
+
+### Companion integration suite — `test/ctc_int/ctc_int_integration_test.cpp`
+
+Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   10  Passed:   10  Failed:    0  Skipped:    0`. Each entry below cross-references the CTC+Interrupts plan row.
+
+| Test ID    | Plan row title                                                | VHDL file:line | Status | Test file                                      |
+|------------|---------------------------------------------------------------|----------------|--------|------------------------------------------------|
+| ULA-INT-01 | ULA interrupt generated at specific HC/VC position            | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (workaround NR 0x22)  | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] mirror                    | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en                | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| NR-C0-04   | Read NextREG 0xC0: vector, stackless, im_mode, int_mode       | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| NR-C4-02   | Write NextREG 0xC4: bit [1] = line interrupt enable           | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| NR-C4-03   | Read NextREG 0xC4: returns expbus & ula_int_en                | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| NR-C6-02   | Read NextREG 0xC6: returns 0_654_0_210                        | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| ISC-09     | Legacy NextREG 0x20 read: returns mixed status                | —              | pass   | test/ctc_int/ctc_int_integration_test.cpp      |
+| ISC-10     | Legacy NextREG 0x22 read: includes pulse_int_n state (reset-state invariant) | — | pass | test/ctc_int/ctc_int_integration_test.cpp |
 
 ## UART+I2C/RTC — `test/uart/uart_test.cpp`
 
