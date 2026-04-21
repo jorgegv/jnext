@@ -145,13 +145,24 @@ public:
 
     // ── Layer 2 read-map feeder (Mmu → DivMmc) ─────────────────────
     /// Set the Layer 2 read-map-enable signal (port 0x123B bit 2 —
-    /// `port_123b_layer2_map_rd_en` / `sram_layer2_map_en`). VHDL
-    /// zxnext.vhd:3138 gates `sram_divmmc_automap_rom3_en` on
-    /// `NOT sram_layer2_map_en`: when Layer 2 is actively read-mapped
-    /// at 0x0000-0x3FFF, the ROM3-conditional automap path must be
-    /// suppressed (the L2 read overlay owns that region). The main
-    /// automap path (valid=1) is unaffected. Fed from Emulator's
-    /// port 0x123B write handler, which also feeds Mmu::set_l2_port.
+    /// `port_123b_layer2_map_rd_en`). VHDL zxnext.vhd:3138 gates
+    /// `sram_divmmc_automap_rom3_en` on `NOT sram_layer2_map_en`: when
+    /// Layer 2 is actively read-mapped at 0x0000-0x3FFF, the ROM3-
+    /// conditional automap path must be suppressed (the L2 read overlay
+    /// owns that region). The main automap path (valid=1) is unaffected.
+    /// Fed from Emulator's port 0x123B write handler, which also feeds
+    /// Mmu::set_l2_port.
+    ///
+    /// Modelling note: this field tracks the LATCHED bit from VHDL:3918
+    /// (`port_123b_layer2_map_rd_en <= cpu_do(2)`). The gate at VHDL:3138
+    /// references the COMPOSITE `sram_layer2_map_en` (VHDL:3077 —
+    /// additionally factors `sram_pre_override(1)` and the `cpu_rd_n`
+    /// read/write arbiter). Since DivMmc::check_automap fires on M1
+    /// fetches (CPU reads, cpu_rd_n=0) and `sram_pre_override(1)` is
+    /// always set in Next mode, the composite reduces to the latched
+    /// bit under every boot path we care about. Treat the two as
+    /// interchangeable here; revisit if a non-Next-mode boot path ever
+    /// reaches this gate.
     void set_layer2_map_read(bool v) { layer2_map_read_ = v; }
     bool layer2_map_read() const { return layer2_map_read_; }
 
