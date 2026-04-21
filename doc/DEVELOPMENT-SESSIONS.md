@@ -37,5 +37,11 @@
 | 17/4   | 7h   | Phase 9: v0.92.0+v0.93.0, Task 3 SKIP reduction (7 subsystems), DivMMC+SPI 4-phase plan    |
 | 18/4   | 6h   | Phase 2: MMU+NextREG un-skips (B/D1/D2/E), Option C 0xFF sentinel, NR 0x8E bit-3 gate      |
 | 19/4   | 4h   | Task (c): Ram 1792→2048 KB fix, DivMMC 0x0066 automap gate on button_nmi (VHDL:120)        |
+| 20/4   | 3h   | Task 3: NextREG bare+int (21/0/0 + 73/0/0), MMU (148/0/0), Port (83/0/0) closed. WONT taxo |
+|        |      | NR 0x12/0x13 readback bug fix, NR 0x82 b2→0xDFFD gate, Makefile dashboard hand-off fix     |
+| 21/4   | 6h   | Task 3: CTC+Interrupts plan CLOSED Phase 0→5 (13 agents, 11 critics, 37 commits)           |
+|        |      | Im2Controller fabric: 45-line stub → ~800 lines (decoder, device SM, daisy, pulse, NR, DMA)|
+|        |      | ctc_test 106→5 skips (+84 pass), new ctc_int_test 10/10. Aggregate 3222/2886/0/336         |
+|        |      | NextZXOS boot retest: all ROMs load banner, boots to 48K mode (was blue-stripes DivMMC-IM1)|
 |        |      |                                                                                            |
-| TOTAL: | 137h |                                                                                            |
+| TOTAL: | 146h |                                                                                            |
