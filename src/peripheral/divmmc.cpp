@@ -36,6 +36,7 @@ void DivMmc::reset() {
     automap_hold_   = false;
     automap_held_   = false;
     button_nmi_     = false;  // VHDL divmmc.vhd:108 — reset clears latch
+    layer2_map_read_ = false; // VHDL zxnext.vhd:3910 — reset clears L2 rd-map
     entry_points_0_ = 0x83;  // soft reset default
     entry_valid_0_  = 0x01;
     entry_timing_0_ = 0x00;
@@ -189,8 +190,12 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
             const bool instant = (entry_timing_0_ & (1 << i)) != 0;
             // Main path fires unconditionally when valid=1; ROM3 path fires
             // only when ROM3 is the selected ROM (VHDL divmmc.vhd:130,148
-            // gates i_automap_rom3_* on i_automap_rom3_active).
-            if (valid || rom3_active_) {
+            // gates i_automap_rom3_* on i_automap_rom3_active) AND when
+            // Layer 2 is NOT read-mapped at 0x0000-0x3FFF (VHDL zxnext.vhd:
+            // 3138 — sram_divmmc_automap_rom3_en factors in
+            // NOT sram_layer2_map_en; the L2 read overlay owns that region
+            // when active). The main path is unaffected by L2 read-map.
+            if (valid || (rom3_active_ && !layer2_map_read_)) {
                 if (instant) instant_match = true;
                 else         delayed_match = true;
             }
@@ -213,13 +218,14 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
         // spurious automap activation on any ordinary control-flow path
         // that happens to reach 0x0066 (e.g. enNextZX.rom subroutines).
         instant_match = true;
-    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_) {
+    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_ && !layer2_map_read_) {
+        // ROM3-only tape trap — VHDL zxnext.vhd:3138 gates on NOT sram_layer2_map_en.
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_) {
+    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_ && !layer2_map_read_) {
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_) {
+    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_ && !layer2_map_read_) {
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_) {
+    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_ && !layer2_map_read_) {
         delayed_match = true;
     } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
         // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
@@ -351,6 +357,9 @@ void DivMmc::save_state(StateWriter& w) const
     w.write_bool(automap_held_);
     // NMI-button latch (VHDL divmmc.vhd:108-111).
     w.write_bool(button_nmi_);
+    // Layer 2 read-map feeder (VHDL zxnext.vhd:3138). Appended after
+    // button_nmi_ to keep the stream layout append-only.
+    w.write_bool(layer2_map_read_);
     w.write_bytes(ram_.data(), ram_.size());
 }
 
@@ -377,5 +386,9 @@ void DivMmc::load_state(StateReader& r)
     // are not backward-compatible; the project has historically treated
     // save-state format as tied to build version.
     button_nmi_     = r.read_bool();
+    // Layer 2 read-map feeder (VHDL zxnext.vhd:3138). Appended after
+    // button_nmi_. Like the Task 7 Branch A additions above, this breaks
+    // backward compat with pre-feeder snapshots by design.
+    layer2_map_read_ = r.read_bool();
     r.read_bytes(ram_.data(), ram_.size());
 }
