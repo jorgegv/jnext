@@ -1031,22 +1031,22 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 - [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
-- [ ] **Reduce SKIPs — implement missing features** to un-skip the plan rows that have VHDL-traced tests but no C++ implementation yet. Work per-subsystem, one branch per feature, with code review and regression. Order below prioritises biggest wins (low-skip, mostly algorithmic) before the larger subsystem lifts that require substantial new code. Subsystems marked DONE may retain a single `skip()` when it is a category-F upstream gap tracked in a dedicated future task.
-  - [x] DMA (35 skip → 0) — Wave 1 A/B/C + Feature D (IM2 delay); 150/0/0.
-  - [x] Tilemap (18 skip → 0) — Feature A clip enforcement, Feature B NR 0x6B bit 4 palette-select; 59/0/0.
-  - [x] Sprites (10 skip → 0) — Feature A NR 0x15 bit 5 border_clip_en, Feature B per-scanline overtime cycle-budget; 121/0/0. 4 stubs converted to source comments, 2 stubs rewritten as end-to-end render checks.
-  - [x] Copper (10 skip → 1) — Feature A NR 0x64 offset + c_max_vc wrap; 75/0/1. ARB-01/02/03 rewritten as outcome-based arbitration tests. Remaining skip is ARB-06 (category F, blocked on NMI / NR 0x02 infrastructure — Task 8). Cycle-accurate CPU/Copper priority filed as future Task 5.
-  - [x] Layer 2 (8 skip → 0) — No new features; all 8 skips converted to source comments (G7-01..03/05a-c SRAM bank transform is physical layout artifact, G9-04 covered by G3-12, G9-06 VHDL-internal pipeline signal); 89/0/0.
-  - [x] Port Dispatch (6 skip → 1) — Feature A NR 0x82 bit 0 gate on port 0xFF + 4 comments (IORQ-01/CTN-01/02 covered by FUSE suite; AMAP-01 hotkey_expbus_freeze internal signal); 82/0/1. Remaining skip is NR82-02 (category F, Pentagon 0xDFFD handler stub).
-  - [x] DivMMC+SPI (56 skip → 17) — 4-phase plan: (1) 28 unobservable/out-of-scope rows to comments, (2) M1 cleanups DA-08/E3-05/EP-09/EP-10/NA-03 + M2 RETN hook DA-06/IN-03, (3) SPI sd_swap CS decode SS-02..05, (4) Task 7 / Task 8 deferral notes on 17 remaining skips; 78/0/17. All 17 remaining skips tagged — 9 to future Task 7 (automap pipeline + ROM3-conditional), 8 to future Task 8 (Multiface peripheral).
-  - [ ] UART+I2C/RTC (48 skip) — RTC BCD registers, register pointer, I2C sequential reads.
-  - [ ] NextREG (47 skip) — integration-tier defaults owned by subsystem handlers.
-  - [~] NextREG integration (1 skip → 0) — Phase 2 E: NR 0x1B read handler (VHDL-faithful combinatorial mux over tilemap clip coords, no idx advance per zxnext.vhd:5971-5977) + un-skip RST-09 & CLIP-07 (stale — NR 0x1C read handler was already installed) + add discriminative CLIP-09 (read-does-not-advance-idx invariant, both idx=0 and idx=3 paths) + CLIP-10 (write-advances-idx reflected in NR 0x1C bits 7:6); 53/0/13 (nextreg_integration_test). Out of phase scope: NR 0x18/0x19/0x1A read handlers (CLIP-08 + future rows — Layer 2/Sprite/ULA clip reads, separate phase).
-  - [ ] Input (126 skip) — joystick, mouse, NMI, port 0xFE subsystems.
-  - [ ] CTC+Interrupts (106 skip) — IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE, DMA int wire.
-  - [~] Memory/MMU (77 skip → 13) — Phase 2 C0 (NR 0x08 bit 7 paging unlock) + C (NR 0x08 bit 6 contention_disable + NR 0x8C altrom + machine-type selector) + A (0xDFFD + 0xEFF7 ports + soft-reset preservation) + A.1 (palette PAL-01/03/06 NR 0x41 read-handler fix) + B (NR 0x8E + NR 0x8F unified paging + Pentagon-512/1024 bank composition) + D1 (ContentionModel inputs mem_active_page/cpu_speed/pentagon_timing/contention_disable + is_contended_access() gate per VHDL zxnext.vhd:4481,4489-4493; tick-loop integration deferred) + D2 (Layer 2 read-port via port 0x123B bit 2 layer2_map_rd_en + set_l2_port atomic latch per VHDL zxnext.vhd:3918,3100-3107); 142/0/13 (mmu_test). All pure MMU-surface work on the VHDL paging/overlay axis complete. Remaining: 3 DivMmc overlay rows (PRI-01/02/04 — integration tier), 2 altrom SRAM-arbiter overrides (ALT-08, ROM-09 — needs sram_pre_rdonly wiring), L2M-05/06 NR 0x12/0x13 shadow (integration tier). Phase 2 E landed 2026-04-20.
-  - [ ] ULA Video (75 skip) — contention, hi-res modes, interrupt edge.
-  - [ ] Audio (73 skip) — DAC channel enables, stereo routing.
+- [ ] **Reduce SKIPs — implement missing features** to un-skip the plan rows that have VHDL-traced tests but no C++ implementation yet. Work per-subsystem, one branch per feature, with code review and regression. See `test/SUBSYSTEM-TESTS-STATUS.md` for live per-subsystem counts.
+  - [x] DMA
+  - [x] Tilemap
+  - [x] Sprites
+  - [x] Layer 2
+  - [x] Compositor
+  - [x] Port Dispatch
+  - [x] NextREG (bare + integration)
+  - [x] Memory/MMU
+  - [~] Copper — 1 skip remaining (ARB-06, category F, blocked on NMI subsystem)
+  - [~] DivMMC+SPI
+  - [ ] UART+I2C/RTC
+  - [ ] Input
+  - [ ] CTC+Interrupts
+  - [ ] ULA Video
+  - [ ] Audio
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
@@ -1056,7 +1056,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - [ ] CI golden-output visual regression tests integration
 
 - [ ] General optimization plan
-  - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review.
+  - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)
   - [ ] General code refactor and tidy up (/simplify)
   - [ ] Replacement of magic number with named constants where possible
   - [ ] Performance profiling and optimization — plan in `doc/PROFILING-OPTIMIZATION-PLAN.md` (after code refactor/audit)
