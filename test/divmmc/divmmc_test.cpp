@@ -32,6 +32,9 @@
 
 #include "peripheral/divmmc.h"
 #include "peripheral/spi.h"
+#include "memory/mmu.h"
+#include "memory/ram.h"
+#include "memory/rom.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -144,6 +147,42 @@ DivMmc make_divmmc() {
     d.set_entry_timing_0(0xFF);   // all-instant for test convenience
     return d;
 }
+
+// ── Mmu + DivMmc integration fixture ──────────────────────────────────
+//
+// Hosts the cross-object priority tests PRI-01/02/04 (re-homed from
+// test/mmu/mmu_test.cpp Cat18 on 2026-04-21, commit 7be3deb). The VHDL
+// decode priority ladder at zxnext.vhd:3084-3100 is resolved inside
+// Mmu::read/write — specifically, the DivMMC overlay block at
+// src/memory/mmu.h:118-133 (read) and :215-220 (write) sits above the
+// Layer 2 and config_mode/MMU branches, mirroring the VHDL arbiter.
+// Wiring this in a test therefore needs all three objects plus the
+// mmu.set_divmmc(&dm) pointer — bare-DivMmc tests cannot see the ladder,
+// bare-Mmu tests cannot fire the DivMMC branch.
+//
+// Default Ram is 2048 KB (256 × 8K pages) per the Mmu test plan; any
+// physical page index used by PRI rows must stay in that range.
+struct MmuDivFixture {
+    Ram    ram;
+    Rom    rom;
+    Mmu    mmu;
+    DivMmc dm;
+
+    MmuDivFixture() : ram(), rom(), mmu(ram, rom), dm() {
+        mmu.reset();
+        dm.reset();
+        dm.set_enabled(true);          // port_io + nr_0a_4 both ON
+        mmu.set_divmmc(&dm);           // wire the overlay pointer
+    }
+
+    // Force DivMMC active via conmem (VHDL port 0xE3 bit 7). Avoids the
+    // M1 automap latching pipeline — PRI-01/02/04 only need a stable
+    // "DivMMC is active right now" signal, not the activation mechanism.
+    void divmmc_conmem_on(bool mapram = false, uint8_t bank = 0) {
+        uint8_t ctrl = 0x80 | (mapram ? 0x40 : 0x00) | (bank & 0x0F);
+        dm.write_control(ctrl);
+    }
+};
 
 // ══════════════════════════════════════════════════════════════════════
 // §1. Port 0xE3 — DivMMC Control Register
@@ -1317,25 +1356,138 @@ void group_sm() {
     // ── Re-homed from test/mmu/mmu_test.cpp (Cat18 decode priority) ──
     //
     // PRI-01/02/04 are the Mmu-side view of the same DivMMC-vs-everything
-    // priority ladder that SM-05/06 tracks here. They were skipped in
-    // mmu_test.cpp because exercising them requires a live DivMmc fixture
-    // (automap state, ROM/RAM banks, NR 0xB8/0xB9 config) wired into the
-    // Mmu overlay path (Mmu::set_divmmc + divmmc_read/divmmc_write), which
-    // is out of scope for a bare Mmu unit. They are also out of scope for
-    // this bare DivMmc unit — the cross-object arbitration lives in
-    // src/memory/mmu.cpp, not in DivMmc itself — so coverage needs either
-    // a dedicated Mmu+DivMmc integration fixture or full-Emulator wiring.
+    // priority ladder that SM-05/06 tracks as physical-layout items.
+    // They were re-homed from test/mmu/mmu_test.cpp on 2026-04-21 (commit
+    // 7be3deb) because exercising the cross-object arbitration needs both
+    // a live DivMmc and the Mmu overlay path (Mmu::set_divmmc +
+    // divmmc_read/divmmc_write). The MmuDivFixture at the top of this
+    // file supplies exactly that — Ram + Rom + Mmu + DivMmc wired by
+    // mmu.set_divmmc(&dm), with conmem-driven activation so the tests
+    // bypass the M1 automap latching pipeline and pin the priority
+    // decision itself.
     //
-    // Tracked for the Task 3 backlog; not counted toward pass/fail here.
-    skip("PRI-01",
-         "DivMMC ROM overrides MMU (zxnext.vhd:3084) — needs Mmu+DivMmc "
-         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
-    skip("PRI-02",
-         "DivMMC RAM overrides MMU (zxnext.vhd:3087) — needs Mmu+DivMmc "
-         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
-    skip("PRI-04",
-         "DivMMC beats Layer 2 (zxnext.vhd:3091) — needs Mmu+DivMmc "
-         "integration fixture. Re-homed from test/mmu/mmu_test.cpp Cat18.");
+    // VHDL oracle: the SRAM arbiter at zxnext.vhd:3084-3100 places DivMMC
+    // ROM (:3084), DivMMC RAM (:3087), and DivMMC vs Layer 2 (:3091)
+    // above the Layer 2 / MMU / config_mode / ROMCS branches. The C++
+    // mirror lives in src/memory/mmu.h:118-133 (read) and :215-220
+    // (write) — DivMMC check fires before the L2 and config_mode
+    // branches, which is what PRI-04 asserts directly.
+
+    // PRI-01: DivMMC ROM > MMU at 0x0000-0x1FFF when DivMMC is active.
+    // VHDL zxnext.vhd:3084.
+    //
+    // Stage 1 — DivMMC active with conmem, MMU slot 0 pointed at a RAM
+    // page carrying a distinct sentinel. Read at 0x0000 must return the
+    // DivMMC ROM byte (0xFF default — kRomSize bytes initialised to 0xFF
+    // in DivMmc::DivMmc()), NOT the MMU sentinel.
+    //
+    // Stage 2 — flip DivMMC off (both levers) so the overlay drops out;
+    // the SAME read at 0x0000 must now return the MMU sentinel. The
+    // asymmetry is what pins this to the priority ladder — without it,
+    // stage 1 alone could be a coincidence (0xFF happens to match the
+    // default ROM read path).
+    {
+        MmuDivFixture f;
+        f.mmu.set_page(0, 0x20);           // MMU slot 0 → physical page 0x20
+        f.ram.page_ptr(0x20)[0] = 0x5A;    // MMU sentinel at 0x0000
+        f.divmmc_conmem_on();               // DivMMC active, bank=0, !mapram
+
+        const uint8_t with_divmmc = f.mmu.read(0x0000);
+
+        f.dm.set_enabled(false);            // drop overlay — MMU wins
+        const uint8_t without_divmmc = f.mmu.read(0x0000);
+
+        check("PRI-01",
+              "DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay "
+              "active (VHDL zxnext.vhd:3084)",
+              with_divmmc == 0xFF && without_divmmc == 0x5A,
+              fmt("with_divmmc=0x%02X (expect 0xFF DivMMC ROM default) "
+                  "without_divmmc=0x%02X (expect 0x5A MMU sentinel)",
+                  with_divmmc, without_divmmc));
+    }
+
+    // PRI-02: DivMMC RAM > MMU at 0x2000-0x3FFF when DivMMC is active.
+    // VHDL zxnext.vhd:3087.
+    //
+    // Seeds two distinct sentinels — one in MMU-backed RAM page 0x21
+    // (slot 1 target), one in DivMMC RAM bank 0 — and verifies that the
+    // slot-1 read returns the DivMMC byte while DivMMC is active, and
+    // the MMU byte once DivMMC is disabled. DivMMC RAM is seeded via
+    // mmu.write while the overlay is active, which exercises the same
+    // write-side priority block this test is proving on the read side.
+    {
+        MmuDivFixture f;
+        f.mmu.set_page(1, 0x21);             // MMU slot 1 → physical page 0x21
+        f.ram.page_ptr(0x21)[0] = 0xA5;      // MMU sentinel at 0x2000
+        f.divmmc_conmem_on(false, 0);        // conmem, !mapram, bank 0
+
+        // Seed DivMMC RAM bank 0, offset 0 via the overlay write path
+        // (slot 1 writes are accepted unless mapram+bank=3 per
+        // DivMmc::write at src/peripheral/divmmc.cpp:326-329).
+        f.mmu.write(0x2000, 0xC3);
+
+        const uint8_t with_divmmc = f.mmu.read(0x2000);
+
+        f.dm.set_enabled(false);             // drop overlay — MMU wins
+        const uint8_t without_divmmc = f.mmu.read(0x2000);
+
+        check("PRI-02",
+              "DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay "
+              "active (VHDL zxnext.vhd:3087)",
+              with_divmmc == 0xC3 && without_divmmc == 0xA5,
+              fmt("with_divmmc=0x%02X (expect 0xC3 DivMMC RAM) "
+                  "without_divmmc=0x%02X (expect 0xA5 MMU sentinel)",
+                  with_divmmc, without_divmmc));
+    }
+
+    // PRI-04: DivMMC > Layer 2 write-over at 0x0000-0x3FFF when DivMMC
+    // is active. VHDL zxnext.vhd:3084-3100 — the SRAM arbiter chain
+    // (DivMMC-ROM @3084, DivMMC-RAM @3092, L2-map @3100) makes DivMMC's
+    // above-L2 priority implicit in the if/elsif ordering. PRI-04
+    // asserts the combined outcome.
+    //
+    // Setup: L2 write-over enabled with segment 0 (0x0000-0x3FFF), bank
+    // 16 (physical page 0x20), MMU slot 0 pointed at a distinct page
+    // 0x30, DivMMC active via conmem.
+    //
+    // Stage 1 (DivMMC on): a write to 0x0000 must NOT land in L2 SRAM
+    // page 0x20 — the DivMMC branch at mmu.h:215-220 absorbs the write
+    // before the L2 block at :223-238 gets a look. The DivMMC slot-0
+    // write itself is discarded inside DivMmc::write (conmem+!mapram,
+    // src/peripheral/divmmc.cpp:310-323), so neither L2 nor the MMU
+    // RAM page should carry the sentinel after this write.
+    //
+    // Stage 2 (DivMMC off): with the overlay dropped, the SAME write
+    // falls to the L2 branch and lands in page 0x20[0]. Proving the
+    // write would have reached L2 if DivMMC hadn't intercepted — pins
+    // the priority decision to the DivMMC branch.
+    {
+        MmuDivFixture f;
+        f.mmu.set_page(0, 0x30);             // MMU slot 0 → physical page 0x30
+        f.mmu.set_l2_port(0x01, 16);         // L2 wr_en, seg 0, bank 16 → page 0x20
+        f.divmmc_conmem_on();                // DivMMC active
+
+        // Stage 1: write with DivMMC winning the arbitration.
+        f.mmu.write(0x0000, 0xDB);
+        const uint8_t l2_after_divmmc  = f.ram.page_ptr(0x20)[0];
+        const uint8_t mmu_after_divmmc = f.ram.page_ptr(0x30)[0];
+
+        // Stage 2: drop DivMMC, re-write. L2 should now take the byte.
+        f.dm.set_enabled(false);
+        f.mmu.write(0x0000, 0xEC);
+        const uint8_t l2_after_no_divmmc = f.ram.page_ptr(0x20)[0];
+
+        check("PRI-04",
+              "DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when "
+              "overlay active (VHDL zxnext.vhd:3084-3100 chain)",
+              l2_after_divmmc  != 0xDB &&  // L2 did NOT take the byte
+              mmu_after_divmmc != 0xDB &&  // MMU also did NOT take it
+              l2_after_no_divmmc == 0xEC,  // L2 takes it once DivMMC drops
+              fmt("l2_after_divmmc=0x%02X (must NOT be 0xDB) "
+                  "mmu_after_divmmc=0x%02X (must NOT be 0xDB) "
+                  "l2_after_no_divmmc=0x%02X (expect 0xEC)",
+                  l2_after_divmmc, mmu_after_divmmc, l2_after_no_divmmc));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
