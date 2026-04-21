@@ -150,26 +150,58 @@ void Im2Controller::on_reti() {
 }
 
 // -----------------------------------------------------------------------------
-// DevIdx peripheral-facing API — Phase 1 stubs.
+// DevIdx peripheral-facing API — Agent D (wrapper) implementation.
+//
+// These mirror the VHDL i_int_req / i_int_unq / i_int_status_clear inputs of
+// im2_peripheral.vhd and the o_int_status output (line 180). Edge detection
+// and the im2_int_req latch are driven per-tick inside step_devices() wrapper
+// phase — see that function for the CLK_28 pipeline model.
 // -----------------------------------------------------------------------------
+
+// raise_req(): peripheral asserts i_int_req (level active).
+// The wrapper step will detect the rising edge and latch im2_int_req next tick.
+// int_status is NOT set here directly — per VHDL:154-162 it is set from the
+// edge-detected pulse "int_req" (line 101), which means the set happens in the
+// wrapper step, not immediately on input assertion. See step_devices().
 void Im2Controller::raise_req(DevIdx d) {
     dev_[static_cast<int>(d)].int_req = true;
 }
 
+// clear_req(): peripheral deasserts i_int_req. Normally paired with isr_serviced.
 void Im2Controller::clear_req(DevIdx d) {
     dev_[static_cast<int>(d)].int_req = false;
 }
 
+// raise_unq(): unqualified one-shot pulse. Per VHDL im2_peripheral.vhd:160
+// and :172, an unqualified request both sets int_status AND latches im2_int_req
+// regardless of i_int_en (UNQ-04 / UNQ-05 invariants). We set all three here
+// so the effect is visible the same cycle, matching the combinational portion
+// of the VHDL equations (the registered settle is one CLK_28 later, but for our
+// single-threaded tick model we collapse that).
+//
+// int_unq is cleared by the pulse fabric (Agent C, Wave 2) after the pulse
+// fires — we do NOT clear it here.
 void Im2Controller::raise_unq(DevIdx d) {
-    dev_[static_cast<int>(d)].int_unq = true;
+    Device& dv = dev_[static_cast<int>(d)];
+    dv.int_unq     = true;    // one-shot latch
+    dv.int_status  = true;    // vhdl:160  int_status <= (int_req or i_int_unq) | ...
+    dv.im2_int_req = true;    // vhdl:172  bypasses i_int_en
 }
 
+// clear_status(): i_int_status_clear one-shot from NR 0xC8/C9/CA writes.
+// Per VHDL im2_peripheral.vhd:160, i_int_status_clear clears ONLY the
+// int_status register, NOT the im2_int_req latch (which is cleared only by
+// im2_isr_serviced, per line 175). The software-visible composite o_int_status
+// remains true while im2_int_req is latched — this matches VHDL exactly.
 void Im2Controller::clear_status(DevIdx d) {
     Device& dv = dev_[static_cast<int>(d)];
-    dv.int_status   = false;
-    dv.im2_int_req  = false;
+    dv.int_status = false;
+    // im2_int_req: INTENTIONALLY not cleared here. See VHDL :175.
 }
 
+// int_status(): o_int_status composite per VHDL im2_peripheral.vhd:180
+// (o_int_status <= int_status OR im2_int_req). This is the bit exposed to
+// software via NR 0xC8/C9/CA reads.
 bool Im2Controller::int_status(DevIdx d) const {
     const Device& dv = dev_[static_cast<int>(d)];
     return dv.int_status || dv.im2_int_req;
@@ -273,11 +305,97 @@ bool Im2Controller::ieo(DevIdx /*d*/) const {
 // Private helpers — all stubs in Phase 1.
 // -----------------------------------------------------------------------------
 void Im2Controller::advance_decoder(uint8_t /*opcode*/) { /* Phase 2 Agent A */ }
-void Im2Controller::step_devices()                      { /* Phase 2 Agent B */ }
+
+// step_devices() — VHDL im2_peripheral.vhd per-CLK_28 pipeline.
+//
+// Three well-defined phases, called in order. Each subsequent Wave 1 agent
+// owns one phase; the comment structure exists to make cross-agent merges
+// trivial.
+//
+//   Phase 1 — wrapper edge detect + im2_int_req latch  (Agent D, THIS FILE)
+//     Computes the rising edge of each device's i_int_req, updates int_status
+//     per VHDL :154-162, and sets the im2_int_req latch per VHDL :167-178.
+//
+//   Phase 2 — per-device state machine                 (Agent B)
+//     Advances S_0 / S_REQ / S_ACK / S_ISR transitions based on im2_int_req
+//     and the IEI daisy chain. Agent B plugs its body in at the marker below;
+//     Agent B also handles the im2_int_req clear-on-ISR-serviced inline during
+//     the S_ISR → S_0 transition (simpler than the explicit propagate() path).
+//
+//   Phase 3 — isr_serviced propagation cleanup         (Agent D, documented)
+//     Because Agent B clears im2_int_req inline during the S_ISR → S_0
+//     transition in Phase 2, the propagate_isr_serviced() helper below is a
+//     documented no-op. Kept as an explicit extension point in case a future
+//     refactor splits state transition from latch cleanup.
+void Im2Controller::step_devices() {
+    // ── Phase 1: wrapper edge detect + im2_int_req latch (Agent D) ─────────
+    // VHDL im2_peripheral.vhd:
+    //   :90-101  int_req_d <= i_int_req  (delay) and
+    //            int_req   <= i_int_req AND NOT int_req_d (rising-edge pulse)
+    //   :154-162 int_status <= (int_req or i_int_unq)
+    //                       or (int_status and not i_int_status_clear)
+    //   :167-178 im2_int_req <= '1' if (i_int_unq = '1')
+    //                            or (int_req = '1' and i_int_en = '1')
+    //
+    // Note: int_unq bypasses i_int_en in both the status register (UNQ-05,
+    // :160) and the im2 latch (UNQ-04, :172). That invariant is preserved in
+    // raise_unq() (which sets all three fields directly) and here (the
+    // int_unq branch below does not gate on int_en).
+    for (int i = 0; i < N; ++i) {
+        Device& d = dev_[i];
+        const bool edge = d.int_req && !d.int_req_d;
+
+        // Set int_status on any edge (vhdl:160 — gated by neither int_en nor
+        // int_unq; the edge pulse itself is what the VHDL equation uses).
+        if (edge) {
+            d.int_status = true;
+        }
+
+        // Set im2_int_req latch: edge qualified by int_en, OR unqualified
+        // (int_unq, which bypasses int_en per vhdl:172).
+        if (edge && d.int_en) {
+            d.im2_int_req = true;
+        }
+        if (d.int_unq) {
+            d.im2_int_req = true;      // bypass int_en
+            d.int_status  = true;      // vhdl:160 — unq also feeds int_status
+            // int_unq is one-shot; cleared by the pulse fabric (Agent C,
+            // Wave 2) after the pulse fires. Do NOT clear here.
+        }
+
+        // Update delayed copy LAST so next tick's edge calculation sees this
+        // tick's int_req as the "previous" value.
+        d.int_req_d = d.int_req;
+    }
+
+    // ── Phase 2: per-device state machine (Agent B will fill in here) ──────
+    // Agent B implements S_0 / S_REQ / S_ACK / S_ISR transitions, IEI/IEO
+    // daisy-chain propagation, and clears im2_int_req during the
+    // S_ISR → S_0 transition (inline). Agent B typically adds a
+    // step_state_machine() private helper and calls it here, but the exact
+    // mechanism is Agent B's choice.
+
+    // ── Phase 3: isr_serviced cleanup (documented no-op, Agent D) ──────────
+    propagate_isr_serviced();
+}
+
 void Im2Controller::step_pulse()                        { /* Phase 2 Agent C */ }
 uint8_t Im2Controller::compute_vector() const           { return 0xFF; }
 bool Im2Controller::device_ieo(int /*i*/) const         { return true; }
-void Im2Controller::propagate_isr_serviced()            { /* Phase 2 Agent B */ }
+
+// propagate_isr_serviced() — documented no-op.
+//
+// The VHDL model (im2_peripheral.vhd:137-148) detects a rising edge on the
+// isr_serviced signal from im2_device and uses that edge to clear im2_int_req
+// (line 175). In our single-threaded-tick emulator model, Agent B clears
+// im2_int_req inline during the state-machine's S_ISR → S_0 transition
+// (Phase 2 above) — that's simpler than carrying a prev_state_[] shadow here
+// and avoids split-brain over who owns the clear. This function is kept as an
+// explicit extension point for symmetry with the VHDL signal name; remove or
+// repurpose if Phase 2's merge needs a different split.
+void Im2Controller::propagate_isr_serviced() {
+    // Intentionally empty — see function comment.
+}
 
 // -----------------------------------------------------------------------------
 // Save / load.
