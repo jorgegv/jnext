@@ -1883,14 +1883,16 @@ void section12_ula_line_int() {
     // (ula_int_en = NOT port_ff_interrupt_disable — same integration
     // surface as ULA-INT-02; added in Phase 3).
     skip("ULA-INT-04",
-         "line interrupt at cvc match — needs Ula.line_int_pulse "
-         "exposure (Agent G, out of Phase 3b scope)");
+         "line interrupt at cvc match — candidate re-home to "
+         "ctc_int_integration_test.cpp (needs ULA line-counter state "
+         "via full Emulator; not in the 10-row Phase 3c scope)");
     // ULA-INT-05 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
     // (NR 0x22 line_interrupt_en bit — needs NextREG + ULA integration;
     // added in Phase 3).
     skip("ULA-INT-06",
-         "line 0 → c_max_vc wrap — needs ULA counter inspection "
-         "(Agent G, out of Phase 3b scope)");
+         "line 0 → c_max_vc wrap — candidate re-home to "
+         "ctc_int_integration_test.cpp (needs ULA c_max_vc observable; "
+         "not in the 10-row Phase 3c scope)");
 
     // ULA-INT-07 — zxnext.vhd:1941: IM2 priority index 11 = ULA. When
     // LINE (index 0) and ULA (index 11) both raise, LINE wins the ack.
