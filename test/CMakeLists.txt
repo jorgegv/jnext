@@ -1,28 +1,31 @@
 # FUSE Z80 opcode test runner (standalone, no GoogleTest required)
-add_executable(fuse_z80_test fuse_z80_test.cpp)
+add_executable(fuse_z80_test fuse/fuse_z80_test.cpp)
+target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
+target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Copy FUSE test data (tests.in / tests.expected) to the build directory;
+# the test code sits in the same source dir but we don't need it copied.
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fuse/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/fuse/
+     FILES_MATCHING PATTERN "tests.*")
+
+# Register as CTest target
+add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
 # Rewind / backwards execution tests (standalone, no GoogleTest required)
-add_executable(rewind_test rewind_test.cpp)
+add_executable(rewind_test rewind/rewind_test.cpp)
 target_link_libraries(rewind_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(rewind_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME rewind_tests COMMAND rewind_test)
-target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
-target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-
-# Copy test data files to build directory for convenience
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fuse/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/fuse/)
-
-# Register as CTest target
-add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
 # Z80N extended opcode test runner
-add_executable(z80n_test z80n_test.cpp)
+add_executable(z80n_test z80n/z80n_test.cpp)
 target_link_libraries(z80n_test PRIVATE jnext_cpu)
 target_include_directories(z80n_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/z80n/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/z80n/)
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/z80n/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/z80n/
+     FILES_MATCHING PATTERN "tests.*")
 add_test(NAME z80n_tests COMMAND z80n_test ${CMAKE_CURRENT_BINARY_DIR}/z80n)
 
 # Copper coprocessor compliance test
