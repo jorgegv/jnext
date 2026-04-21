@@ -63,7 +63,7 @@ add_test(NAME input_tests COMMAND input_test)
 
 # CTC compliance test
 add_executable(ctc_test ctc/ctc_test.cpp)
-target_link_libraries(ctc_test PRIVATE jnext_peripheral jnext_port)
+target_link_libraries(ctc_test PRIVATE jnext_cpu jnext_peripheral jnext_port)
 target_include_directories(ctc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ctc_tests COMMAND ctc_test)
 
