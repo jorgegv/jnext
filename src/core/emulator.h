@@ -417,6 +417,16 @@ private:
     uint8_t  nr_ce_dma_delay_en_uart0_ = 0;      ///< NR 0xCE bits 2:0
     bool     im2_dma_delay_latched_    = false;  ///< VHDL zxnext.vhd:2005-2007
 
+    // --- Joystick IO-mode pin7 (NR 0x0B joy_iomode) ---
+    // VHDL joy_iomode_pin7, zxnext.vhd:3512-3534. Resets to '1' on hard reset
+    // (zxnext.vhd:3516). In NR 0x0B joy_iomode="01" it toggles on each CTC
+    // channel-3 ZC/TO pulse (gated by iomode_0 and current pin7; see
+    // zxnext.vhd:3521-3524). In joy_iomode="00" it tracks iomode_0 continuously
+    // (NR 0x0B write side — handled by NR 0x0B write_handler, not this field's
+    // update path). In joy_iomode="10"/"11" it is driven from UART0/UART1 Tx.
+    // Consumed by the Input subsystem (out of scope at this phase).
+    bool     joy_iomode_pin7_          = true;   ///< VHDL zxnext.vhd:3516 (reset '1')
+
 public:
     /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.
     /// VHDL zxnext.vhd:1957-1958.  Returned bit layout (MSB to LSB):
