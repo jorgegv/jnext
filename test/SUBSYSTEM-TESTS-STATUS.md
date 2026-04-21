@@ -17,7 +17,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC + Interrupts      |      150 |       44 |      0 |     106 |    100% | Clean. Skips: IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE |
 | Layer 2               |       89 |       89 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | UART + I2C/RTC        |      106 |       58 |      0 |      48 |    100% | Clean. Skips: RTC BCD clock-dependent, register pointer|
-| DivMMC + SPI          |      100 |       88 |      0 |      12 |    100% | Clean. Skips: automap edge cases, ROM overlay paths    |
+| DivMMC + SPI          |      100 |       92 |      0 |       8 |    100% | Clean. Skips: automap edge cases, ROM overlay paths    |
 | SD Card               |        8 |        8 |      0 |       0 |    100% | Clean. SD card I/O, CMD17/CMD18 block reads            |
 | Sprites               |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Compositor            |      114 |      114 |      0 |       0 |    100% | Clean. All plan rows covered                           |
@@ -26,6 +26,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3229** | **2788** |  **0** | **441** | **100%**|                                                        |
+| **Total**             | **3229** | **2792** |  **0** | **437** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
