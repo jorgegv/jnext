@@ -176,7 +176,7 @@ historical peripherals the project has decided not to model.
 | `zxnext.vhd`, `zxnext_top_issue{2,4,5}.vhd`     | yes     | `src/core/emulator.*`                 | Top-level; board-issue pinout out of scope             |
 | `device/copper.vhd`                             | yes     | `src/video/copper.*`                  | Video co-processor                                     |
 | `device/ctc.vhd`, `ctc_chan.vhd`                | yes     | `src/cpu/ctc.*`                       | 4× channels, ZC/TO                                     |
-| `device/im2_*.vhd`, `peripherals.vhd`           | **gap** | `src/cpu/im2.*` (stub)                | IM2 fabric — expand to `Im2Controller`+`Im2Client`     |
+| `device/im2_*.vhd`, `peripherals.vhd`           | yes     | `src/cpu/im2.*` + `im2_client.h`      | `Im2Controller` + `Im2Client` mixin landed 2026-04-21  |
 | `device/divmmc.vhd`                             | yes     | `src/peripheral/divmmc.*`             | Overlay + automap + NMI consumer                       |
 | `device/dma.vhd`                                | yes     | `src/peripheral/dma.*`                | Zilog/datagear DMA                                     |
 | `device/multiface.vhd`                          | **gap** | `src/peripheral/multiface.*` (Task 8) | Plan skeleton at `doc/design/TASK-8-MULTIFACE-PLAN.md` |
@@ -203,12 +203,16 @@ historical peripherals the project has decided not to model.
 | `serial/uart_old.vhd`                           | no      | —                                     | Legacy, superseded                                     |
 
 **Full audit record** (two independent critics, 2026-04-21) in memory
-at `project_vhdl_subsystem_coverage_audit_20260421.md`. Two genuine
-missing subsystems: **Multiface** (Task 8 planned) and **IM2
-interrupt fabric** (no task yet — expand `src/cpu/im2.*` before CTC
-skip-reduction). Everything else is either implemented, a primitive
-folded into a larger subsystem, or out-of-scope for a software
-emulator.
+at `project_vhdl_subsystem_coverage_audit_20260421.md`. One genuine
+missing subsystem remains: **Multiface** (Task 8 planned). The **IM2
+interrupt fabric** (flagged as the second gap by that audit) was
+implemented in the Task 3 CTC+Interrupts SKIP-reduction plan landed
+2026-04-21 (merge `a397422`): `src/cpu/im2.*` expanded from a 45-line
+priority-mask stub to a full `Im2Controller` + `Im2Client` mixin
+covering `device/im2_control.vhd` / `im2_device.vhd` /
+`im2_peripheral.vhd` / `peripherals.vhd`. Everything else is either
+implemented, a primitive folded into a larger subsystem, or
+out-of-scope for a software emulator.
 
 ---
 
@@ -1094,7 +1098,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [~] DivMMC+SPI
   - [ ] UART+I2C/RTC
   - [ ] Input
-  - [ ] CTC+Interrupts — the IM2 interrupt fabric is a real missing subsystem (`src/cpu/im2.*` is a 45-line stub); expand into `Im2Controller` + `Im2Client` mixin per VHDL `device/im2_*`, not bundled into `Ctc`. Schedule before CTC skip-reduction.
+  - [~] CTC+Interrupts — Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5 (merge `a397422`, dashboard `0336c20`). IM2 fabric expanded from 45-line stub to full `Im2Controller` + `Im2Client` mixin covering `device/im2_control.vhd` / `im2_device.vhd` / `im2_peripheral.vhd` / `peripherals.vhd` (~171 + ~800 lines + new `src/cpu/im2_client.h`). `ctc_test.cpp` `150/44/0/106` → `133/128/0/5` (−101 skip, +84 pass); new companion suite `test/ctc_int/ctc_int_integration_test.cpp` 10/10/0/0. 5 skips remaining: CTC-NR-04 (user review-later), NR-C0-02 + DMA-04 (NMI-blocked F-keep), ULA-INT-04 + ULA-INT-06 (re-home candidates).
   - [ ] ULA Video
   - [ ] Audio
 

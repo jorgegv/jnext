@@ -15,13 +15,23 @@ authoritative VHDL sources.
 
 ## Current status
 
-Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave3-ctc`).
-Measured on main post-merge (commit `9591481`):
+Task 3 CTC+Interrupts SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`)
+ran Phase 0 → Phase 5 on 2026-04-21, merged to main at Phase 3 (commit `a397422`)
+with dashboard refresh at `0336c20`.
 
-- **150 plan rows total** (plan summary line says "~151" — (D) plan nit).
-- **44/44 live pass (100%)**, 0 fail, 106 skip.
-- **Skips**: 106 rows (71%). Sections 7-17 (IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE, DMA, UNQ, JOY) are entirely unreachable on bare `Ctc` class — there is no interrupt controller class, no NR 0xC0-0xCE handlers, no DMA int wire, no pulse fabric, no line-interrupt class, no joy_iomode pin 7 plumbing in the current jnext source tree. Those sections are effectively "subsystems not yet implemented" and would require substantial new code to un-skip.
-- **(D) plan nits**: plan summary "~151" should be 150; Section 13 header says "18" but lists 17 NR-C* rows.
+- **150 plan rows total** (plan summary line says "~151" — (D) plan nit; Section 13 header says "18" but lists 17 NR-C* rows).
+- **`test/ctc/ctc_test.cpp`** runtime: **`Total:  133  Passed:  128  Failed:    0  Skipped:    5`**.
+  - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_int/ctc_int_integration_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
+  - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
+- **Remaining 5 skips** in `ctc_test.cpp` (all defensible, all carry explicit one-line reasons):
+  - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; user-deferred review-later (WONT-sweep candidate, not WONT this wave).
+  - **NR-C0-02** — NR 0xC0 `stackless_nmi` bit; blocked on NMI subsystem (see memory `project_nmi_fragmented_status.md`).
+  - **DMA-04** — NMI-driven DMA delay; blocked on the same NMI subsystem.
+  - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_int_integration_test.cpp` (needs live ULA line-counter state).
+  - **ULA-INT-06** — line 0 → `c_max_vc` wrap; re-home candidate (needs ULA `c_max_vc` observable).
+- **New companion suite `test/ctc_int/ctc_int_integration_test.cpp`** (created Phase 3c, commit `87fb998`): 10 rows re-homed from `ctc_test.cpp` — **`Total:   10  Passed:   10  Failed:    0  Skipped:    0`** — covering ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10 against a full `Emulator` fixture.
+- **Architectural change**: the IM2 fabric, previously a 45-line priority-mask stub in `src/cpu/im2.{h,cpp}`, expanded to a full VHDL-faithful `Im2Controller` + `Im2Client` mixin (~171 lines of `.h` + ~800 lines of `.cpp` + new `src/cpu/im2_client.h`). It now covers `device/im2_control.vhd` (RETI/RETN/IM-mode decoder, DMA delay), `device/im2_device.vhd` (per-device state machine `S_0`/`S_REQ`/`S_ACK`/`S_ISR`), `device/im2_peripheral.vhd` (edge detect + int_unq + int_status latches), `device/peripherals.vhd` (daisy chain), and the NR 0xC0/C4/C5/C6/C8/C9/CA/CC/CD/CE handlers in `emulator.cpp`. The legacy `Im2Level` enum is preserved as a compatibility wrapper. `Z80Cpu` gained an opt-in `on_int_ack` callback that is byte-identical to the legacy path when null. Regression (34/0/0) and FUSE Z80 (1356/1356) unchanged throughout.
+- **Follow-up backlog** (non-blocking, see `project_task3_ctc_plan_landed.md`): re-home ULA-INT-04/06 to the integration suite (would bring `ctc_test` to 3 skips); wire port 0xFF bit 6 to `ula_int_disabled_` mirror; add NR 0x22 read handler; remove vestigial `im2_.raise(Im2Level::DMA)`; NMI subsystem to unblock NR-C0-02 + DMA-04.
 
 ## VHDL Source Files
 
