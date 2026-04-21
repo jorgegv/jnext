@@ -226,13 +226,16 @@ void Keyboard::tick_scan() {
 }
 
 uint8_t Keyboard::nr_b0_byte() const {
-    // Phase 1 stub: return 0xFF (all keys released). Agent G replaces
-    // this with the VHDL bit-permutation at zxnext.vhd:6206-6208.
-    return 0xFF;
+    // Phase 1 stub: return 0x00 (all keys released).  NR 0xB0 is
+    // ACTIVE-HIGH in the VHDL: bit=1 ⇒ key pressed (plan row EXT-01:
+    // "UP → NR 0xB0 bit 3 = 1", zxnext.vhd:6206-6208). Agent G
+    // replaces with the real bit-permutation from ex_matrix_.
+    return 0x00;
 }
 
 uint8_t Keyboard::nr_b1_byte() const {
-    // Phase 1 stub: return 0xFF (all keys released). Agent G replaces
-    // this with the VHDL bit-permutation at zxnext.vhd:6210-6212.
-    return 0xFF;
+    // Phase 1 stub: return 0x00 (all keys released).  NR 0xB1 is
+    // ACTIVE-HIGH (zxnext.vhd:6210-6212). Agent G replaces with the
+    // real bit-permutation from ex_matrix_.
+    return 0x00;
 }
