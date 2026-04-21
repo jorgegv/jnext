@@ -143,6 +143,29 @@ public:
     void set_button_nmi(bool v) { button_nmi_ = v; }
     bool button_nmi() const { return button_nmi_; }
 
+    // ── Layer 2 read-map feeder (Mmu → DivMmc) ─────────────────────
+    /// Set the Layer 2 read-map-enable signal (port 0x123B bit 2 —
+    /// `port_123b_layer2_map_rd_en`). VHDL zxnext.vhd:3138 gates
+    /// `sram_divmmc_automap_rom3_en` on `NOT sram_layer2_map_en`: when
+    /// Layer 2 is actively read-mapped at 0x0000-0x3FFF, the ROM3-
+    /// conditional automap path must be suppressed (the L2 read overlay
+    /// owns that region). The main automap path (valid=1) is unaffected.
+    /// Fed from Emulator's port 0x123B write handler, which also feeds
+    /// Mmu::set_l2_port.
+    ///
+    /// Modelling note: this field tracks the LATCHED bit from VHDL:3918
+    /// (`port_123b_layer2_map_rd_en <= cpu_do(2)`). The gate at VHDL:3138
+    /// references the COMPOSITE `sram_layer2_map_en` (VHDL:3077 —
+    /// additionally factors `sram_pre_override(1)` and the `cpu_rd_n`
+    /// read/write arbiter). Since DivMmc::check_automap fires on M1
+    /// fetches (CPU reads, cpu_rd_n=0) and `sram_pre_override(1)` is
+    /// always set in Next mode, the composite reduces to the latched
+    /// bit under every boot path we care about. Treat the two as
+    /// interchangeable here; revisit if a non-Next-mode boot path ever
+    /// reaches this gate.
+    void set_layer2_map_read(bool v) { layer2_map_read_ = v; }
+    bool layer2_map_read() const { return layer2_map_read_; }
+
     // ── NextREG automap configuration (0xB8–0xBB) ──────────────────
     void set_entry_points_0(uint8_t val) { entry_points_0_ = val; }
     void set_entry_valid_0(uint8_t val)  { entry_valid_0_ = val; }
@@ -186,6 +209,11 @@ private:
     // path (line 108). Set by the Multiface / NMI-button source; stays
     // false until Task 8 wires a button peripheral.
     bool button_nmi_     = false;
+    // VHDL zxnext.vhd:3138 — `sram_layer2_map_en` factor in the
+    // `sram_divmmc_automap_rom3_en` composite. Fed from Mmu's L2
+    // read-enable latch on every port 0x123B write; used in
+    // check_automap() to gate the ROM3 path.
+    bool layer2_map_read_ = false;
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default

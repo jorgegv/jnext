@@ -1086,18 +1086,41 @@ void group_r3() {
               fmt("active=%d rom3=%d", d.automap_active(), d.rom3_active()));
     }
 
-    // R3-03: Layer 2 read-map overrides the ROM3 automap path in VHDL
-    // (sram_divmmc_automap_rom3_en includes `NOT sram_layer2_map_en`).
-    // Phase 2 D2 added the L2 read-map latch to Mmu (set_l2_port) and
-    // a read-side redirect in Mmu::read(), but the cross-subsystem feeder
-    // that lets DivMmc observe sram_layer2_map_en and suppress ROM3 automap
-    // is still not plumbed. Left skipped — that feeder is a DivMmc-side
-    // gate, not on the Mmu surface, and out of scope for Task 7 / D2.
-    skip("R3-03",
-         "Layer 2 read-map feeder into DivMmc not plumbed — VHDL "
-         "zxnext.vhd:3138 sram_divmmc_automap_rom3_en gate expects "
-         "NOT sram_layer2_map_en, but Mmu L2 read state is not "
-         "exposed to DivMmc. Mmu::set_l2_port now latches the bit.");
+    // R3-03: Layer 2 read-map suppresses the ROM3 automap path.
+    // VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en factors in
+    // `NOT sram_layer2_map_en`: when Layer 2 is actively read-mapped
+    // at 0x0000-0x3FFF, the ROM3-conditional automap must be suppressed
+    // (the L2 read overlay owns that region). Two-stimulus discriminative
+    // test: identical R3-01-style ROM3-only setup; the only difference is
+    // the layer2_map_read_ latch.
+    {
+        // Sub-case A: L2 read-map OFF → ROM3-only entry fires (matches R3-01).
+        DivMmc dA = make_divmmc();
+        dA.set_entry_points_0(0x02);           // enable EP1 (RST 0x08)
+        dA.set_entry_valid_0(0x00);            // ROM3-only path
+        dA.set_entry_timing_0(0xFF);           // instant
+        dA.set_rom3_active(true);
+        dA.set_layer2_map_read(false);
+        dA.check_automap(0x0008, true);
+
+        // Sub-case B: same setup, L2 read-map ON → ROM3 path is suppressed.
+        DivMmc dB = make_divmmc();
+        dB.set_entry_points_0(0x02);
+        dB.set_entry_valid_0(0x00);
+        dB.set_entry_timing_0(0xFF);
+        dB.set_rom3_active(true);
+        dB.set_layer2_map_read(true);
+        dB.check_automap(0x0008, true);
+
+        const bool ok = dA.automap_active() && !dB.automap_active();
+        check("R3-03",
+              "Layer 2 read-map suppresses ROM3-only automap path "
+              "(VHDL zxnext.vhd:3138 — sram_divmmc_automap_rom3_en "
+              "AND NOT sram_layer2_map_en)",
+              ok,
+              fmt("L2off active=%d L2on active=%d",
+                  dA.automap_active(), dB.automap_active()));
+    }
 
     // R3-04: sram_divmmc_automap_en = sram_pre_override(2). Roughly
     // corresponds to the i_en gate modelled in CM-09.

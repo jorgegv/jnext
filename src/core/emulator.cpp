@@ -848,6 +848,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t, uint8_t val) {
             layer2_.set_enabled((val & 0x02) != 0);
             mmu_.set_l2_port(val, layer2_.active_bank());
+            // Feed L2 read-map-enable into DivMmc so the ROM3-conditional
+            // automap gate can honour VHDL zxnext.vhd:3138
+            // (sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en).
+            // Mirrors Mmu::set_l2_port's latch of cpu_do(2); the cpu_do(4)
+            // write-mode divergence on the Mmu side is pre-existing (see
+            // Mmu::set_l2_port comment) and preserved here by identical
+            // bit-extraction.
+            divmmc_.set_layer2_map_read((val & 0x04) != 0);
         });
 
     // 128K bank switch — port 0x7FFD.
