@@ -1418,7 +1418,10 @@ void group_sm() {
     }
 
     // PRI-04: DivMMC > Layer 2 write-over at 0x0000-0x3FFF when DivMMC
-    // is active. VHDL zxnext.vhd:3091.
+    // is active. VHDL zxnext.vhd:3084-3100 — the SRAM arbiter chain
+    // (DivMMC-ROM @3084, DivMMC-RAM @3092, L2-map @3100) makes DivMMC's
+    // above-L2 priority implicit in the if/elsif ordering. PRI-04
+    // asserts the combined outcome.
     //
     // Setup: L2 write-over enabled with segment 0 (0x0000-0x3FFF), bank
     // 16 (physical page 0x20), MMU slot 0 pointed at a distinct page
@@ -1453,7 +1456,7 @@ void group_sm() {
 
         check("PRI-04",
               "DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when "
-              "overlay active (VHDL zxnext.vhd:3091)",
+              "overlay active (VHDL zxnext.vhd:3084-3100 chain)",
               l2_after_divmmc  != 0xDB &&  // L2 did NOT take the byte
               mmu_after_divmmc != 0xDB &&  // MMU also did NOT take it
               l2_after_no_divmmc == 0xEC,  // L2 takes it once DivMMC drops
