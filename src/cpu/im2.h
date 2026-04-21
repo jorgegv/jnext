@@ -100,6 +100,20 @@ public:
     void on_m1_cycle(uint16_t pc, uint8_t opcode);  // drives RETI/RETN decoder
     uint8_t im_mode() const;             // 0/1/2 latch, VHDL im2_control.vhd:229
 
+    // ── RETI/RETN decoder observers (test + emulator forwarder) ───────────
+    //
+    // Each is a one-cycle pulse / snapshot valid only within the call
+    // following the triggering on_m1_cycle(). VHDL citations:
+    //   - reti_seen  : im2_control.vhd:234  (state_next = S_ED4D_T4)
+    //   - retn_seen  : im2_control.vhd:236  (state_next = S_ED45_T4)
+    //   - reti_decode: im2_control.vhd:233  (state    = S_ED_T4)
+    //   - dma_delay  : im2_control.vhd:238  (state ∈ {S_ED_T4,S_ED4D_T4,
+    //                                        S_ED45_T4,S_SRL_T1,S_SRL_T2})
+    bool reti_seen_this_cycle() const { return reti_seen_pulse_; }
+    bool retn_seen_this_cycle() const { return retn_seen_pulse_; }
+    bool reti_decode_active()   const { return reti_decode_;    }
+    bool dma_delay_control()    const { return dma_delay_ctrl_; }
+
     // ── Pulse mode ─────────────────────────────────────────────────────────
     bool pulse_int_n() const;                  // vhdl:2020-2031
     void set_machine_timing_48_or_p3(bool v);  // pulse duration gate, vhdl:2033
