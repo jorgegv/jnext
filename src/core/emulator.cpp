@@ -69,6 +69,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
+    // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
+    joystick_.reset();
+    mouse_.reset();
+    md6_.reset();
+    membrane_stick_.reset();
+    iomode_.reset();
     beeper_.reset();
     turbosound_.reset();
     dac_.reset();
@@ -348,13 +354,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sprites_.set_over_border((v & 0x08) != 0);
     });
 
-    // Register 0x0A: Peripheral 2 / SD-card swap
+    // Register 0x0A: Peripheral 2 — SD-card swap + mouse button reverse + DPI.
     //   bit 5 = sd_swap — invert SD0/SD1 mapping on port 0xE7 writes
+    //   bit 3 = nr_0a_mouse_button_reverse (VHDL zxnext.vhd:5197)
+    //   bits 1:0 = nr_0a_mouse_dpi (VHDL zxnext.vhd:5198)
     // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
-    // Other bits of NR 0x0A (mouse / Kempston-II config) are not wired yet.
+    // MF-type (bits 7:6) and divmmc_automap_en (bit 4) are not wired yet.
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) {
         spi_.set_sd_swap((v & 0x20) != 0);
+        mouse_.set_button_reverse((v & 0x08) != 0);
+        mouse_.set_dpi(v & 0x03);
     });
+
+    // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
+    // Phase 1 scaffold: Joystick::set_nr_05() is a stub that records the
+    // raw byte; Agent A (Phase 2) implements the real bit-extraction.
+    nextreg_.set_write_handler(0x05, [this](uint8_t v) {
+        joystick_.set_nr_05(v);
+    });
+
+    // Register 0x0B: Joystick I/O-mode pin-7 mux — VHDL zxnext.vhd:5200-5203.
+    // Phase 1 scaffold: IoMode::set_nr_0b() is a stub; Agent E fills in.
+    nextreg_.set_write_handler(0x0B, [this](uint8_t v) {
+        iomode_.set_nr_0b(v);
+    });
+
+    // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.
+    // VHDL zxnext.vhd:6206-6215 read compositions. Phase 1 scaffold: the
+    // underlying byte getters return 0xFF / 0 until Agents G (extended
+    // keys) and D (MD6) fill them in.
+    nextreg_.set_read_handler(0xB0, [this]() -> uint8_t { return keyboard_.nr_b0_byte(); });
+    nextreg_.set_read_handler(0xB1, [this]() -> uint8_t { return keyboard_.nr_b1_byte(); });
+    nextreg_.set_read_handler(0xB2, [this]() -> uint8_t { return md6_.nr_b2_byte(); });
 
     // Register 0x15: Sprite and layer system setup
     //   bit 7 = LoRes enable (deferred)
@@ -1368,8 +1399,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
 
     // Kempston joystick 1 (0x001F) and 2 (0x0037). VHDL zxnext.vhd:2674-2675.
-    // Reads return 0x00 (no buttons pressed). Full joystick subsystem is
-    // item 17 implementation debt; these stubs satisfy the handler-exists test.
+    // Phase 1 scaffold (Task 3 Input): port reads delegate to the new
+    // Joystick class. Phase 1 stubs return 0x00 (Kempston "no buttons");
+    // Agent B (Phase 2) replaces Joystick::read_port_1f/37 with the
+    // VHDL-faithful mux per zxnext.vhd:3470-3494.
     //
     // Kempston 1 (port 0x001F) is gated by NR 0x82 bit 6 — VHDL
     // zxnext.vhd:2392-2407 maps port_1f_io_en = internal_port_enable(6),
@@ -1381,23 +1414,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x001F,
         [this](uint16_t) -> uint8_t {
             if ((nextreg_.cached(0x82) & 0x40) == 0) return 0xFF;
-            return 0x00;
+            return joystick_.read_port_1f();
         },
         nullptr);
     port_.register_handler(0x00FF, 0x0037,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t { return joystick_.read_port_37(); },
         nullptr);
 
     // Kempston mouse: buttons (0xFADF), X (0xFBDF), Y (0xFFDF).
-    // VHDL zxnext.vhd:2668-2670. Stub: returns 0 (no movement/buttons).
+    // VHDL zxnext.vhd:2668-2670, :3541-3562. Phase 1 scaffold stubs:
+    // return 0x00 via KempstonMouse; Agent H (Phase 2) installs real
+    // composition (buttons active-low, wheel nibble, X/Y counters).
     port_.register_handler(0xFFFF, 0xFADF,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t { return mouse_.read_port_fadf(); },
         nullptr);
     port_.register_handler(0xFFFF, 0xFBDF,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t { return mouse_.read_port_fbdf(); },
         nullptr);
     port_.register_handler(0xFFFF, 0xFFDF,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t { return mouse_.read_port_ffdf(); },
         nullptr);
 
     // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:2685-2686.
@@ -2399,6 +2434,12 @@ void Emulator::reset()
     cpu_.reset();
     im2_.reset();
     keyboard_.reset();
+    // Input subsystem Phase 1 scaffold (Task 3).
+    joystick_.reset();
+    mouse_.reset();
+    md6_.reset();
+    membrane_stick_.reset();
+    iomode_.reset();
 
     // Clear framebuffer to black.
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);

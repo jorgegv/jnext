@@ -29,6 +29,11 @@
 #include "peripheral/divmmc.h"
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
+#include "input/joystick.h"
+#include "input/mouse.h"
+#include "input/md6_connector_x2.h"
+#include "input/membrane_stick.h"
+#include "input/iomode.h"
 #include "debug/trace.h"
 #include "debug/call_stack.h"
 #include "audio/beeper.h"
@@ -185,7 +190,12 @@ public:
     PortDispatch& port()      { return port_; }
     NextReg&      nextreg()   { return nextreg_; }
     Z80Cpu&       cpu()       { return cpu_; }
-    Keyboard&     keyboard()  { return keyboard_; }
+    Keyboard&       keyboard()       { return keyboard_; }
+    Joystick&       joystick()       { return joystick_; }
+    KempstonMouse&  mouse()          { return mouse_; }
+    Md6ConnectorX2& md6()            { return md6_; }
+    MembraneStick&  membrane_stick() { return membrane_stick_; }
+    IoMode&         iomode()         { return iomode_; }
     PaletteManager& palette() { return palette_; }
     Layer2&       layer2()    { return layer2_; }
     SpriteEngine& sprites()   { return sprites_; }
@@ -282,6 +292,29 @@ public:
     /// Returns 0xFF when outside active display or in Next/Pentagon modes.
     uint8_t floating_bus_read() const;
 
+    // ══════════════════════════════════════════════════════════════════════
+    // === TEST-ONLY ACCESSORS (UI code must NOT call these) ==============
+    //
+    // Phase 2 Agent I (NR 0x06 bits 3/4 AND-gate → NMI) uses these to
+    // inject signals that originate OUTSIDE the Input subsystem:
+    //   - hotkey_m1 / hotkey_drive : F9 / F10 host keys (driven by the
+    //     SDL event loop in production; host-key handling lives outside
+    //     the current Input subsystem scope).
+    //   - sw_nmi_mf / sw_nmi_divmmc : software-NMI generators strobed
+    //     by NR 0x02 writes, routed to the Multiface and DivMMC NMI
+    //     consumers. The NMI source/edge generator itself is not yet
+    //     implemented (see memory/project_nmi_fragmented_status.md);
+    //     these injects let Agent I write the NR 0x06 AND-gate tests
+    //     without first building the full NMI fabric.
+    //
+    // All four setters are compile-only stubs in Phase 1: the backing
+    // fields are declared below but not yet consumed.
+    // ══════════════════════════════════════════════════════════════════════
+    void inject_hotkey_m1(bool on)        { test_hotkey_m1_    = on; }
+    void inject_hotkey_drive(bool on)     { test_hotkey_drive_ = on; }
+    void inject_sw_nmi_mf(bool on)        { test_sw_nmi_mf_    = on; }
+    void inject_sw_nmi_divmmc(bool on)    { test_sw_nmi_dmmc_  = on; }
+
 private:
     static constexpr int FRAMEBUFFER_WIDTH      = 320;
     static constexpr int FRAMEBUFFER_WIDTH_MAX  = 640;
@@ -318,6 +351,12 @@ private:
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
+    // Input subsystem — Phase 1 scaffold (Task 3). See src/input/*.
+    Joystick        joystick_;
+    KempstonMouse   mouse_;
+    Md6ConnectorX2  md6_;
+    MembraneStick   membrane_stick_;
+    IoMode          iomode_;
     Beeper          beeper_;
     TurboSound      turbosound_;
     Dac             dac_;
@@ -442,6 +481,15 @@ private:
     // update path). In joy_iomode="10"/"11" it is driven from UART0/UART1 Tx.
     // Consumed by the Input subsystem (out of scope at this phase).
     bool     joy_iomode_pin7_          = true;   ///< VHDL zxnext.vhd:3516 (reset '1')
+
+    // --- Phase 1 scaffold: test-only NMI/hotkey injection fields ---
+    // Set by inject_hotkey_m1/drive/sw_nmi_mf/sw_nmi_divmmc. Phase 1:
+    // declared only; Phase 2 Agent I reads them when wiring NR 0x06 bits
+    // 3/4 into the NMI AND-gate. Production code never touches these.
+    bool     test_hotkey_m1_           = false;
+    bool     test_hotkey_drive_        = false;
+    bool     test_sw_nmi_mf_           = false;
+    bool     test_sw_nmi_dmmc_         = false;
 
 public:
     /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.
