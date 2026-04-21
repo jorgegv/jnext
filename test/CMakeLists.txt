@@ -67,6 +67,19 @@ target_link_libraries(ctc_test PRIVATE jnext_cpu jnext_peripheral jnext_port)
 target_include_directories(ctc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ctc_tests COMMAND ctc_test)
 
+# CTC + Interrupt Controller integration test (Phase 3c, 2026-04-21)
+# Hosts the 10 plan rows re-homed from ctc_test.cpp that require a full
+# Emulator + NextReg + Im2Controller integration surface (ULA-INT-01/02/
+# 03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10). Mirrors the
+# nextreg_integration_test linkage above.
+add_executable(ctc_int_test ctc_int/ctc_int_integration_test.cpp)
+target_link_libraries(ctc_int_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(ctc_int_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ctc_int_tests COMMAND ctc_int_test)
+
 # Layer 2 compliance test
 add_executable(layer2_test layer2/layer2_test.cpp)
 target_link_libraries(layer2_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
