@@ -335,28 +335,172 @@ static void test_kbdhys() {
 
 static void test_ext() {
     set_group("EXT");
-    // NR 0xB0 bits: ';' '"' ',' '.' UP DOWN LEFT RIGHT  (7..0)  — zxnext.vhd:6208
-    skip("EXT-01", "UP → NR 0xB0 bit 3 = 1", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-02", "DOWN → NR 0xB0 bit 2", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-03", "LEFT → NR 0xB0 bit 1", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-04", "RIGHT → NR 0xB0 bit 0", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-05", "';' → NR 0xB0 bit 7", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-06", "'\"' → NR 0xB0 bit 6", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-07", "',' → NR 0xB0 bit 5", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-08", "'.' → NR 0xB0 bit 4", "Un-skip via task3-input-g-extmatrix");
-    // NR 0xB1 bits: DELETE EDIT BREAK INV TRU GRAPH CAPSLOCK EXTEND — zxnext.vhd:6212
-    skip("EXT-09",  "DELETE → NR 0xB1 bit 7", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-10",  "EDIT → NR 0xB1 bit 6", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-11",  "BREAK → NR 0xB1 bit 5", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-12",  "INV VIDEO → NR 0xB1 bit 4", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-13",  "TRUE VIDEO → NR 0xB1 bit 3", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-14",  "GRAPH → NR 0xB1 bit 2", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-15",  "CAPS LOCK → NR 0xB1 bit 1", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-16",  "EXTEND → NR 0xB1 bit 0", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-17",  "EDIT folded into row 3 on 0xF7FE", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-18",  "',' folded into row 5 on 0xDFFE", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-19",  "LEFT folded into row 7 on 0x7FFE", "Un-skip via task3-input-g-extmatrix");
-    skip("EXT-20",  "UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F", "Un-skip via task3-input-g-extmatrix");
+
+    // Helper: single-ext-key-down read of NR 0xB0 / 0xB1.
+    auto b0_with = [](Keyboard::ExtKey k) -> uint8_t {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(k), true);
+        return kb.nr_b0_byte();
+    };
+    auto b1_with = [](Keyboard::ExtKey k) -> uint8_t {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(k), true);
+        return kb.nr_b1_byte();
+    };
+
+    // ── NR 0xB0 single-key checks ─────────────────────────────────
+    // zxnext.vhd:6208 port_253b_dat for NR 0xB0 =
+    //   KEK(8) & KEK(9) & KEK(10) & KEK(11) & KEK(1) & KEK(15..13)
+    //   = ';'  &  '"'   &  ','    &  '.'    &  UP    & DOWN LEFT RIGHT
+    // Active-high in jnext (bit=1 ⇒ pressed).
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::UP);
+        check("EXT-01", "UP → NR 0xB0 bit 3 = 1",
+              v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::DOWN);
+        check("EXT-02", "DOWN → NR 0xB0 bit 2",
+              v == 0x04, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::LEFT);
+        check("EXT-03", "LEFT → NR 0xB0 bit 1",
+              v == 0x02, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::RIGHT);
+        check("EXT-04", "RIGHT → NR 0xB0 bit 0",
+              v == 0x01, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::SEMICOLON);
+        check("EXT-05", "';' → NR 0xB0 bit 7",
+              v == 0x80, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::QUOTE);
+        check("EXT-06", "'\"' → NR 0xB0 bit 6",
+              v == 0x40, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::COMMA);
+        check("EXT-07", "',' → NR 0xB0 bit 5",
+              v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b0_with(Keyboard::ExtKey::DOT);
+        check("EXT-08", "'.' → NR 0xB0 bit 4",
+              v == 0x10, DETAIL("got=0x%02X", v));
+    }
+
+    // ── NR 0xB1 single-key checks ─────────────────────────────────
+    // zxnext.vhd:6212 port_253b_dat for NR 0xB1 =
+    //   KEK(12) & KEK(7 downto 2) & KEK(0)
+    //   = DELETE & EDIT & BREAK & INV & TRU & GRAPH & CAPSLOCK & EXTEND
+    // Active-high in jnext.
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::DELETE);
+        check("EXT-09", "DELETE → NR 0xB1 bit 7",
+              v == 0x80, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::EDIT);
+        check("EXT-10", "EDIT → NR 0xB1 bit 6",
+              v == 0x40, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::BREAK);
+        check("EXT-11", "BREAK → NR 0xB1 bit 5",
+              v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::INV_VIDEO);
+        check("EXT-12", "INV VIDEO → NR 0xB1 bit 4",
+              v == 0x10, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::TRUE_VIDEO);
+        check("EXT-13", "TRUE VIDEO → NR 0xB1 bit 3",
+              v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::GRAPH);
+        check("EXT-14", "GRAPH → NR 0xB1 bit 2",
+              v == 0x04, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::CAPS_LOCK);
+        check("EXT-15", "CAPS LOCK → NR 0xB1 bit 1",
+              v == 0x02, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = b1_with(Keyboard::ExtKey::EXTEND);
+        check("EXT-16", "EXTEND → NR 0xB1 bit 0",
+              v == 0x01, DETAIL("got=0x%02X", v));
+    }
+
+    // ── Extended-column folding into standard 8×5 membrane rows ──
+    // Oracle: membrane.vhd:236-240.
+    //
+    // EXT-17: EDIT folds into matrix_state_3 at bit 0 via
+    //   matrix_state_3 = matrix_state(3)(4..0) AND matrix_state_ex(5..1)
+    //   state_ex(1) = EDIT (membrane.vhd:208, work_ex(1) at index 3 col 6).
+    // Pressing EDIT alone with 0xF7FE (row 3) selected → bit 0 clear,
+    // other row-3 bits unchanged → 0x1E.
+    // (EDIT is also in the work_ex(0) Caps-Shift composite → would
+    //  force row-0 col-0 low, but row 0 isn't selected here — that
+    //  implicit Caps/Sym-Shift hysteresis is Agent F's scope.)
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::EDIT), true);
+        uint8_t v = kb.read_rows(0xF7);
+        check("EXT-17", "EDIT folded into row 3 on 0xF7FE",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+
+    // EXT-18: ',' folds into matrix_state_7 at bit 3 via
+    //   matrix_state_7 = ... AND matrix_state_ex(16..13)
+    //   state_ex(16) = ',' (membrane.vhd:217, work_ex(16) at index 5 col 5).
+    // ',' does NOT fold into row 5; row 5 folds only state_ex(12..11)
+    // = ';' / '"' (membrane.vhd:239). Pressing ',' alone with 0xDFFE
+    // (row 5) selected → no fold effect on row 5 → 0x1F.
+    // (Note: plan description wording kept verbatim. The test asserts
+    //  the VHDL-correct behaviour: the fold is strictly row-scoped.)
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::COMMA), true);
+        uint8_t v = kb.read_rows(0xDF);
+        check("EXT-18", "',' folded into row 5 on 0xDFFE",
+              v == 0x1F, DETAIL("got=0x%02X", v));
+    }
+
+    // EXT-19: LEFT folds into matrix_state_3 at bit 4 via state_ex(5)
+    // = LEFT (membrane.vhd:225, work_ex(5) at index 7 col 5). LEFT does
+    // NOT fold into row 7; row 7 folds state_ex(16..13) = ',', SYM-hyst,
+    // '.', BREAK (membrane.vhd:240). Pressing LEFT alone with 0x7FFE
+    // (row 7) selected → no fold effect on row 7 → 0x1F.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::LEFT), true);
+        uint8_t v = kb.read_rows(0x7F);
+        check("EXT-19", "LEFT folded into row 7 on 0x7FFE",
+              v == 0x1F, DETAIL("got=0x%02X", v));
+    }
+
+    // EXT-20: UP+DOWN+LEFT+RIGHT all pressed → NR 0xB0 low nibble
+    // (bits 3..0) = 0x0F. High nibble (bits 7..4 = ';' '"' ',' '.')
+    // stays 0x0. zxnext.vhd:6208.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::UP),    true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::DOWN),  true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::LEFT),  true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::RIGHT), true);
+        uint8_t v = kb.nr_b0_byte();
+        check("EXT-20", "UP+DOWN+LEFT+RIGHT → NR 0xB0 low nibble 0x0F",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
