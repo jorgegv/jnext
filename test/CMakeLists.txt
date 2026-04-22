@@ -71,6 +71,20 @@ target_link_libraries(input_test PRIVATE
 target_include_directories(input_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME input_tests COMMAND input_test)
 
+# Input subsystem integration test (Phase 3, 2026-04-21)
+# Hosts the 7 plan rows re-homed from input_test.cpp that test the full
+# port 0xFE byte assembly path (KBD-22/23, FE-01..05). These rows need
+# the port-dispatch wrapper at zxnext.vhd:3459 — the '1' & EAR & '1' &
+# i_KBD_COL composition that lives one level above Keyboard::read_rows
+# in the port-0xFE handler. Mirrors the ctc_int_test linkage above.
+add_executable(input_int_test input/input_int_integration_test.cpp)
+target_link_libraries(input_int_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(input_int_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME input_int_tests COMMAND input_int_test)
+
 # CTC compliance test
 add_executable(ctc_test ctc/ctc_test.cpp)
 target_link_libraries(ctc_test PRIVATE jnext_cpu jnext_peripheral jnext_port)

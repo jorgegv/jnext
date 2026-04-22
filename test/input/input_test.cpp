@@ -28,6 +28,7 @@
 #include "input/mouse.h"
 #include "input/iomode.h"
 #include "input/joystick.h"
+#include "input/md6_connector_x2.h"
 #include "port/nextreg.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -329,12 +330,89 @@ static void test_kbd_standard() {
 
 static void test_kbdhys() {
     set_group("KBDHYS");
-    skip("KBDHYS-01", "CS held one extra scan after release",
-             "Un-skip via task3-input-f-shifthys");
-    skip("KBDHYS-02", "CS pressed across 3 scans reads pressed each scan",
-             "Un-skip via task3-input-f-shifthys");
-    skip("KBDHYS-03", "i_cancel_extended_entries=1 forces ex matrix all-1s",
-             "Un-skip via task3-input-f-shifthys");
+
+    // KBDHYS-01: CS held one extra scan after release.
+    // VHDL membrane.vhd:178, 188-191, 232 — shift-column state is "held
+    // an extra scan", i.e. release of CS is delayed by one scan tick.
+    // Phase-2 Agent F implements this via shift_hist_[]: tick_scan()
+    // snapshots the current matrix shift bits into shift_hist_[0]; on
+    // read, the effective CS bit = matrix_[0] bit 0 AND shift_hist_[0]
+    // bit 0 (active-low). So if last scan saw CS pressed (shift_hist_[0]
+    // bit 0 = 0) and current matrix has CS released (matrix_[0] bit 0 =
+    // 1), the AND yields 0 = "still pressed" for one more scan.
+    //
+    // Sequence:
+    //   1. Press CS, tick_scan (snapshot pressed → shift_hist_[0] bit 0 = 0)
+    //   2. Read row 0 → 0x1E (CS pressed)
+    //   3. Release CS (matrix_[0] bit 0 = 1), do NOT tick_scan yet
+    //   4. Read row 0 → 0x1E (still pressed via hysteresis: AND with prev snap)
+    //   5. tick_scan (snapshot released → shift_hist_[0] bit 0 = 1)
+    //   6. Read row 0 → 0x1F (now released)
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(sc_for(0,0), true);
+        kb.tick_scan();                               // snapshot pressed
+        const uint8_t pressed_now    = kb.read_rows(row_addr(0));
+        kb.set_key(sc_for(0,0), false);               // release
+        const uint8_t held_via_hyst  = kb.read_rows(row_addr(0));
+        kb.tick_scan();                               // snapshot released
+        const uint8_t released_now   = kb.read_rows(row_addr(0));
+        check("KBDHYS-01",
+              "CS held one extra scan after release  (membrane.vhd:178, 188-191, 232)",
+              pressed_now   == 0x1E &&
+              held_via_hyst == 0x1E &&
+              released_now  == 0x1F,
+              DETAIL("pressed=0x%02X held=0x%02X released=0x%02X "
+                     "(want 0x1E, 0x1E, 0x1F)",
+                     pressed_now, held_via_hyst, released_now));
+    }
+
+    // KBDHYS-02: CS pressed continuously across 3 scans reads pressed each scan.
+    // VHDL membrane.vhd:190 — held key keeps shift_hist_ snapshots all
+    // showing pressed; AND of pressed-now & pressed-prev = pressed.
+    {
+        Keyboard kb = fresh_keyboard();
+        kb.set_key(sc_for(0,0), true);
+        const uint8_t v0 = kb.read_rows(row_addr(0));
+        kb.tick_scan();
+        const uint8_t v1 = kb.read_rows(row_addr(0));
+        kb.tick_scan();
+        const uint8_t v2 = kb.read_rows(row_addr(0));
+        check("KBDHYS-02",
+              "CS pressed across 3 scans reads pressed each scan  "
+              "(membrane.vhd:190)",
+              v0 == 0x1E && v1 == 0x1E && v2 == 0x1E,
+              DETAIL("v0=0x%02X v1=0x%02X v2=0x%02X (want 0x1E,0x1E,0x1E)",
+                     v0, v1, v2));
+    }
+
+    // KBDHYS-03: cancel_extended_entries() forces ex matrix all-released.
+    // VHDL membrane.vhd:183-186 — the reset/cancel branch flushes
+    // matrix_state_ex_{0,1} and matrix_work_ex to all-'1' (active-low
+    // = all released). In our active-high C++ model this means
+    // ex_matrix_ = 0x0000, observable via NR 0xB0 / 0xB1 readback both
+    // returning 0x00.
+    {
+        Keyboard kb = fresh_keyboard();
+        // Press a sample of extended keys spread across both bytes.
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::UP),    true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::COMMA), true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::EDIT),  true);
+        kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::CAPS_LOCK), true);
+        const uint8_t before_b0 = kb.nr_b0_byte();
+        const uint8_t before_b1 = kb.nr_b1_byte();
+        kb.cancel_extended_entries();
+        const uint8_t after_b0  = kb.nr_b0_byte();
+        const uint8_t after_b1  = kb.nr_b1_byte();
+        check("KBDHYS-03",
+              "cancel_extended_entries() forces ex matrix all-released  "
+              "(membrane.vhd:183-186)",
+              before_b0 != 0x00 && before_b1 != 0x00 &&
+              after_b0  == 0x00 && after_b1  == 0x00,
+              DETAIL("before=(0x%02X,0x%02X) after=(0x%02X,0x%02X) "
+                     "want before nonzero, after (0x00,0x00)",
+                     before_b0, before_b1, after_b0, after_b1));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -529,22 +607,132 @@ static void test_ext() {
 
 static void test_jmode() {
     set_group("JMODE");
-    // JMODE-01: NR 0x05 = 0x00 → (joy0=000 S2, joy1=000 S2)
-    skip("JMODE-01", "NR 0x05=0x00 → (S2,S2)",      "Un-skip via task3-input-a-joymode");
-    // JMODE-02: NR 0x05 = 0x68 → (joy0=101 MD1, joy1=010 Cursor) — corrected byte
-    skip("JMODE-02", "NR 0x05=0x68 → (MD1,Cursor)", "Un-skip via task3-input-a-joymode");
-    // JMODE-02r: NR 0x05 = 0xC9 → (joy0=111 I/O, joy1=000 S2) — retracted row retained
-    skip("JMODE-02r","NR 0x05=0xC9 → (I/O,S2)",     "Un-skip via task3-input-a-joymode");
-    // JMODE-03: NR 0x05 = 0x40 → (001 Kempston 1, 000 S2)
-    skip("JMODE-03", "NR 0x05=0x40 → (Kempston1,S2)", "Un-skip via task3-input-a-joymode");
-    // JMODE-04: NR 0x05 = 0x08 → (100 Kempston 2, 000 S2) — corrected byte
-    skip("JMODE-04", "NR 0x05=0x08 → (Kempston2,S2)", "Un-skip via task3-input-a-joymode");
-    // JMODE-05: NR 0x05 = 0x88 → (110 MD 2, 000 S2)
-    skip("JMODE-05", "NR 0x05=0x88 → (MD2,S2)", "Un-skip via task3-input-a-joymode");
-    // JMODE-06: NR 0x05 = 0x22 → (000 S2, 110 MD2) — corrected byte
-    skip("JMODE-06", "NR 0x05=0x22 → (S2,MD2)", "Un-skip via task3-input-a-joymode");
-    // JMODE-07: NR 0x05 = 0x30 → (000 S2, 011 S1)
-    skip("JMODE-07", "NR 0x05=0x30 → (S2,S1)", "Un-skip via task3-input-a-joymode");
+    // ── JMODE-01..07: NR 0x05 decoder rows. Phase-2 Agent A landed the
+    // VHDL-faithful decoder per zxnext.vhd:5157-5158:
+    //   joy0[2:0] = { v[3], v[7], v[6] }
+    //   joy1[2:0] = { v[1], v[5], v[4] }
+    // Each row writes the byte and reads back mode_left() / mode_right().
+    // Mode enum values align with the 3-bit codes at zxnext.vhd:3429-3438.
+
+    // JMODE-01: 0x00 → (000 Sinclair2, 000 Sinclair2). zxnext.vhd:5157-5158
+    {
+        Joystick j;
+        j.set_nr_05(0x00);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-01",
+              "NR 0x05=0x00 → (Sinclair2, Sinclair2)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Sinclair2 && R == Joystick::Mode::Sinclair2,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2)));
+    }
+    // JMODE-02: 0x68 = 0b0110_1000 → joy0={1,0,1}=101 (Md3Left),
+    //                                joy1={0,1,0}=010 (Cursor).
+    {
+        Joystick j;
+        j.set_nr_05(0x68);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-02",
+              "NR 0x05=0x68 → (Md3Left, Cursor)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Md3Left && R == Joystick::Mode::Cursor,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Md3Left),
+                     static_cast<unsigned>(Joystick::Mode::Cursor)));
+    }
+    // JMODE-02r: 0xC9 = 0b1100_1001 → joy0={1,1,1}=111 (IoMode),
+    //                                 joy1={0,0,0}=000 (Sinclair2).
+    {
+        Joystick j;
+        j.set_nr_05(0xC9);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-02r",
+              "NR 0x05=0xC9 → (IoMode, Sinclair2)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::IoMode && R == Joystick::Mode::Sinclair2,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::IoMode),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2)));
+    }
+    // JMODE-03: 0x40 = 0b0100_0000 → joy0={0,0,1}=001 (Kempston1),
+    //                                joy1={0,0,0}=000 (Sinclair2).
+    {
+        Joystick j;
+        j.set_nr_05(0x40);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-03",
+              "NR 0x05=0x40 → (Kempston1, Sinclair2)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Kempston1 && R == Joystick::Mode::Sinclair2,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Kempston1),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2)));
+    }
+    // JMODE-04: 0x08 = 0b0000_1000 → joy0={1,0,0}=100 (Kempston2),
+    //                                joy1={0,0,0}=000 (Sinclair2).
+    {
+        Joystick j;
+        j.set_nr_05(0x08);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-04",
+              "NR 0x05=0x08 → (Kempston2, Sinclair2)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Kempston2 && R == Joystick::Mode::Sinclair2,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Kempston2),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2)));
+    }
+    // JMODE-05: 0x88 = 0b1000_1000 → joy0={1,1,0}=110 (Md3Right),
+    //                                joy1={0,0,0}=000 (Sinclair2).
+    {
+        Joystick j;
+        j.set_nr_05(0x88);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-05",
+              "NR 0x05=0x88 → (Md3Right, Sinclair2)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Md3Right && R == Joystick::Mode::Sinclair2,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Md3Right),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2)));
+    }
+    // JMODE-06: 0x22 = 0b0010_0010 → joy0={0,0,0}=000 (Sinclair2),
+    //                                joy1={1,1,0}=110 (Md3Right).
+    {
+        Joystick j;
+        j.set_nr_05(0x22);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-06",
+              "NR 0x05=0x22 → (Sinclair2, Md3Right)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Sinclair2 && R == Joystick::Mode::Md3Right,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2),
+                     static_cast<unsigned>(Joystick::Mode::Md3Right)));
+    }
+    // JMODE-07: 0x30 = 0b0011_0000 → joy0={0,0,0}=000 (Sinclair2),
+    //                                joy1={0,1,1}=011 (Sinclair1).
+    {
+        Joystick j;
+        j.set_nr_05(0x30);
+        const Joystick::Mode L = j.mode_left();
+        const Joystick::Mode R = j.mode_right();
+        check("JMODE-07",
+              "NR 0x05=0x30 → (Sinclair2, Sinclair1)  (zxnext.vhd:5157-5158)",
+              L == Joystick::Mode::Sinclair2 && R == Joystick::Mode::Sinclair1,
+              DETAIL("L=%u R=%u (want %u,%u)",
+                     static_cast<unsigned>(L), static_cast<unsigned>(R),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair2),
+                     static_cast<unsigned>(Joystick::Mode::Sinclair1)));
+    }
 
     // JMODE-08: cold-boot defaults for NR 0x05 — joy0="001", joy1="000".
     // Packed back into NR 0x05 per zxnext.vhd:5157-5158 :
@@ -836,27 +1024,260 @@ static void test_md3() {
 
 static void test_md6() {
     set_group("MD6");
-    skip("MD6-01", "L.MODE → NR 0xB2 bit 0 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-02", "L.Y    → NR 0xB2 bit 1 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-03", "L.Z    → NR 0xB2 bit 2 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-04", "L.X    → NR 0xB2 bit 3 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-05", "R.MODE → NR 0xB2 bit 4 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-06", "R.Y    → NR 0xB2 bit 5 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-07", "R.Z    → NR 0xB2 bit 6 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-08", "R.X    → NR 0xB2 bit 7 = 1", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-09", "all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF", "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-10", "Kempston mode, L.X=1 still sets NR 0xB2 bit 3 (no gating)",
-             "Un-skip via task3-input-d-md6fsm");
-    // md6_joystick_connector_x2.vhd state machine walk
-    skip("MD6-11a", "init clear (state 0000, left)",            "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11b", "bits 7:6 latch at 0100 (left)",            "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11c", "bits 5:0 latch at 0110 (left)",            "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11d", "6-button detect at 1000 (left)",           "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11e", "extras latch at 1010 (left, 6-btn)",       "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11f", "bits 7:6 latch at 0101 (right)",           "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11g", "bits 5:0 latch at 0111 (right)",           "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11h", "extras latch at 1011 (right)",             "Un-skip via task3-input-d-md6fsm");
-    skip("MD6-11i", "3-button pad skips extras latch (left)",   "Un-skip via task3-input-d-md6fsm");
+
+    // ── MD6-01..09: NR 0xB2 byte composition. Phase-2 Agent D's
+    // Md6ConnectorX2 composes NR 0xB2 per zxnext.vhd:6215 as:
+    //   bit 7..0 = {R.X(R[10]), R.Z(R[9]), R.Y(R[8]), R.MODE(R[11]),
+    //               L.X(L[10]), L.Z(L[9]), L.Y(L[8]), L.MODE(L[11])}
+    // We seed the latched 12-bit words via the test-only accessors and
+    // assert the composed byte. Bits 11..8 of each latched word feed the
+    // composition; the lower 8 bits of the latch are irrelevant here.
+
+    // MD6-01: L.MODE (left bit 11) → NR 0xB2 bit 0. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test(0x0800);            // bit 11 = MODE
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-01", "L.MODE → NR 0xB2 bit 0 = 1  (zxnext.vhd:6215)",
+              v == 0x01, DETAIL("got=0x%02X (want 0x01)", v));
+    }
+    // MD6-02: L.Y (left bit 8) → NR 0xB2 bit 1. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test(0x0100);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-02", "L.Y → NR 0xB2 bit 1 = 1  (zxnext.vhd:6215)",
+              v == 0x02, DETAIL("got=0x%02X (want 0x02)", v));
+    }
+    // MD6-03: L.Z (left bit 9) → NR 0xB2 bit 2. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test(0x0200);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-03", "L.Z → NR 0xB2 bit 2 = 1  (zxnext.vhd:6215)",
+              v == 0x04, DETAIL("got=0x%02X (want 0x04)", v));
+    }
+    // MD6-04: L.X (left bit 10) → NR 0xB2 bit 3. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test(0x0400);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-04", "L.X → NR 0xB2 bit 3 = 1  (zxnext.vhd:6215)",
+              v == 0x08, DETAIL("got=0x%02X (want 0x08)", v));
+    }
+    // MD6-05: R.MODE (right bit 11) → NR 0xB2 bit 4. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_right_for_test(0x0800);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-05", "R.MODE → NR 0xB2 bit 4 = 1  (zxnext.vhd:6215)",
+              v == 0x10, DETAIL("got=0x%02X (want 0x10)", v));
+    }
+    // MD6-06: R.Y (right bit 8) → NR 0xB2 bit 5. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_right_for_test(0x0100);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-06", "R.Y → NR 0xB2 bit 5 = 1  (zxnext.vhd:6215)",
+              v == 0x20, DETAIL("got=0x%02X (want 0x20)", v));
+    }
+    // MD6-07: R.Z (right bit 9) → NR 0xB2 bit 6. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_right_for_test(0x0200);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-07", "R.Z → NR 0xB2 bit 6 = 1  (zxnext.vhd:6215)",
+              v == 0x40, DETAIL("got=0x%02X (want 0x40)", v));
+    }
+    // MD6-08: R.X (right bit 10) → NR 0xB2 bit 7. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_right_for_test(0x0400);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-08", "R.X → NR 0xB2 bit 7 = 1  (zxnext.vhd:6215)",
+              v == 0x80, DETAIL("got=0x%02X (want 0x80)", v));
+    }
+    // MD6-09: all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF. zxnext.vhd:6215
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test (0x0F00);           // bits 11..8 all set
+        m.set_latched_right_for_test(0x0F00);
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-09",
+              "all JOY_{L,R}(11..8) high → NR 0xB2 = 0xFF  (zxnext.vhd:6215)",
+              v == 0xFF, DETAIL("got=0x%02X (want 0xFF)", v));
+    }
+
+    // MD6-10: Kempston mode does NOT gate NR 0xB2 — the MD6 latch is
+    // always exposed regardless of NR 0x05 / Joystick::Mode (zxnext.vhd:
+    // 6215 has no NR 0x05 gate in the composition). Assert that with
+    // joy0 = Kempston1, setting L.X via Md6 still surfaces on NR 0xB2
+    // bit 3. The Joystick mode is set just to make the no-gating
+    // expectation explicit; Md6ConnectorX2 reads from its OWN latched
+    // state, never consulting Joystick.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test(0x0400);            // L.X (bit 10)
+        const uint8_t v = m.nr_b2_byte();
+        check("MD6-10",
+              "Kempston mode, L.X=1 still sets NR 0xB2 bit 3 (no NR 0x05 gating)  "
+              "(zxnext.vhd:6215, 3441-3442)",
+              (v & 0x08) != 0,
+              DETAIL("got=0x%02X (want bit 3 set)", v));
+    }
+
+    // ── MD6-11a..i: state-machine phase walk per
+    // md6_joystick_connector_x2.vhd:66-193. Each row drops the FSM into
+    // a specific 4-bit phase (state(3:0)) using set_state_for_test(),
+    // primes raw inputs / 6-button detect flags as needed, then runs
+    // step_fsm_once_for_test() and inspects the latched_* state.
+    //
+    // The FSM only fires when state_rest=0 (state(8..4)=0). All test
+    // states below stay in 0x000-0x00F so the case block always fires.
+
+    // MD6-11a: phase 0000 = init clear. md6_joystick_connector_x2.vhd:135-139
+    {
+        Md6ConnectorX2 m;
+        m.set_latched_left_for_test (0x0FFF);           // start dirty
+        m.set_latched_right_for_test(0x0FFF);
+        m.set_six_button_left_for_test(true);
+        m.set_six_button_right_for_test(true);
+        m.set_state_for_test(0x000);                    // phase 0x0
+        m.step_fsm_once_for_test();
+        const uint16_t L = m.joy_left_word();
+        const uint16_t R = m.joy_right_word();
+        check("MD6-11a",
+              "phase 0000 clears both latches and 6-btn flags  "
+              "(md6_joystick_connector_x2.vhd:135-139)",
+              L == 0 && R == 0 &&
+              !m.six_button_left_for_test() &&
+              !m.six_button_right_for_test(),
+              DETAIL("L=0x%03X R=0x%03X six=(L:%d R:%d)",
+                     L, R,
+                     m.six_button_left_for_test() ? 1 : 0,
+                     m.six_button_right_for_test() ? 1 : 0));
+    }
+    // MD6-11b: phase 0100 = latch left bits 7:6 (START, A).
+    // md6_joystick_connector_x2.vhd:141-144
+    {
+        Md6ConnectorX2 m;
+        m.set_raw_left(0x00C0);                         // bits 7,6 set
+        m.set_state_for_test(0x004);                    // phase 0x4
+        m.step_fsm_once_for_test();
+        const uint16_t L = m.joy_left_word();
+        check("MD6-11b",
+              "phase 0100 latches left bits 7:6  "
+              "(md6_joystick_connector_x2.vhd:141-144)",
+              (L & 0x00C0) == 0x00C0 && (L & ~0x00C0u) == 0,
+              DETAIL("L=0x%03X (want 0x0C0)", L));
+    }
+    // MD6-11c: phase 0110 = latch left bits 5:0.
+    // md6_joystick_connector_x2.vhd:151-152
+    {
+        Md6ConnectorX2 m;
+        m.set_raw_left(0x003F);                         // bits 5..0 set
+        m.set_state_for_test(0x006);                    // phase 0x6
+        m.step_fsm_once_for_test();
+        const uint16_t L = m.joy_left_word();
+        check("MD6-11c",
+              "phase 0110 latches left bits 5:0  "
+              "(md6_joystick_connector_x2.vhd:151-152)",
+              (L & 0x003F) == 0x003F && (L & ~0x003Fu) == 0,
+              DETAIL("L=0x%03X (want 0x03F)", L));
+    }
+    // MD6-11d: phase 1000 = 6-button detect for left. Per VHDL
+    // md6_joystick_connector_x2.vhd:157-158, six_button_n is cleared
+    // (= six-button detected) iff i_joy_1_n=0 AND i_joy_2_n=0 (active-low
+    // pin1/pin2). Pin1 = U (raw bit 3), pin2 = D (raw bit 2). In our
+    // active-high model six_button=true iff raw[3]=1 AND raw[2]=1.
+    {
+        Md6ConnectorX2 m;
+        m.set_raw_left(0x000C);                         // U+D both pressed
+        m.set_state_for_test(0x008);                    // phase 0x8
+        m.step_fsm_once_for_test();
+        check("MD6-11d",
+              "phase 1000 with U+D held → 6-button detect (left)  "
+              "(md6_joystick_connector_x2.vhd:157-158)",
+              m.six_button_left_for_test() == true,
+              DETAIL("six_button_left=%d (want 1)",
+                     m.six_button_left_for_test() ? 1 : 0));
+    }
+    // MD6-11e: phase 1010 with 6-button detected → bits 11:8 of left
+    // are latched. md6_joystick_connector_x2.vhd:163-166
+    {
+        Md6ConnectorX2 m;
+        m.set_six_button_left_for_test(true);
+        m.set_raw_left(0x0F00);                         // bits 11..8 all set
+        m.set_state_for_test(0x00A);                    // phase 0xA
+        m.step_fsm_once_for_test();
+        const uint16_t L = m.joy_left_word();
+        check("MD6-11e",
+              "phase 1010 + 6-btn: latch left bits 11:8  "
+              "(md6_joystick_connector_x2.vhd:163-166)",
+              (L & 0x0F00) == 0x0F00,
+              DETAIL("L=0x%03X (want bits 11:8 = 0xF)", L));
+    }
+    // MD6-11f: phase 0101 = latch right bits 7:6.
+    // md6_joystick_connector_x2.vhd:146-149
+    {
+        Md6ConnectorX2 m;
+        m.set_raw_right(0x00C0);
+        m.set_state_for_test(0x005);                    // phase 0x5
+        m.step_fsm_once_for_test();
+        const uint16_t R = m.joy_right_word();
+        check("MD6-11f",
+              "phase 0101 latches right bits 7:6  "
+              "(md6_joystick_connector_x2.vhd:146-149)",
+              (R & 0x00C0) == 0x00C0 && (R & ~0x00C0u) == 0,
+              DETAIL("R=0x%03X (want 0x0C0)", R));
+    }
+    // MD6-11g: phase 0111 = latch right bits 5:0.
+    // md6_joystick_connector_x2.vhd:154-155
+    {
+        Md6ConnectorX2 m;
+        m.set_raw_right(0x003F);
+        m.set_state_for_test(0x007);                    // phase 0x7
+        m.step_fsm_once_for_test();
+        const uint16_t R = m.joy_right_word();
+        check("MD6-11g",
+              "phase 0111 latches right bits 5:0  "
+              "(md6_joystick_connector_x2.vhd:154-155)",
+              (R & 0x003F) == 0x003F && (R & ~0x003Fu) == 0,
+              DETAIL("R=0x%03X (want 0x03F)", R));
+    }
+    // MD6-11h: phase 1011 with 6-button detected (right) → bits 11:8 of
+    // right are latched. md6_joystick_connector_x2.vhd:168-171
+    {
+        Md6ConnectorX2 m;
+        m.set_six_button_right_for_test(true);
+        m.set_raw_right(0x0F00);
+        m.set_state_for_test(0x00B);                    // phase 0xB
+        m.step_fsm_once_for_test();
+        const uint16_t R = m.joy_right_word();
+        check("MD6-11h",
+              "phase 1011 + 6-btn: latch right bits 11:8  "
+              "(md6_joystick_connector_x2.vhd:168-171)",
+              (R & 0x0F00) == 0x0F00,
+              DETAIL("R=0x%03X (want bits 11:8 = 0xF)", R));
+    }
+    // MD6-11i: phase 1010 with 6-button NOT detected → bits 11:8 are NOT
+    // latched (3-button pad skips extras). md6_joystick_connector_x2.vhd:
+    // 163-166 (gate is `if joy_left_six_button_n='0'`).
+    {
+        Md6ConnectorX2 m;
+        m.set_six_button_left_for_test(false);          // 3-button pad
+        m.set_raw_left(0x0F00);                         // raw has all extras set
+        m.set_state_for_test(0x00A);                    // phase 0xA
+        m.step_fsm_once_for_test();
+        const uint16_t L = m.joy_left_word();
+        check("MD6-11i",
+              "phase 1010 without 6-btn: bits 11:8 NOT latched  "
+              "(md6_joystick_connector_x2.vhd:163-166 — six-button gate)",
+              (L & 0x0F00) == 0x0000,
+              DETAIL("L=0x%03X (want bits 11:8 = 0x0; 3-btn skips extras)", L));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
