@@ -22,6 +22,8 @@
 // Run: ./build/test/input_test
 
 #include "input/keyboard.h"
+#include "input/joystick.h"
+#include "input/membrane_stick.h"
 #include "input/mouse.h"
 #include "port/nextreg.h"
 #include <cstdio>
@@ -647,17 +649,126 @@ static void test_md6() {
 
 static void test_sinclair() {
     set_group("SINC");
-    skip("SINC1-01", "mode=S1, LEFT → row 0xF7FE bit 0 (key 1) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-02", "mode=S1, RIGHT → row 0xF7FE bit 1 (key 2) low", "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-03", "mode=S1, DOWN → row 0xF7FE bit 2 (key 3) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-04", "mode=S1, UP → row 0xF7FE bit 3 (key 4) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-05", "mode=S1, FIRE → row 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-01", "mode=S2, LEFT → row 0xEFFE bit 3 (key 7) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-02", "mode=S2, RIGHT → row 0xEFFE bit 4 (key 6) low", "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-03", "mode=S2, DOWN → row 0xEFFE bit 2 (key 8) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-04", "mode=S2, UP → row 0xEFFE bit 1 (key 9) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-05", "mode=S2, FIRE → row 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC-06",  "S1+S2 both LEFT → row 0xE7FE AND both low",     "Un-skip via task3-input-c-sinccurs");
+    // ─────────────────────────────────────────────────────────────────
+    // Wave 2 (Agent C) — joystick→membrane fold via MembraneStick.
+    //
+    // Direction encoding in the 12-bit joystick state vector
+    // (zxnext.vhd:3441-3442): bit 0 = R, bit 1 = L, bit 2 = D,
+    // bit 3 = U, bit 4 = B (FIRE).
+    //
+    // Default keymap is the COE oracle at ram/init/keyjoy_64_6.coe:1-66.
+    // Plan-vs-COE discrepancy (Wave 2 finding): the original SINC1-*
+    // and SINC2-* expected values in INPUT-TEST-PLAN-DESIGN.md §3.7
+    // had the Sinclair 1 / Sinclair 2 keymap labels SWAPPED relative
+    // to the canonical COE data and FUSE's reference adapter
+    // (peripherals/joystick.c sinclair1_key/sinclair2_key). Per the
+    // brief the COE wins, so the expected (row, bit) cells below are
+    // taken from the COE entries 0..14 (file-level comment in
+    // src/input/membrane_stick.cpp lists the per-mode addr table).
+    //
+    // Concretely:
+    //   COE Sinclair 1 (mode 011) → row 4 keys (0,9,8,7,6) = the
+    //       "Sinclair 2" labels in the original plan.
+    //   COE Sinclair 2 (mode 000) → row 3 keys (1,2,3,4,5) = the
+    //       "Sinclair 1" labels in the original plan.
+    //
+    // Cursor mode agrees with the original plan. See test_cursor() below.
+    //
+    // Direction bit values used in inject_joystick_state:
+    //   R=0x01, L=0x02, D=0x04, U=0x08, FIRE=0x10.
+
+    // Helper: single-direction press, single-row read.
+    auto run = [](Joystick::Mode mode, int connector, uint16_t dir_bit,
+                  int row, uint8_t base_mask) -> uint8_t {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(connector, mode);
+        ms.inject_joystick_state(connector, dir_bit);
+        return ms.compose_into_row(row, base_mask);
+    };
+
+    // ── Sinclair 1 (mode 011) on connector 0 (left) ────────────────
+    // Per COE: R→key 7 (4,3), L→key 6 (4,4), D→key 8 (4,2),
+    //          U→key 9 (4,1), F→key 0 (4,0). All on row 4.
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x02, 4, 0x1F);
+        check("SINC1-01", "S1 LEFT → row 4 bit 4 (key 6) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x01, 4, 0x1F);
+        check("SINC1-02", "S1 RIGHT → row 4 bit 3 (key 7) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x04, 4, 0x1F);
+        check("SINC1-03", "S1 DOWN → row 4 bit 2 (key 8) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x08, 4, 0x1F);
+        check("SINC1-04", "S1 UP → row 4 bit 1 (key 9) low",
+              v == 0x1D, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x10, 4, 0x1F);
+        check("SINC1-05", "S1 FIRE → row 4 bit 0 (key 0) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+
+    // ── Sinclair 2 (mode 000) on connector 1 (right) ────────────────
+    // Per COE: R→key 2 (3,1), L→key 1 (3,0), D→key 3 (3,2),
+    //          U→key 4 (3,3), F→key 5 (3,4). All on row 3.
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x02, 3, 0x1F);
+        check("SINC2-01", "S2 LEFT → row 3 bit 0 (key 1) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x01, 3, 0x1F);
+        check("SINC2-02", "S2 RIGHT → row 3 bit 1 (key 2) low",
+              v == 0x1D, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x04, 3, 0x1F);
+        check("SINC2-03", "S2 DOWN → row 3 bit 2 (key 3) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x08, 3, 0x1F);
+        check("SINC2-04", "S2 UP → row 3 bit 3 (key 4) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x10, 3, 0x1F);
+        check("SINC2-05", "S2 FIRE → row 3 bit 4 (key 5) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+
+    // ── SINC-06: both connectors active concurrently (S1 left + S2 right) ──
+    // S1 LEFT clears row 4 bit 4 (key 6); S2 LEFT clears row 3 bit 0
+    // (key 1). The plan models this as the membrane scanning rows 3+4
+    // together (addr_high = 0xE7FE); each row's compose_into_row()
+    // clears only its own row's cell (membrane_stick.vhd:192 row-match
+    // guard), and the membrane top-level then AND-merges per-row
+    // results in the read_rows path. We verify the per-row clears
+    // separately here because compose_into_row() is single-row by
+    // design (mirrors the VHDL `i_membrane_row` input).
+    {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(0, Joystick::Mode::Sinclair1);
+        ms.set_mode(1, Joystick::Mode::Sinclair2);
+        ms.inject_joystick_state(0, 0x02); // LEFT (left connector)
+        ms.inject_joystick_state(1, 0x02); // LEFT (right connector)
+        const uint8_t r3 = ms.compose_into_row(3, 0x1F);
+        const uint8_t r4 = ms.compose_into_row(4, 0x1F);
+        // Cross-row independence: scanning row 3 must not show row-4
+        // clears and vice-versa (no cross-contamination across rows).
+        check("SINC-06", "S1+S2 both LEFT → r4=0x0F (key 6 low), r3=0x1E (key 1 low)",
+              r4 == 0x0F && r3 == 0x1E,
+              DETAIL("r3=0x%02X r4=0x%02X", r3, r4));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -666,12 +777,71 @@ static void test_sinclair() {
 
 static void test_cursor() {
     set_group("CURS");
-    skip("CURS-01", "mode=Cursor, LEFT → 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-02", "mode=Cursor, DOWN → 0xEFFE bit 4 (key 6) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-03", "mode=Cursor, UP → 0xEFFE bit 3 (key 7) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-04", "mode=Cursor, RIGHT → 0xEFFE bit 2 (key 8) low", "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-05", "mode=Cursor, FIRE → 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-06", "mode=Cursor, LEFT+RIGHT rows 3+4 AND",          "Un-skip via task3-input-c-sinccurs");
+    // ─────────────────────────────────────────────────────────────────
+    // Wave 2 (Agent C) — Cursor / Protek joystick→membrane fold.
+    //
+    // Per COE addr 10..14: R→key 8 (4,2), L→key 5 (3,4),
+    //                       D→key 6 (4,4), U→key 7 (4,3), F→key 0 (4,0).
+    //
+    // The Cursor map agrees with the original plan §3.8 — no swap
+    // discrepancy here (matches FUSE peripherals/joystick.c
+    // cursor_key[5] = {5, 8, 7, 6, 0}).
+    //
+    // Direction bit values: R=0x01, L=0x02, D=0x04, U=0x08, FIRE=0x10.
+
+    auto run = [](int connector, uint16_t dir_bit, int row,
+                  uint8_t base_mask) -> uint8_t {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(connector, Joystick::Mode::Cursor);
+        ms.inject_joystick_state(connector, dir_bit);
+        return ms.compose_into_row(row, base_mask);
+    };
+
+    // CURS-01: LEFT → row 3 bit 4 (key 5) low. Connector 0 (left).
+    {
+        uint8_t v = run(0, 0x02, 3, 0x1F);
+        check("CURS-01", "Cursor LEFT → row 3 bit 4 (key 5) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    // CURS-02: DOWN → row 4 bit 4 (key 6) low.
+    {
+        uint8_t v = run(0, 0x04, 4, 0x1F);
+        check("CURS-02", "Cursor DOWN → row 4 bit 4 (key 6) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    // CURS-03: UP → row 4 bit 3 (key 7) low.
+    {
+        uint8_t v = run(0, 0x08, 4, 0x1F);
+        check("CURS-03", "Cursor UP → row 4 bit 3 (key 7) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    // CURS-04: RIGHT → row 4 bit 2 (key 8) low.
+    {
+        uint8_t v = run(0, 0x01, 4, 0x1F);
+        check("CURS-04", "Cursor RIGHT → row 4 bit 2 (key 8) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    // CURS-05: FIRE → row 4 bit 0 (key 0) low.
+    {
+        uint8_t v = run(0, 0x10, 4, 0x1F);
+        check("CURS-05", "Cursor FIRE → row 4 bit 0 (key 0) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+    // CURS-06: LEFT + RIGHT pressed simultaneously affect rows 3 and 4.
+    // L clears row 3 bit 4 (key 5); R clears row 4 bit 2 (key 8). Each
+    // row is composed independently per the membrane row-match guard.
+    {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(0, Joystick::Mode::Cursor);
+        ms.inject_joystick_state(0, 0x03); // L|R
+        const uint8_t r3 = ms.compose_into_row(3, 0x1F);
+        const uint8_t r4 = ms.compose_into_row(4, 0x1F);
+        check("CURS-06", "Cursor LEFT+RIGHT → r3=0x0F (key 5), r4=0x1B (key 8)",
+              r3 == 0x0F && r4 == 0x1B,
+              DETAIL("r3=0x%02X r4=0x%02X", r3, r4));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
