@@ -1422,17 +1422,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr);
 
     // Kempston mouse: buttons (0xFADF), X (0xFBDF), Y (0xFFDF).
-    // VHDL zxnext.vhd:2668-2670, :3541-3562. Phase 1 scaffold stubs:
-    // return 0x00 via KempstonMouse; Agent H (Phase 2) installs real
-    // composition (buttons active-low, wheel nibble, X/Y counters).
+    // VHDL zxnext.vhd:2668-2670, :3541-3562. Phase 2 Agent H wires the
+    // real composition via KempstonMouse: wheel nibble + fixed bit 3 +
+    // active-low buttons on 0xFADF; raw X / Y registers on 0xFBDF / 0xFFDF.
+    //
+    // Enable gate: VHDL zxnext.vhd:2668-2670 qualifies all three ports
+    // with port_mouse_io_en = internal_port_enable(13) = NR 0x83 bit 5
+    // (zxnext.vhd:2422, 2392-2393). Reset default nr_83_internal_port_enable
+    // = 0xFF (zxnext.vhd:1227, 5055), so bit 5 = 1 and mouse responds at
+    // power-on. When firmware clears bit 5 (OUT NR 0x83, 0xDF), the ports
+    // decode as unhandled and the floating-bus default (0xFF) is returned.
+    // Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
     port_.register_handler(0xFFFF, 0xFADF,
-        [this](uint16_t) -> uint8_t { return mouse_.read_port_fadf(); },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            return mouse_.read_port_fadf();
+        },
         nullptr);
     port_.register_handler(0xFFFF, 0xFBDF,
-        [this](uint16_t) -> uint8_t { return mouse_.read_port_fbdf(); },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            return mouse_.read_port_fbdf();
+        },
         nullptr);
     port_.register_handler(0xFFFF, 0xFFDF,
-        [this](uint16_t) -> uint8_t { return mouse_.read_port_ffdf(); },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            return mouse_.read_port_ffdf();
+        },
         nullptr);
 
     // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:2685-2686.

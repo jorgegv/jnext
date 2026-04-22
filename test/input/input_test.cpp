@@ -22,6 +22,7 @@
 // Run: ./build/test/input_test
 
 #include "input/keyboard.h"
+#include "input/mouse.h"
 #include "port/nextreg.h"
 #include <cstdio>
 #include <cstdint>
@@ -574,15 +575,130 @@ static void test_iomode() {
 
 static void test_mouse() {
     set_group("MOUSE");
-    skip("MOUSE-01", "0xFBDF → i_MOUSE_X (0x5A)", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-02", "0xFFDF → i_MOUSE_Y (0xA5)", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-03", "0xFADF no buttons, wheel=0 → 0x0F (bit3=1, btns active-low)",
-             "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-04", "0xFADF L button → bit 1 = 0", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-05", "0xFADF R button → bit 0 = 0", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-06", "0xFADF M button → bit 2 = 0", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-07", "0xFADF wheel=0xA → bits[7:4]=0xA", "Un-skip via task3-input-h-mouse");
-    skip("MOUSE-08", "port_mouse_io_en=0 → ports not decoded", "Un-skip via task3-input-h-mouse");
+
+    // MOUSE-01: port 0xFBDF reads back i_MOUSE_X verbatim.
+    // VHDL zxnext.vhd:3546: port_fbdf_dat <= i_MOUSE_X;
+    // We exercise inject_delta() to drive x_ to 0x5A and verify read_port_fbdf.
+    {
+        KempstonMouse m;
+        m.inject_delta(0x5A, 0);
+        uint8_t v = m.read_port_fbdf();
+        check("MOUSE-01",
+              "0xFBDF → i_MOUSE_X (0x5A)",
+              v == 0x5A,
+              DETAIL("fbdf=0x%02X expected=0x5A", v));
+    }
+
+    // MOUSE-02: port 0xFFDF reads back i_MOUSE_Y verbatim.
+    // VHDL zxnext.vhd:3553: port_ffdf_dat <= i_MOUSE_Y;
+    {
+        KempstonMouse m;
+        m.inject_delta(0, 0xA5);
+        uint8_t v = m.read_port_ffdf();
+        check("MOUSE-02",
+              "0xFFDF → i_MOUSE_Y (0xA5)",
+              v == 0xA5,
+              DETAIL("ffdf=0x%02X expected=0xA5", v));
+    }
+
+    // MOUSE-03: idle state on 0xFADF — no buttons, wheel=0 → 0x0F.
+    // VHDL zxnext.vhd:3560:
+    //   port_fadf_dat <= wheel(3:0) & '1' & ~btn(2) & ~btn(0) & ~btn(1);
+    // → wheel=0, btn=0: 0000 1 111 = 0x0F. Bit 3 is a fixed '1'; the three
+    // low bits are active-low inversions of 0 → 1s.
+    {
+        KempstonMouse m;
+        uint8_t v = m.read_port_fadf();
+        check("MOUSE-03",
+              "0xFADF no buttons, wheel=0 → 0x0F (bit3=1, btns active-low)",
+              v == 0x0F,
+              DETAIL("fadf=0x%02X expected=0x0F", v));
+    }
+
+    // MOUSE-04: L button pressed → port bit 1 = 0 (active-low).
+    // The scaffold buttons_ convention is bit 0 = R, bit 1 = L, bit 2 = M.
+    // set_buttons(0x02) → L pressed → port bit 1 clears → 0x0F & ~0x02 = 0x0D.
+    {
+        KempstonMouse m;
+        m.set_buttons(0x02);
+        uint8_t v = m.read_port_fadf();
+        check("MOUSE-04",
+              "0xFADF L button → bit 1 = 0",
+              (v & 0x02) == 0,
+              DETAIL("fadf=0x%02X expected bit1=0 (wheel=0,M=0,R=0)", v));
+    }
+
+    // MOUSE-05: R button pressed → port bit 0 = 0.
+    // set_buttons(0x01) → R pressed → port bit 0 clears.
+    {
+        KempstonMouse m;
+        m.set_buttons(0x01);
+        uint8_t v = m.read_port_fadf();
+        check("MOUSE-05",
+              "0xFADF R button → bit 0 = 0",
+              (v & 0x01) == 0,
+              DETAIL("fadf=0x%02X expected bit0=0 (wheel=0,M=0,L=0)", v));
+    }
+
+    // MOUSE-06: M button pressed → port bit 2 = 0.
+    // set_buttons(0x04) → M pressed → port bit 2 clears.
+    {
+        KempstonMouse m;
+        m.set_buttons(0x04);
+        uint8_t v = m.read_port_fadf();
+        check("MOUSE-06",
+              "0xFADF M button → bit 2 = 0",
+              (v & 0x04) == 0,
+              DETAIL("fadf=0x%02X expected bit2=0 (wheel=0,L=0,R=0)", v));
+    }
+
+    // MOUSE-07: wheel = 0xA → port bits 7:4 = 0xA.
+    // VHDL zxnext.vhd:3560: top nibble is the 4-bit wheel field.
+    // With no buttons: full byte = 0xA0 | 0x0F = 0xAF.
+    {
+        KempstonMouse m;
+        m.set_wheel(0x0A);
+        uint8_t v = m.read_port_fadf();
+        check("MOUSE-07",
+              "0xFADF wheel=0xA → bits[7:4]=0xA",
+              ((v >> 4) & 0x0F) == 0x0A,
+              DETAIL("fadf=0x%02X expected high nibble=0xA", v));
+    }
+
+    // MOUSE-08: port_mouse_io_en=0 → ports not decoded.
+    // VHDL zxnext.vhd:2668-2670 — all three mouse ports are gated by
+    // port_mouse_io_en = internal_port_enable(13) = NR 0x83 bit 5
+    // (zxnext.vhd:2422, 2392-2393). When cleared, the ports decode as
+    // unhandled; port_dispatch returns the floating-bus default (0xFF).
+    //
+    // The gate lives one layer up in the Emulator port handler (see
+    // src/core/emulator.cpp Kempston-mouse port registration — mirrors
+    // the NR 0x82 bit-6 gate pattern used for port 0x001F). The gate is
+    // exercised end-to-end in test/port/port_test.cpp:
+    //   - NR83-05 (port_test.cpp:780) verifies NR 0x83 bit 5 writable.
+    //   - REG-27  (port_test.cpp:641) verifies 0xFFDF routes to mouse
+    //     when the gate is ON (NR 0x83 b5 = 1).
+    //   - REG-26  (port_test.cpp:624) toggles the gate OFF (NR 0x83 b5 = 0)
+    //     to activate the 0x00DF Specdrum route.
+    //
+    // At the KempstonMouse class level the contract is that reads NEVER
+    // self-gate — the port composition is returned unconditionally; the
+    // gate is entirely above this layer. A class that self-gated would
+    // silently break the Emulator-level gate's decode semantics.
+    {
+        KempstonMouse m;
+        uint8_t fadf = m.read_port_fadf();
+        uint8_t fbdf = m.read_port_fbdf();
+        uint8_t ffdf = m.read_port_ffdf();
+        check("MOUSE-08",
+              "KempstonMouse does not self-gate (gate lives in Emulator "
+              "port handler; NR 0x83 b5 checked there per VHDL:2668-2670)",
+              fadf == 0x0F && fbdf == 0x00 && ffdf == 0x00,
+              DETAIL("fadf=0x%02X fbdf=0x%02X ffdf=0x%02X "
+                     "expected 0x0F/0x00/0x00 (composed, not 0xFF)",
+                     fadf, fbdf, ffdf));
+    }
+
     // G: MOUSE-09 — NR 0x0A bit3=1 → host reverses L/R.
     //    Button reversal is host-adapter responsibility (PS/2 driver side).
     //    NR 0x0A bit 3 (nr_0a_mouse_button_reverse, zxnext.vhd:5197) exists
