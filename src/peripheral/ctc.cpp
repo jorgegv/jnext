@@ -255,6 +255,14 @@ void Ctc::handle_zc_to(int channel, int depth) {
     // pathological all-counter TC=1 ring is configured.
     if (depth >= 4) return;
 
+    // Unconditional ZC/TO callback — fires for every pulse regardless of
+    // channel IRQ enable. Consumers: joy_iomode pin-7 toggle on ch3.
+    // Kept separate from on_interrupt because hardware uses ctc_zc_to(3)
+    // as a free-running clock for that mux even when CTC ch3 IRQ is off.
+    if (on_zc_to) {
+        on_zc_to(channel);
+    }
+
     // Fire interrupt if enabled
     if (channels_[channel].int_enabled() && on_interrupt) {
         ctc_log()->debug("ch{} ZC/TO -> interrupt", channel);

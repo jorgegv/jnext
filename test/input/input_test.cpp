@@ -21,9 +21,16 @@
 //
 // Run: ./build/test/input_test
 
+#include "input/joystick.h"
 #include "input/keyboard.h"
+#include "input/joystick.h"
+#include "input/membrane_stick.h"
 #include "input/mouse.h"
+#include "input/iomode.h"
+#include "input/joystick.h"
 #include "port/nextreg.h"
+#include "core/emulator.h"
+#include "core/emulator_config.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -561,29 +568,167 @@ static void test_jmode() {
 // ══════════════════════════════════════════════════════════════════════════
 // 3.5 Kempston 1 / 2 (KEMP-*) — ports 0x1F / 0x37
 // VHDL: zxnext.vhd:3475-3506, 3441-3442, 2454, 2674
+//
+// Bit layout of the 12-bit raw connector vector (zxnext.vhd:3441-3442):
+//    bit 11 = MODE   bit 10 = X     bit  9 = Z   bit  8 = Y
+//    bit  7 = START  bit  6 = A
+//    bit  5 = C(F2)  bit  4 = B(F1)
+//    bit  3 = U      bit  2 = D     bit  1 = L   bit  0 = R
+// Constants below name those bits.
 // ══════════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr uint16_t JR     = 1u << 0;   // RIGHT
+constexpr uint16_t JL     = 1u << 1;   // LEFT
+constexpr uint16_t JD     = 1u << 2;   // DOWN
+constexpr uint16_t JU     = 1u << 3;   // UP
+constexpr uint16_t JB     = 1u << 4;   // Fire 1 / B
+constexpr uint16_t JC     = 1u << 5;   // Fire 2 / C
+constexpr uint16_t JA     = 1u << 6;   // MD A button (Kempston bit 6, masked)
+constexpr uint16_t JSTART = 1u << 7;   // MD START (Kempston bit 7, masked)
+} // namespace
 
 static void test_kemp() {
     set_group("KEMP");
-    skip("KEMP-01", "mode=Kempston1, R → port 0x1F = 0x01", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-02", "mode=Kempston1, L → 0x02", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-03", "mode=Kempston1, D → 0x04", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-04", "mode=Kempston1, U → 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-05", "mode=Kempston1, Fire1(B) → 0x10", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-06", "mode=Kempston1, Fire2(C) → 0x20", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:3478 forces bits 7:6 to 0 in Kempston mode
-    skip("KEMP-07", "mode=Kempston1, A(bit6) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-08", "mode=Kempston1, START(bit7) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-09", "mode=Kempston1, U+D+L+R+F1+F2 → 0x3F", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-10", "mode=Kempston2, U on left → 0x37=0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-11", "mode=Kempston2, all dirs+F1+F2 → 0x37=0x3F", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:2454 port_1f_hw_en guard
-    skip("KEMP-12", "joy0=000 (S2), port 0x1F not decoded (not joystick byte)",
-             "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-13", "K1+K1, L.U + R.R → 0x1F = 0x09", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-14", "K1+K2 routing: 0x1F=0x08, 0x37=0x04", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:3478 MD mode bit 6 passes
-    skip("KEMP-15", "joy0=MD1, L.A → 0x1F bit6=1 (0x40)", "Un-skip via task3-input-b-kempmd3");
+
+    // KEMP-01: mode=Kempston1 on joy0, RIGHT pressed on left connector
+    // → port 0x1F = bit 0 set per zxnext.vhd:3479 (joyL_1f(5:0)).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JR);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-01", "Kempston1 R → 0x01", v == 0x01, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-02: LEFT → bit 1 (0x02). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JL);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-02", "Kempston1 L → 0x02", v == 0x02, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-03: DOWN → bit 2 (0x04). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JD);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-03", "Kempston1 D → 0x04", v == 0x04, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-04: UP → bit 3 (0x08). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-04", "Kempston1 U → 0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-05: Fire1/B → bit 4 (0x10). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JB);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-05", "Kempston1 Fire1(B) → 0x10", v == 0x10, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-06: Fire2/C → bit 5 (0x20). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JC);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-06", "Kempston1 Fire2(C) → 0x20", v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-07: A pressed but Kempston mode masks bit 6 to 0 — zxnext.vhd:3478
+    // (joyL_1f(7:6) = 0 when mdL_1f_en = '0'). Result: 0x00.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-07", "Kempston1 A masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-08: START pressed but Kempston masks bit 7 to 0 — zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-08", "Kempston1 START masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-09: U+D+L+R+Fire1+Fire2 → bits 5..0 all set → 0x3F.
+    // zxnext.vhd:3479; bits 7:6 still masked (Kempston mode).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-09", "Kempston1 all dirs+F1+F2 → 0x3F", v == 0x3F, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-10: joy0=Kempston2 routes left connector to port 0x37 — zxnext.vhd:3482.
+    // L.U → bit 3 → 0x37 = 0x08.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_37();
+        check("KEMP-10", "Kempston2 L.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-11: Kempston2, all dirs+F1+F2 on left → 0x37 = 0x3F.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC);
+        uint8_t v = j.read_port_37();
+        check("KEMP-11", "Kempston2 all dirs+F1+F2 → 0x37=0x3F",
+              v == 0x3F, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-12: joy0=Sinclair2 → joyL_1f_en = 0 (zxnext.vhd:3475 only fires
+    // for "001" or mdL_1f_en). Joystick lane contributes 0x00 to port 0x1F
+    // even with all buttons pressed. (The "0xFF when not decoded" headline
+    // behaviour for the port itself is enforced one level up by the NR 0x82
+    // bit-6 gate in emulator.cpp; the Joystick class's lane is 0x00.)
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC | JA | JSTART);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-12", "joy0=S2 → 0x1F joystick lane = 0x00",
+              v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-13: K1+K1 → both connectors OR into port 0x1F (zxnext.vhd:3499).
+    // L.U (0x08) + R.R (0x01) → 0x09.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston1);
+        j.set_joy_left(JU);
+        j.set_joy_right(JR);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-13", "K1+K1 L.U|R.R → 0x1F=0x09", v == 0x09, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-14: K1+K2 routing — joy0=K1 puts L on 0x1F, joy1=K2 puts R on 0x37.
+    // L.U → 0x1F = 0x08, R.D → 0x37 = 0x04. zxnext.vhd:3475-3488.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston2);
+        j.set_joy_left(JU);
+        j.set_joy_right(JD);
+        uint8_t v1f = j.read_port_1f();
+        uint8_t v37 = j.read_port_37();
+        check("KEMP-14", "K1+K2 split routing 0x1F=0x08 0x37=0x04",
+              v1f == 0x08 && v37 == 0x04,
+              DETAIL("got 0x1F=0x%02X 0x37=0x%02X", v1f, v37));
+    }
+    // KEMP-15: joy0=MD1 → bits 7:6 pass through (zxnext.vhd:3478,
+    // mdL_1f_en = 1 when nr_05_joy0 = "101"). L.A → bit 6 → 0x40.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-15", "joy0=MD1 L.A → 0x1F=0x40", v == 0x40, DETAIL("got=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -592,18 +737,92 @@ static void test_kemp() {
 
 static void test_md3() {
     set_group("MD3");
-    // MD-01: corrected expected is 0x5F (not 0x3F). zxnext.vhd:3478-3479, 3441
-    skip("MD-01", "mode=MD1, U+D+L+R+A+B → 0x1F = 0x5F", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-02", "mode=MD1, START (bit7) → 0x1F = 0x80", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-03", "mode=MD1, A (bit6) → 0x1F = 0x40", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-04", "mode=MD1, Fire2/C (bit5) → 0x1F = 0x20", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-05", "mode=MD1, START+A → 0x1F = 0xC0", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-06", "mode=Kempston1, START (bit7) → 0x1F = 0x00 (masked)",
-             "Un-skip via task3-input-b-kempmd3");
-    skip("MD-07", "joy0=MD2, L.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-08", "joy1=MD2, R.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-09", "joy0=MD1 and joy1=MD1 illegal combo — open question",
-             "Un-skip via task3-input-b-kempmd3");
+    // MD-01: joy0=MD1, U+D+L+R+A+B (no C, no START) → port 0x1F.
+    // Bits per zxnext.vhd:3441-3442: U=3, D=2, L=1, R=0, B=4, A=6.
+    // OR = 0b01011111 = 0x5F. zxnext.vhd:3478-3479 (MD lane passes 7:6).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JA | JB);
+        uint8_t v = j.read_port_1f();
+        check("MD-01", "MD1 U+D+L+R+A+B → 0x5F", v == 0x5F, DETAIL("got=0x%02X", v));
+    }
+    // MD-02: MD1 START → bit 7 → 0x80. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-02", "MD1 START → 0x80", v == 0x80, DETAIL("got=0x%02X", v));
+    }
+    // MD-03: MD1 A → bit 6 → 0x40. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("MD-03", "MD1 A → 0x40", v == 0x40, DETAIL("got=0x%02X", v));
+    }
+    // MD-04: MD1 Fire2/C → bit 5 → 0x20. zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JC);
+        uint8_t v = j.read_port_1f();
+        check("MD-04", "MD1 Fire2/C → 0x20", v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    // MD-05: MD1 START+A → 0xC0. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART | JA);
+        uint8_t v = j.read_port_1f();
+        check("MD-05", "MD1 START+A → 0xC0", v == 0xC0, DETAIL("got=0x%02X", v));
+    }
+    // MD-06: in Kempston mode, START is masked → 0x00 even when pressed.
+    // zxnext.vhd:3478 (mdL_1f_en = 0 for joy0="001").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-06", "Kempston1 START masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // MD-07: joy0=MD2 routes L to port 0x37. L.U → 0x37 = 0x08.
+    // zxnext.vhd:3482 (joyL_37(5:0) when joyL_37_en = '1', enabled by
+    // mdL_37_en for "110").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Right, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_37();
+        check("MD-07", "joy0=MD2 L.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // MD-08: joy1=MD2 routes R to port 0x37. R.U → 0x37 = 0x08.
+    // zxnext.vhd:3494 (joyR_37(5:0) when joyR_37_en = '1', enabled by
+    // mdR_37_en for "110").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Md3Right);
+        j.set_joy_right(JU);
+        uint8_t v = j.read_port_37();
+        check("MD-08", "joy1=MD2 R.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // MD-09: joy0=MD1 and joy1=MD1 — both mdL_1f_en and mdR_1f_en fire,
+    // both lanes contribute to port 0x1F. The VHDL OR at zxnext.vhd:3499
+    // is well-defined for this configuration even if it makes no sense
+    // for real hardware (you'd plug two MD pads into the same port). We
+    // assert the natural VHDL behaviour: L.A + R.START → bit 6 + bit 7
+    // → 0xC0.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Md3Left);
+        j.set_joy_left(JA);
+        j.set_joy_right(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-09", "MD1+MD1 L.A|R.START → 0x1F=0xC0",
+              v == 0xC0, DETAIL("got=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -647,17 +866,126 @@ static void test_md6() {
 
 static void test_sinclair() {
     set_group("SINC");
-    skip("SINC1-01", "mode=S1, LEFT → row 0xF7FE bit 0 (key 1) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-02", "mode=S1, RIGHT → row 0xF7FE bit 1 (key 2) low", "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-03", "mode=S1, DOWN → row 0xF7FE bit 2 (key 3) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-04", "mode=S1, UP → row 0xF7FE bit 3 (key 4) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("SINC1-05", "mode=S1, FIRE → row 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-01", "mode=S2, LEFT → row 0xEFFE bit 3 (key 7) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-02", "mode=S2, RIGHT → row 0xEFFE bit 4 (key 6) low", "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-03", "mode=S2, DOWN → row 0xEFFE bit 2 (key 8) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-04", "mode=S2, UP → row 0xEFFE bit 1 (key 9) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("SINC2-05", "mode=S2, FIRE → row 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("SINC-06",  "S1+S2 both LEFT → row 0xE7FE AND both low",     "Un-skip via task3-input-c-sinccurs");
+    // ─────────────────────────────────────────────────────────────────
+    // Wave 2 (Agent C) — joystick→membrane fold via MembraneStick.
+    //
+    // Direction encoding in the 12-bit joystick state vector
+    // (zxnext.vhd:3441-3442): bit 0 = R, bit 1 = L, bit 2 = D,
+    // bit 3 = U, bit 4 = B (FIRE).
+    //
+    // Default keymap is the COE oracle at ram/init/keyjoy_64_6.coe:1-66.
+    // Plan-vs-COE discrepancy (Wave 2 finding): the original SINC1-*
+    // and SINC2-* expected values in INPUT-TEST-PLAN-DESIGN.md §3.7
+    // had the Sinclair 1 / Sinclair 2 keymap labels SWAPPED relative
+    // to the canonical COE data and FUSE's reference adapter
+    // (peripherals/joystick.c sinclair1_key/sinclair2_key). Per the
+    // brief the COE wins, so the expected (row, bit) cells below are
+    // taken from the COE entries 0..14 (file-level comment in
+    // src/input/membrane_stick.cpp lists the per-mode addr table).
+    //
+    // Concretely:
+    //   COE Sinclair 1 (mode 011) → row 4 keys (0,9,8,7,6) = the
+    //       "Sinclair 2" labels in the original plan.
+    //   COE Sinclair 2 (mode 000) → row 3 keys (1,2,3,4,5) = the
+    //       "Sinclair 1" labels in the original plan.
+    //
+    // Cursor mode agrees with the original plan. See test_cursor() below.
+    //
+    // Direction bit values used in inject_joystick_state:
+    //   R=0x01, L=0x02, D=0x04, U=0x08, FIRE=0x10.
+
+    // Helper: single-direction press, single-row read.
+    auto run = [](Joystick::Mode mode, int connector, uint16_t dir_bit,
+                  int row, uint8_t base_mask) -> uint8_t {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(connector, mode);
+        ms.inject_joystick_state(connector, dir_bit);
+        return ms.compose_into_row(row, base_mask);
+    };
+
+    // ── Sinclair 1 (mode 011) on connector 0 (left) ────────────────
+    // Per COE: R→key 7 (4,3), L→key 6 (4,4), D→key 8 (4,2),
+    //          U→key 9 (4,1), F→key 0 (4,0). All on row 4.
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x02, 4, 0x1F);
+        check("SINC1-01", "S1 LEFT → row 4 bit 4 (key 6) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x01, 4, 0x1F);
+        check("SINC1-02", "S1 RIGHT → row 4 bit 3 (key 7) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x04, 4, 0x1F);
+        check("SINC1-03", "S1 DOWN → row 4 bit 2 (key 8) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x08, 4, 0x1F);
+        check("SINC1-04", "S1 UP → row 4 bit 1 (key 9) low",
+              v == 0x1D, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair1, 0, 0x10, 4, 0x1F);
+        check("SINC1-05", "S1 FIRE → row 4 bit 0 (key 0) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+
+    // ── Sinclair 2 (mode 000) on connector 1 (right) ────────────────
+    // Per COE: R→key 2 (3,1), L→key 1 (3,0), D→key 3 (3,2),
+    //          U→key 4 (3,3), F→key 5 (3,4). All on row 3.
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x02, 3, 0x1F);
+        check("SINC2-01", "S2 LEFT → row 3 bit 0 (key 1) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x01, 3, 0x1F);
+        check("SINC2-02", "S2 RIGHT → row 3 bit 1 (key 2) low",
+              v == 0x1D, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x04, 3, 0x1F);
+        check("SINC2-03", "S2 DOWN → row 3 bit 2 (key 3) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x08, 3, 0x1F);
+        check("SINC2-04", "S2 UP → row 3 bit 3 (key 4) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    {
+        uint8_t v = run(Joystick::Mode::Sinclair2, 1, 0x10, 3, 0x1F);
+        check("SINC2-05", "S2 FIRE → row 3 bit 4 (key 5) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+
+    // ── SINC-06: both connectors active concurrently (S1 left + S2 right) ──
+    // S1 LEFT clears row 4 bit 4 (key 6); S2 LEFT clears row 3 bit 0
+    // (key 1). The plan models this as the membrane scanning rows 3+4
+    // together (addr_high = 0xE7FE); each row's compose_into_row()
+    // clears only its own row's cell (membrane_stick.vhd:192 row-match
+    // guard), and the membrane top-level then AND-merges per-row
+    // results in the read_rows path. We verify the per-row clears
+    // separately here because compose_into_row() is single-row by
+    // design (mirrors the VHDL `i_membrane_row` input).
+    {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(0, Joystick::Mode::Sinclair1);
+        ms.set_mode(1, Joystick::Mode::Sinclair2);
+        ms.inject_joystick_state(0, 0x02); // LEFT (left connector)
+        ms.inject_joystick_state(1, 0x02); // LEFT (right connector)
+        const uint8_t r3 = ms.compose_into_row(3, 0x1F);
+        const uint8_t r4 = ms.compose_into_row(4, 0x1F);
+        // Cross-row independence: scanning row 3 must not show row-4
+        // clears and vice-versa (no cross-contamination across rows).
+        check("SINC-06", "S1+S2 both LEFT → r4=0x0F (key 6 low), r3=0x1E (key 1 low)",
+              r4 == 0x0F && r3 == 0x1E,
+              DETAIL("r3=0x%02X r4=0x%02X", r3, r4));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -666,12 +994,71 @@ static void test_sinclair() {
 
 static void test_cursor() {
     set_group("CURS");
-    skip("CURS-01", "mode=Cursor, LEFT → 0xF7FE bit 4 (key 5) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-02", "mode=Cursor, DOWN → 0xEFFE bit 4 (key 6) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-03", "mode=Cursor, UP → 0xEFFE bit 3 (key 7) low",    "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-04", "mode=Cursor, RIGHT → 0xEFFE bit 2 (key 8) low", "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-05", "mode=Cursor, FIRE → 0xEFFE bit 0 (key 0) low",  "Un-skip via task3-input-c-sinccurs");
-    skip("CURS-06", "mode=Cursor, LEFT+RIGHT rows 3+4 AND",          "Un-skip via task3-input-c-sinccurs");
+    // ─────────────────────────────────────────────────────────────────
+    // Wave 2 (Agent C) — Cursor / Protek joystick→membrane fold.
+    //
+    // Per COE addr 10..14: R→key 8 (4,2), L→key 5 (3,4),
+    //                       D→key 6 (4,4), U→key 7 (4,3), F→key 0 (4,0).
+    //
+    // The Cursor map agrees with the original plan §3.8 — no swap
+    // discrepancy here (matches FUSE peripherals/joystick.c
+    // cursor_key[5] = {5, 8, 7, 6, 0}).
+    //
+    // Direction bit values: R=0x01, L=0x02, D=0x04, U=0x08, FIRE=0x10.
+
+    auto run = [](int connector, uint16_t dir_bit, int row,
+                  uint8_t base_mask) -> uint8_t {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(connector, Joystick::Mode::Cursor);
+        ms.inject_joystick_state(connector, dir_bit);
+        return ms.compose_into_row(row, base_mask);
+    };
+
+    // CURS-01: LEFT → row 3 bit 4 (key 5) low. Connector 0 (left).
+    {
+        uint8_t v = run(0, 0x02, 3, 0x1F);
+        check("CURS-01", "Cursor LEFT → row 3 bit 4 (key 5) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    // CURS-02: DOWN → row 4 bit 4 (key 6) low.
+    {
+        uint8_t v = run(0, 0x04, 4, 0x1F);
+        check("CURS-02", "Cursor DOWN → row 4 bit 4 (key 6) low",
+              v == 0x0F, DETAIL("got=0x%02X", v));
+    }
+    // CURS-03: UP → row 4 bit 3 (key 7) low.
+    {
+        uint8_t v = run(0, 0x08, 4, 0x1F);
+        check("CURS-03", "Cursor UP → row 4 bit 3 (key 7) low",
+              v == 0x17, DETAIL("got=0x%02X", v));
+    }
+    // CURS-04: RIGHT → row 4 bit 2 (key 8) low.
+    {
+        uint8_t v = run(0, 0x01, 4, 0x1F);
+        check("CURS-04", "Cursor RIGHT → row 4 bit 2 (key 8) low",
+              v == 0x1B, DETAIL("got=0x%02X", v));
+    }
+    // CURS-05: FIRE → row 4 bit 0 (key 0) low.
+    {
+        uint8_t v = run(0, 0x10, 4, 0x1F);
+        check("CURS-05", "Cursor FIRE → row 4 bit 0 (key 0) low",
+              v == 0x1E, DETAIL("got=0x%02X", v));
+    }
+    // CURS-06: LEFT + RIGHT pressed simultaneously affect rows 3 and 4.
+    // L clears row 3 bit 4 (key 5); R clears row 4 bit 2 (key 8). Each
+    // row is composed independently per the membrane row-match guard.
+    {
+        MembraneStick ms;
+        ms.reset();
+        ms.set_mode(0, Joystick::Mode::Cursor);
+        ms.inject_joystick_state(0, 0x03); // L|R
+        const uint8_t r3 = ms.compose_into_row(3, 0x1F);
+        const uint8_t r4 = ms.compose_into_row(4, 0x1F);
+        check("CURS-06", "Cursor LEFT+RIGHT → r3=0x0F (key 5), r4=0x1B (key 8)",
+              r3 == 0x0F && r4 == 0x1B,
+              DETAIL("r3=0x%02X r4=0x%02X", r3, r4));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -700,16 +1087,87 @@ static void test_iomode() {
               v == 0x01,
               DETAIL("got=0x%02X (Task3 if nonzero default missing)", v));
     }
-    skip("IOMODE-02", "NR 0x0B=0x80 → joy_iomode_pin7 = 0", "Un-skip via task3-input-e-iomode");
-    skip("IOMODE-03", "NR 0x0B=0x81 → joy_iomode_pin7 = 1", "Un-skip via task3-input-e-iomode");
-    skip("IOMODE-04", "NR 0x0B=0x91 + ctc_zc_to(3) pulse → pin7 toggles", "Un-skip via task3-input-e-iomode");
+    // IOMODE-02: NR 0x0B=0x80 (en=1, mode=00, iomode_0=0) → pin7 = 0.
+    //   Static-mode continuous-assign per zxnext.vhd:3520.
+    {
+        IoMode m;
+        m.set_nr_0b(0x80);
+        check("IOMODE-02",
+              "NR 0x0B=0x80 → joy_iomode_pin7 = 0  (zxnext.vhd:3520)",
+              m.pin7() == false,
+              DETAIL("got pin7=%d", m.pin7() ? 1 : 0));
+    }
+    // IOMODE-03: NR 0x0B=0x81 (en=1, mode=00, iomode_0=1) → pin7 = 1.
+    //   Static-mode continuous-assign per zxnext.vhd:3520.
+    {
+        IoMode m;
+        m.set_nr_0b(0x81);
+        check("IOMODE-03",
+              "NR 0x0B=0x81 → joy_iomode_pin7 = 1  (zxnext.vhd:3520)",
+              m.pin7() == true,
+              DETAIL("got pin7=%d", m.pin7() ? 1 : 0));
+    }
+    // IOMODE-04: NR 0x0B=0x91 (en=1, mode=01, iomode_0=1) + ctc_zc_to(3)
+    //   pulses → pin7 toggles each pulse per zxnext.vhd:3521-3524.
+    //   With iomode_0=1 the toggle guard is satisfied unconditionally,
+    //   so each call must flip pin7. Reset value is '1' (zxnext.vhd:3516)
+    //   so pin7 stays '1' until the first NR 0x0B write puts us in mode
+    //   01 — then the next ZC/TO inverts to '0', the next back to '1'.
+    {
+        IoMode m;
+        m.set_nr_0b(0x91);             // mode=01, iomode_0=1; pin7 unchanged (still '1')
+        const bool p0 = m.pin7();
+        m.tick_ctc_zc3();              // pulse 1 → toggle to '0'
+        const bool p1 = m.pin7();
+        m.tick_ctc_zc3();              // pulse 2 → toggle to '1'
+        const bool p2 = m.pin7();
+        const bool ok = (p0 == true) && (p1 == false) && (p2 == true);
+        check("IOMODE-04",
+              "NR 0x0B=0x91 + ctc_zc_to(3) pulses → pin7 toggles  "
+              "(zxnext.vhd:3521-3524)",
+              ok,
+              DETAIL("p0=%d p1=%d p2=%d (want 1,0,1)",
+                     p0 ? 1 : 0, p1 ? 1 : 0, p2 ? 1 : 0));
+    }
     skip("IOMODE-05", "NR 0x0B=0xA0 → pin7 = uart0_tx", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-06", "NR 0x0B=0xA1 → pin7 = uart1_tx", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-07", "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted",  "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-08", "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-09", "NR 0x0B=0xA0 → joy_uart_en = 1", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-10", "NR 0x0B=0x80 → joy_uart_en = 0", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-11", "NR 0x05 joy*=111 + NR 0x0B configured", "Un-skip via task3-input-e-iomode");
+    // IOMODE-11: NR 0x05 joy*=111 (User I/O — Mode::IoMode) on both
+    // connectors AND NR 0x0B configured (en=1) → joystick reaches
+    // IoMode and IoMode reports en=1.  Verifies the two subsystems
+    // can be configured concurrently via their own NR write paths.
+    // VHDL anchors: NR 0x05 decode at zxnext.vhd:5157-5158 + mode
+    // table 3429-3438; NR 0x0B decode at zxnext.vhd:5200-5203.
+    {
+        Joystick j;
+        IoMode   m;
+        // Pack NR 0x05 to put both connectors in mode 111 (User I/O).
+        // Per zxnext.vhd:5157-5158 the bit-packing is:
+        //   joy0[2:0] = { v[3], v[7], v[6] }   → all three set ⇒ 0xC8 contributes
+        //   joy1[2:0] = { v[1], v[5], v[4] }   → all three set ⇒ 0x32 contributes
+        //   v = 0b11111010 = 0xFA  (bits 7,6,5,4,3,1; bits 2,0 unused)
+        const uint8_t nr05 = 0xFA;
+        j.set_nr_05(nr05);
+        // Configure NR 0x0B with en=1, mode=00 (static), iomode_0=1:
+        m.set_nr_0b(0x81);
+        const bool ok =
+            (j.mode_left()  == Joystick::Mode::IoMode) &&
+            (j.mode_right() == Joystick::Mode::IoMode) &&
+            (m.iomode_en() == true) &&
+            (m.pin7()      == true);
+        check("IOMODE-11",
+              "NR 0x05 joy*=111 + NR 0x0B configured  "
+              "(zxnext.vhd:5157-5158, 5200-5203)",
+              ok,
+              DETAIL("L=%u R=%u en=%d pin7=%d",
+                     static_cast<unsigned>(j.mode_left()),
+                     static_cast<unsigned>(j.mode_right()),
+                     m.iomode_en() ? 1 : 0,
+                     m.pin7() ? 1 : 0));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -859,17 +1317,169 @@ static void test_mouse() {
 
 // ══════════════════════════════════════════════════════════════════════════
 // 3.11 NMI buttons (NMI-*) — zxnext.vhd:2090-2091, NR 0x06 bits 3/4
+//
+// VHDL gate (combinational):
+//   nmi_assert_mf     <= '1' when (hotkey_m1   = '1' or nmi_sw_gen_mf     = '1')
+//                                  and nr_06_button_m1_nmi_en    = '1' else '0';
+//   nmi_assert_divmmc <= '1' when (hotkey_drive = '1' or nmi_sw_gen_divmmc = '1')
+//                                  and nr_06_button_drive_nmi_en = '1' else '0';
+//
+// NR 0x06 bit decode (zxnext.vhd:5165-5166):
+//   bit 3 → nr_06_button_m1_nmi_en      (Multiface NMI gate)
+//   bit 4 → nr_06_button_drive_nmi_en   (DivMMC NMI gate)
+//
+// Test harness: build a Next-machine Emulator headless. The hotkey and
+// software-NMI sources are not yet wired through the host event loop /
+// NR 0x02 strobe (see memory/project_nmi_fragmented_status.md), so we
+// drive them via the test-only Emulator::inject_*() setters added in
+// Phase 1 scaffold. We assert against Emulator::nmi_assert_mf() /
+// nmi_assert_divmmc() — the combinational gate output, NOT a fired NMI.
 // ══════════════════════════════════════════════════════════════════════════
+
+// Build a Next-machine Emulator headless. No real SD card / boot ROM
+// needed — the NR 0x06 write path and the gate accessors are pure
+// register-file mechanics that don't touch the SD subsystem.
+static bool build_next_emulator_for_nmi(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.roms_directory = "/usr/share/fuse";
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    return true;
+}
+
+// Write NR <reg> <val> through the real port path: OUT (0x243B),A then
+// OUT (0x253B),A. Mirrors port_test.cpp::nr_write.
+static void nr_write_via_port(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
 
 static void test_nmi() {
     set_group("NMI");
-    skip("NMI-01", "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",     "Un-skip via task3-input-i-nmigate");
-    skip("NMI-02", "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",     "Un-skip via task3-input-i-nmigate");
-    skip("NMI-03", "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-04", "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-05", "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-06", "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert",      "Un-skip via task3-input-i-nmigate");
-    skip("NMI-07", "both hotkeys + both enables → both asserts",       "Un-skip via task3-input-i-nmigate");
+
+    // NMI-01: NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x08);   // bit 3 = 1, bit 4 = 0
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-01",
+              "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",
+              mf == true && dmc == false,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected mf=1, divmmc=0)",
+                     mf, dmc));
+    }
+
+    // NMI-02: NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x00);   // both gates disabled
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf = emu.nmi_assert_mf();
+        check("NMI-02",
+              "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",
+              mf == false,
+              DETAIL("nmi_assert_mf=%d (expected 0; gate disabled blocks hotkey)", mf));
+    }
+
+    // NMI-03: NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x10);   // bit 4 = 1, bit 3 = 0
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-03",
+              "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1",
+              dmc == true && mf == false,
+              DETAIL("nmi_assert_divmmc=%d nmi_assert_mf=%d (expected divmmc=1, mf=0)",
+                     dmc, mf));
+    }
+
+    // NMI-04: NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x00);   // both gates disabled
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-04",
+              "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0",
+              dmc == false,
+              DETAIL("nmi_assert_divmmc=%d (expected 0; gate disabled blocks hotkey)", dmc));
+    }
+
+    // NMI-05: NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1
+    // Software-NMI source ORs with hotkey_m1 inside the AND-gate
+    // (zxnext.vhd:2090). Hotkey held low; only the SW source fires.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x08);
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(true);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-05",
+              "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1",
+              mf == true && dmc == false,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected mf=1, divmmc=0)",
+                     mf, dmc));
+    }
+
+    // NMI-06: NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x10);
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(true);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-06",
+              "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1",
+              dmc == true && mf == false,
+              DETAIL("nmi_assert_divmmc=%d nmi_assert_mf=%d (expected divmmc=1, mf=0)",
+                     dmc, mf));
+    }
+
+    // NMI-07: both hotkeys + both enables → both asserts
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x18);   // bits 3 AND 4 = 1
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-07",
+              "NR 0x06 bits 3+4=1 + both hotkeys → both gates assert",
+              mf == true && dmc == true,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected both=1)", mf, dmc));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

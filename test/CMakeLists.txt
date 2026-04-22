@@ -59,8 +59,15 @@ target_include_directories(nextreg_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/
 add_test(NAME nextreg_integration_tests COMMAND nextreg_integration_test)
 
 # Input subsystem compliance test
+# 2026-04-21 (Phase 2 Agent I): NMI-01..07 use a full headless Emulator
+# to write NR 0x06 bits 3/4 through the real port path and read back the
+# combinational nmi_assert_mf / nmi_assert_divmmc gates. This requires
+# the same full link line as nextreg_integration_test / port_test.
 add_executable(input_test input/input_test.cpp)
-target_link_libraries(input_test PRIVATE jnext_input jnext_port)
+target_link_libraries(input_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(input_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME input_tests COMMAND input_test)
 
