@@ -22,6 +22,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default debug release clean debug-clean release-clean debug-run release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
+       unit-test-clean unit-test-build \
        kloc-count regression unit-test \
        bump bump-patch bump-minor bump-major version
 .SILENT:
@@ -109,17 +110,15 @@ gui-release-clean:
 # Remove all GUI build directories
 gui-clean: gui-debug-clean gui-release-clean
 
-# Remove all build directories
-clean: debug-clean release-clean gui-clean
+# Remove all build directories (debug/release/gui + unit-test)
+clean: debug-clean release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (FUSE Z80 opcodes + screenshot tests)
 regression:
 	bash test/regression.sh
 
-# Run all subsystem unit tests in parallel and report results.
-# Writes a summary TSV to build/test-summary.tsv for `unit-test-dashboard`
-# to consume; TMPDIR stays local (per-recipe shell) and is cleaned up here.
-unit-test:
+# Run all subsystem unit tests in parallel (rebuilds test binaries first if sources changed)
+unit-test: unit-test-build
 	@BUILD=build; \
 	TMPDIR=$$(mktemp -d); \
 	SUMMARY=$$BUILD/test-summary.tsv; \
@@ -185,9 +184,20 @@ unit-test:
 		$$suites_pass $$suites_fail $$suites_skip; \
 	rm -rf $$TMPDIR
 
-# Run all unit tests and refresh the dashboard status file. Depends on
-# unit-test which writes build/test-summary.tsv; this target consumes and
-# removes it.
+# Configure + build the canonical build/ directory (prerequisite for unit-test)
+unit-test-build:
+	@if [ ! -f build/CMakeCache.txt ]; then \
+		$(CMAKE) -B build -S . \
+			-DCMAKE_C_COMPILER=$(CC) \
+			-DCMAKE_CXX_COMPILER=$(CXX); \
+	fi
+	@$(CMAKE) --build build -j$(JOBS)
+
+# Remove the canonical build/ directory (jnext + test binaries + CMake cache)
+unit-test-clean:
+	rm -rf build
+
+# Run unit-test and refresh test/SUBSYSTEM-TESTS-STATUS.md from the summary TSV
 unit-test-dashboard: unit-test
 	@SUMMARY=build/test-summary.tsv; \
 	if [ -s $$SUMMARY ] && [ -f test/SUBSYSTEM-TESTS-STATUS.md ]; then \

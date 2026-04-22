@@ -62,7 +62,8 @@
       "Bash(make -C build help)",
       "Bash(LANG=C make -C build test)",
       "Bash(JNEXT_TEST_JOBS=1 LANG=C bash test/regression.sh)",
-      "Bash(JNEXT_TEST_JOBS=1 LANG=C bash test/regression.sh dapr-tilemap_00)"
+      "Bash(JNEXT_TEST_JOBS=1 LANG=C bash test/regression.sh dapr-tilemap_00)",
+      "Bash(compare -metric AE /tmp/dapr-main.png test/img/dapr-l2empty-reference.png /dev/null)"
     ],
     "additionalDirectories": [
       "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests"
