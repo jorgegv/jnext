@@ -111,8 +111,11 @@ void Keyboard::reset() {
     init_map();
     // All bits set = all keys released (active-low).
     std::memset(matrix_, 0xFF, sizeof(matrix_));
-    // Phase 1 scaffold additions — extended-key matrix + shift hysteresis.
-    ex_matrix_       = 0xFFFF;
+    // Extended-key matrix is ACTIVE-HIGH: 0 means all released
+    // (matches VHDL i_KBD_EXTENDED_KEYS-after-inversion, zxnext.vhd:6206-6212
+    // where jnext exposes NR 0xB0/0xB1 as active-high).
+    ex_matrix_       = 0x0000;
+    // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
 }
@@ -132,42 +135,77 @@ void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
 }
 
 uint8_t Keyboard::read_rows(uint8_t addr_high) const {
-    // Apply the two-scan shift hold-extend to matrix_[0] bit 0 (Caps
-    // Shift) and matrix_[7] bit 1 (Symbol Shift) before the row-AND
-    // reduction. Per membrane.vhd:178 the shift-column state is
-    // "held an extra scan", i.e. a release is delayed by one tick.
+    // Two layered post-processes apply BEFORE the row-select AND:
     //
-    // Semantics (active-low throughout):
-    //   effective_CS  = matrix_[0] bit 0   AND   shift_hist_[0] bit 0
-    //   effective_SYM = matrix_[7] bit 1   AND   shift_hist_[0] bit 1
+    // (1) Agent F — shift hysteresis on matrix_[0] bit 0 (Caps Shift) and
+    //     matrix_[7] bit 1 (Symbol Shift). Per membrane.vhd:178 the
+    //     shift-column state is "held an extra scan" — a release is
+    //     delayed by one tick. Active-low semantics:
+    //       effective_CS  = matrix_[0] bit 0 AND shift_hist_[0] bit 0
+    //       effective_SYM = matrix_[7] bit 1 AND shift_hist_[0] bit 1
+    //     If the current matrix says "released" (bit=1) but the previous
+    //     scan saw "pressed" (bit=0), the AND yields "pressed" (bit=0)
+    //     for one extra scan. Existing KBD-01..KBD-21 tests never call
+    //     tick_scan() so shift_hist_[] stays at its reset {0xFF, 0xFF},
+    //     making the AND degenerate to matrix_[] and preserving every
+    //     pre-Phase-2 expected value.
     //
-    // AND in active-low is "OR of presses": if EITHER the current
-    // matrix says "pressed" (bit=0) OR the last-observed-scan says
-    // "pressed" (bit=0), the effective state is "pressed" (bit=0).
-    //
-    // Existing Phase-1 tests call read_rows() without ever calling
-    // tick_scan(); shift_hist_[] therefore stays at its reset value
-    // {0xFF, 0xFF} = "released". In that case the AND degenerates to
-    // matrix_[] and every KBD-01..KBD-21 expected value is preserved.
+    // (2) Agent G — extended-column folding from membrane.vhd:236-240.
+    //     Pressing an extended key forces its target (row,col) bit low
+    //     on the active-low result IN ADDITION to any membrane bit.
+    //     Per ExtKey ID → (row, col) table:
+    //       RIGHT (0)  → (4,2)   LEFT  (1)  → (3,4)   DOWN   (2)  → (4,4)
+    //       UP    (3)  → (4,3)   DOT   (4)  → (7,2)   COMMA  (5)  → (7,3)
+    //       QUOTE (6)  → (5,0)   SEMI  (7)  → (5,1)   CAPSLK (9)  → (3,1)
+    //       GRAPH (10) → (4,1)   TRUEV (11) → (3,2)   INVV   (12) → (3,3)
+    //       BREAK (13) → (7,0)   EDIT  (14) → (3,0)   DELETE (15) → (4,0)
+    //     EXTEND (8) and shift-fold targets (0,0)/(7,1) live in Agent F's
+    //     hysteresis layer, not the ext-fold layer.
+
+    // --- (1) Hysteresis: hold-extend bit 0 of row 0 + bit 1 of row 7. -
     uint8_t row0_eff = matrix_[0];
     uint8_t row7_eff = matrix_[7];
-    // CS lives on row 0 bit 0; shift_hist_[0] bit 0 = previous-scan CS.
-    // Extend only bit 0; bits 1..4 pass through unchanged.
     const uint8_t cs_prev  = shift_hist_[0] & 0x01u;
     row0_eff = (row0_eff & ~0x01u) | ((row0_eff & 0x01u) & cs_prev);
-    // SYM lives on row 7 bit 1; shift_hist_[0] bit 1 = previous-scan SYM.
-    // Extend only bit 1; bits 0, 2..4 pass through unchanged.
     const uint8_t sym_prev = shift_hist_[0] & 0x02u;
     row7_eff = (row7_eff & ~0x02u) | ((row7_eff & 0x02u) & sym_prev);
 
-    // Start with all bits 1 (no key pressed in result).
+    // --- (2) Extended-column folding masks (Agent G). ----------------
+    uint8_t ext_rowmask[8] = {0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F};
+    const uint16_t ex = ex_matrix_;
+    auto clear_if = [&](int id, int row, int col) {
+        if (ex & (1u << id)) {
+            ext_rowmask[row] &= static_cast<uint8_t>(~(1u << col));
+        }
+    };
+    // Row 3 folds (membrane.vhd:237):
+    clear_if(14, 3, 0);   // EDIT        → col 0 (key '1')
+    clear_if( 9, 3, 1);   // CAPS LOCK   → col 1 (key '2')
+    clear_if(11, 3, 2);   // TRUE VIDEO  → col 2 (key '3')
+    clear_if(12, 3, 3);   // INV  VIDEO  → col 3 (key '4')
+    clear_if( 1, 3, 4);   // LEFT        → col 4 (key '5')
+    // Row 4 folds (membrane.vhd:238):
+    clear_if(15, 4, 0);   // DELETE      → col 0 (key '0')
+    clear_if(10, 4, 1);   // GRAPH       → col 1 (key '9')
+    clear_if( 0, 4, 2);   // RIGHT       → col 2 (key '8')
+    clear_if( 3, 4, 3);   // UP          → col 3 (key '7')
+    clear_if( 2, 4, 4);   // DOWN        → col 4 (key '6')
+    // Row 5 folds (membrane.vhd:239):
+    clear_if( 6, 5, 0);   // '"'         → col 0 (key 'P')
+    clear_if( 7, 5, 1);   // ';'         → col 1 (key 'O')
+    // Row 7 folds (membrane.vhd:240):
+    clear_if(13, 7, 0);   // BREAK       → col 0 (key SPACE)
+    clear_if( 4, 7, 2);   // '.'         → col 2 (key 'M')
+    clear_if( 5, 7, 3);   // ','         → col 3 (key 'N')
+
+    // --- Row select AND with both layers applied per row -------------
     uint8_t result = 0x1F;
     for (int row = 0; row < 8; ++row) {
-        // Row N is selected when bit N of addr_high is 0.
         if (!(addr_high & (1 << row))) {
             uint8_t r = matrix_[row];
-            if (row == 0) r = row0_eff;
+            if      (row == 0) r = row0_eff;   // (1) hysteresis
             else if (row == 7) r = row7_eff;
+            r = static_cast<uint8_t>(r & ext_rowmask[row]);  // (2) ext fold
             result &= r;
         }
     }
@@ -239,16 +277,18 @@ void Keyboard::tick_auto_type() {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1 scaffold additions (Task 3 Input)
-//
-// All four methods are compile-only stubs. Agent F (shift hysteresis)
-// and Agent G (extended-key matrix, NR 0xB0/0xB1) fill them in during
-// Phase 2.
+// Phase 2 Agent G: extended-key matrix + NR 0xB0/0xB1 readback.
 // ---------------------------------------------------------------------------
 
-void Keyboard::set_extended_key(int /*id*/, bool /*pressed*/) {
-    // Phase 1 stub — no-op. Agent G maps scancode → extended-key ID and
-    // flips the relevant bit in ex_matrix_.
+void Keyboard::set_extended_key(int id, bool pressed) {
+    // Out-of-range IDs are ignored — only 16 extended keys are defined
+    // (ExtKey::RIGHT..DELETE, ids 0..15). See zxnext.vhd:6206-6212.
+    if (id < 0 || id > 15) return;
+    if (pressed) {
+        ex_matrix_ |= static_cast<uint16_t>(1u << id);
+    } else {
+        ex_matrix_ &= static_cast<uint16_t>(~(1u << id));
+    }
 }
 
 void Keyboard::tick_scan() {
@@ -291,16 +331,19 @@ void Keyboard::cancel_extended_entries() {
 }
 
 uint8_t Keyboard::nr_b0_byte() const {
-    // Phase 1 stub: return 0x00 (all keys released).  NR 0xB0 is
-    // ACTIVE-HIGH in the VHDL: bit=1 ⇒ key pressed (plan row EXT-01:
-    // "UP → NR 0xB0 bit 3 = 1", zxnext.vhd:6206-6208). Agent G
-    // replaces with the real bit-permutation from ex_matrix_.
-    return 0x00;
+    // zxnext.vhd:6208 composes port_253b_dat as
+    //   i_KBD_EXTENDED_KEYS(8) & (9) & (10) & (11)      // ; " , .
+    //   & (1) & (15 downto 13)                          // UP DOWN LEFT RIGHT
+    // Mapped 1:1 onto ExtKey IDs 7..0 (SEMICOLON..RIGHT), so the low
+    // byte of ex_matrix_ IS the NR 0xB0 byte (active-high).
+    return static_cast<uint8_t>(ex_matrix_ & 0x00FFu);
 }
 
 uint8_t Keyboard::nr_b1_byte() const {
-    // Phase 1 stub: return 0x00 (all keys released).  NR 0xB1 is
-    // ACTIVE-HIGH (zxnext.vhd:6210-6212). Agent G replaces with the
-    // real bit-permutation from ex_matrix_.
-    return 0x00;
+    // zxnext.vhd:6212 composes port_253b_dat as
+    //   i_KBD_EXTENDED_KEYS(12) & (7 downto 2) & (0)
+    //   // DELETE EDIT BREAK INV TRU GRAPH CAPSLOCK EXTEND
+    // Mapped 1:1 onto ExtKey IDs 15..8 (DELETE..EXTEND), so the high
+    // byte of ex_matrix_ IS the NR 0xB1 byte (active-high).
+    return static_cast<uint8_t>((ex_matrix_ >> 8) & 0x00FFu);
 }
