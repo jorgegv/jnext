@@ -5,6 +5,29 @@ membrane, extended-key matrix, joystick subsystem (Kempston 1/2, Sinclair
 1/2, Cursor, Megadrive 3/6 button, user-defined I/O mode), Kempston
 mouse, and the Multiface / Drive NMI buttons.
 
+## Current status (2026-04-22, after Task 3 Input SKIP-reduction plan)
+
+- `test/input/input_test.cpp`: **139 / 133 / 0 / 6** (pass/fail/skip = 133/0/6).
+  - 6 remaining skips are all `IOMODE-05/06/07/08/09/10` — UART pin-7
+    routing modes 10 and 11 of NR 0x0B. F-skip blocked on the future
+    UART+I2C subsystem plan.
+- `test/input/input_int_integration_test.cpp` (NEW): **7 / 5 / 0 / 2**.
+  - Hosts the 7 port-0xFE-byte-assembly rows re-homed from
+    `input_test.cpp` (KBD-22/23, FE-01..05).
+  - 2 honest skips: FE-04 (issue-2 MIC^EAR — needs MIC/EAR analog
+    feedback wiring), FE-05 (expansion-bus AND — jnext does not model
+    expansion bus).
+
+**Plan-doc inconsistency note (2026-04-22)**: §3.7 (Sinclair 1 + Sinclair
+2 row labels) had the keymaps swapped relative to the authoritative
+`ram/init/keyjoy_64_6.coe` oracle. Three independent sources agree
+(COE, VHDL `zxnext.vhd:3429-3438` mode comment table, FUSE
+`peripherals/joystick.c`). Test rows updated to match COE; the §3.7
+plan text itself is queued for a follow-up edit.
+
+For the full SKIP-reduction execution log see
+[doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md](../design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md).
+
 ---
 
 ## Plan Rebuilt 2026-04-15 — Retraction of Prior "71/71 Passing" Claim
