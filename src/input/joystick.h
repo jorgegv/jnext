@@ -39,11 +39,12 @@ public:
     /// state vectors to all-zero (no buttons pressed).
     void reset();
 
-    /// Real NR 0x05 mode decoder per zxnext.vhd:5157-5158:
+    /// NR 0x05 mode decoder per zxnext.vhd:5157-5158:
     ///   nr_05_joy0 <= nr_wr_dat(3) & nr_wr_dat(7 downto 6);
     ///   nr_05_joy1 <= nr_wr_dat(1) & nr_wr_dat(5 downto 4);
-    /// Phase 1 stub stores the raw byte and leaves the two Mode fields
-    /// at their reset defaults; Phase 2 Agent A fills in the decode.
+    /// Extracts the two 3-bit mode fields and latches them into the
+    /// joy0_mode_ / joy1_mode_ enums; also stores the raw byte for
+    /// readback traceability.
     void set_nr_05(uint8_t v);
 
     /// Test-harness bypass: directly set both connector modes without
@@ -74,9 +75,11 @@ public:
     uint8_t read_port_37() const;
 
 private:
-    // Raw NR 0x05 byte (latched pre-decode so that a Phase-1 set_nr_05
-    // stub at least round-trips the value for subsequent debug reads).
-    uint8_t nr_05_raw_ = 0x09;   // VHDL defaults, zxnext.vhd:1105-1106
+    // Raw NR 0x05 byte (latched pre-decode so that set_nr_05 round-trips
+    // the value for subsequent debug reads). 0x40 is the raw byte that
+    // decodes to (joy0=001 Kempston1, joy1=000 Sinclair2) per the VHDL
+    // reset defaults at zxnext.vhd:1105-1106 (extraction at :5157-5158).
+    uint8_t nr_05_raw_ = 0x40;
 
     // Decoded connector modes. VHDL resets: joy0=Kempston1, joy1=Sinclair2.
     Mode joy0_mode_ = Mode::Kempston1;

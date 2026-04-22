@@ -1,25 +1,22 @@
 #include "input/joystick.h"
 
 // =============================================================================
-// Phase 1 scaffold — all methods are compile-only stubs. Real behaviour is
-// landed in Phase 2 by agents A (NR 0x05 decoder) and B (port 0x1F/0x37
-// composition + Kempston/MD3 bit-7/6 masking).
+// Phase 2 Agent A — NR 0x05 mode decoder implemented VHDL-faithfully per
+// zxnext.vhd:5157-5158. The port 0x1F / 0x37 read composers and the raw
+// 12-bit joy_left_bits_ / joy_right_bits_ Kempston/MD3 masking are still
+// stubs; Agent B lands those in Wave 2.
 // =============================================================================
 
 void Joystick::reset()
 {
     // VHDL zxnext.vhd:1105-1106 reset values: joy0="001" (Kempston1),
-    // joy1="000" (Sinclair2). We cache the raw 8-bit byte that, when
-    // written back through set_nr_05(), would reproduce those modes:
-    // bit 3 = joy0[2] = 0, bits 7:6 = joy0[1:0] = 01 → bits = 0b00000000
-    // bit 1 = joy1[2] = 0, bits 5:4 = joy1[1:0] = 00
-    // The canonical reset byte is therefore 0x00 on bits that decode to
-    // joy0=001/joy1=000 via zxnext.vhd:5157-5158. Because the decoder is
-    // not yet implemented in Phase 1, we just set the Mode enums
-    // directly and leave nr_05_raw_ at its default (the exact raw value
-    // does not matter until Agent A wires the decoder — at that point
-    // this init can be revisited).
-    nr_05_raw_       = 0x00;
+    // joy1="000" (Sinclair2). The raw NR 0x05 byte that decodes to those
+    // two 3-bit fields via zxnext.vhd:5157-5158 is:
+    //   joy0 = v[3] & v[7] & v[6] = 0 & 0 & 1  → bit 6 set
+    //   joy1 = v[1] & v[5] & v[4] = 0 & 0 & 0  → all clear
+    // Composite raw byte = 0b01000000 = 0x40. Storing this keeps
+    // nr_05_raw_ round-trip-consistent with the decoded Mode fields.
+    nr_05_raw_       = 0x40;
     joy0_mode_       = Mode::Kempston1;
     joy1_mode_       = Mode::Sinclair2;
     joy_left_bits_   = 0;
@@ -28,12 +25,28 @@ void Joystick::reset()
 
 void Joystick::set_nr_05(uint8_t v)
 {
-    // Phase 1 stub: record the raw byte; leave joy0/joy1 modes at their
-    // current values. Agent A (Phase 2) will replace this body with the
-    // real VHDL-faithful bit-extraction:
-    //   joy0 = {v[3], v[7], v[6]};
-    //   joy1 = {v[1], v[5], v[4]};
+    // VHDL-faithful decode per zxnext.vhd:5157-5158:
+    //   nr_05_joy0 <= nr_wr_dat(3) & nr_wr_dat(7) & nr_wr_dat(6);
+    //   nr_05_joy1 <= nr_wr_dat(1) & nr_wr_dat(5) & nr_wr_dat(4);
+    // VHDL `&` is concatenation with the leftmost operand as MSB, so:
+    //   joy0_bits[2:0] = { v[3], v[7], v[6] }
+    //   joy1_bits[2:0] = { v[1], v[5], v[4] }
+    // The 3-bit value maps directly onto Mode (enum values chosen to
+    // align with the VHDL bit patterns at zxnext.vhd:3429-3438):
+    //   000 Sinclair2 / 001 Kempston1 / 010 Cursor    / 011 Sinclair1
+    //   100 Kempston2 / 101 Md3Left   / 110 Md3Right  / 111 IoMode
+    const uint8_t joy0_bits =
+        static_cast<uint8_t>((((v >> 3) & 1u) << 2) |
+                             (((v >> 7) & 1u) << 1) |
+                             ( (v >> 6) & 1u));
+    const uint8_t joy1_bits =
+        static_cast<uint8_t>((((v >> 1) & 1u) << 2) |
+                             (((v >> 5) & 1u) << 1) |
+                             ( (v >> 4) & 1u));
+
     nr_05_raw_ = v;
+    joy0_mode_ = static_cast<Mode>(joy0_bits);
+    joy1_mode_ = static_cast<Mode>(joy1_bits);
 }
 
 void Joystick::set_mode_direct(Mode joy0, Mode joy1)
