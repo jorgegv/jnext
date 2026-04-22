@@ -66,9 +66,21 @@ public:
     void set_extended_key(int id, bool pressed);
 
     /// Advance the two-scan shift hysteresis by one scan tick. Called
-    /// from the Emulator frame loop (Agent F wires this). Phase 1 stub
-    /// is a no-op.
+    /// from the Emulator frame loop. Shifts shift_hist_[1] <= shift_hist_[0]
+    /// and latches the current matrix_[] shift-column state into
+    /// shift_hist_[0]. Per membrane.vhd:178 ("advancing shift key state
+    /// one scan and holding shift key state an extra scan") read_rows()
+    /// consults these to hold a releasing CS/SYM bit for one extra scan.
     void tick_scan();
+
+    /// Called by external logic (e.g. a DivMMC hotkey handler) to cancel
+    /// all extended-key entries for this scan. Per membrane.vhd:183-186
+    /// (the reset/cancel branch of the matrix_state_ex process):
+    /// matrix_state_ex_{0,1} and matrix_work_ex are forced to '1' i.e.
+    /// all-released in the VHDL's internal active-low representation.
+    /// In our active-high C++ model (NR 0xB0/0xB1 bit=1 => pressed, per
+    /// Phase-1 polarity fix) that corresponds to ex_matrix_ = 0x0000.
+    void cancel_extended_entries();
 
     /// NR 0xB0 readback. Phase 1 stub returns 0xFF (all released).
     uint8_t nr_b0_byte() const;
@@ -87,16 +99,31 @@ private:
     int auto_frame_count_ = 0;
     bool auto_gap_ = false;  // true = in gap between keys
 
-    /// Extended-key 16-bit active-low register. Default 0xFFFF = all
-    /// keys released. Read via NR 0xB0 (low byte) and NR 0xB1 (high
-    /// byte) with the VHDL bit permutations at zxnext.vhd:6206-6212.
-    /// Phase 1: field declared but not yet populated — Agent G writes
-    /// the scancode→ID mapping and calls set_extended_key().
+    /// Extended-key 16-bit register. Stored ACTIVE-HIGH in the C++
+    /// model (Phase-1 polarity fix for NR 0xB0 / NR 0xB1 at
+    /// zxnext.vhd:6206-6212): bit=1 means the extended key is pressed.
+    /// Read back via NR 0xB0 (low byte) and NR 0xB1 (high byte) with
+    /// the VHDL bit permutations at zxnext.vhd:6206-6212.
+    ///
+    /// Phase 1: field declared; reset() still initialises to 0xFFFF
+    /// (legacy scaffold default). Agent G will populate the
+    /// scancode→ID mapping, fix the reset default, and wire the
+    /// permutation readers. Agent F owns cancel_extended_entries()
+    /// which clears the register to 0x0000 per membrane.vhd:183-186.
     uint16_t ex_matrix_ = 0xFFFF;
 
-    /// Two-scan shift hysteresis buffer. shift_hist_[0] = current scan,
-    /// shift_hist_[1] = previous scan; Agent F implements the
-    /// confirm-on-two-agreements logic for Caps-Shift and Symbol-Shift.
-    /// Phase 1: field declared only.
+    /// Two-scan shift hysteresis buffer. Active-LOW, matching VHDL
+    /// membrane.vhd:184-186 (`matrix_state_ex_0/1 <= (others => '1')`
+    /// on reset/cancel means "all released").
+    ///
+    ///   shift_hist_[0] = snapshot of CS/SYM bits from the previous scan
+    ///   shift_hist_[1] = snapshot from the scan before that
+    ///
+    /// Only bit 0 (Caps-Shift, row 0 col 0) and bit 1 (Symbol-Shift,
+    /// row 7 col 1) are meaningful; other bits are preserved as 1 =
+    /// released to stay harmless if ever read. Each `tick_scan()`
+    /// advances the shift register; `read_rows()` consults shift_hist_[0]
+    /// to hold a releasing CS or SYM bit for one extra scan
+    /// (membrane.vhd:178 "holding shift key state an extra scan").
     uint8_t shift_hist_[2] = { 0xFF, 0xFF };
 };
