@@ -307,13 +307,41 @@ public:
     //     these injects let Agent I write the NR 0x06 AND-gate tests
     //     without first building the full NMI fabric.
     //
-    // All four setters are compile-only stubs in Phase 1: the backing
-    // fields are declared below but not yet consumed.
+    // Phase 2 Agent I (2026-04-21): the inject setters now feed the NMI
+    // AND-gate evaluators below; the gates also depend on NR 0x06 bits
+    // 3/4 (`nr_06_button_m1_nmi_en` / `nr_06_button_drive_nmi_en`),
+    // which are stored from the existing NR 0x06 write handler in
+    // emulator.cpp.
     // ══════════════════════════════════════════════════════════════════════
     void inject_hotkey_m1(bool on)        { test_hotkey_m1_    = on; }
     void inject_hotkey_drive(bool on)     { test_hotkey_drive_ = on; }
     void inject_sw_nmi_mf(bool on)        { test_sw_nmi_mf_    = on; }
     void inject_sw_nmi_divmmc(bool on)    { test_sw_nmi_dmmc_  = on; }
+
+    // ── NMI AND-gate combinational outputs (test-only readout) ────────────
+    //
+    // VHDL zxnext.vhd:2090-2091 (combinational, no clock):
+    //   nmi_assert_mf     <= '1' when (hotkey_m1   = '1' or nmi_sw_gen_mf     = '1')
+    //                                  and nr_06_button_m1_nmi_en    = '1' else '0';
+    //   nmi_assert_divmmc <= '1' when (hotkey_drive = '1' or nmi_sw_gen_divmmc = '1')
+    //                                  and nr_06_button_drive_nmi_en = '1' else '0';
+    //
+    // These accessors expose ONLY the gate combinational result. They do
+    // NOT fire the Z80 /NMI line — the NMI source/edge generator and the
+    // downstream nmi_state machine (zxnext.vhd:2095-2150) are still
+    // unwired (see memory/project_nmi_fragmented_status.md). When that
+    // fabric is built it will subscribe to these same gate signals.
+    bool nmi_assert_mf() const {
+        return (test_hotkey_m1_    || test_sw_nmi_mf_)   && nr_06_button_m1_nmi_en_;
+    }
+    bool nmi_assert_divmmc() const {
+        return (test_hotkey_drive_ || test_sw_nmi_dmmc_) && nr_06_button_drive_nmi_en_;
+    }
+
+    // Read-back of NR 0x06 bits 3/4 for tests that want to assert the
+    // store-side of the NextReg write path independently of the gate.
+    bool nr_06_button_m1_nmi_en()    const { return nr_06_button_m1_nmi_en_; }
+    bool nr_06_button_drive_nmi_en() const { return nr_06_button_drive_nmi_en_; }
 
 private:
     static constexpr int FRAMEBUFFER_WIDTH      = 320;
@@ -483,13 +511,26 @@ private:
     bool     joy_iomode_pin7_          = true;   ///< VHDL zxnext.vhd:3516 (reset '1')
 
     // --- Phase 1 scaffold: test-only NMI/hotkey injection fields ---
-    // Set by inject_hotkey_m1/drive/sw_nmi_mf/sw_nmi_divmmc. Phase 1:
-    // declared only; Phase 2 Agent I reads them when wiring NR 0x06 bits
-    // 3/4 into the NMI AND-gate. Production code never touches these.
+    // Set by inject_hotkey_m1/drive/sw_nmi_mf/sw_nmi_divmmc. Phase 2
+    // Agent I (2026-04-21) ANDs them with NR 0x06 bits 3/4 in the
+    // nmi_assert_mf() / nmi_assert_divmmc() accessors above. Production
+    // code never touches these — the real hotkey source is the host SDL
+    // event loop and the real software-NMI source is NR 0x02 strobe
+    // (both still unwired, see memory/project_nmi_fragmented_status.md).
     bool     test_hotkey_m1_           = false;
     bool     test_hotkey_drive_        = false;
     bool     test_sw_nmi_mf_           = false;
     bool     test_sw_nmi_dmmc_         = false;
+
+    // --- Phase 2 Agent I: NR 0x06 bits 3/4 storage ---
+    // VHDL zxnext.vhd:5165-5166 — written by the NR 0x06 write handler
+    //   nr_06_button_drive_nmi_en <= nr_wr_dat(4);
+    //   nr_06_button_m1_nmi_en    <= nr_wr_dat(3);
+    // Reset value is '0' (VHDL signal default; the soft/hard reset block
+    // does not re-clear them but they start at '0' at power-on, matching
+    // the fact that NextZXOS firmware explicitly enables the buttons).
+    bool     nr_06_button_m1_nmi_en_    = false;  ///< VHDL nr_06_button_m1_nmi_en
+    bool     nr_06_button_drive_nmi_en_ = false;  ///< VHDL nr_06_button_drive_nmi_en
 
 public:
     /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.

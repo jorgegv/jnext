@@ -1252,10 +1252,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- Audio NextREG handlers ---
 
     // Register 0x06: Peripheral 2 — bits 1:0 = PSG mode (00=YM, 01=AY)
-    //   bit 6 = internal speaker beep-only (exclusive mode, not emulated yet)
+    //   bit 7 = nr_06_hotkey_cpu_speed_en   (zxnext.vhd:5162; not stored here yet)
+    //   bit 6 = nr_06_internal_speaker_beep (zxnext.vhd:5163; not emulated yet)
+    //   bit 5 = nr_06_hotkey_5060_en        (zxnext.vhd:5164; not emulated yet)
+    //   bit 4 = nr_06_button_drive_nmi_en   (zxnext.vhd:5165) — DivMMC NMI gate
+    //   bit 3 = nr_06_button_m1_nmi_en      (zxnext.vhd:5166) — Multiface NMI gate
+    //   bit 2 = nr_06_ps2_mode (config-mode-only; zxnext.vhd:5167-5169)
+    //   bits 1:0 = nr_06_psg_mode (zxnext.vhd:5170)
+    //
+    // Phase 2 Agent I (2026-04-21): bits 3 and 4 are stored on the
+    // Emulator and consumed by nmi_assert_mf() / nmi_assert_divmmc()
+    // (declared in emulator.h). Single-fanout pattern preserved — this
+    // is still the only NR 0x06 write handler.
+    //
+    // VHDL signal default '0' (zxnext.vhd:1109-1110) — re-clear on every
+    // init() so reset() (and soft_reset(), which both reach init()) puts
+    // them back to power-on state. Tests rely on this explicit clear.
+    nr_06_button_m1_nmi_en_    = false;
+    nr_06_button_drive_nmi_en_ = false;
     nextreg_.set_write_handler(0x06, [this](uint8_t v) {
         bool ay_mode = (v & 0x03) == 1;  // 00=YM, 01=AY, others=hold/reset
         turbosound_.set_ay_mode(ay_mode);
+        nr_06_button_m1_nmi_en_    = ((v >> 3) & 1) != 0;
+        nr_06_button_drive_nmi_en_ = ((v >> 4) & 1) != 0;
     });
 
     // Register 0x08: Peripheral 3

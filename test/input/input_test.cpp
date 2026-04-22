@@ -24,6 +24,8 @@
 #include "input/keyboard.h"
 #include "input/mouse.h"
 #include "port/nextreg.h"
+#include "core/emulator.h"
+#include "core/emulator_config.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -859,17 +861,169 @@ static void test_mouse() {
 
 // ══════════════════════════════════════════════════════════════════════════
 // 3.11 NMI buttons (NMI-*) — zxnext.vhd:2090-2091, NR 0x06 bits 3/4
+//
+// VHDL gate (combinational):
+//   nmi_assert_mf     <= '1' when (hotkey_m1   = '1' or nmi_sw_gen_mf     = '1')
+//                                  and nr_06_button_m1_nmi_en    = '1' else '0';
+//   nmi_assert_divmmc <= '1' when (hotkey_drive = '1' or nmi_sw_gen_divmmc = '1')
+//                                  and nr_06_button_drive_nmi_en = '1' else '0';
+//
+// NR 0x06 bit decode (zxnext.vhd:5165-5166):
+//   bit 3 → nr_06_button_m1_nmi_en      (Multiface NMI gate)
+//   bit 4 → nr_06_button_drive_nmi_en   (DivMMC NMI gate)
+//
+// Test harness: build a Next-machine Emulator headless. The hotkey and
+// software-NMI sources are not yet wired through the host event loop /
+// NR 0x02 strobe (see memory/project_nmi_fragmented_status.md), so we
+// drive them via the test-only Emulator::inject_*() setters added in
+// Phase 1 scaffold. We assert against Emulator::nmi_assert_mf() /
+// nmi_assert_divmmc() — the combinational gate output, NOT a fired NMI.
 // ══════════════════════════════════════════════════════════════════════════
+
+// Build a Next-machine Emulator headless. No real SD card / boot ROM
+// needed — the NR 0x06 write path and the gate accessors are pure
+// register-file mechanics that don't touch the SD subsystem.
+static bool build_next_emulator_for_nmi(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.roms_directory = "/usr/share/fuse";
+    cfg.rewind_buffer_frames = 0;
+    emu.init(cfg);
+    return true;
+}
+
+// Write NR <reg> <val> through the real port path: OUT (0x243B),A then
+// OUT (0x253B),A. Mirrors port_test.cpp::nr_write.
+static void nr_write_via_port(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
 
 static void test_nmi() {
     set_group("NMI");
-    skip("NMI-01", "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",     "Un-skip via task3-input-i-nmigate");
-    skip("NMI-02", "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",     "Un-skip via task3-input-i-nmigate");
-    skip("NMI-03", "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-04", "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-05", "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1", "Un-skip via task3-input-i-nmigate");
-    skip("NMI-06", "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert",      "Un-skip via task3-input-i-nmigate");
-    skip("NMI-07", "both hotkeys + both enables → both asserts",       "Un-skip via task3-input-i-nmigate");
+
+    // NMI-01: NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x08);   // bit 3 = 1, bit 4 = 0
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-01",
+              "NR 0x06 bit3=1 + hotkey_m1 → nmi_assert_mf=1",
+              mf == true && dmc == false,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected mf=1, divmmc=0)",
+                     mf, dmc));
+    }
+
+    // NMI-02: NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x00);   // both gates disabled
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf = emu.nmi_assert_mf();
+        check("NMI-02",
+              "NR 0x06 bit3=0 + hotkey_m1 → nmi_assert_mf=0",
+              mf == false,
+              DETAIL("nmi_assert_mf=%d (expected 0; gate disabled blocks hotkey)", mf));
+    }
+
+    // NMI-03: NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x10);   // bit 4 = 1, bit 3 = 0
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-03",
+              "NR 0x06 bit4=1 + hotkey_drive → nmi_assert_divmmc=1",
+              dmc == true && mf == false,
+              DETAIL("nmi_assert_divmmc=%d nmi_assert_mf=%d (expected divmmc=1, mf=0)",
+                     dmc, mf));
+    }
+
+    // NMI-04: NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x00);   // both gates disabled
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-04",
+              "NR 0x06 bit4=0 + hotkey_drive → nmi_assert_divmmc=0",
+              dmc == false,
+              DETAIL("nmi_assert_divmmc=%d (expected 0; gate disabled blocks hotkey)", dmc));
+    }
+
+    // NMI-05: NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1
+    // Software-NMI source ORs with hotkey_m1 inside the AND-gate
+    // (zxnext.vhd:2090). Hotkey held low; only the SW source fires.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x08);
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(true);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-05",
+              "NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1",
+              mf == true && dmc == false,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected mf=1, divmmc=0)",
+                     mf, dmc));
+    }
+
+    // NMI-06: NR 0x06 bit4=1 + nmi_sw_gen_divmmc → assert
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x10);
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(true);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-06",
+              "NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1",
+              dmc == true && mf == false,
+              DETAIL("nmi_assert_divmmc=%d nmi_assert_mf=%d (expected divmmc=1, mf=0)",
+                     dmc, mf));
+    }
+
+    // NMI-07: both hotkeys + both enables → both asserts
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x06, 0x18);   // bits 3 AND 4 = 1
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        emu.inject_sw_nmi_mf(false);
+        emu.inject_sw_nmi_divmmc(false);
+        bool mf  = emu.nmi_assert_mf();
+        bool dmc = emu.nmi_assert_divmmc();
+        check("NMI-07",
+              "NR 0x06 bits 3+4=1 + both hotkeys → both gates assert",
+              mf == true && dmc == true,
+              DETAIL("nmi_assert_mf=%d nmi_assert_divmmc=%d (expected both=1)", mf, dmc));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
