@@ -21,6 +21,7 @@
 //
 // Run: ./build/test/input_test
 
+#include "input/joystick.h"
 #include "input/keyboard.h"
 #include "input/mouse.h"
 #include "port/nextreg.h"
@@ -563,29 +564,167 @@ static void test_jmode() {
 // ══════════════════════════════════════════════════════════════════════════
 // 3.5 Kempston 1 / 2 (KEMP-*) — ports 0x1F / 0x37
 // VHDL: zxnext.vhd:3475-3506, 3441-3442, 2454, 2674
+//
+// Bit layout of the 12-bit raw connector vector (zxnext.vhd:3441-3442):
+//    bit 11 = MODE   bit 10 = X     bit  9 = Z   bit  8 = Y
+//    bit  7 = START  bit  6 = A
+//    bit  5 = C(F2)  bit  4 = B(F1)
+//    bit  3 = U      bit  2 = D     bit  1 = L   bit  0 = R
+// Constants below name those bits.
 // ══════════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr uint16_t JR     = 1u << 0;   // RIGHT
+constexpr uint16_t JL     = 1u << 1;   // LEFT
+constexpr uint16_t JD     = 1u << 2;   // DOWN
+constexpr uint16_t JU     = 1u << 3;   // UP
+constexpr uint16_t JB     = 1u << 4;   // Fire 1 / B
+constexpr uint16_t JC     = 1u << 5;   // Fire 2 / C
+constexpr uint16_t JA     = 1u << 6;   // MD A button (Kempston bit 6, masked)
+constexpr uint16_t JSTART = 1u << 7;   // MD START (Kempston bit 7, masked)
+} // namespace
 
 static void test_kemp() {
     set_group("KEMP");
-    skip("KEMP-01", "mode=Kempston1, R → port 0x1F = 0x01", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-02", "mode=Kempston1, L → 0x02", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-03", "mode=Kempston1, D → 0x04", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-04", "mode=Kempston1, U → 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-05", "mode=Kempston1, Fire1(B) → 0x10", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-06", "mode=Kempston1, Fire2(C) → 0x20", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:3478 forces bits 7:6 to 0 in Kempston mode
-    skip("KEMP-07", "mode=Kempston1, A(bit6) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-08", "mode=Kempston1, START(bit7) masked → 0x00", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-09", "mode=Kempston1, U+D+L+R+F1+F2 → 0x3F", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-10", "mode=Kempston2, U on left → 0x37=0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-11", "mode=Kempston2, all dirs+F1+F2 → 0x37=0x3F", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:2454 port_1f_hw_en guard
-    skip("KEMP-12", "joy0=000 (S2), port 0x1F not decoded (not joystick byte)",
-             "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-13", "K1+K1, L.U + R.R → 0x1F = 0x09", "Un-skip via task3-input-b-kempmd3");
-    skip("KEMP-14", "K1+K2 routing: 0x1F=0x08, 0x37=0x04", "Un-skip via task3-input-b-kempmd3");
-    // zxnext.vhd:3478 MD mode bit 6 passes
-    skip("KEMP-15", "joy0=MD1, L.A → 0x1F bit6=1 (0x40)", "Un-skip via task3-input-b-kempmd3");
+
+    // KEMP-01: mode=Kempston1 on joy0, RIGHT pressed on left connector
+    // → port 0x1F = bit 0 set per zxnext.vhd:3479 (joyL_1f(5:0)).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JR);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-01", "Kempston1 R → 0x01", v == 0x01, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-02: LEFT → bit 1 (0x02). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JL);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-02", "Kempston1 L → 0x02", v == 0x02, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-03: DOWN → bit 2 (0x04). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JD);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-03", "Kempston1 D → 0x04", v == 0x04, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-04: UP → bit 3 (0x08). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-04", "Kempston1 U → 0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-05: Fire1/B → bit 4 (0x10). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JB);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-05", "Kempston1 Fire1(B) → 0x10", v == 0x10, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-06: Fire2/C → bit 5 (0x20). zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JC);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-06", "Kempston1 Fire2(C) → 0x20", v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-07: A pressed but Kempston mode masks bit 6 to 0 — zxnext.vhd:3478
+    // (joyL_1f(7:6) = 0 when mdL_1f_en = '0'). Result: 0x00.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-07", "Kempston1 A masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-08: START pressed but Kempston masks bit 7 to 0 — zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-08", "Kempston1 START masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-09: U+D+L+R+Fire1+Fire2 → bits 5..0 all set → 0x3F.
+    // zxnext.vhd:3479; bits 7:6 still masked (Kempston mode).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-09", "Kempston1 all dirs+F1+F2 → 0x3F", v == 0x3F, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-10: joy0=Kempston2 routes left connector to port 0x37 — zxnext.vhd:3482.
+    // L.U → bit 3 → 0x37 = 0x08.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_37();
+        check("KEMP-10", "Kempston2 L.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-11: Kempston2, all dirs+F1+F2 on left → 0x37 = 0x3F.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC);
+        uint8_t v = j.read_port_37();
+        check("KEMP-11", "Kempston2 all dirs+F1+F2 → 0x37=0x3F",
+              v == 0x3F, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-12: joy0=Sinclair2 → joyL_1f_en = 0 (zxnext.vhd:3475 only fires
+    // for "001" or mdL_1f_en). Joystick lane contributes 0x00 to port 0x1F
+    // even with all buttons pressed. (The "0xFF when not decoded" headline
+    // behaviour for the port itself is enforced one level up by the NR 0x82
+    // bit-6 gate in emulator.cpp; the Joystick class's lane is 0x00.)
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JB | JC | JA | JSTART);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-12", "joy0=S2 → 0x1F joystick lane = 0x00",
+              v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-13: K1+K1 → both connectors OR into port 0x1F (zxnext.vhd:3499).
+    // L.U (0x08) + R.R (0x01) → 0x09.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston1);
+        j.set_joy_left(JU);
+        j.set_joy_right(JR);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-13", "K1+K1 L.U|R.R → 0x1F=0x09", v == 0x09, DETAIL("got=0x%02X", v));
+    }
+    // KEMP-14: K1+K2 routing — joy0=K1 puts L on 0x1F, joy1=K2 puts R on 0x37.
+    // L.U → 0x1F = 0x08, R.D → 0x37 = 0x04. zxnext.vhd:3475-3488.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston2);
+        j.set_joy_left(JU);
+        j.set_joy_right(JD);
+        uint8_t v1f = j.read_port_1f();
+        uint8_t v37 = j.read_port_37();
+        check("KEMP-14", "K1+K2 split routing 0x1F=0x08 0x37=0x04",
+              v1f == 0x08 && v37 == 0x04,
+              DETAIL("got 0x1F=0x%02X 0x37=0x%02X", v1f, v37));
+    }
+    // KEMP-15: joy0=MD1 → bits 7:6 pass through (zxnext.vhd:3478,
+    // mdL_1f_en = 1 when nr_05_joy0 = "101"). L.A → bit 6 → 0x40.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("KEMP-15", "joy0=MD1 L.A → 0x1F=0x40", v == 0x40, DETAIL("got=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -594,18 +733,92 @@ static void test_kemp() {
 
 static void test_md3() {
     set_group("MD3");
-    // MD-01: corrected expected is 0x5F (not 0x3F). zxnext.vhd:3478-3479, 3441
-    skip("MD-01", "mode=MD1, U+D+L+R+A+B → 0x1F = 0x5F", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-02", "mode=MD1, START (bit7) → 0x1F = 0x80", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-03", "mode=MD1, A (bit6) → 0x1F = 0x40", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-04", "mode=MD1, Fire2/C (bit5) → 0x1F = 0x20", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-05", "mode=MD1, START+A → 0x1F = 0xC0", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-06", "mode=Kempston1, START (bit7) → 0x1F = 0x00 (masked)",
-             "Un-skip via task3-input-b-kempmd3");
-    skip("MD-07", "joy0=MD2, L.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-08", "joy1=MD2, R.U → 0x37 = 0x08", "Un-skip via task3-input-b-kempmd3");
-    skip("MD-09", "joy0=MD1 and joy1=MD1 illegal combo — open question",
-             "Un-skip via task3-input-b-kempmd3");
+    // MD-01: joy0=MD1, U+D+L+R+A+B (no C, no START) → port 0x1F.
+    // Bits per zxnext.vhd:3441-3442: U=3, D=2, L=1, R=0, B=4, A=6.
+    // OR = 0b01011111 = 0x5F. zxnext.vhd:3478-3479 (MD lane passes 7:6).
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU | JD | JL | JR | JA | JB);
+        uint8_t v = j.read_port_1f();
+        check("MD-01", "MD1 U+D+L+R+A+B → 0x5F", v == 0x5F, DETAIL("got=0x%02X", v));
+    }
+    // MD-02: MD1 START → bit 7 → 0x80. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-02", "MD1 START → 0x80", v == 0x80, DETAIL("got=0x%02X", v));
+    }
+    // MD-03: MD1 A → bit 6 → 0x40. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JA);
+        uint8_t v = j.read_port_1f();
+        check("MD-03", "MD1 A → 0x40", v == 0x40, DETAIL("got=0x%02X", v));
+    }
+    // MD-04: MD1 Fire2/C → bit 5 → 0x20. zxnext.vhd:3479
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JC);
+        uint8_t v = j.read_port_1f();
+        check("MD-04", "MD1 Fire2/C → 0x20", v == 0x20, DETAIL("got=0x%02X", v));
+    }
+    // MD-05: MD1 START+A → 0xC0. zxnext.vhd:3478
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART | JA);
+        uint8_t v = j.read_port_1f();
+        check("MD-05", "MD1 START+A → 0xC0", v == 0xC0, DETAIL("got=0x%02X", v));
+    }
+    // MD-06: in Kempston mode, START is masked → 0x00 even when pressed.
+    // zxnext.vhd:3478 (mdL_1f_en = 0 for joy0="001").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-06", "Kempston1 START masked → 0x00", v == 0x00, DETAIL("got=0x%02X", v));
+    }
+    // MD-07: joy0=MD2 routes L to port 0x37. L.U → 0x37 = 0x08.
+    // zxnext.vhd:3482 (joyL_37(5:0) when joyL_37_en = '1', enabled by
+    // mdL_37_en for "110").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Right, Joystick::Mode::Sinclair2);
+        j.set_joy_left(JU);
+        uint8_t v = j.read_port_37();
+        check("MD-07", "joy0=MD2 L.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // MD-08: joy1=MD2 routes R to port 0x37. R.U → 0x37 = 0x08.
+    // zxnext.vhd:3494 (joyR_37(5:0) when joyR_37_en = '1', enabled by
+    // mdR_37_en for "110").
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Md3Right);
+        j.set_joy_right(JU);
+        uint8_t v = j.read_port_37();
+        check("MD-08", "joy1=MD2 R.U → 0x37=0x08", v == 0x08, DETAIL("got=0x%02X", v));
+    }
+    // MD-09: joy0=MD1 and joy1=MD1 — both mdL_1f_en and mdR_1f_en fire,
+    // both lanes contribute to port 0x1F. The VHDL OR at zxnext.vhd:3499
+    // is well-defined for this configuration even if it makes no sense
+    // for real hardware (you'd plug two MD pads into the same port). We
+    // assert the natural VHDL behaviour: L.A + R.START → bit 6 + bit 7
+    // → 0xC0.
+    {
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Md3Left);
+        j.set_joy_left(JA);
+        j.set_joy_right(JSTART);
+        uint8_t v = j.read_port_1f();
+        check("MD-09", "MD1+MD1 L.A|R.START → 0x1F=0xC0",
+              v == 0xC0, DETAIL("got=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
