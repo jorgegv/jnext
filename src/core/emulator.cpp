@@ -122,8 +122,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
 
-    // VHDL zxnext.vhd:3516 — joy_iomode_pin7 resets to '1'.
-    joy_iomode_pin7_ = true;
+    // VHDL zxnext.vhd:3516 — joy_iomode_pin7 resets to '1'. The pin7
+    // state lives inside `iomode_` now; iomode_.reset() above already
+    // restored it to '1'. Kept as a comment marker so future readers
+    // see the explicit VHDL reference even though no field is set here.
 
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
@@ -1539,27 +1541,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             im2_.raise_req(static_cast<Im2Controller::DevIdx>(
                 static_cast<int>(Im2Controller::DevIdx::CTC0) + channel));
         }
+    };
 
-        // --- Agent H: joy_iomode pin7 toggle on CTC ch3 ZC/TO ---
-        // VHDL zxnext.vhd:3512-3534 (process on rising edge of i_CLK_28).
-        // Only the "01" (ctc_zc_to-driven) case fires from this callback.
-        // The "00" continuous-assign case is handled where NR 0x0B is
-        // written (out of scope here); the "10"/"11" UART-driven cases
-        // are likewise out of scope.
-        // NR 0x0B bit layout (zxnext.vhd:5201-5203, reset 4939-4941):
-        //   bit 7    = nr_0b_joy_iomode_en   (reset '0')
-        //   bit 5:4  = nr_0b_joy_iomode      (reset "00")
-        //   bit 0    = nr_0b_joy_iomode_0    (reset '1')
+    // Phase 2 Wave 2 Agent E (Input/IOMODE): route the unconditional
+    // ctc_zc_to(3) pulse to the IoMode pin-7 toggle. Distinct from
+    // on_interrupt because VHDL zxnext.vhd:3522 gates the toggle on the
+    // raw `ctc_zc_to(3)` signal, NOT on the CTC ch3 IRQ enable bit. The
+    // IoMode class internally checks the current NR 0x0B mode and only
+    // acts under mode "01" with the iomode_0/pin7 guard.
+    ctc_.on_zc_to = [this](int channel) {
         if (channel == 3) {
-            const uint8_t nr0b       = nextreg_.cached(0x0B);
-            const uint8_t iomode     = (nr0b >> 4) & 0x03;
-            const bool    iomode_0   = (nr0b & 0x01) != 0;
-            // VHDL zxnext.vhd:3521-3524:
-            //   if ctc_zc_to(3)='1' and (iomode_0='1' or pin7='0') then toggle.
-            // (ctc_zc_to(3)='1' is implicit: we are inside the ch3 callback.)
-            if (iomode == 0x01 && (iomode_0 || !joy_iomode_pin7_)) {
-                joy_iomode_pin7_ = !joy_iomode_pin7_;
-            }
+            iomode_.tick_ctc_zc3();
         }
     };
 
@@ -2729,7 +2721,10 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u8(nr_08_stored_low_);
 
     // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
-    w.write_bool(joy_iomode_pin7_);
+    // Phase 2 Wave 2 Agent E migrated this field into IoMode; we keep the
+    // single-bool save-state slot for binary compatibility with prior saves
+    // and just sample/restore through the IoMode accessor.
+    w.write_bool(iomode_.pin7());
 }
 
 void Emulator::load_state(StateReader& r)
@@ -2795,7 +2790,9 @@ void Emulator::load_state(StateReader& r)
     nr_08_stored_low_ = r.read_u8();
 
     // Agent H: joy_iomode_pin7 (NR 0x0B / CTC ch3) — VHDL zxnext.vhd:3516.
-    joy_iomode_pin7_ = r.read_bool();
+    // Phase 2 Wave 2 Agent E: pin7 now lives in IoMode; restore via the
+    // dedicated save-state setter to keep the single-bool slot intact.
+    iomode_.set_pin7_for_load(r.read_bool());
 }
 
 // ---------------------------------------------------------------------------

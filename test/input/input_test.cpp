@@ -26,6 +26,8 @@
 #include "input/joystick.h"
 #include "input/membrane_stick.h"
 #include "input/mouse.h"
+#include "input/iomode.h"
+#include "input/joystick.h"
 #include "port/nextreg.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -1085,16 +1087,87 @@ static void test_iomode() {
               v == 0x01,
               DETAIL("got=0x%02X (Task3 if nonzero default missing)", v));
     }
-    skip("IOMODE-02", "NR 0x0B=0x80 → joy_iomode_pin7 = 0", "Un-skip via task3-input-e-iomode");
-    skip("IOMODE-03", "NR 0x0B=0x81 → joy_iomode_pin7 = 1", "Un-skip via task3-input-e-iomode");
-    skip("IOMODE-04", "NR 0x0B=0x91 + ctc_zc_to(3) pulse → pin7 toggles", "Un-skip via task3-input-e-iomode");
+    // IOMODE-02: NR 0x0B=0x80 (en=1, mode=00, iomode_0=0) → pin7 = 0.
+    //   Static-mode continuous-assign per zxnext.vhd:3520.
+    {
+        IoMode m;
+        m.set_nr_0b(0x80);
+        check("IOMODE-02",
+              "NR 0x0B=0x80 → joy_iomode_pin7 = 0  (zxnext.vhd:3520)",
+              m.pin7() == false,
+              DETAIL("got pin7=%d", m.pin7() ? 1 : 0));
+    }
+    // IOMODE-03: NR 0x0B=0x81 (en=1, mode=00, iomode_0=1) → pin7 = 1.
+    //   Static-mode continuous-assign per zxnext.vhd:3520.
+    {
+        IoMode m;
+        m.set_nr_0b(0x81);
+        check("IOMODE-03",
+              "NR 0x0B=0x81 → joy_iomode_pin7 = 1  (zxnext.vhd:3520)",
+              m.pin7() == true,
+              DETAIL("got pin7=%d", m.pin7() ? 1 : 0));
+    }
+    // IOMODE-04: NR 0x0B=0x91 (en=1, mode=01, iomode_0=1) + ctc_zc_to(3)
+    //   pulses → pin7 toggles each pulse per zxnext.vhd:3521-3524.
+    //   With iomode_0=1 the toggle guard is satisfied unconditionally,
+    //   so each call must flip pin7. Reset value is '1' (zxnext.vhd:3516)
+    //   so pin7 stays '1' until the first NR 0x0B write puts us in mode
+    //   01 — then the next ZC/TO inverts to '0', the next back to '1'.
+    {
+        IoMode m;
+        m.set_nr_0b(0x91);             // mode=01, iomode_0=1; pin7 unchanged (still '1')
+        const bool p0 = m.pin7();
+        m.tick_ctc_zc3();              // pulse 1 → toggle to '0'
+        const bool p1 = m.pin7();
+        m.tick_ctc_zc3();              // pulse 2 → toggle to '1'
+        const bool p2 = m.pin7();
+        const bool ok = (p0 == true) && (p1 == false) && (p2 == true);
+        check("IOMODE-04",
+              "NR 0x0B=0x91 + ctc_zc_to(3) pulses → pin7 toggles  "
+              "(zxnext.vhd:3521-3524)",
+              ok,
+              DETAIL("p0=%d p1=%d p2=%d (want 1,0,1)",
+                     p0 ? 1 : 0, p1 ? 1 : 0, p2 ? 1 : 0));
+    }
     skip("IOMODE-05", "NR 0x0B=0xA0 → pin7 = uart0_tx", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-06", "NR 0x0B=0xA1 → pin7 = uart1_tx", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-07", "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted",  "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-08", "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-09", "NR 0x0B=0xA0 → joy_uart_en = 1", "F: blocked on UART+I2C subsystem plan");
     skip("IOMODE-10", "NR 0x0B=0x80 → joy_uart_en = 0", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-11", "NR 0x05 joy*=111 + NR 0x0B configured", "Un-skip via task3-input-e-iomode");
+    // IOMODE-11: NR 0x05 joy*=111 (User I/O — Mode::IoMode) on both
+    // connectors AND NR 0x0B configured (en=1) → joystick reaches
+    // IoMode and IoMode reports en=1.  Verifies the two subsystems
+    // can be configured concurrently via their own NR write paths.
+    // VHDL anchors: NR 0x05 decode at zxnext.vhd:5157-5158 + mode
+    // table 3429-3438; NR 0x0B decode at zxnext.vhd:5200-5203.
+    {
+        Joystick j;
+        IoMode   m;
+        // Pack NR 0x05 to put both connectors in mode 111 (User I/O).
+        // Per zxnext.vhd:5157-5158 the bit-packing is:
+        //   joy0[2:0] = { v[3], v[7], v[6] }   → all three set ⇒ 0xC8 contributes
+        //   joy1[2:0] = { v[1], v[5], v[4] }   → all three set ⇒ 0x32 contributes
+        //   v = 0b11111010 = 0xFA  (bits 7,6,5,4,3,1; bits 2,0 unused)
+        const uint8_t nr05 = 0xFA;
+        j.set_nr_05(nr05);
+        // Configure NR 0x0B with en=1, mode=00 (static), iomode_0=1:
+        m.set_nr_0b(0x81);
+        const bool ok =
+            (j.mode_left()  == Joystick::Mode::IoMode) &&
+            (j.mode_right() == Joystick::Mode::IoMode) &&
+            (m.iomode_en() == true) &&
+            (m.pin7()      == true);
+        check("IOMODE-11",
+              "NR 0x05 joy*=111 + NR 0x0B configured  "
+              "(zxnext.vhd:5157-5158, 5200-5203)",
+              ok,
+              DETAIL("L=%u R=%u en=%d pin7=%d",
+                     static_cast<unsigned>(j.mode_left()),
+                     static_cast<unsigned>(j.mode_right()),
+                     m.iomode_en() ? 1 : 0,
+                     m.pin7() ? 1 : 0));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

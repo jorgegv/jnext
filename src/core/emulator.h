@@ -501,14 +501,10 @@ private:
     bool     im2_dma_delay_latched_    = false;  ///< VHDL zxnext.vhd:2005-2007
 
     // --- Joystick IO-mode pin7 (NR 0x0B joy_iomode) ---
-    // VHDL joy_iomode_pin7, zxnext.vhd:3512-3534. Resets to '1' on hard reset
-    // (zxnext.vhd:3516). In NR 0x0B joy_iomode="01" it toggles on each CTC
-    // channel-3 ZC/TO pulse (gated by iomode_0 and current pin7; see
-    // zxnext.vhd:3521-3524). In joy_iomode="00" it tracks iomode_0 continuously
-    // (NR 0x0B write side — handled by NR 0x0B write_handler, not this field's
-    // update path). In joy_iomode="10"/"11" it is driven from UART0/UART1 Tx.
-    // Consumed by the Input subsystem (out of scope at this phase).
-    bool     joy_iomode_pin7_          = true;   ///< VHDL zxnext.vhd:3516 (reset '1')
+    // Now owned by `iomode_` (member above). Phase 2 Wave 2 Agent E
+    // migrated the standalone `joy_iomode_pin7_` shadow into the IoMode
+    // class — read it via iomode_.pin7() and update it via the NR 0x0B
+    // write handler + the CTC ch3 ZC/TO callback (see emulator.cpp init).
 
     // --- Phase 1 scaffold: test-only NMI/hotkey injection fields ---
     // Set by inject_hotkey_m1/drive/sw_nmi_mf/sw_nmi_divmmc. Phase 2
