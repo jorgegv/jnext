@@ -127,6 +127,16 @@ public:
     /// Parameter is the channel index (0-3).
     std::function<void(int channel)> on_interrupt;
 
+    /// Callback fired on EVERY ZC/TO pulse from any channel, regardless
+    /// of the channel's interrupt-enable bit. Mirrors the VHDL `ctc_zc_to`
+    /// signal vector used by non-interrupt consumers — currently the
+    /// joy_iomode pin-7 toggle (zxnext.vhd:3521-3524) which gates on
+    /// `ctc_zc_to(3)` directly, NOT on CTC ch3 IRQ enable. Distinct from
+    /// `on_interrupt` because hardware can use the CTC purely as a clock
+    /// source while leaving its IRQ disabled.
+    /// Parameter is the channel index (0-3).
+    std::function<void(int channel)> on_zc_to;
+
     // ── Accessors for debug / testing ─────────────────────────────
 
     const CtcChannel& channel(int ch) const { return channels_[ch]; }
