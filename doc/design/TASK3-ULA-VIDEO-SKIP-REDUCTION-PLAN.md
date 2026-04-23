@@ -221,7 +221,7 @@ Keep separate by default — simpler critic review, zero merge risk.
 1. Flip all Wave A-F `skip()` calls to `check()` with deterministic
    assertions against Phase 1 accessors + pixel-output where
    end-to-end is available.
-2. Create `test/ula/ula_int_test.cpp` (new suite) covering:
+2. Create `test/ula/ula_integration_test.cpp` (new suite) covering:
    - Scroll: render a known pattern, set NR 0x26=8 + NR 0x27=32,
      verify the pixel offset matches VHDL expectation.
    - ULA+: enable port 0xFF3B, verify palette group 3 selects the
@@ -234,7 +234,7 @@ Keep separate by default — simpler critic review, zero merge risk.
 ## Phase 4 — dashboard + audit
 
 1. Update:
-   - `test/SUBSYSTEM-TESTS-STATUS.md` with new `ula_test` + `ula_int_test`
+   - `test/SUBSYSTEM-TESTS-STATUS.md` with new `ula_test` + `ula_integration_test`
      counts.
    - `test/TRACEABILITY-MATRIX.md` adding NR 0x26, 0x27, 0x42, 0x43,
      port 0xFF3B rows.
@@ -246,14 +246,14 @@ Keep separate by default — simpler critic review, zero merge risk.
 2. Write `doc/testing/audits/task3-ula-phase4.md` — per-wave results,
    critic findings, any plan-doc inconsistencies surfaced mid-wave
    (queued for a follow-up backlog if we're short on time), and the
-   final ula_test + ula_int_test numbers.
+   final ula_test + ula_integration_test numbers.
 
 ## Expected end-state
 
 | Suite | Before | After |
 |---|---:|---:|
 | `ula_test` | 123 / 48 / 0 / 75 | **~123 / 95 / 0 / ~28** |
-| `ula_int_test` (NEW) | — | **~6-8 pass** |
+| `ula_integration_test` (NEW) | — | **~6-8 pass** |
 | Project aggregate | 3219 / 3001 / 0 / 218 | **~3230 / 3060 / 0 / ~170** |
 
 ~28 skips remain — they are the re-homed F-skips awaiting
