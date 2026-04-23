@@ -2284,6 +2284,7 @@ void Emulator::run_frame()
         // Tick CTC and UART at 28 MHz rate.
         ctc_.tick(static_cast<uint32_t>(master_cycles));
         uart_.tick(static_cast<uint32_t>(master_cycles));
+        md6_.tick(static_cast<uint32_t>(master_cycles));
 
         // Tick PSG (TurboSound) at 1.75 MHz rate.
         psg_accum_ += master_cycles;
