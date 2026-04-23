@@ -164,6 +164,30 @@ public:
     void set_ulanext_en(bool b) { ulanext_en_ = b; }
     bool get_ulanext_en() const { return ulanext_en_; }
 
+    /// ULAnext pixel encoder output (VHDL zxula.vhd:492-529).
+    ///
+    /// @param pixel_en   VHDL `pixel_en` signal (true => ink cycle, false => paper).
+    /// @param border     Border segment (border_active_d=1).
+    /// @param attr       Active attribute byte (attr_active).
+    /// @return  `pixel`       = 8-bit `ula_pixel` (palette index 0..255).
+    ///          `select_bgnd` = `ula_select_bgnd` (true => transparent paper).
+    ///
+    /// Caller must gate on `get_ulanext_en()`; the function assumes the VHDL
+    /// `if i_ulanext_en = '1'` branch is already taken.  Uses the current
+    /// `ulanext_format_` as `i_ulanext_format`.
+    ///
+    /// VHDL semantics (zxula.vhd:492-529):
+    ///   border           => pixel = paper_base_index(7:3) & attr(5:3)
+    ///                     = 0x80 | (attr & 0x38) >> 3,
+    ///                       and format=0xFF additionally asserts select_bgnd.
+    ///   pixel_en (ink)  => pixel = attr AND format.
+    ///   paper cycle     => case format: 0x01/03/07/0F/1F/3F/7F each pack
+    ///                       paper_base_index(7:k) & attr(7:k-1) into 8 bits,
+    ///                       with paper_base_index(7)=1 => top bit always 1.
+    ///                       All other formats (incl. 0xFF) assert select_bgnd.
+    struct UlaNextPixel { uint8_t pixel; bool select_bgnd; };
+    UlaNextPixel compute_ulanext_pixel(bool pixel_en, bool border, uint8_t attr) const;
+
     // Port 0xFF3B — ULA+ enable. Narrow setter; ULA+ mode/index live in the
     // Compositor-side palette state. VHDL zxnext.vhd:4547-4551.
     void set_ulap_en(bool b) { ulap_en_ = b; }

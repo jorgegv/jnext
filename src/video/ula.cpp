@@ -257,6 +257,69 @@ void Ula::advance_flash()
 }
 
 // ---------------------------------------------------------------------------
+// compute_ulanext_pixel  (VHDL zxula.vhd:492-529)
+// ---------------------------------------------------------------------------
+//
+// Pure encoder for the ULAnext palette-format pixel path. Used by Phase-2
+// Wave B unit tests and (future) a compositor-side ULAnext renderer. The
+// current render_display_line only consumes `ulanext_en_` as a flash-suppress
+// gate on the XOR term at zxula.vhd:470; full 8-bit ULAnext palette indexing
+// requires a 256-entry ULA palette (a follow-up end-to-end integration, out
+// of Wave B scope).
+//
+// VHDL paper-lookup table (paper_base_index = "10000000"):
+//
+//   format  paper encoding            ink width   paper output pattern
+//   ------  ------------------------  ---------   --------------------
+//   0x01    pbi(7)   & attr(7:1)      1-bit ink    0x80 | (attr >> 1) & 0x7F
+//   0x03    pbi(7:6) & attr(7:2)      2-bit ink    0x80 | (attr >> 2) & 0x3F
+//   0x07    pbi(7:5) & attr(7:3)      3-bit ink    0x80 | (attr >> 3) & 0x1F
+//   0x0F    pbi(7:4) & attr(7:4)      4-bit ink    0x80 | (attr >> 4) & 0x0F
+//   0x1F    pbi(7:3) & attr(7:5)      5-bit ink    0x80 | (attr >> 5) & 0x07
+//   0x3F    pbi(7:2) & attr(7:6)      6-bit ink    0x80 | (attr >> 6) & 0x03
+//   0x7F    pbi(7:1) & attr(7)        7-bit ink    0x80 | (attr >> 7) & 0x01
+//   other   ula_select_bgnd <= '1'   (incl. 0xFF — transparent paper)
+
+Ula::UlaNextPixel Ula::compute_ulanext_pixel(bool pixel_en, bool border,
+                                             uint8_t attr) const
+{
+    UlaNextPixel out{0, false};
+    const uint8_t format = ulanext_format_;
+    constexpr uint8_t PBI = 0x80; // paper_base_index = "10000000" (zxula.vhd:486)
+
+    if (border) {
+        // zxula.vhd:496-504 — border:
+        //   ula_pixel <= paper_base_index(7:3) & attr(5:3)
+        //   if format = X"FF" → ula_select_bgnd <= '1'
+        out.pixel = static_cast<uint8_t>((PBI & 0xF8) | ((attr >> 3) & 0x07));
+        if (format == 0xFF) out.select_bgnd = true;
+        return out;
+    }
+
+    if (pixel_en) {
+        // zxula.vhd:510 — ink: ula_pixel <= attr AND format.
+        out.pixel = static_cast<uint8_t>(attr & format);
+        return out;
+    }
+
+    // pixel_en=0 → paper cycle (zxula.vhd:516-527).
+    switch (format) {
+        case 0x01: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 1) & 0x7F)); break;
+        case 0x03: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 2) & 0x3F)); break;
+        case 0x07: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 3) & 0x1F)); break;
+        case 0x0F: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 4) & 0x0F)); break;
+        case 0x1F: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 5) & 0x07)); break;
+        case 0x3F: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 6) & 0x03)); break;
+        case 0x7F: out.pixel = static_cast<uint8_t>(PBI | ((attr >> 7) & 0x01)); break;
+        default:
+            // when others (incl. 0xFF): ula_select_bgnd <= '1'; pixel undefined.
+            out.select_bgnd = true;
+            break;
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // render_display_line  (STANDARD and STANDARD_1)
 // ---------------------------------------------------------------------------
 //
@@ -304,7 +367,9 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         uint8_t ink   =  attr       & 0x07;
 
         // Flash: swap ink/paper on the active phase.
-        if (flash && flash_phase_) {
+        // zxula.vhd:470 — the flash XOR is gated off when i_ulanext_en='1'
+        // (and also when i_ulap_en='1'; Wave C will add that term).
+        if (flash && flash_phase_ && !ulanext_en_) {
             uint8_t tmp = ink; ink = paper; paper = tmp;
         }
 
@@ -371,7 +436,9 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
         uint8_t paper = (attr >> 3) & 0x07;
         uint8_t ink   =  attr       & 0x07;
 
-        if (flash && flash_phase_) {
+        // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1' (Wave C
+        // will add i_ulap_en here too).
+        if (flash && flash_phase_ && !ulanext_en_) {
             uint8_t tmp = ink; ink = paper; paper = tmp;
         }
 
