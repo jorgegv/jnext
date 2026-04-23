@@ -125,9 +125,14 @@ private:
     bool six_button_left_  = false;
     bool six_button_right_ = false;
 
-    // CLK_EN accumulator — see `tick()` comment. One enable pulse per
-    // ~128 base cycles at 28 MHz, i.e. roughly every 16 CPU cycles at
-    // the nominal 3.5 MHz Z80 clock. The test-only helpers bypass this.
+    // CLK_EN accumulator — see `tick()` comment. VHDL
+    // `md6_joystick_connector_x2.vhd:33` documents `i_CLK_EN` as firing
+    // every ~4.57us; at 28 MHz that is ~128 master cycles per enable.
+    // `Emulator::run_frame` feeds `tick()` in the 28 MHz master-cycle
+    // domain (same domain CTC and UART consume), so the prescaler
+    // constant is 128, not 16 (16 would be the equivalent count in the
+    // 3.5 MHz Z80 CPU-cycle domain — wrong units for this call site).
+    // The test-only helpers bypass this accumulator entirely.
     uint32_t clk_en_accum_ = 0;
-    static constexpr uint32_t kCyclesPerClkEn = 16;
+    static constexpr uint32_t kCyclesPerClkEn = 128;
 };
