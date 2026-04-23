@@ -15,13 +15,15 @@ VHDL-faithful implementation across all ULA operating modes.
 
 ## Current status
 
-Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave3-ula`).
-Measured on main post-merge (commit `7c56b92`):
+Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`) landed 2026-04-23 Phase 0 → 4. Measured on main post-closure:
 
-- **122 plan rows + 1 extra regression witness**, 48 live check + 75 skip.
-- **47/48 live pass (97.9%)**, 1 fail, 75 skip.
-- **Fails (C-class legitimate emulator bug)**: **S13.14** — `frame_done` does not flip at the 69888 T-state boundary on 48K. VHDL `zxula_timing.vhd` says it should. Retained as a failing `check()` regression witness per process manual §3; Emulator Bug backlog item 4. Do NOT convert to skip.
-- **Skips**: 75 rows cluster into 6 unimplemented feature areas all living outside `Ula`'s public API — §6 ULAnext (12, no `nr_42/43`), §7 ULA+ (6, no `port_ff3b_ulap_en`), §9 Scroll (10, no `nr_26/27`), §10 Floating bus (8, lives on `Emulator` not `Ula`), §11 Contention (12, in `ContentionModel`), §14 Frame interrupt (6, not on `VideoTiming`/`Ula`). Plus scattered internal-signal rows for unexposed state. S12.02/S12.03 demoted from check→skip during review because `Ula::set_ula_enabled` is a plain bool field not wired into `render_scanline` (tautology).
+- **`ula_test.cpp`: 113 pass + 29 skip (total 113 live rows)**, `123/48/0/75 → 113/84/0/29`. 10 Phase-0 rows migrated from `skip()` to `// G:` source comments (unobservable-at-this-abstraction, now marked `missing` in the traceability matrix).
+- **New companion suite `test/ula/ula_integration_test.cpp`: 6/6/0/0** — covers NR 0x26/0x27 scroll (INT-SCROLL-01/02/03), NR 0x43/0x42 ULAnext (INT-ULANEXT-01), port 0xFF3B ULA+ (INT-ULAPLUS-01), standard-mode alt-file (INT-STANDARD-ALT-01).
+- **Phase-2 waves landed**: Wave A scroll (§9, 9 rows), Wave B ULAnext (§6, 13 rows), Wave C ULA+ (§7, 7 rows), Wave D hi-colour + shadow + border_clr_tmx + clip_y2 (§5/§8, 4 rows), Wave E line-interrupt (§14, 3 rows).
+- **Fails**: **S13.14** (C-class emulator bug) — `frame_done` does not flip at the 69888 T-state boundary on 48K. VHDL `zxula_timing.vhd` says it should. Retained as a failing `check()` regression witness per process manual §3; Emulator Bug backlog item 4. Do NOT convert to skip.
+- **29 remaining skips are all F-blocked** to named subsystem plans (re-homed by Phase 0 with explicit owner strings): Emulator floating-bus (§10, 5 rows), ContentionModel (§11, 12 rows), Compositor NR 0x68 blend-mode (§12, 3 rows), VideoTiming per-machine + int-position (§13, 4 + §14, 3 = 7 rows), Emulator/MMU shadow-screen routing (§15, 2 rows).
+
+See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts and backlog items.
 
 ## Scope
 
@@ -325,20 +327,26 @@ Where `paper_base_index = 0x80` ("10000000").
 
 ### Test cases (~12 tests)
 
-| # | Test | Format | Pixel | Attr | Expected |
-|---|------|--------|-------|------|----------|
-| 1 | Ink, format 0x07 | 0x07 | 1 | 0xFF | 0x07 |
-| 2 | Paper, format 0x07 | 0x07 | 0 | 0xFF | 0x9F |
-| 3 | Ink, format 0x0F | 0x0F | 1 | 0xAB | 0x0B |
-| 4 | Paper, format 0x0F | 0x0F | 0 | 0xAB | 0x8A |
-| 5 | Ink, format 0xFF | 0xFF | 1 | 0x42 | 0x42 |
-| 6 | Paper, format 0xFF | 0xFF | 0 | 0x42 | bgnd (transparent) |
-| 7 | Border, format 0x07 | 0x07 | - | attr(5:3)=5 | 0x85 |
-| 8 | Border, format 0xFF | 0xFF | - | - | bgnd (transparent) |
-| 9 | Ink, format 0x01 | 0x01 | 1 | 0xFE | 0x00 |
-| 10| Paper, format 0x01 | 0x01 | 0 | 0xFE | 0xFF |
-| 11| Ink, format 0x3F | 0x3F | 1 | 0xC3 | 0x03 |
-| 12| Non-standard format (e.g. 0x05) | 0x05 | 0 | any | bgnd (transparent) |
+Status (Wave B, 2026-04-23): all 12 `check()` — all pass.
+
+| # | Row ID | Test | Format | Pixel | Attr | Expected | Status |
+|---|------|------|--------|-------|------|----------|--------|
+| 1 | S6.01 | Ink, format 0x07 | 0x07 | 1 | 0xFF | 0x07 | pass |
+| 2 | S6.02 | Paper, format 0x07 | 0x07 | 0 | 0xFF | 0x9F | pass |
+| 3 | S6.03 | Ink, format 0x0F | 0x0F | 1 | 0xAB | 0x0B | pass |
+| 4 | S6.04 | Paper, format 0x0F | 0x0F | 0 | 0xAB | 0x8A | pass |
+| 5 | S6.05 | Ink, format 0xFF | 0xFF | 1 | 0x42 | 0x42 | pass |
+| 6 | S6.06 | Paper, format 0xFF | 0xFF | 0 | 0x42 | bgnd (transparent) | pass |
+| 7 | S6.07 | Border, format 0x07 | 0x07 | - | attr(5:3)=5 | 0x85 | pass |
+| 8 | S6.08 | Border, format 0xFF | 0xFF | - | - | bgnd (transparent) | pass |
+| 9 | S6.09 | Ink, format 0x01 | 0x01 | 1 | 0xFE | 0x00 | pass |
+| 10| S6.10 | Paper, format 0x01 | 0x01 | 0 | 0xFE | 0xFF | pass |
+| 11| S6.11 | Ink, format 0x3F | 0x3F | 1 | 0xC3 | 0x03 | pass |
+| 12| S6.12 | Non-standard format (e.g. 0x05) | 0x05 | 0 | any | bgnd (transparent) | pass |
+
+Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enables NR 0x43 bit 0, sets NR 0x42=0x0F, verifies the rendered paper index matches the lookup at `zxula.vhd:503-515`.
+
+**Coverage gap (Wave B critic, non-blocking)**: the ULA+ 0x7F format encoder path is coded in src/ but not exercised by any test row in this section. Candidate for a future S6.13 row.
 
 ## Section 7: ULA+ Mode
 
@@ -364,14 +372,18 @@ Palette index format:
 
 ### Test cases (~6 tests)
 
-| # | Test | Pixel | Attr | Mode | Expected |
-|---|------|-------|------|------|----------|
-| 1 | Ink, group 0 | 1 | 0x07 | normal | 0xC7 |
-| 2 | Paper, group 0 | 0 | 0x38 | normal | 0xCF |
-| 3 | Ink, group 3 | 1 | 0xC2 | normal | 0xF2 |
-| 4 | Paper, group 3 | 0 | 0xF8 | normal | 0xFF |
-| 5 | Hi-res forces bit 3 high | 1 | 0x07 | hires | 0xCF |
-| 6 | Flash bit NOT used (attr bit 7 = palette group) | - | 0x80 | normal | group 2 |
+Status (Wave C, 2026-04-23): all 6 `check()` — all pass.
+
+| # | Row ID | Test | Pixel | Attr | Mode | Expected | Status |
+|---|------|------|-------|------|------|----------|--------|
+| 1 | S7.01 | Ink, group 0 | 1 | 0x07 | normal | 0xC7 | pass |
+| 2 | S7.02 | Paper, group 0 | 0 | 0x38 | normal | 0xCF | pass |
+| 3 | S7.03 | Ink, group 3 | 1 | 0xC2 | normal | 0xF2 | pass |
+| 4 | S7.04 | Paper, group 3 | 0 | 0xF8 | normal | 0xFF | pass |
+| 5 | S7.05 | Hi-res forces bit 3 high | 1 | 0x07 | hires | 0xCF | pass |
+| 6 | S7.06 | Flash bit NOT used (attr bit 7 = palette group) | - | 0x80 | normal | group 2 | pass |
+
+Integration coverage: **INT-ULAPLUS-01** in `ula_integration_test.cpp` — enables port 0xFF3B and verifies palette-group-3 indices in a rendered row. S4.06 (flash disabled in ULA+ mode) also flipped to pass in Wave C.
 
 ## Section 8: Clip Windows
 
@@ -442,18 +454,22 @@ shift_reg_ld <= shift_left(shift_reg_32, scroll_amount);
 
 ### Test cases (~10 tests)
 
-| # | Test | scroll_x | scroll_y | Expected |
-|---|------|----------|----------|----------|
-| 1 | No scroll | 0 | 0 | Normal display |
-| 2 | Scroll Y by 1 | 0 | 1 | Display shifted up 1 pixel |
-| 3 | Scroll Y by 191 | 0 | 191 | Display shifted up 191 (= down 1) |
-| 4 | Scroll Y wraps at 192 | 0 | 192 | Same as no scroll |
-| 5 | Scroll X by 8 (1 char) | 8 | 0 | Display shifted left 1 char |
-| 6 | Scroll X by 1 (fine) | 1 | 0 | Fine sub-char scroll |
-| 7 | Scroll X by 255 | 255 | 0 | Maximum scroll |
-| 8 | Fine scroll X enabled | 0 (fine=1) | 0 | Half-pixel offset |
-| 9 | Combined X+Y scroll | 16 | 32 | Both axes scrolled |
-| 10| Y scroll wraps mid-third | 0 | 100 | Wraps across screen thirds correctly |
+Status (Wave A, USER PRIORITY, 2026-04-23): row 1 (S9.01) reclassified to G-comment (no-scroll baseline covered by §1/§2); rows 2-10 flipped to live `check()` — all pass.
+
+| # | Row ID | Test | scroll_x | scroll_y | Expected | Status |
+|---|------|------|----------|----------|----------|--------|
+| 1 | S9.01 | No scroll | 0 | 0 | Normal display | G-comment (missing) |
+| 2 | S9.02 | Scroll Y by 1 | 0 | 1 | Display shifted up 1 pixel | pass |
+| 3 | S9.03 | Scroll Y by 191 | 0 | 191 | Display shifted up 191 (= down 1) | pass |
+| 4 | S9.04 | Scroll Y wraps at 192 | 0 | 192 | Same as no scroll | pass |
+| 5 | S9.05 | Scroll X by 8 (1 char) | 8 | 0 | Display shifted left 1 char | pass |
+| 6 | S9.06 | Scroll X by 1 (fine) | 1 | 0 | Fine sub-char scroll | pass |
+| 7 | S9.07 | Scroll X by 255 | 255 | 0 | Maximum scroll | pass |
+| 8 | S9.08 | Fine scroll X enabled | 0 (fine=1) | 0 | Half-pixel offset | pass |
+| 9 | S9.09 | Combined X+Y scroll | 16 | 32 | Both axes scrolled | pass |
+| 10| S9.10 | Y scroll wraps mid-third | 0 | 100 | Wraps across screen thirds correctly | pass |
+
+Integration coverage: **INT-SCROLL-01** (NR 0x26 coarse X), **INT-SCROLL-02** (NR 0x27 Y), **INT-SCROLL-03** (NR 0x68 bit 2 fine X) in `ula_integration_test.cpp`. This was the user-priority cluster that motivated the plan.
 
 ## Section 10: Floating Bus
 
@@ -653,14 +669,16 @@ the target line. If target line is 0, the actual comparison is against
 
 ### Test cases (~6 tests)
 
-| # | Test | Machine | Expected |
-|---|------|---------|----------|
-| 1 | 48K interrupt position | 48K | hc=116, vc=0 |
-| 2 | 128K interrupt position | 128K | hc=128, vc=1 |
-| 3 | Pentagon interrupt position | Pentagon | hc=439, vc=319 |
-| 4 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse |
-| 5 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 |
-| 6 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc |
+Status (Wave E, 2026-04-23): rows 4-6 flipped to live `check()` — all pass. Rows 1-3 remain `skip()` F-blocked on VideoTiming per-machine int-position exposure (out of Ula scope; VideoTiming pulse-counter surface is test-only today — no production `Emulator` instance consumes it).
+
+| # | Row ID | Test | Machine | Expected | Status |
+|---|------|------|---------|----------|--------|
+| 1 | S14.01 | 48K interrupt position | 48K | hc=116, vc=0 | skip (F: VideoTiming int-position) |
+| 2 | S14.02 | 128K interrupt position | 128K | hc=128, vc=1 | skip (F: VideoTiming int-position) |
+| 3 | S14.03 | Pentagon interrupt position | Pentagon | hc=439, vc=319 | skip (F: VideoTiming int-position) |
+| 4 | S14.04 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse | pass |
+| 5 | S14.05 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 | pass |
+| 6 | S14.06 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc | pass |
 
 ## Section 15: Shadow Screen
 
