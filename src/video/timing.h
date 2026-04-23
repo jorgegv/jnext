@@ -116,6 +116,16 @@ public:
     /// Pulse counters: number of times the corresponding pulse has
     /// fired since the last `clear_int_counts()`. Each advance() that
     /// crosses the trigger condition increments the counter once.
+    ///
+    /// *** Test-observable surface only (2026-04-23). *** The jnext
+    /// Emulator currently schedules frame/line interrupts through local
+    /// fields in `Emulator` (see emulator.cpp NR 0x22/0x23 handlers +
+    /// the scheduler in run_frame). No production VideoTiming instance
+    /// is wired through the NR path, so these counters reflect only
+    /// what test harnesses drive via `set_*_enable` + `advance`. Making
+    /// them production-wired requires funnelling the Emulator scheduler
+    /// through a `VideoTiming` member — tracked as a post-ULA-plan
+    /// follow-up.
     int ula_int_pulse_count() const  { return ula_int_pulses_; }
     int line_int_pulse_count() const { return line_int_pulses_; }
     void clear_int_counts() {

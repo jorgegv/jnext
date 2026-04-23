@@ -614,6 +614,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         ula_int_disabled_ = (v & 0x04) != 0;
         line_int_enabled_ = (v & 0x02) != 0;
         line_int_value_ = (line_int_value_ & 0xFF) | ((v & 0x01) << 8);
+        // NOTE: production interrupt scheduling reads these local fields
+        // directly (see run_frame() around the line_int_enabled_ check).
+        // Wave E's new VideoTiming setters (src/video/timing.h) are for
+        // the unit-test pulse-counter observable only — there is no
+        // production VideoTiming instance to forward to. Re-wiring the
+        // class hierarchy so the runtime uses VideoTiming is tracked as
+        // a follow-up; until then the scheduler is the source of truth.
     });
 
     // Register 0x23: Line interrupt value LSB
