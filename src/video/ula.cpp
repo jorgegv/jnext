@@ -102,6 +102,56 @@ uint16_t Ula::pixel_addr_offset(int screen_row, int col)
 }
 
 // ---------------------------------------------------------------------------
+// Scroll folds (VHDL zxula.vhd:192-207 for Y, :199 for X)
+// ---------------------------------------------------------------------------
+//
+// Y-fold (zxula.vhd:192-207):
+//   py_s <= i_vc + ('0' & i_ula_scroll_y);            -- 9-bit add
+//   if py_s(8 downto 7) = "11" then                   -- py_s ∈ [384, 511]
+//      py <= (not py_s(7)) & py_s(6 downto 0);        -- clear bit 7 (−128)
+//   elsif py_s(8) = '1' or py_s(7 downto 6) = "11" then   -- py_s ∈ [192,383]
+//      py <= (py_s(7 downto 6) + 1) & py_s(5 downto 0);   -- +64 in bits(7:6),
+//                                                          -- mod 4 with wrap
+//   else
+//      py <= py_s(7 downto 0);                        -- passthrough
+//   end if;
+// Functionally this is (vc + scroll_y) mod 192 with the specific encoding the
+// hardware uses to preserve third-cycling in the subsequent address
+// calculation `addr_p_spc_12_5 <= py(7:6) & py(2:0) & py(5:3)` (zxula.vhd:223).
+static int fold_ula_y(int raw_y, uint8_t scroll_y)
+{
+    const int py_s = (raw_y & 0x1FF) + scroll_y;  // 9-bit result
+    const int b87  = (py_s >> 7) & 0x3;
+    const int b8   = (py_s >> 8) & 0x1;
+    const int b76  = (py_s >> 6) & 0x3;
+    if (b87 == 0x3) {
+        // py_s ∈ [384, 511] : clear bit 7.
+        return py_s & 0x7F;
+    } else if (b8 == 1 || b76 == 0x3) {
+        // py_s ∈ [192, 383] : add 64 to bits(7:6), low 6 bits pass through.
+        const int new76 = (((py_s >> 6) & 0x3) + 1) & 0x3;
+        return static_cast<int>((new76 << 6) | (py_s & 0x3F));
+    }
+    return py_s & 0xFF;
+}
+
+// X-fold (zxula.vhd:199):
+//   px <= i_ula_fine_scroll_x & (i_hc(7:3) + i_ula_scroll_x(7:3)) &
+//         i_ula_scroll_x(2:0);
+// with px_1 <= px(8) & (px(7:3)+1) & px(2:0) (line 216) feeding the vram_a
+// byte-column field and px(2:0) acting as the bit-within-byte phase. The
+// observable effect at output-pixel granularity is that output pixel at
+// display column X reads source pixel at
+//   src_x = (X + scroll_x + fine_scroll_x) mod 256.
+// NR 0x26 is an 8-bit pixel offset: bits(7:3) are byte-column shift
+// (scroll_x(7:3) * 8 pixels), bits(2:0) are bit-within-byte shift. Since the
+// byte-shift already multiplies by 8, the raw 8-bit value IS the pixel shift.
+static int fold_ula_x(int raw_x, uint8_t scroll_x, bool fine_scroll_x)
+{
+    return (raw_x + static_cast<int>(scroll_x) + (fine_scroll_x ? 1 : 0)) & 0xFF;
+}
+
+// ---------------------------------------------------------------------------
 // render_frame
 // ---------------------------------------------------------------------------
 
@@ -282,43 +332,90 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
                                uint16_t attr_row_base,
                                Mmu& mmu)
 {
-    // Determine the pixel base: if attr_row_base is in the 0x7800 range this
-    // is an alternate-screen render; pixel data lives at 0x6000.
-    const uint16_t pixel_base = (attr_row_base >= 0x7800)
-        ? static_cast<uint16_t>(0x6000u | pixel_base_offset)
-        : static_cast<uint16_t>(0x4000u | pixel_base_offset);
+    // Apply the ULA Y-scroll fold per zxula.vhd:192-207. With scroll_y==0
+    // this returns screen_row unchanged so the default no-scroll case is
+    // unaffected. Cross-third wrap (scroll_y=64 etc.) is handled by the
+    // fold because py(7:6) is re-encoded before addr_p_spc_12_5 is formed
+    // (zxula.vhd:223).
+    const int eff_row = fold_ula_y(screen_row, ula_scroll_y_);
+
+    // The caller hands us pixel_base_offset = pixel_addr_offset(screen_row, 0);
+    // regenerate it from the folded row so the pixel/attr addresses reflect
+    // the scrolled line. If scroll_y is zero this matches the incoming value.
+    const bool alt = (attr_row_base >= 0x7800);
+    (void)pixel_base_offset;  // regenerated below for correctness under scroll
+    const uint16_t eff_poff      = pixel_addr_offset(eff_row, 0);
+    const uint16_t pixel_base    = static_cast<uint16_t>((alt ? 0x6000u : 0x4000u) | eff_poff);
+    const uint16_t eff_attr_base = static_cast<uint16_t>((alt ? 0x7800u : 0x5800u)
+                                                         + (eff_row / 8) * 32);
 
     // Fill left border pixels (DISP_X = 32 pixels).
     const uint32_t border_argb = lookup_colour(border_colour_);
     for (int x = 0; x < DISP_X; ++x)
         row[x] = border_argb;
 
-    // Render the 256 display pixels (32 columns × 8 bits each).
-    for (int col = 0; col < 32; ++col) {
-        const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
-        const uint8_t attr   = vram_read(static_cast<uint16_t>(attr_row_base + col), mmu);
+    // X-scroll fold per zxula.vhd:199: source pixel for display pixel X is
+    //   src_x = (X + scroll_x + fine_scroll_x) mod 256.
+    // When there is no X scroll we keep the fast column-oriented loop so the
+    // no-scroll default path is byte-for-byte identical to the pre-scroll
+    // implementation.
+    const uint8_t scroll_x = ula_scroll_x_coarse_;
+    const bool    fine     = ula_fine_scroll_x_;
 
-        const bool flash  = (attr & 0x80) != 0;
-        const bool bright = (attr & 0x40) != 0;
-        uint8_t paper = (attr >> 3) & 0x07;
-        uint8_t ink   =  attr       & 0x07;
+    if (scroll_x == 0 && !fine) {
+        // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).
+        for (int col = 0; col < 32; ++col) {
+            const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
+            const uint8_t attr   = vram_read(static_cast<uint16_t>(eff_attr_base + col), mmu);
 
-        // Flash: swap ink/paper on the active phase.
-        if (flash && flash_phase_) {
-            uint8_t tmp = ink; ink = paper; paper = tmp;
+            const bool flash_a = (attr & 0x80) != 0;
+            const bool bright  = (attr & 0x40) != 0;
+            uint8_t paper = (attr >> 3) & 0x07;
+            uint8_t ink   =  attr       & 0x07;
+
+            if (flash_a && flash_phase_) {
+                uint8_t tmp = ink; ink = paper; paper = tmp;
+            }
+
+            const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
+            const uint8_t paper_idx = paper + (bright ? 8 : 0);
+
+            const uint32_t ink_argb   = lookup_colour(ink_idx);
+            const uint32_t paper_argb = lookup_colour(paper_idx);
+
+            uint32_t* dst = row + DISP_X + col * 8;
+            for (int bit = 7; bit >= 0; --bit) {
+                *dst++ = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+            }
         }
+    } else {
+        // Scrolled path: per-pixel source lookup. The VHDL shift-register
+        // emits px(7:3) (byte column) and px(2:0) (within-byte bit phase)
+        // with px(8) adding a 1-pixel fine offset (line 199 + 216). At the
+        // observable output granularity that collapses to fold_ula_x().
+        for (int disp_x = 0; disp_x < 256; ++disp_x) {
+            const int src_x  = fold_ula_x(disp_x, scroll_x, fine);
+            const int src_col = src_x >> 3;          // byte column 0..31
+            const int src_bit = 7 - (src_x & 0x7);   // MSB-first within byte
+            const uint8_t pixels = vram_read(
+                static_cast<uint16_t>(pixel_base + src_col), mmu);
+            const uint8_t attr   = vram_read(
+                static_cast<uint16_t>(eff_attr_base + src_col), mmu);
 
-        // Apply bright flag: bright colours have index in [8,15].
-        const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
-        const uint8_t paper_idx = paper + (bright ? 8 : 0);
+            const bool flash_a = (attr & 0x80) != 0;
+            const bool bright  = (attr & 0x40) != 0;
+            uint8_t paper = (attr >> 3) & 0x07;
+            uint8_t ink   =  attr       & 0x07;
+            if (flash_a && flash_phase_) {
+                uint8_t tmp = ink; ink = paper; paper = tmp;
+            }
+            const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
+            const uint8_t paper_idx = paper + (bright ? 8 : 0);
+            const uint32_t ink_argb   = lookup_colour(ink_idx);
+            const uint32_t paper_argb = lookup_colour(paper_idx);
 
-        const uint32_t ink_argb   = lookup_colour(ink_idx);
-        const uint32_t paper_argb = lookup_colour(paper_idx);
-
-        // Write 8 pixels; pixel bit 7 is the leftmost pixel.
-        uint32_t* dst = row + DISP_X + col * 8;
-        for (int bit = 7; bit >= 0; --bit) {
-            *dst++ = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+            const bool pix_on = ((pixels >> src_bit) & 1) != 0;
+            row[DISP_X + disp_x] = pix_on ? ink_argb : paper_argb;
         }
     }
 
