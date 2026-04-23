@@ -18,12 +18,19 @@ mouse, and the Multiface / Drive NMI buttons.
     feedback wiring), FE-05 (expansion-bus AND — jnext does not model
     expansion bus).
 
-**Plan-doc inconsistency note (2026-04-22)**: §3.7 (Sinclair 1 + Sinclair
-2 row labels) had the keymaps swapped relative to the authoritative
-`ram/init/keyjoy_64_6.coe` oracle. Three independent sources agree
-(COE, VHDL `zxnext.vhd:3429-3438` mode comment table, FUSE
-`peripherals/joystick.c`). Test rows updated to match COE; the §3.7
-plan text itself is queued for a follow-up edit.
+**Plan-doc inconsistency note (2026-04-22 → resolved 2026-04-23)**: §3.7
+(Sinclair 1 + Sinclair 2 row labels) had the keymaps swapped relative
+to the authoritative `ram/init/keyjoy_64_6.coe` oracle and the
+`membrane_stick.vhd:124-131` address-start selector. Test rows were
+updated to match COE during the Task 3 Input plan; the §3.7 plan text
+and the mode-code table in §1.1 have now been corrected to match the
+COE behaviour: mode 011 (Sinclair 1) maps to row-4 keys 6/7/8/9/0, and
+mode 000 (Sinclair 2) maps to row-3 keys 1/2/3/4/5. The in-tree
+`zxnext.vhd:3429-3438` comment block labels these the other way round;
+it is a stale VHDL comment, not the behavioural oracle. The same
+correction was applied to Open Question §6.3 and the EXT-18 / EXT-19
+row descriptions in §3.3 (which are negative tests — `,` folds into
+row 7, not row 5; LEFT folds into row 3, not row 7).
 
 For the full SKIP-reduction execution log see
 [doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md](../design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md).
@@ -101,10 +108,10 @@ Mode codes (`zxnext.vhd` 3429-3438):
 
 | Code | Mode | Read surface |
 |------|------|--------------|
-| 000 | Sinclair 2 | Keyboard half-row (keys 6,7,8,9,0) |
+| 000 | Sinclair 2 | Keyboard half-row (row 3, keys 1,2,3,4,5) |
 | 001 | Kempston 1 | Port 0x1F |
 | 010 | Cursor (Protek) | Keyboard rows, keys 5,6,7,8,0 |
-| 011 | Sinclair 1 | Keyboard half-row (keys 1,2,3,4,5) |
+| 011 | Sinclair 1 | Keyboard half-row (row 4, keys 6,7,8,9,0) |
 | 100 | Kempston 2 | Port 0x37 |
 | 101 | MD 1 (3 or 6 button) | Port 0x1F, bits 7:6 + 5:0; extras via NR 0xB2 |
 | 110 | MD 2 (3 or 6 button) | Port 0x37, bits 7:6 + 5:0; extras via NR 0xB2 |
@@ -380,8 +387,8 @@ Coverage of `membrane.vhd` 159-254 and `zxnext.vhd` 6206-6212.
 | EXT-15 | Press CAPS LOCK | NR 0xB1 bit 1 = 1 | 6212 |
 | EXT-16 | Press EXTEND | NR 0xB1 bit 0 = 1 | 6212 |
 | EXT-17 | Press EDIT; read 0xF7FE (row 3) | Row 3 shows BREAK/EDIT folded via `matrix_state_3` | 237 |
-| EXT-18 | Press ','; read 0xDFFE (row 5) | Row 5 bit 1/0 ANDed with ex(12:11) | 239 |
-| EXT-19 | Press LEFT; read 0x7FFE (row 7) | Row 7 bits 3:0 ANDed with ex(16:13) | 240 |
+| EXT-18 | Press ','; read 0xDFFE (row 5) | Row 5 unchanged — `,` is sampled into `ex(16)` at index 5 col 5 (`membrane.vhd:214-216`) and folds into row 7 bit 3 via `matrix_state_7 AND ex(16..13)`; row 5 only folds `ex(12:11)` = O/P (`membrane.vhd:239`), so `,` alone is invisible on row 5 | 239 + 214-216 |
+| EXT-19 | Press LEFT; read 0x7FFE (row 7) | Row 7 unchanged — LEFT is sampled into `ex(5)` at index 7 col 5 (`membrane.vhd:223-225`) and folds into row 3 bit 4 via `matrix_state_3 AND ex(5..1)`; row 7 only folds `ex(16..13)` = N/M/SYM-hyst/SPC (`membrane.vhd:240`), so LEFT alone is invisible on row 7 | 240 + 223-225 |
 | EXT-20 | UP + DOWN + LEFT + RIGHT | NR 0xB0 low nibble = 0x0F | 6208 |
 
 ### 3.4 Joystick mode select (JMODE-*)
@@ -529,37 +536,39 @@ because the test harness for `io_mode_change` is not yet specified.
 
 ### 3.7 Sinclair 1 / 2 (SINC-*)
 
-The joystick-to-key translation is performed *outside* the VHDL we
-have (key_joystick module). These tests verify that in a given NR 0x05
-mode, pressing the virtual joystick direction causes the expected
-membrane cell to read as pressed when the corresponding row is
-selected on port 0xFE.
+The joystick-to-key translation happens inside the `membrane_stick`
+module. Mode 011 (Sinclair 1) selects COE addresses 0..4; mode 000
+(Sinclair 2) selects COE addresses 5..9 (`membrane_stick.vhd:124-131`).
+The COE entries at `ram/init/keyjoy_64_6.coe:3-12` decode as:
 
-Keys 1..5 are row 3, bits 0..4 (`membrane.vhd` 245 + row table §1.6).
-Keys 0,9,8,7,6 are row 4, bits 0..4 (line 246). This is the truth the
-tests assert against.
+- Addr 0..4 (Sinclair 1, mode 011): `(row 4, col 3/4/2/1/0)` for
+  directions R/L/D/U/FIRE — i.e. keys **7, 6, 8, 9, 0** on row 4.
+- Addr 5..9 (Sinclair 2, mode 000): `(row 3, col 1/0/2/3/4)` for
+  directions R/L/D/U/FIRE — i.e. keys **2, 1, 3, 4, 5** on row 3.
+
+Membrane rows are: row 3 (A11 = 0xF7FE) = keys 1..5 at col 0..4, and
+row 4 (A12 = 0xEFFE) = keys 0,9,8,7,6 at col 0..4 (`membrane.vhd` 245
++ row table §1.6).
 
 | ID | PRE | Direction | Row addr | Expected bit low | Cite |
 |----|-----|-----------|----------|------------------|------|
-| SINC1-01 | joy0=011 | LEFT  | 0xF7FE | bit 0 (key 1) | 245 |
-| SINC1-02 | joy0=011 | RIGHT | 0xF7FE | bit 1 (key 2) | 245 |
-| SINC1-03 | joy0=011 | DOWN  | 0xF7FE | bit 2 (key 3) | 245 |
-| SINC1-04 | joy0=011 | UP    | 0xF7FE | bit 3 (key 4) | 245 |
-| SINC1-05 | joy0=011 | FIRE  | 0xF7FE | bit 4 (key 5) | 245 |
-| SINC2-01 | joy1=000 | LEFT  | 0xEFFE | bit 3 (key 7) — **host mapping** | 246 |
-| SINC2-02 | joy1=000 | RIGHT | 0xEFFE | bit 4 (key 6) | 246 |
-| SINC2-03 | joy1=000 | DOWN  | 0xEFFE | bit 2 (key 8) | 246 |
-| SINC2-04 | joy1=000 | UP    | 0xEFFE | bit 1 (key 9) | 246 |
-| SINC2-05 | joy1=000 | FIRE  | 0xEFFE | bit 0 (key 0) | 246 |
-| SINC-06 | joy0=011, joy1=000, both LEFT | 0xE7FE (rows 3+4) | row-3 bit 0 AND row-4 bit 3 low | 245-246 + 251 |
+| SINC1-01 | joy0=011 | LEFT  | 0xEFFE | bit 4 (key 6) — COE addr 1 → (row 4, col 4) | 246 + COE:4 |
+| SINC1-02 | joy0=011 | RIGHT | 0xEFFE | bit 3 (key 7) — COE addr 0 → (row 4, col 3) | 246 + COE:3 |
+| SINC1-03 | joy0=011 | DOWN  | 0xEFFE | bit 2 (key 8) — COE addr 2 → (row 4, col 2) | 246 + COE:5 |
+| SINC1-04 | joy0=011 | UP    | 0xEFFE | bit 1 (key 9) — COE addr 3 → (row 4, col 1) | 246 + COE:6 |
+| SINC1-05 | joy0=011 | FIRE  | 0xEFFE | bit 0 (key 0) — COE addr 4 → (row 4, col 0) | 246 + COE:7 |
+| SINC2-01 | joy1=000 | LEFT  | 0xF7FE | bit 0 (key 1) — COE addr 6 → (row 3, col 0) | 245 + COE:9 |
+| SINC2-02 | joy1=000 | RIGHT | 0xF7FE | bit 1 (key 2) — COE addr 5 → (row 3, col 1) | 245 + COE:8 |
+| SINC2-03 | joy1=000 | DOWN  | 0xF7FE | bit 2 (key 3) — COE addr 7 → (row 3, col 2) | 245 + COE:10 |
+| SINC2-04 | joy1=000 | UP    | 0xF7FE | bit 3 (key 4) — COE addr 8 → (row 3, col 3) | 245 + COE:11 |
+| SINC2-05 | joy1=000 | FIRE  | 0xF7FE | bit 4 (key 5) — COE addr 9 → (row 3, col 4) | 245 + COE:12 |
+| SINC-06 | joy0=011, joy1=000, both LEFT | 0xE7FE (rows 3+4) | row-3 bit 0 (S2 LEFT → key 1) AND row-4 bit 4 (S1 LEFT → key 6) low | 245-246 + 251 |
 
-Note on SINC2-* mapping: Sinclair 2 is classically documented as
-"6=LEFT, 7=RIGHT, 8=DOWN, 9=UP, 0=FIRE". The row/bit positions above
-are therefore 4, 3, 2, 1, 0 respectively (key 6 is bit 4 of row 4).
-The ordering in the table above has been reconstructed to match this
-documented mapping; the emulator adapter must implement it the same
-way, and any divergence should be recorded as a bug rather than
-silently "fixed" in the plan. See Open questions §6.3.
+Note: the `zxnext.vhd:3429-3438` comment block labels modes the other
+way round ("000 = Sinclair 2 (67890)" / "011 = Sinclair 1 (12345)").
+The comment is a stale artefact; the behavioural truth is the COE +
+`membrane_stick.vhd` address-start table, which is what these tests
+assert. See Open questions §6.3.
 
 ### 3.8 Cursor / Protek (CURS-*)
 
@@ -732,13 +741,17 @@ select + expansion-bus AND.
    against real hardware whether the "Kempston PS/2" joypad exposes A
    via a different mechanism.
 
-3. **Sinclair 2 key order.** The Spectrum documentation orders Sinclair
-   2 as 6-7-8-9-0 = LEFT/RIGHT/DOWN/UP/FIRE, but multiple historic
-   references disagree about LEFT vs RIGHT (some sources swap 6 and
-   7). The tests in §3.7 encode the "6=LEFT, 7=RIGHT" convention; if
-   the emulator's joystick adapter uses the other convention, one row
-   of this plan is wrong, not the code. Needs the user to pick the
-   canonical convention before the tests bind.
+3. **Sinclair mode labelling vs. VHDL comment.** The `zxnext.vhd`
+   `3429-3438` comment block labels mode 011 as "Sinclair 1 (12345)"
+   and mode 000 as "Sinclair 2 (67890)", but the COE
+   `ram/init/keyjoy_64_6.coe` + `membrane_stick.vhd:124-131`
+   address-start selector do the opposite: mode 011 addresses COE
+   rows 0..4 (keys 6,7,8,9,0 on row 4) and mode 000 addresses COE
+   rows 5..9 (keys 1,2,3,4,5 on row 3). The SINC1-* / SINC2-* rows
+   above encode the COE-faithful behaviour. Worth confirming with
+   Next hardware (which should agree with the COE, since the COE is
+   what the FPGA initialises the keyjoy SDP-RAM with) whether any
+   real-world firmware assumes the stale comment labelling instead.
 
 4. **`port_1f_hw_en` and floating-bus fallback.** KEMP-12 asserts that
    a port 0x1F read returns *not* the Kempston byte when no Kempston

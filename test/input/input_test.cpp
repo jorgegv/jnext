@@ -557,7 +557,7 @@ static void test_ext() {
         Keyboard kb = fresh_keyboard();
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::COMMA), true);
         uint8_t v = kb.read_rows(0xDF);
-        check("EXT-18", "',' folded into row 5 on 0xDFFE",
+        check("EXT-18", "',' alone does NOT affect row 5 on 0xDFFE (folds into row 7 via ex(16))",
               v == 0x1F, DETAIL("got=0x%02X", v));
     }
 
@@ -570,7 +570,7 @@ static void test_ext() {
         Keyboard kb = fresh_keyboard();
         kb.set_extended_key(static_cast<int>(Keyboard::ExtKey::LEFT), true);
         uint8_t v = kb.read_rows(0x7F);
-        check("EXT-19", "LEFT folded into row 7 on 0x7FFE",
+        check("EXT-19", "LEFT alone does NOT affect row 7 on 0x7FFE (folds into row 3 via ex(5))",
               v == 0x1F, DETAIL("got=0x%02X", v));
     }
 
