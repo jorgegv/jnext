@@ -669,16 +669,16 @@ the target line. If target line is 0, the actual comparison is against
 
 ### Test cases (~6 tests)
 
-Status (Wave E, 2026-04-23): rows 4-6 flipped to live `check()` — all pass. Rows 1-3 remain `skip()` F-blocked on VideoTiming per-machine int-position exposure (out of Ula scope; VideoTiming pulse-counter surface is test-only today — no production `Emulator` instance consumes it).
+Status (Wave E 2026-04-23, with post-closure walkback same day): rows 4-6 were initially flipped to live `check()` (all passing) but walked back to `// G:` source comments post-closure — they validated `VideoTiming` interrupt-class logic with no production consumer (the Emulator scheduler reads local fields directly, never `VideoTiming::*`). Rows 1-3 remain `skip()` F-blocked on VideoTiming per-machine int-position exposure. The VHDL-derived expected values are preserved in the surrounding source comments for future resurrection if the VideoTiming production-wiring backlog item ever lands.
 
 | # | Row ID | Test | Machine | Expected | Status |
 |---|------|------|---------|----------|--------|
 | 1 | S14.01 | 48K interrupt position | 48K | hc=116, vc=0 | skip (F: VideoTiming int-position) |
 | 2 | S14.02 | 128K interrupt position | 128K | hc=128, vc=1 | skip (F: VideoTiming int-position) |
 | 3 | S14.03 | Pentagon interrupt position | Pentagon | hc=439, vc=319 | skip (F: VideoTiming int-position) |
-| 4 | S14.04 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse | pass |
-| 5 | S14.05 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 | pass |
-| 6 | S14.06 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc | pass |
+| 4 | S14.04 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse | G (walked back — test-only surface) |
+| 5 | S14.05 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 | G (walked back — test-only surface) |
+| 6 | S14.06 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc | G (walked back — test-only surface) |
 
 ## Section 15: Shadow Screen
 

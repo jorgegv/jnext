@@ -252,3 +252,86 @@ The ULA Video subsystem is now production-grade for:
 The 29 remaining skips are all honestly F-blocked on named subsystem
 plans, each with a one-line reason string pointing at the owner
 subsystem. No lazy-skips, no tautologies, no plan-drift.
+
+## Post-closure amendments (same-day 2026-04-23)
+
+Two post-closure changes landed after the Phase 4 sign-off above; both
+have their own commits + critic passes and are recorded here so the
+audit trail stays honest.
+
+### 1. NR 0x68 bit 3 → `ulap_en` wiring (commit `a1495ba`)
+
+Surfaced by the Phase 3 integration-suite critic. VHDL
+`zxnext.vhd:4550-4551` unconditionally latches `nr_wr_dat(3)` into
+`port_ff3b_ulap_en` on any NR 0x68 write — a second writer to
+`ulap_en` distinct from the port-0xFF3B path (gated on
+`port_bf3b_ulap_mode = "01"` at `:4548`). The pre-fix jnext NR 0x68
+handler forwarded bits 0/2/7 only, silently dropping bit 3.
+
+Fix: one line in the NR 0x68 handler
+(`renderer_.ula().set_ulap_en((v & 0x08) != 0)`) + one regression row
+`INT-ULAPLUS-02` in `ula_integration_test` that clamps
+`ulap_mode=00` to gate off the port-0xFF3B path and exercises the
+ungated NR 0x68 latch via 0x00→0x08→0x00 transitions. Critic APPROVE.
+
+Impact: `ula_integration_test` 6/6/0/0 → 7/7/0/0.
+
+### 2. Wave E walkback — S14.04/05/06 → `// G:` comments
+
+Triggered by the honest-test-plan review of the post-Phase-3 backlog
+item "VideoTiming pulse-counter production wiring". Conclusion:
+Wave E's three rows validated a `VideoTiming` interrupt-class
+state machine that **no production code path consumes**. The actual
+ULA frame + line interrupt emulation is done by
+`Emulator::run_frame` reading local
+`line_int_enabled_`/`ula_int_disabled_`/`line_int_value_` fields
+(see `emulator.cpp:2138, :2154`) — those fields are written by the
+NR 0x22/0x23 handlers but are NEVER forwarded to
+`VideoTiming::set_*`. The `VideoTiming` pulse counters are purely a
+test-observability hook.
+
+Validating logic that no production code depends on is the exact
+coverage-theatre pattern the skip-reduction process exists to
+eliminate. Keeping the three rows as live `check()`s would be
+dishonest about what jnext actually guarantees to users.
+
+Fix: S14.04/05/06 converted to `// G:` comments with an in-source
+reasoning block pointing at the VideoTiming backlog item. If/when a
+future phase funnels the Emulator scheduler through a production
+`VideoTiming` instance (the ~60-line refactor tracked as the
+"VideoTiming pulse-counter production wiring" backlog item), these
+rows become valid to un-comment — the VHDL-derived expected values
+are preserved in the surrounding comment for future resurrection.
+
+Impact:
+- `ula_test` 113/84/0/29 → **110/81/0/29** (−3 rows, −3 pass).
+- Aggregate 3216/3044/0/172 → **3213/3041/0/172** (net −2 rows, −3
+  pass vs. +1 pass from the NR 0x68 fix).
+- Dashboard + traceability matrix + this audit updated to reflect
+  final state.
+
+### Final state (post-amendments)
+
+| Suite | Phase-4 close | Final (post-amendments) |
+|---|---|---|
+| `ula_test` | 113/84/0/29 | **110/81/0/29** |
+| `ula_integration_test` | 6/6/0/0 | **7/7/0/0** |
+| Aggregate | 3215/3043/0/172 | **3213/3041/0/172** |
+
+### Lessons from the amendments
+
+1. **Ship-then-audit can surface dead-code tests.** Wave E's rows
+   PASSED at merge; the critic did its job on the code. What was
+   missing was a review asking "is the thing we're testing consumed
+   by anything?" — a different failure mode from incorrectness.
+2. **Integration-tier critics catch scaffold gaps.** Phase 3's
+   end-to-end assertions put the full NR-dispatch path under test
+   and that's how the NR 0x68 bit 3 gap surfaced. Unit-tier
+   critics had approved Wave C without catching it because Wave C
+   only wired port 0xFF3B / 0xBF3B — the other half of the dual
+   writer lived in a different NR handler.
+3. **"Architectural" is a legitimate reason to defer.** The
+   VideoTiming unification was tempting to paper over with a
+   parallel-forward hack. Honestly annotating it as "purely
+   academic, no user-visible impact" and keeping it on the backlog
+   is better than shipping a second source of truth.

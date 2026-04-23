@@ -1368,105 +1368,24 @@ static void test_section14_frame_int() {
     skip("S14.02", "F: blocked on VideoTiming per-machine int-position exposure");
     skip("S14.03", "F: blocked on VideoTiming per-machine int-position exposure");
 
-    // S14.04 — VHDL zxula_timing.vhd:551 gates the ULA per-frame pulse
-    // with `i_inten_ula_n = '0'`. With the gate asserted (interrupts
-    // DISABLED in VHDL parlance; `VideoTiming::set_interrupt_enable(false)`
-    // here) the pulse must NOT fire over a full frame. With the gate
-    // deasserted (enabled) exactly one pulse per frame is expected.
-    {
-        VideoTiming t;
-        t.init(MachineType::ZX48K);
-        int full_frame_tstates = t.hc_max() * t.vc_max() / 2;  // 69888
-
-        // Case A: interrupts disabled → no pulse.
-        t.set_interrupt_enable(false);
-        t.clear_int_counts();
-        t.advance(full_frame_tstates);
-        int disabled_pulses = t.ula_int_pulse_count();
-
-        // Case B: interrupts enabled → exactly one pulse.
-        t.init(MachineType::ZX48K);
-        t.set_interrupt_enable(true);
-        t.clear_int_counts();
-        t.advance(full_frame_tstates);
-        int enabled_pulses = t.ula_int_pulse_count();
-
-        check("S14.04",
-              "zxula_timing.vhd:547-559 — i_inten_ula_n='1' disables per-frame ULA pulse",
-              disabled_pulses == 0 && enabled_pulses == 1,
-              fmt("disabled=%d (exp 0) enabled=%d (exp 1)",
-                  disabled_pulses, enabled_pulses));
-    }
-
-    // S14.05 — VHDL zxula_timing.vhd:574-583 fires the line-int pulse
-    // when (inten_line='1') AND (hc_ula==255) AND (cvc==int_line_num).
-    // Per :566-570 `int_line_num = (line==0) ? c_max_vc : line - 1`.
-    // With target=N (N>=1, N<=vc_max-1) and enable asserted, exactly
-    // one pulse must fire per frame; with enable deasserted, zero.
-    {
-        VideoTiming t;
-        t.init(MachineType::ZX48K);
-        int full_frame_tstates = t.hc_max() * t.vc_max() / 2;
-
-        // Target = 100 → VHDL int_line_num = 99. One pulse per frame
-        // when enable asserted.
-        t.set_interrupt_enable(true);
-        t.set_line_interrupt_enable(true);
-        t.set_line_interrupt_target(100);
-        t.clear_int_counts();
-        t.advance(full_frame_tstates);
-        int pulses_enabled = t.line_int_pulse_count();
-
-        // Same target, enable deasserted → zero pulses.
-        t.init(MachineType::ZX48K);
-        t.set_line_interrupt_enable(false);
-        t.set_line_interrupt_target(100);
-        t.clear_int_counts();
-        t.advance(full_frame_tstates);
-        int pulses_disabled = t.line_int_pulse_count();
-
-        check("S14.05",
-              "zxula_timing.vhd:562-583 — line-int pulse fires once when cvc==target-1 (target=100)",
-              pulses_enabled == 1 && pulses_disabled == 0,
-              fmt("enabled=%d (exp 1) disabled=%d (exp 0) target=100 int_line_num=99",
-                  pulses_enabled, pulses_disabled));
-    }
-
-    // S14.06 — VHDL zxula_timing.vhd:566-568 corner case: target=0
-    // maps to `int_line_num = c_max_vc` (= vc_max - 1, e.g. 311 for
-    // 48K). The pulse then fires on the final line of the frame,
-    // i.e. at the cvc==max_vc → 0 wrap boundary. Exactly one pulse
-    // per frame when enable asserted, same as S14.05 — the
-    // distinction is that the position sits on the wrap line.
-    {
-        VideoTiming t;
-        t.init(MachineType::ZX48K);
-        int full_frame_tstates = t.hc_max() * t.vc_max() / 2;
-
-        t.set_interrupt_enable(true);
-        t.set_line_interrupt_enable(true);
-        t.set_line_interrupt_target(0);  // maps to c_max_vc (VHDL :567)
-        t.clear_int_counts();
-        t.advance(full_frame_tstates);
-        int pulses_target0 = t.line_int_pulse_count();
-
-        // Also: confirm NO pulse fires earlier in the frame (target=0
-        // is explicitly the max-line case, not line 0).
-        t.init(MachineType::ZX48K);
-        t.set_interrupt_enable(true);
-        t.set_line_interrupt_enable(true);
-        t.set_line_interrupt_target(0);
-        t.clear_int_counts();
-        // Advance half a frame — vc still below c_max_vc, so no pulse.
-        t.advance(full_frame_tstates / 2);
-        int pulses_half_frame = t.line_int_pulse_count();
-
-        check("S14.06",
-              "zxula_timing.vhd:566-568 — target=0 fires at cvc==c_max_vc boundary, not mid-frame",
-              pulses_target0 == 1 && pulses_half_frame == 0,
-              fmt("full_frame=%d (exp 1) half_frame=%d (exp 0) c_max_vc=%d",
-                  pulses_target0, pulses_half_frame, t.vc_max() - 1));
-    }
+    // S14.04/05/06 — Post-closure walkback 2026-04-23: these three rows
+    // were flipped to live check()s by Wave E, driving the VideoTiming
+    // pulse-counter API directly. The underlying VHDL logic (zxula_timing.vhd
+    // :547-583) is faithfully modelled inside VideoTiming, BUT no production
+    // code path writes to those setters or reads those counters — the actual
+    // ULA frame + line interrupt emulation is done by Emulator::run_frame
+    // reading local line_int_enabled_/ula_int_disabled_/line_int_value_ fields
+    // (emulator.cpp:2138, :2154). VideoTiming's interrupt-related state is
+    // test-only dead code. Keeping the rows as check()s would validate logic
+    // that no user-visible emulation depends on — coverage theatre. See
+    // `.prompts/2026-04-23.md` "VideoTiming pulse-counter production wiring"
+    // backlog item for the architectural-unification reasoning and the
+    // decision to defer indefinitely. Un-comment these blocks if/when the
+    // Emulator scheduler is funnelled through a production VideoTiming
+    // instance.
+    // G: S14.04 — VideoTiming inten_ula gate: test-only surface, no production consumer.
+    // G: S14.05 — VideoTiming line-int fire at target-1: test-only surface, no production consumer.
+    // G: S14.06 — VideoTiming target=0 → c_max_vc wrap: test-only surface, no production consumer.
 }
 
 // =========================================================================

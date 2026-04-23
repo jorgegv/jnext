@@ -22,12 +22,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card               |        8 |        8 |      0 |       0 |    100% | Clean. SD card I/O, CMD17/CMD18 block reads            |
 | Sprites               |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Compositor            |      114 |      114 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| ULA Video             |      113 |       84 |      0 |      29 |    100% | Clean. 29 skips all F-blocked on named subsystems: floating-bus (5), ContentionModel (12), Compositor NR 0x68 (3), VideoTiming (7), MMU shadow (2) |
-| ULA Video (int)       |        6 |        6 |      0 |       0 |    100% | Clean. Integration suite: scroll, ULA+, ULAnext, alt-file |
+| ULA Video             |      110 |       81 |      0 |      29 |    100% | Clean. 29 skips all F-blocked on named subsystems: floating-bus (5), ContentionModel (12), Compositor NR 0x68 (3), VideoTiming (7), MMU shadow (2). Wave E's S14.04/05/06 rows removed post-closure (2026-04-23) — tested the VideoTiming interrupt-class logic which has no production consumer (Emulator scheduler reads local fields). |
+| ULA Video (int)       |        7 |        7 |      0 |       0 |    100% | Clean. Integration suite: scroll, ULA+, ULAnext, alt-file, NR 0x68 bit 3 ungated ulap_en. |
 | I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. 1 skip: remaining edge case                     |
 | Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3215** | **3043** |  **0** | **172** | **100%**|                                                        |
+| **Total**             | **3213** | **3041** |  **0** | **172** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
