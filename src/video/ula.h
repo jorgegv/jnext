@@ -61,6 +61,18 @@ public:
         flash_phase_ = false;
         screen_mode_reg_ = 0;
         mode_ = TimexScreenMode::STANDARD;
+
+        // Phase-1 scaffold state (VHDL zxnext.vhd:4987-5029 reset defaults).
+        ula_scroll_x_coarse_ = 0;   // nr_26_ula_scrollx reset X"00"
+        ula_scroll_y_        = 0;   // nr_27_ula_scrolly reset X"00"
+        ula_fine_scroll_x_   = false; // nr_68_ula_fine_scroll_x reset '0'
+        // VHDL zxnext.vhd:5002 — nr_42_ulanext_format reset = X"07".
+        ulanext_format_      = 0x07;
+        ulanext_en_          = false; // nr_43_ulanext_en reset '0'
+        ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
+        alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
+        shadow_screen_en_    = false; // i_ula_shadow_en default '0'
+        border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
     }
 
     /// Set the palette manager reference (must be called before rendering).
@@ -114,6 +126,78 @@ public:
     /// Return the raw byte last written to port 0xFF.
     uint8_t get_screen_mode_reg() const { return screen_mode_reg_; }
 
+    // -------------------------------------------------------------------
+    // Phase-1 scaffold: scroll / ULAnext / ULA+ / shadow / alt-file
+    // API surface for Phase-2 Waves A-F. VHDL refs:
+    //   zxula.vhd:193-207  scroll_y (nr_27)          → ula_scroll_y_
+    //   zxula.vhd:199      scroll_x (nr_26, fine)    → ula_scroll_x_coarse_, ula_fine_scroll_x_
+    //   zxula.vhd:191      i_ula_shadow_en gate       → shadow_screen_en_
+    //   zxula.vhd:218      alt-file bit (port 0xFF b0)→ alt_file_
+    //   zxula.vhd:470,492-515 ULAnext format (nr_42) → ulanext_format_
+    //   zxula.vhd:470,531  ULA+ enable (port 0xFF3B) → ulap_en_
+    // Semantics are VHDL-faithful: setters store raw bytes (no masking) unless
+    // noted; any render-time transform (mod-192 wrap, fine-bit merge, etc.)
+    // stays in the renderer so Phase-2 agents see the untransformed byte.
+    // -------------------------------------------------------------------
+
+    // NR 0x26 coarse X-scroll (8-bit raw). VHDL zxnext.vhd:5304, zxula.vhd:199.
+    void    set_ula_scroll_x_coarse(uint8_t v) { ula_scroll_x_coarse_ = v; }
+    uint8_t get_ula_scroll_x_coarse() const    { return ula_scroll_x_coarse_; }
+
+    // NR 0x27 Y-scroll (8-bit raw; cross-third wrap applied by renderer).
+    // VHDL zxnext.vhd:5307, zxula.vhd:193-207.
+    void    set_ula_scroll_y(uint8_t v) { ula_scroll_y_ = v; }
+    uint8_t get_ula_scroll_y() const    { return ula_scroll_y_; }
+
+    // NR 0x68 bit 2 — fine X-scroll enable. VHDL zxnext.vhd:5449, zxula.vhd:199.
+    void set_ula_fine_scroll_x(bool b)  { ula_fine_scroll_x_ = b; }
+    bool get_ula_fine_scroll_x() const  { return ula_fine_scroll_x_; }
+
+    // NR 0x42 ULAnext format byte (raw). VHDL default X"07" at reset (zxnext.vhd:5002).
+    // Semantics in zxula.vhd:503-515 (case X"01"/X"03"/…/X"7F" ink/paper split).
+    void    set_ulanext_format(uint8_t v) { ulanext_format_ = v; }
+    uint8_t get_ulanext_format() const    { return ulanext_format_; }
+
+    // NR 0x43 bit 0 — ULAnext enable. Phase-2 Wave B/C writes ONLY through
+    // this narrow setter; aggregate NR 0x43 palette-group bits stay owned by
+    // the Compositor/PaletteManager. VHDL zxnext.vhd:5394.
+    void set_ulanext_en(bool b) { ulanext_en_ = b; }
+    bool get_ulanext_en() const { return ulanext_en_; }
+
+    // Port 0xFF3B — ULA+ enable. Narrow setter; ULA+ mode/index live in the
+    // Compositor-side palette state. VHDL zxnext.vhd:4547-4551.
+    void set_ulap_en(bool b) { ulap_en_ = b; }
+    bool get_ulap_en() const { return ulap_en_; }
+
+    // Port 0xFF bit 0 — alt-file (selects 0x4000 vs 0x6000 for primary screen).
+    // Orthogonal to shadow_screen_en_ (bank-5 vs bank-7). VHDL zxula.vhd:218.
+    void set_alt_file(bool b) { alt_file_ = b; }
+    bool get_alt_file() const { return alt_file_; }
+
+    // Port 0x7FFD bit 3 — shadow-screen enable (bank 7 instead of bank 5).
+    // VHDL zxula.vhd:191: when '1', the ULA is limited to the standard mode
+    // (screen_mode forced to "000") because bank 7 is only 8 KB BRAM.
+    // When the flag deasserts we do NOT restore any previous screen_mode:
+    // VHDL is a combinational OR-gate; restoration is the caller's job.
+    void set_shadow_screen_en(bool b) {
+        shadow_screen_en_ = b;
+        if (b) {
+            // Force screen_mode_reg_ bits 5:3 to 000 (STANDARD). Use the
+            // existing setter so any side-effects propagate consistently.
+            // Port 0xFF bit 0 (alt-file) stays intact.
+            const uint8_t masked = static_cast<uint8_t>(screen_mode_reg_ & 0x07);
+            set_screen_mode(masked);
+        }
+    }
+    bool get_shadow_screen_en() const { return shadow_screen_en_; }
+
+    // Wave-D hook: select `border_clr_tmx` (VHDL zxula.vhd:419) route for
+    // border rendering instead of the standard `border_clr`. Default false
+    // preserves existing behaviour; Phase-2 Wave D may flip this based on
+    // shift_screen_mode(2) state.
+    void set_border_clr_tmx_src(bool hi_res) { border_clr_tmx_src_ = hi_res; }
+    bool get_border_clr_tmx_src() const       { return border_clr_tmx_src_; }
+
     /// Render one complete frame.
     ///
     /// @param framebuffer  Pointer to FB_WIDTH × FB_HEIGHT ARGB8888 pixels,
@@ -153,6 +237,17 @@ private:
     bool             flash_phase_     = false; ///< Toggles every 16 frames
     uint8_t          screen_mode_reg_ = 0;     ///< Raw value last written to port 0xFF
     TimexScreenMode  mode_            = TimexScreenMode::STANDARD;
+
+    // --- Phase-1 scaffold (VHDL refs on setter declarations) --------------
+    uint8_t ula_scroll_x_coarse_ = 0;     ///< NR 0x26 (zxula.vhd:199)
+    uint8_t ula_scroll_y_        = 0;     ///< NR 0x27 (zxula.vhd:193-207)
+    bool    ula_fine_scroll_x_   = false; ///< NR 0x68 bit 2 (zxula.vhd:199)
+    uint8_t ulanext_format_      = 0x07;  ///< NR 0x42, VHDL reset X"07" (zxnext.vhd:5002)
+    bool    ulanext_en_          = false; ///< NR 0x43 bit 0 (zxnext.vhd:5394)
+    bool    ulap_en_             = false; ///< Port 0xFF3B enable (zxnext.vhd:4547)
+    bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
+    bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)
+    bool    border_clr_tmx_src_  = false; ///< Wave-D border route select (zxula.vhd:419)
 
     /// Render a display row in STANDARD or STANDARD_1 mode.
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).

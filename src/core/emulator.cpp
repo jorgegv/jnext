@@ -320,8 +320,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x43: Palette control
+    // Bit 0 drives ULAnext enable (zxnext.vhd:5394). The palette-group bits
+    // (7, 6:4, 3, 2, 1) stay owned by PaletteManager. Phase-1 scaffold wires
+    // the narrow bit 0 → Ula::set_ulanext_en; the remaining bits are left to
+    // palette_.write_control(v) unchanged.
     nextreg_.set_write_handler(0x43, [this](uint8_t v) {
         palette_.write_control(v);
+        renderer_.ula().set_ulanext_en((v & 0x01) != 0);
     });
 
     // Register 0x44: Palette value 9-bit (two consecutive writes)
@@ -513,6 +518,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x31: Tilemap Y scroll
     nextreg_.set_write_handler(0x31, [this](uint8_t v) { tilemap_.set_scroll_y(v); });
+
+    // --- Phase-1 scaffold: ULA scroll / ULAnext format ---------------------
+    // Register 0x26 — ULA X-scroll coarse (VHDL zxnext.vhd:5304, zxula.vhd:199).
+    nextreg_.set_write_handler(0x26, [this](uint8_t v) {
+        renderer_.ula().set_ula_scroll_x_coarse(v);
+    });
+    nextreg_.set_read_handler(0x26, [this]() -> uint8_t {
+        return renderer_.ula().get_ula_scroll_x_coarse();
+    });
+
+    // Register 0x27 — ULA Y-scroll (VHDL zxnext.vhd:5307, zxula.vhd:193-207).
+    nextreg_.set_write_handler(0x27, [this](uint8_t v) {
+        renderer_.ula().set_ula_scroll_y(v);
+    });
+    nextreg_.set_read_handler(0x27, [this]() -> uint8_t {
+        return renderer_.ula().get_ula_scroll_y();
+    });
+
+    // Register 0x42 — ULAnext format byte (VHDL zxnext.vhd:5386, reset X"07").
+    nextreg_.set_write_handler(0x42, [this](uint8_t v) {
+        renderer_.ula().set_ulanext_format(v);
+    });
+    nextreg_.set_read_handler(0x42, [this]() -> uint8_t {
+        return renderer_.ula().get_ulanext_format();
+    });
 
     // Register 0x6B: Tilemap control
     nextreg_.set_write_handler(0x6B, [this](uint8_t v) {
@@ -716,12 +746,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x68: ULA control
     //   bit 7 = ULA disable (0=enable, 1=disable)
     //   bit 6:5 = blend mode (00=normal, 01=ULA/tilemap stencil, 10=L2 forced, 11=reserved)
-    //   bit 3 = ULA+ enable
-    //   bits 2:0 = reserved
+    //   bit 4 = cancel extended keys (not wired here)
+    //   bit 3 = ULA+ enable (NR-0x68-side write; port 0xFF3B also drives this —
+    //           we leave it untouched in Phase 1 per plan §3: ULA+ enable lives
+    //           in the port_dispatch side, NOT here)
+    //   bit 2 = ULA fine X-scroll enable (VHDL zxnext.vhd:5449, zxula.vhd:199)
+    //   bit 0 = stencil mode (VHDL 7112)
     nextreg_.set_write_handler(0x68, [this](uint8_t v) {
         renderer_.ula().set_ula_enabled((v & 0x80) == 0);
         // VHDL 7112: ula_blend_mode bits 6:5 (stencil when bit 0 set)
         renderer_.set_stencil_mode((v & 0x01) != 0);
+        // Phase 1 scaffold extension — bit 2 → Ula::set_ula_fine_scroll_x.
+        renderer_.ula().set_ula_fine_scroll_x((v & 0x04) != 0);
     });
 
     // Register 0x69: Display Control 1
@@ -1482,13 +1518,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr);
 
     // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:2685-2686.
-    // Stub: accepts writes, reads back 0x00.
+    // Phase 1 scaffold: 0xBF3B (mode/index) is still a stub — it lives in the
+    // Compositor/PaletteManager palette-path and is NOT aliased to 0xFF3B
+    // (VHDL zxnext.vhd:4525-4538 treats them as distinct write targets with
+    // different semantics). 0xFF3B write now drives Ula::set_ulap_en via
+    // bit 0 (VHDL zxnext.vhd:4548-4549: `port_ff3b_ulap_en <= cpu_do(0)` when
+    // port_bf3b_ulap_mode = "01").  We intentionally do NOT gate on the
+    // ULA+ mode here: the mode-gate logic belongs in the Compositor-owned
+    // 0xBF3B handler when Phase 2 wires it up.  0xFF3B read remains a stub
+    // (the VHDL read path at zxnext.vhd:4556-4569 is write-only-latch plus
+    // palette-readback; no Phase 1 consumer needs read semantics).
     port_.register_handler(0xFFFF, 0xBF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
         [](uint16_t, uint8_t) {});
     port_.register_handler(0xFFFF, 0xFF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
-        [](uint16_t, uint8_t) {});
+        [this](uint16_t, uint8_t v) {
+            renderer_.ula().set_ulap_en((v & 0x01) != 0);
+        });
 
     // --- Magic Port (debug output) ---
     if (cfg.magic_port_enabled) {
