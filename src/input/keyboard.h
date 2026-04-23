@@ -3,6 +3,12 @@
 #include <vector>
 #include <SDL2/SDL.h>
 
+// Forward decl: MembraneStick (Task 3 Input) is wired as an optional
+// upstream joystick-to-keyboard adapter. Runtime (full Emulator) installs
+// a pointer via set_membrane_stick(); unit tests that construct bare
+// Keyboard objects leave it null and bypass the fold.
+class MembraneStick;
+
 /// ZX Spectrum keyboard matrix (8 rows x 5 columns).
 ///
 /// Row selection: upper byte of port address, active-low.
@@ -117,6 +123,16 @@ public:
     /// zxnext.vhd:6212.
     uint8_t nr_b1_byte() const;
 
+    /// Install (or clear) the optional upstream joystick-to-keyboard
+    /// adapter. When non-null, read_rows() AND-folds
+    /// `MembraneStick::compose_into_row(row, mask)` into each selected
+    /// row AFTER the extended-key fold — mirroring VHDL
+    /// `zxnext_top_issue4.vhd:1843`:
+    ///   keyb_col <= keyb_col_i_q AND membrane_stick_col AND ps2_kbd_col
+    /// Null-safe: bare Keyboard instances (unit tests) skip the fold and
+    /// behave exactly as before.
+    void set_membrane_stick(MembraneStick* ms) { membrane_stick_ = ms; }
+
 private:
     /// matrix_[row]: 5-bit state; bit N = 0 means column N key is pressed.
     uint8_t matrix_[8];
@@ -136,6 +152,12 @@ private:
     /// membrane folding (membrane.vhd:236-240) and by nr_b0_byte() /
     /// nr_b1_byte() for NR readbacks.
     uint16_t ex_matrix_ = 0x0000;
+
+    /// Non-owning back-pointer to the owning MembraneStick (installed by
+    /// Emulator via set_membrane_stick()). Null in bare-Keyboard unit
+    /// tests — read_rows() guards for this. See VHDL
+    /// `zxnext_top_issue4.vhd:1843` for the AND-merge semantics.
+    MembraneStick* membrane_stick_ = nullptr;
 
     /// Two-scan shift hysteresis buffer. Active-LOW, matching VHDL
     /// membrane.vhd:184-186 (`matrix_state_ex_0/1 <= (others => '1')`

@@ -14,7 +14,14 @@
 //   ram_ → rom_ → mmu_(ram_,rom_) → port_ → nextreg_ → cpu_(mmu_,port_)
 // ---------------------------------------------------------------------------
 
-Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {}
+Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
+    // Task 3 Input runtime wiring: install the MembraneStick back-pointer
+    // on Keyboard so read_rows() AND-folds joystick→membrane directions
+    // per VHDL `zxnext_top_issue4.vhd:1843`. Done in the ctor (not init())
+    // because both members have storage-class lifetime identical to the
+    // Emulator itself — no soft-reset re-wiring required.
+    keyboard_.set_membrane_stick(&membrane_stick_);
+}
 
 // ---------------------------------------------------------------------------
 // Public interface

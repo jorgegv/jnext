@@ -1,4 +1,5 @@
 #include "input/keyboard.h"
+#include "input/membrane_stick.h"
 #include "core/log.h"
 #include <cstring>
 
@@ -198,7 +199,18 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
     clear_if( 4, 7, 2);   // '.'         → col 2 (key 'M')
     clear_if( 5, 7, 3);   // ','         → col 3 (key 'N')
 
-    // --- Row select AND with both layers applied per row -------------
+    // --- Row select AND with all layers applied per row --------------
+    //
+    // (3) MembraneStick fold (joystick→membrane adapter). Applied AFTER
+    //     the extended-key fold so the active-low AND of every layer is
+    //     the effective row mask — matches VHDL
+    //     `zxnext_top_issue4.vhd:1843`:
+    //         keyb_col <= keyb_col_i_q AND membrane_stick_col AND ps2_kbd_col
+    //     Null-safe: bare Keyboard instances (unit tests) leave
+    //     membrane_stick_ at nullptr and skip this fold entirely. Per-row
+    //     gating / NR-0x05 mode / joystick-enable semantics all live
+    //     inside MembraneStick::compose_into_row() — we just splice the
+    //     5-bit row mask through it.
     uint8_t result = 0x1F;
     for (int row = 0; row < 8; ++row) {
         if (!(addr_high & (1 << row))) {
@@ -206,6 +218,9 @@ uint8_t Keyboard::read_rows(uint8_t addr_high) const {
             if      (row == 0) r = row0_eff;   // (1) hysteresis
             else if (row == 7) r = row7_eff;
             r = static_cast<uint8_t>(r & ext_rowmask[row]);  // (2) ext fold
+            if (membrane_stick_) {
+                r = membrane_stick_->compose_into_row(row, r);  // (3) joy fold
+            }
             result &= r;
         }
     }
