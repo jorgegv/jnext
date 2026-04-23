@@ -115,7 +115,18 @@ public:
     uint8_t clip_x1() const { return clip_x1_; }
     uint8_t clip_x2() const { return clip_x2_; }
     uint8_t clip_y1() const { return clip_y1_; }
-    uint8_t clip_y2() const { return clip_y2_; }
+    // Wave F (S8.08) — render-time y2 clamp per VHDL zxnext.vhd:6779-6783:
+    // when the raw NR 0x1A y2 field has its top two bits set (y2 >= 0xC0),
+    // the consumer-facing signal is clamped to 0xBF.  The VHDL applies the
+    // clamp combinationally at the assignment of `ula_clip_y2_0`, not at the
+    // NR 0x1A storage register (`nr_1a_ula_clip_y2`), so jnext mirrors that
+    // by storing the raw byte and clamping inside the getter.  All callers
+    // (renderer, debugger UI, save-state round-trip of consumers) see the
+    // clamped value — raw storage preserves NR 0x1A write semantics and
+    // keeps save/load of legacy snapshots byte-identical.
+    uint8_t clip_y2() const {
+        return (clip_y2_ & 0xC0) == 0xC0 ? 0xBF : clip_y2_;
+    }
 
     /// Set the Timex screen mode from a port 0xFF write.
     ///
@@ -182,9 +193,14 @@ public:
     void set_shadow_screen_en(bool b) {
         shadow_screen_en_ = b;
         if (b) {
-            // Force screen_mode_reg_ bits 5:3 to 000 (STANDARD). Use the
-            // existing setter so any side-effects propagate consistently.
-            // Port 0xFF bit 0 (alt-file) stays intact.
+            // Force screen_mode_reg_ bits 5:3 (jnext's mode field) to 000
+            // (STANDARD).  Use the existing setter so side-effects propagate
+            // consistently — in particular, Wave-D's set_screen_mode update
+            // re-derives `alt_file_` from mode_bits(0), which is cleared by
+            // this mask.  That matches VHDL zxula.vhd:191 exactly: the full
+            // 3-bit screen_mode (including the alt-file bit) is forced to
+            // "000" when `i_ula_shadow_en='1'`.  The low 3 raw bits of port
+            // 0xFF (non-mode register content) are preserved.
             const uint8_t masked = static_cast<uint8_t>(screen_mode_reg_ & 0x07);
             set_screen_mode(masked);
         }

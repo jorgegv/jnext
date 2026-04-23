@@ -392,10 +392,36 @@ static void test_section5_timex() {
               fmt("got 0x%08X exp 0x%08X (bright white)", line[32], kUlaPalette[15]));
     }
 
-    // S5.04 — hi-colour + alt display file (mode 011).
-    skip("S5.04",
-         "HI_COLOUR+alt (mode 011) not distinguished from HI_COLOUR in Ula::set_screen_mode — "
-         "alt-file bit (zxula.vhd:218) has no observer in hi-colour path");
+    // S5.04 — hi-colour + alt display file (mode 011).  In VHDL zxula.vhd:218
+    // (and the `vram_a <= screen_mode(0) & addr_p_spc_12_5 & px_1(7:3)` fetch
+    // at :235) the pixel base follows screen_mode(0).  For HI_COLOUR mode
+    // screen_mode(1)=1 forces the attribute fetch to '1' & ... (bank 1, 0x6000
+    // range, zxula.vhd:239/249).  In HI_COLOUR+alt both addresses collapse
+    // onto the same byte at 0x6000+poff — a VHDL-literal consequence.  Here
+    // we drive port 0xFF with mode-bits 011 (jnext convention = port_val 0x18)
+    // and poke the combined pixel-and-attr byte 0xC7 (flash=1, bright=1,
+    // paper=0, ink=7; pixel pattern 11000111).  With flash_cnt(4)=0 (first
+    // render, no advance_flash), the leading pixel bit = 1 → ink = 7+bright
+    // → palette[15].  The same stimulus on mode 010 (no alt) would read the
+    // pixel from 0x4000 (= 0x00 default) → paper → palette[8], failing the
+    // equality check — so this observes the alt-file discrimination
+    // end-to-end without needing a separate getter assertion.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x18);  // bits 5:3 = 011 → HI_COLOUR + alt
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xC7);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        check("S5.04",
+              "zxula.vhd:218 + :235 — HI_COLOUR+alt (mode 011) reads pixel AND "
+              "attr from 0x6000+poff (collapsed byte); 0xC7 pixel bit 7=1, "
+              "ink=7 bright=1 → palette[15]",
+              bed.ula.get_alt_file() == true
+              && line[32] == kUlaPalette[15],
+              fmt("alt_file=%d got 0x%08X exp 0x%08X",
+                  static_cast<int>(bed.ula.get_alt_file()),
+                  line[32], kUlaPalette[15]));
+    }
 
     // S5.05 — hi-res mode (mode 110 = port_ff bits 5:3 = 110).
     {
@@ -411,13 +437,57 @@ static void test_section5_timex() {
               fmt("got 0x%08X exp 0x%08X (red)", line[32], kUlaPalette[2]));
     }
 
-    // S5.06 — hi-res border colour uses border_clr_tmx.
-    skip("S5.06",
-         "border_clr_tmx (zxula.vhd:419) not implemented in Ula::render_border_line — hi-res border still uses port_fe colour");
+    // S5.06 — hi-res border colour uses border_clr_tmx.  Per VHDL
+    // zxula.vhd:443-448: when `border_active='1'` and `screen_mode_r(2)='1'`
+    // (hi-res), attr_reg is loaded with `border_clr_tmx` (zxula.vhd:419)
+    // instead of `border_clr` (zxula.vhd:418).  jnext's render_border_line
+    // auto-routes to tmx when mode_==HI_RES.  We approximate the 6-bit VHDL
+    // tmx colour by taking port_ff paper bits (5:3) as a 0–7 palette index.
+    // Here we set port_fe border = 0 (black) and port 0xFF with mode 110
+    // (hi-res) and paper bits 110 (= 6 = yellow).  In standard modes the
+    // border would render black; in hi-res it must render yellow.
+    {
+        UlaBed bed;
+        bed.ula.set_border(0);            // port 0xFE bits 2:0 = 0 → black
+        bed.ula.init_border_per_line();
+        bed.ula.set_screen_mode(0x30);    // bits 5:3 = 110 → HI_RES, paper 6
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
+        check("S5.06",
+              "zxula.vhd:419 + :443-448 — HI_RES border uses border_clr_tmx "
+              "(port_ff paper bits 5:3) instead of border_clr; "
+              "port_fe=0 (black) + port_ff=0x30 (paper=6=yellow) → yellow",
+              line[0] == kUlaPalette[6],
+              fmt("got 0x%08X exp 0x%08X (yellow)",
+                  line[0], kUlaPalette[6]));
+    }
 
-    // S5.07 — shadow screen forces screen_mode to \"000\" (zxula.vhd:191).
-    skip("S5.07",
-         "i_ula_shadow_en → screen_mode forcing (zxula.vhd:191) not wired to Ula::set_screen_mode");
+    // S5.07 — shadow screen forces screen_mode to "000" per VHDL zxula.vhd:191:
+    //   screen_mode_s <= i_port_ff_reg(2 downto 0) when i_ula_shadow_en = '0'
+    //                    else "000";
+    // Phase 1 (commit 8cd3488) implemented `Ula::set_shadow_screen_en(bool)`
+    // which, when asserted, masks the port 0xFF value via
+    // `set_screen_mode(screen_mode_reg_ & 0x07)` — this clears bits 5:3 (the
+    // jnext mode field), which with the Wave-D set_screen_mode update also
+    // clears alt_file_.  Here we verify: after writing a HI_RES port 0xFF
+    // (0x30), asserting shadow_en clamps the effective screen_mode to 000.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x30);    // HI_RES prior to shadow enable
+        bed.ula.set_shadow_screen_en(true);
+        // The "existing getter" is get_screen_mode_reg(); bits 5:3 of the
+        // retained raw byte must now read 000 (jnext's mode field).
+        const uint8_t mode_bits = static_cast<uint8_t>(
+            (bed.ula.get_screen_mode_reg() >> 3) & 0x07);
+        check("S5.07",
+              "zxula.vhd:191 — i_ula_shadow_en='1' forces screen_mode to 000; "
+              "set_shadow_screen_en(true) after port 0xFF=0x30 must zero the "
+              "mode field (bits 5:3 of the stored register)",
+              bed.ula.get_shadow_screen_en() == true && mode_bits == 0,
+              fmt("shadow_en=%d mode_bits=%u reg=0x%02X",
+                  static_cast<int>(bed.ula.get_shadow_screen_en()),
+                  mode_bits, bed.ula.get_screen_mode_reg()));
+    }
 
     // S5.08 — hi-res attr_reg loaded with border_clr_tmx.
     // G: attr_reg + border_clr_tmx (zxula.vhd:384-393) — internal shift-reg detail.
@@ -503,9 +573,35 @@ static void test_section8_clip() {
     // G: o_ula_clipped phc>x2 comparator (zxula.vhd:562) unobservable; e2e via compositor.
     // S8.07 — outside top (vc < y1).
     // G: o_ula_clipped vc<y1 comparator (zxula.vhd:562) unobservable; e2e via compositor.
-    // S8.08 — y2 >= 0xC0 clamp (zxnext.vhd:6779-6782).
-    skip("S8.08",
-         "y2>=0xC0 clamp (zxnext.vhd:6779-6782) not implemented in Ula::set_clip_y2 (raw byte stored)");
+    // S8.08 — y2 >= 0xC0 clamp per VHDL zxnext.vhd:6779-6783:
+    //     if nr_1a_ula_clip_y2(7 downto 6) = "11" then
+    //         ula_clip_y2_0 <= X"BF";
+    //     else
+    //         ula_clip_y2_0 <= nr_1a_ula_clip_y2;
+    //     end if;
+    // The clamp is applied combinationally at the consumer-facing signal
+    // `ula_clip_y2_0`, NOT at the NR 0x1A storage register — so jnext stores
+    // the raw byte and clamps inside the `clip_y2()` getter.  Here we write
+    // three raw values and check the getter: 0xBF (boundary, passes through),
+    // 0xC0 (first clamped value → 0xBF), and 0xFF (maximum, clamped → 0xBF).
+    {
+        UlaBed bed2;
+        bed2.ula.set_clip_y2(0xBF);
+        const bool ok_bf = bed2.ula.clip_y2() == 0xBF;
+        bed2.ula.set_clip_y2(0xC0);
+        const bool ok_c0 = bed2.ula.clip_y2() == 0xBF;
+        bed2.ula.set_clip_y2(0xFF);
+        const bool ok_ff = bed2.ula.clip_y2() == 0xBF;
+        check("S8.08",
+              "zxnext.vhd:6779-6783 — y2 top-two-bits = '11' (>= 0xC0) "
+              "clamps the consumer-facing value to 0xBF; raw byte still "
+              "stored (read-time clamp, render-site equivalent via getter)",
+              ok_bf && ok_c0 && ok_ff,
+              fmt("ok_bf=%d ok_c0=%d ok_ff=%d",
+                  static_cast<int>(ok_bf),
+                  static_cast<int>(ok_c0),
+                  static_cast<int>(ok_ff)));
+    }
 }
 
 // =========================================================================

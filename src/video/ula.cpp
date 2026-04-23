@@ -58,19 +58,36 @@ void Ula::set_screen_mode(uint8_t port_val)
 {
     screen_mode_reg_ = port_val;
 
-    // Mode is encoded in bits 5:3 of port 0xFF.
+    // Mode is encoded in bits 5:3 of port 0xFF (jnext convention).  Per VHDL
+    // zxula.vhd:191, `screen_mode_s <= i_port_ff_reg(2 downto 0)`; VHDL bit 0 of
+    // that 3-bit mode field is the alt-file select (0 = primary 0x4000 pixel
+    // base, 1 = alternate 0x6000 pixel base) — see zxula.vhd:218 and the
+    // `vram_a <= screen_mode(0) & …` fetches at zxula.vhd:235/245.  In jnext's
+    // port-bit convention that corresponds to bit 0 of `mode_bits`.
     const uint8_t mode_bits = (port_val >> 3) & 0x07;
+    // Wave D (S5.04) — alt-file bit tracks mode_bits(0).  Keep `alt_file_`
+    // consistent with the last write to port 0xFF so that HI_COLOUR (mode 010)
+    // vs. HI_COLOUR+alt (mode 011) can be distinguished by the renderer.
+    alt_file_ = (mode_bits & 0x01) != 0;
     switch (mode_bits) {
-        case 0: mode_ = TimexScreenMode::STANDARD;   break;
-        case 1: mode_ = TimexScreenMode::STANDARD_1; break;
-        case 2: mode_ = TimexScreenMode::HI_COLOUR;  break;
-        case 6: mode_ = TimexScreenMode::HI_RES;     break;
+        case 0:                                       // 000 = STANDARD
+        case 1: mode_ = (mode_bits == 0)              // 001 = STANDARD+alt
+                        ? TimexScreenMode::STANDARD
+                        : TimexScreenMode::STANDARD_1;
+                break;
+        case 2:                                       // 010 = HI_COLOUR
+        case 3: mode_ = TimexScreenMode::HI_COLOUR;   // 011 = HI_COLOUR+alt
+                break;                                // (alt_file_ disambiguates)
+        case 6:                                       // 110 = HI_RES
+        case 7: mode_ = TimexScreenMode::HI_RES;      // 111 = HI_RES+alt
+                break;                                // (alt_file_ disambiguates)
         default:
             Log::ula()->warn("Unknown Timex screen mode bits {:#04x}, defaulting to STANDARD", mode_bits);
             mode_ = TimexScreenMode::STANDARD;
             break;
     }
-    Log::ula()->debug("Screen mode set: port_val={:#04x} mode={}", port_val, static_cast<int>(mode_));
+    Log::ula()->debug("Screen mode set: port_val={:#04x} mode={} alt_file={}",
+                      port_val, static_cast<int>(mode_), alt_file_);
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +468,16 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 {
     const uint16_t poff = pixel_addr_offset(screen_row, 0);
-    const uint16_t pixel_base = static_cast<uint16_t>(0x4000u | poff);
+    // Wave D (S5.04) — VHDL zxula.vhd:218/235 shows the pixel vram_a uses
+    // `screen_mode(0) & addr_p_spc_12_5 & px_1(7:3)`: in hi-colour mode the
+    // pixel base follows the alt-file bit (0x4000 when alt=0, 0x6000 when
+    // alt=1).  The attribute base stays at bank 1 (0x6000) because the
+    // attribute fetch uses `'1' & addr_p_spc_12_5 & px_1(7:3)` when
+    // screen_mode(1)='1' (zxula.vhd:239/249).  In HI_COLOUR+alt the pixel
+    // and attribute bytes collide at the same address — a VHDL-literal
+    // consequence that Wave D preserves.
+    const uint16_t pixel_base = static_cast<uint16_t>(
+        (alt_file_ ? 0x6000u : 0x4000u) | poff);
     const uint16_t attr_base  = static_cast<uint16_t>(0x6000u | poff);
 
     // Fill left border.
@@ -565,12 +591,16 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 void Ula::render_border_line(uint32_t* row)
 {
     // Default route: standard `border_clr` from port 0xFE bits 2:0
-    // (zxula.vhd:418).  Wave-D route: when `border_clr_tmx_src_` is set, use
-    // `border_clr_tmx` derived from port 0xFF paper bits (zxula.vhd:419).
-    // Phase 1 is API-only: the Wave-D path is an identical fill today (we
-    // don't yet have the 6-bit tmx colour palette plumbed), so the default
-    // render output is preserved.  Wave D will specialise this branch.
-    const uint8_t  idx         = border_clr_tmx_src_
+    // (zxula.vhd:418).  Hi-res route: when `border_clr_tmx_src_` is set OR the
+    // current Timex screen mode is HI_RES, use `border_clr_tmx` (zxula.vhd:419,
+    // :443-448): in VHDL the attr_reg is loaded with `border_clr_tmx` whenever
+    // `shift_screen_mode(2)='1'`.  jnext approximates the 6-bit tmx colour by
+    // taking port_ff paper bits (5:3) as a 0–7 palette index, since we don't
+    // plumb the full 6-bit `"01" & not paper & paper` palette-group encoding
+    // — a documented limitation tracked by S5.06's one-line citation.
+    const bool     use_tmx = border_clr_tmx_src_
+                             || (mode_ == TimexScreenMode::HI_RES);
+    const uint8_t  idx     = use_tmx
         ? static_cast<uint8_t>((screen_mode_reg_ >> 3) & 0x07)
         : border_colour_;
     const uint32_t border_argb = lookup_colour(idx);
