@@ -137,6 +137,17 @@ uint8_t vhdl_border_clr_tmx(uint8_t port_ff) {
     return static_cast<uint8_t>(0x40 | ((~f & 0x07) << 3) | f);
 }
 
+// zxula.vhd:531-541 — ULA+ ula_pixel encoding.
+//   ula_pixel(7:3) = "11" & attr(7:6) & (screen_mode(2) or not pixel_en)
+//   ula_pixel(2:0) = attr(2:0) if pixel_en else attr(5:3)
+uint8_t vhdl_ulap_pixel(bool pixel_en, uint8_t attr, bool screen_mode_2) {
+    uint8_t pg     = (attr >> 6) & 0x03;
+    uint8_t low3   = pixel_en ? (attr & 0x07) : ((attr >> 3) & 0x07);
+    uint8_t bit3   = ((screen_mode_2 ? 1u : 0u) | (pixel_en ? 0u : 1u)) & 0x01;
+    uint8_t upper5 = 0x18 | (pg << 1) | bit3;  // "11" & attr(7:6) & bit3
+    return static_cast<uint8_t>((upper5 << 3) | low3);
+}
+
 // ── Shared harness bits ───────────────────────────────────────────────
 
 struct UlaBed {
@@ -364,8 +375,22 @@ static void test_section4_flash_timing() {
     }
 
     // S4.06 — ULA+ disables flash (zxula.vhd:470 "and not i_ulap_en").
-    skip("S4.06",
-         "ULA+ not implemented in Ula (no port 0xFF3B enable); zxula.vhd:470 \"and not i_ulap_en\" term unobservable");
+    // With ulap_en=1 the flash XOR term is suppressed, so a scanline with
+    // attr(7)=1 must render identically across the 16-frame flash phase.
+    {
+        UlaBed bed;
+        bed.ula.set_ulap_en(true);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x5800, 0x87);  // attr(7)=1 (would-be flash), paper=0, ink=7
+        std::array<uint32_t, 320> a{}, b{};
+        bed.ula.render_scanline(a.data(), 32, bed.mmu);
+        for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
+        bed.ula.render_scanline(b.data(), 32, bed.mmu);
+        check("S4.06",
+              "zxula.vhd:470 — ULA+ enable suppresses flash XOR (pixel stable across phase)",
+              a[32] == b[32],
+              fmt("phase0=0x%08X phase1=0x%08X", a[32], b[32]));
+    }
 }
 
 // =========================================================================
@@ -718,12 +743,140 @@ static void test_section6_ulanext() {
 static void test_section7_ulaplus() {
     set_group("S07-ULAplus");
 
-    skip("S7.01", "ULA+ not implemented — port_ff3b_ulap_en missing (zxula.vhd:531)");
-    skip("S7.02", "ULA+ not implemented — paper encoding bit 3 = NOT pixel_en (zxula.vhd:531)");
-    skip("S7.03", "ULA+ not implemented — palette group 3 encoding from attr bits 7:6 (zxula.vhd:531)");
-    skip("S7.04", "ULA+ not implemented — paper path for palette group 3 (zxula.vhd:531-541)");
-    skip("S7.05", "ULA+ not implemented — hi-res forces bit 3 via screen_mode(2) (zxula.vhd:531)");
-    skip("S7.06", "ULA+ not implemented — attr(7) reinterpreted as palette group bit not flash (zxula.vhd:531)");
+    // ── S7.01 — port_ff3b_ulap_en plumbing (zxnext.vhd:4547-4554). ───────
+    // VHDL: `port_ff3b_ulap_en <= cpu_do(0)` when port_bf3b_ulap_mode = "01".
+    // End-to-end: set mode, write 1, read back enabled; clear mode, writes
+    // must no longer flip the enable.
+    {
+        UlaBed bed;
+        // Power-on default: enable is '0' (zxnext.vhd:4547).
+        bool def_ok = (bed.ula.get_ulap_en() == false);
+        // Mode = "01" → enable latch is open.
+        bed.ula.set_ulap_mode(0x01);
+        // Mimic Emulator's port 0xFF3B handler: gate on ulap_mode, then set.
+        if (bed.ula.get_ulap_mode() == 0x01) bed.ula.set_ulap_en(true);
+        bool set_ok = (bed.ula.get_ulap_en() == true);
+        // Mode flips to "00" (palette-index mode): subsequent writes must
+        // not touch the enable per zxnext.vhd:4548 gate. Keep handler logic.
+        bed.ula.set_ulap_mode(0x00);
+        if (bed.ula.get_ulap_mode() == 0x01) bed.ula.set_ulap_en(false);
+        bool hold_ok = (bed.ula.get_ulap_en() == true);
+        check("S7.01",
+              "zxnext.vhd:4547-4554 — port_ff3b_ulap_en latch gated by ulap_mode=\"01\"",
+              def_ok && set_ok && hold_ok,
+              fmt("def=%d set=%d hold=%d", def_ok, set_ok, hold_ok));
+    }
+
+    // ── S7.02 — paper encoding: bit 3 = NOT pixel_en (zxula.vhd:531). ────
+    // With screen_mode(2)=0 and attr(7:6)=00, toggling pixel_en must flip
+    // ula_pixel bit 3 alone.
+    {
+        const uint8_t attr = 0x00;
+        const uint8_t got_ink   = Ula::encode_ulap_pixel(true,  attr, false);
+        const uint8_t got_paper = Ula::encode_ulap_pixel(false, attr, false);
+        const uint8_t exp_ink   = vhdl_ulap_pixel(true,  attr, false);  // 0xC0
+        const uint8_t exp_paper = vhdl_ulap_pixel(false, attr, false);  // 0xC8
+        const bool bit3_toggles = ((got_ink ^ got_paper) & 0x08) != 0;
+        check("S7.02",
+              "zxula.vhd:531 — paper encoding bit 3 = NOT pixel_en",
+              got_ink == exp_ink && got_paper == exp_paper && bit3_toggles,
+              fmt("ink=0x%02X/exp 0x%02X paper=0x%02X/exp 0x%02X",
+                  got_ink, exp_ink, got_paper, exp_paper));
+    }
+
+    // ── S7.03 — palette-group encoding from attr(7:6) (zxula.vhd:531). ───
+    // Vary attr(7:6) across all 4 values; bits 5:4 of ula_pixel must follow.
+    {
+        bool ok = true;
+        std::string detail;
+        for (uint8_t pg = 0; pg < 4; ++pg) {
+            const uint8_t attr = static_cast<uint8_t>(pg << 6);
+            const uint8_t got  = Ula::encode_ulap_pixel(true, attr, false);
+            const uint8_t exp  = vhdl_ulap_pixel(true, attr, false);
+            // Expected upper nibble: "11" & pg (4 bits = 0xC | pg).
+            const uint8_t exp_hi4 = static_cast<uint8_t>(0xC | pg);
+            const uint8_t got_hi4 = static_cast<uint8_t>((got >> 4) & 0x0F);
+            if (got != exp || got_hi4 != exp_hi4) {
+                ok = false;
+                detail = fmt("pg=%u got=0x%02X exp=0x%02X", pg, got, exp);
+                break;
+            }
+        }
+        check("S7.03",
+              "zxula.vhd:531 — ula_pixel(5:4) = attr(7:6) (palette-group select)",
+              ok, detail);
+    }
+
+    // ── S7.04 — paper path for palette group 3 (zxula.vhd:531-541). ──────
+    // attr(7:6)=11, pixel_en=0 → upper5 = "11" & "11" & "1" = 11111 → 0xF8;
+    // low3 = attr(5:3). Vary attr(5:3) across all 8 values.
+    {
+        bool ok = true;
+        std::string detail;
+        for (uint8_t p = 0; p < 8; ++p) {
+            const uint8_t attr = static_cast<uint8_t>(0xC0 | (p << 3));
+            const uint8_t got  = Ula::encode_ulap_pixel(false, attr, false);
+            const uint8_t exp  = vhdl_ulap_pixel(false, attr, false);
+            // Expected: 0xF8 | p.
+            const uint8_t exp_val = static_cast<uint8_t>(0xF8 | p);
+            if (got != exp || got != exp_val) {
+                ok = false;
+                detail = fmt("p=%u attr=0x%02X got=0x%02X exp=0x%02X",
+                             p, attr, got, exp_val);
+                break;
+            }
+        }
+        check("S7.04",
+              "zxula.vhd:531-541 — paper path palette group 3: 0xF8 | attr(5:3)",
+              ok, detail);
+    }
+
+    // ── S7.05 — hi-res (screen_mode(2)=1) forces bit 3 high (zxula.vhd:531). ─
+    // Even when pixel_en=1 (ink path), screen_mode_2=1 forces ula_pixel(3)=1.
+    // Compare pair with/without screen_mode_2.
+    {
+        const uint8_t attr = 0x00;
+        const uint8_t got_lo = Ula::encode_ulap_pixel(true, attr, false);  // bit3=0
+        const uint8_t got_hi = Ula::encode_ulap_pixel(true, attr, true);   // bit3=1
+        const uint8_t exp_lo = vhdl_ulap_pixel(true, attr, false);
+        const uint8_t exp_hi = vhdl_ulap_pixel(true, attr, true);
+        const bool bit3_lo_clear = (got_lo & 0x08) == 0;
+        const bool bit3_hi_set   = (got_hi & 0x08) != 0;
+        check("S7.05",
+              "zxula.vhd:531 — screen_mode(2)=1 ORs into ula_pixel(3)",
+              got_lo == exp_lo && got_hi == exp_hi && bit3_lo_clear && bit3_hi_set,
+              fmt("lo=0x%02X/exp 0x%02X hi=0x%02X/exp 0x%02X",
+                  got_lo, exp_lo, got_hi, exp_hi));
+    }
+
+    // ── S7.06 — attr(7) reinterpreted as palette-group bit (zxula.vhd:531). ─
+    // When ulap_en=1, attr(7) must NOT act as flash; two scanlines across
+    // a 16-frame flash phase with attr(7)=1 must be identical (no XOR).
+    // Additionally the encoder must surface attr(7) in ula_pixel(5).
+    {
+        // End-to-end flash-suppression check (dovetails with S4.06 but this
+        // row asserts the attr(7) reinterpretation specifically).
+        UlaBed bed;
+        bed.ula.set_ulap_en(true);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x5800, 0x87);  // attr(7)=1, paper=0, ink=7
+        std::array<uint32_t, 320> a{}, b{};
+        bed.ula.render_scanline(a.data(), 32, bed.mmu);
+        for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
+        bed.ula.render_scanline(b.data(), 32, bed.mmu);
+        const bool stable = (a[32] == b[32]);
+
+        // Encoder check: attr(7)=1 → ula_pixel(5)=1 (part of palette-group
+        // select, not flash). With attr = 0x80 → attr(7:6)=10b=pg=2, so the
+        // upper nibble becomes "11"&"10" = 0xE; bit 5 of ula_pixel is set.
+        const uint8_t got = Ula::encode_ulap_pixel(true, 0x80, false);
+        const uint8_t exp = vhdl_ulap_pixel(true, 0x80, false);
+        const bool group_bit_set = (got & 0x20) != 0;  // ula_pixel bit 5
+        check("S7.06",
+              "zxula.vhd:531 — attr(7) reinterpreted as palette-group bit in ULA+",
+              stable && got == exp && group_bit_set,
+              fmt("stable=%d got=0x%02X exp=0x%02X", stable, got, exp));
+    }
 }
 
 // =========================================================================

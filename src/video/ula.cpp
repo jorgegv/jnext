@@ -51,6 +51,42 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 }
 
 // ---------------------------------------------------------------------------
+// encode_ulap_pixel — ULA+ 8-bit ula_pixel index (VHDL zxula.vhd:531-541)
+// ---------------------------------------------------------------------------
+//
+// Pure function of (pixel_en, attr, screen_mode_2). Layout:
+//
+//   ula_pixel(7:3) = "11" & attr(7:6) & (screen_mode_2 or not pixel_en)
+//   ula_pixel(2:0) = attr(2:0) if pixel_en else attr(5:3)
+//
+// Rows covered by this helper:
+//   S7.02 — paper encoding bit 3 = NOT pixel_en (zxula.vhd:531).
+//   S7.03 — palette group 3 encoding from attr(7:6) (zxula.vhd:531).
+//   S7.04 — paper path for palette group 3 (zxula.vhd:531-541).
+//   S7.05 — hi-res forces bit 3 via screen_mode(2) (zxula.vhd:531).
+//   S7.06 — attr(7) reinterpreted as palette-group bit when ULA+ enabled.
+//
+// The lower-3-bit split between ink (attr(2:0)) and paper (attr(5:3)) is
+// identical to the standard-ULA encoder; the difference is the upper 5
+// bits — where standard ULA encodes bright/paper as "000" & not_pixel &
+// attr(6), ULA+ fixes the top two bits to "11" (addressing the upper
+// quadrant of the 256-entry palette store) and uses attr(7:6) as the
+// palette-group selector.
+uint8_t Ula::encode_ulap_pixel(bool pixel_en, uint8_t attr, bool screen_mode_2)
+{
+    const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);  // attr(7:6)
+    const uint8_t low3 = pixel_en
+        ? static_cast<uint8_t>(attr & 0x07)
+        : static_cast<uint8_t>((attr >> 3) & 0x07);
+    const uint8_t not_pixel_en = pixel_en ? 0u : 1u;
+    const uint8_t bit3 = static_cast<uint8_t>(
+        ((screen_mode_2 ? 1u : 0u) | not_pixel_en) & 0x01);
+    // upper 5 bits: "11" & attr(7:6) & bit3
+    const uint8_t upper5 = static_cast<uint8_t>(0x18 | (pg << 1) | bit3);
+    return static_cast<uint8_t>((upper5 << 3) | low3);
+}
+
+// ---------------------------------------------------------------------------
 // set_screen_mode
 // ---------------------------------------------------------------------------
 
@@ -453,9 +489,11 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             uint8_t paper = (attr >> 3) & 0x07;
             uint8_t ink   =  attr       & 0x07;
 
-            // zxula.vhd:470 — flash XOR is gated off when i_ulanext_en='1'
-            // (Wave B). Wave C will extend this with !ulap_en_ on merge.
-            if (flash_a && flash_phase_ && !ulanext_en_) {
+            // zxula.vhd:470 — `attr_active(7) and flash_cnt(4) and
+            // (not i_ulanext_en) and not i_ulap_en`: BOTH ULAnext (Wave B)
+            // and ULA+ (Wave C) suppress the flash XOR term so attr(7) can
+            // be reinterpreted as a palette-group bit.
+            if (flash_a && flash_phase_ && !ulanext_en_ && !ulap_en_) {
                 uint8_t tmp = ink; ink = paper; paper = tmp;
             }
 
@@ -488,10 +526,9 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             const bool bright  = (attr & 0x40) != 0;
             uint8_t paper = (attr >> 3) & 0x07;
             uint8_t ink   =  attr       & 0x07;
-            // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1'
-            // (Wave B). Wave C will extend with !ulap_en_ on merge. Mirrors
-            // the fast-path gate at line 458 — keeps both branches consistent.
-            if (flash_a && flash_phase_ && !ulanext_en_) {
+            // zxula.vhd:470 — both ULAnext (Wave B) and ULA+ (Wave C)
+            // suppress the flash XOR; mirrors the fast-path gate above.
+            if (flash_a && flash_phase_ && !ulanext_en_ && !ulap_en_) {
                 uint8_t tmp = ink; ink = paper; paper = tmp;
             }
             const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
@@ -562,9 +599,9 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
         uint8_t paper = (attr >> 3) & 0x07;
         uint8_t ink   =  attr       & 0x07;
 
-        // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1' (Wave C
-        // will add i_ulap_en here too).
-        if (flash && flash_phase_ && !ulanext_en_) {
+        // zxula.vhd:470 — flash XOR gated off when i_ulanext_en='1' or
+        // i_ulap_en='1' (Waves B + C combined).
+        if (flash && flash_phase_ && !ulanext_en_ && !ulap_en_) {
             uint8_t tmp = ink; ink = paper; paper = tmp;
         }
 
@@ -702,6 +739,7 @@ void Ula::save_state(StateWriter& w) const
     w.write_bool(alt_file_);
     w.write_bool(shadow_screen_en_);
     w.write_bool(border_clr_tmx_src_);
+    w.write_u8(ulap_mode_);
 }
 
 void Ula::load_state(StateReader& r)
@@ -726,4 +764,5 @@ void Ula::load_state(StateReader& r)
     alt_file_            = r.read_bool();
     shadow_screen_en_    = r.read_bool();
     border_clr_tmx_src_  = r.read_bool();
+    ulap_mode_           = r.read_u8();
 }

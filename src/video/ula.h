@@ -70,6 +70,7 @@ public:
         ulanext_format_      = 0x07;
         ulanext_en_          = false; // nr_43_ulanext_en reset '0'
         ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
+        ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
         shadow_screen_en_    = false; // i_ula_shadow_en default '0'
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
@@ -204,6 +205,42 @@ public:
     void set_ulap_en(bool b) { ulap_en_ = b; }
     bool get_ulap_en() const { return ulap_en_; }
 
+    // Port 0xBF3B — ULA+ mode/index register (write-only latch).
+    // VHDL zxnext.vhd:4525-4538: `port_bf3b_ulap_mode <= cpu_do(7 downto 6)`.
+    // Only the top 2 bits are the mode-group; the low 6 bits (index) are
+    // owned by the Compositor/PaletteManager palette-index state and are not
+    // tracked here. We need `ulap_mode_` on Ula because the 0xFF3B write
+    // at zxnext.vhd:4548 is gated on `port_bf3b_ulap_mode = "01"`, so the
+    // Emulator port-dispatch path has to consult Ula to decide whether the
+    // 0xFF3B enable latch fires. Setter stores raw 2-bit value (0..3).
+    void    set_ulap_mode(uint8_t m) { ulap_mode_ = static_cast<uint8_t>(m & 0x03); }
+    uint8_t get_ulap_mode() const    { return ulap_mode_; }
+
+    // ULA+ pixel encoder — VHDL zxula.vhd:531-541.
+    //
+    // Produces the 8-bit ula_pixel palette index when ULA+ is enabled.
+    // Inputs:
+    //   pixel_en     — combined shift-register/flash/border gate (zxula.vhd:470).
+    //                  In ULA+ mode the flash XOR is suppressed and attr(7)
+    //                  is reinterpreted as a palette-group bit, so callers
+    //                  pass the RAW shift-reg bit (zxula.vhd:470 with the
+    //                  `and not i_ulap_en` term zeroing the flash XOR).
+    //   attr         — attribute byte from the attr plane.
+    //   screen_mode_2 — zxula.vhd:191-209 `screen_mode(2)` latched signal,
+    //                  which is port_ff_reg(2) on the Next (hi-res bit in
+    //                  the VHDL's 3-bit screen_mode encoding). Forces the
+    //                  low bit of the upper nibble high per :535.
+    //
+    // Output (8 bits):
+    //   bits(7:3) = "11" & attr(7:6) & (screen_mode_2 or not pixel_en)
+    //   bits(2:0) = attr(2:0)  if pixel_en else attr(5:3)
+    //
+    // Note: this is a pure function of its inputs; it does not consult any
+    // Ula state. It is exposed publicly so the ULA renderer AND subsystem
+    // tests can call it with identical semantics (VHDL-oracle symmetry with
+    // `vhdl_standard_ula_pixel` in the test file).
+    static uint8_t encode_ulap_pixel(bool pixel_en, uint8_t attr, bool screen_mode_2);
+
     // Port 0xFF bit 0 — alt-file (selects 0x4000 vs 0x6000 for primary screen).
     // Orthogonal to shadow_screen_en_ (bank-5 vs bank-7). VHDL zxula.vhd:218.
     void set_alt_file(bool b) { alt_file_ = b; }
@@ -285,6 +322,7 @@ private:
     uint8_t ulanext_format_      = 0x07;  ///< NR 0x42, VHDL reset X"07" (zxnext.vhd:5002)
     bool    ulanext_en_          = false; ///< NR 0x43 bit 0 (zxnext.vhd:5394)
     bool    ulap_en_             = false; ///< Port 0xFF3B enable (zxnext.vhd:4547)
+    uint8_t ulap_mode_           = 0;     ///< Port 0xBF3B top-2 bits (zxnext.vhd:4529/4532)
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
     bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)
     bool    border_clr_tmx_src_  = false; ///< Wave-D border route select (zxula.vhd:419)
