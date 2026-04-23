@@ -76,14 +76,14 @@ add_test(NAME input_tests COMMAND input_test)
 # port 0xFE byte assembly path (KBD-22/23, FE-01..05). These rows need
 # the port-dispatch wrapper at zxnext.vhd:3459 — the '1' & EAR & '1' &
 # i_KBD_COL composition that lives one level above Keyboard::read_rows
-# in the port-0xFE handler. Mirrors the ctc_int_test linkage above.
-add_executable(input_int_test input/input_int_integration_test.cpp)
-target_link_libraries(input_int_test PRIVATE
+# in the port-0xFE handler. Mirrors the ctc_interrupts_test linkage below.
+add_executable(input_integration_test input/input_integration_test.cpp)
+target_link_libraries(input_integration_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(input_int_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME input_int_tests COMMAND input_int_test)
+target_include_directories(input_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME input_integration_tests COMMAND input_integration_test)
 
 # CTC compliance test
 add_executable(ctc_test ctc/ctc_test.cpp)
@@ -96,13 +96,13 @@ add_test(NAME ctc_tests COMMAND ctc_test)
 # Emulator + NextReg + Im2Controller integration surface (ULA-INT-01/02/
 # 03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10). Mirrors the
 # nextreg_integration_test linkage above.
-add_executable(ctc_int_test ctc_int/ctc_int_integration_test.cpp)
-target_link_libraries(ctc_int_test PRIVATE
+add_executable(ctc_interrupts_test ctc_interrupts/ctc_interrupts_test.cpp)
+target_link_libraries(ctc_interrupts_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
-target_include_directories(ctc_int_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME ctc_int_tests COMMAND ctc_int_test)
+target_include_directories(ctc_interrupts_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ctc_interrupts_tests COMMAND ctc_interrupts_test)
 
 # Layer 2 compliance test
 add_executable(layer2_test layer2/layer2_test.cpp)

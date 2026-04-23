@@ -11,7 +11,7 @@
 // the same port path the real Z80 uses (IN A,(0xFE) / OUT (0xFE),A).
 //
 // Reference plan: doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md, Phase 3.
-// Reference structural template: test/ctc_int/ctc_int_integration_test.cpp.
+// Reference structural template: test/ctc_interrupts/ctc_interrupts_test.cpp.
 //
 // VHDL oracle for port 0xFE byte assembly (zxnext.vhd:3459):
 //   port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL

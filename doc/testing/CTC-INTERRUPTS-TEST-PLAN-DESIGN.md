@@ -21,15 +21,15 @@ with dashboard refresh at `0336c20`.
 
 - **150 plan rows total** (plan summary line says "~151" — (D) plan nit; Section 13 header says "18" but lists 17 NR-C* rows).
 - **`test/ctc/ctc_test.cpp`** runtime: **`Total:  133  Passed:  128  Failed:    0  Skipped:    5`**.
-  - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_int/ctc_int_integration_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
+  - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_interrupts/ctc_interrupts_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
   - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
 - **Remaining 5 skips** in `ctc_test.cpp` (all defensible, all carry explicit one-line reasons):
   - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; user-deferred review-later (WONT-sweep candidate, not WONT this wave).
   - **NR-C0-02** — NR 0xC0 `stackless_nmi` bit; blocked on NMI subsystem (see memory `project_nmi_fragmented_status.md`).
   - **DMA-04** — NMI-driven DMA delay; blocked on the same NMI subsystem.
-  - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_int_integration_test.cpp` (needs live ULA line-counter state).
+  - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_interrupts_test.cpp` (needs live ULA line-counter state).
   - **ULA-INT-06** — line 0 → `c_max_vc` wrap; re-home candidate (needs ULA `c_max_vc` observable).
-- **New companion suite `test/ctc_int/ctc_int_integration_test.cpp`** (created Phase 3c, commit `87fb998`): 10 rows re-homed from `ctc_test.cpp` — **`Total:   10  Passed:   10  Failed:    0  Skipped:    0`** — covering ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10 against a full `Emulator` fixture.
+- **New companion suite `test/ctc_interrupts/ctc_interrupts_test.cpp`** (created Phase 3c, commit `87fb998`): 10 rows re-homed from `ctc_test.cpp` — **`Total:   10  Passed:   10  Failed:    0  Skipped:    0`** — covering ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09/10 against a full `Emulator` fixture.
 - **Architectural change**: the IM2 fabric, previously a 45-line priority-mask stub in `src/cpu/im2.{h,cpp}`, expanded to a full VHDL-faithful `Im2Controller` + `Im2Client` mixin (~171 lines of `.h` + ~800 lines of `.cpp` + new `src/cpu/im2_client.h`). It now covers `device/im2_control.vhd` (RETI/RETN/IM-mode decoder, DMA delay), `device/im2_device.vhd` (per-device state machine `S_0`/`S_REQ`/`S_ACK`/`S_ISR`), `device/im2_peripheral.vhd` (edge detect + int_unq + int_status latches), `device/peripherals.vhd` (daisy chain), and the NR 0xC0/C4/C5/C6/C8/C9/CA/CC/CD/CE handlers in `emulator.cpp`. The legacy `Im2Level` enum is preserved as a compatibility wrapper. `Z80Cpu` gained an opt-in `on_int_ack` callback that is byte-identical to the legacy path when null. Regression (34/0/0) and FUSE Z80 (1356/1356) unchanged throughout.
 - **Follow-up backlog** (non-blocking, see `project_task3_ctc_plan_landed.md`): re-home ULA-INT-04/06 to the integration suite (would bring `ctc_test` to 3 skips); wire port 0xFF bit 6 to `ula_int_disabled_` mirror; add NR 0x22 read handler; remove vestigial `im2_.raise(Im2Level::DMA)`; NMI subsystem to unblock NR-C0-02 + DMA-04.
 
@@ -49,7 +49,7 @@ with dashboard refresh at `0336c20`.
 
 ### Test runner
 
-A dedicated test harness (`ctc_int_test.cpp`) that:
+A dedicated test harness (`ctc_interrupts_test.cpp`) that:
 
 1. Provides direct access to CTC channel registers via simulated I/O writes
    to ports 0x183B-0x1B3B (channels 0-3, selected by A[10:8]).
@@ -428,7 +428,7 @@ doc/design/
 
 ```cmake
 # CTC and Interrupt Controller compliance tests
-add_executable(ctc_int_test
+add_executable(ctc_interrupts_test
     ctc_int/ctc_channel_tests.cpp
     ctc_int/im2_control_tests.cpp
     ctc_int/im2_device_tests.cpp
@@ -440,8 +440,8 @@ add_executable(ctc_int_test
     ctc_int/dma_int_tests.cpp
     ctc_int/unqualified_int_tests.cpp
 )
-target_link_libraries(ctc_int_test PRIVATE jnext_core)
-add_test(NAME ctc_int_test COMMAND ctc_int_test)
+target_link_libraries(ctc_interrupts_test PRIVATE jnext_core)
+add_test(NAME ctc_interrupts_test COMMAND ctc_interrupts_test)
 ```
 
 ## How to Run
@@ -451,7 +451,7 @@ add_test(NAME ctc_int_test COMMAND ctc_int_test)
 cmake --build build -j$(nproc) 2>&1 | tail -5
 
 # Run CTC/interrupt tests standalone
-./build/test/ctc_int_test
+./build/test/ctc_interrupts_test
 
 # Run full regression suite (includes CTC/interrupt tests)
 bash test/regression.sh

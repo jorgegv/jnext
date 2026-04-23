@@ -1873,25 +1873,25 @@ void section12_ula_line_int() {
     set_group("12. ULA/Line Int");
     Im2Controller im2;
 
-    // ULA-INT-01 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ULA-INT-01 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (ULA HC/VC interrupt fires at int_h/int_v — needs full Emulator +
     // Ula + Im2Controller to observe; added in Phase 3).
-    // ULA-INT-02 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ULA-INT-02 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (port 0xFF bit suppresses ULA interrupt — needs port dispatch +
     // ULA + Im2Controller wiring; added in Phase 3).
-    // ULA-INT-03 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ULA-INT-03 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (ula_int_en = NOT port_ff_interrupt_disable — same integration
     // surface as ULA-INT-02; added in Phase 3).
     skip("ULA-INT-04",
          "line interrupt at cvc match — candidate re-home to "
-         "ctc_int_integration_test.cpp (needs ULA line-counter state "
+         "ctc_interrupts_test.cpp (needs ULA line-counter state "
          "via full Emulator; not in the 10-row Phase 3c scope)");
-    // ULA-INT-05 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ULA-INT-05 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (NR 0x22 line_interrupt_en bit — needs NextREG + ULA integration;
     // added in Phase 3).
     skip("ULA-INT-06",
          "line 0 → c_max_vc wrap — candidate re-home to "
-         "ctc_int_integration_test.cpp (needs ULA c_max_vc observable; "
+         "ctc_interrupts_test.cpp (needs ULA c_max_vc observable; "
          "not in the 10-row Phase 3c scope)");
 
     // ULA-INT-07 — zxnext.vhd:1941: IM2 priority index 11 = ULA. When
@@ -1996,7 +1996,7 @@ void section13_nextreg_int_regs() {
               fmt("default=%d on=%d off=%d", defaulted, on, off));
     }
 
-    // NR-C0-04 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // NR-C0-04 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (NR 0xC0 readback composes vector-MSBs + stackless + im_mode +
     // int_mode — needs full NextReg + Im2Controller integration).
 
@@ -2380,9 +2380,9 @@ void section14_status_clear() {
               fmt("starting_clean=%d set_wins=%d", starting_clean, set_wins));
     }
 
-    // ISC-09 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ISC-09 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (legacy NR 0x20 read composes line_ula_00_ctc6..ctc3).
-    // ISC-10 — RE-HOME to test/ctc_int/ctc_int_integration_test.cpp
+    // ISC-10 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (legacy NR 0x22 read bit 7 = NOT pulse_int_n).
 }
 
@@ -2599,7 +2599,7 @@ void section17_joystick_iomode() {
     // handler + joy_iomode_pin7_ field). The bare Ctc / Im2Controller
     // surface under test here cannot observe the pin7 field. Proper home
     // is test/input or a dedicated joy_iomode integration test — neither
-    // the Phase 3 ctc_int_integration_test nor this file is in scope.
+    // the Phase 3 ctc_interrupts_test nor this file is in scope.
     // JOY-02 — (re-home) same as JOY-01: NR 0x0B joy_iomode_0 guard is
     // emulator-level. Deferred to the same future input/emulator test.
 }

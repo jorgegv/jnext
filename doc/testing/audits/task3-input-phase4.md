@@ -14,7 +14,7 @@ Plan doc: [doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md](../../design/TASK3-INP
 | `input_test` pass     |                   23     |                133      |  +110      |
 | `input_test` fail     |                    0     |                  0      |    0       |
 | `input_test` skip     |                  126     |                  6      |  −120      |
-| `input_int_test`      |                  N/A     |              7/5/0/2    |  +5 pass   |
+| `input_integration_test`      |                  N/A     |              7/5/0/2    |  +5 pass   |
 | Aggregate unit suites |                   21     |                 22      |   +1       |
 | Aggregate pass        |                 2876     |               3001      |  +125      |
 | Aggregate skip        |                  336     |                218      |  −118      |
@@ -47,7 +47,7 @@ Plan doc: [doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md](../../design/TASK3-INP
 | 8 — Mouse | 8 | un-skip (H flipped early) | H |
 | 9 — NMI gate (NR 0x06 bits 3/4) | 7 | un-skip (I flipped early) | I |
 | G — host-adapter (MOUSE-09/10/11) | 3 | comment-only | — (Phase 0) |
-| Re-home — port 0xFE assembly | 7 | new `input_int_test` (5 pass, 2 F-skip) | — (Phase 0/3) |
+| Re-home — port 0xFE assembly | 7 | new `input_integration_test` (5 pass, 2 F-skip) | — (Phase 0/3) |
 | **Total** | **126** | | |
 
 ## Architectural delta (`src/`)
@@ -84,7 +84,7 @@ Plan doc: [doc/design/TASK3-INPUT-SKIP-REDUCTION-PLAN.md](../../design/TASK3-INP
 
 These will naturally un-block when the UART+I2C subsystem plan lands.
 
-## Remaining `input_int_test` skips (2 rows)
+## Remaining `input_integration_test` skips (2 rows)
 
 - **FE-04** — issue-2 MIC XOR EAR composition. Needs MIC/EAR analog
   signals routed into the port-0xFE read path. Out of scope for the

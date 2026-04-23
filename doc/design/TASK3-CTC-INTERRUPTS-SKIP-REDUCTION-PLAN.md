@@ -20,7 +20,7 @@ Only defer if: the fold-in would (a) require an additional critic round, (b) tou
 
 ## Section A — Row-by-row triage (106 skips)
 
-Legend for disposition: **A** physical artifact / **B** VHDL-internal pipeline / **C** same-cycle-arbitration (try reframe first) / **D** structurally unreachable / **E** redundant / **F** genuine upstream gap, stay skip / **G** behavioural simplification, stay skip / **WONT** explicit non-implementation / **Un-skip via `<branch>`** un-skipped on named Phase-2 branch / **Re-home** move to `nextreg_integration_test.cpp` or a new `ctc_int_integration_test.cpp`.
+Legend for disposition: **A** physical artifact / **B** VHDL-internal pipeline / **C** same-cycle-arbitration (try reframe first) / **D** structurally unreachable / **E** redundant / **F** genuine upstream gap, stay skip / **G** behavioural simplification, stay skip / **WONT** explicit non-implementation / **Un-skip via `<branch>`** un-skipped on named Phase-2 branch / **Re-home** move to `nextreg_integration_test.cpp` or a new `ctc_interrupts_test.cpp`.
 
 Section 5/6 lazy-skip trio (audited 2026-04-15):
 
@@ -133,7 +133,7 @@ Per-peripheral edge detection + int_status + int_unq bypass. Belongs in `Im2Clie
 
 | ID | Current reason | Disposition | VHDL | Notes |
 |---|---|---|---|---|
-| ULA-INT-01 | ULA HC/VC interrupt | **Re-home to ula integration** | Timing | Covered by existing scheduler at emulator.cpp:1798; add explicit test in `test/nextreg/nextreg_integration_test.cpp` (or new `ctc_int_integration_test.cpp`). Phase 1 re-home. |
+| ULA-INT-01 | ULA HC/VC interrupt | **Re-home to ula integration** | Timing | Covered by existing scheduler at emulator.cpp:1798; add explicit test in `test/nextreg/nextreg_integration_test.cpp` (or new `ctc_interrupts_test.cpp`). Phase 1 re-home. |
 | ULA-INT-02 | port 0xFF interrupt disable | **Re-home** | port_ff_interrupt_disable / zxnext.vhd:5992 | Covered elsewhere (bit already in `ula_int_disabled_`); integration test in Phase 3. |
 | ULA-INT-03 | ula_int_en bit | **Re-home** | zxnext.vhd:~ula_int_en | Integration test. |
 | ULA-INT-04 | Line int at cvc match | **Un-skip via `task3-ctc-g-ula-line`** | zxnext.vhd line interrupt gen | Agent G. Currently implemented as a scheduler event at emulator.cpp:1807-1815 but unobservable at CTC level. Agent G exposes the line_int_pulse feeding Im2Controller index 0. |
@@ -232,9 +232,9 @@ NR 0x20 bit decoder + int_unq wire bypassing int_en.
 - **Comment (A/B/C/D/E):** CTC-CW-11 (D), IM2C-13 (B), PULSE-09 (B), IM2W-09 (B), NR-C5-02 (E) = **5 rows**.
 - **Keep skip, review later:** CTC-NR-04 (cycle-accurate bus arbitration — user deferred WONT conversion 2026-04-21). = **1 row**.
 - **F (keep skip, NMI-blocked):** NR-C0-02, DMA-04 = **2 rows**.
-- **Re-home to nextreg_integration / new ctc_int_integration_test.cpp:** ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10 = **10 rows** (added at Phase 3).
+- **Re-home to nextreg_integration / new ctc_interrupts_test.cpp:** ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10 = **10 rows** (added at Phase 3).
 
-Accounting check: 80 + 5 + 1 + 2 + 10 = **98** (the remaining 8 rows reflect double-counting where some rows depend on multiple agents — e.g. CTC-NR-02 un-skip lives inside Agent E's 19 but is also listed in the lazy-skip trio; UNQ-04/05 credited both to Agent D and once in UNQ tally; etc.). Final expected skip delta at the end of Phase 5: `106 − 80 − 5 − 10 = 11` skips remaining in `ctc_test.cpp`, of which **3 are "genuine plan-declared incomplete"** — CTC-NR-04 (user-deferred review-later, 2026-04-21), NR-C0-02 (stackless_nmi, NMI-blocked), DMA-04 (NMI→delay, NMI-blocked). The remaining 8 are the double-counted/margin accounting drift that the first parallel wave's critic passes will flush out empirically. Re-homed rows land as live passes in the new `test/ctc_int/ctc_int_integration_test.cpp`, not as skips in the CTC file.
+Accounting check: 80 + 5 + 1 + 2 + 10 = **98** (the remaining 8 rows reflect double-counting where some rows depend on multiple agents — e.g. CTC-NR-02 un-skip lives inside Agent E's 19 but is also listed in the lazy-skip trio; UNQ-04/05 credited both to Agent D and once in UNQ tally; etc.). Final expected skip delta at the end of Phase 5: `106 − 80 − 5 − 10 = 11` skips remaining in `ctc_test.cpp`, of which **3 are "genuine plan-declared incomplete"** — CTC-NR-04 (user-deferred review-later, 2026-04-21), NR-C0-02 (stackless_nmi, NMI-blocked), DMA-04 (NMI→delay, NMI-blocked). The remaining 8 are the double-counted/margin accounting drift that the first parallel wave's critic passes will flush out empirically. Re-homed rows land as live passes in the new `test/ctc_interrupts/ctc_interrupts_test.cpp`, not as skips in the CTC file.
 
 **Final projected ctc_test line (target envelope):**
 `Total:  150  Passed:  ≥138  Failed:    0  Skipped:   ≤3` (CTC-NR-04 review-later + 2 NMI-blocked F-keeps), plus 10 rows living as passes in the new integration test.
@@ -485,7 +485,7 @@ The existing `handle_zc_to` ring wrap (ctc.cpp:253-262) stays unchanged. The cal
 1. Convert to `// <ID>: (B/D/E) — <reason> — covered by <other ID>` comments: **CTC-CW-11** (D), **IM2C-13** (B), **PULSE-09** (B), **IM2W-09** (B), **NR-C5-02** (E duplicate).
 2. Keep CTC-NR-04 as `skip()` with updated reason string: `"NR 0xC5 vs port-write overlap — cycle-accurate bus arbitration, review later (user decision 2026-04-21)"`. WONT conversion deferred to a later audit sweep.
 3. Update skip reason on F-keeps: NR-C0-02, DMA-04 → add "Blocked on NMI subsystem (see `memory/project_nmi_fragmented_status.md`)."
-4. For the 10 re-home rows: replace `skip(...)` with `// <ID>: RE-HOME — see test/ctc_int/ctc_int_integration_test.cpp <new row tag>` comment. The new integration test file + its rows are added in Phase 3.
+4. For the 10 re-home rows: replace `skip(...)` with `// <ID>: RE-HOME — see test/ctc_interrupts/ctc_interrupts_test.cpp <new row tag>` comment. The new integration test file + its rows are added in Phase 3.
 
 **Expected delta:** 106 → 106 − 5 (comments) − 10 (re-home) = **91 skips** (CTC-NR-04 review-later + 2 F-keeps + 88 phase-2 work still to do). Pass count unchanged in CTC file (comments are not checks).
 
@@ -636,9 +636,9 @@ Skip delta goal: <rows unblocked on this branch>
 
 ### Phase 3 — Un-skip + add integration tests (self)
 
-**Goal:** flip skip→check for every row now implementable, and add 10 integration tests in `test/nextreg/nextreg_integration_test.cpp` (or a new `test/ctc_int/ctc_int_integration_test.cpp` if the row set justifies a new file — recommended for the UHA-INT + legacy NR 0x20/0x22 rows).
+**Goal:** flip skip→check for every row now implementable, and add 10 integration tests in `test/nextreg/nextreg_integration_test.cpp` (or a new `test/ctc_interrupts/ctc_interrupts_test.cpp` if the row set justifies a new file — recommended for the UHA-INT + legacy NR 0x20/0x22 rows).
 
-**Files touched:** `test/ctc/ctc_test.cpp`, possibly new `test/ctc_int/ctc_int_integration_test.cpp`, `test/nextreg/nextreg_integration_test.cpp`, `test/CMakeLists.txt`.
+**Files touched:** `test/ctc/ctc_test.cpp`, possibly new `test/ctc_interrupts/ctc_interrupts_test.cpp`, `test/nextreg/nextreg_integration_test.cpp`, `test/CMakeLists.txt`.
 
 **Integration rows added:** ULA-INT-01, ULA-INT-02, ULA-INT-03, ULA-INT-05, NR-C0-04, NR-C4-02, NR-C4-03, NR-C6-02, ISC-09, ISC-10.
 
@@ -719,7 +719,7 @@ Skip delta goal: <rows unblocked on this branch>
 ### Open questions resolved (user input 2026-04-21)
 
 1. **~~WONT vs skip for CTC-NR-04~~** — **RESOLVED: keep as `skip()`, review later.** Stays skip with reason string `"NR 0xC5 vs port-write overlap — cycle-accurate bus arbitration, review later"`. Revisit in a future WONT-sweep pass (probably after requirements DB lands).
-2. **~~New integration test file vs extend nextreg_integration_test.cpp~~** — **RESOLVED: new file.** Create `test/ctc_int/ctc_int_integration_test.cpp` (plus `test/ctc_int/CMakeLists.txt` wiring into the top-level test target). Naming approved by user.
+2. **~~New integration test file vs extend nextreg_integration_test.cpp~~** — **RESOLVED: new file.** Create `test/ctc_interrupts/ctc_interrupts_test.cpp` (plus `test/CMakeLists.txt` wiring into the top-level test target). Naming approved by user.
 3. **~~`on_int_ack` callback signature~~** — **RESOLVED: `std::function<uint8_t()>` returning the vector.** Plumbed into `Z80Cpu` as: at IntAck M1 cycle, if `on_int_ack` is set call it and use its return value as the vector byte; else fall back to the legacy `int_vector_` member. Agent B's brief is updated to this form.
 4. **~~Scope of DMA delay into dma.cpp~~** — **RESOLVED: per-frame granularity (option A).** Agent F calls `dma_.set_dma_delay(im2_.current_dma_delay())` once at the top of each `Emulator::run_frame()`. DMA treats it as a frame-wide mask. Sufficient for DMA-01/02/03/05/06. Per-tick upgrade deferred to a focused follow-up branch if concrete software later demonstrates divergence.
 
@@ -774,7 +774,7 @@ Preserved for a future sweep — suggested source comment text if CTC-NR-04 is l
 
 1. **ctc_test final line (target envelope):** `Total:  150  Passed:  ≥138  Failed:    0  Skipped:   ≤3` — the 3 remaining skips are CTC-NR-04 (review-later), NR-C0-02 and DMA-04 (NMI-blocked).
 2. **Aggregate unit tests:** 0 fail; regression 34/0/0; FUSE Z80 1356/1356.
-3. **New integration tests land as live passes** in `test/ctc_int/ctc_int_integration_test.cpp` (new file, confirmed by user 2026-04-21) — 10 rows (ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10).
+3. **New integration tests land as live passes** in `test/ctc_interrupts/ctc_interrupts_test.cpp` (new file, confirmed by user 2026-04-21) — 10 rows (ULA-INT-01/02/03/05, NR-C0-04, NR-C4-02/03, NR-C6-02, ISC-09, ISC-10).
 4. **No new skip()s introduced** in other subsystems without explicit justification. NR 0xC0/C4/C5/C6/C8/C9/CA handlers currently shadow-store; Phase 2 replaces with live wiring — must not introduce new `skip()` calls in `nextreg_integration_test.cpp`.
 5. **All new src/ code has critic-agent APPROVE** — 8 independent critics (Phase 4).
 6. **VHDL citations for every new check().** Every un-skipped row's `check()` description cites the authoritative VHDL `file:line` per process manual §1.
@@ -798,7 +798,7 @@ Preserved for a future sweep — suggested source comment text if CTC-NR-04 is l
 ## Summary (≤300 words)
 
 **Scope decisions made:**
-1. Row-by-row triage of all 106 skips (not 150 plan rows — the 44 live pass are already green). Classified 80 for un-skip via Phase-2 branches, 5 as B/D/E comments, 1 as keep-skip-review-later (CTC-NR-04, per user 2026-04-21), 2 as genuine F (NR-C0-02 and DMA-04, both NMI-blocked), 10 as re-home to the new `test/ctc_int/ctc_int_integration_test.cpp`.
+1. Row-by-row triage of all 106 skips (not 150 plan rows — the 44 live pass are already green). Classified 80 for un-skip via Phase-2 branches, 5 as B/D/E comments, 1 as keep-skip-review-later (CTC-NR-04, per user 2026-04-21), 2 as genuine F (NR-C0-02 and DMA-04, both NMI-blocked), 10 as re-home to the new `test/ctc_interrupts/ctc_interrupts_test.cpp`.
 2. Architected `Im2Controller` as a single owner class (45-line stub becomes ~600 lines) with a `DevIdx` priority enum mirroring zxnext.vhd:1941 exactly. `Im2Client` mixin gives peripherals a thin façade. Device state, RETI/RETN decoder, pulse fabric, NR handlers, and DMA delay all live inside the Controller — not scattered across emulator.cpp.
 3. Preserved the legacy `Im2Controller::raise/clear/get_vector/on_reti` API as compatibility wrappers so Phase 1 scaffold lands without breaking the 44 existing passes.
 4. Z80 CPU core gets ONE new optional callback `on_int_ack = std::function<uint8_t()>` (user-approved 2026-04-21, return-value form) — smallest possible surface change, fallback-compatible when not installed.
@@ -813,4 +813,4 @@ Preserved for a future sweep — suggested source comment text if CTC-NR-04 is l
 2. NMI subsystem absence (per `memory/project_nmi_fragmented_status.md`) — NR-C0-02 and DMA-04 cannot close; plan explicitly deferred.
 3. Pulse-fabric timing crossing machine-timing state could misfire on Pentagon/+3 — mitigated by reading live `timing_.machine`.
 
-**Resolved user inputs 2026-04-21:** CTC-NR-04 → keep-skip-review-later; integration test file → new `test/ctc_int/ctc_int_integration_test.cpp`; `on_int_ack` signature → `std::function<uint8_t()>` return-value; DMA delay granularity → per-frame (Agent F calls `dma_.set_dma_delay(...)` once per `Emulator::run_frame()`).
+**Resolved user inputs 2026-04-21:** CTC-NR-04 → keep-skip-review-later; integration test file → new `test/ctc_interrupts/ctc_interrupts_test.cpp`; `on_int_ack` signature → `std::function<uint8_t()>` return-value; DMA delay granularity → per-frame (Agent F calls `dma_.set_dma_delay(...)` once per `Emulator::run_frame()`).

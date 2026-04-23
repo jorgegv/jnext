@@ -11,7 +11,7 @@ mouse, and the Multiface / Drive NMI buttons.
   - 6 remaining skips are all `IOMODE-05/06/07/08/09/10` — UART pin-7
     routing modes 10 and 11 of NR 0x0B. F-skip blocked on the future
     UART+I2C subsystem plan.
-- `test/input/input_int_integration_test.cpp` (NEW): **7 / 5 / 0 / 2**.
+- `test/input/input_integration_test.cpp` (NEW): **7 / 5 / 0 / 2**.
   - Hosts the 7 port-0xFE-byte-assembly rows re-homed from
     `input_test.cpp` (KBD-22/23, FE-01..05).
   - 2 honest skips: FE-04 (issue-2 MIC^EAR — needs MIC/EAR analog

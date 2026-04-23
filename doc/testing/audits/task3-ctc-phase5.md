@@ -1,7 +1,7 @@
 # Subsystem CTC+Interrupts post-un-skip audit (Phase 5)
 
 **Date**: 2026-04-21
-**Scope**: post-state audit of `test/ctc/ctc_test.cpp` and new companion `test/ctc_int/ctc_int_integration_test.cpp` following the Task 3 CTC+Interrupts SKIP-reduction plan (Phases 0 → 5 all landed on main).
+**Scope**: post-state audit of `test/ctc/ctc_test.cpp` and new companion `test/ctc_interrupts/ctc_interrupts_test.cpp` following the Task 3 CTC+Interrupts SKIP-reduction plan (Phases 0 → 5 all landed on main).
 **Baseline snapshot**: preserved at `doc/testing/audits/task3-ctc.md` (2026-04-15 state: 150/44/0/106 with 3 lazy-skip trio, 1 false-fail that was actually a good-fail).
 **Plan doc (authoritative)**: `doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`.
 
@@ -23,7 +23,7 @@ live as passes in the new companion suite, 2 re-home to the
 emulator/input layer, and 5 are B/D/E-class unobservables merged with
 neighbouring rows that cover the same outcome.
 
-### `test/ctc_int/ctc_int_integration_test.cpp` (new, Phase 3c)
+### `test/ctc_interrupts/ctc_interrupts_test.cpp` (new, Phase 3c)
 
 | Total | Pass | Fail | Skip |
 |------:|-----:|-----:|-----:|
@@ -55,7 +55,7 @@ day:
 | 2 Wave 3 (F + G) | `698b10b` F, `5ce4aaa` G; merges `12f3af7`, `2db02c0` |
 | 3a wire-up | `fb72964` `cpu_.on_int_ack` + `im2_.tick()` |
 | 3b un-skip | `fb1f38a` + `7216ea3` (critic-fix: ULA-INT-04/06 reason strings) |
-| 3c new suite | `87fb998` `ctc_int_integration_test.cpp` |
+| 3c new suite | `87fb998` `ctc_interrupts_test.cpp` |
 | 3 merge into main | `a397422` |
 | 5 dashboard | `0336c20` |
 
@@ -124,7 +124,7 @@ independent critic review before merge (per `feedback_never_self_review.md`).
 
 ### ULA-INT-04 — Line interrupt at cvc match (re-home candidate)
 
-- **Skip message**: `"line interrupt at cvc match — candidate re-home to ctc_int_integration_test.cpp"` (ctc_test.cpp:1885).
+- **Skip message**: `"line interrupt at cvc match — candidate re-home to ctc_interrupts_test.cpp"` (ctc_test.cpp:1885).
 - **VHDL fact**: `zxnext.vhd` line interrupt pulse fires when the ULA
   vertical counter matches the configured line register.
 - **Why it stays**: Agent G's branch wires `line_int_pulse` into the
@@ -135,13 +135,13 @@ independent critic review before merge (per `feedback_never_self_review.md`).
   "candidate re-home" reason string (clarified by Phase 3b critic
   fix `7216ea3`).
 - **Disposition**: follow-up backlog item — re-home to
-  `test/ctc_int/ctc_int_integration_test.cpp` using the existing ULA
+  `test/ctc_interrupts/ctc_interrupts_test.cpp` using the existing ULA
   step-to-line helper. Post-move, `ctc_test.cpp` reaches the target
   3-skip envelope (the original Section 12 triage expectation).
 
 ### ULA-INT-06 — Line 0 → c_max_vc wrap (re-home candidate)
 
-- **Skip message**: `"line 0 → c_max_vc wrap — candidate re-home to ctc_int_integration_test.cpp"` (ctc_test.cpp:1892).
+- **Skip message**: `"line 0 → c_max_vc wrap — candidate re-home to ctc_interrupts_test.cpp"` (ctc_test.cpp:1892).
 - **VHDL fact**: `zxnext.vhd` line interrupt wraps when the
   configured line register is `0`: the pulse fires at `c_max_vc`, not
   at `vc=0`.
@@ -162,7 +162,7 @@ independent critic review before merge (per `feedback_never_self_review.md`).
 | IM2W-09    | **B** (cross-domain pipeline) | IM2W-03 | `isr_serviced` edge detection across clock domains is purely a pipeline stage; already covered outcome-equivalent by IM2W-03 (latch clear is observable). |
 | NR-C5-02   | **E** (redundant) | CTC-NR-02 | Explicitly tagged "duplicate" in the pre-existing test file — identical assertion to CTC-NR-02 which is now passing. |
 
-### 10 re-home placeholders → `test/ctc_int/ctc_int_integration_test.cpp`
+### 10 re-home placeholders → `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
 Now live as passes in the new companion suite (see TRACEABILITY-MATRIX §"Companion integration suite"):
 
@@ -226,7 +226,7 @@ Every row below flipped from `skip()` to `check()` during Phase 3b
   `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/device/{im2_control,im2_device,im2_peripheral,peripherals,ctc,ctc_chan}.vhd`
   and `zxnext.vhd`.
 - **Test files**: `test/ctc/ctc_test.cpp` (2662 lines post-Phase-3),
-  `test/ctc_int/ctc_int_integration_test.cpp` (441 lines, new).
+  `test/ctc_interrupts/ctc_interrupts_test.cpp` (441 lines, new).
 - **Plan file**: `doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md` (Section A triage table is the row-by-row canonical disposition).
 - **Execution state**: 128 check() pass + 5 skip() + 10 cross-file pass = 143 live assertions for the 128+15 rows that still have runtime representation; 17 comment rows are static source documentation of the disposition.
 - **False-pass audit (re-check)**: zero. No row encodes buggy C++ as oracle; all 84 un-skipped rows assert the VHDL behaviour implemented by the Phase-2 agents, critiqued independently before merge.
@@ -239,7 +239,7 @@ Every row below flipped from `skip()` to `check()` during Phase 3b
 
 ## Flagged follow-up backlog (non-blocking)
 
-1. **Re-home ULA-INT-04 and ULA-INT-06** to `ctc_int_integration_test.cpp` (small; brings `ctc_test.cpp` to `131/128/0/3`, matching the original ≤3 skip envelope).
+1. **Re-home ULA-INT-04 and ULA-INT-06** to `ctc_interrupts_test.cpp` (small; brings `ctc_test.cpp` to `131/128/0/3`, matching the original ≤3 skip envelope).
 2. **Port 0xFF bit 6 write-path doesn't mirror to `ula_int_disabled_`** — VHDL `zxnext.vhd:3615-3620` drives `port_ff_reg(6)` from `OUT 0xFF` writes. ULA-INT-02 in the integration suite currently uses the NR 0x22 bit 2 mirror as a workaround.
 3. **NR 0x22 read handler missing** — `NextReg::read()` fallback returns raw `regs_[0x22]`, not the VHDL composed byte (`zxnext.vhd:5991-5992`). ISC-10 asserts only the reset-state invariant.
 4. **Legacy `im2_.raise(Im2Level::DMA)` cleanup** — left in place at `emulator.cpp:1333-1335` for save-state wire-format stability (DMA is a "victim" not a fabric source per VHDL). Schedule for a future cleanup wave.

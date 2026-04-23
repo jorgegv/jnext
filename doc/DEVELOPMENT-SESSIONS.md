@@ -41,7 +41,7 @@
 |        |      | NR 0x12/0x13 readback bug fix, NR 0x82 b2→0xDFFD gate, Makefile dashboard hand-off fix     |
 | 21/4   | 3h   | Task 3: CTC+Interrupts plan CLOSED Phase 0→5 (13 agents, 11 critics, 37 commits)           |
 |        |      | Im2Controller fabric: 45-line stub → ~800 lines (decoder, device SM, daisy, pulse, NR, DMA)|
-|        |      | ctc_test 106→5 skips (+84 pass), new ctc_int_test 10/10. Aggregate 3222/2886/0/336         |
+|        |      | ctc_test 106→5 skips (+84 pass), new ctc_interrupts_test 10/10. Aggregate 3222/2886/0/336         |
 |        |      | NextZXOS boot retest: all ROMs load banner, boots to 48K mode (was blue-stripes DivMMC-IM1)|
 |        |      |                                                                                            |
 | TOTAL: | 142h |                                                                                            |

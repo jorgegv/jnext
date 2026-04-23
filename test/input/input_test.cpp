@@ -318,9 +318,9 @@ static void test_kbd_standard() {
     // RE-HOME: KBD-22 — full port 0xFE byte assembly (bit7='1', bit6=EAR,
     //   bit5='1') per zxnext.vhd:3459. Keyboard::read_rows only returns
     //   bits 4..0; the '1' & EAR & '1' wrapper lives in the port dispatcher.
-    //   Row covered in test/input/input_int_integration_test.cpp (Phase 3).
+    //   Row covered in test/input/input_integration_test.cpp (Phase 3).
     // RE-HOME: KBD-23 — same wrapper with CS pressed. Same reason.
-    //   Row covered in test/input/input_int_integration_test.cpp (Phase 3).
+    //   Row covered in test/input/input_integration_test.cpp (Phase 3).
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1914,7 +1914,7 @@ static void test_port_fe_format() {
     //   (bits 7,5 always 1; bit 6 = EAR; bit 4 OUT-write issue-3; issue-2
     //   MIC^EAR path via NR 0x08 bit 0; expansion-bus AND at
     //   zxnext.vhd:3468). Not reachable from Keyboard::read_rows.
-    //   Rows covered in test/input/input_int_integration_test.cpp (Phase 3).
+    //   Rows covered in test/input/input_integration_test.cpp (Phase 3).
 }
 
 // ── main ────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 
 **Current state.** `input_test.cpp` reports `149 total / 23 pass / 0 fail / 126 skip`. Aggregate unit 3212/2876/0/336 (21 suites), regression 34/0/0, FUSE 1356/1356. Working tree clean on main.
 
-**Intended outcome.** Drive `input_test.cpp` to `6 skip / 0 fail` (~96% coverage), with 7 integration-tier port-0xFE-assembly rows re-homed to new `test/input/input_int_integration_test.cpp`, 3 host-adapter MOUSE rows converted to `// G:` comments, and only the 6 UART-blocked IOMODE rows left as justified `F-skip` until UART+I2C plan lands.
+**Intended outcome.** Drive `input_test.cpp` to `6 skip / 0 fail` (~96% coverage), with 7 integration-tier port-0xFE-assembly rows re-homed to new `test/input/input_integration_test.cpp`, 3 host-adapter MOUSE rows converted to `// G:` comments, and only the 6 UART-blocked IOMODE rows left as justified `F-skip` until UART+I2C plan lands.
 
 **Plan shape.** 5 phases (0-4), 2 waves of parallel agents (5-agent budget from `feedback_parallel_agent_budget_20260421.md`), with independent critic review **inline per agent** (same flow as CTC: each Phase-2 agent's work is reviewed and merged before the next dependent agent starts).
 
@@ -55,7 +55,7 @@ Current `src/input/` contains only `keyboard.{h,cpp}`. Phase 1 scaffolds the res
 | `src/input/keyboard.{h,cpp}` **EXTEND** | Shift hysteresis state + 16-bit `ex_matrix_` word + extended-column folding. **No joy-row injection** — that lives in `membrane_stick`. | Keep `read_rows` semantics; add `set_extended_key(id, pressed)`, `tick_scan()` for hysteresis |
 | `src/port/nextreg.cpp` **WIRE** | Install ONE write_handler per NR that fans out to multiple owners (per critic Issue #10): NR 0x06 fans out to Joystick + NMI + existing audio/CPU-speed bits. Install `set_write_handler` for NR 0x05 / 0x06 / 0x0A / 0x0B; install `set_read_handler` for NR 0xB0 / 0xB1 / 0xB2. Uses existing hook API. Avoids the shadow-store bug per `project_systemic_nextreg_shadow_store.md`. | |
 | `src/core/emulator.{h,cpp}` **WIRE** | Add members `Joystick joystick_`, `KempstonMouse mouse_`, `Md6ConnectorX2 md6_` (**single**), `MembraneStick membrane_stick_`, `IoMode iomode_`. Replace 0-stub port handlers at `emulator.cpp:1381-1401`. Reset + save/load additions. Add **test-only** `inject_hotkey_m1/drive` + `inject_sw_nmi_*` accessors (per critic Issue #8: group in a clearly-fenced `// === TEST-ONLY ACCESSORS ===` block). NMI-inject signals wire into existing `z80_cpu_.trigger_nmi()` path per the fragmented-NMI landscape (per critic Issue #11). | — |
-| `test/input/input_int_integration_test.cpp` **NEW** | 7 re-home rows (KBD-22/23, FE-01..05) against full Emulator + port_dispatch | Mirror `test/ctc_int/ctc_int_integration_test.cpp` |
+| `test/input/input_integration_test.cpp` **NEW** | 7 re-home rows (KBD-22/23, FE-01..05) against full Emulator + port_dispatch | Mirror `test/ctc_interrupts/ctc_interrupts_test.cpp` |
 | `test/CMakeLists.txt` | Register the new integration test target | — |
 
 **SDL/Qt UI** wiring of gamepad + mouse events is **out of scope** for the test-plan phase — stubbed feeders in test harness are sufficient to drive the plan rows. UI wiring can follow in a separate commit post-merge.
@@ -68,7 +68,7 @@ Current `src/input/` contains only `keyboard.{h,cpp}`. Phase 1 scaffolds the res
 
 **Actions:**
 1. Convert MOUSE-09/10/11 (3 G-rows) to `// G: <reason>` comments. **Explicit**: the `skip(...)` calls are **removed**; only the commented-out describing-block remains. The 3 rows no longer appear in the test count.
-2. Re-home KBD-22/23 + FE-01..05 (7 rows) to `// RE-HOME: see test/input/input_int_integration_test.cpp` comments. Same treatment — `skip()` calls removed; row disappears from this test file and reappears in the new integration suite.
+2. Re-home KBD-22/23 + FE-01..05 (7 rows) to `// RE-HOME: see test/input/input_integration_test.cpp` comments. Same treatment — `skip()` calls removed; row disappears from this test file and reappears in the new integration suite.
 3. Refresh skip-reason strings on all 116 remaining skips to reference the relevant Phase-2 branch (e.g. `"Un-skip via task3-input-a-joymode"`). For the 6 UART-blocked IOMODE rows (IOMODE-05/06/07/08/09/10) use `"F: blocked on UART+I2C subsystem plan"`.
 4. **Critic**: 1 agent reviews comment dispositions against VHDL.
 
@@ -147,12 +147,12 @@ Current `src/input/` contains only `keyboard.{h,cpp}`. Phase 1 scaffolds the res
 
 **Actions:**
 1. In `test/input/input_test.cpp`, flip `skip()` → `check()` for every row unblocked by a merged Phase-2 branch. Each new `check()` cites VHDL `file.vhd:line` in its label.
-2. Create `test/input/input_int_integration_test.cpp` with the 7 re-home rows — full Emulator + port_dispatch stimulus.
+2. Create `test/input/input_integration_test.cpp` with the 7 re-home rows — full Emulator + port_dispatch stimulus.
 3. Update `test/CMakeLists.txt`.
 4. Run `LANG=C make -C build unit-test` + `bash test/regression.sh` to verify no regression.
 5. Launch 1 critic for the integration test file (diff review against VHDL port-0xFE assembly logic).
 
-**Expected delta:** `139 / 133 / 0 / 6` in `input_test.cpp` (-10 rows removed in Phase 0; 110 skip→check flips in Phase 3; 6 UART-blocked skips remain) + new `input_int_test` at `7/7/0/0`.
+**Expected delta:** `139 / 133 / 0 / 6` in `input_test.cpp` (-10 rows removed in Phase 0; 110 skip→check flips in Phase 3; 6 UART-blocked skips remain) + new `input_integration_test` at `7/7/0/0`.
 
 ---
 
@@ -186,7 +186,7 @@ Final commit: `task3(input): skip 126 → 6 via joystick/mouse/MD6/MembraneStick
 1. **IOMode module placement** — **separate file** `src/input/iomode.{h,cpp}`. (Recommendation adopted by default.)
 2. **MD6 depth** — **full cycle-accurate FSM** per `md6_joystick_connector_x2.vhd:66-193`. All 19 rows (MD6-01..11i) target un-skip. Agent D is L-size.
 3. **IOMODE UART depth** — **mark IOMODE-05/06/07/08/09/10 as `F skip`**, blocked on future UART+I2C subsystem plan. Agent E scope = pin-7 static + CTC-toggled (modes 00/01, 4 rows: IOMODE-02/03/04/11). S-size.
-4. **Integration suite location** — **new** `test/input/input_int_integration_test.cpp` (7 rows). Mirrors CTC+Interrupts.
+4. **Integration suite location** — **new** `test/input/input_integration_test.cpp` (7 rows). Mirrors CTC+Interrupts.
 5. **Extended-key storage** — **separate `ext_matrix_` field** (uint16_t) inside Keyboard. Preserves `read_rows` semantics for the 21 passing tests. (Recommendation adopted by default.)
 6. **NMI gate testing** — **yes**, add test-only Emulator accessors: `inject_hotkey_m1(bool)`, `inject_hotkey_drive(bool)`, `inject_sw_nmi_mf(bool)`, `inject_sw_nmi_divmmc(bool)`. Documented as test-only. All 7 NMI rows target un-skip.
 7. **PS/2 keyboard** — **no stub** in this plan. No skipped row depends on it.
@@ -198,7 +198,7 @@ Final commit: `task3(input): skip 126 → 6 via joystick/mouse/MD6/MembraneStick
 Given resolved decisions (UART F-skip, NMI inject accessors land, full MD6 FSM):
 
 - **`input_test`**: `139 / 133 / 0 / 6` (down from 149/23/0/126). Only the 6 UART-blocked IOMODE rows remain as F-skips.
-- **`input_int_test`**: `7 / 7 / 0 / 0` (new suite covering KBD-22/23 + FE-01..05)
+- **`input_integration_test`**: `7 / 7 / 0 / 0` (new suite covering KBD-22/23 + FE-01..05)
 - **Row accounting**: Phase 0 removes 10 rows from `input_test.cpp` (3 G-comments + 7 re-home); Phase 3 flips 110 skip→check in remaining clusters.
 - Aggregate unit: 3212/2876/0/336 → **~3209 / ~2993 / 0 / ~226** (+117 pass, −110 skip project-wide; net −120 in skip column since the 10 Phase-0 removals also reduce total).
 - Regression: **34 / 0 / 0** unchanged
@@ -216,7 +216,7 @@ Given resolved decisions (UART F-skip, NMI inject accessors land, full MD6 FSM):
 - `src/input/md6_connector_x2.{h,cpp}` (single instance per critic Issue #5)
 - `src/input/membrane_stick.{h,cpp}` (new class per critic Issue #7)
 - `src/input/iomode.{h,cpp}`
-- `test/input/input_int_integration_test.cpp`
+- `test/input/input_integration_test.cpp`
 - `doc/testing/audits/task3-input-phase4.md`
 
 **Extended:**
@@ -318,7 +318,7 @@ Final docs/dashboard refresh + audit.
 | `input_test` total    |          149  |       139   |     139  |
 | `input_test` pass     |           23  |       133   |     133  |
 | `input_test` skip     |          126  |         6   |       6  |
-| `input_int_test`      |         N/A   |    7/7/0/0  |  7/5/0/2 |
+| `input_integration_test`      |         N/A   |    7/7/0/0  |  7/5/0/2 |
 | Aggregate skip Δ      |          —    |       −120  |    −118  |
 
 Reasons for the −2 vs −120 plan target on aggregate:
