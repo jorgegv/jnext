@@ -1517,24 +1517,43 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         },
         nullptr);
 
-    // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:2685-2686.
-    // Phase 1 scaffold: 0xBF3B (mode/index) is still a stub — it lives in the
-    // Compositor/PaletteManager palette-path and is NOT aliased to 0xFF3B
-    // (VHDL zxnext.vhd:4525-4538 treats them as distinct write targets with
-    // different semantics). 0xFF3B write now drives Ula::set_ulap_en via
-    // bit 0 (VHDL zxnext.vhd:4548-4549: `port_ff3b_ulap_en <= cpu_do(0)` when
-    // port_bf3b_ulap_mode = "01").  We intentionally do NOT gate on the
-    // ULA+ mode here: the mode-gate logic belongs in the Compositor-owned
-    // 0xBF3B handler when Phase 2 wires it up.  0xFF3B read remains a stub
-    // (the VHDL read path at zxnext.vhd:4556-4569 is write-only-latch plus
-    // palette-readback; no Phase 1 consumer needs read semantics).
+    // ULA+ register select (0xBF3B) and data (0xFF3B). VHDL zxnext.vhd:4525-4554.
+    //
+    // 0xBF3B write:
+    //   port_bf3b_ulap_mode <= cpu_do(7:6)   -- zxnext.vhd:4532
+    //   if cpu_do(7:6) = "00" then
+    //     port_bf3b_ulap_index <= cpu_do(5:0) -- zxnext.vhd:4533-4535
+    //
+    // The top 2 bits (`ulap_mode`) are Ula-side state because the 0xFF3B
+    // enable latch is gated on them. The low 6 bits (`ulap_index`) are
+    // Compositor/PaletteManager state (palette-entry select for palette
+    // writes via NR stream) and are still a stub here.
+    //
+    // Wave C — 2026-04-23 — now gates 0xFF3B write on ulap_mode = "01" per
+    // zxnext.vhd:4548: `port_ff3b_ulap_en <= cpu_do(0)` ONLY when
+    // port_bf3b_ulap_mode = "01"; any other mode-group is a palette read
+    // (mode "00") or a no-op for the enable latch. The Phase-1 scaffold
+    // previously wrote the enable unconditionally, which the Phase 1 critic
+    // flagged as VHDL-faithless.
+    //
+    // 0xFF3B read remains a stub (the VHDL read path at zxnext.vhd:4556-4569
+    // is write-only-latch plus palette-readback; no current consumer needs
+    // read semantics).
     port_.register_handler(0xFFFF, 0xBF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
-        [](uint16_t, uint8_t) {});
+        [this](uint16_t, uint8_t v) {
+            // Ula tracks only the mode-group (top 2 bits); the index (low 6
+            // bits) belongs to the Compositor-owned palette path and is
+            // still a stub in Wave C scope.
+            renderer_.ula().set_ulap_mode(static_cast<uint8_t>((v >> 6) & 0x03));
+        });
     port_.register_handler(0xFFFF, 0xFF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
         [this](uint16_t, uint8_t v) {
-            renderer_.ula().set_ulap_en((v & 0x01) != 0);
+            // Gate on ulap_mode = "01" per VHDL zxnext.vhd:4548.
+            if (renderer_.ula().get_ulap_mode() == 0x01) {
+                renderer_.ula().set_ulap_en((v & 0x01) != 0);
+            }
         });
 
     // --- Magic Port (debug output) ---
