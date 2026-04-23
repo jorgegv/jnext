@@ -22,11 +22,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card               |        8 |        8 |      0 |       0 |    100% | Clean. SD card I/O, CMD17/CMD18 block reads            |
 | Sprites               |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Compositor            |      114 |      114 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| ULA Video             |      123 |       48 |      0 |      75 |    100% | Clean. Skips: contention, hi-res modes, interrupt edge |
+| ULA Video             |      113 |       84 |      0 |      29 |    100% | Clean. 29 skips all F-blocked on named subsystems: floating-bus (5), ContentionModel (12), Compositor NR 0x68 (3), VideoTiming (7), MMU shadow (2) |
+| ULA Video (int)       |        6 |        6 |      0 |       0 |    100% | Clean. Integration suite: scroll, ULA+, ULAnext, alt-file |
 | I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. 1 skip: remaining edge case                     |
 | Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3219** | **3001** |  **0** | **218** | **100%**|                                                        |
+| **Total**             | **3215** | **3043** |  **0** | **172** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
