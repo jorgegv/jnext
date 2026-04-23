@@ -229,7 +229,7 @@ static void test_section2_attribute_rendering() {
 
     // S2.10 — border pixel forced via border_active_d (zxula.vhd:414-419);
     // the ula_pixel encoder is bypassed. Exercised by §3.
-    // G: border_active path bypasses ula_pixel encoder (zxula.vhd:414-419); covered end-to-end by §3.
+    // G: border_active bypasses ula_pixel encoder (zxula.vhd:414-419); covered e2e by §3.
 }
 
 // =========================================================================
@@ -420,7 +420,7 @@ static void test_section5_timex() {
          "i_ula_shadow_en → screen_mode forcing (zxula.vhd:191) not wired to Ula::set_screen_mode");
 
     // S5.08 — hi-res attr_reg loaded with border_clr_tmx.
-    // G: attr_reg load with border_clr_tmx (zxula.vhd:384-393) is an internal shift-register detail.
+    // G: attr_reg + border_clr_tmx (zxula.vhd:384-393) — internal shift-reg detail.
 }
 
 // =========================================================================
@@ -500,9 +500,9 @@ static void test_section8_clip() {
               bed.ula.clip_y1(), bed.ula.clip_y2()));
 
     // S8.06 — outside right edge (phc > x2).
-    // G: o_ula_clipped predicate phc>x2 comparator (zxula.vhd:562) not observable; end-to-end via compositor.
+    // G: o_ula_clipped phc>x2 comparator (zxula.vhd:562) unobservable; e2e via compositor.
     // S8.07 — outside top (vc < y1).
-    // G: o_ula_clipped predicate vc<y1 comparator (zxula.vhd:562) not observable; end-to-end via compositor.
+    // G: o_ula_clipped vc<y1 comparator (zxula.vhd:562) unobservable; e2e via compositor.
     // S8.08 — y2 >= 0xC0 clamp (zxnext.vhd:6779-6782).
     skip("S8.08",
          "y2>=0xC0 clamp (zxnext.vhd:6779-6782) not implemented in Ula::set_clip_y2 (raw byte stored)");

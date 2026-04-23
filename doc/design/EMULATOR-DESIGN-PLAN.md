@@ -1164,6 +1164,7 @@ Easy ones:
 Complex ones:
 - [ ] Source level debugging with Z88DK .LIS files (assess independently - potentially complex)
 - [ ] DSK file format loading - Emulation of disk controller?
+- [ ] ESP-01 Wifi emulation connected to host network (UART, AT commands, ...)
 - [ ] Scriptable debugger for accurate T-state, Scanline and Frame events, etc. - See plan at @doc/design/SCRIPTABLE-DEBUGGER.md
 - [ ] Develop a new Z80N core derived directly from VHDL description, and make both cores selectable at runtime: FUSE-based with Z80N extensions (`fuse`), or VHDL-derived one (`internal`). Via CLI option --z80n-core or via GUI option. Use plan at document @INTERNAL-Z80N-CORE-PLAN.md
 - [ ] Multiface peripheral. Add a `Multiface` class in `src/peripheral/multiface.{h,cpp}` with ROM+RAM at 0x0000-0x1FFF, controlled by NR 0x02 (NMI request), an MF enable/disable NR, and the hardware NMI button. MF takes over on NMI: maps its ROM in, runs its menu, exits via a specific opcode sequence. Wire DivMMC's `button_nmi_` latch to the Multiface NMI input; also wire Copper NR 0x02 writes. Unblocks 8 DivMMC+SPI skips (NM-01..08) and Copper ARB-06. Priority low-medium — snapshot/cheat/monitor utility, not required for running software.

@@ -58,18 +58,22 @@ Post-Phase-0 target split (of 75 current skips):
    - S9.01 (no-scroll baseline covered by §1/§2).
    - S10.02, S10.03, S10.04 (hc-phase capture states — internal,
      end-to-end by §1/§2).
-2. Re-home F-skips with explicit subsystem pointers:
+2. Re-home F-skips with explicit subsystem pointers (strings as
+   landed in commit `209c721`; a future maintainer greps on the
+   owner-subsystem name to pick these up):
    - S10.01, S10.05, S10.06, S10.07, S10.08 → "F: blocked on
-     Emulator::floating_bus_read — separate subsystem".
-   - S11.01-12 → "F: blocked on ContentionModel subsystem".
+     Emulator::floating_bus_read subsystem (not Ula-level)".
+   - S11.01-12 → "F: blocked on ContentionModel subsystem (no
+     dedicated plan yet)".
    - S12.02, S12.03, S12.04 → "F: blocked on Compositor NR 0x68
-     blend-mode wiring".
+     blend-mode wiring (reopens Compositor suite)".
    - S13.05-08 → "F: blocked on VideoTiming per-machine accessor
      expansion".
    - S14.01-03 → "F: blocked on VideoTiming per-machine int-position
      exposure".
    - S15.03, S15.04 → "F: blocked on Emulator/MMU shadow-screen
-     routing (port 0x7FFD bit 3 + i_ula_shadow_en)".
+     routing port 0x7FFD bit 3 → i_ula_shadow_en (reopens MMU
+     suite)".
 3. Refresh all skip reason strings to include authoritative VHDL
    line-ranges so the audit dashboard reads cleanly.
 
