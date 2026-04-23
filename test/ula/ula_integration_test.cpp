@@ -490,15 +490,33 @@ static void test_ulanext_integration(Emulator& emu) {
 // Group D — Timex alt-file end-to-end through port 0xFF
 // VHDL: zxula.vhd:218,235 (alt-file → vram_a bit 13), zxnext.vhd:2397
 //       (port 0xFF gate by NR 0x82 bit 0), src/core/emulator.cpp:1187-1192
+//
+// Scope: verifies the alt-file → pixel-base routing in STANDARD_1 mode
+// (bits 5:3 = 001 + alt_file bit = 1, i.e. port 0xFF = 0x09). The plan
+// originally named this "HICOLOUR-ALT" (mode 011 = 0x18) but renamed
+// here to STANDARD-ALT because:
+//   - The alt_file → 0x6000 routing is identical across all modes
+//     (VHDL :235 drives vram_a(13) from screen_mode(0) unconditionally).
+//   - HI_COLOUR+alt would additionally require planting attributes at
+//     the alt-attr base (0x7800 per :239/:249), which this test doesn't.
+// A future row INT-HICOLOUR-ALT-01 (stimulus 0x18 + alt-attr plant) can
+// land as a standalone follow-up. The current STANDARD_1+alt row gives
+// coverage of the Wave D alt_file derivation with minimal setup.
+//
+// INT-SHADOW-01 deliberately OMITTED from this suite: port 0x7FFD bit 3
+// → i_ula_shadow_en routing is re-homed to Emulator/MMU subsystem per
+// the Phase 0 triage (S15.03/04 F-skips). Adding it here would either
+// need that cross-subsystem wiring first, or would be a failing check
+// — neither fits Phase 3's zero-net-new-skip target.
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_altfile_integration(Emulator& emu) {
-    set_group("INT-HICOLOUR-ALT");
+    set_group("INT-STANDARD-ALT");
 
     const uint32_t WHITE = kUlaPalette[7];
     const uint32_t BLACK = kUlaPalette[0];
 
-    // ── INT-HICOLOUR-ALT-01 — port 0xFF bit 0 selects alt screen bank ──
+    // ── INT-STANDARD-ALT-01 — port 0xFF bit 0 selects alt screen bank ──
     //
     // Path exercised:
     //   zxnext.vhd:2397  port_ff_io_en = NR 0x82 bit 0 (reset default:
@@ -578,7 +596,7 @@ static void test_altfile_integration(Emulator& emu) {
             }
         }
 
-        check("INT-HICOLOUR-ALT-01",
+        check("INT-STANDARD-ALT-01",
               "OUT 0xFF=0x09 → STANDARD_1 alt-file routes ULA to 0x6000 base  "
               "(zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192)",
               alt_flag && mode_reg == 0x09 && ok_white && ok_black,
@@ -612,7 +630,7 @@ int main() {
     std::printf("  Group: INT-ULANEXT    — done\n");
 
     test_altfile_integration(emu);
-    std::printf("  Group: INT-HICOLOUR-ALT — done\n");
+    std::printf("  Group: INT-STANDARD-ALT — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
