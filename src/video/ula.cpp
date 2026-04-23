@@ -467,7 +467,16 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 
 void Ula::render_border_line(uint32_t* row)
 {
-    const uint32_t border_argb = lookup_colour(border_colour_);
+    // Default route: standard `border_clr` from port 0xFE bits 2:0
+    // (zxula.vhd:418).  Wave-D route: when `border_clr_tmx_src_` is set, use
+    // `border_clr_tmx` derived from port 0xFF paper bits (zxula.vhd:419).
+    // Phase 1 is API-only: the Wave-D path is an identical fill today (we
+    // don't yet have the 6-bit tmx colour palette plumbed), so the default
+    // render output is preserved.  Wave D will specialise this branch.
+    const uint8_t  idx         = border_clr_tmx_src_
+        ? static_cast<uint8_t>((screen_mode_reg_ >> 3) & 0x07)
+        : border_colour_;
+    const uint32_t border_argb = lookup_colour(idx);
     for (int x = 0; x < FB_WIDTH; ++x)
         row[x] = border_argb;
 }
@@ -484,6 +493,18 @@ void Ula::save_state(StateWriter& w) const
     w.write_bool(flash_phase_);
     w.write_u8(screen_mode_reg_);
     w.write_u8(static_cast<uint8_t>(mode_));
+
+    // Phase-1 scaffold state — appended so legacy snapshots still load the
+    // prefix cleanly while new snapshots round-trip the full register file.
+    w.write_u8(ula_scroll_x_coarse_);
+    w.write_u8(ula_scroll_y_);
+    w.write_bool(ula_fine_scroll_x_);
+    w.write_u8(ulanext_format_);
+    w.write_bool(ulanext_en_);
+    w.write_bool(ulap_en_);
+    w.write_bool(alt_file_);
+    w.write_bool(shadow_screen_en_);
+    w.write_bool(border_clr_tmx_src_);
 }
 
 void Ula::load_state(StateReader& r)
@@ -498,4 +519,14 @@ void Ula::load_state(StateReader& r)
     flash_phase_ = r.read_bool();
     screen_mode_reg_ = r.read_u8();
     mode_ = static_cast<TimexScreenMode>(r.read_u8());
+
+    ula_scroll_x_coarse_ = r.read_u8();
+    ula_scroll_y_        = r.read_u8();
+    ula_fine_scroll_x_   = r.read_bool();
+    ulanext_format_      = r.read_u8();
+    ulanext_en_          = r.read_bool();
+    ulap_en_             = r.read_bool();
+    alt_file_            = r.read_bool();
+    shadow_screen_en_    = r.read_bool();
+    border_clr_tmx_src_  = r.read_bool();
 }
