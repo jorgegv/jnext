@@ -225,14 +225,11 @@ static void test_section2_attribute_rendering() {
 
     // S2.08 — flash attr bit 7, output depends on flash_cnt(4) (zxula.vhd:470
     // XOR upstream of the ula_pixel encoder). Exercised by §4 instead.
-    skip("S2.08",
-         "flash_cnt(4) XOR modulates pixel_en upstream of ula_pixel encoder (zxula.vhd:470); "
-         "exercised by S4 rendering assertions");
+    // G: flash_cnt(4) XOR upstream of ula_pixel encoder (zxula.vhd:470); covered end-to-end by §4.
 
     // S2.10 — border pixel forced via border_active_d (zxula.vhd:414-419);
     // the ula_pixel encoder is bypassed. Exercised by §3.
-    skip("S2.10",
-         "border_active path returns border_clr bypassing ula_pixel encoder — exercised by S3");
+    // G: border_active path bypasses ula_pixel encoder (zxula.vhd:414-419); covered end-to-end by §3.
 }
 
 // =========================================================================
@@ -278,9 +275,7 @@ static void test_section3_border_colour() {
 
     // S3.08 — border_active boundaries (zxula.vhd:414-415: border_active_v
     // = vc(8) OR (vc(7) AND vc(6))) not exposed on Ula.
-    skip("S3.08",
-         "border_active_v (zxula.vhd:414-415) depends on raw vc; no accessor on Ula — "
-         "boundary is verified end-to-end by compositor tests");
+    // G: border_active_v raw-vc boundary (zxula.vhd:414-415) has no Ula accessor; compositor-level.
 }
 
 // =========================================================================
@@ -425,8 +420,7 @@ static void test_section5_timex() {
          "i_ula_shadow_en → screen_mode forcing (zxula.vhd:191) not wired to Ula::set_screen_mode");
 
     // S5.08 — hi-res attr_reg loaded with border_clr_tmx.
-    skip("S5.08",
-         "attr_reg loading with border_clr_tmx (zxula.vhd:384-393) is an internal shift-register detail with no accessor");
+    // G: attr_reg load with border_clr_tmx (zxula.vhd:384-393) is an internal shift-register detail.
 }
 
 // =========================================================================
@@ -506,11 +500,9 @@ static void test_section8_clip() {
               bed.ula.clip_y1(), bed.ula.clip_y2()));
 
     // S8.06 — outside right edge (phc > x2).
-    skip("S8.06",
-         "o_ula_clipped predicate (zxula.vhd:562) not exposed — phc>x2 comparator not observable");
+    // G: o_ula_clipped predicate phc>x2 comparator (zxula.vhd:562) not observable; end-to-end via compositor.
     // S8.07 — outside top (vc < y1).
-    skip("S8.07",
-         "o_ula_clipped predicate (zxula.vhd:562) not exposed — vc<y1 comparator not observable");
+    // G: o_ula_clipped predicate vc<y1 comparator (zxula.vhd:562) not observable; end-to-end via compositor.
     // S8.08 — y2 >= 0xC0 clamp (zxnext.vhd:6779-6782).
     skip("S8.08",
          "y2>=0xC0 clamp (zxnext.vhd:6779-6782) not implemented in Ula::set_clip_y2 (raw byte stored)");
@@ -524,7 +516,7 @@ static void test_section9_scrolling() {
     set_group("S09-Scroll");
 
     // No scroll_x / scroll_y state on Ula; nr_26 / nr_27 writes never reach it.
-    skip("S9.01",  "no-scroll baseline — covered by §1/§2 rendering");
+    // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
     skip("S9.02",  "scroll_y=1 path (zxula.vhd:193-207) not implemented — no nr_27 plumbing");
     skip("S9.03",  "scroll_y=191 wrap (zxula.vhd:193-207) not implemented");
     skip("S9.04",  "scroll_y wrap at 192 (zxula.vhd:200-205) not implemented");
@@ -543,14 +535,14 @@ static void test_section9_scrolling() {
 static void test_section10_floating_bus() {
     set_group("S10-FloatingBus");
 
-    skip("S10.01", "48K border → 0xFF (zxula.vhd:573) — lives on Emulator::floating_bus_read, not Ula");
-    skip("S10.02", "hc(3:0)=0x9 capture phase (zxula.vhd:308-345) not observable on Ula");
-    skip("S10.03", "hc(3:0)=0xB attr capture phase (zxula.vhd:308-345) not observable on Ula");
-    skip("S10.04", "hc(3:0)=0x1 reset phase (zxula.vhd:308-345) not observable on Ula");
-    skip("S10.05", "+3 timing forces bit 0 high (zxula.vhd:573) — needs full Emulator harness");
-    skip("S10.06", "+3 border fallback p3_floating_bus_dat (zxula.vhd:573) — Emulator-level");
-    skip("S10.07", "port 0xFF read path — lives on Emulator::floating_bus_read");
-    skip("S10.08", "port 0xFF with nr_08 ff_rd_en=1 (zxnext.vhd:2813) — NextReg-mediated, Emulator-level");
+    skip("S10.01", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
+    // S10.02 — G: hc(3:0)=0x9 capture phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
+    // S10.03 — G: hc(3:0)=0xB attr capture phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
+    // S10.04 — G: hc(3:0)=0x1 reset phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
+    skip("S10.05", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
+    skip("S10.06", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
+    skip("S10.07", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
+    skip("S10.08", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
 }
 
 // =========================================================================
@@ -560,18 +552,18 @@ static void test_section10_floating_bus() {
 static void test_section11_contention() {
     set_group("S11-Contention");
 
-    skip("S11.01", "48K bank-5 contention phase (zxula.vhd:582-583) — ContentionModel subsystem");
-    skip("S11.02", "48K bank-0 non-contended (zxnext.vhd:4489) — ContentionModel subsystem");
-    skip("S11.03", "48K hc_adj(3:2)=\"00\" non-contended phase (zxula.vhd:582) — no accessor");
-    skip("S11.04", "48K vc>=192 border_active_v (zxula.vhd:582) — no accessor");
-    skip("S11.05", "48K even-port I/O contention (zxnext.vhd:4496) — IoPortDispatch subsystem");
-    skip("S11.06", "48K odd-port I/O (zxnext.vhd:4496) — IoPortDispatch subsystem");
-    skip("S11.07", "128K bank-1 odd-bank contention (zxnext.vhd:4491) — ContentionModel subsystem");
-    skip("S11.08", "128K bank-4 non-contended (zxnext.vhd:4491) — ContentionModel subsystem");
-    skip("S11.09", "+3 bank>=4 WAIT_n contention (zxula.vhd:600) — ContentionModel subsystem");
-    skip("S11.10", "+3 bank-0 non-contended (zxnext.vhd:4493) — ContentionModel subsystem");
-    skip("S11.11", "Pentagon never-contended (zxnext.vhd:4481) — ContentionModel subsystem");
-    skip("S11.12", "CPU speed>3.5MHz disables contention (zxnext.vhd:4481) — Emulator-level");
+    skip("S11.01", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.02", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.03", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.04", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.05", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.06", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.07", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.08", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.09", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.10", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.11", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    skip("S11.12", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
 }
 
 // =========================================================================
@@ -595,12 +587,12 @@ static void test_section12_ula_disable() {
     // Demoted to skip until nr_68 bit7 is wired into the render pipeline
     // (Emulator Bug backlog candidate).
     skip("S12.02",
-         "nr_68 bit7 enable not wired into render pipeline — setter→getter would tautologise");
+         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
     skip("S12.03",
-         "nr_68 bit7 toggle not wired into render pipeline — setter→getter would tautologise");
+         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
     // S12.04 — blend-mode bits (nr_68 6:5).
     skip("S12.04",
-         "nr_68 blend-mode bits 6:5 (zxnext.vhd:5445) not exposed on Ula — compositor-level");
+         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
 }
 
 // =========================================================================
@@ -653,16 +645,16 @@ static void test_section13_timing() {
 
     // Plan row #5 — 128K active display origin (hc=136, vc=64).
     skip("S13.05",
-         "128K min_hactive=136 (zxula_timing.vhd) — VideoTiming uses shared 48K origin constants");
+         "F: blocked on VideoTiming per-machine accessor expansion");
     // Plan row #6 — Pentagon active display origin (hc=128, vc=80).
     skip("S13.06",
-         "Pentagon min_vactive=80 (zxula_timing.vhd) — no per-machine origin accessor on VideoTiming");
+         "F: blocked on VideoTiming per-machine accessor expansion");
     // Plan row #7 — ULA hc resets at min_hactive-12 (12-cycle prefetch lead).
     skip("S13.07",
-         "hc_ula=0 at min_hactive-12 (zxula_timing.vhd) — no hc_ula accessor on VideoTiming");
+         "F: blocked on VideoTiming per-machine accessor expansion");
     // Plan row #8 — 60 Hz variant: 448 * 264 / 2 = 59136 T-states.
     skip("S13.08",
-         "60 Hz variant (264 lines, 59136 T-states, zxula_timing.vhd) — MachineType has no 60Hz entry");
+         "F: blocked on VideoTiming per-machine accessor expansion");
 
     // -- Extra coverage (not in §13 plan rows) --------------------------
     // S13.14 — frame_done flips exactly at 69888 T-states (48K).
@@ -687,9 +679,9 @@ static void test_section13_timing() {
 static void test_section14_frame_int() {
     set_group("S14-FrameInt");
 
-    skip("S14.01", "48K int position (hc=116, vc=0; zxula_timing.vhd:547-559) — not exposed on VideoTiming/Ula");
-    skip("S14.02", "128K int position (hc=128, vc=1; zxula_timing.vhd:547-559) — not exposed");
-    skip("S14.03", "Pentagon int position (hc=439, vc=319; zxula_timing.vhd:547-559) — not exposed");
+    skip("S14.01", "F: blocked on VideoTiming per-machine int-position exposure");
+    skip("S14.02", "F: blocked on VideoTiming per-machine int-position exposure");
+    skip("S14.03", "F: blocked on VideoTiming per-machine int-position exposure");
     skip("S14.04", "inten_ula_n=1 disables pulse (zxula_timing.vhd:547-559) — no interrupt-enable accessor");
     skip("S14.05", "line interrupt at hc_ula=255 when cvc==target (zxula_timing.vhd:562-583) — not implemented");
     skip("S14.06", "line=0 fires at cvc=max_vc boundary case (zxula_timing.vhd:562-583) — not implemented");
@@ -731,11 +723,11 @@ static void test_section15_shadow() {
 
     // S15.03 — shadow forces screen_mode to \"000\".
     skip("S15.03",
-         "i_ula_shadow_en → screen_mode forced to 000 (zxula.vhd:191) — not wired to Ula::set_screen_mode");
+         "F: blocked on Emulator/MMU shadow-screen routing port 0x7FFD bit 3 → i_ula_shadow_en (reopens MMU suite)");
 
     // S15.04 — port 0x7FFD bit 3 → i_ula_shadow_en routing.
     skip("S15.04",
-         "port 0x7FFD bit 3 → i_ula_shadow_en routing (zxnext.vhd:4453) is Emulator/MMU-level");
+         "F: blocked on Emulator/MMU shadow-screen routing port 0x7FFD bit 3 → i_ula_shadow_en (reopens MMU suite)");
 }
 
 // =========================================================================
