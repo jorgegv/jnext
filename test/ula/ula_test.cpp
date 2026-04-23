@@ -343,8 +343,25 @@ static void test_section4_flash_timing() {
     }
 
     // S4.05 — ULAnext disables flash (zxula.vhd:470 "and not i_ulanext_en").
-    skip("S4.05",
-         "ULAnext not implemented in Ula (no nr_42/nr_43); zxula.vhd:470 \"and not i_ulanext_en\" term unobservable");
+    // With ulanext_en=1, the flash XOR term is gated off, so phase 0 and
+    // phase 1 must produce the SAME rendered pixel. Use attr=0x87 (flash=1,
+    // paper=black, ink=white) and pixels=0xFF: both phases should show ink
+    // (white) because flash no longer swaps ink/paper.
+    {
+        UlaBed bed;
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x5800, 0x87);
+        bed.ula.set_ulanext_en(true);
+        std::array<uint32_t, 320> a{}, b{};
+        bed.ula.render_scanline(a.data(), 32, bed.mmu);
+        for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
+        bed.ula.render_scanline(b.data(), 32, bed.mmu);
+        check("S4.05",
+              "zxula.vhd:470 — i_ulanext_en=1 gates off flash XOR term (flash inert)",
+              a[32] == b[32] && a[32] == kUlaPalette[7],
+              fmt("phase0=0x%08X phase1=0x%08X exp=0x%08X",
+                  a[32], b[32], kUlaPalette[7]));
+    }
 
     // S4.06 — ULA+ disables flash (zxula.vhd:470 "and not i_ulap_en").
     skip("S4.06",
@@ -500,18 +517,198 @@ static void test_section5_timex() {
 static void test_section6_ulanext() {
     set_group("S06-ULAnext");
 
-    skip("S6.01", "ULAnext not implemented — nr_43 enable missing (zxula.vhd:492)");
-    skip("S6.02", "ULAnext not implemented — paper lookup for format 0x07 missing (zxula.vhd:503-515)");
-    skip("S6.03", "ULAnext not implemented — ink AND format (zxula.vhd:497)");
-    skip("S6.04", "ULAnext not implemented — paper lookup for format 0x0F missing (zxula.vhd:503-515)");
-    skip("S6.05", "ULAnext not implemented — ink path for format 0xFF (zxula.vhd:497)");
-    skip("S6.06", "ULAnext not implemented — ula_select_bgnd transparent paper (zxula.vhd:520-525)");
-    skip("S6.07", "ULAnext not implemented — border uses paper_base_index (zxula.vhd:492-495)");
-    skip("S6.08", "ULAnext not implemented — transparent border for format 0xFF (zxula.vhd:520-525)");
-    skip("S6.09", "ULAnext not implemented — paper lookup for format 0x01 missing (zxula.vhd:503-515)");
-    skip("S6.10", "ULAnext not implemented — paper lookup for format 0x01 pixel=0 case");
-    skip("S6.11", "ULAnext not implemented — paper lookup for format 0x3F missing (zxula.vhd:503-515)");
-    skip("S6.12", "ULAnext not implemented — non-standard format → transparent paper (zxula.vhd:525)");
+    // Expected values below are hand-derived from the VHDL at
+    // zxula.vhd:492-529 with paper_base_index = "10000000" (0x80):
+    //   border cycle : pixel = pbi(7:3) & attr(5:3) = 0x80 | (attr & 0x38)>>3
+    //                  if format=0xFF → select_bgnd
+    //   ink cycle    : pixel = attr AND format
+    //   paper cycle  : case format
+    //     0x01 → pbi(7)   & attr(7:1)  = 0x80 | (attr>>1)&0x7F
+    //     0x03 → pbi(7:6) & attr(7:2)  = 0x80 | (attr>>2)&0x3F
+    //     0x07 → pbi(7:5) & attr(7:3)  = 0x80 | (attr>>3)&0x1F
+    //     0x0F → pbi(7:4) & attr(7:4)  = 0x80 | (attr>>4)&0x0F
+    //     0x1F → pbi(7:3) & attr(7:5)  = 0x80 | (attr>>5)&0x07
+    //     0x3F → pbi(7:2) & attr(7:6)  = 0x80 | (attr>>6)&0x03
+    //     0x7F → pbi(7:1) & attr(7)    = 0x80 | (attr>>7)&0x01
+    //     other (incl. 0xFF) → select_bgnd
+    //
+    // Expected bytes are computed inline below against the VHDL spec above,
+    // NOT against the emulator's compute_ulanext_pixel() implementation.
+
+    // S6.01 — NR 0x43 bit 0 gates ULAnext enable.
+    // VHDL zxnext.vhd:5394 (NR 0x43 bit 0 → ulanext_en) and zxula.vhd:492
+    // ("if i_ulanext_en = '1' then"). set_ulanext_en(true) must flip the
+    // Ula's internal gate; set_ulanext_en(false) must deassert it.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bool on = bed.ula.get_ulanext_en();
+        bed.ula.set_ulanext_en(false);
+        bool off = bed.ula.get_ulanext_en();
+        check("S6.01",
+              "zxnext.vhd:5394 + zxula.vhd:492 — NR 0x43 bit 0 drives ulanext_en gate",
+              on == true && off == false,
+              fmt("on=%d off=%d", on ? 1 : 0, off ? 1 : 0));
+    }
+
+    // S6.02 — paper lookup for format 0x07 (zxula.vhd:520).
+    // attr=0xC4, pixel_en=0: expected 0x80 | (0xC4>>3)&0x1F = 0x80|0x18 = 0x98.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0xC4);
+        const uint8_t exp = 0x98;
+        check("S6.02",
+              "zxula.vhd:520 — format 0x07 paper: pbi(7:5) & attr(7:3)",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.03 — ink AND format (zxula.vhd:510).
+    // format=0xFF, attr=0xA5, pixel_en=1: expected 0xA5 & 0xFF = 0xA5.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/true, /*border*/false, 0xA5);
+        const uint8_t exp = 0xA5;
+        check("S6.03",
+              "zxula.vhd:510 — ink cycle: ula_pixel = attr AND i_ulanext_format",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.04 — paper lookup for format 0x0F (zxula.vhd:521).
+    // attr=0xB0, pixel_en=0: expected 0x80 | (0xB0>>4)&0x0F = 0x80|0x0B = 0x8B.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x0F);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0xB0);
+        const uint8_t exp = 0x8B;
+        check("S6.04",
+              "zxula.vhd:521 — format 0x0F paper: pbi(7:4) & attr(7:4)",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.05 — ink path for format 0xFF (zxula.vhd:510).
+    // Different attr from S6.03 to distinguish coverage. attr=0x3C, pixel_en=1:
+    // expected 0x3C & 0xFF = 0x3C. select_bgnd must NOT assert on ink cycle
+    // even for 0xFF (the bgnd assertion is only on the paper "when others").
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/true, /*border*/false, 0x3C);
+        const uint8_t exp = 0x3C;
+        check("S6.05",
+              "zxula.vhd:510 — format 0xFF ink cycle: attr AND 0xFF, bgnd not asserted",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.06 — ula_select_bgnd on non-standard paper format (zxula.vhd:525).
+    // Non-list format (e.g. 0xC3), pixel_en=0: "when others => ula_select_bgnd <= '1'".
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xC3);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0xAA);
+        check("S6.06",
+              "zxula.vhd:525 — non-list paper format asserts ula_select_bgnd (transparent paper)",
+              r.select_bgnd == true,
+              fmt("bgnd=%d pixel=0x%02X", r.select_bgnd ? 1 : 0, r.pixel));
+    }
+
+    // S6.07 — border uses paper_base_index (zxula.vhd:504).
+    // border=true, attr=0x38 (bits 5:3 = 111), ulanext_en=1, format in list.
+    // expected pixel = "10000" & "111" = 0x87.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x07);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/true, 0x38);
+        const uint8_t exp = 0x87;
+        check("S6.07",
+              "zxula.vhd:504 — border: ula_pixel = pbi(7:3) & attr(5:3) = 0x80|(attr(5:3))",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.08 — transparent border for format 0xFF (zxula.vhd:500-504).
+    // border=true, format=0xFF: select_bgnd asserts, pixel still = pbi(7:3) & attr(5:3).
+    // attr=0x20 → bits 5:3 = 100 → pixel = 0x84.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0xFF);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/true, 0x20);
+        const uint8_t exp = 0x84;
+        check("S6.08",
+              "zxula.vhd:500-504 — format 0xFF border: bgnd asserted, pixel = pbi(7:3) & attr(5:3)",
+              r.pixel == exp && r.select_bgnd == true,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.09 — paper lookup for format 0x01 (zxula.vhd:518).
+    // attr=0xFE, pixel_en=0: expected 0x80 | (0xFE>>1)&0x7F = 0x80|0x7F = 0xFF.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x01);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0xFE);
+        const uint8_t exp = 0xFF;
+        check("S6.09",
+              "zxula.vhd:518 — format 0x01 paper: pbi(7) & attr(7:1) = 0x80|(attr>>1)&0x7F",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.10 — paper lookup for format 0x01, demonstrating attr(0) is discarded.
+    // attr=0x02: attr(7:1) = 0000001 → pixel = 0x80 | 0x01 = 0x81.
+    // attr=0x03 would give the same (attr bit 0 not used in the paper encoding).
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x01);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0x02);
+        const uint8_t exp = 0x81;
+        // Cross-check: attr=0x03 (bit 0 differs) must produce the same paper pixel.
+        auto r2 = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0x03);
+        check("S6.10",
+              "zxula.vhd:518 — format 0x01 paper discards attr(0); 0x02 and 0x03 both → 0x81",
+              r.pixel == exp && r2.pixel == exp && !r.select_bgnd && !r2.select_bgnd,
+              fmt("0x02→0x%02X 0x03→0x%02X exp 0x%02X", r.pixel, r2.pixel, exp));
+    }
+
+    // S6.11 — paper lookup for format 0x3F (zxula.vhd:523).
+    // attr=0xC3, pixel_en=0: expected 0x80 | (0xC3>>6)&0x03 = 0x80|0x03 = 0x83.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x3F);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0xC3);
+        const uint8_t exp = 0x83;
+        check("S6.11",
+              "zxula.vhd:523 — format 0x3F paper: pbi(7:2) & attr(7:6) = 0x80|(attr>>6)&0x03",
+              r.pixel == exp && !r.select_bgnd,
+              fmt("got 0x%02X exp 0x%02X bgnd=%d", r.pixel, exp, r.select_bgnd ? 1 : 0));
+    }
+
+    // S6.12 — non-standard format (not in {0x01,0x03,0x07,0x0F,0x1F,0x3F,0x7F})
+    // asserts transparent paper (zxula.vhd:525). 0x42 is not in the case list.
+    {
+        UlaBed bed;
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(0x42);
+        auto r = bed.ula.compute_ulanext_pixel(/*pixel_en*/false, /*border*/false, 0x5A);
+        check("S6.12",
+              "zxula.vhd:525 — non-standard paper format (0x42) → ula_select_bgnd (transparent paper)",
+              r.select_bgnd == true,
+              fmt("bgnd=%d pixel=0x%02X", r.select_bgnd ? 1 : 0, r.pixel));
+    }
 }
 
 // =========================================================================
