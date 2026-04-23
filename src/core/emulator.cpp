@@ -17,9 +17,10 @@
 Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // Task 3 Input runtime wiring: install the MembraneStick back-pointer
     // on Keyboard so read_rows() AND-folds joystick→membrane directions
-    // per VHDL `zxnext_top_issue4.vhd:1843`. Done in the ctor (not init())
-    // because both members have storage-class lifetime identical to the
-    // Emulator itself — no soft-reset re-wiring required.
+    // per VHDL `zxnext_top_issue4.vhd:1843`. Done once in the ctor because
+    // both members share Emulator lifetime and neither is ever reconstructed
+    // at runtime. Invariant: `Keyboard::reset()` MUST NOT null this
+    // back-pointer — it is lifetime-bound wiring, not soft-reset state.
     keyboard_.set_membrane_stick(&membrane_stick_);
 }
 

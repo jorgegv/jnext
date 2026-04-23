@@ -119,6 +119,9 @@ void Keyboard::reset() {
     // Shift-hysteresis scan buffers — initial "all released" state.
     shift_hist_[0]   = 0xFF;
     shift_hist_[1]   = 0xFF;
+    // NOTE: `membrane_stick_` is lifetime-bound wiring from the owning
+    // Emulator (see Emulator ctor). It must NOT be cleared here — a soft
+    // reset does not rebuild the Emulator's member graph.
 }
 
 void Keyboard::set_key(SDL_Scancode sc, bool pressed) {
