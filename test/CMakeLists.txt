@@ -149,6 +149,20 @@ target_link_libraries(ula_test PRIVATE jnext_video jnext_memory jnext_port jnext
 target_include_directories(ula_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ula_tests COMMAND ula_test)
 
+# ULA video subsystem integration test (Phase 3, 2026-04-23)
+# Hosts the ~6-8 plan rows that exercise NR 0x26/0x27/0x42/0x43/0x68 and
+# port 0xBF3B/0xFF3B/0xFF end-to-end through the real NR-dispatch and
+# port-dispatch handlers in src/core/emulator.cpp (the level above the
+# narrow Ula accessors that ula_test.cpp pins). Mirrors the linkage of
+# nextreg_integration_test / input_integration_test / ctc_interrupts_test.
+add_executable(ula_integration_test ula/ula_integration_test.cpp)
+target_link_libraries(ula_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(ula_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME ula_integration_tests COMMAND ula_integration_test)
+
 # I/O Port Dispatch compliance test
 # Links the full emulator because the rewritten plan requires constructing a
 # real Emulator (headless) and probing real peripheral handlers, not a
