@@ -515,17 +515,256 @@ static void test_section8_clip() {
 static void test_section9_scrolling() {
     set_group("S09-Scroll");
 
-    // No scroll_x / scroll_y state on Ula; nr_26 / nr_27 writes never reach it.
+    // Shared harness: fill VRAM so that every row N has pixel bytes = 0x00
+    // everywhere EXCEPT a marker at src_row M where ALL 32 pixel bytes = 0xFF.
+    // Attributes across the entire screen are 0x07 (ink=white, paper=black,
+    // no flash, no bright). This lets each test assert the effective source
+    // row chosen by the VHDL Y-fold (zxula.vhd:192-207) via a one-pixel
+    // palette check: if eff_row == M we get white at the display area,
+    // otherwise we get black.
+    //
+    // For X-scroll, we leave the marker as "row M = all 0xFF" and additionally
+    // set a narrow 1-byte white column at (row 0, col 0) = 0xFF (src_x ∈ [0..7])
+    // with rest black; then assert which 8-pixel window of the display goes
+    // white after the X-fold (zxula.vhd:199).
+
+    auto poke_row_all = [](UlaBed& bed, int row, uint8_t pix) {
+        for (int col = 0; col < 32; ++col)
+            bed.poke(0x4000 + emu_pixel_addr_offset(row, col), pix);
+    };
+    // Fill attrs so every 8-row attr band is 0x07 (white ink on black paper).
+    // Keeps attr constant regardless of which source row the VHDL fold
+    // selects, so a white/black test result reflects only pixel byte content.
+    auto init_attrs = [](UlaBed& bed) {
+        for (int attr_row = 0; attr_row < 24; ++attr_row) {
+            const uint16_t base = static_cast<uint16_t>(0x5800 + attr_row * 32);
+            for (int col = 0; col < 32; ++col) bed.poke(base + col, 0x07);
+        }
+    };
+
+    const uint32_t WHITE = kUlaPalette[7];
+    const uint32_t BLACK = kUlaPalette[0];
+
+    // -- S9.02 scroll_y=1: screen_row=0 should read source row 1. ------------
+    // VHDL zxula.vhd:192 — py_s = vc + scroll_y; vc=0, scroll_y=1 → py_s=1
+    // (bit8=0, bits7:6="00", else branch line 206 → py = 1). addr_p_spc_12_5
+    // (zxula.vhd:223) then points into row 1 pixels.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        poke_row_all(bed, 1, 0xFF);  // source row 1 = all ink
+        bed.ula.set_ula_scroll_y(1);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        // Expected per VHDL :199-207: py=1 → render pulls pixel byte row 1 =
+        // 0xFF → all 256 display pixels white.
+        bool all_white = true;
+        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        check("S9.02",
+              "zxula.vhd:192,206 — scroll_y=1 + vc=0 → py=1 (passthrough else branch)",
+              all_white,
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+    }
+
+    // -- S9.03 scroll_y=191, vc=1 → py_s=192 (0xC0) → middle branch wraps to 0.
+    // VHDL zxula.vhd:203-204 — py_s(8)=0 but py_s(7:6)="11", so
+    //   py <= (py_s(7:6)+1="00") & py_s(5:0)="000000" = 0.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        poke_row_all(bed, 0, 0xFF);  // source row 0 = all ink
+        bed.ula.set_ula_scroll_y(191);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 33, bed.mmu);  // screen_row=1
+        bool all_white = true;
+        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        check("S9.03",
+              "zxula.vhd:203-204 — scroll_y=191 + vc=1 → py=0 (cross-third wrap)",
+              all_white,
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+    }
+
+    // -- S9.04 scroll_y=192, vc=0 → py_s=192 (0xC0) → py = 0.
+    // Identical encoder to S9.03 (py_s(7:6)="11", middle branch), verifies that
+    // scroll_y=192 is the exact wrap boundary where the display snaps back to
+    // source row 0.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        poke_row_all(bed, 0, 0xFF);
+        bed.ula.set_ula_scroll_y(192);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        bool all_white = true;
+        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        check("S9.04",
+              "zxula.vhd:203-204 — scroll_y=192 + vc=0 → py=0 (modulo-192 boundary)",
+              all_white,
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+    }
+
+    // -- S9.05 scroll_x=8, vc=0 → 8-pixel horizontal shift.
+    // VHDL zxula.vhd:199 — px has scroll_x(7:3)=1 (1-byte column shift) +
+    // scroll_x(2:0)=0 → total 8-pixel source-offset. With source pixel marker
+    // at (row 0, col 0)=0xFF (src_x ∈ [0..7]) and rest black, the display
+    // white window must shift to src_x − shift = display_x ⇒ white at
+    // display_x ∈ [-8..-1] mod 256 = [248..255].
+    //
+    // (Note: the plan-doc nominal "shift by 64 pixels (8*8)" treats NR 0x26
+    // as byte-granular; VHDL line 199 stores an 8-bit pixel-shift with
+    // bits(7:3)=byte count and bits(2:0)=within-byte bit shift, so NR 0x26=8
+    // is an 8-pixel shift, not 64. Expected derived strictly from VHDL.)
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        // Only col 0 of row 0 is white.
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.ula.set_ula_scroll_x_coarse(8);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        // Expect white at display_x = 248..255, black elsewhere.
+        bool ok = true;
+        for (int x = 0; x < 256; ++x) {
+            const uint32_t exp = (x >= 248 && x <= 255) ? WHITE : BLACK;
+            if (line[32 + x] != exp) { ok = false; break; }
+        }
+        check("S9.05",
+              "zxula.vhd:199 — NR 0x26=8 → 8-pixel shift (scroll_x(7:3)=1, (2:0)=0)",
+              ok,
+              fmt("line[32+248]=0x%08X line[32+247]=0x%08X",
+                  line[32 + 248], line[32 + 247]));
+    }
+
+    // -- S9.06 fine_scroll_x=1 (NR 0x68 bit 2), scroll_x=0 → 1-pixel shift.
+    // VHDL zxula.vhd:199 — px(8) = fine_scroll_x contributes 1 pixel after
+    // px_1 merge (line 216). With marker at (row 0, col 0)=0xFF source
+    // src_x ∈ [0..7], shift=1 → display white at src_x−1 = display_x ⇒
+    // display_x ∈ [-1..6] = {255, 0..6}.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.ula.set_ula_fine_scroll_x(true);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        bool ok = true;
+        for (int x = 0; x < 256; ++x) {
+            const bool should_white = (x == 255) || (x >= 0 && x <= 6);
+            const uint32_t exp = should_white ? WHITE : BLACK;
+            if (line[32 + x] != exp) { ok = false; break; }
+        }
+        check("S9.06",
+              "zxula.vhd:199,216 — fine_scroll_x=1 → 1-pixel source offset",
+              ok,
+              fmt("line[32]=0x%08X line[32+255]=0x%08X line[32+7]=0x%08X",
+                  line[32], line[32 + 255], line[32 + 7]));
+    }
+
+    // -- S9.07 NR 0x26=255 → 255-pixel shift (= −1 mod 256).
+    // VHDL zxula.vhd:199 — scroll_x=0xFF → scroll_x(7:3)=31 (31 bytes = 248
+    // pixels) + scroll_x(2:0)=7 (7 bit shift) → total 255-pixel shift. With
+    // marker at (row 0, col 0)=0xFF src_x ∈ [0..7], display white at
+    // src_x − 255 = display_x mod 256 ⇒ display_x ∈ {1..7, 8}? Let me
+    // recompute: src_x = (display_x + 255) & 0xFF ∈ [0..7] ⇒
+    // display_x ∈ [1..8]. All eight pixels land in the window.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.ula.set_ula_scroll_x_coarse(255);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        bool ok = true;
+        for (int x = 0; x < 256; ++x) {
+            const bool should_white = (x >= 1 && x <= 8);
+            const uint32_t exp = should_white ? WHITE : BLACK;
+            if (line[32 + x] != exp) { ok = false; break; }
+        }
+        check("S9.07",
+              "zxula.vhd:199 — NR 0x26=0xFF → 255-pixel shift (wraps mod 256)",
+              ok,
+              fmt("line[32+1]=0x%08X line[32+8]=0x%08X line[32+9]=0x%08X",
+                  line[32 + 1], line[32 + 8], line[32 + 9]));
+    }
+
+    // -- S9.08 fine_scroll_x isolation: only NR 0x68 bit 2 must drive fine.
+    // The Phase-1 emulator wiring at src/core/emulator.cpp maps
+    //   renderer_.ula().set_ula_fine_scroll_x((v & 0x04) != 0)
+    // per VHDL zxnext.vhd:5449. Writing v=0xFB (all-ones except bit 2) MUST
+    // leave fine_scroll_x off; writing v=0x04 alone must enable it. This
+    // test exercises ONLY the narrow Ula accessor (Phase-1 boundary): we
+    // set_ula_fine_scroll_x(false) and confirm no 1-pixel shift is applied.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.ula.set_ula_fine_scroll_x(false);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        // Expect original unscrolled window: display_x ∈ [0..7] white.
+        bool ok = true;
+        for (int x = 0; x < 256; ++x) {
+            const uint32_t exp = (x >= 0 && x <= 7) ? WHITE : BLACK;
+            if (line[32 + x] != exp) { ok = false; break; }
+        }
+        check("S9.08",
+              "zxula.vhd:199 — fine_scroll_x=0 leaves px(8)=0 (no 1-pixel offset)",
+              ok,
+              fmt("line[32]=0x%08X line[32+7]=0x%08X line[32+8]=0x%08X",
+                  line[32], line[32 + 7], line[32 + 8]));
+    }
+
+    // -- S9.09 combined scroll: scroll_y=2, NR 0x26=16 (2-byte/16-pixel
+    // shift), fine_scroll_x=1 — total X shift 17 pixels, Y shift 2.
+    // VHDL zxula.vhd:199: scroll_x(7:3)=2 → 16 pixels + fine=1 → 17 pixels.
+    // zxula.vhd:206 (else branch): py_s=2 → py=2. Marker at source row 2,
+    // col 1 only (src_x ∈ [8..15]) = 0xFF; display white should be at
+    // src_x − 17 = display_x mod 256 ⇒ (display_x+17)&0xFF ∈ [8..15] ⇒
+    // display_x ∈ [-9..-2] mod 256 = [247..254].
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        bed.poke(0x4000 + emu_pixel_addr_offset(2, 1), 0xFF);  // source row 2, col 1
+        bed.ula.set_ula_scroll_y(2);
+        bed.ula.set_ula_scroll_x_coarse(16);
+        bed.ula.set_ula_fine_scroll_x(true);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        bool ok = true;
+        for (int x = 0; x < 256; ++x) {
+            const bool should_white = (x >= 247 && x <= 254);
+            const uint32_t exp = should_white ? WHITE : BLACK;
+            if (line[32 + x] != exp) { ok = false; break; }
+        }
+        check("S9.09",
+              "zxula.vhd:193-216 — scroll_y=2 + NR 0x26=16 + fine=1 compose",
+              ok,
+              fmt("line[32+247]=0x%08X line[32+254]=0x%08X line[32+255]=0x%08X",
+                  line[32 + 247], line[32 + 254], line[32 + 255]));
+    }
+
+    // -- S9.10 cross-third wrap: scroll_y=64 + vc=0 → py_s=64 (0x40).
+    // VHDL zxula.vhd:206 — py_s(8)=0, py_s(7:6)="01", else branch →
+    // py = 64 (0x40). Then addr_p_spc_12_5 (line 223) = py(7:6)=01 &
+    // py(2:0)=000 & py(5:3)=000 — which selects third 1 in screen-address
+    // space (bits 12:11 = 01), confirming the swap from third 0 (raw vc=0).
+    // Marker at source row 64 = all-white row; expect display all-white.
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        poke_row_all(bed, 64, 0xFF);
+        bed.ula.set_ula_scroll_y(64);
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
+        bool all_white = true;
+        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        check("S9.10",
+              "zxula.vhd:206,223 — scroll_y=64 → py=64 (third-0→third-1 swap)",
+              all_white,
+              fmt("display[0]=0x%08X exp 0x%08X (white from row 64)", line[32], WHITE));
+    }
+
     // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
-    skip("S9.02",  "scroll_y=1 path (zxula.vhd:193-207) not implemented — no nr_27 plumbing");
-    skip("S9.03",  "scroll_y=191 wrap (zxula.vhd:193-207) not implemented");
-    skip("S9.04",  "scroll_y wrap at 192 (zxula.vhd:200-205) not implemented");
-    skip("S9.05",  "scroll_x coarse=8 (zxula.vhd:199) not implemented — no nr_26 plumbing");
-    skip("S9.06",  "scroll_x fine=1 (zxula.vhd:199) not implemented");
-    skip("S9.07",  "scroll_x=255 max (zxula.vhd:199) not implemented");
-    skip("S9.08",  "nr_68 fine_scroll_x bit (zxula.vhd:199 fine_scroll_x) not implemented");
-    skip("S9.09",  "combined scroll (zxula.vhd:193-216) not implemented");
-    skip("S9.10",  "scroll_y cross-third wrap (zxula.vhd:200-207) not implemented");
 }
 
 // =========================================================================
