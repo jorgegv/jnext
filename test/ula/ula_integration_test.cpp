@@ -404,6 +404,62 @@ static void test_ulaplus_integration(Emulator& emu) {
                   def_ok, def_mode, mode_after_bf3b, en_after_ff3b,
                   mode_after_bf3b2, en_hold, enc));
     }
+
+    // ── INT-ULAPLUS-02 — NR 0x68 bit 3 ungated alternate enable path ──
+    //
+    // Path exercised:
+    //   zxnext.vhd:4550-4551  elsif nr_68_we = '1' then
+    //                             port_ff3b_ulap_en <= nr_wr_dat(3);
+    //   Distinct from the port-0xFF3B gate at :4547-4554 (which
+    //   requires port_bf3b_ulap_mode = "01"). NR 0x68 writes latch
+    //   ulap_en UNCONDITIONALLY — no ulap_mode check.
+    //
+    // Regression guard against the pre-2026-04-23 bug where the NR
+    // 0x68 handler only forwarded bits 0/2/7 to Ula, silently ignoring
+    // bit 3. A Z80 program enabling ULA+ via `OUT (n),a : 0x68 0x08`
+    // would have had no effect.
+    //
+    // Stimulus sequence:
+    //   1. Set port_bf3b_ulap_mode ≠ "01" so the port-0xFF3B path is
+    //      definitively gated off (this proves the enable we see
+    //      comes from the NR 0x68 path, not 0xFF3B).
+    //   2. Disable ULA+ via NR 0x68 bit 3 = 0.
+    //   3. Enable ULA+ via NR 0x68 bit 3 = 1.
+    //   4. Disable ULA+ via NR 0x68 bit 3 = 0 — must actually drop.
+    //
+    // Preserve NR 0x68 bits 7/2/0 at their defaults across writes;
+    // the Ula-side mutators (`set_ula_enabled`, `set_ula_fine_scroll_x`,
+    // `renderer_.set_stencil_mode`) are idempotent under unchanged
+    // input.
+    {
+        // Step 1: clamp ulap_mode to 00 via 0xBF3B so port 0xFF3B is
+        // gated off (zxnext.vhd:4548).
+        emu.port().out(0xBF3B, 0x00);
+
+        // Step 2: NR 0x68 = 0x00 → bit 3 = 0 → ulap_en=0.
+        emu.nextreg().write(0x68, 0x00);
+        const bool off_initial = (emu.ula().get_ulap_en() == false);
+
+        // Step 3: NR 0x68 = 0x08 → bit 3 = 1 → ulap_en=1, ungated.
+        emu.nextreg().write(0x68, 0x08);
+        const bool on_via_nr68   = (emu.ula().get_ulap_en() == true);
+        const uint8_t mode_check = emu.ula().get_ulap_mode();  // stays 00
+
+        // Step 4: NR 0x68 = 0x00 → bit 3 = 0 → ulap_en=0 again.
+        emu.nextreg().write(0x68, 0x00);
+        const bool off_again = (emu.ula().get_ulap_en() == false);
+
+        const bool all_ok = off_initial && on_via_nr68 && mode_check == 0x00
+                         && off_again;
+
+        check("INT-ULAPLUS-02",
+              "NR 0x68 bit 3 ungated ulap_en latch (zxnext.vhd:4550-4551) — "
+              "ulap_mode=00 so port 0xFF3B path is gated; bit 3 toggles "
+              "ulap_en directly",
+              all_ok,
+              fmt("off_initial=%d on_via_nr68=%d ulap_mode=0x%02X off_again=%d",
+                  off_initial, on_via_nr68, mode_check, off_again));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

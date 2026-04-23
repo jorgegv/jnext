@@ -754,9 +754,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 7 = ULA disable (0=enable, 1=disable)
     //   bit 6:5 = blend mode (00=normal, 01=ULA/tilemap stencil, 10=L2 forced, 11=reserved)
     //   bit 4 = cancel extended keys (not wired here)
-    //   bit 3 = ULA+ enable (NR-0x68-side write; port 0xFF3B also drives this —
-    //           we leave it untouched in Phase 1 per plan §3: ULA+ enable lives
-    //           in the port_dispatch side, NOT here)
+    //   bit 3 = ULA+ enable (VHDL zxnext.vhd:4550-4551 — any NR 0x68 write
+    //           unconditionally latches nr_wr_dat(3) into port_ff3b_ulap_en,
+    //           distinct from the port-0xFF3B path at :4547-4554 which gates
+    //           on port_bf3b_ulap_mode = "01"; see backlog item landed
+    //           2026-04-23 after ULA Phase 3 critic discovery).
     //   bit 2 = ULA fine X-scroll enable (VHDL zxnext.vhd:5449, zxula.vhd:199)
     //   bit 0 = stencil mode (VHDL 7112)
     nextreg_.set_write_handler(0x68, [this](uint8_t v) {
@@ -765,6 +767,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.set_stencil_mode((v & 0x01) != 0);
         // Phase 1 scaffold extension — bit 2 → Ula::set_ula_fine_scroll_x.
         renderer_.ula().set_ula_fine_scroll_x((v & 0x04) != 0);
+        // VHDL :4550-4551 — bit 3 unconditionally latches ulap_en (a second
+        // writer to the same register the port-0xFF3B path drives).
+        renderer_.ula().set_ulap_en((v & 0x08) != 0);
     });
 
     // Register 0x69: Display Control 1
