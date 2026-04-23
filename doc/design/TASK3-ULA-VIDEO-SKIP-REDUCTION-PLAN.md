@@ -100,8 +100,12 @@ Extend `src/video/ula.{h,cpp}` with:
   `screen_mode` to 000 per zxula.vhd:191.
 - `set_alt_file(bool)` — mirror the alt-file bit at zxula.vhd:218 for
   the HI_COLOUR+alt mode 011 discrimination.
-- `set_clip_y2()` — apply the `y2>=0xC0` clamp per
-  zxnext.vhd:6779-6782 at store time (not at read time — match VHDL).
+- `set_clip_y2()` — raw byte store per zxnext.vhd:4974 + :5265
+  (NR 0x1A write path). The `y2 >= 0xC0 → 0xBF` clamp is RENDER-time
+  per zxnext.vhd:6779-6783, NOT store-time. An earlier draft of this
+  plan said store-time — that was VHDL-inaccurate (caught by the
+  Phase 1 agent + critic); Wave F therefore applies the clamp in the
+  render path, not in the NR 0x1A setter.
 - `render_border_line()` — route border_clr_tmx through the hi-res
   path per zxula.vhd:419.
 
@@ -203,8 +207,11 @@ Wave E just checks the mechanism fires when fed correct inputs.
 Row: **S8.08**.
 
 Scope:
-- Apply `y2 >= 0xC0` clamp at `Ula::set_clip_y2` store time per
-  zxnext.vhd:6779-6782.
+- Apply the `y2 >= 0xC0 → 0xBF` clamp in the render/read path per
+  zxnext.vhd:6779-6783. Phase 1 already lands the raw store; Wave F
+  only needs the read-time clamp (e.g. inside the `clip_y2()` getter,
+  or at the comparator site in the renderer — match the VHDL's
+  combinational process).
 
 Small wave; can be rolled into Wave D if the agent budget is tight.
 Keep separate by default — simpler critic review, zero merge risk.
