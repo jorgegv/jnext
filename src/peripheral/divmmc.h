@@ -143,6 +143,16 @@ public:
     void set_button_nmi(bool v) { button_nmi_ = v; }
     bool button_nmi() const { return button_nmi_; }
 
+    // NmiSource consumer-feedback accessors — const-only hooks consumed
+    // by `NmiSource` when arbitrating the `divmmc_nmi_hold` gate at
+    // VHDL:2118 / 2107 and the MF-vs-DivMMC priority mask at VHDL:2098.
+    // VHDL `o_disable_nmi = automap_held OR button_nmi` at
+    // divmmc.vhd:150 — true while the DivMMC is still claiming the NMI.
+    bool is_nmi_hold() const { return automap_held_ || button_nmi_; }
+    // VHDL port 0xE3 bit 7 is the CONMEM force-map flag; exposed here
+    // for `NmiSource::set_divmmc_conmem()` arbitration at VHDL:2098.
+    bool is_conmem() const { return conmem_; }
+
     // ── Layer 2 read-map feeder (Mmu → DivMmc) ─────────────────────
     /// Set the Layer 2 read-map-enable signal (port 0x123B bit 2 —
     /// `port_123b_layer2_map_rd_en`). VHDL zxnext.vhd:3138 gates
