@@ -645,13 +645,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         line_int_value_ = (line_int_value_ & 0x100) | v;
     });
 
-    // Register 0x02: Reset control.
+    // Register 0x02: Reset control + software NMI strobes.
     //   bit 0 = RESET_SOFT (tbblue hardware.h) → preserve SRAM, drop FFs
     //   bit 1 = RESET_HARD → full hard reset (same as power-on)
+    //   bit 2 = DivMMC software NMI strobe (VHDL zxnext.vhd:3830-3838,
+    //           `nmi_cpu_02_we and cpu_requester_dat(2)` → `nmi_sw_gen_divmmc`)
+    //   bit 3 = Multiface software NMI strobe (VHDL zxnext.vhd:3830-3838,
+    //           `nmi_cpu_02_we and cpu_requester_dat(3)` → `nmi_sw_gen_mf`)
     //   bit 7 = RESET_ESPBUS → peripheral-bus ESP reset signal, no-op here
     // Hard takes priority over soft if both bits are set (unusual but
     // VHDL-faithful: a hard reset supersedes a soft reset).
+    //
+    // Bits 2/3 are forwarded to NmiSource on every write; the decode
+    // inside NmiSource::nr_02_write is the single source of truth
+    // (matches `nmi_gen_nr_*` at VHDL:3832-3833). Copper MOVE-to-NR 0x02
+    // also routes through NextReg::write and therefore reaches here, so
+    // no separate Copper hook is required (plan §"Copper NR-write path").
     nextreg_.set_write_handler(0x02, [this](uint8_t v) {
+        // Always surface the software-NMI bits to NmiSource — its
+        // decode is the VHDL-faithful one. The bits are one-shot
+        // strobes so doing this unconditionally on every write is
+        // correct (writes with bits 2/3 = 0 are no-ops inside
+        // NmiSource::nr_02_write).
+        nmi_source_.nr_02_write(v);
+
         if (v & 0x02) {
             Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x})", v);
             reset();
@@ -660,6 +677,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             soft_reset();
         }
         // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.
+    });
+
+    // NR 0x02 readback — VHDL zxnext.vhd:5891 layout:
+    //   bit 7   = nr_02_bus_reset
+    //   bits 6:5 = reserved ("00")
+    //   bit 4   = nr_02_iotrap           (IO trap status, read-only)
+    //   bit 3   = nr_02_generate_mf_nmi  (auto-clears on FSM S_NMI_END)
+    //   bit 2   = nr_02_generate_divmmc_nmi (auto-clears on FSM S_NMI_END)
+    //   bits 1:0 = nr_02_reset_type(1 downto 0)
+    //
+    // Only bits 3/2 are owned by NmiSource (the FSM auto-clears them at
+    // S_NMI_END per VHDL:5891 + VHDL:2149-2162). The other fields
+    // (bus_reset, iotrap, reset_type) are their own VHDL signals and
+    // jnext does not yet track them as separate state; per the NMI plan
+    // scope we surface them as zero rather than inventing state that
+    // wouldn't match the VHDL shift-register / latch semantics.
+    nextreg_.set_read_handler(0x02, [this]() -> uint8_t {
+        return nmi_source_.nr_02_read();
     });
 
     // Register 0x03: Machine type + config_mode transitions.

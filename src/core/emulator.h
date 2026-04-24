@@ -210,6 +210,7 @@ public:
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
     DivMmc&       divmmc()    { return divmmc_; }
+    NmiSource&    nmi_source(){ return nmi_source_; }
     Beeper&       beeper()    { return beeper_; }
     TurboSound&   turbosound(){ return turbosound_; }
     Dac&          dac()       { return dac_; }
