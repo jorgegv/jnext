@@ -51,10 +51,18 @@ public:
     /// Must be called on every M1 (instruction fetch) cycle.
     void check_automap(uint16_t pc, bool is_m1);
 
-    /// RETN hook — VHDL divmmc.vhd:126,139 clear automap_hold/automap_held
-    /// on i_retn_seen. Must be invoked from the CPU M1 callback when a RETN
-    /// (ED 45 or undocumented ED 55/5D/65/6D/75/7D aliases) completes.
+    /// RETN hook — VHDL divmmc.vhd:108,126,139 clear
+    /// `button_nmi`/`automap_hold`/`automap_held` on `i_retn_seen`. Must
+    /// be invoked from the CPU M1 callback when a RETN (ED 45 — VHDL
+    /// im2_control.vhd:236 only matches the canonical opcode) completes.
     void on_retn();
+
+    /// Alias for `on_retn()` per the NMI plan doc row CLR-03. Kept as a
+    /// separate entry point for explicit callers that want the
+    /// VHDL-faithful signal name `i_retn_seen`. Behaviour is identical:
+    /// clears `button_nmi_` + `automap_hold_` + `automap_held_` per
+    /// divmmc.vhd:108,126,139.
+    void on_retn_seen() { on_retn(); }
 
     // ── Memory overlay interface ──────────────────────────────────
 

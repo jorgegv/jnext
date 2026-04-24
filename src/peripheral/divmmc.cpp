@@ -99,15 +99,18 @@ void DivMmc::clear_mapram() {
 void DivMmc::apply_enabled_transition_(bool prev_enabled) {
     enabled_ = port_io_enable_ && nr_0a_4_enable_;
     if (prev_enabled && !enabled_) {
-        // DA-08: mirror VHDL i_automap_reset (divmmc.vhd:126,139) on any
-        // enabled→disabled edge — both hold and held latches are cleared,
-        // so the combinational automap output goes low immediately.
-        if (automap_active_) {
-            divmmc_log()->debug("automap OFF (enable cleared)");
+        // DA-08: mirror VHDL i_automap_reset (divmmc.vhd:108,126,139) on
+        // any enabled→disabled edge — hold, held AND button_nmi are all
+        // cleared by i_automap_reset in the same shared process, so the
+        // combinational automap output goes low immediately and a prior
+        // NMI-button press is dropped.
+        if (automap_active_ || button_nmi_) {
+            divmmc_log()->debug("automap+button_nmi OFF (enable cleared)");
         }
         automap_active_ = false;
         automap_hold_   = false;
         automap_held_   = false;
+        button_nmi_     = false;  // divmmc.vhd:108 — i_automap_reset clear
     }
 }
 
@@ -133,15 +136,18 @@ void DivMmc::set_nr_0a_4_enable(bool v) {
 // ── RETN hook ─────────────────────────────────────────────────────────
 
 void DivMmc::on_retn() {
-    // VHDL divmmc.vhd:126,139 — i_retn_seen clears automap hold AND held.
-    // button_nmi clear (divmmc.vhd:108) belongs to Task 8 (Multiface);
-    // intentionally not handled here.
-    if (automap_active_ || automap_hold_ || automap_held_) {
-        divmmc_log()->debug("RETN: automap cleared");
+    // VHDL divmmc.vhd:108,126,139 — i_retn_seen is a shared trigger that
+    // clears all three DivMMC NMI-pipeline latches in the same clocked
+    // process: button_nmi (line 108), automap_hold (126), automap_held
+    // (139). JNEXT models all three clears here. The NMI-source plan's
+    // Wave B row CLR-03 exercises the button_nmi clear via this hook.
+    if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
+        divmmc_log()->debug("RETN: automap+button_nmi cleared");
     }
     automap_active_ = false;
     automap_hold_   = false;
     automap_held_   = false;
+    button_nmi_     = false;
 }
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
@@ -169,7 +175,25 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
 
     // Step 1: Latch hold → held. Simulates the MREQ rising edge that
     // separates the previous M1's memory cycle from this one (VHDL line 141).
+    const bool prev_held = automap_held_;
     automap_held_ = automap_hold_;
+
+    // VHDL divmmc.vhd:112-113 — in the shared `button_nmi` process, the
+    // `elsif automap_held = '1' then button_nmi <= '0'` clause re-clears
+    // the latch every cycle while `automap_held` is high (subject to the
+    // higher-priority i_reset / i_automap_reset / i_retn_seen clears and
+    // the i_divmmc_button set above them). Functionally this means once
+    // `automap_held` goes high, any lingering `button_nmi` is dropped.
+    // We model this with a rising-edge one-shot clear: on the 0→1
+    // transition of automap_held_, zero button_nmi_. Steady-state
+    // semantics match the VHDL "cleared while held=1" behaviour since
+    // the only re-setter (i_divmmc_button) is not driven in this path.
+    if (!prev_held && automap_held_ && button_nmi_) {
+        divmmc_log()->debug(
+            "button_nmi cleared by automap_held rising edge "
+            "(VHDL divmmc.vhd:112-113)");
+        button_nmi_ = false;
+    }
 
     // Step 2: Decode this PC. For each entry point we need: does it match,
     // is it currently enabled, and is its configured timing instant or
