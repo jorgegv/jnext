@@ -1272,8 +1272,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // AY data write — port 0xBFFD. VHDL zxnext.vhd:2648.
     // Decode: A15:14="10", A2=1, port_fd (A1:0="01") → mask 0xC007/0x8005.
     // VHDL 2648: port_bffd includes port_ay_io_en gating.
+    //
+    // Read side: VHDL zxnext.vhd:2771 aliases BFFD reads to FFFD reads on
+    // +3 timing only: `port_fffd_rd <= iord and (port_fffd or (port_bffd
+    // and machine_timing_p3) or port_bff5)`. On non-+3 machines BFFD
+    // reads are not decoded and return the floating-bus default.
     port_.register_handler(0xC007, 0x8005,
-        nullptr,
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if (config_.type != MachineType::ZX_PLUS3) return 0xFF;  // +3 alias only
+            return turbosound_.reg_read(false);
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            turbosound_.reg_write(val);
+        });
+
+    // AY register-query read — port 0xBFF5. VHDL zxnext.vhd:2649.
+    // `port_bff5 <= '1' when port_bffd = '1' and cpu_a(3) = '0' else '0'`.
+    // When A3=0 the AY chip switches to register-query output
+    // (psg_d_o_reg_i => port_bff5, zxnext.vhd:6395) and reg_read(true)
+    // returns AY_ID & selected_register per VHDL oracle.
+    //
+    // This handler is strictly more specific than the BFFD handler above
+    // (6 mask bits vs 5), so most-specific-wins dispatch routes 0xBFF5
+    // reads here. Writes to 0xBFF5 also decode as port_bffd_wr in VHDL
+    // (zxnext.vhd:6393 `psg_reg_wr_i => port_bffd_wr`), so we forward
+    // the write to the normal data-write path.
+    //
+    // Decode: A15:14="10", A3=0, A2=1, A1:0="01" → mask 0xC00F / val 0x8005.
+    port_.register_handler(0xC00F, 0x8005,
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            return turbosound_.reg_read(true);   // reg_mode = true
+        },
         [this](uint16_t, uint8_t val) {
             if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
             turbosound_.reg_write(val);
@@ -1291,9 +1323,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x004F, nullptr,
         [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(2, val); });
 
-    // DAC port 0x5F conflicts with sprite patterns (port 0x5B uses 0x00FF mask).
-    // Use full 16-bit match for Soundrive Mode 2 ports instead.
-    // Soundrive Mode 2: 0xF1=A, 0xF3=B, 0xF9=C, 0xFB=D
+    // Soundrive Mode 1 channel D (port 0x5F) + Profi Covox channel A
+    // (port 0x3F). VHDL zxnext.vhd:2429 (port_dac_sd1_ABCD_1f0f4f5f_io_en)
+    // and :2431 (port_dac_stereo_AD_3f5f_io_en). These use a full 16-bit
+    // match so they do not alias with other 0x_F-family peripherals
+    // (sprite pattern port 0x5B in particular uses a 0x00FF low-byte
+    // mask — the original code deferred 0x5F wiring on that concern).
+    port_.register_handler(0xFFFF, 0x003F, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(0, val); });
+    port_.register_handler(0xFFFF, 0x005F, nullptr,
+        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(3, val); });
+
+    // Soundrive Mode 2: 0xF1=A, 0xF3=B, 0xF9=C, 0xFB=D (vhd:2432).
+    // Port 0xFB ALSO mirrors Pentagon mono ch A+D fan-out (vhd:2660)
+    // when port_dac_mono_AD_fb_io_en is effective, so the 0xFB handler
+    // below honours the VHDL gate composition instead of unconditionally
+    // routing to ch D.
     port_.register_handler(0xFFFF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(0, val); });
     port_.register_handler(0xFFFF, 0x00F3, nullptr,
@@ -1301,7 +1346,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(2, val); });
     port_.register_handler(0xFFFF, 0x00FB, nullptr,
-        [this](uint16_t, uint8_t val) { if (dac_enabled_) dac_.write_channel(3, val); });
+        [this](uint16_t, uint8_t val) {
+            if (!dac_enabled_) return;
+            // VHDL zxnext.vhd:2664 — port_dac_D fires on 0xFB when either
+            // SD2 mode (NR 0x84 bit 2) OR mono_AD_fb effective is set;
+            // :2661 — port_dac_A fires on 0xFB only via mono_AD fan-out.
+            // mono_AD_fb_eff = NR 0x84 bit 5 AND NOT bit 2 (vhd:2433).
+            const uint8_t nr84 = nextreg_.cached(0x84);
+            const bool sd2_en  = (nr84 & 0x04) != 0;         // bit 2
+            const bool mono_ad = (nr84 & 0x20) && !sd2_en;   // bit 5 AND NOT bit 2
+            if (sd2_en || mono_ad) dac_.write_channel(3, val);
+            if (mono_ad)           dac_.write_channel(0, val);
+        });
+
+    // GS Covox mono fan-out — port 0xB3 writes both channels B and C.
+    // VHDL zxnext.vhd:2659 `port_dac_mono_BC <= '1' when port_b3_lsb='1'
+    // and port_dac_mono_BC_b3_io_en='1' else '0'`, routed to channels B
+    // and C via the port_dac_B/port_dac_C fan-in at :2662-2663. Matches
+    // the MINIMAL-handler pattern used for 0x1F/0x0F/0x4F — only the
+    // NR 0x08 bit 3 DAC-enable gate is enforced; firmware-side disable
+    // via NR 0x84 bit 6 is not modelled here (same as existing handlers).
+    port_.register_handler(0xFFFF, 0x00B3, nullptr,
+        [this](uint16_t, uint8_t val) {
+            if (!dac_enabled_) return;
+            dac_.write_channel(1, val);
+            dac_.write_channel(2, val);
+        });
 
     // Specdrum: port 0xDF → channels A+D.  VHDL zxnext.vhd:2674 routes
     // 0xDF reads through port_1f (joystick 1) when the combo gate fires

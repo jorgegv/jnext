@@ -157,24 +157,26 @@ static void test_dac_port_decode(Emulator& emu) {
 
     // SD-10 — Soundrive mode 1 ports: 0x1F(A), 0x0F(B), 0x4F(C), 0x5F(D).
     //
-    // PLAN DRIFT / F-SKIP: port 0x5F (channel D) is NOT wired in
-    // src/core/emulator.cpp. The wiring block at :1287-1292 covers only
-    // 0x1F/0x0F/0x4F (A/B/C); the inline comment at :1294 explicitly
-    // defers 0x5F because the 0x00FF mask would overlap with the
-    // sprite-pattern port 0x5B decode, but the Soundrive-mode-2 block
-    // at :1297-1304 uses 0xFFFF/0x00F1..0x00FB and does not cover
-    // 0x005F either. VHDL zxnext.vhd:2429 REQUIRES 0x5F to land on
-    // DAC channel D; our emulator silently drops it.
-    //
-    // Observed fail output before this F-skip: pcm_right = ch_C(0x30)
-    // + ch_D(0x80 reset) = 0xB0 (expected 0x70 if the 0x5F write had
-    // reached ch D with 0x40). A partial "3-of-4-ports" assertion
-    // would mask the gap and green-rot; the honest F-skip preserves
-    // the VHDL requirement so a future emulator fix can un-skip.
-    skip("SD-10",
-         "F — port 0x5F (Soundrive mode 1 ch D) is not wired; 0x1F/"
-         "0x0F/0x4F reach channels A/B/C but 0x5F writes are dropped "
-         "[zxnext.vhd:2429; emulator.cpp:1287-1292 has no 0x5F handler]");
+    // Wave F (2026-04-24): port 0x5F (channel D) now wired in
+    // src/core/emulator.cpp using a 16-bit match (0xFFFF/0x005F) so it
+    // does not alias with the sprite-pattern port 0x5B. VHDL
+    // zxnext.vhd:2429 oracle: 0x1F/0x0F/0x4F/0x5F map 1:1 to ch A/B/C/D
+    // under port_dac_sd1_ABCD_1f0f4f5f_io_en.
+    {
+        fresh(emu);
+        enable_dac(emu);
+        emu.port().out(0x001F, 0x10);   // ch A
+        emu.port().out(0x000F, 0x20);   // ch B
+        emu.port().out(0x004F, 0x30);   // ch C
+        emu.port().out(0x005F, 0x40);   // ch D (Wave F)
+        const uint16_t L = emu.dac().pcm_left();
+        const uint16_t R = emu.dac().pcm_right();
+        check("SD-10",
+              "Soundrive mode 1 ports 0x1F/0x0F/0x4F/0x5F map to DAC "
+              "channels A/B/C/D [zxnext.vhd:2429; emulator.cpp 0xFFFF/0x005F]",
+              L == (0x10 + 0x20) && R == (0x30 + 0x40),
+              fmt("L=0x%03x (want 0x030) R=0x%03x (want 0x070)", L, R));
+    }
 
     // SD-11 — Soundrive mode 2 ports: 0xF1(A), 0xF3(B), 0xF9(C), 0xFB(D).
     // Distinct from SD-10 patterns so we verify the extra 16-bit-match
@@ -199,19 +201,25 @@ static void test_dac_port_decode(Emulator& emu) {
 
     // SD-12 — Profi Covox ports: 0x3F(A) + 0x5F(D).
     //
-    // PLAN DRIFT / F-SKIP: BOTH ports are effectively unwired for
-    // Profi Covox semantics — 0x3F (channel A) has no handler at all
-    // (VHDL zxnext.vhd:2658 port_dac_stereo_AD_3f5f_io_en), and 0x5F
-    // (channel D) is also unwired (see SD-10 for the same finding —
-    // emulator.cpp:1287-1292 does not register 0x5F). Both writes are
-    // silently dropped.
-    //
-    // Emulator gap flagged — row re-skipped as F (real TODO) rather
-    // than attempted with a partial assertion that would mask the
-    // missing fan-out.
-    skip("SD-12",
-         "F — ports 0x3F (Profi Covox ch A) and 0x5F (ch D) both "
-         "unwired in emulator.cpp [zxnext.vhd:2658; see SD-10]");
+    // Wave F (2026-04-24): ports 0x3F and 0x5F are both wired via the
+    // 16-bit-match handlers added in emulator.cpp. VHDL oracle
+    // zxnext.vhd:2431 (port_dac_stereo_AD_3f5f_io_en) / :2661 / :2664
+    // — 0x3F lands on ch A, 0x5F lands on ch D.
+    {
+        fresh(emu);
+        enable_dac(emu);
+        emu.port().out(0x003F, 0x55);   // Profi Covox ch A
+        emu.port().out(0x005F, 0x77);   // Profi Covox ch D (shared with SD1)
+        const uint16_t L = emu.dac().pcm_left();
+        const uint16_t R = emu.dac().pcm_right();
+        // L = chA(0x55) + chB(0x80 reset) = 0xD5
+        // R = chC(0x80 reset) + chD(0x77) = 0xF7
+        check("SD-12",
+              "Profi Covox ports 0x3F(A) + 0x5F(D) reach DAC channels A/D "
+              "[zxnext.vhd:2431/2661/2664; emulator.cpp 0xFFFF match]",
+              L == (0x55 + 0x80) && R == (0x80 + 0x77),
+              fmt("L=0x%03x (want 0x0D5) R=0x%03x (want 0x0F7)", L, R));
+    }
 
     // SD-13 — Covox ports 0x0F(B) + 0x4F(C).
     //
@@ -238,26 +246,50 @@ static void test_dac_port_decode(Emulator& emu) {
 
     // SD-14 — Pentagon/ATM mono port 0xFB → ch A+D.
     //
-    // PLAN DRIFT / F-SKIP: VHDL port_dac_mono_AD_fb (zxnext.vhd:2660)
-    // routes 0xFB writes to BOTH ch A and ch D. Our emulator wires
-    // 0xFB only to ch D (Soundrive mode 2 — emulator.cpp:1297). A
-    // 0xFB write does NOT update ch A — the mono fan-out is absent.
-    //
-    // Emulator gap flagged — re-skipped F so a future emulator fix can
-    // un-skip cleanly rather than having this suite green-rot.
-    skip("SD-14",
-         "F — port 0xFB mono fan-out to ch A missing; only ch D wired "
-         "[zxnext.vhd:2660; emulator.cpp:1297]");
+    // Wave F (2026-04-24): 0xFB handler honours the VHDL composition at
+    // zxnext.vhd:2433/2658/2661/2664 — port_dac_mono_AD_fb_io_en is
+    // `internal_port_enable(21) AND NOT internal_port_enable(18)`, i.e.
+    // NR 0x84 bit 5 set AND bit 2 clear. Under that configuration a
+    // single 0xFB write updates BOTH ch A and ch D. Default NR 0x84=0xFF
+    // leaves mono_AD_fb effectively OFF (bit 2=1 wins) — SD-11 covers
+    // that case. SD-14 configures NR 0x84 = 0x20 (bit 5 only) to open
+    // the mono fan-out gate.
+    {
+        fresh(emu);
+        enable_dac(emu);
+        // Open DAC path (NR 0x08 bit 3 already set by enable_dac).
+        // Set NR 0x84 = 0x20: bit 5 = mono_AD_fb raw = 1, bit 2 = SD2 = 0,
+        // so port_dac_mono_AD_fb_io_en = 1 AND port_dac_sd2... = 0 →
+        // port_dac_D fires only via mono path, port_dac_A fires via
+        // mono path. Both channels update from the 0xFB write.
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0x20);
+        emu.port().out(0x00FB, 0x66);   // mono fan-out write
+        const uint16_t L = emu.dac().pcm_left();   // chA(0x66) + chB(0x80)
+        const uint16_t R = emu.dac().pcm_right();  // chC(0x80) + chD(0x66)
+        check("SD-14",
+              "port 0xFB mono fan-out: single write updates ch A + ch D "
+              "when NR 0x84 bit 5=1, bit 2=0 [zxnext.vhd:2433/2661/2664]",
+              L == (0x66 + 0x80) && R == (0x80 + 0x66),
+              fmt("L=0x%03x (want 0x0E6) R=0x%03x (want 0x0E6)", L, R));
+    }
 
     // SD-15 — GS Covox port 0xB3 → ch B+C.
     //
-    // PLAN DRIFT / F-SKIP: port 0xB3 (port_dac_mono_BC_b3 at
-    // zxnext.vhd:2661) is NOT wired in src/core/emulator.cpp. Reset
-    // DAC state never changes when writing 0xB3. Row re-skipped F;
-    // emulator wiring must be added before un-skip.
-    skip("SD-15",
-         "F — port 0xB3 (GS Covox) not wired in emulator.cpp "
-         "[zxnext.vhd:2661]");
+    // Wave F (2026-04-24): port 0xB3 wired via 0xFFFF match and fans out
+    // to DAC channels B and C. VHDL zxnext.vhd:2659/2662-2663.
+    {
+        fresh(emu);
+        enable_dac(emu);
+        emu.port().out(0x00B3, 0x55);   // mono fan-out write
+        const uint16_t L = emu.dac().pcm_left();   // chA(0x80) + chB(0x55) = 0xD5
+        const uint16_t R = emu.dac().pcm_right();  // chC(0x55) + chD(0x80) = 0xD5
+        check("SD-15",
+              "port 0xB3 (GS Covox) mono fan-out updates ch B + ch C "
+              "[zxnext.vhd:2659/2662-2663; emulator.cpp 0xFFFF/0x00B3]",
+              L == (0x80 + 0x55) && R == (0x55 + 0x80),
+              fmt("L=0x%03x (want 0x0D5) R=0x%03x (want 0x0D5)", L, R));
+    }
 
     // SD-16 — SpecDrum port 0xDF → ch A+D.
     // Wired at emulator.cpp:1304-1308 (mask 0x00FF val 0x00DF). A single
@@ -427,43 +459,77 @@ static void test_ay_port_dispatch(Emulator& emu) {
     }
 
     // IO-03 — port 0xBFF5 (BFFD with A3=0) = register-query mode.
-    // VHDL :2649: port_bff5 returns AY_ID & selected_register rather
-    // than the register contents. TurboSound::reg_read(reg_mode=true)
-    // implements this, but emulator.cpp wires BFFD read as nullptr
-    // (write-only handler at :1269-1274) — no handler routes 0xBFF5
-    // reads to reg_read(true).
-    //
-    // F-SKIP: emulator gap. Un-skip when a dedicated 0xBFF5 read
-    // handler is added that forwards to turbosound_.reg_read(true).
-    skip("IO-03",
-         "F — port 0xBFF5 (AY reg-query mode) has no read handler in "
-         "emulator.cpp; TurboSound::reg_read(reg_mode) exists but is "
-         "never reached via port dispatch [zxnext.vhd:2649]");
+    // VHDL zxnext.vhd:2649: port_bff5 returns AY_ID & selected_register
+    // rather than the register contents. Wave F (2026-04-24) adds a
+    // dedicated 0xC00F/0x8005 handler (more specific than the BFFD
+    // decode 0xC007/0x8005) that forwards reads to reg_read(true).
+    {
+        fresh(emu);
+        emu.port().out(0xFFFD, 0x07);   // select reg 7 on AY#0
+        const uint8_t bff5 = emu.port().in(0xBFF5);
+        // AY#0 has id=3 in our TurboSound ctor (turbosound.cpp:5 —
+        // `AyChip(3), AyChip(2), AyChip(1)`), so reg_read(true) for
+        // AY#0 with addr=7 returns (3<<6)|7 = 0xC7.
+        check("IO-03",
+              "port 0xBFF5 read returns AY_ID:selected_register "
+              "[zxnext.vhd:2649/6395; emulator.cpp 0xC00F/0x8005]",
+              bff5 == 0xC7,
+              fmt("in(0xBFF5)=0x%02x (want 0xC7 = AY#0 id=3 | reg=7)",
+                  bff5));
+    }
 
     // IO-04 — FFFD data latched on falling CPU clock edge.
-    // VHDL :2771-2773 clocks port_fffd_dat <= psg_dat on falling_edge
-    // of i_CLK_CPU — an asynchronous pipeline the C++ model does not
-    // attempt. Our reg_read() returns the selected register synchronously
-    // at the time of the IN. There is no edge-triggered observable here.
     //
-    // F-SKIP: unmodelled edge latch — un-skip only if the pipeline is
-    // added (unlikely — invisible to software at Z80 T-state granularity
-    // within an instruction boundary).
-    skip("IO-04",
-         "F — FFFD falling-edge latch (psg_dat -> port_fffd_dat) is not "
-         "modelled; C++ reads are synchronous [zxnext.vhd:2771-2773]");
+    // G (Wave F demotion, 2026-04-24): VHDL zxnext.vhd:2771-2773 clocks
+    // `port_fffd_dat <= psg_dat` on falling_edge of i_CLK_CPU. This is
+    // an internal pipeline stage — `psg_dat` is the AY chip's live
+    // output; `port_fffd_dat` is the registered sample that the IO bus
+    // sees on the subsequent cycle. At Z80 instruction-boundary
+    // granularity, a read always sees the pre-selected register's value
+    // because the FFFD write (which updates `addr_`) completes a whole
+    // T-state before any subsequent IN. The falling-edge latch is
+    // therefore indistinguishable from a synchronous read at the
+    // software-visible level, and the C++ model intentionally does not
+    // attempt to reproduce it. No skip — architectural decision noted.
 
     // IO-05 — BFFD readable as FFFD on +3 timing.
-    // VHDL :2771 gates port_fffd_rd on (port_bffd AND machine_timing_p3)
-    // in addition to port_fffd. Our emulator.cpp registers BFFD as
-    // write-only — reads on 0xBFFD fall through to the floating-bus
-    // default. No machine-timing alias exists.
+    // VHDL zxnext.vhd:2771 gates port_fffd_rd on `port_fffd OR (port_bffd
+    // AND machine_timing_p3) OR port_bff5`. Wave F (2026-04-24) adds a
+    // read callback to the existing 0xC007/0x8005 handler that returns
+    // reg_read(false) when `config_.type == ZX_PLUS3` and 0xFF otherwise.
     //
-    // F-SKIP: emulator gap. Un-skip when BFFD read-alias is implemented
-    // under the +3 machine-timing gate.
-    skip("IO-05",
-         "F — BFFD read does not alias to FFFD on +3; no read handler "
-         "at emulator.cpp:1269 [zxnext.vhd:2771-2773]");
+    // This row uses a fresh +3 emulator for the positive assertion and
+    // a fresh Next emulator for the negative assertion (same machine
+    // construction idiom as uart_integration_test.cpp).
+    {
+        // Use AY reg 0 (tone period low byte) — read unmasked so the
+        // sentinel round-trips verbatim. Avoids the nibble-mask on
+        // registers 1/3/5 per AyChip::read_data (ay_chip.cpp:86-87).
+        //
+        // Positive: +3 — BFFD reads return the selected register.
+        Emulator p3;
+        EmulatorConfig p3_cfg;
+        p3_cfg.type = MachineType::ZX_PLUS3;
+        p3_cfg.roms_directory = "/usr/share/fuse";
+        p3_cfg.rewind_buffer_frames = 0;
+        p3.init(p3_cfg);
+        p3.port().out(0xFFFD, 0x00);    // select AY reg 0 on +3
+        p3.port().out(0xBFFD, 0x5A);    // write sentinel
+        const uint8_t p3_read = p3.port().in(0xBFFD);
+
+        // Negative: Next (not +3) — BFFD reads must NOT alias FFFD.
+        fresh(emu);
+        emu.port().out(0xFFFD, 0x00);
+        emu.port().out(0xBFFD, 0xA5);   // different sentinel
+        const uint8_t nx_read = emu.port().in(0xBFFD);
+
+        check("IO-05",
+              "BFFD read aliases FFFD on +3; not on Next/128K "
+              "[zxnext.vhd:2771; emulator.cpp 0xC007/0x8005 read]",
+              p3_read == 0x5A && nx_read == 0xFF,
+              fmt("+3 BFFD read=0x%02x (want 0x5A); Next BFFD read=0x%02x "
+                  "(want 0xFF floating)", p3_read, nx_read));
+    }
 
     // IO-11 — port→channel alias fan-in.
     // The DAC channel-A register is writable via ports 0x1F (Soundrive
