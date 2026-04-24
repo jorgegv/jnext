@@ -116,6 +116,21 @@ target_link_libraries(uart_test PRIVATE jnext_peripheral)
 target_include_directories(uart_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_tests COMMAND uart_test)
 
+# UART subsystem integration test (Phase 2 Waves C + D, 2026-04-24)
+# Hosts the plan rows that exercise dual-channel dispatch end-to-end
+# through the real port-dispatch handlers + the NR 0x0B iomode UART
+# RX multiplex in src/core/emulator.cpp (the level above the per-channel
+# Uart / UartChannel accessors that uart_test.cpp pins). Mirrors the
+# linkage of nextreg_integration_test / input_integration_test /
+# ctc_interrupts_test / ula_integration_test.
+add_executable(uart_integration_test uart/uart_integration_test.cpp)
+target_link_libraries(uart_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME uart_integration_tests COMMAND uart_integration_test)
+
 # DivMMC + SPI compliance test
 add_executable(divmmc_test divmmc/divmmc_test.cpp)
 # jnext_memory + jnext_debug added 2026-04-21: PRI-01/02/04 need a
