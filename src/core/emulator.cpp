@@ -1213,25 +1213,47 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t, uint8_t v)  { nextreg_.write_selected(v); });
 
     // ULA — port 0xFE (mask 0x00FF, value 0x00FE).
-    // Read: bits 7-5 always 1; bit 6 = EAR input (1 = no tape signal);
-    //       bits 4-0 = keyboard rows for selected addresses (active-low).
-    // Write: bits 2-0 = border colour; bit 4 = MIC; bit 3 = EAR/beeper.
+    // Read (VHDL zxnext.vhd:3459):
+    //   port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL
+    // where `i_AUDIO_EAR` is the relaxed tape-input signal (zxnext_top_issue2.vhd:
+    // symmetric_relaxation, i_relax_0/1 = zxn_issue2_fe_mic =
+    // port_fe_mic AND nr_08_keyboard_issue2). In the no-tape idle regime the
+    // relaxation steady-state collapses to `port_fe_mic AND nr_08_keyboard_issue2`.
+    // jnext simplification: idle tape pin is '1' (no signal); we therefore
+    // OR a pragmatic `audio_ear_eff` with `port_fe_ear` (OUT 0xFE bit 4 latch):
+    //   audio_ear_eff = tape_playing ? tape_bit
+    //                 : issue2_on    ? port_fe_mic  (OUT 0xFE bit 3 latch)
+    //                                : 1            (idle tape high, matches
+    //                                                 i_AUDIO_EAR when issue2=0
+    //                                                 and no tape; the full
+    //                                                 VHDL relaxation is
+    //                                                 approximated at steady
+    //                                                 state).
+    // Write: bits 2-0 = border colour; bit 4 = EAR; bit 3 = MIC.
     port_.register_handler(0x00FF, 0x00FE,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
-            // Bit 6 = EAR input: 1 = no signal, 0 = signal present.
-            // During real-time tape playback, feed the tape EAR bit.
+            // Default `audio_ear_eff = 1` (idle tape pin pull-up). Tape
+            // playback overrides. Issue-2 feedback substitutes MIC.
+            uint8_t audio_ear_eff = 1;
             if (tape_.is_playing()) {
-                result = (result & ~0x40) | (tape_.tick_realtime(0) << 6);
+                audio_ear_eff = tape_.tick_realtime(0);
             } else if (tzx_tape_.is_playing()) {
                 // Use FUSE's live T-state counter (advances mid-instruction during I/O).
                 uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                result = (result & ~0x40) | (tzx_tape_.update(cpu_clocks) << 6);
+                audio_ear_eff = tzx_tape_.update(cpu_clocks);
             } else if (wav_tape_.is_playing()) {
                 uint64_t cpu_clocks = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                result = (result & ~0x40) | (wav_tape_.get_ear_bit(cpu_clocks) << 6);
+                audio_ear_eff = wav_tape_.get_ear_bit(cpu_clocks);
+            } else if ((nr_08_stored_low_ & 0x01) != 0) {
+                // Issue-2 MIC→EAR feedback (VHDL zxnext.vhd:1636, :3459):
+                // i_AUDIO_EAR steady-state = port_fe_mic AND nr_08_keyboard_issue2.
+                audio_ear_eff = beeper_.mic() ? 1 : 0;
             }
+            // Bit 6 = audio_ear_eff OR port_fe_ear (OUT 0xFE bit 4 latch).
+            uint8_t bit6 = (audio_ear_eff | (beeper_.ear() ? 1 : 0)) & 1;
+            result = (result & ~0x40) | (bit6 << 6);
             return result;
         },
         [this](uint16_t, uint8_t val) {
