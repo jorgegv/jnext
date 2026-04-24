@@ -259,34 +259,92 @@ static void test_fe_format(Emulator& emu) {
     }
 
     // FE-04: NR 0x08 bit 0 = 1 (issue-2 keyboard mode), MIC=1, EAR=0
-    // → bit 6 = MIC XOR EAR.
+    // → bit 6 reflects MIC; MIC=0, EAR=0 → bit 6 = 0.
     //
-    // VHDL zxnext.vhd:5182 (NR 0x08 bit 0 = nr_08_keyboard_issue2) plus
-    // the audio block where i_AUDIO_EAR composes EAR/MIC differently in
-    // issue-2 mode. jnext currently:
-    //   * stores nr_08_keyboard_issue2 (src/core/emulator.cpp:1310 bit 0)
-    //     but doesn't consume it in the port-0xFE read path, and
-    //   * has no MIC/EAR plumbing into i_AUDIO_EAR — bit 6 is hard-set
-    //     by the 0xE0 wrap unless a tape is playing.
+    // VHDL zxnext.vhd:5182 (nr_08_keyboard_issue2) + :1636
+    // (o_AUDIO_ISSUE2_FE_MIC = port_fe_mic AND nr_08_keyboard_issue2)
+    // + :3459 (bit 6 = i_AUDIO_EAR OR port_fe_ear). In the no-tape idle
+    // regime the symmetric_relaxation at zxnext_top_issue2.vhd:662
+    // collapses i_AUDIO_EAR to port_fe_mic AND nr_08_keyboard_issue2
+    // (steady state, i_relax_0 = i_relax_1 = zxn_issue2_fe_mic).
     //
-    // Without that audio-block feedback the issue-2 XOR cannot be
-    // observed from the harness. F-skip until the audio subsystem grows
-    // a MIC/EAR feedback path equivalent to the VHDL i_AUDIO_EAR.
-    skip("FE-04",
-         "F: issue-2 MIC XOR EAR feedback into port 0xFE not modelled "
-         "(NR 0x08 bit 0 stored but not consumed; no MIC/EAR plumbing "
-         "into i_AUDIO_EAR analog; zxnext.vhd:5182 + audio block)");
+    // jnext (src/core/emulator.cpp port 0xFE read handler) implements
+    // the steady-state approximation:
+    //   audio_ear_eff = tape ? tape_bit
+    //                 : issue2 ? port_fe_mic
+    //                          : 1;
+    //   bit 6 = audio_ear_eff OR port_fe_ear;
+    //
+    // Verify the issue-2 delta: with NR 0x08 bit 0 = 1 and EAR (bit 4)
+    // held at 0, bit 6 tracks the MIC (bit 3) value written by OUT 0xFE.
+    // Cross-check the negative side: with NR 0x08 bit 0 = 0 (issue-3),
+    // MIC does NOT leak into bit 6 — bit 6 stays high (idle tape pin).
+    {
+        fresh(emu);
+        // Enable issue-2 mode (NR 0x08 bit 0 = 1). Preserve the
+        // firmware-default upper bits by OR-ing into the cached byte.
+        const uint8_t nr08_cur = emu.nextreg().cached(0x08);
+        emu.nextreg().write(0x08, static_cast<uint8_t>(nr08_cur | 0x01));
+
+        // OUT 0xFE with MIC=1 (bit 3 = 1), EAR=0 (bit 4 = 0).
+        emu.port().out(0x00FE, 0x08);
+        const uint8_t v_mic1 = read_fe(emu, 0xFE);
+
+        // OUT 0xFE with MIC=0, EAR=0.
+        emu.port().out(0x00FE, 0x00);
+        const uint8_t v_mic0 = read_fe(emu, 0xFE);
+
+        const bool issue2_mic_tracks =
+            ((v_mic1 & 0x40) != 0) &&   // MIC=1 → bit 6 = 1
+            ((v_mic0 & 0x40) == 0);     // MIC=0 → bit 6 = 0
+
+        // Negative: issue-3 mode (NR 0x08 bit 0 = 0), MIC does NOT leak.
+        fresh(emu);
+        const uint8_t nr08_fresh = emu.nextreg().cached(0x08);
+        emu.nextreg().write(0x08, static_cast<uint8_t>(nr08_fresh & ~0x01));
+        emu.port().out(0x00FE, 0x00);
+        const uint8_t v_i3_mic0 = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0x08);
+        const uint8_t v_i3_mic1 = read_fe(emu, 0xFE);
+        const bool issue3_mic_no_leak =
+            ((v_i3_mic0 & 0x40) != 0) && ((v_i3_mic1 & 0x40) != 0);
+
+        char detail[192];
+        std::snprintf(detail, sizeof(detail),
+                      "issue2: v_mic1=0x%02X v_mic0=0x%02X | "
+                      "issue3: v_mic0=0x%02X v_mic1=0x%02X",
+                      v_mic1, v_mic0, v_i3_mic0, v_i3_mic1);
+        check("FE-04",
+              "NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC "
+              "(OUT bit 3); bit 0 = 0 (issue-3) → no leak  "
+              "(zxnext.vhd:5182 + :1636 + :3459; steady-state "
+              "symmetric_relaxation per top_issue2.vhd:662)",
+              issue2_mic_tracks && issue3_mic_no_leak,
+              detail);
+    }
 
     // FE-05: Expansion-bus AND with port_fe_bus D0 = 0 → bit 0 = 0.
     //
-    // VHDL zxnext.vhd:3468 — port_fe_dat <= port_fe_dat_0 AND port_fe_bus.
-    // The expansion bus can pull individual bits low. jnext does not
-    // model an expansion bus at all — port_fe_bus is implicitly 0xFF
-    // (no external pull-down). F-skip until expansion-bus modelling
-    // exists.
+    // VHDL zxnext.vhd:3468 — port_fe_dat <= port_fe_dat_0 AND port_fe_bus,
+    // with port_fe_bus = i_BUS_DI when expbus_eff_en = 1 AND
+    // port_propagate_fe = 1 else X"FF" (line 3453). The expansion bus
+    // can pull individual bits low via an external device driving D0=0.
+    //
+    // jnext does not model any expansion-bus device: there is no
+    // aggregator for i_BUS_DI, no equivalent of expbus_eff_en / NR 0x80
+    // bit 4 or NR 0x8A bit 0 (port_propagate_fe) port-propagation
+    // routing, and no cart-through path. With no external device,
+    // port_fe_bus = 0xFF is the VHDL-correct idle — AND with 0xFF is a
+    // no-op, which is what jnext's read path implicitly does (no AND
+    // term applied). The "D0 = 0 pulled by bus" stimulus is therefore
+    // architecturally unobservable from this harness. F-skip pending an
+    // expansion-bus subsystem.
     skip("FE-05",
-         "F: expansion-bus port_fe_bus AND not modelled "
-         "(jnext has no external bus device aggregation; zxnext.vhd:3468)");
+         "F: no expansion-bus subsystem — i_BUS_DI aggregator / "
+         "expbus_eff_en / NR 0x8A port_propagate_fe routing absent; "
+         "port_fe_bus = 0xFF idle matches VHDL zxnext.vhd:3453, making "
+         "the bus-pull-low stimulus architecturally unobservable "
+         "(zxnext.vhd:3468)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
