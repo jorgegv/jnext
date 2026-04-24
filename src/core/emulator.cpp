@@ -804,7 +804,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x68: ULA control
     //   bit 7 = ULA disable (0=enable, 1=disable)
-    //   bit 6:5 = blend mode (00=normal, 01=ULA/tilemap stencil, 10=L2 forced, 11=reserved)
+    //   bit 6:5 = ula_blend_mode_2 — feeds mix_rgb / mix_top / mix_bot
+    //            selection for priority modes 6/7 (VHDL zxnext.vhd:7141-7178).
+    //            Encoding: 00 default, 10 ula_final as U, 11 TM as U, 01 transp.
     //   bit 4 = cancel extended keys (not wired here)
     //   bit 3 = ULA+ enable (VHDL zxnext.vhd:4550-4551 — any NR 0x68 write
     //           unconditionally latches nr_wr_dat(3) into port_ff3b_ulap_en,
@@ -815,7 +817,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 0 = stencil mode (VHDL 7112)
     nextreg_.set_write_handler(0x68, [this](uint8_t v) {
         renderer_.ula().set_ula_enabled((v & 0x80) == 0);
-        // VHDL 7112: ula_blend_mode bits 6:5 (stencil when bit 0 set)
+        // VHDL 7141-7178: ula_blend_mode (bits 6:5) selects mix_rgb/top/bot.
+        renderer_.set_blend_mode((v >> 5) & 0x03);
+        // VHDL 7112: stencil mode (bit 0).
         renderer_.set_stencil_mode((v & 0x01) != 0);
         // Phase 1 scaffold extension — bit 2 → Ula::set_ula_fine_scroll_x.
         renderer_.ula().set_ula_fine_scroll_x((v & 0x04) != 0);
