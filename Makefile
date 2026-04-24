@@ -125,7 +125,7 @@ unit-test: unit-test-build
 	rm -f $$SUMMARY; \
 	TESTS="fuse_z80_test z80n_test rewind_test copper_test mmu_test nextreg_test \
 	       nextreg_integration_test input_test input_integration_test ctc_test ctc_interrupts_test layer2_test \
-	       uart_test divmmc_test sdcard_test sprites_test compositor_test ula_test ula_integration_test \
+	       uart_test uart_integration_test divmmc_test sdcard_test sprites_test compositor_test ula_test ula_integration_test \
 	       floating_bus_test videotiming_test contention_test port_test audio_test dma_test tilemap_test"; \
 	for t in $$TESTS; do \
 		bin="$$BUILD/test/$$t"; \

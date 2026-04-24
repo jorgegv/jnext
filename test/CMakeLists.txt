@@ -116,6 +116,20 @@ target_link_libraries(uart_test PRIVATE jnext_peripheral)
 target_include_directories(uart_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_tests COMMAND uart_test)
 
+# UART + I2C integration test (Phase 3 Wave C, 2026-04-24)
+# Hosts the 10 plan rows re-homed from uart_test.cpp that need a full
+# Emulator + NextReg + Im2Controller + port-dispatch surface: INT-01..06
+# (UART IM2 interrupt vectors via NR 0xC6/0xCA), GATE-01..03 (NR 0x83
+# port-enable gates for I2C/UART), and I2C-10 (I2C port-gate detail row).
+# Mirrors the ctc_interrupts_test / ula_integration_test linkage above.
+add_executable(uart_integration_test uart/uart_integration_test.cpp)
+target_link_libraries(uart_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME uart_integration_tests COMMAND uart_integration_test)
+
 # DivMMC + SPI compliance test
 add_executable(divmmc_test divmmc/divmmc_test.cpp)
 # jnext_memory + jnext_debug added 2026-04-21: PRI-01/02/04 need a

@@ -1442,26 +1442,70 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t, uint8_t val) { spi_.write_data(val); });
 
     // I2C SCL (0x103B) and SDA (0x113B)
+    // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).
+    // internal_port_enable(10) = nr_83_internal_port_enable(2) per the
+    // concat at zxnext.vhd:2392 (bits 0-7 = NR 0x82, bits 8-15 = NR 0x83).
+    // Gate mirrors the DivMMC pattern below: when closed, reads return 0xFF
+    // and writes are silently dropped.
     port_.register_handler(0xFFFF, 0x103B,
-        [this](uint16_t) -> uint8_t { return i2c_.read_scl(); },
-        [this](uint16_t, uint8_t val) { i2c_.write_scl(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            return i2c_.read_scl();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            i2c_.write_scl(val);
+        });
     port_.register_handler(0xFFFF, 0x113B,
-        [this](uint16_t) -> uint8_t { return i2c_.read_sda(); },
-        [this](uint16_t, uint8_t val) { i2c_.write_sda(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            return i2c_.read_sda();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            i2c_.write_sda(val);
+        });
 
     // UART: Tx (0x133B), Rx (0x143B), Select (0x153B), Frame (0x163B)
+    // VHDL zxnext.vhd:2420: port_uart_io_en <= internal_port_enable(12).
+    // internal_port_enable(12) = nr_83_internal_port_enable(4) per the
+    // concat at zxnext.vhd:2392. Same gate pattern as I2C/DivMMC.
     port_.register_handler(0xFFFF, 0x133B,
-        [this](uint16_t) -> uint8_t { return uart_.read(3); },
-        [this](uint16_t, uint8_t val) { uart_.write(3, val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            return uart_.read(3);
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            uart_.write(3, val);
+        });
     port_.register_handler(0xFFFF, 0x143B,
-        [this](uint16_t) -> uint8_t { return uart_.read(0); },
-        [this](uint16_t, uint8_t val) { uart_.write(0, val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            return uart_.read(0);
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            uart_.write(0, val);
+        });
     port_.register_handler(0xFFFF, 0x153B,
-        [this](uint16_t) -> uint8_t { return uart_.read(1); },
-        [this](uint16_t, uint8_t val) { uart_.write(1, val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            return uart_.read(1);
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            uart_.write(1, val);
+        });
     port_.register_handler(0xFFFF, 0x163B,
-        [this](uint16_t) -> uint8_t { return uart_.read(2); },
-        [this](uint16_t, uint8_t val) { uart_.write(2, val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            return uart_.read(2);
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            uart_.write(2, val);
+        });
 
     // DivMMC control — port 0xE3.
     // VHDL zxnext.vhd:2412: port_divmmc_io_en <= internal_port_enable(8) = NR 0x83 bit 0.
