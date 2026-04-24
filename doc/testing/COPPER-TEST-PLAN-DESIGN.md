@@ -529,3 +529,27 @@ cmake --build build -j$(nproc) 2>&1 | tail -5
 ./build/test/copper_test
 bash test/regression.sh
 ```
+
+## NMI integration (ARB-06 un-skip path)
+
+Per `zxnext.vhd:3830-3872`, a Copper MOVE to NR 0x02 sets
+`nmi_cu_02_we`, which lands in the same `nmi_gen_nr_mf /
+nmi_gen_nr_divmmc` latches as a CPU write to NR 0x02. There is no
+Copper-side NMI logic beyond routing the MOVE through the shared
+NextREG write path.
+
+In jnext, Copper's MOVE-to-NR path goes through
+`NextReg::write` per `src/peripheral/copper.cpp:148` →
+`src/port/nextreg.cpp:115-116`. The plan-doc audit
+([`TASK-NMI-SOURCE-PIPELINE-PLAN.md`](../design/TASK-NMI-SOURCE-PIPELINE-PLAN.md)
+§"Copper NR-write path — audit complete") confirms this direct dispatch,
+so **no Copper source-code change is required** to make Copper
+MOVE-to-NR-0x02 fire the NR 0x02 write handler introduced by the NMI
+plan.
+
+**ARB-06** flips from skip to check in **Wave A** of the NMI plan, once
+the NR 0x02 write handler installs and routes to `NmiSource::nr_02_write`.
+This is the single NMI-blocked row in this suite. The test-row coverage
+for NR 0x02 bit 2/3 routing, readback, and auto-clear lives in the new
+`nmi_test.cpp` suite (group NR02); ARB-06 here is specifically the
+end-to-end Copper → NextREG → NMI latch integration proof.

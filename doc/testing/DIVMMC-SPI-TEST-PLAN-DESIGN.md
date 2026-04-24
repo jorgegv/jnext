@@ -497,3 +497,61 @@ bash test/regression.sh
 | MISO multiplexing | 5 | Device priority |
 | Integration scenarios | 7 | End-to-end sequences |
 | **Total** | **~123** | |
+
+## NMI integration (NM-01..08 un-skip path)
+
+The eight `NM-01..08` rows in `divmmc_test.cpp` are the DivMMC
+subsystem's contract with the central NMI source / arbiter. They were
+previously annotated "Deferred to Task 8 (Multiface)"; they are now
+owned by the
+[NMI source pipeline plan](../design/TASK-NMI-SOURCE-PIPELINE-PLAN.md),
+whose Wave B lands the producer that sets `DivMmc::button_nmi_`, the
+consumer-side feedback `is_nmi_hold()`, and the four VHDL-specified
+clear paths per `divmmc.vhd:103-150`.
+
+### Row → Wave B sub-task mapping
+
+| ID | Sub-task | VHDL cite |
+|---|---|---|
+| NM-01 | FSM drives `set_button_nmi(true)` on DivMMC path | divmmc.vhd:108-111 |
+| NM-02 | button_nmi produced end-to-end, automap gate observed | divmmc.vhd:120-121 |
+| NM-03 | no-button baseline vs button-pressed stimulus at 0x0066 | divmmc.vhd:120 |
+| NM-04 | reset clear path (already present; verify end-to-end) | divmmc.vhd:108 |
+| NM-05 | `automap_reset` clear path (new hook) | divmmc.vhd:108 |
+| NM-06 | `on_retn_seen()` clear path (new Z80 RETN hook) | divmmc.vhd:108 |
+| NM-07 | `automap_held = 1` one-shot clear path | divmmc.vhd:112-113 |
+| NM-08 | `o_disable_nmi` output accessor (`automap_held OR button_nmi`) | divmmc.vhd:150 |
+
+### Clear-path fidelity (Wave B)
+
+Per `divmmc.vhd:105-116`, `button_nmi_` must clear on any of the
+following four signals:
+
+1. `i_reset = 1` — hard reset. Already clears via `DivMmc::reset()`
+   (pre-plan baseline). **NM-04 verifies this end-to-end now that the
+   latch can actually be set via NmiSource.**
+2. `i_automap_reset = 1` — the DivMMC automap FSM re-entering the
+   reset state. **NM-05 exercises a new internal hook added in Wave B.**
+3. `i_retn_seen = 1` — the Z80 RETN instruction completion. **NM-06
+   exercises a new `DivMmc::on_retn_seen()` hook wired from the Z80
+   RETN execution path.**
+4. `automap_held = 1` — one-shot on the rising edge when the DivMMC
+   consumer has consumed the NMI. **NM-07 exercises the edge-trigger
+   added in Wave B.**
+
+### `o_disable_nmi` accessor (NM-08)
+
+A new `DivMmc::is_nmi_hold() const` accessor is added in Wave B and
+returns `automap_held_ OR button_nmi_` per the VHDL `o_disable_nmi`
+output signal (`divmmc.vhd:150`). This value is read by `NmiSource` on
+each tick for the `divmmc_nmi_hold` signal at `zxnext.vhd:2118`, and
+is what drives the FSM transition from HOLD to END on the DivMMC path.
+
+### Task 8 cross-references
+
+Any pre-existing "deferred to Task 8 (Multiface)" annotations on these
+eight rows are superseded by the NMI plan. Task 8 Branch A (NMI state
+machine) and Branch D (NR 0x02 programmatic NMI) are marked *superseded
+by this plan* in `doc/design/TASK-8-MULTIFACE-PLAN.md` §5 (Phase 0 edit
+per plan Q2). Task 8 Branch C is scoped down to MF-button wiring only;
+the DivMMC-button wiring lives in this plan's Wave B.
