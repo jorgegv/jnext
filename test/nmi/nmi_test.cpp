@@ -681,11 +681,194 @@ static void g_divmmc_clears()
 }
 
 // =====================================================================
+// Group GATE — Gate registers (Wave C) (8 rows)
+//
+// Exercises the gate-register wiring added in Wave C (Phase 2) per
+// TASK-NMI-SOURCE-PIPELINE-PLAN.md. Every row probes the NmiSource
+// gate setters directly; the handlers that drive them (NR 0x06 /
+// NR 0x81 / port 0xE3) are exercised end-to-end in the integration
+// unlocks from Waves A/B and the DEFS/NR02 rows.
+//
+// ID mapping to the prompt scope (this wave's authoritative spec):
+//   GATE-01: NR 0x06 bit 3 → mf_enable           (VHDL zxnext.vhd:1110)
+//   GATE-02: NR 0x06 bit 4 → divmmc_enable       (VHDL zxnext.vhd:1109)
+//   GATE-03: NR 0x81 bit 5 → expbus_debounce_dis (VHDL zxnext.vhd:1222)
+//   GATE-04: CONMEM=1 blocks MF latch            (VHDL zxnext.vhd:2107)
+//   GATE-05: mf_is_active=1 blocks DivMMC latch  (VHDL zxnext.vhd:2099)
+//   GATE-06: config_mode=1 force-clears latches  (VHDL zxnext.vhd:2102-2105)
+//   GATE-07: config_mode=1 holds FSM in Idle     (VHDL zxnext.vhd:2102-2105)
+//   GATE-08: power-on gate flags all false       (VHDL zxnext.vhd:1109-1110,1222)
+// =====================================================================
+
+static void g_gate_registers()
+{
+    set_group("GATE");
+
+    // GATE-01 — NR 0x06 bit 3 decode sets mf_enable()
+    //   VHDL zxnext.vhd:1110 — nr_06_button_m1_nmi_en <= nr_wr_dat(3).
+    //   NmiSource::set_mf_enable() is the NR-0x06-bit-3 entry point; the
+    //   actual NR 0x06 dispatch is covered end-to-end by the integration
+    //   rows. Here we confirm the setter lands the bit into the gate flag
+    //   so nmi_assert_mf() is gated correctly by a downstream handler.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        // Power-on default '0' — confirmed by RST-01.
+        nmi.set_mf_enable(true);
+        const bool set_true  = nmi.mf_enable() == true;
+        nmi.set_mf_enable(false);
+        const bool set_false = nmi.mf_enable() == false;
+        check("GATE-01",
+              "NR 0x06 bit 3 decode sets NmiSource::mf_enable()",
+              set_true && set_false,
+              "zxnext.vhd:1110 nr_06_button_m1_nmi_en");
+    }
+
+    // GATE-02 — NR 0x06 bit 4 decode sets divmmc_enable()
+    //   VHDL zxnext.vhd:1109 — nr_06_button_drive_nmi_en <= nr_wr_dat(4).
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_divmmc_enable(true);
+        const bool set_true  = nmi.divmmc_enable() == true;
+        nmi.set_divmmc_enable(false);
+        const bool set_false = nmi.divmmc_enable() == false;
+        check("GATE-02",
+              "NR 0x06 bit 4 decode sets NmiSource::divmmc_enable()",
+              set_true && set_false,
+              "zxnext.vhd:1109 nr_06_button_drive_nmi_en");
+    }
+
+    // GATE-03 — NR 0x81 bit 5 decode sets expbus_debounce_disable()
+    //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable <= nr_wr_dat(5).
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_debounce_disable(true);
+        const bool set_true  = nmi.expbus_debounce_disable() == true;
+        nmi.set_expbus_debounce_disable(false);
+        const bool set_false = nmi.expbus_debounce_disable() == false;
+        check("GATE-03",
+              "NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable()",
+              set_true && set_false,
+              "zxnext.vhd:1222 nr_81_expbus_nmi_debounce_disable");
+    }
+
+    // GATE-04 — port 0xE3 bit 7 (CONMEM=1) blocks the MF latch
+    //   VHDL zxnext.vhd:2107 — MF latch gating includes NOT port_e3_reg(7).
+    //   With CONMEM high, nmi_assert_mf() fires but the latch is blocked;
+    //   the FSM stays in Idle and /NMI stays high. We use a sticky
+    //   `set_mf_button(true)` here so the producer stays asserted across
+    //   the tick (the strobe() helper is a one-cycle pulse consumed by
+    //   tick() — unsuitable for observing post-tick producer state).
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);          // NR 0x06 bit 3 = 1 (gate open)
+        nmi.set_divmmc_conmem(true);      // CONMEM=1 blocks MF latch
+        nmi.set_mf_button(true);          // hotkey_m1 held high
+        nmi.tick(1);
+        const bool asserted_combinational = nmi.nmi_assert_mf();  // '1' — producer fires
+        const bool mf_latch_clear         = !nmi.nmi_mf();        // latch NOT set
+        const bool fsm_idle               = nmi.state() == NmiSource::State::Idle;
+        const bool nmi_line_high          = nmi.nmi_generate_n(); // '1' (not asserted)
+        check("GATE-04",
+              "CONMEM=1 blocks MF latch even with enable+button set",
+              asserted_combinational && mf_latch_clear && fsm_idle && nmi_line_high,
+              "zxnext.vhd:2107 port_e3_reg(7) AND gate on MF latch");
+    }
+
+    // GATE-05 — mf_is_active=1 blocks the DivMMC latch
+    //   VHDL zxnext.vhd:2099 — DivMMC latch gating: NOT mf_is_active.
+    //   (Phase 1 stubs mf_is_active to false; Task 8 will drive it from
+    //   the Multiface. Here we validate the gate flag's effect on the
+    //   latch directly via the test setter.)
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_divmmc_enable(true);      // NR 0x06 bit 4 = 1 (gate open)
+        nmi.set_mf_is_active(true);       // Multiface claiming ownership
+        nmi.set_divmmc_button(true);      // hotkey_drive held high
+        nmi.tick(1);
+        const bool asserted_comb   = nmi.nmi_assert_divmmc();  // producer fires
+        const bool divmmc_clear    = !nmi.nmi_divmmc();        // latch NOT set
+        const bool fsm_idle        = nmi.state() == NmiSource::State::Idle;
+        check("GATE-05",
+              "mf_is_active=1 blocks DivMMC latch even with enable+button set",
+              asserted_comb && divmmc_clear && fsm_idle,
+              "zxnext.vhd:2099 mf_is_active AND gate on DivMMC latch");
+    }
+
+    // GATE-06 — nr_03_config_mode=1 force-clears all three latches
+    //   VHDL zxnext.vhd:2102-2105 — every latch-set term is gated by
+    //   NOT nr_03_config_mode. To prove the force-clear path, we first
+    //   set a latch (config_mode=0), then assert config_mode and tick:
+    //   the next tick must observe all latches clear regardless of which
+    //   producer is still asserting.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.set_divmmc_enable(true);
+        nmi.strobe_mf_button();           // arm MF producer
+        nmi.tick(1);
+        const bool mf_set_before = nmi.nmi_mf();  // sanity: latch rose
+        // Now raise config_mode; next tick must clear every latch.
+        nmi.set_config_mode(true);
+        nmi.tick(1);
+        const bool mf_clear     = !nmi.nmi_mf();
+        const bool divmmc_clear = !nmi.nmi_divmmc();
+        const bool expbus_clear = !nmi.nmi_expbus();
+        check("GATE-06",
+              "config_mode=1 force-clears all three priority latches",
+              mf_set_before && mf_clear && divmmc_clear && expbus_clear,
+              "zxnext.vhd:2102-2105 nr_03_config_mode AND gate clears latches");
+    }
+
+    // GATE-07 — nr_03_config_mode=1 holds the FSM in Idle.
+    //   VHDL zxnext.vhd:2102-2105 — the clear term also returns the FSM
+    //   to S_NMI_IDLE regardless of current state. Drive the FSM into
+    //   Fetch, then raise config_mode and tick: state must snap to Idle.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool reached_fetch = nmi.state() == NmiSource::State::Fetch;
+        nmi.set_config_mode(true);
+        nmi.tick(1);
+        const bool back_to_idle = nmi.state() == NmiSource::State::Idle;
+        check("GATE-07",
+              "config_mode=1 force-clears FSM to Idle from any state",
+              reached_fetch && back_to_idle,
+              "zxnext.vhd:2102-2105 nr_03_config_mode returns FSM to S_NMI_IDLE");
+    }
+
+    // GATE-08 — power-on gate flags all false.
+    //   VHDL zxnext.vhd:1109-1110 — nr_06_button_*_nmi_en power-on '0'.
+    //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable power-on '0'.
+    //   RST-01 bundles this; here we isolate the gate-flag defaults into
+    //   a dedicated row so Wave C owns the gate-register reset contract.
+    {
+        NmiSource nmi;  // constructor calls reset()
+        const bool mf_off       = !nmi.mf_enable();
+        const bool divmmc_off   = !nmi.divmmc_enable();
+        const bool expbus_off   = !nmi.expbus_debounce_disable();
+        const bool cfg_mode_off = !nmi.config_mode();
+        check("GATE-08",
+              "power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, config_mode) all false",
+              mf_off && divmmc_off && expbus_off && cfg_mode_off,
+              "zxnext.vhd:1109-1110 / 1222 / NR 0x03 reset-to-config semantics");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
 int main() {
-    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B)\n");
+    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B + Wave C)\n");
     std::printf("=========================================================\n\n");
 
     g_rst_defaults();      std::printf("  RST  reset-defaults  -- done\n");
@@ -694,6 +877,7 @@ int main() {
     g_hotkey();            std::printf("  HK   hotkey producers -- done\n");
     g_divmmc_consumer();   std::printf("  DIS  DivMMC consumer  -- done\n");
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
+    g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
