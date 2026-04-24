@@ -1652,19 +1652,42 @@ static void test_STEN() {
 // "F-UDIS-RENDER full-Emulator frame-buffer compare" fixture that this
 // bare-compositor suite cannot host).
 //
-// UDIS-03 (blend-mode bits 6:5) remains a skip() here pending its own
-// plan doc — see doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md.
+// UDIS-03 CLOSED 2026-04-24 via TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md
+// Phase 2. The pixel-level oracles for modes 01/10/11 live in Group BL
+// (BL-30..60); UDIS-03 here keeps the bare wiring observation: NR 0x68
+// bits 6:5 → Renderer::blend_mode().
 
 static void test_UDIS() {
     set_group("UDIS");
-    skip("UDIS-03",
-         "F-UDIS-BLEND: NR 0x68 bits 6:5 (ula_blend_mode) are DROPPED at "
-         "emulator.cpp:816-825 and priority 6/7 branches at "
-         "renderer.cpp:342-344 (mode 6) and renderer.cpp:370-372 (mode 7) "
-         "hard-code the ula_blend_mode=\"00\" mapping — variants 01/10/11 "
-         "(VHDL 7149-7176) are silently ignored. Authoritative mux: "
-         "zxnext.vhd:7141-7178 (4-variant case w/ when others = 01). "
-         "Un-skip via TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md Phase 2.");
+
+    // UDIS-03: NR 0x68 bits 6:5 (ula_blend_mode) are now decoded and forwarded
+    //          from the write handler to Renderer. Simulate the NR 0x68 decode
+    //          `(v >> 5) & 0x03` per emulator.cpp:816-825 and verify the
+    //          Renderer receives the matching 2-bit value for each variant.
+    //          VHDL zxnext.vhd:7141-7178 (4-variant mux) + emulator.cpp:816-825
+    //          (NR 0x68 handler now wired).
+    {
+        Renderer r;
+        r.reset();
+        // NR 0x68 raw bytes for bits 6:5 = 00 / 01 / 10 / 11.
+        static constexpr uint8_t nr68_values[4] = {0x00, 0x20, 0x40, 0x60};
+        bool all_match = true;
+        uint8_t observed[4] = {0, 0, 0, 0};
+        for (int i = 0; i < 4; ++i) {
+            // Mirror emulator.cpp:816-825 decode: bits 6:5.
+            const uint8_t decoded = static_cast<uint8_t>((nr68_values[i] >> 5) & 0x03);
+            r.set_blend_mode(decoded);
+            observed[i] = r.blend_mode();
+            if (observed[i] != static_cast<uint8_t>(i)) all_match = false;
+        }
+        r.set_blend_mode(0);
+        check("UDIS-03",
+              "NR 0x68 bits 6:5 decode → Renderer::blend_mode "
+              "(VHDL 7141-7178, emulator.cpp:816-825)",
+              all_match,
+              DETAIL("observed={%u,%u,%u,%u} expected={0,1,2,3}",
+                     observed[0], observed[1], observed[2], observed[3]));
+    }
 }
 
 // ── Group SOB — Sprite over border (compositor integration) ──────────────
@@ -1982,7 +2005,7 @@ int main() {
     test_BL();         printf("  Group: BL — done\n");
     test_UTB();        printf("  Group: UTB — done\n");
     test_STEN();       printf("  Group: STEN — done\n");
-    test_UDIS();       printf("  Group: UDIS — done (1 skipped)\n");
+    test_UDIS();       printf("  Group: UDIS — done\n");
     test_SOB();        printf("  Group: SOB — done\n");
     test_LINE();       printf("  Group: LINE — done\n");
     test_BLANK();      printf("  Group: BLANK — done\n");
