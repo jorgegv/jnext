@@ -559,12 +559,66 @@ static void test_ulanext_integration(Emulator& emu) {
 // land as a standalone follow-up. The current STANDARD_1+alt row gives
 // coverage of the Wave D alt_file derivation with minimal setup.
 //
-// INT-SHADOW-01 deliberately OMITTED from this suite: port 0x7FFD bit 3
-// → i_ula_shadow_en routing is re-homed to Emulator/MMU subsystem per
-// the Phase 0 triage (S15.03/04 F-skips). Adding it here would either
-// need that cross-subsystem wiring first, or would be a failing check
-// — neither fits Phase 3's zero-net-new-skip target.
+// INT-SHADOW-01 is now live — landed 2026-04-24 alongside the MMU
+// shadow-screen wiring (doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md). See
+// test_shadow_integration() below.
 // ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// Group E — Shadow-screen end-to-end through port 0x7FFD bit 3
+// VHDL: zxnext.vhd:3640 (port_7ffd_reg latch), :4453 (i_ula_shadow_en <=
+//       port_7ffd_reg(3)), zxula.vhd:191 (shadow gates screen_mode=000).
+// jnext: src/core/emulator.cpp 0x7FFD handler (forwards
+//       Mmu::shadow_screen_en() into Ula::set_shadow_screen_en).
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_shadow_integration(Emulator& emu) {
+    set_group("INT-SHADOW");
+
+    // ── INT-SHADOW-01 — port 0x7FFD bit 3 → Ula::shadow_screen_en ──
+    //
+    // Path exercised:
+    //   OUT 0x7FFD, v    (port_dispatch handler in emulator.cpp)
+    //     → Mmu::map_128k_bank(v)              (VHDL zxnext.vhd:3640)
+    //     → Mmu::shadow_screen_en() returns bit 3
+    //     → Ula::set_shadow_screen_en(bit3)    (VHDL zxnext.vhd:4453)
+    //
+    // Regression guard against the pre-2026-04-24 gap where the 0x7FFD
+    // handler wired MMU paging + DivMMC rom3 + contention, but did NOT
+    // forward the shadow bit. Any Z80 program enabling shadow via
+    // `OUT (n),a : 0x7FFD, 0x08` would leave the ULA reading the primary
+    // screen bank.
+    //
+    // Stimulus:
+    //   1. Reset-default observation: bit clear → ula.shadow=0.
+    //   2. OUT 0x7FFD, 0x08 — only bit 3 asserted, bits 0-2 select bank
+    //      0 (reset default), bits 4-7 = 0 (ROM 0, no lock).
+    //   3. OUT 0x7FFD, 0x00 — clears bit 3. Must drop shadow.
+    //
+    // Observable on Ula through the narrow accessor the Compositor
+    // consumes (Ula::get_shadow_screen_en()). The downstream
+    // screen_mode→"000" gate at zxula.vhd:191 is exercised by the
+    // ula_test §15 S15.02 row on the bare Ula class; this row covers
+    // only the port-dispatch → MMU → Ula handoff.
+    {
+        const bool boot_clear = (emu.ula().get_shadow_screen_en() == false);
+
+        emu.port().out(0x7FFD, 0x08);
+        const bool on_after_set = emu.ula().get_shadow_screen_en();
+
+        emu.port().out(0x7FFD, 0x00);
+        const bool off_after_clear = (emu.ula().get_shadow_screen_en() == false);
+
+        const bool all_ok = boot_clear && on_after_set && off_after_clear;
+
+        check("INT-SHADOW-01",
+              "OUT 0x7FFD bit 3 → Ula::shadow_screen_en  "
+              "(zxnext.vhd:3640,:4453; emulator.cpp 0x7FFD handler)",
+              all_ok,
+              fmt("boot_clear=%d on_after_set=%d off_after_clear=%d",
+                  boot_clear, on_after_set, off_after_clear));
+    }
+}
 
 static void test_altfile_integration(Emulator& emu) {
     set_group("INT-STANDARD-ALT");
@@ -684,6 +738,9 @@ int main() {
 
     test_ulanext_integration(emu);
     std::printf("  Group: INT-ULANEXT    — done\n");
+
+    test_shadow_integration(emu);
+    std::printf("  Group: INT-SHADOW     — done\n");
 
     test_altfile_integration(emu);
     std::printf("  Group: INT-STANDARD-ALT — done\n");

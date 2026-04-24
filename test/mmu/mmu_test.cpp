@@ -450,17 +450,64 @@ void test_cat3_port_7ffd() {
     }
 
     // P7F-16 / P7F-17 — re-homed 2026-04-24 from test/ula/ula_test.cpp §15
-    // (S15.03/04) per doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md. Port 0x7FFD
-    // bit 3 (`i_ula_shadow_en`) routing from Mmu::write_port_7ffd to
-    // Ula::set_shadow_screen_en is not wired today; same fix pattern as the
-    // NR 0x68 bit 3 → set_ulap_en landing (a1495ba). When the 1-line wiring
-    // lands, both rows become real check()s.
-    skip("P7F-16",
-         "F-SHADOW-WIRING: shadow disables Timex screen_mode "
-         "(zxula.vhd:191) — pending Mmu→Ula shadow wiring");
-    skip("P7F-17",
-         "F-SHADOW-WIRING: port 0x7FFD bit 3 → Ula::set_shadow_screen_en "
-         "(zxnext.vhd:4453) — pending 1-line write_port_7ffd forward");
+    // (S15.03/04) per doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md. Both rows
+    // test the MMU-level source of the shadow-screen signal (port_7ffd_reg
+    // bit 3, VHDL zxnext.vhd:3640 / :4453): `Mmu::shadow_screen_en()` is
+    // the single producer the Emulator's 0x7FFD port handler reads and
+    // forwards into `Ula::set_shadow_screen_en`. The downstream ULA-side
+    // consequence (zxula.vhd:191 forces screen_mode="000" when shadow
+    // asserts) is observed separately by INT-SHADOW-01 in
+    // test/ula/ula_integration_test.cpp — that row exercises the full
+    // port-dispatch → Mmu → Ula chain on a live Emulator.
+
+    // P7F-16: shadow-screen signal tracks port_7ffd bit 3 across a
+    // sequence of writes (baseline 0 → asserted 1 → cleared 0). VHDL
+    // zxnext.vhd:3640 (port_7ffd_reg latches cpu_do); :4453 names the
+    // shadow signal produced from reg(3).
+    {
+        Fixture f;
+        f.fresh();
+        const bool boot_clear = !f.mmu.shadow_screen_en();  // reset default
+        f.mmu.map_128k_bank(0x08);                          // bit 3 asserted
+        const bool on_after_set = f.mmu.shadow_screen_en();
+        f.mmu.map_128k_bank(0x00);                          // bit 3 cleared
+        const bool off_after_clear = !f.mmu.shadow_screen_en();
+        check("P7F-16",
+              "port_7ffd bit 3 sequence toggles Mmu::shadow_screen_en — "
+              "VHDL zxnext.vhd:3640,:4453 (Ula screen_mode=000 gate at "
+              "zxula.vhd:191 covered by ula_integration_test INT-SHADOW-01)",
+              boot_clear && on_after_set && off_after_clear,
+              fmt("boot_clear=%d on_after_set=%d off_after_clear=%d",
+                  boot_clear, on_after_set, off_after_clear));
+    }
+
+    // P7F-17: bit-3 routing is orthogonal to the paging-bank bits (0-2)
+    // and the ROM/alt-shadow selects (bits 4,6,7) — assert the accessor
+    // isolates exactly bit 3 across non-trivial bytes. VHDL
+    // zxnext.vhd:4453. Deliberately avoid bit 5 across all writes (lock
+    // bit, VHDL :3814): a locked byte would stall subsequent map_128k_bank
+    // writes and confuse the probe.
+    {
+        Fixture f;
+        f.fresh();
+        // 0xD7 = 1101_0111 — bit 3 CLEAR, bit 5 (lock) clear, other
+        // ROM/bank bits asserted.
+        f.mmu.map_128k_bank(0xD7);
+        const bool off_on_d7 = !f.mmu.shadow_screen_en();
+        // 0x08 = 0000_1000 — ONLY bit 3 asserted.
+        f.mmu.map_128k_bank(0x08);
+        const bool on_only_bit3 = f.mmu.shadow_screen_en();
+        // 0xDF = 1101_1111 — bit 3 set, bit 5 clear, all other bits
+        // asserted (mirror of 0xD7 with bit 3 flipped).
+        f.mmu.map_128k_bank(0xDF);
+        const bool on_on_df = f.mmu.shadow_screen_en();
+        check("P7F-17",
+              "Mmu::shadow_screen_en isolates port_7ffd bit 3 — "
+              "VHDL zxnext.vhd:4453 (i_ula_shadow_en <= port_7ffd_reg(3))",
+              off_on_d7 && on_only_bit3 && on_on_df,
+              fmt("0xD7→off=%d 0x08→on=%d 0xDF→on=%d",
+                  off_on_d7, on_only_bit3, on_on_df));
+    }
 }
 
 // ── Category 4: Extended paging (port 0xDFFD) ─────────────────────────

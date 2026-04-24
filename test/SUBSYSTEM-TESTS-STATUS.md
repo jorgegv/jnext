@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | All tests pass.                                        |
 | Rewind                |       18 |       18 |      0 |       0 |    100% | All tests pass.                                        |
 | Copper                |       76 |       76 |      0 |       0 |    100% | All tests pass.                                        |
-| Memory/MMU            |      150 |      148 |      0 |       2 |    100% | 2 skips: P7F-16/17 shadow-screen (re-homed ULA).       |
+| Memory/MMU            |      150 |      150 |      0 |       0 |    100% | All tests pass.                                        |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | All tests pass.                                        |
 | NextREG (integration) |       73 |       73 |      0 |       0 |    100% | All tests pass.                                        |
 | Input                 |      139 |      139 |      0 |       0 |    100% | All tests pass.                                        |
@@ -25,7 +25,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Sprites               |      121 |      121 |      0 |       0 |    100% | All tests pass.                                        |
 | Compositor            |      117 |      114 |      0 |       3 |    100% | 3 UDIS skips: integration+Copper+BL blockers.          |
 | ULA Video             |       81 |       81 |      0 |       0 |    100% | All tests pass.                                        |
-| ULA Video (int)       |        7 |        7 |      0 |       0 |    100% | All tests pass.                                        |
+| ULA Video (int)       |        8 |        8 |      0 |       0 |    100% | All tests pass.                                        |
 | Floating Bus          |       26 |        0 |      0 |      26 |    100% | Scaffold suite; 26 skips awaiting implementation.      |
 | VideoTiming           |       22 |        0 |      0 |      22 |    100% | Scaffold suite; 22 skips awaiting implementation.      |
 | Contention            |       68 |        0 |      0 |      68 |    100% | Scaffold suite; 68 skips awaiting implementation.      |
@@ -37,6 +37,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | All tests pass.                                        |
 | NMI Source Pipeline   |       32 |       32 |      0 |       0 |    100% | All tests pass.                                        |
 | NMI (integration)     |        5 |        5 |      0 |       0 |    100% | All tests pass.                                        |
-| **Total**             | **3317** | **3194** |  **0** | **123** | **100%**|                                                        |
+| **Total**             | **3318** | **3197** |  **0** | **121** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
