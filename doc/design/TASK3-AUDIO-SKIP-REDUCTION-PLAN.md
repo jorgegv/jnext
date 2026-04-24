@@ -321,6 +321,73 @@ New suites:
 - `audio_port_dispatch_test.cpp`: 16/16/0/0.
 - `audio_nextreg_test.cpp`: 20/20/0/0.
 
+### Phase 2 actuals + Waves E/F expansion (2026-04-24)
+
+Phase 2 as originally scoped left gaps that drove two additional waves:
+
+- **Wave B discovery**: of 17 port-dispatch rows, 10 passed on first
+  build; 7 (SD-10, SD-12, SD-14, SD-15, IO-03, IO-04, IO-05) hit
+  genuine emulator port-decode gaps. Re-skipped as F-class for Wave F.
+- **Wave C scope creep**: the NextReg::write() handlers for NR 0x06
+  bit-decode, NR 0x2C/2D/2E were missing or buggy. Wave C added
+  minimal VHDL-faithful handlers + const getters (`is_ay_mode`,
+  `stereo_mode`, `mono_mode`, `dac_enabled`, `beep_spkr_excl`,
+  `nr_06_internal_speaker_beep`). Also fixed a pre-existing bug:
+  NR 0x06 aymode decode was `(v & 0x03) == 1` (mode 01 only) —
+  corrected to `(v & 0x01)` per `zxnext.vhd:6389` (aymode_i =
+  psg_mode[0]; modes 01 and 11 both set aymode=1, with mode 11 also
+  firing the separate `audio_ay_reset` path).
+- **Wave D critic**: BP-04 "border bits [2:0] not exposed" assertion
+  was weak (`low3 == 0x07` can pass by accident). Phase 3 strengthened
+  by sweeping border=0/5/7 and asserting full byte = 0xFF on all three.
+- **Phase 0 fixup**: user re-audit downgraded 4 A-class TS rows
+  (TS-24, TS-32, TS-33, TS-34) to F-skips since aggregate TS-30/31
+  can't prove per-PSG isolation or one-bit-governs-all-three
+  semantics. Wave E picked these up.
+
+#### Wave E — TS per-PSG isolation (4 rows, test-only)
+
+Distinct-amplitude setups: 3 PSGs with vol_ay amplitudes {0xFF, 0x41,
+0x0F}. TS-24 proves stereo_mode governs ALL three panners by
+asserting `L_abc > 0 && L_acb == 0` (channel C zeroed, ACB mode maps
+all three PSGs to silent L). TS-32/33/34 prove per-PSG isolation by
+silencing one PSG's R8 and asserting the aggregate L drops by exactly
+that PSG's contribution. Commit `a184010`.
+
+#### Wave F — port-dispatch gap fixes (src/ + test, 6 of 7)
+
+Real emulator bugs surfaced by Wave B:
+
+- **SD-10** — new `0xFFFF`/`0x005F` handler → `dac_.write_channel(3,v)`.
+  Avoids sprite-pattern 0x5B overlap via 16-bit match.
+- **SD-12** — new `0xFFFF`/`0x003F` handler → `dac_.write_channel(0,v)`.
+- **SD-14** — reworked existing 0xFB handler. VHDL `zxnext.vhd:2433`:
+  `port_dac_mono_AD_fb_io_en = NR 0x84 bit 5 AND NOT bit 2`. Default
+  NR 0x84=0xFF keeps the mono gate CLOSED (bit 2 set); test opens it
+  via NR 0x84=0x20 and verifies ch A fan-out alongside existing ch D.
+  Unconditional fan-out would have regressed the Wave B SD-11 row.
+- **SD-15** — new `0xFFFF`/`0x00B3` handler → ch B+C mono fan-out
+  (GS Covox).
+- **IO-03** — new `0xC00F`/`0x8005` handler (more specific than
+  BFFD's `0xC007`/`0x8005`) routes BFF5 reads to
+  `turbosound_.reg_read(true)` per `zxnext.vhd:2649`.
+- **IO-05** — existing BFFD handler's read callback gated on
+  `config_.type == ZX_PLUS3` per `zxnext.vhd:2771` (BFFD aliases FFFD
+  read on +3 only).
+- **IO-04** — demoted to `// G:` comment. VHDL `zxnext.vhd:2771`
+  composes `port_fffd_rd` from FFFD/BFFD/BFF5 into the same
+  `port_fffd_dat`; falling-edge latching is an internal VHDL clock-
+  domain artefact invisible at Z80 instruction-boundary granularity.
+
+Architectural surprises surfaced by Wave F:
+
+- AY#0 ID is **3** (not 0) per `TurboSound` ctor order
+  `AyChip(3), AyChip(2), AyChip(1)`.
+- AY register 1 reads are 4-bit masked per `ay_chip.cpp:86-87`.
+- `reg_read(bool reg_mode)` already existed on TurboSound — no new API.
+
+Commit `e86b93d`.
+
 Extended suite:
 - `input_integration_test.cpp`: 7/5/0/2 → 12/10/0/2 (adds 5 pass rows).
 

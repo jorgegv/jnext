@@ -14,7 +14,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | NextREG (integration) |       73 |       73 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Input                 |      139 |      133 |      0 |       6 |    100% | 6 skips: NR 0x0B UART pin-7 modes (F-blocked — now unblocked; backlog re-audit pending) |
-| Input (integration)   |        7 |        5 |      0 |       2 |    100% | 2 skips: FE-04 issue-2 MIC^EAR, FE-05 expansion bus AND (F-blocked) |
+| Input (integration)   |       12 |       10 |      0 |       2 |    100% | 2 skips: FE-04 issue-2 MIC^EAR, FE-05 expansion bus AND. 2026-04-24 Wave D extended with Group FE-READ (BP-04 + BP-20..23 re-homed from audio_test). |
 | CTC + Interrupts      |      133 |      128 |      0 |       5 |    100% | Clean. Skips: IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE |
 | Layer 2               |       89 |       89 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | UART + I2C/RTC        |       92 |       92 |      0 |       0 |    100% | **Zero skips as of 2026-04-24.** TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md closed end-to-end: bit-level TX/RX engines, I2cRtc full DS1307 expansion, 12 cross-subsystem rows re-homed to UART integration. BAUD-02/03 D-UNOBSERVABLE. |
@@ -29,9 +29,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |       22 |        0 |      0 |      22 |    100% | Scaffold suite (skip-only) 2026-04-24: VHDL-faithful vc_max_ / hc_max_ rebase. |
 | Contention            |       68 |        0 |      0 |      68 |    100% | Scaffold suite (skip-only) 2026-04-24: phased A=28/B=36/C=4 per CONTENTION-TEST-PLAN-DESIGN.md. |
 | I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Skips: DAC channel enables, stereo routing (next Task 3 target) |
+| Audio (AY+DAC+Beeper) |      132 |      132 |      0 |       0 |    100% | **Zero skips as of 2026-04-24.** TASK3-AUDIO-SKIP-REDUCTION-PLAN.md closed end-to-end: 21 E-class demoted to // A: / // G: comments, 41 rows re-homed to new integration suites, 1 MX-06 flipped via new I2s stub, 4 TS rows un-skipped via per-PSG isolation proofs. |
+| Audio (NextREG)       |       25 |       25 |      0 |       0 |    100% | 2026-04-24 new suite: NR 0x06/0x08/0x09/0x2C-2E handlers, beeper XOR composite, exc_i gating, dac_hw_en gate. |
+| Audio (port dispatch) |       16 |       16 |      0 |       0 |    100% | 2026-04-24 new suite: Soundrive mode 1/2, Covox variants, GS Covox, SpecDrum, AY FFFD/BFFD/BFF5 decode. Wave F fixed 6 port-dispatch gaps; IO-04 FFFD falling-edge Z80-invisible. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3303** | **3087** |  **0** | **216** | **100%**|                                                        |
+| **Total**             | **3281** | **3138** |  **0** | **143** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

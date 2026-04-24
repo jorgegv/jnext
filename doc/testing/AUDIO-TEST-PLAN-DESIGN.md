@@ -9,16 +9,56 @@ sources in `ZX_Spectrum_Next_FPGA/cores/zxnext/src/audio/`.
 
 ## Current status
 
-Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-audio`).
-Measured on main post-merge (commit `178c41c`):
+Live as of 2026-04-24 (Audio skip-reduction plan closed end-to-end):
 
-- **197 plan rows total**, mapped 1:1 to test IDs (some rows expanded to sub-letter variants, e.g. AY-50a/b)
-- **121/127 live pass (95.3%)**, 6 fail, 73 skip
-- **Fails (C-class legitimate emulator bugs)**:
-  - AY-81, AY-102, AY-110, AY-122 — envelope "hold at 0" family. Task 2 backlog item 2 had scope "shapes 0/9 only"; the actual bug affects a wider envelope-shape set in `src/audio/ay_chip.cpp`. **Task 2 item 2 scope needs widening**.
-  - TS-10, TS-42 — Turbosound default panning and pan=01 decode (`src/audio/turbosound.cpp`). Task 2 backlog item 3.
-- **Skips**: 73 rows — NR-xx NextREG handlers (16), IO-xx port decode (8), BP-xx beeper port 0xFE pipeline (13), SD-09..18 (port decode), MX-03/06/20-22 (exc_i / I2S), TS/AY gating flags not exposed. All live in `zxnext.vhd` core outside the bare Audio/AY/TS/DAC class surface — integration-tier tests required.
-- **(D) plan nit noted (plan not edited per process rule)**: AY-113 plan text says "hold at 0" but VHDL `ym2149.vhd:428-431` holds on `is_bot_p1` → env_vol=1 → YM[1]=0x01. Test cites VHDL (0x01) and currently passes.
+- **`audio_test`: 132 / 132 pass / 0 fail / 0 skip** — ZERO skips.
+- **`audio_nextreg_test` (new): 25 / 25 pass / 0 fail / 0 skip.**
+- **`audio_port_dispatch_test` (new): 16 / 16 pass / 0 fail / 0 skip.**
+- **`input_integration_test` extended**: 7/5/0/2 → 12/10/0/2 (+5 FE-READ rows).
+
+The Audio skip-reduction plan at
+[`doc/design/TASK3-AUDIO-SKIP-REDUCTION-PLAN.md`](../design/TASK3-AUDIO-SKIP-REDUCTION-PLAN.md)
+closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
+
+- **Phase 0** demoted 21 E-class skips to inline `// A:` / `// G:`
+  comments per `feedback_unobservable_audit_rule`: 16 A-class
+  (duplicate coverage) + 5 G-class (unobservable without src/ API
+  extension). Originally proposed 25; user + critic review reinstated
+  TS-24 + TS-32/33/34 as F-skips (aggregate TS-30/31 can't distinguish
+  per-PSG contribution) → later flipped to check() in Wave E.
+- **Phase 1** added `src/audio/i2s.{h,cpp}` stub mirroring
+  `audio_mixer.vhd:89-90,99-100` (10-bit latched LR sample pair, zero-
+  extended to 13 for the Mixer sum). Mixer gains `set_i2s_source()`;
+  Emulator owns `I2s i2s_` member + accessor. No port/NextREG wiring
+  — programmatic-only stub for test observability. Phase 1 critic
+  caught 1 BLOCKING (mixer sum data-flow mirrored VHDL in `158a70e`).
+- **Phase 2** ran 4 parallel waves: A (flip MX-06 against I2s stub),
+  B (new `audio_port_dispatch_test.cpp` 17 rows — 10 pass + 7 F-skip for
+  real emulator port-decode gaps), C (new `audio_nextreg_test.cpp` 25
+  rows + NR 0x06 bit-decode fix + NR 0x2C/2D/2E handler additions +
+  several const getters), D (FE-READ group in `input_integration_test`
+  covering BP-04, BP-20..23).
+- **Wave E** (2026-04-24, post-Wave-B-critic) flipped the 4
+  F-reinstated TS rows with distinct-amplitude per-PSG isolation
+  proofs.
+- **Wave F** (2026-04-24, post-Wave-B-critic) fixed 6 of 7 emulator
+  port-dispatch gaps surfaced by Wave B: SD-10 (port 0x5F Soundrive
+  mode 1 ch D), SD-12 (port 0x3F Profi Covox ch A), SD-14 (port 0xFB
+  mono fan-out gated per `zxnext.vhd:2433` NR 0x84 bit 5 AND NOT bit 2),
+  SD-15 (port 0xB3 GS Covox ch B+C), IO-03 (port 0xBFF5 reg-query
+  mode read), IO-05 (port 0xBFFD → FFFD alias on +3 only). IO-04
+  (FFFD falling-edge latch) demoted to `// G:` comment — invisible
+  at Z80 instruction-boundary granularity.
+- **Phase 3** refreshed BP-04 assertion per Wave D critic (sweep
+  border=0/5/7 instead of single value).
+
+Historical C-class bugs fixed on earlier branches (for reference —
+these were listed in prior revisions of this plan):
+
+- AY-81, AY-102, AY-110, AY-122 — envelope "hold at 0" family was
+  addressed in Task 2 backlog before this plan.
+- TS-10, TS-42 — TurboSound default panning + pan=01 decode addressed
+  in Task 2 backlog.
 
 ## VHDL Source Files
 
