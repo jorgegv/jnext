@@ -60,8 +60,8 @@ std::vector<SkipNote> g_skipped;
 
 void set_group(const char* name) { g_group = name; }
 
-void check(const char* id, const char* desc, bool cond,
-           const std::string& detail = {}) {
+[[maybe_unused]] void check(const char* id, const char* desc, bool cond,
+                            const std::string& detail = {}) {
     ++g_total;
     Result r{g_group, id, desc, cond, detail};
     g_results.push_back(r);
@@ -253,9 +253,9 @@ int main() {
     std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 skipped)\n");
 
     std::printf("\n======================================\n");
-    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
+    std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + static_cast<int>(g_skipped.size()),
-                g_pass, g_fail, g_skipped.size());
+                g_pass, g_fail, static_cast<int>(g_skipped.size()));
 
     // Per-group breakdown (live rows only — empty in the scaffold).
     if (!g_results.empty()) {
