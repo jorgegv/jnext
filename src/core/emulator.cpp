@@ -99,6 +99,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
+    nmi_source_.reset();
     rtc_.reset();
     sd_card_.reset();
 
@@ -187,8 +188,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
     // overlay is active for the same M1 read that triggered it (matching
     // the VHDL combinatorial address decode).
+    //
+    // The NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md Phase 1)
+    // also observes every M1 prefetch: its FSM advances FETCH -> HOLD on
+    // a PC=0x0066 M1 fetch (VHDL:2135-2138 `mf_a_0066`). We feed both
+    // subsystems from the same closure so the PC-observation seam stays
+    // single-sourced. Phase 1 leaves NmiSource gated off (no producers
+    // wired yet), so this call is inert; it's in place so Waves A/B/E
+    // don't need to touch Emulator plumbing.
     cpu_.on_m1_prefetch = [this](uint16_t pc) {
         divmmc_.check_automap(pc, true);
+        // m1 / mreq are both true during the M1 prefetch M-cycle.
+        nmi_source_.observe_m1_fetch(pc, true, true);
     };
 
     // Install M1-cycle callback. The RETI/RETN/IM-mode decoder state
@@ -2534,6 +2545,28 @@ void Emulator::run_frame()
         uart_.tick(static_cast<uint32_t>(master_cycles));
         md6_.tick(static_cast<uint32_t>(master_cycles));
 
+        // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
+        // Phase 1). Phase 1 leaves all producers un-wired, so the FSM
+        // stays in IDLE and the tick is inert at runtime. Placement
+        // matches CTC / UART / Md6 in the per-instruction cluster; order
+        // among these is not load-bearing in Phase 1.
+        nmi_source_.tick(static_cast<uint32_t>(master_cycles));
+
+        // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
+        // `nmi_generate_n()` low when it wants the Z80 to take an NMI
+        // (VHDL:2164-2170). FUSE's Z80 core takes the NMI on the next
+        // instruction boundary via `request_nmi()` — a one-shot latch.
+        // We observe the falling edge here and fire the latch. Phase 1
+        // has no producer wired, so `nmi_generate_n()` stays high and
+        // this path is inert; Waves A/B land the producers.
+        {
+            const bool nmi_n = nmi_source_.nmi_generate_n();
+            if (!nmi_n && prev_nmi_generate_n_) {
+                cpu_.request_nmi();
+            }
+            prev_nmi_generate_n_ = nmi_n;
+        }
+
         // Tick PSG (TurboSound) at 1.75 MHz rate.
         psg_accum_ += master_cycles;
         while (psg_accum_ >= PSG_DIVISOR) {
@@ -2667,6 +2700,17 @@ int Emulator::execute_single_instruction()
     // CTC + UART.
     ctc_.tick(static_cast<uint32_t>(master_cycles));
     uart_.tick(static_cast<uint32_t>(master_cycles));
+
+    // NMI source pipeline — Phase 1 scaffold (inert until producer waves
+    // land). Mirrors the primary tick cluster above.
+    nmi_source_.tick(static_cast<uint32_t>(master_cycles));
+    {
+        const bool nmi_n = nmi_source_.nmi_generate_n();
+        if (!nmi_n && prev_nmi_generate_n_) {
+            cpu_.request_nmi();
+        }
+        prev_nmi_generate_n_ = nmi_n;
+    }
 
     // PSG.
     psg_accum_ += master_cycles;
@@ -2980,6 +3024,11 @@ void Emulator::save_state(StateWriter& w) const
     // subsystems) so prior saves that predate this field remain
     // readable up to the pin7 slot.
     i2s_.save_state(w);
+
+    // NMI pipeline Phase 1 scaffold — appended after i2s for the same
+    // reason (backwards-compatible append-only save layout).
+    nmi_source_.save_state(w);
+    w.write_bool(prev_nmi_generate_n_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -3052,6 +3101,11 @@ void Emulator::load_state(StateReader& r)
     // Audio Phase 1: I2s stub latched sample pair — appended at the
     // END matching save_state().
     i2s_.load_state(r);
+
+    // NMI pipeline Phase 1 scaffold — matches the append order in
+    // save_state().
+    nmi_source_.load_state(r);
+    prev_nmi_generate_n_ = r.read_bool();
 }
 
 // ---------------------------------------------------------------------------

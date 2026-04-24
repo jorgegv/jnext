@@ -27,6 +27,7 @@
 #include "peripheral/i2c.h"
 #include "peripheral/uart.h"
 #include "peripheral/divmmc.h"
+#include "peripheral/nmi_source.h"
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
 #include "input/joystick.h"
@@ -453,6 +454,7 @@ private:
     I2cRtc          rtc_;
     Uart            uart_;
     DivMmc          divmmc_;
+    NmiSource       nmi_source_;  // Phase 1 scaffold (TASK-NMI-SOURCE-PIPELINE-PLAN).
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
@@ -520,6 +522,13 @@ private:
 
     /// DAC enable flag (NextREG 0x08 bit 3).
     bool dac_enabled_ = false;
+
+    /// Phase-1 NmiSource seam: previous cycle's `nmi_generate_n` level,
+    /// used to detect the active-low falling edge that drives
+    /// `Z80Cpu::request_nmi()`. Starts `true` (line inactive) so the
+    /// first cycle does not spuriously latch an NMI. See
+    /// TASK-NMI-SOURCE-PIPELINE-PLAN.md §Phase 1.
+    bool prev_nmi_generate_n_ = true;
 
     /// NR 0x08 bits 5..0 mirror for read-back composition per VHDL
     /// zxnext.vhd:5906. Bit 7 is write-strobe-only (derived from paging
