@@ -222,6 +222,21 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# Audio + NextREG integration test (Phase 2 Wave C, 2026-04-24)
+# Hosts the 25 plan rows re-homed from audio_test.cpp that need a full
+# Emulator + NextReg surface: NR 0x06 bits[1:0]/bit6 (PSG mode + speaker_beep),
+# NR 0x08 bits 5/4/3/1/0 (stereo, speaker_en, dac_en, turbosound_en, issue2),
+# NR 0x09 bits 7:5 (per-PSG mono), NR 0x2C/0x2D/0x2E (Soundrive mirrors),
+# BP-10..13 beep composites, MX-03/20/22 exc_i gating, SD-17/IO-10 dac gate.
+# Mirrors the uart_integration_test / ula_integration_test linkage.
+add_executable(audio_nextreg_test audio/audio_nextreg_test.cpp)
+target_link_libraries(audio_nextreg_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_nextreg_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_nextreg_tests COMMAND audio_nextreg_test)
+
 # DMA subsystem compliance test
 add_executable(dma_test dma/dma_test.cpp)
 target_link_libraries(dma_test PRIVATE jnext_peripheral jnext_memory jnext_port)

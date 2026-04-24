@@ -29,9 +29,19 @@ public:
 
     /// Set stereo mode: false=ABC (default), true=ACB.
     void set_stereo_mode(bool acb) { stereo_mode_ = acb; }
+    /// Current stereo mode. Mirrors `stereo_mode_i` from NR 0x08 bit 5
+    /// (VHDL zxnext.vhd:5177, :6400).
+    bool stereo_mode() const { return stereo_mode_; }
 
     /// Set per-chip mono flags (bit 0=AY#0, bit 1=AY#1, bit 2=AY#2).
     void set_mono_mode(uint8_t flags) { mono_mode_ = flags & 0x07; }
+    /// Current per-chip mono flags. Mirrors `mono_mode_i` from NR 0x09
+    /// bits 7:5 (VHDL zxnext.vhd:5186, :6398).
+    uint8_t mono_mode() const { return mono_mode_; }
+
+    /// AY/YM mode flag (shared across all 3 AY chips). Mirrors
+    /// `aymode_i` from NR 0x06 bit 0 (VHDL zxnext.vhd:6389).
+    bool ay_mode() const { return ay_[0].is_ay_mode(); }
 
     /// Port 0xFFFD write: register select or AY/panning control.
     /// When bits 7:5 = "000", selects a register on the active AY.

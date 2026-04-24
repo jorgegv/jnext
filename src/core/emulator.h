@@ -345,6 +345,37 @@ public:
     bool nr_06_button_m1_nmi_en()    const { return nr_06_button_m1_nmi_en_; }
     bool nr_06_button_drive_nmi_en() const { return nr_06_button_drive_nmi_en_; }
 
+    // ── Audio-side NextREG readbacks (test integration harness) ─────────
+    //
+    // Observables behind the NR 0x06 / NR 0x08 audio bits that VHDL
+    // zxnext.vhd:5163, :5178-5182, :6436 store as standalone signals.
+    // Exposed here so audio_nextreg_test can observe the post-write state
+    // without reaching into private fields.
+
+    /// NR 0x06 bit 6 — `nr_06_internal_speaker_beep` (VHDL zxnext.vhd:5163).
+    bool nr_06_internal_speaker_beep() const { return nr_06_internal_speaker_beep_; }
+
+    /// NR 0x08 bit 3 — `nr_08_dac_en` (VHDL zxnext.vhd:5179, :6436).
+    /// Gates the Soundrive DAC port-write path; controls dac_.reset on low.
+    bool dac_enabled() const { return dac_enabled_; }
+
+    /// NR 0x08 bits 5..0 stored mirror, per VHDL zxnext.vhd:5906 read-back.
+    ///   bit 5 = nr_08_psg_stereo_mode
+    ///   bit 4 = nr_08_internal_speaker_en
+    ///   bit 3 = nr_08_dac_en
+    ///   bit 2 = nr_08_port_ff_rd_en
+    ///   bit 1 = nr_08_psg_turbosound_en
+    ///   bit 0 = nr_08_keyboard_issue2
+    uint8_t nr_08_stored_low() const { return nr_08_stored_low_; }
+
+    /// Composite VHDL signal `beep_spkr_excl` (zxnext.vhd:6504) —
+    ///   beep_spkr_excl <= nr_06_internal_speaker_beep AND
+    ///                     nr_08_internal_speaker_en.
+    /// Feeds `audio_mixer.exc_i` which silences EAR/MIC in the mixer.
+    bool beep_spkr_excl() const {
+        return nr_06_internal_speaker_beep_ && ((nr_08_stored_low_ & 0x10) != 0);
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // Test-only: Raspberry Pi I2C bus 1 input injection.
     //
@@ -574,6 +605,13 @@ private:
     // the fact that NextZXOS firmware explicitly enables the buttons).
     bool     nr_06_button_m1_nmi_en_    = false;  ///< VHDL nr_06_button_m1_nmi_en
     bool     nr_06_button_drive_nmi_en_ = false;  ///< VHDL nr_06_button_drive_nmi_en
+
+    // NR 0x06 bit 6 — `nr_06_internal_speaker_beep` (VHDL zxnext.vhd:5163).
+    // Combined with NR 0x08 bit 4 (`nr_08_internal_speaker_en`) it forms
+    // the `beep_spkr_excl` wire feeding `audio_mixer.exc_i`
+    // (VHDL zxnext.vhd:6504). Power-on default '0' (VHDL signal default;
+    // reset block does not re-clear it explicitly but it starts at '0').
+    bool     nr_06_internal_speaker_beep_ = false;
 
 public:
     /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.

@@ -1332,11 +1332,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL signal default '0' (zxnext.vhd:1109-1110) — re-clear on every
     // init() so reset() (and soft_reset(), which both reach init()) puts
     // them back to power-on state. Tests rely on this explicit clear.
-    nr_06_button_m1_nmi_en_    = false;
-    nr_06_button_drive_nmi_en_ = false;
+    nr_06_button_m1_nmi_en_       = false;
+    nr_06_button_drive_nmi_en_    = false;
+    nr_06_internal_speaker_beep_  = false;
     nextreg_.set_write_handler(0x06, [this](uint8_t v) {
-        bool ay_mode = (v & 0x03) == 1;  // 00=YM, 01=AY, others=hold/reset
-        turbosound_.set_ay_mode(ay_mode);
+        // VHDL zxnext.vhd:6389 — `aymode_i <= nr_06_psg_mode(0)`. It's bit
+        // 0 of the 2-bit psg_mode field, NOT equality with "01". That means
+        //   00 (YM)       → bit 0=0 → YM
+        //   01 (AY)       → bit 0=1 → AY
+        //   10 (alias)    → bit 0=0 → YM (duplicate)
+        //   11 (hold/rst) → bit 0=1 → AY (but audio_ay_reset fires too)
+        const bool ay_mode_bit = (v & 0x01) != 0;
+        turbosound_.set_ay_mode(ay_mode_bit);
+
+        // VHDL zxnext.vhd:6379 — `audio_ay_reset <= '1' when reset='1' or
+        // nr_06_psg_mode = "11" else '0'`. The turbosound module receives
+        // this as its reset line, so a write of psg_mode="11" clears its
+        // internal register file + pan/selector state on the NEXT clock
+        // edge. We model that as a direct reset() here (VHDL-faithful
+        // semantically — the register file is cleared regardless of the
+        // AY/YM bit that is routed in parallel).
+        if ((v & 0x03) == 0x03) {
+            turbosound_.reset();
+        }
+
+        // VHDL zxnext.vhd:5163 — `nr_06_internal_speaker_beep <= nr_wr_dat(6)`.
+        // Composes into `beep_spkr_excl` with NR 0x08 bit 4 (VHDL:6504).
+        nr_06_internal_speaker_beep_ = ((v >> 6) & 1) != 0;
+
         nr_06_button_m1_nmi_en_    = ((v >> 3) & 1) != 0;
         nr_06_button_drive_nmi_en_ = ((v >> 4) & 1) != 0;
     });
@@ -1406,6 +1429,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (v & 0x40) mono |= 0x02;  // AY#1
         if (v & 0x80) mono |= 0x04;  // AY#2
         turbosound_.set_mono_mode(mono);
+    });
+
+    // Register 0x2C/0x2D/0x2E — Soundrive NextREG mirror writes.
+    // VHDL zxnext.vhd:4852-4854 generate nr_2c_we / nr_2d_we / nr_2e_we
+    // per write; zxnext.vhd:6452-6454 pass these into soundrive_mod with
+    //   nr_left_we_i  = nr_2c_we  → chB write (VHDL soundrive.vhd:90-94)
+    //   nr_mono_we_i  = nr_2d_we  → chA+chD write (VHDL soundrive.vhd:85-89)
+    //   nr_right_we_i = nr_2e_we  → chC write (VHDL soundrive.vhd:95-97)
+    // Gated on the Soundrive reset which fires while `nr_08_dac_en='0'`
+    // (VHDL zxnext.vhd:6436) — when the DAC is off the internal channel
+    // registers are held at 0x80 (silence). Mirror that behaviour here.
+    nextreg_.set_write_handler(0x2C, [this](uint8_t v) {
+        if (dac_enabled_) dac_.write_left(v);
+    });
+    nextreg_.set_write_handler(0x2D, [this](uint8_t v) {
+        if (dac_enabled_) dac_.write_mono(v);
+    });
+    nextreg_.set_write_handler(0x2E, [this](uint8_t v) {
+        if (dac_enabled_) dac_.write_right(v);
     });
 
     // --- Phase 5 peripheral port handlers ---

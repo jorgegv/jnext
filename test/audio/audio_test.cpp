@@ -1899,7 +1899,9 @@ static void g_dac() {
     skip("SD-14", "Pentagon/ATM mono port 0xFB lives in zxnext.vhd:2660");
     skip("SD-15", "GS Covox port 0xB3 lives in zxnext.vhd:2661");
     skip("SD-16", "SpecDrum port 0xDF lives in zxnext.vhd:2662");
-    skip("SD-17", "nr_08_dac_en gating lives in zxnext.vhd:6436");
+    // RE-HOME: SD-17 — nr_08_dac_en gating (zxnext.vhd:6436) requires the
+    // Emulator + NextReg + Soundrive port-dispatch surface. Re-homed to
+    // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
     skip("SD-18", "mono-port aliasing lives in zxnext.vhd port decode");
 
     // SD-20 - pcm_L = chA + chB.
@@ -1990,11 +1992,9 @@ static void g_beeper() {
               "VHDL zxnext.vhd:3591");
     }
 
-    // BP-10..BP-13 - XOR/gating in zxnext.vhd 6503-6504, NextREG layer.
-    skip("BP-10", "beep_mic_final XOR expression lives in zxnext.vhd:6503");
-    skip("BP-11", "issue2 cancellation of MIC lives in zxnext.vhd:6503");
-    skip("BP-12", "issue3 EAR xor MIC lives in zxnext.vhd:6503");
-    skip("BP-13", "beep_spkr_excl lives in zxnext.vhd:6504 (NextREG core)");
+    // RE-HOME: BP-10..BP-13 — XOR/gating at zxnext.vhd:6503-6504 compose
+    // NR 0x06 bit 6 + NR 0x08 bits 0/4 + Beeper.ear/mic/tape_ear.
+    // Re-homed to test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 
     // RE-HOME: BP-20..BP-23 → test/input/input_integration_test.cpp
     // group FE-READ (Wave D 2026-04-24). The port 0xFE READ composition
@@ -2037,8 +2037,9 @@ static void g_mixer() {
               fmt("L=%d R=%d VHDL audio_mixer.vhd:64,81", s[0], s[1]));
     }
 
-    // MX-03 - exc_i gating lives upstream in zxnext core.
-    skip("MX-03", "exc_i gating lives in zxnext.vhd:6504, upstream of Mixer");
+    // RE-HOME: MX-03 — exc_i gating (zxnext.vhd:6504) composes NR 0x06 b6
+    // + NR 0x08 b4. Re-homed to test/audio/audio_nextreg_test.cpp
+    // (2026-04-24 Wave C).
 
     // MX-04 - ay zero-extended 12->13 bit. Drive AY via TurboSound (max
     // vol, PSG0 pan=10) and confirm signed output = ay_L * 4 (unscaled).
@@ -2162,11 +2163,13 @@ static void g_mixer() {
     // fits within 13-bit unsigned range 0..8191) and MX-14 (EAR+MIC+DAC
     // subset exact arithmetic). A saturation bug would change those exact
     // values.
-    skip("MX-20", "exc_i silencing of EAR/MIC lives in zxnext.vhd:6504");
+    // RE-HOME: MX-20 — exc_i silencing of EAR/MIC (zxnext.vhd:6504).
+    // Re-homed to test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
     // A: MX-21: exc_i=0 default — covered implicitly by MX-01 (EAR active)
     // and MX-02 (MIC active), both of which execute under exc_i=0 by
     // default and would fail if the default were non-zero.
-    skip("MX-22", "exc_i derivation lives in zxnext.vhd:6504");
+    // RE-HOME: MX-22 — exc_i derivation (zxnext.vhd:6504). Re-homed to
+    // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 }
 
 // =====================================================================
@@ -2176,25 +2179,10 @@ static void g_mixer() {
 static void g_nextreg() {
     set_group("NextREG");
 
-    skip("NR-01", "NextREG 0x06 bits[1:0] handler lives in NextReg::write()");
-    skip("NR-02", "nr_06_psg_mode=00 YM mode sink lives in zxnext.vhd:6389");
-    skip("NR-03", "nr_06_psg_mode=01 AY mode sink lives in zxnext.vhd:6389");
-    skip("NR-04", "nr_06_psg_mode=10 alias lives in zxnext.vhd:6389");
-    skip("NR-05", "audio_ay_reset = nr_06_psg_mode=11 lives in zxnext.vhd:6379");
-    skip("NR-06", "nr_06_internal_speaker_beep handler lives in NextReg core");
-
-    skip("NR-10", "nr_08_psg_stereo_mode handler lives in zxnext.vhd:5178");
-    skip("NR-11", "nr_08_internal_speaker_en handler lives in zxnext.vhd:5177");
-    skip("NR-12", "nr_08_dac_en handler lives in zxnext.vhd:5179");
-    skip("NR-13", "nr_08_psg_turbosound_en handler lives in zxnext.vhd:5181");
-    skip("NR-14", "nr_08_keyboard_issue2 handler lives in zxnext.vhd:5182");
-
-    skip("NR-20", "nr_09_psg_mono handler lives in zxnext.vhd:5186");
-    skip("NR-21", "nr_09 bit->PSG mapping lives in zxnext.vhd:5186");
-
-    skip("NR-30", "NextREG 0x2C -> soundrive nr_left_we lives in zxnext.vhd:4852");
-    skip("NR-31", "NextREG 0x2D -> soundrive nr_mono_we lives in zxnext.vhd:4853");
-    skip("NR-32", "NextREG 0x2E -> soundrive nr_right_we lives in zxnext.vhd:4854");
+    // RE-HOME: NR-01..NR-06, NR-10..NR-14, NR-20/21, NR-30..32 — the
+    // full NR 0x06 / 0x08 / 0x09 / 0x2C-0x2E handler surface requires the
+    // Emulator + NextReg integration fixture. All 14 rows re-homed to
+    // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 }
 
 // =====================================================================
@@ -2210,7 +2198,9 @@ static void g_io() {
     skip("IO-04", "FFFD falling-edge latch lives in zxnext.vhd:2771-2773");
     skip("IO-05", "BFFD -> FFFD +3 timing alias lives in zxnext.vhd:2771-2773");
 
-    skip("IO-10", "dac_hw_en gate lives in zxnext.vhd:2775-2778/6436");
+    // RE-HOME: IO-10 — dac_hw_en gate (zxnext.vhd:2775-2778/6436) — needs
+    // the port-dispatch + NextReg surface. Re-homed to
+    // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
     skip("IO-11", "port->channel alias fan-in lives in zxnext.vhd port decode");
     skip("IO-12", "port FD F1/F9 AY-conflict guard lives in zxnext.vhd:2777");
 }

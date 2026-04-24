@@ -39,6 +39,10 @@ public:
     /// Set AY mode (true) or YM mode (false).
     void set_ay_mode(bool ay) { ay_mode_ = ay; }
 
+    /// Current AY/YM mode (true=AY, false=YM). Mirrors the per-chip
+    /// `aymode_i` input routed from NR 0x06 bit 0 (VHDL zxnext.vhd:6389).
+    bool is_ay_mode() const { return ay_mode_; }
+
     /// Advance the chip by one PSG clock-enable tick (1.75 MHz rate).
     /// The internal /8 divider produces the tone generator clock;
     /// the /16 divider produces the noise generator clock.
