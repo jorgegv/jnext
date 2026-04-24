@@ -47,6 +47,7 @@ public:
         stencil_mode_ = false;      // NR 0x68 bit 0 default (VHDL: 0)
         tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
         fallback_per_line_.fill(0xE3);
+        ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
         ula_.reset();
     }
 
@@ -99,6 +100,22 @@ public:
         fallback_per_line_.fill(fallback_colour_);
     }
 
+    /// Snapshot the current ULA-enable state (NR 0x68 bit 7 inverted) for
+    /// a given scanline. Parallels snapshot_fallback_for_line so a Copper
+    /// MOVE to NR 0x68 mid-frame is reflected in only the rows that follow
+    /// the toggle, matching VHDL zxnext.vhd:7103 where ula_en_2 is sampled
+    /// per pixel and flips ula_transparent at the scanline boundary.
+    void snapshot_ula_enabled_for_line(int line) {
+        if (line >= 0 && line < 320)
+            ula_enabled_per_line_[line] = ula_.ula_enabled();
+    }
+
+    /// Initialize the entire per-line ULA-enable array to the current value.
+    /// Called at the start of each frame, parallel to init_fallback_per_line.
+    void init_ula_enabled_per_line() {
+        ula_enabled_per_line_.fill(ula_.ula_enabled());
+    }
+
     /// Convert an 8-bit RRRGGGBB colour to ARGB8888.
     static uint32_t rrrgggbb_to_argb(uint8_t c) {
         uint8_t r3 = (c >> 5) & 0x07;
@@ -138,6 +155,14 @@ private:
     /// Populated during the frame loop by snapshot_fallback_for_line().
     /// Used during batch rendering so copper per-line changes are visible.
     std::array<uint8_t, 320> fallback_per_line_{};
+
+    /// Per-scanline ULA-enable snapshot (NR 0x68 bit 7 inverted).
+    /// Populated during the frame loop by snapshot_ula_enabled_for_line().
+    /// VHDL zxnext.vhd:7103 samples ula_en_2 per pixel, so a Copper MOVE
+    /// to NR 0x68 that lands on line N flips transparency from line N
+    /// onward; the render loop consumes this array instead of the live
+    /// Ula::ula_enabled() flag to preserve that per-line visibility.
+    std::array<bool, 320>    ula_enabled_per_line_{};
 
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;

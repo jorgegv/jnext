@@ -2450,6 +2450,11 @@ void Emulator::run_frame()
     // The copper will update individual lines during execution.
     renderer_.init_fallback_per_line();
 
+    // Initialize per-line ULA-enable snapshot (parallel to fallback_per_line_).
+    // A Copper MOVE to NR 0x68 mid-frame will update individual lines via
+    // on_scanline → renderer_.snapshot_ula_enabled_for_line.
+    renderer_.init_ula_enabled_per_line();
+
     // Initialize per-line border colour to current value.
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
@@ -2725,8 +2730,10 @@ void Emulator::run_frame()
     }
     frame_cycle_ = frame_end;
 
-    // Snapshot the fallback/border colour and tilemap scroll for the last scanline.
+    // Snapshot the fallback/border/ULA-enable colour and tilemap scroll
+    // for the last scanline.
     renderer_.snapshot_fallback_for_line(timing_.lines_per_frame - 1);
+    renderer_.snapshot_ula_enabled_for_line(timing_.lines_per_frame - 1);
     renderer_.ula().snapshot_border_for_line(timing_.lines_per_frame - 1);
     tilemap_.snapshot_scroll_for_line(timing_.lines_per_frame - 1);
 
@@ -3046,6 +3053,7 @@ void Emulator::on_scanline(int line)
     // for line N-1, so the fallback colour reflects the copper's MOVE writes.
     if (line > 0) {
         renderer_.snapshot_fallback_for_line(line - 1);
+        renderer_.snapshot_ula_enabled_for_line(line - 1);
         renderer_.ula().snapshot_border_for_line(line - 1);
         tilemap_.snapshot_scroll_for_line(line - 1);
     }

@@ -161,6 +161,19 @@ target_link_libraries(compositor_test PRIVATE jnext_video jnext_memory jnext_por
 target_include_directories(compositor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME compositor_tests COMMAND compositor_test)
 
+# Compositor subsystem integration test (2026-04-24)
+# Hosts UDIS-01/02 re-homed from compositor_test §UDIS — NR 0x68 bit 7
+# ULA-disable wiring end-to-end (direct write + mid-frame Copper MOVE).
+# Needs the full Emulator + CPU + Copper + run_frame loop; link line
+# mirrors ula_integration_test.
+add_executable(compositor_integration_test compositor/compositor_integration_test.cpp)
+target_link_libraries(compositor_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(compositor_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME compositor_integration_tests COMMAND compositor_integration_test)
+
 # ULA video compliance test
 add_executable(ula_test ula/ula_test.cpp)
 target_link_libraries(ula_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)

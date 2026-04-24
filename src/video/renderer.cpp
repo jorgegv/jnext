@@ -80,7 +80,12 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // That makes the border pixels fall through to the fallback
         // colour (NR 0x4A) just like the display area, which is what
         // copper_demo relies on to paint the rainbow across the border.
-        if (!ula_.ula_enabled()) {
+        //
+        // Read the per-line snapshot (not the live Ula::ula_enabled())
+        // so a Copper MOVE to NR 0x68 mid-frame flips transparency only
+        // for rows that follow the toggle. Matches the per-line fallback
+        // snapshot handling already used for NR 0x4A.
+        if (!ula_enabled_per_line_[row]) {
             std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
         }
 
