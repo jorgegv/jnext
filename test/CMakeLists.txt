@@ -236,6 +236,20 @@ target_link_libraries(nmi_test PRIVATE
 target_include_directories(nmi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nmi_tests COMMAND nmi_test)
 
+# NMI source pipeline integration test (Phase 3, 2026-04-24).
+# End-to-end rows proving the button / software-NMI chain composes
+# correctly inside Emulator::execute_single_instruction: NmiSource
+# FSM → /NMI edge → Z80 request_nmi → PC=0x0066 → DivMmc automap
+# → RETN clears latches. Mirrors the uart_integration_test /
+# ula_integration_test linkage.
+add_executable(nmi_integration_test nmi/nmi_integration_test.cpp)
+target_link_libraries(nmi_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(nmi_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nmi_integration_tests COMMAND nmi_integration_test)
+
 # Audio + NextREG integration test (Phase 2 Wave C, 2026-04-24)
 # Hosts the 25 plan rows re-homed from audio_test.cpp that need a full
 # Emulator + NextReg surface: NR 0x06 bits[1:0]/bit6 (PSG mode + speaker_beep),
