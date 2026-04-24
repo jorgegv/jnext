@@ -249,11 +249,28 @@ VHDL 7142-7148.
    `renderer_.set_blend_mode((v >> 5) & 0x03);`. Update the comment
    block immediately above to note bits 6:5 are now wired.
 4. Refactor priority-mode 6 and 7 branches
-   (`src/video/renderer.cpp:335-403`) to compute `mix_rgb / mix_top /
+   (`src/video/renderer.cpp:342-344` / `:370-372` — confirm live line
+   numbers before editing; Phase 0 audit noted the plan-doc earlier cite
+   of `337-339/365-367` was off by ~5 lines). Compute `mix_rgb / mix_top /
    mix_bot` via a 4-way switch on `blend_mode_`, per the table in §Triage.
    Keep the shared bits (per-channel add, subtractive formula,
    output-chain cascade) outside the switch. The existing mode-00
    code becomes one arm of the switch unchanged.
+   **KNOWN DEVIATION — do NOT "fix":** the mode-00 arm currently uses
+   `ula_transp` (which folds in `ula_en_2` via `renderer.cpp:88-90`
+   pre-zeroing the ula_line_ buffer) where VHDL 7143 uses
+   `ula_mix_transparent` (which doesn't fold `ula_en_2`). This is
+   observationally identical because the pre-zero makes both outputs
+   zero, per Phase 0 Q1 resolution. Keep `ula_transp` for mode-00
+   arm; only variant "10" needs `ula_final_rgb` semantics (route
+   through `u_px` per Phase 0 Q2 resolution).
+6. **Cascade generalization**: the existing mode-00 cascade hardcodes
+   `tm_px` for both `!mix_top_transp` and `!mix_bot_transp` arms
+   (correct for mode-00 where both are TM). Phase 1 must introduce
+   `mix_top_rgb` / `mix_bot_rgb` locals that pick TM vs ULA per
+   `blend_mode_`, and route the cascade arms through those locals.
+   Per VHDL 7300-7310 / 7342-7352: `l2_p_rgb_2 <= mix_top_rgb` (not
+   `tm_px`) when `mix_top_transparent = 0`; same for `mix_bot_rgb`.
 5. **Verification seam**: a hand-crafted BL extension row per variant
    must pass at end of Phase 1 (embedded inside the Phase-1 commit,
    NOT yet rolled into the Group BL block — that is Phase 2's job).
@@ -516,7 +533,7 @@ whose selection is being observed.
 
 | ID | Mode | Prio | VHDL | Focus / stimulus | Oracle |
 |----|------|------|------|------------------|--------|
-| BL-30 | "01" | 6 | 7163-7176 | L2=(3,2,1), ULA=(3,2,1) opaque, TM transp — additive with mix_rgb=0 | L2 through the `elsif layer2_transparent=0` arm = L2 (not blended). |
+| BL-30 | "01" | 6 | 7163-7176 | L2=(3,2,1) opaque, ULA=(3,2,1) opaque, TM transp, `tm_below=0` → mix_rgb_transp=1, mix_top=TM (transp), mix_bot=ULA (opaque) | cascade skips mix_top (transp), no sprite, `!mix_bot_transp` arm → output = mix_bot = ULA = (3,2,1). Exercises mix_bot swap from TM to ULA. |
 | BL-31 | "01" | 6 | 7163-7176 | L2=(0,0,0), ULA=(3,2,1) opaque, TM=(1,1,1) opaque, `tm_below=0` → `mix_top_transp=tm_transp=0` | mix_top wins → TM (ULA masked out). |
 | BL-32 | "01" | 6 | 7163-7176 | Same as BL-31 but `tm_below=1` → `mix_top=ULA` (transp or not per `ula_transparent`), `mix_bot=TM` | mix_top = ULA (opaque here), mix_bot = TM — cascade selects ULA via `!mix_top_transp` arm. |
 | BL-40 | "10" | 6 | 7149-7155 | L2=(3,2,1), ULA=(3,2,1) opaque, TM transp, stencil OFF → `ula_final_rgb = ulatm_rgb = ULA` | mixer = add(L2, ULA) = (6,4,2). `mix_top_transparent=1` forced → cascade skips both TM arms → mixer via L2-opaque arm. |
@@ -524,7 +541,7 @@ whose selection is being observed.
 | BL-42 | "10" | 6 | 7149-7155 + 7130 | L2=(0,0,0), ULA=(3,2,1), TM=(3,2,1), stencil ON + `ula_en=tm_en=1` → `ula_final_rgb = stencil_rgb = ULA AND TM` = (3,2,1) | mixer = add(L2, stencil) = (3,2,1). Observes stencil routing through `ula_final_rgb`. |
 | BL-50 | "11" | 6 | 7156-7162 | L2=(3,2,1), ULA=(1,1,1) opaque, TM=(2,2,2) opaque — additive with mix_rgb=TM, mix_top/mix_bot=ULA | `tm_below=0` → `mix_top_transp = ula_transp OR NOT tm_below = ula_transp OR 1 = 1`, `mix_bot_transp = ula_transp OR 0 = 0` → cascade: mix_top skipped, mix_bot=ULA. |
 | BL-51 | "11" | 6 | 7156-7162 | Same stimulus as BL-50 but `tm_below=1` → `mix_top_transp = ula_transp = 0` (ULA opaque), `mix_bot_transp = 1` | cascade: mix_top wins = ULA. |
-| BL-52 | "11" | 6 | 7156-7162 | L2=(0,0,0), ULA transp, TM=(4,2,1) opaque, `tm_below=0` → mix_rgb=TM mixer=add(L2,TM)=(4,2,1), mix_top=ULA (transp), mix_bot=ULA (transp) | cascade falls to L2-opaque-else arm? L2 transp here → mixer via final `elsif layer2_transparent=0`? Set L2=(0,0,0) opaque (non-transparent black) → mixer = (4,2,1). Observes TM-as-mix-source. |
+| BL-52 | "11" | 6 | 7156-7162 | L2=(0,0,0) opaque, ULA transp, TM=(4,2,1) opaque, `tm_below=0` → mix_rgb=TM=(4,2,1); mix_top=ULA (transp via `ula_transp OR !tm_below = 1`); mix_bot=ULA (transp via `ula_transp OR tm_below = 1`) | cascade: all mid arms transp → `!l2_transp` final arm → output = mixer = add(L2,TM) = (4,2,1). Observes TM-as-mix-source when both overlays are ULA-transparent. |
 | BL-60 | "11" | 7 | 7156-7162 + 7312-7352 | Mode "11" under priority-7 (subtractive). L2=(5,5,3), ULA transp, TM=(4,2,1) opaque, `tm_below=0` → mix_rgb=TM | subtractive: s_r=5+4=9 → >=12? no → s−5=4; s_g=5+2=7 → s−5=2; s_b=3+1=4 → s<=4 → 0. Result = (4,2,0). mix_top/bot both ULA(transp) → cascade to L2-opaque arm → mixer. |
 
 Notes for Phase 2 authoring:
