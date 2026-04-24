@@ -37,6 +37,15 @@ User-confirmed resolutions to the open questions at §Risks:
 Row-count targets are therefore **10 must-do un-skips** (not 11):
 ARB-06, NM-01..08, DMA-04.
 
+### Copper NR-write path — audit complete (pre-Phase-0)
+
+`src/peripheral/copper.cpp:148` calls `nextreg.write(reg, val)` on the
+shared `NextReg` object. `src/port/nextreg.cpp:112-118` dispatches to
+the per-register write handler set by `Emulator::reset()`. Therefore
+Copper's MOVE-to-NR-0x02 will fire the NR 0x02 write handler that
+Wave A installs — **no extra Copper hook is required**. Risk 3
+(§Risks) is downgraded to "no action; audit confirmed direct dispatch".
+
 ## Summary
 
 Stand up a **central NMI source / arbiter subsystem** that owns the

@@ -124,16 +124,24 @@ RAM-test loop), because the RAM test is not NMI-dependent. However:
 Each branch is one author + one independent critic cycle per the
 never-self-review rule (see `feedback_never_self_review.md`).
 
-### Branch A: NMI state machine in Z80Cpu / NMI router
+> **2026-04-24 supersede note.** Branches A and D below, and the
+> DivMMC-button half of Branch C, are superseded by
+> `doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md` (NMI source pipeline
+> plan). That plan lands the central NMI arbiter FSM, the NR 0x02
+> software-NMI routing, and the DivMMC `button_nmi_` producer + clear
+> paths, and leaves MF-side hooks (`mf_is_active`, `mf_nmi_hold`) as
+> stubs for Task 8 to consume. When Task 8 becomes active, start at
+> Branches B / E / F plus the reduced Branch C below.
 
-- Add the four-state FSM (`S_NMI_IDLE` etc.) matching VHDL :2120-2170.
-- Expose a `request_nmi(source)` API: sources are `mf_button`,
-  `divmmc_button`, `nr_02_mf`, `nr_02_divmmc`, `expbus`.
-- Currently `Z80Cpu::request_nmi()` exists but is called by NOTHING
-  (grep confirms zero callers). Expand to per-source.
-- Hook RETN execution in the FUSE Z80 core callback to advance the FSM
-  (IDLE on END).
-- Tests: state transitions under each source; RETN advancement.
+### Branch A: NMI state machine in Z80Cpu / NMI router — **SUPERSEDED**
+
+Landed by `TASK-NMI-SOURCE-PIPELINE-PLAN.md` (Phase 1 + Wave A/B).
+The four-state FSM (`S_NMI_IDLE / FETCH / HOLD / END`) lives in
+`src/peripheral/nmi_source.{h,cpp}` with VHDL-faithful priority
+(MF > DivMMC > ExpBus). `Z80Cpu::request_nmi()` is driven from that
+module. Task 8 Branch B consumes the existing
+`NmiSource::set_mf_is_active(bool)` / `set_mf_nmi_hold(bool)` stubs by
+wiring the real `Multiface::is_active()` / `is_nmi_hold()` accessors.
 
 ### Branch B: `Multiface` C++ module
 
@@ -142,26 +150,33 @@ never-self-review rule (see `feedback_never_self_review.md`).
   `tick_retn()`, `button_press()`, `set_mode(uint8_t mf_type)`,
   `read_port(uint16_t port)` / `write_port(uint16_t port)`.
 - Returns `is_mem_active()` + `is_nmi_hold()` for overlay + /NMI gating.
+  These accessors feed into `NmiSource::set_mf_is_active(bool)` /
+  `set_mf_nmi_hold(bool)` (stubbed to `false` by the NMI plan; Task 8
+  replaces the stubs with live values).
+- `button_press()` is routed via `NmiSource::set_mf_button(true)` — the
+  NMI plan's MF-button producer API.
 - ROM loaded from SD (`enNextMf.rom`) at init; cached as 8 KB byte
   buffer. RAM as 8 KB zero-init buffer.
 - Save/load state via project's `StateWriter` / `StateReader`.
 
-### Branch C: NMI-button source
+### Branch C: MF-button source (scoped down)
 
 - GUI keyboard shortcut (configurable, default F5) bound to "press
-  Multiface button".
+  Multiface button". Routes to `NmiSource::set_mf_button(true)`.
 - Headless: new CLI flag `--press-multiface-button-at-frame N` for
   deterministic test scenarios.
-- Wires `Multiface::button_press()` + sets DivMMC `button_nmi_` via
-  the existing setter (so the 0x0066 automap gate now actually fires
-  when the button is pressed).
+- DivMMC-button half (F10 hotkey → `DivMmc::set_button_nmi`) is already
+  landed by the NMI plan Wave B; nothing for Task 8 to do there beyond
+  optionally adding a separate GUI keybinding.
 
-### Branch D: NR 0x02 programmatic NMI
+### Branch D: NR 0x02 programmatic NMI — **SUPERSEDED**
 
-- Already wired partially (soft-reset / hard-reset bits). Add bits for
-  `generate_mf_nmi` / `generate_divmmc_nmi`. Route to `request_nmi`.
-- Closes Copper `ARB-06` SKIP (arbitration test blocked on NR 0x02 NMI
-  infrastructure).
+Landed by `TASK-NMI-SOURCE-PIPELINE-PLAN.md` Wave A. NR 0x02 bits 2/3
+decode into `NmiSource::nr_02_write(v)` which strobes the MF /
+DivMMC software-NMI paths. Copper `ARB-06` is unblocked by the NMI
+plan (via the DivMMC path only, since MF is absent pre-Task-8). Task 8
+adds no new work here; once the `Multiface` consumer lands, the MF
+path of NR 0x02 becomes end-to-end observable.
 
 ### Branch E: Memory overlay priority
 
