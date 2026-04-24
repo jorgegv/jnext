@@ -286,12 +286,12 @@ void UartChannel::tick_one_bit_clock() {
 }
 
 void UartChannel::tx_engine_step() {
-    // Reset / break gates (uart_tx.vhd:166-171, :234):
+    // Reset / break gates (uart_tx.vhd:166-171, :234, :239):
     if (framing_ & 0x80) {
         tx_state_ = TxState::S_IDLE;
         tx_state_next_ = TxState::S_IDLE;
         tx_busy_bitlevel_ = true;   // o_busy = '1' when i_frame(7) = '1'
-        tx_line_out_ = true;
+        tx_line_out_ = !(framing_ & 0x40);  // S_IDLE emits NOT i_frame(6) per VHDL :239
         return;
     }
 
@@ -457,9 +457,11 @@ void UartChannel::rx_debounce_step() {
         rx_debounced_ = sync1;
     }
 
-    // Rx_d delayed (uart_rx.vhd:133-138).
-    rx_d_ = rx_debounced_;     // one-cycle lag captured via rx_d_ prev-sample
-    rx_edge_ = rx_debounced_ ^ rx_d_;  // computed before rx_d_ update next tick
+    // Rx_d delayed (uart_rx.vhd:133-138). Compute edge BEFORE updating rx_d_,
+    // so rx_edge_ compares current debounced sample against PRIOR tick's rx_d_.
+    // Final rx_d_ <- rx_debounced_ assignment happens in rx_engine_step() tail
+    // (uart.cpp ~594), matching VHDL Rx_d <= Rx clocked process.
+    rx_edge_ = rx_debounced_ ^ rx_d_;
 }
 
 void UartChannel::rx_engine_step() {
