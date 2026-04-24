@@ -368,7 +368,21 @@ void UartChannel::tx_engine_step() {
     }
 
     // ── Registered updates (uart_tx.vhd shift/bit-count/timer) ──────
-    // Shift register (uart_tx.vhd:118-127).
+    // Bit counter & parity (uart_tx.vhd:148-159). Must run BEFORE the
+    // shift-register update: VHDL registers `tx_parity <= tx_parity XOR tx_shift(0)`
+    // and `tx_shift <= '0' & tx_shift(7 downto 1)` concurrently on the clock
+    // edge, so parity captures the PRE-shift LSB. If we shifted first we'd
+    // see bit 1 instead of bit 0, inverting every byte's computed parity.
+    if (tx_state_ == TxState::S_IDLE) {
+        // tx_bit_count <= '1' & i_frame(4 downto 3); i.e. 4..7.
+        tx_bit_count_ = static_cast<uint8_t>(0x04 | ((framing_ >> 3) & 0x03));
+        tx_parity_live_ = tx_parity_odd_snap_;
+    } else if (tx_state_ == TxState::S_BITS && tx_timer_expired) {
+        if (tx_bit_count_ > 0) tx_bit_count_ -= 1;
+        tx_parity_live_ ^= (tx_shift_ & 0x01);   // XOR pre-shift LSB
+    }
+
+    // Shift register (uart_tx.vhd:118-127). Runs AFTER parity capture above.
     if (tx_state_ == TxState::S_IDLE) {
         // Load next byte when FIFO has one; otherwise 0.
         if (tx_en) {
@@ -384,16 +398,6 @@ void UartChannel::tx_engine_step() {
         tx_timer_ = tx_prescaler_snap_;
     } else if (tx_timer_ > 0) {
         tx_timer_ -= 1;
-    }
-
-    // Bit counter & parity (uart_tx.vhd:148-159).
-    if (tx_state_ == TxState::S_IDLE) {
-        // tx_bit_count <= '1' & i_frame(4 downto 3); i.e. 4..7.
-        tx_bit_count_ = static_cast<uint8_t>(0x04 | ((framing_ >> 3) & 0x03));
-        tx_parity_live_ = tx_parity_odd_snap_;
-    } else if (tx_state_ == TxState::S_BITS && tx_timer_expired) {
-        if (tx_bit_count_ > 0) tx_bit_count_ -= 1;
-        tx_parity_live_ ^= (tx_shift_ & 0x01);
     }
 
     // ── TX pin output (uart_tx.vhd:236-245) ─────────────────────────
@@ -573,13 +577,20 @@ void UartChannel::rx_engine_step() {
     }
 
     // Latch parity-error / framing-error flags for the byte that is about to
-    // land in the FIFO at S_STOP_* → S_IDLE.
+    // land in the FIFO at S_STOP_* → S_IDLE. Also OR them into the sticky
+    // err_framing_ flag per VHDL uart.vhd:541 (status-bit 6 accumulates any
+    // observed framing or parity error until cleared by FIFO reset or by
+    // the read-side status-register side effect). Without the OR-in, S_ERROR
+    // transitions orphan the latch — the byte never commits through the
+    // STOP_* → IDLE path that would otherwise propagate it into sticky.
     if (rx_state_ == RxState::S_PARITY && rx_state_next_ == RxState::S_ERROR) {
         rx_byte_parity_err_ = true;
+        err_framing_ = true;
     }
     if ((rx_state_ == RxState::S_STOP_1 || rx_state_ == RxState::S_STOP_2)
          && rx_state_next_ == RxState::S_ERROR) {
         rx_byte_framing_err_ = true;
+        err_framing_ = true;
     }
 
     // ── Byte commit on STOP_x → IDLE (uart_rx.vhd:299-308, o_Rx_avail) ──
