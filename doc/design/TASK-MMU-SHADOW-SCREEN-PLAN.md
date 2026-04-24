@@ -53,6 +53,25 @@ port 0x7FFD bit 3 → `i_ula_shadow_en` MMU-level routing.
   scope here — those bits land in the MMU already. This plan is only
   bit 3.
 
-## Status: **PENDING** — small effort, low risk. Natural companion
-to the NR 0x68 bit 3 fix pattern. Can land in ~30 minutes when a
-session picks it up.
+## Status: **DONE** (2026-04-24)
+
+Landed in a single worktree session:
+
+- `src/memory/mmu.h`: added `Mmu::shadow_screen_en()` accessor
+  (`port_7ffd_ & 0x08`) — the MMU is now the sole producer of the shadow
+  bit, matching VHDL where `port_7ffd_reg(3)` is the only source of
+  `i_ula_shadow_en`.
+- `src/core/emulator.cpp`: 0x7FFD port handler now calls
+  `renderer_.ula().set_shadow_screen_en(mmu_.shadow_screen_en())` after
+  `map_128k_bank(v)`. Same pattern as the NR 0x68 bit 3 → `set_ulap_en`
+  forward (commit a1495ba).
+- `test/mmu/mmu_test.cpp`: P7F-16 / P7F-17 flipped from skip() to live
+  check() against `Mmu::shadow_screen_en()`. P7F-17 deliberately avoids
+  bit 5 (lock) across its probe bytes.
+- `test/ula/ula_integration_test.cpp`: new Group E + INT-SHADOW-01 row
+  covers the full port-dispatch → MMU → Ula chain end-to-end.
+- Dashboard `test/SUBSYSTEM-TESTS-STATUS.md`: MMU → "All tests pass.";
+  ULA Video (int) 7/7 → 8/8.
+
+Counts: mmu_test 150/148/0/2 → **150/150/0/0**. ula_integration_test
+7/7/0/0 → 8/8/0/0. Aggregate 3318/3191/0/127 → 3319/3194/0/125.

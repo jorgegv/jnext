@@ -462,6 +462,15 @@ public:
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
 
+    // port_7ffd_reg(3) — ULA shadow-screen select. VHDL zxnext.vhd:3640
+    // latches the full byte into port_7ffd_reg on a port-0x7FFD write;
+    // line :4453 routes bit 3 to `i_ula_shadow_en` on the ULA. Emulator's
+    // 0x7FFD handler reads this accessor after map_128k_bank() and
+    // forwards into Ula::set_shadow_screen_en, giving the MMU a single
+    // source of truth for the shadow bit (mirrors the VHDL where the
+    // port_7ffd_reg is the sole producer of i_ula_shadow_en).
+    bool shadow_screen_en() const { return (port_7ffd_ & 0x08) != 0; }
+
     // Last +3 paging register value (needed by NR 0x8E/0x8F tests + debugger)
     uint8_t port_1ffd() const { return port_1ffd_; }
 

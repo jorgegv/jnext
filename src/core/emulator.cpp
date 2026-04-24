@@ -1150,6 +1150,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((nextreg_.cached(0x82) & 0x02) == 0) return;
 
             mmu_.map_128k_bank(v);
+            // VHDL zxnext.vhd:4453 — port_7ffd_reg(3) drives i_ula_shadow_en
+            // on the ULA bus. Same pattern as the NR 0x68 bit 3 → set_ulap_en
+            // forward (commit a1495ba). Read through the MMU accessor so the
+            // bit-3 source of truth stays in the MMU (matches VHDL where
+            // port_7ffd_reg is the sole producer of i_ula_shadow_en).
+            renderer_.ula().set_shadow_screen_en(mmu_.shadow_screen_en());
             // Push the new ROM3 state into DivMmc. VHDL zxnext.vhd:3138
             // composites sram_divmmc_automap_rom3_en from sram_pre_rom3
             // (derived from sram_rom == "11"); Task 7 Branch B exposes the
