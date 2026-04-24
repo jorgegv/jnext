@@ -1084,9 +1084,9 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Input (Keyboard+Joystick) — [INPUT-TEST-PLAN-DESIGN.md](../testing/INPUT-TEST-PLAN-DESIGN.md)
 
   Post-ULA-closure re-home spinoffs (2026-04-23/24) — capture 29 F-skip rows re-homed from `test/ula/ula_test.cpp` into owning-subsystem plans so `ula_test` reaches zero skips:
-  - [x] Floating Bus — [FLOATING-BUS-TEST-PLAN-DESIGN.md](../testing/FLOATING-BUS-TEST-PLAN-DESIGN.md) (26 rows — 5 re-home + 21 VHDL-justified neighbours across port 0xFF on all machines and port 0x0FFD on +3; from [TASK-FLOATING-BUS-PLAN.md](TASK-FLOATING-BUS-PLAN.md))
-  - [x] Contention — [CONTENTION-TEST-PLAN-DESIGN.md](../testing/CONTENTION-TEST-PLAN-DESIGN.md) (68 rows phased A=28 / B=36 / C=4; `ContentionModel` class already exists at `src/memory/contention.h`, `delay()` tick-loop wiring pending; from [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md))
-  - [x] VideoTiming — [VIDEOTIMING-TEST-PLAN-DESIGN.md](../testing/VIDEOTIMING-TEST-PLAN-DESIGN.md) (22 rows — 7 re-home + 15 VHDL-justified neighbours; per-machine origin + interrupt-position accessors on `VideoTiming`, with a coupled `vc_max_` / `hc_max_` semantic rebase documented under `F-VT-MAX-REBASE`; from [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md))
+  - [x] Floating Bus — [FLOATING-BUS-TEST-PLAN-DESIGN.md](../testing/FLOATING-BUS-TEST-PLAN-DESIGN.md)
+  - [x] Contention — [CONTENTION-TEST-PLAN-DESIGN.md](../testing/CONTENTION-TEST-PLAN-DESIGN.md)
+  - [x] VideoTiming — [VIDEOTIMING-TEST-PLAN-DESIGN.md](../testing/VIDEOTIMING-TEST-PLAN-DESIGN.md)
   - Re-home **appends** (no new plan doc — rows added to existing test-plan-design + existing suite):
     - Compositor NR 0x68 blend-mode — 3 rows from [TASK-COMPOSITOR-NR68-BLEND-PLAN.md](TASK-COMPOSITOR-NR68-BLEND-PLAN.md) appended to [COMPOSITOR-TEST-PLAN-DESIGN.md](../testing/COMPOSITOR-TEST-PLAN-DESIGN.md) (reopens `compositor_test` with 3 skips).
     - MMU shadow-screen routing — 2 rows from [TASK-MMU-SHADOW-SCREEN-PLAN.md](TASK-MMU-SHADOW-SCREEN-PLAN.md) appended to [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md) (reopens `mmu_test` with 2 skips).
@@ -1116,13 +1116,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [ ] Contention — 68 scaffold rows. Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
   - [ ] VideoTiming Expansion — 22 scaffold rows. Plan [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md).
 
-- [x] Generate full testing plan:
-  - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
-  - [x] Reevaluate if all relevant subsystems are included - **done, all fine**
-  - [x] Functional test plan (~demos) — regression screenshot tests (`test/regression.sh`) cover demo programs
-  - [ ] Integration test plan — document cross-subsystem interaction scenarios (deferred items from subsystem plans)
-- [x] Golden-output visual regression tests — `test/regression.sh` + `test/generate-references.sh`
-- [ ] CI golden-output visual regression tests integration
+- [ ] Integration test plan — document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
+- [ ] CI integration for golden-output visual regression tests (`test/regression.sh`).
 
 - [ ] General optimization plan
   - [ ] Assess the general emulator architecture, subsystems, interfaces, possible enhancements to architecture. Critical review by Ultraplan (/ultraplan)
