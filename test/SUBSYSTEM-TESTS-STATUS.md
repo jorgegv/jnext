@@ -15,7 +15,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (integration) |       73 |       73 |      0 |       0 |    100% | All tests pass.                                        |
 | Input                 |      139 |      139 |      0 |       0 |    100% | All tests pass.                                        |
 | Input (integration)   |       12 |       11 |      0 |       1 |    100% | 1 skip: FE-05 expansion bus (no expbus subsystem).     |
-| CTC + Interrupts      |      133 |      129 |      0 |       4 |    100% | 4 skips: NR-C0-02 (Wave D cut), 3 misc.                |
+| CTC + Interrupts      |      130 |      129 |      0 |       1 |    100% | 1 skip: NR-C0-02 (Wave D cut).                         |
+| CTC (integration)     |       12 |       12 |      0 |       0 |    100% | All tests pass.                                        |
 | Layer 2               |       89 |       89 |      0 |       0 |    100% | All tests pass.                                        |
 | UART + I2C/RTC        |       92 |       92 |      0 |       0 |    100% | All tests pass.                                        |
 | UART (integration)    |       12 |       12 |      0 |       0 |    100% | All tests pass.                                        |
@@ -36,6 +37,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | All tests pass.                                        |
 | NMI Source Pipeline   |       32 |       32 |      0 |       0 |    100% | All tests pass.                                        |
 | NMI (integration)     |        5 |        5 |      0 |       0 |    100% | All tests pass.                                        |
-| **Total**             | **3318** | **3192** |  **0** | **126** | **100%**|                                                        |
+| **Total**             | **3317** | **3194** |  **0** | **123** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -2,12 +2,15 @@
 // from test/ctc/ctc_test.cpp (Section C Phase 3c of the CTC-INTERRUPTS
 // skip-reduction plan, 2026-04-21).
 //
-// These 10 plan rows cannot be exercised on a bare Ctc or bare
+// These plan rows cannot be exercised on a bare Ctc or bare
 // Im2Controller — they span NextReg + Im2Controller + ULA + port-dispatch
 // wiring. They live on the integration tier rather than the subsystem
 // tier, and they test observable state via the same port path the real
 // Z80 uses (OUT 0x243B / OUT 0x253B / IN 0x253B) or via the public
 // Emulator accessors.
+//
+// 2026-04-24: added ULA-INT-04 (line interrupt at cvc match) and
+// ULA-INT-06 (line 0 → c_max_vc wrap) re-homed from ctc_test.cpp.
 //
 // Reference plan: doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md,
 // Section C Phase 3. Reference structural template:
@@ -217,6 +220,60 @@ static void test_ula_int_integration(Emulator& emu) {
               "[zxnext.vhd:5607-5610, :6239; emulator.cpp:542-546, :801]",
               (before & 0x02) == 0 && (on & 0x02) != 0 && (off & 0x02) == 0,
               detail);
+    }
+
+    // ULA-INT-04 — Line interrupt fires at the configured scanline.
+    // VHDL: zxula_timing.vhd:577-582 (int_line = '1' when i_inten_line=1
+    // AND hc_ula=255 AND cvc=int_line_num). int_line pulses into
+    // zxnext.vhd:1941 im2_int_req bit 0 (LINE, priority slot 0).
+    // emulator.cpp:2392-2402 schedules the LINE interrupt at
+    // frame_cycle + line_int_value * master_cycles_per_line; the callback
+    // calls im2_.raise_req(DevIdx::LINE), which — once step_devices() ticks
+    // — latches im2_int_req[0]. Observable: NR 0xC8 bit 1 = LINE status
+    // set after run_frame().
+    //
+    // Stimulus: NR 0x22 bit 1 = 1 (line_interrupt_en), NR 0x23 = mid-frame
+    // line (e.g. 100). After run_frame, NR 0xC8 bit 1 must be set. The
+    // ULA int also fires (bit 0); we only assert bit 1.
+    {
+        fresh(emu);
+        nr_write(emu, 0x22, 0x02);              // line_interrupt_en = 1
+        nr_write(emu, 0x23, 100);               // line 100 (low 8 bits)
+        // NR 0x23 bit 8 stays 0 via NR 0x22 bit 0 (not set here).
+        emu.run_frame();
+        const uint8_t c8 = nr_read(emu, 0xC8);
+        check("ULA-INT-04",
+              "Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) "
+              "[zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402]",
+              (c8 & 0x02) != 0,
+              "NR 0xC8=" + hex2(c8) + " (expected bit 1 LINE set)");
+    }
+
+    // ULA-INT-06 — Line 0 maps to c_max_vc (wrap semantics).
+    // VHDL: zxula_timing.vhd:566-570 — when i_int_line=0, int_line_num
+    // latches to c_max_vc (the last scanline of the frame); otherwise
+    // int_line_num = i_int_line - 1. So writing NR 0x23=0 must still
+    // cause LINE to fire once per frame (at the last scanline). The jnext
+    // emulator schedules the callback for line_int_value=0 at frame_cycle
+    // (value < lines_per_frame gate at emulator.cpp:2392 passes; the
+    // exact cycle is a separate VHDL-timing concern re-homed to
+    // doc/design/VIDEOTIMING-EXPANSION-PLAN.md).
+    //
+    // Stimulus: NR 0x22 bit 1 = 1 + NR 0x23 = 0. After one run_frame,
+    // NR 0xC8 bit 1 must be set (i.e. line_int_value=0 is NOT ignored —
+    // it fires somewhere within the frame, matching the VHDL wrap
+    // invariant that value 0 is still a valid firing line).
+    {
+        fresh(emu);
+        nr_write(emu, 0x22, 0x02);              // line_interrupt_en = 1
+        nr_write(emu, 0x23, 0x00);              // line 0 → VHDL wraps to c_max_vc
+        emu.run_frame();
+        const uint8_t c8 = nr_read(emu, 0xC8);
+        check("ULA-INT-06",
+              "Line interrupt value 0 still fires within frame (VHDL: wraps to "
+              "c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402]",
+              (c8 & 0x02) != 0,
+              "NR 0xC8=" + hex2(c8) + " (expected bit 1 LINE set)");
     }
 }
 

@@ -21,8 +21,9 @@
 // state machines + daisy chain + pulse fabric + wrapper + NR-C*
 // composers). A handful of rows stay as skip() or re-home comments for
 // genuine boundary reasons: NMI-blocked (NR-C0-02, DMA-04), Ula-coupled
-// (ULA-INT-04/06), joystick-io (JOY-01/02 at Emulator level), and
-// CTC-NR-04 (cycle-accurate bus arbitration, user-deferred).
+// (ULA-INT-01..06 all re-homed to ctc_interrupts_test.cpp), joystick-io
+// (JOY-01/02 at Emulator level), and CTC-NR-04 (D-pattern, structurally
+// unreachable — see inline comment at end of section 6).
 //
 // Run: ./build/test/ctc_test
 //
@@ -860,14 +861,18 @@ void section6_nextreg_int_enable() {
               "");
     }
 
-    // CTC-NR-04 — zxnext.vhd constraint: nr_c5_we must not overlap
-    // i_iowr because control_reg is a single-ported register updated by
-    // whichever strobe is active. jnext serialises both write paths at
-    // the C++ call level; both writes land, no cycle-level overlap is
-    // constructible. WONT-conversion deferred by user 2026-04-21 pending
-    // later WONT-sweep audit; stays as skip in the meantime.
-    skip("CTC-NR-04",
-         "NR 0xC5 vs port-write overlap — cycle-accurate bus arbitration, review later");
+    // CTC-NR-04 — (D) structurally unreachable stimulus.
+    // zxnext.vhd invariant: nr_c5_we must not overlap i_iowr because
+    // control_reg is a single-ported register updated by whichever strobe
+    // is active. jnext's two write paths — Ctc::set_int_enable() (NR 0xC5)
+    // and Ctc::write(channel, CW) (i_iowr port write) — are both discrete
+    // C++ API calls; there is no cycle-level simultaneity to construct at
+    // this abstraction layer. Same D-pattern as CTC-CW-11 (rising-edge
+    // iowr detect). Outcome-equivalent behaviour (exactly-one write per
+    // call, no lost or double writes, whichever path was called last
+    // wins per the VHDL "whichever strobe is active" rule) is already
+    // covered end-to-end by CTC-CW-08 (i_int_en_wr overrides CW D7) and
+    // CTC-NR-01/02/03 (NR 0xC5 write + read + CW D7 equivalence).
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1883,17 +1888,15 @@ void section12_ula_line_int() {
     // ULA-INT-03 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (ula_int_en = NOT port_ff_interrupt_disable — same integration
     // surface as ULA-INT-02; added in Phase 3).
-    skip("ULA-INT-04",
-         "line interrupt at cvc match — candidate re-home to "
-         "ctc_interrupts_test.cpp (needs ULA line-counter state "
-         "via full Emulator; not in the 10-row Phase 3c scope)");
+    // ULA-INT-04 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
+    // (line interrupt fires at cvc match at hc_ula=255 — needs full
+    // Emulator + scheduler + Im2Controller; added 2026-04-24).
     // ULA-INT-05 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
     // (NR 0x22 line_interrupt_en bit — needs NextREG + ULA integration;
     // added in Phase 3).
-    skip("ULA-INT-06",
-         "line 0 → c_max_vc wrap — candidate re-home to "
-         "ctc_interrupts_test.cpp (needs ULA c_max_vc observable; "
-         "not in the 10-row Phase 3c scope)");
+    // ULA-INT-06 — RE-HOME to test/ctc_interrupts/ctc_interrupts_test.cpp
+    // (line 0 wraps to c_max_vc — needs full Emulator + scheduler;
+    // added 2026-04-24).
 
     // ULA-INT-07 — zxnext.vhd:1941: IM2 priority index 11 = ULA. When
     // LINE (index 0) and ULA (index 11) both raise, LINE wins the ack.
