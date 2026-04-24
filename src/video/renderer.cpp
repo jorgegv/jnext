@@ -207,9 +207,12 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 //                 else ULA
 //
 //   Modes 6/7 blend (VHDL 7286-7354):
-//     mix_rgb/mix_top/mix_bot from ULA blend mode (default "00"):
-//       mix_rgb = ULA (zeroed when transparent)
-//       mix_top = TM (when above), mix_bot = TM (when below)
+//     mix_rgb/mix_top/mix_bot from ULA blend mode (NR 0x68 bits 6:5,
+//     VHDL 7141-7178):
+//       "00" default: mix_rgb=ULA, mix_top=TM above, mix_bot=TM below.
+//       "10":         mix_rgb=ula_final (post-stencil), top/bot transp.
+//       "11":         mix_rgb=TM, mix_top=ULA above, mix_bot=ULA below.
+//       "01"/others:  mix_rgb transp; top/bot swap TM/ULA by tm_pixel_below.
 //     Per-channel arithmetic: L2 + mix_rgb
 //       Mode 110: additive with clamp to max
 //       Mode 111: subtractive (gated on mix_rgb not transparent)
@@ -337,72 +340,101 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                 break;
             }
 
-            case 6: {  // Blend additive — VHDL 7286-7310
-                // ULA blend mode "00" (default): mix_rgb=ULA, mix_top=TM
-                const bool mix_rgb_transp = ula_transp;
-                const bool mix_top_transp = tm_transp || ula_over_flags_[x];
-                const bool mix_bot_transp = tm_transp || !ula_over_flags_[x];
+            case 6:
+            case 7: {
+                // ULA blend mode 4-variant source selection (VHDL 7141-7178).
+                // `ula_over_flags_[x]` carries `tm_pixel_below_2` (misnomer
+                // kept for now; Phase-2 clean-up candidate).
+                const bool tm_below = ula_over_flags_[x];
 
-                // Extract 3/3/2 channels (zeroed when transparent per VHDL 7101/7122)
+                uint32_t mix_rgb_px   = 0;
+                bool     mix_rgb_transp = true;
+                uint32_t mix_top_px   = 0;
+                bool     mix_top_transp = true;
+                uint32_t mix_bot_px   = 0;
+                bool     mix_bot_transp = true;
+
+                switch (blend_mode_) {
+                    case 0:  // "00" — VHDL 7142-7148 (existing default behaviour).
+                        mix_rgb_px     = ula_px;
+                        mix_rgb_transp = ula_transp;
+                        mix_top_px     = tm_px;
+                        mix_top_transp = tm_transp || tm_below;
+                        mix_bot_px     = tm_px;
+                        mix_bot_transp = tm_transp || !tm_below;
+                        break;
+                    case 2:  // "10" — VHDL 7149-7155: mix_rgb = ula_final; top/bot forced transp.
+                        mix_rgb_px     = u_px;
+                        mix_rgb_transp = ulatm_transp;
+                        mix_top_transp = true;
+                        mix_bot_transp = true;
+                        break;
+                    case 3:  // "11" — VHDL 7156-7162: mix_rgb = TM; top/bot both ULA.
+                        mix_rgb_px     = tm_px;
+                        mix_rgb_transp = tm_transp;
+                        mix_top_px     = ula_px;
+                        mix_top_transp = ula_transp || !tm_below;
+                        mix_bot_px     = ula_px;
+                        mix_bot_transp = ula_transp || tm_below;
+                        break;
+                    default:  // "01" / others — VHDL 7163-7176: mix_rgb transp; swap TM/ULA.
+                        mix_rgb_transp = true;
+                        if (tm_below) {
+                            mix_top_px     = ula_px;
+                            mix_top_transp = ula_transp;
+                            mix_bot_px     = tm_px;
+                            mix_bot_transp = tm_transp;
+                        } else {
+                            mix_top_px     = tm_px;
+                            mix_top_transp = tm_transp;
+                            mix_bot_px     = ula_px;
+                            mix_bot_transp = ula_transp;
+                        }
+                        break;
+                }
+
+                // Extract 3/3/2 channels (zeroed when transparent per VHDL 7101/7122).
                 const uint8_t l2_r = l2_transp ? 0 : argb_r3(l2_px);
                 const uint8_t l2_g = l2_transp ? 0 : argb_g3(l2_px);
                 const uint8_t l2_b = l2_transp ? 0 : argb_b2(l2_px);
-                const uint8_t mx_r = mix_rgb_transp ? 0 : argb_r3(ula_px);
-                const uint8_t mx_g = mix_rgb_transp ? 0 : argb_g3(ula_px);
-                const uint8_t mx_b = mix_rgb_transp ? 0 : argb_b2(ula_px);
+                const uint8_t mx_r = mix_rgb_transp ? 0 : argb_r3(mix_rgb_px);
+                const uint8_t mx_g = mix_rgb_transp ? 0 : argb_g3(mix_rgb_px);
+                const uint8_t mx_b = mix_rgb_transp ? 0 : argb_b2(mix_rgb_px);
 
-                // Per-channel add with clamp (VHDL 7288-7298)
-                const uint8_t r_out = std::min<uint8_t>(l2_r + mx_r, 7);
-                const uint8_t g_out = std::min<uint8_t>(l2_g + mx_g, 7);
-                const uint8_t b_out = std::min<uint8_t>(l2_b + mx_b, 3);
-                const uint32_t mixer_argb = channels_to_argb(r_out, g_out, b_out);
-
-                // Output chain (VHDL 7300-7310)
-                if (l2_prio)                  result = mixer_argb;  // VHDL 7300
-                else if (!mix_top_transp)     result = tm_px;
-                else if (!spr_transp)         result = spr_px;
-                else if (!mix_bot_transp)     result = tm_px;
-                else if (!l2_transp)          result = mixer_argb;
-                break;
-            }
-
-            default: {  // Blend subtractive (mode 7) — VHDL 7312-7352
-                const bool mix_rgb_transp = ula_transp;
-                const bool mix_top_transp = tm_transp || ula_over_flags_[x];
-                const bool mix_bot_transp = tm_transp || !ula_over_flags_[x];
-
-                const uint8_t l2_r = l2_transp ? 0 : argb_r3(l2_px);
-                const uint8_t l2_g = l2_transp ? 0 : argb_g3(l2_px);
-                const uint8_t l2_b = l2_transp ? 0 : argb_b2(l2_px);
-                const uint8_t mx_r = mix_rgb_transp ? 0 : argb_r3(ula_px);
-                const uint8_t mx_g = mix_rgb_transp ? 0 : argb_g3(ula_px);
-                const uint8_t mx_b = mix_rgb_transp ? 0 : argb_b2(ula_px);
-
-                // Raw per-channel sum
+                // Raw per-channel 4-bit sums (VHDL 7201-7203).
                 uint8_t r_sum = l2_r + mx_r;
                 uint8_t g_sum = l2_g + mx_g;
                 uint8_t b_sum = l2_b + mx_b;
 
-                // Subtractive formula gated on mix_rgb not transparent (VHDL 7314).
-                // When mix_rgb IS transparent, raw sums pass through unchanged.
-                if (!mix_rgb_transp) {
-                    auto sub = [](uint8_t s) -> uint8_t {
-                        if (s <= 4) return 0;
-                        if (((s >> 2) & 3) == 3) return 7;  // >= 12
-                        return static_cast<uint8_t>((s + 0x0Bu) & 0x0Fu);  // sum - 5
-                    };
-                    r_sum = sub(r_sum);
-                    g_sum = sub(g_sum);
-                    b_sum = sub(b_sum);
+                uint32_t mixer_argb;
+                if (layer_priority_ == 6) {
+                    // Additive with clamp (VHDL 7288-7298).
+                    const uint8_t r_out = std::min<uint8_t>(r_sum, 7);
+                    const uint8_t g_out = std::min<uint8_t>(g_sum, 7);
+                    const uint8_t b_out = std::min<uint8_t>(b_sum, 3);
+                    mixer_argb = channels_to_argb(r_out, g_out, b_out);
+                } else {
+                    // Subtractive gated on mix_rgb not transparent (VHDL 7314).
+                    if (!mix_rgb_transp) {
+                        auto sub = [](uint8_t s) -> uint8_t {
+                            if (s <= 4) return 0;
+                            if (((s >> 2) & 3) == 3) return 7;  // >= 12
+                            return static_cast<uint8_t>((s + 0x0Bu) & 0x0Fu);
+                        };
+                        r_sum = sub(r_sum);
+                        g_sum = sub(g_sum);
+                        b_sum = sub(b_sum);
+                    }
+                    mixer_argb = channels_to_argb(r_sum & 7, g_sum & 7, b_sum & 3);
                 }
 
-                const uint32_t mixer_argb = channels_to_argb(r_sum & 7, g_sum & 7, b_sum & 3);
-
-                // Output chain (VHDL 7342-7352)
-                if (l2_prio)                  result = mixer_argb;  // VHDL 7342
-                else if (!mix_top_transp)     result = tm_px;
+                // Output cascade (VHDL 7300-7310 add, 7342-7352 sub).
+                // Per VHDL: mix_top / mix_bot sources are per-variant, NOT
+                // always TM (that was the mode-00 special case).
+                if (l2_prio)                  result = mixer_argb;
+                else if (!mix_top_transp)     result = mix_top_px;
                 else if (!spr_transp)         result = spr_px;
-                else if (!mix_bot_transp)     result = tm_px;
+                else if (!mix_bot_transp)     result = mix_bot_px;
                 else if (!l2_transp)          result = mixer_argb;
                 break;
             }

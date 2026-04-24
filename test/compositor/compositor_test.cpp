@@ -1155,6 +1155,37 @@ static void test_BL() {
               not_passthrough,
               DETAIL("got=0x%08X", got));
     }
+
+    // BL-PHASE1-SANITY: blend_mode_="10" (NR 0x68 bits 6:5=10) refactor sanity
+    // check. Mode 6 additive, L2 opaque, ULA opaque, TM opaque below ULA.
+    // VHDL 7149-7155: mix_rgb = ula_final (→ ULA since no stencil and TM is
+    // marked below), mix_top/mix_bot forced transparent. Cascade must fall
+    // through to the `!l2_transp` arm and emit the additive blend. This row
+    // is a Phase-1 embedded scaffold — it will be replaced by the formal
+    // BL-40..42 rows in Phase 2 (see TASK-COMPOSITOR-NR68-BLEND-PLAN.md).
+    // Also discriminates against mode "00": with tm_below=1 and TM opaque,
+    // mode "00" would emit mix_bot (TM) instead of the blended mixer.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(2);                            // "10"
+        uint8_t l2c  = rgb8(1,1,1);
+        uint8_t ulac = rgb8(2,2,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
+        r.tilemap_line_[0] = PIX_TM;
+        r.ula_over_flags_[0] = true;                    // tm_pixel_below_2 = 1
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,1)));
+        check("BL-PHASE1-SANITY",
+              "mode 110+blend=10: mix_rgb=ula_final; additive blend L2+ULA "
+              "(VHDL 7149-7155,7286-7298)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        // Reset blend mode so subsequent tests see the default.
+        r.set_blend_mode(0);
+    }
 }
 
 // ── Group UTB — ULA/Tilemap blend mode (NR 0x68 bits 6:5) ───────────────
