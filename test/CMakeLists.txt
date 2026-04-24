@@ -222,12 +222,17 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
-# NMI source pipeline compliance test (Phase 1 scaffold, 2026-04-24).
+# NMI source pipeline compliance test (Phase 1 scaffold + Wave A, 2026-04-24).
 # See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
-# NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries exactly one live
-# row (RST-01); Phase 2 waves expand to ~49 rows.
+# NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries RST-01; Wave A adds
+# six NR02-* rows plus an Emulator integration row that writes NR 0x02
+# via the real port path — so the link line widens to the full Emulator
+# surface (mirrors uart_integration_test / ula_integration_test).
 add_executable(nmi_test nmi/nmi_test.cpp)
-target_link_libraries(nmi_test PRIVATE jnext_peripheral)
+target_link_libraries(nmi_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(nmi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nmi_tests COMMAND nmi_test)
 
