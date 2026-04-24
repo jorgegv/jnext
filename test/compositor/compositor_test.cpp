@@ -47,7 +47,18 @@ struct TestResult {
 
 static std::vector<TestResult> g_results;
 
+struct SkipNote {
+    std::string id;
+    std::string reason;
+};
+static std::vector<SkipNote> g_skipped;
+
 static void set_group(const char* name) { g_group = name; }
+
+static void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+    printf("  SKIP %s: %s\n", id, reason);
+}
 
 static void check(const char* id, const char* desc, bool cond, const char* detail = "") {
     g_total++;
@@ -1388,6 +1399,30 @@ static void test_STEN() {
     }
 }
 
+// ── Group UDIS — NR 0x68 bit 7 ULA-disable + end-to-end blend ────────────
+//
+// Re-homed 2026-04-24 from test/ula/ula_test.cpp §12 (S12.02/03/04) per
+// doc/design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md. Groups UTB and STEN above
+// exercise NR 0x68 bits 6:5 and bit 0 at the pipeline-stage level; UDIS
+// covers gaps those groups cannot reach without a full render fixture
+// (bit 7 ULA-enable wiring + end-to-end frame-buffer visibility of the
+// blend-mode transition). See COMPOSITOR-TEST-PLAN-DESIGN.md §Group UDIS.
+// All three rows start as skip(F-UDIS-RENDER) until a full-Emulator
+// frame-buffer comparison harness lands (candidate home: ula_integration_test).
+
+static void test_UDIS() {
+    set_group("UDIS");
+    skip("UDIS-01",
+         "F-UDIS-RENDER: NR 0x68 bit 7 wired into render pipeline "
+         "(zxnext.vhd:5445) — needs full-Emulator frame-buffer compare");
+    skip("UDIS-02",
+         "F-UDIS-RENDER: NR 0x68 bit 7 toggle visible at frame-buffer "
+         "level (zxnext.vhd:5445, 6809) — mid-scanline Copper MOVE");
+    skip("UDIS-03",
+         "F-UDIS-RENDER: NR 0x68 blend-mode (bits 6:5) visible end-to-end "
+         "(zxnext.vhd:5445, 7142-7176) — full-frame compare across modes");
+}
+
 // ── Group SOB — Sprite over border (compositor integration) ──────────────
 
 static void test_SOB() {
@@ -1703,6 +1738,7 @@ int main() {
     test_BL();         printf("  Group: BL — done\n");
     test_UTB();        printf("  Group: UTB — done\n");
     test_STEN();       printf("  Group: STEN — done\n");
+    test_UDIS();       printf("  Group: UDIS — done (3 skipped)\n");
     test_SOB();        printf("  Group: SOB — done\n");
     test_LINE();       printf("  Group: LINE — done\n");
     test_BLANK();      printf("  Group: BLANK — done\n");
@@ -1710,8 +1746,9 @@ int main() {
     test_RST();        printf("  Group: RST — done\n");
 
     printf("\n=====================================\n");
-    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
-           g_total, g_pass, g_fail);
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+           g_total + static_cast<int>(g_skipped.size()),
+           g_pass, g_fail, static_cast<int>(g_skipped.size()));
 
     // Per-group breakdown
     printf("\nPer-group breakdown:\n");

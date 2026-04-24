@@ -448,6 +448,19 @@ void test_cat3_port_7ffd() {
               v == 0xC7,
               fmt("port_7ffd()=0x%02X expected=0xC7", v));
     }
+
+    // P7F-16 / P7F-17 — re-homed 2026-04-24 from test/ula/ula_test.cpp §15
+    // (S15.03/04) per doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md. Port 0x7FFD
+    // bit 3 (`i_ula_shadow_en`) routing from Mmu::write_port_7ffd to
+    // Ula::set_shadow_screen_en is not wired today; same fix pattern as the
+    // NR 0x68 bit 3 → set_ulap_en landing (a1495ba). When the 1-line wiring
+    // lands, both rows become real check()s.
+    skip("P7F-16",
+         "F-SHADOW-WIRING: shadow disables Timex screen_mode "
+         "(zxula.vhd:191) — pending Mmu→Ula shadow wiring");
+    skip("P7F-17",
+         "F-SHADOW-WIRING: port 0x7FFD bit 3 → Ula::set_shadow_screen_en "
+         "(zxnext.vhd:4453) — pending 1-line write_port_7ffd forward");
 }
 
 // ── Category 4: Extended paging (port 0xDFFD) ─────────────────────────
