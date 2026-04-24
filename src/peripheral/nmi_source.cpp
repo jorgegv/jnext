@@ -52,6 +52,12 @@ void NmiSource::reset()
     nr_02_pending_divmmc_ = false;
 
     prev_wr_n_ = true;
+
+    // VHDL:2169-2170 — both button strobes are combinationally derived
+    // from `nmi_state = S_NMI_IDLE`, so they are low at reset when the
+    // FSM is in IDLE with no latch set.
+    mf_button_strobe_     = false;
+    divmmc_button_strobe_ = false;
 }
 
 // ---------------------------------------------------------------------
@@ -296,7 +302,20 @@ void NmiSource::recompute_()
     //    END   -> IDLE is driven by observe_cpu_wr() rising edge.
     switch (state_) {
     case State::Idle:
-        if (is_activated()) state_ = State::Fetch;
+        // VHDL:2169-2170 — `nmi_mf_button` and `nmi_divmmc_button` are
+        // combinationally TRUE while the respective priority latch is
+        // set AND `nmi_state = S_NMI_IDLE`. In our collapsed model, the
+        // latch was just set inside this `recompute_()` and we're about
+        // to advance to FETCH. Capture the one-cycle strobe NOW, before
+        // the state transition, so Emulator can observe it after
+        // `NmiSource::tick()` returns. The strobe is cleared at the
+        // next tick() entry.
+        if (is_activated()) {
+            if (nmi_mf_)     mf_button_strobe_     = true;
+            if (nmi_divmmc_) divmmc_button_strobe_ = true;
+            // nmi_expbus does not drive a button strobe in VHDL.
+            state_ = State::Fetch;
+        }
         break;
 
     case State::Fetch:
@@ -334,6 +353,14 @@ void NmiSource::tick(uint32_t master_cycles)
     // count to a single combinational update per call — the VHDL FSM
     // is idempotent under repeated evaluation of a steady input.
     (void)master_cycles;
+
+    // VHDL:2169-2170 — the `nmi_*_button` outputs are asserted only for
+    // the cycle the FSM is still in `S_NMI_IDLE` with the latch set.
+    // Clear the strobes at tick entry so `recompute_()` can re-raise
+    // them if the IDLE→FETCH transition happens this tick; any upstream
+    // consumer reads them between two successive `tick()` calls.
+    mf_button_strobe_     = false;
+    divmmc_button_strobe_ = false;
 
     recompute_();
 
@@ -399,6 +426,11 @@ void NmiSource::save_state(StateWriter& w) const
 
     // Edge tracking.
     w.write_bool(prev_wr_n_);
+
+    // Button strobes (VHDL:2169-2170). Normally low between ticks; saved
+    // to keep the snapshot stream complete and future-proof.
+    w.write_bool(mf_button_strobe_);
+    w.write_bool(divmmc_button_strobe_);
 }
 
 void NmiSource::load_state(StateReader& r)
@@ -432,4 +464,7 @@ void NmiSource::load_state(StateReader& r)
     nr_02_pending_divmmc_          = r.read_bool();
 
     prev_wr_n_                     = r.read_bool();
+
+    mf_button_strobe_              = r.read_bool();
+    divmmc_button_strobe_          = r.read_bool();
 }

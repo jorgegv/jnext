@@ -243,6 +243,19 @@ public:
     bool nmi_assert_divmmc() const;
     bool nmi_assert_expbus() const;
 
+    /// One-shot strobe matching VHDL:2170 —
+    ///   `nmi_divmmc_button <= '1' when nmi_divmmc = '1' AND
+    ///                          nmi_state = S_NMI_IDLE`.
+    /// True for the tick on which the DivMMC latch is captured (before
+    /// the FSM advances to `S_NMI_FETCH`). Consumed by Emulator to drive
+    /// `DivMmc::set_button_nmi(true)` on the DivMMC-NMI arbitration path.
+    /// Cleared on the next `tick()`.
+    bool divmmc_button_strobe() const { return divmmc_button_strobe_; }
+
+    /// Companion strobe for VHDL:2169 — `nmi_mf_button`. Exposed for
+    /// parity; Multiface integration (Task 8) is the intended consumer.
+    bool mf_button_strobe() const { return mf_button_strobe_; }
+
 private:
     // Re-evaluate combinational producers + priority latches + FSM
     // transition. Called from tick() and from any setter that might
@@ -296,4 +309,13 @@ private:
 
     // ---- Prev-cycle edge tracking ----
     bool prev_wr_n_ = true;
+
+    // ---- Arbiter button strobes (VHDL:2169-2170) ----
+    // Set by `recompute_()` when the corresponding latch is first
+    // captured (IDLE state, latch rising edge). Cleared at the next
+    // `tick()` entry so the strobe is observable for exactly one
+    // tick by Emulator plumbing. VHDL produces these as combinational
+    // one-cycle pulses while `nmi_state = S_NMI_IDLE`.
+    bool mf_button_strobe_     = false;
+    bool divmmc_button_strobe_ = false;
 };
