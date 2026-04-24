@@ -10,14 +10,16 @@ not from the C++ implementation.
 
 `VideoTiming` owns the raster-counter state shared by every display
 subsystem (ULA, Layer 2, Sprites, Tilemap, Copper, compositor). The
-VHDL `zxula_timing` block parameterises four per-machine timing
-variants — 48K 50 Hz, 48K 60 Hz, 128K 50 Hz, +3 50 Hz, 128K 60 Hz, and
-Pentagon — via a process that selects `c_min_hactive`, `c_min_vactive`,
-`c_max_hc`, `c_max_vc`, `c_int_h`, and `c_int_v` from `i_timing` and
-`i_50_60` (`zxula_timing.vhd:147-312`). The current `VideoTiming`
-exposes `hc_max_`/`vc_max_` for each of 48K, 128K/+3, Pentagon, but
-does **not** expose the per-machine active-display origin
-(`c_min_hactive`/`c_min_vactive`), does not expose the
+VHDL `zxula_timing` block parameterises seven per-machine timing
+variants — 48K 50 Hz, 48K 60 Hz, 128K 50 Hz, 128K 60 Hz, +3 50 Hz,
++3 60 Hz, and Pentagon (the 128K/+3 split is driven by `i_timing(0)`
+and the 50/60 Hz split by `i_50_60`; Pentagon is a third branch of
+`i_timing`) — via a process that selects `c_min_hactive`,
+`c_min_vactive`, `c_max_hc`, `c_max_vc`, `c_int_h`, and `c_int_v`
+from those inputs (`zxula_timing.vhd:147-312`). The current
+`VideoTiming` exposes `hc_max_`/`vc_max_` for each of 48K, 128K/+3,
+Pentagon, but does **not** expose the per-machine active-display
+origin (`c_min_hactive`/`c_min_vactive`), does not expose the
 12-cycle-prefetch ULA origin (`c_min_hactive - 12`), and does not
 expose per-machine interrupt position (`c_int_h`/`c_int_v`). 60 Hz
 variants are not modelled at all.
@@ -44,10 +46,13 @@ for traceability.
   48K-flavour `DISPLAY_LEFT/TOP/W/H` display-window constants are
   live, along with test-only line-interrupt pulse counters.
 - Neither per-machine display origin nor per-machine interrupt
-  position is exposed. **All 7 rows start as `skip()` with an
+  position is exposed. **Most rows start as `skip()` with an
   `F-VT-ACCESSOR`-class reason** and flip to live `check()` when the
-  accessors land (phase ladder in `TASK-VIDEOTIMING-EXPANSION-PLAN.md`
-  §Approach).
+  accessors land; Section 1 rows use `F-VT-VCMAX-REBASE` because they
+  require a semantic rebase of an already-existing accessor, not the
+  addition of a new one (phase ladder in
+  `TASK-VIDEOTIMING-EXPANSION-PLAN.md` §Approach). See §Skip-reason
+  taxonomy below for the distinction.
 - No existing failing rows in `videotiming_test.cpp` (the suite does
   not yet exist; the test-plan-execution protocol requires the
   skip-scaffolded suite to materialise before any row flip).
@@ -57,6 +62,59 @@ for traceability.
   production** — see the "Coupling with production-wiring backlog"
   section below.
 
+#### V1 `vc_max_` semantic rebase — caller audit
+
+User decision (2026-04-24): the implementation path for reconciling
+Section 1 and Section 6 is **V1 — rebase `vc_max_` to the VHDL
+`c_max_vc` semantics** (48K: 311, 128K/+3: 310, Pentagon: 319, 48K/128K
+60 Hz: 263), simultaneously dropping the `-1` in `int_line_num()` so
+the existing VHDL-faithful return value is preserved. The two changes
+MUST land in one commit; see §Implementation coupling.
+
+The plan does NOT add a new `c_max_vc()`-style accessor — `vc_max()`
+itself is rebased. Every caller that assumed the current count-based
+semantics (48K: 312, 128K/+3: 311, Pentagon: 320, 60 Hz: 264) must
+therefore be audited and updated.
+
+Current `vc_max_` writes / `vc_max()` consumers in the repo (grep of
+`src/` + `test/` for `vc_max` at the time of this plan's writing):
+
+- `src/video/timing.h:73` — the `vc_max()` getter itself (no-op under
+  V1; returns the rebased value).
+- `src/video/timing.h:143` — `vc_max_` member default
+  (`VC_MAX_DEFAULT = 312`). V1 makes this **311** (48K `c_max_vc`).
+- `src/video/timing.h:157` — `int_line_num()` returns `vc_max_ - 1`
+  for target=0. V1 drops the `-1` (returns `vc_max_`).
+- `src/video/timing.cpp:23` — 128K/+3 branch: `vc_max_ = 311`. V1 makes
+  it **310**.
+- `src/video/timing.cpp:29` — Pentagon branch: `vc_max_ = 320`. V1
+  makes it **319**.
+- `src/video/timing.cpp:35` — 48K branch: `vc_max_ = 312`. V1 makes it
+  **311**.
+- `src/video/timing.cpp:40` — ZXN_ISSUE2 branch: `vc_max_ = 311`. V1
+  makes it **310** (follows 128K/+3).
+- `src/video/timing.cpp:85` — `vc_ >= static_cast<uint16_t>(vc_max_)`
+  frame-wrap guard. Under V1 the comparison must become `vc_ >
+  static_cast<uint16_t>(vc_max_)` (strict `>`) so that the frame
+  boundary still fires at `vc_ == c_max_vc + 1 == line-count`. This is
+  the semantic-rebase hot-spot; getting it wrong flips frame-length
+  timing.
+
+No non-test `src/` file outside `src/video/timing.{h,cpp}` references
+`vc_max` at the time of writing — the blast radius is contained to the
+one file pair.
+
+Test-side callers (not in scope for V1 src/ changes, but the future
+implementer must also retarget these to preserve meaning):
+
+- `test/ula/ula_test.cpp:1288, 1291, 1292, 1298, 1301, 1302, 1308,
+  1311, 1312, 1340` — frame-length computations of the form
+  `hc_max() * vc_max() / 2`. Under the current count-based semantics
+  these yield 69888 / 70908 / 71680 T-states. Under V1 the expression
+  must become `hc_max() * (vc_max() + 1) / 2` to preserve those
+  T-state totals; leaving it unchanged will silently drop one line's
+  worth of T-states per frame.
+
 ## Scope
 
 | Area                                              | VHDL Source                                       | Section |
@@ -65,7 +123,7 @@ for traceability.
 | Per-machine active-display origin (hactive/vactive) | `zxula_timing.vhd:147-312`                      | 2       |
 | ULA prefetch origin (`hactive - 12`) / vc reset   | `zxula_timing.vhd:423-451`                        | 3       |
 | Per-machine interrupt position (`c_int_h`/`c_int_v`) | `zxula_timing.vhd:155-293`, `zxula_timing.vhd:548-557` | 4       |
-| 60 Hz variant (48K / 128K)                        | `zxula_timing.vhd:214-308`                        | 5       |
+| 60 Hz variant (48K / 128K / +3)                   | `zxula_timing.vhd:214-308`                        | 5       |
 | Line-interrupt target mapping (`int_line_num`)    | `zxula_timing.vhd:566-570`                        | 6       |
 
 Section 5 covers the missing 60 Hz machine variant. Section 6 is a
@@ -157,28 +215,38 @@ The timing process in `zxula_timing.vhd:147-312` drives
 | 128K 60 Hz   | 455        | 263        | `zxula_timing.vhd:230,238` |
 | Pentagon     | 447        | 319        | `zxula_timing.vhd:160,168` |
 
-The C++ `VideoTiming::hc_max()`/`vc_max()` already return these for
-48K / 128K / +3 / Pentagon / ZXN_ISSUE2
-(`src/video/timing.cpp:17-44`); rows VT-01..VT-03 pin the mapping as
-a precondition for the remaining sections and make the classification
-check deterministic for future refactors. (Pixel-ticks-per-line is
-`c_max_hc + 1`; the `VideoTiming::init` comments call this "448 /
-456 / 448", VHDL values are one lower.)
+The C++ `VideoTiming::hc_max()`/`vc_max()` already exist
+(`src/video/timing.cpp:17-44`). `hc_max()` already returns the
+VHDL-faithful `c_max_hc + 1` (448/456/448) — which is one higher than
+the VHDL `c_max_hc` constant proper — and `vc_max()` currently returns
+the **count-based** value (312/311/320), one higher than VHDL
+`c_max_vc`. The plan pins the VHDL-faithful expected values (447,
+310, 319, etc.), so both accessors need attention. **V1 rebases
+`vc_max_` to hold `c_max_vc` directly**; the comparable rebase of
+`hc_max_` to `c_max_hc` is not strictly required by this plan's rows
+but is the companion symmetry fix. Rows VT-01..VT-03 pin the mapping
+as a precondition for the remaining sections and, by virtue of the
+semantic rebase, are coupled with Section 6 (see §Implementation
+coupling below).
 
 ### Test cases
 
 | # | Row ID | Origin | Test | Expected | Status |
 |---|--------|--------|------|---------:|--------|
-| 1 | VT-01  | new    | 48K `hc_max()` and `vc_max()` after `init(ZX48K)` | 447, 311 | skip (F-VT-ACCESSOR) |
-| 2 | VT-02  | new    | 128K `hc_max()` and `vc_max()` after `init(ZX128K)` | 455, 310 | skip (F-VT-ACCESSOR) |
-| 3 | VT-03  | new    | Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)` | 447, 319 | skip (F-VT-ACCESSOR) |
+| 1 | VT-01  | new    | 48K `hc_max()` and `vc_max()` after `init(ZX48K)` | 447, 311 | skip (F-VT-VCMAX-REBASE) |
+| 2 | VT-02  | new    | 128K `hc_max()` and `vc_max()` after `init(ZX128K)` | 455, 310 | skip (F-VT-VCMAX-REBASE) |
+| 3 | VT-03  | new    | Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)` | 447, 319 | skip (F-VT-VCMAX-REBASE) |
 
 Rows 1-3 are justified as neighbour-expansion: they pin the
-VHDL-faithful value that the C++ `init()` comments currently quote
-as "448 / 456 / 448 ticks-per-line" (off-by-one in the narrative vs
-the VHDL `c_max_*` convention, which is max-reached-before-wrap, not
-count). They are cheap, catch future drift, and are the precondition
-for every origin/int-position row that follows.
+VHDL-faithful `c_max_hc`/`c_max_vc` values that the C++ `init()`
+comments currently quote in count form as "448 / 456 / 448
+ticks-per-line" (off-by-one in the narrative vs the VHDL `c_max_*`
+convention, which is max-reached-before-wrap, not count). They are
+cheap, catch future drift, and are the precondition for every
+origin/int-position row that follows. They also form the coupled pair
+with Section 6 — flipping these rows to `check()` requires dropping
+the `-1` in `int_line_num()` in the same commit (see §Implementation
+coupling).
 
 ## Section 2: Per-machine active-display origin
 
@@ -236,12 +304,15 @@ ula_min_vactive <= '1' when vc = c_min_vactive else '0';
 `hc_ula` resets to 0 at `ula_min_hactive`
 (`zxula_timing.vhd:429-436`); `vc_ula` resets at `ula_min_vactive`
 (`zxula_timing.vhd:441-451`). This 12-cycle prefetch is where
-`zxula.vhd`'s `shift_reg_32` lane alignment is kicked off (see
-`zxula.vhd:140-180` for the downstream `shift_reg_ld`
-consumption) — cross-referenced per prompt requirement. The
-prefetch is a constant VHDL offset independent of machine, so all
-four machines must satisfy the same `ula_min_hactive == c_min_hactive
-- 12` invariant.
+`zxula.vhd`'s `shift_reg_32` lane alignment is kicked off: the
+`sload_0`/`sload_1` one-shots fire at `i_hc(3 downto 0) = X"C"` /
+`X"4"` (`zxula.vhd:368-380`), and the resulting `sload` rising edge
+gates the `shift_reg_32 <- shift_reg_ld` transfer at
+`zxula.vhd:400, :424`. That is the behavioural coupling site; the
+signal declarations for `sload_*` / `shift_reg_*` live earlier at
+`zxula.vhd:147-159`. The prefetch is a constant VHDL offset
+independent of machine, so all four machines must satisfy the same
+`ula_min_hactive == c_min_hactive - 12` invariant.
 
 The proposed accessor is `int VideoTiming::ula_prefetch_origin_hc()
 const` returning `display_origin().hc - 12` (or equivalently the raw
@@ -288,7 +359,7 @@ Values, read directly from the timing process:
 | 128K 50 Hz   | `136 + 4 - 12`               | 128               | 1         | :187, :199   |
 | +3 50 Hz     | `136 + 2 - 12`               | 126               | 1         | :189, :199   |
 | 128K 60 Hz   | `136 + 4 - 12` (128K)        | 128               | 0         | :221, :233   |
-| 128K 60 Hz   | `136 + 2 - 12` (+3)          | 126               | 0         | :223, :233   |
+| +3 60 Hz     | `136 + 2 - 12` (+3)          | 126               | 0         | :223, :233   |
 | Pentagon     | `448 + 3 - 12`               | 439               | 319       | :155, :163   |
 
 Proposed accessor: `RasterPos VideoTiming::int_position() const`
@@ -314,26 +385,34 @@ accessor is an observation surface, not a behaviour change.
 VT-13 is the VHDL-justified neighbour of VT-11: the same
 `zxula_timing.vhd:186-190` block distinguishes 128K (`c_int_h=128`)
 from +3 (`c_int_h=126`). A plan that tests 128K but skips +3
-silently claims these machines are equivalent — they are not.
+silently claims these machines are equivalent — they are not. The
+corresponding 60 Hz split (`zxula_timing.vhd:220-224` distinguishes
+128K-60Hz `c_int_h=128` from +3-60Hz `c_int_h=126`) is covered by
+row VT-17b in Section 5 below.
 
 ## Section 5: 60 Hz variant
 
 ### VHDL reference
 
 `i_50_60 = '1'` selects the 60 Hz variant
-(`zxula_timing.vhd:214-248, :280-308`). Constants differ only in
-vertical dimension + vertical-int position:
+(`zxula_timing.vhd:214-248, :280-308`). Constants differ in
+vertical dimension + vertical-int position + (for 128K/+3) `c_int_h`:
 
-| Machine         | `c_max_vc` | `c_min_vactive` | `c_int_v` | VHDL cite   |
-|-----------------|-----------:|----------------:|----------:|-------------|
-| 48K 60 Hz       | 263        | 40              | 0         | :298, :297, :293 |
-| 128K 60 Hz      | 263        | 40              | 0         | :238, :237, :233 |
+| Machine         | `c_max_vc` | `c_min_vactive` | `c_int_h` | `c_int_v` | VHDL cite              |
+|-----------------|-----------:|----------------:|----------:|----------:|------------------------|
+| 48K 60 Hz       | 263        | 40              | 116       | 0         | :298, :297, :285, :293 |
+| 128K 60 Hz      | 263        | 40              | 128       | 0         | :238, :237, :221, :233 |
+| +3 60 Hz        | 263        | 40              | 126       | 0         | :238, :237, :223, :233 |
 
-Horizontal parameters and `c_int_h` match the 50 Hz machine. Frame
-length is `(c_max_hc+1) * (c_max_vc+1) / 2` T-states:
+`c_max_hc` at 60 Hz matches the 50 Hz machine. `c_int_h` also matches
+the 50 Hz machine **per-machine** (48K 50 Hz and 48K 60 Hz both 116;
+128K 50 Hz and 128K 60 Hz both 128; +3 50 Hz and +3 60 Hz both 126) —
+the 128K/+3 split on `c_int_h` is present on both refresh rates.
+Frame length is `(c_max_hc+1) * (c_max_vc+1) / 2` T-states:
 
 - 48K 60 Hz: `448 * 264 / 2 = 59_136` T-states.
 - 128K 60 Hz: `456 * 264 / 2 = 60_192` T-states.
+- +3 60 Hz:   `456 * 264 / 2 = 60_192` T-states (same `c_max_hc` as 128K).
 
 (ULA plan §13 Row 8 quotes 59_136 for 48K 60 Hz —
 `ULA-VIDEO-TEST-PLAN-DESIGN.md:644`. That row is now re-homed here as
@@ -342,8 +421,9 @@ VT-14.)
 No 60 Hz machine enum / accessor exists in `VideoTiming` today; Phase
 1 of `TASK-VIDEOTIMING-EXPANSION-PLAN.md` calls for a 60 Hz toggle
 (either a new enum variant or a `set_refresh_60hz(bool)` switch).
-Row VT-15 is the 128K 60 Hz symmetry partner; it is a direct
-VHDL reading, not plan invention.
+Row VT-15 is the 128K 60 Hz symmetry partner; VT-17b covers the
++3 60 Hz `c_int_h=126` split. All are direct VHDL readings, not plan
+invention.
 
 ### Test cases
 
@@ -353,11 +433,18 @@ VHDL reading, not plan invention.
 | 2 | VT-15  | new    | 128K 60 Hz: `vc_max()=263`, frame length = 456 * 264 / 2 = 60_192 T-states | vc_max=263; 60_192 | skip (F-VT-ACCESSOR) |
 | 3 | VT-16  | new    | 60 Hz `display_origin().vc` = 40 (VHDL `c_min_vactive`) for both 48K/128K 60 Hz | vc=40 | skip (F-VT-ACCESSOR) |
 | 4 | VT-17  | new    | 60 Hz `int_position().vc` = 0 for both 48K 60 Hz and 128K 60 Hz | vc=0 | skip (F-VT-ACCESSOR) |
+| 5 | VT-17b | new    | +3 60 Hz `int_position().hc` = 126 (VHDL `i_timing(0)='1'` selects 136+2-12, `zxula_timing.vhd:223`) vs 128K 60 Hz = 128 (`zxula_timing.vhd:221`) | +3-60Hz hc=126; 128K-60Hz hc=128 | skip (F-VT-ACCESSOR) |
 
 Frame-length rows use `advance(1)` stepping and observe
 `frame_complete()` to confirm the wrap at the expected T-state
 count, which is the existing observation pattern in the current
 `VideoTiming` class (`src/video/timing.cpp:85-93`).
+
+VT-17b is the 60 Hz symmetry partner of VT-13 (+3 50 Hz). The VHDL at
+`zxula_timing.vhd:220-224` makes exactly the same 128K-vs-+3
+distinction on `c_int_h` at 60 Hz as the 50 Hz branch at
+`zxula_timing.vhd:186-190` does; skipping it silently claims the 60 Hz
+variants are 128K/+3-equivalent — they are not.
 
 ## Section 6: Line-interrupt target mapping
 
@@ -375,25 +462,29 @@ end if;
 ```
 
 The pulse fires on the clock tick where `hc_ula = 255` and
-`cvc = int_line_num` (`zxula_timing.vhd:577`). The C++ mirrors this
-in `VideoTiming::int_line_num()` (`src/video/timing.h:155-159`) with
-`vc_max() - 1` for target 0 — this is **one off** from the VHDL,
-which uses `c_max_vc` (equal to `vc_max_` in the C++ naming where
-the convention difference from Section 1 is applied). The discrepancy
-surfaces only under a machine-parameterised read.
+`cvc = int_line_num` (`zxula_timing.vhd:577`). The current C++ at
+`src/video/timing.h:155-158` computes `vc_max() - 1` for target=0,
+which **correctly yields `c_max_vc`** (311/310/319) under the current
+count-based `vc_max_` semantics (312/311/320). The existing code is
+VHDL-correct as written — this is **not** a bug-witness row.
 
-This is a bug-witness row rather than plan invention:
-UNIT-TEST-PLAN-EXECUTION §3 requires the plan to preserve VHDL as
-oracle; if the C++ differs from VHDL, the test **must fail** (not
-skip) once the accessor lands.
+The coupling surfaces because V1 rebases `vc_max_` to hold `c_max_vc`
+directly (see Section 1 and §Implementation coupling). When that
+rebase lands, the `-1` in `int_line_num()` MUST be dropped in the
+**same commit** to preserve the existing VHDL-faithful return value.
+Section 1 rows (which assert `vc_max() == 311/310/319`) and Section 6
+rows (which assert `int_line_num() == 311/310/319` for target=0) are
+therefore coupled — they flip to `check()` together or not at all.
+Flipping one set without the other produces either an all-off-by-one
+Section 1 table or an all-off-by-one Section 6 table.
 
 ### Test cases
 
 | # | Row ID | Origin | Test | Expected | Status |
 |---|--------|--------|------|---------:|--------|
-| 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-ACCESSOR) |
-| 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-ACCESSOR) |
-| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-ACCESSOR) |
+| 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-VCMAX-REBASE) |
+| 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-VCMAX-REBASE) |
+| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-VCMAX-REBASE) |
 | 4 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
 
 Rows VT-18..VT-21 are justified from VHDL: the plan needs at least
@@ -401,15 +492,79 @@ one row pinning the target=0 special case per machine (the mapping
 depends on `c_max_vc`, which is per-machine). VT-21 pins the
 non-zero branch of the VHDL `if`.
 
-**Note:** the current C++ uses `vc_max_ - 1` for target=0
-(`src/video/timing.h:155-158`) — the Section 1 naming discrepancy
-(C++ `vc_max_` semantics may differ from VHDL `c_max_vc`) must be
-resolved during Phase 1 scaffold. If the C++ `vc_max_` already holds
-311/310/319 (see Section 1 rows), the current `-1` is a bug; if it
-holds 312/311/320 (tick-count semantics, not max-reached), the
-current `-1` is the correct mapping and Section 1 rows need a
-renaming. This plan asserts the VHDL reading (values 311/310/319)
-per UNIT-TEST-PLAN-EXECUTION §1.
+**Coupling reminder:** these rows share an implementation commit with
+Section 1 (V1 rebase). The current C++ at `src/video/timing.h:157`
+(`return static_cast<uint16_t>(vc_max_ - 1)`) is correct today because
+`vc_max_` holds the count value 312/311/320. V1 rebases `vc_max_` to
+hold `c_max_vc` (311/310/319) and drops the `-1` in the same commit.
+Expected values here (311/310/319/9) are the VHDL-faithful answers and
+hold under both pre- and post-rebase code — they are the invariant.
+The only wrong thing to do is to land V1 in Section 1 without dropping
+the `-1` (rows here flip to FAIL) or drop the `-1` without the rebase
+(rows here flip to FAIL in a different way). See §Implementation
+coupling.
+
+## Implementation coupling — Section 1 ↔ Section 6 (V1 rebase)
+
+> **BLOCKING CALLOUT for future implementers.** Section 1 rows
+> (VT-01..VT-03) and Section 6 rows (VT-18..VT-20) **MUST flip to
+> `check()` in a single implementation commit**. They cannot be
+> un-skipped independently. Row VT-21 (target=10 → 9) is the only
+> Section 6 row that is decoupled from the rebase.
+
+The mechanism:
+
+1. Current `src/video/timing.cpp:23,29,35,40` sets `vc_max_` to
+   **count** values: 128K/+3 → 311, Pentagon → 320, 48K (default) →
+   312, ZXN_ISSUE2 → 311.
+2. Current `src/video/timing.h:155-158` returns `vc_max_ - 1` for
+   target=0, yielding 310/319/311/310 — equal to VHDL `c_max_vc` per
+   machine.
+3. **User decision (V1):** rebase `vc_max_` to hold `c_max_vc`
+   directly. New init values: 128K/+3 → 310, Pentagon → 319, 48K →
+   311, ZXN_ISSUE2 → 310 — the VHDL-faithful table used by Section 1
+   expected column.
+4. Simultaneously drop the `-1` in `int_line_num()`: it becomes
+   `return static_cast<uint16_t>(vc_max_);` for target=0.
+5. Also adjust `src/video/timing.cpp:85` from
+   `vc_ >= static_cast<uint16_t>(vc_max_)` to
+   `vc_ > static_cast<uint16_t>(vc_max_)` (strict `>`) so the frame
+   wrap still fires at line `c_max_vc + 1`. Equivalent alternative:
+   keep `>=` and change the trigger to `vc_max_ + 1`; pick whichever
+   reads more clearly against the VHDL.
+6. Audit all other callers of `vc_max()` / `vc_max_` per the list in
+   §Current status §V1 `vc_max_` semantic rebase — caller audit.
+
+If step 3 lands without step 4, Section 6 rows (VT-18..VT-20) will FAIL
+(they'll see `c_max_vc - 1`). If step 4 lands without step 3, Section 6
+rows will still pass but Section 1 rows will FAIL (they'll see the
+count values). The only correct un-skip is the joint commit.
+
+The companion symmetry fix for `hc_max_` (current code returns 448 /
+456 / 448 — one higher than VHDL `c_max_hc`) is **not** in V1's scope
+per user decision; Section 1 expected values for `hc_max()` remain
+447 / 455 / 447 (VHDL-faithful), which means V1 must also rebase
+`hc_max_` alongside `vc_max_` OR the plan must be revisited. Reading
+the user's decision strictly as "rebase `vc_max_`", the `hc_max_`
+rebase is the analogous follow-on; implementers should either do both
+together (simplest) or split the commit cleanly (vc_max_ first,
+hc_max_ second — each commit still VHDL-faithful, Section 1 rows can
+then flip in two phases: VT-01..VT-03 vc_max column lands with the
+vc_max rebase, hc_max column with the hc_max rebase).
+
+## Skip-reason taxonomy
+
+| Reason code            | Semantics                                                                                  | Rows                                |
+|------------------------|--------------------------------------------------------------------------------------------|-------------------------------------|
+| `F-VT-ACCESSOR`        | New accessor must be added; row flips when accessor lands. No existing-caller audit.       | VT-04..VT-17, VT-17b, VT-21         |
+| `F-VT-VCMAX-REBASE`    | Semantic rebase of an **existing** accessor (and possibly its storage). Requires caller audit in `src/` + `test/` and the coupled-commit constraint described in §Implementation coupling. | VT-01..VT-03, VT-18..VT-20          |
+
+Both codes are class-`F` per UNIT-TEST-PLAN-EXECUTION §Skip taxonomy:
+"real TODO blocked on emulator change". The suffix distinguishes
+*add-a-new-getter* (F-VT-ACCESSOR, low-risk, single-file) from
+*change-what-an-existing-getter-returns* (F-VT-VCMAX-REBASE, caller
+audit required, multi-file blast radius). Future subsystem plans may
+want to adopt the same two-level suffix convention for clarity.
 
 ## Coupling with VideoTiming production-wiring backlog
 
@@ -457,28 +612,31 @@ them is the production-wiring refactor's job.
 | 2       | Per-machine active-display origin   | 3    |
 | 3       | ULA prefetch origin                 | 3    |
 | 4       | Per-machine interrupt position      | 4    |
-| 5       | 60 Hz variant                       | 4    |
+| 5       | 60 Hz variant                       | 5    |
 | 6       | Line-interrupt target mapping       | 4    |
-|         | **Total**                           | **21** |
+|         | **Total**                           | **22** |
 
-Of these 21 rows, **7 are the direct re-homes** from ULA §13+§14
+Of these 22 rows, **7 are the direct re-homes** from ULA §13+§14
 (VT-04, VT-05, VT-07, VT-10, VT-11, VT-12, VT-14 — mapped from
-S13.05/06/07/08 + S14.01/02/03). The remaining **14 rows** are
+S13.05/06/07/08 + S14.01/02/03). The remaining **15 rows** are
 VHDL-justified neighbour expansions, all citing lines the author read
 during plan authoring:
 
 - 3 (VT-01..03): per-machine `hc_max`/`vc_max` readback, the
-  precondition for every other row.
+  precondition for every other row. `F-VT-VCMAX-REBASE` reason.
 - 1 (VT-06): 48K `display_origin()` symmetry partner of VT-04/05.
 - 2 (VT-08..09): 128K / Pentagon ULA prefetch origin,
   neighbour-expansion of the re-homed VT-07.
-- 1 (VT-13): +3 `int_position()` — VHDL-distinct from 128K, must be
-  tested separately.
-- 3 (VT-15..17): 128K 60 Hz frame length, 60 Hz `display_origin().vc`,
-  60 Hz `int_position().vc` — VHDL provides the 60 Hz branch, so the
-  re-homed VT-14 row implicitly requires its sweep.
-- 4 (VT-18..21): line-interrupt target mapping — one of these is a
-  bug-witness candidate per Section 6 commentary.
+- 1 (VT-13): +3 50 Hz `int_position()` — VHDL-distinct from 128K
+  50 Hz, must be tested separately.
+- 4 (VT-15..17, VT-17b): 128K 60 Hz frame length, 60 Hz
+  `display_origin().vc`, 60 Hz `int_position().vc`, and +3 60 Hz
+  `int_position().hc` (VHDL 128K/+3 split is present at 60 Hz too) —
+  VHDL provides the 60 Hz branch, so the re-homed VT-14 row implicitly
+  requires its sweep.
+- 4 (VT-18..21): line-interrupt target mapping — VT-18..VT-20 share
+  the `F-VT-VCMAX-REBASE` coupled-commit constraint per §Implementation
+  coupling.
 
 ## Open questions
 
@@ -496,13 +654,17 @@ during plan authoring:
    Sub-question: how does `ZXN_ISSUE2` (Next machine) select 60 Hz?
    Current `init()` hard-codes it to 128K 50 Hz parameters
    (`src/video/timing.cpp:37-41`).
-3. **`vc_max_` semantics.** Section 6 flags a potential naming
-   discrepancy: the C++ `vc_max_` holds 311/310/319/312 (the
-   VHDL-faithful `c_max_vc` values), but `int_line_num()` uses
-   `vc_max_ - 1` for target 0, whereas VHDL uses `c_max_vc` directly
-   (`zxula_timing.vhd:567`). Either the C++ `vc_max_` has a different
-   convention (tick count, not max-reached), or the `-1` is a bug.
-   Resolve during Phase 1 scaffold.
+3. **`vc_max_` semantics. RESOLVED 2026-04-24 — V1 (VHDL-faithful
+   rebase).** The C++ `vc_max_` currently holds count values
+   (312/311/320) and `int_line_num()` uses `vc_max_ - 1` for target=0.
+   That arithmetic yields the VHDL `c_max_vc` correctly — so existing
+   code is behaviourally VHDL-faithful, just semantically-count. User
+   picked V1: **rebase `vc_max_` to hold `c_max_vc`** (311/310/319)
+   and drop the `-1` in `int_line_num()` in the same commit. See
+   §Implementation coupling for the full checklist. The `hc_max_`
+   symmetry fix is the obvious companion (current `hc_max_` = count,
+   448/456/448; VHDL `c_max_hc` = 447/455/447); do both together for
+   symmetry unless intentionally splitting.
 4. **Merge with the production-wiring backlog.** See coupling
    section. User to decide at session-pick-up time.
 5. **`in_display()` per-machine**. The current
@@ -517,12 +679,20 @@ during plan authoring:
 
 | Accessor                                       | Returns                        | VHDL source       |
 |-----------------------------------------------|--------------------------------|-------------------|
-| `int VideoTiming::hc_max() const` (exists)     | `c_max_hc` per machine         | :160/196/230/262/290 |
-| `int VideoTiming::vc_max() const` (exists)     | `c_max_vc` per machine         | :168/204/238/270/298 |
+| `int VideoTiming::hc_max() const` (exists; V1-rebase candidate†) | `c_max_hc` per machine         | :160/196/230/262/290 |
+| `int VideoTiming::vc_max() const` (exists; **V1-rebase required**†) | `c_max_vc` per machine         | :168/204/238/270/298 |
 | `RasterPos VideoTiming::display_origin() const` (new) | `{c_min_hactive, c_min_vactive}` | :159/167/195/203/229/237/261/269/289/297 |
 | `int VideoTiming::ula_prefetch_origin_hc() const` (new) | `c_min_hactive - 12`     | :423              |
 | `RasterPos VideoTiming::int_position() const` (new) | `{c_int_h, c_int_v}`        | :155/163/187/189/199/221/223/233/257/265/285/293 |
-| `uint16_t VideoTiming::int_line_num() const` (exists; private) | per-machine target mapping | :566-570 |
+| `uint16_t VideoTiming::int_line_num() const` (exists; private; **coupled with V1**†) | per-machine target mapping | :566-570 |
+
+† **V1 rebase** — these accessors exist today but return values under
+a **count-based** convention (48K: `hc_max()=448`, `vc_max()=312`).
+V1 rebases the storage fields to VHDL `c_max_*` directly (447/311) and
+drops the `-1` in `int_line_num()` in the same commit. Rows flip to
+`check()` only when all three changes land together (see
+§Implementation coupling). Until then, Section 1 + Section 6
+`F-VT-VCMAX-REBASE` rows stay skipped.
 
 The last entry exists but is `private` in
 `src/video/timing.h:155-159`. Section 6 rows require either making
