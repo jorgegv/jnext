@@ -310,13 +310,46 @@ Impact:
 - Dashboard + traceability matrix + this audit updated to reflect
   final state.
 
+### 3. Full re-home of 29 F-skips — ULA_test reaches zero skips
+
+User direction (2026-04-23, paraphrased): "If they need to be re-homed
+in a new plan, then create it and re-home them. If some re-homing
+reopens existing plans, then so be it. Finish ULA_test."
+
+The 29 F-skips that Phase 0 re-homed with subsystem-pointer strings
+(`skip(..., "F: blocked on <owner> subsystem ...")`) were kept as
+`skip()` calls in `ula_test.cpp` because the owner subsystems didn't
+have their own plan docs. "Finish ULA_test" required creating those
+plan docs and converting the skip() calls to `// RE-HOME:` comments
+pointing at them, leaving `ula_test.cpp` with zero skip() calls.
+
+Five new plan docs created to host the 29 rows:
+
+| Plan doc | Rows | Owner subsystem | Status of host test suite |
+|---|---:|---|---|
+| `TASK-FLOATING-BUS-PLAN.md` | 5 | `Emulator::floating_bus_read` | No dedicated suite — plan proposes new `test/floating_bus/` or extending an existing Emulator-level test |
+| `TASK-CONTENTION-MODEL-PLAN.md` | 12 | `ContentionModel` (new class, doesn't exist) | No dedicated suite. 20-40h of per-machine scaffold + un-skip work |
+| `TASK-COMPOSITOR-NR68-BLEND-PLAN.md` | 3 | Compositor NR 0x68 bits 6:5 + bit 7 | **Reopens `compositor_test` (114/0/0 → 117/0/…)** |
+| `TASK-VIDEOTIMING-EXPANSION-PLAN.md` | 7 | VideoTiming per-machine origin + int position | May merge with the VideoTiming production-wiring backlog item |
+| `TASK-MMU-SHADOW-SCREEN-PLAN.md` | 2 | port 0x7FFD bit 3 → `Ula::set_shadow_screen_en` | **Reopens `mmu_test` (148/0/0 → 150/0/…)**. Tiny (1-line fix). |
+
+Each row in `ula_test.cpp` now carries a `// RE-HOME: <plan doc>`
+comment with a one-line rationale and VHDL cite. Future sessions
+picking up any of these 5 plans will find the authoritative row list
+in the plan doc + the original VHDL cite in the ula_test source
+comment (historical provenance preserved).
+
 ### Final state (post-amendments)
 
-| Suite | Phase-4 close | Final (post-amendments) |
-|---|---|---|
-| `ula_test` | 113/84/0/29 | **110/81/0/29** |
-| `ula_integration_test` | 6/6/0/0 | **7/7/0/0** |
-| Aggregate | 3215/3043/0/172 | **3213/3041/0/172** |
+| Suite | Phase-4 close | Post walkback | **Final (post-rehome 3)** |
+|---|---|---|---|
+| `ula_test` | 113/84/0/29 | 110/81/0/29 | **81/81/0/0** |
+| `ula_integration_test` | 6/6/0/0 | 7/7/0/0 | **7/7/0/0** |
+| Aggregate | 3215/3043/0/172 | 3213/3041/0/172 | **3184/3041/0/143** |
+
+`ula_test.cpp` has **zero `skip()` calls**. All known hardware-
+faithfulness gaps have been migrated to their owning subsystem
+plans.
 
 ### Lessons from the amendments
 

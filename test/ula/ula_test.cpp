@@ -1220,14 +1220,14 @@ static void test_section9_scrolling() {
 static void test_section10_floating_bus() {
     set_group("S10-FloatingBus");
 
-    skip("S10.01", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
+    // S10.01/05/06/07/08 — RE-HOME to doc/design/TASK-FLOATING-BUS-PLAN.md.
+    // These 5 rows test floating-bus read behaviour that lives on
+    // Emulator::floating_bus_read (zxula.vhd:573, zxnext.vhd:2813), NOT
+    // on Ula. The new plan catalogues the rows + approach; pick up when
+    // a session has budget for an Emulator-side audit.
     // S10.02 — G: hc(3:0)=0x9 capture phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
     // S10.03 — G: hc(3:0)=0xB attr capture phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
     // S10.04 — G: hc(3:0)=0x1 reset phase (zxula.vhd:308-345) internal; end-to-end by §1/§2.
-    skip("S10.05", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
-    skip("S10.06", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
-    skip("S10.07", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
-    skip("S10.08", "F: blocked on Emulator::floating_bus_read subsystem (not Ula-level)");
 }
 
 // =========================================================================
@@ -1237,18 +1237,12 @@ static void test_section10_floating_bus() {
 static void test_section11_contention() {
     set_group("S11-Contention");
 
-    skip("S11.01", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.02", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.03", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.04", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.05", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.06", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.07", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.08", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.09", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.10", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.11", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
-    skip("S11.12", "F: blocked on ContentionModel subsystem (no dedicated plan yet)");
+    // S11.01..12 — RE-HOME to doc/design/TASK-CONTENTION-MODEL-PLAN.md.
+    // Contention is a machine-wide subsystem with no ContentionModel
+    // class yet. The new plan catalogues the 12 rows (per-machine
+    // contention phases, I/O contention, Pentagon/Next-turbo overrides)
+    // with VHDL cites at zxula.vhd:582-601 + zxnext.vhd:4481-4496.
+    // Pick up when a session picks the contention subsystem.
 }
 
 // =========================================================================
@@ -1271,13 +1265,12 @@ static void test_section12_ula_disable() {
     // render_scanline, so a setter→getter check would be tautological.
     // Demoted to skip until nr_68 bit7 is wired into the render pipeline
     // (Emulator Bug backlog candidate).
-    skip("S12.02",
-         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
-    skip("S12.03",
-         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
-    // S12.04 — blend-mode bits (nr_68 6:5).
-    skip("S12.04",
-         "F: blocked on Compositor NR 0x68 blend-mode wiring (reopens Compositor suite)");
+    // S12.02/03/04 — RE-HOME to doc/design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md.
+    // NR 0x68 bits 6:5 (blend mode) + bit 7 (ULA disable) are forwarded
+    // to the Renderer today but the render-pipeline consumption is not
+    // verified. Setter→getter would be tautological; needs end-to-end
+    // frame-buffer assertion in compositor_test (reopens that suite).
+    // VHDL cite: zxnext.vhd:5445. Plan scopes 3 rows + reopen.
 }
 
 // =========================================================================
@@ -1328,18 +1321,14 @@ static void test_section13_timing() {
               VideoTiming::DISPLAY_LEFT, VideoTiming::DISPLAY_TOP,
               VideoTiming::DISPLAY_W, VideoTiming::DISPLAY_H));
 
-    // Plan row #5 — 128K active display origin (hc=136, vc=64).
-    skip("S13.05",
-         "F: blocked on VideoTiming per-machine accessor expansion");
-    // Plan row #6 — Pentagon active display origin (hc=128, vc=80).
-    skip("S13.06",
-         "F: blocked on VideoTiming per-machine accessor expansion");
-    // Plan row #7 — ULA hc resets at min_hactive-12 (12-cycle prefetch lead).
-    skip("S13.07",
-         "F: blocked on VideoTiming per-machine accessor expansion");
-    // Plan row #8 — 60 Hz variant: 448 * 264 / 2 = 59136 T-states.
-    skip("S13.08",
-         "F: blocked on VideoTiming per-machine accessor expansion");
+    // S13.05/06/07/08 — RE-HOME to doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md.
+    //   #5 128K active display origin (hc=136, vc=64).
+    //   #6 Pentagon active display origin (hc=128, vc=80).
+    //   #7 ULA hc resets at min_hactive-12 (12-cycle prefetch lead).
+    //   #8 60 Hz variant: 448 * 264 / 2 = 59136 T-states.
+    // VideoTiming currently uses shared 48K constants for origins; the
+    // 60 Hz MachineType variant doesn't exist. VHDL cite: zxula_timing.vhd.
+    // Plan may merge with the VideoTiming production-wiring backlog.
 
     // -- Extra coverage (not in §13 plan rows) --------------------------
     // S13.14 — frame_done flips exactly at 69888 T-states (48K).
@@ -1364,9 +1353,12 @@ static void test_section13_timing() {
 static void test_section14_frame_int() {
     set_group("S14-FrameInt");
 
-    skip("S14.01", "F: blocked on VideoTiming per-machine int-position exposure");
-    skip("S14.02", "F: blocked on VideoTiming per-machine int-position exposure");
-    skip("S14.03", "F: blocked on VideoTiming per-machine int-position exposure");
+    // S14.01/02/03 — RE-HOME to doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md.
+    //   01 48K int position hc=116, vc=0.
+    //   02 128K int position hc=128, vc=1.
+    //   03 Pentagon int position hc=439, vc=319.
+    // VHDL cite: zxula_timing.vhd:547-559. Plan may merge with the
+    // VideoTiming production-wiring backlog.
 
     // S14.04/05/06 — Post-closure walkback 2026-04-23: these three rows
     // were flipped to live check()s by Wave E, driving the VideoTiming
@@ -1422,13 +1414,13 @@ static void test_section15_shadow() {
               fmt("got 0x%08X exp 0x%08X (black paper)", line[32], kUlaPalette[0]));
     }
 
-    // S15.03 — shadow forces screen_mode to \"000\".
-    skip("S15.03",
-         "F: blocked on Emulator/MMU shadow-screen routing port 0x7FFD bit 3 → i_ula_shadow_en (reopens MMU suite)");
-
-    // S15.04 — port 0x7FFD bit 3 → i_ula_shadow_en routing.
-    skip("S15.04",
-         "F: blocked on Emulator/MMU shadow-screen routing port 0x7FFD bit 3 → i_ula_shadow_en (reopens MMU suite)");
+    // S15.03/04 — RE-HOME to doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md.
+    //   03 Shadow disables Timex mode (screen_mode forced to "000").
+    //   04 Port 0x7FFD bit 3 → i_ula_shadow_en routing.
+    // VHDL cite: zxula.vhd:191 + zxnext.vhd:4453. Ula-side plumbing
+    // already in place (Ula::set_shadow_screen_en landed in Phase 1);
+    // the MMU-side routing (port 0x7FFD bit 3 → the setter) is the
+    // missing half. Reopens mmu_test suite by +2 rows. Small fix.
 }
 
 // =========================================================================
