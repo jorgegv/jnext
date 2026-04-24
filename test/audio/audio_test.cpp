@@ -1951,7 +1951,10 @@ static void g_beeper() {
 
     // BP-01/04/05-reg/06 live in the core's port 0xFE pipeline.
     skip("BP-01", "port_fe_reg <= cpu_do(4 downto 0) lives in zxnext.vhd:3593");
-    skip("BP-04", "port_fe_border extraction lives in zxnext.vhd:3604");
+    // RE-HOME: BP-04 → test/input/input_integration_test.cpp group FE-READ
+    // (Wave D 2026-04-24). The "border bits [2:0] not exposed on READ"
+    // invariant is composed at the port-0xFE-read level, not in the Audio
+    // subsystem; it's verified end-to-end via OUT 0xFE then IN 0xFE.
     skip("BP-06", "port 0xFE A0=0 decode lives in port dispatch");
 
     // BP-02 - EAR latch via Beeper::set_ear().
@@ -1993,11 +1996,13 @@ static void g_beeper() {
     skip("BP-12", "issue3 EAR xor MIC lives in zxnext.vhd:6503");
     skip("BP-13", "beep_spkr_excl lives in zxnext.vhd:6504 (NextREG core)");
 
-    // BP-20..BP-23 - port 0xFE READ in zxnext.vhd 3453-3468.
-    skip("BP-20", "port 0xFE read composition lives in zxnext.vhd:3453-3468");
-    skip("BP-21", "port 0xFE read bit5 fixed-high lives in zxnext.vhd:3453-3468");
-    skip("BP-22", "port 0xFE read keyboard col mux lives in zxnext.vhd:3453-3468");
-    skip("BP-23", "port 0xFE read bit7 fixed-high lives in zxnext.vhd:3453-3468");
+    // RE-HOME: BP-20..BP-23 → test/input/input_integration_test.cpp
+    // group FE-READ (Wave D 2026-04-24). The port 0xFE READ composition
+    // (EAR OR term, fixed-high bits 5 and 7, keyboard column mux) is
+    // built on top of Keyboard::read_rows() at the Emulator wrapper
+    // layer (src/core/emulator.cpp:1163-1185), not inside the Audio
+    // subsystem. The Input integration suite exercises the full
+    // end-to-end IN A,(0xFE) / OUT (0xFE),A path the real Z80 uses.
 }
 
 // =====================================================================

@@ -289,6 +289,173 @@ static void test_fe_format(Emulator& emu) {
          "(jnext has no external bus device aggregation; zxnext.vhd:3468)");
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section C — FE-READ — BP-04, BP-20..23 re-homed from audio_test
+// VHDL oracles:
+//   zxnext.vhd:3459   port_fe_dat_0 <= '1' & (i_AUDIO_EAR or port_fe_ear)
+//                                       & '1' & i_KBD_COL
+//   zxnext.vhd:3604   port_fe_border latched from port_fe_reg(2 downto 0)
+//                     — OUT-only, never exposed in the read byte
+//   zxnext.vhd:3463..3468  i_KBD_COL mux + port_fe_bus AND
+//
+// These rows live in the Audio subsystem's plan under the "Beeper / port
+// 0xFE" heading but their behaviour is entirely composed at the
+// Emulator-wrapper layer (src/core/emulator.cpp:1163-1185) on top of
+// Keyboard::read_rows(), not inside the Audio subsystem at all. Re-homed
+// here where the full-machine read path is exercised.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_fe_read(Emulator& emu) {
+    set_group("FE-READ");
+
+    // BP-04: port 0xFE READ — border bits [2:0] NOT exposed (border is
+    // OUT-only).
+    // VHDL zxnext.vhd:3604 latches port_fe_border from port_fe_reg(2:0)
+    // but the read composition at :3459 only uses '1' & EAR & '1' &
+    // i_KBD_COL — no border bits. jnext mirrors this:
+    // src/core/emulator.cpp:1166 assembles 0xE0 | (cols & 0x1F) with no
+    // border term; the OUT handler at :1182 only calls
+    // renderer_.ula().set_border().
+    // Test: write OUT 0xFE,0x05 (border = 5 = CYAN). The border bits
+    // 2..0 of the read byte must be 0x1F's low 3 bits (= 111), not the
+    // border value (= 101). Idle no-key-pressed read is 0xFF.
+    {
+        fresh(emu);
+        emu.port().out(0x00FE, 0x05);            // border = 5 (CYAN)
+        const uint8_t v = read_fe(emu, 0xFE);    // row 0 selected, no key
+        const uint8_t low3 = v & 0x07;
+        check("BP-04",
+              "port 0xFE READ — border bits [2:0] NOT exposed (border is OUT-only)  "
+              "(zxnext.vhd:3459+3604; emulator.cpp:1163-1185)",
+              v == 0xFF && low3 == 0x07,
+              "got=" + hex2(v) + " low3=" + hex2(low3) +
+              " border-write=0x05 (expect full=0xFF, low3=0x07)");
+    }
+
+    // BP-20: port 0xFE READ — bit 6 = EAR OR port_fe_ear.
+    // VHDL zxnext.vhd:3459 defines bit 6 as (i_AUDIO_EAR or port_fe_ear).
+    // jnext only flips bit 6 during active tape playback
+    // (emulator.cpp:1169-1177); idle i_AUDIO_EAR = 1 via the 0xE0 base.
+    // jnext does NOT model the port_fe_ear feedback path (OUT 0xFE bit 4
+    // → read bit 6) — a known gap documented at FE-03 above. The
+    // observable VHDL-faithful behaviour with no tape playing and
+    // i_AUDIO_EAR = 1 (idle) is bit 6 = 1.
+    {
+        fresh(emu);
+        const uint8_t v = read_fe(emu, 0xFE);
+        check("BP-20",
+              "port 0xFE READ — bit 6 = EAR OR port_fe_ear (idle i_AUDIO_EAR=1 → bit 6 = 1)  "
+              "(zxnext.vhd:3459; emulator.cpp:1163-1185)",
+              (v & 0x40) != 0,
+              "got=" + hex2(v) + " expected bit 6 set (EAR idle = 1)");
+    }
+
+    // BP-21: port 0xFE READ — bit 5 fixed-high.
+    // VHDL zxnext.vhd:3459 — bit 5 is the literal '1' between the EAR OR
+    // term and the keyboard column field. jnext: the 0xE0 base of the
+    // read handler (emulator.cpp:1166) unconditionally sets bit 5.
+    // Verify across multiple stimuli: idle, with a key pressed, after an
+    // OUT with various data — bit 5 must remain 1.
+    {
+        fresh(emu);
+        const uint8_t v_idle = read_fe(emu, 0xFE);
+
+        emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // CAPS SHIFT
+        const uint8_t v_key = read_fe(emu, 0xFE);
+
+        emu.port().out(0x00FE, 0x00);                       // border=0, EAR=0, MIC=0
+        const uint8_t v_out0 = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0xFF);                       // border=7, EAR=1, MIC=1
+        const uint8_t v_outf = read_fe(emu, 0xFE);
+
+        const bool all_bit5_high =
+            ((v_idle & 0x20) != 0) && ((v_key & 0x20) != 0) &&
+            ((v_out0 & 0x20) != 0) && ((v_outf & 0x20) != 0);
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "idle=0x%02X key=0x%02X out0=0x%02X outf=0x%02X "
+                      "(all must have bit 5 set)",
+                      v_idle, v_key, v_out0, v_outf);
+        check("BP-21",
+              "port 0xFE READ — bit 5 fixed-high across idle/key/OUT  "
+              "(zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base)",
+              all_bit5_high,
+              detail);
+    }
+
+    // BP-22: port 0xFE READ — bits [4:0] = keyboard column mux for
+    // A[15:8].
+    // VHDL zxnext.vhd:3463-3468 implements the row-select AND: for each
+    // row whose address line is LOW (active-low), that row's 5-bit
+    // column state is folded into the output. jnext:
+    // Keyboard::read_rows(addr_high) does exactly this (see
+    // keyboard.cpp; membrane.vhd:251 is the underlying AND tree).
+    //
+    // Test: press V (row 0, col 4) and verify:
+    //   * addr_high = 0xFE (A8=0 → row 0 selected): bit 4 of cols = 0
+    //   * addr_high = 0xFD (A9=0 → row 1 selected): cols = 0x1F (key
+    //     not in selected row — all released)
+    //   * addr_high = 0x00 (all rows selected): bit 4 = 0 (row 0 folds
+    //     in)
+    {
+        fresh(emu);
+        emu.keyboard().set_key(SDL_SCANCODE_V, true);       // row 0 col 4
+        const uint8_t row0  = read_fe(emu, 0xFE);           // row 0 only
+        const uint8_t row1  = read_fe(emu, 0xFD);           // row 1 only
+        const uint8_t allrs = read_fe(emu, 0x00);           // all rows
+
+        const uint8_t row0_cols  = row0 & 0x1F;
+        const uint8_t row1_cols  = row1 & 0x1F;
+        const uint8_t allrs_cols = allrs & 0x1F;
+
+        // Row 0 selected: col 4 pressed → bit 4 = 0, cols = 0x0F.
+        // Row 1 selected: nothing pressed in row 1 → cols = 0x1F.
+        // All rows selected: row 0 folds in → bit 4 = 0, cols = 0x0F.
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "row0=0x%02X cols=0x%02X row1=0x%02X cols=0x%02X "
+                      "all=0x%02X cols=0x%02X (V pressed at row 0 col 4)",
+                      row0, row0_cols, row1, row1_cols, allrs, allrs_cols);
+        check("BP-22",
+              "port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8]  "
+              "(zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows)",
+              row0_cols == 0x0F && row1_cols == 0x1F && allrs_cols == 0x0F,
+              detail);
+    }
+
+    // BP-23: port 0xFE READ — bit 7 fixed-high.
+    // VHDL zxnext.vhd:3459 — bit 7 is the literal '1' at the MSB of the
+    // port_fe_dat_0 composition. jnext: the 0xE0 base
+    // (emulator.cpp:1166) unconditionally sets bit 7. Same stimulus
+    // sweep as BP-21 — bit 7 must remain 1 across idle/key/OUT.
+    {
+        fresh(emu);
+        const uint8_t v_idle = read_fe(emu, 0xFE);
+
+        emu.keyboard().set_key(SDL_SCANCODE_LCTRL, true);   // CAPS SHIFT
+        const uint8_t v_key = read_fe(emu, 0xFE);
+
+        emu.port().out(0x00FE, 0x00);
+        const uint8_t v_out0 = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0xFF);
+        const uint8_t v_outf = read_fe(emu, 0xFE);
+
+        const bool all_bit7_high =
+            ((v_idle & 0x80) != 0) && ((v_key & 0x80) != 0) &&
+            ((v_out0 & 0x80) != 0) && ((v_outf & 0x80) != 0);
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "idle=0x%02X key=0x%02X out0=0x%02X outf=0x%02X "
+                      "(all must have bit 7 set)",
+                      v_idle, v_key, v_out0, v_outf);
+        check("BP-23",
+              "port 0xFE READ — bit 7 fixed-high across idle/key/OUT  "
+              "(zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base)",
+              all_bit7_high,
+              detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -303,10 +470,13 @@ int main() {
     std::printf("  Emulator constructed (ZXN_ISSUE2)\n\n");
 
     test_kbd_full_fe(emu);
-    std::printf("  Group: KBD-FE — done\n");
+    std::printf("  Group: KBD-FE  — done\n");
 
     test_fe_format(emu);
-    std::printf("  Group: FE     — done\n");
+    std::printf("  Group: FE      — done\n");
+
+    test_fe_read(emu);
+    std::printf("  Group: FE-READ — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
