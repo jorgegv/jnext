@@ -20,6 +20,3 @@
 ## Platform Ports
 - Windows port
 - macOS port
-
-## Known latent bugs
-- `Emulator::prev_nmi_generate_n_` is constructor-init only; not reset in `reset()` / `init()`. Re-initialising a long-lived Emulator after a prior NMI can mask the next falling edge. Surfaced by NMI Phase 3 integration test 2026-04-24.
