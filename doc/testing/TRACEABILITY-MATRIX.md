@@ -813,7 +813,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | ARB-03     | Copper priority on different registers                | zxnext.vhd:4769-4777     | pass   | test/copper/copper_test.cpp:1311 |
 | ARB-04     | Copper reg width masked to 7 bits                     | zxnext.vhd:4731          | pass   | test/copper/copper_test.cpp:1209 |
 | ARB-05     | No Copper request when stopped                        | zxnext.vhd:4709          | pass   | test/copper/copper_test.cpp:1227 |
-| ARB-06     | Copper write to `NR 0x02` triggers NMI signals        | zxnext.vhd:3830-3832     | skip   | test/copper/copper_test.cpp:1326 |
+| ARB-06     | Copper write to `NR 0x02` triggers NMI signals        | zxnext.vhd:3830-3832     | pass   | test/copper/copper_test.cpp:1319 |
 | MUT-01     | Copper writes `NR 0x62` to stop itself                | zxnext.vhd:5430          | pass   | test/copper/copper_test.cpp:1358 |
 | MUT-02     | Copper writes `NR 0x62` to switch itself to mode `10` | copper.vhd:70-78         | pass   | test/copper/copper_test.cpp:1378 |
 | MUT-03     | Copper writes its own addr-hi via `NR 0x62`           | zxnext.vhd:5430-5431     | pass   | test/copper/copper_test.cpp:1410 |
@@ -1384,14 +1384,14 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | R3-02            | M1 at 0x0008 with ROM0 active: no automap                    | —              | pass    | test/divmmc/divmmc_test.cpp:1121 |
 | R3-03            | M1 at 0x0008 with Layer 2 mapped: no automap                 | —              | pass    | test/divmmc/divmmc_test.cpp:1155 |
 | R3-04            | `automap_active` (non-ROM3 path) always enabled when DivMMC… | —              | pass    | test/divmmc/divmmc_test.cpp:1172 |
-| NM-01            | DivMMC button press sets `button_nmi`                        | —              | skip    | test/divmmc/divmmc_test.cpp:1235 |
-| NM-02            | M1 at 0x0066 with button_nmi: automap_nmi triggers           | —              | skip    | test/divmmc/divmmc_test.cpp:1238 |
-| NM-03            | M1 at 0x0066 without button_nmi: no NMI automap              | —              | skip    | test/divmmc/divmmc_test.cpp:1241 |
-| NM-04            | button_nmi cleared by reset                                  | —              | skip    | test/divmmc/divmmc_test.cpp:1244 |
-| NM-05            | button_nmi cleared by automap_reset                          | —              | skip    | test/divmmc/divmmc_test.cpp:1247 |
-| NM-06            | button_nmi cleared by RETN                                   | —              | skip    | test/divmmc/divmmc_test.cpp:1250 |
-| NM-07            | button_nmi cleared when automap_held becomes 1               | —              | skip    | test/divmmc/divmmc_test.cpp:1253 |
-| NM-08            | `o_disable_nmi` = automap OR button_nmi                      | —              | skip    | test/divmmc/divmmc_test.cpp:1256 |
+| NM-01            | DivMMC button press sets `button_nmi` (via NmiSource strobe) | divmmc.vhd:108-111, zxnext.vhd:2170 | pass  | test/divmmc/divmmc_test.cpp:1226 |
+| NM-02            | M1 at 0x0066 with button_nmi: automap_nmi triggers           | divmmc.vhd:120-121 | pass    | test/divmmc/divmmc_test.cpp:1252 |
+| NM-03            | M1 at 0x0066 without button_nmi: no NMI automap              | divmmc.vhd:120 | pass    | test/divmmc/divmmc_test.cpp:1270 |
+| NM-04            | button_nmi cleared by reset                                  | divmmc.vhd:108 | pass    | test/divmmc/divmmc_test.cpp:1287 |
+| NM-05            | button_nmi cleared by automap_reset (enabled→disabled edge)  | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/divmmc/divmmc_test.cpp:1301 |
+| NM-06            | button_nmi cleared by RETN (i_retn_seen)                     | divmmc.vhd:108 | pass    | test/divmmc/divmmc_test.cpp:1318 |
+| NM-07            | button_nmi cleared when automap_held becomes 1               | divmmc.vhd:112-113 | pass    | test/divmmc/divmmc_test.cpp:1335 |
+| NM-08            | `o_disable_nmi` = automap_held OR button_nmi                 | divmmc.vhd:150 | pass    | test/divmmc/divmmc_test.cpp:1366 |
 | NA-01            | NR 0x0A[4]=0 (default): automap_reset asserted               | —              | pass    | test/divmmc/divmmc_test.cpp:1278 |
 | NA-02            | NR 0x0A[4]=1: automap_reset deasserted                       | —              | pass    | test/divmmc/divmmc_test.cpp:1294 |
 | NA-03            | port_divmmc_io_en=0: automap_reset asserted                  | —              | pass    | test/divmmc/divmmc_test.cpp:1318 |
@@ -1617,7 +1617,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | DMA-01     | im2_dma_int set when any peripheral has dma_int=1            | —              | pass    | test/ctc/ctc_test.cpp                              |
 | DMA-02     | im2_dma_delay latched on im2_dma_int                         | —              | pass    | test/ctc/ctc_test.cpp                              |
 | DMA-03     | im2_dma_delay held by dma_delay signal                       | —              | pass    | test/ctc/ctc_test.cpp                              |
-| DMA-04     | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1      | —              | skip    | test/ctc/ctc_test.cpp (NMI-blocked F-keep)         |
+| DMA-04     | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1      | zxnext.vhd:2007 | pass    | test/ctc/ctc_test.cpp:2457 (Phase 3 flip — NmiSource→Im2Controller wiring) |
 | DMA-05     | DMA delay cleared on reset                                   | —              | pass    | test/ctc/ctc_test.cpp                              |
 | DMA-06     | Per-peripheral DMA int enable via NextREGs 0xCC-0xCE         | —              | pass    | test/ctc/ctc_test.cpp                              |
 | UNQ-01     | NextREG 0x20 write bit 7: unqualified line interrupt         | —              | pass    | test/ctc/ctc_test.cpp                              |

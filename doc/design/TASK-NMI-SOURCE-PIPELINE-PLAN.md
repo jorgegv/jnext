@@ -460,6 +460,21 @@ can pick this up in isolation. Until then: do not include.
 
 ## Phase 3 — `nmi_test.cpp` row flips + cross-suite un-skips + integration proofs
 
+**CLOSED 2026-04-24.** All 10 must-do rows flipped (ARB-06, NM-01..08,
+DMA-04); new `nmi_integration_test.cpp` adds 5 INT-* rows
+(button/NR 0x02 → /NMI → PC=0x0066 → DivMMC automap → RETN clear). No
+existing pass→fail regressions. Final counts:
+`copper_test` 76/76/0/0, `divmmc_test` 100/100/0/0, `ctc_test` 133/129/0/4,
+`nmi_test` 32/32/0/0, `nmi_integration_test` 5/5/0/0. Aggregate
+3318/3191/0/127 across 31 suites (vs plan estimate 3330-3336 /
+3199-3210 / 0 / 127-131 — on-target for suites, slightly lighter in the
+integration suite by choice). `nmi_integration_test` surfaced one latent
+Emulator bug worth noting: `prev_nmi_generate_n_` is constructor-only,
+not reset by `Emulator::reset()` / `init()`; re-initialising a
+long-lived Emulator after a prior NMI can mask the falling edge. The
+integration test constructs a fresh Emulator per row to sidestep this.
+Phase 4 (independent audit) still pending.
+
 **Single agent + critic. Merges after all Phase-2 waves.**
 
 1. Flip the ≈10 new `nmi_test.cpp` rows per Phase-0 appendix to
