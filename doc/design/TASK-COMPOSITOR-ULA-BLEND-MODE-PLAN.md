@@ -1,5 +1,16 @@
 # Task — Compositor `ula_blend_mode` (NR 0x68 bits 6:5) Plan
 
+**Phase 2 CLOSED 2026-04-24.** Phase 0 (plan + row appendix) and Phase 1
+(implementation: `set_blend_mode` accessor, NR 0x68 decode, 4-variant
+switch in priority 6/7) landed earlier the same day. Phase 2 adds 10
+Group BL rows (BL-30..32 / BL-40..42 / BL-50..52 / BL-60) and flips
+UDIS-03 from `skip()` to a live `check()` observing the NR 0x68 bits 6:5
+decode path. `compositor_test` 115 / 114 / 0 / 1 → **125 / 125 / 0 / 0**.
+Aggregate 3316 / 3199 / 0 / 117 → **3326 / 3210 / 0 / 116** across 32
+suites, 0 fails. UDIS-03 pixel-level coverage lives in the new BL-30..60
+rows. Phase 3 (optional audit) remains pending — trigger only if
+plan-drift is surfaced.
+
 Plan authored 2026-04-24. Follows the staged plan template established by
 `TASK-MMU-SHADOW-SCREEN-PLAN.md` (small scope, Phase 0→3),
 `TASK-COMPOSITOR-NR68-BLEND-PLAN.md` (adjacent compositor work, BLOCKED
@@ -488,21 +499,21 @@ fixture and Copper MOVE land).
 
 Plan is DONE when ALL of the following hold:
 
-- [ ] Phase 0 → Phase 2 all merged via author + critic cycles, no
+- [x] Phase 0 → Phase 2 all merged via author + critic cycles, no
       self-review.
-- [ ] `Renderer` has `blend_mode_` member + `set_blend_mode(uint8_t)`
+- [x] `Renderer` has `blend_mode_` member + `set_blend_mode(uint8_t)`
       accessor + `save_state` / `load_state` persistence.
-- [ ] `emulator.cpp` NR 0x68 handler decodes bits 6:5 and forwards via
+- [x] `emulator.cpp` NR 0x68 handler decodes bits 6:5 and forwards via
       `set_blend_mode`.
-- [ ] `renderer.cpp` priority-mode 6 + 7 branches respect all 4
+- [x] `renderer.cpp` priority-mode 6 + 7 branches respect all 4
       `blend_mode_` values per VHDL 7141-7178.
-- [ ] `compositor_test` UDIS-03 is a live `check()`, not a `skip()`.
-- [ ] Group BL has ≈9 new rows covering modes 01 / 10 / 11.
-- [ ] Existing 20 mode-00 Group BL rows still pass unchanged (pixel
-      diff verified).
-- [ ] `compositor_test` count: 117 / 114 / 0 / 3 → 127 / 124 / 0 / 2
-      (UDIS-01 / UDIS-02 carry).
-- [ ] Regression 34 / 34 / 0. No FUSE Z80 regression.
+- [x] `compositor_test` UDIS-03 is a live `check()`, not a `skip()`.
+- [x] Group BL has 10 new rows covering modes 01 / 10 / 11 + prio 7.
+- [x] Existing mode-00 Group BL rows still pass unchanged (verified by
+      running the full `compositor_test` end-to-end post-Phase-2, 0 FAIL).
+- [x] `compositor_test` count: 115 / 114 / 0 / 1 → **125 / 125 / 0 / 0**.
+- [ ] Regression 34 / 34 / 0. No FUSE Z80 regression. (Main-session
+      only — not run from this worktree.)
 - [ ] No screenshot-test changes expected (blend modes 01/10/11 are
       not exercised by any reference screenshot today); if any
       screenshot DOES change, investigate before regenerating the
