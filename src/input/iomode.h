@@ -131,7 +131,13 @@ private:
     // per zxnext.vhd:4939-4941. Pin7 starts at '1' per zxnext.vhd:3516.
     uint8_t nr_0b_raw_ = 0x01;
     bool    pin7_      = true;
-    // UART TX lines (modes 10/11). Default '1' matches UART serial idle-high.
+    // UART TX lines (modes 10/11). Default '1' matches UART serial
+    // idle-high convention — but the semantics in production require the
+    // Emulator tick loop to call set_uart0_tx() / set_uart1_tx() every
+    // master-cycle tick (from UartChannel::tx_line_out()). Without that
+    // feed, pin7() in modes 10/11 stays at the default forever. The
+    // defaults make standalone unit tests behave sensibly and match VHDL
+    // idle-line semantics when no UART traffic is present.
     bool    uart0_tx_  = true;
     bool    uart1_tx_  = true;
     // Joystick connector button-5 lines (VHDL signals i_JOY_LEFT/RIGHT(5),
