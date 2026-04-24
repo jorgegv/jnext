@@ -45,6 +45,7 @@ public:
         transparent_rgb_ = 0xE3;    // NR 0x14 default
         sprite_en_ = false;         // NR 0x15 bit 0 default (VHDL: 0)
         stencil_mode_ = false;      // NR 0x68 bit 0 default (VHDL: 0)
+        blend_mode_ = 0;            // NR 0x68 bits 6:5 default (VHDL: 00)
         tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
         fallback_per_line_.fill(0xE3);
         ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
@@ -82,6 +83,16 @@ public:
     /// VHDL zxnext.vhd:7112-7113 — when active AND tm_en=1, ULA/TM merge
     /// uses bitwise AND instead of priority-based selection.
     void set_stencil_mode(bool v) { stencil_mode_ = v; }
+
+    /// ULA blend mode (NextREG 0x68 bits 6:5 → `ula_blend_mode_2`).
+    /// VHDL zxnext.vhd:7141-7178 — selects `mix_rgb` / `mix_top` / `mix_bot`
+    /// sources for priority modes 6 (additive) and 7 (subtractive).
+    ///   00 = default (mix_rgb = ULA mix, top/bot = TM split by tm_pixel_below).
+    ///   10 = mix_rgb = ula_final (post-stencil), top/bot both transparent.
+    ///   11 = mix_rgb = TM, top/bot both ULA split by tm_pixel_below.
+    ///   01 (others) = mix_rgb transparent; top/bot swap TM/ULA by tm_pixel_below.
+    void set_blend_mode(uint8_t v) { blend_mode_ = v & 0x03; }
+    uint8_t blend_mode() const { return blend_mode_; }
 
     /// Tilemap enabled flag (NR 0x6B bit 7). Stencil mode (VHDL 7130)
     /// requires tm_en to be active.
@@ -149,6 +160,7 @@ private:
     uint8_t transparent_rgb_ = 0xE3; // NextREG 0x14 (default transparent colour)
     bool sprite_en_ = false;         // NextREG 0x15 bit 0 (VHDL default: disabled)
     bool stencil_mode_ = false;      // NextREG 0x68 bit 0 (VHDL: stencil AND mode)
+    uint8_t blend_mode_ = 0;         // NextREG 0x68 bits 6:5 (VHDL: ula_blend_mode_2)
     bool tm_enabled_ = false;        // NR 0x6B bit 7 (VHDL: tilemap enable)
 
     /// Per-scanline fallback colour snapshot.

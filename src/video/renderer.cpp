@@ -421,6 +421,7 @@ void Renderer::save_state(StateWriter& w) const
     w.write_u8(sprite_en_ ? 1 : 0);
     w.write_u8(stencil_mode_ ? 1 : 0);
     w.write_u8(tm_enabled_ ? 1 : 0);
+    w.write_u8(blend_mode_);
     w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }
 
@@ -433,5 +434,6 @@ void Renderer::load_state(StateReader& r)
     sprite_en_    = r.read_u8() != 0;
     stencil_mode_ = r.read_u8() != 0;
     tm_enabled_   = r.read_u8() != 0;
+    blend_mode_   = r.read_u8() & 0x03;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
 }
