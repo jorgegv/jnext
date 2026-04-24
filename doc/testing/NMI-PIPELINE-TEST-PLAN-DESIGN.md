@@ -79,10 +79,14 @@ VHDL-faithful unless explicitly justified otherwise.
 Per `zxnext.vhd:2089-2093`:
 
 ```
-nmi_assert_mf     <= nmi_mf_button     AND button_m1_nmi_en;
-nmi_assert_divmmc <= nmi_divmmc_button AND button_drive_nmi_en;
-nmi_assert_expbus <= NOT expbus_nmi_n AND (expbus_nmi_debounce_disable OR expbus_nmi_debounced);
+nmi_assert_expbus <= '1' when expbus_eff_en = '1' and expbus_eff_disable_mem = '0' and i_BUS_NMI_n = '0' else '0';
+nmi_assert_mf     <= '1' when (hotkey_m1    = '1' or nmi_sw_gen_mf     = '1') and nr_06_button_m1_nmi_en    = '1' else '0';
+nmi_assert_divmmc <= '1' when (hotkey_drive = '1' or nmi_sw_gen_divmmc = '1') and nr_06_button_drive_nmi_en = '1' else '0';
 ```
+
+Each producer has an OR'd hotkey-or-software input gated by its NR 0x06
+enable. The ExpBus path has its own expbus-effective gates (no NR 0x06
+involvement).
 
 The test suite models each producer independently and in combination.
 
@@ -124,8 +128,8 @@ where `nmi_generate_n = '0'` while FSM is in `S_NMI_FETCH` or later
 
 | Register | Bit | Signal | VHDL cite | Effect |
 |---|---|---|---|---|
-| NR 0x06 | 3 | `button_m1_nmi_en` | zxnext.vhd:1109 | gate MF producer |
-| NR 0x06 | 4 | `button_drive_nmi_en` | zxnext.vhd:1110 | gate DivMMC producer |
+| NR 0x06 | 3 | `button_m1_nmi_en` | zxnext.vhd:1110 | gate MF producer |
+| NR 0x06 | 4 | `button_drive_nmi_en` | zxnext.vhd:1109 | gate DivMMC producer |
 | NR 0x81 | 5 | `expbus_nmi_debounce_disable` | zxnext.vhd:1222 | disable debounce on ExpBus pin |
 | port 0xE3 | 7 | CONMEM | divmmc.vhd | blocks MF assertion (external gate) |
 | NR 0x03 | — | `nr_03_config_mode` | force-clear latches | all latches → 0 while config |
@@ -178,7 +182,7 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 |---|---|---|---|
 | RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
 | RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
-| RST-03 | Gate flags at VHDL power-on values (MF-en = 1, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
+| RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
 
 ### Group NR02 — NR 0x02 software NMI (Wave A) (6 rows)
 
@@ -223,8 +227,8 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1109 | write NR 0x06; observe NmiSource MF-enable accessor |
-| GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1110 | write NR 0x06; observe DivMMC-enable accessor |
+| GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1110 | write NR 0x06; observe NmiSource MF-enable accessor |
+| GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1109 | write NR 0x06; observe DivMMC-enable accessor |
 | GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable` | zxnext.vhd:1222 | write NR 0x81; observe ExpBus-debounce accessor |
 | GATE-04 | port 0xE3 bit 7 (CONMEM) blocks MF assertion | divmmc.vhd, zxnext.vhd:2107 | set DivMmc CONMEM; strobe MF button; expect no FSM advance |
 | GATE-05 | `nr_03_config_mode = 1` force-clears all three latches | zxnext.vhd:2102-2105 | set MF + DivMMC + ExpBus; raise config_mode; expect all cleared |
