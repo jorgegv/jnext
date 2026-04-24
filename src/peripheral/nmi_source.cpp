@@ -204,6 +204,10 @@ bool NmiSource::nmi_generate_n() const
     // this cycle (i.e. any latch is set).
     if (state_ == State::Fetch || state_ == State::Hold) return false;
     if (state_ == State::Idle  && is_activated())        return false;
+    // VHDL zxnext.vhd:2168 — expbus debounce-disable fast path (FSM bypass).
+    if (expbus_debounce_disable_ && nmi_assert_expbus()) {
+        return false;
+    }
     // S_NMI_END releases /NMI; VHDL reports `nmi_generate_n = 1` there.
     return true;
 }
@@ -270,8 +274,12 @@ void NmiSource::recompute_()
     //      set iff nmi_assert_divmmc AND NOT mf_is_active AND NOT nmi_mf
     //    ExpBus latch gating:
     //      set iff nmi_assert_expbus AND NOT (nmi_mf OR nmi_divmmc)
-    if (state_ == State::Idle) {
-        if (nmi_assert_mf() && !divmmc_conmem_) {
+    // VHDL:2106 — latch updates gate on `nmi_activated='0'`, which is
+    // !is_activated() here (no latch currently set). Equivalent to
+    // State::Idle in steady state, but matches VHDL verbatim.
+    if (!is_activated()) {
+        // VHDL zxnext.vhd:2107 — MF latch requires CONMEM=0 AND !divmmc_nmi_hold.
+        if (nmi_assert_mf() && !divmmc_conmem_ && !divmmc_nmi_hold_) {
             nmi_mf_ = true;
         }
         if (nmi_assert_divmmc() && !mf_is_active_ && !nmi_mf_) {
