@@ -30,11 +30,15 @@
 /// would still flip pin7 to '0' and then immediately oscillate. The guard
 /// keeps pin7 stable at the iomode_0 level once it reaches it.
 ///
-/// Modes 10/11 ("UART"): pin7 is driven by uart0_tx / uart1_tx. Out of
-/// scope for this agent — the 6 IOMODE-05..10 test rows are F-skipped
-/// pending the UART+I2C subsystem plan. Writes that select these modes
-/// are accepted (raw byte stored), but pin7 is left at its last value;
-/// downstream UART code can override it once that subsystem lands.
+/// Modes 10/11 ("UART"): pin7 is driven by uart0_tx / uart1_tx per
+/// zxnext.vhd:3526-3531. In VHDL the case-`when others` fires for both
+/// 10 and 11 (mode bit 4 is irrelevant; only iomode_0 picks the channel):
+///   iomode_0='0' → pin7 = uart0_tx
+///   iomode_0='1' → pin7 = uart1_tx
+/// In C++ we expose `pin7()` as a computed accessor that evaluates the
+/// current UART TX state when the UART modes are selected, rather than
+/// clocking a stored register every cycle. UART TX values are injected
+/// via `set_uart0_tx()` / `set_uart1_tx()` from the Emulator tick loop.
 class IoMode {
 public:
     IoMode() { reset(); }
@@ -58,9 +62,46 @@ public:
     /// per zxnext.vhd:3521-3524. No-op for any other mode.
     void tick_ctc_zc3();
 
-    /// Pin-7 output observable by the joystick connector.
-    /// Reset value '1' per zxnext.vhd:3516.
-    bool    pin7() const { return pin7_; }
+    /// Pin-7 output observable by the joystick connector. For modes
+    /// 00/01 returns the clocked register `pin7_`. For modes 10/11
+    /// returns the currently-injected UART TX line per zxnext.vhd:3526-3531
+    /// (iomode_0=0 → uart0_tx, iomode_0=1 → uart1_tx). Reset value '1'
+    /// per zxnext.vhd:3516.
+    bool    pin7() const {
+        const uint8_t mode = iomode_bits();
+        if (mode == 2 || mode == 3) {
+            return ((nr_0b_raw_ & 0x01) != 0) ? uart1_tx_ : uart0_tx_;
+        }
+        return pin7_;
+    }
+
+    /// Inject UART TX line state for modes 10/11. Emulator wires these
+    /// every tick from Uart::channel(N).tx_line_out(). Default idle '1'
+    /// matches the UART serial-line idle-high convention.
+    void    set_uart0_tx(bool v) { uart0_tx_ = v; }
+    void    set_uart1_tx(bool v) { uart1_tx_ = v; }
+
+    /// joy_uart_en = iomode_en AND iomode(1) per zxnext.vhd:3537
+    /// (joy_iomode_uart_en <= nr_0b_joy_iomode_en AND nr_0b_joy_iomode(1)).
+    /// Controls the UART/joystick multiplexing in the UART input path.
+    bool    joy_uart_en() const {
+        return ((nr_0b_raw_ & 0x80) != 0) && ((nr_0b_raw_ & 0x20) != 0);
+    }
+
+    /// joy_uart_rx composition per zxnext.vhd:3539:
+    ///   (NOT iomode_0 AND NOT i_JOY_LEFT(5)) OR
+    ///   (    iomode_0 AND NOT i_JOY_RIGHT(5))
+    /// iomode_0 selects which joystick connector's button-5 line feeds
+    /// the UART RX path (active-low).
+    bool    joy_uart_rx() const {
+        const bool iomode0 = ((nr_0b_raw_ & 0x01) != 0);
+        return iomode0 ? !joy_right_bit5_ : !joy_left_bit5_;
+    }
+
+    /// Inject joystick button-5 level (active-low at the VHDL signal
+    /// level — true means button NOT pressed, idle high).
+    void    set_joy_left_bit5(bool level)  { joy_left_bit5_  = level; }
+    void    set_joy_right_bit5(bool level) { joy_right_bit5_ = level; }
 
     /// NR 0x0B bit 7. Used by the (future) UART subsystem to gate the
     /// UART data path on/off.
@@ -90,4 +131,11 @@ private:
     // per zxnext.vhd:4939-4941. Pin7 starts at '1' per zxnext.vhd:3516.
     uint8_t nr_0b_raw_ = 0x01;
     bool    pin7_      = true;
+    // UART TX lines (modes 10/11). Default '1' matches UART serial idle-high.
+    bool    uart0_tx_  = true;
+    bool    uart1_tx_  = true;
+    // Joystick connector button-5 lines (VHDL signals i_JOY_LEFT/RIGHT(5),
+    // active-low). Default '1' means idle / not pressed.
+    bool    joy_left_bit5_  = true;
+    bool    joy_right_bit5_ = true;
 };

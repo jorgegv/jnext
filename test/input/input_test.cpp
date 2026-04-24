@@ -1550,12 +1550,110 @@ static void test_iomode() {
               DETAIL("p0=%d p1=%d p2=%d (want 1,0,1)",
                      p0 ? 1 : 0, p1 ? 1 : 0, p2 ? 1 : 0));
     }
-    skip("IOMODE-05", "NR 0x0B=0xA0 → pin7 = uart0_tx", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-06", "NR 0x0B=0xA1 → pin7 = uart1_tx", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-07", "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted",  "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-08", "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-09", "NR 0x0B=0xA0 → joy_uart_en = 1", "F: blocked on UART+I2C subsystem plan");
-    skip("IOMODE-10", "NR 0x0B=0x80 → joy_uart_en = 0", "F: blocked on UART+I2C subsystem plan");
+    // IOMODE-05: NR 0x0B=0xA0 (en=1, mode=10, iomode_0=0) → pin7 tracks
+    //   uart0_tx per zxnext.vhd:3526-3531.
+    {
+        IoMode m;
+        m.set_uart0_tx(false);
+        m.set_uart1_tx(true);
+        m.set_nr_0b(0xA0);
+        const bool p_uart0_low = m.pin7();
+        m.set_uart0_tx(true);
+        const bool p_uart0_high = m.pin7();
+        check("IOMODE-05",
+              "NR 0x0B=0xA0 → pin7 tracks uart0_tx  (zxnext.vhd:3526-3531)",
+              p_uart0_low == false && p_uart0_high == true,
+              DETAIL("pin7 low=%d high=%d (want 0,1)", p_uart0_low, p_uart0_high));
+    }
+
+    // IOMODE-06: NR 0x0B=0xA1 (en=1, mode=10, iomode_0=1) → pin7 tracks
+    //   uart1_tx. Mode bits 5:4 = 10 regardless of iomode_0; iomode_0
+    //   selects which UART channel feeds pin7.
+    {
+        IoMode m;
+        m.set_uart0_tx(true);
+        m.set_uart1_tx(false);
+        m.set_nr_0b(0xA1);
+        const bool p_uart1_low = m.pin7();
+        m.set_uart1_tx(true);
+        const bool p_uart1_high = m.pin7();
+        check("IOMODE-06",
+              "NR 0x0B=0xA1 → pin7 tracks uart1_tx  (zxnext.vhd:3526-3531)",
+              p_uart1_low == false && p_uart1_high == true,
+              DETAIL("pin7 low=%d high=%d (want 0,1)", p_uart1_low, p_uart1_high));
+    }
+
+    // IOMODE-07: NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted
+    //   per zxnext.vhd:3539. Composition:
+    //     joy_uart_rx = (NOT iomode_0 AND NOT JOY_LEFT(5)) OR
+    //                   (    iomode_0 AND NOT JOY_RIGHT(5))
+    //   iomode_0=0 selects the LEFT-connector button-5.
+    {
+        IoMode m;
+        m.set_nr_0b(0xA0);
+        m.set_joy_left_bit5(true);  // idle
+        const bool rx_idle = m.joy_uart_rx();
+        m.set_joy_left_bit5(false); // button 5 pressed (active-low)
+        const bool rx_active = m.joy_uart_rx();
+        check("IOMODE-07",
+              "NR 0x0B=0xA0 + JOY_LEFT(5)=0 → joy_uart_rx asserted  "
+              "(zxnext.vhd:3539)",
+              rx_idle == false && rx_active == true,
+              DETAIL("rx_idle=%d rx_active=%d (want 0,1)", rx_idle, rx_active));
+    }
+
+    // IOMODE-08: NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted.
+    //   iomode_0=1 selects the RIGHT-connector button-5.
+    {
+        IoMode m;
+        m.set_nr_0b(0xA1);
+        m.set_joy_right_bit5(true);  // idle
+        const bool rx_idle = m.joy_uart_rx();
+        m.set_joy_right_bit5(false); // pressed
+        const bool rx_active = m.joy_uart_rx();
+        // Verify LEFT connector is ignored under iomode_0=1.
+        m.set_joy_right_bit5(true);
+        m.set_joy_left_bit5(false);
+        const bool rx_left_ignored = m.joy_uart_rx();
+        check("IOMODE-08",
+              "NR 0x0B=0xA1 + JOY_RIGHT(5)=0 → joy_uart_rx asserted; "
+              "LEFT ignored  (zxnext.vhd:3539)",
+              rx_idle == false && rx_active == true && rx_left_ignored == false,
+              DETAIL("idle=%d active=%d left_ignored=%d (want 0,1,0)",
+                     rx_idle, rx_active, rx_left_ignored));
+    }
+
+    // IOMODE-09: NR 0x0B=0xA0 (en=1, mode=10) → joy_uart_en = 1 per
+    //   zxnext.vhd:3537: joy_iomode_uart_en <= iomode_en AND iomode(1).
+    {
+        IoMode m;
+        m.set_nr_0b(0xA0);
+        check("IOMODE-09",
+              "NR 0x0B=0xA0 → joy_uart_en = 1  (zxnext.vhd:3537)",
+              m.joy_uart_en() == true,
+              DETAIL("joy_uart_en=%d (want 1)", m.joy_uart_en()));
+    }
+
+    // IOMODE-10: NR 0x0B=0x80 (en=1, mode=00) → joy_uart_en = 0 because
+    //   mode bit 1 = 0. Verifies the AND gate — enabling the iomode
+    //   without selecting a UART mode does NOT enable the UART-path.
+    {
+        IoMode m;
+        m.set_nr_0b(0x80);
+        const bool en_mode00 = m.joy_uart_en();
+        m.set_nr_0b(0x90);  // en=1, mode=01 — mode bit 1 still 0
+        const bool en_mode01 = m.joy_uart_en();
+        m.set_nr_0b(0xA0);  // en=1, mode=10 — mode bit 1 = 1
+        const bool en_mode10 = m.joy_uart_en();
+        m.set_nr_0b(0x20);  // en=0, mode=10 — bit 7 clear
+        const bool en_no_en = m.joy_uart_en();
+        check("IOMODE-10",
+              "joy_uart_en = iomode_en AND mode(1)  (zxnext.vhd:3537)",
+              en_mode00 == false && en_mode01 == false &&
+              en_mode10 == true && en_no_en == false,
+              DETAIL("mode00=%d mode01=%d mode10=%d no_en=%d (want 0,0,1,0)",
+                     en_mode00, en_mode01, en_mode10, en_no_en));
+    }
     // IOMODE-11: NR 0x05 joy*=111 (User I/O — Mode::IoMode) on both
     // connectors AND NR 0x0B configured (en=1) → joystick reaches
     // IoMode and IoMode reports en=1.  Verifies the two subsystems
