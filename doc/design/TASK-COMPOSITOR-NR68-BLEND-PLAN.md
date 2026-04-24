@@ -60,33 +60,25 @@ NR 0x68 blend-mode and ULA-disable wiring at the compositor layer.
   not bits 6:5) a naming artefact or a real second stencil path? Read
   VHDL for clarity.
 
-## Status: **BLOCKED** (2026-04-24 re-audit)
+## Status: **UDIS-01/02 CLOSED 2026-04-24**, UDIS-03 pending own plan
 
-Re-audit on 2026-04-24 (agent task-compositor-nr68-blend) found all 3
-rows genuinely blocked on emulator-side work that exceeds a 3-skip
-flip:
-
-- **UDIS-01** — bit 7 IS already wired (src/video/renderer.cpp:83). The
-  end-to-end observation requires calling `Renderer::render_frame()`,
-  which needs `Mmu+Ram+PaletteManager+Layer2+SpriteEngine+Tilemap`.
-  Widening `compositor_test`'s CMake linkage to match
-  `ula_integration_test` crosses the subsystem/integration boundary.
-  Cleaner landing: a new `compositor_integration_test.cpp` in a
-  follow-up session.
-- **UDIS-02** — requires a functional Copper MOVE to toggle NR 0x68
-  mid-scanline. Copper is intentionally stubbed pending the NMI
-  plumbing plan. Blocker is Copper, not Compositor.
-- **UDIS-03** — NR 0x68 bits 6:5 (`ula_blend_mode`) feed
-  `mix_rgb / mix_top / mix_bot` at VHDL 7141-7178. Those signals are
-  only consumed by NR 0x15 `layer_priorities_2 = "110"/"111"`
-  (VHDL 7286-7356). The emulator has no blend-mode 110/111
-  implementation — see Group BL in `compositor_test.cpp` and
-  `renderer.cpp:~259` (falls back to SLU for modes 6/7). UDIS-03 is a
-  user-visible consequence of that same gap; folds into the BL
-  backlog rather than needing a local `Renderer::set_blend_mode`
-  wiring.
-
-Skip reasons in `test/compositor/compositor_test.cpp` refreshed to
-cite the precise blockers. The original "F-UDIS-RENDER" tag was
-imprecise — the 3 rows have 3 different root causes.
-
+- **UDIS-01/02** re-homed to
+  `test/compositor/compositor_integration_test.cpp` (UDIS-INT group,
+  2/2/0/0). Required a small Renderer fidelity fix: per-scanline
+  `ula_enabled_per_line_` snapshot (parallels the existing
+  `fallback_per_line_` array) so a Copper MOVE to NR 0x68 mid-frame
+  flips transparency only for rows that follow the toggle — matches
+  VHDL zxnext.vhd:7103 per-pixel sampling of `ula_en_2`.
+  - `src/video/renderer.{h,cpp}` — array + snapshot accessors + render-
+    loop consumption of the per-line snapshot.
+  - `src/core/emulator.cpp` — `init_ula_enabled_per_line()` at frame
+    start + `snapshot_ula_enabled_for_line()` on scanline boundary
+    (parallel to the fallback/border snapshots).
+  - Compositor suite: 117/114/0/3 → 115/114/0/1.
+  - Compositor (integration): new 2/2/0/0 suite.
+- **UDIS-03** (NR 0x68 blend-mode bits 6:5 visible end-to-end) gets its
+  own plan doc: `doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md`.
+  User-visible driver: `CSpect3_1_0_0/Beast/beast.nex` — Layer-2 sky
+  gradient leaks 48K ULA attribute cells because jnext treats every
+  `ula_blend_mode` variant as "00" (ULA-as-mix source) instead of
+  honouring the "01"/"10"/"11" variants per VHDL 7141-7178.

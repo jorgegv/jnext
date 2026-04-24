@@ -1404,52 +1404,19 @@ static void test_STEN() {
 // Re-homed 2026-04-24 from test/ula/ula_test.cpp §12 (S12.02/03/04) per
 // doc/design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md. Groups UTB and STEN above
 // exercise NR 0x68 bits 6:5 and bit 0 at the pipeline-stage level; UDIS
-// covers gaps those groups cannot reach without a full render fixture
-// (bit 7 ULA-enable wiring + end-to-end frame-buffer visibility of the
-// blend-mode transition). See COMPOSITOR-TEST-PLAN-DESIGN.md §Group UDIS.
+// covers gaps those groups cannot reach without a full render fixture.
 //
-// 2026-04-24 re-audit (agent worktree task-compositor-nr68-blend) found
-// all three rows remain genuinely blocked on emulator-side work that
-// exceeds a 3-skip flip. Skip reasons refreshed below with precise
-// blocker citations; see the closure report (that session's EOD memory
-// note) for scope analysis.
+// UDIS-01/02 CLOSED 2026-04-24 — re-homed to
+//   test/compositor/compositor_integration_test.cpp (UDIS-INT group),
+// which constructs a full Emulator + CPU + Copper + run_frame loop (the
+// "F-UDIS-RENDER full-Emulator frame-buffer compare" fixture that this
+// bare-compositor suite cannot host).
 //
-//   * UDIS-01 — bit 7 IS wired in Renderer::render_frame() (src/video/
-//     renderer.cpp:83 fills ula_line_ with TRANSPARENT when
-//     !ula_enabled()). The wiring can only be observed via a full
-//     Renderer::render_frame() call, which needs Mmu+Ram+PaletteManager+
-//     Layer2+SpriteEngine+Tilemap — i.e. a full-Emulator fixture. That
-//     widens compositor_test's CMake link line to match
-//     ula_integration_test. Cross-subsystem infra change; re-homing to a
-//     new compositor_integration_test is the cleaner landing place.
-//
-//   * UDIS-02 — mid-scanline NR 0x68 toggle needs per-scanline Copper tick
-//     during a full Renderer::render_frame() loop. Copper MOVE is fully
-//     implemented (src/peripheral/copper.cpp:75-154 executor, :148 calls
-//     nextreg.write; ticked from emulator.cpp:2615, :2796). Real blocker
-//     is the integration-level fixture (same as UDIS-01), not Copper.
-//
-//   * UDIS-03 — NR 0x68 bits 6:5 (ula_blend_mode) are dropped by the
-//     emulator's NR 0x68 handler at emulator.cpp:816-825 (only bits
-//     7/3/2/0 are consumed). Priority modes 6/7 ARE implemented at
-//     renderer.cpp:335-403 and exercised by Group BL. Closing UDIS-03
-//     requires: (a) Renderer::set_blend_mode(uint8_t) accessor, (b) NR
-//     0x68 handler to decode bits 6:5 and route to it. BL-backlog
-//     adjacent; deferred as a small follow-up.
+// UDIS-03 (blend-mode bits 6:5) remains a skip() here pending its own
+// plan doc — see doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md.
 
 static void test_UDIS() {
     set_group("UDIS");
-    skip("UDIS-01",
-         "F-UDIS-RENDER: bit 7 IS wired (renderer.cpp:83) but only observable "
-         "through Renderer::render_frame — needs full-Emulator fixture "
-         "(Mmu+Ram+Palette+Layer2+Sprites+Tilemap). Re-home to new "
-         "compositor_integration_test; widens compositor_test link line. "
-         "VHDL zxnext.vhd:5445,7103");
-    skip("UDIS-02",
-         "F-UDIS-COPPER: mid-scanline NR 0x68 toggle requires functional "
-         "Copper MOVE (NR 0x60-0x62 scripting) — Copper is intentionally "
-         "stubbed in src/peripheral/copper.cpp pending NMI-plumbing plan. "
-         "Blocker: Copper MOVE, not compositor. VHDL zxnext.vhd:5445,6809");
     skip("UDIS-03",
          "F-UDIS-BLEND: NR 0x68 bits 6:5 (ula_blend_mode) feed mix_rgb at "
          "VHDL 7141-7178 but those signals only flow to NR 0x15 priority "
@@ -1773,7 +1740,7 @@ int main() {
     test_BL();         printf("  Group: BL — done\n");
     test_UTB();        printf("  Group: UTB — done\n");
     test_STEN();       printf("  Group: STEN — done\n");
-    test_UDIS();       printf("  Group: UDIS — done (3 skipped)\n");
+    test_UDIS();       printf("  Group: UDIS — done (1 skipped)\n");
     test_SOB();        printf("  Group: SOB — done\n");
     test_LINE();       printf("  Group: LINE — done\n");
     test_BLANK();      printf("  Group: BLANK — done\n");
