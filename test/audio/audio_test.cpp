@@ -1891,18 +1891,25 @@ static void g_dac() {
     // per frame and no time-ordered event queue. Out of scope for this
     // plan — would require a pipeline-event refactor on Dac.
 
-    // SD-10..SD-18 - port decode lives in zxnext.vhd.
-    skip("SD-10", "port decode 0x1F/0x0F/0x4F/0x5F lives in zxnext.vhd:2429");
-    skip("SD-11", "port decode 0xF1/0xF3/0xF9/0xFB lives in zxnext.vhd:2432");
-    skip("SD-12", "Profi Covox port 0x3F/0x5F lives in zxnext.vhd:2658");
-    skip("SD-13", "Covox port 0x0F/0x4F lives in zxnext.vhd:2659");
-    skip("SD-14", "Pentagon/ATM mono port 0xFB lives in zxnext.vhd:2660");
-    skip("SD-15", "GS Covox port 0xB3 lives in zxnext.vhd:2661");
-    skip("SD-16", "SpecDrum port 0xDF lives in zxnext.vhd:2662");
+    // RE-HOME: SD-10 — Soundrive mode 1 port decode moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x5F unwired).
+    // RE-HOME: SD-11 — Soundrive mode 2 port decode moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
+    // RE-HOME: SD-12 — Profi Covox port decode moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x3F unwired).
+    // RE-HOME: SD-13 — Covox port decode moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
+    // RE-HOME: SD-14 — Pentagon/ATM mono port moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0xFB fan-out gap).
+    // RE-HOME: SD-15 — GS Covox port moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0xB3 unwired).
+    // RE-HOME: SD-16 — SpecDrum port 0xDF moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
     // RE-HOME: SD-17 — nr_08_dac_en gating (zxnext.vhd:6436) requires the
     // Emulator + NextReg + Soundrive port-dispatch surface. Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
-    skip("SD-18", "mono-port aliasing lives in zxnext.vhd port decode");
+    // RE-HOME: SD-18 — mono-port aliasing moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
 
     // SD-20 - pcm_L = chA + chB.
     {
@@ -1952,12 +1959,14 @@ static void g_beeper() {
     set_group("Beeper");
 
     // BP-01/04/05-reg/06 live in the core's port 0xFE pipeline.
-    skip("BP-01", "port_fe_reg <= cpu_do(4 downto 0) lives in zxnext.vhd:3593");
+    // RE-HOME: BP-01 — port 0xFE write into port_fe_reg[4:0] moved to
+    //   test/audio/audio_port_dispatch_test.cpp (Emulator + port dispatch).
     // RE-HOME: BP-04 → test/input/input_integration_test.cpp group FE-READ
     // (Wave D 2026-04-24). The "border bits [2:0] not exposed on READ"
     // invariant is composed at the port-0xFE-read level, not in the Audio
     // subsystem; it's verified end-to-end via OUT 0xFE then IN 0xFE.
-    skip("BP-06", "port 0xFE A0=0 decode lives in port dispatch");
+    // RE-HOME: BP-06 — port 0xFE A0=0 dispatch moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
 
     // BP-02 - EAR latch via Beeper::set_ear().
     {
@@ -2192,17 +2201,24 @@ static void g_nextreg() {
 static void g_io() {
     set_group("IO");
 
-    skip("IO-01", "port FFFD address decode lives in zxnext.vhd:2647");
-    skip("IO-02", "port BFFD decode lives in zxnext.vhd:2648");
-    skip("IO-03", "port BFF5 (reg query mode) decode lives in zxnext.vhd:2649");
-    skip("IO-04", "FFFD falling-edge latch lives in zxnext.vhd:2771-2773");
-    skip("IO-05", "BFFD -> FFFD +3 timing alias lives in zxnext.vhd:2771-2773");
+    // RE-HOME: IO-01 — port FFFD AY register select moved to
+    //   test/audio/audio_port_dispatch_test.cpp (Emulator + port dispatch).
+    // RE-HOME: IO-02 — port BFFD AY data write moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
+    // RE-HOME: IO-03 — port BFF5 AY reg-query mode moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: unmodelled).
+    // RE-HOME: IO-04 — FFFD falling-edge latch moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: not modelled).
+    // RE-HOME: IO-05 — BFFD/+3 timing alias moved to
+    //   test/audio/audio_port_dispatch_test.cpp (F-skip: no handler).
 
     // RE-HOME: IO-10 — dac_hw_en gate (zxnext.vhd:2775-2778/6436) — needs
     // the port-dispatch + NextReg surface. Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
-    skip("IO-11", "port->channel alias fan-in lives in zxnext.vhd port decode");
-    skip("IO-12", "port FD F1/F9 AY-conflict guard lives in zxnext.vhd:2777");
+    // RE-HOME: IO-11 — port→channel alias fan-in moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
+    // RE-HOME: IO-12 — port FD F1/F9 AY-conflict guard moved to
+    //   test/audio/audio_port_dispatch_test.cpp.
 }
 
 // =====================================================================

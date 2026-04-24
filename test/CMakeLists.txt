@@ -237,6 +237,22 @@ target_link_libraries(audio_nextreg_test PRIVATE
 target_include_directories(audio_nextreg_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_nextreg_tests COMMAND audio_nextreg_test)
 
+# Audio + port-dispatch integration test (Phase 2 Wave B, 2026-04-24)
+# Hosts the 17 plan rows re-homed from audio_test.cpp that need a full
+# Emulator + NextReg + port-dispatch surface:
+#   SD-10..16 + SD-18 (DAC port decoding fan-in/out),
+#   BP-01, BP-06    (port 0xFE dispatch into beeper/border),
+#   IO-01..05       (AY FFFD/BFFD decoding + unmodelled reg-query/+3 aliases),
+#   IO-11, IO-12    (port-to-channel fan-in + AY vs DAC conflict guard).
+# Mirrors the uart_integration_test / ula_integration_test linkage.
+add_executable(audio_port_dispatch_test audio/audio_port_dispatch_test.cpp)
+target_link_libraries(audio_port_dispatch_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(audio_port_dispatch_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_port_dispatch_tests COMMAND audio_port_dispatch_test)
+
 # DMA subsystem compliance test
 add_executable(dma_test dma/dma_test.cpp)
 target_link_libraries(dma_test PRIVATE jnext_peripheral jnext_memory jnext_port)
