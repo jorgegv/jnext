@@ -380,6 +380,30 @@ The code comment at `renderer.cpp:336` claims "ULA blend mode '00'
 If there is an existing drift, it must be corrected in Phase 1 as part
 of the refactor; do NOT preserve a pre-existing bug as "mode 00".
 
+**Resolution (Phase 0, 2026-04-24):** No functional drift. Current
+live-line numbers are `renderer.cpp:342-344` (mode 6) and
+`renderer.cpp:370-372` (mode 7) — the plan-doc earlier cite of
+`337-339` / `365-367` is slightly off but both point at the same
+expressions. VHDL 7142-7148 vs emulator line-by-line:
+
+| VHDL 7142-7148 | Emulator 342-344 / 370-372 | Match? |
+|---|---|---|
+| `mix_rgb <= ula_mix_rgb` | `mx_{r,g,b} = mix_rgb_transp ? 0 : argb_*(ula_px)` | YES — `ula_mix_rgb` is `ula_rgb_2` zeroed on transparency (VHDL 7100-7101); emulator does the same zeroing via the `?0:` ternary. |
+| `mix_rgb_transparent <= ula_mix_transparent` | `mix_rgb_transp = ula_transp` | FUNCTIONAL-YES, SEMANTIC-DRIFT — `ula_mix_transparent` (VHDL 7100) ignores `ula_en_2`, while `ula_transp` (renderer.cpp:242) folds it in. Masked because `ula_line_` is pre-zeroed when the per-line `ula_enabled_per_line_[row]` flag is false (renderer.cpp:88-90), so the two are observationally identical. Phase 1 need NOT fix this unless the switch introduces a variant that needs the distinction — variant "10" uses `ula_final_transparent` which DOES include `ula_en_2` (via `ula_transparent`), so the current conflation is benign. |
+| `mix_top_transparent <= tm_transparent OR tm_pixel_below_2` | `mix_top_transp = tm_transp \|\| ula_over_flags_[x]` | YES — `ula_over_flags_[x]` is literally `pixel_below` stored by tilemap.cpp:400 (misleading name — it does NOT mean "ULA over", it means "tilemap is below ULA"). |
+| `mix_top_rgb <= tm_rgb` | uses `tm_px` downstream in output chain | YES (implicit — cascade at renderer.cpp:362/403 uses `tm_px`). |
+| `mix_bot_transparent <= tm_transparent OR NOT tm_pixel_below_2` | `mix_bot_transp = tm_transp \|\| !ula_over_flags_[x]` | YES. |
+| `mix_bot_rgb <= tm_rgb` | uses `tm_px` downstream | YES. |
+
+**Conclusion:** mode-00 is a faithful encoding of VHDL 7142-7148. No
+Phase-1 fix required for the existing expressions. The Phase-1
+switch refactor should preserve these expressions verbatim as the
+`case 0b00:` arm (see also §Risk 3 — mode-00 pixel-identity regression).
+One hygiene note: the variable name `ula_over_flags_` is backwards
+(it is truthy when TM is BELOW ULA, not "ULA over TM"). Consider
+renaming to `tm_below_flags_` in Phase 1 as an incidental cleanup;
+not strictly required.
+
 ### Open Q2 — `ula_mix_rgb` vs `ula_final_rgb` distinction
 
 VHDL uses `ula_mix_rgb` in variant "00" (VHDL 7101: the bare ULA
@@ -395,6 +419,45 @@ and whether variant "10" needs a separate buffer.
 mode has its own branch at `renderer.cpp` mode-0 family, not mode
 6/7). Variant "10" can therefore use the existing ULA line. Phase 0
 must document this — if wrong, Phase 1 grows a second ULA line buffer.
+
+**Resolution (Phase 0, 2026-04-24):** The "most likely answer" is
+*wrong*. `ula_line_[x]` is the `ula_rgb` / `ula_mix_rgb` equivalent
+(raw ULA display pixel, post-clip, post-NR-0x68-bit-7-disable, but
+**pre stencil/ulatm merge**). `Ula::render_scanline` at
+`src/video/ula.cpp:270-310` populates only the ULA pixel colour; it
+has no knowledge of TM or stencil.
+
+However — the `ula_final_rgb` equivalent IS available at composite
+time as the local variable `u_px` (computed at
+`renderer.cpp:256-280`), together with `ulatm_transp` at
+`renderer.cpp:257` / `274`. This is precisely VHDL 7125-7137's
+`ula_final_rgb` / `ula_final_transparent` pair: the stencil branch
+(258-271) matches VHDL 7130-7132 (stencil-AND), the else branch
+(272-280) matches VHDL 7115-7116 (`ulatm_rgb` selection + 7134-7135
+`ulatm_rgb` fall-through).
+
+**Conclusion for Phase 1:**
+- Variant `"00"` mix_rgb source = `ula_line_[x]` (zeroed when
+  `ula_transp`). Current code.
+- Variant `"10"` mix_rgb source = `u_px` (zeroed when `ulatm_transp`).
+  Use the already-computed `u_px` / `ulatm_transp` — **NO second
+  buffer needed**. This is important because `u_px` already fuses
+  stencil mode + ulatm merge, matching `ula_final_rgb` exactly.
+- Variant `"11"` mix_rgb source = `tm_px` (zeroed when `tm_transp`).
+  No buffer needed.
+- Variant `"01"` mix_rgb = 0, `mix_rgb_transparent = 1`. No buffer
+  needed; the mix_top/mix_bot swap uses `ula_px` and `tm_px`
+  directly with `tm_pixel_below_2` (= `ula_over_flags_[x]`).
+
+One caveat for variant "10": VHDL 7151's `mix_rgb_transparent <=
+ula_final_transparent` includes ULA disabled via `ula_transparent`
+(VHDL 7103 = `ula_mix_transparent OR NOT ula_en_2`). Since
+`ula_line_` is pre-zeroed when disabled, `ulatm_transp` correctly
+includes that case already (via the `ula_transp` term in 274). Safe
+to reuse `ulatm_transp` as `ula_final_transparent`.
+
+**Phase 1 must NOT grow a second ULA line buffer.** The `u_px` /
+`ulatm_transp` locals suffice.
 
 ### Open Q3 — Test coverage for Copper mid-scanline blend_mode changes
 
@@ -436,3 +499,44 @@ here, and keep UDIS-01 / UDIS-02 parked on their respective
 independent blockers. The two plans are complementary, not
 conflicting — closing this one shrinks the BLOCKED plan's remit from
 3 rows to 2.
+
+## Appendix A — Phase 2 test-row list
+
+Authored in Phase 0. Row IDs follow the existing Group BL numbering
+(BL-10..16, BL-20..29, L2P-17/18 all mode "00"). Phase 2 adds 10 new
+rows: three per new variant (BL-30/31/32 for "01", BL-40/41/42 for
+"10", BL-50/51/52 for "11") plus BL-60 for mode-"11" under priority
+mode 7 (subtractive). Each row fixes `layer_priority = 6` (additive)
+or `7` (subtractive), calls `r.set_blend_mode(<variant>)`, and sets
+stimulus so the VHDL oracle for that variant differs from the mode-00
+oracle.
+
+Every row cites VHDL `zxnext.vhd:<lines>` and names the mix signal
+whose selection is being observed.
+
+| ID | Mode | Prio | VHDL | Focus / stimulus | Oracle |
+|----|------|------|------|------------------|--------|
+| BL-30 | "01" | 6 | 7163-7176 | L2=(3,2,1), ULA=(3,2,1) opaque, TM transp — additive with mix_rgb=0 | L2 through the `elsif layer2_transparent=0` arm = L2 (not blended). |
+| BL-31 | "01" | 6 | 7163-7176 | L2=(0,0,0), ULA=(3,2,1) opaque, TM=(1,1,1) opaque, `tm_below=0` → `mix_top_transp=tm_transp=0` | mix_top wins → TM (ULA masked out). |
+| BL-32 | "01" | 6 | 7163-7176 | Same as BL-31 but `tm_below=1` → `mix_top=ULA` (transp or not per `ula_transparent`), `mix_bot=TM` | mix_top = ULA (opaque here), mix_bot = TM — cascade selects ULA via `!mix_top_transp` arm. |
+| BL-40 | "10" | 6 | 7149-7155 | L2=(3,2,1), ULA=(3,2,1) opaque, TM transp, stencil OFF → `ula_final_rgb = ulatm_rgb = ULA` | mixer = add(L2, ULA) = (6,4,2). `mix_top_transparent=1` forced → cascade skips both TM arms → mixer via L2-opaque arm. |
+| BL-41 | "10" | 6 | 7149-7155 | L2=(1,1,1), ULA transp, TM=(2,2,2) opaque, stencil OFF, `tm_below=1` → `ulatm_rgb=TM` (VHDL 7116 `ulatm_rgb <= tm_rgb when tm_below=0 or ula_transp`) | mix_rgb = TM; mixer = add(L2, TM) = (3,3,3). `mix_top_transparent=1` forced → TM arms skipped → mixer. |
+| BL-42 | "10" | 6 | 7149-7155 + 7130 | L2=(0,0,0), ULA=(3,2,1), TM=(3,2,1), stencil ON + `ula_en=tm_en=1` → `ula_final_rgb = stencil_rgb = ULA AND TM` = (3,2,1) | mixer = add(L2, stencil) = (3,2,1). Observes stencil routing through `ula_final_rgb`. |
+| BL-50 | "11" | 6 | 7156-7162 | L2=(3,2,1), ULA=(1,1,1) opaque, TM=(2,2,2) opaque — additive with mix_rgb=TM, mix_top/mix_bot=ULA | `tm_below=0` → `mix_top_transp = ula_transp OR NOT tm_below = ula_transp OR 1 = 1`, `mix_bot_transp = ula_transp OR 0 = 0` → cascade: mix_top skipped, mix_bot=ULA. |
+| BL-51 | "11" | 6 | 7156-7162 | Same stimulus as BL-50 but `tm_below=1` → `mix_top_transp = ula_transp = 0` (ULA opaque), `mix_bot_transp = 1` | cascade: mix_top wins = ULA. |
+| BL-52 | "11" | 6 | 7156-7162 | L2=(0,0,0), ULA transp, TM=(4,2,1) opaque, `tm_below=0` → mix_rgb=TM mixer=add(L2,TM)=(4,2,1), mix_top=ULA (transp), mix_bot=ULA (transp) | cascade falls to L2-opaque-else arm? L2 transp here → mixer via final `elsif layer2_transparent=0`? Set L2=(0,0,0) opaque (non-transparent black) → mixer = (4,2,1). Observes TM-as-mix-source. |
+| BL-60 | "11" | 7 | 7156-7162 + 7312-7352 | Mode "11" under priority-7 (subtractive). L2=(5,5,3), ULA transp, TM=(4,2,1) opaque, `tm_below=0` → mix_rgb=TM | subtractive: s_r=5+4=9 → >=12? no → s−5=4; s_g=5+2=7 → s−5=2; s_b=3+1=4 → s<=4 → 0. Result = (4,2,0). mix_top/bot both ULA(transp) → cascade to L2-opaque arm → mixer. |
+
+Notes for Phase 2 authoring:
+
+- `Renderer` does not currently expose `set_blend_mode`; Phase 1 adds
+  it. Phase 2 depends on Phase 1 landing first (enforced by the
+  phase ordering in §Phases).
+- Each row should use `clear_layers(r)` then set only the stimulus
+  pixels, matching the pattern of the existing BL-10..29 rows.
+- Expected values are computed via the existing `bl_add` / `bl_sub`
+  helpers (lines 886-901 of `compositor_test.cpp`) where they apply.
+- UDIS-03 flip is separate (not a BL row); see §Phase 2 item 2.
+
+This appendix supersedes the row-ID placeholder mentions in the body
+of the plan (BL-3x / 4x / 5x — concrete IDs are as tabled above).
