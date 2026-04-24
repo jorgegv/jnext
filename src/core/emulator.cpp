@@ -1025,6 +1025,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nr_cc_dma_delay_on_nmi_ = (v & 0x80) != 0;
         nr_cc_dma_delay_en_ula_ = v & 0x03;
         im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
+        // Wave E: NR 0xCC bit 7 (nr_cc_dma_int_en_0_7) feeds VHDL:2007's
+        // NMI-activated DMA-delay term. Push the decoded value into the
+        // Im2Controller so step_dma_delay() sees it live.
+        im2_.set_nr_cc_dma_int_en_0_7(nr_cc_dma_delay_on_nmi_);
     });
     nextreg_.set_read_handler(0xCC, [this]() -> uint8_t {
         return static_cast<uint8_t>((nr_cc_dma_delay_on_nmi_ ? 0x80 : 0) |
@@ -2554,6 +2558,16 @@ void Emulator::run_frame()
             //     Dma::set_dma_delay at the top of run_frame().
             // Test code that needs finer granularity can drive im2_.tick()
             // directly (most ctc_test rows do).
+            //
+            // Wave E: push the current NMI-activated sample into
+            // Im2Controller before its tick so step_dma_delay() can evaluate
+            // VHDL:2007's second OR term (nmi_activated AND nr_cc_dma_int_en_0_7).
+            // NmiSource's own tick runs a few lines below (after the CTC /
+            // UART / Md6 cluster) — so this read-samples last tick's
+            // latched state, matching the VHDL synchronous-update rule where
+            // im2_dma_delay and nmi_activated both settle on the same rising
+            // edge of CLK_CPU.
+            im2_.set_nmi_activated(nmi_source_.is_activated());
             im2_.tick(master_cycles);
 
             // Count instructions for RZX recording.

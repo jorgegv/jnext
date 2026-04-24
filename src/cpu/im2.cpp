@@ -42,6 +42,8 @@ void Im2Controller::reset() {
 
     dma_int_en_mask14_     = 0;
     im2_dma_delay_latched_ = false;
+    nmi_activated_         = false;
+    nr_cc_dma_int_en_0_7_  = false;
 
     last_acked_  = -1;
     legacy_mask_ = 0xFFFF;
@@ -438,12 +440,26 @@ bool Im2Controller::dma_int_pending() const {
 //   im2_dma_delay <= im2_dma_int
 //                    OR (nmi_activated AND nr_cc_dma_int_en_0_7)
 //                    OR (im2_dma_delay AND dma_delay)        -- self-hold
-// Our NMI subsystem is missing (nmi_activated==false), so the second term is
-// dropped. The latch is updated once per tick() via step_dma_delay(); this
-// accessor simply returns the latched value.
+// Wave E wires the second term live: nmi_activated_ is pushed from
+// NmiSource::is_activated() per tick() (Emulator), and nr_cc_dma_int_en_0_7_
+// is pushed from the NR 0xCC bit-7 write handler.  The latch is updated once
+// per tick() via step_dma_delay(); this accessor simply returns the latched
+// value.
 bool Im2Controller::dma_delay() const {
     return im2_dma_delay_latched_;
 }
+
+// -----------------------------------------------------------------------------
+// NMI-activated DMA-delay inputs (Wave E, vhdl:2007 second OR term).
+//
+// These are two independent Emulator-sourced inputs that together form the
+// second term of the im2_dma_delay OR chain.  Both are plain setters / store-
+// backed accessors; the logical combination happens inside step_dma_delay().
+// -----------------------------------------------------------------------------
+void Im2Controller::set_nmi_activated(bool v)        { nmi_activated_ = v; }
+void Im2Controller::set_nr_cc_dma_int_en_0_7(bool v) { nr_cc_dma_int_en_0_7_ = v; }
+bool Im2Controller::nmi_activated() const            { return nmi_activated_; }
+bool Im2Controller::nr_cc_dma_int_en_0_7() const     { return nr_cc_dma_int_en_0_7_; }
 
 // -----------------------------------------------------------------------------
 // Z80 integration — Phase 1 stubs.
@@ -904,7 +920,8 @@ void Im2Controller::step_pulse() {
     }
 }
 
-// step_dma_delay() — VHDL zxnext.vhd:2001-2010 (Agent F, Wave 3).
+// step_dma_delay() — VHDL zxnext.vhd:2001-2010 (Agent F, Wave 3; Wave E
+// enables the NMI term).
 //
 //   process (i_CLK_CPU)
 //      if rising_edge(i_CLK_CPU) then
@@ -916,10 +933,8 @@ void Im2Controller::step_pulse() {
 //
 // Inputs:
 //   - im2_dma_int          = dma_int_pending()     (OR-reduction across devices)
-//   - nmi_activated        = false                 (NMI subsystem missing — DMA-04
-//                                                    stays as skip in ctc_test)
-//   - nr_cc_dma_int_en_0_7 = not tracked here      (its storage lives in Emulator's
-//                                                    nr_cc_dma_delay_on_nmi_)
+//   - nmi_activated        = nmi_activated_        (pushed from NmiSource::is_activated())
+//   - nr_cc_dma_int_en_0_7 = nr_cc_dma_int_en_0_7_ (pushed from NR 0xCC bit 7)
 //   - dma_delay            = dma_delay_ctrl_       (decoder RETI SRL window)
 //
 // The "self-hold" term (im2_dma_delay AND dma_delay) extends the latched state
@@ -927,9 +942,9 @@ void Im2Controller::step_pulse() {
 // no new im2_dma_int is pending, the latch deasserts naturally.
 void Im2Controller::step_dma_delay() {
     const bool dma_int = dma_int_pending();
+    const bool nmi_dma = nmi_activated_ && nr_cc_dma_int_en_0_7_;
     const bool hold    = im2_dma_delay_latched_ && dma_delay_ctrl_;
-    im2_dma_delay_latched_ = dma_int || hold;
-    // NMI path intentionally omitted; see comment above.
+    im2_dma_delay_latched_ = dma_int || nmi_dma || hold;
 }
 
 uint8_t Im2Controller::compute_vector() const {
@@ -1034,6 +1049,8 @@ void Im2Controller::save_state(StateWriter& w) const {
     // DMA delay.
     w.write_u16(dma_int_en_mask14_);
     w.write_bool(im2_dma_delay_latched_);
+    w.write_bool(nmi_activated_);
+    w.write_bool(nr_cc_dma_int_en_0_7_);
     // ACK book-keeping.
     w.write_i32(last_acked_);
     // Legacy API mask.
@@ -1070,6 +1087,8 @@ void Im2Controller::load_state(StateReader& r) {
 
     dma_int_en_mask14_     = r.read_u16();
     im2_dma_delay_latched_ = r.read_bool();
+    nmi_activated_         = r.read_bool();
+    nr_cc_dma_int_en_0_7_  = r.read_bool();
 
     last_acked_  = r.read_i32();
     legacy_mask_ = r.read_u16();

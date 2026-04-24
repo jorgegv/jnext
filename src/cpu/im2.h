@@ -90,6 +90,23 @@ public:
     bool dma_int_pending() const;        // o_dma_int OR-reduction, vhdl:1994
     bool dma_delay() const;              // latched im2_dma_delay, vhdl:2007
 
+    // ── NMI-activated DMA-delay path (Wave E, vhdl:2007 second term) ──────
+    //
+    //   im2_dma_delay <= im2_dma_int
+    //                    OR (nmi_activated AND nr_cc_dma_int_en_0_7)
+    //                    OR (im2_dma_delay AND dma_delay)
+    //
+    // Both inputs are pushed from Emulator:
+    //   - set_nmi_activated(bool) is called per tick() before im2_.tick(),
+    //     sourced from NmiSource::is_activated().
+    //   - set_nr_cc_dma_int_en_0_7(bool) is called from the NR 0xCC write
+    //     handler (bit 7 = nr_cc_dma_delay_on_nmi).
+    // Both reset to false on reset().
+    void set_nmi_activated(bool v);
+    void set_nr_cc_dma_int_en_0_7(bool v);
+    bool nmi_activated() const;
+    bool nr_cc_dma_int_en_0_7() const;
+
     // ── Z80 CPU integration ────────────────────────────────────────────────
     //
     // im2_int_n = AND of all device int_n (vhdl:1990). When low AND Z80 is in
@@ -167,6 +184,11 @@ private:
     // DMA delay latch (vhdl:2007).
     uint16_t dma_int_en_mask14_     = 0;
     bool     im2_dma_delay_latched_ = false;
+    // NMI-activated DMA-delay inputs (vhdl:2007 second OR term). Pushed from
+    // Emulator: nmi_activated_ from NmiSource::is_activated(); nr_cc_dma_int_en_0_7_
+    // from NR 0xCC bit 7 write handler.
+    bool     nmi_activated_         = false;
+    bool     nr_cc_dma_int_en_0_7_  = false;
 
     // Which device got ACKed in the current IntAck cycle (for RETI → S_0).
     int last_acked_ = -1;
