@@ -1980,13 +1980,11 @@ void section13_nextreg_int_regs() {
               fmt("got 0x%02x", im2.vector_base()));
     }
 
-    // NR-C0-02 — NR 0xC0 stackless_nmi — Wave D CUT per plan Q1.
-    skip("NR-C0-02",
-         "Stackless NMI (NR 0xC0 bit 3) — Wave D cut per "
-         "TASK-NMI-SOURCE-PIPELINE-PLAN.md Q1: requires FUSE Z80 core "
-         "patch for pre-NMI-push hook and RETN interception; only 1 "
-         "driver row; carry as skip until second driver or "
-         "user-visible bug.");
+    // WONT NR-C0-02: Stackless NMI (NR 0xC0 bit 3). Implementing requires
+    // patching the FUSE Z80 core (no pre-NMI-push hook, no RETN
+    // interception) and risks the 1356-row FUSE regression for a single
+    // test row's benefit. Wave D cut per TASK-NMI-SOURCE-PIPELINE-PLAN.md
+    // Q1. Revisit only if a second driver row or user-visible bug appears.
 
     // NR-C0-03 — zxnext.vhd:5599/1975: NR 0xC0 bit 0 (int_mode_pulse_0_im2_1)
     // selects pulse (0) vs IM2 (1) mode. Bare-Im2 accessor via is_im2_mode()

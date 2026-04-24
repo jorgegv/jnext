@@ -323,28 +323,12 @@ static void test_fe_format(Emulator& emu) {
               detail);
     }
 
-    // FE-05: Expansion-bus AND with port_fe_bus D0 = 0 → bit 0 = 0.
-    //
-    // VHDL zxnext.vhd:3468 — port_fe_dat <= port_fe_dat_0 AND port_fe_bus,
-    // with port_fe_bus = i_BUS_DI when expbus_eff_en = 1 AND
-    // port_propagate_fe = 1 else X"FF" (line 3453). The expansion bus
-    // can pull individual bits low via an external device driving D0=0.
-    //
-    // jnext does not model any expansion-bus device: there is no
-    // aggregator for i_BUS_DI, no equivalent of expbus_eff_en / NR 0x80
-    // bit 4 or NR 0x8A bit 0 (port_propagate_fe) port-propagation
-    // routing, and no cart-through path. With no external device,
-    // port_fe_bus = 0xFF is the VHDL-correct idle — AND with 0xFF is a
-    // no-op, which is what jnext's read path implicitly does (no AND
-    // term applied). The "D0 = 0 pulled by bus" stimulus is therefore
-    // architecturally unobservable from this harness. F-skip pending an
-    // expansion-bus subsystem.
-    skip("FE-05",
-         "F: no expansion-bus subsystem — i_BUS_DI aggregator / "
-         "expbus_eff_en / NR 0x8A port_propagate_fe routing absent; "
-         "port_fe_bus = 0xFF idle matches VHDL zxnext.vhd:3453, making "
-         "the bus-pull-low stimulus architecturally unobservable "
-         "(zxnext.vhd:3468)");
+    // WONT FE-05: Expansion-bus AND with port_fe_bus (VHDL zxnext.vhd:3468,
+    // :3453). Emulating a physical expansion-bus aggregator (i_BUS_DI,
+    // expbus_eff_en, NR 0x8A port_propagate_fe routing) makes no sense on
+    // a software emulator — no cart slot, no external device. port_fe_bus
+    // idles 0xFF in VHDL and the AND is a no-op, which is what jnext
+    // already does implicitly. Conscious decision not to implement.
 }
 
 // ══════════════════════════════════════════════════════════════════════
