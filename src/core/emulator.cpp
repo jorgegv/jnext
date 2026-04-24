@@ -2581,19 +2581,40 @@ void Emulator::run_frame()
         md6_.tick(static_cast<uint32_t>(master_cycles));
 
         // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
-        // Phase 1). Phase 1 leaves all producers un-wired, so the FSM
-        // stays in IDLE and the tick is inert at runtime. Placement
-        // matches CTC / UART / Md6 in the per-instruction cluster; order
-        // among these is not load-bearing in Phase 1.
+        // Phase 1 + Wave B). Placement matches CTC / UART / Md6 in the
+        // per-instruction cluster; order among these is not load-bearing.
+        //
+        // Wave B — DivMMC consumer-feedback loop (VHDL:2107, 2118, 2098):
+        //   * `divmmc_nmi_hold`  = `o_disable_nmi` = automap_held OR
+        //                          button_nmi  (divmmc.vhd:150). Gates
+        //                          the HOLD→END transition for the
+        //                          DivMMC path AND blocks the MF latch
+        //                          set (VHDL:2107).
+        //   * `divmmc_conmem`    = port_e3_reg(7). Blocks the MF latch
+        //                          set (VHDL:2107, 2098 on the FPGA).
+        // Push both BEFORE `tick()` so the FSM re-evaluates with fresh
+        // consumer state.
+        nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
+        nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
+
         nmi_source_.tick(static_cast<uint32_t>(master_cycles));
+
+        // Wave B — VHDL:2170 `nmi_divmmc_button` arbitration-strobe
+        // producer: when the FSM latched the DivMMC request this tick
+        // (IDLE→FETCH via the DivMMC path), pulse `set_button_nmi(true)`
+        // on the DivMMC peripheral. That latches `button_nmi_` which in
+        // turn re-feeds into `divmmc_nmi_hold` next tick (plus gates
+        // automap_nmi_instant_on at divmmc.vhd:120). The strobe is
+        // one-tick, cleared by NmiSource on its next `tick()` entry.
+        if (nmi_source_.divmmc_button_strobe()) {
+            divmmc_.set_button_nmi(true);
+        }
 
         // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
         // `nmi_generate_n()` low when it wants the Z80 to take an NMI
         // (VHDL:2164-2170). FUSE's Z80 core takes the NMI on the next
         // instruction boundary via `request_nmi()` — a one-shot latch.
-        // We observe the falling edge here and fire the latch. Phase 1
-        // has no producer wired, so `nmi_generate_n()` stays high and
-        // this path is inert; Waves A/B land the producers.
+        // We observe the falling edge here and fire the latch.
         {
             const bool nmi_n = nmi_source_.nmi_generate_n();
             if (!nmi_n && prev_nmi_generate_n_) {
@@ -2736,9 +2757,16 @@ int Emulator::execute_single_instruction()
     ctc_.tick(static_cast<uint32_t>(master_cycles));
     uart_.tick(static_cast<uint32_t>(master_cycles));
 
-    // NMI source pipeline — Phase 1 scaffold (inert until producer waves
-    // land). Mirrors the primary tick cluster above.
+    // NMI source pipeline — mirrors the primary tick cluster above.
+    // Wave B: push DivMMC consumer-feedback (hold + conmem) before tick,
+    // then fire `set_button_nmi` on the `nmi_divmmc_button` arbitration
+    // strobe after tick.
+    nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
+    nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
+    if (nmi_source_.divmmc_button_strobe()) {
+        divmmc_.set_button_nmi(true);
+    }
     {
         const bool nmi_n = nmi_source_.nmi_generate_n();
         if (!nmi_n && prev_nmi_generate_n_) {
