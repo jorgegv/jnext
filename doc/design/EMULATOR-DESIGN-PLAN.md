@@ -1065,7 +1065,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] 11-dapr-isometric - verified and fixed
   - [x] dapr-mathfunc - verified and fixed - Works the same in JNext, ZesarUX and CSpect
 
-- [x] For each emulator module, generate a VHDL-derived compliance test plan and test suite. 16 subsystem plans in `doc/testing/`, each with per-row VHDL citations:
+- [x] For each emulator module, generate a VHDL-derived compliance test plan and test suite. 16 original subsystem plans + 3 post-ULA-closure re-home spinoffs in `doc/testing/`, each with per-row VHDL citations:
   - [x] Z80N — [Z80N-COMPLIANCE-TEST-SUITE.md](../testing/Z80N-COMPLIANCE-TEST-SUITE.md)
   - [x] Memory/MMU — [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md)
   - [x] ULA Video — [ULA-VIDEO-TEST-PLAN-DESIGN.md](../testing/ULA-VIDEO-TEST-PLAN-DESIGN.md)
@@ -1082,6 +1082,14 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] NextREG — [NEXTREG-TEST-PLAN-DESIGN.md](../testing/NEXTREG-TEST-PLAN-DESIGN.md)
   - [x] I/O Port Dispatch — [IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md](../testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md)
   - [x] Input (Keyboard+Joystick) — [INPUT-TEST-PLAN-DESIGN.md](../testing/INPUT-TEST-PLAN-DESIGN.md)
+
+  Post-ULA-closure re-home spinoffs (2026-04-23/24) — capture 29 F-skip rows re-homed from `test/ula/ula_test.cpp` into owning-subsystem plans so `ula_test` reaches zero skips:
+  - [x] Floating Bus — [FLOATING-BUS-TEST-PLAN-DESIGN.md](../testing/FLOATING-BUS-TEST-PLAN-DESIGN.md) (26 rows — 5 re-home + 21 VHDL-justified neighbours across port 0xFF on all machines and port 0x0FFD on +3; from [TASK-FLOATING-BUS-PLAN.md](TASK-FLOATING-BUS-PLAN.md))
+  - [x] Contention — [CONTENTION-TEST-PLAN-DESIGN.md](../testing/CONTENTION-TEST-PLAN-DESIGN.md) (68 rows phased A=28 / B=36 / C=4; `ContentionModel` class already exists at `src/memory/contention.h`, `delay()` tick-loop wiring pending; from [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md))
+  - [x] VideoTiming — [VIDEOTIMING-TEST-PLAN-DESIGN.md](../testing/VIDEOTIMING-TEST-PLAN-DESIGN.md) (22 rows — 7 re-home + 15 VHDL-justified neighbours; per-machine origin + interrupt-position accessors on `VideoTiming`, with a coupled `vc_max_` / `hc_max_` semantic rebase documented under `F-VT-MAX-REBASE`; from [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md))
+  - Re-home **appends** (no new plan doc — rows added to existing test-plan-design + existing suite):
+    - Compositor NR 0x68 blend-mode — 3 rows from [TASK-COMPOSITOR-NR68-BLEND-PLAN.md](TASK-COMPOSITOR-NR68-BLEND-PLAN.md) appended to [COMPOSITOR-TEST-PLAN-DESIGN.md](../testing/COMPOSITOR-TEST-PLAN-DESIGN.md) (reopens `compositor_test` with 3 skips).
+    - MMU shadow-screen routing — 2 rows from [TASK-MMU-SHADOW-SCREEN-PLAN.md](TASK-MMU-SHADOW-SCREEN-PLAN.md) appended to [MEMORY-MMU-TEST-PLAN-DESIGN.md](../testing/MEMORY-MMU-TEST-PLAN-DESIGN.md) (reopens `mmu_test` with 2 skips).
 
 - [x] **Fix baseline of subsystem tests not passing** — DONE (v0.93.0). **1086 pass, 0 fail, 695 skip** across 15 non-Z80N subsystems. See `test/SUBSYSTEM-TESTS-STATUS.md` and `doc/testing/TRACEABILITY-MATRIX.md` for details.
 
@@ -1101,6 +1109,13 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [~] CTC+Interrupts — Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5 (merge `a397422`, dashboard `0336c20`). IM2 fabric expanded from 45-line stub to full `Im2Controller` + `Im2Client` mixin covering `device/im2_control.vhd` / `im2_device.vhd` / `im2_peripheral.vhd` / `peripherals.vhd` (~171 + ~800 lines + new `src/cpu/im2_client.h`). `ctc_test.cpp` `150/44/0/106` → `133/128/0/5` (−101 skip, +84 pass); new companion suite `test/ctc_interrupts/ctc_interrupts_test.cpp` 10/10/0/0. 5 skips remaining: CTC-NR-04 (user review-later), NR-C0-02 + DMA-04 (NMI-blocked F-keep), ULA-INT-04 + ULA-INT-06 (re-home candidates).
   - [~] ULA Video — Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`) landed 2026-04-23 Phase 0 → 4. Phase 1 scaffold added NR 0x26 coarse-scroll X + NR 0x27 scroll Y + NR 0x42 ULAnext format + NR 0x43 bit 0 ULAnext-enable + NR 0x68 bit 2 fine-scroll-X + port 0xFF3B/0xBF3B ULA+ handlers + `Ula::set_shadow_screen_en` + `Ula::set_alt_file` + `Ula::set_clip_y2` (render-time ≥0xC0→0xBF clamp; plan-doc drift caught: store-time was VHDL-inaccurate). Phase 2 five parallel waves (A=scroll 9 rows, B=ULAnext 13 rows, C=ULA+ 7 rows, D=hi-colour alt + shadow + clip 4 rows, E=line-interrupt 3 rows) landed 36 `skip()`→`check()` flips. Phase 3 added new companion suite `test/ula/ula_integration_test.cpp` (6/6/0/0) covering scroll, ULA+, ULAnext, and standard-alt-file end-to-end. `ula_test.cpp` `123/48/0/75` → `113/84/0/29`. 29 remaining skips are all F-blocked with pointers to named subsystem plans: Emulator floating-bus (5), ContentionModel (12), Compositor NR 0x68 blend-mode (3), VideoTiming per-machine + int-position (7), Emulator/MMU shadow-screen routing (2). Backlog raised: NR 0x68 bit 3 → `ulap_en` port-register unwired (Phase 3 critic), VideoTiming pulse-counter surface test-only (no production Emulator instance).
   - [ ] Audio
+
+  Post-ULA-closure re-home spinoffs (2026-04-23/24) — 29 F-skips re-homed out of `ula_test` into owning subsystems with their own test-plan-design docs:
+  - [ ] Floating Bus — 26 plan rows (5 re-home + 21 neighbours); covers port 0xFF on all machines and port 0x0FFD on +3. Plan [TASK-FLOATING-BUS-PLAN.md](TASK-FLOATING-BUS-PLAN.md). Flags a known emulator bug: `Emulator::floating_bus_read` currently returns VRAM on +3/Pentagon/Next, violating `zxnext.vhd:4513`.
+  - [ ] Contention — 68 plan rows phased **A=28 / B=36 / C=4**. `ContentionModel` class already exists at `src/memory/contention.h`; Phase A can un-skip after VHDL-audit of the class; Phase B (~40h) pending `delay()` tick-loop wiring. Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
+  - [ ] Compositor NR 0x68 blend-mode — 3 skips; plan [TASK-COMPOSITOR-NR68-BLEND-PLAN.md](TASK-COMPOSITOR-NR68-BLEND-PLAN.md); will reopen `compositor_test` (114/0/0 → 117/0/3) until implemented.
+  - [ ] VideoTiming Expansion — 22 plan rows (7 re-home + 15 neighbours); per-machine origin + interrupt-position accessors with a coupled `vc_max_` / `hc_max_` VHDL-faithful semantic rebase (V1) — Section 1 + Section 6 flip in the same commit. Plan [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md); candidate for merge with the VideoTiming pulse-counter production-wiring backlog item.
+  - [ ] MMU shadow-screen routing — 2 skips; plan [TASK-MMU-SHADOW-SCREEN-PLAN.md](TASK-MMU-SHADOW-SCREEN-PLAN.md); tiny fix (port 0x7FFD bit 3 → Emulator shadow-screen wiring); will reopen `mmu_test` (148/0/0 → 150/0/2) until implemented.
 
 - [x] Generate full testing plan:
   - [x] Unit test plan, per module — 16 subsystem test plans in `doc/design/*-TEST-PLAN-DESIGN.md` (1244 live tests + 152 honest stubs/skips post Task 5 Step 5 Phase 2; 1133 pass / 91 legitimate Task 3 emulator-bug fails)
