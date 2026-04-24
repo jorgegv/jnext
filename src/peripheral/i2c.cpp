@@ -58,6 +58,11 @@ uint8_t I2cRtc::to_bcd(int val) {
 }
 
 void I2cRtc::snapshot_time() {
+    // Phase-1 Task3 UART+I2C: honour `use_real_time_` so Wave-E tests can
+    // `poke_register` arbitrary BCD values without the next START wiping
+    // them. Default is true, so existing behaviour is preserved.
+    if (!use_real_time_) return;
+
     std::time_t now = std::time(nullptr);
     std::tm* t = std::localtime(&now);
     if (!t) return;
@@ -84,6 +89,11 @@ void I2cController::reset() {
     sda_in_ = 1;
     prev_scl_ = 1;
     prev_sda_ = 1;
+    // pi_i2c1_scl_ / pi_i2c1_sda_ are hardware inputs — default released (1),
+    // not reset by the internal controller. A real Pi would drive them low
+    // when asserting.
+    pi_i2c1_scl_ = true;
+    pi_i2c1_sda_ = true;
     state_ = State::IDLE;
     bit_count_ = 0;
     shift_reg_ = 0;
@@ -119,14 +129,20 @@ void I2cController::write_sda(uint8_t val) {
 }
 
 uint8_t I2cController::read_scl() const {
-    // Upper 7 bits read as 1 (pulled high), bit 0 is SCL state
-    return 0xFE | scl_;
+    // Upper 7 bits read as 1 (pulled high), bit 0 is SCL state.
+    // Per zxnext.vhd:3259, the read value is `(i_I2C_SCL_n AND pi_i2c1_scl)`
+    // — open-drain wired-AND with the Raspberry Pi bus-1 SCL input. Pi input
+    // defaults to 1 (released) so this is a no-op until a test drives it low.
+    uint8_t scl = scl_ & (pi_i2c1_scl_ ? 1u : 0u);
+    return 0xFE | scl;
 }
 
 uint8_t I2cController::read_sda() const {
-    // Upper 7 bits read as 1 (pulled high), bit 0 is SDA input
-    // SDA is the AND of sda_out_ and sda_in_ (open-drain wired-AND)
-    return 0xFE | (sda_out_ & sda_in_);
+    // Upper 7 bits read as 1 (pulled high), bit 0 is SDA input.
+    // SDA is the AND of sda_out_ and sda_in_ (open-drain wired-AND), further
+    // AND-ed with the Pi bus-1 SDA input per zxnext.vhd:3266.
+    uint8_t sda = sda_out_ & sda_in_ & (pi_i2c1_sda_ ? 1u : 0u);
+    return 0xFE | sda;
 }
 
 void I2cController::attach_device(uint8_t address, I2cDevice* device) {
@@ -292,7 +308,12 @@ void I2cRtc::save_state(StateWriter& w) const
 {
     w.write_u8(reg_ptr_);
     w.write_bool(addr_set_);
+    // Phase-1: regs_ widened 8→64 per DS1307 NVRAM. Rewind buffer is in-process
+    // only, so a straight size bump is safe (plan R3). Scaffold flags follow.
     w.write_bytes(regs_.data(), regs_.size());
+    w.write_bool(osc_halt_);
+    w.write_bool(mode_12h_);
+    w.write_bool(use_real_time_);
 }
 
 void I2cRtc::load_state(StateReader& r)
@@ -300,6 +321,9 @@ void I2cRtc::load_state(StateReader& r)
     reg_ptr_  = r.read_u8();
     addr_set_ = r.read_bool();
     r.read_bytes(regs_.data(), regs_.size());
+    osc_halt_      = r.read_bool();
+    mode_12h_      = r.read_bool();
+    use_real_time_ = r.read_bool();
 }
 
 void I2cController::save_state(StateWriter& w) const
@@ -315,6 +339,9 @@ void I2cController::save_state(StateWriter& w) const
     w.write_u8(device_addr_);
     w.write_bool(is_read_);
     w.write_u8(read_data_);
+    // Phase-1: pi_i2c1 inputs — saved so rewind replays them correctly.
+    w.write_bool(pi_i2c1_scl_);
+    w.write_bool(pi_i2c1_sda_);
 }
 
 void I2cController::load_state(StateReader& r)
@@ -330,4 +357,6 @@ void I2cController::load_state(StateReader& r)
     device_addr_ = r.read_u8();
     is_read_     = r.read_bool();
     read_data_   = r.read_u8();
+    pi_i2c1_scl_ = r.read_bool();
+    pi_i2c1_sda_ = r.read_bool();
 }
