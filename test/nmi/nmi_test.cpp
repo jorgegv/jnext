@@ -20,6 +20,7 @@
 //
 // Run: ./build/test/nmi_test
 
+#include "peripheral/divmmc.h"
 #include "peripheral/nmi_source.h"
 
 // Wave A integration row also exercises NR 0x02 through the real port
@@ -336,16 +337,363 @@ static void g_nr02_integration()
 }
 
 // =====================================================================
+// Wave B (2026-04-24) — HK / DIS / CLR groups (13 rows, all LIVE)
+//
+// VHDL cites: zxnext.vhd:2089-2170 (source pipeline + arbiter) and
+// divmmc.vhd:103-150 (button_nmi latch + o_disable_nmi).
+//
+// Modelling note — FSM+DivMMC feedback loop: NmiSource emits the
+// VHDL:2170 `nmi_divmmc_button` strobe (`divmmc_button_strobe()`) for
+// exactly one tick on IDLE→FETCH via the DivMMC path; Emulator wires
+// that to `DivMmc::set_button_nmi(true)`. These rows drive the same
+// seam by hand (no Emulator fixture) so they stay focused on the
+// NmiSource + DivMmc interaction without pulling in the CPU tick
+// machinery. The Emulator-level integration is covered indirectly by
+// Phase 3 + regression flipping divmmc_test NM-01..08.
+// =====================================================================
+
+// Emulator mini-fixture: pumps the same "before/after tick" sequence
+// that Emulator::run_frame() does, so FSM strobes drive DivMmc and
+// DivMmc consumer feedback drives NmiSource next tick.
+static void pump_tick(NmiSource& nmi, DivMmc& div)
+{
+    nmi.set_divmmc_nmi_hold(div.is_nmi_hold());
+    nmi.set_divmmc_conmem(div.is_conmem());
+    nmi.tick(1);
+    if (nmi.divmmc_button_strobe()) {
+        div.set_button_nmi(true);
+    }
+}
+
+// =====================================================================
+// Group HK — Hotkey producers (Wave B, 5 rows)
+// =====================================================================
+
+static void g_hotkey()
+{
+    set_group("HK");
+
+    // HK-01 — VHDL zxnext.vhd:2090 (nmi_assert_mf = hotkey_m1 OR sw_gen_mf)
+    // AND nr_06_button_m1_nmi_en. With NR 0x06 MF-enable ON, the MF
+    // hotkey edge drives IDLE→FETCH.
+    {
+        NmiSource nmi;
+        nmi.set_mf_enable(true);     // NR 0x06 bit 3 = 1
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool state_ok = (nmi.state() == NmiSource::State::Fetch);
+        const bool latched  = (nmi.latched() == NmiSource::Src::Mf);
+        check("HK-01",
+              "set_mf_button edge + NR 0x06 bit 3 = 1 → FSM IDLE→FETCH (MF latched)",
+              state_ok && latched,
+              "zxnext.vhd:2090 (nmi_assert_mf) / 2095-2116 (priority latch) / 2124-2128 (FSM IDLE→FETCH)");
+    }
+
+    // HK-02 — VHDL zxnext.vhd:2091 + NR 0x06 bit 4. DivMMC drive button
+    // edge drives IDLE→FETCH.
+    {
+        NmiSource nmi;
+        nmi.set_divmmc_enable(true); // NR 0x06 bit 4 = 1
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        const bool state_ok = (nmi.state() == NmiSource::State::Fetch);
+        const bool latched  = (nmi.latched() == NmiSource::Src::DivMmc);
+        check("HK-02",
+              "set_divmmc_button edge + NR 0x06 bit 4 = 1 → FSM IDLE→FETCH (DivMMC latched)",
+              state_ok && latched,
+              "zxnext.vhd:2091 / 2095-2116 / 2124-2128");
+    }
+
+    // HK-03 — NR 0x06 bit 3 = 0 gates MF producer off. The MF button
+    // edge must NOT advance the FSM.
+    {
+        NmiSource nmi;
+        nmi.set_mf_enable(false);    // NR 0x06 bit 3 = 0 (default)
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool idle = (nmi.state() == NmiSource::State::Idle);
+        const bool no_latch = !nmi.nmi_mf();
+        check("HK-03",
+              "NR 0x06 bit 3 = 0 blocks MF producer (no FSM advance, no latch)",
+              idle && no_latch,
+              "zxnext.vhd:1110 (nr_06_button_m1_nmi_en) / 2090 (nmi_assert_mf gate)");
+    }
+
+    // HK-04 — NR 0x06 bit 4 = 0 gates DivMMC producer off.
+    {
+        NmiSource nmi;
+        nmi.set_divmmc_enable(false);
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        const bool idle = (nmi.state() == NmiSource::State::Idle);
+        const bool no_latch = !nmi.nmi_divmmc();
+        check("HK-04",
+              "NR 0x06 bit 4 = 0 blocks DivMMC producer (no FSM advance, no latch)",
+              idle && no_latch,
+              "zxnext.vhd:1109 (nr_06_button_drive_nmi_en) / 2091 (nmi_assert_divmmc gate)");
+    }
+
+    // HK-05 — Simultaneous MF + DivMMC press, both gates enabled.
+    // VHDL:2107-2113 — MF wins the priority chain
+    // (nmi_assert_mf checked before nmi_assert_divmmc in the elsif
+    // ladder). Expect `latched() == Mf`.
+    {
+        NmiSource nmi;
+        nmi.set_mf_enable(true);
+        nmi.set_divmmc_enable(true);
+        nmi.strobe_mf_button();
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        const bool mf_won  = (nmi.latched() == NmiSource::Src::Mf);
+        const bool no_dmc  = !nmi.nmi_divmmc();
+        check("HK-05",
+              "simultaneous MF + DivMMC press with both gates enabled: MF wins priority",
+              mf_won && no_dmc,
+              "zxnext.vhd:2107-2113 (priority chain — MF branch checked first)");
+    }
+}
+
+// =====================================================================
+// Group DIS — DivMMC consumer feedback (Wave B, 4 rows)
+// =====================================================================
+
+static void g_divmmc_consumer()
+{
+    set_group("DIS");
+
+    // DIS-01 — FSM IDLE→FETCH for DivMMC path pulses the VHDL:2170
+    // `nmi_divmmc_button` strobe; Emulator wires that to
+    // `DivMmc::set_button_nmi(true)`. Verified here via the mini-
+    // fixture `pump_tick()` which models the same wiring.
+    {
+        NmiSource nmi;
+        DivMmc    div;
+        nmi.set_divmmc_enable(true);
+        const bool pre_btn = div.button_nmi();           // = 0 after reset
+        nmi.strobe_divmmc_button();
+        pump_tick(nmi, div);
+        const bool strobe_fired = nmi.divmmc_button_strobe() ||
+                                  /* already consumed in pump; observable via btn */
+                                  div.button_nmi();
+        const bool post_btn = div.button_nmi();          // should be 1
+        const bool fsm_fetch = (nmi.state() == NmiSource::State::Fetch);
+        check("DIS-01",
+              "FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true)",
+              !pre_btn && post_btn && strobe_fired && fsm_fetch,
+              "zxnext.vhd:2170 (nmi_divmmc_button) / divmmc.vhd:108-111 (button_nmi latch)");
+    }
+
+    // DIS-02 — DivMmc::is_nmi_hold() feedback drives divmmc_nmi_hold at
+    // the arbiter. Set DivMmc automap_held by activating the automap
+    // pipeline (check_automap at an entry-point PC), then verify
+    // is_nmi_hold() reports true and that `set_divmmc_nmi_hold` at the
+    // NmiSource layer consumes it correctly.
+    {
+        NmiSource nmi;
+        DivMmc    div;
+        div.set_enabled(true);
+        div.set_entry_points_0(0x01);  // RST 0x00 enabled
+        div.set_entry_valid_0(0x01);   // main path valid
+        div.set_entry_timing_0(0x01);  // instant
+        // First M1 at 0x0000 captures hold=1. Second M1 at another PC
+        // with held already 1 promotes held from hold; then check_automap
+        // sees held=1. Call twice to get held=1.
+        div.check_automap(0x0000, true);  // instant_match → hold=1
+        div.check_automap(0x0100, true);  // step: held <- hold (=1)
+        const bool dmc_held  = div.automap_held();
+        const bool hold_true = div.is_nmi_hold();
+        // Push to NmiSource and verify arbiter accessor reflects it.
+        nmi.set_divmmc_nmi_hold(div.is_nmi_hold());
+        const bool at_nmi    = nmi.divmmc_nmi_hold();
+        check("DIS-02",
+              "DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1",
+              dmc_held && hold_true && at_nmi,
+              "divmmc.vhd:150 (o_disable_nmi = automap_held OR button_nmi) / zxnext.vhd:2107,2118 (arbiter gate)");
+    }
+
+    // DIS-03 — o_disable_nmi = automap_held OR button_nmi (divmmc.vhd:150).
+    // Exercise the OR directly via the const accessors.
+    {
+        DivMmc d1;  // automap_held=0, button_nmi=0 → hold=0
+        const bool neither = !d1.is_nmi_hold();
+
+        DivMmc d2;
+        // Set only button_nmi via public setter (NmiSource-driven path).
+        d2.set_button_nmi(true);
+        const bool only_btn = d2.is_nmi_hold();
+
+        DivMmc d3;
+        d3.set_enabled(true);
+        d3.set_entry_points_0(0x01);
+        d3.set_entry_valid_0(0x01);
+        d3.set_entry_timing_0(0x01);
+        d3.check_automap(0x0000, true);
+        d3.check_automap(0x0100, true);
+        const bool only_hld = d3.is_nmi_hold() && !d3.button_nmi();
+
+        DivMmc d4;
+        d4.set_enabled(true);
+        d4.set_entry_points_0(0x01);
+        d4.set_entry_valid_0(0x01);
+        d4.set_entry_timing_0(0x01);
+        d4.check_automap(0x0000, true);
+        d4.check_automap(0x0100, true);
+        // Raising automap_held clears button_nmi (divmmc.vhd:112-113
+        // rising-edge one-shot), so set button_nmi AFTER automap_held
+        // settles to probe the "both" OR.
+        d4.set_button_nmi(true);
+        const bool both = d4.is_nmi_hold() && d4.button_nmi() && d4.automap_held();
+
+        check("DIS-03",
+              "is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11}",
+              neither && only_btn && only_hld && both,
+              "divmmc.vhd:150 (o_disable_nmi)");
+    }
+
+    // DIS-04 — FSM HOLD → END on divmmc_nmi_hold clearing (VHDL:2135-2148,
+    // with divmmc_nmi_hold selected when nmi_divmmc=1 per VHDL:2118).
+    {
+        NmiSource nmi;
+        DivMmc    div;
+        nmi.set_divmmc_enable(true);
+
+        // Drive FSM IDLE → FETCH via DivMMC producer.
+        nmi.strobe_divmmc_button();
+        pump_tick(nmi, div);
+        // At this point: state=Fetch, DivMmc::button_nmi=1,
+        // is_nmi_hold() → 1 (via button_nmi). That hold gates HOLD→END.
+
+        // FETCH → HOLD on M1 at 0x0066.
+        nmi.observe_m1_fetch(0x0066, true, true);
+        const bool hold_state = (nmi.state() == NmiSource::State::Hold);
+
+        // Still held — tick stays in HOLD.
+        pump_tick(nmi, div);
+        const bool still_hold = (nmi.state() == NmiSource::State::Hold);
+
+        // Clear the hold at the DivMmc layer (simulate RETN-like clear,
+        // which drops button_nmi). VHDL says HOLD→END when hold goes 0.
+        div.on_retn();
+        const bool div_hold_clear = !div.is_nmi_hold();
+
+        // Next tick re-pushes fresh hold=0; FSM HOLD→END.
+        pump_tick(nmi, div);
+        const bool end_state = (nmi.state() == NmiSource::State::End);
+
+        check("DIS-04",
+              "FSM HOLD → END when divmmc_nmi_hold transitions to 0",
+              hold_state && still_hold && div_hold_clear && end_state,
+              "zxnext.vhd:2118 (nmi_hold selector) / 2135-2148 (HOLD→END) / divmmc.vhd:150");
+    }
+}
+
+// =====================================================================
+// Group CLR — DivMMC button_nmi clear paths (Wave B, 4 rows)
+// =====================================================================
+
+static void g_divmmc_clears()
+{
+    set_group("CLR");
+
+    // CLR-01 — Baseline: reset() clears button_nmi_.
+    // VHDL divmmc.vhd:108 (i_reset branch).
+    {
+        DivMmc d;
+        d.set_button_nmi(true);
+        const bool pre  = d.button_nmi();
+        d.reset();
+        const bool post = !d.button_nmi();
+        check("CLR-01",
+              "reset() clears button_nmi_",
+              pre && post,
+              "divmmc.vhd:108 (i_reset branch of button_nmi process)");
+    }
+
+    // CLR-02 — i_automap_reset clears button_nmi_. JNEXT models
+    // i_automap_reset via the enable-transition path (divmmc.vhd:126,139
+    // are cleared together with button_nmi_ line 108 in the shared
+    // process). Take enable from true→false and verify button_nmi
+    // clears.
+    {
+        DivMmc d;
+        d.set_enabled(true);                  // port_io + nr_0a_4 both on
+        d.set_button_nmi(true);
+        const bool pre = d.button_nmi();
+
+        d.set_enabled(false);                 // enabled→disabled edge
+        const bool post = !d.button_nmi();
+
+        check("CLR-02",
+              "set_enabled(true→false) edge (VHDL i_automap_reset) clears button_nmi_",
+              pre && post,
+              "divmmc.vhd:108 (i_automap_reset branch) / zxnext.vhd:4112 (divmmc_automap_reset derivation)");
+    }
+
+    // CLR-03 — on_retn_seen() clears button_nmi_.
+    // VHDL divmmc.vhd:108 — i_retn_seen branch.
+    {
+        DivMmc d;
+        d.set_enabled(true);
+        d.set_button_nmi(true);
+        const bool pre = d.button_nmi();
+
+        d.on_retn_seen();
+        const bool post = !d.button_nmi();
+
+        check("CLR-03",
+              "on_retn_seen() clears button_nmi_",
+              pre && post,
+              "divmmc.vhd:108 (i_retn_seen branch of button_nmi process)");
+    }
+
+    // CLR-04 — automap_held rising 0→1 clears button_nmi_.
+    // VHDL divmmc.vhd:112-113 — `elsif automap_held = '1' then
+    // button_nmi <= '0'`. Drive the pipeline so automap_held rises on
+    // the second check_automap, with button_nmi=1 already latched.
+    {
+        DivMmc d;
+        d.set_enabled(true);
+        d.set_entry_points_0(0x01);
+        d.set_entry_valid_0(0x01);
+        d.set_entry_timing_0(0x01);
+        d.set_button_nmi(true);                // latch set
+        const bool pre  = d.button_nmi();
+        const bool pre_held = d.automap_held();
+
+        // First M1: instant_match → hold=1, held=0 (held loads from
+        // hold NEXT M1). button_nmi unchanged.
+        d.check_automap(0x0000, true);
+        const bool mid_held = d.automap_held();
+        const bool mid_btn  = d.button_nmi();
+
+        // Second M1: held loads from hold (0→1 transition).
+        // Rising-edge one-shot clears button_nmi.
+        d.check_automap(0x0100, true);
+        const bool post_held = d.automap_held();
+        const bool post_btn  = !d.button_nmi();
+
+        check("CLR-04",
+              "automap_held rising edge clears button_nmi_",
+              pre && !pre_held && !mid_held && mid_btn &&
+              post_held && post_btn,
+              "divmmc.vhd:112-113 (button_nmi cleared while automap_held=1)");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
 int main() {
-    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A)\n");
+    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B)\n");
     std::printf("=========================================================\n\n");
 
-    g_rst_defaults();   std::printf("  RST reset-defaults -- done\n");
-    g_nr02_sw_nmi();    std::printf("  NR02 software-NMI -- done\n");
-    g_nr02_integration(); std::printf("  NR02 integration -- done\n");
+    g_rst_defaults();      std::printf("  RST  reset-defaults  -- done\n");
+    g_nr02_sw_nmi();       std::printf("  NR02 software-NMI    -- done\n");
+    g_nr02_integration();  std::printf("  NR02 integration     -- done\n");
+    g_hotkey();            std::printf("  HK   hotkey producers -- done\n");
+    g_divmmc_consumer();   std::printf("  DIS  DivMMC consumer  -- done\n");
+    g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
