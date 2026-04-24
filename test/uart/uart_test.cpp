@@ -155,6 +155,53 @@ uint8_t i2c_read_byte(I2cController& i2c, bool send_ack) {
     return byte;
 }
 
+// ── Bit-level TX helpers (Wave A) ─────────────────────────────────────
+// Configure a channel for bit-level stepping with a chosen frame byte and
+// prescaler. `prescaler` is the full 17-bit value; we only use the 14-bit
+// LSB half (msb=0) so it must be <= 0x3FFF. A large-enough prescaler keeps
+// the TX line stable across two observation ticks per bit, which matches
+// VHDL behaviour where tx_shift only updates on tx_timer_expired.
+void bitlevel_setup(UartChannel& ch, uint8_t frame, uint16_t prescaler) {
+    ch.hard_reset();
+    // Clear the default LSB (243) so we can overwrite cleanly.
+    // Default lsb = 0x00F3: lower 7 = 0x73, upper 7 = 0x01.
+    ch.write_prescaler_lsb(0x80);              // clear upper 7 bits of lsb
+    ch.write_prescaler_lsb(0x00);              // clear lower 7 bits of lsb
+    // Now lsb = 0. Load new prescaler (14 bits).
+    uint8_t lo = static_cast<uint8_t>(prescaler & 0x7F);
+    uint8_t hi = static_cast<uint8_t>((prescaler >> 7) & 0x7F);
+    ch.write_prescaler_lsb(lo);                // lower 7 bits (bit7=0)
+    ch.write_prescaler_lsb(0x80 | hi);         // upper 7 bits (bit7=1)
+    ch.write_prescaler_msb(0);                 // MSB=0
+    ch.write_frame(frame);
+    ch.set_bitlevel_mode(true);
+}
+
+// Advance TX engine until it enters `target` state (return true) or until
+// max_ticks elapses (return false). Must be called while state != target,
+// otherwise returns false immediately (0 ticks).
+using TxState = UartChannel::TxState;
+bool tick_until_tx_state(UartChannel& ch, TxState target, size_t max_ticks) {
+    for (size_t i = 0; i < max_ticks; ++i) {
+        ch.tick_one_bit_clock();
+        if (ch.tx_state_live() == target) return true;
+    }
+    return false;
+}
+
+// Walk one whole bit-time (prescaler ticks) and sample the TX line at the
+// midpoint (half-prescaler in). This matches how a real UART receiver
+// samples at mid-bit and is stable against the tx_shift post-shift line
+// quirk (bit becomes visible *after* the tx_timer_expired tick).
+bool sample_mid_bit(UartChannel& ch, uint16_t prescaler) {
+    // Advance prescaler/2 ticks, sample, then advance the remainder.
+    uint16_t half = static_cast<uint16_t>(prescaler / 2);
+    for (uint16_t i = 0; i < half; ++i) ch.tick_one_bit_clock();
+    bool sample = ch.tx_line_out();
+    for (uint16_t i = half; i < prescaler; ++i) ch.tick_one_bit_clock();
+    return sample;
+}
+
 } // namespace
 
 // ══════════════════════════════════════════════════════════════════════
@@ -320,14 +367,59 @@ static void test_group2_frame() {
               fmt("status=0x%02x", status));
     }
 
-    // FRM-05 - TX break (frame bit 6) drives TX line low with o_busy=1;
-    //          uart_tx.vhd holds the line. Not observable via the public
-    //          Uart API (no TX line sampling, no busy flag accessor).
-    skip("FRM-05", "uart_tx.vhd - TX break line state not exposed by Uart API");
+    // FRM-05 - uart_tx.vhd:234 `o_busy = 1 when state /= S_IDLE OR i_frame(7)=1
+    //          OR i_frame(6)=1`. With no FIFO content, state stays S_IDLE,
+    //          so only the frame-bit gates should drive busy. Verify both
+    //          frame(7) (reset-hold) and frame(6) (break-hold) raise o_busy
+    //          regardless of FIFO state.
+    {
+        UartChannel& ch = uart.channel(0);
 
-    // FRM-06 - uart_tx.vhd samples framing_r at transmission start;
-    //          requires bit-level TX trace which the emulator does not model.
-    skip("FRM-06", "uart_tx.vhd - bit-level framing snapshot not modelled");
+        // (a) frame(7)=1 (reset held): o_busy=1, regardless of FIFO.
+        bitlevel_setup(ch, 0x98, 4);           // 0x98 = reset | 8N1
+        ch.tick_one_bit_clock();               // let snapshot settle
+        bool busy_reset = ch.tx_busy_bitlevel();
+
+        // (b) frame(6)=1 (break held), FIFO empty: o_busy=1.
+        bitlevel_setup(ch, 0x58, 4);           // 0x58 = break | 8N1
+        ch.tick_one_bit_clock();
+        bool busy_break = ch.tx_busy_bitlevel();
+
+        check("FRM-05",
+              "uart_tx.vhd:234 - o_busy raised by frame(7) reset OR frame(6) break",
+              busy_reset && busy_break,
+              fmt("busy_reset=%d busy_break=%d", busy_reset, busy_break));
+    }
+
+    // FRM-06 - uart_tx.vhd:107-114 samples i_frame(2), i_frame(0) and
+    //          i_prescaler at S_IDLE on each falling edge; once the TX
+    //          engine leaves S_IDLE those snapshots are held for the whole
+    //          frame, so mid-byte frame writes must not disturb the
+    //          in-flight bit pattern. Send 0xAA, step into S_BITS, rewrite
+    //          the framing register, then step to completion and verify
+    //          tx_shift_ drained down to 0x00 (all 8 bits of 0xAA shifted
+    //          through) regardless of the mid-flight frame overwrite.
+    {
+        UartChannel& ch = uart.channel(0);
+        bitlevel_setup(ch, 0x18, 4);           // 8N1
+        ch.write_tx(0xAA);
+        // Enter S_BITS (via IDLE -> START -> BITS).
+        bool entered = tick_until_tx_state(ch, TxState::S_BITS, 50);
+        // Mid-byte: write a different framing value (still 8N1 but with
+        // flow/odd-parity bits set). VHDL snapshot must ignore this.
+        ch.write_frame(0x1F);                  // 8O1+parity, flow enable
+        // Continue ticking to run out the frame. Generous budget:
+        // 8 bits * 4 prescaler + stop bits = ~40 ticks.
+        bool drained = tick_until_tx_state(ch, TxState::S_IDLE, 200);
+        // Back in S_IDLE: tx_shift_ should have fully shifted the 0xAA
+        // down to 0x00 — confirms the original 8-data-bit frame ran to
+        // completion despite the mid-byte rewrite.
+        uint8_t final_shift = ch.tx_shift_reg_live();
+        check("FRM-06",
+              "uart_tx.vhd:107-114 - frame snapshot at S_IDLE honoured across mid-byte write",
+              entered && drained && final_shift == 0x00,
+              fmt("entered=%d drained=%d final_shift=0x%02x", entered, drained, final_shift));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -413,11 +505,36 @@ static void test_group3_prescaler() {
               fmt("uart0=%u uart1=%u", m0, m1));
     }
 
-    // BAUD-07 - uart_tx.vhd/uart_rx.vhd sample the prescaler at the start
-    //           of a transfer; the emulator treats TX as a single-step
-    //           delay (uart.cpp:53-57) so mid-byte re-timing is not
-    //           observable.
-    skip("BAUD-07", "uart_tx.vhd - mid-byte prescaler snapshot not modelled");
+    // BAUD-07 - uart_tx.vhd:86,111 tx_prescaler snapshot is taken from
+    //           i_prescaler at S_IDLE on the falling edge, then held for
+    //           the whole frame. Mid-byte prescaler writes must not change
+    //           the in-flight timer cadence. Start sending 0xAA, enter
+    //           S_BITS, double the prescaler, and verify the frame still
+    //           completes — if the snapshot were honoured the byte runs
+    //           at the ORIGINAL prescaler; if it were ignored the engine
+    //           would either drag out the remaining bits (tick budget
+    //           runs out) or complete faster than a byte running at the
+    //           new prescaler.
+    {
+        UartChannel& ch = uart.channel(0);
+        bitlevel_setup(ch, 0x18, 4);           // 8N1, prescaler=4
+        ch.write_tx(0xAA);
+        // Enter S_BITS first.
+        bool entered = tick_until_tx_state(ch, TxState::S_BITS, 50);
+        // Mid-byte: double the prescaler to 8. If honoured, frame runs at
+        // the original p=4 cadence (~40 ticks total remaining).
+        ch.write_prescaler_lsb(0x80);          // clear upper 7 bits
+        ch.write_prescaler_lsb(0x00);          // clear lower 7
+        ch.write_prescaler_lsb(0x08);          // lower 7 = 8
+        // With snapshot honoured, the frame must complete in a budget
+        // consistent with the ORIGINAL prescaler (~40 ticks). Give it 50
+        // ticks (enough for p=4 but not enough for p=8 worth of ~80).
+        bool drained_quick = tick_until_tx_state(ch, TxState::S_IDLE, 50);
+        check("BAUD-07",
+              "uart_tx.vhd:86,111 - prescaler snapshot at S_IDLE honoured across mid-byte write",
+              entered && drained_quick,
+              fmt("entered=%d drained_quick=%d", entered, drained_quick));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -483,11 +600,37 @@ static void test_group4_tx() {
               fmt("status=0x%02x", status));
     }
 
-    // TX-05 - uart.vhd tx_fifo_we = uart_tx_wr AND NOT uart_tx_wr_d AND
-    //         NOT full: write pulse is edge-triggered. The test harness
-    //         cannot hold an i/o write signal asserted across cycles
-    //         through the Uart::write() API.
-    skip("TX-05", "uart.vhd - TX FIFO write edge detection not reachable through write() API");
+    // TX-05 - uart.vhd:529 `uart0_tx_fifo_we <= uart0_tx_wr and (not
+    //         uart0_tx_wr_d) and not uart0_tx_fifo_full` — the FIFO is
+    //         written exactly once per CPU I/O strobe (edge-detected).
+    //         Verify the observable VHDL contract at the CPU/emu boundary:
+    //         N distinct `write()` calls enqueue exactly N bytes (not N-1,
+    //         not N+1) — i.e., each call is its own edge, and bytes are
+    //         not double-counted. We transmit via the byte-level `tick()`
+    //         path and confirm the loopback delivers exactly N bytes back
+    //         to the RX FIFO in order.
+    {
+        uart.hard_reset();
+        const uint8_t pattern[] = {0x10, 0x20, 0x30, 0x40};
+        for (uint8_t b : pattern) uart.write(REG_TX, b);
+        // Drain the FIFO through the byte-level transmitter (loopback →
+        // RX FIFO). Each byte takes `frame_bits * prescaler` ticks at
+        // default 8N1 + 243 = 10*243=2430; 4 bytes * 2500 ticks budget.
+        uart.tick(12000);
+        // Read back from RX FIFO (loopback): should be exactly 4 bytes
+        // in original order. A spurious double-push from non-edge-
+        // detected write() would show up here as extra bytes.
+        uint8_t rx[5] = {0,0,0,0,0};
+        for (int i = 0; i < 5; ++i) rx[i] = uart.read(REG_RX);
+        uint8_t after_last = uart.channel(0).read_status();
+        bool seq_ok = rx[0] == 0x10 && rx[1] == 0x20 && rx[2] == 0x30 && rx[3] == 0x40;
+        bool no_extra = rx[4] == 0x00 && (after_last & 0x01) == 0;  // rx_avail=0
+        check("TX-05",
+              "uart.vhd:529 - 4 CPU writes enqueue exactly 4 FIFO entries (edge-triggered)",
+              seq_ok && no_extra,
+              fmt("rx=[%02x,%02x,%02x,%02x,%02x] status=0x%02x",
+                  rx[0], rx[1], rx[2], rx[3], rx[4], after_last));
+    }
 
     // TX-06 - uart.vhd:302 framing bit 7 asserted triggers uartN_fifo_reset
     //         (see line 536), clearing TX FIFO as well as errors.
@@ -502,20 +645,144 @@ static void test_group4_tx() {
               fmt("status=0x%02x", status));
     }
 
-    // TX-07 - uart_tx.vhd break state: frame(6)=1 holds TX line low and
-    //         raises o_busy; no observable signal in the emulator.
-    skip("TX-07", "uart_tx.vhd - TX break line state not exposed");
+    // TX-07 - uart_tx.vhd:239 `S_IDLE => o_Tx <= not i_frame(6)`. When the
+    //         break bit is asserted (frame(6)=1) the TX line goes LOW and
+    //         stays there while the engine is parked in S_IDLE (no byte
+    //         pending). Flip bit-level mode on, set frame(6), tick the
+    //         engine and verify tx_line_out() == false.
+    {
+        UartChannel& ch = uart.channel(0);
+        bitlevel_setup(ch, 0x58, 4);           // break | 8N1, FIFO empty
+        // Let the engine settle: a few ticks of S_IDLE + break gate.
+        for (int i = 0; i < 4; ++i) ch.tick_one_bit_clock();
+        bool line_low = !ch.tx_line_out();
+        check("TX-07",
+              "uart_tx.vhd:239 - S_IDLE with frame(6)=1 holds o_Tx low",
+              line_low,
+              fmt("line=%d expected=0", ch.tx_line_out()));
+    }
 
-    // TX-08..TX-14 exercise bit-level line encoding (start/data/stop,
-    //         parity, flow control). uart.cpp models the transmitter as a
-    //         timed byte-delay with no per-bit output; not observable.
-    skip("TX-08", "uart_tx.vhd - bit-level TX encoding not modelled");
-    skip("TX-09", "uart_tx.vhd - 7E2 bit-level encoding not modelled");
-    skip("TX-10", "uart_tx.vhd - 5O1 bit-level encoding not modelled");
-    skip("TX-11", "uart_tx.vhd - CTS_n flow-control input not plumbed");
-    skip("TX-12", "uart_tx.vhd - CTS_n flow-control input not plumbed");
-    skip("TX-13", "uart_tx.vhd - parity generation not modelled");
-    skip("TX-14", "uart_tx.vhd - parity generation not modelled");
+    // TX-08 - uart_tx.vhd:236-245 bit-level TX line encoding for 8N1.
+    //         Send 0x55 (binary 01010101). LSB-first per uart_tx.vhd:124
+    //         shift direction. Expected TX line sequence:
+    //           S_IDLE  = 1 (idle high)
+    //           S_START = 0 (start bit)
+    //           S_BITS  = bit 0..7 of 0x55 LSB-first = 1,0,1,0,1,0,1,0
+    //           S_STOP_1 = 1 (stop bit)
+    //           S_IDLE  = 1
+    //         Sample each bit at mid-prescaler to match a receiver's
+    //         mid-bit sample point.
+    {
+        UartChannel& ch = uart.channel(0);
+        const uint16_t P = 8;                  // prescaler=8 for clean mid-bit sampling
+        bitlevel_setup(ch, 0x18, P);           // 8N1
+        ch.write_tx(0x55);
+        // Wait until engine enters S_START (idle -> start transition).
+        bool in_start = tick_until_tx_state(ch, TxState::S_START, 20);
+        bool start_low = sample_mid_bit(ch, P) == false;
+        // Data bits, LSB-first for 0x55: 1,0,1,0,1,0,1,0
+        const bool expected[8] = {true, false, true, false, true, false, true, false};
+        bool data_ok = true;
+        bool data[8] = {};
+        for (int i = 0; i < 8; ++i) {
+            data[i] = sample_mid_bit(ch, P);
+            if (data[i] != expected[i]) data_ok = false;
+        }
+        // Stop bit: sample at mid-point. With 1 stop bit we're in S_STOP_1.
+        bool stop_high = sample_mid_bit(ch, P) == true;
+        check("TX-08",
+              "uart_tx.vhd:236-245 - 8N1 bit pattern for 0x55 LSB-first",
+              in_start && start_low && data_ok && stop_high,
+              fmt("start=%d data=[%d%d%d%d%d%d%d%d] stop=%d",
+                  start_low ? 0 : 1,
+                  data[0], data[1], data[2], data[3],
+                  data[4], data[5], data[6], data[7],
+                  stop_high ? 1 : 0));
+    }
+
+    // TX-09 - uart_tx.vhd:152,216-225 7E2 framing (7 data, even parity, 2
+    //         stops). Frame encoding: #bits="10", parity_en=1, odd=0,
+    //         stop=1. => 0x15.  VHDL expects: for 0x7F (7 ones) with even
+    //         parity (init=frame(1)=0), final parity = XOR(bit0..bit6) = 1.
+    //         **Blocked by Phase-1 scaffold bug**: uart.cpp tx_engine_step()
+    //         computes the shift (line 377) BEFORE the parity XOR (line
+    //         395), so tx_parity_live_ ^= tx_shift_&1 uses the POST-shift
+    //         LSB (i.e. bit 1 of original byte, then bit 2, …, plus a
+    //         spurious trailing 0). VHDL registers both concurrently on
+    //         the rising edge so the XOR should use the PRE-shift LSB.
+    //         Un-skip when uart.cpp:395 moves above uart.cpp:377 (or
+    //         equivalent pre-shift snapshot) is landed.
+    skip("TX-09",
+         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
+         "tx_parity_live_ uses post-shift tx_shift_&1 (line 395 vs shift at line 377); "
+         "fix required before 7E2 even-parity can be asserted");
+
+    // TX-10 - uart_tx.vhd 5O1 framing (5 data, odd parity, 1 stop). Frame
+    //         encoding: #bits="00", parity_en=1, odd=1, stop=0 => 0x06.
+    //         VHDL expects: for 0x0F lower-5 = 01111 with odd parity
+    //         (init=1), final = 1 XOR 4 ones = 1.
+    //         **Blocked by same Phase-1 scaffold bug as TX-09**
+    //         (uart.cpp:377 shift before uart.cpp:395 parity XOR).
+    skip("TX-10",
+         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
+         "same root cause as TX-09 — parity XOR uses post-shift LSB");
+
+    // TX-11 - uart_tx.vhd:180-192 CTS flow control hold: with frame(5)=1
+    //         (flow enable) and i_cts_n=1 (not clear to send), the engine
+    //         transitions IDLE -> S_RTR and stays there waiting. The TX
+    //         line stays idle-high throughout.
+    {
+        UartChannel& ch = uart.channel(0);
+        bitlevel_setup(ch, 0x38, 4);           // 0x38 = flow_en | 8N1
+        ch.set_cts_n(true);                    // NOT clear to send
+        ch.write_tx(0x55);
+        // Advance many ticks; engine must park in S_RTR.
+        for (int i = 0; i < 100; ++i) ch.tick_one_bit_clock();
+        bool in_rtr = (ch.tx_state_live() == TxState::S_RTR);
+        bool line_idle = ch.tx_line_out() == true;
+        check("TX-11",
+              "uart_tx.vhd:180-192 - flow_en + CTS#=1 parks engine in S_RTR, line idle",
+              in_rtr && line_idle,
+              fmt("state=%d line=%d (expected S_RTR=%d, line=1)",
+                  (int)ch.tx_state_live(), ch.tx_line_out(), (int)TxState::S_RTR));
+    }
+
+    // TX-12 - uart_tx.vhd:187-192 CTS release: from S_RTR, asserting
+    //         i_cts_n=0 (clear to send) lets the engine advance to
+    //         S_START on the next tick.
+    {
+        UartChannel& ch = uart.channel(0);
+        bitlevel_setup(ch, 0x38, 4);           // flow_en | 8N1
+        ch.set_cts_n(true);
+        ch.write_tx(0x55);
+        // Park in S_RTR.
+        for (int i = 0; i < 20; ++i) ch.tick_one_bit_clock();
+        bool in_rtr = (ch.tx_state_live() == TxState::S_RTR);
+        // Release CTS.
+        ch.set_cts_n(false);
+        // One tick to reach S_START.
+        bool reached_start = tick_until_tx_state(ch, TxState::S_START, 10);
+        check("TX-12",
+              "uart_tx.vhd:187-192 - CTS# release (0) advances S_RTR -> S_START",
+              in_rtr && reached_start,
+              fmt("was_rtr=%d reached_start=%d", in_rtr, reached_start));
+    }
+
+    // TX-13 - uart_tx.vhd:153,156 even parity calculation. Init =
+    //         frame(1) = 0; XOR each data LSB *pre-shift*. Send 0x0F (4
+    //         ones) → parity = 0; send 0x1F (5 ones) → parity = 1.
+    //         **Blocked by Phase-1 scaffold bug**: parity XOR uses
+    //         post-shift LSB (see TX-09/TX-10 notes).
+    skip("TX-13",
+         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
+         "even-parity assertions blocked by post-shift LSB XOR");
+
+    // TX-14 - uart_tx.vhd:153,156 odd parity: init = frame(1) = 1.
+    //         0x0F (4 ones) → 1; 0x1F (5 ones) → 0.
+    //         **Blocked by same Phase-1 scaffold bug as TX-13.**
+    skip("TX-14",
+         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
+         "odd-parity assertions blocked by post-shift LSB XOR");
 }
 
 // ══════════════════════════════════════════════════════════════════════
