@@ -316,20 +316,27 @@ static void test_fe_read(Emulator& emu) {
     // src/core/emulator.cpp:1166 assembles 0xE0 | (cols & 0x1F) with no
     // border term; the OUT handler at :1182 only calls
     // renderer_.ula().set_border().
-    // Test: write OUT 0xFE,0x05 (border = 5 = CYAN). The border bits
-    // 2..0 of the read byte must be 0x1F's low 3 bits (= 111), not the
-    // border value (= 101). Idle no-key-pressed read is 0xFF.
+    // Strengthened assertion (Wave D critic follow-up): sweep three
+    // border values (0x00, 0x05, 0x07). If border leaked into the read
+    // path at all, the low-3 bits of the read byte would track the
+    // border value across the sweep (0x00 → 0x00, 0x05 → 0x05, 0x07 →
+    // 0x07). Instead all three reads must return an identical full
+    // 0xFF byte (idle, no keys, bits [4:0] = 0x1F, low3 = 0x07).
     {
         fresh(emu);
+        emu.port().out(0x00FE, 0x00);            // border = 0 (BLACK)
+        const uint8_t v0 = read_fe(emu, 0xFE);
         emu.port().out(0x00FE, 0x05);            // border = 5 (CYAN)
-        const uint8_t v = read_fe(emu, 0xFE);    // row 0 selected, no key
-        const uint8_t low3 = v & 0x07;
+        const uint8_t v5 = read_fe(emu, 0xFE);
+        emu.port().out(0x00FE, 0x07);            // border = 7 (WHITE)
+        const uint8_t v7 = read_fe(emu, 0xFE);
+        const bool all_full = (v0 == 0xFF) && (v5 == 0xFF) && (v7 == 0xFF);
         check("BP-04",
-              "port 0xFE READ — border bits [2:0] NOT exposed (border is OUT-only)  "
+              "port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep  "
               "(zxnext.vhd:3459+3604; emulator.cpp:1163-1185)",
-              v == 0xFF && low3 == 0x07,
-              "got=" + hex2(v) + " low3=" + hex2(low3) +
-              " border-write=0x05 (expect full=0xFF, low3=0x07)");
+              all_full,
+              "v0=" + hex2(v0) + " v5=" + hex2(v5) + " v7=" + hex2(v7) +
+              " (expect 0xFF on all three — border must not leak into read)");
     }
 
     // BP-20: port 0xFE READ — bit 6 = EAR OR port_fe_ear.
