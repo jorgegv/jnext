@@ -35,18 +35,17 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     uint16_t dac_L = dac.pcm_left() << 2;   // 9-bit × 4
     uint16_t dac_R = dac.pcm_right() << 2;
 
-    uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L;
-    uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R;
-
     // Pi I2S term: mirrors audio_mixer.vhd:89-90 (10-bit zero-extended
-    // to 13-bit) and :99-100 (added into the 13-bit PCM sum). The
-    // Mixer does not own the I2s; Emulator wires it via
-    // set_i2s_source(). When unwired, the term is 0 (silence), so
-    // existing tests / saves continue to observe the same output.
-    if (i2s_) {
-        pcm_L = static_cast<uint16_t>(pcm_L + i2s_->left());
-        pcm_R = static_cast<uint16_t>(pcm_R + i2s_->right());
-    }
+    // to 13-bit). Mixer does not own the I2s; Emulator wires it via
+    // set_i2s_source(). When unwired, the term is 0 (silence).
+    uint16_t i2s_L = i2s_ ? i2s_->left()  : 0u;   // 0..1023
+    uint16_t i2s_R = i2s_ ? i2s_->right() : 0u;
+
+    // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
+    // domain; uint16_t is a superset of 13-bit-unsigned so no clamping
+    // is needed at this point.
+    uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L + i2s_L;
+    uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R + i2s_R;
 
     // Convert to signed 16-bit.  Center at the resting DC level so that
     // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,
