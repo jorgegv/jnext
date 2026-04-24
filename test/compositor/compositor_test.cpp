@@ -1423,22 +1423,19 @@ static void test_STEN() {
 //     ula_integration_test. Cross-subsystem infra change; re-homing to a
 //     new compositor_integration_test is the cleaner landing place.
 //
-//   * UDIS-02 — mid-scanline NR 0x68 toggle requires a functional Copper
-//     MOVE (NR 0x60/0x61/0x62 scripting + Copper::tick wiring to
-//     nextreg_.write). Copper has been intentionally stubbed per
-//     src/peripheral/copper.cpp; a 2026-04-20 emulator NMI-plumbing
-//     audit deferred this. Row is F-blocked on Copper MOVE, not on the
-//     compositor itself.
+//   * UDIS-02 — mid-scanline NR 0x68 toggle needs per-scanline Copper tick
+//     during a full Renderer::render_frame() loop. Copper MOVE is fully
+//     implemented (src/peripheral/copper.cpp:75-154 executor, :148 calls
+//     nextreg.write; ticked from emulator.cpp:2615, :2796). Real blocker
+//     is the integration-level fixture (same as UDIS-01), not Copper.
 //
-//   * UDIS-03 — NR 0x68 bits 6:5 (ula_blend_mode) feed mix_rgb/mix_top/
-//     mix_bot at VHDL zxnext.vhd:7141-7178. Those signals are only
-//     consumed by NR 0x15 layer_priority modes 110/111 (VHDL 7286-7356).
-//     The emulator has no blend-mode 110/111 implementation — see Group
-//     BL comment in this file ("The emulator has no blend implementation —
-//     the Renderer falls back to SLU for modes 6/7 (renderer.cpp ~259)").
-//     UDIS-03 is a user-visible consequence of that same gap; closing it
-//     requires the full blend-mode pipeline (Task 3 BL backlog), not a
-//     local Renderer::set_blend_mode wiring. Covered by BL group today.
+//   * UDIS-03 — NR 0x68 bits 6:5 (ula_blend_mode) are dropped by the
+//     emulator's NR 0x68 handler at emulator.cpp:816-825 (only bits
+//     7/3/2/0 are consumed). Priority modes 6/7 ARE implemented at
+//     renderer.cpp:335-403 and exercised by Group BL. Closing UDIS-03
+//     requires: (a) Renderer::set_blend_mode(uint8_t) accessor, (b) NR
+//     0x68 handler to decode bits 6:5 and route to it. BL-backlog
+//     adjacent; deferred as a small follow-up.
 
 static void test_UDIS() {
     set_group("UDIS");
