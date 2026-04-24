@@ -23,30 +23,30 @@ public:
 
 /// DS1307-compatible RTC backed by the host system clock.
 ///
-/// I2C address 0x68.  Supports reading time registers 0x00-0x06
-/// (seconds, minutes, hours, day-of-week, date, month, year) in BCD.
+/// I2C address 0x68.  Supports the full DS1307 register map:
+///   0x00-0x06 time/date (BCD: seconds, minutes, hours, day-of-week, date,
+///             month, year)
+///   0x07      control register
+///   0x08-0x3F NVRAM (56 bytes)
 ///
-/// Phase-1 (Task 3 UART+I2C plan) storage widening:
-///   * `regs_` expanded from 8 bytes to 64 bytes per DS1307 datasheet (0x00-0x07
-///     clock + control, 0x08-0x3F NVRAM).
-///   * `use_real_time_` flag gates the host-clock snapshot: when true (default),
-///     `start()` refreshes regs_[0..6] from the host clock; when false, Wave-E
-///     tests can `poke_register` arbitrary BCD values and read them back.
-///   * `osc_halt_` / `mode_12h_` feature flags are scaffolded here — the
-///     transfer() path is unchanged in Phase 1 so the 58 existing passes
-///     stay green. Wave E extends transfer() to honour them.
+/// Address pointer auto-increments on each byte transfer and wraps
+/// 0x3F → 0x00 (DS1307 datasheet §Address Autoincrement).
+///
+/// In the default configuration `use_real_time_` is true and calls to
+/// `snapshot_time()` refresh regs_[0..6] with the host time.  Setting
+/// `use_real_time_` to false (tests or deterministic replay) freezes
+/// the clock registers so writes can be read back verbatim. `osc_halt_`
+/// (seconds bit 7, CH bit) also freezes the clock when set, per the
+/// DS1307 datasheet; `mode_12h_` tracks hours-reg bit 6.
+///
+/// Phase-1 scaffold (main) added the 64-byte storage, CH / 12h / use_real_time
+/// flags, and poke/peek test accessors. Wave E activates them in `transfer()`
+/// (write-path, pointer wrap at 0x3F, 12h mode honouring, CH freeze).
 class I2cRtc : public I2cDevice {
 public:
     I2cRtc();
 
-    void reset() {
-        reg_ptr_ = 0;
-        addr_set_ = false;
-        regs_.fill(0);
-        osc_halt_ = false;
-        mode_12h_ = false;
-        use_real_time_ = true;
-    }
+    void reset();
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -59,8 +59,7 @@ public:
     //
     // Wave-E of the UART+I2C plan seeds BCD register values directly and
     // freezes the host-clock snapshot. These accessors MUST NOT be called
-    // from production code paths (emulator, debugger UI). The `_dbg` / `_live`
-    // naming pattern matches UartChannel's fenced block.
+    // from production code paths (emulator, debugger UI).
 
     /// Enable/disable the host-clock snapshot (default true).
     /// When `false`, start()/snapshot_time() do not refresh regs_[0..6],
@@ -69,14 +68,10 @@ public:
     bool use_real_time() const { return use_real_time_; }
 
     /// Write one register directly (bypasses the I2C protocol).
-    void poke_register(uint8_t addr, uint8_t val) {
-        if (addr < regs_.size()) regs_[addr] = val;
-    }
+    void poke_register(uint8_t addr, uint8_t val) { regs_[addr & 0x3F] = val; }
 
     /// Read one register directly (bypasses the I2C protocol).
-    uint8_t peek_register(uint8_t addr) const {
-        return (addr < regs_.size()) ? regs_[addr] : 0x00;
-    }
+    uint8_t peek_register(uint8_t addr) const { return regs_[addr & 0x3F]; }
 
     /// CH (Clock Halt) bit — bit 7 of seconds register 0x00 per DS1307 datasheet.
     bool ch_bit() const { return osc_halt_; }
@@ -89,19 +84,15 @@ private:
     static uint8_t to_bcd(int val);
     void snapshot_time();
 
-    uint8_t reg_ptr_ = 0;                   // current register pointer
-    bool    addr_set_ = false;              // true after first write sets pointer
-
-    // CHANGED in Phase 1: storage widened from 8 to 64 bytes so NVRAM
-    // registers 0x08-0x3F are addressable per the DS1307 datasheet. Phase-1
-    // behaviour: transfer() still uses the 0x07 wrap to preserve the existing
-    // 58 passing rows. Wave E extends the wrap to 0x3F.
-    std::array<uint8_t, 64> regs_{};        // clock/control + NVRAM (BCD)
-
-    // Phase-1 feature-gap flags — tracked but not yet acted on by transfer().
-    bool    osc_halt_      = false;         // seconds reg bit 7 (CH)
-    bool    mode_12h_      = false;         // hours reg bit 6 (12/24)
-    bool    use_real_time_ = true;          // false → freeze the host snapshot
+    uint8_t reg_ptr_  = 0;              // current register pointer (0x00-0x3F)
+    bool    addr_set_ = false;          // true after first write sets register pointer
+    bool    osc_halt_ = false;          // CH bit (reg 0x00 bit 7); when set the
+                                        // time registers are frozen
+    bool    mode_12h_ = false;          // reg 0x02 bit 6 — 12-hour mode
+    bool    use_real_time_ = true;      // if false, snapshot_time() is a no-op
+    std::array<uint8_t, 64> regs_{};    // full DS1307 register map + NVRAM (BCD
+                                        // time at 0x00..0x06, ctrl at 0x07,
+                                        // NVRAM 0x08..0x3F)
 };
 
 /// I2C bus controller — decodes bit-bang protocol from port writes.
@@ -136,6 +127,15 @@ public:
     /// Per zxnext.vhd:3266 the read value ANDs the internal SDA with the
     /// pi_i2c1_sda input (pulled high when no Pi is attached).
     uint8_t read_sda() const;
+
+    /// Drive the Raspberry Pi I2C bridge inputs (zxnext.vhd:3259/3266).
+    /// Both signals are open-drain / wired-AND with the local SCL/SDA
+    /// outputs; pulling either line low on the Pi side forces the
+    /// corresponding CPU read to 0.  Default state is high (released).
+    void set_pi_i2c1(bool scl, bool sda) {
+        pi_i2c1_scl_ = scl ? 1 : 0;
+        pi_i2c1_sda_ = sda ? 1 : 0;
+    }
 
     /// Attach a device at the given 7-bit I2C address.
     void attach_device(uint8_t address, I2cDevice* device);
@@ -183,10 +183,11 @@ private:
     uint8_t prev_scl_ = 1;
     uint8_t prev_sda_ = 1;
 
-    // Raspberry Pi I2C bus 1 inputs — AND-ed into read_scl()/read_sda()
-    // per zxnext.vhd:3259, 3266. Default released (1).
-    bool pi_i2c1_scl_ = true;
-    bool pi_i2c1_sda_ = true;
+    // Raspberry Pi I2C bridge inputs (zxnext.vhd:3259/3266). Default
+    // released high; set to 0 to pull the corresponding line low on
+    // the read path only (AND-gate).
+    uint8_t pi_i2c1_scl_ = 1;
+    uint8_t pi_i2c1_sda_ = 1;
 
     // Protocol state
     State    state_ = State::IDLE;
