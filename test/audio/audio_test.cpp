@@ -1615,10 +1615,16 @@ static void g_ts_stereo() {
                   ts.pcm_left(), ts.pcm_right()));
     }
 
-    // A: TS-24: single global stereo_mode bit for all three PSGs — covered
-    // structurally by TS-20 / TS-21 (ABC vs ACB stereo mode tests). One
-    // bit governs all three panners, so any single-PSG correctness proves
-    // the global semantics.
+    // TS-24 - single global stereo_mode bit governs all three PSGs. Phase 0
+    // critic APPROVE pointed at TS-20/TS-21 but those only prove the bit
+    // works per-PSG; proving *one* bit governs *all three* requires a
+    // test that switches modes and observes all three panners respond
+    // together. Current TS harness can't exercise that in a single-PSG
+    // test. F-skip for follow-up Wave E (per-PSG isolation extension).
+    skip("TS-24",
+         "F-TS-GLOBAL-STEREO: one-bit-governs-all-three not provable "
+         "by TS-20/21 single-PSG tests. Needs multi-PSG simultaneous-"
+         "mode-switch assertion. turbosound.vhd stereo_mode signal.");
 }
 
 static void g_ts_enable() {
@@ -1659,10 +1665,16 @@ static void g_ts_enable() {
                   ts.pcm_left()));
     }
 
-    // A: TS-32..34: per-PSG zero gating (turbosound.vhd:197/252/307) — covered
-    // in aggregate by TS-30 (disabled = PSG0 only, non-zero) and TS-31
-    // (enabled = all three contribute, sum > 0xFF). If any per-PSG gate
-    // were broken, either the zero case or the sum threshold would fail.
+    // TS-32 / TS-33 / TS-34 - per-PSG zero gating at turbosound.vhd:197/252/307.
+    // TS-30 (disabled = PSG0 only) and TS-31 (enabled sum > 0xFF) cannot
+    // distinguish which specific PSG contributes: a PSG2-stuck-closed bug
+    // would still satisfy both thresholds because PSG0+PSG1 contribute
+    // enough to clear L>0xFF. F-skip for follow-up Wave E (per-PSG
+    // isolation extension) — needs single-PSG-non-zero + other-two-zero
+    // assertion per gate.
+    skip("TS-32", "F-TS-PSG0-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
+    skip("TS-33", "F-TS-PSG1-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
+    skip("TS-34", "F-TS-PSG2-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
 }
 
 static void g_ts_panning() {
