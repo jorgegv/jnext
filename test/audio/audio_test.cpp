@@ -1616,16 +1616,70 @@ static void g_ts_stereo() {
                   ts.pcm_left(), ts.pcm_right()));
     }
 
-    // TS-24 - single global stereo_mode bit governs all three PSGs. Phase 0
-    // critic APPROVE pointed at TS-20/TS-21 but those only prove the bit
-    // works per-PSG; proving *one* bit governs *all three* requires a
-    // test that switches modes and observes all three panners respond
-    // together. Current TS harness can't exercise that in a single-PSG
-    // test. F-skip for follow-up Wave E (per-PSG isolation extension).
-    skip("TS-24",
-         "F-TS-GLOBAL-STEREO: one-bit-governs-all-three not provable "
-         "by TS-20/21 single-PSG tests. Needs multi-PSG simultaneous-"
-         "mode-switch assertion. turbosound.vhd stereo_mode signal.");
+    // TS-24 - the single global stereo_mode bit governs ALL three PSG
+    // panners simultaneously (VHDL: stereo_mode_i feeds psg0_L_mux line
+    // 186, psg1_L_mux line 241, psg2_L_mux line 296). Setup: activate
+    // all three PSGs with DISTINCT B values, A=C=0, mixer off. In ABC
+    // mode L_mux=B so every PSG contributes B_i to L; in ACB mode
+    // L_mux=C=0 so every PSG contributes 0 to L. If only one (or two)
+    // PSG's panner responded to the mode bit, the ACB total would still
+    // contain the residual B contributions from the non-responding
+    // PSG(s); it must collapse to exactly 0 to prove all three responded.
+    {
+        TurboSound ts_abc;
+        ts_abc.set_enabled(true);
+        ts_abc.set_ay_mode(true);
+        ts_abc.set_stereo_mode(false);  // ABC
+        // PSG0: B = 0x0F (vol_ay[15] = 0xFF contribution)
+        ts_abc.reg_addr(0xFF);
+        ts_abc.reg_addr(7);  ts_abc.reg_write(0x3F);
+        ts_abc.reg_addr(8);  ts_abc.reg_write(0x00);
+        ts_abc.reg_addr(9);  ts_abc.reg_write(0x0F);
+        ts_abc.reg_addr(10); ts_abc.reg_write(0x00);
+        // PSG1: B = 0x09 (vol_ay[9] = 0x41)
+        ts_abc.reg_addr(0xFE);
+        ts_abc.reg_addr(7);  ts_abc.reg_write(0x3F);
+        ts_abc.reg_addr(8);  ts_abc.reg_write(0x00);
+        ts_abc.reg_addr(9);  ts_abc.reg_write(0x09);
+        ts_abc.reg_addr(10); ts_abc.reg_write(0x00);
+        // PSG2: B = 0x05 (vol_ay[5] = 0x0F)
+        ts_abc.reg_addr(0xFD);
+        ts_abc.reg_addr(7);  ts_abc.reg_write(0x3F);
+        ts_abc.reg_addr(8);  ts_abc.reg_write(0x00);
+        ts_abc.reg_addr(9);  ts_abc.reg_write(0x05);
+        ts_abc.reg_addr(10); ts_abc.reg_write(0x00);
+        settle(ts_abc);
+        uint16_t L_abc = ts_abc.pcm_left();
+
+        TurboSound ts_acb;
+        ts_acb.set_enabled(true);
+        ts_acb.set_ay_mode(true);
+        ts_acb.set_stereo_mode(true);  // ACB — L_mux swaps from B to C
+        ts_acb.reg_addr(0xFF);
+        ts_acb.reg_addr(7);  ts_acb.reg_write(0x3F);
+        ts_acb.reg_addr(8);  ts_acb.reg_write(0x00);
+        ts_acb.reg_addr(9);  ts_acb.reg_write(0x0F);
+        ts_acb.reg_addr(10); ts_acb.reg_write(0x00);
+        ts_acb.reg_addr(0xFE);
+        ts_acb.reg_addr(7);  ts_acb.reg_write(0x3F);
+        ts_acb.reg_addr(8);  ts_acb.reg_write(0x00);
+        ts_acb.reg_addr(9);  ts_acb.reg_write(0x09);
+        ts_acb.reg_addr(10); ts_acb.reg_write(0x00);
+        ts_acb.reg_addr(0xFD);
+        ts_acb.reg_addr(7);  ts_acb.reg_write(0x3F);
+        ts_acb.reg_addr(8);  ts_acb.reg_write(0x00);
+        ts_acb.reg_addr(9);  ts_acb.reg_write(0x05);
+        ts_acb.reg_addr(10); ts_acb.reg_write(0x00);
+        settle(ts_acb);
+        uint16_t L_acb = ts_acb.pcm_left();
+
+        // ABC: L = B0+B1+B2 > 0. ACB: L = C0+C1+C2 = 0. A per-PSG
+        // non-response would leave one of {0xFF, 0x41, 0x0F} on ACB L.
+        check("TS-24", "global stereo_mode flips L_mux on all 3 PSGs",
+              L_abc > 0 && L_acb == 0,
+              fmt("L_abc=%u L_acb=%u (must be 0) VHDL turbosound.vhd:186,241,296",
+                  L_abc, L_acb));
+    }
 }
 
 static void g_ts_enable() {
@@ -1666,16 +1720,87 @@ static void g_ts_enable() {
                   ts.pcm_left()));
     }
 
-    // TS-32 / TS-33 / TS-34 - per-PSG zero gating at turbosound.vhd:197/252/307.
-    // TS-30 (disabled = PSG0 only) and TS-31 (enabled sum > 0xFF) cannot
-    // distinguish which specific PSG contributes: a PSG2-stuck-closed bug
-    // would still satisfy both thresholds because PSG0+PSG1 contribute
-    // enough to clear L>0xFF. F-skip for follow-up Wave E (per-PSG
-    // isolation extension) — needs single-PSG-non-zero + other-two-zero
-    // assertion per gate.
-    skip("TS-32", "F-TS-PSG0-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
-    skip("TS-33", "F-TS-PSG1-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
-    skip("TS-34", "F-TS-PSG2-GATE: per-PSG isolation not provable from TS-30/31 aggregate");
+    // TS-32/33/34 - per-PSG zero gating is observable via a
+    // distinct-amplitude DROP test. VHDL turbosound.vhd:197/252/307 each
+    // zeroes its own PSG's L/R output when ts disabled AND that PSG not
+    // selected. Aggregate TS-30/31 can't distinguish which PSG contributes.
+    // Strategy: enable all three PSGs (ts enabled) with DISTINCT channel-A
+    // amplitudes (A0=0xFF, A1=0x41, A2=0x0F via vol_ay lookup), B=C=0,
+    // mixer off. Record baseline L_all. Then silence ONE PSG at a time by
+    // setting its R8=0, and assert the aggregate L drops by EXACTLY that
+    // PSG's contribution — proves isolation and identifies which gate is
+    // the one being exercised.
+    {
+        auto setup_all = [](TurboSound& ts) {
+            ts.set_enabled(true);
+            ts.set_ay_mode(true);
+            ts.set_stereo_mode(false);
+            // PSG0: A=0x0F -> out_a = vol_ay[15] = 0xFF
+            ts.reg_addr(0xFF);
+            ts.reg_addr(7);  ts.reg_write(0x3F);
+            ts.reg_addr(8);  ts.reg_write(0x0F);
+            ts.reg_addr(9);  ts.reg_write(0x00);
+            ts.reg_addr(10); ts.reg_write(0x00);
+            // PSG1: A=0x09 -> out_a = vol_ay[9] = 0x41
+            ts.reg_addr(0xFE);
+            ts.reg_addr(7);  ts.reg_write(0x3F);
+            ts.reg_addr(8);  ts.reg_write(0x09);
+            ts.reg_addr(9);  ts.reg_write(0x00);
+            ts.reg_addr(10); ts.reg_write(0x00);
+            // PSG2: A=0x05 -> out_a = vol_ay[5] = 0x0F
+            ts.reg_addr(0xFD);
+            ts.reg_addr(7);  ts.reg_write(0x3F);
+            ts.reg_addr(8);  ts.reg_write(0x05);
+            ts.reg_addr(9);  ts.reg_write(0x00);
+            ts.reg_addr(10); ts.reg_write(0x00);
+        };
+
+        // Baseline: all three PSGs active, distinct contributions.
+        TurboSound ts_all;
+        setup_all(ts_all);
+        settle(ts_all);
+        uint16_t L_all = ts_all.pcm_left();
+
+        // TS-32: silence PSG0 only (R8=0), keep PSG1+PSG2. Expected drop
+        // = 0xFF (PSG0's A contribution).
+        TurboSound ts_no0;
+        setup_all(ts_no0);
+        ts_no0.reg_addr(0xFF);
+        ts_no0.reg_addr(8); ts_no0.reg_write(0x00);
+        settle(ts_no0);
+        uint16_t L_no0 = ts_no0.pcm_left();
+        check("TS-32", "PSG0 silenced: aggregate L drops by PSG0's 0xFF",
+              L_all > L_no0 && (L_all - L_no0) == 0xFF,
+              fmt("L_all=%u L_no_psg0=%u drop=%u (expect 0xFF=255) "
+                  "VHDL turbosound.vhd:197",
+                  L_all, L_no0, L_all - L_no0));
+
+        // TS-33: silence PSG1 only. Expected drop = 0x41 (PSG1's A).
+        TurboSound ts_no1;
+        setup_all(ts_no1);
+        ts_no1.reg_addr(0xFE);
+        ts_no1.reg_addr(8); ts_no1.reg_write(0x00);
+        settle(ts_no1);
+        uint16_t L_no1 = ts_no1.pcm_left();
+        check("TS-33", "PSG1 silenced: aggregate L drops by PSG1's 0x41",
+              L_all > L_no1 && (L_all - L_no1) == 0x41,
+              fmt("L_all=%u L_no_psg1=%u drop=%u (expect 0x41=65) "
+                  "VHDL turbosound.vhd:252",
+                  L_all, L_no1, L_all - L_no1));
+
+        // TS-34: silence PSG2 only. Expected drop = 0x0F (PSG2's A).
+        TurboSound ts_no2;
+        setup_all(ts_no2);
+        ts_no2.reg_addr(0xFD);
+        ts_no2.reg_addr(8); ts_no2.reg_write(0x00);
+        settle(ts_no2);
+        uint16_t L_no2 = ts_no2.pcm_left();
+        check("TS-34", "PSG2 silenced: aggregate L drops by PSG2's 0x0F",
+              L_all > L_no2 && (L_all - L_no2) == 0x0F,
+              fmt("L_all=%u L_no_psg2=%u drop=%u (expect 0x0F=15) "
+                  "VHDL turbosound.vhd:307",
+                  L_all, L_no2, L_all - L_no2));
+    }
 }
 
 static void g_ts_panning() {
