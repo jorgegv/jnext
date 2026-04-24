@@ -1478,6 +1478,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
         nr_06_button_m1_nmi_en_    = ((v >> 3) & 1) != 0;
         nr_06_button_drive_nmi_en_ = ((v >> 4) & 1) != 0;
+
+        // NMI Source Pipeline — Wave C gate wiring. VHDL zxnext.vhd:1110
+        // bit 3 = nr_06_button_m1_nmi_en (MF gate); zxnext.vhd:1109 bit 4
+        // = nr_06_button_drive_nmi_en (DivMMC gate). Forward both to the
+        // central NmiSource so the producer layer can gate MF / DivMMC
+        // assertion per VHDL:2090-2091.
+        nmi_source_.set_mf_enable((v & 0x08) != 0);
+        nmi_source_.set_divmmc_enable((v & 0x10) != 0);
+    });
+
+    // Register 0x81: Expansion bus control — Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN).
+    //   bit 6 = expbus_ula_override         (zxnext.vhd:1223; stored, inert —
+    //                                        expansion bus not emulated)
+    //   bit 5 = expbus_nmi_debounce_disable (zxnext.vhd:1222) — bypass the
+    //           ExpBus debounce path so /NMI asserts immediately when the
+    //           pin drops. Forwarded to NmiSource.
+    //   bit 4 = expbus_clken                (zxnext.vhd:1224; stored, inert)
+    //   bit 3 = expbus_fdc                  (zxnext.vhd:1225; stored, inert)
+    //   bits 1:0 = expbus_speed[1:0]        (zxnext.vhd:1226-1227; stored, inert)
+    //
+    // The inert bits are captured in `nr_81_` for VHDL-faithful read-back
+    // once an ExpBus emulation arrives; no consumers today.
+    nr_81_ = 0;
+    nextreg_.set_write_handler(0x81, [this](uint8_t v) {
+        nr_81_ = v;
+        nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
     });
 
     // Register 0x08: Peripheral 3
@@ -2581,8 +2607,9 @@ void Emulator::run_frame()
         md6_.tick(static_cast<uint32_t>(master_cycles));
 
         // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
-        // Phase 1 + Wave B). Placement matches CTC / UART / Md6 in the
-        // per-instruction cluster; order among these is not load-bearing.
+        // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6
+        // in the per-instruction cluster; order among these is not
+        // load-bearing.
         //
         // Wave B — DivMMC consumer-feedback loop (VHDL:2107, 2118, 2098):
         //   * `divmmc_nmi_hold`  = `o_disable_nmi` = automap_held OR
@@ -2592,10 +2619,12 @@ void Emulator::run_frame()
         //                          set (VHDL:2107).
         //   * `divmmc_conmem`    = port_e3_reg(7). Blocks the MF latch
         //                          set (VHDL:2107, 2098 on the FPGA).
-        // Push both BEFORE `tick()` so the FSM re-evaluates with fresh
-        // consumer state.
+        // Wave C — NR 0x03 config_mode gate (VHDL zxnext.vhd:2102-2105)
+        // force-clears all NMI latches. Push BEFORE tick() so the FSM
+        // sees the current value.
         nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
         nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
+        nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
 
         nmi_source_.tick(static_cast<uint32_t>(master_cycles));
 
@@ -2758,11 +2787,11 @@ int Emulator::execute_single_instruction()
     uart_.tick(static_cast<uint32_t>(master_cycles));
 
     // NMI source pipeline — mirrors the primary tick cluster above.
-    // Wave B: push DivMMC consumer-feedback (hold + conmem) before tick,
-    // then fire `set_button_nmi` on the `nmi_divmmc_button` arbitration
-    // strobe after tick.
+    // Wave B: DivMMC consumer-feedback (hold + conmem) + button_nmi strobe.
+    // Wave C: config_mode gate. See primary cluster for VHDL citations.
     nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
     nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
+    nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
     if (nmi_source_.divmmc_button_strobe()) {
         divmmc_.set_button_nmi(true);

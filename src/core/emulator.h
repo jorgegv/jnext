@@ -623,6 +623,13 @@ private:
     // reset block does not re-clear it explicitly but it starts at '0').
     bool     nr_06_internal_speaker_beep_ = false;
 
+    // NR 0x81 — Expansion bus control (VHDL zxnext.vhd:1222-1227).
+    // Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN) stores the raw byte for
+    // VHDL-faithful read-back; bit 5 (`expbus_nmi_debounce_disable`) is
+    // forwarded live to NmiSource. Other bits are inert until expansion
+    // bus emulation arrives. Power-on default '0' (VHDL signal defaults).
+    uint8_t  nr_81_ = 0;  ///< VHDL expbus_ula_override / nmi_debounce_disable / clken / fdc / speed
+
 public:
     /// Compose the 14-bit im2_dma_int_en mask from NR 0xCC/0xCD/0xCE bits.
     /// VHDL zxnext.vhd:1957-1958.  Returned bit layout (MSB to LSB):
