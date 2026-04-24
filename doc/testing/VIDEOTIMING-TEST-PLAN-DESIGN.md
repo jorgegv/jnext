@@ -48,7 +48,7 @@ for traceability.
 - Neither per-machine display origin nor per-machine interrupt
   position is exposed. **Most rows start as `skip()` with an
   `F-VT-ACCESSOR`-class reason** and flip to live `check()` when the
-  accessors land; Section 1 rows use `F-VT-VCMAX-REBASE` because they
+  accessors land; Section 1 rows use `F-VT-MAX-REBASE` because they
   require a semantic rebase of an already-existing accessor, not the
   addition of a new one (phase ladder in
   `TASK-VIDEOTIMING-EXPANSION-PLAN.md` §Approach). See §Skip-reason
@@ -233,9 +233,9 @@ coupling below).
 
 | # | Row ID | Origin | Test | Expected | Status |
 |---|--------|--------|------|---------:|--------|
-| 1 | VT-01  | new    | 48K `hc_max()` and `vc_max()` after `init(ZX48K)` | 447, 311 | skip (F-VT-VCMAX-REBASE) |
-| 2 | VT-02  | new    | 128K `hc_max()` and `vc_max()` after `init(ZX128K)` | 455, 310 | skip (F-VT-VCMAX-REBASE) |
-| 3 | VT-03  | new    | Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)` | 447, 319 | skip (F-VT-VCMAX-REBASE) |
+| 1 | VT-01  | new    | 48K `hc_max()` and `vc_max()` after `init(ZX48K)` | 447, 311 | skip (F-VT-MAX-REBASE) |
+| 2 | VT-02  | new    | 128K `hc_max()` and `vc_max()` after `init(ZX128K)` | 455, 310 | skip (F-VT-MAX-REBASE) |
+| 3 | VT-03  | new    | Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)` | 447, 319 | skip (F-VT-MAX-REBASE) |
 
 Rows 1-3 are justified as neighbour-expansion: they pin the
 VHDL-faithful `c_max_hc`/`c_max_vc` values that the C++ `init()`
@@ -482,9 +482,9 @@ Section 1 table or an all-off-by-one Section 6 table.
 
 | # | Row ID | Origin | Test | Expected | Status |
 |---|--------|--------|------|---------:|--------|
-| 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-VCMAX-REBASE) |
-| 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-VCMAX-REBASE) |
-| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-VCMAX-REBASE) |
+| 1 | VT-18  | new    | 48K: target=0 → `int_line_num() == c_max_vc == 311` | 311 | skip (F-VT-MAX-REBASE) |
+| 2 | VT-19  | new    | 128K: target=0 → `int_line_num() == 310` | 310 | skip (F-VT-MAX-REBASE) |
+| 3 | VT-20  | new    | Pentagon: target=0 → `int_line_num() == 319` | 319 | skip (F-VT-MAX-REBASE) |
 | 4 | VT-21  | new    | Any machine: target=10 → `int_line_num() == 9` | 9 | skip (F-VT-ACCESSOR) |
 
 Rows VT-18..VT-21 are justified from VHDL: the plan needs at least
@@ -536,9 +536,10 @@ The mechanism:
    §Current status §V1 `vc_max_` semantic rebase — caller audit.
 
 If step 3 lands without step 4, Section 6 rows (VT-18..VT-20) will FAIL
-(they'll see `c_max_vc - 1`). If step 4 lands without step 3, Section 6
-rows will still pass but Section 1 rows will FAIL (they'll see the
-count values). The only correct un-skip is the joint commit.
+(they'll see `c_max_vc - 1`). If step 4 lands without step 3, Section 1
+AND Section 6 rows will FAIL (they'll see the count values, because
+`int_line_num()` now returns raw `vc_max_` and the storage still holds
+the count). The only correct un-skip is the joint commit.
 
 The companion symmetry fix for `hc_max_` (current code returns 448 /
 456 / 448 — one higher than VHDL `c_max_hc`) is **not** in V1's scope
@@ -557,12 +558,12 @@ vc_max rebase, hc_max column with the hc_max rebase).
 | Reason code            | Semantics                                                                                  | Rows                                |
 |------------------------|--------------------------------------------------------------------------------------------|-------------------------------------|
 | `F-VT-ACCESSOR`        | New accessor must be added; row flips when accessor lands. No existing-caller audit.       | VT-04..VT-17, VT-17b, VT-21         |
-| `F-VT-VCMAX-REBASE`    | Semantic rebase of an **existing** accessor (and possibly its storage). Requires caller audit in `src/` + `test/` and the coupled-commit constraint described in §Implementation coupling. | VT-01..VT-03, VT-18..VT-20          |
+| `F-VT-MAX-REBASE`    | Semantic rebase of an **existing** accessor (and possibly its storage). Requires caller audit in `src/` + `test/` and the coupled-commit constraint described in §Implementation coupling. | VT-01..VT-03, VT-18..VT-20          |
 
 Both codes are class-`F` per UNIT-TEST-PLAN-EXECUTION §Skip taxonomy:
 "real TODO blocked on emulator change". The suffix distinguishes
 *add-a-new-getter* (F-VT-ACCESSOR, low-risk, single-file) from
-*change-what-an-existing-getter-returns* (F-VT-VCMAX-REBASE, caller
+*change-what-an-existing-getter-returns* (F-VT-MAX-REBASE, caller
 audit required, multi-file blast radius). Future subsystem plans may
 want to adopt the same two-level suffix convention for clarity.
 
@@ -623,7 +624,7 @@ VHDL-justified neighbour expansions, all citing lines the author read
 during plan authoring:
 
 - 3 (VT-01..03): per-machine `hc_max`/`vc_max` readback, the
-  precondition for every other row. `F-VT-VCMAX-REBASE` reason.
+  precondition for every other row. `F-VT-MAX-REBASE` reason.
 - 1 (VT-06): 48K `display_origin()` symmetry partner of VT-04/05.
 - 2 (VT-08..09): 128K / Pentagon ULA prefetch origin,
   neighbour-expansion of the re-homed VT-07.
@@ -635,7 +636,7 @@ during plan authoring:
   VHDL provides the 60 Hz branch, so the re-homed VT-14 row implicitly
   requires its sweep.
 - 4 (VT-18..21): line-interrupt target mapping — VT-18..VT-20 share
-  the `F-VT-VCMAX-REBASE` coupled-commit constraint per §Implementation
+  the `F-VT-MAX-REBASE` coupled-commit constraint per §Implementation
   coupling.
 
 ## Open questions
@@ -692,7 +693,7 @@ V1 rebases the storage fields to VHDL `c_max_*` directly (447/311) and
 drops the `-1` in `int_line_num()` in the same commit. Rows flip to
 `check()` only when all three changes land together (see
 §Implementation coupling). Until then, Section 1 + Section 6
-`F-VT-VCMAX-REBASE` rows stay skipped.
+`F-VT-MAX-REBASE` rows stay skipped.
 
 The last entry exists but is `private` in
 `src/video/timing.h:155-159`. Section 6 rows require either making
