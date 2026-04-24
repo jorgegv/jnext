@@ -13,7 +13,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU            |      150 |      148 |      0 |       2 |    100% | 2 skips: P7F-16/17 shadow-screen routing (re-homed from ULA) |
 | NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | NextREG (integration) |       73 |       73 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| Input                 |      139 |      133 |      0 |       6 |    100% | 6 skips: NR 0x0B UART pin-7 modes (F-blocked — now unblocked; backlog re-audit pending) |
+| Input                 |      139 |      139 |      0 |       0 |    100% | **Zero skips as of 2026-04-24.** Post-UART-close re-audit un-skipped IOMODE-05..10: NR 0x0B UART modes 10/11 pin-7 multiplexing + joy_uart_en/rx composition (`zxnext.vhd:3526-3539`). IoMode gained set_uart0_tx/uart1_tx/joy_left_bit5/joy_right_bit5 injectors. Emulator production wiring is a backlog item. |
 | Input (integration)   |       12 |       10 |      0 |       2 |    100% | 2 skips: FE-04 issue-2 MIC^EAR, FE-05 expansion bus AND. 2026-04-24 Wave D extended with Group FE-READ (BP-04 + BP-20..23 re-homed from audio_test). |
 | CTC + Interrupts      |      133 |      128 |      0 |       5 |    100% | Clean. Skips: IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE |
 | Layer 2               |       89 |       89 |      0 |       0 |    100% | Clean. All plan rows covered                           |
@@ -34,6 +34,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       16 |       16 |      0 |       0 |    100% | 2026-04-24 new suite: Soundrive mode 1/2, Covox variants, GS Covox, SpecDrum, AY FFFD/BFFD/BFF5 decode. Wave F fixed 6 port-dispatch gaps; IO-04 FFFD falling-edge Z80-invisible. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3281** | **3138** |  **0** | **143** | **100%**|                                                        |
+| **Total**             | **3281** | **3144** |  **0** | **137** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
