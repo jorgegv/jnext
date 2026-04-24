@@ -34,6 +34,7 @@
 // test source.
 
 #include "peripheral/ctc.h"
+#include "peripheral/nmi_source.h"
 #include "cpu/im2.h"
 
 #include <cstdarg>
@@ -2454,11 +2455,36 @@ void section15_dma_int() {
                   latched, im2.dma_delay()));
     }
 
-    // DMA-04 — NMI-driven DMA delay — blocked on NMI source pipeline plan.
-    skip("DMA-04",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-e (wire NmiSource::is_activated() into "
-         "Im2Controller::update_im2_dma_delay).");
+    // DMA-04 — zxnext.vhd:2007 second OR term:
+    //   im2_dma_delay <= ... OR (nmi_activated AND nr_cc_dma_int_en_0_7) ...
+    // Un-skipped by TASK-NMI-SOURCE-PIPELINE-PLAN.md Wave E: Emulator pushes
+    // NmiSource::is_activated() into Im2Controller::set_nmi_activated()
+    // every tick, and NR 0xCC bit 7 into set_nr_cc_dma_int_en_0_7(). Drive
+    // NmiSource to is_activated()=1 via the ExpBus pin (no consumer-feedback
+    // dependency) and assert the NMI contribution to im2_dma_delay.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        fresh(im2);
+        im2.set_mode(true);
+
+        // No CTC/other DMA source pending; isolate the NMI contribution.
+        im2.set_nr_cc_dma_int_en_0_7(true);            // NR 0xCC bit 7 = 1
+        const bool before = im2.dma_delay();
+
+        nmi.set_expbus_nmi_n(false);                   // i_BUS_NMI_n='0'
+        nmi.tick(1);                                   // latch nmi_expbus,
+                                                       // is_activated()=1
+        im2.set_nmi_activated(nmi.is_activated());
+        im2.tick(1);                                   // step_dma_delay runs
+        const bool after = im2.dma_delay();
+
+        check("DMA-04", !before && nmi.is_activated() && after,
+              "zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND "
+              "nr_cc_dma_int_en_0_7)",
+              fmt("before=%d is_activated=%d after=%d",
+                  before, nmi.is_activated(), after));
+    }
 
     // DMA-05 — zxnext.vhd:2004-2005: reset clears im2_dma_delay.
     // reset() should clear the latch.

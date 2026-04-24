@@ -31,6 +31,7 @@
 // Run: ./build/test/divmmc_test
 
 #include "peripheral/divmmc.h"
+#include "peripheral/nmi_source.h"
 #include "peripheral/spi.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
@@ -1226,44 +1227,205 @@ void group_nm() {
     // NM-01..NM-08: DivMMC NMI button lifecycle. VHDL divmmc.vhd:105-150
     // models a latched button_nmi signal that enters the automap pipeline
     // alongside RST entry points, and o_disable_nmi suppresses re-entry
-    // until the handler completes. JNEXT has no NMI button consumer today.
-    // Deferred to Task 8 (Multiface peripheral): the button_nmi latch has
-    // no downstream user until the Multiface peripheral is modelled
-    // (catches NMI → maps MF ROM → menu). Copper ARB-06 shares this
-    // dependency (NR 0x02 NMI-request infrastructure). See session
-    // 2026-04-17f handover.
-    skip("NM-01",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (FSM drives set_button_nmi). "
-         "(VHDL divmmc.vhd:108-111)");
-    skip("NM-02",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (button_nmi produced end-to-end, automap "
-         "gate observed). (VHDL divmmc.vhd:120-121)");
-    skip("NM-03",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (no-button baseline vs button-pressed "
-         "stimulus). (VHDL divmmc.vhd:120)");
-    skip("NM-04",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (reset clear path — already present; "
-         "verify end-to-end). (VHDL divmmc.vhd:108)");
-    skip("NM-05",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (automap_reset clear path, new hook). "
-         "(VHDL divmmc.vhd:108)");
-    skip("NM-06",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (RETN-seen clear path — Z80 RETN hook into "
-         "DivMmc). (VHDL divmmc.vhd:108)");
-    skip("NM-07",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (automap_held=1 one-shot clear path). "
-         "(VHDL divmmc.vhd:112-113)");
-    skip("NM-08",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-b (o_disable_nmi output = automap_held OR "
-         "button_nmi, accessor on DivMmc). (VHDL divmmc.vhd:150)");
+    // until the handler completes.
+    //
+    // Un-skipped by TASK-NMI-SOURCE-PIPELINE-PLAN.md Wave B: NmiSource's
+    // arbiter FSM emits the VHDL:2170 `nmi_divmmc_button` strobe on the
+    // IDLE→FETCH transition for the DivMMC path, which Emulator wires to
+    // `DivMmc::set_button_nmi(true)`. Rows NM-01..08 pin the four clear
+    // paths (reset, automap_reset, RETN-seen, automap_held rising edge)
+    // plus the VHDL:150 `o_disable_nmi = automap_held OR button_nmi`
+    // accessor and the automap instant-on gate at VHDL:120.
+
+    // NM-01 — NmiSource IDLE→FETCH via the DivMMC path pulses the
+    // arbiter-side `nmi_divmmc_button` strobe; Emulator forwards that to
+    // `DivMmc::set_button_nmi(true)` every tick. Model that seam here
+    // (the same mini-fixture pattern as test/nmi/nmi_test.cpp DIS-01) so
+    // divmmc_test covers the DivMmc-side observable.
+    // VHDL: zxnext.vhd:2170 / divmmc.vhd:108-111.
+    {
+        NmiSource nmi;
+        DivMmc    d;
+        nmi.set_divmmc_enable(true);      // NR 0x06 bit 4 = 1
+        const bool pre = d.button_nmi();  // reset → 0
+
+        // Drive the DivMMC hotkey edge; FSM latches DivMMC next tick.
+        nmi.strobe_divmmc_button();
+        nmi.set_divmmc_nmi_hold(d.is_nmi_hold());
+        nmi.set_divmmc_conmem(d.is_conmem());
+        nmi.tick(1);
+        const bool strobe = nmi.divmmc_button_strobe();
+        if (strobe) d.set_button_nmi(true);
+        const bool post = d.button_nmi();
+
+        check("NM-01",
+              "Arbiter IDLE->FETCH pulses nmi_divmmc_button; "
+              "DivMmc::set_button_nmi(true) latches button_nmi_ "
+              "(VHDL divmmc.vhd:108-111, zxnext.vhd:2170)",
+              !pre && strobe && post,
+              fmt("pre=%d strobe=%d post=%d", pre, strobe, post));
+    }
+
+    // NM-02 — With button_nmi=1 AND NR 0xBB bit 1 (port_66_lsb-aware entry)
+    // enabled, an M1 fetch at PC=0x0066 fires the NMI instant-on automap
+    // path. VHDL divmmc.vhd:120-121 gates `automap_nmi_instant_on` on the
+    // latched button_nmi signal; the RST-entry pipeline activates automap.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x02);     // enable 0x0066 (bit 1)
+        d.set_button_nmi(true);
+        const bool pre_btn    = d.button_nmi();
+        const bool pre_active = d.automap_active();
+        d.check_automap(0x0066, true);
+        const bool post_active = d.automap_active();
+        check("NM-02",
+              "PC=0x0066 M1 with button_nmi=1 -> automap_nmi_instant_on "
+              "fires (VHDL divmmc.vhd:120-121)",
+              pre_btn && !pre_active && post_active,
+              fmt("pre_btn=%d pre_active=%d post=%d",
+                  pre_btn, pre_active, post_active));
+    }
+
+    // NM-03 — Complement of NM-02: with button_nmi=0, the 0x0066 NMI
+    // instant-on path is gated off. Automap does NOT activate on a bare
+    // 0x0066 fetch reached via normal control flow. This is the behaviour
+    // restored by the NMI-button gate fix (see DM-NMI-BTN-OFF).
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0xCD | 0x02);
+        // button_nmi_ = 0 from reset
+        const bool pre_btn    = d.button_nmi();
+        const bool pre_active = d.automap_active();
+        d.check_automap(0x0066, true);
+        const bool post_active = d.automap_active();
+        check("NM-03",
+              "PC=0x0066 M1 with button_nmi=0 -> no NMI instant-on "
+              "automap (VHDL divmmc.vhd:120)",
+              !pre_btn && !pre_active && !post_active,
+              fmt("pre_btn=%d pre_active=%d post=%d",
+                  pre_btn, pre_active, post_active));
+    }
+
+    // NM-04 — reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset
+    // branch). Latch must round-trip: set → reset → cleared.
+    {
+        DivMmc d;
+        d.set_button_nmi(true);
+        const bool pre = d.button_nmi();
+        d.reset();
+        const bool post = !d.button_nmi();
+        check("NM-04",
+              "reset() clears button_nmi_ (VHDL divmmc.vhd:108 i_reset)",
+              pre && post,
+              fmt("pre=%d post_cleared=%d", pre, post));
+    }
+
+    // NM-05 — i_automap_reset clears button_nmi_ (VHDL divmmc.vhd:108).
+    // JNEXT models i_automap_reset as the enabled→disabled transition in
+    // apply_enabled_transition_(). Setting enabled=false must drop the
+    // latched button_nmi_ on the same call.
+    {
+        DivMmc d;
+        d.set_enabled(true);
+        d.set_button_nmi(true);
+        const bool pre = d.button_nmi();
+        d.set_enabled(false);
+        const bool post = !d.button_nmi();
+        check("NM-05",
+              "enabled(true->false) (i_automap_reset) clears button_nmi_ "
+              "(VHDL divmmc.vhd:108 / zxnext.vhd:4112)",
+              pre && post,
+              fmt("pre=%d post_cleared=%d", pre, post));
+    }
+
+    // NM-06 — i_retn_seen clears button_nmi_ (VHDL divmmc.vhd:108).
+    // JNEXT exposes this as on_retn()/on_retn_seen(); Emulator forwards
+    // Im2Controller::retn_seen_this_cycle() to this entry point.
+    {
+        DivMmc d;
+        d.set_enabled(true);
+        d.set_button_nmi(true);
+        const bool pre = d.button_nmi();
+        d.on_retn_seen();
+        const bool post = !d.button_nmi();
+        check("NM-06",
+              "on_retn_seen() (i_retn_seen) clears button_nmi_ "
+              "(VHDL divmmc.vhd:108)",
+              pre && post,
+              fmt("pre=%d post_cleared=%d", pre, post));
+    }
+
+    // NM-07 — `automap_held=1` rising edge clears button_nmi_
+    // (VHDL divmmc.vhd:112-113: `elsif automap_held = '1' then
+    // button_nmi <= '0'`). Drive the two-stage pipeline so held rises on
+    // the second check_automap while button_nmi_ is already latched.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);    // RST 0x00 enabled
+        d.set_entry_valid_0(0x01);     // main path valid
+        d.set_entry_timing_0(0x01);    // instant timing for RST 0x00
+        d.set_button_nmi(true);        // latch set
+        const bool pre_btn      = d.button_nmi();
+        const bool pre_held     = d.automap_held();
+
+        // First M1: hold=1, held still 0 (loads from hold on NEXT M1).
+        d.check_automap(0x0000, true);
+        const bool mid_btn      = d.button_nmi();
+        const bool mid_held     = d.automap_held();
+
+        // Second M1: held loads from hold (=1). Rising edge drops
+        // button_nmi_ per divmmc.vhd:112-113.
+        d.check_automap(0x0100, true);
+        const bool post_btn     = !d.button_nmi();
+        const bool post_held    = d.automap_held();
+
+        check("NM-07",
+              "automap_held rising 0->1 clears button_nmi_ "
+              "(VHDL divmmc.vhd:112-113)",
+              pre_btn && !pre_held && mid_btn && !mid_held
+                  && post_btn && post_held,
+              fmt("pre_btn=%d pre_held=%d mid_btn=%d mid_held=%d "
+                  "post_btn_cleared=%d post_held=%d",
+                  pre_btn, pre_held, mid_btn, mid_held,
+                  post_btn, post_held));
+    }
+
+    // NM-08 — o_disable_nmi = automap_held OR button_nmi
+    // (VHDL divmmc.vhd:150). Exercise the truth table via
+    // `DivMmc::is_nmi_hold()`:  {00, 01, 10, 11}.
+    {
+        DivMmc d1;                                      // (0, 0)
+        const bool s00 = !d1.is_nmi_hold();
+
+        DivMmc d2;                                      // (btn=1)
+        d2.set_button_nmi(true);
+        const bool s01 = d2.is_nmi_hold() && !d2.automap_held();
+
+        DivMmc d3 = make_divmmc();                      // (held=1)
+        d3.set_entry_points_0(0x01);
+        d3.set_entry_valid_0(0x01);
+        d3.set_entry_timing_0(0x01);
+        d3.check_automap(0x0000, true);
+        d3.check_automap(0x0100, true);
+        const bool s10 = d3.is_nmi_hold() && d3.automap_held()
+                         && !d3.button_nmi();
+
+        DivMmc d4 = make_divmmc();                      // (held=1, then btn=1)
+        d4.set_entry_points_0(0x01);
+        d4.set_entry_valid_0(0x01);
+        d4.set_entry_timing_0(0x01);
+        d4.check_automap(0x0000, true);
+        d4.check_automap(0x0100, true);
+        d4.set_button_nmi(true);                        // set AFTER held rises
+        const bool s11 = d4.is_nmi_hold() && d4.automap_held()
+                         && d4.button_nmi();
+
+        check("NM-08",
+              "is_nmi_hold() = automap_held OR button_nmi across all 4 "
+              "input combinations (VHDL divmmc.vhd:150 o_disable_nmi)",
+              s00 && s01 && s10 && s11,
+              fmt("s00=%d s01=%d s10=%d s11=%d", s00, s01, s10, s11));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

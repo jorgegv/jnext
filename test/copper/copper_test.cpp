@@ -23,6 +23,7 @@
 // Run: ./build/test/copper_test
 
 #include "peripheral/copper.h"
+#include "peripheral/nmi_source.h"
 #include "port/nextreg.h"
 
 #include <cstdarg>
@@ -1317,16 +1318,57 @@ void group7_arbitration() {
     }
 
     // ARB-06: Copper writes to NR 0x02 triggering MF/DivMMC NMI per
-    // VHDL zxnext.vhd:3830-3832 (nmi_cu_02_we <= copper_req=1 and
+    // VHDL zxnext.vhd:3830-3832 (nmi_cu_02_we <= copper_req=1 AND
     // copper_nr_reg=0x02 -> nmi_gen_nr_mf / nmi_gen_nr_divmmc).
-    // Blocked on two upstream gaps outside the Copper subsystem:
-    //   1. No NR 0x02 NMI-request write handler in src/port/nextreg.
-    //   2. MF / DivMMC NMI edge-generation wiring is not in place.
-    // Belongs to NMI-subsystem remediation (Input / CTC plans).
-    skip("ARB-06",
-         "Blocked on NMI source pipeline plan — un-skip via "
-         "task-nmi-wave-a (NR 0x02 software-NMI routing). See "
-         "TASK-NMI-SOURCE-PIPELINE-PLAN.md. (zxnext.vhd:3830-3832)");
+    //
+    // Un-skipped by TASK-NMI-SOURCE-PIPELINE-PLAN.md Wave A: Emulator
+    // routes every NR 0x02 write (CPU or Copper, both via NextReg::write
+    // dispatch) into NmiSource::nr_02_write. The test models that seam
+    // by installing a NextReg write-handler on 0x02 that forwards to a
+    // local NmiSource. Running a Copper MOVE NR 0x02, 0x08 (MF bit 3)
+    // with NR 0x06 bit 3 MF-enable ON must latch nmi_mf and advance the
+    // FSM IDLE → FETCH, exactly the VHDL chain 3830-3832 → 2090 → 2095.
+    {
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);  // NR 0x06 bit 3 = 1: gate MF producer on
+        nr.set_write_handler(0x02, [&nmi](uint8_t v) { nmi.nr_02_write(v); });
+
+        const bool pre_idle   = (nmi.state() == NmiSource::State::Idle);
+        const bool pre_nomf   = !nmi.nmi_mf();
+
+        // Copper MOVE NR 0x02, 0x08 (software MF NMI strobe).
+        program_word(cu, 0, enc_move(0x02, 0x08));
+        set_mode(cu, 1);
+        cu.execute(12, 0, nr);       // MOVE dispatches pulse to NR 0x02
+        cu.execute(12, 0, nr);       // one extra tick to let MOVE retire
+
+        // Observable produced by the Copper write: NR 0x02 readback bit 3
+        // (nr_02_pending_mf_) is set before the FSM advances. VHDL:5891
+        // reports that bit until the FSM transitions through S_NMI_END.
+        const bool nr02_rd_pre = (nmi.nr_02_read() & 0x08) != 0;
+
+        nmi.tick(1);                 // NmiSource combinational + FSM step
+
+        // One-shot strobe is consumed by the tick; the observable evidence
+        // that it fired is the captured priority latch + FSM advance, plus
+        // the still-pending NR 0x02 readback bit (the latch is cleared only
+        // at S_NMI_END per VHDL:5891 + 2149-2162).
+        const bool latched_mf = nmi.nmi_mf();
+        const bool fsm_fetch  = (nmi.state() == NmiSource::State::Fetch);
+        const bool nr02_rd_post = (nmi.nr_02_read() & 0x08) != 0;
+
+        check("ARB-06",
+              "Copper MOVE NR 0x02 bit 3 -> NmiSource MF latch + FSM IDLE->FETCH "
+              "(zxnext.vhd:3830-3832, :2090, :2095-2128)",
+              pre_idle && pre_nomf && nr02_rd_pre && latched_mf && fsm_fetch
+                  && nr02_rd_post,
+              fmt("pre_idle=%d pre_nomf=%d rd_pre=%d mf=%d fetch=%d rd_post=%d",
+                  pre_idle, pre_nomf, nr02_rd_pre, latched_mf, fsm_fetch,
+                  nr02_rd_post));
+    }
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────
