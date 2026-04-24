@@ -43,11 +43,11 @@
 |        |      | Im2Controller fabric: 45-line stub → ~800 lines (decoder, device SM, daisy, pulse, NR, DMA)|
 |        |      | ctc_test 106→5 skips (+84 pass), new ctc_interrupts_test 10/10. Aggregate 3222/2886/0/336         |
 |        |      | NextZXOS boot retest: all ROMs load banner, boots to 48K mode (was blue-stripes DivMMC-IM1)|
-| 22/4   | 2h   | Task 3 Input plan CLOSED Phase 0→4 (9 parallel agents Wave 1+2, 24 commits)                |
+| 22/4   | 3h   | Task 3 Input plan CLOSED Phase 0→4 (9 parallel agents Wave 1+2, 24 commits)                |
 |        |      | input_test 149/23/0/126 → 139/133/0/6 + new input_integration_test. CTC zc_to bug fix      |
-| 23/4   | 2.5h | Task 3 ULA Video plan CLOSED (Phases 0-3, 5 waves A-E) + Post-Input backlog closed (29 cmt)|
+| 23/4   | 3h   | Task 3 ULA Video plan CLOSED (Phases 0-3, 5 waves A-E) + Post-Input backlog closed (29 cmt)|
 |        |      | ula_test 123/48/0/75 → 81/81/0/0 + new ula_integration_test. 29 F-skips re-homed            |
-| 24/4   | 5h   | Task 3 UART+I2C + Audio + Input-re-audit + NMI + 4-subsys + UDIS-01/02/03 ALL CLOSED (131) |
+| 24/4   | 7h   | Task 3 UART+I2C + Audio + Input-re-audit + NMI + 4-subsys + UDIS-01/02/03 ALL CLOSED (131) |
 |        |      | Compositor 125/125/0/0 ZERO skips. 5 emu bugs. Aggregate 3326/3210/0/116 across 32 suites  |
 |        |      |                                                                                            |
-| TOTAL: | 151.5h |                                                                                          |
+| TOTAL: | 155h |                                                                                            |
