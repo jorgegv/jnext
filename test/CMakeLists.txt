@@ -222,6 +222,15 @@ target_link_libraries(audio_test PRIVATE jnext_audio)
 target_include_directories(audio_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_tests COMMAND audio_test)
 
+# NMI source pipeline compliance test (Phase 1 scaffold, 2026-04-24).
+# See doc/design/TASK-NMI-SOURCE-PIPELINE-PLAN.md + doc/testing/
+# NMI-PIPELINE-TEST-PLAN-DESIGN.md. Phase 1 carries exactly one live
+# row (RST-01); Phase 2 waves expand to ~49 rows.
+add_executable(nmi_test nmi/nmi_test.cpp)
+target_link_libraries(nmi_test PRIVATE jnext_peripheral)
+target_include_directories(nmi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME nmi_tests COMMAND nmi_test)
+
 # Audio + NextREG integration test (Phase 2 Wave C, 2026-04-24)
 # Hosts the 25 plan rows re-homed from audio_test.cpp that need a full
 # Emulator + NextReg surface: NR 0x06 bits[1:0]/bit6 (PSG mode + speaker_beep),

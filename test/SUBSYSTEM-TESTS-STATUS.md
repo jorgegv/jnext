@@ -34,6 +34,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (port dispatch) |       16 |       16 |      0 |       0 |    100% | 2026-04-24 new suite: Soundrive mode 1/2, Covox variants, GS Covox, SpecDrum, AY FFFD/BFFD/BFF5 decode. Wave F fixed 6 port-dispatch gaps; IO-04 FFFD falling-edge Z80-invisible. |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3281** | **3144** |  **0** | **137** | **100%**|                                                        |
+| NMI Source Pipeline   |        1 |        1 |      0 |       0 |    100% | Phase 1 scaffold 2026-04-24: RST-01 reset defaults. Phase 2 waves add ~48 more rows. |
+| **Total**             | **3282** | **3145** |  **0** | **137** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
