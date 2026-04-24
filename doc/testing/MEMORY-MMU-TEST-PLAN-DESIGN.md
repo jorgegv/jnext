@@ -465,6 +465,15 @@ in the 0-16K region.
 | P7F-13  | Locked write rejected         | Lock, then write 0x7FFD ← 1 | MMU6/7 unchanged                      |
 | P7F-14  | NR 0x08 bit 7 unlocks         | Lock, NR 0x08 ← 0x80        | port_7ffd_reg(5) cleared → unlocked   |
 | P7F-15  | Full register preserved       | 0x7FFD ← 0xC7               | All bits stored correctly             |
+| P7F-16  | Shadow disables Timex `screen_mode` | 0x7FFD ← 0x08 (bit 3 = 1), verify `screen_mode` | `screen_mode` forced to `"000"` when shadow asserted (VHDL `zxula.vhd:191`) — re-home from ULA S15.03 |
+| P7F-17  | Bit 3 → `Ula::set_shadow_screen_en` routing | 0x7FFD ← 0x08, then 0x7FFD ← 0x00 | `Ula::shadow_screen_en()` flips 0→1→0 per write; `i_ula_shadow_en` wiring at `zxnext.vhd:4453` — re-home from ULA S15.04 |
+
+P7F-16 and P7F-17 are re-home rows added 2026-04-24 per
+`doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md`. They reopen `mmu_test`
+(148/0/0 → 150/0/2) with reason `F-SHADOW-WIRING` until the
+`Mmu::write_port_7ffd` handler forwards bit 3 to `Ula::set_shadow_screen_en`
+(same one-line fix pattern as the NR 0x68 bit 3 → `set_ulap_en` fix landed
+as `a1495ba`).
 
 ### Category 4: Extended Paging (Port 0xDFFD)
 

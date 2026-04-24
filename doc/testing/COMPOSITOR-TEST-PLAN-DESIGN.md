@@ -491,6 +491,31 @@ Stencil is only active when both ULA and TM are enabled
 | STEN-16 | Stencil inactive if `ula_en=0` | — | — | non-stencil path | 7130 |
 | STEN-17 | Stencil off (bit=0), both enabled | — | — | non-stencil path | 7130 |
 
+### Group UDIS — NR 0x68 bit 7 ULA disable + end-to-end blend assertion
+
+Re-homed 2026-04-23 from `test/ula/ula_test.cpp` §12 (S12.02/03/04) per
+`doc/design/TASK-COMPOSITOR-NR68-BLEND-PLAN.md`. Groups UTB and STEN above
+exercise NR 0x68 bits 6:5 and bit 0 at the pipeline-stage level (mix_top /
+mix_bot / stencil routing). The three rows below cover the gaps those groups
+cannot reach without a full render fixture:
+
+1. **bit 7 ULA-enable wiring**: NR 0x68 bit 7 (`nr_68_ula_en`) must reach
+   the render pipeline's ULA gate. STEN-16 already assumes this gate exists
+   but the wiring itself has not been observed end-to-end.
+2. **Frame-buffer visibility** of the bit-7 toggle.
+3. **Blend-mode (bits 6:5) visibility** in the final frame buffer, not just
+   at the stage routing level (UTB-* cover stage routing only).
+
+Rows start as `skip()` with reason `F-UDIS-RENDER`; they un-skip when a
+frame-buffer comparison harness is available (likely the same full-Emulator
+fixture `ula_integration_test.cpp` uses).
+
+| ID      | Title                                                 | Stimulus                                                                                        | Expected                                                                                                   | VHDL                         |
+|---------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|------------------------------|
+| UDIS-01 | NR 0x68 bit 7 wired into render pipeline              | Full-Emulator, render one frame with ULA content; write NR 0x68 ← 0x00 (bit 7 = 0); render again | Frame buffer ULA contribution must differ between the two renders (bit 7 = 1 shows ULA; 0 disables it)     | `zxnext.vhd:5445`            |
+| UDIS-02 | NR 0x68 bit 7 toggle visible at frame-buffer level    | Same as UDIS-01 but cycle bit 7 mid-scanline via a Copper MOVE                                  | Scanlines above the MOVE retain old ULA state; scanlines below respect the new bit-7 value                 | `zxnext.vhd:5445`, 6799      |
+| UDIS-03 | NR 0x68 blend mode (bits 6:5) visible end-to-end      | Full-Emulator, render one frame with ULA+TM content in mode 00; switch to mode 10; render again | Rendered output must differ per UTB-20 semantics — `ula_final_rgb` routing change is visible frame-to-frame | `zxnext.vhd:5445`, 7142–7176 |
+
 ### Group SOB — Sprite over border (compositor integration)
 
 Only one row here — the actual gating lives in `sprites.vhd`.
