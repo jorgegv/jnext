@@ -193,6 +193,23 @@ target_link_libraries(tilemap_test PRIVATE jnext_video jnext_memory jnext_port j
 target_include_directories(tilemap_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tilemap_tests COMMAND tilemap_test)
 
+# Contention Model compliance test (2026-04-24)
+# Scaffolding commit: all 68 plan rows start as skip() pending the
+# Phase A VHDL audit of ContentionModel. See
+# doc/testing/CONTENTION-TEST-PLAN-DESIGN.md. Harness-only today; the
+# bare-class tests (§4-§7, §12 Phase A) construct ContentionModel
+# directly (jnext_memory), and the full-Emulator rows (§8 B, §9-§11,
+# §13-§14) will link the full emulator stack at un-skip time. For the
+# scaffolding commit we link the same full set up-front so the binary
+# is ready for either tier without a CMake churn.
+add_executable(contention_test contention/contention_test.cpp)
+target_link_libraries(contention_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(contention_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME contention_tests COMMAND contention_test)
+
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
