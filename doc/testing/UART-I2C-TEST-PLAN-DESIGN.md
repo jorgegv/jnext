@@ -15,10 +15,52 @@ configuration, status register semantics, and I2C bit-bang protocol.
 
 ## Current status
 
-Live as of 2026-04-24: **106 total / 58 pass / 0 fail / 48 skip** (dashboard-
-confirmed at `test/SUBSYSTEM-TESTS-STATUS.md`). Rewrite in Phase 2 per-row
-idiom merged on main 2026-04-15 (`task1-wave2-uart`); two C-class bugs that
-previously caused 12 FAILs in this suite have since been fixed on main:
+Live as of 2026-04-24 (Phase 3 close, post skip-reduction plan):
+
+- **`uart_test`: 92 total / 92 pass / 0 fail / 0 skip** — ZERO skips.
+- **`uart_integration_test` (new): 12 total / 12 pass / 0 fail / 0 skip.**
+- Aggregate: 104 rows, 104 pass, dashboard-confirmed at `test/SUBSYSTEM-TESTS-STATUS.md`.
+
+The skip-reduction plan at
+[`doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md`](../design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md)
+closed end-to-end (Phases 0→4) over 2026-04-24. Summary of what landed:
+
+- **Phase 0** re-homed 12 cross-subsystem rows (INT-01..06, GATE-01..03,
+  DUAL-05/06, I2C-10) to `// RE-HOME:` comments owned by the new
+  `uart_integration_test.cpp`, and empirically re-audited RTC-06..10 + I2C-P06
+  as passing (the 0x73 BCD symptom documented in prior revisions was already
+  resolved by commit `174fa56` — see "Historical C-class bugs" below).
+- **Phase 1** added bit-level `UartTxEngine` + `UartRxEngine` (7+8 VHDL
+  states per `uart_tx.vhd` / `uart_rx.vhd`) + RX FIFO widened to `uint16_t`
+  + `I2cRtc` expansion (regs_ 8→64 bytes, `osc_halt_`, `mode_12h_`,
+  `use_real_time_`, `poke_register`, `peek_register`). Bit-level mode is
+  opt-in via `set_bitlevel_mode(bool)`; the default is legacy-compatible.
+  Two scaffold bugs surfaced in retrospective critic and fixed post-merge:
+  (a) TX parity XOR must read pre-shift LSB (`uart_tx.vhd:156`); (b) RX
+  sticky `err_framing_` / `err_parity_` must OR-in on every path that
+  transitions to `S_ERROR` (`uart.vhd:541`). Fix commit `487928c`.
+- **Phase 2** ran 5 parallel waves covering TX bit-level (A), RX bit-level
+  (B), integration suite (C), dual routing (D), and I2C/RTC expansion (E).
+  Per-wave test-flip counts were lower than planned because scaffold bugs
+  exposed mid-phase forced deferred flipping: TX-09/10/13/14 and RX-08/09
+  were flipped in `b86de83` after the `487928c` bug fix. 36 check() rows
+  landed in Phase 2 (vs 35 planned). The retrospective critic (post-wave,
+  cross-wave) APPROVED with one recommendation to document the deferred-
+  flipping pattern — captured here.
+- **Phase 3** deleted 7 stale duplicate `skip("RTC-11..17", ...)` calls in
+  `uart_test.cpp` left behind by the Wave E merge (the `check()` rows for
+  those same IDs were already passing). BAUD-02 and BAUD-03 were converted
+  from `skip()` to a `D-UNOBSERVABLE` block comment per
+  `feedback_unobservable_audit_rule` — `uart.vhd:323-326` half-selective
+  writes to the prescaler low 14 bits are not exposed to any VHDL read
+  path, indirectly covered by BAUD-07's post-prescaler TX-empty latency
+  assertion.
+
+### Historical C-class bugs (fixed, retained for reference)
+
+Two bugs documented in earlier revisions of this plan previously caused 12
+FAILs in this suite; both were fixed on main long before the skip-reduction
+plan executed:
 
 - **`src/peripheral/i2c.cpp:101` false-STOP** — FIXED in commit `174fa56`
   (`fix(i2c): remove false STOP detection from write_scl`). `detect_start_stop()`
@@ -26,25 +68,12 @@ previously caused 12 FAILs in this suite have since been fixed on main:
   `i2c_send_byte` tripped a spurious STOP on the first bit. Removing the
   `detect_start_stop()` call from `write_scl` unblocked 9 rows: I2C-P03,
   I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, plus flow-through for
-  RTC-06/07 (re-audited 2026-04-24: both now read plausible BCD via
-  `read_reg(0x02)=0x12` / `read_reg(0x03)=0x06`).
+  RTC-06/07.
 - **`src/peripheral/uart.cpp:299` select-register bit** — FIXED in commit
   `47ee7e2` (`fix(uart): select-register read returns bit 3 (0x08) not bit
   6 (0x40)`). VHDL `uart.vhd:371` emits `"01000" & msb` when UART 1 is
   selected — the emulator now matches. Unblocked 3 rows: SEL-02, SEL-05,
   DUAL-02.
-
-All 48 live skips are F-class (real TODOs) or RE-HOME-class (cross-subsystem
-integration). The skip-reduction path is staged in
-[`doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md`](../design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md)
-— Phase 0 re-homes the 12 cross-subsystem rows (INT-01..06, GATE-01..03,
-DUAL-05/06, I2C-10) to a new `uart_integration_test.cpp`; Phase 2 Waves A/B
-implement the bit-level UART TX/RX state machines for the 22 framing /
-parity / break / flow-control / noise-rejection rows; Wave E extends
-`I2cRtc` with a write path, 12h mode, CH-bit, NVRAM 0x08-0x3F, and a
-full control register to fill the 14 remaining RTC / I2C feature gaps.
-Expected end state: ~3 WONT-candidate skips plus the re-homed rows living
-green in the integration suite.
 
 ## VHDL Source Files
 

@@ -10,24 +10,28 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | Clean. All opcodes verified against VHDL               |
 | Rewind                |       18 |       18 |      0 |       0 |    100% | Clean. Snapshot roundtrip + step-back                  |
 | Copper                |       76 |       75 |      0 |       1 |    100% | Clean. 1 skip: remaining edge case                     |
-| Memory/MMU            |      148 |      148 |      0 |       0 |    100% | Clean. Skips: contention timing, DivMMC overlay, altrom|
-| NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | Clean. Skips: defaults owned by subsystem handlers     |
-| NextREG (integration) |       73 |       73 |      0 |       0 |    100% | Clean. Skips: integration edge cases                   |
-| Input                 |      139 |      133 |      0 |       6 |    100% | Clean. 6 skips: NR 0x0B UART pin-7 modes (F-blocked on UART+I2C plan) |
-| Input (integration)   |        7 |        5 |      0 |       2 |    100% | Clean. 2 skips: FE-04 issue-2 MIC^EAR, FE-05 expansion bus AND (F-blocked) |
+| Memory/MMU            |      150 |      148 |      0 |       2 |    100% | 2 skips: P7F-16/17 shadow-screen routing (re-homed from ULA) |
+| NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | Clean. All plan rows covered                           |
+| NextREG (integration) |       73 |       73 |      0 |       0 |    100% | Clean. All plan rows covered                           |
+| Input                 |      139 |      133 |      0 |       6 |    100% | 6 skips: NR 0x0B UART pin-7 modes (F-blocked — now unblocked; backlog re-audit pending) |
+| Input (integration)   |        7 |        5 |      0 |       2 |    100% | 2 skips: FE-04 issue-2 MIC^EAR, FE-05 expansion bus AND (F-blocked) |
 | CTC + Interrupts      |      133 |      128 |      0 |       5 |    100% | Clean. Skips: IM2 fabric, pulse, ULA-INT, NR 0xC0-0xCE |
 | Layer 2               |       89 |       89 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| UART + I2C/RTC        |      106 |       58 |      0 |      48 |    100% | Clean. Skips: RTC BCD clock-dependent, register pointer|
+| UART + I2C/RTC        |       92 |       92 |      0 |       0 |    100% | **Zero skips as of 2026-04-24.** TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md closed end-to-end: bit-level TX/RX engines, I2cRtc full DS1307 expansion, 12 cross-subsystem rows re-homed to UART integration. BAUD-02/03 D-UNOBSERVABLE. |
+| UART (integration)    |       12 |       12 |      0 |       0 |    100% | Clean. 2026-04-24 new suite: UART interrupts + port-enable gate + dual-routing. |
 | DivMMC + SPI          |      100 |       92 |      0 |       8 |    100% | Clean. Skips: automap edge cases, ROM overlay paths    |
 | SD Card               |        8 |        8 |      0 |       0 |    100% | Clean. SD card I/O, CMD17/CMD18 block reads            |
 | Sprites               |      121 |      121 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| Compositor            |      114 |      114 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| ULA Video             |       81 |       81 |      0 |       0 |    100% | **Zero skips as of 2026-04-23.** All 29 F-blocked rows re-homed to 5 new subsystem plans: floating-bus (5), ContentionModel (12), Compositor NR 0x68 (3), VideoTiming expansion (7), MMU shadow-screen (2). Wave E's S14.04/05/06 + 10 Phase-0 G-comments left 81 live rows. |
-| ULA Video (int)       |        7 |        7 |      0 |       0 |    100% | Clean. Integration suite: scroll, ULA+, ULAnext, alt-file, NR 0x68 bit 3 ungated ulap_en. |
-| I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. 1 skip: remaining edge case                     |
-| Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Clean. Skips: DAC channel enables, stereo routing      |
+| Compositor            |      117 |      114 |      0 |       3 |    100% | 3 skips: UDIS-01/02/03 NR 0x68 blend-mode (re-homed from ULA) |
+| ULA Video             |       81 |       81 |      0 |       0 |    100% | **Zero skips as of 2026-04-23.** All 29 F-blocked rows re-homed to 5 new subsystem plans. |
+| ULA Video (int)       |        7 |        7 |      0 |       0 |    100% | Clean. Scroll, ULA+, ULAnext, alt-file, NR 0x68 bit 3 ungated ulap_en. |
+| Floating Bus          |       26 |        0 |      0 |      26 |    100% | Scaffold suite (skip-only) 2026-04-24: port 0xFF all-machines + port 0x0FFD +3. |
+| VideoTiming           |       22 |        0 |      0 |      22 |    100% | Scaffold suite (skip-only) 2026-04-24: VHDL-faithful vc_max_ / hc_max_ rebase. |
+| Contention            |       68 |        0 |      0 |      68 |    100% | Scaffold suite (skip-only) 2026-04-24: phased A=28/B=36/C=4 per CONTENTION-TEST-PLAN-DESIGN.md. |
+| I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | Clean. All plan rows covered                           |
+| Audio (AY+DAC+Beeper) |      200 |      127 |      0 |      73 |    100% | Skips: DAC channel enables, stereo routing (next Task 3 target) |
 | DMA                   |      150 |      150 |      0 |       0 |    100% | Clean. All plan rows covered                           |
 | Tilemap               |       59 |       59 |      0 |       0 |    100% | Clean. All plan rows covered                           |
-| **Total**             | **3184** | **3041** |  **0** | **143** | **100%**|                                                        |
+| **Total**             | **3303** | **3087** |  **0** | **216** | **100%**|                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

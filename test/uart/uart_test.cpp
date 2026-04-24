@@ -446,17 +446,16 @@ static void test_group3_prescaler() {
               fmt("msb=%u", msb));
     }
 
-    // BAUD-02 - uart.vhd:323-324 d(7)=0 writes lsb(6:0) = d(6:0). The low
-    //           14 bits of the prescaler are not readable via ports, so we
-    //           assert observable side-effects we CAN verify: the MSB is
-    //           unaffected and subsequent writes to the other LSB half
-    //           do not clear the low half. That is enforced structurally
-    //           in uart.vhd:323-327 by the half-selective assignment.
-    skip("BAUD-02", "uart.vhd:323-324 - prescaler LSB low 7 bits not observable via ports");
-
-    // BAUD-03 - uart.vhd:325-326 d(7)=1 writes lsb(13:7) = d(6:0). Same
-    //           observability issue as BAUD-02.
-    skip("BAUD-03", "uart.vhd:325-326 - prescaler LSB high 7 bits not observable via ports");
+    // BAUD-02 / BAUD-03 — D-UNOBSERVABLE per feedback_unobservable_audit_rule.
+    // uart.vhd:323-326 writes lsb(6:0) when d(7)=0 and lsb(13:7) when d(7)=1
+    // via half-selective assignment. The low 14 bits of the prescaler drive
+    // the internal baud divider only — there is no VHDL read path exposing
+    // them to any port. BAUD-01/04/05/06 cover the MSB (which IS observable
+    // via the select register). Indirect coverage of the LSB: BAUD-07 observes
+    // the post-prescaler TX empty latency, which only matches when the LSB
+    // write path is intact; the half-selective write semantics are structurally
+    // enforced by uart.vhd:323-327. No test row emitted — these carry no
+    // observable assertion under the VHDL contract.
 
     // BAUD-04 - uart.vhd:281-286 select write with d(4)=1 stores d(2:0)
     //           into the selected UART's prescaler MSB; uart.vhd:355/371
@@ -1777,32 +1776,6 @@ static void test_group10_rtc() {
               fmt("year=0x%02x", y));
     }
 
-    // RTC-11..17 — feature gaps pending Wave E of the UART+I2C skip-reduction
-    // plan. i2c.cpp:44 silently discards writes; regs_ is 8 bytes so NVRAM
-    // 0x08-0x3F is unimplemented; 12h mode bit 6 of reg 0x02 is never set;
-    // control reg 0x07 is hard-coded to 0x00; CH bit (reg 0x00 bit 7) is
-    // not modelled; register-pointer auto-increment wraps at 0x07 not 0x3F.
-    skip("RTC-11",
-         "F-CT-RTC-CONTROL: control register 0x07 readback requires storage "
-         "(currently always 0x00); un-skip via task3-uart-e-rtc");
-    skip("RTC-12",
-         "F-CT-RTC-WRITE: write path discarded at i2c.cpp:44; "
-         "un-skip via task3-uart-e-rtc");
-    skip("RTC-13",
-         "F-CT-RTC-12H: 12h/24h mode bit 6 of hours register not modelled; "
-         "un-skip via task3-uart-e-rtc");
-    skip("RTC-14",
-         "F-CT-RTC-AUTOINC: register-pointer wrap at 0x3F not modelled; "
-         "un-skip via task3-uart-e-rtc");
-    skip("RTC-15",
-         "F-CT-RTC-WRITE: write path discarded at i2c.cpp:44; "
-         "un-skip via task3-uart-e-rtc");
-    skip("RTC-16",
-         "F-CT-RTC-CH: seconds-reg bit 7 oscillator-halt not modelled; "
-         "un-skip via task3-uart-e-rtc");
-    skip("RTC-17",
-         "F-CT-RTC-NVRAM: regs_ sized at 8 bytes; 0x08-0x3F NVRAM not "
-         "implemented; un-skip via task3-uart-e-rtc. CANDIDATE WONT.");
     // Helpers for multi-byte DS1307 transactions. write_reg sends the
     // register pointer + one data byte. write_seq sends a register
     // pointer followed by N data bytes (exercises auto-increment).

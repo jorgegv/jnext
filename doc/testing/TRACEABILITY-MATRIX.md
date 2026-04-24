@@ -21,7 +21,8 @@
 | DMA              | 156       | 151     | 151  | 0    | 0         | 5       | `deeb9f6000`      |
 | DivMMC+SPI       | 123       | 95      | 86   | 0    | 9         | 28      | `d4ea4e1`         |
 | CTC+Interrupts   | 150       | 133     | 128  | 0    | 5         | 17      | `0336c20`         |
-| UART+I2C/RTC     | 105       | 105     | 57   | 0    | 48        | 0       | `eee344d`         |
+| UART+I2C/RTC     | 92        | 92      | 92   | 0    | 0         | 0       | HEAD              |
+| UART (int)       | 12        | 12      | 12   | 0    | 0         | 0       | HEAD              |
 | NextREG          | 64        | 21      | 19   | 0    | 2         | 43      | HEAD              |
 | IO Port Dispatch | 90        | 86      | 85   | 0    | 1         | 4       | `ba19f6f`         |
 | Input            | 149       | 149     | 133  | 0    | 6         | 0       | HEAD              |

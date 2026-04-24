@@ -515,6 +515,36 @@ skip→check flips in Waves A+B+E).
 
 New `uart_integration_test.cpp`: 12/12/0/0.
 
+### Phase 2 actuals + deferred-flipping note (2026-04-24 retrospective)
+
+Waves A/B/E each deferred some planned flips to a later commit because
+Phase 1 scaffold bugs were exposed mid-wave:
+
+- Wave A merge (`dd7fe8d`) landed 8 of the 12 planned flips. TX-09/10/13/14
+  re-skipped on the TX-parity XOR scaffold bug.
+- Wave B merge (`33404a0`) landed 6 of the 8 planned flips. RX-08/09
+  re-skipped on the RX sticky-err-orphan scaffold bug.
+- Wave E merge (`f47cdd0`) landed 8 check()s for RTC-11..17 + I2C-11. The
+  merge-conflict resolution (Wave E was rebased onto stale main — see
+  Agent worktree-caching bug note below) LEFT BEHIND the original
+  Phase 0 `skip("RTC-11..17", ...)` calls above the new check()s, producing
+  duplicate-row dead code that Phase 3 cleaned up.
+- RTC-06..10 empirical re-audit was always planned for Phase 0 per Q5, not
+  Phase 2 — the plan text table's 13 for Wave E covered Waves E's delivered
+  set of RTC-11..17 + I2C-11 (8 rows) plus the 5 RTC-06..10 rows Phase 0
+  picked up for free. The 13 figure is correct in total across Phase 0+2.
+
+Post-Phase-2 recovery: scaffold-bug fix commit `487928c` + row-flip commit
+`b86de83` recovered TX-09/10/13/14 and RX-08/09 (6 rows). Cross-wave critic
+APPROVE was issued with a recommendation to document this deferred-flipping
+pattern — captured in this section.
+
+### Phase 2 actual final state
+
+- `uart_test`: 106 / 58 / 0 / 48 → 101 / 92 / 0 / 9 (post-`b86de83`).
+- `uart_integration_test`: 12 / 12 / 0 / 0 (new, from Wave C+D).
+- Cross-wave critic: APPROVE (1 APPROVE-WITH-FIXES absorbed into this doc).
+
 ## Phase 3 — un-skip + integration suite wiring (self)
 
 1. Main session flips `skip()` → `check()` for every row unblocked by a
@@ -532,6 +562,35 @@ New `uart_integration_test.cpp`: 12/12/0/0.
 - `uart_test`: 94 / 91 / 0 / 3 (the 3 remaining skips are WONT candidates —
   see backlog section).
 - `uart_integration_test`: 12 / 12 / 0 / 0.
+
+### Phase 3 actual final state (2026-04-24)
+
+- `uart_test`: **92 / 92 / 0 / 0** — ZERO skips (better than projection).
+- `uart_integration_test`: **12 / 12 / 0 / 0** (unchanged).
+
+What Phase 3 actually did (scope narrower than projection because Phase 2
+Wave E already delivered the RTC-11..17 flips, just with stale duplicate
+skip() calls left behind):
+
+- Deleted 7 stale duplicate `skip("RTC-11..17", ...)` calls at
+  `test/uart/uart_test.cpp:1785-1805`. The matching `check()` rows for
+  RTC-11..17 at lines 1844-1989 were already passing under Wave E's
+  `I2cRtc` expansion.
+- Converted `skip("BAUD-02")` and `skip("BAUD-03")` to a shared
+  `D-UNOBSERVABLE` block comment. `uart.vhd:323-326` writes lsb(6:0) or
+  lsb(13:7) of the prescaler via half-selective assignment, but the low
+  14 bits drive only the internal baud divider — there is NO VHDL read
+  path exposing them to any port. BAUD-07 indirectly covers the write
+  path via the post-prescaler TX-empty latency. Per
+  `feedback_unobservable_audit_rule`, D-class rows don't emit skip()
+  calls; they're documented inline.
+- `uart_integration_test`: no changes — Wave C/D already landed as
+  direct `check()` rows.
+
+Aggregate unit-test state after Phase 3: **3303 / 3087 / 0 / 216** across
+27 suites (compare planned `~3305 / ~3093 / 0 / ~217`). Fewer total rows
+because BAUD-02/03 were dropped rather than flipped (D-class never counts
+toward the row census).
 
 ## Phase 4 — dashboard + audit (self)
 
