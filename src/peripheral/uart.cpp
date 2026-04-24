@@ -167,12 +167,13 @@ uint8_t UartChannel::read_status() const {
     uint8_t status = 0;
     if (err_break_)                        status |= 0x80;
     if (err_framing_)                      status |= 0x40;
-    // Current-byte error (VHDL: rx_o(8) AND rx_avail). For Phase-1 we continue
-    // to derive this from the sticky err_framing_ flag to preserve the 58
-    // passing byte-level tests — bit 8 of the FIFO head is the authoritative
-    // source once Wave B is live, but enabling it here would change status
-    // behaviour for the existing passing rows.
-    if (err_framing_ && !rx_fifo_.empty()) status |= 0x20;
+    // Current-byte error — VHDL uart.vhd:359: (uart0_rx_o(8) AND rx_avail).
+    // The 9th bit of the RX FIFO head carries the per-byte (overflow OR framing)
+    // error flag (uart.vhd:359). Wave B (Task 3 UART+I2C) switched this from
+    // the sticky err_framing_ derivation to the authoritative FIFO-head path.
+    // Byte-level inject_rx() pushes with bit 8 = 0 (see push_rx_with_flag) so
+    // the 58 pre-Wave-B passing rows still observe bit 5 == 0.
+    if (!rx_fifo_.empty() && ((rx_fifo_.front() >> 8) & 0x01)) status |= 0x20;
     if (tx_empty())                        status |= 0x10;
     if (rx_fifo_.near_full())              status |= 0x08;
     if (err_overflow_)                     status |= 0x04;

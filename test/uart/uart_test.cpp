@@ -887,17 +887,214 @@ static void test_group5_rx() {
               fmt("status=0x%02x", status));
     }
 
-    // RX-08..RX-15 require either bit-level RX injection (framing errors,
-    //         parity errors, break, noise filtering) or pin-level flow
-    //         control output that the Uart class does not expose.
-    skip("RX-08", "uart_rx.vhd - framing error injection requires bit-level RX path");
-    skip("RX-09", "uart_rx.vhd - parity error injection requires bit-level RX path");
-    skip("RX-10", "uart_rx.vhd - break detection requires bit-level RX path");
-    skip("RX-11", "uart.vhd:359 - 9th FIFO bit (rx_err) not exposed per-byte");
-    skip("RX-12", "uart_rx.vhd - noise rejection window not modelled");
-    skip("RX-13", "uart_rx.vhd - frame bit 6 pause state not observable");
-    skip("RX-14", "uart_rx.vhd - mid-byte sampling latch not modelled");
-    skip("RX-15", "uart_rx.vhd - o_Rx_rtr_n hardware flow output not plumbed");
+    // RX-08..RX-15 — Wave B flips: bit-level RX engine lives in Phase-1
+    //         scaffold (uart.{h,cpp}). Use a small prescaler (=8) to keep the
+    //         bit-driven tests fast. Helper drives a byte bit-at-a-time with
+    //         optional framing/parity-err injection; it also holds each bit
+    //         long enough for the noise-rejection debouncer (uart_rx.vhd:119-131)
+    //         to propagate (counter saturates after ~5 stable samples).
+
+    // Bit-level helpers: use a small-but-generous prescaler (=32) so the
+    // noise-rejection debouncer (~5 ticks) is well below half a bit period
+    // (16 ticks), keeping mid-bit sampling robust.
+    constexpr int BIT_PRESCALER = 32;
+
+    // Helper: configure UART 0 for a small prescaler, enable bit-level mode,
+    // drive a byte at bit level with the given framing/parity bits.
+    // Returns the channel reference for post-drive state inspection.
+    auto configure_bitlevel = [&](uint8_t framing_reg) -> UartChannel& {
+        uart.hard_reset();
+        // Prescaler: MSB stays 0; write BOTH LSB halves so the default
+        // 115200-baud value doesn't leak into the upper 7 bits. VHDL
+        // uart.vhd:323-326: bit 7 clear writes lsb(6:0); bit 7 set writes
+        // lsb(13:7). Explicitly zero the upper half first.
+        uart.write(REG_FRAME, framing_reg);
+        uart.write(REG_RX, 0x80);              // upper 7 bits = 0
+        uart.write(REG_RX, BIT_PRESCALER);     // lower 7 bits = BIT_PRESCALER
+        UartChannel& ch = uart.channel(0);
+        ch.set_bitlevel_mode(true);
+        // Settle: line idle-high long enough for debouncer to saturate + the
+        // S_PAUSE → S_IDLE transition (and, if framing_reg & 0x40, remain in
+        // S_PAUSE). A full bit-period worth of ticks is overkill but safe.
+        ch.drive_rx_line(true);
+        for (int i = 0; i < BIT_PRESCALER; ++i) ch.tick_one_bit_clock();
+        return ch;
+    };
+
+    // Helper: drive a single bit (value v) for `bit_ticks` CLK_28 edges.
+    auto drive_bit = [](UartChannel& ch, bool v, int bit_ticks) {
+        ch.drive_rx_line(v);
+        for (int i = 0; i < bit_ticks; ++i) ch.tick_one_bit_clock();
+    };
+
+    // Helper: drive a full frame — start bit (0) + 8 data LSB-first + stop bit.
+    // If `stop_low` is true, hold the stop bit at 0 (triggers S_ERROR per
+    // uart_rx.vhd:263-266 — framing error).
+    auto drive_frame = [&](UartChannel& ch, uint8_t data, bool stop_low) {
+        drive_bit(ch, false, BIT_PRESCALER);                         // start
+        for (int b = 0; b < 8; ++b)
+            drive_bit(ch, (data >> b) & 1, BIT_PRESCALER);           // data LSB first
+        drive_bit(ch, stop_low ? false : true, BIT_PRESCALER);       // stop
+    };
+
+    // RX-08 / RX-09 — bit-level engine reaches S_ERROR correctly, but the
+    //         Phase-1 scaffold does NOT propagate the one-cycle
+    //         `rx_err_framing` / `rx_err_parity` pulses (uart_rx.vhd:312-313)
+    //         into the sticky `err_framing_` flag (uart.vhd:541). The latches
+    //         `rx_byte_framing_err_` / `rx_byte_parity_err_` are set at the
+    //         state transition but only consumed when a byte commits at
+    //         STOP_* → S_IDLE; on the error path (→ S_ERROR) they never land
+    //         in sticky status bit 6. The rest of Wave B's RX-08..15 stimulus
+    //         works; only the sticky-err propagation is missing. Reported
+    //         back to the session manager — NOT fixed in this worktree per
+    //         prompt instruction (scaffold extension forbidden).
+    skip("RX-08", "F-SCAFFOLD-UART-RX-STICKY-ERR: bit-level RX engine S_STOP_*→S_ERROR "
+                  "doesn't set sticky err_framing_ (uart.cpp:580-583 latch never "
+                  "propagates on error path; uart.vhd:541 VHDL does OR the pulse). "
+                  "State-machine reaches S_ERROR correctly; sticky-err path needs a "
+                  "one-line follow-up fix in src/peripheral/uart.cpp.");
+    skip("RX-09", "F-SCAFFOLD-UART-RX-STICKY-ERR: bit-level RX engine S_PARITY→S_ERROR "
+                  "doesn't set sticky err_framing_ (uart.cpp:577-579 latch never "
+                  "propagates; uart.vhd:541 VHDL OR-s rx_err_parity into sticky).");
+
+    // RX-10 - uart_rx.vhd:314 o_err_break = '1' when state=S_ERROR and
+    //         rx_shift="00000000". Drive start + all-zero data + stop-low to
+    //         reach S_ERROR with rx_shift holding 0x00 (see uart_rx.vhd:160-162:
+    //         state_next=S_ERROR forces rx_shift <= 0x00 via the shift process).
+    {
+        UartChannel& ch = configure_bitlevel(0x18);
+        drive_bit(ch, false, BIT_PRESCALER);                         // start
+        for (int b = 0; b < 8; ++b)
+            drive_bit(ch, false, BIT_PRESCALER);                     // all-zero data
+        drive_bit(ch, false, BIT_PRESCALER);                         // stop = 0 → S_ERROR
+        for (int i = 0; i < BIT_PRESCALER; ++i) ch.tick_one_bit_clock();
+        bool in_error = ch.rx_state_live() == UartChannel::RxState::S_ERROR;
+        bool is_break = ch.rx_break();
+        uint8_t shift = ch.rx_shift_reg_live();
+        check("RX-10",
+              "uart_rx.vhd:314 - all-zero frame + stop-low → S_ERROR with rx_shift=0x00 → rx_break()",
+              in_error && is_break && shift == 0x00,
+              fmt("state=%u break=%d shift=0x%02x", (unsigned)ch.rx_state_live(), is_break, shift));
+    }
+
+    // RX-11 - uart.vhd:359 status bit 5 = `uart0_rx_o(8) AND rx_avail` —
+    //         the per-byte framing flag stored in the 9th FIFO bit, NOT the
+    //         sticky err_framing_ flag. Inject one error byte, then one clean
+    //         byte, and sample bit 5 across a pop — it must follow the FIFO
+    //         head, not the sticky flag.
+    {
+        uart.hard_reset();
+        UartChannel& ch = uart.channel(0);
+        ch.inject_rx_bit_frame(0xAA, /*framing_err=*/true,  /*parity_err=*/false);
+        ch.inject_rx_bit_frame(0xBB, /*framing_err=*/false, /*parity_err=*/false);
+
+        uint8_t status1 = ch.read_status();               // head = 0xAA (err)
+        uint8_t head1   = uart.read(REG_RX);              // pop 0xAA, clears errs
+        uint8_t status2 = ch.read_status();               // head = 0xBB (clean)
+        uint8_t head2   = uart.read(REG_RX);              // pop 0xBB
+
+        bool bit5_first_set  = (status1 & 0x20) != 0;
+        bool bit5_second_clr = (status2 & 0x20) == 0;
+        check("RX-11",
+              "uart.vhd:359 - status bit 5 follows FIFO head 9th bit (per-byte) not sticky err_framing_",
+              bit5_first_set && bit5_second_clr && head1 == 0xAA && head2 == 0xBB,
+              fmt("status1=0x%02x status2=0x%02x head1=0x%02x head2=0x%02x",
+                  status1, status2, head1, head2));
+    }
+
+    // RX-12 - uart_rx.vhd:119-131 + misc/debounce.vhd: noise-rejection debouncer
+    //         filters pulses shorter than 2^NOISE_REJECTION_BITS (=4) stable
+    //         samples. A 2-tick low pulse on Rx must NOT propagate to the RX
+    //         engine; state stays in S_IDLE.
+    {
+        UartChannel& ch = configure_bitlevel(0x18);
+        // Guard: engine settled in S_IDLE after configure_bitlevel.
+        bool was_idle = ch.rx_state_live() == UartChannel::RxState::S_IDLE;
+        // Drive a 2-tick low pulse; debounce counter resets on each flip and
+        // never saturates, so rx_debounced_ stays high → engine stays in S_IDLE.
+        drive_bit(ch, false, 2);
+        drive_bit(ch, true, 12);
+        bool still_idle = ch.rx_state_live() == UartChannel::RxState::S_IDLE;
+        check("RX-12",
+              "uart_rx.vhd:119-131 - short <4-tick Rx pulse filtered by noise rejection; S_IDLE preserved",
+              was_idle && still_idle,
+              fmt("was_idle=%d still_idle=%d final_state=%u",
+                  was_idle, still_idle, (unsigned)ch.rx_state_live()));
+    }
+
+    // RX-13 - uart_rx.vhd:231-232 in S_IDLE with i_frame(6)=1 → S_PAUSE. Set
+    //         framing bit 6 (TX break, frame-pause) and drive a start bit;
+    //         the engine must NOT leave S_PAUSE / must not receive the byte.
+    {
+        UartChannel& ch = configure_bitlevel(0x58);       // bit 6 = pause/break
+        // After configure_bitlevel the engine started in S_PAUSE and with
+        // frame(6)=1 it must stay there regardless of Rx line.
+        drive_frame(ch, 0x55, /*stop_low=*/false);
+        bool still_pause = ch.rx_state_live() == UartChannel::RxState::S_PAUSE;
+        // No byte should land in the FIFO.
+        uint8_t status = ch.read_status();
+        check("RX-13",
+              "uart_rx.vhd:231-232 - frame(6)=1 keeps engine in S_PAUSE; no RX byte received",
+              still_pause && (status & 0x01) == 0,
+              fmt("state=%u status=0x%02x", (unsigned)ch.rx_state_live(), status));
+    }
+
+    // RX-14 - uart_rx.vhd:144-154 frame/prescaler snapshot at falling edge
+    //         while state=S_IDLE. Once reception starts the snapshot is
+    //         frozen until the next S_IDLE entry: changing framing mid-byte
+    //         MUST NOT alter the in-flight byte's framing.
+    //         Start a byte (framing_=0x18 = 8 data bits), advance a few data
+    //         bits, write a radically different framing (=0x10 = 5 data bits);
+    //         the byte must still complete with 8 data bits and land in the
+    //         FIFO. If the snapshot wasn't honoured the engine would mis-frame.
+    {
+        UartChannel& ch = configure_bitlevel(0x18);
+        drive_bit(ch, false, BIT_PRESCALER);                         // start (snapshot latched)
+        drive_bit(ch, 1, BIT_PRESCALER);                             // data bit 0 = 1
+        drive_bit(ch, 0, BIT_PRESCALER);                             // data bit 1 = 0
+        // Mid-byte framing change — snapshot should insulate in-flight byte.
+        // Note: writing framing here does NOT set bit 7 (no reset) so the
+        // FIFO + in-flight state persist; only the rx_frame_* snapshot reads
+        // have frozen at the S_IDLE tick, so the engine continues with 8 data
+        // bits rather than switching to 5.
+        uart.write(REG_FRAME, 0x10);                                 // would imply 5 data bits
+        drive_bit(ch, 1, BIT_PRESCALER);                             // data bit 2
+        drive_bit(ch, 0, BIT_PRESCALER);                             // data bit 3
+        drive_bit(ch, 1, BIT_PRESCALER);                             // data bit 4
+        drive_bit(ch, 0, BIT_PRESCALER);                             // data bit 5
+        drive_bit(ch, 1, BIT_PRESCALER);                             // data bit 6
+        drive_bit(ch, 0, BIT_PRESCALER);                             // data bit 7 → 0x55
+        drive_bit(ch, true, BIT_PRESCALER);                          // stop bit
+        for (int i = 0; i < BIT_PRESCALER; ++i) ch.tick_one_bit_clock();
+        uint8_t status = ch.read_status();
+        uint8_t byte   = uart.read(REG_RX);
+        check("RX-14",
+              "uart_rx.vhd:144-154 - frame-snapshot at S_IDLE insulates in-flight byte from mid-byte framing change",
+              (status & 0x01) != 0 && byte == 0x55,
+              fmt("status=0x%02x byte=0x%02x (expected avail=1, byte=0x55)", status, byte));
+    }
+
+    // RX-15 - uart.vhd:442-446 o_Rx_rtr_n = framing(5) AND rx_fifo_almost_full.
+    //         Almost_full (FifoBuffer) = count >= Capacity - 2 = 510 entries.
+    //         With hw-flow bit (frame 0x20) set and FIFO at 510, rx_rtr_n()
+    //         must be asserted (request-to-receive deasserted = host busy);
+    //         draining one byte drops below the threshold and rx_rtr_n()
+    //         clears.
+    {
+        uart.hard_reset();
+        UartChannel& ch = uart.channel(0);
+        uart.write(REG_FRAME, 0x38);                      // 8N1 + hw-flow (bit 5)
+        // Fill the 512-entry FIFO to exactly almost_full threshold (=510).
+        for (int i = 0; i < 510; ++i) ch.inject_rx(static_cast<uint8_t>(i));
+        bool asserted = ch.rx_rtr_n();
+        // Drain one byte — count drops to 509, below almost_full threshold.
+        (void)uart.read(REG_RX);
+        bool cleared = !ch.rx_rtr_n();
+        check("RX-15",
+              "uart.vhd:442-446 - rx_rtr_n = framing(5) AND rx_fifo_almost_full; toggles across drain",
+              asserted && cleared,
+              fmt("at-510=%d after-drain-to-509=%d", asserted, !cleared));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
