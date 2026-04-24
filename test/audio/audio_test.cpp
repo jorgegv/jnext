@@ -26,6 +26,7 @@
 #include "audio/dac.h"
 #include "audio/beeper.h"
 #include "audio/mixer.h"
+#include "audio/i2s.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -2071,8 +2072,24 @@ static void g_mixer() {
               fmt("L=%d VHDL audio_mixer.vhd:86-87", s[0]));
     }
 
-    // MX-06 - Pi I2S not emulated.
-    skip("MX-06", "Pi I2S stream not emulated in C++ Mixer (audio_mixer.vhd:89-90)");
+    // MX-06 - Pi I2S 10-bit zero-extended to 13 bits and added into the
+    // mixer sum. Other sources silent: Beeper EAR/MIC=off, TurboSound
+    // disabled (AY_L/R=0). DAC at its VHDL-default 0x80/0x80 silence
+    // level contributes (0x80+0x80)<<2 = 1024 per channel. With I2S set
+    // to max (1023,1023), pcm_L = 0+0+0+0+1024+1023 = 2047; signed =
+    // (2047 - 1024)*4 = 4092 on both channels. Same for pcm_R.
+    {
+        Beeper bp; TurboSound ts; Dac dac; Mixer mx;
+        I2s i2s;
+        i2s.set_sample(1023, 1023);
+        mx.set_i2s_source(&i2s);
+        mx.generate_sample(bp, ts, dac);
+        int16_t s[2];
+        mx.read_samples(s, 1);
+        check("MX-06", "I2S max (1023,1023) sums into L and R (10->13 zero-extend)",
+              s[0] == 4092 && s[1] == 4092,
+              fmt("L=%d R=%d VHDL audio_mixer.vhd:89-90,99-100", s[0], s[1]));
+    }
 
     // MX-10 - silence: pcm_L = 0.
     {
