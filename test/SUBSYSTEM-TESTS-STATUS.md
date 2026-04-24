@@ -22,7 +22,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | DivMMC + SPI          |      100 |      100 |      0 |       0 |    100% | All tests pass.                                        |
 | SD Card               |        8 |        8 |      0 |       0 |    100% | All tests pass.                                        |
 | Sprites               |      121 |      121 |      0 |       0 |    100% | All tests pass.                                        |
-| Compositor            |      117 |      114 |      0 |       3 |    100% | 3 skips: UDIS-01/02/03 NR 0x68 blend (re-homed ULA).   |
+| Compositor            |      117 |      114 |      0 |       3 |    100% | 3 UDIS skips: integration+Copper+BL blockers.          |
 | ULA Video             |       81 |       81 |      0 |       0 |    100% | All tests pass.                                        |
 | ULA Video (int)       |        7 |        7 |      0 |       0 |    100% | All tests pass.                                        |
 | Floating Bus          |       26 |        0 |      0 |      26 |    100% | Scaffold suite; 26 skips awaiting implementation.      |

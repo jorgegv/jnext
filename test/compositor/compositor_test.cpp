@@ -1407,20 +1407,58 @@ static void test_STEN() {
 // covers gaps those groups cannot reach without a full render fixture
 // (bit 7 ULA-enable wiring + end-to-end frame-buffer visibility of the
 // blend-mode transition). See COMPOSITOR-TEST-PLAN-DESIGN.md §Group UDIS.
-// All three rows start as skip(F-UDIS-RENDER) until a full-Emulator
-// frame-buffer comparison harness lands (candidate home: ula_integration_test).
+//
+// 2026-04-24 re-audit (agent worktree task-compositor-nr68-blend) found
+// all three rows remain genuinely blocked on emulator-side work that
+// exceeds a 3-skip flip. Skip reasons refreshed below with precise
+// blocker citations; see the closure report (that session's EOD memory
+// note) for scope analysis.
+//
+//   * UDIS-01 — bit 7 IS wired in Renderer::render_frame() (src/video/
+//     renderer.cpp:83 fills ula_line_ with TRANSPARENT when
+//     !ula_enabled()). The wiring can only be observed via a full
+//     Renderer::render_frame() call, which needs Mmu+Ram+PaletteManager+
+//     Layer2+SpriteEngine+Tilemap — i.e. a full-Emulator fixture. That
+//     widens compositor_test's CMake link line to match
+//     ula_integration_test. Cross-subsystem infra change; re-homing to a
+//     new compositor_integration_test is the cleaner landing place.
+//
+//   * UDIS-02 — mid-scanline NR 0x68 toggle requires a functional Copper
+//     MOVE (NR 0x60/0x61/0x62 scripting + Copper::tick wiring to
+//     nextreg_.write). Copper has been intentionally stubbed per
+//     src/peripheral/copper.cpp; a 2026-04-20 emulator NMI-plumbing
+//     audit deferred this. Row is F-blocked on Copper MOVE, not on the
+//     compositor itself.
+//
+//   * UDIS-03 — NR 0x68 bits 6:5 (ula_blend_mode) feed mix_rgb/mix_top/
+//     mix_bot at VHDL zxnext.vhd:7141-7178. Those signals are only
+//     consumed by NR 0x15 layer_priority modes 110/111 (VHDL 7286-7356).
+//     The emulator has no blend-mode 110/111 implementation — see Group
+//     BL comment in this file ("The emulator has no blend implementation —
+//     the Renderer falls back to SLU for modes 6/7 (renderer.cpp ~259)").
+//     UDIS-03 is a user-visible consequence of that same gap; closing it
+//     requires the full blend-mode pipeline (Task 3 BL backlog), not a
+//     local Renderer::set_blend_mode wiring. Covered by BL group today.
 
 static void test_UDIS() {
     set_group("UDIS");
     skip("UDIS-01",
-         "F-UDIS-RENDER: NR 0x68 bit 7 wired into render pipeline "
-         "(zxnext.vhd:5445) — needs full-Emulator frame-buffer compare");
+         "F-UDIS-RENDER: bit 7 IS wired (renderer.cpp:83) but only observable "
+         "through Renderer::render_frame — needs full-Emulator fixture "
+         "(Mmu+Ram+Palette+Layer2+Sprites+Tilemap). Re-home to new "
+         "compositor_integration_test; widens compositor_test link line. "
+         "VHDL zxnext.vhd:5445,7103");
     skip("UDIS-02",
-         "F-UDIS-RENDER: NR 0x68 bit 7 toggle visible at frame-buffer "
-         "level (zxnext.vhd:5445, 6809) — mid-scanline Copper MOVE");
+         "F-UDIS-COPPER: mid-scanline NR 0x68 toggle requires functional "
+         "Copper MOVE (NR 0x60-0x62 scripting) — Copper is intentionally "
+         "stubbed in src/peripheral/copper.cpp pending NMI-plumbing plan. "
+         "Blocker: Copper MOVE, not compositor. VHDL zxnext.vhd:5445,6809");
     skip("UDIS-03",
-         "F-UDIS-RENDER: NR 0x68 blend-mode (bits 6:5) visible end-to-end "
-         "(zxnext.vhd:5445, 7142-7176) — full-frame compare across modes");
+         "F-UDIS-BLEND: NR 0x68 bits 6:5 (ula_blend_mode) feed mix_rgb at "
+         "VHDL 7141-7178 but those signals only flow to NR 0x15 priority "
+         "modes 110/111 (VHDL 7286-7356), which the emulator does not "
+         "implement (see Group BL comment; renderer.cpp:~259 falls back to "
+         "SLU for 6/7). UDIS-03 folds into the BL backlog.");
 }
 
 // ── Group SOB — Sprite over border (compositor integration) ──────────────

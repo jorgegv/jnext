@@ -60,5 +60,33 @@ NR 0x68 blend-mode and ULA-disable wiring at the compositor layer.
   not bits 6:5) a naming artefact or a real second stencil path? Read
   VHDL for clarity.
 
-## Status: **PENDING** — small effort, can land whenever a session
-picks up compositor work. No blocker today.
+## Status: **BLOCKED** (2026-04-24 re-audit)
+
+Re-audit on 2026-04-24 (agent task-compositor-nr68-blend) found all 3
+rows genuinely blocked on emulator-side work that exceeds a 3-skip
+flip:
+
+- **UDIS-01** — bit 7 IS already wired (src/video/renderer.cpp:83). The
+  end-to-end observation requires calling `Renderer::render_frame()`,
+  which needs `Mmu+Ram+PaletteManager+Layer2+SpriteEngine+Tilemap`.
+  Widening `compositor_test`'s CMake linkage to match
+  `ula_integration_test` crosses the subsystem/integration boundary.
+  Cleaner landing: a new `compositor_integration_test.cpp` in a
+  follow-up session.
+- **UDIS-02** — requires a functional Copper MOVE to toggle NR 0x68
+  mid-scanline. Copper is intentionally stubbed pending the NMI
+  plumbing plan. Blocker is Copper, not Compositor.
+- **UDIS-03** — NR 0x68 bits 6:5 (`ula_blend_mode`) feed
+  `mix_rgb / mix_top / mix_bot` at VHDL 7141-7178. Those signals are
+  only consumed by NR 0x15 `layer_priorities_2 = "110"/"111"`
+  (VHDL 7286-7356). The emulator has no blend-mode 110/111
+  implementation — see Group BL in `compositor_test.cpp` and
+  `renderer.cpp:~259` (falls back to SLU for modes 6/7). UDIS-03 is a
+  user-visible consequence of that same gap; folds into the BL
+  backlog rather than needing a local `Renderer::set_blend_mode`
+  wiring.
+
+Skip reasons in `test/compositor/compositor_test.cpp` refreshed to
+cite the precise blockers. The original "F-UDIS-RENDER" tag was
+imprecise — the 3 rows have 3 different root causes.
+
