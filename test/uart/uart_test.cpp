@@ -704,30 +704,57 @@ static void test_group4_tx() {
 
     // TX-09 - uart_tx.vhd:152,216-225 7E2 framing (7 data, even parity, 2
     //         stops). Frame encoding: #bits="10", parity_en=1, odd=0,
-    //         stop=1. => 0x15.  VHDL expects: for 0x7F (7 ones) with even
-    //         parity (init=frame(1)=0), final parity = XOR(bit0..bit6) = 1.
-    //         **Blocked by Phase-1 scaffold bug**: uart.cpp tx_engine_step()
-    //         computes the shift (line 377) BEFORE the parity XOR (line
-    //         395), so tx_parity_live_ ^= tx_shift_&1 uses the POST-shift
-    //         LSB (i.e. bit 1 of original byte, then bit 2, …, plus a
-    //         spurious trailing 0). VHDL registers both concurrently on
-    //         the rising edge so the XOR should use the PRE-shift LSB.
-    //         Un-skip when uart.cpp:395 moves above uart.cpp:377 (or
-    //         equivalent pre-shift snapshot) is landed.
-    skip("TX-09",
-         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
-         "tx_parity_live_ uses post-shift tx_shift_&1 (line 395 vs shift at line 377); "
-         "fix required before 7E2 even-parity can be asserted");
+    //         stop=1. => 0x15.  For 0x7F (7 ones) with even parity
+    //         (init=frame(1)=0), final parity = XOR(bit0..bit6) = 1, then
+    //         two stop bits at 1.
+    {
+        UartChannel& ch = uart.channel(0);
+        const uint16_t P = 8;
+        bitlevel_setup(ch, 0x15, P);           // 7E2
+        ch.write_tx(0x7F);
+        bool in_start = tick_until_tx_state(ch, TxState::S_START, 20);
+        bool start_low = sample_mid_bit(ch, P) == false;
+        bool data_ok = true;
+        for (int i = 0; i < 7; ++i) {
+            if (sample_mid_bit(ch, P) != true) { data_ok = false; break; }
+        }
+        bool parity_high = sample_mid_bit(ch, P) == true;
+        bool stop1_high = sample_mid_bit(ch, P) == true;
+        bool stop2_high = sample_mid_bit(ch, P) == true;
+        check("TX-09",
+              "uart_tx.vhd:152,216-225 - 7E2: 0x7F yields even-parity=1, 2 stop bits high",
+              in_start && start_low && data_ok && parity_high && stop1_high && stop2_high,
+              fmt("start=%d data_ok=%d parity=%d stop1=%d stop2=%d",
+                  start_low ? 0 : 1, data_ok ? 1 : 0,
+                  parity_high ? 1 : 0, stop1_high ? 1 : 0, stop2_high ? 1 : 0));
+    }
 
     // TX-10 - uart_tx.vhd 5O1 framing (5 data, odd parity, 1 stop). Frame
     //         encoding: #bits="00", parity_en=1, odd=1, stop=0 => 0x06.
-    //         VHDL expects: for 0x0F lower-5 = 01111 with odd parity
-    //         (init=1), final = 1 XOR 4 ones = 1.
-    //         **Blocked by same Phase-1 scaffold bug as TX-09**
-    //         (uart.cpp:377 shift before uart.cpp:395 parity XOR).
-    skip("TX-10",
-         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
-         "same root cause as TX-09 — parity XOR uses post-shift LSB");
+    //         For 0x0F (lower-5 = 01111, 4 ones) with odd parity
+    //         (init=frame(1)=1), final = 1 XOR 4 ones = 1.
+    {
+        UartChannel& ch = uart.channel(0);
+        const uint16_t P = 8;
+        bitlevel_setup(ch, 0x06, P);           // 5O1
+        ch.write_tx(0x0F);
+        bool in_start = tick_until_tx_state(ch, TxState::S_START, 20);
+        bool start_low = sample_mid_bit(ch, P) == false;
+        // Data bits LSB-first of 0x0F&0x1F: 1,1,1,1,0
+        const bool expected[5] = {true, true, true, true, false};
+        bool data_ok = true;
+        for (int i = 0; i < 5; ++i) {
+            if (sample_mid_bit(ch, P) != expected[i]) { data_ok = false; break; }
+        }
+        bool parity_high = sample_mid_bit(ch, P) == true;
+        bool stop_high = sample_mid_bit(ch, P) == true;
+        check("TX-10",
+              "uart_tx.vhd - 5O1: 0x0F lower-5 yields odd-parity=1, 1 stop bit",
+              in_start && start_low && data_ok && parity_high && stop_high,
+              fmt("start=%d data_ok=%d parity=%d stop=%d",
+                  start_low ? 0 : 1, data_ok ? 1 : 0,
+                  parity_high ? 1 : 0, stop_high ? 1 : 0));
+    }
 
     // TX-11 - uart_tx.vhd:180-192 CTS flow control hold: with frame(5)=1
     //         (flow enable) and i_cts_n=1 (not clear to send), the engine
@@ -773,18 +800,45 @@ static void test_group4_tx() {
     // TX-13 - uart_tx.vhd:153,156 even parity calculation. Init =
     //         frame(1) = 0; XOR each data LSB *pre-shift*. Send 0x0F (4
     //         ones) → parity = 0; send 0x1F (5 ones) → parity = 1.
-    //         **Blocked by Phase-1 scaffold bug**: parity XOR uses
-    //         post-shift LSB (see TX-09/TX-10 notes).
-    skip("TX-13",
-         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
-         "even-parity assertions blocked by post-shift LSB XOR");
+    {
+        UartChannel& ch = uart.channel(0);
+        const uint16_t P = 8;
+        auto sample_parity_for = [&](uint8_t byte) -> bool {
+            bitlevel_setup(ch, 0x1C, P);       // 8E1: 8 data | parity_en | even | 1 stop
+            ch.write_tx(byte);
+            tick_until_tx_state(ch, TxState::S_START, 20);
+            sample_mid_bit(ch, P);             // start bit
+            for (int i = 0; i < 8; ++i) sample_mid_bit(ch, P);
+            return sample_mid_bit(ch, P);      // parity bit
+        };
+        bool p_0F = sample_parity_for(0x0F);   // 4 ones → parity 0
+        bool p_1F = sample_parity_for(0x1F);   // 5 ones → parity 1
+        check("TX-13",
+              "uart_tx.vhd:153,156 - even parity: 0x0F→0, 0x1F→1 (pre-shift LSB XOR)",
+              !p_0F && p_1F,
+              fmt("p(0x0F)=%d (want 0), p(0x1F)=%d (want 1)", p_0F ? 1 : 0, p_1F ? 1 : 0));
+    }
 
     // TX-14 - uart_tx.vhd:153,156 odd parity: init = frame(1) = 1.
     //         0x0F (4 ones) → 1; 0x1F (5 ones) → 0.
-    //         **Blocked by same Phase-1 scaffold bug as TX-13.**
-    skip("TX-14",
-         "uart.cpp tx_engine_step parity-after-shift scaffold bug: "
-         "odd-parity assertions blocked by post-shift LSB XOR");
+    {
+        UartChannel& ch = uart.channel(0);
+        const uint16_t P = 8;
+        auto sample_parity_for = [&](uint8_t byte) -> bool {
+            bitlevel_setup(ch, 0x1E, P);       // 8O1: 8 data | parity_en | odd | 1 stop
+            ch.write_tx(byte);
+            tick_until_tx_state(ch, TxState::S_START, 20);
+            sample_mid_bit(ch, P);             // start bit
+            for (int i = 0; i < 8; ++i) sample_mid_bit(ch, P);
+            return sample_mid_bit(ch, P);      // parity bit
+        };
+        bool p_0F = sample_parity_for(0x0F);   // init=1 XOR 4 ones → 1
+        bool p_1F = sample_parity_for(0x1F);   // init=1 XOR 5 ones → 0
+        check("TX-14",
+              "uart_tx.vhd:153,156 - odd parity: 0x0F→1, 0x1F→0 (pre-shift LSB XOR, init=1)",
+              p_0F && !p_1F,
+              fmt("p(0x0F)=%d (want 1), p(0x1F)=%d (want 0)", p_0F ? 1 : 0, p_1F ? 1 : 0));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -950,14 +1004,40 @@ static void test_group5_rx() {
     //         works; only the sticky-err propagation is missing. Reported
     //         back to the session manager — NOT fixed in this worktree per
     //         prompt instruction (scaffold extension forbidden).
-    skip("RX-08", "F-SCAFFOLD-UART-RX-STICKY-ERR: bit-level RX engine S_STOP_*→S_ERROR "
-                  "doesn't set sticky err_framing_ (uart.cpp:580-583 latch never "
-                  "propagates on error path; uart.vhd:541 VHDL does OR the pulse). "
-                  "State-machine reaches S_ERROR correctly; sticky-err path needs a "
-                  "one-line follow-up fix in src/peripheral/uart.cpp.");
-    skip("RX-09", "F-SCAFFOLD-UART-RX-STICKY-ERR: bit-level RX engine S_PARITY→S_ERROR "
-                  "doesn't set sticky err_framing_ (uart.cpp:577-579 latch never "
-                  "propagates; uart.vhd:541 VHDL OR-s rx_err_parity into sticky).");
+    // RX-08 — Framing error: stop bit held low triggers S_STOP_1 → S_ERROR
+    //         (uart_rx.vhd:263-266). Sticky err_framing (status bit 6) must
+    //         OR in per uart.vhd:541.
+    {
+        UartChannel& ch = configure_bitlevel(0x18);  // 8N1
+        drive_frame(ch, 0x55, /*stop_low=*/true);
+        // Settle for engine to reach S_ERROR + propagate sticky flag.
+        for (int i = 0; i < BIT_PRESCALER; ++i) ch.tick_one_bit_clock();
+        uint8_t status = ch.read_status();
+        check("RX-08",
+              "uart.vhd:541 - framing error sets sticky status bit 6 (err_framing)",
+              (status & 0x40) != 0,
+              fmt("status=0x%02x (bit 6 = err_framing)", status));
+    }
+
+    // RX-09 — Parity error: data + mismatched parity bit triggers S_PARITY
+    //         → S_ERROR (uart_rx.vhd:257). Sticky err_framing sets per
+    //         uart.vhd:541 (same sticky covers parity + framing errors).
+    {
+        UartChannel& ch = configure_bitlevel(0x1C);  // 8E1 (parity_en, even)
+        // Drive byte 0x0F (4 ones, even parity should be 0) but send
+        // parity bit = 1 (wrong) to trigger mismatch.
+        drive_bit(ch, false, BIT_PRESCALER);                       // start
+        for (int b = 0; b < 8; ++b)
+            drive_bit(ch, (0x0F >> b) & 1, BIT_PRESCALER);         // data LSB-first
+        drive_bit(ch, true, BIT_PRESCALER);                        // wrong parity
+        drive_bit(ch, true, BIT_PRESCALER);                        // stop
+        for (int i = 0; i < BIT_PRESCALER; ++i) ch.tick_one_bit_clock();
+        uint8_t status = ch.read_status();
+        check("RX-09",
+              "uart.vhd:541 - parity error sets sticky status bit 6 (err_framing shared)",
+              (status & 0x40) != 0,
+              fmt("status=0x%02x (bit 6 = err_framing)", status));
+    }
 
     // RX-10 - uart_rx.vhd:314 o_err_break = '1' when state=S_ERROR and
     //         rx_shift="00000000". Drive start + all-zero data + stop-low to
