@@ -116,12 +116,16 @@ target_link_libraries(uart_test PRIVATE jnext_peripheral)
 target_include_directories(uart_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_tests COMMAND uart_test)
 
-# UART + I2C integration test (Phase 3 Wave C, 2026-04-24)
-# Hosts the 10 plan rows re-homed from uart_test.cpp that need a full
-# Emulator + NextReg + Im2Controller + port-dispatch surface: INT-01..06
-# (UART IM2 interrupt vectors via NR 0xC6/0xCA), GATE-01..03 (NR 0x83
-# port-enable gates for I2C/UART), and I2C-10 (I2C port-gate detail row).
-# Mirrors the ctc_interrupts_test / ula_integration_test linkage above.
+# UART + I2C integration test (Phase 2 Waves C + D, 2026-04-24)
+# Hosts the 12 plan rows re-homed from uart_test.cpp that need a full
+# Emulator + NextReg + Im2Controller + port-dispatch surface:
+#   INT-01..06 (UART IM2 interrupt vectors via NR 0xC6/0xCA),
+#   GATE-01..03 (NR 0x83 port-enable gates for I2C/UART),
+#   I2C-10     (I2C port-gate detail row),
+#   DUAL-05/06 (dual-channel dispatch + NR 0x0B iomode UART RX multiplex
+#               in src/core/emulator.cpp above the per-channel Uart
+#               accessors that uart_test.cpp pins).
+# Mirrors the ctc_interrupts_test / ula_integration_test / input_integration_test linkage.
 add_executable(uart_integration_test uart/uart_integration_test.cpp)
 target_link_libraries(uart_integration_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video

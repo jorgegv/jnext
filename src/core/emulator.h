@@ -360,6 +360,33 @@ public:
         i2c_.set_pi_i2c1_sda(sda);
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // Joystick UART-RX injection (NR 0x0B iomode UART multiplex)
+    //
+    // Models the VHDL top-level RX mux at zxnext.vhd:3340-3341:
+    //   uart0_rx <= joy_uart_rx when joy_iomode_uart_en='1'
+    //               and nr_0b_joy_iomode_0='0' else i_UART0_RX;
+    //   uart1_rx <= joy_uart_rx when joy_iomode_uart_en='1'
+    //               and nr_0b_joy_iomode_0='1' else pi_uart_rx;
+    //
+    // When NR 0x0B bit 7 (iomode_en) = 1, one UART channel's RX line is
+    // driven from the joystick connector's UART RX pin instead of its
+    // normal source. Bit 0 (iomode_0) selects WHICH channel receives the
+    // joystick feed: 0 => UART 0 (ESP path shadowed), 1 => UART 1 (Pi
+    // path shadowed). When iomode_en = 0 the mux is disabled and this
+    // injection path is a no-op (the physical ESP/Pi pins remain the
+    // sole RX drivers, which in jnext are surfaced via `uart().inject_rx`).
+    //
+    // This call is intended for integration tests and future joystick-
+    // connector peripherals that model a serial RX pin; production code
+    // still drives the "native" ESP/Pi paths via `uart().inject_rx()`.
+    // ══════════════════════════════════════════════════════════════════════
+    void inject_joy_uart_rx(uint8_t byte) {
+        if (!iomode_.iomode_en()) return;            // mux disabled
+        const int ch = iomode_.iomode_0() ? 1 : 0;   // VHDL:3340-3341
+        uart_.inject_rx(ch, byte);
+    }
+
 private:
     static constexpr int FRAMEBUFFER_WIDTH      = 320;
     static constexpr int FRAMEBUFFER_WIDTH_MAX  = 640;

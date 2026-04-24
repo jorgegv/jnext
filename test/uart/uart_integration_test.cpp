@@ -20,6 +20,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -69,6 +70,16 @@ void check(const char* id, const char* desc, bool cond,
 
 void skip(const char* id, const char* reason) {
     g_skipped.push_back({id, reason});
+}
+
+// printf-style detail formatter for check() callers that need runtime values.
+static std::string fmt(const char* f, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return std::string(buf);
 }
 
 std::string hex2(uint8_t v) {
@@ -517,9 +528,107 @@ static void test_i2c_port_gate(Emulator& emu) {
     }
 }
 
-// Wave D adds DUAL-05/06 here (dual-UART routing + joystick IO-mode mux).
-// The fresh Wave C commit leaves a clean anchor — Wave D's merger appends
-// test_dual_routing() + the main() wire-up below.
+// ══════════════════════════════════════════════════════════════════════
+// Wave D rows — DUAL-05/06 (dual-UART routing + joystick IO-mode mux).
+// ══════════════════════════════════════════════════════════════════════
+
+// Drive the full UART advance so pending TX bytes complete. The
+// default Next config runs UART 0 at 115200 @ 28 MHz → ~243 * 10 =
+// 2430 master cycles for one 8N1 byte. Tick generously to guarantee
+// completion of a single byte regardless of framing changes.
+static void tick_uart_byte(Emulator& emu) {
+    emu.uart().tick(8000);
+}
+
+// DUAL-05 — UART 0 (ESP) vs UART 1 (Pi) channel routing via select reg.
+static void test_dual_05_channel_routing(Emulator& emu) {
+    set_group("DUAL");
+    fresh(emu);
+
+    std::vector<uint8_t> sink0;
+    std::vector<uint8_t> sink1;
+    auto& ch0 = const_cast<UartChannel&>(emu.uart().channel(0));
+    auto& ch1 = const_cast<UartChannel&>(emu.uart().channel(1));
+    ch0.on_tx_byte = [&sink0](uint8_t b) { sink0.push_back(b); };
+    ch1.on_tx_byte = [&sink1](uint8_t b) { sink1.push_back(b); };
+
+    // Step 1: select channel 0, send 0xAA.
+    emu.port().out(0x153B, 0x00);        // select = 0 (ESP / UART 0)
+    emu.port().out(0x133B, 0xAA);        // TX byte on currently-selected channel
+    tick_uart_byte(emu);
+
+    const bool step1_ok =
+        (sink0.size() == 1) && (sink0[0] == 0xAA) && sink1.empty();
+
+    // Step 2: select channel 1, send 0xBB.
+    emu.port().out(0x153B, 0x40);        // select = 1 (Pi / UART 1)
+    emu.port().out(0x133B, 0xBB);
+    tick_uart_byte(emu);
+
+    const bool step2_ok =
+        (sink1.size() == 1) && (sink1[0] == 0xBB)
+        && (sink0.size() == 1) && (sink0[0] == 0xAA);
+
+    check("DUAL-05",
+          "uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 "
+          "routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a "
+          "channel via port 0x153B directs port 0x133B TX writes to that "
+          "channel ONLY — cross-talk between channels is impossible",
+          step1_ok && step2_ok,
+          fmt("step1 ch0=%zu ch1=%zu (want 1/0); step2 ch0=%zu ch1=%zu (want 1/1); "
+              "sink0[0]=0x%02X (want 0xAA); sink1[0]=0x%02X (want 0xBB)",
+              sink0.size(), sink1.size(),
+              sink0.size(), sink1.size(),
+              sink0.empty() ? 0 : sink0[0],
+              sink1.empty() ? 0 : sink1[0]));
+}
+
+// DUAL-06 — joystick IO-mode UART RX multiplex (VHDL zxnext.vhd:3340-3341).
+static void test_dual_06_iomode_rx_mux(Emulator& emu) {
+    set_group("DUAL");
+    fresh(emu);
+
+    // Step 1: iomode_en=1, iomode_0=0 → joy→UART 0 mux.
+    emu.nextreg().write(0x0B, 0x80);              // iomode_en=1, iomode_0=0
+    emu.inject_joy_uart_rx(0x77);
+
+    // Read UART 0 RX FIFO via port 0x143B after selecting channel 0.
+    emu.port().out(0x153B, 0x00);                 // select channel 0
+    const uint8_t u0_step1 = emu.port().in(0x143B);
+    const bool u1_empty_step1 = emu.uart().channel(1).rx_empty();
+
+    const bool step1_ok = (u0_step1 == 0x77) && u1_empty_step1;
+
+    // Step 2: iomode_en=1, iomode_0=1 → joy→UART 1 mux.
+    emu.nextreg().write(0x0B, 0x81);              // iomode_en=1, iomode_0=1
+    emu.inject_joy_uart_rx(0x55);
+
+    emu.port().out(0x153B, 0x40);
+    const uint8_t u1_step2 = emu.port().in(0x143B);
+    const bool u0_empty_step2 = emu.uart().channel(0).rx_empty();
+
+    const bool step2_ok = (u1_step2 == 0x55) && u0_empty_step2;
+
+    // Step 3: iomode_en=0 — mux disabled; byte is dropped.
+    emu.nextreg().write(0x0B, 0x00);              // iomode_en=0
+    emu.inject_joy_uart_rx(0x33);
+
+    const bool u0_empty_step3 = emu.uart().channel(0).rx_empty();
+    const bool u1_empty_step3 = emu.uart().channel(1).rx_empty();
+
+    const bool step3_ok = u0_empty_step3 && u1_empty_step3;
+
+    check("DUAL-06",
+          "zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when "
+          "NR 0x0B bit7=1 & bit0=0, to UART 1 when bit7=1 & bit0=1, and "
+          "is dropped when bit7=0",
+          step1_ok && step2_ok && step3_ok,
+          fmt("step1 u0=0x%02X (want 0x77) u1_empty=%d; step2 u1=0x%02X (want 0x55) "
+              "u0_empty=%d; step3 u0_empty=%d u1_empty=%d",
+              u0_step1, u1_empty_step1 ? 1 : 0,
+              u1_step2, u0_empty_step2 ? 1 : 0,
+              u0_empty_step3 ? 1 : 0, u1_empty_step3 ? 1 : 0));
+}
 
 // ── Main ──────────────────────────────────────────────────────────────
 
@@ -542,6 +651,10 @@ int main() {
 
     test_i2c_port_gate(emu);
     std::printf("  Group: I2C — done\n");
+
+    test_dual_05_channel_routing(emu);
+    test_dual_06_iomode_rx_mux(emu);
+    std::printf("  Group: DUAL — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
