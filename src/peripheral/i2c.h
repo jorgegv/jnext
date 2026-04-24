@@ -23,14 +23,23 @@ public:
 
 /// DS1307-compatible RTC backed by the host system clock.
 ///
-/// I2C address 0x68.  Supports reading time registers 0x00-0x06
-/// (seconds, minutes, hours, day-of-week, date, month, year) in BCD.
-/// Writes to registers are accepted but ignored (always returns host time).
+/// I2C address 0x68.  Supports the full DS1307 register map:
+///   0x00-0x06 time/date (BCD)
+///   0x07      control register
+///   0x08-0x3F NVRAM (56 bytes)
+///
+/// Address pointer auto-increments on each byte transfer and wraps
+/// 0x3F → 0x00 (DS1307 datasheet §Address Autoincrement).
+///
+/// In the default configuration `use_real_time_` is true and calls to
+/// `snapshot_time()` refresh regs_[0..6] with the host time.  Setting
+/// `use_real_time_` to false (tests or deterministic replay) freezes
+/// the clock registers so writes can be read back verbatim.
 class I2cRtc : public I2cDevice {
 public:
     I2cRtc();
 
-    void reset() { reg_ptr_ = 0; addr_set_ = false; regs_.fill(0); }
+    void reset();
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -39,13 +48,24 @@ public:
     uint8_t transfer(uint8_t data, bool is_read) override;
     void stop() override;
 
+    // Test/debug accessors — bypass the I2C bus.
+    void    poke_register(uint8_t reg, uint8_t value) { regs_[reg & 0x3F] = value; }
+    uint8_t peek_register(uint8_t reg) const          { return regs_[reg & 0x3F]; }
+    void    set_use_real_time(bool v)                 { use_real_time_ = v; }
+
 private:
     static uint8_t to_bcd(int val);
     void snapshot_time();
 
-    uint8_t reg_ptr_ = 0;         // current register pointer
-    bool    addr_set_ = false;    // true after first write sets register pointer
-    std::array<uint8_t, 8> regs_{}; // cached time registers (BCD)
+    uint8_t reg_ptr_  = 0;              // current register pointer (0x00-0x3F)
+    bool    addr_set_ = false;          // true after first write sets register pointer
+    bool    osc_halt_ = false;          // CH bit (reg 0x00 bit 7); when set the
+                                        // time registers are frozen
+    bool    mode_12h_ = false;          // reg 0x02 bit 6 — 12-hour mode
+    bool    use_real_time_ = true;      // if false, snapshot_time() is a no-op
+    std::array<uint8_t, 64> regs_{};    // full DS1307 register map + NVRAM (BCD
+                                        // time at 0x00..0x06, ctrl at 0x07,
+                                        // NVRAM 0x08..0x3F)
 };
 
 /// I2C bus controller — decodes bit-bang protocol from port writes.
@@ -77,6 +97,15 @@ public:
     /// Read port 0x113B — returns SDA input state (bit 0, upper bits set).
     uint8_t read_sda() const;
 
+    /// Drive the Raspberry Pi I2C bridge inputs (zxnext.vhd:3259/3266).
+    /// Both signals are open-drain / wired-AND with the local SCL/SDA
+    /// outputs; pulling either line low on the Pi side forces the
+    /// corresponding CPU read to 0.  Default state is high (released).
+    void set_pi_i2c1(bool scl, bool sda) {
+        pi_i2c1_scl_ = scl ? 1 : 0;
+        pi_i2c1_sda_ = sda ? 1 : 0;
+    }
+
     /// Attach a device at the given 7-bit I2C address.
     void attach_device(uint8_t address, I2cDevice* device);
 
@@ -102,6 +131,12 @@ private:
     uint8_t sda_in_ = 1;    // device-driven SDA input (directly from device or pull-up)
     uint8_t prev_scl_ = 1;
     uint8_t prev_sda_ = 1;
+
+    // Raspberry Pi I2C bridge inputs (zxnext.vhd:3259/3266). Default
+    // released high; set to 0 to pull the corresponding line low on
+    // the read path only (AND-gate).
+    uint8_t pi_i2c1_scl_ = 1;
+    uint8_t pi_i2c1_sda_ = 1;
 
     // Protocol state
     State    state_ = State::IDLE;

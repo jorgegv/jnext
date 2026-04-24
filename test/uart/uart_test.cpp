@@ -31,7 +31,9 @@
 
 #include <cstdarg>
 #include <cstdint>
+#include <cstddef>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -918,9 +920,22 @@ static void test_group8_i2c() {
     //          applied in port_dispatch, not inside I2cController.
     skip("I2C-10", "zxnext.vhd - internal_port_enable(10) gating lives in port_dispatch");
 
-    // I2C-11 - zxnext.vhd:3259 AND-s the CPU SCL with pi_i2c1_scl; the
-    //          emulator has no Pi I2C master input.
-    skip("I2C-11", "zxnext.vhd:3259 - pi_i2c1_scl input not plumbed in I2cController");
+    // I2C-11 - zxnext.vhd:3259 AND-s the CPU SCL with pi_i2c1_scl. Pulling
+    //          pi_i2c1_scl low must force read_scl() bit 0 to 0 even while
+    //          the local master has released the line; releasing the Pi
+    //          bridge restores the local driver's view.
+    {
+        i2c.reset();
+        i2c.write_scl(0x01);              // local master releases SCL high
+        i2c.set_pi_i2c1(false, true);     // Pi pulls SCL low
+        uint8_t scl_low = i2c.read_scl() & 0x01;
+        i2c.set_pi_i2c1(true, true);      // Pi releases SCL
+        uint8_t scl_hi  = i2c.read_scl() & 0x01;
+        check("I2C-11",
+              "zxnext.vhd:3259 - pi_i2c1_scl AND-gates the SCL read path",
+              scl_low == 0 && scl_hi == 1,
+              fmt("pi_low=%u pi_high=%u", scl_low, scl_hi));
+    }
 
     // I2C-12 - zxnext.vhd:3235-3247 reset restores both output registers
     //          to 1 regardless of prior state.
@@ -1146,13 +1161,190 @@ static void test_group10_rtc() {
     skip("RTC-08", "I2cRtc - date register populated but blocked by i2c.cpp:101 false-STOP");
     skip("RTC-09", "I2cRtc - month register populated but blocked by i2c.cpp:101");
     skip("RTC-10", "I2cRtc - year register populated but blocked by i2c.cpp:101");
-    skip("RTC-11", "I2cRtc - control register (reg 0x07) always 0x00, no masks observable");
-    skip("RTC-12", "I2cRtc - register writes discarded at i2c.cpp:44, no read-back path");
-    skip("RTC-13", "I2cRtc - 12h mode not modelled (snapshot_time always sets 24h)");
-    skip("RTC-14", "I2cRtc - auto-increment observable but blocked by i2c.cpp:101");
-    skip("RTC-15", "I2cRtc - sequential write blocked by write-discard and i2c.cpp:101");
-    skip("RTC-16", "I2cRtc - CH bit / oscillator halt not modelled");
-    skip("RTC-17", "I2cRtc - NVRAM 0x08-0x3F not implemented (regs_ is 8 bytes)");
+    // Helpers for multi-byte DS1307 transactions. write_reg sends the
+    // register pointer + one data byte. write_seq sends a register
+    // pointer followed by N data bytes (exercises auto-increment).
+    // read_seq reads N bytes back from a seeked pointer.
+    auto write_reg = [&](uint8_t reg, uint8_t value) {
+        i2c.reset();
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD0);   // DS1307 write frame
+        (void)i2c_send_byte(i2c, reg);
+        (void)i2c_send_byte(i2c, value);
+        i2c_stop(i2c);
+    };
+    auto write_seq = [&](uint8_t reg, std::initializer_list<uint8_t> values) {
+        i2c.reset();
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD0);
+        (void)i2c_send_byte(i2c, reg);
+        for (uint8_t v : values) (void)i2c_send_byte(i2c, v);
+        i2c_stop(i2c);
+    };
+    auto read_seq_from = [&](uint8_t reg, std::size_t n) {
+        std::vector<uint8_t> out;
+        i2c.reset();
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD0);
+        (void)i2c_send_byte(i2c, reg);
+        i2c_stop(i2c);
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD1);
+        for (std::size_t i = 0; i < n; ++i) {
+            bool last = (i + 1 == n);
+            // ACK all bytes except the final one (master NACK).
+            out.push_back(i2c_read_byte(i2c, !last));
+        }
+        i2c_stop(i2c);
+        return out;
+    };
+
+    // RTC-11 - Control register (reg 0x07) round-trip. DS1307 datasheet
+    //          §Control Register: bits SQWE and OUT are writable; the
+    //          emulator does not model the SQW pin so the register must
+    //          round-trip verbatim (no side effects).
+    {
+        rtc.set_use_real_time(false);
+        write_reg(0x07, 0x90);            // SQWE=1, OUT=1, RS=00
+        uint8_t ctrl = rtc.peek_register(0x07);
+        check("RTC-11",
+              "DS1307 control register (0x07) round-trips written value",
+              ctrl == 0x90,
+              fmt("reg=0x%02x expected=0x90", ctrl));
+        rtc.set_use_real_time(true);
+    }
+
+    // RTC-12 - Write single register + read back. With real-time snapshot
+    //          frozen, writing 0x34 to reg 0x00 and reading back must
+    //          return the exact value. Validates i2c.cpp write path
+    //          (previously discarded writes silently).
+    {
+        rtc.set_use_real_time(false);
+        rtc.poke_register(0x00, 0x00);    // clear any residue
+        write_reg(0x00, 0x34);            // store 0x34 in seconds (valid BCD)
+        uint8_t v = read_seq_from(0x00, 1).at(0);
+        check("RTC-12",
+              "DS1307 - write/read single register round-trip",
+              v == 0x34,
+              fmt("read=0x%02x expected=0x34", v));
+        rtc.set_use_real_time(true);
+    }
+
+    // RTC-13 - 12-hour mode (DS1307 datasheet §Hours Register). bit 6 = 1
+    //          selects 12h mode; bit 5 = PM flag; bits 4:0 = BCD hours.
+    //          Writing 0x61 (12h|PM|hour=01) must round-trip.
+    {
+        rtc.set_use_real_time(false);
+        write_reg(0x02, 0x61);            // 12h mode, PM, hour = 01
+        uint8_t v = read_seq_from(0x02, 1).at(0);
+        bool mode_ok = (v & 0x40) != 0;
+        bool pm_ok   = (v & 0x20) != 0;
+        bool bcd_ok  = (v & 0x1F) == 0x01;
+        check("RTC-13",
+              "DS1307 12h mode - bit 6 (12h) + bit 5 (PM) + BCD hours round-trip",
+              mode_ok && pm_ok && bcd_ok,
+              fmt("reg=0x%02x expected=0x61", v));
+        rtc.set_use_real_time(true);
+    }
+
+    // RTC-14 - Auto-increment pointer wrap 0x3F → 0x00 (DS1307 datasheet
+    //          §Address Autoincrement). Write 0x42 to reg 0x3F; the
+    //          pointer then advances to 0x00 inside the same
+    //          transaction — but the next transaction starts a fresh
+    //          seek, so we verify by issuing a single-transaction
+    //          "write pointer=0x3F, then two data bytes" and reading
+    //          0x3F back + 0x00 back.
+    {
+        rtc.set_use_real_time(false);
+        rtc.poke_register(0x00, 0xAA);
+        rtc.poke_register(0x3F, 0xAA);
+        // Write into 0x3F, then let auto-increment spill into 0x00.
+        write_seq(0x3F, {0x42, 0x55});
+        uint8_t at_3f = rtc.peek_register(0x3F);
+        uint8_t at_00 = rtc.peek_register(0x00);
+        check("RTC-14",
+              "DS1307 - auto-increment wraps 0x3F → 0x00",
+              at_3f == 0x42 && at_00 == 0x55,
+              fmt("reg[0x3F]=0x%02x reg[0x00]=0x%02x", at_3f, at_00));
+        rtc.set_use_real_time(true);
+    }
+
+    // RTC-15 - Sequential write into NVRAM (regs 0x08-0x3F, no validation).
+    //          Writing three consecutive bytes must store them at
+    //          0x08 / 0x09 / 0x0A via pointer auto-increment.
+    {
+        rtc.poke_register(0x08, 0x00);
+        rtc.poke_register(0x09, 0x00);
+        rtc.poke_register(0x0A, 0x00);
+        write_seq(0x08, {0x11, 0x22, 0x33});
+        uint8_t a = rtc.peek_register(0x08);
+        uint8_t b = rtc.peek_register(0x09);
+        uint8_t c = rtc.peek_register(0x0A);
+        check("RTC-15",
+              "DS1307 - sequential write with pointer auto-increment",
+              a == 0x11 && b == 0x22 && c == 0x33,
+              fmt("0x08=0x%02x 0x09=0x%02x 0x0A=0x%02x", a, b, c));
+    }
+
+    // RTC-16 - CH bit / oscillator halt (DS1307 datasheet §Clock Halt).
+    //          Setting reg 0x00 bit 7 halts the oscillator; snapshot_time()
+    //          must leave regs_[0..6] frozen across start()/stop()
+    //          transitions.
+    {
+        rtc.set_use_real_time(true);
+        // Halt the clock.
+        write_reg(0x00, 0x80);            // CH=1, seconds=0
+        uint8_t seconds_halt = rtc.peek_register(0x00);
+        // Force a fresh snapshot (start() would call snapshot_time()).
+        rtc.start();
+        rtc.stop();
+        uint8_t seconds_after = rtc.peek_register(0x00);
+        bool halt_preserved = (seconds_halt == 0x80) && (seconds_after == 0x80);
+
+        // Release the halt and verify host time flows again.
+        write_reg(0x00, 0x00);            // CH=0
+        rtc.start();                      // triggers snapshot
+        rtc.stop();
+        uint8_t seconds_run = rtc.peek_register(0x00);
+        bool bcd_ok = ((seconds_run & 0x0F) <= 9) && (((seconds_run >> 4) & 0x07) <= 5);
+
+        check("RTC-16",
+              "DS1307 CH bit halts oscillator; clearing it resumes host-time snapshot",
+              halt_preserved && bcd_ok && (seconds_run & 0x80) == 0,
+              fmt("halt=0x%02x→0x%02x run=0x%02x", seconds_halt, seconds_after, seconds_run));
+    }
+
+    // RTC-17 - NVRAM 0x08-0x3F round-trip (DS1307 datasheet §RAM). All
+    //          56 bytes must store arbitrary values byte-accurately.
+    {
+        // Fill 0x08..0x3F with a pattern via auto-increment.
+        std::initializer_list<uint8_t> pattern = {
+            0x55, 0xAA, 0x00, 0xFF, 0x5A, 0xA5, 0x01, 0x80,
+            0x02, 0x40, 0x04, 0x20, 0x08, 0x10, 0x11, 0x22,
+            0x33, 0x44, 0x66, 0x77, 0x88, 0x99, 0xAB, 0xCD,
+            0xEF, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE,
+            0xF0, 0x0F, 0x70, 0x07, 0xB0, 0x0B, 0xD0, 0x0D,
+            0xE0, 0x0E, 0xC1, 0x1C, 0xC2, 0x2C, 0xC3, 0x3C,
+            0xC4, 0x4C, 0xC5, 0x5C, 0xC6, 0x6C, 0xC7, 0x7C,
+        };
+        write_seq(0x08, pattern);
+        bool ok = true;
+        uint8_t reg = 0x08;
+        std::string mismatch;
+        for (uint8_t expected : pattern) {
+            uint8_t got = rtc.peek_register(reg);
+            if (got != expected) {
+                ok = false;
+                mismatch = fmt("reg 0x%02x: got=0x%02x expected=0x%02x", reg, got, expected);
+                break;
+            }
+            ++reg;
+        }
+        check("RTC-17",
+              "DS1307 NVRAM 0x08-0x3F byte-accurate round-trip",
+              ok,
+              mismatch);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

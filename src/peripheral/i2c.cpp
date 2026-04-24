@@ -22,6 +22,15 @@ I2cRtc::I2cRtc() {
     snapshot_time();
 }
 
+void I2cRtc::reset() {
+    reg_ptr_ = 0;
+    addr_set_ = false;
+    osc_halt_ = false;
+    mode_12h_ = false;
+    use_real_time_ = true;
+    regs_.fill(0);
+}
+
 void I2cRtc::start() {
     addr_set_ = false;
     snapshot_time();
@@ -30,23 +39,49 @@ void I2cRtc::start() {
 uint8_t I2cRtc::transfer(uint8_t data, bool is_read) {
     if (is_read) {
         // Read: return register at current pointer, auto-increment
-        uint8_t val = (reg_ptr_ < regs_.size()) ? regs_[reg_ptr_] : 0x00;
+        uint8_t val = regs_[reg_ptr_];
         i2c_log()->debug("RTC read reg {:#04x} = {:#04x}", reg_ptr_, val);
-        reg_ptr_ = (reg_ptr_ + 1) & 0x07;
+        reg_ptr_ = (reg_ptr_ + 1) & 0x3F;     // DS1307: wrap 0x3F → 0x00
         return val;
-    } else {
-        // Write: first byte sets register pointer, subsequent bytes are data writes
-        if (!addr_set_) {
-            reg_ptr_ = data & 0x07;
-            addr_set_ = true;
-            i2c_log()->debug("RTC set register pointer = {:#04x}", reg_ptr_);
-        } else {
-            // Accept writes silently (we always return host time on reads)
-            i2c_log()->debug("RTC write reg {:#04x} = {:#04x} (ignored)", reg_ptr_, data);
-            reg_ptr_ = (reg_ptr_ + 1) & 0x07;
-        }
+    }
+
+    // Write path. First write-byte in the transaction sets the
+    // register pointer; subsequent bytes are data writes that
+    // auto-increment the pointer (DS1307 datasheet §Address
+    // Autoincrement).
+    if (!addr_set_) {
+        reg_ptr_ = data & 0x3F;
+        addr_set_ = true;
+        i2c_log()->debug("RTC set register pointer = {:#04x}", reg_ptr_);
         return 0; // ACK
     }
+
+    // Data byte — apply per-register semantics.
+    switch (reg_ptr_) {
+    case 0x00:
+        // Seconds: bits 6:0 = BCD seconds; bit 7 = CH (Clock Halt).
+        regs_[0x00] = data & 0x7F;
+        osc_halt_   = (data & 0x80) != 0;
+        if (osc_halt_) {
+            regs_[0x00] |= 0x80;             // persist CH bit visibly
+        }
+        break;
+    case 0x02:
+        // Hours: bit 6 = 12h mode; bit 5 = AM/PM (when 12h); bits 4:0 = BCD.
+        // Store verbatim — both the mode bit and the AM/PM flag must
+        // round-trip exactly.
+        regs_[0x02] = data & 0x7F;           // bit 7 reserved, always 0
+        mode_12h_   = (data & 0x40) != 0;
+        break;
+    default:
+        // reg 0x01 (minutes), 0x03-0x06 (wday/date/month/year),
+        // 0x07 (control), 0x08-0x3F (NVRAM) — store verbatim.
+        regs_[reg_ptr_] = data;
+        break;
+    }
+    i2c_log()->debug("RTC write reg {:#04x} = {:#04x}", reg_ptr_, data);
+    reg_ptr_ = (reg_ptr_ + 1) & 0x3F;
+    return 0; // ACK
 }
 
 void I2cRtc::stop() {
@@ -58,6 +93,13 @@ uint8_t I2cRtc::to_bcd(int val) {
 }
 
 void I2cRtc::snapshot_time() {
+    // Oscillator halted or deterministic mode → leave regs_[0..6] alone.
+    // DS1307 datasheet §Clock Halt: when CH=1 the on-chip oscillator
+    // is stopped and the time registers do not advance.
+    if (osc_halt_ || !use_real_time_) {
+        return;
+    }
+
     std::time_t now = std::time(nullptr);
     std::tm* t = std::localtime(&now);
     if (!t) return;
@@ -69,7 +111,8 @@ void I2cRtc::snapshot_time() {
     regs_[4] = to_bcd(t->tm_mday);            // 0x04: date
     regs_[5] = to_bcd(t->tm_mon + 1);         // 0x05: month (1-12)
     regs_[6] = to_bcd(t->tm_year % 100);      // 0x06: year (00-99)
-    regs_[7] = 0x00;                           // 0x07: control register
+    // regs_[0x07] (control) and regs_[0x08..0x3F] (NVRAM) are never
+    // touched by the host-time snapshot.
 }
 
 // ─── I2cController ───────────────────────────────────────────────────
@@ -119,14 +162,18 @@ void I2cController::write_sda(uint8_t val) {
 }
 
 uint8_t I2cController::read_scl() const {
-    // Upper 7 bits read as 1 (pulled high), bit 0 is SCL state
-    return 0xFE | scl_;
+    // Upper 7 bits read as 1 (pulled high), bit 0 is SCL state.
+    // zxnext.vhd:3259: port_103b_dat <= "1111111" & (i_I2C_SCL_n and pi_i2c1_scl);
+    // Our scl_ mirrors i_I2C_SCL_n (the local master drives it).
+    return 0xFE | (scl_ & pi_i2c1_scl_);
 }
 
 uint8_t I2cController::read_sda() const {
-    // Upper 7 bits read as 1 (pulled high), bit 0 is SDA input
-    // SDA is the AND of sda_out_ and sda_in_ (open-drain wired-AND)
-    return 0xFE | (sda_out_ & sda_in_);
+    // Upper 7 bits read as 1 (pulled high), bit 0 is SDA input.
+    // zxnext.vhd:3266: port_113b_dat <= "1111111" & (i_I2C_SDA_n and pi_i2c1_sda);
+    // SDA is the wired-AND of sda_out_, the device-driven sda_in_, and the
+    // Raspberry Pi bridge sda (open-drain on all three sides).
+    return 0xFE | (sda_out_ & sda_in_ & pi_i2c1_sda_);
 }
 
 void I2cController::attach_device(uint8_t address, I2cDevice* device) {
@@ -292,13 +339,19 @@ void I2cRtc::save_state(StateWriter& w) const
 {
     w.write_u8(reg_ptr_);
     w.write_bool(addr_set_);
+    w.write_bool(osc_halt_);
+    w.write_bool(mode_12h_);
+    w.write_bool(use_real_time_);
     w.write_bytes(regs_.data(), regs_.size());
 }
 
 void I2cRtc::load_state(StateReader& r)
 {
-    reg_ptr_  = r.read_u8();
-    addr_set_ = r.read_bool();
+    reg_ptr_       = r.read_u8();
+    addr_set_      = r.read_bool();
+    osc_halt_      = r.read_bool();
+    mode_12h_      = r.read_bool();
+    use_real_time_ = r.read_bool();
     r.read_bytes(regs_.data(), regs_.size());
 }
 
