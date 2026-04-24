@@ -22,7 +22,16 @@ extend the existing priority-mode-6 / priority-mode-7 branches in
 `mix_top` / `mix_bot` signals per VHDL `zxnext.vhd:7141-7178` for ALL
 four ula_blend_mode variants. Today those two branches hard-code the
 `ula_blend_mode = "00"` mapping (see the comment at
-`renderer.cpp:336`), so 3 of the 4 variants are silently wrong.
+`renderer.cpp:336` and the expressions at `renderer.cpp:337-339`
+(mode 6) and `renderer.cpp:365-367` (mode 7)), so 3 of the 4 variants
+are silently wrong.
+
+**User-visible driver**: `CSpect3_1_0_0/Beast/beast.nex` triggers this
+bug. The game selects a non-"00" `ula_blend_mode` for its Layer-2 sky
+gradient; on CSpect the ULA layer is correctly masked out of the
+blend. On jnext, the ULA-attribute cells leak through as 8×8 colored
+patches in the upper sky / tree-edge regions (compare `beast-good.png`
+CSpect reference vs jnext headless capture of the same NEX).
 
 Expected row delta:
 
@@ -178,13 +187,18 @@ Observations:
   = 0x40 actually rely on.
 - Variant `"11"` swaps ULA and TM in the blend: TM is the blend source,
   ULA becomes the overlay.
-- Variant `"01"` produces a fully-transparent mix_rgb, which collapses
-  modes 6/7 to an "overlay only" result — effectively TM-over-ULA (or
-  ULA-over-TM if `tm_below`) with L2 supplying fallback via `layer2_priority`
-  / the final `elsif layer2_transparent = '0'` arm of the priority
-  cascade. Note `when others` applies to `"01"` AND any
-  out-of-2-bit value, which is a VHDL-level catch-all; for us, only
-  `"01"` can reach this branch.
+- Variant `"01"` sets `mix_rgb_transparent = 1` (VHDL 7165), which
+  short-circuits the L2+mix add/sub stage so the mix-path contributes
+  zero to the blended result — no ULA contribution, even on a pixel
+  where ULA would otherwise be opaque. Downstream cascade in priority
+  modes 6/7 then selects from the `mix_top` / `mix_bot` overlays
+  (typically TM with the ULA/below swap applied) plus the L2 fallback
+  via `layer2_priority` / the final `elsif layer2_transparent = '0'`
+  arm. Net effect: TM-over-L2 (or L2-over-TM if `tm_below`) with ULA
+  masked out — exactly what `beast.nex` needs so its Layer-2 sky
+  gradient renders cleanly without 48K ULA-attribute leakage. Note
+  `when others` applies to `"01"` AND any out-of-2-bit value, a
+  VHDL-level catch-all; for us, only `"01"` can reach this branch.
 
 Test-row count:
 
@@ -360,10 +374,11 @@ found.
 
 The code comment at `renderer.cpp:336` claims "ULA blend mode '00'
 (default)". Phase 0 critic should verify that the current
-`mix_rgb_transp` / `mix_top_transp` / `mix_bot_transp` expressions
-exactly equal VHDL 7142-7148 (not "close enough"). If there is an
-existing drift, it must be corrected in Phase 1 as part of the
-refactor; do NOT preserve a pre-existing bug as "mode 00".
+`mix_rgb_transp` / `mix_top_transp` / `mix_bot_transp` expressions at
+`renderer.cpp:337-339` (priority mode 6) and `renderer.cpp:365-367`
+(priority mode 7) exactly equal VHDL 7142-7148 (not "close enough").
+If there is an existing drift, it must be corrected in Phase 1 as part
+of the refactor; do NOT preserve a pre-existing bug as "mode 00".
 
 ### Open Q2 — `ula_mix_rgb` vs `ula_final_rgb` distinction
 
