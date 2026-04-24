@@ -22,6 +22,7 @@
 
 #include "peripheral/divmmc.h"
 #include "peripheral/nmi_source.h"
+#include "cpu/im2.h"
 
 // Wave A integration row also exercises NR 0x02 through the real port
 // path (Emulator → NextReg → write_handler → NmiSource::nr_02_write).
@@ -864,11 +865,104 @@ static void g_gate_registers()
 }
 
 // =====================================================================
+// Group DMA — NMI-activated DMA-delay path (Wave E; 3 rows)
+//
+// VHDL oracle zxnext.vhd:2001-2010:
+//   im2_dma_delay <= im2_dma_int
+//                    OR (nmi_activated AND nr_cc_dma_int_en_0_7)
+//                    OR (im2_dma_delay AND dma_delay);
+//
+// Wave E wires NmiSource::is_activated() into Im2Controller via
+// set_nmi_activated(), and NR 0xCC bit 7 via set_nr_cc_dma_int_en_0_7().
+// These rows cover the second OR term end-to-end.
+// =====================================================================
+
+static void g_dma_group()
+{
+    set_group("DMA");
+
+    // DMA-01 — VHDL zxnext.vhd:2107: `nmi_activated = nmi_mf OR nmi_divmmc
+    // OR nmi_expbus`. Drive the ExpBus pin active (i_BUS_NMI_n='0') and
+    // tick() NmiSource once; the priority latch `nmi_expbus_` must set and
+    // is_activated() must return true. Also verifies the latch survives
+    // across the FSM IDLE→FETCH transition.
+    {
+        NmiSource nmi;
+        nmi.reset();
+
+        const bool before = nmi.is_activated();
+        nmi.set_expbus_nmi_n(false);       // assert /BUS_NMI (active-low)
+        nmi.tick(1);                       // recompute_: latch expbus, FSM IDLE→FETCH
+        const bool after_latch = nmi.nmi_expbus();
+        const bool after_activated = nmi.is_activated();
+        const bool fsm_fetch = (nmi.state() == NmiSource::State::Fetch);
+
+        check("DMA-01",
+              "is_activated() true while any NMI latch is set",
+              !before && after_latch && after_activated && fsm_fetch,
+              "zxnext.vhd:2107 nmi_activated = nmi_mf OR nmi_divmmc OR nmi_expbus");
+    }
+
+    // DMA-02 — VHDL zxnext.vhd:2007 second OR term:
+    //   (nmi_activated AND nr_cc_dma_int_en_0_7).
+    // With both inputs asserted to the Im2Controller and no other DMA
+    // sources, step_dma_delay() (called from tick()) must latch
+    // im2_dma_delay to 1.
+    {
+        Im2Controller im2;
+        im2.reset();
+        im2.set_mode(true);
+        // No device in S_REQ, mask empty → dma_int_pending() == false.
+        // Push both second-term inputs high.
+        im2.set_nr_cc_dma_int_en_0_7(true);
+        im2.set_nmi_activated(true);
+
+        const bool before = im2.dma_delay();
+        im2.tick(1);  // step_dma_delay() runs at end of tick()
+        const bool after = im2.dma_delay();
+
+        check("DMA-02",
+              "im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7",
+              !before && after,
+              "zxnext.vhd:2007 second OR term (nmi_activated AND nr_cc_dma_int_en_0_7)");
+    }
+
+    // DMA-03 — VHDL zxnext.vhd:2007: NR 0xCC bit 7 = 0 must block the NMI
+    // contribution even when NMI is activated. No DMA int source → latch
+    // stays low. Also verify the complementary: if NMI is NOT activated,
+    // with bit 7 = 1, latch also stays low (full AND gate coverage).
+    {
+        Im2Controller im2;
+        im2.reset();
+        im2.set_mode(true);
+
+        // Case 1: nmi_activated=1, nr_cc_dma_int_en_0_7=0 → latch stays 0.
+        im2.set_nmi_activated(true);
+        im2.set_nr_cc_dma_int_en_0_7(false);
+        im2.tick(1);
+        const bool case1_blocked = !im2.dma_delay();
+
+        // Case 2: nmi_activated=0, nr_cc_dma_int_en_0_7=1 → latch stays 0.
+        im2.reset();
+        im2.set_mode(true);
+        im2.set_nmi_activated(false);
+        im2.set_nr_cc_dma_int_en_0_7(true);
+        im2.tick(1);
+        const bool case2_blocked = !im2.dma_delay();
+
+        check("DMA-03",
+              "NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay",
+              case1_blocked && case2_blocked,
+              "zxnext.vhd:2007 AND gate in second OR term — both inputs required");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
 int main() {
-    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B + Wave C)\n");
+    std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B + Wave C + Wave E)\n");
     std::printf("=========================================================\n\n");
 
     g_rst_defaults();      std::printf("  RST  reset-defaults  -- done\n");
@@ -878,6 +972,7 @@ int main() {
     g_divmmc_consumer();   std::printf("  DIS  DivMMC consumer  -- done\n");
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
     g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
+    g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
