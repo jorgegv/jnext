@@ -1324,8 +1324,9 @@ void group7_arbitration() {
     //   2. MF / DivMMC NMI edge-generation wiring is not in place.
     // Belongs to NMI-subsystem remediation (Input / CTC plans).
     skip("ARB-06",
-         "NR 0x02 NMI-request infrastructure not implemented — blocked "
-         "on NMI subsystem remediation (zxnext.vhd:3830-3832)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-a (NR 0x02 software-NMI routing). See "
+         "TASK-NMI-SOURCE-PIPELINE-PLAN.md. (zxnext.vhd:3830-3832)");
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────

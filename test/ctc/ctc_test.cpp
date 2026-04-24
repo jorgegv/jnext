@@ -1976,10 +1976,13 @@ void section13_nextreg_int_regs() {
               fmt("got 0x%02x", im2.vector_base()));
     }
 
-    // NR-C0-02 — NR 0xC0 stackless_nmi — F-keep: blocked on NMI subsystem.
+    // NR-C0-02 — NR 0xC0 stackless_nmi — Wave D CUT per plan Q1.
     skip("NR-C0-02",
-         "NR 0xC0 stackless_nmi — blocked on NMI subsystem "
-         "(see memory/project_nmi_fragmented_status.md)");
+         "Stackless NMI (NR 0xC0 bit 3) — Wave D cut per "
+         "TASK-NMI-SOURCE-PIPELINE-PLAN.md Q1: requires FUSE Z80 core "
+         "patch for pre-NMI-push hook and RETN interception; only 1 "
+         "driver row; carry as skip until second driver or "
+         "user-visible bug.");
 
     // NR-C0-03 — zxnext.vhd:5599/1975: NR 0xC0 bit 0 (int_mode_pulse_0_im2_1)
     // selects pulse (0) vs IM2 (1) mode. Bare-Im2 accessor via is_im2_mode()
@@ -2451,10 +2454,11 @@ void section15_dma_int() {
                   latched, im2.dma_delay()));
     }
 
-    // DMA-04 — NMI-driven DMA delay — blocked on NMI subsystem.
+    // DMA-04 — NMI-driven DMA delay — blocked on NMI source pipeline plan.
     skip("DMA-04",
-         "NMI-driven DMA delay — blocked on NMI subsystem "
-         "(see memory/project_nmi_fragmented_status.md)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-e (wire NmiSource::is_activated() into "
+         "Im2Controller::update_im2_dma_delay).");
 
     // DMA-05 — zxnext.vhd:2004-2005: reset clears im2_dma_delay.
     // reset() should clear the latch.

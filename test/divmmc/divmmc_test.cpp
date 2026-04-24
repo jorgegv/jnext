@@ -1233,29 +1233,37 @@ void group_nm() {
     // dependency (NR 0x02 NMI-request infrastructure). See session
     // 2026-04-17f handover.
     skip("NM-01",
-         "Deferred to Task 8 (Multiface): button_nmi latch has no "
-         "consumer (VHDL divmmc.vhd:108-111)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (FSM drives set_button_nmi). "
+         "(VHDL divmmc.vhd:108-111)");
     skip("NM-02",
-         "Deferred to Task 8 (Multiface): automap_nmi_*_on not gated on "
-         "button_nmi (VHDL divmmc.vhd:120-121)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (button_nmi produced end-to-end, automap "
+         "gate observed). (VHDL divmmc.vhd:120-121)");
     skip("NM-03",
-         "Deferred to Task 8 (Multiface): button_nmi gating not modelled "
-         "(VHDL divmmc.vhd:120)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (no-button baseline vs button-pressed "
+         "stimulus). (VHDL divmmc.vhd:120)");
     skip("NM-04",
-         "Deferred to Task 8 (Multiface): button_nmi reset clear not "
-         "modelled (VHDL divmmc.vhd:108)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (reset clear path — already present; "
+         "verify end-to-end). (VHDL divmmc.vhd:108)");
     skip("NM-05",
-         "Deferred to Task 8 (Multiface): button_nmi automap_reset clear "
-         "not modelled (VHDL divmmc.vhd:108)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (automap_reset clear path, new hook). "
+         "(VHDL divmmc.vhd:108)");
     skip("NM-06",
-         "Deferred to Task 8 (Multiface): button_nmi RETN clear not "
-         "modelled (VHDL divmmc.vhd:108)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (RETN-seen clear path — Z80 RETN hook into "
+         "DivMmc). (VHDL divmmc.vhd:108)");
     skip("NM-07",
-         "Deferred to Task 8 (Multiface): button_nmi clear on "
-         "automap_held=1 not modelled (VHDL divmmc.vhd:112-113)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (automap_held=1 one-shot clear path). "
+         "(VHDL divmmc.vhd:112-113)");
     skip("NM-08",
-         "Deferred to Task 8 (Multiface): o_disable_nmi output has no "
-         "consumer (VHDL divmmc.vhd:150)");
+         "Blocked on NMI source pipeline plan — un-skip via "
+         "task-nmi-wave-b (o_disable_nmi output = automap_held OR "
+         "button_nmi, accessor on DivMmc). (VHDL divmmc.vhd:150)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
