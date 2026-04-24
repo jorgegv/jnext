@@ -1,4 +1,5 @@
 #include "audio/mixer.h"
+#include "audio/i2s.h"
 #include <algorithm>
 
 Mixer::Mixer() : buffer_(RING_BUFFER_SIZE * 2, 0) { reset(); }
@@ -36,6 +37,16 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
 
     uint16_t pcm_L = ear + mic + tape_ear + ay_L + dac_L;
     uint16_t pcm_R = ear + mic + tape_ear + ay_R + dac_R;
+
+    // Pi I2S term: mirrors audio_mixer.vhd:89-90 (10-bit zero-extended
+    // to 13-bit) and :99-100 (added into the 13-bit PCM sum). The
+    // Mixer does not own the I2s; Emulator wires it via
+    // set_i2s_source(). When unwired, the term is 0 (silence), so
+    // existing tests / saves continue to observe the same output.
+    if (i2s_) {
+        pcm_L = static_cast<uint16_t>(pcm_L + i2s_->left());
+        pcm_R = static_cast<uint16_t>(pcm_R + i2s_->right());
+    }
 
     // Convert to signed 16-bit.  Center at the resting DC level so that
     // silence produces 0.  At rest: DAC = (0x80+0x80)<<2 = 1024 per channel,

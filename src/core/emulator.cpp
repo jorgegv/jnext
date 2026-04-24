@@ -22,6 +22,11 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // at runtime. Invariant: `Keyboard::reset()` MUST NOT null this
     // back-pointer — it is lifetime-bound wiring, not soft-reset state.
     keyboard_.set_membrane_stick(&membrane_stick_);
+
+    // Audio Phase 1: wire the I2s stub into the Mixer. The Mixer does
+    // not own the I2s; lifetime is the Emulator's. See
+    // audio_mixer.vhd:89-90,99-100 for the 13-bit sum term.
+    mixer_.set_i2s_source(&i2s_);
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +91,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     beeper_.reset();
     turbosound_.reset();
     dac_.reset();
+    i2s_.reset();
     mixer_.reset();
     ctc_.reset();
     dma_.reset();
@@ -2856,6 +2862,12 @@ void Emulator::save_state(StateWriter& w) const
     // single-bool save-state slot for binary compatibility with prior saves
     // and just sample/restore through the IoMode accessor.
     w.write_bool(iomode_.pin7());
+
+    // Audio Phase 1: I2s stub latched sample pair. Appended at the END
+    // of the save stream (NOT interleaved with the other audio
+    // subsystems) so prior saves that predate this field remain
+    // readable up to the pin7 slot.
+    i2s_.save_state(w);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -2924,6 +2936,10 @@ void Emulator::load_state(StateReader& r)
     // Phase 2 Wave 2 Agent E: pin7 now lives in IoMode; restore via the
     // dedicated save-state setter to keep the single-bool slot intact.
     iomode_.set_pin7_for_load(r.read_bool());
+
+    // Audio Phase 1: I2s stub latched sample pair — appended at the
+    // END matching save_state().
+    i2s_.load_state(r);
 }
 
 // ---------------------------------------------------------------------------

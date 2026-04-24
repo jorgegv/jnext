@@ -39,6 +39,7 @@
 #include "audio/beeper.h"
 #include "audio/turbosound.h"
 #include "audio/dac.h"
+#include "audio/i2s.h"
 #include "audio/mixer.h"
 #include "debug/debug_state.h"
 #include "core/tap_loader.h"
@@ -211,6 +212,7 @@ public:
     Beeper&       beeper()    { return beeper_; }
     TurboSound&   turbosound(){ return turbosound_; }
     Dac&          dac()       { return dac_; }
+    I2s&          i2s()       { return i2s_; }
     Mixer&        mixer()     { return mixer_; }
     TraceLog&     trace_log() { return trace_log_; }
     CallStack&    call_stack(){ return call_stack_; }
@@ -432,6 +434,7 @@ private:
     Beeper          beeper_;
     TurboSound      turbosound_;
     Dac             dac_;
+    I2s             i2s_;
     Mixer           mixer_;
     DebugState      debug_state_;
     TraceLog        trace_log_;

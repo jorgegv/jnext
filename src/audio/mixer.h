@@ -7,6 +7,8 @@
 #include "audio/turbosound.h"
 #include "audio/dac.h"
 
+class I2s;
+
 /// Audio mixer: combines all audio sources into stereo PCM output.
 ///
 /// Matches VHDL audio_mixer.vhd scaling:
@@ -14,7 +16,7 @@
 ///   MIC   → 128 (13-bit)
 ///   AY    → 12-bit, zero-extended to 13-bit
 ///   DAC   → 9-bit left-shifted by 2 (×4) to 13-bit
-///   (Pi I2S not emulated — would be 10-bit, zero-extended to 13-bit)
+///   Pi I2S → 10-bit, zero-extended to 13-bit (stub via set_i2s_source)
 ///
 /// The mixer accumulates samples at 44100 Hz into a ring buffer.
 /// The SDL audio bridge pulls samples from this buffer.
@@ -46,6 +48,11 @@ public:
     using RecordCallback = std::function<void(const int16_t*, int)>;
     void set_record_callback(RecordCallback cb) { record_callback_ = std::move(cb); }
 
+    /// Wire the I2s source (not owned). When set, generate_sample() adds
+    /// the latched 10-bit L/R pair (zero-extended) into the 13-bit sum,
+    /// mirroring audio_mixer.vhd:89-90,99-100.
+    void set_i2s_source(I2s* i2s) { i2s_ = i2s; }
+
 private:
     // Ring buffer: stereo int16_t pairs
     std::vector<int16_t> buffer_;
@@ -54,4 +61,6 @@ private:
     int count_ = 0;
 
     RecordCallback record_callback_;
+
+    I2s* i2s_{nullptr};  // Not owned; Emulator owns the I2s instance.
 };
