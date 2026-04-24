@@ -422,14 +422,12 @@ static void g_ay_readback() {
 static void g_ay_ports() {
     set_group("AY-ports");
 
-    // AY-30..34: port_a_i/port_b_i are tied to all-1s in turbosound.vhd
-    // and reg(14)/reg(15) readback depends on those tie-high inputs; the
-    // standalone AyChip class has no accessor for them.
-    skip("AY-30", "no port_a_i injection on AyChip (ym2149.vhd:240-244)");
-    skip("AY-31", "no port_a_i injection on AyChip (ym2149.vhd:240-244)");
-    skip("AY-32", "no port_b_i injection on AyChip (ym2149.vhd:245-249)");
-    skip("AY-33", "no port_b_i injection on AyChip (ym2149.vhd:245-249)");
-    skip("AY-34", "turbosound port_*_i tie-high not plumbed through AyChip");
+    // G: AY-30..34: port_a_i / port_b_i (ym2149.vhd:240-249) are tied to
+    // all-1s in turbosound.vhd:158 and reg(14)/reg(15) readback depends on
+    // those tie-high inputs. The standalone AyChip class has no accessor
+    // for them and the turbosound wrapper does not plumb the tied-high
+    // signal through. Unobservable without src/ API extension; no known
+    // ZX Next software exercises the PSG GPIO path.
 }
 
 // =====================================================================
@@ -462,9 +460,10 @@ static void g_ay_divider() {
               "VHDL ym2149.vhd:260-279 (I_SEL_L hard-tied '1')");
     }
 
-    // AY-41 - I_SEL_L=0 (/16) path not reachable; turbosound.vhd:164 wires
-    // I_SEL_L to '1' and AyChip has no set_sel_l() API.
-    skip("AY-41", "I_SEL_L=0 /16 path not exposed - turbosound.vhd:164 ties '1'");
+    // G: AY-41: I_SEL_L=0 (/16 divider) path unreachable. turbosound.vhd:164
+    // hard-wires I_SEL_L='1', so the /16 branch is dead in the hardware
+    // contract; AyChip has no set_sel_l() API. Defensive coverage only —
+    // no VHDL path exercises it.
 
     // AY-42 - ena_div clocks tone generators once per /8 pulse. Verified
     // via R7=0x3F force-high + fixed vol 15 settling at table max.
@@ -479,9 +478,9 @@ static void g_ay_divider() {
               fmt("got=0x%02x VHDL ym2149.vhd:264-268", ay.output_a()));
     }
 
-    // AY-43 - ena_div_noise runs at half ena_div rate. Not observable via
-    // public API (no noise_cnt accessor, and the LFSR is stochastic).
-    skip("AY-43", "ena_div_noise rate not observable without noise_cnt accessor");
+    // G: AY-43: ena_div_noise runs at half ena_div rate (ym2149.vhd:264-268).
+    // No noise_cnt accessor on AyChip; the LFSR output is stochastic so a
+    // statistical indirect check would be unreliable.
 
     // AY-44 - turbosound.vhd:164 hard-wires I_SEL_L='1', so AyChip uses the
     // /8 counter. With tone period=2 (comp=1), the square wave toggles
@@ -646,11 +645,11 @@ static void g_ay_noise() {
               fmt("high=%d low=%d VHDL ym2149.vhd:284,293", seen_high, seen_low));
     }
 
-    // AY-63 - ym2149.vhd:302 noise_gen_op = poly17(0). Covered by AY-62.
-    skip("AY-63", "noise_gen_op = poly17(0) exercised by AY-62");
-
-    // AY-64 - ym2149.vhd:290 noise clocked at ena_div_noise (half ena_div).
-    skip("AY-64", "ena_div_noise rate not observable via public API");
+    // A: AY-63: noise_gen_op = poly17(0) (ym2149.vhd:302) already exercised
+    // by AY-62's bit-sequence assertion — a separate row would just re-state
+    // the same observation.
+    // G: AY-64: noise clocked at ena_div_noise rate (ym2149.vhd:290, half
+    // ena_div) — same unobservable-without-accessor constraint as AY-43.
 }
 
 // =====================================================================
@@ -1061,8 +1060,9 @@ static void g_ay_envelope() {
               fmt("got=0x%02x VHDL ym2149.vhd:340-342", ay.output_a()));
     }
 
-    // AY-103 - ym2149.vhd:392-401 env_reset loads env_vol from attack bit.
-    skip("AY-103", "covered by AY-07/AY-117 reset-load-env_vol evidence");
+    // A: AY-103: ym2149.vhd:392-401 env_reset loads env_vol from attack bit
+    // — covered by AY-07 (reset-pulse evidence) and AY-117 (shape 0x0D
+    // settle-to-max) which would fail if env_reset did not load env_vol.
 
     // AY-110 - ym2149.vhd:412-421 shape 0 (\\___): hold at 0.
     {
@@ -1239,11 +1239,9 @@ static void g_ay_envelope() {
               fmt("got=0x%02x VHDL ym2149.vhd:434-437", ay.output_a()));
     }
 
-    // AY-120 - attack=0 initial state. Covered by AY-110 (shape 0 reaches 0).
-    skip("AY-120", "covered by AY-110 initial-state evidence");
-
-    // AY-121 - attack=1 initial state. Covered by AY-111.
-    skip("AY-121", "covered by AY-111 initial-state evidence");
+    // A: AY-120: attack=0 initial state — covered by AY-110 (shape 0 reaches 0,
+    // which can only hold if the initial env_vol was loaded from attack=0).
+    // A: AY-121: attack=1 initial state — covered by AY-111 (symmetric).
 
     // AY-122 - C=0 implies hold after first ramp. Shape 2 (C=0, Al=1,
     // H=0) must still terminate at 0 (single-ramp behaviour).
@@ -1299,11 +1297,12 @@ static void g_ay_envelope() {
                   a.output_a(), b.output_a()));
     }
 
-    // AY-125/126/127/128 covered by earlier shape probes.
-    skip("AY-125", "triangle continuous covered by AY-114, AY-118");
-    skip("AY-126", "sawtooth continuous covered by AY-112, AY-116");
-    skip("AY-127", "32-level step progression implied by AY-94 probes + sweeps");
-    skip("AY-128", "period counter reset on R13 covered by AY-102");
+    // A: AY-125: triangle continuous — covered by AY-114 + AY-118 shape probes.
+    // A: AY-126: sawtooth continuous — covered by AY-112 + AY-116.
+    // A: AY-127: 32-level step progression — implied by AY-94 volume-table probes
+    //    and the shape sweeps that reach each end of the 32-level range.
+    // A: AY-128: period counter reset on R13 write — covered by AY-102 (R13
+    //    re-write resets env counter to shape 0 hold-at-0).
 }
 
 // =====================================================================
@@ -1476,8 +1475,9 @@ static void g_ts_routing() {
                   ts.reg_read()));
     }
 
-    // TS-17 - psgN_we shares ay_select gate with psgN_addr.
-    skip("TS-17", "psgN_we gating covered by TS-16 (same ay_select gate)");
+    // A: TS-17: psgN_we shares the ay_select gate with psgN_addr — covered
+    // structurally by TS-16 (reg write routed only to selected PSG, which
+    // would fail if the write-enable gate differed from the addr gate).
 
     // TS-18 - turbosound.vhd:321 readback muxes on ay_select.
     {
@@ -1615,8 +1615,10 @@ static void g_ts_stereo() {
                   ts.pcm_left(), ts.pcm_right()));
     }
 
-    // TS-24 - single global stereo_mode bit for all three PSGs.
-    skip("TS-24", "global stereo_mode covered structurally by TS-20/TS-21");
+    // A: TS-24: single global stereo_mode bit for all three PSGs — covered
+    // structurally by TS-20 / TS-21 (ABC vs ACB stereo mode tests). One
+    // bit governs all three panners, so any single-PSG correctness proves
+    // the global semantics.
 }
 
 static void g_ts_enable() {
@@ -1657,17 +1659,17 @@ static void g_ts_enable() {
                   ts.pcm_left()));
     }
 
-    // TS-32/33/34 - per-PSG zero gating not directly observable.
-    skip("TS-32", "per-PSG zero gating covered by TS-30/TS-31 aggregate");
-    skip("TS-33", "per-PSG zero gating covered by TS-30/TS-31 aggregate");
-    skip("TS-34", "per-PSG zero gating covered by TS-30/TS-31 aggregate");
+    // A: TS-32..34: per-PSG zero gating (turbosound.vhd:197/252/307) — covered
+    // in aggregate by TS-30 (disabled = PSG0 only, non-zero) and TS-31
+    // (enabled = all three contribute, sum > 0xFF). If any per-PSG gate
+    // were broken, either the zero case or the sum threshold would fail.
 }
 
 static void g_ts_panning() {
     set_group("TS-panning");
 
-    // TS-40 - pan=11 both channels: covered by TS-10.
-    skip("TS-40", "pan=11 both channels covered by TS-10");
+    // A: TS-40: pan="11" (both channels) — covered by TS-10 default pan
+    // state which exercises the both-channels-active code path.
 
     // TS-41 - pan=10 L only.
     // All channels active so R_sum = B + C > 0 before gating; pan=10
@@ -1870,8 +1872,11 @@ static void g_dac() {
                   dac.pcm_left(), dac.pcm_right()));
     }
 
-    // SD-09 - per-clock if/elsif priority not modelled standalone.
-    skip("SD-09", "per-clock if/elsif priority not modelled in standalone Dac");
+    // G: SD-09: per-clock if/elsif write priority (port I/O vs NextREG
+    // mirror) is a pipeline ordering artefact of the VHDL core-level
+    // process; the standalone Dac class has last-write-wins semantics
+    // per frame and no time-ordered event queue. Out of scope for this
+    // plan — would require a pipeline-event refactor on Dac.
 
     // SD-10..SD-18 - port decode lives in zxnext.vhd.
     skip("SD-10", "port decode 0x1F/0x0F/0x4F/0x5F lives in zxnext.vhd:2429");
@@ -2119,12 +2124,14 @@ static void g_mixer() {
               fmt("L=%d VHDL audio_mixer.vhd:99", s[0]));
     }
 
-    // MX-15 - no saturation. Confirmed by MX-14 and MX-05 matching exact
-    // arithmetic; no i2s/ay path under test was clipped.
-    skip("MX-15", "non-saturation confirmed by MX-05 and MX-14 exact matches");
-
+    // A: MX-15: non-saturation — confirmed by MX-05 (full-scale sum = 5998,
+    // fits within 13-bit unsigned range 0..8191) and MX-14 (EAR+MIC+DAC
+    // subset exact arithmetic). A saturation bug would change those exact
+    // values.
     skip("MX-20", "exc_i silencing of EAR/MIC lives in zxnext.vhd:6504");
-    skip("MX-21", "exc_i=0 default covered implicitly by MX-01/MX-02");
+    // A: MX-21: exc_i=0 default — covered implicitly by MX-01 (EAR active)
+    // and MX-02 (MIC active), both of which execute under exc_i=0 by
+    // default and would fail if the default were non-zero.
     skip("MX-22", "exc_i derivation lives in zxnext.vhd:6504");
 }
 
