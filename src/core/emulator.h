@@ -343,6 +343,23 @@ public:
     bool nr_06_button_m1_nmi_en()    const { return nr_06_button_m1_nmi_en_; }
     bool nr_06_button_drive_nmi_en() const { return nr_06_button_drive_nmi_en_; }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // Test-only: Raspberry Pi I2C bus 1 input injection.
+    //
+    // Per zxnext.vhd:3259, 3266, the Pi I2C bus 1 drives pi_i2c1_scl /
+    // pi_i2c1_sda which are AND-ed into the SCL/SDA read values. Defaults are
+    // released (1), matching the VHDL open-drain pull-up semantics: the
+    // AND-gate is a no-op until a test pulls a line low.
+    //
+    // Task 3 UART+I2C Phase 1 scaffold — Wave E I2C-11 test uses this hook to
+    // verify the VHDL AND-gate wiring end-to-end through the Emulator-level
+    // public surface.
+    // ══════════════════════════════════════════════════════════════════════
+    void inject_pi_i2c1(bool scl, bool sda) {
+        i2c_.set_pi_i2c1_scl(scl);
+        i2c_.set_pi_i2c1_sda(sda);
+    }
+
 private:
     static constexpr int FRAMEBUFFER_WIDTH      = 320;
     static constexpr int FRAMEBUFFER_WIDTH_MAX  = 640;
