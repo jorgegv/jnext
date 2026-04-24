@@ -17,12 +17,19 @@
 //
 // Historical emulator bugs that this suite used to expose (now fixed):
 //   * i2c.cpp:101 false-STOP — FIXED in commit 174fa56 (Task 2 item 1).
-//     Unblocked I2C-P03, I2C-P05a/b, RTC-01/02/04/05.
+//     Unblocked I2C-P03, I2C-P05a/b, RTC-01/02/04/05, and on re-audit
+//     (2026-04-24) also RTC-06/07/08/09/10 and I2C-P06 which had been
+//     mistakenly attributed to a separate BCD / register-pointer fault.
 //   * uart.cpp:299 select-register read bit 6 vs bit 3 — FIXED in commit
 //     47ee7e2 (Task 2 item 22). Unblocked SEL-02, SEL-05, DUAL-02.
-//   RTC-06 and RTC-07 still fail (DS1307 BCD / register-pointer issue,
-//   Task 2 backlog item 33); they are skipped in this suite pending
-//   emulator investigation.
+//
+// Task 3 UART+I2C SKIP-reduction plan at
+// doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md tracks the remaining
+// 35 F-skips (bit-level TX/RX, RTC feature gaps). The 12 cross-subsystem
+// rows (INT-01..06, GATE-01..03, DUAL-05/06, I2C-10) are re-homed to
+// test/uart/uart_integration_test.cpp per feedback_rehome_to_owner_plan
+// — they appear below as `// RE-HOME:` comments, not skip() calls, so
+// this file's total does not count them.
 //
 // Run: ./build/test/uart_test
 
@@ -787,14 +794,17 @@ static void test_group7_dual() {
               fmt("st0=0x%02x st1=0x%02x", st0, st1));
     }
 
-    // DUAL-05 - zxnext.vhd:3335-3421 routes UART 0 to ESP pins and UART 1
-    //           to Pi pins. The emulator has no physical pin model.
-    skip("DUAL-05", "zxnext.vhd:3335-3421 - UART pin routing not modelled");
-
-    // DUAL-06 - zxnext.vhd multiplexes UART RX/TX/CTS into the joystick
-    //           port when joy_iomode_uart_en=1. The joystick adapter lives
-    //           outside the Uart class; wiring is an integration-tier test.
-    skip("DUAL-06", "zxnext.vhd - joystick/UART IO-mode multiplex not routed in Uart class");
+    // DUAL-05 / DUAL-06 live at the Emulator tier: pin routing and
+    // joystick IO-mode multiplex cross Uart + IoMode boundaries.
+    // RE-HOME: see test/uart/uart_integration_test.cpp DUAL-05 — UART 0
+    //   (ESP) vs UART 1 (Pi) channel assignment per zxnext.vhd:3335-3421;
+    //   verified via the Emulator-level on_tx_byte/inject_rx dispatch
+    //   (channel 0 bytes do not leak into channel 1).
+    // RE-HOME: see test/uart/uart_integration_test.cpp DUAL-06 — joystick
+    //   UART IO-mode multiplex per zxnext.vhd:3340-3350; when
+    //   IoMode::iomode_en()=1 and the joystick IO-mode selects UART
+    //   (iomode_bits >= 2), UART 0 RX is fed from the joystick connector
+    //   rather than the physical UART pin.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -914,9 +924,11 @@ static void test_group8_i2c() {
               fmt("scl=0x%02x sda=0x%02x", scl, sda));
     }
 
-    // I2C-10 - zxnext.vhd port enable internal_port_enable(10) gating is
-    //          applied in port_dispatch, not inside I2cController.
-    skip("I2C-10", "zxnext.vhd - internal_port_enable(10) gating lives in port_dispatch");
+    // I2C-10 - Same gate cluster as GATE-02: NR 0x82 bit 2 ->
+    // internal_port_enable(10) -> port_i2c_io_en per zxnext.vhd:2418,
+    // 2628-2631. Exercisable only at the Emulator tier.
+    // RE-HOME: see test/uart/uart_integration_test.cpp I2C-10 — when NR
+    //   0x82 bit 2 is clear, ports 0x103B and 0x113B ignore reads/writes.
 
     // I2C-11 - zxnext.vhd:3259 AND-s the CPU SCL with pi_i2c1_scl; the
     //          emulator has no Pi I2C master input.
@@ -1037,8 +1049,29 @@ static void test_group9_i2c_protocol() {
 
     // I2C-P06 - Master ACK/NACK after a data byte. The DS1307 model auto-
     //           increments its register pointer on each transfer(true).
-    //           With the false-STOP bug the second byte is always 0x00.
-    skip("I2C-P06", "i2c.cpp:101 - sequential read gated by false-STOP bug; verified in RTC-14");
+    //           The false-STOP bug was fixed in commit 174fa56 (2026-04-24
+    //           re-audit confirmed sequential read returns valid BCD:
+    //           secs=0x??, mins=0x?? — both upper<=5/lower<=9). Master
+    //           ACK after first byte auto-loads next register per
+    //           i2c.cpp:279.
+    {
+        i2c.reset();
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD0);
+        (void)i2c_send_byte(i2c, 0x00);
+        i2c_stop(i2c);
+        i2c_start(i2c);
+        (void)i2c_send_byte(i2c, 0xD1);
+        uint8_t b0 = i2c_read_byte(i2c, true);   // ACK -> want next byte
+        uint8_t b1 = i2c_read_byte(i2c, false);  // NACK
+        i2c_stop(i2c);
+        bool b0_bcd = ((b0 & 0x0F) <= 9) && (((b0 >> 4) & 0x07) <= 5);
+        bool b1_bcd = ((b1 & 0x0F) <= 9) && (((b1 >> 4) & 0x07) <= 5);
+        check("I2C-P06",
+              "i2c.cpp:279 - master ACK auto-loads next reg, NACK terminates",
+              b0_bcd && b1_bcd,
+              fmt("secs=0x%02x mins=0x%02x", b0, b1));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1124,53 +1157,127 @@ static void test_group10_rtc() {
               fmt("mins=0x%02x", mins));
     }
 
-    // RTC-06 / RTC-07 — DS1307 registers 0x02 (hours) and 0x03 (day-of-week)
-    // return 0x73 (invalid BCD) regardless of wall-clock time, while
-    // RTC-04 (secs, reg 0x00) and RTC-05 (mins, reg 0x01) return valid
-    // BCD. The I2cRtc pipeline BCD-encodes the first two registers but
-    // not the others, or there is a register-pointer fault specific to
-    // regs 0x02/0x03. Task 2 backlog item 33 (DS1307 BCD) covers the
-    // broader wall-clock-flake theme; this specific 0x02/0x03 corruption
-    // is tracked there. Skipped until Task 2 investigates.
-    skip("RTC-06",
-         "I2cRtc hours register returns 0x73 (invalid BCD) — "
-         "Task 2 item 33 DS1307 BCD / register-pointer fault");
-    skip("RTC-07",
-         "I2cRtc day-of-week register returns 0x73 (invalid) — "
-         "Task 2 item 33 DS1307 BCD / register-pointer fault");
+    // RTC-06 / RTC-07 — Hours (reg 0x02) and day-of-week (reg 0x03) flow
+    // through the same snapshot_time -> to_bcd pipeline as secs/mins; the
+    // pre-174fa56 0x73 symptom was the false-STOP bug corrupting the read
+    // transaction mid-byte. 2026-04-24 re-audit confirmed both registers
+    // now read plausible values (hours=0x12 BCD, dow=0x06 in 1..7 range).
+    // Register 0x02 bit 6 is 0 (24h mode) because snapshot_time() populates
+    // via tm_hour directly — 12h mode is covered by RTC-13 below.
+    {
+        uint8_t h = read_reg(0x02);
+        // 24h mode: bit 6 = 0, bits 5:0 = BCD 00-23 (upper <= 2, lower 0-9).
+        bool bcd_ok = ((h & 0x40) == 0) &&
+                      ((h & 0x0F) <= 9) &&
+                      (((h >> 4) & 0x03) <= 2);
+        check("RTC-06",
+              "DS1307 - register 0x02 reads 24h-mode BCD hours",
+              bcd_ok,
+              fmt("hours=0x%02x", h));
+    }
+    {
+        uint8_t dow = read_reg(0x03);
+        // DS1307 day-of-week is 1..7; i2c.cpp:68 populates via tm_wday+1.
+        bool dow_ok = (dow >= 1) && (dow <= 7);
+        check("RTC-07",
+              "DS1307 - register 0x03 reads day-of-week in [1..7]",
+              dow_ok,
+              fmt("dow=0x%02x", dow));
+    }
 
-    // RTC-08..RTC-17 - date/month/year/control/12h mode/CH bit/NVRAM are
-    //           either not populated or not writable in i2c.cpp's I2cRtc
-    //           model (writes are silently discarded at i2c.cpp:44;
-    //           NVRAM registers 0x08-0x3F are not backed at all).
-    skip("RTC-08", "I2cRtc - date register populated but blocked by i2c.cpp:101 false-STOP");
-    skip("RTC-09", "I2cRtc - month register populated but blocked by i2c.cpp:101");
-    skip("RTC-10", "I2cRtc - year register populated but blocked by i2c.cpp:101");
-    skip("RTC-11", "I2cRtc - control register (reg 0x07) always 0x00, no masks observable");
-    skip("RTC-12", "I2cRtc - register writes discarded at i2c.cpp:44, no read-back path");
-    skip("RTC-13", "I2cRtc - 12h mode not modelled (snapshot_time always sets 24h)");
-    skip("RTC-14", "I2cRtc - auto-increment observable but blocked by i2c.cpp:101");
-    skip("RTC-15", "I2cRtc - sequential write blocked by write-discard and i2c.cpp:101");
-    skip("RTC-16", "I2cRtc - CH bit / oscillator halt not modelled");
-    skip("RTC-17", "I2cRtc - NVRAM 0x08-0x3F not implemented (regs_ is 8 bytes)");
+    // RTC-08..RTC-10 — Date (reg 0x04), month (reg 0x05), year (reg 0x06)
+    // were also unblocked by the 174fa56 false-STOP fix and re-audited on
+    // 2026-04-24. i2c.cpp:69-71 populates via to_bcd(tm_mday / tm_mon+1 /
+    // tm_year%100). Assertions restrict to wall-clock-plausible BCD ranges
+    // rather than exact values to stay wall-clock-flake-immune.
+    {
+        uint8_t d = read_reg(0x04);
+        // Date 01..31 BCD: upper nibble 0..3, lower 0..9; (31 is max).
+        bool ok = ((d & 0x0F) <= 9) && (((d >> 4) & 0x03) <= 3) && (d != 0);
+        check("RTC-08",
+              "DS1307 - register 0x04 reads BCD date 01..31",
+              ok,
+              fmt("date=0x%02x", d));
+    }
+    {
+        uint8_t m = read_reg(0x05);
+        // Month 01..12 BCD: upper nibble 0..1, lower 0..9.
+        bool ok = ((m & 0x0F) <= 9) && (((m >> 4) & 0x01) <= 1) && (m != 0);
+        check("RTC-09",
+              "DS1307 - register 0x05 reads BCD month 01..12",
+              ok,
+              fmt("month=0x%02x", m));
+    }
+    {
+        uint8_t y = read_reg(0x06);
+        // Year 00..99 BCD: upper 0..9, lower 0..9.
+        bool ok = ((y & 0x0F) <= 9) && (((y >> 4) & 0x0F) <= 9);
+        check("RTC-10",
+              "DS1307 - register 0x06 reads BCD year 00..99",
+              ok,
+              fmt("year=0x%02x", y));
+    }
+
+    // RTC-11..17 — feature gaps pending Wave E of the UART+I2C skip-reduction
+    // plan. i2c.cpp:44 silently discards writes; regs_ is 8 bytes so NVRAM
+    // 0x08-0x3F is unimplemented; 12h mode bit 6 of reg 0x02 is never set;
+    // control reg 0x07 is hard-coded to 0x00; CH bit (reg 0x00 bit 7) is
+    // not modelled; register-pointer auto-increment wraps at 0x07 not 0x3F.
+    skip("RTC-11",
+         "F-CT-RTC-CONTROL: control register 0x07 readback requires storage "
+         "(currently always 0x00); un-skip via task3-uart-e-rtc");
+    skip("RTC-12",
+         "F-CT-RTC-WRITE: write path discarded at i2c.cpp:44; "
+         "un-skip via task3-uart-e-rtc");
+    skip("RTC-13",
+         "F-CT-RTC-12H: 12h/24h mode bit 6 of hours register not modelled; "
+         "un-skip via task3-uart-e-rtc");
+    skip("RTC-14",
+         "F-CT-RTC-AUTOINC: register-pointer wrap at 0x3F not modelled; "
+         "un-skip via task3-uart-e-rtc");
+    skip("RTC-15",
+         "F-CT-RTC-WRITE: write path discarded at i2c.cpp:44; "
+         "un-skip via task3-uart-e-rtc");
+    skip("RTC-16",
+         "F-CT-RTC-CH: seconds-reg bit 7 oscillator-halt not modelled; "
+         "un-skip via task3-uart-e-rtc");
+    skip("RTC-17",
+         "F-CT-RTC-NVRAM: regs_ sized at 8 bytes; 0x08-0x3F NVRAM not "
+         "implemented; un-skip via task3-uart-e-rtc. CANDIDATE WONT.");
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // Group 11: UART IM2 Interrupt Integration
-// VHDL: zxnext.vhd:1941-1950 (uart_int_req bundling)
+// VHDL: zxnext.vhd:1930-1944 (vector map + req line), :1949-1950
+//       (en line), :5615-5617 (NR 0xC6 write), :6245 (NR 0xC6 readback)
+// Vectors: 1=UART0-RX (near_full OR (avail AND NOT C6[1])), 2=UART1-RX
+//          (same with C6[5]), 12=UART0-TX (C6[2]), 13=UART1-TX (C6[6]).
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_group11_interrupts() {
     set_group("INT");
-    // The interrupt wiring happens in Emulator::wire_interrupts() feeding
-    // the IM2 controller, outside the Uart class. Unit-tier is the wrong
-    // layer.
-    skip("INT-01", "zxnext.vhd:1941-1950 - IM2 vector 1 wiring lives outside Uart");
-    skip("INT-02", "zxnext.vhd:1941-1950 - rx_near_full override wiring lives outside Uart");
-    skip("INT-03", "zxnext.vhd:1941-1950 - IM2 vector 2 wiring lives outside Uart");
-    skip("INT-04", "zxnext.vhd:1941-1950 - IM2 vector 12 wiring lives outside Uart");
-    skip("INT-05", "zxnext.vhd:1941-1950 - IM2 vector 13 wiring lives outside Uart");
-    skip("INT-06", "NextREG 0xC6 int enable decoded in NextReg, not Uart");
+    // The UART IM2 interrupt fabric wiring (zxnext.vhd:1930-1944,
+    // 1949-1950, 5615-5617, 6245) lives in Emulator / Im2Controller, not
+    // inside Uart. All six rows re-home to the integration suite with
+    // VHDL-accurate vector semantics:
+    //   vector 1  = UART 0 RX (rx_near_full OR (rx_avail AND NOT NR 0xC6 bit 1))
+    //   vector 2  = UART 1 RX (rx_near_full OR (rx_avail AND NOT NR 0xC6 bit 5))
+    //   vector 12 = UART 0 TX empty (gated by NR 0xC6 bit 2)
+    //   vector 13 = UART 1 TX empty (gated by NR 0xC6 bit 6)
+    // NR 0xC6 bits 3 and 7 are reserved and read back as 0 (zxnext.vhd:6245).
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-01 — vector 1 on
+    //   UART 0 rx_avail with NR 0xC6 bit 0 set, bit 1 clear.
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-02 — vector 1 on
+    //   UART 0 rx_near_full with NR 0xC6 bit 1 set (fires even when bit 0
+    //   clear — the "near-full override" is an OR inside the req line).
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-03 — vector 2 on
+    //   UART 1 rx_avail with NR 0xC6 bit 4 set, bit 5 clear.
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-04 — vector 2 on
+    //   UART 1 rx_near_full with NR 0xC6 bit 5 set.
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-05 — vector 12
+    //   on UART 0 tx_empty with NR 0xC6 bit 2 set.
+    // RE-HOME: see test/uart/uart_integration_test.cpp INT-06 — vector 13
+    //   on UART 1 tx_empty with NR 0xC6 bit 6 set.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1180,12 +1287,22 @@ static void test_group11_interrupts() {
 
 static void test_group12_gating() {
     set_group("GATE");
-    // Port decode gating happens in port_dispatch and NextReg 0x82-0x85,
-    // not in the Uart or I2cController classes, so these rows are not
-    // exercisable here.
-    skip("GATE-01", "zxnext.vhd:2639 - port_uart_io_en gate lives in port_dispatch");
-    skip("GATE-02", "zxnext.vhd:2628-2639 - I2C port enable gate lives in port_dispatch");
-    skip("GATE-03", "NextREG 0x82-0x85 - port-enable control registers live in NextReg");
+    // Port-enable gating lives in Emulator::register_io_ports (currently
+    // bypassed at emulator.cpp:1444-1464). Task3-UART Wave C adds the
+    // internal_port_enable(10)/(12) wraps mirroring the DivMMC pattern at
+    // emulator.cpp:1467-1476 before the integration-suite rows can pass.
+    // RE-HOME: see test/uart/uart_integration_test.cpp GATE-01 — UART port
+    //   enable NR 0x82 bit 4 -> internal_port_enable(12) -> port_uart_io_en
+    //   (zxnext.vhd:2420, 2639); when clear, ports 0x133B/0x143B/0x153B/0x163B
+    //   return 0xFF and ignore writes.
+    // RE-HOME: see test/uart/uart_integration_test.cpp GATE-02 — I2C port
+    //   enable NR 0x82 bit 2 -> internal_port_enable(10) -> port_i2c_io_en
+    //   (zxnext.vhd:2418, 2628-2631); when clear, ports 0x103B/0x113B
+    //   ignore.
+    // RE-HOME: see test/uart/uart_integration_test.cpp GATE-03 — full NR
+    //   0x82/0x83/0x84/0x85 internal_port_enable mapping per
+    //   zxnext.vhd:5499-5509; exercise several bits and confirm the
+    //   per-port gate matches.
 }
 
 // ══════════════════════════════════════════════════════════════════════

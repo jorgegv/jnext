@@ -15,15 +15,36 @@ configuration, status register semantics, and I2C bit-bang protocol.
 
 ## Current status
 
-Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave2-uart`).
-Measured on main post-merge (commit `628d01f`):
+Live as of 2026-04-24: **106 total / 58 pass / 0 fail / 48 skip** (dashboard-
+confirmed at `test/SUBSYSTEM-TESTS-STATUS.md`). Rewrite in Phase 2 per-row
+idiom merged on main 2026-04-15 (`task1-wave2-uart`); two C-class bugs that
+previously caused 12 FAILs in this suite have since been fixed on main:
 
-- **105 plan rows** mapped 1:1 to test IDs (I2C-P05 split into P05a/P05b → 106 IDs total).
-- **48/60 live pass (80.0%)**, 12 fail, 46 skip.
-- **Fails (C-class legitimate emulator bugs)**:
-  - 9 rows — I2C-P03, I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, RTC-06, RTC-07 — all collapse to one root cause: `src/peripheral/i2c.cpp:101` false-STOP detection. `detect_start_stop()` is called from `write_scl` with stale `prev_sda_`. Fix: remove the call from `write_scl`. (Emulator Bug backlog item 1.)
-  - 3 rows — SEL-02, SEL-05, DUAL-02 — **NEW Emulator Bug backlog item**. `src/peripheral/uart.cpp:299` select-register read uses bit 6 (`0x40`) as UART 1 marker, but VHDL `uart.vhd:371` emits `"01000" & msb` → bit 3 (`0x08`).
-- **Skips**: 46 rows — TX-05/07-14 (no bit-level TX line), RX-08-15 (no framing/parity error injection), INT-01..06 (IM2 wiring outside `Uart` class), GATE-01..03 (port decode in `PortDispatch`), FRM-05/06, BAUD-02/03/07, DUAL-05/06, I2C-10/11, RTC-08..17. All genuinely unreachable via the current public API.
+- **`src/peripheral/i2c.cpp:101` false-STOP** — FIXED in commit `174fa56`
+  (`fix(i2c): remove false STOP detection from write_scl`). `detect_start_stop()`
+  was called from `write_scl` against a stale `prev_sda_`, so every
+  `i2c_send_byte` tripped a spurious STOP on the first bit. Removing the
+  `detect_start_stop()` call from `write_scl` unblocked 9 rows: I2C-P03,
+  I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, plus flow-through for
+  RTC-06/07 (re-audited 2026-04-24: both now read plausible BCD via
+  `read_reg(0x02)=0x12` / `read_reg(0x03)=0x06`).
+- **`src/peripheral/uart.cpp:299` select-register bit** — FIXED in commit
+  `47ee7e2` (`fix(uart): select-register read returns bit 3 (0x08) not bit
+  6 (0x40)`). VHDL `uart.vhd:371` emits `"01000" & msb` when UART 1 is
+  selected — the emulator now matches. Unblocked 3 rows: SEL-02, SEL-05,
+  DUAL-02.
+
+All 48 live skips are F-class (real TODOs) or RE-HOME-class (cross-subsystem
+integration). The skip-reduction path is staged in
+[`doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md`](../design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md)
+— Phase 0 re-homes the 12 cross-subsystem rows (INT-01..06, GATE-01..03,
+DUAL-05/06, I2C-10) to a new `uart_integration_test.cpp`; Phase 2 Waves A/B
+implement the bit-level UART TX/RX state machines for the 22 framing /
+parity / break / flow-control / noise-rejection rows; Wave E extends
+`I2cRtc` with a write path, 12h mode, CH-bit, NVRAM 0x08-0x3F, and a
+full control register to fill the 14 remaining RTC / I2C feature gaps.
+Expected end state: ~3 WONT-candidate skips plus the re-homed rows living
+green in the integration suite.
 
 ## VHDL Source Files
 
@@ -326,16 +347,25 @@ transactions targeting the DS1307.
 
 ### Group 11: UART IM2 Interrupt Integration
 
-From `zxnext.vhd` lines 1941-1950, UART events generate IM2 interrupt requests:
+Per `zxnext.vhd:1930-1944, 1949-1950, 5615-5617, 6245` the IM2 vector map is
+four vectors — UART 0 RX (vector 1), UART 1 RX (vector 2), UART 0 TX
+(vector 12), UART 1 TX (vector 13). NR 0xC6 bits 2:0 gate UART 0
+(rx_avail / rx_near_full / tx_empty); bits 6:4 gate UART 1. Bits 3 and 7
+are reserved (read back as 0 per `zxnext.vhd:6245`). The rx_near_full
+path is **not** a separate vector — it is OR-ed into vectors 1 and 2 so
+near-full asserts even when the `rx_avail` enable bit (bits 1 and 5) is
+clear, i.e. host software cannot opt out of near-full while keeping the
+channel enabled. Note: `im2_int_unq` (NR 0x20 manual-assert,
+`zxnext.vhd:1946-1947`) does NOT inject into UART vectors 1/2/12/13.
 
 | ID | Test | Expected |
 |----|------|----------|
-| INT-01 | UART 0 RX interrupt: rx_avail when int_en bit set | IM2 vector source 1 fires |
-| INT-02 | UART 0 RX near-full always triggers | Near-full overrides the avail-only gate |
-| INT-03 | UART 1 RX interrupt: same logic as UART 0 | IM2 vector source 2 fires |
-| INT-04 | UART 0 TX empty interrupt | IM2 vector source 12 fires when tx_empty |
-| INT-05 | UART 1 TX empty interrupt | IM2 vector source 13 fires when tx_empty |
-| INT-06 | Interrupt enable controlled by NextREG 0xC6 | Disabled interrupts do not fire |
+| INT-01 | Vector 1 on UART 0 `rx_avail` (NR 0xC6 bit 0 set, bit 1 clear) | IM2 vector 1 fires on `uart0_rx_avail AND NOT nr_c6_210(1)` |
+| INT-02 | Vector 1 on UART 0 `rx_near_full` (NR 0xC6 bit 1 set; fires even if bit 0 clear — the "override") | IM2 vector 1 fires via `uart0_rx_near_full OR ...` |
+| INT-03 | Vector 2 on UART 1 `rx_avail` (NR 0xC6 bit 4 set, bit 5 clear) | IM2 vector 2 fires on `uart1_rx_avail AND NOT nr_c6_654(1))` |
+| INT-04 | Vector 2 on UART 1 `rx_near_full` (NR 0xC6 bit 5 set) | IM2 vector 2 fires via near-full OR |
+| INT-05 | Vector 12 on UART 0 `tx_empty` (NR 0xC6 bit 2 set) | IM2 vector 12 fires |
+| INT-06 | Vector 13 on UART 1 `tx_empty` (NR 0xC6 bit 6 set) | IM2 vector 13 fires |
 
 ### Group 12: Port Enable Gating
 
