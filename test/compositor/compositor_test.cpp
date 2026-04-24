@@ -876,17 +876,14 @@ static void test_L2P() {
 // ── Group BL — Blend modes 110/111 (VHDL 7286..7356) ─────────────────────
 //
 // VHDL reference lines 7286..7310 (mode 110 additive) and 7312..7352
-// (mode 111 subtractive). Priority modes 6/7 ARE implemented at
-// renderer.cpp:340-408 for ula_blend_mode = "00" (VHDL 7142-7148).
+// (mode 111 subtractive). Priority modes 6/7 implemented at
+// renderer.cpp:343-440 with a 4-way switch on `blend_mode_` covering
+// ula_blend_mode = "00"/"01"/"10"/"11" (VHDL 7142-7176).
 //
-// All 20 rows below (BL-10..16, BL-20..29, L2P-17/18) exercise mode "00"
-// exclusively: Renderer has no blend_mode_ member yet, so the mix_rgb /
-// mix_top / mix_bot expressions hard-code the "00" mapping.
-//
-// The 3 remaining ula_blend_mode variants ("01", "10", "11" at VHDL
-// 7149-7176) are NOT covered here. Phase 2 of
-// doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md extends Group BL
-// with BL-30..32 / BL-40..42 / BL-50..52 for those variants.
+// Rows BL-10..16, BL-20..29, L2P-17/18 exercise mode "00" (default).
+// Rows BL-30..32 / BL-40..42 / BL-50..52 / BL-60 added by Phase 2 of
+// doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md cover modes
+// "01" / "10" / "11" (priority 6) and "11" under priority 7.
 
 // Per-channel add (clamped 7). VHDL 7288–7298.
 static uint8_t bl_add(uint8_t a, uint8_t b) {
@@ -1156,34 +1153,240 @@ static void test_BL() {
               DETAIL("got=0x%08X", got));
     }
 
-    // BL-PHASE1-SANITY: blend_mode_="10" (NR 0x68 bits 6:5=10) refactor sanity
-    // check. Mode 6 additive, L2 opaque, ULA opaque, TM opaque below ULA.
-    // VHDL 7149-7155: mix_rgb = ula_final (→ ULA since no stencil and TM is
-    // marked below), mix_top/mix_bot forced transparent. Cascade must fall
-    // through to the `!l2_transp` arm and emit the additive blend. This row
-    // is a Phase-1 embedded scaffold — it will be replaced by the formal
-    // BL-40..42 rows in Phase 2 (see TASK-COMPOSITOR-NR68-BLEND-PLAN.md).
-    // Also discriminates against mode "00": with tm_below=1 and TM opaque,
-    // mode "00" would emit mix_bot (TM) instead of the blended mixer.
+    // ── Phase 2: ula_blend_mode variants "01", "10", "11" ────────────────
+    // Per doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md Appendix A.
+    // All rows cite VHDL zxnext.vhd:7141-7178 for the mix_rgb / mix_top /
+    // mix_bot selection, plus 7286-7298 (add clamp) or 7312-7352 (sub).
+
+    // BL-30: mode "01", prio 6. L2 opaque, ULA opaque, TM transp, tm_below=0.
+    //        VHDL 7163-7176 (when others): mix_rgb_transp=1; mix_top=TM (transp);
+    //        mix_bot=ULA (opaque) → cascade: top skipped, spr transp, bot opaque
+    //        wins. Exercises mix_bot swap from TM to ULA.
     {
         clear_layers(r);
         r.set_layer_priority(6);
-        r.set_blend_mode(2);                            // "10"
-        uint8_t l2c  = rgb8(1,1,1);
-        uint8_t ulac = rgb8(2,2,1);
-        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
-        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
-        r.tilemap_line_[0] = PIX_TM;
-        r.ula_over_flags_[0] = true;                    // tm_pixel_below_2 = 1
+        r.set_blend_mode(1);                                // "01"
+        uint8_t l2c  = rgb8(3,2,1);
+        uint8_t ulac = rgb8(3,2,1);
+        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(ulac);
+        r.ula_over_flags_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        uint32_t expected = Renderer::rrrgggbb_to_argb(
-            rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,1)));
-        check("BL-PHASE1-SANITY",
-              "mode 110+blend=10: mix_rgb=ula_final; additive blend L2+ULA "
-              "(VHDL 7149-7155,7286-7298)",
+        uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
+        check("BL-30",
+              "mode \"01\" prio6: mix_bot=ULA wins (VHDL 7163-7176)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
-        // Reset blend mode so subsequent tests see the default.
+        r.set_blend_mode(0);
+    }
+
+    // BL-31: mode "01", prio 6. L2=(0,0,0), ULA opaque, TM opaque, tm_below=0.
+    //        VHDL 7163-7176: mix_top=TM (opaque) → cascade: top wins = TM.
+    //        Verifies ULA is masked out when TM is in mix_top slot.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(1);                                // "01"
+        uint8_t l2c  = rgb8(0,0,0);
+        uint8_t ulac = rgb8(3,2,1);
+        uint8_t tmc  = rgb8(1,1,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = false;                       // tm_below=0
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(tmc);
+        check("BL-31",
+              "mode \"01\" prio6: mix_top=TM (ULA masked) (VHDL 7163-7176)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-32: mode "01", prio 6. Same as BL-31 but tm_below=1 → mix_top=ULA,
+    //        mix_bot=TM. Cascade: top=ULA opaque wins. Observes the top/bot
+    //        swap driven by tm_pixel_below_2. VHDL 7163-7176.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(1);                                // "01"
+        uint8_t l2c  = rgb8(0,0,0);
+        uint8_t ulac = rgb8(3,2,1);
+        uint8_t tmc  = rgb8(1,1,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = true;                        // tm_below=1
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
+        check("BL-32",
+              "mode \"01\" prio6: tm_below=1 swap, mix_top=ULA wins (VHDL 7163-7176)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-40: mode "10", prio 6. L2=(3,2,1), ULA=(3,2,1) opaque, TM transp,
+    //        stencil OFF → ula_final=ULA. mix_top/bot forced transp. Cascade
+    //        falls through to mixer = add(L2, ULA) = (6,4,2). VHDL 7149-7155.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(2);                                // "10"
+        uint8_t l2c  = rgb8(3,2,1);
+        uint8_t ulac = rgb8(3,2,1);
+        r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(ulac);
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
+        check("BL-40",
+              "mode \"10\" prio6: mix_rgb=ula_final, add(L2,ULA) (VHDL 7149-7155,7286-7298)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-41: mode "10", prio 6. L2=(1,1,1), ULA transp, TM=(2,2,2) opaque,
+    //        stencil OFF, tm_below=1 → ulatm_rgb=TM (VHDL 7115-7116).
+    //        mixer = add(L2, TM) = (3,3,3). mix_top/bot forced transp.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(2);                                // "10"
+        uint8_t l2c = rgb8(1,1,1);
+        uint8_t tmc = rgb8(2,2,2);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = true;                        // tm_below=1
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,2)));
+        check("BL-41",
+              "mode \"10\" prio6: ulatm merge → TM, add(L2,TM) (VHDL 7115-7116,7149-7155)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-42: mode "10", prio 6, STENCIL ON. L2=(0,0,0), ULA=(3,2,1), TM=(3,2,1).
+    //        Stencil AND → ula_final=(3,2,1). mixer = add(L2, stencil) = (3,2,1).
+    //        Exercises the post-stencil ula_final_rgb routing. VHDL 7130-7132 +
+    //        7149-7155.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(2);                                // "10"
+        r.stencil_mode_ = true;
+        r.tm_enabled_   = true;
+        uint8_t pc = rgb8(3,2,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(rgb8(0,0,0));
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(pc);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(pc);
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        // Stencil AND of identical pixels = pc; add(L2=0, stencil=pc) = pc.
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_add(0,3), bl_add(0,2), bl_add(0,1)));
+        check("BL-42",
+              "mode \"10\" prio6: stencil ULA&TM routes via ula_final_rgb (VHDL 7130-7132,7149-7155)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.stencil_mode_ = false;
+        r.tm_enabled_   = false;
+        r.set_blend_mode(0);
+    }
+
+    // BL-50: mode "11", prio 6. L2=(3,2,1), ULA=(1,1,1), TM=(2,2,2), tm_below=0.
+    //        mix_rgb=TM. mix_top_transp=(ula_transp||!tm_below)=1 (skipped).
+    //        mix_bot=ULA opaque wins. Exercises mix_bot=ULA swap under mode "11".
+    //        VHDL 7156-7162.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(3);                                // "11"
+        uint8_t l2c  = rgb8(3,2,1);
+        uint8_t ulac = rgb8(1,1,1);
+        uint8_t tmc  = rgb8(2,2,2);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = false;                       // tm_below=0
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
+        check("BL-50",
+              "mode \"11\" prio6: mix_bot=ULA wins (VHDL 7156-7162)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-51: mode "11", prio 6. Same as BL-50 but tm_below=1 →
+    //        mix_top_transp=(ula_transp||!tm_below)=0 (ULA opaque wins at top).
+    //        mix_bot_transp=(ula_transp||tm_below)=1. VHDL 7156-7162.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(3);                                // "11"
+        uint8_t l2c  = rgb8(3,2,1);
+        uint8_t ulac = rgb8(1,1,1);
+        uint8_t tmc  = rgb8(2,2,2);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = true;                        // tm_below=1
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
+        check("BL-51",
+              "mode \"11\" prio6: tm_below=1, mix_top=ULA wins (VHDL 7156-7162)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-52: mode "11", prio 6. L2=(0,0,0) opaque, ULA transp, TM=(4,2,1),
+    //        tm_below=0. mix_rgb=TM; mix_top/bot both ULA (transp). Cascade
+    //        falls through to !l2_transp arm → mixer = add(L2, TM) = (4,2,1).
+    //        Observes TM-as-mix-source when both overlays are ULA-transparent.
+    //        VHDL 7156-7162 + 7286-7298.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(3);                                // "11"
+        uint8_t l2c = rgb8(0,0,0);
+        uint8_t tmc = rgb8(4,2,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = false;                       // tm_below=0
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_add(0,4), bl_add(0,2), bl_add(0,1)));
+        check("BL-52",
+              "mode \"11\" prio6: TM as mix_rgb, ULA overlays transp (VHDL 7156-7162)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
+        r.set_blend_mode(0);
+    }
+
+    // BL-60: mode "11", prio 7 (subtractive). L2=(5,5,3), ULA transp,
+    //        TM=(4,2,1), tm_below=0. mix_rgb=TM; overlays transp → mixer via
+    //        !l2_transp. sub(L2+TM): r=9→4, g=7→2, b=4→0 = (4,2,0).
+    //        VHDL 7156-7162 + 7312-7352.
+    {
+        clear_layers(r);
+        r.set_layer_priority(7);
+        r.set_blend_mode(3);                                // "11"
+        uint8_t l2c = rgb8(5,5,3);
+        uint8_t tmc = rgb8(4,2,1);
+        r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
+        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
+        r.ula_over_flags_[0] = false;                       // tm_below=0
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        uint32_t expected = Renderer::rrrgggbb_to_argb(
+            rgb8(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1)));
+        check("BL-60",
+              "mode \"11\" prio7: sub(L2,TM)=(4,2,0) (VHDL 7156-7162,7312-7352)",
+              got == expected,
+              DETAIL("got=0x%08X exp=0x%08X", got, expected));
         r.set_blend_mode(0);
     }
 }
