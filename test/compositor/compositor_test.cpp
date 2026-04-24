@@ -875,12 +875,18 @@ static void test_L2P() {
 
 // ── Group BL — Blend modes 110/111 (VHDL 7286..7356) ─────────────────────
 //
-// VHDL reference lines 7201..7210 (mode 110 additive formula) and
-// 7316..7338 (mode 111 asymmetric clamp). The emulator has no blend
-// implementation — the Renderer falls back to SLU for modes 6/7
-// (renderer.cpp ~259). Every BL row therefore encodes the VHDL oracle
-// and will fail until blend is implemented. These failures are Task 3
-// backlog items.
+// VHDL reference lines 7286..7310 (mode 110 additive) and 7312..7352
+// (mode 111 subtractive). Priority modes 6/7 ARE implemented at
+// renderer.cpp:340-408 for ula_blend_mode = "00" (VHDL 7142-7148).
+//
+// All 20 rows below (BL-10..16, BL-20..29, L2P-17/18) exercise mode "00"
+// exclusively: Renderer has no blend_mode_ member yet, so the mix_rgb /
+// mix_top / mix_bot expressions hard-code the "00" mapping.
+//
+// The 3 remaining ula_blend_mode variants ("01", "10", "11" at VHDL
+// 7149-7176) are NOT covered here. Phase 2 of
+// doc/design/TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md extends Group BL
+// with BL-30..32 / BL-40..42 / BL-50..52 for those variants.
 
 // Per-channel add (clamped 7). VHDL 7288–7298.
 static uint8_t bl_add(uint8_t a, uint8_t b) {
@@ -1418,11 +1424,13 @@ static void test_STEN() {
 static void test_UDIS() {
     set_group("UDIS");
     skip("UDIS-03",
-         "F-UDIS-BLEND: NR 0x68 bits 6:5 (ula_blend_mode) feed mix_rgb at "
-         "VHDL 7141-7178 but those signals only flow to NR 0x15 priority "
-         "modes 110/111 (VHDL 7286-7356), which the emulator does not "
-         "implement (see Group BL comment; renderer.cpp:~259 falls back to "
-         "SLU for 6/7). UDIS-03 folds into the BL backlog.");
+         "F-UDIS-BLEND: NR 0x68 bits 6:5 (ula_blend_mode) are DROPPED at "
+         "emulator.cpp:816-825 and priority 6/7 branches at "
+         "renderer.cpp:342-344 (mode 6) and renderer.cpp:370-372 (mode 7) "
+         "hard-code the ula_blend_mode=\"00\" mapping — variants 01/10/11 "
+         "(VHDL 7149-7176) are silently ignored. Authoritative mux: "
+         "zxnext.vhd:7141-7178 (4-variant case w/ when others = 01). "
+         "Un-skip via TASK-COMPOSITOR-ULA-BLEND-MODE-PLAN.md Phase 2.");
 }
 
 // ── Group SOB — Sprite over border (compositor integration) ──────────────
