@@ -163,6 +163,18 @@ target_link_libraries(ula_integration_test PRIVATE
 target_include_directories(ula_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ula_integration_tests COMMAND ula_integration_test)
 
+# Floating Bus compliance test (scaffolding, 2026-04-24)
+# Hosts the 26 rows in doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md — 5
+# re-homed from the ULA Phase-4 closure + 21 VHDL-justified neighbours
+# for port 0xFF (all machines) and port 0x0FFD (+3 only). File is
+# scaffolding (all rows skip()) until the Phase 0 audit of
+# Emulator::floating_bus_read lands. No Emulator construction yet so the
+# link line is minimal; when rows un-skip and need full-emulator
+# fixtures, the link line will widen to match ctc_interrupts_test etc.
+add_executable(floating_bus_test floating_bus/floating_bus_test.cpp)
+target_include_directories(floating_bus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME floating_bus_tests COMMAND floating_bus_test)
+
 # I/O Port Dispatch compliance test
 # Links the full emulator because the rewritten plan requires constructing a
 # real Emulator (headless) and probing real peripheral handlers, not a
