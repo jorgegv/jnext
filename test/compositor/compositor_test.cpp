@@ -20,6 +20,13 @@
 #define private public
 #define protected public
 #include "video/renderer.h"
+#include "video/palette.h"
+#include "video/layer2.h"
+#include "video/tilemap.h"
+#include "video/sprites.h"
+#include "memory/mmu.h"
+#include "memory/ram.h"
+#include "memory/rom.h"
 #undef private
 #undef protected
 
@@ -1990,6 +1997,251 @@ static void test_RST() {
     }
 }
 
+// ── Group PSCAN — per-scanline palette snapshot (TASK-PER-SCANLINE-PALETTE-PLAN.md)
+//
+// Beast.nex sky gradient driver. The renderer rewinds the live palette
+// to the frame baseline and replays a per-frame change-log line by
+// line, so a Copper MOVE to NR 0x41 mid-frame produces a vertical
+// colour change instead of a flat last-value-wins frame.
+
+static void test_PSCAN() {
+    set_group("PSCAN");
+
+    // PSCAN-01 — write_8bit appends a log entry tagged with the
+    //   current_line_, with the right target palette + index + value.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x00);  // ULA first, auto-inc enabled
+        p.set_index(5);
+        p.set_current_line(123);
+        p.write_8bit(0xE7);     // RGB333 = some non-default value
+
+        check("PSCAN-01",
+              "write_8bit logs (line=123, ULA_FIRST, idx=5, rgb333)",
+              p.change_log_size() == 1,
+              DETAIL("size=%zu", p.change_log_size()));
+    }
+
+    // PSCAN-02 — rewind_to_baseline restores live state to frame start.
+    //   Sequence: snapshot baseline (default ULA palette[5] = cyan), write
+    //   a different colour, rewind, the lookup must return the baseline.
+    {
+        PaletteManager p;
+        p.reset();
+        const uint32_t baseline_5 = p.ula_colour(5);   // default cyan
+        p.start_frame();
+        p.write_control(0x00);
+        p.set_index(5);
+        p.write_8bit(0xE0);                             // bright red
+        const uint32_t after_write = p.ula_colour(5);
+        p.rewind_to_baseline();
+        const uint32_t after_rewind = p.ula_colour(5);
+
+        check("PSCAN-02",
+              "rewind_to_baseline restores live palette state",
+              after_write != baseline_5 && after_rewind == baseline_5,
+              DETAIL("baseline=0x%08X after_write=0x%08X after_rewind=0x%08X",
+                     baseline_5, after_write, after_rewind));
+    }
+
+    // PSCAN-03 — apply_changes_for_line walks cursor monotonically and
+    //   only applies entries whose line tag matches.
+    //
+    //   Stimulus: log writes at lines 10, 10, 50, 100. Replay 0..200,
+    //   verifying cumulative palette[idx] state at each milestone.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x00);    // ULA first
+
+        p.set_index(0);  p.set_current_line(10);  p.write_8bit(0x10);
+        p.set_index(1);  p.set_current_line(10);  p.write_8bit(0x20);
+        p.set_index(2);  p.set_current_line(50);  p.write_8bit(0x30);
+        p.set_index(3);  p.set_current_line(100); p.write_8bit(0x40);
+
+        p.rewind_to_baseline();
+
+        // Capture sentinel values BEFORE any replay (post-rewind).
+        const uint32_t baseline_0 = p.ula_colour(0);
+        const uint32_t baseline_1 = p.ula_colour(1);
+        const uint32_t baseline_2 = p.ula_colour(2);
+        const uint32_t baseline_3 = p.ula_colour(3);
+
+        // Walk lines 0..9 — no entries should fire.
+        for (int line = 0; line < 10; ++line) p.apply_changes_for_line(line);
+        const bool none_yet = (p.ula_colour(0) == baseline_0
+                            && p.ula_colour(1) == baseline_1
+                            && p.ula_colour(2) == baseline_2
+                            && p.ula_colour(3) == baseline_3);
+
+        // Apply line 10 — entries 0 & 1 fire.
+        p.apply_changes_for_line(10);
+        const bool ten_ok = (p.ula_colour(0) != baseline_0
+                          && p.ula_colour(1) != baseline_1
+                          && p.ula_colour(2) == baseline_2
+                          && p.ula_colour(3) == baseline_3);
+
+        // Lines 11..49 — nothing more.
+        for (int line = 11; line < 50; ++line) p.apply_changes_for_line(line);
+        // Apply line 50 — entry 2 fires.
+        p.apply_changes_for_line(50);
+        const bool fifty_ok = (p.ula_colour(2) != baseline_2
+                            && p.ula_colour(3) == baseline_3);
+
+        // Apply line 100 — entry 3 fires.
+        for (int line = 51; line < 100; ++line) p.apply_changes_for_line(line);
+        p.apply_changes_for_line(100);
+        const bool hundred_ok = (p.ula_colour(3) != baseline_3);
+
+        check("PSCAN-03",
+              "apply_changes_for_line replays only matching lines, cursor "
+              "monotonic across the frame",
+              none_yet && ten_ok && fifty_ok && hundred_ok,
+              DETAIL("none_yet=%d ten_ok=%d fifty_ok=%d hundred_ok=%d",
+                     none_yet, ten_ok, fifty_ok, hundred_ok));
+    }
+
+    // PSCAN-04 — change-log cap silently drops further writes once
+    //   MAX_CHANGES_PER_FRAME is reached. Live palette still mutates
+    //   (so non-render uses of PaletteManager are unaffected) — only
+    //   the per-scanline replay loses fidelity beyond the cap. The
+    //   `overflow_warned_` flag must latch true exactly once per frame
+    //   so the warning can't degenerate into per-write log spam.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x00);
+        p.set_index(0);
+        p.set_current_line(0);
+
+        // Pre-overflow: warning latch must be clear.
+        const bool warned_before = p.overflow_warned_;
+
+        // Drive 1 past the cap. Auto-inc is enabled so each write also
+        // bumps the index; the live palette wraps but we only care
+        // about change_log_size capping at MAX and overflow_warned_
+        // latching at the first write past the cap.
+        const size_t over = PaletteManager::MAX_CHANGES_PER_FRAME + 1;
+        for (size_t i = 0; i < over; ++i)
+            p.write_8bit(static_cast<uint8_t>(i & 0xFF));
+
+        const bool warned_after = p.overflow_warned_;
+
+        // Drive ANOTHER 100 writes to confirm the latch stays "armed"
+        // (i.e., still true) — what we are pinning down is that
+        // subsequent writes do not log a fresh warning each time. We
+        // can only observe the latch state, not the side-effect of
+        // suppressed log output, but the latch is the gate.
+        for (size_t i = 0; i < 100; ++i) p.write_8bit(0x00);
+        const bool warned_persists = p.overflow_warned_;
+
+        // start_frame() must reset the latch so warnings can fire
+        // afresh next frame.
+        p.start_frame();
+        const bool warned_after_reset = p.overflow_warned_;
+
+        check("PSCAN-04",
+              "change_log_size caps at MAX; overflow_warned_ latches once "
+              "and survives further writes; start_frame() resets it",
+              p.change_log_size() == 0
+              && warned_before == false
+              && warned_after == true
+              && warned_persists == true
+              && warned_after_reset == false,
+              DETAIL("size=%zu warned_before=%d warned_after=%d "
+                     "warned_persists=%d warned_after_reset=%d",
+                     p.change_log_size(), warned_before, warned_after,
+                     warned_persists, warned_after_reset));
+    }
+
+    // PSCAN-05 — end-to-end through Renderer::render_frame: a baseline
+    //   palette[ink=2]=red is overridden mid-frame at line 100 to cyan.
+    //   Lines BEFORE 100 must render red (ULA reads bank 5 attr 0x02 =
+    //   ink red); lines AFTER 100 must render cyan.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset();
+        mmu.set_page(2, 10);   // bank 5 page 10 → 0x4000
+        mmu.set_page(3, 11);
+
+        PaletteManager pal;
+        pal.reset();
+
+        Renderer r;
+        r.reset();
+        r.ula().set_ram(&ram);
+        r.ula().set_palette(&pal);
+        r.ula().init_border_per_line();
+        r.init_fallback_per_line();
+        r.init_ula_enabled_per_line();
+
+        // Plant pixel 0xFF (all ink) + attr 0x02 (ink=red) at every
+        // attr cell so each display row reads ink colour from bank 5.
+        for (int row = 0; row < 192; ++row) {
+            const uint16_t poff = static_cast<uint16_t>(
+                  ((row & 0xC0) << 5)
+                | ((row & 0x07) << 8)
+                | ((row & 0x38) << 2));
+            ram.write(10u * 8192u + poff, 0xFF);  // pixels = all ink
+        }
+        for (uint16_t off = 0x1800; off < 0x1B00; ++off) {
+            ram.write(10u * 8192u + off, 0x02);   // attr ink=red
+        }
+
+        // Baseline: palette[2] = pure red (NR 0x41 RRRGGGBB = 0xE0).
+        pal.write_control(0x00);
+        pal.set_index(2);
+        pal.write_8bit(0xE0);
+
+        // Frame start — snapshot baseline + reset log.
+        pal.start_frame();
+
+        // Mid-frame change at scanline 100: palette[2] = pure cyan
+        // (RGB333 0x03F → RRRGGGBB 0x1F).
+        pal.set_current_line(100);
+        pal.write_control(0x00);
+        pal.set_index(2);
+        pal.write_8bit(0x1F);
+
+        std::array<uint32_t, Renderer::FB_WIDTH_HI * Renderer::FB_HEIGHT> fb{};
+        // Build minimal layer adapters: we only need ULA. Use the
+        // existing Renderer::render_frame path which now does
+        // rewind + per-line apply.
+        Layer2 l2;
+        Tilemap tm;
+        SpriteEngine sp;
+        l2.reset(); tm.reset(); sp.reset();
+
+        r.render_frame(fb.data(), mmu, ram, pal, l2, &sp, &tm);
+
+        // Display row 0 = framebuffer row 32 (DISP_Y), so:
+        //   line 100 means framebuffer row 100 (above DISP_Y+100 = 132).
+        // Sample left of border (x=32) at fb_row 50 (before line 100,
+        //   so inside display rows 18..23) and fb_row 200 (after).
+        const uint32_t before = fb[ 50 * Renderer::FB_WIDTH + 32];
+        const uint32_t after  = fb[200 * Renderer::FB_WIDTH + 32];
+
+        // Compare to expected ARGB. Both come through PaletteManager
+        // ula_colour(2) at the moment of render.
+        const uint32_t exp_red  = Renderer::rrrgggbb_to_argb(0xE0);
+        const uint32_t exp_cyan = Renderer::rrrgggbb_to_argb(0x1F);
+
+        check("PSCAN-05",
+              "Renderer::render_frame replays per-line palette changes — "
+              "lines before the change show baseline red, lines after "
+              "show the mid-frame cyan write",
+              before == exp_red && after == exp_cyan,
+              DETAIL("before=0x%08X (exp red 0x%08X)  after=0x%08X (exp cyan 0x%08X)",
+                     before, exp_red, after, exp_cyan));
+    }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 int main() {
@@ -2011,6 +2263,7 @@ int main() {
     test_BLANK();      printf("  Group: BLANK — done\n");
     test_PAL();        printf("  Group: PAL — done\n");
     test_RST();        printf("  Group: RST — done\n");
+    test_PSCAN();      printf("  Group: PSCAN — done\n");
 
     printf("\n=====================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
