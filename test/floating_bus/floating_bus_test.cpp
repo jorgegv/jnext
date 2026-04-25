@@ -1,32 +1,18 @@
-// Emulator Floating Bus Compliance Test Suite — SCAFFOLDING ONLY.
+// Emulator Floating Bus Compliance Test Suite.
 //
-// This suite hosts the 26 rows enumerated in
-// doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md (plan landed 2026-04-23).
-// Of those 26: 5 are re-homed from the ULA Phase-4 closure
-// (`doc/design/TASK-FLOATING-BUS-PLAN.md`) — FB-01 (=S10.01), FB-03 (=S10.05),
-// FB-04 (=S10.06), FB-06 (=S10.07), FB-07 (=S10.08) — and 21 are
-// VHDL-justified neighbours uncovered by the Phase-0 audit prep.
+// 26 plan rows enumerated in
+// doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md (plan landed 2026-04-23) plus
+// 5 FB-HARNESS-NN smoke rows (Branch C) and 1 port-conflict neighbour
+// (FB-3X, added during Phase 3 row-flips per Branch B reviewer note 2).
+// All 26 plan rows are now live `check()` calls — Phase 3 (this commit)
+// flipped them against the Branch A/B/C emulator + harness landed today.
 //
-// Status at file creation: **0 live rows, 26 skip() rows.**
-// No implementation exists today. Per the plan §Current status:
-//   * No `test/floating_bus/` suite exists. This file creates the home.
-//   * The production target `Emulator::floating_bus_read`
-//     (src/core/emulator.cpp:2651-2700) has not been audited against
-//     VHDL zxula.vhd:308-345/573 + zxnext.vhd:2589/2713/2813/4513/4517.
-//   * The existing C++ returns VRAM-derived bytes on ALL machine types
-//     in violation of zxnext.vhd:4513 (Pentagon/Next/+3 must hard-force
-//     port 0xFF → 0xFF). Rows FB-4A/4B/4C (and the FB-03/04 re-homes
-//     with their corrected expected values) are known to witness this
-//     bug once unskipped.
-//
-// Skip reasons below cite the plan §Current status Phase-0-audit-pending
-// rationale per row group so that the honest pass-rate signal
-// (UNIT-TEST-PLAN-EXECUTION.md §2) stays intact while the audit/fix
-// work is scheduled.
-//
-// Structural template mirrored from test/ula/ula_integration_test.cpp
-// and test/ctc_interrupts/ctc_interrupts_test.cpp. Same check()/skip()
-// helpers, same per-group breakdown, same final summary line.
+// Open Q 2 resolved (plan §Open Questions): production
+// `Emulator::floating_bus_read` (src/core/emulator.cpp:3090-3197) folds
+// raster phase by `tstate_in_line % 8` and returns VRAM at offsets
+// {2,3,4,5}. The 16-hc VHDL window is approximated 1:2 — phases 9/B/D/F
+// land in the *first* half of each 8T window in the C++ model. Tests
+// use `set_raster_position` (raw 3.5 MHz T-states) accordingly.
 //
 // Run: ./build/test/floating_bus_test
 
@@ -35,7 +21,9 @@
 #include "core/emulator_config.h"
 #include "cpu/z80_cpu.h"
 #include "memory/mmu.h"
+#include "port/nextreg.h"
 #include "port/port_dispatch.h"
+#include "video/ula.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -85,6 +73,7 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
+[[maybe_unused]]
 void skip(const char* id, const char* reason) {
     g_skipped.push_back({id, reason});
 }
@@ -104,7 +93,7 @@ std::string fmt(const char* fmt_str, ...) {
 // FB-NN rows mechanically. They are *test-side only* — no src/ change.
 //
 // Open Q 2 (plan doc §Open Questions): the production
-// `Emulator::floating_bus_read` (src/core/emulator.cpp:3031-3080) folds
+// `Emulator::floating_bus_read` (src/core/emulator.cpp:3090-3197) folds
 // raster phase by `tstate_in_line % 8` and selects pixel/attr at offsets
 // {2, 3, 4, 5}. The VHDL oracle (zxula.vhd:319-340) folds by `hc(3:0)`
 // over a 16-pixel-clock window and selects pixel/attr at hc phases
@@ -136,7 +125,7 @@ static bool fresh_emulator(Emulator& emu,
 // Advance the emulator's master clock so that
 //   (clock_.get() - frame_cycle_) / cpu_speed_divisor == line * tstates_per_line + tstate
 // matching the geometry used by `Emulator::floating_bus_read`
-// (src/core/emulator.cpp:3039-3048).
+// (src/core/emulator.cpp:3155-3167).
 //
 // Mechanism: `Clock` exposes only `tick(n)` and `reset()` — there is no
 // direct setter for the cycle counter. We therefore compute the master
@@ -241,6 +230,28 @@ static uint8_t read_port_default(Emulator& emu, uint16_t port) {
     return emu.port().in(port);
 }
 
+// Compute the VRAM-bank-5 RAM offset for a given pixel line+col matching
+// the formula at src/core/emulator.cpp:3182-3189. Returns the raw
+// `Ram::write` index for the *pixel* byte at (pixel_line, char_col).
+// Bank 5 sits at SRAM offset 10*0x2000 = 0x14000; pixel address scheme
+// is the standard ZX Spectrum display-file layout.
+static uint32_t vram_pixel_ram_offset(int pixel_line, int char_col) {
+    const int y = pixel_line;
+    const uint16_t pixel_addr = 0x4000
+        | ((y & 0xC0) << 5)
+        | ((y & 0x07) << 8)
+        | ((y & 0x38) << 2)
+        | (char_col * 2);
+    return static_cast<uint32_t>(pixel_addr) - 0x4000u + 10u * 0x2000u;
+}
+
+// Same for the attribute byte at (pixel_line, char_col).
+// attr_addr = 0x5800 + (line/8)*32 + char_col*2 per emulator.cpp:3189.
+static uint32_t vram_attr_ram_offset(int pixel_line, int char_col) {
+    const uint16_t attr_addr = 0x5800u + (pixel_line / 8) * 32u + char_col * 2u;
+    return static_cast<uint32_t>(attr_addr) - 0x4000u + 10u * 0x2000u;
+}
+
 } // namespace
 
 // ══════════════════════════════════════════════════════════════════════
@@ -254,20 +265,34 @@ static void test_section1_border(void) {
     set_group("FB-1-Border");
 
     // FB-01 — re-home of S10.01.
-    // 48K, line in V-border; port 0xFF read expected 0xFF
-    // (zxula.vhd:312-316,414,573).
-    skip("FB-01",
-         "Phase 0 audit pending (plan §Current status) — "
-         "48K V-border port 0xFF=0xFF; floating_bus_read not yet "
-         "VHDL-audited for raster-phase fidelity "
-         "(zxula.vhd:312-316,414,573)");
+    // 48K, line in V-border; port 0xFF read expected 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // Line 32 sits in the V-border (line < 64 → border early-return
+        // arm at emulator.cpp:3169).
+        set_raster_position(emu, 32, 64);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-01",
+              "48K V-border (line=32) port 0xFF read returns 0xFF "
+              "(zxula.vhd:312-316,414,573)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 
-    // FB-02 — neighbour. 48K, H-blank inside V-active; expected 0xFF
-    // (zxula.vhd:316,416,573; host src/core/emulator.cpp:2671).
-    skip("FB-02",
-         "Phase 0 audit pending — 48K H-blank-in-V-active returns 0xFF; "
-         "fixture needs tstate_in_line sweep helper not yet built "
-         "(zxula.vhd:316,416,573)");
+    // FB-02 — neighbour. 48K, H-blank inside V-active; expected 0xFF.
+    // Per zxula.vhd:316,416 border_active_ula = i_hc(8) OR border_active_v;
+    // emulator models H-blank via tstate_in_line >= 128 (emulator.cpp:3169).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // Line 100 = active display; tstate 150 > 128 = H-blank window.
+        set_raster_position(emu, 100, 150);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-02",
+              "48K H-blank inside V-active (line=100, t=150) port 0xFF=0xFF "
+              "(zxula.vhd:316,416,573)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -275,44 +300,124 @@ static void test_section1_border(void) {
 // VHDL: zxula.vhd:319-340 (hc(3:0) case → floating_bus_r load phases
 //       0x9/0xB/0xD/0xF from i_ula_vram_d; phase 0x1 resets).
 // Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §2
-// Open question 2 in the plan flags the 16-hc → 8T-model mapping as
-// unverified; un-skipping these rows may witness a real emulator bug.
+//
+// Open Q 2 (resolved): production folds raster phase by `tstate_in_line
+// % 8` and selects {pixel, attr, pixel+1, attr+1} at offsets {2, 3, 4, 5}.
+// Tests use `set_raster_position` with raw 3.5 MHz T-states; phase
+// selection is via the chosen `tstate % 8`.
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_section2_capture_phases(void) {
     set_group("FB-2-Capture");
 
-    // FB-2A — neighbour. 48K active, VHDL hc phase 0x9 (pixel fetch).
-    skip("FB-2A",
-         "Phase 0 audit pending — 16-hc vs 8T-model mapping unverified "
-         "(plan §Open Q 2); hc=0x9 → pixel byte "
-         "(zxula.vhd:325-327)");
+    // FB-2A — VHDL hc phase 0x9 ↔ host T%8=2 → pixel byte.
+    // Place raster at line=64 (top of active), col=8 (char_col=4 chars in
+    // = pixel column 32; well clear of left border at col<32). tstate=34
+    // → tstate%8 = 2 → pixel byte arm.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 34;          // tstate%8=2, char_col=4
+        const int pixel_line = LINE - 64;           // 36
+        const int char_col   = TSTATE / 8;          // 4
+        const uint8_t MARKER = 0xA5;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2A",
+              "48K active display, T%8=2 → pixel byte from VRAM "
+              "(zxula.vhd:325-327)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
 
-    // FB-2B — neighbour. 48K active, VHDL hc phase 0xB (attr fetch).
-    skip("FB-2B",
-         "Phase 0 audit pending — hc=0xB → attr byte; 8T-model mapping "
-         "not yet locked down "
-         "(zxula.vhd:329-330)");
+    // FB-2B — VHDL hc phase 0xB ↔ host T%8=3 → attr byte.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 35;          // tstate%8=3, char_col=4
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5C;
+        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2B",
+              "48K active display, T%8=3 → attribute byte from VRAM "
+              "(zxula.vhd:329-330)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
 
-    // FB-2C — neighbour. 48K active, VHDL hc phase 0xD (pixel+1 fetch).
-    skip("FB-2C",
-         "Phase 0 audit pending — hc=0xD → pixel+1 byte "
-         "(zxula.vhd:332-333)");
+    // FB-2C — VHDL hc phase 0xD ↔ host T%8=4 → pixel+1 byte.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 36;          // tstate%8=4, char_col=4
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x3E;
+        // pixel+1 → write at pixel offset + 1
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col) + 1, MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2C",
+              "48K active display, T%8=4 → pixel+1 byte from VRAM "
+              "(zxula.vhd:332-333)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
 
-    // FB-2D — neighbour. 48K active, VHDL hc phase 0xF (attr+1 fetch).
-    skip("FB-2D",
-         "Phase 0 audit pending — hc=0xF → attr+1 byte "
-         "(zxula.vhd:335-336)");
+    // FB-2D — VHDL hc phase 0xF ↔ host T%8=5 → attr+1 byte.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 37;          // tstate%8=5, char_col=4
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x77;
+        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col) + 1, MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2D",
+              "48K active display, T%8=5 → attr+1 byte from VRAM "
+              "(zxula.vhd:335-336)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
 
-    // FB-2E — neighbour. 48K active, reset phase (VHDL hc=0x1).
-    skip("FB-2E",
-         "Phase 0 audit pending — reset/idle phase returns 0xFF "
-         "(zxula.vhd:321-323,573)");
+    // FB-2E — reset/idle phase. Plan picks T%8=0 (production default arm
+    // at emulator.cpp:3196 returns 0xFF for {0,1,6,7}). VHDL calls this
+    // hc(3:0)=0x1 (reset). The 8T model collapses 8 of the 16 hc phases
+    // into the "idle" arm; FB-2E pins one representative.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const int LINE = 100, TSTATE = 32;          // tstate%8=0
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        // Seed VRAM with a non-FF byte so a bug returning the pixel/attr
+        // byte instead of 0xFF would witness as a fail.
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x33);
+        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col),  0x33);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2E",
+              "48K active display, idle phase (T%8=0) returns 0xFF "
+              "(zxula.vhd:321-323,573)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 
-    // FB-2F — neighbour. 48K above-active (vc < min_vactive).
-    skip("FB-2F",
-         "Phase 0 audit pending — scanline above vactive returns 0xFF "
-         "(zxula.vhd:414-416,573)");
+    // FB-2F — scanline above active display window (line < 64).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // Line 50 < 64 → above-active border. tstate=20 (in pixel-fetch
+        // window if it were active) so the row pins the V-axis gate, not
+        // the H-blank gate.
+        set_raster_position(emu, 50, 20);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-2F",
+              "48K above-active V-border (line=50) returns 0xFF "
+              "(zxula.vhd:414-416,573)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -324,77 +429,187 @@ static void test_section2_capture_phases(void) {
 //       port_p3_floating_bus_io_en);
 //       zxnext.vhd:4498-4509 (p3_floating_bus_dat latch).
 // Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §3
+//
+// FOLLOW-UP: VHDL derives p3_timing_hw_en from NR 0x03 (zxnext.vhd:5774);
+// Branch B uses MachineType — minor drift documented in 2026-04-25
+// reviewer note. A Next-base machine that flips NR 0x03 to +3 timing
+// would not see port 0x0FFD as a floating-bus surface in our
+// implementation; on real hardware it would. Not exercised by Phase 3
+// rows; revisit when NR 0x03 runtime machine-type commit lands.
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_section3_p3_paths(void) {
     set_group("FB-3-P3Paths");
 
-    // FB-03 — re-home of S10.05, re-scoped. +3 port 0xFF → 0xFF
-    // (port 0xFF hard-forced per zxnext.vhd:4513; known emulator bug —
-    // current floating_bus_read returns VRAM bytes universally).
-    skip("FB-03",
-         "Phase 0 audit pending — +3 port 0xFF hard-forced to 0xFF; "
-         "current Emulator::floating_bus_read violates machine gate "
-         "and will witness this as FAIL once unskipped (known bug per "
-         "plan §Current status) (zxnext.vhd:4513)");
+    // FB-03 — re-home of S10.05, re-scoped. +3 port 0xFF → 0xFF (port
+    // 0xFF hard-forced per zxnext.vhd:4513; Branch A wired the gate).
+    // Place at active capture phase to prove the per-machine gate (not
+    // border early-return) is what forces 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        // Seed VRAM so a regression that bypasses the +3 gate would emit
+        // this marker instead of 0xFF.
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-03",
+              "+3 port 0xFF in active capture phase hard-forced to 0xFF "
+              "(zxnext.vhd:4513)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 
-    // FB-03a — neighbour. +3 port 0x0FFD active-display bit-0 force.
-    skip("FB-03a",
-         "Phase 0 audit pending — +3 port 0x0FFD not wired as "
-         "floating-bus surface today; needs new Port handler + +3 "
-         "raster-phase fixture (zxula.vhd:573 + zxnext.vhd:4517)");
+    // FB-03a — +3 port 0x0FFD active-display bit-0 force. Branch B
+    // simplification: handler returns p3_floating_bus_dat | 0x01 in all
+    // raster phases on +3 with port_7ffd_locked=0. Seed the latch with a
+    // bit-0=0 byte (0xA4); expect 0xA5 = 0xA4 | 0x01.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        // Slot 1 (0x4000-0x7FFF) is contended on +3 — Mmu::write into
+        // that slot updates p3_floating_bus_dat_ (mmu.h:278-280).
+        emu.mmu().write(0x4000, 0xA4);
+        // Active display + T%8=2 (matches the "capture" arm semantics);
+        // Branch B handler is raster-phase agnostic so position only
+        // documents intent.
+        set_raster_position(emu, 100, 34);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-03a",
+              "+3 port 0x0FFD bit-0 force (latch=0xA4 → 0xA5) "
+              "(zxula.vhd:573 + zxnext.vhd:4517)",
+              v == 0xA5, fmt("v=0x%02X", v));
+    }
 
     // FB-04 — re-home of S10.06, re-scoped. +3 port 0xFF at border → 0xFF.
-    skip("FB-04",
-         "Phase 0 audit pending — +3 port 0xFF at border hard-forced "
-         "to 0xFF regardless of p3_floating_bus_dat shadow; current "
-         "code returns shadow byte — known bug (zxnext.vhd:4513)");
+    // Border early-return AND the per-machine gate should both yield 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        // Seed the +3 latch with a recognisable byte to prove the shadow
+        // is NOT exposed via port 0xFF (it lives only on port 0x0FFD).
+        emu.mmu().write(0x4000, 0xA5);
+        set_raster_position(emu, 32, 64);          // V-border
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-04",
+              "+3 port 0xFF at border ignores p3_floating_bus_dat shadow → 0xFF "
+              "(zxnext.vhd:4513)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 
-    // FB-04a — neighbour. +3 port 0x0FFD border fallback via
-    // p3_floating_bus_dat (last contended CPU r/w byte).
-    skip("FB-04a",
-         "Phase 0 audit pending — +3 port 0x0FFD border fallback needs "
-         "p3_floating_bus_dat contended-access latch + Port 0x0FFD "
-         "handler; neither exists today "
-         "(zxula.vhd:573 + zxnext.vhd:4498-4509,4517)");
+    // FB-04a — +3 port 0x0FFD border fallback via p3_floating_bus_dat.
+    // Border arm of zxula.vhd:573 substitutes i_p3_floating_bus (the
+    // contended-write latch). Branch B hands it back via the same
+    // expression as FB-03a.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(0x4000, 0xA5);             // bit 0 already set
+        set_raster_position(emu, 32, 64);          // V-border
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-04a",
+              "+3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5 "
+              "(zxula.vhd:573 + zxnext.vhd:4498-4509,4517)",
+              v == 0xA5, fmt("v=0x%02X", v));
+    }
 
-    // FB-3A — neighbour. +3 port 0x0FFD, port_7ffd_locked=1 → 0xFF.
-    skip("FB-3A",
-         "Phase 0 audit pending — +3 port 0x0FFD + port_7ffd_locked "
-         "gate not wired; no Port 0x0FFD floating-bus handler "
-         "(zxnext.vhd:4517)");
+    // FB-3A — +3 port 0x0FFD with port_7ffd_locked=1 → 0xFF.
+    // Lock paging by writing bit 5 of port 0x7FFD via the dispatcher.
+    // (Direct mmu_.map_128k_bank() works too but going through the port
+    // pinces the integration path.)
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(0x4000, 0x42);             // seed latch
+        emu.mmu().map_128k_bank(0x20);             // bit 5 → paging_locked
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3A",
+              "+3 port 0x0FFD + port_7ffd_locked=1 → 0xFF "
+              "(zxnext.vhd:4517)",
+              v == 0xFF,
+              fmt("v=0x%02X locked=%d", v, emu.mmu().paging_locked() ? 1 : 0));
+    }
 
-    // FB-3B — neighbour. +3 port 0x0FFD,
-    // port_p3_floating_bus_io_en=0 → decode blocked.
-    skip("FB-3B",
-         "Phase 0 audit pending — port_p3_floating_bus_io_en gate "
-         "(NR 0x82 bit 4) decode-side; needs new +3 port 0x0FFD decode "
-         "(zxnext.vhd:2403, 2589, 2814)");
+    // FB-3B — +3 port 0x0FFD with port_p3_floating_bus_io_en=0 (NR 0x82
+    // bit 4 cleared) → decode blocked → 0x00.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(0x4000, 0x42);             // seed latch (irrelevant)
+        // NR 0x82 reset default = 0xFF; clear bit 4 only.
+        emu.nextreg().write(0x82, 0xEF);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3B",
+              "+3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0x00 "
+              "(zxnext.vhd:2403, 2589, 2814)",
+              v == 0x00, fmt("v=0x%02X", v));
+    }
 
-    // FB-3C — neighbour. 48K port 0x0FFD → 0x00 (decode blocked by
-    // p3_timing_hw_en).
-    skip("FB-3C",
-         "Phase 0 audit pending — 48K port 0x0FFD not a floating-bus "
-         "surface; p3_timing_hw_en gate absent from current "
-         "Emulator (zxnext.vhd:2589, 2814)");
+    // FB-3C — 48K port 0x0FFD → 0x00 (decode blocked by p3_timing_hw_en).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3C",
+              "48K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
+              "(zxnext.vhd:2589, 2814)",
+              v == 0x00, fmt("v=0x%02X", v));
+    }
 
-    // FB-3D — neighbour. 128K port 0x0FFD → 0x00 same reason as FB-3C.
-    skip("FB-3D",
-         "Phase 0 audit pending — 128K port 0x0FFD not floating-bus "
-         "surface; p3_timing_hw_en gate absent "
-         "(zxnext.vhd:2589, 2814)");
+    // FB-3D — 128K port 0x0FFD → 0x00 (same gate as FB-3C).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX128K);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3D",
+              "128K port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
+              "(zxnext.vhd:2589, 2814)",
+              v == 0x00, fmt("v=0x%02X", v));
+    }
 
-    // FB-3E — neighbour. Pentagon port 0x0FFD → 0x00.
-    skip("FB-3E",
-         "Phase 0 audit pending — Pentagon port 0x0FFD not "
-         "floating-bus surface; p3_timing_hw_en gate absent "
-         "(zxnext.vhd:2589, 2814)");
+    // FB-3E — Pentagon port 0x0FFD → 0x00.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::PENTAGON);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3E",
+              "Pentagon port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
+              "(zxnext.vhd:2589, 2814)",
+              v == 0x00, fmt("v=0x%02X", v));
+    }
 
-    // FB-3F — neighbour. Next port 0x0FFD → 0x00.
-    skip("FB-3F",
-         "Phase 0 audit pending — Next-base port 0x0FFD not "
-         "floating-bus surface; p3_timing_hw_en gate absent "
-         "(zxnext.vhd:2589, 2814)");
+    // FB-3F — Next-base port 0x0FFD → 0x00.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZXN_ISSUE2);
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3F",
+              "Next port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
+              "(zxnext.vhd:2589, 2814)",
+              v == 0x00, fmt("v=0x%02X", v));
+    }
+
+    // FB-3X — Branch B reviewer note 2: pin that port 0x0FFD reads on +3
+    // dispatch to the dedicated 0x0FFD handler and do NOT accidentally
+    // fall through to the 0x7FFD bank-switching surface.
+    //
+    // Method: seed p3_floating_bus_dat with a unique value (0x42), read
+    // 0x0FFD, expect 0x43 (0x42 | bit 0). 0x42 differs from any plausible
+    // 0x7FFD-related artifact (bank/screen bits) and the bit-0 force is
+    // a unique fingerprint of the 0x0FFD handler at emulator.cpp:1356-1367.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(0x4000, 0x42);             // latch = 0x42
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        check("FB-3X",
+              "+3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD "
+              "(specificity: mask 0xF003 > 0x8003) → 0x42 | 0x01 = 0x43 "
+              "(emulator.cpp:1356-1367 + port_dispatch.cpp:35-61)",
+              v == 0x43, fmt("v=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -407,31 +622,62 @@ static void test_section3_p3_paths(void) {
 static void test_section4_per_machine(void) {
     set_group("FB-4-MachineSel");
 
-    // FB-4A — neighbour. 128K active capture → VRAM byte reaches port 0xFF.
-    skip("FB-4A",
-         "Phase 0 audit pending — 128K path verification blocked on "
-         "raster-phase fixture; known bug in floating_bus_read may "
-         "still flow through correctly here (zxnext.vhd:4513)");
+    // FB-4A — 128K active capture → VRAM byte reaches port 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX128K);
+        const int LINE = 100, TSTATE = 34;          // T%8=2 (pixel arm)
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        const uint8_t MARKER = 0x5A;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-4A",
+              "128K active capture → ULA floating bus reaches port 0xFF (0x5A) "
+              "(zxnext.vhd:4513)",
+              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+    }
 
-    // FB-4B — neighbour. Pentagon active → port 0xFF hard-forced 0xFF.
-    skip("FB-4B",
-         "Phase 0 audit pending — Pentagon port 0xFF must return 0xFF "
-         "regardless of ULA; current floating_bus_read emits VRAM "
-         "byte universally (known bug per plan §Current status) "
-         "(zxnext.vhd:4513)");
+    // FB-4B — Pentagon active → port 0xFF hard-forced 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::PENTAGON);
+        const int LINE = 100, TSTATE = 34;
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        // Seed VRAM with a distinctive byte; gate must drop it.
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x5A);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-4B",
+              "Pentagon active capture → port 0xFF hard-forced 0xFF "
+              "(zxnext.vhd:4513)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 
-    // FB-4C — neighbour. Next active → port 0xFF hard-forced 0xFF.
-    skip("FB-4C",
-         "Phase 0 audit pending — Next-base port 0xFF must return "
-         "0xFF; current floating_bus_read emits VRAM byte (known "
-         "bug per plan §Current status) (zxnext.vhd:4513)");
+    // FB-4C — Next active → port 0xFF hard-forced 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZXN_ISSUE2);
+        const int LINE = 100, TSTATE = 34;
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x5A);
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-4C",
+              "Next-base active capture → port 0xFF hard-forced 0xFF "
+              "(zxnext.vhd:4513)",
+              v == 0xFF, fmt("v=0x%02X", v));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // Section 5 — Port 0xFF read path wiring (default-read handler)
 // VHDL: zxnext.vhd:2713 (port_ff_rd unconditional decode);
 //       zxnext.vhd:2813 (read mux: Timex vs ULA vs 0x00).
-// Host: src/core/emulator.cpp:173 binds floating_bus_read as the
+// Host: src/core/emulator.cpp:194 binds floating_bus_read as the
 //       port-dispatch default read handler (port 0xFF is unmapped on
 //       48K/128K → falls through).
 // Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §5
@@ -441,19 +687,73 @@ static void test_section5_port_ff_wiring(void) {
     set_group("FB-5-Wiring");
 
     // FB-06 — re-home of S10.07. 48K IN A,(0xFF) at border → 0xFF
-    // via port-dispatch through floating_bus_read.
-    skip("FB-06",
-         "Phase 0 audit pending — end-to-end CPU IN A,(0xFF) fixture "
-         "not yet built (needs port().in() integration path); "
-         "verifies port_.set_default_read binding "
-         "(zxnext.vhd:2713, 2813; emulator.cpp:173)");
+    // via the full CPU + port-dispatch path (not a direct
+    // floating_bus_read() call) so a regression in port_.set_default_read
+    // would surface here.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // cpu_in_a_FF executes 11 T-states (DB FF). Fresh clock at line 0
+        // (V-border) so the read takes the border early-return arm.
+        const uint8_t a = cpu_in_a_FF(emu);
+        check("FB-06",
+              "48K CPU IN A,(0xFF) at border returns 0xFF via "
+              "port_dispatch.set_default_read (zxnext.vhd:2713,2813)",
+              a == 0xFF, fmt("a=0x%02X", a));
+    }
 
     // FB-5A — neighbour. 48K IN A,(0xFF) in active capture → VRAM byte.
-    skip("FB-5A",
-         "Phase 0 audit pending — active-display-capture branch of "
-         "the wiring needs raster-phase fixture (see FB-2A..FB-2F); "
-         "same port-dispatch path as FB-06 "
-         "(zxnext.vhd:2713, 2813; emulator.cpp:2651-2700)");
+    // Approach: bypass the (uncertain) per-CPU-cycle port-sample timing
+    // of the FUSE Z80 core by saturating the entire pixel-fetch window
+    // (T-states 0..127) of one active line with the SAME marker byte.
+    // Whichever T%8 phase the IN's port sample lands on, the read either
+    // returns the marker (phases 2/3/4/5) or 0xFF (phases 0/1/6/7).
+    // We pin raster *after* the IN's leading 7 T-states (DB+FF fetches)
+    // so the actual port sample lands inside the pixel-fetch window,
+    // then assert the read is the marker.
+    //
+    // To make the test deterministic regardless of FUSE Z80 sample
+    // timing, set the raster position so the port sample ends up at a
+    // T%8 ∈ {2,3,4,5} phase. Empirically `set_raster_position(100, 64)`
+    // followed by cpu_in_a_FF lands at a stable phase; we verify post
+    // hoc that the read returned the seeded marker.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // Saturate ALL pixel + attr bytes for every char_col on line 100
+        // with the same marker. Whichever (char_col, phase) the IN samples
+        // in the {2,3,4,5} arms, the byte is the same.
+        const int LINE = 100;
+        const int pixel_line = LINE - 64;
+        const uint8_t MARKER = 0xC3;
+        for (int cc = 0; cc < 32; ++cc) {
+            emu.ram().write(vram_pixel_ram_offset(pixel_line, cc),     MARKER);
+            emu.ram().write(vram_pixel_ram_offset(pixel_line, cc) + 1, MARKER);
+            emu.ram().write(vram_attr_ram_offset (pixel_line, cc),     MARKER);
+            emu.ram().write(vram_attr_ram_offset (pixel_line, cc) + 1, MARKER);
+        }
+        // Position raster early enough that the IN's leading fetches +
+        // contention land the port sample inside the pixel-fetch window
+        // (tstate < 128). Choose tstate=20 to leave ample slack against
+        // contention adjustments (worst-case ~+12 T per access).
+        set_raster_position(emu, LINE, 20);
+        const uint8_t a = cpu_in_a_FF(emu);
+        // The post-IN raster position tells us which T%8 phase we sampled.
+        // Phases {2,3,4,5} → marker; phases {0,1,6,7} → 0xFF (default arm).
+        const int post_line  = emu.current_scanline();
+        const int post_tcyc  = static_cast<int>(
+            (emu.clock().get() - emu.current_frame_cycle())
+            / cpu_speed_divisor(emu.config().cpu_speed));
+        const int post_tline = post_tcyc % emu.timing().tstates_per_line;
+        check("FB-5A",
+              "48K CPU IN A,(0xFF) in active line 100 sees VRAM marker 0xC3 "
+              "(VRAM saturated for all char_col; the IN's port sample lands "
+              "inside the pixel-fetch window; zxnext.vhd:2713,2813; "
+              "emulator.cpp:3090-3197)",
+              a == MARKER,
+              fmt("a=0x%02X expected=0x%02X post_line=%d post_tline=%d phase=%d",
+                  a, MARKER, post_line, post_tline, post_tline % 8));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -470,34 +770,69 @@ static void test_section6_nr08_override(void) {
     set_group("FB-6-NR08");
 
     // FB-07 — re-home of S10.08. NR 0x08 bit 2 set + port 0xFF write →
-    // subsequent IN A,(0xFF) reads back the Timex register.
-    skip("FB-07",
-         "Phase 0 audit pending — NR 0x08 bit 2 Timex override arm "
-         "not yet modelled in floating_bus_read; requires "
-         "port_ff_reg shadow + mux "
-         "(zxnext.vhd:2813, 5180, 3630)");
+    // subsequent read returns the Timex register (port_ff_reg shadow,
+    // mirrored in Ula::screen_mode_reg_).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // NR 0x82 default 0xFF (bit 0 set → port_ff_io_en=1). Set NR 0x08
+        // bit 2 to enable the Timex arm, then write port 0xFF = 0x05.
+        emu.nextreg().write(0x08, 0x14);            // bit 4 (default) + bit 2
+        // Write port 0xFF — gated by port_ff_io_en (NR 0x82 b0). Use the
+        // dispatcher to pin the full integration path.
+        emu.port().out(0x00FF, 0x05);
+        set_raster_position(emu, 32, 64);           // border (so floating-bus arm
+                                                     // would yield 0xFF)
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-07",
+              "48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 "
+              "(Timex arm wins; zxnext.vhd:2813,5180,3630)",
+              v == 0x05, fmt("v=0x%02X", v));
+    }
 
-    // FB-6A — neighbour. Reset state NR 0x08=0 → floating-bus wins.
-    skip("FB-6A",
-         "Phase 0 audit pending — cold-boot reset default "
-         "nr_08_port_ff_rd_en=0 pinned by this row; exercises the "
-         "same mux as FB-07 (zxnext.vhd:1118, 2813, 5180)");
+    // FB-6A — reset state NR 0x08=0 → floating-bus wins (port 0xFF write
+    // does not influence read). Pins reset default nr_08_port_ff_rd_en=0
+    // (zxnext.vhd:1118).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        // NR 0x08 reset default has bit 2 = 0 (only bit 4 set).
+        emu.port().out(0x00FF, 0x05);               // write Timex reg
+        set_raster_position(emu, 32, 64);           // border
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-6A",
+              "48K reset state NR 0x08 b2=0 → border read returns 0xFF "
+              "(floating-bus arm wins; zxnext.vhd:1118,2813,5180)",
+              v == 0xFF,
+              fmt("v=0x%02X nr_08_b2=%d", v, (emu.nextreg().cached(0x08) >> 2) & 1));
+    }
 
-    // FB-6B — neighbour. NR 0x08 bit 2 set + port_ff_io_en cleared →
-    // Timex arm AND-term collapses → floating-bus wins again.
-    skip("FB-6B",
-         "Phase 0 audit pending — port_ff_io_en leg of the 3-term "
-         "AND in the read-mux needs NR 0x82 bit 0 plumbing through "
-         "floating_bus_read (zxnext.vhd:2397, 2813)");
+    // FB-6B — NR 0x08 b2=1 + clear NR 0x82 b0 (port_ff_io_en=0) → Timex
+    // AND-term collapses → floating-bus arm takes over. The port 0xFF
+    // *write* is also gated by port_ff_io_en (emulator.cpp:1329), so we
+    // perform the write first while io_en=1, THEN clear bit 0, then read.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.nextreg().write(0x08, 0x14);            // bit 4 + bit 2
+        emu.port().out(0x00FF, 0x05);               // seed Timex reg while io_en=1
+        emu.nextreg().write(0x82, 0xFE);            // clear NR 0x82 b0 only
+        set_raster_position(emu, 32, 64);           // border
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-6B",
+              "48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF "
+              "(zxnext.vhd:2397,2813)",
+              v == 0xFF,
+              fmt("v=0x%02X nr_82=0x%02X screen_mode=0x%02X",
+                  v, emu.nextreg().cached(0x82),
+                  emu.ula().get_screen_mode_reg()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // Section HARNESS — Phase 3 fixture-helper smoke rows (Branch C)
 // These rows do NOT belong to the 26 plan rows. They exist to keep the
-// helpers compile-tested and to give the suite a non-zero live-row count
-// so the `Total: ... Passed: ...` summary line stays meaningful.
-// Phase 3 will be free to delete this section once it has live FB-NN
-// rows that exercise the same helpers in anger.
+// helpers compile-tested independently of the FB-NN rows.
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_harness_smoke(void) {
@@ -613,9 +948,9 @@ static void test_harness_smoke(void) {
 int main() {
     std::printf("Emulator Floating Bus Compliance Tests\n");
     std::printf("======================================\n");
-    std::printf("(scaffolding — 26 plan rows skip() until Phase 0 audit;\n");
-    std::printf(" plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md;\n");
-    std::printf(" plus 5 FB-HARNESS-NN smoke rows for Branch C helpers)\n\n");
+    std::printf("(26 plan rows + 1 port-conflict neighbour (FB-3X) +\n");
+    std::printf(" 5 FB-HARNESS-NN smoke rows; plan:\n");
+    std::printf(" doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md)\n\n");
 
     test_section1_border();
     std::printf("  Section 1 (Border)             — %2d rows\n", 2);
@@ -624,7 +959,7 @@ int main() {
     std::printf("  Section 2 (Capture phases)     — %2d rows\n", 6);
 
     test_section3_p3_paths();
-    std::printf("  Section 3 (+3 port 0xFF/0x0FFD)— %2d rows\n", 10);
+    std::printf("  Section 3 (+3 port 0xFF/0x0FFD)— %2d rows\n", 11);
 
     test_section4_per_machine();
     std::printf("  Section 4 (Per-machine select) — %2d rows\n", 3);
@@ -643,9 +978,9 @@ int main() {
                 g_total + static_cast<int>(g_skipped.size()),
                 g_pass, g_fail, g_skipped.size());
 
-    // Per-group breakdown (live rows only — empty until rows unskip).
+    // Per-group breakdown.
     if (!g_results.empty()) {
-        std::printf("\nPer-group breakdown (live rows only):\n");
+        std::printf("\nPer-group breakdown:\n");
         std::string last;
         int gp = 0, gf = 0;
         for (const auto& r : g_results) {
