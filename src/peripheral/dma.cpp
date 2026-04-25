@@ -74,7 +74,7 @@ void Dma::reset() {
     dma_delay_     = false;
     daisy_busy_    = false;
 
-    dma_log()->info("DMA reset");
+    dma_log()->debug("DMA reset");
 }
 
 // ─── Bus arbitration ─────────────────────────────────────────────────
@@ -368,7 +368,7 @@ void Dma::write(uint8_t val, bool z80_compat) {
             phase_ = Phase::START_DMA;
             status_at_least_one_ = false;
             in_waiting_cycles_ = false;
-            dma_log()->info("DMA enabled via R3 -> TRANSFERRING");
+            dma_log()->debug("DMA enabled via R3 -> TRANSFERRING");
         }
 
         if (val & 0x08)
@@ -513,7 +513,7 @@ void Dma::process_r6_command(uint8_t val) {
         break;
 
     case 0x87:  // Enable DMA
-        dma_log()->info("R6: ENABLE DMA -> TRANSFERRING");
+        dma_log()->debug("R6: ENABLE DMA -> TRANSFERRING");
         state_ = State::TRANSFERRING;
         phase_ = Phase::START_DMA;
         status_at_least_one_ = false;
@@ -521,7 +521,7 @@ void Dma::process_r6_command(uint8_t val) {
         break;
 
     case 0x83:  // Disable DMA
-        dma_log()->info("R6: DISABLE DMA -> IDLE");
+        dma_log()->debug("R6: DISABLE DMA -> IDLE");
         state_ = State::IDLE;
         phase_ = Phase::IDLE;
         cpu_busreq_n_ = true;
