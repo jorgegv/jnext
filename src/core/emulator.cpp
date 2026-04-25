@@ -3030,12 +3030,71 @@ void Emulator::schedule_frame_events()
 
 uint8_t Emulator::floating_bus_read() const
 {
-    // Floating bus: the ULA drives VRAM data onto the bus during active display.
-    // The VHDL implements this for all machine types (48K/128K/+3/Pentagon/Next).
-    // Pentagon returns the attribute byte only (no pixel bytes on the bus).
+    // Port 0xFF read mux per VHDL zxnext.vhd:2813:
+    //   port_ff_rd_dat <= port_ff_dat_tmx                       -- Timex arm
+    //                     when nr_08_port_ff_rd_en = '1'
+    //                      and port_ff_io_en       = '1'
+    //                      and port_ff_rd          = '1'
+    //                else port_ff_dat_ula                       -- ULA arm
+    //                     when port_ff_rd = '1'
+    //                else X"00";
+    //
+    // Branch A (TASK3-FLOATING-BUS-SKIP-REDUCTION-PLAN.md): wire the
+    // per-machine gate, the NR 0x08 b2 Timex override, and the NR 0x82 b0
+    // `port_ff_io_en` gate that collapses the Timex arm. The default-port
+    // dispatch site at init() routes ALL unmatched port reads here, which
+    // is wider than VHDL's port_ff-only mux; the floating-bus content we
+    // synthesise is still meaningful for those calls because the bus
+    // settles to whatever ULA is driving when no decoder responds.
 
-    // Compute current position within the frame.
-    // Master clock is 28 MHz. T-states at 3.5 MHz = master_cycles / 8.
+    // ---- 1. Timex arm: NR 0x08 bit 2 + NR 0x82 bit 0 (VHDL :2813, :2397) ----
+    //
+    // When `nr_08_port_ff_rd_en` is set AND `port_ff_io_en` is set, the
+    // read returns `port_ff_dat_tmx` — a one-CPU-cycle delayed copy of
+    // `port_ff_reg`, which is the byte last WRITTEN to port 0xFF (Timex
+    // screen-mode register, VHDL :3614-3616, :3630). We mirror that byte
+    // in `Ula::screen_mode_reg_` (set by the port 0xFF write handler at
+    // emulator.cpp:1303 — itself gated on port_ff_io_en, matching VHDL
+    // `port_ff_wr <= iowr and port_ff and port_ff_io_en` at :2714).
+    //
+    // VHDL reset default: `nr_08_port_ff_rd_en <= '0'` (zxnext.vhd:1118),
+    // matched by NR 0x08's reset path which clears bit 2 of
+    // `nr_08_stored_low_` (emulator.cpp:117-120).
+    //
+    // KNOWN GAP (out of scope for Branch A): VHDL :3614-3624 also lets
+    // NR 0x69 bits 5:0, NR 0x22 bit 2, and NR 0xC4 bit 0 update
+    // `port_ff_reg` (bits 5:0 / bit 6); we don't propagate those into
+    // `screen_mode_reg_` yet. Port-0xFF writes are the dominant source.
+    const uint8_t nr_08 = nr_08_stored_low_;
+    const uint8_t nr_82 = nextreg_.cached(0x82);
+    const bool port_ff_rd_en = (nr_08 & 0x04) != 0;   // NR 0x08 b2
+    const bool port_ff_io_en = (nr_82 & 0x01) != 0;   // NR 0x82 b0
+    if (port_ff_rd_en && port_ff_io_en) {
+        return renderer_.ula().get_screen_mode_reg();
+    }
+
+    // ---- 2. Per-machine ULA arm gate (VHDL :4513) ----
+    //
+    //   port_ff_dat_ula <= ula_floating_bus
+    //                       when (machine_timing_48 = '1'
+    //                          or machine_timing_128 = '1')
+    //                       else X"FF";
+    //
+    // Only 48K and 128K timings deliver the ULA floating bus. +3 keeps
+    // 0xFF on this path (its floating-bus surface is port 0x0FFD, which
+    // Branch B handles separately). Pentagon and the Next default also
+    // collapse to 0xFF here — for Next the runtime `nr_03_machine_timing`
+    // could in principle re-enable 48K/128K timing, but Branch A follows
+    // the prompt's simplification (Next → 0xFF) and leaves the runtime
+    // re-classification to a follow-up if the test plan demands it.
+    if (config_.type != MachineType::ZX48K && config_.type != MachineType::ZX128K) {
+        return 0xFF;
+    }
+
+    // ---- 3. ULA floating-bus content (48K/128K only) ----
+    //
+    // Compute current position within the frame. Master clock is 28 MHz;
+    // T-states at 3.5 MHz = master_cycles / 8.
     uint64_t master_elapsed = clock_.get() - frame_cycle_;
     int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
 

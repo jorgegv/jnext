@@ -54,6 +54,7 @@ public:
 
     /// Access the underlying ULA (e.g. to set border colour from port 0xFE).
     Ula& ula() { return ula_; }
+    const Ula& ula() const { return ula_; }
 
     /// Set layer priority from NextREG 0x15 bits 4:2.
     void set_layer_priority(uint8_t val) { layer_priority_ = val & 0x07; }
