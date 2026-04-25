@@ -50,6 +50,38 @@ public:
     /// trigger mem_contend='1' AND i_contention_en='1'.
     bool is_contended_access() const;
 
+    /// VHDL-faithful `port_contend` decode (zxnext.vhd:4496):
+    ///     port_contend <= (not cpu_a(0))
+    ///                   or port_7ffd_active
+    ///                   or port_bf3b
+    ///                   or port_ff3b;
+    ///
+    /// where `port_bf3b`/`port_ff3b` are gated by `port_ulap_io_en`
+    /// (zxnext.vhd:2685-2686) and `port_7ffd_active` is gated by 128K/+3
+    /// timing (zxnext.vhd:2594).
+    ///
+    /// Returns true iff a CPU IORQ at @p cpu_a would assert
+    /// `port_contend='1'` under the supplied gate inputs:
+    ///   * even-port term: `(not cpu_a(0))` — bit 0 of @p cpu_a == 0.
+    ///   * ULA+ term:      asserted only when @p port_ulap_io_en is true
+    ///                     AND the address matches `0xBF3B` (index) or
+    ///                     `0xFF3B` (data) — full 16-bit decode per
+    ///                     zxnext.vhd:2685-2686 (`port_bfxx_msb`/`port_ffxx_msb`
+    ///                     match the high byte, `port_3b_lsb` matches the
+    ///                     low byte, AND `port_ulap_io_en`).
+    ///
+    /// **Bare-class limitation**: this overload does NOT consume the
+    /// `port_7ffd_active` term (zxnext.vhd:2594) — that signal is gated
+    /// by full machine-timing-128 / -p3 selection AND `port_7ffd_io_en`
+    /// (NR 0x82 bit 1) AND a valid `port_7ffd` address decode, all of
+    /// which only the full `Emulator` can drive truthfully today. Phase B
+    /// rows CT-IO-05/06 will exercise that term once the runtime wiring
+    /// lands. Calling this accessor for `cpu_a == 0x7FFD` therefore
+    /// returns `(not cpu_a(0)) == 0` (i.e. the odd-bit term only) and
+    /// will under-report contention for 128K/+3 — that is expected and
+    /// caller-documented.
+    bool port_contend(uint16_t cpu_a, bool port_ulap_io_en) const;
+
 private:
     // lut_[vc][hc] — vc 0..319, hc 0..455
     std::array<std::array<uint8_t, 456>, 320> lut_{};

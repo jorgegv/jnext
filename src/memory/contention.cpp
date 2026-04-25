@@ -66,6 +66,17 @@ bool ContentionModel::is_contended_access() const {
     // AND (not machine_timing_pentagon)
     // AND (not cpu_speed(1)) AND (not cpu_speed(0)).
     // Any non-zero cpu_speed disables contention.
+    //
+    // WONT — expansion-bus override (zxnext.vhd:5816-5820):
+    //     if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+    //     else                    cpu_speed <= expbus_speed;
+    // jnext has no NextBUS (`expbus_*`) emulation: see expbus probes in
+    // src/peripheral/nmi_source.cpp / src/cpu/im2.cpp which only model
+    // the NMI / IM2 enable bits, not the bus-master speed override. We
+    // therefore drive `cpu_speed_` directly from NR 0x07 with no
+    // expbus_speed substitution path. Documented as WONT per
+    // feedback_wont_taxonomy.md; revisit only if NextBUS emulation is
+    // ever added.
     if (contention_disable_) return false;
     if (pentagon_timing_)    return false;
     if (cpu_speed_ != 0)     return false;
@@ -89,5 +100,44 @@ bool ContentionModel::is_contended_access() const {
             // Pentagon gated off upstream; ZXN_ISSUE2 has no timing-mode line here.
             return false;
     }
+    return false;
+}
+
+bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
+    // VHDL zxnext.vhd:4496 —
+    //     port_contend <= (not cpu_a(0)) or port_7ffd_active
+    //                                    or port_bf3b
+    //                                    or port_ff3b;
+    //
+    // Term 1 — even-port: every CPU IORQ to an even port asserts
+    // contention regardless of timing mode or NR gating.
+    if ((cpu_a & 0x0001) == 0) return true;
+
+    // Term 2 — ULA+ index/data ports (zxnext.vhd:2685-2686):
+    //     port_bf3b <= port_bfxx_msb and port_3b_lsb and port_ulap_io_en;
+    //     port_ff3b <= port_ffxx_msb and port_3b_lsb and port_ulap_io_en;
+    // i.e. asserted iff the full 16-bit address is exactly 0xBF3B / 0xFF3B
+    // AND `port_ulap_io_en` (NR 0x82 bit 8 → internal_port_enable(24),
+    // zxnext.vhd:2439) is set. The ULA+ ports are odd (low byte 0x3B),
+    // so without this OR-term the even-port test above would already
+    // have rejected them.
+    if (port_ulap_io_en && (cpu_a == 0xBF3B || cpu_a == 0xFF3B)) {
+        return true;
+    }
+
+    // Term 3 — port_7ffd_active (zxnext.vhd:2594):
+    //     port_7ffd_active <= '1' when port_7ffd = '1'
+    //                              and (s128_timing_hw_en = '1'
+    //                                or p3_timing_hw_en = '1')
+    //                         else '0';
+    // PHASE-B: not driven by the bare class. The full Emulator owns the
+    // 128K/+3 machine-timing select AND the `port_7ffd_io_en`
+    // (NR 0x82 bit 1) gate AND the `port_7ffd` address-decode rules
+    // (cpu_a(15)='0' AND (cpu_a(14)='1' OR not p3_timing) AND port_fd
+    // AND not port_1ffd). Phase B rows CT-IO-05/06 will exercise this
+    // term via a full-Emulator harness; the bare-class accessor
+    // intentionally drops it. See doc/testing/CONTENTION-TEST-PLAN-DESIGN.md
+    // §8 row notes.
+
     return false;
 }
