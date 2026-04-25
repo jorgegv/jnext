@@ -161,8 +161,11 @@ here for provenance.)
   wiring. Mitigation: treat Phase 4 re-baseline as mandatory and
   document every refreshed reference in the merge note.
 
-## Status: **Phase 1 + Phase 2 DONE 2026-04-26** — 64/68 rows live.
-Phase 3 (Phase-C integration smoke, 4 rows) PENDING.
+## Status: **CLOSED 2026-04-26 — 68/68 rows live.**
+
+All three phases complete in a single session. Final contention_test
+68/68/0/0; aggregate `make unit-test` 3326/3326/0/0 (ZERO skips
+repo-wide); regression 34/0/0.
 
 ### Phase 1 closure (2026-04-26)
 
@@ -231,16 +234,34 @@ Final: contention_test **64/0/4**. mmu_test **137/0/0**. Aggregate
 Phase-2 = 36 rows breakdown: §8 Phase-B subset (2) + §9 (10) + §10 (8)
 + §11 (8) + §12 Phase-B subset (4) + §13 (4).
 
-### Phase 3 deferral rationale
+### Phase 3 closure (2026-04-26)
 
-Phase 3 (Phase-C in test plan) covers 4 integration-smoke rows:
-CT-INT-01/02/03 (full-frame T-state totals on 48K HALT-loop programs)
-and CT-PENT-05 (full-frame Pentagon T-state budget). These need a
-known contention-sensitive demo program written and byte-counted
-against the VHDL-derived expected total. They are regression
-guardrails — useful but not blocking any user-visible feature today.
-Schedule as its own session (or fold into a future demo-program
-authoring task).
+Single agent + reviewer pass landed:
+- `947e441` — Author: 4 integration-smoke rows + Phase-3 fixture
+  helpers in `test/contention/contention_helpers.h`. Approach:
+  inject a small Z80 program (`LD HL,0x4000; LD B,100; loop: LD A,
+  (HL); DJNZ loop; HALT`) at PC=0x8000 (bank 2, uncontended) reading
+  from 0x4000 (bank 5, contended on 48K). Drive `cpu_.execute()`
+  in a loop until HALT (bypassing `run_frame()` which resets the
+  T-state counter). Snapshot `*fuse_z80_tstates_ptr()` delta as the
+  metric. Un-contended baseline = 2016 T. Asserted exactly for
+  CT-INT-02 (48K, contention disabled via
+  `set_contention_disable(true)` — immediate-commit form) and
+  CT-PENT-05 (Pentagon never contends, gate masks decode upstream).
+  CT-INT-01 (contention ON) asserts strictly `> 2016` because the
+  exact stretch sum depends on the per-cycle (hc, vc) trajectory.
+  CT-INT-03 is plumbing — confirms the floating-bus regression
+  reference exists and is registered.
+
+No Emulator API extensions needed — `Mmu::write`, `Z80Cpu::execute`,
+`ContentionModel& Emulator::contention()`, and `fuse_z80_tstates_ptr()`
+were all already public.
+
+Final: contention_test **68/68/0/0**. Aggregate `make unit-test`
+**3326/3326/0/0** across 32 suites — **ZERO skips repo-wide** (was
+3339/3271/0/68 at session start). Regression **34/0/0**.
+
+Phase-3 = 4 rows breakdown: §12 CT-PENT-05 + §14 CT-INT-01/02/03.
 
 See `doc/testing/CONTENTION-TEST-PLAN-DESIGN.md` for the full
 row-level test plan (68 rows across 11 sections, with Phase A/B/C

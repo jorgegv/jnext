@@ -38,10 +38,10 @@ implementation is the thing under test.
 
 ## Current status
 
-**Phase 1 + Phase 2 DONE 2026-04-26** — 64/68 rows live. Phase 3
-(4 Phase-C integration-smoke rows: CT-INT-01..03 + CT-PENT-05) PENDING.
-See `doc/design/TASK-CONTENTION-MODEL-PLAN.md` §"Phase 1 closure" and
-§"Phase 2 closure" for the closure write-ups.
+**CLOSED 2026-04-26 — 68/68 rows live (68/68/0/0).** All three phases
+landed in a single session. See `doc/design/TASK-CONTENTION-MODEL-PLAN.md`
+§"Phase 1 closure", §"Phase 2 closure" and §"Phase 3 closure" for
+write-ups.
 
 ### Historical opening state
 
