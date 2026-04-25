@@ -34,94 +34,94 @@ Effort: H = >2 sessions, M = 1–2 sessions, L (small) = <1 session.
 Priority: High / Medium / Low based on user-visibility and blast
 radius.
 
-| ID  | Item                                                    | Cat | User-visible impact                                        | Effort | Priority |
-| --- | ------------------------------------------------------- | --- | ---------------------------------------------------------- | ------ | -------- |
-| G01 | LoRes mode (NR 0x15 bit 7) + scroll                     | A   | parallax.nex broken; LoRes demos broken                    | M      | High     |
-| G02 | Per-scanline NR 0x15 (LoRes/sprite/priority) replay     | A   | parallax/Beast-style Copper layer splits flat              | L      | High     |
-| G03 | Per-scanline Layer 2 X/Y scroll replay (NR 0x16/17/71)  | A   | L2 parallax effects render flat                            | L      | High     |
-| G04 | Per-scanline transparency replay (NR 0x14/4B/4C)        | A   | Sky/foreground transparency-key swaps render flat          | L      | Medium   |
-| G05 | Per-scanline clip-window replay (NR 0x18-0x1B)          | A   | Split-screen / picture-in-picture demos blocked            | M      | Medium   |
-| G06 | Per-scanline NR 0x6B / NR 0x70 (TM/L2 mode)             | A   | Mixed-resolution / rolling-mode demos blocked              | M      | Low      |
-| G07 | Per-scanline port 0xFF Timex screen mode                | A   | Timex mid-frame split demos render flat                    | M      | Low      |
-| G08 | Per-scanline NR 0x26 / NR 0x27 ULA scroll               | A   | Latent — non-square-tile scroll demos                      | L      | Low      |
-| G09 | Per-scanline NR 0x12 / NR 0x13 L2 active bank           | A   | Exotic per-line page-flip demos blocked                    | L      | Low      |
-| G10 | Per-scanline active-palette select (NR 0x43/6B)         | A   | Latent palette-bank-flip demos                             | L      | Low      |
-| G11 | Per-scanline NR 0x68 other bits (stencil, ULA+, blend)  | A   | Mid-frame ULA+ split-screen / blend-mode flips render flat | L      | Medium   |
-| G12 | Nirvana-class memory-write multiplexers (Ram::write)    | A   | Whole class of 48K demoscene multicolour effects broken    | H      | High     |
-| G13 | Per-scanline sprite-attribute multiplexing              | A   | 128+ effective-sprites demos render wrong                  | M      | Medium   |
-| G14 | Layer 2 enable/write-paging per-scanline (port 0x123B)  | A   | Latent L2-on-stripe effects                                | L      | Low      |
-| G15 | Sprite-pattern reload mid-frame (port 0x5B)             | A   | Niche >64-pattern animation                                | M      | Low      |
-| G16 | Beast.nex residual: NEX-loader bank-5 collision         | A   | Cosmetic only                                              | L      | Low      |
-| G17 | Parallax.nex "two-copies" mystery (post-LoRes)          | A   | Parallax fully usable depends on this                      | M      | High     |
-| G18 | Screenshot vertical scaling for 80x32 / 640x256 modes   | A   | Squished screenshots in 640-mode                           | L      | Low      |
-| G19 | Save screenshot in `.SCR` format                        | A   | Developer workflow gap                                     | L      | Low      |
-| G20 | Auto-named screenshots (no dialog)                      | A   | Workflow friction                                          | L      | Low      |
-| G21 | Raster / ULA-read indicator overlay                     | A   | Developer diagnostic only                                  | L      | Low      |
-| G22 | ASM-only clipboard copy in disassembly panel            | A   | Dev workflow                                               | L      | Low      |
-| G23 | Redefinable / preset debugger keybindings               | A   | Usability for users from other emulators                   | M      | Low      |
-| G24 | Main-window settings persistence (size/scale/CRT/speed) | A   | Every launch resets user preferences                       | L      | High     |
-| G25 | Debugger window stickiness to main window               | A   | Debugger floats freely on main-window drag                 | L      | Low      |
-| G26 | Compositor open questions (NR 0x68 mode 01 / L2 promote)| A   | Latent edge in modes 110/111                               | L      | Low      |
-| G27 | Compositor `rgb_blank_n_6` pipeline edge test           | A   | Cosmetic edge; coverage gap                                | L      | Low      |
-| G28 | Layer 2 G9-06 column-pipeline observable                | A   | Test coverage only                                         | L      | Low      |
-| G29 | Pi I2S real audio emulation upgrade                     | B   | I2S contribution silent (no published Z80 software uses)   | H      | Low      |
-| G30 | AY GPIO ports (PORTA / PORTB)                           | B   | Vintage AY-GPIO software (keymux/lightgun/MIDI) silent     | M      | Low      |
-| G31 | DAC per-clock write-priority model (SD-09)              | B   | Edge: Specdrum + Covox at high rates slightly off          | M      | Low      |
-| G32 | DAC continuous-buzz playback artefact                   | B   | Audible quality degradation on DAC software                | H      | Medium   |
-| G33 | Tape SAVE (write to TAP/TZX/WAV)                        | B   | Cannot save BASIC programs / data — major gap              | M      | High     |
-| G34 | `.z80` snapshot loader                                  | B   | Most-popular legacy snapshot format unsupported            | M      | High     |
-| G35 | Snapshot save (.sna out / .szx out / .nex out) wired    | B   | Cannot save mid-game state to file                         | M      | High     |
-| G36 | TZX Direct-Recording (DeciLoad 0x15)                    | B   | Many turbo-loaded games / demos won't load                 | M      | High     |
-| G37 | WAV DeciLoad real-time loading                          | B   | Same as G36 via WAV pipeline                               | M      | Medium   |
-| G38 | DSK / +3 disk image loading + uPD765 FDC                | B   | All +3 disk software unrunnable                            | H      | Medium   |
-| G39 | ESP-01 / Wi-Fi UART bridge                              | B   | NextZXOS networking and multiplayer Z80 software silent    | H      | Low      |
-| G40 | SD card command coverage (CMD9/10/13/16/23/25 etc.)     | B   | CSD/CID probes silent; multi-block writers fall back       | M      | Low      |
-| G41 | MMC card support (vs SDHC only)                         | B   | Raw-MMC software (rare) won't init                         | L      | Low      |
-| G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)   | B   | Gamepad / USB joystick unusable; keyboard-only             | M      | High     |
-| G43 | Kempston Mouse host wiring                              | B   | Art Studio Next, mouse demos unusable                      | M      | Medium   |
-| G44 | Keyboard issue-2 EAR/MIC composition                    | B   | Issue-2 16K tape-loading detection edge                    | L      | Low      |
-| G45 | Expansion bus / cartridge framework (FE-05 / ROMCS)     | B   | Interface 1/2, Multiface (ext), Currah µSpeech absent      | H      | Low      |
-| G46 | NextZXOS boot ladder (firmware-faithful + bypass)       | B,C | NextZXOS does not reach BASIC / dot-command shell          | H      | High     |
-| G47 | NextZXOS post-boot regression / dot-command surface     | B   | No automation for NextZXOS-native software regressions     | L      | Medium   |
-| G48 | Multiface peripheral (Task 8) + RETN-alias band-aid     | B,C | No NMI freeze/cheat menu; 8 DivMMC + Copper rows skipped   | M      | Medium   |
-| G49 | NR 0xC0 stackless-NMI execution (CTC NR-C0-02)          | C   | NMI-PUSH suppression edge — minimal real-world impact      | H      | Low      |
-| G50 | Contention `delay()` runtime wiring (Phase 2)           | C,D | Cycle-accurate contention is wrong on +3 / Pentagon / Next | L      | Medium   |
-| G51 | Contention NextREG dispatch + NR 0x07/0x08 hc(8) (Phase 3) | C | Turbo-mode contention edges                                | M      | Low      |
-| G52 | Contention Phase-4 screenshot rebaseline                | C   | Risk: noisy 48K/128K/+3 screenshot rebaseline pass         | L      | Low      |
-| G53 | FUSE-table retirement decision                          | C   | Two contention paths post-Phase-2; divergence risk         | L      | Low      |
-| G54 | Contention port_7ffd_active term (CT-IO-05/06)          | C   | 128K/+3 port-contention edge                               | L      | Low      |
-| G55 | NR 0xD8 IO-trap (FDC NMI source) — stub                 | C   | +3 floppy-trap NMI edge (rare)                             | L      | Low      |
-| G56 | NextReg `regs_[]` shadow-store systemic bug             | C,D | NR 0x09/0x0A/0x15/0x22/0x23/0x34 readback returns garbage  | M      | Medium   |
-| G57 | MMU `current_rom_bank()` — three documented gaps        | C   | 48K-DivMMC edge; altrom mask; port_1ffd-bit-2 gating       | L      | Low      |
-| G58 | MMU shadow-screen routing (TASK-MMU-SHADOW-SCREEN)      | C,D | 128K games with shadow-screen double-buffer render wrong   | L      | Medium   |
-| G59 | NextZXOS bypass-tbblue-fw boot path                     | C   | Pragmatic instant-boot mitigation for G46                  | H      | Medium   |
-| G60 | config.ini / menu.ini / menu.def parsing                | C   | NextZXOS user-config UX once bypass mode lands             | M      | Low      |
-| G61 | Z80N undocumented RETN-alias coverage edge              | C   | Test gap protecting C01 band-aid removal                   | L      | Low      |
-| G62 | NR 0x03 soft-reset config_mode preservation question    | C   | Edge between reset and first NR 0x03 write                 | L      | Low      |
-| G63 | NR 0x03 machine-type latch read-back                    | C   | Subset of G56 specifically for NR 0x03                     | L      | Low      |
-| G64 | NR 0x06/keymap & altROM 0x06/0x07 layout (bypass deps)  | C   | Open VHDL questions blocking G59                           | L      | Low      |
-| G65 | CPU/Copper cycle-accurate NR-write priority             | C   | ARB-* tests order stimulus manually; latent                | H      | Low      |
-| G66 | Save-state schema versioning + per-subsystem framing    | C,D | ANY save_state field reorder corrupts older snapshots      | M      | High     |
-| G67 | Rewind buffer pre-allocated bound + assertion           | C   | Save-state widening silently overflows ring slots          | L      | Medium   |
-| G68 | Rewind sub-frame granularity                            | C   | Step Back stops at frame boundaries only (WONT-leaning)    | H      | Low      |
-| G69 | Traceability matrix structurally stale + extractor      | D   | Audit / theatre-detection get wrong numbers                | M      | Medium   |
-| G70 | Requirements DB (SQLite proposal)                       | D   | Plan/matrix/dashboard drift remains grep-gymnastics        | M      | Low      |
-| G71 | `VideoTiming` pulse-counter surface is test-only        | D   | Two state stores for one VHDL signal; blocks 3 test rows   | M      | Low      |
-| G72 | UART pin-7 / IoMode UART-mode injectors not fed         | D   | Pin-7 multiplex unit-correct but not driven at runtime     | L      | Low      |
-| G73 | Audio I2S has zero runtime wiring                       | D   | I2S-source NextREGs silent (no consumer in production)     | L      | Low      |
-| G74 | No CI pipeline; regression depends on dev discipline    | D   | Visual regressions can slip past PR review                 | M      | Medium   |
-| G75 | Regression tolerance hard-zero; perceptual diff missing | D   | Spurious diff failures; no incremental change signal       | M      | Low      |
-| G76 | RZX determinism long-form regression                    | D   | Long captures may desync from hidden host-time leaks       | M      | Low      |
-| G77 | Reopened-suite skips: Compositor NR 0x68 + MMU shadow   | D   | Plan-doc backlog; G58 is the runtime side                  | M      | Low      |
-| G78 | Agent worktree-stale-base helper (harness)              | D   | Parallel-wave merge-overhead; not user-facing              | L      | Low      |
-| G79 | Test-output uniformity lint                             | D   | New suite with wrong summary string drops out of dashboard | L      | Low      |
-| G80 | Headless-mode host-time leakage audit                   | D   | Regression flake risk; D14/G76 dependency                  | M      | Low      |
-| G81 | DEVELOPMENT-SESSIONS doc currency                       | D   | Effort accounting under-reports                            | L      | Low      |
-| G82 | Z80N matrix Summary row cosmetic mismatch               | D   | Matrix says "0 in-test, 30 missing"; reality 85/85         | L      | Low      |
-| G83 | Profiling/benchmark mode + 400% speed bottleneck        | D   | Speed-control >200% observably broken; no perf data        | M      | Medium   |
-| G84 | Integration-test design doc missing                     | D   | Each integration suite reinvents fixture conventions       | M      | Low      |
-| G85 | Lint baseline tautology coverage stops at substring     | D   | Reviewer attention catches what lint doesn't               | M      | Low      |
-| G86 | FEATURES.md "Accurate memory contention" overclaim      | D   | User expectation vs reality — narrative gap                | L      | Low      |
+| ID  | Item                                                       | Cat | User-visible impact                                        | Effort | Priority |
+|-----|------------------------------------------------------------|-----|------------------------------------------------------------|--------|----------|
+| G01 | LoRes mode (NR 0x15 bit 7) + scroll                        | A   | parallax.nex broken; LoRes demos broken                    | M      | High     |
+| G02 | Per-scanline NR 0x15 (LoRes/sprite/priority) replay        | A   | parallax/Beast-style Copper layer splits flat              | L      | High     |
+| G03 | Per-scanline Layer 2 X/Y scroll replay (NR 0x16/17/71)     | A   | L2 parallax effects render flat                            | L      | High     |
+| G04 | Per-scanline transparency replay (NR 0x14/4B/4C)           | A   | Sky/foreground transparency-key swaps render flat          | L      | Medium   |
+| G05 | Per-scanline clip-window replay (NR 0x18-0x1B)             | A   | Split-screen / picture-in-picture demos blocked            | M      | Medium   |
+| G06 | Per-scanline NR 0x6B / NR 0x70 (TM/L2 mode)                | A   | Mixed-resolution / rolling-mode demos blocked              | M      | Low      |
+| G07 | Per-scanline port 0xFF Timex screen mode                   | A   | Timex mid-frame split demos render flat                    | M      | Low      |
+| G08 | Per-scanline NR 0x26 / NR 0x27 ULA scroll                  | A   | Latent — non-square-tile scroll demos                      | L      | Low      |
+| G09 | Per-scanline NR 0x12 / NR 0x13 L2 active bank              | A   | Exotic per-line page-flip demos blocked                    | L      | Low      |
+| G10 | Per-scanline active-palette select (NR 0x43/6B)            | A   | Latent palette-bank-flip demos                             | L      | Low      |
+| G11 | Per-scanline NR 0x68 other bits (stencil, ULA+, blend)     | A   | Mid-frame ULA+ split-screen / blend-mode flips render flat | L      | Medium   |
+| G12 | Nirvana-class memory-write multiplexers (Ram::write)       | A   | Whole class of 48K demoscene multicolour effects broken    | H      | High     |
+| G13 | Per-scanline sprite-attribute multiplexing                 | A   | 128+ effective-sprites demos render wrong                  | M      | Medium   |
+| G14 | Layer 2 enable/write-paging per-scanline (port 0x123B)     | A   | Latent L2-on-stripe effects                                | L      | Low      |
+| G15 | Sprite-pattern reload mid-frame (port 0x5B)                | A   | Niche >64-pattern animation                                | M      | Low      |
+| G16 | Beast.nex residual: NEX-loader bank-5 collision            | A   | Cosmetic only                                              | L      | Low      |
+| G17 | Parallax.nex "two-copies" mystery (post-LoRes)             | A   | Parallax fully usable depends on this                      | M      | High     |
+| G18 | Screenshot vertical scaling for 80x32 / 640x256 modes      | A   | Squished screenshots in 640-mode                           | L      | Low      |
+| G19 | Save screenshot in `.SCR` format                           | A   | Developer workflow gap                                     | L      | Low      |
+| G20 | Auto-named screenshots (no dialog)                         | A   | Workflow friction                                          | L      | Low      |
+| G21 | Raster / ULA-read indicator overlay                        | A   | Developer diagnostic only                                  | L      | Low      |
+| G22 | ASM-only clipboard copy in disassembly panel               | A   | Dev workflow                                               | L      | Low      |
+| G23 | Redefinable / preset debugger keybindings                  | A   | Usability for users from other emulators                   | M      | Low      |
+| G24 | Main-window settings persistence (size/scale/CRT/speed)    | A   | Every launch resets user preferences                       | L      | High     |
+| G25 | Debugger window stickiness to main window                  | A   | Debugger floats freely on main-window drag                 | L      | Low      |
+| G26 | Compositor open questions (NR 0x68 mode 01 / L2 promote)   | A   | Latent edge in modes 110/111                               | L      | Low      |
+| G27 | Compositor `rgb_blank_n_6` pipeline edge test              | A   | Cosmetic edge; coverage gap                                | L      | Low      |
+| G28 | Layer 2 G9-06 column-pipeline observable                   | A   | Test coverage only                                         | L      | Low      |
+| G29 | Pi I2S real audio emulation upgrade                        | B   | I2S contribution silent (no published Z80 software uses)   | H      | Low      |
+| G30 | AY GPIO ports (PORTA / PORTB)                              | B   | Vintage AY-GPIO software (keymux/lightgun/MIDI) silent     | M      | Low      |
+| G31 | DAC per-clock write-priority model (SD-09)                 | B   | Edge: Specdrum + Covox at high rates slightly off          | M      | Low      |
+| G32 | DAC continuous-buzz playback artefact                      | B   | Audible quality degradation on DAC software                | H      | Medium   |
+| G33 | Tape SAVE (write to TAP/TZX/WAV)                           | B   | Cannot save BASIC programs / data — major gap              | M      | High     |
+| G34 | `.z80` snapshot loader                                     | B   | Most-popular legacy snapshot format unsupported            | M      | High     |
+| G35 | Snapshot save (.sna out / .szx out / .nex out) wired       | B   | Cannot save mid-game state to file                         | M      | High     |
+| G36 | TZX Direct-Recording (DeciLoad 0x15)                       | B   | Many turbo-loaded games / demos won't load                 | M      | High     |
+| G37 | WAV DeciLoad real-time loading                             | B   | Same as G36 via WAV pipeline                               | M      | Medium   |
+| G38 | DSK / +3 disk image loading + uPD765 FDC                   | B   | All +3 disk software unrunnable                            | H      | Medium   |
+| G39 | ESP-01 / Wi-Fi UART bridge                                 | B   | NextZXOS networking and multiplayer Z80 software silent    | H      | Low      |
+| G40 | SD card command coverage (CMD9/10/13/16/23/25 etc.)        | B   | CSD/CID probes silent; multi-block writers fall back       | M      | Low      |
+| G41 | MMC card support (vs SDHC only)                            | B   | Raw-MMC software (rare) won't init                         | L      | Low      |
+| G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)      | B   | Gamepad / USB joystick unusable; keyboard-only             | M      | High     |
+| G43 | Kempston Mouse host wiring                                 | B   | Art Studio Next, mouse demos unusable                      | M      | Medium   |
+| G44 | Keyboard issue-2 EAR/MIC composition                       | B   | Issue-2 16K tape-loading detection edge                    | L      | Low      |
+| G45 | Expansion bus / cartridge framework (FE-05 / ROMCS)        | B   | Interface 1/2, Multiface (ext), Currah µSpeech absent      | H      | Low      |
+| G46 | NextZXOS boot ladder (firmware-faithful + bypass)          | B,C | NextZXOS does not reach BASIC / dot-command shell          | H      | High     |
+| G47 | NextZXOS post-boot regression / dot-command surface        | B   | No automation for NextZXOS-native software regressions     | L      | Medium   |
+| G48 | Multiface peripheral (Task 8) + RETN-alias band-aid        | B,C | No NMI freeze/cheat menu; 8 DivMMC + Copper rows skipped   | M      | Medium   |
+| G49 | NR 0xC0 stackless-NMI execution (CTC NR-C0-02)             | C   | NMI-PUSH suppression edge — minimal real-world impact      | H      | Low      |
+| G50 | Contention `delay()` runtime wiring (Phase 2)              | C,D | Cycle-accurate contention is wrong on +3 / Pentagon / Next | L      | Medium   |
+| G51 | Contention NextREG dispatch + NR 0x07/0x08 hc(8) (Phase 3) | C   | Turbo-mode contention edges                                | M      | Low      |
+| G52 | Contention Phase-4 screenshot rebaseline                   | C   | Risk: noisy 48K/128K/+3 screenshot rebaseline pass         | L      | Low      |
+| G53 | FUSE-table retirement decision                             | C   | Two contention paths post-Phase-2; divergence risk         | L      | Low      |
+| G54 | Contention port_7ffd_active term (CT-IO-05/06)             | C   | 128K/+3 port-contention edge                               | L      | Low      |
+| G55 | NR 0xD8 IO-trap (FDC NMI source) — stub                    | C   | +3 floppy-trap NMI edge (rare)                             | L      | Low      |
+| G56 | NextReg `regs_[]` shadow-store systemic bug                | C,D | NR 0x09/0x0A/0x15/0x22/0x23/0x34 readback returns garbage  | M      | Medium   |
+| G57 | MMU `current_rom_bank()` — three documented gaps           | C   | 48K-DivMMC edge; altrom mask; port_1ffd-bit-2 gating       | L      | Low      |
+| G58 | MMU shadow-screen routing (TASK-MMU-SHADOW-SCREEN)         | C,D | 128K games with shadow-screen double-buffer render wrong   | L      | Medium   |
+| G59 | NextZXOS bypass-tbblue-fw boot path                        | C   | Pragmatic instant-boot mitigation for G46                  | H      | Medium   |
+| G60 | config.ini / menu.ini / menu.def parsing                   | C   | NextZXOS user-config UX once bypass mode lands             | M      | Low      |
+| G61 | Z80N undocumented RETN-alias coverage edge                 | C   | Test gap protecting C01 band-aid removal                   | L      | Low      |
+| G62 | NR 0x03 soft-reset config_mode preservation question       | C   | Edge between reset and first NR 0x03 write                 | L      | Low      |
+| G63 | NR 0x03 machine-type latch read-back                       | C   | Subset of G56 specifically for NR 0x03                     | L      | Low      |
+| G64 | NR 0x06/keymap & altROM 0x06/0x07 layout (bypass deps)     | C   | Open VHDL questions blocking G59                           | L      | Low      |
+| G65 | CPU/Copper cycle-accurate NR-write priority                | C   | ARB-* tests order stimulus manually; latent                | H      | Low      |
+| G66 | Save-state schema versioning + per-subsystem framing       | C,D | ANY save_state field reorder corrupts older snapshots      | M      | High     |
+| G67 | Rewind buffer pre-allocated bound + assertion              | C   | Save-state widening silently overflows ring slots          | L      | Medium   |
+| G68 | Rewind sub-frame granularity                               | C   | Step Back stops at frame boundaries only (WONT-leaning)    | H      | Low      |
+| G69 | Traceability matrix structurally stale + extractor         | D   | Audit / theatre-detection get wrong numbers                | M      | Medium   |
+| G70 | Requirements DB (SQLite proposal)                          | D   | Plan/matrix/dashboard drift remains grep-gymnastics        | M      | Low      |
+| G71 | `VideoTiming` pulse-counter surface is test-only           | D   | Two state stores for one VHDL signal; blocks 3 test rows   | M      | Low      |
+| G72 | UART pin-7 / IoMode UART-mode injectors not fed            | D   | Pin-7 multiplex unit-correct but not driven at runtime     | L      | Low      |
+| G73 | Audio I2S has zero runtime wiring                          | D   | I2S-source NextREGs silent (no consumer in production)     | L      | Low      |
+| G74 | No CI pipeline; regression depends on dev discipline       | D   | Visual regressions can slip past PR review                 | M      | Medium   |
+| G75 | Regression tolerance hard-zero; perceptual diff missing    | D   | Spurious diff failures; no incremental change signal       | M      | Low      |
+| G76 | RZX determinism long-form regression                       | D   | Long captures may desync from hidden host-time leaks       | M      | Low      |
+| G77 | Reopened-suite skips: Compositor NR 0x68 + MMU shadow      | D   | Plan-doc backlog; G58 is the runtime side                  | M      | Low      |
+| G78 | Agent worktree-stale-base helper (harness)                 | D   | Parallel-wave merge-overhead; not user-facing              | L      | Low      |
+| G79 | Test-output uniformity lint                                | D   | New suite with wrong summary string drops out of dashboard | L      | Low      |
+| G80 | Headless-mode host-time leakage audit                      | D   | Regression flake risk; D14/G76 dependency                  | M      | Low      |
+| G81 | DEVELOPMENT-SESSIONS doc currency                          | D   | Effort accounting under-reports                            | L      | Low      |
+| G82 | Z80N matrix Summary row cosmetic mismatch                  | D   | Matrix says "0 in-test, 30 missing"; reality 85/85         | L      | Low      |
+| G83 | Profiling/benchmark mode + 400% speed bottleneck           | D   | Speed-control >200% observably broken; no perf data        | M      | Medium   |
+| G84 | Integration-test design doc missing                        | D   | Each integration suite reinvents fixture conventions       | M      | Low      |
+| G85 | Lint baseline tautology coverage stops at substring        | D   | Reviewer attention catches what lint doesn't               | M      | Low      |
+| G86 | FEATURES.md "Accurate memory contention" overclaim         | D   | User expectation vs reality — narrative gap                | L      | Low      |
 
 86 entries.
 
