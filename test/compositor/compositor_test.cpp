@@ -141,7 +141,7 @@ static void clear_layers(Renderer& r) {
         r.layer2_line_[i]  = TRANSP;
         r.sprite_line_[i]  = TRANSP;
         r.tilemap_line_[i] = TRANSP;
-        r.ula_over_flags_[i] = false;
+        r.tm_pixel_below_[i] = false;
         r.layer2_priority_[i] = false;
         r.ula_border_[i]   = false;
     }
@@ -990,7 +990,7 @@ static void test_BL() {
         r.set_layer_priority(6);
         r.layer2_line_[0]  = PIX_L2;
         r.tilemap_line_[0] = PIX_TM;
-        r.ula_over_flags_[0] = false;
+        r.tm_pixel_below_[0] = false;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // Emulator collapses to SLU: L2 would win. VHDL oracle: TM (mix_bot).
         check("BL-15", "mode 110: mix_bot (TM) wins after mix_top+S transp (VHDL 7306)",
@@ -1170,7 +1170,7 @@ static void test_BL() {
         uint8_t ulac = rgb8(3,2,1);
         r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(l2c);
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(ulac);
-        r.ula_over_flags_[0] = false;                       // tm_below=0
+        r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-30",
@@ -1193,7 +1193,7 @@ static void test_BL() {
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = false;                       // tm_below=0
+        r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(tmc);
         check("BL-31",
@@ -1216,7 +1216,7 @@ static void test_BL() {
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = true;                        // tm_below=1
+        r.tm_pixel_below_[0] = true;                        // tm_below=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-32",
@@ -1258,7 +1258,7 @@ static void test_BL() {
         uint8_t tmc = rgb8(2,2,2);
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = true;                        // tm_below=1
+        r.tm_pixel_below_[0] = true;                        // tm_below=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(1,2), bl_add(1,2), bl_add(1,2)));
@@ -1310,7 +1310,7 @@ static void test_BL() {
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = false;                       // tm_below=0
+        r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-50",
@@ -1333,7 +1333,7 @@ static void test_BL() {
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(ulac);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = true;                        // tm_below=1
+        r.tm_pixel_below_[0] = true;                        // tm_below=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(ulac);
         check("BL-51",
@@ -1356,7 +1356,7 @@ static void test_BL() {
         uint8_t tmc = rgb8(4,2,1);
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = false;                       // tm_below=0
+        r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_add(0,4), bl_add(0,2), bl_add(0,1)));
@@ -1379,7 +1379,7 @@ static void test_BL() {
         uint8_t tmc = rgb8(4,2,1);
         r.layer2_line_[0]  = Renderer::rrrgggbb_to_argb(l2c);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(tmc);
-        r.ula_over_flags_[0] = false;                       // tm_below=0
+        r.tm_pixel_below_[0] = false;                       // tm_below=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(
             rgb8(bl_sub(5,4), bl_sub(5,2), bl_sub(3,1)));
@@ -1411,7 +1411,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.tilemap_line_[0]    = PIX_TM;
         r.ula_line_[0]        = PIX_ULA;
-        r.ula_over_flags_[0]  = false;          // tm_pixel_below_2=0
+        r.tm_pixel_below_[0]  = false;          // tm_pixel_below_2=0
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("UTB-10", "NR0x68 mode 00 TM above: TM wins in U slot (VHDL 7142-7148)",
               got == PIX_TM,
@@ -1424,7 +1424,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.tilemap_line_[0]    = PIX_TM;
         r.ula_line_[0]        = PIX_ULA;
-        r.ula_over_flags_[0]  = true;           // tm_pixel_below_2=1
+        r.tm_pixel_below_[0]  = true;           // tm_pixel_below_2=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("UTB-11", "NR0x68 mode 00 TM below: ULA wins in U slot (VHDL 7142-7148)",
               got == PIX_ULA,
@@ -1455,7 +1455,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.ula_line_[0]        = PIX_ULA;
         r.tilemap_line_[0]    = PIX_TM;
-        r.ula_over_flags_[0]  = true;           // tm_pixel_below_2=1
+        r.tm_pixel_below_[0]  = true;           // tm_pixel_below_2=1
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("UTB-30", "NR0x68 mode 11 below=1: ULA floats to top (VHDL 7156-7162)",
               got == PIX_ULA,
@@ -1469,7 +1469,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.ula_line_[0]        = PIX_ULA;
         r.tilemap_line_[0]    = PIX_TM;
-        r.ula_over_flags_[0]  = false;
+        r.tm_pixel_below_[0]  = false;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // VHDL oracle: ULA floats to bot, TM is mix_rgb; result ~ TM.
         check("UTB-31", "NR0x68 mode 11 below=0: ULA floats to bot, TM on top (VHDL 7156-7162)",
@@ -1486,7 +1486,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.ula_line_[0]        = PIX_ULA;
         r.tilemap_line_[0]    = PIX_TM;
-        r.ula_over_flags_[0]  = false;          // below=0 -> top=tm, bot=ula
+        r.tm_pixel_below_[0]  = false;          // below=0 -> top=tm, bot=ula
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("UTB-40", "NR0x68 mode 01 below=0: mix_top=TM (VHDL 7163-7176 else)",
               got == PIX_TM,
@@ -1499,7 +1499,7 @@ static void test_UTB() {
         r.set_layer_priority(0);
         r.ula_line_[0]        = PIX_ULA;
         r.tilemap_line_[0]    = PIX_TM;
-        r.ula_over_flags_[0]  = true;
+        r.tm_pixel_below_[0]  = true;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("UTB-41", "NR0x68 mode 01 below=1: mix_top=ULA (VHDL 7163-7176 if)",
               got == PIX_ULA,
@@ -1527,7 +1527,7 @@ static void test_STEN() {
         r.set_layer_priority(0);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(0xFF);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0xE0);
-        r.ula_over_flags_[0] = false;
+        r.tm_pixel_below_[0] = false;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0x00));
         uint32_t expected = Renderer::rrrgggbb_to_argb(static_cast<uint8_t>(0xFF & 0xE0));
         check("STEN-10", "stencil bitwise AND ULA&TM (VHDL 7113)",
@@ -1544,7 +1544,7 @@ static void test_STEN() {
         r.set_layer_priority(0);
         r.ula_line_[0]     = Renderer::rrrgggbb_to_argb(0xFF);
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0x00);
-        r.ula_over_flags_[0] = false;
+        r.tm_pixel_below_[0] = false;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(0x00);
         check("STEN-11", "stencil AND with zero: 0xFF & 0x00 = 0x00 (VHDL 7113)",
@@ -1631,7 +1631,7 @@ static void test_STEN() {
         r.set_layer_priority(0);
         r.ula_line_[0] = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
-        r.ula_over_flags_[0] = false;           // TM replaces ULA
+        r.tm_pixel_below_[0] = false;           // TM replaces ULA
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("STEN-17", "stencil bit=0 => non-stencil path: TM replaces ULA (VHDL 7130)",
               got == PIX_TM,

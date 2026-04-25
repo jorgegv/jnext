@@ -184,7 +184,7 @@ private:
     std::array<uint32_t, FB_WIDTH_HI> layer2_line_{};
     std::array<uint32_t, FB_WIDTH_HI> sprite_line_{};
     std::array<uint32_t, FB_WIDTH_HI> tilemap_line_{};
-    std::array<bool, FB_WIDTH_HI>     ula_over_flags_{};  // tilemap per-tile ULA priority
+    std::array<bool, FB_WIDTH_HI>     tm_pixel_below_{};  // VHDL tm_pixel_below_2: per-pixel tilemap-below-ULA flag
     std::array<bool, FB_WIDTH_HI>     layer2_priority_{}; // palette bit 15 (L2 promotion)
     std::array<bool, FB_WIDTH_HI>     ula_border_{};      // true when pixel is border region
 

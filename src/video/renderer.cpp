@@ -42,7 +42,7 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         std::fill_n(layer2_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(sprite_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(tilemap_line_.begin(), composite_width_, TRANSPARENT);
-        std::fill_n(ula_over_flags_.begin(), composite_width_, false);
+        std::fill_n(tm_pixel_below_.begin(), composite_width_, false);
         std::fill_n(layer2_priority_.begin(), composite_width_, false);
         std::fill_n(ula_border_.begin(), composite_width_, false);
 
@@ -61,7 +61,7 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // Tilemap — covers the full 320×256 framebuffer (VHDL: vcounter(8)='0')
         if (tilemap && tilemap->enabled()) {
             tilemap->render_scanline(tilemap_line_.data(),
-                                     ula_over_flags_.data(),
+                                     tm_pixel_below_.data(),
                                      row, ram, palette, composite_width_);
         }
 
@@ -170,10 +170,9 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                     tilemap_line_[x * 2 + 1] = tilemap_line_[x];
                     tilemap_line_[x * 2]     = tilemap_line_[x];
                 }
-                // Also double the ula_over flags
                 for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                    ula_over_flags_[x * 2 + 1] = ula_over_flags_[x];
-                    ula_over_flags_[x * 2]     = ula_over_flags_[x];
+                    tm_pixel_below_[x * 2 + 1] = tm_pixel_below_[x];
+                    tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
                 }
             }
         }
@@ -275,7 +274,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
         } else {
             // Normal ULA/TM merge (VHDL 7115-7116)
             ulatm_transp = ula_transp && tm_transp;
-            if (!tm_transp && (!ula_over_flags_[x] || ula_transp)) {
+            if (!tm_transp && (!tm_pixel_below_[x] || ula_transp)) {
                 u_px = tm_px;
             } else {
                 u_px = ula_transp ? TRANSPARENT : ula_px;
@@ -343,9 +342,7 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
             case 6:
             case 7: {
                 // ULA blend mode 4-variant source selection (VHDL 7141-7178).
-                // `ula_over_flags_[x]` carries `tm_pixel_below_2` (misnomer
-                // kept for now; Phase-2 clean-up candidate).
-                const bool tm_below = ula_over_flags_[x];
+                const bool tm_below = tm_pixel_below_[x];
 
                 uint32_t mix_rgb_px   = 0;
                 bool     mix_rgb_transp = true;
