@@ -122,12 +122,7 @@ static void park_cpu_at_c000(Emulator& emu) {
 }
 
 // Fresh-state helper: initialise the Emulator, park the CPU at 0xC000
-// with a NOP/JP idle loop. Each scenario uses a FRESHLY-CONSTRUCTED
-// Emulator (not re-init on a shared one) because `prev_nmi_generate_n_`
-// — the edge-detector used by the /NMI → request_nmi() plumbing — is
-// constructor-initialised only (not cleared by reset() or init()). A
-// stale `prev=false` from a previous row's NMI assertion would mask the
-// falling edge in the next row and no NMI would be taken.
+// with a NOP/JP idle loop.
 //
 // Boot-state exit: VHDL zxnext.vhd:1102 sets `nr_03_config_mode` = '1' at
 // power-on. That gate (zxnext.vhd:2102-2105) force-clears every NMI latch

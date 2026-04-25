@@ -100,6 +100,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     uart_.reset();
     divmmc_.reset();
     nmi_source_.reset();
+    // Edge-detector level for the /NMI line. VHDL holds nmi_generate_n
+    // inactive ('1') after reset; the falling-edge latch must see that
+    // baseline so the first real assertion fires. Constructor-init alone
+    // would let a stale `false` from a previous run mask the next NMI.
+    prev_nmi_generate_n_ = true;
     rtc_.reset();
     sd_card_.reset();
 
