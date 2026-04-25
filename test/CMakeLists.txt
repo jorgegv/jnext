@@ -194,15 +194,19 @@ target_link_libraries(ula_integration_test PRIVATE
 target_include_directories(ula_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME ula_integration_tests COMMAND ula_integration_test)
 
-# Floating Bus compliance test (scaffolding, 2026-04-24)
+# Floating Bus compliance test (Branch C helpers + scaffolding, 2026-04-25)
 # Hosts the 26 rows in doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md — 5
 # re-homed from the ULA Phase-4 closure + 21 VHDL-justified neighbours
-# for port 0xFF (all machines) and port 0x0FFD (+3 only). File is
-# scaffolding (all rows skip()) until the Phase 0 audit of
-# Emulator::floating_bus_read lands. No Emulator construction yet so the
-# link line is minimal; when rows un-skip and need full-emulator
-# fixtures, the link line will widen to match ctc_interrupts_test etc.
+# for port 0xFF (all machines) and port 0x0FFD (+3 only). The 26 plan
+# rows still skip() pending Phase 0 audit; Branch C added Phase 3
+# fixture helpers (set_raster_position, cpu_in_a_FF, cpu_in_a_0FFD,
+# read_port_default) that need the full Emulator surface, so the link
+# line now matches ctc_interrupts_test / ula_integration_test.
 add_executable(floating_bus_test floating_bus/floating_bus_test.cpp)
+target_link_libraries(floating_bus_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(floating_bus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME floating_bus_tests COMMAND floating_bus_test)
 
