@@ -161,8 +161,47 @@ here for provenance.)
   wiring. Mitigation: treat Phase 4 re-baseline as mandatory and
   document every refreshed reference in the merge note.
 
-## Status: **PENDING** — low priority unless a user hits a
-contention-sensitive demo. Queued behind NMI + UART+I2C + ESP plans.
+## Status: **Phase 1 (Phase-A) DONE 2026-04-26** — 28/68 rows live.
+Phase 2 (Phase-B `delay()` tick-loop wiring, 36 rows) and Phase 3
+(Phase-C integration smoke, 4 rows) PENDING.
+
+### Phase 1 closure (2026-04-26)
+
+3 cherry-picked branches landed on main:
+- `95b21f6` — Branch A: VHDL audit of `ContentionModel` against
+  `zxnext.vhd:4481-4520 + 5787-5828`. Added
+  `port_contend(uint16_t cpu_a, bool port_ulap_io_en) const` accessor
+  for the bare-class §8 port-contend decode. Documented `expbus_en`/
+  `expbus_speed` as WONT (no NextBUS in jnext) and `port_7ffd_active`
+  as PHASE-B (needs full Emulator).
+- `89544a9` — Branch B: flipped 21 §4 + §5 + §6 + §7 + §12-Phase-A rows
+  using existing `is_contended_access()` API.
+- `49e20cd` — Branch B: C2-move — deleted 13 Cat-16 memory-contention
+  rows from `test/mmu/mmu_test.cpp` (the legacy identifiers no longer
+  exist anywhere in the tree per plan §15).
+- `f4d5f4f` — Branch C: flipped 7 §8 IO port-contend rows
+  (CT-IO-01..04, 07..09) using Branch A's `port_contend()`.
+- `5a2bbf0` — followup: scrub legacy identifier literals from the
+  migration-map comment per Branch B reviewer Nit 1.
+
+Final: contention_test **28/0/40**. mmu_test **137/0/0** (was 150).
+Aggregate `make unit-test` **3326/3286/0/40** across 32 suites.
+Regression 34/0/0.
+
+Phase-A = 28 rows breakdown: §4 (8) + §5 (5) + §6 (3) + §7 (3) +
+§8 Phase-A subset (7) + §12 Phase-A subset (2).
+
+### Phase 2/3 deferral rationale
+
+Phase 2 wires `ContentionModel::delay()` into the Z80 tick path. Per
+plan §15: "any emulator change that lands `ContentionModel::delay()`
+on the tick path will change frame length on 48K/128K/+3 machines.
+Reference screenshots captured before that work will need
+regeneration." Mixing this with Phase 1 in the same session would
+have made the screenshot rebaseline harder to audit. Schedule Phase 2
+as its own session with the `bash test/generate-references.sh` sweep
+included in scope. Phase 3 follows Phase 2.
+
 See `doc/testing/CONTENTION-TEST-PLAN-DESIGN.md` for the full
 row-level test plan (68 rows across 11 sections, with Phase A/B/C
 tags).

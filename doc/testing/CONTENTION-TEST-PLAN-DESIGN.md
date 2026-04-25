@@ -38,6 +38,18 @@ implementation is the thing under test.
 
 ## Current status
 
+**Phase 1 (Phase-A) DONE 2026-04-26** — 28/68 rows live (§4 + §5 + §6
++ §7 + §8 Phase-A subset + §12 Phase-A subset). 13 legacy
+memory-contention rows migrated out of `test/mmu/mmu_test.cpp` (C2-move
+landed atomically with the §4-12 row flips). Phase 2 (36 Phase-B rows
+behind `ContentionModel::delay()` tick-loop wiring) and Phase 3 (4
+Phase-C integration-smoke rows) PENDING — both deferred because Phase 2
+changes frame timing on 48K/128K/+3 and forces a screenshot
+re-baseline. See `doc/design/TASK-CONTENTION-MODEL-PLAN.md` §"Phase 1
+closure" for the closure write-up.
+
+### Historical opening state
+
 - **13 plan rows inherited from the ULA Video plan's §11** (`doc/testing/
   ULA-VIDEO-TEST-PLAN-DESIGN.md` §11, re-homed 2026-04-23 during ULA Phase
   0 closure). The source-level skip comments in `test/ula/ula_test.cpp`
