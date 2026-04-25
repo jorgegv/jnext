@@ -132,15 +132,30 @@ static void section1_frame_envelope() {
 static void section2_display_origin() {
     set_group("VT-S2-DISPLAY-ORIGIN");
 
-    skip("VT-04",
-         "F-VT-ACCESSOR: 128K display_origin() = {136, 64} after init(ZX128K) "
-         "(zxula_timing.vhd:195,203) [re-home: S13.05]");
-    skip("VT-05",
-         "F-VT-ACCESSOR: Pentagon display_origin() = {128, 80} after "
-         "init(PENTAGON) (zxula_timing.vhd:159,167) [re-home: S13.06]");
-    skip("VT-06",
-         "F-VT-ACCESSOR: 48K display_origin() = {128, 64} after init(ZX48K) "
-         "(zxula_timing.vhd:261,269) — symmetry baseline for VT-04/05");
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        auto p = vt.display_origin();
+        check("VT-04", "128K display_origin() = {136, 64} (VHDL :195,:203)",
+              p.hc == 136 && p.vc == 64,
+              "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        auto p = vt.display_origin();
+        check("VT-05", "Pentagon display_origin() = {128, 80} (VHDL :159,:167)",
+              p.hc == 128 && p.vc == 80,
+              "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        auto p = vt.display_origin();
+        check("VT-06", "48K display_origin() = {128, 64} (VHDL :261,:269)",
+              p.hc == 128 && p.vc == 64,
+              "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -152,15 +167,27 @@ static void section2_display_origin() {
 static void section3_ula_prefetch_origin() {
     set_group("VT-S3-ULA-PREFETCH-ORIGIN");
 
-    skip("VT-07",
-         "F-VT-ACCESSOR: 48K ula_prefetch_origin_hc() = 128 − 12 = 116 "
-         "(zxula_timing.vhd:423) [re-home: S13.07]");
-    skip("VT-08",
-         "F-VT-ACCESSOR: 128K ula_prefetch_origin_hc() = 136 − 12 = 124 "
-         "(zxula_timing.vhd:423)");
-    skip("VT-09",
-         "F-VT-ACCESSOR: Pentagon ula_prefetch_origin_hc() = 128 − 12 = 116 "
-         "(zxula_timing.vhd:423)");
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        int hc = vt.ula_prefetch_origin_hc();
+        check("VT-07", "48K ula_prefetch_origin_hc() = 128 - 12 = 116 (VHDL :423)",
+              hc == 116, "got " + std::to_string(hc));
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        int hc = vt.ula_prefetch_origin_hc();
+        check("VT-08", "128K ula_prefetch_origin_hc() = 136 - 12 = 124 (VHDL :423)",
+              hc == 124, "got " + std::to_string(hc));
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        int hc = vt.ula_prefetch_origin_hc();
+        check("VT-09", "Pentagon ula_prefetch_origin_hc() = 128 - 12 = 116 (VHDL :423)",
+              hc == 116, "got " + std::to_string(hc));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -271,18 +298,19 @@ static void section6_line_int_target() {
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
-    std::printf("  V1 vc_max_/hc_max_ rebase landed: Section 1 + Section 6 live.\n");
-    std::printf("  Sections 2-5 + VT-21's neighbours pending accessor expansion.\n");
+    std::printf("  V1 vc_max_/hc_max_ rebase + per-machine display_origin /\n");
+    std::printf("  ula_prefetch_origin_hc landed: Sections 1+2+3+6 live.\n");
+    std::printf("  Sections 4+5 pending int_position accessor + 60 Hz toggle.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
     std::printf("  Section 1: VT-S1-FRAME-ENVELOPE     — done (3 live)\n");
 
     section2_display_origin();
-    std::printf("  Section 2: VT-S2-DISPLAY-ORIGIN     — done (3 skipped)\n");
+    std::printf("  Section 2: VT-S2-DISPLAY-ORIGIN     — done (3 live)\n");
 
     section3_ula_prefetch_origin();
-    std::printf("  Section 3: VT-S3-ULA-PREFETCH       — done (3 skipped)\n");
+    std::printf("  Section 3: VT-S3-ULA-PREFETCH       — done (3 live)\n");
 
     section4_int_position();
     std::printf("  Section 4: VT-S4-INT-POSITION       — done (4 skipped)\n");

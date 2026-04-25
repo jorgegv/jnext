@@ -76,6 +76,19 @@ public:
     /// Active VC_MAX for current machine type.
     int vc_max() const { return vc_max_; }
 
+    /// Per-machine active-display origin (VHDL c_min_hactive / c_min_vactive,
+    /// zxula_timing.vhd:147-312). Returns the (hc, vc) pixel-tick coordinates
+    /// where the 256x192 active area starts for the current machine.
+    RasterPos display_origin() const { return {min_hactive_, min_vactive_}; }
+
+    /// ULA prefetch origin (VHDL zxula_timing.vhd:423: c_min_hactive - 12).
+    /// The ULA begins fetching screen data 12 pixel-ticks before the active
+    /// display window opens, so by the time hc reaches min_hactive_ the
+    /// first byte is ready.
+    int ula_prefetch_origin_hc() const {
+        return static_cast<int>(min_hactive_) - 12;
+    }
+
     // ---------------------------------------------------------------
     // Wave E — Line interrupt + ULA interrupt mechanism
     // (zxula_timing.vhd:547-583). The VHDL feeds three inputs to the
@@ -155,6 +168,12 @@ private:
     // Machine-type-dependent timing parameters (defaulting to 48K values).
     int hc_max_ = HC_MAX_DEFAULT;  // pixel ticks per line
     int vc_max_ = VC_MAX_DEFAULT;  // total lines per frame
+
+    // Per-machine active-display origin (VHDL c_min_hactive / c_min_vactive,
+    // zxula_timing.vhd:147-312). 50 Hz defaults shown; 60 Hz variants are a
+    // separate add-on (Branch C / Section 5).
+    uint16_t min_hactive_ = 128;  // VHDL c_min_hactive (48K default, :261)
+    uint16_t min_vactive_ = 64;   // VHDL c_min_vactive (48K default, :269)
 
     // Wave E — line interrupt mechanism.
     bool     inten_ula_        = true;   // active-HIGH; true = VHDL inten_ula_n='0'

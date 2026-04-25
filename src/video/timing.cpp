@@ -24,12 +24,16 @@ void VideoTiming::init(MachineType type)
             // Period = 456 ticks/line × 311 lines/frame.
             hc_max_ = 455;
             vc_max_ = 310;
+            min_hactive_ = 136;  // VHDL :195
+            min_vactive_ = 64;   // VHDL :203
             break;
         case MachineType::PENTAGON:
             // Pentagon: VHDL c_max_hc=447, c_max_vc=319.
             // Period = 448 ticks/line × 320 lines/frame.
             hc_max_ = 447;
             vc_max_ = 319;
+            min_hactive_ = 128;  // VHDL :159
+            min_vactive_ = 80;   // VHDL :167
             break;
         case MachineType::ZX48K:
         default:
@@ -37,11 +41,15 @@ void VideoTiming::init(MachineType type)
             // Period = 448 ticks/line × 312 lines/frame.
             hc_max_ = 447;
             vc_max_ = 311;
+            min_hactive_ = 128;  // VHDL :261
+            min_vactive_ = 64;   // VHDL :269
             break;
         case MachineType::ZXN_ISSUE2:
             // ZX Next defaults to 128K timing (c_max_hc=455, c_max_vc=310).
             hc_max_ = 455;
             vc_max_ = 310;
+            min_hactive_ = 136;  // VHDL :195 (follows 128K)
+            min_vactive_ = 64;   // VHDL :203 (follows 128K)
             break;
     }
     reset();
