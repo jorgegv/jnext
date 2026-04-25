@@ -1170,6 +1170,72 @@ static void log_deferred() {
     }
 }
 
+// =========================================================================
+// Group G10: per-scanline scroll snapshot
+// =========================================================================
+//
+// Mirrors the per-scanline palette pattern. Beast.nex bottom-band parallax
+// (Copper writes NR 0x16 at scanlines 163, 165, 169, 173, 179 with
+// progressively higher values) requires the renderer to see each line's
+// scroll value at render time, not the end-of-frame snapshot.
+static void test_group10_per_scanline_scroll() {
+    set_group("G10 per-scanline scroll");
+    Layer2 l2;
+    l2.reset();
+
+    // Baseline: scroll values at frame start. Leave scroll_y=0 so the
+    // reference and actual fixtures sample the same source row.
+    l2.set_scroll_x_lsb(0x10);
+    l2.start_frame();
+    check("G10-01", "start_frame baseline captures scroll_x_/y_",
+          l2.change_log_size() == 0);
+
+    // Mid-frame writes append to log tagged with current line.
+    l2.set_current_line(50);
+    l2.set_scroll_x_lsb(0x40);
+    l2.set_current_line(100);
+    l2.set_scroll_x_lsb(0x80);
+    l2.set_current_line(150);
+    l2.set_scroll_x_lsb(0xC0);
+    check("G10-02", "three scroll writes recorded in change log",
+          l2.change_log_size() == 3);
+
+    // After rewind, live scroll_x snaps back to baseline (0x10).
+    l2.rewind_to_baseline();
+    check("G10-03", "rewind_to_baseline restores live scroll_x to baseline",
+          l2.scroll_x() == 0x10);
+
+    // Per-line replay walks the change-log forward; live scroll_x must
+    // reflect the most recent change <= line.
+    l2.apply_changes_for_line(0);
+    check("G10-04a", "line 0: no change applied → scroll_x == baseline (0x10)",
+          l2.scroll_x() == 0x10);
+    l2.apply_changes_for_line(49);
+    check("G10-04b", "line 49 (before first change at 50): scroll_x == 0x10",
+          l2.scroll_x() == 0x10);
+    l2.apply_changes_for_line(50);
+    check("G10-04c", "line 50 (first change): scroll_x == 0x40",
+          l2.scroll_x() == 0x40);
+    l2.apply_changes_for_line(99);
+    check("G10-04d", "line 99 (between 50 and 100): scroll_x == 0x40 (held)",
+          l2.scroll_x() == 0x40);
+    l2.apply_changes_for_line(100);
+    check("G10-04e", "line 100: scroll_x == 0x80",
+          l2.scroll_x() == 0x80);
+    l2.apply_changes_for_line(150);
+    check("G10-04f", "line 150: scroll_x == 0xC0",
+          l2.scroll_x() == 0xC0);
+
+    // Cap honoured: changes beyond MAX_CHANGES_PER_FRAME silently dropped.
+    l2.reset();
+    l2.start_frame();
+    for (size_t i = 0; i < Layer2::MAX_CHANGES_PER_FRAME + 5; ++i) {
+        l2.set_scroll_x_lsb(static_cast<uint8_t>(i & 0xFF));
+    }
+    check("G10-05", "change log capped at MAX_CHANGES_PER_FRAME",
+          l2.change_log_size() == Layer2::MAX_CHANGES_PER_FRAME);
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 int main() {
     printf("Layer 2 Compliance Tests (VHDL-derived rewrite)\n");
@@ -1191,6 +1257,8 @@ int main() {
     printf("  Group: G7 bank transform — done\n");
     test_group9_boundary();
     printf("  Group: G9 boundary — done\n");
+    test_group10_per_scanline_scroll();
+    printf("  Group: G10 per-scanline scroll — done\n");
     log_deferred();
 
     printf("\n================================================\n");

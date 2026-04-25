@@ -2589,6 +2589,12 @@ void Emulator::run_frame()
     // (e.g. beast.nex sky gradient).
     palette_.start_frame();
 
+    // Per-scanline Layer 2 scroll snapshot — same pattern as palette.
+    // Required for beast.nex bottom-band parallax (Copper writes NR 0x16
+    // at scanlines 163, 165, 169, 173, 179 with progressively higher
+    // values to scroll each grass band at a different speed).
+    layer2_.start_frame();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -3272,6 +3278,8 @@ void Emulator::on_scanline(int line)
     // a single cursor, no per-line search). See TASK-PER-SCANLINE-
     // PALETTE-PLAN.md.
     palette_.set_current_line(line);
+    // Same scanline tag for Layer 2 scroll changes (NR 0x16/0x17/0x71).
+    layer2_.set_current_line(line);
 }
 
 void Emulator::on_vsync()

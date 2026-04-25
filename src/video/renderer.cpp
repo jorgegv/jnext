@@ -48,10 +48,17 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     // live palette state has not been disturbed by the skipped render.
     palette.rewind_to_baseline();
 
+    // Per-scanline Layer 2 scroll: same rewind+replay pattern as the
+    // palette path above. Required for beast.nex bottom-band parallax
+    // (Copper writes NR 0x16 at successive raster targets with
+    // progressively higher values).
+    layer2.rewind_to_baseline();
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
         // layer rendering reads palette state.
         palette.apply_changes_for_line(row);
+        layer2.apply_changes_for_line(row);
 
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)

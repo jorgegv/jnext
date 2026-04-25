@@ -51,7 +51,7 @@ Pure log-pattern clones of the palette work. Each is a small task
 
 | Register | Consumer | Why it matters | Driver candidate | Cost |
 |---|---|---|---|---|
-| **NR 0x16 / 0x17 / 0x71** Layer 2 X/Y scroll | [emulator.cpp:370-385](src/core/emulator.cpp#L370-L385) → `Layer2::set_scroll_*` | Per-line L2 scroll = parallax. Almost certainly needed once LoRes lands and parallax.nex is in scope. | parallax.nex, any L2 parallax demo | S |
+| ~~**NR 0x16 / 0x17 / 0x71** Layer 2 X/Y scroll~~ | ~~`Layer2::set_scroll_*`~~ | **DONE 2026-04-26** — Beast.nex bottom-band parallax (5-strip Copper writes at scanlines 163/165/169/173/179, progressively higher speeds via `Beast/scroll.asm`). Pattern: `Layer2::start_frame/set_current_line/rewind_to_baseline/apply_changes_for_line` mirrors the palette path. Test: `layer2_test` G10 (10 rows). | beast.nex (live) | DONE |
 | **NR 0x68** other bits | [emulator.cpp:823](src/core/emulator.cpp#L823) | bit 7 done; bit 0 (ULA fine-X), bits 6:5 (blend mode UDIS-03), bit 3 (ULA+ en gate) all renderer-relevant | UDIS variants, ULA+ split-screen demos | S |
 | **NR 0x15** sprite/LoRes/priority bits | [emulator.cpp:434](src/core/emulator.cpp#L434) | beast actually toggles `0x80`/`0x01` mid-frame for what looks like a Copper-driven layer split; impact unverified | beast.nex (cosmetic?), parallax.nex | S |
 | **NR 0x14** global transparency | [emulator.cpp:322](src/core/emulator.cpp#L322) | Mid-frame transparency change → sky-vs-foreground colour-key effects | unknown | S |
@@ -110,9 +110,9 @@ This is structurally harder than Category A:
 
 By **likelihood of being needed** based on demos we already care about:
 
-1. **L2 X/Y scroll (NR 0x16 / 0x17 / 0x71)** — almost certain to be
-   needed once parallax.nex is unblocked by LoRes. Same shape as
-   palette work; ≈1 h.
+1. ~~L2 X/Y scroll (NR 0x16 / 0x17 / 0x71)~~ **DONE 2026-04-26** —
+   Beast.nex bottom-band perspective parallax. Same shape as palette
+   work; ~1 h end-to-end including tests + audit doc closure.
 2. **NR 0x68 other bits** — UDIS-03 already partially closed; bit 0
    (fine-X) is the obvious next gap if any demo uses fine-X mid-frame.
 3. **NR 0x15** — beast Copper toggles this. Visual impact unverified;

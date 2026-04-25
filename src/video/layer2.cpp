@@ -1,6 +1,7 @@
 #include "video/layer2.h"
 #include "video/palette.h"
 #include "memory/ram.h"
+#include "core/log.h"
 #include "core/saveable.h"
 
 // ---------------------------------------------------------------------------
@@ -20,6 +21,67 @@ void Layer2::reset()
     clip_x2_        = 255;
     clip_y1_        = 0;
     clip_y2_        = 255;
+
+    // Per-scanline change log cleared. Baseline reset to current (zero)
+    // state; start_frame() will re-snapshot from the live values at the
+    // next frame boundary.
+    change_count_      = 0;
+    current_line_      = 0;
+    render_cursor_     = 0;
+    overflow_warned_   = false;
+    baseline_scroll_x_ = 0;
+    baseline_scroll_y_ = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Per-scanline change log
+// ---------------------------------------------------------------------------
+
+void Layer2::log_scroll_change()
+{
+    if (change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: scroll change-log full at line {} (cap {} per "
+                "frame); further NR 0x16/0x17/0x71 writes this frame "
+                "will not be per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            overflow_warned_ = true;
+        }
+        return;
+    }
+    change_log_[change_count_++] = ScrollChange{
+        current_line_,
+        scroll_x_,
+        scroll_y_,
+    };
+}
+
+void Layer2::start_frame()
+{
+    baseline_scroll_x_ = scroll_x_;
+    baseline_scroll_y_ = scroll_y_;
+    change_count_      = 0;
+    render_cursor_     = 0;
+    current_line_      = 0;
+    overflow_warned_   = false;
+}
+
+void Layer2::rewind_to_baseline()
+{
+    scroll_x_      = baseline_scroll_x_;
+    scroll_y_      = baseline_scroll_y_;
+    render_cursor_ = 0;
+}
+
+void Layer2::apply_changes_for_line(int line)
+{
+    while (render_cursor_ < change_count_
+        && change_log_[render_cursor_].line == static_cast<uint16_t>(line)) {
+        const auto& c = change_log_[render_cursor_++];
+        scroll_x_ = c.scroll_x;
+        scroll_y_ = c.scroll_y;
+    }
 }
 
 // ---------------------------------------------------------------------------
