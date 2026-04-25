@@ -194,6 +194,13 @@ public:
         const uint8_t* ptr = read_ptr_[slot];
         if (!ptr) return 0xFF;
         uint8_t val = ptr[addr & 0x1FFF];
+        // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_di
+        // on every contended memory read. Approximated here via the
+        // per-16K-slot contended flag (slot_contended_[]) pushed by the
+        // Emulator alongside ContentionModel::set_contended_slot().
+        if (slot_contended_[addr >> 14]) {
+            p3_floating_bus_dat_ = val;
+        }
         // Check data breakpoints (only when debugger is active with watchpoints)
         if (debug_state_ && debug_state_->active() &&
             debug_state_->breakpoints().has_any_watchpoints() &&
@@ -265,6 +272,12 @@ public:
         uint8_t* ptr = write_ptr_[slot];
         if (!ptr) return;
         ptr[addr & 0x1FFF] = val;
+        // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
+        // on every contended memory write. Approximated via per-16K-slot
+        // contended flag (see read() for the mirror update on reads).
+        if (slot_contended_[addr >> 14]) {
+            p3_floating_bus_dat_ = val;
+        }
     }
 
     // Apply 128K banking: port 0x7FFD value maps slots 0/1/6/7
@@ -458,6 +471,39 @@ public:
     bool    nr_8c_altrom_rw()        const { return (nr_8c_reg_ & 0x40) != 0; }
     bool    nr_8c_altrom_lock_rom1() const { return (nr_8c_reg_ & 0x20) != 0; }
     bool    nr_8c_altrom_lock_rom0() const { return (nr_8c_reg_ & 0x10) != 0; }
+
+    // ---------------------------------------------------------------
+    // p3_floating_bus_dat — last contended-CPU-r/w byte latch.
+    // ---------------------------------------------------------------
+    // VHDL zxnext.vhd:4498-4509: on every contended memory access
+    // (mem_contend='1' AND cpu_mreq_n='0'), the latch captures cpu_di
+    // on a read or cpu_do on a write. The latched byte feeds
+    // i_p3_floating_bus into the ULA (zxnext.vhd:4478) as the
+    // border-fallback arm of o_ula_floating_bus (zxula.vhd:573); on +3
+    // it is exposed as the +3 floating-bus surface via port 0x0FFD
+    // (zxnext.vhd:4517 + 2589). Only Mmu sees every CPU r/w byte, so
+    // the latch lives here and is updated from read()/write() when the
+    // current 16K slot is flagged contended.
+    //
+    // Branch B scope (Phase 2): plumbing only. The set_slot_contended()
+    // mirror is pushed by Emulator alongside the existing
+    // ContentionModel::set_contended_slot() calls; runtime mem_contend
+    // gating (mem_active_page high-bits, cpu_speed, contention_disable)
+    // is approximated by the per-slot flag (matches the same simplification
+    // used by the existing FUSE Z80 contention path).
+    void    set_p3_floating_bus_dat(uint8_t v) { p3_floating_bus_dat_ = v; }
+    uint8_t p3_floating_bus_dat() const { return p3_floating_bus_dat_; }
+
+    // Per-16K-slot contention mirror — pushed by Emulator at every site
+    // that already updates ContentionModel::set_contended_slot(). Used
+    // by read()/write() to decide whether to update p3_floating_bus_dat_.
+    // Slot index is addr>>14 (0=0x0000, 1=0x4000, 2=0x8000, 3=0xC000).
+    void set_slot_contended(int slot, bool v) {
+        if (slot >= 0 && slot < 4) slot_contended_[slot] = v;
+    }
+    bool slot_contended(int slot) const {
+        return (slot >= 0 && slot < 4) ? slot_contended_[slot] : false;
+    }
 
     // Last 128K paging register value (for debugger display)
     uint8_t port_7ffd() const { return port_7ffd_; }
@@ -681,6 +727,13 @@ private:
     uint8_t*       write_ptr_[8];
     bool           read_only_[8];
     bool           paging_locked_ = false;
+    // VHDL p3_floating_bus_dat latch (zxnext.vhd:4498-4509). Captures the
+    // last contended CPU r/w data byte; surfaced through port 0x0FFD on
+    // +3. Power-on default 0x00 (VHDL signal default — no explicit
+    // reset clause).
+    uint8_t        p3_floating_bus_dat_ = 0x00;
+    // Per-16K-slot contention mirror (see set_slot_contended() comment).
+    bool           slot_contended_[4] = {false, false, false, false};
     // VHDL nr_08_contention_disable (zxnext.vhd:1114 default '0', written
     // at zxnext.vhd:5176, read back at zxnext.vhd:5906). Stored here so the
     // NR 0x08 read handler can compose bit 6 without reaching into the

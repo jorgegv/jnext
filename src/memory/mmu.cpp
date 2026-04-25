@@ -525,6 +525,10 @@ void Mmu::save_state(StateWriter& w) const
     // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918). Write-enable and
     // segment mask/bank are already persisted above.
     w.write_bool(l2_read_enable_);
+    // Floating-bus Branch B appended state — p3_floating_bus_dat latch
+    // (VHDL zxnext.vhd:4498-4509) and per-slot contention mirror.
+    w.write_u8(p3_floating_bus_dat_);
+    for (int i = 0; i < 4; ++i) w.write_bool(slot_contended_[i]);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -558,6 +562,10 @@ void Mmu::load_state(StateReader& r)
     // Phase 2 D2 appended state — Layer 2 read-enable latch
     // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918).
     l2_read_enable_  = r.read_bool();
+    // Floating-bus Branch B appended state — p3_floating_bus_dat latch
+    // and per-slot contention mirror.
+    p3_floating_bus_dat_ = r.read_u8();
+    for (int i = 0; i < 4; ++i) slot_contended_[i] = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

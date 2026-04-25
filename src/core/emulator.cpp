@@ -159,6 +159,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
 
+    // Mirror the post-build per-slot contention state into Mmu so the
+    // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509) sees the
+    // same initial slot map as ContentionModel. ContentionModel::build()
+    // seeds slot 1 contended for 48K/128K/+3 (bank 5 always at 0x4000-0x7FFF).
+    for (int slot = 0; slot < 4; ++slot) {
+        // Initial address representative of the slot — high 2 bits select 16K slot.
+        uint16_t addr = static_cast<uint16_t>(slot) << 14;
+        mmu_.set_slot_contended(slot, contention_.is_contended_address(addr));
+    }
+
     // Push machine type into Mmu so Mmu::current_sram_rom() matches the
     // VHDL zxnext.vhd:2981-3008 sram_rom selection (48K always 0, +3 uses
     // 2-bit rom bank, Next/128K/Pentagon use 1-bit). Altrom lock bits
@@ -1199,6 +1209,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             else
                 slot3_contended = (bank & 1) != 0;
             contention_.set_contended_slot(3, slot3_contended);
+            // Mirror per-16K-slot contention into Mmu so the
+            // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509)
+            // captures CPU r/w bytes on contended pages.
+            mmu_.set_slot_contended(3, slot3_contended);
             // Update FUSE Z80 core's memory page contention flags for 0xC000-0xFFFF.
             z80_set_page_contended(6, slot3_contended);
             z80_set_page_contended(7, slot3_contended);
@@ -1223,14 +1237,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     {0, 1, 2, 3}, {4, 5, 6, 7}, {4, 5, 6, 3}, {4, 7, 6, 3}
                 };
                 uint8_t config = (v >> 1) & 0x03;
-                for (int slot = 0; slot < 4; ++slot)
-                    contention_.set_contended_slot(slot, configs[config][slot] >= 4);
+                for (int slot = 0; slot < 4; ++slot) {
+                    bool c = (configs[config][slot] >= 4);
+                    contention_.set_contended_slot(slot, c);
+                    // Mirror into Mmu for p3_floating_bus_dat latch
+                    // (VHDL zxnext.vhd:4498-4509).
+                    mmu_.set_slot_contended(slot, c);
+                }
             } else {
                 // Normal paging: slot 0 = ROM (not contended), slot 1 = bank 5 (contended),
                 // slot 2 = bank 2 (not contended), slot 3 = per 0x7FFD bank
                 contention_.set_contended_slot(0, false);
                 contention_.set_contended_slot(1, true);
                 contention_.set_contended_slot(2, false);
+                // Mirror into Mmu (slot 3 stays as set by 0x7FFD handler).
+                mmu_.set_slot_contended(0, false);
+                mmu_.set_slot_contended(1, true);
+                mmu_.set_slot_contended(2, false);
                 // Slot 3 contention stays as set by 0x7FFD handler
             }
         });
@@ -1306,6 +1329,42 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((nextreg_.cached(0x82) & 0x01) == 0) return;
             renderer_.ula().set_screen_mode(val);
         });
+
+    // +3 floating-bus surface — port 0x0FFD.
+    // VHDL zxnext.vhd:2589: port_p3_float decode = A15:12="0000" AND port_fd
+    // (A1:0="01") AND p3_timing_hw_en='1' AND port_p3_floating_bus_io_en='1'.
+    // Mask: A15..A12=1 + A1=1 + A0=1 → 0xF003. Match: A15:12="0000",A1=0,A0=1
+    // → 0x0001. The 0x7FFD handler (mask 0x8003) overlaps but is less
+    // specific; most-specific-match-wins dispatch routes 0x0FFD here.
+    //
+    // Read mux:
+    //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') →
+    //     port_p3_float_rd_dat = X"00" (zxnext.vhd:2814).
+    //   - port_p3_floating_bus_io_en=0 (NR 0x82 bit 4 cleared,
+    //     zxnext.vhd:2403): decode blocked → 0x00.
+    //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517
+    //     port_p3_floating_bus_dat <= ... else X"FF").
+    //   - +3 + io_en=1 + port_7ffd_locked='0': p3_floating_bus_dat with
+    //     bit 0 forced high (zxula.vhd:573 OR i_timing_p3 in the active
+    //     arm; the border arm passes the latch through unchanged but
+    //     the bit-0 force is also applied combinationally on +3).
+    //     Branch B simplification: returns the latched byte | 0x01;
+    //     the per-raster-phase distinction (active VRAM byte vs border
+    //     latch fallback) is Branch C's fixture work.
+    // Write-only on real hardware in this slot — we intentionally drop
+    // writes (no decoded write semantic per VHDL).
+    port_.register_handler(0xF003, 0x0001,
+        [this](uint16_t) -> uint8_t {
+            // VHDL zxnext.vhd:2589 — p3_timing_hw_en gate.
+            if (config_.type != MachineType::ZX_PLUS3) return 0x00;
+            // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
+            if ((nextreg_.cached(0x82) & 0x10) == 0) return 0x00;
+            // VHDL zxnext.vhd:4517 — port_7ffd_locked='1' forces 0xFF.
+            if (mmu_.paging_locked()) return 0xFF;
+            // VHDL zxula.vhd:573 — bit 0 OR i_timing_p3 (always 1 on +3).
+            return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
+        },
+        nullptr);
 
     // Sprite slot select and status — port 0x303B (full 16-bit match).
     port_.register_handler(0xFFFF, 0x303B,
