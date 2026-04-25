@@ -551,16 +551,17 @@ static void test_wait_window() {
               std::string("delay=") + std::to_string(d));
     }
 
-    // CT-WIN-06: 48K, hc=100, vc=300 — vc>255, border_active_v=1.
-    // (Plan doc says vc=192 but the build()-loop populates 64..255 so
-    //  vc=192 is INSIDE the active window; choosing vc=300 to actually
-    //  test the border gate. Ditto vc=63 below in CT-WIN-09.)
+    // CT-WIN-06: 48K, hc=100, vc=192 — VHDL canonical border boundary.
+    // border_active_v = vc(8) | (vc(7) & vc(6)) = 1 for vc=192 (binary
+    // 11000000). The build()-loop at src/memory/contention.cpp populates
+    // only vc in [0, 191], so lut_[192][...] is zero-filled — confirming
+    // both the loop bound and the VHDL gate semantics.
     {
         ContentionModel cm = make_cm(MachineType::ZX48K);
-        const uint8_t d = cm.delay(100, 300);
+        const uint8_t d = cm.delay(100, 192);
         check("CT-WIN-06",
-              "48K, hc=100, vc=300 (border_active_v=1, vc>255) → delay=0 "
-              "[zxula.vhd:583; build()-loop bounds vc in [64,255]]",
+              "48K, hc=100, vc=192 (border_active_v=1) → delay=0 "
+              "[zxula.vhd:414,583]",
               d == 0,
               std::string("delay=") + std::to_string(d));
     }
@@ -1088,70 +1089,45 @@ static void test_pent_turbo() {
         }
     }
 
-    // CT-TURBO-06: 48K full Emulator, NR 0x08 bit 6 mid-scanline.
-    // Production NR 0x08 handler commits IMMEDIATELY (combinationally).
-    // VHDL zxnext.vhd:5822-5823 commits on the next hc(8) rising edge —
-    // mid-scanline writes therefore latch only at the next 256-pixel
-    // boundary.
+    // CT-TURBO-06: NR 0x08 bit 6 commit-edge — the EFFECTIVE contention
+    // gate (consulted by is_contended_access()) must defer until the next
+    // hc(8) rising edge. VHDL zxnext.vhd:5822-5823 latches the shadow
+    // value into eff_nr_08_contention_disable on hc(8)='1'. Branch B
+    // implements this via ContentionModel::set_contention_disable_shadow()
+    // + commit_contention_disable_on_hc(hc).
     //
-    // PHASE-2-DEPENDS Branch B's hc(8) commit-edge wiring. Without it,
-    // the post-commit value is observable IMMEDIATELY after write, not
-    // after the next hc(8) edge. This row is therefore EXPECTED TO FAIL
-    // standalone post-Branch-A merge until Branch B's commit-gate lands.
-    //
-    // The stimulus we encode: write NR 0x08 bit 6=1 mid-scanline, then
-    // immediately query the bit-6 readback; in Branch-B world this read
-    // would still see the OLD value (commit gate not crossed). Post-B
-    // we expect: write → readback returns OLD value until hc(8) edge,
-    // then NEW value. We assert "readback returns NEW value immediately"
-    // is the CURRENT (broken-vs-VHDL) behaviour, and Branch B will flip
-    // the assertion. This row's `check` is therefore intentionally
-    // calibrated to PASS today (immediate-commit behaviour); after
-    // Branch B lands, the row needs to flip to test the deferred commit.
-    //
-    // The cleanest representation of "depends on Branch B" is to fail
-    // honestly: assert the VHDL-faithful behaviour (deferred commit)
-    // and let the row FAIL standalone until B implements it.
+    // Bare-class stimulus is sufficient: the commit semantics live on
+    // ContentionModel; the Emulator-level integration (run_frame() per-
+    // instruction commit poll) is implicitly exercised by the Phase 3
+    // CT-INT-01/02 integration-smoke rows.
     {
-        Emulator emu;
-        const bool ok = make_emu(emu, MachineType::ZX48K);
-        if (!ok) {
-            check("CT-TURBO-06",
-                  "Emulator::init failed — would verify hc(8) commit gate "
-                  "[zxnext.vhd:5822-5823]",
-                  false, "Emulator::init returned false");
-        } else {
-            // Establish a known mid-scanline position that is NOT at an
-            // hc(8) edge. Without Branch A's hc/vc threading we cannot
-            // truly position at a specific raster column for an
-            // observable mid-scanline write — so this row currently
-            // exercises only the WRITE→READBACK round-trip and asserts
-            // the VHDL-faithful "deferred commit" behaviour by checking
-            // that AFTER a single NR 0x08 bit-6 write, the readback
-            // returns the OLD value (false) until an explicit hc(8) edge
-            // is crossed.
-            //
-            // Emulator::run_frame() will cross many hc(8) edges, so we
-            // observe IMMEDIATELY after the write (no advance). VHDL says
-            // the new value should NOT yet be visible; Branch B will
-            // implement that.
-            emu.nextreg().write(0x08, 0x40);  // bit 6 = 1
-            const uint8_t nr08_immediate = emu.nextreg().read(0x08);
-            const bool bit6_after_write = (nr08_immediate & 0x40) != 0;
-            // PHASE-2-DEPENDS Branch B: VHDL says bit6_after_write==false
-            // (commit gate not yet crossed). Today the immediate write
-            // makes it true. We assert the VHDL truth — row FAILs
-            // standalone until Branch B's hc(8) commit-edge gate lands.
-            check("CT-TURBO-06",
-                  "48K NR 0x08 bit 6 mid-scanline → readback delayed until "
-                  "next hc(8) rising edge (commit gate). Today the write "
-                  "commits immediately; this row FAILS standalone until "
-                  "Branch B wires the hc(8) latch [zxnext.vhd:5822-5823]",
-                  !bit6_after_write,
-                  std::string("immediate readback bit6=") +
-                  std::to_string(bit6_after_write)
-                  + " (VHDL expects 0 until next hc(8) edge)");
-        }
+        ContentionModel cm = make_cm(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);              // bank 5 — would contend
+        const bool gate_on_initial = cm.is_contended_access();
+
+        cm.set_contention_disable_shadow(true);    // request disable
+        const bool gate_on_after_shadow = cm.is_contended_access();
+
+        cm.commit_contention_disable_on_hc(100);   // hc(8)=0 — no commit
+        const bool gate_on_after_pre_edge = cm.is_contended_access();
+
+        cm.commit_contention_disable_on_hc(300);   // hc(8)=1 — commits
+        const bool gate_off_after_post_edge = !cm.is_contended_access();
+
+        const bool ok = gate_on_initial
+                     && gate_on_after_shadow       // shadow-only doesn't commit
+                     && gate_on_after_pre_edge     // hc<256 doesn't commit
+                     && gate_off_after_post_edge;  // hc>=256 commits
+
+        check("CT-TURBO-06",
+              "NR 0x08 bit 6 shadow latches on hc(8) rising edge: "
+              "shadow alone does not affect gate; hc<256 does not commit; "
+              "hc>=256 commits [zxnext.vhd:5822-5823]",
+              ok,
+              std::string("on0=") + std::to_string(gate_on_initial)
+              + " shadow=" + std::to_string(gate_on_after_shadow)
+              + " pre=" + std::to_string(gate_on_after_pre_edge)
+              + " post=" + std::to_string(gate_off_after_post_edge));
     }
 }
 

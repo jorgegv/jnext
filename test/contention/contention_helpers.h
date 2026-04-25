@@ -86,15 +86,17 @@ inline uint8_t expected_wait_pattern(int hc) {
 
 // True when the row's `(hc, vc)` pair is inside the VHDL display window
 // AND the hc_adj phase is in a stretched bin (see CONTENTION-TEST-PLAN-
-// DESIGN.md §9). This matches the build()-time loop condition in
-// src/memory/contention.cpp:37-46:
-//   for vc in 64..255, hc in 0..255:
+// DESIGN.md §9). Range matches the build()-loop in
+// src/memory/contention.cpp post Branch-A fix:
+//   for vc in 0..191, hc in 0..255:
 //     hc_adj = (hc & 0xF) + 1
 //     contend = (hc_adj & 0xC) != 0
 //     if (is_p3) contend |= (hc_adj & 0xE) == 0
+// vc range is per VHDL `border_active_v = vc(8) | (vc(7) & vc(6))`
+// (zxula.vhd:414) — contention fires for vc in [0, 191].
 inline bool expect_lut_nonzero(MachineType type, int hc, int vc) {
-    if (vc < 64 || vc > 255) return false;
-    if (hc < 0 || hc > 255)  return false;
+    if (vc < 0 || vc > 191) return false;
+    if (hc < 0 || hc > 255) return false;
     const int hc_adj = (hc & 0xF) + 1;
     bool contend = (hc_adj & 0xC) != 0;
     if (type == MachineType::ZX_PLUS3) {
