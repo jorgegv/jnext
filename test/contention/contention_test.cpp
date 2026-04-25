@@ -1,11 +1,11 @@
-// Contention Model compliance test suite — SCAFFOLDING (2026-04-24).
+// Contention Model compliance test suite (Phase-A live rows + scaffolding).
 //
 // Plan of record: doc/testing/CONTENTION-TEST-PLAN-DESIGN.md (68 rows,
-// phased A=28 / B=36 / C=4). This commit is pure scaffolding: every row
-// emits skip() with the plan-specified phase reason, so the suite
-// reports 0/0/68 green until Phase A un-skips can begin AFTER the
-// independent VHDL audit of src/memory/contention.{h,cpp} called for by
-// §Current status bullet "Phase A prerequisite" in the plan.
+// phased A=28 / B=36 / C=4). The 21 Phase-A rows owned by Branch B of
+// the 2026-04-25 wave are now live (§4 enable gate, §5/§6/§7 memory
+// decode, §12 Pentagon + turbo subset). The §8 Phase-A I/O rows land in
+// Branch C (uses the new port_contend() accessor from Branch A's audit).
+// All §9-§14 Phase-B/C rows remain skip() pending tick-loop wiring.
 //
 // Skip-reason taxonomy (per the session prompt 2026-04-24):
 //   F-CT-AUDIT  — Phase A rows; bare-class tests pending the VHDL audit
@@ -19,16 +19,15 @@
 //                 reference capture.
 //
 // Structural template: test/ula/ula_integration_test.cpp and
-// test/ctc_interrupts/ctc_interrupts_test.cpp. No ContentionModel
-// construction here (all rows skip) — harness kept minimal.
+// test/ctc_interrupts/ctc_interrupts_test.cpp.
 //
-// IMPORTANT: the 13 CON-* rows currently living in test/mmu/mmu_test.cpp
-// (Cat-16) are NOT migrated in this commit. The plan's C2-move
-// commitment (§Mirror vs move) lands in a future session. For now, CT-*
-// and CON-* coexist as disjoint namespaces per the prompt's scope-limit
-// note.
+// Migration note: the 13 CON-* rows previously in test/mmu/mmu_test.cpp
+// (Cat-16) have been deleted in this same commit per the plan §15 C2-move
+// commitment; the CT-* rows below cover the same VHDL semantics.
 //
 // Run: ./build/test/contention_test
+
+#include "memory/contention.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -93,38 +92,110 @@ void skip(const char* id, const char* desc, const char* reason) {
 static void test_gate_enable() {
     set_group("CT-GATE");
 
-    skip("CT-GATE-01",
-         "ZX48K, mem_active_page=0x0A → is_contended_access()==true "
-         "[zxnext.vhd:4481,4490]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-02",
-         "ZX48K, page=0x0A, set_contention_disable(true) → false "
-         "[zxnext.vhd:4481]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-03",
-         "ZX48K, page=0x0A, set_cpu_speed(1) → false "
-         "[zxnext.vhd:4481,5817]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-04",
-         "ZX48K, page=0x0A, set_cpu_speed(2) → false "
-         "[zxnext.vhd:4481,5817]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-05",
-         "ZX48K, page=0x0A, set_cpu_speed(3) → false "
-         "[zxnext.vhd:4481,5817]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-06",
-         "ZX48K, page=0x0A, set_pentagon_timing(true) → false "
-         "[zxnext.vhd:4481]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-07",
-         "ZX48K, all gates off, page=0x0A → true "
-         "[zxnext.vhd:4481,4490]",
-         "F-CT-AUDIT");
-    skip("CT-GATE-08",
-         "Default-constructed model (no build()), page=0x0A → false "
-         "[src/memory/contention.h:56; contention.cpp:87-90]",
-         "F-CT-AUDIT");
+    // CT-GATE-01: ZX48K + page=0x0A (bank 5) — VHDL zxnext.vhd:4481 enable
+    // gate ON (defaults), and zxnext.vhd:4490 mem_contend asserts on
+    // page(3:1)="101". Combined ⇒ contended.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        check("CT-GATE-01",
+              "ZX48K, mem_active_page=0x0A → is_contended_access()==true "
+              "[zxnext.vhd:4481,4490]",
+              cm.is_contended_access());
+    }
+
+    // CT-GATE-02: contention_disable (NR 0x08 bit 6) gates the enable
+    // line off — VHDL zxnext.vhd:4481 (eff_nr_08_contention_disable).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_contention_disable(true);
+        check("CT-GATE-02",
+              "ZX48K, page=0x0A, set_contention_disable(true) → false "
+              "[zxnext.vhd:4481]",
+              !cm.is_contended_access());
+    }
+
+    // CT-GATE-03: cpu_speed=1 (7 MHz) — VHDL zxnext.vhd:4481 requires
+    // cpu_speed(1)='0' AND cpu_speed(0)='0'. Speed 1 trips bit 0.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_cpu_speed(1);
+        check("CT-GATE-03",
+              "ZX48K, page=0x0A, set_cpu_speed(1) → false "
+              "[zxnext.vhd:4481,5817]",
+              !cm.is_contended_access());
+    }
+
+    // CT-GATE-04: cpu_speed=2 (14 MHz) trips cpu_speed(1).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_cpu_speed(2);
+        check("CT-GATE-04",
+              "ZX48K, page=0x0A, set_cpu_speed(2) → false "
+              "[zxnext.vhd:4481,5817]",
+              !cm.is_contended_access());
+    }
+
+    // CT-GATE-05: cpu_speed=3 (28 MHz) trips both bits.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_cpu_speed(3);
+        check("CT-GATE-05",
+              "ZX48K, page=0x0A, set_cpu_speed(3) → false "
+              "[zxnext.vhd:4481,5817]",
+              !cm.is_contended_access());
+    }
+
+    // CT-GATE-06: pentagon_timing flag gates the enable line off — VHDL
+    // zxnext.vhd:4481 `not machine_timing_pentagon`. Discriminative
+    // (uses ZX48K type with the Pentagon flag flipped on) so a broken
+    // gate cannot pass via the Pentagon switch fall-through.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_pentagon_timing(true);
+        check("CT-GATE-06",
+              "ZX48K, page=0x0A, set_pentagon_timing(true) → false "
+              "[zxnext.vhd:4481]",
+              !cm.is_contended_access());
+    }
+
+    // CT-GATE-07: all gate inputs at VHDL power-on defaults
+    // (contention_disable=0, cpu_speed=00, pentagon_timing=0) plus
+    // page=0x0A on ZX48K ⇒ contended. Sanity row that the gate is OPEN
+    // when nothing intervenes.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        check("CT-GATE-07",
+              "ZX48K, all gates off, page=0x0A → true "
+              "[zxnext.vhd:4481,4490]",
+              cm.is_contended_access());
+    }
+
+    // CT-GATE-08: default-constructed ContentionModel — no build() call.
+    // type_ defaults to MachineType::ZXN_ISSUE2 (contention.h:56), and
+    // the switch fallthrough at contention.cpp:87-90 returns false.
+    // Exercises the ZXN_ISSUE2 branch.
+    {
+        ContentionModel cm;
+        cm.set_mem_active_page(0x0A);
+        check("CT-GATE-08",
+              "Default-constructed model (no build()), page=0x0A → false "
+              "[src/memory/contention.h:56; contention.cpp:87-90]",
+              !cm.is_contended_access());
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -135,26 +206,63 @@ static void test_gate_enable() {
 static void test_mem_48k() {
     set_group("CT-M48");
 
-    skip("CT-M48-01",
-         "48K, page=0x0A (bank 5, bits(3:1)=101) → contended "
-         "[zxnext.vhd:4490]",
-         "F-CT-AUDIT");
-    skip("CT-M48-03",
-         "48K, page=0x00 (bank 0, bits(3:1)=000) → not contended "
-         "[zxnext.vhd:4490]",
-         "F-CT-AUDIT");
-    skip("CT-M48-05",
-         "48K, page=0x0E (bank 7, bits(3:1)=111) → not contended "
-         "[zxnext.vhd:4490]",
-         "F-CT-AUDIT");
-    skip("CT-M48-06",
-         "48K, page=0x10 (high nibble != 0) → not contended "
-         "[zxnext.vhd:4489]",
-         "F-CT-AUDIT");
-    skip("CT-M48-08",
-         "48K, page=0xFF (floating-bus sentinel) → not contended "
-         "[zxnext.vhd:4489]",
-         "F-CT-AUDIT");
+    // CT-M48-01: page 0x0A — bank 5 mapping; bits(3:1)=101.
+    // VHDL zxnext.vhd:4490 fires.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        check("CT-M48-01",
+              "48K, page=0x0A (bank 5, bits(3:1)=101) → contended "
+              "[zxnext.vhd:4490]",
+              cm.is_contended_access());
+    }
+
+    // CT-M48-03: page 0x00 — bits(3:1)=000 ≠ 101.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x00);
+        check("CT-M48-03",
+              "48K, page=0x00 (bank 0, bits(3:1)=000) → not contended "
+              "[zxnext.vhd:4490]",
+              !cm.is_contended_access());
+    }
+
+    // CT-M48-05: page 0x0E — bits(3:1)=111 ≠ 101.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0E);
+        check("CT-M48-05",
+              "48K, page=0x0E (bank 7, bits(3:1)=111) → not contended "
+              "[zxnext.vhd:4490]",
+              !cm.is_contended_access());
+    }
+
+    // CT-M48-06: high-nibble guard — VHDL zxnext.vhd:4489 first clause
+    // forces mem_contend='0' whenever mem_active_page(7:4) /= "0000".
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x10);
+        check("CT-M48-06",
+              "48K, page=0x10 (high nibble != 0) → not contended "
+              "[zxnext.vhd:4489]",
+              !cm.is_contended_access());
+    }
+
+    // CT-M48-08: page 0xFF — floating-bus sentinel; high-nibble guard
+    // zeroes mem_contend.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0xFF);
+        check("CT-M48-08",
+              "48K, page=0xFF (floating-bus sentinel) → not contended "
+              "[zxnext.vhd:4489]",
+              !cm.is_contended_access());
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -165,18 +273,38 @@ static void test_mem_48k() {
 static void test_mem_128k() {
     set_group("CT-M128");
 
-    skip("CT-M128-01",
-         "128K, page=0x02 (bank 1, bit(1)=1) → contended "
-         "[zxnext.vhd:4491]",
-         "F-CT-AUDIT");
-    skip("CT-M128-03",
-         "128K, page=0x04 (bank 2, bit(1)=0) → not contended "
-         "[zxnext.vhd:4491]",
-         "F-CT-AUDIT");
-    skip("CT-M128-08",
-         "128K, page=0x10 (high nibble != 0) → not contended "
-         "[zxnext.vhd:4489]",
-         "F-CT-AUDIT");
+    // CT-M128-01: 128K page 0x02 — bit(1)=1 (odd bank). VHDL:4491.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_mem_active_page(0x02);
+        check("CT-M128-01",
+              "128K, page=0x02 (bank 1, bit(1)=1) → contended "
+              "[zxnext.vhd:4491]",
+              cm.is_contended_access());
+    }
+
+    // CT-M128-03: 128K page 0x04 — bit(1)=0 (even bank).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_mem_active_page(0x04);
+        check("CT-M128-03",
+              "128K, page=0x04 (bank 2, bit(1)=0) → not contended "
+              "[zxnext.vhd:4491]",
+              !cm.is_contended_access());
+    }
+
+    // CT-M128-08: 128K high-nibble guard — VHDL:4489 zeroes mem_contend.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_mem_active_page(0x10);
+        check("CT-M128-08",
+              "128K, page=0x10 (high nibble != 0) → not contended "
+              "[zxnext.vhd:4489]",
+              !cm.is_contended_access());
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -187,18 +315,39 @@ static void test_mem_128k() {
 static void test_mem_plus3() {
     set_group("CT-MP3");
 
-    skip("CT-MP3-01",
-         "+3, page=0x08 (bank 4, bit(3)=1) → contended "
-         "[zxnext.vhd:4492]",
-         "F-CT-AUDIT");
-    skip("CT-MP3-05",
-         "+3, page=0x00 (bank 0, bit(3)=0) → not contended "
-         "[zxnext.vhd:4492]",
-         "F-CT-AUDIT");
-    skip("CT-MP3-08",
-         "+3, ROM access (page >= 0xF0) → not contended "
-         "[zxnext.vhd:4489]",
-         "F-CT-AUDIT");
+    // CT-MP3-01: +3 page 0x08 — bit(3)=1 (banks ≥ 4). VHDL:4492.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX_PLUS3);
+        cm.set_mem_active_page(0x08);
+        check("CT-MP3-01",
+              "+3, page=0x08 (bank 4, bit(3)=1) → contended "
+              "[zxnext.vhd:4492]",
+              cm.is_contended_access());
+    }
+
+    // CT-MP3-05: +3 page 0x00 — bit(3)=0 (banks < 4).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX_PLUS3);
+        cm.set_mem_active_page(0x00);
+        check("CT-MP3-05",
+              "+3, page=0x00 (bank 0, bit(3)=0) → not contended "
+              "[zxnext.vhd:4492]",
+              !cm.is_contended_access());
+    }
+
+    // CT-MP3-08: +3 page 0xF0 — ROM-style high page; high-nibble guard
+    // VHDL:4489 zeroes mem_contend regardless of low nibble.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX_PLUS3);
+        cm.set_mem_active_page(0xF0);
+        check("CT-MP3-08",
+              "+3, ROM access (page >= 0xF0) → not contended "
+              "[zxnext.vhd:4489]",
+              !cm.is_contended_access());
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -398,11 +547,21 @@ static void test_stretch_plus3() {
 static void test_pent_turbo() {
     set_group("CT-PENT-TURBO");
 
-    skip("CT-PENT-01",
-         "Pentagon, page=0x0A (would contend on 48K): enable gate AND "
-         "mem_contend switch-fallthrough both suppress → not contended "
-         "[zxnext.vhd:4481,4489-4493; contention.cpp:87-90]",
-         "F-CT-AUDIT");
+    // CT-PENT-01: Pentagon machine type, page=0x0A. build(PENTAGON) sets
+    // pentagon_timing_=true so the VHDL:4481 enable gate fires; in
+    // addition, the PENTAGON case in is_contended_access() falls through
+    // to the default-false return at contention.cpp:87-90, exercising the
+    // switch fallthrough. Both belt and suspenders: not contended.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::PENTAGON);
+        cm.set_mem_active_page(0x0A);
+        check("CT-PENT-01",
+              "Pentagon, page=0x0A (would contend on 48K): enable gate AND "
+              "mem_contend switch-fallthrough both suppress → not contended "
+              "[zxnext.vhd:4481,4489-4493; contention.cpp:87-90]",
+              !cm.is_contended_access());
+    }
     skip("CT-PENT-04",
          "Pentagon, full Emulator, I/O port 0xFE → zero added T-states "
          "(enable gate blocks) [zxnext.vhd:4481]",
@@ -412,10 +571,19 @@ static void test_pent_turbo() {
          "matches Pentagon 71680 T-state budget, no contention added "
          "[zxnext.vhd:4481; zxula_timing.vhd]",
          "F-CT-INT");
-    skip("CT-TURBO-01",
-         "48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) "
-         "[zxnext.vhd:4481,5817]",
-         "F-CT-AUDIT");
+    // CT-TURBO-01: 48K + cpu_speed=1 (7 MHz). VHDL:4481 enable gate
+    // requires cpu_speed(0)='0' AND cpu_speed(1)='0'; speed 1 trips
+    // bit 0 ⇒ gate forced low.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);
+        cm.set_cpu_speed(1);
+        check("CT-TURBO-01",
+              "48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) "
+              "[zxnext.vhd:4481,5817]",
+              !cm.is_contended_access());
+    }
     skip("CT-TURBO-04",
          "48K full Emulator, write NR 0x07=0x01 then bank 5 read → zero "
          "added T-states (NR 0x07 → cpu_speed path) "
@@ -489,8 +657,9 @@ static void test_integration_smoke() {
 int main() {
     std::printf("Contention Model Compliance Tests\n");
     std::printf("=================================\n\n");
-    std::printf("  (scaffolding commit: all 68 rows skip() pending\n");
-    std::printf("   Phase A VHDL audit of ContentionModel class)\n\n");
+    std::printf("  (Phase-A live: 21 rows from §4/§5/§6/§7/§12;\n");
+    std::printf("   §8 Phase-A I/O lands in Branch C of the wave;\n");
+    std::printf("   §9-§14 Phase-B/C remain skipped pending tick-loop wiring)\n\n");
 
     test_gate_enable();
     std::printf("  Group: CT-GATE        — done\n");
