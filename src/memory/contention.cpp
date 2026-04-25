@@ -14,10 +14,11 @@ void ContentionModel::build(MachineType type) {
     // build() is only called from Emulator::init(). If ever hot-called at
     // runtime to switch machine types, re-seed cpu_speed from NR 0x07 and
     // contention_disable from NR 0x08 after the build() call.
-    mem_active_page_    = 0;
-    cpu_speed_          = 0;
-    contention_disable_ = false;
-    pentagon_timing_    = (type == MachineType::PENTAGON);
+    mem_active_page_           = 0;
+    cpu_speed_                 = 0;
+    contention_disable_        = false;
+    contention_disable_shadow_ = false;
+    pentagon_timing_           = (type == MachineType::PENTAGON);
 
     if (type == MachineType::PENTAGON || type == MachineType::ZXN_ISSUE2) return;
 

@@ -38,12 +38,47 @@ public:
     void set_pentagon_timing(bool pt) { pentagon_timing_ = pt; }
 
     /// NR 0x08 bit 6 — eff_nr_08_contention_disable (zxnext.vhd:4481).
-    void set_contention_disable(bool cd) { contention_disable_ = cd; }
+    /// **Immediate** commit of the effective gate; both shadow and
+    /// effective fields are updated. Used by Phase-A bare-class tests
+    /// that need a known gate state without modelling the deferred
+    /// `hc(8)` commit edge. Production NR 0x08 dispatch should instead
+    /// call set_contention_disable_shadow() and let the per-tick
+    /// commit_contention_disable_on_hc() helper latch on the next
+    /// `hc(8)='1'` window per zxnext.vhd:5822-5823.
+    void set_contention_disable(bool cd) {
+        contention_disable_        = cd;
+        contention_disable_shadow_ = cd;
+    }
+
+    /// Update the **shadow** value of NR 0x08 bit 6 only — the next
+    /// `commit_contention_disable_on_hc()` call with `hc(8)='1'` will
+    /// promote it to the effective gate. Models the latch at
+    /// zxnext.vhd:5800-5823:
+    ///     nr_08_contention_disable    <- shadow (immediate on NR 0x08 we)
+    ///     eff_nr_08_contention_disable <- shadow only when hc(8)='1'
+    /// This is the production NR 0x08 write path.
+    void set_contention_disable_shadow(bool cd) {
+        contention_disable_shadow_ = cd;
+    }
+
+    /// Commit the shadow → effective gate per VHDL:5822-5823. The VHDL
+    /// process latches `eff_nr_08_contention_disable` from the shadow
+    /// on every CPU bus-idle cycle while `hc(8)='1'`. A 9-bit `hc`
+    /// counter has bit 8 set when `hc >= 256` — the right-border /
+    /// horizontal-blank window. Caller invokes this once per
+    /// instruction (or per-access) with the live raster `hc`; commits
+    /// are no-ops while `hc < 256`. Idempotent.
+    void commit_contention_disable_on_hc(uint16_t hc) {
+        if ((hc & 0x100) != 0) {
+            contention_disable_ = contention_disable_shadow_;
+        }
+    }
 
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
     bool    pentagon_timing()    const { return pentagon_timing_; }
     bool    contention_disable() const { return contention_disable_; }
+    bool    contention_disable_shadow() const { return contention_disable_shadow_; }
 
     /// VHDL-faithful combined gate (zxnext.vhd:4481 AND 4489-4493).
     /// Returns true iff a memory access under the current inputs would
@@ -121,5 +156,11 @@ private:
     uint8_t mem_active_page_   = 0;
     uint8_t cpu_speed_         = 0;
     bool    pentagon_timing_   = false;
-    bool    contention_disable_ = false;
+    // contention_disable_ is the **effective** signal consulted by
+    // is_contended_access(); contention_disable_shadow_ is the latch
+    // updated by every NR 0x08 bit-6 write. The two values are equal
+    // outside of mid-line write windows (see VHDL:5822-5823 and
+    // commit_contention_disable_on_hc()).
+    bool    contention_disable_        = false;
+    bool    contention_disable_shadow_ = false;
 };

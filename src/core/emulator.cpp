@@ -1657,10 +1657,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x08, [this](uint8_t v) {
         if (v & 0x80) mmu_.unlock_paging();
         mmu_.set_contention_disabled((v >> 6) & 1);
-        // Mirror NR 0x08 bit 6 into ContentionModel's i_contention_en gate
-        // (VHDL zxnext.vhd:1380 default '0', zxnext.vhd:5823 stored on write,
-        // zxnext.vhd:4481 feeds eff_nr_08_contention_disable).
-        contention_.set_contention_disable(((v >> 6) & 1) != 0);
+        // Mirror NR 0x08 bit 6 into the ContentionModel SHADOW only
+        // (zxnext.vhd:1380 default '0', zxnext.vhd:5800-5805 stored on
+        // write into nr_08_contention_disable). The VHDL latches
+        // eff_nr_08_contention_disable from this shadow only on CPU
+        // bus-idle cycles where hc(8)='1' (zxnext.vhd:5822-5823) — a
+        // mid-line write does NOT alter the contention gate
+        // combinatorially. The shadow → effective promotion is driven
+        // by Emulator::run_frame() calling
+        // contention_.commit_contention_disable_on_hc(current_hc())
+        // once per instruction; that places the commit anywhere the
+        // CPU lands inside [hc=256..455] and matches the VHDL latch
+        // window for jnext's per-instruction tick granularity.
+        contention_.set_contention_disable_shadow(((v >> 6) & 1) != 0);
         turbosound_.set_stereo_mode((v >> 5) & 1);
         dac_enabled_ = (v >> 3) & 1;
         turbosound_.set_enabled((v >> 1) & 1);
@@ -2773,6 +2782,18 @@ void Emulator::run_frame()
             int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
             copper_.execute(hc, cvc, nextreg_);
         }
+
+        // Commit ContentionModel's NR 0x08 bit-6 shadow when the live
+        // raster is in the `hc(8)='1'` window (phc >= 256), per VHDL
+        // zxnext.vhd:5822-5823. The VHDL latches every CPU-clock-rising
+        // bus-idle cycle while hc(8)='1'; a per-instruction call here
+        // approximates that — any instruction that ends with the beam
+        // in the right border / hblank promotes the shadow to the
+        // effective gate. CT-TURBO-06 pins this: a NR 0x08 write at
+        // phc < 256 does NOT change the gate until the next time the
+        // beam crosses 256.
+        contention_.commit_contention_disable_on_hc(
+            static_cast<uint16_t>(current_hc()));
 
         // Tick CTC and UART at 28 MHz rate.
         ctc_.tick(static_cast<uint32_t>(master_cycles));
