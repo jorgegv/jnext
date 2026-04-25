@@ -161,9 +161,8 @@ here for provenance.)
   wiring. Mitigation: treat Phase 4 re-baseline as mandatory and
   document every refreshed reference in the merge note.
 
-## Status: **Phase 1 (Phase-A) DONE 2026-04-26** — 28/68 rows live.
-Phase 2 (Phase-B `delay()` tick-loop wiring, 36 rows) and Phase 3
-(Phase-C integration smoke, 4 rows) PENDING.
+## Status: **Phase 1 + Phase 2 DONE 2026-04-26** — 64/68 rows live.
+Phase 3 (Phase-C integration smoke, 4 rows) PENDING.
 
 ### Phase 1 closure (2026-04-26)
 
@@ -191,16 +190,57 @@ Regression 34/0/0.
 Phase-A = 28 rows breakdown: §4 (8) + §5 (5) + §6 (3) + §7 (3) +
 §8 Phase-A subset (7) + §12 Phase-A subset (2).
 
-### Phase 2/3 deferral rationale
+### Phase 2 closure (2026-04-26)
 
-Phase 2 wires `ContentionModel::delay()` into the Z80 tick path. Per
-plan §15: "any emulator change that lands `ContentionModel::delay()`
-on the tick path will change frame length on 48K/128K/+3 machines.
-Reference screenshots captured before that work will need
-regeneration." Mixing this with Phase 1 in the same session would
-have made the screenshot rebaseline harder to audit. Schedule Phase 2
-as its own session with the `bash test/generate-references.sh` sweep
-included in scope. Phase 3 follows Phase 2.
+3 cherry-picked branches landed on main:
+- `afe1efa` + `5f73be7` — Branch A: `ContentionModel::contention_tick()`
+  runtime API mirroring VHDL `o_cpu_contend` / `o_cpu_wait_n`
+  (`zxula.vhd:579-600`). Wired into FUSE callbacks in `z80_cpu.cpp`;
+  `(hc, vc)` derived per-cycle from FUSE `tstates` counter for
+  per-bus-cycle precision; `mem_active_page` set per-cycle from
+  `Mmu::get_effective_page(slot)`. **Bug fix**: LUT `vc` range
+  rebased from buggy `[64, 255]` to VHDL-faithful `[0, 191]` per
+  `border_active_v = vc(8) | (vc(7) & vc(6))` at `zxula.vhd:414`.
+  FUSE `ula_contention[]` retired (kept zero-filled as link symbols
+  for FUSE-Z80-test source compat).
+- `9634dbe` — Branch B: NR 0x07 immediate `set_cpu_speed()` dispatch +
+  NR 0x08 bit-6 deferred-commit via shadow + `hc(8)` commit-gate poll
+  (per VHDL `:5822-5823`). Per-instruction poll from
+  `Emulator::run_frame()` is equivalent to per-cycle latch because
+  every line traverses `hc ∈ [256..455]` once.
+- `bdf6b4e` — Branch C: 36 Phase-B test rows flipped + full-Emulator
+  fixture helpers in `test/contention/contention_helpers.h`.
+- `6c59d51` — post-cherry-pick fixups: CT-WIN-06 retargeted from
+  workaround `vc=300` to canonical `vc=192`; `expect_lut_nonzero`
+  helper bound updated to `[0, 191]`; CT-TURBO-06 retargeted from
+  `nextreg().read(0x08)` (raw-shadow readback) to
+  `is_contended_access()` (effective gate) so the row actually
+  exercises Branch B's deferred-commit semantics.
+- `78ee69a` — screenshot rebaseline: only `floating-bus` reference
+  shifted (1 of 34); visually preserved (same rainbow pattern,
+  same border, only floating-bus stripe column shifts), the byte
+  returned at port 0xFF reads from a slightly different ULA fetch
+  position because the new contention path delivers slightly
+  different per-cycle T-state stretches. VHDL-explainable per
+  plan §15.
+
+Final: contention_test **64/0/4**. mmu_test **137/0/0**. Aggregate
+`make unit-test` **3326/3322/0/4** across 32 suites. Regression
+**34/0/0** (1 reference rebaselined; remaining 33 unchanged).
+
+Phase-2 = 36 rows breakdown: §8 Phase-B subset (2) + §9 (10) + §10 (8)
++ §11 (8) + §12 Phase-B subset (4) + §13 (4).
+
+### Phase 3 deferral rationale
+
+Phase 3 (Phase-C in test plan) covers 4 integration-smoke rows:
+CT-INT-01/02/03 (full-frame T-state totals on 48K HALT-loop programs)
+and CT-PENT-05 (full-frame Pentagon T-state budget). These need a
+known contention-sensitive demo program written and byte-counted
+against the VHDL-derived expected total. They are regression
+guardrails — useful but not blocking any user-visible feature today.
+Schedule as its own session (or fold into a future demo-program
+authoring task).
 
 See `doc/testing/CONTENTION-TEST-PLAN-DESIGN.md` for the full
 row-level test plan (68 rows across 11 sections, with Phase A/B/C
