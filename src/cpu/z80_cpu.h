@@ -32,16 +32,37 @@ extern "C" uint32_t* fuse_z80_tstates_ptr(void);
 
 // Forward declaration — MachineType defined in contention.h
 enum class MachineType;
+class ContentionModel;
+class Mmu;
 
 /// Build the FUSE Z80 core's internal contention tables (ula_contention[],
 /// memory_map_read[]) for the given machine type.  Must be called at init
 /// and whenever the machine type changes.
+///
+/// **Phase-2 contention wiring (2026-04-26)**: the FUSE table is no longer
+/// the source of contention delays — `Z80Cpu::set_contention_runtime()`
+/// installs `ContentionModel::contention_tick()` as the per-cycle path.
+/// This function is retained so FUSE link symbols (`memory_map_read[]`,
+/// `ula_contention[]`) stay defined; the populated values are unused.
 void z80_build_contention_tables(MachineType type);
 
 /// Update contention flag for a specific 8KB memory page (0-7).
 /// page 0 = 0x0000-0x1FFF, page 2 = 0x4000-0x5FFF, page 6 = 0xC000-0xDFFF, etc.
 /// Called when 128K bank paging changes which RAM bank is at 0xC000.
+///
+/// **Phase-2 contention wiring (2026-04-26)**: this is now a no-op kept for
+/// compile-time compatibility. Per-page contention is queried from
+/// `ContentionModel::is_contended_access()` driven by `mem_active_page`.
 void z80_set_page_contended(int page, bool contended);
+
+/// Install the per-cycle contention runtime (Phase-2 wiring, 2026-04-26).
+/// `cm` is the `ContentionModel` whose `contention_tick()` is called per
+/// memory/IO bus cycle. `mmu` provides the `mem_active_page` decode for
+/// the 8K page underlying each cycle's address. `machine_type` selects the
+/// per-machine timing (`tstates_per_line`) used to derive `(hc, vc)` from
+/// the FUSE `tstates` counter. Pass null pointers to disable (the FUSE
+/// callbacks then add the legacy `+3` non-contended T-states only).
+void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type);
 
 // Z80 CPU wrapper — backed by FUSE Z80 core (third_party/fuse-z80/)
 class Z80Cpu {

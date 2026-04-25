@@ -20,6 +20,8 @@
 #include "z80n_ext.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "memory/contention.h"
+#include "memory/mmu.h"
 
 #include <cstdint>
 #include <cstring>
@@ -49,6 +51,52 @@ static IoInterface*     s_io  = nullptr;
 // contended address. The callback adds the contention delay to tstates.
 static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
 
+// ── Phase-2 contention runtime (2026-04-26) ────────────────────────────
+// Per-cycle VHDL-faithful contention via ContentionModel::contention_tick().
+// Set by Emulator::init() through z80_set_contention_runtime(); when null,
+// no contention is applied (FUSE Z80 test harness path — preserves the
+// 1356/1356 compliance score).
+//
+// Per `feedback_lang_c_builds.md` the FUSE table was the prior path but
+// is now retired for the production emulator. The FUSE table symbols
+// (memory_map_read, memory_map_write, ula_contention*) stay as zero-filled
+// definitions because the FUSE Z80 opcode files reference them via the
+// `contend_read`/`contend_write` macros — but those macros expand to
+// `fuse_z80_readbyte_internal` calls which never path through the FUSE
+// table directly; we override the externally-linked callbacks here.
+static ContentionModel* s_contention      = nullptr;
+static Mmu*             s_contention_mmu  = nullptr;
+static int              s_tstates_per_line = 224;
+static int              s_tstates_per_frame = 224 * 312;
+
+namespace {
+
+/// Compute (hc, vc) in the 7 MHz pixel-tick domain from the FUSE
+/// frame-relative tstates counter.
+///
+/// VHDL `i_hc` / `i_vc` are 9-bit counters in the 7 MHz pixel-tick
+/// domain (each T-state = 2 pixel ticks). Frame is reset to 0 at
+/// frame start in Emulator::run_frame().
+struct HcVc { uint16_t hc; uint16_t vc; };
+inline HcVc derive_hc_vc(uint32_t tstates) {
+    int frame_ts = static_cast<int>(tstates % static_cast<uint32_t>(s_tstates_per_frame));
+    int line     = frame_ts / s_tstates_per_line;
+    int ts_in_line = frame_ts - line * s_tstates_per_line;
+    int hc = ts_in_line * 2;          // 1 T-state = 2 pixel ticks
+    return {static_cast<uint16_t>(hc), static_cast<uint16_t>(line)};
+}
+
+/// VHDL `mem_active_page` — the SRAM page underlying a memory cycle's
+/// 16-bit Z80 address. Mmu::get_effective_page() returns the mapped
+/// page for an 8K slot; 0xFF means no SRAM (ROM/peripheral).
+inline uint8_t mem_active_page_for(uint16_t address) {
+    if (!s_contention_mmu) return 0xFF;
+    int slot = address >> 13;
+    return s_contention_mmu->get_effective_page(slot);
+}
+
+} // anonymous namespace
+
 extern "C" {
 
 // Raw memory read — no timing, no contention.  Used for opcode fetches
@@ -60,9 +108,15 @@ libspectrum_byte fuse_z80_readbyte_raw(libspectrum_word address) {
 // Data memory read — adds contention + 3 T-states, matching original FUSE
 // readbyte() from memory_pages.c.  Used for instruction data operands.
 libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
-    libspectrum_word bank = address >> MEMORY_PAGE_SIZE_LOGARITHM;
-    if (memory_map_read[bank].contended)
-        tstates += ula_contention[tstates];
+    if (s_contention) {
+        // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_rd_n='0'` — memory read.
+        s_contention->set_mem_active_page(mem_active_page_for(address));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/false, /*iorq_n*/true,
+            /*rd_n*/false,  /*wr_n*/true,
+            address, pos.hc, pos.vc);
+    }
     tstates += 3;
     return s_mem->read(address);
 }
@@ -70,9 +124,15 @@ libspectrum_byte fuse_z80_readbyte(libspectrum_word address) {
 // Data memory write — adds contention + 3 T-states, matching original FUSE
 // writebyte() from memory_pages.c.
 void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
-    libspectrum_word bank = address >> MEMORY_PAGE_SIZE_LOGARITHM;
-    if (memory_map_write[bank].contended)
-        tstates += ula_contention[tstates];
+    if (s_contention) {
+        // VHDL `cpu_mreq_n='0', cpu_iorq_n='1', cpu_wr_n='0'` — memory write.
+        s_contention->set_mem_active_page(mem_active_page_for(address));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/false, /*iorq_n*/true,
+            /*rd_n*/true,   /*wr_n*/false,
+            address, pos.hc, pos.vc);
+    }
     tstates += 3;
     s_mem->write(address, b);
 }
@@ -81,47 +141,39 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
 libspectrum_dword* fuse_z80_tstates_ptr(void) { return &tstates; }
 
 libspectrum_byte fuse_z80_readport(libspectrum_word port) {
-    // Port pre-I/O: 1 T-state (+ ULA contention if port in 0x4000-0x7FFF)
-    if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
-        tstates += ula_contention[tstates];
+    // VHDL: port reads consume 1 T-state of pre-IORQ + 3 T-states of
+    // post-IORQ (FUSE timing model). Real-hardware contention fires on
+    // the IORQ falling edge; we approximate this as a single
+    // contention_tick at the start of the post-IORQ phase, when
+    // `cpu_iorq_n` would go low.
     tstates++;
     libspectrum_byte val = s_io->in(port);
-    // Port post-I/O: 3 T-states (+ ULA contention patterns)
-    if (port & 0x0001) {
-        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended) {
-            tstates += ula_contention[tstates]; tstates++;
-            tstates += ula_contention[tstates]; tstates++;
-            tstates += ula_contention[tstates]; tstates++;
-        } else {
-            tstates += 3;
-        }
-    } else {
-        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
-            tstates += ula_contention[tstates];
-        tstates += 3;
+    if (s_contention) {
+        // mem_active_page is irrelevant for port cycles (mem_contend=0);
+        // contention_tick gates on port_contend internally.
+        s_contention->set_mem_active_page(mem_active_page_for(port));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/true,  /*iorq_n*/false,
+            /*rd_n*/false,   /*wr_n*/true,
+            port, pos.hc, pos.vc);
     }
+    tstates += 3;
     return val;
 }
 
 void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
-    // Same port timing as readport.
-    if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
-        tstates += ula_contention[tstates];
     tstates++;
     s_io->out(port, b);
-    if (port & 0x0001) {
-        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended) {
-            tstates += ula_contention[tstates]; tstates++;
-            tstates += ula_contention[tstates]; tstates++;
-            tstates += ula_contention[tstates]; tstates++;
-        } else {
-            tstates += 3;
-        }
-    } else {
-        if ((port & 0xC000) == 0x4000 && memory_map_read[port >> MEMORY_PAGE_SIZE_LOGARITHM].contended)
-            tstates += ula_contention[tstates];
-        tstates += 3;
+    if (s_contention) {
+        s_contention->set_mem_active_page(mem_active_page_for(port));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/true,  /*iorq_n*/false,
+            /*rd_n*/true,    /*wr_n*/false,
+            port, pos.hc, pos.vc);
     }
+    tstates += 3;
 }
 
 } // extern "C"
@@ -422,63 +474,53 @@ void Z80Cpu::load_state(StateReader& r)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Contention table builder — populates FUSE's ula_contention[] and
-// memory_map_read[]/write[] for the built-in contend_read macros.
+// Contention runtime — wires ContentionModel::contention_tick() into the
+// FUSE Z80 read/write/in/out callbacks for VHDL-faithful per-cycle
+// contention. Phase-2 wiring 2026-04-26 (TASK-CONTENTION-MODEL-PLAN).
 // ══════════════════════════════════════════════════════════════════════════
 
-#include "memory/contention.h"
 #include "core/emulator_config.h"
 
-void z80_build_contention_tables(MachineType type)
+void z80_build_contention_tables(MachineType /*type*/)
 {
-    const auto t = machine_timing(type);
-
-    // Clear tables.
+    // Phase-2 retirement (2026-04-26): the FUSE `ula_contention[]` /
+    // `memory_map_read[]` tables are no longer the source of contention
+    // delays in the production emulator. Contention now flows through
+    // ContentionModel::contention_tick() per-cycle (see
+    // fuse_z80_readbyte/writebyte/readport/writeport above).
+    //
+    // The FUSE table symbols stay defined (zero-filled at file scope
+    // above) because the FUSE Z80 opcode files reference them via the
+    // `contend_read` / `contend_write` macros expanded inside the FUSE
+    // sources; with our overridden `fuse_z80_readbyte` / `fuse_z80_writebyte`
+    // they're effectively unused but the externs must resolve at link
+    // time. Leaving them zero is safe — any read returns 0 delay.
+    //
+    // The FUSE Z80 opcode test suite (`fuse_z80_test`) does NOT install
+    // the contention runtime via z80_set_contention_runtime() — its
+    // baseline 1356/1356 score relies on contention being inert on that
+    // path, which the early-return at the top of each callback preserves
+    // when `s_contention == nullptr`.
     std::memset(ula_contention, 0, sizeof(ula_contention));
     std::memset(ula_contention_no_mreq, 0, sizeof(ula_contention_no_mreq));
     std::memset(memory_map_read, 0, sizeof(memory_map_read));
     std::memset(memory_map_write, 0, sizeof(memory_map_write));
-
-    // Pentagon and ZX Next have no ULA contention.
-    if (type == MachineType::PENTAGON || type == MachineType::ZXN_ISSUE2)
-        return;
-
-    // 48K/128K/+3: contention pattern {6, 5, 4, 3, 2, 1, 0, 0} repeating
-    // every 8 T-states during active display lines.
-    //
-    // Active display: lines 64-255 (192 pixel lines).
-    // Contended T-states per line: 0..127 (128 T-states of ULA fetch).
-    static constexpr int delay_pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
-
-    const int first_display_line = 64;
-    const int last_display_line = 255;  // 64 + 192 - 1
-    const int contended_tstates_per_line = 128;
-
-    for (int line = first_display_line; line <= last_display_line; ++line) {
-        int line_start = line * t.tstates_per_line;
-        for (int tc = 0; tc < contended_tstates_per_line; ++tc) {
-            int idx = line_start + tc;
-            if (idx >= 0 && idx < ULA_CONTENTION_TABLE_SIZE) {
-                int delay = delay_pattern[tc % 8];
-                ula_contention[idx] = static_cast<libspectrum_dword>(delay);
-                ula_contention_no_mreq[idx] = static_cast<libspectrum_dword>(delay);
-            }
-        }
-    }
-
-    // Set contended pages: 0x4000-0x7FFF (pages 2 and 3 at 8KB granularity).
-    memory_map_read[2].contended = 1;   // 0x4000-0x5FFF
-    memory_map_read[3].contended = 1;   // 0x6000-0x7FFF
-    memory_map_write[2].contended = 1;
-    memory_map_write[3].contended = 1;
-
-    // For 128K: slot 3 (0xC000-0xFFFF) contention is set dynamically
-    // via z80_set_page_contended() when bank paging changes.
 }
 
-void z80_set_page_contended(int page, bool contended)
+void z80_set_page_contended(int /*page*/, bool /*contended*/)
 {
-    if (page < 0 || page >= 8) return;
-    memory_map_read[page].contended  = contended ? 1 : 0;
-    memory_map_write[page].contended = contended ? 1 : 0;
+    // Phase-2 retirement (2026-04-26): legacy hook — no-op. Per-page
+    // contention is decoded inside ContentionModel via mem_active_page
+    // (set per-cycle from Mmu::get_effective_page() in the FUSE callbacks
+    // above). The Emulator port-handler call sites still call this for
+    // compile-time symbol stability; it has no runtime effect.
+}
+
+void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type)
+{
+    s_contention     = cm;
+    s_contention_mmu = mmu;
+    const auto t = machine_timing(machine_type);
+    s_tstates_per_line  = t.tstates_per_line;
+    s_tstates_per_frame = t.tstates_per_frame;
 }

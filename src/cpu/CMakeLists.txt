@@ -10,4 +10,8 @@ target_include_directories(jnext_cpu PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${FUSE_Z80_DIR})
-target_link_libraries(jnext_cpu PUBLIC spdlog::spdlog)
+# z80_cpu.cpp references ContentionModel and Mmu (Phase-2 contention
+# wiring 2026-04-26). PUBLIC-link jnext_memory so callers (incl. test
+# binaries) resolve those symbols transitively. Static-library cycle is
+# benign — the linker resolves both archives in a single pass.
+target_link_libraries(jnext_cpu PUBLIC spdlog::spdlog jnext_memory)

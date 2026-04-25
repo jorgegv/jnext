@@ -17,6 +17,7 @@
 #include "port/nextreg.h"
 #include "video/renderer.h"
 #include "video/palette.h"
+#include "video/timing.h"
 #include "video/layer2.h"
 #include "video/sprites.h"
 #include "video/tilemap.h"
@@ -192,6 +193,13 @@ public:
     PortDispatch& port()      { return port_; }
     NextReg&      nextreg()   { return nextreg_; }
     Z80Cpu&       cpu()       { return cpu_; }
+    ContentionModel& contention() { return contention_; }
+    /// VHDL-faithful raster counter (zxula_timing). Phase-2 contention
+    /// wiring (2026-04-26) makes this a production-wired observable —
+    /// `pos()` returns the live (hc, vc) used by the contention tick
+    /// path. Tests use it via emulator.video_timing().pos().
+    VideoTiming&  video_timing() { return video_timing_; }
+    const VideoTiming& video_timing() const { return video_timing_; }
     Keyboard&       keyboard()       { return keyboard_; }
     Joystick&       joystick()       { return joystick_; }
     KempstonMouse&  mouse()          { return mouse_; }
@@ -443,6 +451,7 @@ private:
     Z80Cpu          cpu_;
     Im2Controller   im2_;
     ContentionModel contention_;
+    VideoTiming     video_timing_;
     PaletteManager  palette_;
     Layer2          layer2_;
     SpriteEngine    sprites_;

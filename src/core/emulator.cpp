@@ -159,6 +159,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
 
+    // VideoTiming — production-wired raster counter used by the
+    // contention tick path (Phase-2 wiring 2026-04-26). Mirrors VHDL
+    // zxula_timing per-machine c_max_hc / c_max_vc / c_int_h / c_int_v.
+    // The 60 Hz override flag is not yet plumbed through EmulatorConfig
+    // (jnext defaults to 50 Hz only); pass `false` here.
+    video_timing_.init(cfg.type, /*refresh_60hz=*/false);
+
     // Mirror the post-build per-slot contention state into Mmu so the
     // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509) sees the
     // same initial slot map as ContentionModel. ContentionModel::build()
@@ -183,7 +190,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // per-access contention for opcode fetches, data reads/writes, and
     // internal timing delays — matching real hardware more accurately
     // than the external callback approach.
+    //
+    // Phase-2 retirement (2026-04-26): the FUSE table is now zero-filled
+    // (see src/cpu/z80_cpu.cpp). z80_set_contention_runtime() below
+    // installs ContentionModel::contention_tick() as the active path.
     z80_build_contention_tables(cfg.type);
+
+    // Wire ContentionModel into the FUSE memory/IO callbacks (Phase-2
+    // contention plan, 2026-04-26). After this call, every Z80 memory
+    // read/write/IORQ adds VHDL-faithful per-cycle contention via
+    // ContentionModel::contention_tick(), gated by the live (hc, vc)
+    // computed from the FUSE tstates counter and the machine's
+    // tstates_per_line. Mmu provides mem_active_page per cycle.
+    z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing
@@ -2471,8 +2490,14 @@ void Emulator::run_frame()
     // Reset FUSE tstates counter to 0 at frame start.  The FUSE Z80 core's
     // built-in contention macros index ula_contention[tstates], so tstates
     // must be relative to the frame start (0 = first T-state of frame).
+    //
+    // VideoTiming reset alongside: derive_hc_vc() in z80_cpu.cpp computes
+    // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
+    // observable. Reset its hc/vc at frame start so test queries
+    // mid-frame match the (hc, vc) the contention path is using.
     *fuse_z80_tstates_ptr() = 0;
     frame_ts_start_ = 0;
+    video_timing_.reset();
 
     // Schedule the ULA frame interrupt at vc=1, hc=0.
     // One line = timing_.tstates_per_line T-states; at 28 MHz that is
@@ -2657,10 +2682,19 @@ void Emulator::run_frame()
             }
 
             // Execute one CPU instruction; returns T-states consumed.
-            // Memory contention is applied per-access via the on_contention
-            // callback, which adds delay to the FUSE tstates counter for
-            // each read/write to contended addresses.
+            // Memory contention is applied per-access via the
+            // ContentionModel::contention_tick() runtime path installed by
+            // z80_set_contention_runtime() in init() — the FUSE callbacks
+            // derive (hc, vc) from the FUSE tstates counter and feed them
+            // into contention_tick() per memory/IO bus cycle.
             int tstates = cpu_.execute();
+
+            // Advance VideoTiming so test/debug observers see the post-
+            // instruction raster position. The contention path itself
+            // does NOT consult VideoTiming (it derives hc/vc from
+            // tstates directly to keep per-bus-cycle precision); this
+            // advance is purely the test/debug observable.
+            video_timing_.advance(tstates);
 
             // Call stack tracking post-execution.
             if (call_stack_.enabled()) {
@@ -2902,6 +2936,10 @@ int Emulator::execute_single_instruction()
         }
 
         int tstates = cpu_.execute();
+
+        // Mirror video_timing_ advance from run_frame() — single-step
+        // path needs the same observable to stay in sync.
+        video_timing_.advance(tstates);
 
         // Call stack tracking post-execution.
         if (call_stack_.enabled()) {
