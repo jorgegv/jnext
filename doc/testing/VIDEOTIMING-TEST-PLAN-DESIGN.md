@@ -33,7 +33,16 @@ never about the plan.
 
 ## Current status
 
-0 rows live. The plan opens with **7 rows re-homed from**
+**CLOSED 2026-04-26 — all 22 rows live (22/22/0/0)**. Plan landed in
+3 cherry-picked commits on main: `34b6710` (Branch A V1 rebase + S1+S6,
+7 rows), `832551a` (Branch B display_origin + prefetch, 6 rows),
+`b1bf9ce` (Branch C int_position + 60 Hz toggle, 9 rows). See task
+plan `doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md` for the closure
+write-up.
+
+### Historical opening state
+
+The plan opens with **7 rows re-homed from**
 `test/ula/ula_test.cpp` **§13 + §14** during the ULA Phase-0 closure
 on 2026-04-23 (see Task `doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md`
 — the authoritative re-home manifest). Rows are labelled `VT-NN`

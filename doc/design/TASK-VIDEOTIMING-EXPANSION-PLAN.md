@@ -68,6 +68,26 @@ subsystem plan when a session picks them up.
   latency relative to scan-line). No current user bug depends on
   this.
 
-## Status: **PENDING** — candidate to merge with the VideoTiming
-production-wiring backlog item into a single VideoTiming subsystem
-plan. Low priority.
+## Status: **CLOSED 2026-04-26** — all 22 plan rows live.
+
+Phase 1 wave landed in 3 cherry-picked commits on main:
+- `34b6710` — Branch A: V1 `vc_max_/hc_max_` semantic rebase + Section 1
+  (3 rows) + Section 6 (4 rows). `int_line_num()` made public.
+- `832551a` — Branch B: per-machine `display_origin()` +
+  `ula_prefetch_origin_hc()` accessors. Section 2 + Section 3 (6 rows).
+- `b1bf9ce` — Branch C: per-machine `int_position()` + 60 Hz toggle
+  via `init(MachineType, bool refresh_60hz=false)`. Section 4 + Section 5
+  (9 rows). +3 vs 128K `c_int_h` split modelled. Pentagon+60Hz silently
+  ignored (no VHDL branch).
+
+Final: `videotiming_test` 22/22/0/0. Aggregate `make unit-test`
+3339/3271/0/68 (-22 skips vs session start). Regression 34/0/0.
+
+The companion `hc_max_` advance() wrap fix (period `c_max_hc + 1`) was
+applied alongside the V1 rebase by Branch A — without it the line
+period would have computed at 447 ticks instead of 448 and broken
+every screenshot test.
+
+The VideoTiming production-wiring backlog item (route `Emulator`
+scheduler through `VideoTiming` so the test-only pulse counters
+become the single source of truth) is **separate**, still PENDING.
