@@ -48,9 +48,12 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "cpu/z80_cpu.h"
 #include "memory/contention.h"
+#include "memory/mmu.h"
 
 #include <cstdint>
+#include <cstddef>
 
 // Construct a fresh Emulator at the given machine type. Returns true on
 // success; false if init() failed (typically a missing ROM file). The
@@ -103,4 +106,108 @@ inline bool expect_lut_nonzero(MachineType type, int hc, int vc) {
         contend = contend || ((hc_adj & 0xE) == 0);
     }
     return contend;
+}
+
+// ── Phase-3 integration-smoke helpers ─────────────────────────────────
+// These drive the FUSE Z80 core (already wired with ContentionModel
+// per-cycle via z80_set_contention_runtime() in Emulator::init()) by
+// poking a small program into RAM and stepping `cpu().execute()` until
+// HALT. The cumulative T-state delta between contention-ON and
+// contention-OFF runs IS the integrated contention stretch the runtime
+// added — the integration-smoke metric the §14 plan rows ask for.
+//
+// We deliberately avoid `Emulator::run_frame()` because it resets the
+// FUSE tstates counter to 0 at the start of every frame — making
+// cross-frame totals impossible to read directly. Stepping the CPU
+// instruction-by-instruction keeps `*fuse_z80_tstates_ptr()`
+// monotonically accumulating from the value we seed at run-start.
+//
+// The contention runtime is independent of the run_frame() loop — once
+// `Emulator::init()` installs it via `z80_set_contention_runtime()`,
+// every `cpu_.execute()` MREQ/IORQ goes through `contention_tick()`
+// regardless of whether we are inside a frame or not.
+
+// Layout of the integration-smoke program: 100 contended reads of
+// (HL=0x4000, bank 5 on 48K — contended) from code at 0x8000 (bank 2
+// on 48K — uncontended), terminated by HALT.
+//
+// 0x8000  21 00 40   LD HL, 0x4000   ; 10 T (M1 4 + ND 3 + ND 3)
+// 0x8003  06 64      LD B,  100      ; 7 T  (M1 4 + ND 3)
+// 0x8005  7E         LD A, (HL)      ; 7 T  (M1 4 + MR 3)  ← contended access
+// 0x8006  10 FD      DJNZ -3         ; 13/8 T (M1 5 + ND 3 + 5/0)
+// 0x8008  76         HALT            ; 4 T  (M1 4)
+//
+// Uncontended baseline derivation (B = 100 iterations):
+//   setup     : 10 + 7  = 17 T
+//   loop body : 100 * (LD A,(HL)=7 + DJNZ taken=13)
+//             - 1 * (DJNZ taken=13 - DJNZ not-taken=8)   ; last DJNZ falls through
+//             = 100*20 - 5 = 1995 T
+//   halt      : 4 T
+//   ──────────────────────
+//   total     : 17 + 1995 + 4 = 2016 T
+//
+// (Note the LD A,(HL) read of 0x4000 is the only contended access per
+//  iteration. M1 fetches at 0x8005..0x8007 are bank 2 — uncontended.)
+struct IntSmokeProgram {
+    static constexpr uint16_t kEntry        = 0x8000;
+    static constexpr uint16_t kStackInit    = 0xBF00;     // top of bank 2
+    static constexpr uint8_t  kIterations   = 100;
+    // Un-contended baseline T-states for kIterations=100. Derivation
+    // above. If kIterations changes, recompute.
+    static constexpr uint32_t kBaselineT    = 2016;
+    static constexpr uint16_t kHaltAddr     = 0x8008;
+};
+
+// Inject the integration-smoke program into RAM at IntSmokeProgram::
+// kEntry and prepare CPU state to run it. Caller must have already
+// init()ed the Emulator at the desired MachineType.
+inline void install_int_smoke_program(Emulator& emu) {
+    constexpr uint16_t E = IntSmokeProgram::kEntry;
+    // LD HL, 0x4000
+    emu.mmu().write(E + 0, 0x21);
+    emu.mmu().write(E + 1, 0x00);
+    emu.mmu().write(E + 2, 0x40);
+    // LD B, 100
+    emu.mmu().write(E + 3, 0x06);
+    emu.mmu().write(E + 4, IntSmokeProgram::kIterations);
+    // LD A, (HL)
+    emu.mmu().write(E + 5, 0x7E);
+    // DJNZ -3 (back to LD A,(HL))
+    emu.mmu().write(E + 6, 0x10);
+    emu.mmu().write(E + 7, 0xFD);
+    // HALT
+    emu.mmu().write(E + 8, 0x76);
+
+    auto regs = emu.cpu().get_registers();
+    regs.PC     = E;
+    regs.SP     = IntSmokeProgram::kStackInit;
+    regs.IFF1   = 0;        // disable interrupts so the frame INT cannot
+    regs.IFF2   = 0;        // perturb the T-state count
+    regs.halted = false;
+    emu.cpu().set_registers(regs);
+}
+
+// Step the CPU until HALT (PC parked on the HALT opcode and regs.halted
+// asserted by the FUSE core), or until `max_steps` is exceeded as a
+// safety cap. Returns the cumulative T-states consumed across all
+// stepped instructions — read from the FUSE tstates counter delta.
+//
+// The FUSE tstates counter is global; we snapshot it at entry, never
+// reset it, and return the (end - start) delta. This sidesteps the
+// frame-start reset that `Emulator::run_frame()` applies.
+inline uint32_t run_int_smoke_program(Emulator& emu,
+                                      std::size_t max_steps = 100000) {
+    const uint32_t t_start = *fuse_z80_tstates_ptr();
+    for (std::size_t i = 0; i < max_steps; ++i) {
+        emu.cpu().execute();
+        const auto regs = emu.cpu().get_registers();
+        // FUSE asserts halted on the first M1 of HALT; one iteration
+        // beyond that adds another 4 T-states of HALT-NOP. Stop the
+        // moment we see halted to keep totals deterministic.
+        if (regs.halted && regs.PC == IntSmokeProgram::kHaltAddr) {
+            break;
+        }
+    }
+    const uint32_t t_end = *fuse_z80_tstates_ptr();
+    return t_end - t_start;
 }
