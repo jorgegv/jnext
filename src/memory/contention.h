@@ -50,6 +50,33 @@ public:
     /// trigger mem_contend='1' AND i_contention_en='1'.
     bool is_contended_access() const;
 
+    // ── Per-cycle contention runtime API ──────────────────────────────
+    /// VHDL `o_cpu_contend` / `o_cpu_wait_n` mirror (zxula.vhd:579-600 +
+    /// zxnext.vhd:4481-4496). Returns the number of T-states the CPU
+    /// should add to the current bus cycle's budget. Caller passes the
+    /// Z80 control-line state, the 16-bit CPU bus address, and the
+    /// current raster position (hc, vc) in the 7 MHz pixel-tick domain
+    /// matching VHDL i_hc / i_vc (9-bit counters, range 0..hc_max /
+    /// 0..vc_max per machine).
+    ///
+    /// Active-LOW VHDL signals are passed in the `*_n` form: pass
+    /// `mreq_n=false` for an asserted MREQ, etc. (i.e. use the same
+    /// polarity as the FUSE `cpu_mreq_n` line). The four gate inputs
+    /// (cpu_speed, contention_disable, pentagon_timing, mem_active_page)
+    /// are consulted via the existing accessors — caller must update
+    /// `mem_active_page` BEFORE calling for memory cycles.
+    ///
+    /// `port_ulap_io_en` mirrors NR 0x82 bit 4; pass false if not
+    /// modelled.
+    ///
+    /// Returns 0 for non-contending cycles, or the per-phase delay
+    /// pattern entry (`{6,5,4,3,2,1,0,0}[hc & 7]`) for contending ones.
+    /// Both 48K/128K (`o_cpu_contend`) and +3 (`o_cpu_wait_n`) paths
+    /// are covered — caller does not need to pre-classify.
+    uint8_t contention_tick(bool mreq_n, bool iorq_n, bool rd_n, bool wr_n,
+                            uint16_t cpu_a, uint16_t hc, uint16_t vc,
+                            bool port_ulap_io_en = false) const;
+
     /// VHDL-faithful `port_contend` decode (zxnext.vhd:4496):
     ///     port_contend <= (not cpu_a(0))
     ///                   or port_7ffd_active

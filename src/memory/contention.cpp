@@ -21,22 +21,29 @@ void ContentionModel::build(MachineType type) {
 
     if (type == MachineType::PENTAGON || type == MachineType::ZXN_ISSUE2) return;
 
-    // Active display: vc in [64, 255], hc in [0, 255] (pixel area)
-    // The ULA fetches data in 8-T-state cycles. During the fetch window,
-    // contended memory reads are delayed by {6,5,4,3,2,1,0,0} T-states
-    // depending on hc position within the 8T cycle.
+    // VHDL zxula.vhd:582-583 — wait_s gating window:
+    //   hc_adj <= i_hc(3 downto 0) + 1;            (4-bit, mod-16 wrap)
+    //   wait_s <= '1' when ((hc_adj(3:2) /= "00")
+    //                    or (hc_adj(3:1) = "000" and i_timing_p3 = '1'))
+    //                  and i_hc(8) = '0'
+    //                  and border_active_v = '0'
+    //                  and i_contention_en = '1' else '0';
     //
-    // VHDL (zxula.vhd line 583):
-    //   wait_s when (hc_adj[3:2] != "00") OR (hc_adj[3:1] == "000" AND timing_p3)
+    // border_active_v (zxula.vhd:414):
+    //   border_active_v <= i_vc(8) or (i_vc(7) and i_vc(6));
+    //   i.e. border when vc>=192 (bit7=1 AND bit6=1) OR vc>=256 (bit8=1).
+    //   Contention fires for vc in [0, 191].
     //
     // 48K/128K: contention when hc_adj[3:2] != 0  (hc_adj in {4..15})
-    // +3:       also when hc_adj[3:1] == 0         (hc_adj in {0,1,4..15})
+    // +3:       also when hc_adj[3:1] == 0         (hc_adj in {0,1})
+    // Note hc_adj is 4-bit so hc(3:0)=15 → hc_adj=0 (wraps): no contention.
     static const uint8_t pattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
     const bool is_p3 = (type == MachineType::ZX_PLUS3);
 
-    for (int vc = 64; vc <= 255; ++vc) {
+    for (int vc = 0; vc <= 191; ++vc) {
+        // hc(8)=0 ⇒ hc in [0, 255] — the inner 256 ticks of each line.
         for (int hc = 0; hc <= 255; ++hc) {
-            int hc_adj = (hc & 0xF) + 1;
+            int hc_adj = ((hc & 0xF) + 1) & 0xF;          // 4-bit wrap
             bool contend = (hc_adj & 0xC) != 0;           // hc_adj[3:2] != 0
             if (is_p3) contend |= (hc_adj & 0xE) == 0;    // hc_adj[3:1] == 0
             if (contend) {
@@ -140,4 +147,119 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     // §8 row notes.
 
     return false;
+}
+
+uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
+                                         bool /*rd_n*/, bool /*wr_n*/,
+                                         uint16_t cpu_a,
+                                         uint16_t hc, uint16_t vc,
+                                         bool port_ulap_io_en) const {
+    // VHDL zxula.vhd:579-600 mirror.
+    //
+    // The VHDL emits two outputs — `o_cpu_contend` (48K/128K clock-stretch)
+    // and `o_cpu_wait_n` (+3 WAIT_n stall). Both fire only when `wait_s='1'`
+    // (window gate at zxula.vhd:582-583) AND the appropriate `i_contention_*`
+    // signal is high AND the cycle's MREQ/IORQ matches the path. The two
+    // paths are mutually exclusive on `i_timing_p3`.
+    //
+    // jnext folds both paths into a single returned T-state count. The
+    // caller (FUSE-callback memory/I/O cycle) adds it to the bus-cycle
+    // budget regardless of machine type — the path discrimination is
+    // internal to this function.
+
+    // --- Enable gate (zxnext.vhd:4481) -------------------------------
+    // i_contention_en = (not eff_nr_08_contention_disable)
+    //               AND (not machine_timing_pentagon)
+    //               AND (not cpu_speed(1)) AND (not cpu_speed(0))
+    if (contention_disable_) return 0;
+    if (pentagon_timing_)    return 0;
+    if (cpu_speed_ != 0)     return 0;
+
+    // --- Window gate (zxula.vhd:582-583) ------------------------------
+    // wait_s = '1' iff:
+    //   ((hc_adj(3:2) /= "00") OR (hc_adj(3:1)=000 AND timing_p3=1))
+    //   AND hc(8)=0 AND border_active_v=0 AND contention_en=1
+    //
+    // hc_adj is 4-bit, so the +1 wraps at 16. hc(3:0)=15 → hc_adj=0,
+    // hc(3:0)=0..14 → hc_adj=1..15.
+    if ((hc & 0x100) != 0) return 0;                  // hc(8)=1 → border
+    // border_active_v = vc(8) | (vc(7) & vc(6)) = vc>=192 OR vc>=256.
+    if ((vc & 0x100) != 0) return 0;
+    if ((vc & 0xC0) == 0xC0) return 0;
+    const int hc_adj = ((hc & 0x0F) + 1) & 0x0F;       // 4-bit wrap
+    const bool is_p3 = (type_ == MachineType::ZX_PLUS3);
+    bool wait_s = (hc_adj & 0xC) != 0;                 // hc_adj(3:2) != 0
+    if (is_p3) wait_s |= (hc_adj & 0xE) == 0;          // hc_adj(3:1) = 000
+    if (!wait_s) return 0;
+
+    // --- mem_contend (zxnext.vhd:4489-4493) ---------------------------
+    // mem_contend evaluated against current mem_active_page/type.
+    //   '0' when page(7:4) /= "0000"
+    //   '1' for 48K  & page(3:1)=101  (bank 5 only)
+    //   '1' for 128K & page(1)=1      (odd banks)
+    //   '1' for +3   & page(3)=1      (banks >= 4)
+    bool mem_c = false;
+    if ((mem_active_page_ & 0xF0) == 0) {
+        const uint8_t low = mem_active_page_ & 0x0F;
+        switch (type_) {
+            case MachineType::ZX48K:
+                mem_c = ((low >> 1) & 0x07) == 0x05;
+                break;
+            case MachineType::ZX128K:
+                mem_c = (low & 0x02) != 0;
+                break;
+            case MachineType::ZX_PLUS3:
+                mem_c = (low & 0x08) != 0;
+                break;
+            case MachineType::PENTAGON:
+            case MachineType::ZXN_ISSUE2:
+                mem_c = false;
+                break;
+        }
+    }
+
+    // --- port_contend (zxnext.vhd:4496) -------------------------------
+    // The runtime caller passes `port_ulap_io_en` for the ULA+ ports.
+    // The bare-class `port_contend()` accessor handles even-port + ULA+
+    // OR-terms; the `port_7ffd_active` term is driven separately at
+    // higher levels and OR-ed in by callers when appropriate.
+    const bool port_c = (iorq_n == false) && port_contend(cpu_a, port_ulap_io_en);
+
+    // --- Active path ------------------------------------------------
+    // 48K/128K (`o_cpu_contend`, zxula.vhd:587-595):
+    //   stretch when ((mem_c AND mreq23_n='1' AND ioreqtw3_n='1')
+    //              OR (port_c AND iorq_n='0' AND ioreqtw3_n='1'))
+    //              AND timing_p3='0' AND wait_s='1'.
+    //
+    // +3 (`o_cpu_wait_n`, zxula.vhd:599-600):
+    //   stall when (mreq_n='0' AND mem_c) AND timing_p3='1' AND wait_s='1'.
+    //   I/O-side WAIT is commented out in the live VHDL — memory only.
+    //
+    // jnext approximation: we don't track the registered `mreq23_n` /
+    // `ioreqtw3_n` (last-cycle versions) — the FUSE callback fires
+    // exactly once per bus cycle so the prior-cycle latches collapse
+    // into "trigger on every contended access". This matches what the
+    // FUSE table-based path was doing before this change, but now
+    // gated on the VHDL-faithful (hc, vc) window + per-machine page
+    // decode.
+    //
+    // Returned delay magnitude follows the per-phase 7-cycle stretch
+    // pattern, which is the same on 48K/128K (`o_cpu_contend` triggers
+    // a clock-low stretch of N T-states matching the LUT) and on +3
+    // (`o_cpu_wait_n` holds WAIT_n low for N T-states matching the LUT).
+    static constexpr uint8_t kPattern[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+
+    if (is_p3) {
+        // +3: memory-side WAIT_n only (port-side commented out in VHDL).
+        if (mreq_n == false && mem_c) {
+            return kPattern[hc & 7];
+        }
+        return 0;
+    }
+
+    // 48K/128K: memory-side OR port-side both fire o_cpu_contend.
+    if ((mreq_n == false && mem_c) || port_c) {
+        return kPattern[hc & 7];
+    }
+    return 0;
 }
