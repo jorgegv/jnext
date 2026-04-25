@@ -2134,17 +2134,11 @@ void test_cat15_bank57() {
 }
 
 // ── Category 16 (memory contention): MIGRATED ────────────────────────
-// The 13 CON-01..CON-12b rows that lived here have moved to
+// The 13 memory-contention rows that lived here have moved to
 // test/contention/contention_test.cpp per the §15 C2-move commitment in
-// doc/testing/CONTENTION-TEST-PLAN-DESIGN.md. CT-* identifiers in that
-// suite cover the same VHDL semantics:
-//   CON-01     → CT-M48-01           CON-08     → CT-MP3-05
-//   CON-02     → folded into CT-M48-01 (same predicate facet)
-//   CON-03     → CT-M48-03           CON-09     → CT-M48-06
-//   CON-04     → CT-M48-05           CON-10     → CT-GATE-02
-//   CON-05     → CT-M128-01          CON-11     → CT-GATE-03/04/05
-//   CON-06     → CT-M128-03          CON-12a    → CT-PENT-01
-//   CON-07     → CT-MP3-01           CON-12b    → CT-GATE-06
+// doc/testing/CONTENTION-TEST-PLAN-DESIGN.md. The legacy row identifiers
+// no longer exist anywhere in the tree; for the historical mapping see
+// the §"Cross-reference" table in that plan doc.
 
 // ── Category 17: Layer 2 memory mapping ───────────────────────────────
 // VHDL: zxnext.vhd:2966-2971 (layer2_active_page formula),
