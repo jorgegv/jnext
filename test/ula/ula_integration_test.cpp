@@ -618,6 +618,61 @@ static void test_shadow_integration(Emulator& emu) {
               fmt("boot_clear=%d on_after_set=%d off_after_clear=%d",
                   boot_clear, on_after_set, off_after_clear));
     }
+
+    // ── INT-SHADOW-02 — port 0x7FFD bit 3 actually switches the ULA bank ──
+    //
+    // INT-SHADOW-01 only checks the flag toggle. That gap let beast.nex
+    // ship with a half-implemented setter: `Ula::set_shadow_screen_en`
+    // recorded the flag but did not flip `vram_use_bank7_`, so render
+    // kept reading bank 5 (game data) instead of bank 7 (the shadow
+    // screen pre-filled with uniform attrs by the demo).
+    //
+    // Stimulus: distinct ink colours into row-0 attribute byte of each
+    // bank (cyan/5 in bank 5, red/2 in bank 7), pixel byte 0xFF in both.
+    // OUT 0x7FFD,0x08 → render scanline 32 → first display column must
+    // flip cyan → red. VHDL ula_bank_do <= vram_bank7_do when
+    // port_7ffd_shadow='1'.
+    {
+        // Defensive cleanup of state left by earlier rows in this suite:
+        //   INT-SCROLL-03 leaves NR 0x27 = 32 (Y-scroll), which would
+        //   make render row 0 fold to source row 32 and miss our writes
+        //   at offset 0 entirely (whence the off=white observed during
+        //   bring-up). NR 0x26 + NR 0x68 also touched by scroll rows.
+        //   INT-ULANEXT-01 / INT-ULAPLUS-02 leave their respective
+        //   modes on, which would route through alternative paper/ink
+        //   encoders.
+        emu.nextreg().write(0x26, 0x00);  // ULA scroll-X coarse = 0
+        emu.nextreg().write(0x27, 0x00);  // ULA scroll-Y = 0
+        emu.nextreg().write(0x68, 0x00);  // bits 7/3/2 → ULA-disable / ulap_en / fine-x
+        emu.nextreg().write(0x43, 0x00);  // ULAnext en = 0 (zxnext.vhd:5394)
+
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        emu.ram().write(10u * 8192u + poff,    0xFF);
+        emu.ram().write(10u * 8192u + 0x1800u, 0x05);  // bank5 ink=cyan
+        emu.ram().write(14u * 8192u + poff,    0xFF);
+        emu.ram().write(14u * 8192u + 0x1800u, 0x02);  // bank7 ink=red
+
+        std::array<uint32_t, 320> line_off{}, line_on{};
+
+        emu.port().out(0x7FFD, 0x00);
+        render_line(emu, 32, line_off);
+
+        emu.port().out(0x7FFD, 0x08);
+        render_line(emu, 32, line_on);
+
+        // Restore so subsequent rows in the suite see the reset state.
+        emu.port().out(0x7FFD, 0x00);
+
+        const uint32_t cyan = kUlaPalette[5];
+        const uint32_t red  = kUlaPalette[2];
+        check("INT-SHADOW-02",
+              "OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side "
+              "regression for the half-implemented set_shadow_screen_en that "
+              "tripped beast.nex 2026-04-25",
+              line_off[32] == cyan && line_on[32] == red,
+              fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
+                  line_off[32], cyan, line_on[32], red));
+    }
 }
 
 static void test_altfile_integration(Emulator& emu) {

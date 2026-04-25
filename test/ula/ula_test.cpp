@@ -533,6 +533,43 @@ static void test_section5_timex() {
 
     // S5.08 — hi-res attr_reg loaded with border_clr_tmx.
     // G: attr_reg + border_clr_tmx (zxula.vhd:384-393) — internal shift-reg detail.
+
+    // S5.09 — i_ula_shadow_en routes ULA reads from bank 5 (page 10) to bank 7
+    //   (page 14). VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'.
+    //   Regression for the half-implemented set_shadow_screen_en that recorded
+    //   the flag but did NOT switch the bank; surfaced by beast.nex 2026-04-25.
+    //
+    //   Stimulus: write distinct ink colours into the row-0 attribute byte of
+    //   each bank (cyan/5 in bank 5, red/2 in bank 7), pixel byte 0xFF (all
+    //   ink) in both. Render scanline 32 (display row 0) with shadow off then
+    //   on; the first display column must flip from cyan to red.
+    {
+        UlaBed bed;
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        const uint32_t bank5_pix = 10u * 8192u + poff;
+        const uint32_t bank5_att = 10u * 8192u + 0x1800u;
+        const uint32_t bank7_pix = 14u * 8192u + poff;
+        const uint32_t bank7_att = 14u * 8192u + 0x1800u;
+        bed.ram.write(bank5_pix, 0xFF);
+        bed.ram.write(bank5_att, 0x05);   // paper black, ink cyan
+        bed.ram.write(bank7_pix, 0xFF);
+        bed.ram.write(bank7_att, 0x02);   // paper black, ink red
+
+        std::array<uint32_t, 320> line_off{}, line_on{};
+        bed.ula.set_shadow_screen_en(false);
+        bed.ula.render_scanline(line_off.data(), 32, bed.mmu);
+        bed.ula.set_shadow_screen_en(true);
+        bed.ula.render_scanline(line_on.data(), 32, bed.mmu);
+
+        const uint32_t cyan = kUlaPalette[5];
+        const uint32_t red  = kUlaPalette[2];
+        check("S5.09",
+              "shadow_screen_en=1 must switch ULA to bank 7 (page 14); "
+              "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
+              line_off[32] == cyan && line_on[32] == red,
+              fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
+                  line_off[32], cyan, line_on[32], red));
+    }
 }
 
 // =========================================================================

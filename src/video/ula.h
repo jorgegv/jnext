@@ -253,6 +253,13 @@ public:
     // VHDL is a combinational OR-gate; restoration is the caller's job.
     void set_shadow_screen_en(bool b) {
         shadow_screen_en_ = b;
+        // VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1':
+        // i_ula_shadow_en is the SAME signal that switches vram_read from
+        // bank 5 (page 10) to bank 7 (page 14). Keeping the two flags in
+        // sync — without this, vram_read stays on bank 5 even when
+        // shadow_screen_en_ is asserted, and ULA reads game data instead of
+        // the shadow screen contents. Beast.nex 2026-04-25.
+        vram_use_bank7_ = b;
         if (b) {
             // Force screen_mode_reg_ bits 5:3 (jnext's mode field) to 000
             // (STANDARD).  Use the existing setter so side-effects propagate

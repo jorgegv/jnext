@@ -1,11 +1,127 @@
-# Beast.nex rendering investigation — ULA leak through tilemap
+# Beast.nex / parallax.nex rendering investigation
 
-**Date**: 2026-04-24
-**Branch**: `investigation-beast-nex` (worktree
+**Date**: 2026-04-24, updated 2026-04-25
+**Branch**: original investigation on `investigation-beast-nex` (worktree
 `/home/jorgegv/src/spectrum/jnext/.claude/worktrees/agent-a07f5bc4`)
-**Base**: `main` @ `ca88d01` (UDIS-03 Phase 1 landed — NR 0x68 bits 6:5 +
-4-variant blend_mode)
+**Base**: `main` @ `ca88d01` (UDIS-03 Phase 1 landed). Re-checked at
+`f9f3050` (housekeeping commits 2026-04-25).
 **Status**: diagnostic only — branch not intended to be merged.
+
+## 2026-04-25 — Beast RESOLVED + parallax findings
+
+### Beast — root cause + fix
+
+**Root cause**: `Ula::set_shadow_screen_en(bool)` at
+[src/video/ula.h:254](src/video/ula.h#L254) was half-implemented — it
+recorded `shadow_screen_en_` and masked `screen_mode` per VHDL
+zxula.vhd:191, but **never set `vram_use_bank7_`**, the flag the
+actual bank-switch logic at [src/video/ula.cpp:46](src/video/ula.cpp#L46)
+consults (`page = vram_use_bank7_ ? 14u : 10u`). On real hardware the
+two are the same signal `i_ula_shadow_en` (VHDL `ula_bank_do <=
+vram_bank7_do when port_7ffd_shadow='1'`); jnext had two flags out of
+sync.
+
+**Why beast tripped it**: from
+[`Beast/beast.asm`](../../CSpect3_1_0_0/Beast/beast.asm) — beast
+deliberately enables shadow screen (`OUT 0x7FFD, %00001000`) and
+pre-fills bank 14's attribute area with uniform magenta+white. With
+the bug, ULA kept reading bank 5 (where the NEX loader had deposited
+beast's game data) and rendered it as 8×8 attribute leaks wherever the
+tilemap was transparent. With the fix, ULA reads bank 14's uniform
+attributes — invisible because tilemap covers the display fully and the
+border is all-black via NR 0x4A.
+
+**Fix**: one line inside `set_shadow_screen_en` keeping
+`vram_use_bank7_` in sync with `shadow_screen_en_`. Test coverage:
+- `test/ula/ula_test.cpp` — new **S5.09**, bare-Ula render: cyan
+  attr in bank 5, red attr in bank 7, render scanline 32, assert
+  first display column flips on `set_shadow_screen_en(true)`.
+- `test/ula/ula_integration_test.cpp` — new **INT-SHADOW-02**, mirror
+  via real Emulator and `OUT 0x7FFD, 0x08`. Closes the test-plan gap
+  flagged by the independent reviewer (INT-SHADOW-01 only checked the
+  flag toggle, never the rendered output — exactly why the bug shipped).
+
+**Visual proof**: `/tmp/beast-baseline.png` (pre-fix, upper-right leak)
+vs `/tmp/beast-after-fix.png` (clean).
+
+### Parallax — separate finding
+
+**Parallax** (`/tmp/parallax-baseline.png`, also `/tmp/parallax-t1`,
+`t3`, `t6`): severe corruption — the scene is rendered as **two
+side-by-side copies with a vertical black band in the middle**.
+Parked pending separate plan (see below).
+
+#### Parallax — root-cause shortlist
+
+DMA + NextREG trace at `--log-level dma=info,nextreg=trace` (capture in
+`/tmp/parallax-trace.log`, 2944 NR writes captured in 4 s):
+
+- **DMA volume**: 757 R6:ENABLE events in 5 s (~3 enables per video
+  frame at 50/60 Hz). All target **port 0x57 = sprite attribute upload
+  (auto-incrementing slot)**, sourcing memory at 0xE000 / 0xE800 /
+  0xF000 in 80-byte chunks. Pattern is consistent (RESET → R0..R5
+  programming → R6:LOAD → R6:ENABLE per chunk) and the addressing
+  walks the source buffers in 80-byte strides — clean sprite-attribute
+  uploader. **DMA itself is not the bug**; it is the *vehicle*
+  parallax uses for sprite scrolling. The user's "lots of DMA" hint
+  pointed correctly at the code path but the fault is downstream.
+- **NR 0x15 toggles between `0x80` and `0x01`**: bit 7 = LoRes enable,
+  bit 0 = sprites visible. Parallax flips between (LoRes on, sprites
+  off) and (LoRes off, sprites on) — almost certainly a per-frame or
+  per-line Copper-driven layer split for the parallax effect.
+- **LoRes (NR 0x15 bit 7) is explicitly NOT IMPLEMENTED**:
+  - `src/core/emulator.cpp:428` says `// bit 7 = LoRes enable
+    (deferred)` and the write handler ignores the bit.
+  - `doc/design/EMULATOR-DESIGN-PLAN.md:767` reads `LoRes deferred to
+    Phase 3 (NextREG-dependent)`.
+  - `src/core/nex_loader.cpp:189-198` already loads LoRes screen data
+    into bank 5 from the NEX file (NEX flag `SCREEN_LORES = 0x04`),
+    but no renderer consumes it.
+- **No NR 0x68 / 0x69 / 0x6B / 0x6E / 0x6F / 0x70** writes — Layer 2
+  is never enabled (NR 0x69 untouched, port 0x123B untouched) and
+  Tilemap is never enabled. Parallax renders entirely with **ULA +
+  sprites + LoRes**, with NR 0x16 (L2 X-scroll, ignored when L2 off)
+  also being driven for either future use or as a stale write.
+- **Copper is active**: writes to NR 0x60 / 0x61 / 0x62 — Copper
+  program almost certainly drives the per-line LoRes/sprites flip in
+  NR 0x15.
+
+### Verdict
+
+- **Beast residual**: low priority, single small leak; the previous H4
+  diagnosis (NEX-loader bank-5 collision) covers it. No action
+  recommended unless the user wants 100% pixel-clean.
+- **Parallax**: needs **LoRes mode implementation**. This is a
+  substantial missing feature, not a bug. The existing ULA Video
+  closure plan covers ULAnext/ULA+/Hi-Res/Hi-Colour but explicitly
+  defers LoRes. NEX-loader half is done (data is loaded into bank 5);
+  the renderer half (read 256×192 from bank 5 as a 128×96 layer with
+  256-colour palette and composite at the same priority slot as ULA)
+  is not. Independent of LoRes there may also be a sprite X-coordinate
+  / wrap issue contributing to the side-by-side duplication, but that
+  cannot be properly diagnosed until LoRes renders so we can see what
+  *should* be one layer vs another.
+
+### Recommended next step
+
+Author a **LoRes implementation plan** (small subsystem doc in
+`doc/design/`, modeled on the ULA Video plan structure). LoRes spec is
+short — VHDL `lores.vhd` is the oracle. Key bits:
+- 128×96 framebuffer at `bank 5 + 0x0000` (12 288 bytes), 1 byte per
+  pixel, palette-indexed via the ULA palette (NR 0x40-0x44 family).
+- Composited where ULA would normally render, gated by NR 0x15 bit 7.
+- Clip window NR 0x1A shared with ULA path.
+- Scroll: NR 0x32 (LoRes X) / NR 0x33 (LoRes Y).
+
+After LoRes lands, re-snap parallax. If the side-by-side artefact
+persists, dig into sprite X-wrap / Layer 2 (the latter in case the
+trace missed an enable). Beast can then close as a known low-impact
+limitation or get a follow-up bank-5-zero patch in the NEX loader.
+
+---
+
+## Original 2026-04-24 report (beast only)
+
 
 ## 1. Summary
 
