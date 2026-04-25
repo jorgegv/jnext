@@ -2472,6 +2472,12 @@ void Emulator::run_frame()
     // Interrupt handlers may change scroll mid-frame for split-screen effects.
     tilemap_.init_scroll_per_line();
 
+    // Per-scanline palette snapshot — baseline copy + change-log reset
+    // (TASK-PER-SCANLINE-PALETTE-PLAN.md). Without this, Copper writes
+    // to NR 0x41 mid-frame collapse to the LAST value at render time
+    // (e.g. beast.nex sky gradient).
+    palette_.start_frame();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -3066,6 +3072,11 @@ void Emulator::on_scanline(int line)
         renderer_.ula().snapshot_border_for_line(line - 1);
         tilemap_.snapshot_scroll_for_line(line - 1);
     }
+    // Tag subsequent palette writes with the new scanline so the
+    // change-log is in scanline order (apply_changes_for_line advances
+    // a single cursor, no per-line search). See TASK-PER-SCANLINE-
+    // PALETTE-PLAN.md.
+    palette_.set_current_line(line);
 }
 
 void Emulator::on_vsync()

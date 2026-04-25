@@ -1,7 +1,9 @@
 #include "video/palette.h"
+#include "core/log.h"
 #include "core/saveable.h"
 
 #include <algorithm>
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 // RGB333 → ARGB8888 helper
@@ -256,34 +258,112 @@ void PaletteManager::write_9bit(uint8_t val)
 
 void PaletteManager::write_entry(uint16_t rgb333)
 {
-    int bank = (static_cast<int>(target_palette_) >= 4) ? 1 : 0;
+    // Per-scanline log: record BEFORE applying so that apply_change can
+    // be reused for replay without re-logging. ULA gets the masked
+    // index because that is what the live mutation uses below.
+    if (change_count_ < MAX_CHANGES_PER_FRAME) {
+        const bool is_ula = (target_palette_ == PaletteId::ULA_FIRST
+                          || target_palette_ == PaletteId::ULA_SECOND);
+        change_log_[change_count_++] = PaletteChange{
+            current_line_,
+            target_palette_,
+            static_cast<uint8_t>(is_ula ? (index_ & 0x0F) : index_),
+            rgb333,
+        };
+    } else if (!overflow_warned_) {
+        Log::video()->warn(
+            "PaletteManager: change-log full at line {} (cap {} per frame); "
+            "further palette writes this frame will not be per-scanline. "
+            "TASK-PER-SCANLINE-PALETTE-PLAN.md §Q1.",
+            current_line_, MAX_CHANGES_PER_FRAME);
+        overflow_warned_ = true;
+    }
 
-    switch (target_palette_) {
+    apply_change(PaletteChange{current_line_, target_palette_,
+                               static_cast<uint8_t>(index_), rgb333});
+
+    advance_index();
+}
+
+void PaletteManager::apply_change(const PaletteChange& c)
+{
+    const int bank = (static_cast<int>(c.target) >= 4) ? 1 : 0;
+    const uint32_t argb = rgb333_to_argb(c.rgb333);
+
+    switch (c.target) {
         case PaletteId::ULA_FIRST:
         case PaletteId::ULA_SECOND: {
-            uint8_t idx = index_ & 0x0F;  // ULA palette has 16 entries
-            ula_rgb333_[bank][idx] = rgb333;
-            ula_argb_[bank][idx] = rgb333_to_argb(rgb333);
+            const uint8_t idx = c.index & 0x0F;
+            ula_rgb333_[bank][idx] = c.rgb333;
+            ula_argb_[bank][idx] = argb;
             break;
         }
         case PaletteId::LAYER2_FIRST:
         case PaletteId::LAYER2_SECOND:
-            layer2_rgb333_[bank][index_] = rgb333;
-            layer2_argb_[bank][index_] = rgb333_to_argb(rgb333);
+            layer2_rgb333_[bank][c.index] = c.rgb333;
+            layer2_argb_[bank][c.index] = argb;
             break;
         case PaletteId::SPRITE_FIRST:
         case PaletteId::SPRITE_SECOND:
-            sprite_rgb333_[bank][index_] = rgb333;
-            sprite_argb_[bank][index_] = rgb333_to_argb(rgb333);
+            sprite_rgb333_[bank][c.index] = c.rgb333;
+            sprite_argb_[bank][c.index] = argb;
             break;
         case PaletteId::TILEMAP_FIRST:
         case PaletteId::TILEMAP_SECOND:
-            tilemap_rgb333_[bank][index_] = rgb333;
-            tilemap_argb_[bank][index_] = rgb333_to_argb(rgb333);
+            tilemap_rgb333_[bank][c.index] = c.rgb333;
+            tilemap_argb_[bank][c.index] = argb;
             break;
     }
+}
 
-    advance_index();
+// ---------------------------------------------------------------------------
+// Per-scanline snapshot API — TASK-PER-SCANLINE-PALETTE-PLAN.md
+// ---------------------------------------------------------------------------
+
+void PaletteManager::start_frame()
+{
+    // Memcpy the live state into the baseline. Same shape on both sides.
+    for (int p = 0; p < 2; ++p) {
+        baseline_ula_rgb333_[p]     = ula_rgb333_[p];
+        baseline_ula_argb_[p]       = ula_argb_[p];
+        baseline_layer2_rgb333_[p]  = layer2_rgb333_[p];
+        baseline_layer2_argb_[p]    = layer2_argb_[p];
+        baseline_sprite_rgb333_[p]  = sprite_rgb333_[p];
+        baseline_sprite_argb_[p]    = sprite_argb_[p];
+        baseline_tilemap_rgb333_[p] = tilemap_rgb333_[p];
+        baseline_tilemap_argb_[p]   = tilemap_argb_[p];
+    }
+    change_count_     = 0;
+    render_cursor_    = 0;
+    current_line_     = 0;
+    overflow_warned_  = false;
+}
+
+void PaletteManager::rewind_to_baseline()
+{
+    for (int p = 0; p < 2; ++p) {
+        ula_rgb333_[p]     = baseline_ula_rgb333_[p];
+        ula_argb_[p]       = baseline_ula_argb_[p];
+        layer2_rgb333_[p]  = baseline_layer2_rgb333_[p];
+        layer2_argb_[p]    = baseline_layer2_argb_[p];
+        sprite_rgb333_[p]  = baseline_sprite_rgb333_[p];
+        sprite_argb_[p]    = baseline_sprite_argb_[p];
+        tilemap_rgb333_[p] = baseline_tilemap_rgb333_[p];
+        tilemap_argb_[p]   = baseline_tilemap_argb_[p];
+    }
+    render_cursor_ = 0;
+}
+
+void PaletteManager::apply_changes_for_line(int line)
+{
+    // Log is in scanline order (writes append with monotonic
+    // current_line_). Advance the cursor while entries match the
+    // requested line. Total cost across a full render is O(change_count_).
+    while (render_cursor_ < change_count_
+        && change_log_[render_cursor_].line == line) {
+        apply_change(change_log_[render_cursor_]);
+        ++render_cursor_;
+    }
 }
 
 // ---------------------------------------------------------------------------

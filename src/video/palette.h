@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 /// Convert a ZX RGB333 colour (3 bits each, as used internally on the ZX Next)
@@ -160,6 +161,52 @@ public:
     /// Query the active tilemap palette select (mostly for tests / debug).
     bool active_tilemap_palette() const { return active_tm_second_; }
 
+    // -----------------------------------------------------------------
+    // Per-scanline palette snapshot — TASK-PER-SCANLINE-PALETTE-PLAN.md
+    // -----------------------------------------------------------------
+    //
+    // Mirrors the existing per-scanline pattern (border, fallback,
+    // ula_enabled, tilemap_scroll). Required for demos that change a
+    // palette entry mid-frame via Copper to produce gradients
+    // (e.g. beast.nex sky). Renderer flow:
+    //
+    //   start_frame();            // emulator at frame start
+    //   …                         // emulation runs; palette writes
+    //                             // append to change_log_ tagged with
+    //                             // current_line_ (set per scanline)
+    //   rewind_to_baseline();     // before render_frame
+    //   for row in 0..H:
+    //       apply_changes_for_line(row);
+    //       render_scanline(row);
+
+    /// Snapshot the live palette as the frame baseline and reset the
+    /// per-frame change log. Called at the start of every frame.
+    void start_frame();
+
+    /// Update the scanline tag attached to subsequent palette writes.
+    /// Called from Emulator::on_scanline. Default 0 at frame start.
+    void set_current_line(int line) {
+        current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live palette to the frame baseline and reset the
+    /// render cursor. Called once before per-scanline render.
+    void rewind_to_baseline();
+
+    /// Apply all logged changes whose line tag equals `line`. Cursor
+    /// is monotonically advanced; the log is in scanline order so
+    /// total work across a frame is O(change_count_).
+    void apply_changes_for_line(int line);
+
+    /// Number of palette changes recorded this frame (diagnostic).
+    size_t change_log_size() const { return change_count_; }
+
+    /// Static cap; further writes after this many in a frame are
+    /// silently dropped (with a once-per-frame warn). Sized for the
+    /// worst-case "Copper writes a palette entry on every scanline of
+    /// every frame, several times" scenario the plan calls out.
+    static constexpr size_t MAX_CHANGES_PER_FRAME = 4096;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -207,4 +254,36 @@ private:
     /// Convert 8-bit RRRGGGBB to 9-bit RGB333.
     /// Blue LSB is derived as (B1 | B0) per hardware spec.
     static uint16_t rrrgggbb_to_rgb333(uint8_t val);
+
+    // ── Per-scanline change log (TASK-PER-SCANLINE-PALETTE-PLAN.md) ──
+    //
+    // Recorded by write_entry; replayed by apply_changes_for_line.
+    // Static allocation by design (no per-frame heap churn).
+    struct PaletteChange {
+        uint16_t  line;        ///< 0..lines_per_frame-1
+        PaletteId target;      ///< 4 palettes × 2 banks
+        uint8_t   index;       ///< 0..255 (ULA wraps to 0..15)
+        uint16_t  rgb333;      ///< 9-bit packed RRRGGGBBB
+    };
+
+    std::array<PaletteChange, MAX_CHANGES_PER_FRAME> change_log_{};
+    size_t   change_count_     = 0;
+    uint16_t current_line_     = 0;
+    size_t   render_cursor_    = 0;
+    bool     overflow_warned_  = false;
+
+    // Frame-start baseline of all palette state. Same shape as the live
+    // arrays so rewind is a memcpy per palette.
+    std::array<uint16_t, ULA_SIZE>  baseline_ula_rgb333_[2]{};
+    std::array<uint16_t, FULL_SIZE> baseline_layer2_rgb333_[2]{};
+    std::array<uint16_t, FULL_SIZE> baseline_sprite_rgb333_[2]{};
+    std::array<uint16_t, FULL_SIZE> baseline_tilemap_rgb333_[2]{};
+    std::array<uint32_t, ULA_SIZE>  baseline_ula_argb_[2]{};
+    std::array<uint32_t, FULL_SIZE> baseline_layer2_argb_[2]{};
+    std::array<uint32_t, FULL_SIZE> baseline_sprite_argb_[2]{};
+    std::array<uint32_t, FULL_SIZE> baseline_tilemap_argb_[2]{};
+
+    /// Apply a single change to the live palette state (no logging).
+    /// Used by both the replay path and the rewind-then-replay loop.
+    void apply_change(const PaletteChange& c);
 };

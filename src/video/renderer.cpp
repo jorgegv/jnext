@@ -34,7 +34,25 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                      (tilemap && tilemap->enabled() && tilemap->is_80col());
     composite_width_ = hi_res_active_ ? FB_WIDTH_HI : FB_WIDTH;
 
+    // Per-scanline palette: rewind to the frame's baseline so the
+    // line-by-line apply below sees the same starting state the Z80
+    // saw at frame start. The change-log was populated during emulation
+    // (see Emulator::on_scanline → palette_.set_current_line). Without
+    // this, the live palette holds end-of-frame state and every
+    // scanline renders identically (e.g. beast.nex sky gradient
+    // collapses to its last colour). TASK-PER-SCANLINE-PALETTE-PLAN.md.
+    //
+    // Note: in replay_mode_ Emulator::run_frame skips render_frame, so
+    // this rewind also doesn't fire. That is intentional — the next
+    // live frame's start_frame() snapshots a fresh baseline, and the
+    // live palette state has not been disturbed by the skipped render.
+    palette.rewind_to_baseline();
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
+        // Replay log entries tagged with this scanline before any
+        // layer rendering reads palette state.
+        palette.apply_changes_for_line(row);
+
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
 
