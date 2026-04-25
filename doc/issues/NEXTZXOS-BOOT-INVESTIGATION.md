@@ -1112,6 +1112,90 @@ aliasing issue at a specific bank boundary.
 
 ---
 
+### 2026-04-25 — TBBlue boot-screen regression bisected
+
+User-reported: boot screen at frame ~200 shows 8×8 attribute-cell
+garbage where the **TBBlue logo** should be (clean text overlays on
+top — "Press SPACEBAR for menu", "Firmware v1.44.db / Core v3.02.03").
+At commit `75b7cdc` (Apr 19, "Fix 1 — Ram size 2 MB") boot was clean
+with full TBBlue logo. Bisect over 297 commits → 5 build/snap rounds
+plus 3 doc-skip → first bad commit:
+
+**`99415ff`** — `cpu(im2): phase 2 agent A — RETI/RETN/IM-mode decoder`
+
+The commit replaced a `static bool saw_ed` lambda with a
+VHDL-faithful FSM in `Im2Controller`. The commit message acknowledges
+one behaviour change: the legacy lambda fired `divmmc_.on_retn()` on
+canonical 0x45 PLUS 6 undocumented Z80 RETN aliases
+(0x55/5D/65/6D/75/7D); the new decoder only fires on canonical 0x45,
+matching VHDL `im2_control.vhd:137`.
+
+Empirical trace at frame 200 (instrumented `cpu_.on_m1_cycle` lambda):
+
+```
+$ grep RETN-fire /tmp/retn-log.txt | awk '{print $5}' | sort | uniq -c
+     56 opcode=0x5D
+      1 opcode=0x65
+```
+
+Firmware fires the RETN-pulse path **57 times during boot, never on
+canonical 0x45** — both fire-points are at PCs `0xADBA` and `0x7429`,
+well outside the DivMMC ROM 0x0000-0x1FFF. They are coincidental Z80
+RETN-alias instructions in normal code, not DivMMC return paths.
+
+#### Why VHDL doesn't match real-Next behaviour here
+
+- VHDL `im2_control.vhd:137` only matches canonical 0x45 (verified).
+- Real Next executes alias bytes as RETN micro-ops on silicon (not a
+  Z80N redefinition: the Z80N opcode list at
+  [src/cpu/z80n_ext.h](../../src/cpu/z80n_ext.h) does NOT cover any
+  of those alias bytes).
+- Real DivMMC therefore does NOT receive `i_retn_seen` on alias
+  bytes either.
+- Yet real Next firmware DOES boot cleanly with the alias usage.
+- → Real DivMMC must have **another clear path** that we're not
+  modelling. Most plausible: VHDL `divmmc.vhd:131`
+  `automap_held and not (i_automap_active and i_automap_delayed_off)`
+  — the firmware exits DivMMC ROM by jumping to a configured
+  delayed-off entry-point, which clears `automap_held` regardless of
+  RETN. Our `DivMmc::check_automap` partially models this but may
+  not honour it completely.
+
+#### Tbblue firmware emulator-vs-real path
+
+Checked `tbblue/src/firmware/{app,firmware,loader}/src/*.c`. Only two
+`HWID_EMULATORS` (0x08) branches:
+
+- `app/src/boot.c:183` — skips core-version flash read
+- `app/src/editor.c:588` — skips flash editor
+
+Neither is on the boot-screen rendering path. The DivMMC ROM
+(`enNxtmmc.rom`) is a precompiled binary (esxDOS-derived) and the
+copy on the SD image is the same as in the upstream tbblue repo.
+**The emulator-vs-real difference is not material to this regression.**
+The fix has to be on jnext's side.
+
+#### Band-aid (current)
+
+Restored the alias-firing in `cpu_.on_m1_cycle` (Emulator::init,
+[src/core/emulator.cpp:228-243](../../src/core/emulator.cpp#L228-L243))
+explicitly marked as a **KNOWN DIVERGENCE FROM VHDL** with a TODO
+pointing here. Boot renders the TBBlue logo cleanly again. Unit
+3333/3217/0/116 + regression 34/0/0.
+
+#### Follow-up — proper fix
+
+Investigate VHDL `divmmc.vhd:131` "delayed-off" clear path against
+our `DivMmc::check_automap`. If our model honours the delayed_off
+match correctly, the alias-firing band-aid should become removable.
+If we're missing the path (most likely), implement it then drop the
+band-aid in the same commit. Test row idea: integration suite that
+sets up a DivMMC ROM entry, takes the auto-map path, exits via a
+delayed-off entry point WITHOUT a RETN, and asserts `automap_held`
+clears.
+
+---
+
 ## Commit index (all dates)
 
 | Hash | Date | Description |
@@ -1145,7 +1229,8 @@ aliasing issue at a specific bank boundary.
 | b43cbfa | 2026-04-19 | fix(memory): bump default Ram size 1792→2048 KB for NextZXOS boot |
 | de7a095 | 2026-04-19 | fix(tests): widen rewind snap bound + drop stale Ram(1792*1024) |
 | 71fb0b2 | 2026-04-19 | docs(tests): update mmu_test CFG-07 comment for 2 MB default Ram |
-| 75b7cdc | 2026-04-19 | Merge branch 'fix/ram-size-2mb' — Task (c) Fix 1 landed |
+| 75b7cdc | 2026-04-19 | Merge branch 'fix/ram-size-2mb' — Task (c) Fix 1 landed (last commit with clean TBBlue logo on boot) |
+| 99415ff | 2026-04-21 | cpu(im2): RETI/RETN/IM-mode decoder — INTRODUCED boot-screen regression by dropping RETN-alias firing for DivMmc::on_retn (band-aided 2026-04-25) |
 | b483e98 | 2026-04-19 | feat(cli): --delayed-screenshot-frames for frame-accurate timing |
 | 5544b34 | 2026-04-19 | refactor(divmmc): add button_nmi_ latch + save/load + reset clear |
 | 1a8e307 | 2026-04-19 | fix(divmmc): gate PC=0x0066 instant-on automap on button_nmi (VHDL:120) |

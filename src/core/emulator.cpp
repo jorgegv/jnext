@@ -207,31 +207,49 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nmi_source_.observe_m1_fetch(pc, true, true);
     };
 
-    // Install M1-cycle callback. The RETI/RETN/IM-mode decoder state
-    // machine lives inside Im2Controller (matching VHDL
-    // im2_control.vhd:70-240); this closure is a thin forwarder that
-    // consumes the one-cycle pulses.
+    // Install M1-cycle callback. RETI/RETN decoding splits along two
+    // paths because the consumers have *different* requirements:
     //
-    // RETI notifies the Im2Controller so it can clear the acknowledged
-    // interrupter in the daisy chain (Phase 2 Agent B will augment
-    // Im2Controller::on_reti() with the S_ISR → S_0 walk).
-    // RETN notifies DivMmc so it can clear automap hold/held per
-    // VHDL divmmc.vhd:126,139 (i_retn_seen).
+    //   - Im2Controller (RETI-acknowledge daisy walk): driven by the
+    //     VHDL-faithful im2_control.vhd:70-240 FSM inside Im2Controller.
+    //     That FSM only fires reti_seen_this_cycle() on canonical ED 4D,
+    //     matching VHDL.
     //
-    // Note: VHDL im2_control.vhd only detects canonical ED 45 as RETN
-    // (cpu_opcode = X"45" at line 137, used at line 236). Undocumented
-    // RETN aliases (0x55/0x5D/0x65/0x6D/0x75/0x7D) are NOT recognised
-    // by the FPGA's `o_retn_seen` pulse, so DivMMC on the real hardware
-    // does not clear automap on them either. The previous implementation
-    // here called divmmc_.on_retn() for those aliases, going beyond the
-    // VHDL spec; the VHDL-faithful behaviour is to clear only on 0x45.
-    cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
+    //   - DivMmc (automap hold/held clear, divmmc.vhd:126,139): pulse is
+    //     fired on canonical ED 45 PLUS the 6 undocumented Z80 RETN
+    //     aliases (0x55/5D/65/6D/75/7D). This is a documented
+    //     divergence from VHDL — see TODO below.
+    //
+    // KNOWN DIVERGENCE FROM VHDL — band-aid for NextZXOS boot regression.
+    //   VHDL im2_control.vhd:137 only fires o_retn_seen on canonical 0x45.
+    //   Our pre-99415ff code over-fired on aliases, and the alias firing
+    //   turns out to be load-bearing for tbblue.fw boot (bisected to
+    //   99415ff which restored VHDL-faithful behaviour and broke boot —
+    //   firmware uses ED 5D ×56 and ED 65 ×1 in coincidental code, never
+    //   canonical ED 45, so our DivMmc::on_retn never fires under the
+    //   strict rule).
+    //
+    //   Most likely the *real* fix is to model the VHDL "delayed-off"
+    //   entry-point clear path (divmmc.vhd:131:
+    //   `automap_held and not (i_automap_active and i_automap_delayed_off)`)
+    //   which is how real Next firmware exits DivMMC ROM. Our DivMmc
+    //   does not yet honour that clear path completely, so we keep the
+    //   alias-firing band-aid until that lands.
+    //
+    //   Investigate + remove this divergence: see
+    //   doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md.
+    cpu_.on_m1_cycle = [this, prev_ed = false](uint16_t pc, uint8_t opcode) mutable {
         im2_.on_m1_cycle(pc, opcode);
-        if (im2_.retn_seen_this_cycle()) {
-            divmmc_.on_retn();
-        }
         if (im2_.reti_seen_this_cycle()) {
             im2_.on_reti();
+        }
+        const bool retn_or_alias = prev_ed && (
+               opcode == 0x45 || opcode == 0x55 || opcode == 0x5D
+            || opcode == 0x65 || opcode == 0x6D || opcode == 0x75
+            || opcode == 0x7D);
+        prev_ed = (opcode == 0xED);
+        if (retn_or_alias) {
+            divmmc_.on_retn();
         }
     };
 
