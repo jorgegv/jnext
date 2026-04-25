@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 
+#include "memory/contention.h"
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 namespace {
@@ -363,22 +365,43 @@ static void test_mem_plus3() {
 static void test_io_port() {
     set_group("CT-IO");
 
-    skip("CT-IO-01",
-         "48K, cpu_a=0xFE (even port, ULA) → port_contend=1 "
-         "[zxnext.vhd:4496]",
-         "F-CT-AUDIT");
-    skip("CT-IO-02",
-         "48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 "
-         "[zxnext.vhd:4496]",
-         "F-CT-AUDIT");
-    skip("CT-IO-03",
-         "48K, cpu_a=0x00 (even, lowest) → port_contend=1 "
-         "[zxnext.vhd:4496]",
-         "F-CT-AUDIT");
-    skip("CT-IO-04",
-         "48K, cpu_a=0x01 (odd, lowest) → port_contend=0 "
-         "[zxnext.vhd:4496]",
-         "F-CT-AUDIT");
+    // Phase A bare-class rows: VHDL zxnext.vhd:4496 port_contend decode,
+    // bare-class form (port_7ffd_active term not driven). port_bf3b /
+    // port_ff3b 16-bit comparators per zxnext.vhd:2685-2686.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-01",
+              "48K, cpu_a=0xFE (even port, ULA) → port_contend=1 "
+              "[zxnext.vhd:4496]",
+              cm.port_contend(0xFE, /*port_ulap_io_en=*/false));
+    }
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-02",
+              "48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 "
+              "[zxnext.vhd:4496]",
+              !cm.port_contend(0xFF, /*port_ulap_io_en=*/false));
+    }
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-03",
+              "48K, cpu_a=0x00 (even, lowest) → port_contend=1 "
+              "[zxnext.vhd:4496]",
+              cm.port_contend(0x0000, /*port_ulap_io_en=*/false));
+    }
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-04",
+              "48K, cpu_a=0x01 (odd, lowest) → port_contend=0 "
+              "[zxnext.vhd:4496]",
+              !cm.port_contend(0x0001, /*port_ulap_io_en=*/false));
+    }
+
+    // Phase B rows — require port_7ffd_active wiring from full Emulator.
     skip("CT-IO-05",
          "128K, cpu_a=0x7FFD (odd + port_7ffd_active=1) → port_contend=1 "
          "[zxnext.vhd:4496,2594]",
@@ -387,18 +410,33 @@ static void test_io_port() {
          "48K, cpu_a=0x7FFD (port_7ffd_active=0 on 48K) → port_contend=0 "
          "[zxnext.vhd:4496,2594]",
          "F-CT-DELAY");
-    skip("CT-IO-07",
-         "Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 "
-         "[zxnext.vhd:4496,2685]",
-         "F-CT-AUDIT");
-    skip("CT-IO-08",
-         "Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 "
-         "[zxnext.vhd:4496,2686]",
-         "F-CT-AUDIT");
-    skip("CT-IO-09",
-         "Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 "
-         "[zxnext.vhd:4496,2685]",
-         "F-CT-AUDIT");
+
+    // Phase A ULA+ port rows: port_bf3b / port_ff3b OR-terms gated by
+    // port_ulap_io_en (zxnext.vhd:2685-2686).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-07",
+              "Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 "
+              "[zxnext.vhd:4496,2685]",
+              cm.port_contend(0xBF3B, /*port_ulap_io_en=*/true));
+    }
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-08",
+              "Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 "
+              "[zxnext.vhd:4496,2686]",
+              cm.port_contend(0xFF3B, /*port_ulap_io_en=*/true));
+    }
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        check("CT-IO-09",
+              "Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 "
+              "[zxnext.vhd:4496,2685]",
+              !cm.port_contend(0xBF3B, /*port_ulap_io_en=*/false));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
