@@ -143,7 +143,7 @@ ORDERED_TESTS=()
 
 while IFS= read -r line; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    read -r test_name machine_type nex_file delay_secs extra_args <<< "$line"
+    read -r test_name machine_type nex_file delay_frames extra_args <<< "$line"
 
     # Filter if specific tests requested
     if [[ ${#FILTER_TESTS[@]} -gt 0 ]]; then
@@ -155,17 +155,22 @@ while IFS= read -r line; do
     fi
 
     ORDERED_TESTS+=("$test_name")
-    TEST_INFO["$test_name"]="$machine_type $nex_file $delay_secs"
+    TEST_INFO["$test_name"]="$machine_type $nex_file $delay_frames"
 
     out_img="$TMP_DIR/${test_name}.png"
-    exit_delay=$((delay_secs + 2))
+    # Wall-clock safety: assume the emulator clears at least 25 fps
+    # headless (real-world is much higher; this is a worst-case bound
+    # so the auto-exit + timeout don't fire before the screenshot).
+    # +5 s buffer lets the screenshot+quit cleanup finish.
+    exit_delay=$(( delay_frames / 25 + 5 ))
+    [[ $exit_delay -lt 15 ]] && exit_delay=15
     wall_timeout=$(( (exit_delay + 5) * 4 ))
 
     cmd=("timeout" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
          "--machine" "$machine_type"
          "--delayed-screenshot" "$out_img"
-         "--delayed-screenshot-time" "$delay_secs"
+         "--delayed-screenshot-frames" "$delay_frames"
          "--delayed-automatic-exit" "$exit_delay")
 
     if [[ "$nex_file" != "BOOT" ]]; then
