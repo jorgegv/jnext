@@ -55,8 +55,13 @@ public:
     void reset();
 
     /// Configure timing for the given machine type.
-    /// Sets hc_max_ and vc_max_ from the machine-specific constants and resets counters.
-    void init(MachineType type);
+    /// Sets hc_max_ / vc_max_ / int_h_ / int_v_ / min_hactive_ / min_vactive_
+    /// from the machine-specific constants and resets counters. The optional
+    /// `refresh_60hz` argument selects the VHDL `i_50_60='1'` branch
+    /// (zxula_timing.vhd:214-308) and overrides vc_max_, min_vactive_ and
+    /// int_v_ accordingly. Pentagon has no 60 Hz VHDL branch, so the flag
+    /// is silently ignored for that machine (50 Hz values retained).
+    void init(MachineType type, bool refresh_60hz = false);
 
     /// Advance raster counters by the given number of CPU T-states.
     /// Each T-state at 3.5 MHz = 2 pixel ticks at 7 MHz.
@@ -88,6 +93,26 @@ public:
     int ula_prefetch_origin_hc() const {
         return static_cast<int>(min_hactive_) - 12;
     }
+
+    // ---------------------------------------------------------------
+    // Section 4 / Section 5 — per-machine interrupt position
+    // (zxula_timing.vhd:155,163 / :187,199 / :189,199 / :257,265
+    //  + 60 Hz branches at :221/:233 / :223/:233 / :285/:293).
+    //
+    // The VHDL `c_int_h` / `c_int_v` are emitted to the timing block
+    // and combined with the inten_ula_n gate at :548-557 to fire the
+    // ULA-frame interrupt pulse. Both are per-machine (varies with
+    // `i_timing(2..0)`) and per-refresh (varies with `i_50_60`).
+    // ---------------------------------------------------------------
+
+    /// Per-machine ULA-interrupt position
+    /// (VHDL c_int_h / c_int_v, zxula_timing.vhd:155-293).
+    RasterPos int_position() const { return {int_h_, int_v_}; }
+
+    /// True when this instance was configured for the 60 Hz VHDL branch
+    /// (i_50_60='1'). Pentagon has no 60 Hz branch — the flag is reset
+    /// to false for that machine even if init() was called with true.
+    bool refresh_60hz() const { return refresh_60hz_; }
 
     // ---------------------------------------------------------------
     // Wave E — Line interrupt + ULA interrupt mechanism
@@ -170,10 +195,16 @@ private:
     int vc_max_ = VC_MAX_DEFAULT;  // total lines per frame
 
     // Per-machine active-display origin (VHDL c_min_hactive / c_min_vactive,
-    // zxula_timing.vhd:147-312). 50 Hz defaults shown; 60 Hz variants are a
-    // separate add-on (Branch C / Section 5).
+    // zxula_timing.vhd:147-312). 50 Hz defaults shown; the 60 Hz override
+    // path in init() shifts min_vactive_ to 40 (VHDL :237/:297).
     uint16_t min_hactive_ = 128;  // VHDL c_min_hactive (48K default, :261)
     uint16_t min_vactive_ = 64;   // VHDL c_min_vactive (48K default, :269)
+
+    // Section 4/5 per-machine interrupt position (VHDL c_int_h / c_int_v).
+    // Defaults are the 48K 50 Hz values (zxula_timing.vhd:257,265).
+    uint16_t int_h_         = 116;
+    uint16_t int_v_         = 0;
+    bool     refresh_60hz_  = false;  // VHDL i_50_60='1' selects 60 Hz branch
 
     // Wave E — line interrupt mechanism.
     bool     inten_ula_        = true;   // active-HIGH; true = VHDL inten_ula_n='0'

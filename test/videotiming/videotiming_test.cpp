@@ -199,19 +199,34 @@ static void section3_ula_prefetch_origin() {
 static void section4_int_position() {
     set_group("VT-S4-INT-POSITION");
 
-    skip("VT-10",
-         "F-VT-ACCESSOR: 48K int_position() = {116, 0} after init(ZX48K) "
-         "(zxula_timing.vhd:257,265) [re-home: S14.01]");
-    skip("VT-11",
-         "F-VT-ACCESSOR: 128K int_position() = {128, 1} after init(ZX128K) "
-         "(zxula_timing.vhd:187,199) [re-home: S14.02]");
-    skip("VT-12",
-         "F-VT-ACCESSOR: Pentagon int_position() = {439, 319} after "
-         "init(PENTAGON) (zxula_timing.vhd:155,163) [re-home: S14.03]");
-    skip("VT-13",
-         "F-VT-ACCESSOR: +3 int_position() = {126, 1} after init(ZX_PLUS3) — "
-         "VHDL i_timing(0)='1' selects 136+2−12=126 vs 128K 128 "
-         "(zxula_timing.vhd:189,199)");
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        auto p = vt.int_position();
+        check("VT-10", "48K int_position = {116, 0} (zxula_timing.vhd:257,265)",
+              p.hc == 116 && p.vc == 0);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        auto p = vt.int_position();
+        check("VT-11", "128K int_position = {128, 1} (zxula_timing.vhd:187,199)",
+              p.hc == 128 && p.vc == 1);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        auto p = vt.int_position();
+        check("VT-12", "Pentagon int_position = {439, 319} (zxula_timing.vhd:155,163)",
+              p.hc == 439 && p.vc == 319);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX_PLUS3);
+        auto p = vt.int_position();
+        check("VT-13", "+3 int_position = {126, 1} — i_timing(0)='1' (zxula_timing.vhd:189,199)",
+              p.hc == 126 && p.vc == 1);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -225,21 +240,58 @@ static void section4_int_position() {
 static void section5_60hz_variant() {
     set_group("VT-S5-60HZ-VARIANT");
 
-    skip("VT-14",
-         "F-VT-ACCESSOR: 48K 60 Hz vc_max()=263, frame = 448*264/2 = 59,136 "
-         "T-states (zxula_timing.vhd:290,298) [re-home: S13.08]");
-    skip("VT-15",
-         "F-VT-ACCESSOR: 128K 60 Hz vc_max()=263, frame = 456*264/2 = 60,192 "
-         "T-states (zxula_timing.vhd:230,238)");
-    skip("VT-16",
-         "F-VT-ACCESSOR: 60 Hz display_origin().vc = 40 for both 48K/128K "
-         "60 Hz (zxula_timing.vhd:297,237)");
-    skip("VT-17",
-         "F-VT-ACCESSOR: 60 Hz int_position().vc = 0 for both 48K 60 Hz and "
-         "128K 60 Hz (zxula_timing.vhd:293,233)");
-    skip("VT-17b",
-         "F-VT-ACCESSOR: +3 60 Hz int_position().hc = 126 (zxula_timing.vhd:223) "
-         "vs 128K 60 Hz = 128 (zxula_timing.vhd:221) — i_timing(0)='1' split");
+    // VT-14 / VT-15 — frame T-state count is convention-independent;
+    // assert by counting advance() calls until frame_complete(). 48K
+    // 60Hz: 264 lines * 448 pixel-ticks/line / 2 ticks-per-Tstate = 59136.
+    // 128K 60Hz: 264 * 456 / 2 = 60192. (VHDL c_max_hc=447/455 +1.)
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K, /*refresh_60hz=*/true);
+        int t = 0;
+        while (!vt.frame_complete()) { vt.advance(1); ++t; }
+        check("VT-14", "48K 60Hz frame = 448*264/2 = 59136 T-states "
+                       "(zxula_timing.vhd:290,298)",
+              t == 59136,
+              std::string("got ") + std::to_string(t));
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K, /*refresh_60hz=*/true);
+        int t = 0;
+        while (!vt.frame_complete()) { vt.advance(1); ++t; }
+        check("VT-15", "128K 60Hz frame = 456*264/2 = 60192 T-states "
+                       "(zxula_timing.vhd:230,238)",
+              t == 60192,
+              std::string("got ") + std::to_string(t));
+    }
+    // VT-16 — uses Branch B's display_origin() accessor (duplicated in
+    // this branch with a // COORDINATION: marker; cherry-pick conflict
+    // expected — accept Branch B's version on resolution).
+    {
+        VideoTiming vt48; vt48.init(MachineType::ZX48K, true);
+        VideoTiming vt128; vt128.init(MachineType::ZX128K, true);
+        check("VT-16", "60Hz display_origin.vc = 40 for 48K + 128K "
+                       "(zxula_timing.vhd:297,237)",
+              vt48.display_origin().vc  == 40 &&
+              vt128.display_origin().vc == 40);
+    }
+    {
+        VideoTiming vt48; vt48.init(MachineType::ZX48K, true);
+        VideoTiming vt128; vt128.init(MachineType::ZX128K, true);
+        auto p48  = vt48.int_position();
+        auto p128 = vt128.int_position();
+        check("VT-17", "60Hz int_position.vc = 0 for 48K + 128K "
+                       "(zxula_timing.vhd:293,233)",
+              p48.vc == 0 && p128.vc == 0);
+    }
+    {
+        VideoTiming vt_p3;   vt_p3.init(MachineType::ZX_PLUS3, true);
+        VideoTiming vt_128k; vt_128k.init(MachineType::ZX128K, true);
+        check("VT-17b", "+3 60Hz int_h=126 vs 128K 60Hz int_h=128 — "
+                        "i_timing(0)='1' split (zxula_timing.vhd:221,223)",
+              vt_p3.int_position().hc   == 126 &&
+              vt_128k.int_position().hc == 128);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -298,9 +350,9 @@ static void section6_line_int_target() {
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
-    std::printf("  V1 vc_max_/hc_max_ rebase + per-machine display_origin /\n");
-    std::printf("  ula_prefetch_origin_hc landed: Sections 1+2+3+6 live.\n");
-    std::printf("  Sections 4+5 pending int_position accessor + 60 Hz toggle.\n");
+    std::printf("  All 22 rows live post per-machine accessor expansion\n");
+    std::printf("  (V1 rebase + display_origin + ula_prefetch_origin_hc +\n");
+    std::printf("   int_position + 60 Hz toggle — Branches A/B/C, 2026-04-25).\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
@@ -313,10 +365,10 @@ int main() {
     std::printf("  Section 3: VT-S3-ULA-PREFETCH       — done (3 live)\n");
 
     section4_int_position();
-    std::printf("  Section 4: VT-S4-INT-POSITION       — done (4 skipped)\n");
+    std::printf("  Section 4: VT-S4-INT-POSITION       — done (4 live)\n");
 
     section5_60hz_variant();
-    std::printf("  Section 5: VT-S5-60HZ-VARIANT       — done (5 skipped)\n");
+    std::printf("  Section 5: VT-S5-60HZ-VARIANT       — done (5 live)\n");
 
     section6_line_int_target();
     std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 live)\n");

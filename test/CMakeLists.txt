@@ -210,13 +210,13 @@ target_link_libraries(floating_bus_test PRIVATE
 target_include_directories(floating_bus_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME floating_bus_tests COMMAND floating_bus_test)
 
-# VideoTiming expansion compliance test (scaffolding, 2026-04-24)
+# VideoTiming expansion compliance test
 # Hosts the 22 plan rows in doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.
-# Sections 1+2+3+6 live post V1 vc_max_/hc_max_ rebase + display_origin /
-# ula_prefetch_origin_hc accessors (2026-04-25); Sections 4+5 still skip()
-# pending int_position accessor + 60 Hz toggle.
+# All 22 rows live post V1 vc_max_/hc_max_ rebase + per-machine
+# accessors (display_origin, ula_prefetch_origin_hc, int_position) +
+# 60 Hz toggle (2026-04-25, Branches A/B/C).
 add_executable(videotiming_test videotiming/videotiming_test.cpp)
-target_link_libraries(videotiming_test PRIVATE jnext_video)
+target_link_libraries(videotiming_test PRIVATE jnext_video spdlog::spdlog)
 target_include_directories(videotiming_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME videotiming_tests COMMAND videotiming_test)
 
