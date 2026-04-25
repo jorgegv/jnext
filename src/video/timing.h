@@ -9,28 +9,32 @@ struct RasterPos { uint16_t hc; uint16_t vc; };
 /// Counters are in the 7 MHz pixel-clock domain.
 /// The CPU runs at 3.5 MHz so each T-state advances hc by 2 pixel ticks.
 ///
+/// Counters (hc_max_ / vc_max_) hold VHDL c_max_hc / c_max_vc
+/// (max-reached-before-wrap), so the period is c_max_+1.
+///
 /// 48K timing (PAL 50 Hz):
-///   - 456 pixel ticks per line  (64 T-states per line in 7 MHz domain)
-///   - 312 lines per frame
+///   - VHDL c_max_hc=447 → 448 pixel ticks per line  (224 T-states per line)
+///   - VHDL c_max_vc=311 → 312 lines per frame
 ///   - Active display: hc [128, 383], vc [64, 255]  → 256×192 pixels
 ///
 /// 128K timing (ZX Spectrum 128K PAL):
-///   - 456 pixel ticks per line
-///   - 311 lines per frame
+///   - VHDL c_max_hc=455 → 456 pixel ticks per line
+///   - VHDL c_max_vc=310 → 311 lines per frame
 ///   - Same active display window as 48K
 ///
 /// Pentagon timing:
-///   - 448 pixel ticks per line
-///   - 320 lines per frame
+///   - VHDL c_max_hc=447 → 448 pixel ticks per line
+///   - VHDL c_max_vc=319 → 320 lines per frame
 ///   - Same active display window
 ///
 /// The output framebuffer is 320×256 (48 left/right border + 256 display +
 /// 48 right border; 48 top + 192 display + 56 bottom border ≈ 256 rows).
 class VideoTiming {
 public:
-    // Default machine constants (48K, 7 MHz domain) — kept for compatibility.
-    static constexpr int HC_MAX_DEFAULT  = 448;  // pixel ticks per line (48K: VHDL c_max_hc=447)
-    static constexpr int VC_MAX_DEFAULT  = 312;  // total lines per frame (48K PAL)
+    // Default machine constants (48K, 7 MHz domain) — VHDL-faithful c_max_*
+    // (max-reached-before-wrap, NOT count). Period is c_max_+1.
+    static constexpr int HC_MAX_DEFAULT  = 447;  // VHDL c_max_hc (48K); period = 448 ticks/line
+    static constexpr int VC_MAX_DEFAULT  = 311;  // VHDL c_max_vc (48K); period = 312 lines/frame
 
     // Active display window (pixel addresses within 7 MHz domain)
     static constexpr int DISPLAY_LEFT   = 128;  // hc where active pixels start
@@ -133,6 +137,16 @@ public:
         line_int_pulses_ = 0;
     }
 
+    /// Compute the VHDL `int_line_num` from the raw target register.
+    /// target==0 → c_max_vc (frame-boundary). target!=0 → target-1
+    /// (VHDL zxula_timing.vhd:566-570). Public so the videotiming
+    /// compliance suite (Section 6) can observe it directly.
+    uint16_t int_line_num() const {
+        if (int_line_target_ == 0)
+            return static_cast<uint16_t>(vc_max_);
+        return static_cast<uint16_t>(int_line_target_ - 1);
+    }
+
 private:
     uint16_t hc_        = 0;
     uint16_t vc_        = 0;
@@ -148,13 +162,4 @@ private:
     uint16_t int_line_target_  = 0;
     int      ula_int_pulses_   = 0;
     int      line_int_pulses_  = 0;
-
-    /// Compute the VHDL `int_line_num` from the raw target register.
-    /// target==0 → c_max_vc (frame-boundary). target!=0 → target-1
-    /// (VHDL zxula_timing.vhd:566-570).
-    uint16_t int_line_num() const {
-        if (int_line_target_ == 0)
-            return static_cast<uint16_t>(vc_max_ - 1);
-        return static_cast<uint16_t>(int_line_target_ - 1);
-    }
 };

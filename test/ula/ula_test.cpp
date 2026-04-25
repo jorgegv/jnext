@@ -1319,33 +1319,34 @@ static void test_section13_timing() {
 
     VideoTiming t;
 
-    // Plan row #1 — 48K frame length: 448 * 312 / 2 = 69888 T-states.
+    // Plan row #1 — 48K frame length: (447+1) * (311+1) / 2 = 69888 T-states.
+    // Post-V1: hc_max() / vc_max() return VHDL c_max_* (447, 311); period is +1.
     t.init(MachineType::ZX48K);
     {
-        int ts = t.hc_max() * t.vc_max() / 2;
+        int ts = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
         check("S13.01",
               "zxula_timing.vhd — 48K c_max_hc=447, c_max_vc=311 → 448*312/2 = 69888 T-states",
-              t.hc_max() == 448 && t.vc_max() == 312 && ts == 69888,
+              t.hc_max() == 447 && t.vc_max() == 311 && ts == 69888,
               fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
     }
 
-    // Plan row #2 — 128K frame length: 456 * 311 / 2 = 70908 T-states.
+    // Plan row #2 — 128K frame length: (455+1) * (310+1) / 2 = 70908 T-states.
     t.init(MachineType::ZX128K);
     {
-        int ts = t.hc_max() * t.vc_max() / 2;
+        int ts = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
         check("S13.02",
               "zxula_timing.vhd — 128K c_max_hc=455, c_max_vc=310 → 456*311/2 = 70908 T-states",
-              t.hc_max() == 456 && t.vc_max() == 311 && ts == 70908,
+              t.hc_max() == 455 && t.vc_max() == 310 && ts == 70908,
               fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
     }
 
-    // Plan row #3 — Pentagon frame length: 448 * 320 / 2 = 71680 T-states.
+    // Plan row #3 — Pentagon frame length: (447+1) * (319+1) / 2 = 71680 T-states.
     t.init(MachineType::PENTAGON);
     {
-        int ts = t.hc_max() * t.vc_max() / 2;
+        int ts = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
         check("S13.03",
               "zxula_timing.vhd — Pentagon c_max_hc=447, c_max_vc=319 → 448*320/2 = 71680 T-states",
-              t.hc_max() == 448 && t.vc_max() == 320 && ts == 71680,
+              t.hc_max() == 447 && t.vc_max() == 319 && ts == 71680,
               fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
     }
 
@@ -1374,7 +1375,8 @@ static void test_section13_timing() {
     // check regression witness per the Task 1 Wave 3 prompt; do NOT convert.
     t.init(MachineType::ZX48K);
     t.clear_frame_flag();
-    int full_frame_tstates = t.hc_max() * t.vc_max() / 2;
+    // Post-V1: hc_max() / vc_max() return VHDL c_max_*; period is +1.
+    int full_frame_tstates = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
     t.advance(full_frame_tstates);
     check("S13.14",
           "zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) [regression witness]",

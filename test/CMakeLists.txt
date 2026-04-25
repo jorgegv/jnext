@@ -212,12 +212,11 @@ add_test(NAME floating_bus_tests COMMAND floating_bus_test)
 
 # VideoTiming expansion compliance test (scaffolding, 2026-04-24)
 # Hosts the 22 plan rows in doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.
-# All rows start as skip() pending the per-machine accessor expansion
-# (display_origin / ula_prefetch_origin_hc / int_position) plus the V1
-# vc_max_ semantic rebase coupled-commit (§Implementation coupling).
-# No jnext_* libs are linked — the scaffold emits skip() rows only and
-# does not instantiate VideoTiming.
+# Section 1 + Section 6 rows live post V1 vc_max_/hc_max_ rebase (2026-04-25);
+# remaining sections still skip() pending the per-machine accessor expansion
+# (display_origin / ula_prefetch_origin_hc / int_position).
 add_executable(videotiming_test videotiming/videotiming_test.cpp)
+target_link_libraries(videotiming_test PRIVATE jnext_video)
 target_include_directories(videotiming_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME videotiming_tests COMMAND videotiming_test)
 

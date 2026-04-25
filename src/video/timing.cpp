@@ -15,29 +15,33 @@ void VideoTiming::reset()
 
 void VideoTiming::init(MachineType type)
 {
+    // Storage holds VHDL-faithful c_max_hc / c_max_vc (max-reached-before-wrap),
+    // NOT line/frame counts. Period is c_max_+1. See zxula_timing.vhd:147-312.
     switch (type) {
         case MachineType::ZX128K:
         case MachineType::ZX_PLUS3:
-            // 128K/+3 PAL: 456 ticks/line, 311 lines/frame (VHDL c_max_hc=455).
-            hc_max_ = 456;
-            vc_max_ = 311;
+            // 128K/+3 PAL: VHDL c_max_hc=455, c_max_vc=310.
+            // Period = 456 ticks/line × 311 lines/frame.
+            hc_max_ = 455;
+            vc_max_ = 310;
             break;
         case MachineType::PENTAGON:
-            // Pentagon: 448 ticks/line, 320 lines/frame.
-            // Same active display window as 48K.
-            hc_max_ = 448;
-            vc_max_ = 320;
+            // Pentagon: VHDL c_max_hc=447, c_max_vc=319.
+            // Period = 448 ticks/line × 320 lines/frame.
+            hc_max_ = 447;
+            vc_max_ = 319;
             break;
         case MachineType::ZX48K:
         default:
-            // 48K PAL: 448 ticks/line, 312 lines/frame (VHDL c_max_hc=447).
-            hc_max_ = 448;
-            vc_max_ = 312;
+            // 48K PAL: VHDL c_max_hc=447, c_max_vc=311.
+            // Period = 448 ticks/line × 312 lines/frame.
+            hc_max_ = 447;
+            vc_max_ = 311;
             break;
         case MachineType::ZXN_ISSUE2:
-            // ZX Next defaults to 128K timing (456 ticks/line, 311 lines/frame).
-            hc_max_ = 456;
-            vc_max_ = 311;
+            // ZX Next defaults to 128K timing (c_max_hc=455, c_max_vc=310).
+            hc_max_ = 455;
+            vc_max_ = 310;
             break;
     }
     reset();
@@ -67,9 +71,10 @@ void VideoTiming::advance(int tstates)
     // enabled, matching the behaviour S14.04 checks (disabled → zero).
     const uint16_t target_line_num = int_line_num();
 
-    // Wrap horizontal counter into next lines.
-    while (hc >= hc_max_) {
-        hc -= hc_max_;
+    // Wrap horizontal counter into next lines. Storage holds VHDL c_max_hc
+    // (max-reached-before-wrap), so the line period is hc_max_+1 ticks.
+    while (hc > hc_max_) {
+        hc -= (hc_max_ + 1);
 
         // Line crossing: vc_ is about to become vc_+1. On the VHDL
         // clock edge where cvc transitions to target_line_num, the
@@ -82,7 +87,9 @@ void VideoTiming::advance(int tstates)
 
         ++vc_;
 
-        if (vc_ >= static_cast<uint16_t>(vc_max_)) {
+        // Frame wrap at line c_max_vc + 1 (= line count). Storage holds
+        // VHDL c_max_vc (max-reached-before-wrap), strict `>` matches.
+        if (vc_ > static_cast<uint16_t>(vc_max_)) {
             vc_         = 0;
             frame_done_ = true;
             // ULA per-frame pulse on frame boundary when enabled

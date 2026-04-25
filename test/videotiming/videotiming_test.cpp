@@ -33,6 +33,9 @@
 #include <string>
 #include <vector>
 
+#include "video/timing.h"
+#include "memory/contention.h"  // MachineType
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 namespace {
@@ -94,16 +97,30 @@ void skip(const char* id, const char* reason) {
 static void section1_frame_envelope() {
     set_group("VT-S1-FRAME-ENVELOPE");
 
-    skip("VT-01",
-         "F-VT-MAX-REBASE: 48K hc_max()=447, vc_max()=311 after init(ZX48K) "
-         "(zxula_timing.vhd:262,270) — coupled with VT-18 via V1 rebase");
-    skip("VT-02",
-         "F-VT-MAX-REBASE: 128K hc_max()=455, vc_max()=310 after init(ZX128K) "
-         "(zxula_timing.vhd:196,204) — coupled with VT-19 via V1 rebase");
-    skip("VT-03",
-         "F-VT-MAX-REBASE: Pentagon hc_max()=447, vc_max()=319 after "
-         "init(PENTAGON) (zxula_timing.vhd:160,168) — coupled with VT-20 "
-         "via V1 rebase");
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        check("VT-01",
+              "48K hc_max()=447, vc_max()=311 after init(ZX48K) "
+              "(zxula_timing.vhd:262,270)",
+              vt.hc_max() == 447 && vt.vc_max() == 311);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        check("VT-02",
+              "128K hc_max()=455, vc_max()=310 after init(ZX128K) "
+              "(zxula_timing.vhd:196,204)",
+              vt.hc_max() == 455 && vt.vc_max() == 310);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        check("VT-03",
+              "Pentagon hc_max()=447, vc_max()=319 after init(PENTAGON) "
+              "(zxula_timing.vhd:160,168)",
+              vt.hc_max() == 447 && vt.vc_max() == 319);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -211,18 +228,42 @@ static void section5_60hz_variant() {
 static void section6_line_int_target() {
     set_group("VT-S6-LINE-INT-TARGET");
 
-    skip("VT-18",
-         "F-VT-MAX-REBASE: 48K target=0 → int_line_num() = c_max_vc = 311 "
-         "(zxula_timing.vhd:566-570) — coupled with VT-01 via V1 rebase");
-    skip("VT-19",
-         "F-VT-MAX-REBASE: 128K target=0 → int_line_num() = c_max_vc = 310 "
-         "(zxula_timing.vhd:566-570) — coupled with VT-02 via V1 rebase");
-    skip("VT-20",
-         "F-VT-MAX-REBASE: Pentagon target=0 → int_line_num() = c_max_vc = 319 "
-         "(zxula_timing.vhd:566-570) — coupled with VT-03 via V1 rebase");
-    skip("VT-21",
-         "F-VT-ACCESSOR: any machine: target=10 → int_line_num() = 9 — "
-         "non-zero branch (zxula_timing.vhd:568)");
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_line_interrupt_target(0);
+        check("VT-18",
+              "48K target=0 → int_line_num() == c_max_vc == 311 "
+              "(zxula_timing.vhd:566-570)",
+              vt.int_line_num() == 311);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        vt.set_line_interrupt_target(0);
+        check("VT-19",
+              "128K target=0 → int_line_num() == c_max_vc == 310 "
+              "(zxula_timing.vhd:566-570)",
+              vt.int_line_num() == 310);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        vt.set_line_interrupt_target(0);
+        check("VT-20",
+              "Pentagon target=0 → int_line_num() == c_max_vc == 319 "
+              "(zxula_timing.vhd:566-570)",
+              vt.int_line_num() == 319);
+    }
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_line_interrupt_target(10);
+        check("VT-21",
+              "any machine: target=10 → int_line_num() == 9 "
+              "(zxula_timing.vhd:568)",
+              vt.int_line_num() == 9);
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -230,12 +271,12 @@ static void section6_line_int_target() {
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
-    std::printf("  Scaffolding suite — all 22 plan rows are skip()-scaffolded\n");
-    std::printf("  pending the VideoTiming per-machine accessor expansion.\n");
+    std::printf("  V1 vc_max_/hc_max_ rebase landed: Section 1 + Section 6 live.\n");
+    std::printf("  Sections 2-5 + VT-21's neighbours pending accessor expansion.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
-    std::printf("  Section 1: VT-S1-FRAME-ENVELOPE     — done (3 skipped)\n");
+    std::printf("  Section 1: VT-S1-FRAME-ENVELOPE     — done (3 live)\n");
 
     section2_display_origin();
     std::printf("  Section 2: VT-S2-DISPLAY-ORIGIN     — done (3 skipped)\n");
@@ -250,7 +291,7 @@ int main() {
     std::printf("  Section 5: VT-S5-60HZ-VARIANT       — done (5 skipped)\n");
 
     section6_line_int_target();
-    std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 skipped)\n");
+    std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
