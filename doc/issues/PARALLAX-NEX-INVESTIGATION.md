@@ -196,14 +196,76 @@ state. Both render correctly given their respective demo states.
 **This may also explain NextZXOS boot delays** — same missing init
 slows boot ROM execution.
 
-### Recommended fix
+### Recommended fix — TESTED, REVERTED
 
-Patch `Emulator::nex_init_machine` to add the 6 missing NR writes,
-in tbblue's order, with VHDL-citation comments. Verify visually:
-re-run parallax.nex, capture at 5 s (frame 250); if scene now matches
-CSpect-3.png — case closed. If not, drill into the remaining gap.
+Tried patching `Emulator::nex_init_machine` with the most critical
+missing write: **`NR 0x07 = 0x03` (turbo 28 MHz)**. Result:
 
-Pending in a follow-up branch (`fix/nex-init-tbblue-faithful`).
+- Build green, unit tests 3384/3384/0/0
+- jnext correctly logged `CPU speed changed to 28 MHz (NextREG 0x07=0x03)`
+- **parallax.nex visual at frame 250: UNCHANGED** vs pre-patch (still
+  shows the simple cave + bottom-band scene, NOT CSpect's rich content)
+- Beast.nex still renders correctly
+- **`tilemap-demo` regression: BLACK SCREEN** post-patch (user-confirmed
+  via interactive test). Reverting the `NR 0x07` write restores
+  tilemap-demo to its working render
+
+**Two separate findings from this experiment:**
+
+1. **CPU-speed-induced timing skew is NOT the cause of parallax's
+   visual gap.** The demo's per-frame state at frame 250 is the same
+   whether the CPU runs at 3.5 MHz or 28 MHz — the demo's main loop
+   is IM1-frame-driven, not CPU-cycle-driven. The 5 s wall-clock
+   difference between CSpect-rich-scene and jnext-intro is therefore
+   NOT explained by CPU speed alone.
+
+2. **`NR 0x07 = 0x03` triggers a latent bug** somewhere in jnext
+   — most likely the turbo handler interacts with timing-sensitive
+   demo code (e.g., a tight scanline-synchronized loop calibrated for
+   3.5 MHz that misses its target at 28 MHz), or jnext's effective
+   T-state accounting at 28 MHz has a defect. **NEW BACKLOG ITEM** —
+   investigate in isolation: build a minimal NEX demo that writes
+   `NR 0x07 = 0x03` and observe what visibly fails vs CSpect.
+
+5 of the 6 originally-failing screenshot regressions (palette-demo,
+floating-bus, contention-test, dapr-sprite, dapr-tilemap_00) showed
+visually-correct renders that align more with CSpect post-patch — those
+would have justified rebaselining. But `tilemap-demo` going black is
+a hard regression, so the patch is reverted. The rebaseline candidates
+are paused until the underlying turbo issue is fixed.
+
+### Open status
+
+The visual gap between CSpect and jnext on `parallax.nex` remains
+**unexplained**. All concrete hypotheses tested in this session have
+been disconfirmed:
+
+- ❌ MMU bank/page mapping (byte-perfect verified)
+- ❌ Sprite anchor/relative chains (demo doesn't use them)
+- ❌ L2 image data byte-difference (NEX file has only spire+lava data)
+- ❌ Sprite multiplexing across scanlines (attr table identical across
+     frame; no mid-frame writes)
+- ❌ CPU-speed timing skew (turbo doesn't change per-frame state)
+
+What remains untested:
+- jnext's NR 0x07 turbo handling correctness (separate latent bug)
+- 60 Hz mode (CSpect launch script uses `-60` flag; jnext defaults to
+  50 Hz). 60 Hz means 20 % more demo frames per wall-second. Worth
+  testing — could be enough to advance the demo state visibly.
+- Sprite priority / transparency / NR 0x4A-0x4C interaction at
+  pixel level
+- An emulator feature CSpect implements that jnext doesn't recognise
+  yet (e.g., sprite anchor inheritance edge cases the trace didn't
+  surface)
+
+### Next-session pickup
+
+Highest-leverage remaining test: **try jnext with 60 Hz mode** matching
+CSpect's launch flag (`-60`). If parallax visually advances to the
+rich scene at 5 s wall-clock under 60 Hz, the gap was simply refresh-
+rate-induced frame-count delta, not a rendering bug.
+
+Investigation pause; commit findings; resume next session.
 
 ### Critic findings on `603cbfc` (independent review, APPROVE-WITH-NITS)
 
