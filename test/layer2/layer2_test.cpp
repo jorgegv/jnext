@@ -349,6 +349,10 @@ static void test_group2_resolution_modes() {
     pal.set_global_transparency(0x01);
     set_l2_palette_8bit(pal, 0x01, 0xFC);
     l2.set_control(0x10);  // resolution = 01 (320x256)
+    // Widen clip_y2 to 0xFF: VHDL default 0xBF (191) clips wide-mode rows
+    // 192..255. These tests exercise address arithmetic for the full
+    // 256-row span, so disable the y-clip explicitly.
+    l2.set_clip_y2(0xFF);
     fill_320x256(ram, 8, [](int x, int y){ return static_cast<uint8_t>(y ^ x); });
 
     render_row(l2, ram, pal, buf, 0);
@@ -627,12 +631,17 @@ static void test_group4_clip() {
     uint32_t buf[BUF_WIDTH];
 
     // ---------- G4-05: narrow default clip shows full area ----------
-    // VHDL: zxnext.vhd:4959-4962 defaults (0, 255, 0, 191) + layer2.vhd:167
-    // inclusive compare.
+    // VHDL: zxnext.vhd:4959-4962 defaults clip_x1=0x00, clip_x2=0xFF,
+    // clip_y1=0x00, clip_y2=0xBF (191) + layer2.vhd:167 inclusive compare.
     l2.reset(); l2.set_enabled(true); l2.set_control(0x00);
     pal.set_global_transparency(0x00);
     set_l2_palette_8bit(pal, 0x00, 0xFC);
     fill_256x192(ram, 8, [](int x, int y){ (void)x; (void)y; return uint8_t{0x5A}; });
+    // VHDL-faithful default values must match zxnext.vhd:4959-4962 exactly.
+    check("G4-05-defaults",
+          "post-reset clip defaults are 0x00/0xFF/0x00/0xBF",
+          l2.clip_x1() == 0x00 && l2.clip_x2() == 0xFF &&
+          l2.clip_y1() == 0x00 && l2.clip_y2() == 0xBF);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 0);
     check("G4-05a", "narrow default clip: (0,0) visible",
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x5A));

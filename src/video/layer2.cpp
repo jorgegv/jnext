@@ -17,10 +17,12 @@ void Layer2::reset()
     palette_offset_ = 0;
     resolution_     = 0;
     enabled_        = false;
-    clip_x1_        = 0;
-    clip_x2_        = 255;
-    clip_y1_        = 0;
-    clip_y2_        = 255;
+    // VHDL zxnext.vhd:4959-4962 NR 0x18 (Layer 2 clip) reset defaults:
+    //   clip_x1=0x00, clip_x2=0xFF, clip_y1=0x00, clip_y2=0xBF (191).
+    clip_x1_        = 0x00;
+    clip_x2_        = 0xFF;
+    clip_y1_        = 0x00;
+    clip_y2_        = 0xBF;
 
     // Per-scanline change log cleared. Baseline reset to current (zero)
     // state; start_frame() will re-snapshot from the live values at the

@@ -178,10 +178,12 @@ private:
     uint8_t  palette_offset_ = 0;     // bits 3:0 of NextREG 0x70
     uint8_t  resolution_     = 0;     // bits 5:4 of NextREG 0x70 (0=256×192)
     bool     enabled_        = false;
-    uint8_t  clip_x1_        = 0;
-    uint8_t  clip_x2_        = 255;
-    uint8_t  clip_y1_        = 0;
-    uint8_t  clip_y2_        = 255;
+    // VHDL zxnext.vhd:4959-4962 NR 0x18 (Layer 2 clip) defaults:
+    //   clip_x1=0x00, clip_x2=0xFF, clip_y1=0x00, clip_y2=0xBF (191).
+    uint8_t  clip_x1_        = 0x00;
+    uint8_t  clip_x2_        = 0xFF;
+    uint8_t  clip_y1_        = 0x00;
+    uint8_t  clip_y2_        = 0xBF;
 
     // ── Per-scanline change log ──────────────────────────────────────
     struct ScrollChange {
