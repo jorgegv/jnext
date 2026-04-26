@@ -2437,6 +2437,243 @@ static void group15() {
 }
 
 // ---------------------------------------------------------------------------
+// Group 16 — Per-Scanline Attribute Change Log
+// VHDL sprites.vhd:327-470 (5 dual-port attribute RAMs, sync-write async-read).
+// Required by parallax.nex, which Z80N-DMA-streams sprite attributes via port
+// 0x57 mid-frame to multiplex 96 sprites across many Y positions. Without
+// per-scanline replay, the renderer sees only the end-of-frame state and all
+// sprites collapse to the very last upload's positions.
+// ---------------------------------------------------------------------------
+static void group16() {
+    set_group("G16-PerScanline");
+    SpriteEngine spr;
+    PaletteManager pal;
+
+    // G16.PSL-01 — Pre-frame attribute write, no mid-frame change: every
+    // scanline should see the SAME attributes after rewind+apply.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x77);
+
+        spr.start_frame();                  // baseline snapshot
+        spr.set_current_line(0);
+
+        // Pre-frame write at line 0 (baseline-equivalent + logged).
+        set5(spr, 0, /*x=*/10, /*y=*/0, /*attr2=*/0x00, /*attr3=*/0x80, /*attr4=*/0x00);
+
+        // Rewind to baseline (which already includes the pre-frame write
+        // because start_frame was called *before* the writes).
+        // Wait — the pre-frame writes were logged at line 0. To verify
+        // that the BASELINE is what existed at start_frame, we need to
+        // call start_frame BEFORE the write, then rewind. After rewind,
+        // sprites_[0] should be back to ZERO (since baseline was zero).
+        spr.rewind_to_baseline();
+        check("G16.PSL-01a", "rewind restores baseline (slot 0 cleared)",
+              spr.read_attr_byte(0, 0) == 0 && spr.read_attr_byte(0, 1) == 0,
+              DETAIL("b0=%02x b1=%02x", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+
+        // Replay line 0's changes — slot 0 should now show x=10.
+        spr.apply_changes_for_line(0);
+        check("G16.PSL-01b", "apply_changes_for_line(0) restores write",
+              spr.read_attr_byte(0, 0) == 10 && spr.read_attr_byte(0, 1) == 0,
+              DETAIL("b0=%02x b1=%02x", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+    }
+
+    // G16.PSL-02 — Mid-frame write at line 100: scanlines 0..99 should
+    // see the pre-frame attributes; scanlines 100+ should see the
+    // post-write attributes. The rewind+per-row apply must produce
+    // exactly that progression.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x77);
+
+        // Pre-frame: slot 0 at (X=10, Y=20).
+        spr.write_slot_select(0);
+        spr.write_attribute(10);            // X
+        spr.write_attribute(20);            // Y
+        spr.write_attribute(0x00);          // attr2
+        spr.write_attribute(0x80);          // attr3 (visible, non-extended)
+
+        // Frame begins — snapshot baseline.
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 100: same slot at (X=200, Y=200).
+        spr.set_current_line(100);
+        spr.write_slot_select(0);
+        spr.write_attribute(200);           // X
+        spr.write_attribute(200);           // Y
+        spr.write_attribute(0x00);
+        spr.write_attribute(0x80);
+
+        // Render-side replay.
+        spr.rewind_to_baseline();
+
+        // Line 0 — no log entries should fire; slot 0 still at baseline (X=10,Y=20).
+        spr.apply_changes_for_line(0);
+        bool line0_ok = (spr.read_attr_byte(0, 0) == 10) &&
+                        (spr.read_attr_byte(0, 1) == 20);
+        check("G16.PSL-02a",
+              "Line 0: baseline visible (X=10, Y=20)",
+              line0_ok,
+              DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+
+        // Skip lines 1..99: monotonically advance the cursor through
+        // any earlier-line entries (should be none).
+        for (int row = 1; row < 100; ++row) {
+            spr.apply_changes_for_line(row);
+        }
+        bool pre100_ok = (spr.read_attr_byte(0, 0) == 10) &&
+                         (spr.read_attr_byte(0, 1) == 20);
+        check("G16.PSL-02b",
+              "Lines 1..99: still baseline (X=10, Y=20)",
+              pre100_ok,
+              DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+
+        // Line 100 — replay applies the mid-frame write.
+        spr.apply_changes_for_line(100);
+        bool post100_ok = (spr.read_attr_byte(0, 0) == 200) &&
+                          (spr.read_attr_byte(0, 1) == 200);
+        check("G16.PSL-02c",
+              "Line 100: mid-frame write applied (X=200, Y=200)",
+              post100_ok,
+              DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+
+        // Lines 101..255 — no further log entries; live state holds.
+        for (int row = 101; row < 256; ++row) {
+            spr.apply_changes_for_line(row);
+        }
+        bool tail_ok = (spr.read_attr_byte(0, 0) == 200) &&
+                       (spr.read_attr_byte(0, 1) == 200);
+        check("G16.PSL-02d",
+              "Lines 101..255: post-write state retained",
+              tail_ok,
+              DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
+    }
+
+    // G16.PSL-03 — Two writes to the same slot on different lines:
+    // each scanline must observe the most-recent write at-or-before it.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x77);
+
+        // Pre-frame: empty (slot 0 at zero).
+        spr.start_frame();
+
+        // Line 50: X=50.
+        spr.set_current_line(50);
+        spr.write_slot_select(0);
+        spr.write_attribute(50);
+        spr.write_attribute(0);
+        spr.write_attribute(0);
+        spr.write_attribute(0x80);
+
+        // Line 150: X=150.
+        spr.set_current_line(150);
+        spr.write_slot_select(0);
+        spr.write_attribute(150);
+        spr.write_attribute(0);
+        spr.write_attribute(0);
+        spr.write_attribute(0x80);
+
+        spr.rewind_to_baseline();
+        check("G16.PSL-03a", "After rewind: slot 0 X back to 0",
+              spr.read_attr_byte(0, 0) == 0,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+
+        for (int row = 0; row < 50; ++row) spr.apply_changes_for_line(row);
+        check("G16.PSL-03b", "Lines 0..49: slot 0 X = 0 (baseline)",
+              spr.read_attr_byte(0, 0) == 0,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+
+        spr.apply_changes_for_line(50);
+        check("G16.PSL-03c", "Line 50: slot 0 X = 50",
+              spr.read_attr_byte(0, 0) == 50,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+
+        for (int row = 51; row < 150; ++row) spr.apply_changes_for_line(row);
+        check("G16.PSL-03d", "Lines 51..149: slot 0 X = 50 (carried)",
+              spr.read_attr_byte(0, 0) == 50,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+
+        spr.apply_changes_for_line(150);
+        check("G16.PSL-03e", "Line 150: slot 0 X = 150 (second write)",
+              spr.read_attr_byte(0, 0) == 150,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+    }
+
+    // G16.PSL-04 — Reset clears the change log.
+    {
+        fresh(spr, pal);
+        spr.start_frame();
+        spr.set_current_line(10);
+        spr.write_slot_select(0);
+        spr.write_attribute(99);           // logs one change
+        size_t pre = spr.change_log_size();
+        check("G16.PSL-04a", "Write logged (count > 0)",
+              pre > 0,
+              DETAIL("count=%zu", pre));
+
+        spr.reset();
+        check("G16.PSL-04b", "After reset: change_log_size == 0",
+              spr.change_log_size() == 0,
+              DETAIL("count=%zu", spr.change_log_size()));
+    }
+
+    // G16.PSL-05 — start_frame clears the change log and re-snapshots
+    // the live attribute table as the new baseline.
+    {
+        fresh(spr, pal);
+
+        // Pre-frame state: slot 0 X = 42.
+        spr.write_slot_select(0);
+        spr.write_attribute(42);
+        spr.write_attribute(0);
+        spr.write_attribute(0);
+        spr.write_attribute(0x80);
+
+        spr.start_frame();   // baseline = current state (slot 0 X=42)
+
+        // Mid-frame write changes X to 99.
+        spr.set_current_line(50);
+        spr.write_slot_select(0);
+        spr.write_attribute(99);
+        spr.write_attribute(0);
+        spr.write_attribute(0);
+        spr.write_attribute(0x80);
+
+        // Rewind without applying any line: should restore X=42.
+        spr.rewind_to_baseline();
+        check("G16.PSL-05a", "rewind restores baseline X=42",
+              spr.read_attr_byte(0, 0) == 42,
+              DETAIL("b0=%d", spr.read_attr_byte(0,0)));
+
+        // Calling start_frame at this point should clear the log and
+        // re-baseline at the (post-rewind) state X=42.
+        spr.start_frame();
+        check("G16.PSL-05b", "start_frame clears log",
+              spr.change_log_size() == 0);
+    }
+
+    // G16.PSL-06 — Overflow: writes beyond MAX_CHANGES_PER_FRAME are
+    // dropped. The cap is large (8192) so we exercise the boundary.
+    {
+        fresh(spr, pal);
+        spr.start_frame();
+        spr.set_current_line(0);
+        // Each port-0x57 byte counts as one log entry. Send MAX+10.
+        const size_t cap = SpriteEngine::MAX_CHANGES_PER_FRAME;
+        spr.write_slot_select(0);
+        for (size_t i = 0; i < cap + 10; ++i) {
+            spr.write_attribute(static_cast<uint8_t>(i & 0xFF));
+        }
+        check("G16.PSL-06", "log saturates at MAX_CHANGES_PER_FRAME",
+              spr.change_log_size() == cap,
+              DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -2459,6 +2696,7 @@ int main() {
     group13();
     group14();
     group15();
+    group16();
 
     printf("\n============================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

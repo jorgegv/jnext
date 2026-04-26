@@ -44,6 +44,85 @@ void SpriteEngine::reset()
 
     collision_        = false;
     max_sprites_      = false;
+
+    // Per-scanline change log: clear baseline (zero state) and reset
+    // counters. start_frame() will re-snapshot from the live values at
+    // the next frame boundary.
+    for (auto& s : baseline_sprites_) {
+        s.byte0 = s.byte1 = s.byte2 = s.byte3 = s.byte4 = 0;
+    }
+    change_count_    = 0;
+    current_line_    = 0;
+    render_cursor_   = 0;
+    overflow_warned_ = false;
+}
+
+// ---------------------------------------------------------------------------
+// Per-scanline change log
+// ---------------------------------------------------------------------------
+//
+// VHDL sprites.vhd:327-470 — sprite attributes are stored in 5 dual-port
+// RAMs. CPU writes commit synchronously; the per-line FSM async-reads them
+// during qualify+process. Mid-frame writes therefore alter rendering on the
+// very next scanline. Mirror that timing by recording every byte write tagged
+// with the current scanline, then replaying the log per-row at render time.
+
+void SpriteEngine::log_attr_change(uint8_t slot, uint8_t byte_index, uint8_t value)
+{
+    if (change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!overflow_warned_) {
+            Log::video()->warn(
+                "SpriteEngine: attribute change-log full at line {} (cap {} "
+                "per frame); further attribute writes this frame will not "
+                "be per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            overflow_warned_ = true;
+        }
+        return;
+    }
+    change_log_[change_count_++] = AttrChange{
+        current_line_,
+        static_cast<uint8_t>(slot & 0x7F),
+        static_cast<uint8_t>(byte_index & 0x07),
+        value,
+    };
+}
+
+void SpriteEngine::start_frame()
+{
+    // Snapshot the live attribute table as the frame baseline.
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        baseline_sprites_[i] = sprites_[i];
+    }
+    change_count_    = 0;
+    render_cursor_   = 0;
+    current_line_    = 0;
+    overflow_warned_ = false;
+}
+
+void SpriteEngine::rewind_to_baseline()
+{
+    for (int i = 0; i < NUM_SPRITES; ++i) {
+        sprites_[i] = baseline_sprites_[i];
+    }
+    render_cursor_ = 0;
+}
+
+void SpriteEngine::apply_changes_for_line(int line)
+{
+    while (render_cursor_ < change_count_
+        && change_log_[render_cursor_].line == static_cast<uint16_t>(line)) {
+        const auto& c = change_log_[render_cursor_++];
+        SpriteAttr& spr = sprites_[c.slot & 0x7F];
+        switch (c.byte_index) {
+        case 0: spr.byte0 = c.value; break;
+        case 1: spr.byte1 = c.value; break;
+        case 2: spr.byte2 = c.value; break;
+        case 3: spr.byte3 = c.value; break;
+        case 4: spr.byte4 = c.value; break;
+        default: break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -103,14 +182,16 @@ uint8_t SpriteEngine::read_status()
 
 void SpriteEngine::write_attribute(uint8_t val)
 {
-    SpriteAttr& spr = sprites_[attr_slot_ & 0x7F];
+    const uint8_t slot = attr_slot_ & 0x7F;
+    SpriteAttr& spr = sprites_[slot];
 
     switch (attr_byte_) {
-    case 0: spr.byte0 = val; attr_byte_ = 1; break;
-    case 1: spr.byte1 = val; attr_byte_ = 2; break;
-    case 2: spr.byte2 = val; attr_byte_ = 3; break;
+    case 0: spr.byte0 = val; log_attr_change(slot, 0, val); attr_byte_ = 1; break;
+    case 1: spr.byte1 = val; log_attr_change(slot, 1, val); attr_byte_ = 2; break;
+    case 2: spr.byte2 = val; log_attr_change(slot, 2, val); attr_byte_ = 3; break;
     case 3:
         spr.byte3 = val;
+        log_attr_change(slot, 3, val);
         if (val & 0x40) {
             // Extended: expect 5th byte
             attr_byte_ = 4;
@@ -122,6 +203,7 @@ void SpriteEngine::write_attribute(uint8_t val)
         break;
     case 4:
         spr.byte4 = val;
+        log_attr_change(slot, 4, val);
         attr_byte_ = 0;
         attr_slot_ = (attr_slot_ + 1) & 0x7F;
         break;
@@ -160,7 +242,8 @@ void SpriteEngine::write_attr_byte(uint8_t byte_idx, uint8_t val)
 {
     if (byte_idx > 4) return;
 
-    SpriteAttr& spr = sprites_[attr_slot_ & 0x7F];
+    const uint8_t slot = attr_slot_ & 0x7F;
+    SpriteAttr& spr = sprites_[slot];
     switch (byte_idx) {
     case 0: spr.byte0 = val; break;
     case 1: spr.byte1 = val; break;
@@ -168,6 +251,7 @@ void SpriteEngine::write_attr_byte(uint8_t byte_idx, uint8_t val)
     case 3: spr.byte3 = val; break;
     case 4: spr.byte4 = val; break;
     }
+    log_attr_change(slot, byte_idx, val);
 
     // Auto-increment sprite index after the last written byte.
     // VHDL mirror_inc_i fires after writing attribute bytes.

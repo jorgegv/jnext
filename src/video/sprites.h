@@ -1,4 +1,6 @@
 #pragma once
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -134,6 +136,69 @@ public:
 
     /// Debug: log sprite 0 state and internal counters.
     void debug_log_sprite0() const;
+
+    // -----------------------------------------------------------------
+    // Per-scanline attribute change log
+    // -----------------------------------------------------------------
+    //
+    // VHDL sprites.vhd lines 327-470: sprite attributes live in 5 dual-port
+    // RAMs (attr0..attr4) — sync-write from CPU, async-read by the per-line
+    // sprite FSM. Mid-frame writes therefore take effect on the very next
+    // scanline rendered, while writes that arrive *during* a scanline's
+    // qualify-and-process pass take effect for that line too (the FSM reads
+    // the latest committed value at qualify time).
+    //
+    // The C++ engine renders an entire scanline in one synchronous call from
+    // Renderer::render_frame, which itself fires once per frame from
+    // Emulator::run_frame after the CPU has executed the whole frame's
+    // worth of instructions and DMA. Without per-scanline replay, the
+    // sprite-attribute snapshot used for *every* scanline is the
+    // end-of-frame state — so Z80N-DMA-driven sprite-multiplexing demos
+    // (parallax.nex: 96 sprites multiplexed across many Y positions via
+    // ~140 DMA-LOAD per second to port 0x57) collapse to the very last
+    // upload's positions.
+    //
+    // Mirrors the exact pattern in PaletteManager (palette.{h,cpp}) and
+    // Layer2 (layer2.{h,cpp}, commit f448b4f for beast.nex parallax).
+    //
+    //   sprites_.start_frame();              // emulator at frame start
+    //   …                                    // emulation runs; attribute
+    //                                        //   writes append to
+    //                                        //   change_log_ tagged with
+    //                                        //   current_line_
+    //   sprites_.rewind_to_baseline();       // before render_frame
+    //   for row in 0..H:
+    //       sprites_.apply_changes_for_line(row);
+    //       render_scanline(row);
+
+    /// Snapshot the live attribute table as the frame baseline and reset
+    /// the per-frame change log. Called at the start of every frame.
+    void start_frame();
+
+    /// Update the scanline tag attached to subsequent attribute writes.
+    /// Called from Emulator::on_scanline. Default 0 at frame start.
+    void set_current_line(int line) {
+        current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live attribute table to the frame baseline and reset
+    /// the render cursor. Called once before per-scanline render.
+    void rewind_to_baseline();
+
+    /// Apply all logged attribute changes whose line tag equals `line`.
+    /// Cursor is monotonically advanced; the log is in scanline order
+    /// so total work across a frame is O(change_count_).
+    void apply_changes_for_line(int line);
+
+    /// Number of attribute changes recorded this frame (diagnostic).
+    size_t change_log_size() const { return change_count_; }
+
+    /// Static cap; further writes after this many in a frame are silently
+    /// dropped (with a once-per-frame warn). Sized for the worst-case
+    /// "Copper / Z80N-DMA writes hundreds of attribute bytes per scanline"
+    /// scenario. parallax.nex measured ~270 attribute writes per frame at
+    /// 50 Hz; 8192 leaves a 30× headroom.
+    static constexpr size_t MAX_CHANGES_PER_FRAME = 8192;
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -290,4 +355,32 @@ private:
     uint8_t read_pattern(uint16_t addr) const {
         return pattern_ram_[addr & (PATTERN_RAM_SZ - 1)];
     }
+
+    // ── Per-scanline change log ──────────────────────────────────────
+    //
+    // Each entry is a single attribute-byte write. Per-byte granularity
+    // mirrors the VHDL CPU-side write port (one byte committed per cycle
+    // through `attr_data` to one of attr0..attr4) and avoids the cost of
+    // snapshotting the full 640-byte table on every change.
+    struct AttrChange {
+        uint16_t line;       ///< 0..lines_per_frame-1
+        uint8_t  slot;       ///< 0..127
+        uint8_t  byte_index; ///< 0..4
+        uint8_t  value;
+    };
+
+    // Baseline + log are large enough that allocating on the heap once
+    // is reasonable — but to mirror the Layer2/Palette pattern (no heap
+    // allocation in the hot path, no save-state) we keep them inline.
+    // Total size: 5×128 + 8192×5 = 640 + 40960 ≈ 41 KB per SpriteEngine.
+    SpriteAttr baseline_sprites_[NUM_SPRITES];
+    std::array<AttrChange, MAX_CHANGES_PER_FRAME> change_log_{};
+    size_t   change_count_    = 0;
+    uint16_t current_line_    = 0;
+    size_t   render_cursor_   = 0;
+    bool     overflow_warned_ = false;
+
+    /// Append a snapshot of (slot, byte_index, value) to the change log,
+    /// tagged with current_line_. Called from every attribute setter.
+    void log_attr_change(uint8_t slot, uint8_t byte_index, uint8_t value);
 };

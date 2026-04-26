@@ -54,11 +54,22 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     // progressively higher values).
     layer2.rewind_to_baseline();
 
+    // Per-scanline sprite attributes: same rewind+replay pattern.
+    // Required for parallax.nex (Z80N DMA bulk-streams sprite attributes
+    // via port 0x57 at ~140 DMA-LOAD per second to multiplex sprites
+    // across multiple Y positions per frame). VHDL sprites.vhd:327-470.
+    if (sprites) {
+        sprites->rewind_to_baseline();
+    }
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
         // layer rendering reads palette state.
         palette.apply_changes_for_line(row);
         layer2.apply_changes_for_line(row);
+        if (sprites) {
+            sprites->apply_changes_for_line(row);
+        }
 
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
