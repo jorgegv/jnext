@@ -2671,6 +2671,184 @@ static void group16() {
               spr.change_log_size() == cap,
               DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
     }
+
+    // G16.PSL-07 — 5-byte extended-attribute (byte4) replay.
+    // Critic nit #1: case 4 of write_attribute (extended/byte4) was
+    // uncovered for change-log behaviour. byte4 carries N6, H (4-bit
+    // mode), X/Y scale and the Y MSB — a mid-frame change to byte4
+    // must be replayed at exactly the originating scanline, not before.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x77);
+
+        // Pre-frame: full 5-byte sprite at (X=0, Y=0, byte4=0x00).
+        spr.write_slot_select(0);
+        spr.write_attribute(0x00);  // X
+        spr.write_attribute(0x00);  // Y
+        spr.write_attribute(0x00);  // attr2
+        spr.write_attribute(0xC0);  // visible | extended
+        spr.write_attribute(0x00);  // byte4 baseline (no scale, Y_MSB=0)
+
+        spr.start_frame();          // baseline includes byte4 == 0
+        spr.set_current_line(0);
+
+        // Mid-frame at line 100: rewrite full attribute set so byte4
+        // carries a recognisable signature: H=1 (4bpp) | N6=1 |
+        // X-scale=2 (4x). The exact value is 0xD0:
+        //   bit7 H=1, bit6 N6=1, bit5 0, bits4:3 xscale=10, bits2:1 yscale=00, bit0 ymsb=0
+        spr.set_current_line(100);
+        spr.write_slot_select(0);
+        spr.write_attribute(0x00);  // X
+        spr.write_attribute(0x00);  // Y
+        spr.write_attribute(0x00);  // attr2
+        spr.write_attribute(0xC0);  // visible | extended
+        spr.write_attribute(0xD0);  // byte4 signature
+
+        // Lines 0..99: byte4 must still equal baseline (0x00).
+        spr.rewind_to_baseline();
+        for (int row = 0; row < 100; ++row) spr.apply_changes_for_line(row);
+        check("G16.PSL-07a",
+              "Lines 0..99: byte4 == 0x00 (baseline)",
+              spr.read_attr_byte(0, 4) == 0x00,
+              DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
+
+        // Line 100: byte4 == 0xD0 (replayed mid-frame write).
+        spr.apply_changes_for_line(100);
+        check("G16.PSL-07b",
+              "Line 100: byte4 replayed (0xD0)",
+              spr.read_attr_byte(0, 4) == 0xD0,
+              DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
+
+        // Lines 101..255: byte4 carried (0xD0).
+        for (int row = 101; row < 256; ++row) spr.apply_changes_for_line(row);
+        check("G16.PSL-07c",
+              "Lines 101..255: byte4 carries 0xD0",
+              spr.read_attr_byte(0, 4) == 0xD0,
+              DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
+    }
+
+    // G16.PSL-08 — write_attr_byte (NR 0x75-0x79) replay path.
+    // Critic nit #2: log_attr_change is also fed from write_attr_byte,
+    // an alternative entry point used by the NR-0x75..0x79 mirror
+    // registers. Verify mid-frame byte writes via that path produce
+    // the same per-scanline replay.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x77);
+
+        // Pre-frame: byte0..byte4 cleared (default after reset).
+        spr.set_attr_slot(0);   // NR 0x34 mirror — slot 0, no MSB
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 50: write byte0=0xAA, byte1=0xBB, byte2=0x00,
+        // byte3=0x80, byte4=0x44 — all via write_attr_byte path.
+        spr.set_current_line(50);
+        spr.set_attr_slot(0);
+        spr.write_attr_byte(0, 0xAA);   // X
+        spr.set_attr_slot(0);
+        spr.write_attr_byte(1, 0xBB);   // Y
+        spr.set_attr_slot(0);
+        spr.write_attr_byte(2, 0x00);
+        spr.set_attr_slot(0);
+        spr.write_attr_byte(3, 0xC0);   // visible | extended
+        spr.set_attr_slot(0);
+        spr.write_attr_byte(4, 0x44);   // byte4 signature
+
+        spr.rewind_to_baseline();
+
+        // Lines 0..49: still baseline (everything zero).
+        for (int row = 0; row < 50; ++row) spr.apply_changes_for_line(row);
+        check("G16.PSL-08a",
+              "Lines 0..49: NR-0x75-path writes not yet visible",
+              spr.read_attr_byte(0, 0) == 0x00 &&
+              spr.read_attr_byte(0, 4) == 0x00,
+              DETAIL("b0=%02x b4=%02x",
+                     spr.read_attr_byte(0, 0), spr.read_attr_byte(0, 4)));
+
+        // Line 50: NR-0x75-path writes replayed.
+        spr.apply_changes_for_line(50);
+        check("G16.PSL-08b",
+              "Line 50: write_attr_byte mid-frame replayed",
+              spr.read_attr_byte(0, 0) == 0xAA &&
+              spr.read_attr_byte(0, 1) == 0xBB &&
+              spr.read_attr_byte(0, 3) == 0xC0 &&
+              spr.read_attr_byte(0, 4) == 0x44,
+              DETAIL("b0=%02x b1=%02x b3=%02x b4=%02x",
+                     spr.read_attr_byte(0, 0), spr.read_attr_byte(0, 1),
+                     spr.read_attr_byte(0, 3), spr.read_attr_byte(0, 4)));
+    }
+
+    // G16.PSL-09 — End-to-end render test.
+    // Critic nit #3: every other G16 test reads back via read_attr_byte;
+    // close the loop by driving the per-scanline rewind+replay rendering
+    // pipeline and inspecting the produced pixel buffer. A sprite should
+    // render at its baseline (X,Y) on lines that precede the mid-frame
+    // write, and at its mid-frame (X,Y) on the line of the write.
+    //
+    // Pattern: solid 0x42 (8bpp). Sprite slot 0, paloff=0, visible.
+    // Pre-frame: X=10, Y=20.   Mid-frame at line 100: X=200, Y=100.
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);  // 0x42 is opaque
+        upload_pattern_8bpp_solid(spr, 0, 0x42);
+
+        // Pre-frame attribute setup.
+        spr.write_slot_select(0);
+        spr.write_attribute(10);    // X = 10
+        spr.write_attribute(20);    // Y = 20
+        spr.write_attribute(0x00);  // attr2 (no transforms, paloff=0)
+        spr.write_attribute(0x80);  // attr3: visible, no extended
+
+        // Frame begins — snapshot baseline.
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 100: relocate to (200, 100).
+        spr.set_current_line(100);
+        spr.write_slot_select(0);
+        spr.write_attribute(200);
+        spr.write_attribute(100);
+        spr.write_attribute(0x00);
+        spr.write_attribute(0x80);
+
+        // ── Render-side pipeline ────────────────────────────────────
+        spr.rewind_to_baseline();
+
+        // Render line 20 — sprite should be at X=10..25 (baseline).
+        uint32_t line20[320]; clear_line(line20);
+        for (int row = 0; row <= 20; ++row) spr.apply_changes_for_line(row);
+        spr.render_scanline(line20, 20, pal);
+
+        // Render line 100 — sprite should be at X=200..215 (mid-frame).
+        uint32_t line100[320]; clear_line(line100);
+        for (int row = 21; row <= 100; ++row) spr.apply_changes_for_line(row);
+        spr.render_scanline(line100, 100, pal);
+
+        // Assertions.
+        bool baseline_at_10 = (pixel_index(line20, 10) == 0x42);
+        bool baseline_clear_at_200 = (pixel_index(line20, 200) == -1);
+        check("G16.PSL-09a",
+              "Render line 20: sprite pixel at X=10 (baseline)",
+              baseline_at_10,
+              DETAIL("px@10=%d", pixel_index(line20, 10)));
+        check("G16.PSL-09b",
+              "Render line 20: NO sprite pixel at X=200",
+              baseline_clear_at_200,
+              DETAIL("px@200=%d", pixel_index(line20, 200)));
+
+        bool postfix_at_200 = (pixel_index(line100, 200) == 0x42);
+        bool postfix_clear_at_10 = (pixel_index(line100, 10) == -1);
+        check("G16.PSL-09c",
+              "Render line 100: sprite pixel at X=200 (mid-frame)",
+              postfix_at_200,
+              DETAIL("px@200=%d", pixel_index(line100, 200)));
+        check("G16.PSL-09d",
+              "Render line 100: NO sprite pixel at X=10 (sprite moved)",
+              postfix_clear_at_10,
+              DETAIL("px@10=%d", pixel_index(line100, 10)));
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -197,7 +197,10 @@ public:
     /// dropped (with a once-per-frame warn). Sized for the worst-case
     /// "Copper / Z80N-DMA writes hundreds of attribute bytes per scanline"
     /// scenario. parallax.nex measured ~270 attribute writes per frame at
-    /// 50 Hz; 8192 leaves a 30× headroom.
+    /// 50 Hz; 8192 leaves a 30× headroom. KNOWN LIMIT: extreme per-scanline
+    /// DMA streaming demos (>8192 attribute byte-writes/frame, e.g. >32 byte
+    /// re-uploads/scanline at 256 lines) will overflow — beyond that point
+    /// the engine warns once and drops further log entries this frame.
     static constexpr size_t MAX_CHANGES_PER_FRAME = 8192;
 
     void save_state(class StateWriter& w) const;
