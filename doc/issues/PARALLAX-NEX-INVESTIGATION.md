@@ -246,26 +246,39 @@ been disconfirmed:
 - ❌ Sprite multiplexing across scanlines (attr table identical across
      frame; no mid-frame writes)
 - ❌ CPU-speed timing skew (turbo doesn't change per-frame state)
+- ❌ **Refresh-rate mismatch (50 vs 60 Hz)** — user verified 2026-04-27:
+     running CSpect with `-50` flag (matching jnext's default 50 Hz)
+     **still produces the rich scene** (just renders it slower in
+     wall-clock terms). jnext at 50 Hz renders the sparse scene. So
+     refresh rate is NOT the cause of the visual delta.
 
-What remains untested:
-- jnext's NR 0x07 turbo handling correctness (separate latent bug)
-- 60 Hz mode (CSpect launch script uses `-60` flag; jnext defaults to
-  50 Hz). 60 Hz means 20 % more demo frames per wall-second. Worth
-  testing — could be enough to advance the demo state visibly.
-- Sprite priority / transparency / NR 0x4A-0x4C interaction at
-  pixel level
-- An emulator feature CSpect implements that jnext doesn't recognise
-  yet (e.g., sprite anchor inheritance edge cases the trace didn't
-  surface)
+### Next-session pickup (planned for 2026-04-27)
 
-### Next-session pickup
+User-directed plan, two phases:
 
-Highest-leverage remaining test: **try jnext with 60 Hz mode** matching
-CSpect's launch flag (`-60`). If parallax visually advances to the
-rich scene at 5 s wall-clock under 60 Hz, the gap was simply refresh-
-rate-induced frame-count delta, not a rendering bug.
+**Phase A — Sprite priority / transparency at pixel level.** The 96
+sprites at y=112/y=128 DO render in jnext, but maybe their priority
+vs L2 / ULA is wrong, hiding additional sprite content that should
+appear elsewhere on screen. Investigate: NR 0x4A (sprite transparency
+index), NR 0x4C (sprite/tilemap palette select), NR 0x6F (sprite-over-
+border), NR 0x68 (ULA blend mode), and the SLU/LSU priority modes via
+NR 0x15 bits. Compare jnext's compositor priority handling to VHDL
+`zxnext.vhd` carefully. Possibly add per-pixel tracing in the
+compositor for parallax frame 250 to identify where layer choices
+differ from CSpect's expected output.
 
-Investigation pause; commit findings; resume next session.
+**Phase B — Decode bank 6's main loop more thoroughly.** Disassembly
+covered the IM1 vector install at 0x0053 and the per-frame loop at
+0x0090, but the loop's per-frame work calls (CALL 0x011E, 0x01EF,
+0x0213, 0x0269, 0x02BF, 0x00F8, 0x0469) were NOT yet traced. Decode
+each: identify which writes the demo does each frame to sprites /
+patterns / palette / L2 scroll. Cross-reference against the captured
+trace to find any NR or port write jnext mishandles. The Z80N NEXTREG
+instruction (`ED 91 nn vv`) is 4 bytes, but z88dk-dis treats it as
+2-byte NOP — manual realignment required for any disassembly past an
+`ED 91`.
+
+Investigation pause; commit findings; resume next session per Phase A.
 
 ### Critic findings on `603cbfc` (independent review, APPROVE-WITH-NITS)
 
