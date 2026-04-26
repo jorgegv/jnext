@@ -147,6 +147,64 @@ tested, and benefit other demos (any sprite-multiplexing program).
 The residual gap requires fresh diagnosis — likely a new investigation
 journal under `doc/issues/`.
 
+### 2026-04-26 late-evening findings (after .nex disassembly + nex_init audit)
+
+End-of-day investigation went two more passes that change the diagnosis.
+
+**Pass A: Disassembly of parallax.nex** (via `z88dk-dis` against the
+extracted bytes). PC=0x8000 entry code in NEX bank 2 lo:
+```
+DI; NEXTREG NR 0xB8/B9/BA/BB; NEXTREG NR 0x50-0x53 (slots 0-3 ← 0x0C-0x0F);
+RST 0
+```
+RST 0 jumps to 0x0000 which is now NEX bank 6 lo (paged in by NR 0x50).
+Bank 6 lo at 0x0053: `LD HL, 0x05E2; LD (0x0047), HL` (install IM1
+vector); main loop spins waiting for IM1 then does the per-frame
+work. **0x0053 is NOT a DivMMC/esxDOS hook** — it's the demo's own
+entry. The demo does not require boot/DivMMC ROMs (and explicitly
+hangs if those are loaded — likely because of unintended automap-trap
+collisions).
+
+**Pass B: byte-level verify of L2 + MMU mapping.** The earlier FNV
+mismatch at runtime page 0x24 vs file's NEX bank 2 lo was a **red
+herring** — first 8 bytes of page 0x24 = `f3 ed 91 b8 00 ed 91 b9`
+EXACTLY matching the demo's init code. The FNV diverged because the
+demo's stack lives at SP=0x80a1 (= page 0x24 high offset) and stack
+push/pop overwrites some bytes within the same 8 KB page. The LOADER's
+byte-level placement is correct everywhere checked. **MMU mapping is
+NOT the bug.**
+
+**Pass C: nex_init_machine vs tbblue's official `nexload.asm`.**
+Comparison surfaced **6 missing NR writes** in jnext's
+`Emulator::nex_init_machine`:
+
+| Register | tbblue value | jnext init | Effect of missing write |
+|----------|--------------|------------|--------------------------|
+| **NR 0x07** | **0x03 (28 MHz turbo)** | not set (default 3.5 MHz) | Demo runs 8× slower until it sets its own NR 0x07 — **major timing skew** |
+| NR 0x06 | peripheral 2 — DivMMC autopage / Multiface / AY config | not set | Different peripheral state |
+| NR 0x08 | peripheral 3 — paging lock, contention, Timex, TurboSound | not set | Different peripheral state |
+| NR 0x42 | 0x0F (palette format / ULA transparency) | not set | Possibly wrong ULA palette format |
+| NR 0x44 | palette extended | not set | Possibly missing extended palette init |
+| NR 0x61, 0x62 | 0x00 (stop copper) | not set | Stale copper program could fire before demo programs it |
+
+**Working hypothesis**: the visible delta is **CPU-speed-induced
+timing skew**, not a rendering bug. CSpect at 5 s wall-clock has
+executed many more demo cycles than jnext at 5 s wall-clock; CSpect
+shows the rich game scene while jnext is still in the intro/title
+state. Both render correctly given their respective demo states.
+
+**This may also explain NextZXOS boot delays** — same missing init
+slows boot ROM execution.
+
+### Recommended fix
+
+Patch `Emulator::nex_init_machine` to add the 6 missing NR writes,
+in tbblue's order, with VHDL-citation comments. Verify visually:
+re-run parallax.nex, capture at 5 s (frame 250); if scene now matches
+CSpect-3.png — case closed. If not, drill into the remaining gap.
+
+Pending in a follow-up branch (`fix/nex-init-tbblue-faithful`).
+
 ### Critic findings on `603cbfc` (independent review, APPROVE-WITH-NITS)
 
 VHDL citations re-verified at `sprites.vhd:561-572` (pattern RAM),
