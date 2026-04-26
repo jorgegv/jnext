@@ -1,124 +1,197 @@
 # parallax.nex rendering investigation
 
-**Date**: 2026-04-25
-**Status**: PARKED — needs LoRes implementation as prerequisite, then
-bringup. Estimated 1–3 sessions of focused work.
+**Started**: 2026-04-25
+**Last updated**: 2026-04-26 EOD
+**Status**: PARTIALLY RESOLVED — visible content significantly improved, but
+still NOT visually correct vs CSpect. Remaining gap is in a different
+subsystem (LoRes / tilemap / copper-driven layer base re-pointing).
 **Driver file**: `../CSpect3_1_0_0/parallax.nex` (also at
 `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.nex`).
 **CSpect launch script**: `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.sh`
 (`mono ./CSpect.exe -fullscreen -sound -w5 -60 -vsync -zxnext -mmc=./ parallax.nex`).
+**Current jnext launch**: `./build/jnext --load ../CSpect3_1_0_0/parallax.nex`
+(do NOT pass `--boot-rom` / `--divmmc-rom` — they hang the demo).
 
-## Symptom
+## Original symptom (2026-04-25)
 
 Severe corruption: scene rendered as **two side-by-side copies of the
 scene with a vertical black band in the middle**, ~30 px wide gap.
 Captured at multiple time points in `/tmp/parallax-baseline.png`,
 `/tmp/parallax-t1.png`, `/tmp/parallax-t3.png`, `/tmp/parallax-t6.png`
-during the 2026-04-25 investigation.
+during the 2026-04-25 investigation. **No longer reproducible** as of
+2026-04-26 — likely fixed incidentally by the contention/videotiming/
+ULA video closures earlier in the week.
 
-## Trace findings
+## 2026-04-26 evidence + fixes
 
-NR write trace (4 s capture, 2944 NR writes; full log was at
-`/tmp/parallax-trace.log`):
+### User-supplied ground-truth (file in repo root)
+- `parallax-cspect-{1,2,3}.png` — CSpect at 5.5s / 5.2s / 5.0s
+- `parallax-jnext-{1,2,3}.png` — jnext at the same moments
 
-- **NR 0x15 toggles between `0x80` and `0x01`**:
-  - `0x80` = bit 7 set → LoRes mode ON, sprites disabled
-  - `0x01` = bit 0 set → LoRes OFF, sprites enabled
-  - Almost certainly Copper-driven per-line layer split.
-- **Heavy NR 0x60 / 0x61 / 0x62** — Copper program is active.
-- **NR 0x16** continuously incrementing from `0x00` upward — Layer 2
-  X-scroll being driven (whether L2 is actually consumed is unclear;
-  see below).
-- **DMA fires 757 times in 5 s** (~3 enables per frame) — all target
-  port 0x57 (sprite attribute upload, auto-increment slot), sourcing
-  memory at 0xE000 / 0xE800 / 0xF000 in 80-byte chunks. Standard
-  sprite-attribute uploader. **DMA is not the bug**; it's the vehicle
-  parallax uses for sprite scrolling.
-- **No NR 0x69, NR 0x6B, NR 0x6E, NR 0x6F, NR 0x70 writes** — Layer 2
-  is never enabled (NR 0x69 untouched, port 0x123B not seen); Tilemap
-  is never enabled. Whole scene = ULA + sprites + LoRes.
+### Subsystems exercised by the demo (verified by trace)
+- **NO sprites** initially claimed; later confirmed FALSE — 688 writes
+  to port 0x303B, 54,240 to port 0x57, 18,688 to port 0x5B in 4 sec.
+  Demo uses sprites HEAVILY.
+- Layer 2 enabled via `port 0x123B = 0x02` (visible bit only).
+- `NR 0x12 = 0x08`, `NR 0x13 = 0x0c` (L2 active + shadow page).
+- Copper program: 6 MOVE instructions writing NR 0x16 at scanlines
+  160/162/166/170/176/182 (bottom-band parallax pattern, identical
+  shape to Beast).
+- `NR 0x69` / `NR 0x6B` / `NR 0x70` / `NR 0x6E` never written —
+  defaults rule.
+- `NR 0x15` toggles `0x80`/`0x01` only ONCE at init — not per-line as
+  the original 2026-04-25 trace claimed (LoRes path is unused at
+  runtime; LoRes implementation NOT a parallax blocker).
 
-## Root cause shortlist
+### Bugs found + fixed in this investigation
 
-1. **LoRes mode (NR 0x15 bit 7) is unimplemented** — explicit deferral
-   in [src/core/emulator.cpp:428](../../src/core/emulator.cpp#L428)
-   (`// bit 7 = LoRes enable (deferred)`) and
-   [doc/design/EMULATOR-DESIGN-PLAN.md:767](../design/EMULATOR-DESIGN-PLAN.md#L767)
-   (`LoRes deferred to Phase 3`). NEX-loader half is done
-   (`SCREEN_LORES = 0x04` flag loads 12 288 bytes into bank 5 — see
-   [src/core/nex_loader.cpp:189-198](../../src/core/nex_loader.cpp#L189-L198));
-   the **renderer half is missing**.
-2. **Per-scanline NR 0x15 replay is missing**. Even with LoRes
-   implemented, the Copper-driven mid-frame toggle of bit 7 / bit 0
-   would collapse to "last value wins" without per-scanline replay
-   (same architectural issue the palette change-log just solved). See
-   [doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md](../design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md)
-   §Category A.
-3. **The "two side-by-side copies" symptom is NOT explained by missing
-   LoRes alone**. Without LoRes, the background layer should be black
-   / fallback, not duplicated. Something else (sprite X-wrap, sprite
-   multiplexing, L2 width handling, or an unknown feature) is
-   contributing. Will only become visible once steps 1 + 2 are done.
+1. **`fix(layer2): NR 0x18 clip_y2 default 0xBF`** (commit `4d13d14`)
+   Layer-2 clip_y2 default was 255 in jnext, should be 0xBF (191) per
+   `cores/zxnext/src/zxnext.vhd:4959-4962`. Fixed in `Layer2::reset()`
+   + member-init list. Sibling NR 0x19/0x1A/0x1B clips verified
+   already correct.
 
-## Required work
+2. **`feat(sprites): per-scanline attribute replay`** (commit `b0a45a3`)
+   The demo bulk-streams sprite-attribute bytes via Z80N DMA mid-frame
+   (`A=mem(inc) → B=I/O(fixed at port 0x57)`). VHDL
+   `cores/zxnext/src/video/sprites.vhd:327-470` defines 5 dual-port
+   attribute RAMs (sync-write, async-read by FSM at scanline render
+   time). jnext's renderer ran once per frame, so it saw only the
+   end-of-frame snapshot — all 96 sprites clustered at y=160/176.
+   Fix: per-scanline change-log replay mirroring the Beast L2-scroll
+   fix (`f448b4f`) + palette pattern. `start_frame` /
+   `set_current_line` / `rewind_to_baseline` /
+   `apply_changes_for_line` API on `SpriteEngine`.
 
-In dependency order:
+3. **`test(sprites): close per-scanline replay coverage gaps`**
+   (commit `9dd5684`)
+   Closed the 4 critic nits on `b0a45a3`: PSL-07 byte4/extended-attr,
+   PSL-08 NR 0x75-0x79 path, PSL-09 end-to-end render, 8192 cap
+   header note.
 
-| # | Item | Estimate | Notes |
-|---|---|---|---|
-| 1 | **TASK-LORES-PLAN.md** — implement LoRes layer end-to-end | 4–8 h | NR 0x15 bit 7 wiring + 128×96 scanline renderer + NR 0x32/0x33 scroll + NR 0x1A clip + compositor integration + transparency vs NR 0x14. VHDL `lores.vhd` is the oracle (~150 lines). Test plan + bare + integration tests + independent review. |
-| 2 | **Per-scanline NR 0x15 replay** | 1–2 h | Palette-pattern clone for the Copper mid-frame layer split. |
-| 3 | **Per-scanline NR 0x16 / 0x17 / 0x71 (L2 scroll)** | 1–2 h IF needed | Verify after step 2 — trace shows NR 0x16 written but L2 never enabled; may be irrelevant. |
-| 4 | **Bringup vs CSpect** | 2–4 h | Capture, side-by-side compare, file new bugs as they surface. The "two copies" symptom needs its own fix once 1+2 are in place. |
-| 5 | **Per-scanline sprite attrs** if multiplexing observed | 3–4 h | DMA-driven uploads point at this; only if step 4 reveals sprite-multiplexing dependency. |
+4. **`feat(sprites): per-scanline pattern replay`** (commit `603cbfc`)
+   Demo also bulk-streams sprite-pattern bytes via Z80N DMA mid-frame
+   (port 0x5B, 18,688 writes/sec ≈ 92/frame, 256-write peak burst).
+   Phase-0 measurement saw 311 distinct scanline values across 4 sec
+   trace + 443 distinct (scanline, pattern_index) pairs — clear mid-
+   frame multiplexing. VHDL `cores/zxnext/src/video/sprites.vhd:561-
+   572` declares the 16 KB `sdpbram_16k_8` pattern RAM with the same
+   sync-write/async-read semantics as the attribute RAMs. Fix mirrors
+   `b0a45a3` on the pattern side.
 
-**Total**: 1–3 focused sessions.
+### Bugs investigated and ruled out
 
-## Risk factors
+- **DMA byte-count truncation** (initially claimed by sprite agent;
+  debunked by DMA-instrumentation agent). The "DMA transfer complete:
+  16 bytes" log line reports per-burst, not total. With `len=80` the
+  transfer takes 5 bursts of 16 each; full 80 bytes ARE delivered.
+- **NEX bank → SRAM page mapping mismatch for L2 source**. Verified
+  correct: NEX banks 8/9/10 → SRAM pages 16-21, NR 0x12=0x08 reads
+  pages 16-21. (parallax.nex has banks 8/9/10 all-zero in the file —
+  L2 image is populated at runtime via DMA paged copies.)
+- **Layer 2 renderer page selection** (NR 0x12 vs NR 0x13). Verified
+  VHDL-faithful: NR 0x12 only feeds the renderer; NR 0x13 is for CPU
+  paging only.
+- **MMU CPU-write/read consistency for L2 source population**. MMU
+  consistency agent could not reproduce a divergence; mathematical
+  audit shows write/read paths mirror-symmetric.
+- **NR 0x18 clip_y2 default** — drift fixed (item #1) but does not
+  affect the visible parallax area.
 
-- **No reference image on disk** — every iteration needs side-by-side
-  compare to a CSpect run. Capture a CSpect screenshot first thing
-  before bringup starts.
-- **LoRes touches a lot of surface area**: NR 0x14 transparency,
-  NR 0x68 bit 3 (`ulap_en`) gating, priority compositor, palette
-  routing. Not just a renderer module.
-- **Cascade discovery**: building LoRes may surface that we also need
-  NR 0x32 / 0x33 per-scanline replay, LoRes-specific clip handling,
-  or a feature not yet identified.
-- **Two-copies mystery** is unexplained by the obvious story and may
-  be a separate bug that doubles the bringup effort.
+### Remaining gap (NOT fixed)
 
-## Recommended approach
+CSpect ground-truth shows multi-tier rocky platforms (3-4 horizontal
+beams), full-height vertical lava columns, and crystal/skull-stone
+detail tiles. jnext renders the cave/spire background, the bottom
+parallax band, the upper stone-tile platform (after `b0a45a3`), and a
+slight pattern-multiplex delta (after `603cbfc`) — but NOT the multi-
+tier platforms / lava columns / crystals.
 
-Three smaller commits / sub-plans, NOT bundled:
+The pattern-replay fix (`603cbfc`) produced only ~213 pixels of
+difference at frame 330 vs the attribute-only baseline (and zero diff
+at f300/f312). This means the missing content is **NOT** in the
+sprite pattern domain.
 
-1. **TASK-LORES-PLAN.md** — implement the layer cleanly, with tests,
-   regardless of parallax. Standalone value: other LoRes demos exist
-   and the NEX loader already supports the screen flag.
-2. **Per-scanline NR 0x15 replay** — quick palette-pattern clone
-   after step 1 lands.
-3. **Parallax bringup** — only NOW look at parallax.nex with both
-   1 + 2 in place. Likely reveals the "two copies" mystery as a
-   sprite or L2 issue fixable in isolation.
+Subsystems likely responsible for the residual delta (in priority
+order):
+1. **Layer 2 mid-frame source-bank repointing** — Copper-driven NR
+   0x12 mid-frame writes are NOT yet captured by per-scanline replay.
+   If the demo points L2 at different banks for different bands of
+   the screen, each band would carry different artwork and jnext
+   would see only the last bank's content. (Cat-A item in
+   `doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md`.)
+2. **LoRes layer** — PARKED earlier; per the 2026-04-25 trace LoRes
+   bit toggling was claimed but the 2026-04-26 trace shows only ONE
+   init-time write to NR 0x15 bit 7. So LoRes is NOT an active driver
+   here, but LoRes-related sprite priority bits in NR 0x15 may be
+   relevant.
+3. **Tilemap pattern multiplexing** — Tilemap is NOT enabled by the
+   demo per the trace, so unlikely.
+4. **Copper-driven NR re-pointing of layer base addresses** — Copper
+   trace shows only NR 0x16 writes; no NR 0x12 / NR 0x13 / port-0x123B
+   mid-frame writes. So this candidate is also unlikely unless other
+   ports are involved.
 
-## Bringup checklist (when picked up)
+The most plausible next step is **Layer 2 per-scanline source-bank
+replay** (NR 0x12 + NR 0x13 mid-frame change-log) — but the trace
+does NOT currently show such writes from this demo. Either the demo
+uses a different multiplex mechanism we haven't identified yet, or
+the multi-tier platforms come from a single L2 image with lots of
+DMA-driven runtime population that's not landing where we expect.
 
-- [ ] Capture CSpect reference screenshots of parallax at t=1s, 3s, 6s
-      (use the CSpect launch script for parity).
-- [ ] Author `doc/design/TASK-LORES-PLAN.md` (Phase 0 design).
-- [ ] Implement LoRes layer + tests + review.
-- [ ] Re-snap parallax. If still wrong → do per-scanline NR 0x15.
-- [ ] Re-snap. Diagnose remaining delta vs CSpect.
-- [ ] Patch and iterate until parity (or until a separate plan is
-      needed for the residual).
-- [ ] Update this doc with findings + close.
+### Recommendation
+
+Status: ship the four fixes; treat the residual visual gap as a
+**follow-on investigation**. The fixes are VHDL-faithful, fully
+tested, and benefit other demos (any sprite-multiplexing program).
+The residual gap requires fresh diagnosis — likely a new investigation
+journal under `doc/issues/`.
+
+### Critic findings on `603cbfc` (independent review, APPROVE-WITH-NITS)
+
+VHDL citations re-verified at `sprites.vhd:561-572` (pattern RAM),
+`:744` (port-0x5B write enable), `:728-743` (auto-increment),
+`:962, 967-971` (FSM read). Pattern fidelity vs `b0a45a3` confirmed.
+Vblank catch-up logic sound (no double-application). Sizing 8192
+adequate (16384 = pathological worst case, documented as known limit).
+Save-state correctly omits ephemeral fields. No regression risk.
+
+Three non-blocking nits to track:
+
+1. **Latent vblank-catch-up bug on the attribute side** —
+   `b0a45a3`'s `start_frame()` does NOT flush attribute-log entries
+   tagged at line >= 256 the way `603cbfc` does for pattern. Demos
+   that DMA-stream attributes across the visible/blanking boundary
+   would silently lose the late bytes. In-code comment in
+   `sprites.cpp` `start_frame()` flags this. Promote the catch-up
+   when a demo surfaces it.
+2. **Missing overflow-clear-on-`start_frame` test** — PSL-PAT-04
+   covers reset clearing the overflow flag, but no test directly
+   exercises `pattern_overflow_warned_` clearing across a normal
+   `start_frame()` call.
+3. **No save-state version byte** — pre-existing limitation, NOT
+   introduced by this commit. As the per-scanline architecture grows
+   (palette + layer2 + sprite-attr + sprite-pattern), a version byte
+   protecting against silently-wrong-shape loads is increasingly
+   justified. Already in the 86-gap doc as G66.
+
+## State of tests after this investigation
+
+- Unit: 3384/3384/0/0 (32 suites, ZERO skips); +48 new test rows
+  (G16 PSL-07/08/09, G17 PSL-PAT-01..07).
+- Regression: 34/0/0; one screenshot rebaselined
+  (`test/img/dapr-sprite-reference.png`) for VHDL-faithful timing
+  shift on `b0a45a3` — justified per critic.
+- Beast.nex regression: full forest scene renders perfectly post-fix.
 
 ## Companion docs
-
-- [doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md](../design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md)
-  — the per-scanline replay pattern parallax depends on (Category A
-  for NR 0x15).
-- [doc/issues/BEAST-NEX-INVESTIGATION.md](BEAST-NEX-INVESTIGATION.md)
-  — companion investigation; both NEX files surfaced together. Beast
-  is RESOLVED; parallax was parked at the same time pending this
-  plan.
+- `doc/design/PER-SCANLINE-DISPLAY-STATE-AUDIT.md` — Cat-A list of
+  remaining per-scanline replay candidates (NR 0x12/0x13 L2 bank,
+  NR 0x14 transparency, NR 0x15 sprite/LoRes priority, NR 0x18-0x1B
+  clip windows, NR 0x70 L2 mode, port 0xFF Timex screen, NR 0x26/0x27
+  ULA scroll, NR 0x68 ULA blend, NR 0x44/0x4B/0x4C transparency
+  index).
+- `~/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/project_per_scanline_pattern_reusable.md`
+  — canonical pattern shape for future per-scanline change-log work.
+- `doc/issues/BEAST-NEX-INVESTIGATION.md` — companion investigation
+  (RESOLVED).
