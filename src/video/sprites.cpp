@@ -55,6 +55,13 @@ void SpriteEngine::reset()
     current_line_    = 0;
     render_cursor_   = 0;
     overflow_warned_ = false;
+
+    // Pattern-side change log: clear baseline and reset counters. Mirror
+    // of the attribute-side reset above.
+    std::memset(baseline_pattern_ram_, 0, sizeof(baseline_pattern_ram_));
+    pattern_change_count_    = 0;
+    pattern_render_cursor_   = 0;
+    pattern_overflow_warned_ = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,8 +95,54 @@ void SpriteEngine::log_attr_change(uint8_t slot, uint8_t byte_index, uint8_t val
     };
 }
 
+void SpriteEngine::log_pattern_change(uint16_t pattern_offset, uint8_t value)
+{
+    if (pattern_change_count_ >= MAX_PATTERN_CHANGES_PER_FRAME) {
+        if (!pattern_overflow_warned_) {
+            Log::video()->warn(
+                "SpriteEngine: pattern change-log full at line {} (cap {} "
+                "per frame); further pattern writes this frame will not "
+                "be per-scanline.",
+                current_line_, MAX_PATTERN_CHANGES_PER_FRAME);
+            pattern_overflow_warned_ = true;
+        }
+        return;
+    }
+    pattern_change_log_[pattern_change_count_++] = PatternChange{
+        current_line_,
+        static_cast<uint16_t>(pattern_offset & (PATTERN_RAM_SZ - 1)),
+        value,
+        0,
+    };
+}
+
 void SpriteEngine::start_frame()
 {
+    // Catch-up: apply any pattern-log entries from the previous frame
+    // that the renderer didn't reach. The renderer iterates
+    // Renderer::FB_HEIGHT (=256) rows and only replays entries tagged
+    // with line < 256; entries tagged at lines 256..lines_per_frame-1
+    // (vertical-blank / border lines) stay rewound-out otherwise, and
+    // the snapshot below would propagate that incorrect state forever.
+    //
+    // This matters in practice: a 256-byte pattern upload via port 0x5B
+    // (e.g. demo/sprite_scaling_test) takes ~3000+ T-states and can
+    // straddle the visible/blanking boundary; the late bytes get logged
+    // at lines 256+ and would otherwise be silently dropped from the
+    // next frame's baseline, leaving zeros at high pattern offsets.
+    //
+    // The attribute side is NOT given the same catch-up because every
+    // attribute write that observably affects rendering must happen in
+    // a visible scanline (the FSM only reads attributes for scanlines
+    // 0..lines_per_frame-1 anyway, and parallax.nex's attribute stream
+    // peaks at <300 byte-writes/frame, all in visible range). Promote
+    // attribute catch-up here if a demo ever produces attribute writes
+    // straddling vblank.
+    while (pattern_render_cursor_ < pattern_change_count_) {
+        const auto& p = pattern_change_log_[pattern_render_cursor_++];
+        pattern_ram_[p.pattern_offset & (PATTERN_RAM_SZ - 1)] = p.value;
+    }
+
     // Snapshot the live attribute table as the frame baseline.
     for (int i = 0; i < NUM_SPRITES; ++i) {
         baseline_sprites_[i] = sprites_[i];
@@ -98,6 +151,13 @@ void SpriteEngine::start_frame()
     render_cursor_   = 0;
     current_line_    = 0;
     overflow_warned_ = false;
+
+    // Snapshot the live pattern RAM as the frame baseline (mirror of
+    // the attribute side). 16 KB memcpy is cheap relative to a frame.
+    std::memcpy(baseline_pattern_ram_, pattern_ram_, sizeof(pattern_ram_));
+    pattern_change_count_    = 0;
+    pattern_render_cursor_   = 0;
+    pattern_overflow_warned_ = false;
 }
 
 void SpriteEngine::rewind_to_baseline()
@@ -106,6 +166,11 @@ void SpriteEngine::rewind_to_baseline()
         sprites_[i] = baseline_sprites_[i];
     }
     render_cursor_ = 0;
+
+    // Restore pattern RAM to its frame-start snapshot so per-line
+    // replay can re-apply mid-frame writes deterministically.
+    std::memcpy(pattern_ram_, baseline_pattern_ram_, sizeof(pattern_ram_));
+    pattern_render_cursor_ = 0;
 }
 
 void SpriteEngine::apply_changes_for_line(int line)
@@ -122,6 +187,18 @@ void SpriteEngine::apply_changes_for_line(int line)
         case 4: spr.byte4 = c.value; break;
         default: break;
         }
+    }
+
+    // Pattern side: replay every pattern-byte write tagged with the
+    // current line. Independent cursor; both logs are scanline-ordered
+    // because their entries are appended at write time tagged with
+    // current_line_, so total render-side work is
+    // O(change_count_ + pattern_change_count_).
+    while (pattern_render_cursor_ < pattern_change_count_
+        && pattern_change_log_[pattern_render_cursor_].line
+                == static_cast<uint16_t>(line)) {
+        const auto& p = pattern_change_log_[pattern_render_cursor_++];
+        pattern_ram_[p.pattern_offset & (PATTERN_RAM_SZ - 1)] = p.value;
     }
 }
 
@@ -216,10 +293,22 @@ void SpriteEngine::write_attribute(uint8_t val)
 // ---------------------------------------------------------------------------
 // Port 0x5B write — pattern data upload (auto-incrementing)
 // ---------------------------------------------------------------------------
+//
+// VHDL sprites.vhd:561-572 (pattern : sdpbram_16k_8) — sync-write port
+// driven by pattern_we (line 744) at the address pattern_a / pattern_index
+// (lines 728-743). Async-read by the per-line sprite FSM at spr_pat_addr
+// (lines 569, 962). Mid-frame port-0x5B writes therefore alter the bytes
+// returned for any subsequent scanline's sprite render — the same
+// "sync-write async-read" semantics as the attribute side. Per-scanline
+// replay records the pattern_offset that was just written (pre-increment)
+// tagged with current_line_ so apply_changes_for_line can reapply it at
+// the same line during rendering.
 
 void SpriteEngine::write_pattern(uint8_t val)
 {
-    pattern_ram_[pattern_offset_ & (PATTERN_RAM_SZ - 1)] = val;
+    const uint16_t offset = pattern_offset_ & (PATTERN_RAM_SZ - 1);
+    pattern_ram_[offset] = val;
+    log_pattern_change(offset, val);
     pattern_offset_ = (pattern_offset_ + 1) & (PATTERN_RAM_SZ - 1);
 }
 

@@ -2852,6 +2852,476 @@ static void group16() {
 }
 
 // ---------------------------------------------------------------------------
+// Group 17 — Per-Scanline Pattern (port 0x5B) Change Log
+// VHDL sprites.vhd:561-572 (16 KB sdpbram_16k_8 pattern RAM, sync-write
+// async-read), :728-744 (port 0x5B write trigger + auto-increment).
+// Required by parallax.nex which Z80N-DMA-streams ~92 pattern bytes per
+// frame across 311 distinct scanlines (peak 256 in a single 1 ms burst,
+// ~21 distinct slots cycled per frame) to multiplex platforms / lava
+// columns / crystals.
+// ---------------------------------------------------------------------------
+static void group17() {
+    set_group("G17-PerScanlinePat");
+    SpriteEngine spr;
+    PaletteManager pal;
+
+    // G17.PSL-PAT-01 — Pre-frame pattern write survives rewind+apply.
+    // The byte was written BEFORE start_frame, so it lives in the frame
+    // baseline. After rewind, it must still be there even before any
+    // log entries are applied.
+    {
+        fresh(spr, pal);
+
+        // Write a single pattern byte at slot 0 offset 0 BEFORE the
+        // frame begins.
+        spr.write_slot_select(0);   // pattern_offset_ = 0
+        spr.write_pattern(0x77);
+
+        spr.start_frame();          // baseline snapshot
+        spr.set_current_line(0);
+
+        spr.rewind_to_baseline();
+        // Inspect via render path: upload solid filler around it, then
+        // assert the byte at pattern_ram_[0] is 0x77 by rendering a
+        // sprite at offset 0. Direct API check via change-log size.
+        check("G17.PSL-PAT-01a",
+              "pre-frame pattern write survives rewind (no log entries)",
+              spr.pattern_change_log_size() == 0,
+              DETAIL("pat_log=%zu", spr.pattern_change_log_size()));
+
+        // Render a sprite using pattern 0 at line 0 to confirm the byte
+        // is still present in pattern RAM after rewind (end-to-end).
+        spr.write_slot_select(0);
+        spr.write_attribute(0);     // X = 0
+        spr.write_attribute(0);     // Y = 0
+        spr.write_attribute(0x00);  // attr2
+        spr.write_attribute(0x80);  // attr3 visible
+        // The mid-frame attribute writes ARE logged at line 0; replay
+        // them as well. (Pattern-side test is the focus.)
+        spr.apply_changes_for_line(0);
+
+        uint32_t line0[320]; clear_line(line0);
+        spr.render_scanline(line0, 0, pal);
+        check("G17.PSL-PAT-01b",
+              "render sees pre-frame pattern byte 0x77 at sprite px 0",
+              pixel_index(line0, 0) == 0x77,
+              DETAIL("px@0=%d", pixel_index(line0, 0)));
+    }
+
+    // G17.PSL-PAT-02 — Mid-frame pattern write at line N: lines 0..N-1
+    // see baseline (zero), line N+ see new value.
+    {
+        fresh(spr, pal);
+
+        // Pre-frame: pattern slot 0 byte 0 = 0xAA (baseline).
+        spr.write_slot_select(0);
+        spr.write_pattern(0xAA);
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 100: rewrite pattern slot 0 byte 0 = 0xBB.
+        spr.set_current_line(100);
+        spr.write_slot_select(0);   // resets pattern_offset_ to 0
+        spr.write_pattern(0xBB);
+
+        // Render-side replay.
+        spr.rewind_to_baseline();
+
+        // Line 0: baseline 0xAA visible.
+        // (Use direct pattern_ram readback by rendering a sprite — but
+        // since we don't expose pattern_ram_ directly, render a sprite
+        // with pattern 0, which uses pattern_ram_[0]).
+        spr.write_slot_select(0);
+        spr.write_attribute(0);   // X
+        spr.write_attribute(0);   // Y
+        spr.write_attribute(0x00);
+        spr.write_attribute(0x80);
+
+        // The attribute writes were tagged at line 100 (current_line_),
+        // so they replay at line 100. We need to test the pattern side
+        // directly. Re-fresh and use a different approach: place
+        // attributes BEFORE start_frame so they're in the baseline.
+        fresh(spr, pal);
+
+        // Pre-frame baseline: pattern[0]=0xAA, sprite slot 0 visible at (0,0).
+        spr.write_slot_select(0);
+        spr.write_pattern(0xAA);
+        spr.write_slot_select(0);
+        spr.write_attribute(0); spr.write_attribute(0);
+        spr.write_attribute(0x00); spr.write_attribute(0x80);
+
+        spr.start_frame();          // baseline includes pattern[0]=0xAA
+                                    // and sprite 0 visible at (0,0)
+        spr.set_current_line(0);
+
+        // Mid-frame at line 100: pattern[0] = 0xBB.
+        spr.set_current_line(100);
+        spr.write_slot_select(0);
+        spr.write_pattern(0xBB);
+
+        spr.rewind_to_baseline();
+
+        // Line 0: pattern[0] still 0xAA.
+        uint32_t line0b[320]; clear_line(line0b);
+        spr.apply_changes_for_line(0);
+        spr.render_scanline(line0b, 0, pal);
+        check("G17.PSL-PAT-02a",
+              "Line 0: baseline pattern byte 0xAA at sprite px 0",
+              pixel_index(line0b, 0) == 0xAA,
+              DETAIL("px@0=%d", pixel_index(line0b, 0)));
+
+        // Skip lines 1..99 (no entries should fire).
+        for (int row = 1; row < 100; ++row) spr.apply_changes_for_line(row);
+        uint32_t line99[320]; clear_line(line99);
+        spr.render_scanline(line99, 0, pal);
+        check("G17.PSL-PAT-02b",
+              "Line 99: still baseline pattern byte 0xAA at sprite px 0",
+              pixel_index(line99, 0) == 0xAA,
+              DETAIL("px@0=%d", pixel_index(line99, 0)));
+
+        // Line 100: replay applies the mid-frame write.
+        spr.apply_changes_for_line(100);
+        uint32_t line100[320]; clear_line(line100);
+        spr.render_scanline(line100, 0, pal);
+        check("G17.PSL-PAT-02c",
+              "Line 100: post-write pattern byte 0xBB at sprite px 0",
+              pixel_index(line100, 0) == 0xBB,
+              DETAIL("px@0=%d", pixel_index(line100, 0)));
+
+        // Line 200: no further entries; pattern stays at 0xBB.
+        for (int row = 101; row < 200; ++row) spr.apply_changes_for_line(row);
+        uint32_t line200[320]; clear_line(line200);
+        spr.render_scanline(line200, 0, pal);
+        check("G17.PSL-PAT-02d",
+              "Line 200: pattern byte still 0xBB (carried)",
+              pixel_index(line200, 0) == 0xBB,
+              DETAIL("px@0=%d", pixel_index(line200, 0)));
+    }
+
+    // G17.PSL-PAT-03 — End-to-end render: same sprite slot at same X/Y
+    // across two scanlines, pattern RAM rewritten between them, the
+    // two scanlines render different pixel colours.
+    //
+    // Setup: sprite slot 0 visible at (X=10, Y=0) using pattern 0.
+    // Pattern slot 0 16-px row 0 starts as solid 0x33 (baseline).
+    // Mid-frame at line 5, rewrite pattern slot 0 row 0 to solid 0x66.
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x33);  // pre-frame baseline
+
+        // Sprite at (X=10, Y=0), uses pattern 0, visible.
+        spr.write_slot_select(0);
+        spr.write_attribute(10);
+        spr.write_attribute(0);
+        spr.write_attribute(0x00);
+        spr.write_attribute(0x80);
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 5: rewrite pattern slot 0 to 0x66.
+        spr.set_current_line(5);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 256; ++i) spr.write_pattern(0x66);
+
+        // Render-side replay.
+        spr.rewind_to_baseline();
+
+        // Line 0: sprite px at X=10..25 should be 0x33.
+        uint32_t l0[320]; clear_line(l0);
+        spr.apply_changes_for_line(0);
+        spr.render_scanline(l0, 0, pal);
+        bool line0_baseline = (pixel_index(l0, 10) == 0x33) &&
+                              (pixel_index(l0, 25) == 0x33);
+        check("G17.PSL-PAT-03a",
+              "Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern)",
+              line0_baseline,
+              DETAIL("px@10=%d px@25=%d",
+                     pixel_index(l0, 10), pixel_index(l0, 25)));
+
+        // Line 5: replay applies the rewrite; pixels should be 0x66.
+        // But the sprite is at Y=0 so it's only on line 0. To exercise
+        // the pattern at line 5+ we'd need a sprite there.
+        // Re-fresh and place a tall sprite (4x scale = 64px tall).
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x33);
+
+        spr.write_slot_select(0);
+        spr.write_attribute(10);    // X
+        spr.write_attribute(0);     // Y
+        spr.write_attribute(0x00);  // attr2
+        spr.write_attribute(0xC0);  // attr3: visible + extended
+        spr.write_attribute(0x06);  // attr4: yscale=11 (4x), no xscale, no 4bpp
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 20: rewrite pattern slot 0 to 0x66.
+        spr.set_current_line(20);
+        spr.write_slot_select(0);
+        for (int i = 0; i < 256; ++i) spr.write_pattern(0x66);
+
+        spr.rewind_to_baseline();
+
+        // Line 5 (within pre-rewrite span: lines 0..19 baseline).
+        uint32_t l5[320]; clear_line(l5);
+        for (int row = 0; row <= 5; ++row) spr.apply_changes_for_line(row);
+        spr.render_scanline(l5, 5, pal);
+        check("G17.PSL-PAT-03b",
+              "Line 5: tall sprite px = baseline 0x33",
+              pixel_index(l5, 10) == 0x33,
+              DETAIL("px@10=%d", pixel_index(l5, 10)));
+
+        // Line 20: replay applies the rewrite; pixels should be 0x66.
+        uint32_t l20[320]; clear_line(l20);
+        for (int row = 6; row <= 20; ++row) spr.apply_changes_for_line(row);
+        spr.render_scanline(l20, 20, pal);
+        check("G17.PSL-PAT-03c",
+              "Line 20: tall sprite px = post-rewrite 0x66",
+              pixel_index(l20, 10) == 0x66,
+              DETAIL("px@10=%d", pixel_index(l20, 10)));
+    }
+
+    // G17.PSL-PAT-04 — reset clears pattern log.
+    {
+        fresh(spr, pal);
+        spr.start_frame();
+        spr.set_current_line(50);
+
+        spr.write_slot_select(0);
+        spr.write_pattern(0xCD);
+        check("G17.PSL-PAT-04a",
+              "Pattern write logged (count > 0)",
+              spr.pattern_change_log_size() > 0,
+              DETAIL("count=%zu", spr.pattern_change_log_size()));
+
+        spr.reset();
+        check("G17.PSL-PAT-04b",
+              "After reset: pattern_change_log_size == 0",
+              spr.pattern_change_log_size() == 0,
+              DETAIL("count=%zu", spr.pattern_change_log_size()));
+    }
+
+    // G17.PSL-PAT-05 — overflow saturates at MAX_PATTERN_CHANGES_PER_FRAME.
+    {
+        fresh(spr, pal);
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        spr.write_slot_select(0);
+        // Write MAX+10 bytes; auto-increment wraps at 14-bit.
+        const size_t cap = SpriteEngine::MAX_PATTERN_CHANGES_PER_FRAME;
+        for (size_t i = 0; i < cap + 10; ++i) {
+            spr.write_pattern(static_cast<uint8_t>(i & 0xFF));
+        }
+        check("G17.PSL-PAT-05",
+              "log saturates at MAX_PATTERN_CHANGES_PER_FRAME",
+              spr.pattern_change_log_size() == cap,
+              DETAIL("count=%zu cap=%zu",
+                     spr.pattern_change_log_size(), cap));
+    }
+
+    // G17.PSL-PAT-06 — Pattern + attribute change-logs coexist correctly.
+    // Write attribute and pattern in same frame at different lines,
+    // verify both replay independently (attribute log advances on its
+    // own cursor, pattern log advances on its own cursor).
+    {
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x11);  // pre-frame pattern
+
+        // Pre-frame: sprite slot 0 visible at (0, 0), pattern 0.
+        spr.write_slot_select(0);
+        spr.write_attribute(0); spr.write_attribute(0);
+        spr.write_attribute(0x00); spr.write_attribute(0x80);
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Mid-frame at line 30: ATTRIBUTE write — move sprite to X=200.
+        spr.set_current_line(30);
+        spr.write_slot_select(0);
+        spr.write_attribute(200);   // attr0 = X = 200
+        // Note: leave the rest unmodified; only attr0 is logged.
+
+        // Mid-frame at line 60: PATTERN write — pattern[0] = 0x99.
+        spr.set_current_line(60);
+        spr.write_slot_select(0);
+        spr.write_pattern(0x99);
+
+        // Both logs should record exactly one entry each.
+        check("G17.PSL-PAT-06a",
+              "attr log has one mid-frame entry",
+              spr.change_log_size() == 1,
+              DETAIL("attr_log=%zu", spr.change_log_size()));
+        check("G17.PSL-PAT-06b",
+              "pattern log has one mid-frame entry",
+              spr.pattern_change_log_size() == 1,
+              DETAIL("pat_log=%zu", spr.pattern_change_log_size()));
+
+        spr.rewind_to_baseline();
+
+        // Line 0: baseline (X=0, pattern[0]=0x11).
+        spr.apply_changes_for_line(0);
+        check("G17.PSL-PAT-06c",
+              "Line 0: attribute X = baseline 0",
+              spr.read_attr_byte(0, 0) == 0,
+              DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
+
+        // Lines 1..29 — neither log fires.
+        for (int row = 1; row < 30; ++row) spr.apply_changes_for_line(row);
+        check("G17.PSL-PAT-06d",
+              "Line 29: still baseline X=0",
+              spr.read_attr_byte(0, 0) == 0,
+              DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
+
+        // Line 30: attribute log fires (X=200), pattern log does NOT.
+        spr.apply_changes_for_line(30);
+        check("G17.PSL-PAT-06e",
+              "Line 30: attribute X = 200 (mid-frame attr write)",
+              spr.read_attr_byte(0, 0) == 200,
+              DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
+
+        // Lines 31..59 — neither log fires.
+        for (int row = 31; row < 60; ++row) spr.apply_changes_for_line(row);
+        // Render line 59 to confirm pattern is still 0x11. Sprite is now
+        // at X=200 (changed at line 30) so check pixel at 200.
+        // But sprite Y=0, sprite is only visible at lines 0..15. Use a
+        // tall sprite via re-setup. Simpler: just check pattern via a
+        // second render at line 59 using a fresh sprite scaled up.
+        // Skip the visual check here; the cursor independence is the
+        // test point.
+
+        // Line 60: pattern log fires (pattern[0]=0x99), attribute log does NOT.
+        spr.apply_changes_for_line(60);
+        // Verify the attribute side is unchanged from line 30 (X=200).
+        check("G17.PSL-PAT-06f",
+              "Line 60: attribute X still 200 (pattern-only mid-frame)",
+              spr.read_attr_byte(0, 0) == 200,
+              DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
+
+        // Confirm pattern was applied end-to-end: re-setup a tall
+        // sprite that intersects line 60 with 8x Y scale (byte4=0x06 →
+        // y_scale shift = 3 → 16 << 3 = 128 px tall), then write the
+        // exact pattern byte the renderer will read at line 60.
+        //
+        // At y_scale shift = 3 (8x), line 60 - sprite_y(0) = 60,
+        // pattern_row = 60 >> 3 = 7. 8-bit-mode address for pattern 0,
+        // row 7, col 0 = (0<<8) | (7<<4) | 0 = 112. So we need
+        // pattern[112] to be 0x99 after replay at line 60.
+        fresh(spr, pal);
+        upload_pattern_8bpp_solid(spr, 0, 0x11);  // pattern[0..255] = 0x11
+
+        // Tall sprite at (10, 0), 8x Y scale.
+        spr.write_slot_select(0);
+        spr.write_attribute(10); spr.write_attribute(0);
+        spr.write_attribute(0x00);
+        spr.write_attribute(0xC0);   // visible + extended
+        spr.write_attribute(0x06);   // y_scale bits 2:1 = "11" = 8x
+
+        spr.start_frame();
+        spr.set_current_line(60);
+
+        // Drive pattern_offset_ to 112 by reselecting and skipping.
+        // write_slot_select(0) resets offset to 0; write 112 bytes of
+        // 0x11 (no-op visually since baseline already is 0x11), then
+        // 0x99 at offset 112.
+        spr.write_slot_select(0);
+        for (int i = 0; i < 112; ++i) spr.write_pattern(0x11);
+        spr.write_pattern(0x99);     // pattern[112] = 0x99 at line 60
+
+        spr.rewind_to_baseline();
+        for (int row = 0; row <= 60; ++row) spr.apply_changes_for_line(row);
+        uint32_t lpat2[320]; clear_line(lpat2);
+        spr.render_scanline(lpat2, 60, pal);
+        check("G17.PSL-PAT-06g",
+              "Line 60: rendered pixel uses post-rewrite pattern byte 0x99",
+              pixel_index(lpat2, 10) == 0x99,
+              DETAIL("px@10=%d", pixel_index(lpat2, 10)));
+    }
+
+    // G17.PSL-PAT-07 — VBlank catch-up. Pattern bytes written at lines
+    // >= FB_HEIGHT (256) are NOT replayed during render_frame's
+    // 0..FB_HEIGHT-1 loop, but they MUST appear in the next frame's
+    // baseline so live pattern_ram_ ends up in the same state the
+    // hardware would have produced. start_frame() flushes any
+    // un-replayed log entries into live RAM before snapshotting.
+    //
+    // This is the bug surfaced by demo/sprite_scaling_test, where a
+    // 256-byte port-0x5B upload spans 30+ scanlines and leaks late
+    // bytes past the visible boundary; without catch-up those bytes
+    // would be silently zeroed forever from the next frame onwards.
+    {
+        fresh(spr, pal);
+
+        // Frame T begins.
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Write at a "visible" line (replays during render): pattern[0]=0xAA.
+        // (write_slot_select resets pattern_offset_ to 0; first write
+        // hits offset 0 and increments to 1.)
+        spr.set_current_line(100);
+        spr.write_slot_select(0);
+        spr.write_pattern(0xAA);
+
+        // Write at a "vblank" line (line >= 256, NOT replayed during
+        // render): pattern[1]=0xBB. Use the auto-incremented
+        // pattern_offset_ from the previous write (now 1); do NOT
+        // re-issue write_slot_select, which would reset offset to 0.
+        spr.set_current_line(280);
+        spr.write_pattern(0xBB);
+
+        check("G17.PSL-PAT-07a",
+              "Both writes logged (visible + vblank)",
+              spr.pattern_change_log_size() == 2,
+              DETAIL("count=%zu", spr.pattern_change_log_size()));
+
+        // Render side: rewind, replay only visible lines (0..255),
+        // mimicking Renderer::render_frame.
+        spr.rewind_to_baseline();
+        for (int row = 0; row < 256; ++row) {
+            spr.apply_changes_for_line(row);
+        }
+
+        // After render: pattern[0]=0xAA (replayed at line 100),
+        // pattern[1]=0x00 (NOT replayed — line 280 was outside the
+        // render loop). Direct verification via render-pipeline isn't
+        // straightforward here; instead, exercise start_frame's
+        // catch-up: run another frame and verify the new baseline
+        // includes pattern[1]=0xBB.
+
+        // Frame T+1 begins. start_frame must flush the line-280 entry
+        // into pattern_ram_ before snapshotting baseline.
+        spr.start_frame();
+
+        // After start_frame, pattern[1] must be 0xBB (catch-up applied
+        // the vblank write into live RAM and the snapshot).
+        // Render a fresh sprite at (0,0) using pattern 0 col 1 row 0
+        // (offset 1) to assert pattern[1] = 0xBB.
+        spr.write_slot_select(0);
+        spr.write_attribute(0); spr.write_attribute(0);
+        spr.write_attribute(0x00); spr.write_attribute(0x80);
+        // Pre-frame palette setup to make 0xBB and 0xAA opaque
+        // (default sprite_transparency = 0xE3).
+
+        // Render line 0; pixel column 1 should map to pattern[1].
+        spr.rewind_to_baseline();
+        spr.apply_changes_for_line(0);  // attribute write tagged at line 0
+        uint32_t l_t1[320]; clear_line(l_t1);
+        spr.render_scanline(l_t1, 0, pal);
+        check("G17.PSL-PAT-07b",
+              "Catch-up: pattern[0]=0xAA in next-frame baseline",
+              pixel_index(l_t1, 0) == 0xAA,
+              DETAIL("px@0=%d (expected 0xAA)", pixel_index(l_t1, 0)));
+        check("G17.PSL-PAT-07c",
+              "Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed)",
+              pixel_index(l_t1, 1) == 0xBB,
+              DETAIL("px@1=%d (expected 0xBB)", pixel_index(l_t1, 1)));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -2875,6 +3345,7 @@ int main() {
     group14();
     group15();
     group16();
+    group17();
 
     printf("\n============================================\n");
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
