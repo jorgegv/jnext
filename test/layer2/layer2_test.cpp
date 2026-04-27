@@ -1000,6 +1000,19 @@ static void test_group6_transparency() {
     //   G6-07 fallback 0xE3 when every layer transparent
     //   G6-08 NR 0x4A follows write
     //   G6-09 priority bit gated by transparency
+
+    // G6-10 — VHDL zxnext.vhd:4920 (nr_palette_priority capture).
+    // PaletteManager::write at src/video/palette.cpp:240-252 reads
+    // only `val & 0x01` from the second byte of an NR 0x44 write and
+    // drops the high two bits, so the palette priority slot remains
+    // zero. RE-HOME-blocked by G91 emulator fix.
+    skip("G6-10", "NR 0x44 b7:6 not captured into palette priority (see G91)");
+
+    // G6-11 — VHDL zxnext.vhd:7039-7050 (layer2_priority_2 from palette
+    // bit). Renderer at src/video/renderer.cpp:82 fills
+    // layer2_priority_[] with `false` every row; G91 fix is needed
+    // before the priority array can be observed at the compositor edge.
+    skip("G6-11", "layer2_priority_[] never populated from palette (see G91)");
 }
 
 // =========================================================================
@@ -1066,6 +1079,26 @@ static void test_group7_bank_transform() {
     // G7-04 (out-of-range bit-21 guard) and G7-06 (320x256 uses 5 pages)
     // both stress the VHDL SRAM bit-21 check which the C++ renderer does
     // not model at all. Deferred to integration.
+
+    // G7-17 — VHDL zxnext.vhd:3914-3923 (cpu_do(4) write-path
+    // bifurcation). src/memory/mmu.cpp:183-202 has no bit-4 branch;
+    // every port 0x123B write is dispatched as the cpu_do(4)=0 path
+    // and clobbers enable/wr_en/rd_en/segment. RE-HOME-blocked by
+    // the G92 fix; row stays a skip until mmu.cpp grows the bit-4
+    // gated offset-only update.
+    skip("G7-17", "port 0x123B bit-4 offset mode dispatched as cpu_do(4)=0 (see G92)");
+
+    // G7-18 — VHDL zxnext.vhd:2968 (map_shadow bank select).
+    // src/memory/mmu.cpp:183-202 records active bank only; mmu.h:141-156
+    // always reads l2_bank_. Bit-3 shadow-mapping path is missing.
+    skip("G7-18", "port 0x123B bit 3 -> shadow-bank CPU map missing (see G144)");
+
+    // G7-19 — VHDL zxnext.vhd:3933 (read-back composition).
+    // src/core/emulator.cpp:1178 registers nullptr read for port 0x123B,
+    // so PortDispatch falls through to its 0xFF default. Bundle with
+    // G92 + G144 — the composition formula returns the very fields
+    // those gaps add.
+    skip("G7-19", "port 0x123B read returns 0xFF (PortDispatch default) (see G145)");
 }
 
 // =========================================================================

@@ -360,6 +360,58 @@ static void group1() {
     // "pending CPU write" + "incoming mirror write" race never exists.
     // Observable outcomes (mirror writes land in the selected slot, CPU writes
     // land in theirs) are already covered by G1.AT-10 / G1.AT-11.
+
+    // G1.AT-13 — NR 0x09 bit 4 sprite_tie wiring (sprites.vhd:594-612,
+    // 653-654; zxnext.vhd:5187,1123,4352).
+    //
+    // VHDL ties NR 0x34 mirror_sprite_q into the same attr_index that
+    // port 0x303B drives, gated by NR 0x09 b4. jnext emulator.cpp:436-451
+    // / 1707-1720 wires the NR 0x09 handler with no
+    // SpriteEngine::set_mirror_tie(...) call; the method does not exist.
+    //
+    // Bundle with G96 — both depend on the same VHDL
+    // attr_num_change/mirror_num_change interlock.
+    stub("G1.AT-13",
+         "NR 0x09 b4 sprite_tie syncs attr_index to mirror sprite_num",
+         "SpriteEngine::set_mirror_tie not implemented (see G95)");
+
+    // G1.AT-14 — NR 0x35-0x39 (bit 6=0) MUST NOT increment slot.
+    // VHDL zxnext.vhd:4855-4877,4916 — nr_sprite_mirror_inc =
+    // nr_sprite_mirror_we AND nr_wr_reg(6). NR 0x34 itself never
+    // increments. jnext emulator.cpp:577-580 dispatches NR 0x35-0x39
+    // through the same write_attr_byte path used by port 0x57, which
+    // increments after byte 4 — the opposite of VHDL.
+    //
+    // Bundle with G95 — same attr_num_change/mirror_num_change interlock.
+    stub("G1.AT-14",
+         "NR 0x35-0x39 must not auto-increment sprite slot",
+         "NR 0x35-0x39 path shares write_attr_byte; no inc gate (see G96)");
+
+    // G1.AT-15 — NR 0x75-0x79 (bit 6=1) increments slot after EVERY byte.
+    // VHDL zxnext.vhd:4916 — increment fires per write, not per 4-byte
+    // group. jnext emulator.cpp:847-850 routes NR 0x75-0x79 through the
+    // port-0x57-shaped attr_slot_ which only advances after byte 4 (or
+    // byte 3 without extended). NR-mirror-stream demos land in wrong
+    // slots; 0x75 streams stick on a single slot.
+    stub("G1.AT-15",
+         "NR 0x75-0x79 must increment slot after every byte",
+         "NR 0x75-0x79 dispatches to attr_slot_; per-byte inc absent (see G96)");
+
+    // G1.AT-16 — NR 0x19 sprite-clip read handler absent.
+    // VHDL zxnext.vhd:5956-5970 — port_253b_dat 4-way mux on
+    // nr_19_sprite_clip_idx selects the indexed clip register on read.
+    // jnext emulator.cpp:514-533 registers WRITE only; NR 0x18/0x1B
+    // already have the read handler pattern at :504-511 / :548-555.
+    // Reads MUST NOT advance the clip index (matches NR 0x18/0x1B).
+    stub("G1.AT-16",
+         "NR 0x19 read returns indexed sprite-clip reg (mux at 5956)",
+         "NextReg::read for 0x19 returns raw last-write byte (see G97)");
+
+    // G1.AT-17 — NR 0x1A ULA-clip read handler absent.
+    // Same pattern as G1.AT-16 for the ULA-clip register set.
+    stub("G1.AT-17",
+         "NR 0x1A read returns indexed ULA-clip reg (mux at 5956)",
+         "NextReg::read for 0x1A returns raw last-write byte (see G97)");
 }
 
 // ---------------------------------------------------------------------------

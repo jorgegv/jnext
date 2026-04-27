@@ -517,6 +517,11 @@ void group_am() {
               fmt("automap=%d act=%d",
                   d.automap_active(), d.is_active()));
     }
+
+    // AM-08 — VHDL zxnext.vhd:4147 — NR 0x83 bit 0 clear must hide
+    // DivMMC ROM/RAM overlay even with conmem=1; i_en AND-gates
+    // rom_en/ram_en. (G124)
+    skip("AM-08", "NR 0x83 bit 0 clear must hide DivMMC overlay (i_en gate) (see G124)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1493,6 +1498,33 @@ void group_na() {
               fmt("nr0a=0→%d both=1→%d port=0→%d",
                   blocked_by_nr0a, both_on_enabled, blocked_by_port));
     }
+
+    // NA-04 — VHDL zxnext.vhd:1126,4112,5196 — NR 0x0A bit 4 toggle
+    // calls DivMmc::set_nr_0a_4_enable on NextREG write. divmmc.h:113
+    // setter exists, zero callers; G123.
+    skip("NA-04", "NR 0x0A bit 4 not wired to DivMmc::set_nr_0a_4_enable (see G123)");
+
+    // NA-05 — VHDL zxnext.vhd:2412,4112 — NR 0x83 bit 0 clear asserts
+    // divmmc_automap_reset (port_io_en path). DivMmc::set_port_io_enable
+    // has zero callers post-boot; G124.
+    skip("NA-05", "NR 0x83 bit 0 not propagated to DivMmc::set_port_io_enable (see G124)");
+
+    // NA-06 — VHDL zxnext.vhd:1107-1108,5162-5169 — NR 0x06 reset
+    // default = 0xA0 (bits 7/5 set per VHDL power-on). Today
+    // regs_[0x06]=0 after reset. (G125)
+    // RE-HOME: NEXTREG-TEST-PLAN-DESIGN.md (G125)
+    skip("NA-06", "NR 0x06 reset default = 0xA0 (bits 7/5 not stored) (see G125)");
+
+    // NA-07 — VHDL zxnext.vhd:5162-5169 — NR 0x06 bit 7 / bit 5
+    // round-trip read after write. emulator.cpp:1591-1626 decode skips
+    // bits 7/5; (G125)
+    // RE-HOME: NEXTREG-TEST-PLAN-DESIGN.md (G125)
+    skip("NA-07", "NR 0x06 bits 7/5 not stored / read-back inert (see G125)");
+
+    // NA-08 — VHDL zxnext.vhd:5191-5198 — NR 0x0A bit 5 (sd_swap)
+    // and bits 7:6 (mf_type) writes blocked when nr_03_config_mode=0.
+    // emulator.cpp:447-451 writes unconditionally; (G131)
+    skip("NA-08", "NR 0x0A b7:6/b5 not gated on nr_03_config_mode (see G131)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1760,14 +1792,13 @@ void group_ss() {
               fmt("got=%02x", m.read_cs()));
     }
 
-    // SS-08 — will-not-implement (Flash device out of JNEXT scope).
-    //
-    // VHDL zxnext.vhd:3324 — write 0x7F with config_mode asserted
-    // selects the external config Flash used only to reflash TBBlue
-    // firmware. JNEXT does not emulate the Flash backend nor the
-    // config_mode gating signal; see 2026-04-17f session handover
-    // for the scope decision (Flash + RPI are dropped from the
-    // roadmap, together with MX-01/02/05 below).
+    // SS-08 — SPI Flash CS gated by config_mode + reset_type(2).
+    // VHDL zxnext.vhd:3315-3320: cpu_do=0x7F AND (config_mode='1' OR
+    // reset_type(2)='1') → spi_ss_flash_n asserted. jnext spi.cpp:73-77
+    // documents the omission; no Flash backend. Promoted from
+    // will-not-implement to Cat-B on 2026-04-27. See G136.
+    skip("SS-08",
+         "SPI Flash CS (cpu_do=0x7F) under config_mode unmodelled (see G136)");
 
     // SS-09: Write 0x7F outside config mode -> all deselected (0xFF).
     // VHDL: zxnext.vhd:3326 — flash select blocked. Emulator stores raw.
@@ -1965,6 +1996,15 @@ void group_st() {
     // ST-06: spi_wait_n signal exposure     (VHDL spi_master.vhd:177)
     // ST-07: pipelined begin condition      (VHDL spi_master.vhd:82)
     // ST-08: mid-transfer rd/wr suppression (VHDL spi_master.vhd:82)
+
+    // ST-09 — DMA wait line not surfaced.
+    // VHDL serial/spi_master.vhd:56,177:
+    //   o_spi_wait_n <= state_idle or state_last_d;
+    // consumed by DMA at zxnext.vhd:3297 (16-cycle separation).
+    // jnext spi.cpp:99-127 has no wait_n accessor; byte exchange
+    // instantaneous → DMA-via-SPI = 0 cycles. See G137.
+    skip("ST-09",
+         "SPI o_spi_wait_n DMA wait not surfaced; needs accessor (see G137)");
 }
 
 // ══════════════════════════════════════════════════════════════════════

@@ -320,6 +320,22 @@ static void test_int_rows() {
     }
 }
 
+// ── Group HOST-HK — Host F-key dispatch end-to-end (G152) ──────────────
+//
+// VHDL zxnext.vhd:6340-6349 (F1/F4/F9/F10 host hotkeys) + 2089-2091
+// (NMIACK gates). gui/main_window.cpp:94-105 only translates SDL F-keys
+// for screenshot/quit; no path to NmiSource MF/DivMMC producers nor
+// to soft/hard reset. Cross-link to B8's G147 (F8/F3/F5/F6 dispatch).
+
+static void g_host_hotkey()
+{
+    set_group("HOST-HK");
+    skip("HK-06-INT", "GUI F9 -> NmiSource MF end-to-end not wired (see G152)");
+    skip("HK-07-INT", "GUI F10 -> NmiSource DivMMC end-to-end not wired (see G152)");
+    skip("HK-08-INT", "GUI F4 -> soft-reset end-to-end not wired (see G152)");
+    skip("HK-09-INT", "GUI F1 -> hard-reset end-to-end not wired (see G152)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -328,6 +344,9 @@ int main() {
 
     test_int_rows();
     std::printf("  Group: INT — done\n");
+
+    g_host_hotkey();
+    std::printf("  Group: HOST-HK — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

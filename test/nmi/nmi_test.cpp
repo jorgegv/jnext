@@ -77,6 +77,10 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+}
+
 } // namespace
 
 // =====================================================================
@@ -128,6 +132,13 @@ static void g_rst_defaults()
               all_defaults_ok,
               "zxnext.vhd:2120,2149 (FSM) / 2095-2105 (latches) / 1109-1110,1222 (gates) / 2164-2170 (nmi_generate_n) / 2107 (nmi_activated)");
     }
+
+    // RST-04 — VHDL zxnext.vhd:1306, 5891 — NR 0x02 reset_type[2:0] FSM
+    // power-on default = "100"; bits 1:0 of read = "00", bit 2 latent.
+    // jnext nmi_source.nr_02_read() returns bits 3/2 only; reset_type
+    // permanently 0. (G153)
+    skip("RST-04",
+         "NR 0x02 reset_type[2:0] power-on default missing (see G153)");
 }
 
 // =====================================================================
@@ -280,6 +291,19 @@ static void g_nr02_sw_nmi()
               "write [zxnext.vhd:2090]",
               !nmi.nmi_mf() && !nmi.nmi_divmmc() && !nmi.nmi_expbus());
     }
+
+    // NR02-07 — VHDL zxnext.vhd:1732-1739
+    // Soft-reset rising edge advances reset_type via
+    //   '0' & rt(2) & (rt(1) OR rt(0))
+    // jnext: reset_type permanently 0. (G153)
+    skip("NR02-07",
+         "reset_type FSM advance on soft-reset edge missing (see G153)");
+
+    // NR02-08 — VHDL zxnext.vhd:5891
+    // NR 0x02 readback bits 1:0 reflect reset_type[1:0]; auto-clear
+    // independent of bits 3/2. (G153)
+    skip("NR02-08",
+         "NR 0x02 readback bits 1:0 reset_type not surfaced (see G153)");
 }
 
 // =====================================================================
@@ -452,6 +476,57 @@ static void g_hotkey()
               mf_won && no_dmc,
               "zxnext.vhd:2107-2113 (priority chain — MF branch checked first)");
     }
+
+    // HK-06..HK-09 — Host F-key dispatch gaps (G152 from B7).
+    // VHDL zxnext.vhd:6340-6349, 6370-6371, 2089-2091. Test injectors at
+    // emulator.h:328-329 exist; missing piece is gui/main_window.cpp
+    // translating SDL F-keys to those calls.
+    // Note: F2/F3/F5/F6/F7/F8 are owned by INPUT plan §3.x (G147/G132)
+    //       — see B8 bucket. Do not duplicate here.
+    skip("HK-06", "Host F9 not wired to NmiSource MF producer (see G152)");
+    skip("HK-07", "Host F10 not wired to NmiSource DivMMC producer (see G152)");
+    skip("HK-08", "Host F4 not wired to soft-reset / reset_type FSM (see G152)");
+    skip("HK-09", "Host F1 not wired to hard-reset Emulator path (see G152)");
+}
+
+// =====================================================================
+// Group Z80 — NMIACK PC capture cross-links (G88)
+//
+// VHDL zxnext.vhd:2050-2085 latches `nr_c2_retn_address_lsb` and
+// `nr_c3_retn_address_msb` on `Z80N_command_s = NMIACK_LSB / NMIACK_MSB
+// AND cpu_wr_n='0'`. Read at zxnext.vhd:6232-6236. jnext does not wire
+// these registers; NMI inspector tools read the raw NextReg shadow.
+// Cross-link to CTC plan rows NR-C2-01 / NR-C3-01 (primary owner).
+// =====================================================================
+
+static void g_nmiack_pc_capture()
+{
+    set_group("Z80");
+
+    // Z80-04 — VHDL zxnext.vhd:2050-2085, 6232-6236
+    skip("Z80-04",
+         "zxnext.vhd:2050-2085 NR 0xC2/0xC3 PC capture not wired (see G88)");
+}
+
+// =====================================================================
+// Group MF (G162-parked rows; future migration to MULTIFACE-TEST-PLAN-DESIGN.md
+// when it's authored)
+// =====================================================================
+
+static void g_mf_g162_skips()
+{
+    set_group("MF");
+
+    // MF-G162-01 — VHDL zxnext.vhd:3835-3837
+    // nmi_sw_gen_mf <= ... OR nmi_gen_iotrap; jnext nmi_source.cpp:124-127,384
+    // consumes-and-discards strobe_iotrap().
+    skip("MF-G162-01",
+         "iotrap strobe not OR'd into MF assert (see G162)");
+
+    // MF-G162-02 — VHDL zxnext.vhd:3835-3837
+    // Port 0x2FFD/0x3FFD trap-decode handler missing today.
+    skip("MF-G162-02",
+         "port 0x2FFD/0x3FFD trap-decode handler missing (see G162)");
 }
 
 // =====================================================================
@@ -973,6 +1048,8 @@ int main() {
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
     g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
+    g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- done\n");
+    g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

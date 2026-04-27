@@ -796,6 +796,19 @@ void group7_map_addr() {
                    "VHDL tilemap.vhd:396 — strip=0 uses 2-byte entries "
                    "(tile_index at even byte, flags at odd)");
     }
+
+    // TM-66 — NR 0x6E read-back masks bit 6.
+    // VHDL zxnext.vhd:6108 forces bit 6 to 0 on read. jnext
+    // tilemap.h:51 get_map_base_raw() returns the raw byte; no NR 0x6E
+    // read handler with mask exists.
+    skip("TM-66",
+         "NR 0x6E read-back leaves bit 6 unmasked (see G99)");
+
+    // TM-67 — NR 0x6F read-back masks bit 6.
+    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E. jnext
+    // tilemap.h:55 also returns the raw byte.
+    skip("TM-67",
+         "NR 0x6F read-back leaves bit 6 unmasked (see G99)");
 }
 
 // ── Group 8: Tile pixel address ─────────────────────────────────────────
@@ -984,6 +997,14 @@ void group9_scroll() {
                    "VHDL tilemap.vhd:345 — per-scanline scroll samples are "
                    "honoured between scanlines");
     }
+
+    // TM-86 — Per-line scroll snapshot must survive line >= 320.
+    // tilemap.h:76-87 uses std::array<uint16_t, 320> and guards
+    // `if (line >= 0 && line < 320)`; mid-vblank NR 0x30/0x31 writes
+    // are silently dropped. Canonical fix: SpriteEngine::start_frame
+    // catch-up pattern at sprites.cpp:119-144 (per-line replay).
+    skip("TM-86",
+         "Per-line scroll snapshot drops line>=320; vblank writes lost (see G100)");
 }
 
 // ── Group 10: Transparency ──────────────────────────────────────────────
@@ -1036,6 +1057,14 @@ void group10_transparency() {
     // (zxnext.vhd compositor) is verified at compositor_test.cpp rows
     // TR-21 (non-text ignores RGB compare) and TR-22 (tm_pixel_en=0 →
     // transparent).
+
+    // TM-95 — Text-mode RGB transparency at the Tilemap tier.
+    // VHDL zxnext.vhd:7109 — tm_transparent ='1' when tm_pixel_textmode_2
+    // ='1' AND tm_rgb_2(8:1) = transparent_rgb_2. jnext renderer.cpp:286
+    // checks alpha=0 only; no NR 0x14 RGB compare; no per-pixel
+    // textmode flag. Precondition: G101 must expose pixel_textmode_o.
+    skip("TM-95",
+         "Text-mode RGB transparency check missing in Tilemap output (see G98)");
 }
 
 // ── Group 11: Palette selection / pixel composition ─────────────────────
@@ -1104,6 +1133,14 @@ void group11_palette() {
         check("TM-104", s.pixels[0], pal.tilemap_colour(0x55),
               "VHDL tilemap.vhd:386 — textmode: idx = attr(7:1)<<1 | bit");
     }
+
+    // TM-105 — Per-pixel pixel_textmode_o flag missing.
+    // VHDL tilemap.vhd:62,443 exposes pixel_textmode_o; consumed at
+    // zxnext.vhd:7072,7109 to drive RGB-transparency. jnext Tilemap
+    // keeps text_mode_ as a global flag (tilemap.h:138); renderer.h:188
+    // exposes only tm_pixel_below_. Precondition for G98.
+    skip("TM-105",
+         "Per-pixel textmode flag not surfaced to compositor (see G101)");
 }
 
 // ── Group 12: Clip window ───────────────────────────────────────────────

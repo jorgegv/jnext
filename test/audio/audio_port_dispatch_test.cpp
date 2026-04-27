@@ -606,6 +606,29 @@ static void test_ay_port_dispatch(Emulator& emu) {
                   "(want 0x5A); DAC L after 0xF1=0x%03x (want 0x125)",
                   reg_before, reg_after, L));
     }
+
+    // IO-13 / IO-14 / IO-15 / IO-16 / IO-17 — zxnext.vhd:2429-2435 maps
+    // NR 0x84 bits 0..7 to seven port_dac_*_io_en signals (bits 0/2/5
+    // are honoured by jnext today via Emulator::write_nr_84; bits
+    // 1/3/4/6/7 are dropped).
+    //   b1 -> port_dac_sd2_ABCD_f1f3f9fb_io_en  (Soundrive Mode 2)
+    //   b3 -> port_dac_stereo_AD_3f5f_io_en     (Profi Covox AD)
+    //   b4 -> port_dac_stereo_BC_0f4f_io_en     (Covox BC)
+    //   b6 -> port_dac_mono_BC_b3_io_en         (GS Covox BC)
+    //   b7 -> port_dac_mono_AD_df_io_en         (SpecDrum AD)
+    // src/core/emulator.cpp:1500-1567 honours only b0/b2/b5; the other
+    // five bits are silently dropped, so DAC writes hit the channel
+    // even when NR 0x84 has masked the port-pair off.
+    skip("IO-13",
+         "NR 0x84 b1 gate of Mode-2 DAC ports (F1/F3/F9/FB) ignored (see G114)");
+    skip("IO-14",
+         "NR 0x84 b3 gate of Profi Covox ports (3F/5F) ignored (see G114)");
+    skip("IO-15",
+         "NR 0x84 b4 gate of Covox ports (0F/4F) ignored (see G114)");
+    skip("IO-16",
+         "NR 0x84 b6 gate of GS Covox port (B3) ignored (see G114)");
+    skip("IO-17",
+         "NR 0x84 b7 gate of SpecDrum port (DF) ignored (see G114)");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

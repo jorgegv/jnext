@@ -570,6 +570,22 @@ static void test_section5_timex() {
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
                   line_off[32], cyan, line_on[32], red));
     }
+
+    // S5.10 — hi-res mode renders at 512 horizontal pixels (zxula.vhd:
+    // 389-395 — shift_reg_32 interleaves shift_pbyte/shift_abyte byte
+    // halves at the 14 MHz pixel clock). Current renderer at
+    // src/video/ula.cpp:646+ discards alternate pixels (see comment
+    // :635-640). See G104.
+    skip("S5.10",
+         "F-G104-RENDER: hi-res renders at 256 px not 512 px (see G104)");
+
+    // S5.11 — hi-res border encodes border_clr_tmx as 6-bit
+    // "01" & (not port_ff(5:3)) & port_ff(5:3) per zxula.vhd:419.
+    // Current src/video/ula.cpp:710-712 truncates to (reg>>3)&0x07,
+    // dropping the leading-"01" base + inverted-paper composite.
+    // See G105.
+    skip("S5.11",
+         "F-G105-PALGRP: hi-res border 6-bit encoding absent (see G105)");
 }
 
 // =========================================================================
@@ -1458,8 +1474,24 @@ static void test_section15_shadow() {
     //   04 Port 0x7FFD bit 3 → i_ula_shadow_en routing.
     // VHDL cite: zxula.vhd:191 + zxnext.vhd:4453. Ula-side plumbing
     // already in place (Ula::set_shadow_screen_en landed in Phase 1);
-    // the MMU-side routing (port 0x7FFD bit 3 → the setter) is the
+    // the MUC-side routing (port 0x7FFD bit 3 → the setter) is the
     // missing half. Reopens mmu_test suite by +2 rows. Small fix.
+}
+
+// =========================================================================
+// Section 16: NR 0xFF palette write side-channel (zxnext.vhd:6957) — 1 row
+// =========================================================================
+
+static void test_section16_nrff_palette() {
+    set_group("S16-NRFF-PALETTE");
+
+    // S16.01 — VHDL zxnext.vhd:6957 — NR 0xFF write commits a value
+    // derived from nr_wr_dat into the ULA/TM palette RAM at the
+    // bf3b-indexed slot. src/port/nextreg.cpp has no write_handler for
+    // NR 0xFF; regs_[0xFF] is raw storage only. Blocked on G102/G103
+    // palette-store widening + new NR 0xFF write_handler. See G150.
+    skip("S16.01",
+         "F-G150-NRFF: NR 0xFF palette poke side-channel absent (see G150)");
 }
 
 // =========================================================================
@@ -1484,6 +1516,7 @@ int main() {
     test_section13_timing();
     test_section14_frame_int();
     test_section15_shadow();
+    test_section16_nrff_palette();
 
     std::printf("\n=== Results by group ===\n");
     std::string last_group;

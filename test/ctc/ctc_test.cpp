@@ -452,6 +452,14 @@ void section2_timer_mode() {
               "ctc_chan.vhd:168 port read returns t_count",
               fmt("v0=0x%02x v1=0x%02x", v0, v1));
     }
+
+    // CTC-TM-G120-01 — VHDL device/ctc_chan.vhd:131-141
+    // VHDL clears p_count only on reset_soft='1'. jnext ctc.cpp:41
+    // clears prescaler_ on every TC write including the running-reload
+    // path (S_RUN_TC → S_RUN). Effect: next ZC/TO up to one prescaler
+    // period late after a mid-stream TC reload. (G120)
+    skip("CTC-TM-G120-01",
+         "ctc_chan.vhd:131-141 prescaler must be preserved on running TC reload (see G120)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1671,6 +1679,14 @@ void section10_pulse_mode() {
     // `o_BUS_INT_n <= pulse_int_n AND im2_int_n` out to the expansion-bus
     // connector. jnext has no modelled expansion bus at this layer; the
     // compose is outcome-identical to PULSE-08 (internal INT_n to Z80).
+
+    // PULSE-G121-01 — VHDL zxnext.vhd:2033-2042, 5132-5145
+    // pulse_count_end depends on machine_timing_48 OR _p3 from
+    // nr_03_machine_timing. jnext: Im2Controller::set_machine_timing_48
+    // _or_p3 called once at Emulator::reset_machine only. Software
+    // flipping NR 0x03 timing post-boot sees wrong pulse-INT width. (G121)
+    skip("PULSE-G121-01",
+         "zxnext.vhd:2033-2042 NR 0x03 timing change must reset pulse_count_end (see G121)");
 }
 
 void section11_im2_peripheral() {
@@ -1873,6 +1889,14 @@ void section11_im2_peripheral() {
     // samples isr_serviced from CLK_CPU into CLK_28. A single-threaded tick-
     // based emulator collapses both domains into one call. Outcome (latch-
     // then-clear) is covered by IM2W-03.
+
+    // IM2W-G119-01 — VHDL zxnext.vhd:1941, device/im2_peripheral.vhd:172
+    // VHDL: ctc_zc_to is raised unconditionally; int_en AND happens at
+    // the fabric edge inside im2_peripheral. jnext ctc.cpp:251-282 only
+    // calls on_interrupt when channel int_enabled — if int_en flips
+    // between ZC/TO, the prior pulse is lost. Race-the-edge observable.
+    skip("IM2W-G119-01",
+         "zxnext.vhd:1941 ZC/TO must raise unconditionally; mirror UART pattern (see G119)");
 }
 
 void section12_ula_line_int() {

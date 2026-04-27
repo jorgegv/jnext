@@ -77,6 +77,10 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+}
+
 static std::string fmt(const char* f, ...) {
     char buf[512];
     va_list ap;
@@ -443,6 +447,53 @@ static void test_nr_dac(Emulator& emu) {
               L == 0x100 && R == 0xC0,
               fmt("L=0x%03X R=0x%03X (want 0x100/0x0C0)", L, R));
     }
+
+    // NR-33 / NR-34 — zxnext.vhd:6006-6015 read-side semantics:
+    //   NR 0x2C read: port_253b_dat <= pi_audio_L(9 downto 2);
+    //                 nr_2d_i2s_sample <= pi_audio_L(1 downto 0);
+    //   NR 0x2E read: port_253b_dat <= pi_audio_R(9 downto 2);
+    //                 nr_2d_i2s_sample <= pi_audio_R(1 downto 0);
+    //   NR 0x2D read: port_253b_dat <= nr_2d_i2s_sample & "000000";
+    // jnext Emulator::register_handlers (src/core/emulator.cpp:1722-1739)
+    // only registers WRITE handlers for these three NRs (DAC mirrors).
+    // Reads fall through to regs_[] shadow → Z80 polling NR 0x2C/2E for
+    // I2S samples gets stale write bytes. Distinct from G29 (Pi I2S
+    // source-side stub).
+    skip("NR-33",
+         "NR 0x2C/2E read returns regs_[] noise, not pi_audio_L/R high 8 bits (see G112)");
+    skip("NR-34",
+         "NR 0x2D read returns regs_[] shadow, not nr_2d_i2s_sample latch (see G112)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group NR-A2 — Pi I2S control register (NR 0xA2). VHDL stores 8 bits
+// and fans them out to enL/enR/inout/muteL/muteR/ear → these gate the
+// Pi I2S contribution into the audio_mixer. jnext has no NR 0xA2
+// handler today; bits never reach the I2S/Mixer path; readback returns
+// raw regs_[] byte (no fixed-bit pattern). Distinct from G29 broader
+// I2S audio path.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_nr_a2(Emulator& /*emu*/) {
+    set_group("NR-0xA2");
+
+    // NR-40 — zxnext.vhd:5564: nr_a2_pi_i2s_ctl <= nr_wr_dat on NR 0xA2.
+    //   No write handler in src/core/emulator.cpp; NR 0xA2 falls through
+    //   to the generic shadow store, never reaching an I2S API.
+    skip("NR-40",
+         "NR 0xA2 has no handler; control byte never reaches I2s (see G113)");
+
+    // NR-41 — zxnext.vhd:2283-2290: bit fan-out drives pi_i2s_en[L/R],
+    //   inout, muteL/R, ear. No corresponding fan-out in jnext I2s class.
+    skip("NR-41",
+         "NR 0xA2 fan-out (en/mute/inout/ear) not propagated to I2s (see G113)");
+
+    // NR-42 — zxnext.vhd:6192: read returns
+    //   nr_a2_pi_i2s_ctl(7 downto 6) & '0' & nr_a2_pi_i2s_ctl(4 downto 2)
+    //   & '1' & nr_a2_pi_i2s_ctl(0). jnext returns raw shadow (no fixed
+    //   bit-5=0 or bit-1=1 pattern).
+    skip("NR-42",
+         "NR 0xA2 read missing fixed b5=0/b1=1 pattern (see G113)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -648,6 +699,15 @@ static void test_nr_mixer(Emulator& emu) {
               fmt("base=%d kept=%d (want 1/1)",
                   base ? 1 : 0, kept ? 1 : 0));
     }
+
+    // MX-23 — audio_mixer.vhd:80-81: ear/mic muxes are gated by exc_i.
+    // jnext Mixer (src/audio/mixer.cpp:28-29) sums EAR+MIC+AY+DAC+I2S
+    // unconditionally. The Mixer never reads Emulator::beep_spkr_excl(),
+    // so even with NR 0x06 b6 + NR 0x08 b4 set the line-out doubles
+    // vs. hardware. Re-enable once Mixer gains a const-ref / setter
+    // mirroring set_i2s_source().
+    skip("MX-23",
+         "Mixer ignores exc_i; EAR/MIC always sum to pcm_L/R (see G110)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -719,6 +779,17 @@ static void test_nr_dac_gate(Emulator& emu) {
               fmt("gated L=0x%03X open L=0x%03X (want 0x100/0x1FE)",
                   L_off, L_on));
     }
+
+    // SD-19 — soundrive.vhd:69-78 + zxnext.vhd:6436:
+    //   soundrive.reset_i <= reset OR NOT nr_08_dac_en;
+    // While disabled, all four DAC channels stay latched at 0x80 (DC
+    // midpoint). jnext Emulator::write_nr_8 (src/core/emulator.cpp:1674)
+    // only flips `dac_enabled_`; pre-existing values in Dac::ch_[]
+    // persist, so a 1->0 transition leaves residual non-silent levels.
+    // Reserved range: SD-10..18 left unused so the gap signals a future
+    // group expansion.
+    skip("SD-19",
+         "DAC retains last value when nr_08_dac_en clears; should reset (see G111)");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -741,6 +812,7 @@ int main() {
     test_nr_beep(emu);      std::printf("  Group: NR-BEEP -- done\n");
     test_nr_mixer(emu);     std::printf("  Group: NR-MIXER -- done\n");
     test_nr_dac_gate(emu);  std::printf("  Group: NR-DAC-GATE -- done\n");
+    test_nr_a2(emu);        std::printf("  Group: NR-0xA2 -- done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

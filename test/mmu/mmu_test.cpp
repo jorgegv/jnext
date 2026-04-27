@@ -674,6 +674,13 @@ void test_cat4_port_dffd() {
                   "(exp 0x0F, 0xFE, 0xFF on both sides)",
                   pre_reg, pre_g6, pre_g7, post_reg, post_g6, post_g7));
     }
+
+    // DFF-09 — VHDL zxnext.vhd:877 (signal decl), :3694 (assignment from
+    // cpu_do(6)), :4314 (Multiface read-mux consumer). jnext
+    // src/memory/mmu.cpp:332 masks DFFD writes to bits 4:0;
+    // src/memory/mmu.h:328-333 admits the gap. (G148)
+    skip("DFF-09",
+         "DFFD bit 6 dropped before Multiface readback path (see G148)");
 }
 
 // ── Category 5: +3 paging (port 0x1FFD) ───────────────────────────────
@@ -1403,6 +1410,14 @@ void test_cat10_port_eff7() {
                   pre_ram0000, pre_disp1024, pre_rom0, pre_rom1,
                   post_ram0000, post_disp1024, post_rom0, post_rom1));
     }
+
+    // EF7-06 — VHDL zxnext.vhd:2604 (port_eff7 = port_eff7_lsb AND
+    // port_eff7_io_en), :2441 (port_eff7_io_en = NR 0x84 b2). jnext
+    // src/core/emulator.cpp:1426-1428 registers EFF7 handler
+    // unconditionally — no NR 0x84 b2 gate (compare 0x7FFD / 0xDFFD
+    // which DO gate). (G143)
+    skip("EF7-06",
+         "NR 0x84 b2 not gated on EFF7 handler (see G143)");
 }
 
 // ── Category 11: ROM selection ────────────────────────────────────────
@@ -2399,6 +2414,66 @@ void test_cat18_priority() {
     }
 }
 
+// ── Cat 11.x: Boot ROM Overlay (G140 / G157) ─────────────────────────
+void test_boot_rom_overlay() {
+    set_group("BOOT-OVL");
+
+    // BOOT-OVL-01 / BOOT-OVL-02 — VHDL zxnext.vhd:1856 (bootrom_en gate
+    // on cpu_a(15:14)="00") and :3199-3204 (bootrom_mod = cpu_a(12:0),
+    // 13-bit so upper 8 KB mirrors lower). jnext mmu.h:113-117 overlays
+    // only addr < boot_rom_size_; an 8 KB blob therefore stops covering
+    // at 0x2000 instead of mirroring through 0x3FFF.
+    skip("BOOT-OVL-01",
+         "8 KB boot ROM mirror to 16 KB not implemented (see G140)");
+    skip("BOOT-OVL-02",
+         "boot-ROM gate scoped to size_, not cpu_a(15:14) (see G140)");
+
+    // BOOT-OVL-03 — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0), so
+    // the overlay is exactly 8 KB. jnext src/memory/mmu.h:113-117
+    // overlays whatever size the caller passed in via set_boot_rom —
+    // wrong-sized blobs silently miscompile with no diagnostic. (G157)
+    skip("BOOT-OVL-03",
+         "wrong-sized boot ROM silently truncates (see G157)");
+}
+
+// ── Cat 19: Soundrive Mode 2 vs paging-port write conflict (G146) ────
+void test_soundrive_paging_conflict() {
+    set_group("SD2");
+    // VHDL zxnext.vhd:2708,2718-2720 — port_fd_conflict_wr suppresses
+    // port_7ffd / port_dffd / port_1ffd writes when targeted addresses
+    // are 0xF1FD/0xF3FD/0xF9FD/0xFBFD AND a Soundrive SD2 channel is
+    // enabled. jnext paging handlers don't consult Soundrive SD2 state.
+    skip("SD2-01",
+         "Soundrive Mode 2 paging-suppression not modelled (see G146)");
+    skip("SD2-02",
+         "discriminative pair for SD2-01; needs SD2 wiring (see G146)");
+}
+
+// ── Cat 20: NEX Loader (BOOT-NEX-* parked here) (G155 / G156) ────────
+void test_nex_loader() {
+    set_group("BOOT-NEX");
+
+    // BOOT-NEX-01 / BOOT-NEX-02 — src/core/nex_loader.cpp:81 parses
+    // ram_required (offset 8 in V1.1 header) but no consumer downstream.
+    // (G155)
+    skip("BOOT-NEX-01",
+         "ram_required not honoured; oversize NEX silently fails (see G155)");
+    skip("BOOT-NEX-02",
+         "discriminative pair for BOOT-NEX-01 (see G155)");
+
+    // BOOT-NEX-03..06 — src/core/nex_loader.cpp:89-92 parses
+    // loading_bar / loading_delay / start_delay / loading_bar_colour
+    // but ignores all four. (G156)
+    skip("BOOT-NEX-03",
+         "loading_bar not rendered; per-bank bar absent (see G156)");
+    skip("BOOT-NEX-04",
+         "loading_delay frame-count not honoured (see G156)");
+    skip("BOOT-NEX-05",
+         "start_delay frame-count not honoured (see G156)");
+    skip("BOOT-NEX-06",
+         "loading_bar_colour ignored (see G156)");
+}
+
 } // namespace
 
 // ── main ─────────────────────────────────────────────────────────────
@@ -2426,6 +2501,9 @@ int main() {
     // per the §15 C2-move commitment in CONTENTION-TEST-PLAN-DESIGN.md.
     test_cat17_l2_mapping();
     test_cat18_priority();
+    test_boot_rom_overlay();
+    test_soundrive_paging_conflict();
+    test_nex_loader();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

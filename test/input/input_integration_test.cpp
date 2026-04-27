@@ -505,6 +505,36 @@ static void test_fe_read(Emulator& emu) {
     }
 }
 
+// ── Section JOY-WIRE — Production-wire NR 0x05 → MembraneStick (G126) ──
+//
+// Verifies the Emulator path. See G126 for the bare-class side; this row
+// covers the full NR-write through OUT (0x253B). Once the wiring lands,
+// switching joy0 from default Kempston1 to Sinclair-1 (mode 011) and
+// pressing joy0 RIGHT should toggle membrane row 4 col 3 (key 7).
+
+static void test_joy_wire() {
+    set_group("JOY-WIRE");
+    skip("JOY-WIRE-01",
+         "OUT 253B+05 propagation to MembraneStick unwired (see G126)");
+}
+
+// ── Section HOTKEY — Host F-key dispatch to NR 0x07 / 50-60 (G147) ─────
+//
+// VHDL zxnext.vhd:5790-5791 increments nr_07_cpu_speed from F8;
+// zxnext.vhd:6342-6347 toggles 50/60 Hz from F3; both gated by
+// nr_06_hotkey_cpu_speed_en / nr_06_hotkey_5060_en (defaults '1' per
+// :4932-4933). jnext: searched src/input/ — no hotkey path; only F1
+// hard-reset wired. F5/F6 expbus dispatch likewise absent.
+//
+// Cross-link: G132 is the FSM (emu_fnkeys.vhd) side; G147 is the SDL→FSM
+// dispatch; G152 (B7 bucket) is F1/F4/F9/F10 reset/NMI dispatch.
+
+static void test_hotkey() {
+    set_group("HOTKEY");
+    skip("HOTKEY-01",
+         "F8/F3/F5/F6 host hotkey dispatch to NR 0x07/5060/expbus absent (see G147)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -526,6 +556,12 @@ int main() {
 
     test_fe_read(emu);
     std::printf("  Group: FE-READ — done\n");
+
+    test_joy_wire();
+    std::printf("  Group: JOY-WIRE — done\n");
+
+    test_hotkey();
+    std::printf("  Group: HOTKEY  — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

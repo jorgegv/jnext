@@ -878,6 +878,13 @@ static void test_L2P() {
               is_blendish,
               DETAIL("got=0x%08X (sub-blend expected)", got));
     }
+
+    // L2P-19 — VHDL zxnext.vhd:7039-7050 (priority array) +
+    // src/video/renderer.cpp:194-201 (pixel-doubling guard skips L2
+    // arrays in native 640). Latent until G91 lands and the priority
+    // array is populated at all; in native 640 the array is never
+    // doubled, so right-pixel priority promotion misfires.
+    skip("L2P-19", "native 640: layer2_priority_[] not pixel-doubled (see G93)");
 }
 
 // ── Group BL — Blend modes 110/111 (VHDL 7286..7356) ─────────────────────
@@ -1512,6 +1519,28 @@ static void test_UTB() {
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
+}
+
+// ── Group PFF — port_ff_reg NR-side fan-out (G108) ──────────────────────
+
+static void test_PFF() {
+    set_group("PFF");
+
+    // PFF-G108-01 — VHDL zxnext.vhd:3617-3618.
+    // emulator.cpp:888-890 forwards only NR 0x69 bit 7 to L2 enable;
+    // bits 5:0 are dropped on the floor — port_ff_reg low six bits
+    // never reflect the NR-side write.
+    skip("PFF-G108-01", "NR 0x69 b5:0 -> port_ff_reg(5:0) fan-out missing (see G108)");
+
+    // PFF-G108-02 — VHDL zxnext.vhd:3619-3620.
+    // No NR 0x22 b2 side-effect into port_ff_reg(6) is wired today.
+    skip("PFF-G108-02", "NR 0x22 b2 -> port_ff_reg(6) fan-out missing (see G108)");
+
+    // PFF-G108-03 — VHDL zxnext.vhd:3621-3622 (inverted polarity).
+    // emulator.cpp:983 NR 0xC4 handler comment is wrong vs VHDL;
+    // the (not nr_wr_dat(0)) -> port_ff_reg(6) edge is unwired and the
+    // ULA-int-disable side-effect is silent.
+    skip("PFF-G108-03", "NR 0xC4 b0 -> port_ff_reg(6) inverted fan-out missing (see G108)");
 }
 
 // ── Group STEN — Stencil mode (NR 0x68 bit 0) ───────────────────────────
@@ -2256,6 +2285,7 @@ int main() {
     test_L2P();        printf("  Group: L2P — done\n");
     test_BL();         printf("  Group: BL — done\n");
     test_UTB();        printf("  Group: UTB — done\n");
+    test_PFF();        printf("  Group: PFF — done\n");
     test_STEN();       printf("  Group: STEN — done\n");
     test_UDIS();       printf("  Group: UDIS — done\n");
     test_SOB();        printf("  Group: SOB — done\n");

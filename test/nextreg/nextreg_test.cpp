@@ -171,11 +171,22 @@ static void test_selection() {
 
     // SEL-05 — Z80N NEXTREG (ED 91 rr,vv) writes NR rr with vv without
     // modifying nr_register (zxnext.vhd:4706-4777, cpu_requester_0 uses
-    // rr directly, port_243b_wr is not asserted). COVERED AT
-    // test/z80n/z80n_test.cpp and fuse_z80_test (ED 91 opcode row).
-    // Bare NextReg has no NEXTREG-instruction entry point; decoded by
-    // the Z80 frontend which then calls nr.write(rr, vv). Not a skip
-    // here — covered by the Z80N compliance suite.
+    // rr directly, port_243b_wr is not asserted). Today defers to
+    // fuse_z80_test/z80n_test per project memory — coverage unverified.
+    // Replaced with two discriminative rows SEL-05a/05b below (G151).
+
+    // SEL-05a — VHDL zxnext.vhd:4739-4745 — Z80N NEXTREG injects (reg, val)
+    // directly without mutating nr_register. jnext src/cpu/z80n_ext.cpp:
+    // 218-238 implements NEXTREG_NN/NEXTREG_A as two out() calls
+    // (0x243B then 0x253B) which mutate NextReg::selected_ as a
+    // side-effect.
+    skip("SEL-05a",
+         "Z80N NEXTREG clobbers NextReg::selected_ via 0x243B (see G151)");
+
+    // SEL-05b — discriminative pair: post-Z80N data write lands wrong
+    // because selection has been clobbered.
+    skip("SEL-05b",
+         "discriminative pair: post-Z80N data write lands wrong (see G151)");
 }
 
 // ── 2. Read-Only Registers (RO-01..06) ───────────────────────────────
@@ -638,6 +649,27 @@ static void test_port_enables() {
     // nextreg_integration_test.cpp PE-05 (skip, real gap: regs_[0x89]
     // not seeded to VHDL default 0x8F per zxnext.vhd:6147-6150).
     // Not a skip here — re-homed to integration tier.
+
+    // PE-06 — VHDL zxnext.vhd:5508-5522 (NR 0x82-0x85 read packing).
+    // jnext src/port/nextreg.cpp stores NR 0x82-0x85 in regs_[] but only
+    // NR 0x85 has a read handler. (G154)
+    skip("PE-06",
+         "NR 0x82 returns raw shadow byte; VHDL packs more (see G154)");
+
+    // PE-07 — VHDL zxnext.vhd:5061-5067 (NR 0x86-0x89 expansion-bus).
+    // NR 0x86 has no read_handler today; raw regs_[] leak. (G154)
+    skip("PE-07",
+         "NR 0x86 has no read_handler; raw regs_[] leak (see G154)");
+
+    // PE-08 — VHDL zxnext.vhd:6138 (inversion on reset_type=0), :6150
+    // (inverted-default 0xFF). (G154)
+    skip("PE-08",
+         "NR 0x89 bit 7 inversion on reset_type=0 missing (see G154)");
+
+    // PE-09 — NR 0x80 / 0x88 not initialised at reset; jnext skips
+    // initialisation for NRs without explicit handlers. (G154)
+    skip("PE-09",
+         "NR 0x80 / 0x88 not initialised at reset (see G154)");
 }
 
 // ── 10. Copper Arbitration (COP-01..04) ──────────────────────────────
@@ -689,6 +721,23 @@ static void test_copper_arbitration() {
     // to copper subsystem.
 }
 
+// ── 11. Write-Only Register Read Behaviour (G149) ────────────────────
+//
+// VHDL zxnext.vhd:5878-6289: read-mux falls through to (others => '0')
+// for NRs without read entries. jnext src/port/nextreg.cpp:101-110
+// returns regs_[reg] instead, leaking the last-written byte for
+// write-only NRs (0x04, 0x29-0x2B, 0x35-0x39, 0x60, 0x63, 0x75-0x79).
+// Distinct from G56 (composed-read divergence on NRs *with* read entries).
+
+static void test_write_only_read_default() {
+    set_group("WO");
+
+    skip("WO-01", "NR 0x04 leaks last-written byte on read (see G149)");
+    skip("WO-02", "NR 0x29 leaks last-written byte on read (see G149)");
+    skip("WO-03", "NR 0x60 leaks last-written byte on read (see G149)");
+    skip("WO-04", "NR 0x35 leaks last-written byte on read (see G149)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -724,6 +773,9 @@ int main() {
 
     test_copper_arbitration();
     std::printf("  Group: Copper-Arb     — done\n");
+
+    test_write_only_read_default();
+    std::printf("  Group: WO             — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
