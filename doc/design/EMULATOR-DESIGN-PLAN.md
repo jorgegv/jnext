@@ -1116,6 +1116,8 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
   - [x] Contention — 68/68 pass (closed 2026-04-26 via 3-phase wave). Runtime wiring residual tracked as G50/G141/G142 in [doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](../issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md). Plan [TASK-CONTENTION-MODEL-PLAN.md](TASK-CONTENTION-MODEL-PLAN.md).
   - [x] VideoTiming Expansion — 22/22 pass (closed 2026-04-26). Plan [TASK-VIDEOTIMING-EXPANSION-PLAN.md](TASK-VIDEOTIMING-EXPANSION-PLAN.md).
 
+- [ ] **Reduce SKIPs Wave 2 - Implement missing features** — per-subsystem plans + per-feature branches. Live counts in `test/SUBSYSTEM-TESTS-STATUS.md`. Per-plan detail in `doc/design/TASK*-PLAN.md` and per-session detail in `.prompts/*.md`. - Almost all subsystems have new SKIPs to be implemented.
+
 - [ ] Integration test plan — document cross-subsystem interaction scenarios. Integration suites already exist per-subsystem (`uart_integration_test`, `ula_integration_test`, `nmi_integration_test`, `compositor_integration_test`, `ctc_interrupts_test`, `input_integration_test`, `audio_nextreg_test`, `audio_port_dispatch_test`, `nextreg_integration_test`); still missing a unifying design doc.
 - [ ] CI integration for golden-output visual regression tests (`test/regression.sh`).
 
