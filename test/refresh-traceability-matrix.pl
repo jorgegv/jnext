@@ -261,10 +261,19 @@ sub refresh_section {
                     my $orig_loc = $cells[5];
                     my $loc_width = length($orig_loc) - 2;
                     $loc_width = 0 if $loc_width < 0;
+                    # Don't silently truncate — if the citation no longer fits
+                    # the existing column width (typical when test functions
+                    # grow past line 999), preserve the full text and warn.
+                    # The row's column alignment is locally lost but the data
+                    # is correct; markdown renderers tolerate per-row width
+                    # variance. (Bug fixed 2026-04-27 after Task 7 r1+r2 broke
+                    # ~213 citations via silent truncation.)
                     if (length($location) > $loc_width) {
-                        $location = substr($location, 0, $loc_width);
+                        warn "WARN: citation '$location' (id=$tid_raw) exceeds column width $loc_width; keeping full text\n";
+                        $cells[5] = ' ' . $location . ' ';
+                    } else {
+                        $cells[5] = ' ' . sprintf("%-${loc_width}s", $location) . ' ';
                     }
-                    $cells[5] = ' ' . sprintf("%-${loc_width}s", $location) . ' ';
 
                     $lines->[$i] = join('|', @cells);
                     $touched++;
@@ -294,7 +303,12 @@ sub main {
         for my $i (0 .. $#lines) {
             my $stripped = $lines[$i];
             $stripped =~ s/^\s+|\s+$//g;
-            if ($stripped eq $header) {
+            # Prefix match instead of exact equality: section headers may have
+            # gained " + `companion_test.cpp`" suffixes after companion suites
+            # were created (ULA Video + ula_integration_test, CTC+Interrupts +
+            # ctc_interrupts_test). The leading "## <Name> — `<file>`" stays
+            # the discriminator.
+            if ($stripped eq $header || index($stripped, $header . ' ') == 0) {
                 $idx = $i;
                 last;
             }
