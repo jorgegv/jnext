@@ -8,43 +8,49 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 |-----------------------|---------:|---------:|-------:|--------:|--------:|--------------------------------------------------------|
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | All tests pass.                                        |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | All tests pass.                                        |
-| Rewind                |       18 |       18 |      0 |       0 |    100% | All tests pass.                                        |
-| Copper                |       81 |       76 |      0 |       5 |     93% | Task 7: G116/G117/G118 SKIPs added.                    |
-| Memory/MMU            |      150 |      137 |      0 |      13 |     91% | Task 7: G140/G143/G146/G148/G155/G156/G157 SKIPs.      |
-| NextREG (bare)        |       31 |       21 |      0 |      10 |     67% | Task 7: G149/G151/G154 SKIPs added.                    |
-| NextREG (integration) |       73 |       73 |      0 |       0 |    100% | All tests pass.                                        |
-| Input                 |      148 |      139 |      0 |       9 |     93% | Task 7: G126/G127/G128/G129/G130/G132/G133 SKIPs.      |
-| Input (integration)   |       13 |       11 |      0 |       2 |     84% | Task 7: G126/G147 integration SKIPs.                   |
-| CTC + Interrupts      |      132 |      129 |      0 |       3 |     97% | Task 7: G119/G120/G121 SKIPs added.                    |
-| CTC (integration)     |       21 |       12 |      0 |       9 |     57% | Task 7: G87/G88/G89/G90 SKIPs added.                   |
-| Layer 2               |      105 |      100 |      0 |       5 |     95% | Task 7: G91/G92/G144/G145 SKIPs added.                 |
-| UART + I2C/RTC        |       98 |       92 |      0 |       6 |     93% | Task 7: G134/G135/G138/G139/G161 SKIPs added.          |
-| UART (integration)    |       13 |       12 |      0 |       1 |     92% | Task 7: G135 SKIP added.                               |
-| DivMMC + SPI          |      108 |      100 |      0 |       8 |     92% | Task 7: G123/G124/G125/G131/G136/G137 SKIPs.           |
-| SD Card               |       12 |        8 |      0 |       4 |     66% | Task 7: G158/G159/G160 SKIPs added.                    |
-| Sprites               |      173 |      168 |      0 |       5 |     97% | Task 7: G95/G96/G97 SKIPs added.                       |
-| Compositor            |      134 |      130 |      0 |       4 |     97% | Task 7: G93/G108 SKIPs added.                          |
+| Rewind                |       28 |       18 |      0 |      10 |     64% | Task 7r2: G66/G67 SS-VER + RB-FRAME skips added.       |
+| Copper                |       82 |       76 |      0 |       6 |     93% | Task 7r2: G65 ARB-G65-01 tied-edge added.              |
+| Memory/MMU            |      178 |      137 |      0 |      41 |     77% | Task 7r2: G12/G16/G33-38/G57/G58 added.                |
+| NextREG (bare)        |       63 |       21 |      0 |      42 |     33% | Task 7r2: G55/G56/G62/G64 (FT/CR/CFG/BYPASS-Q).        |
+| NextREG (integration) |       74 |       73 |      0 |       1 |     99% | Task 7r2: G63 CFG-09-INT added.                        |
+| Input                 |      152 |      139 |      0 |      13 |     91% | Task 7r2: G43/G72 (MOUSE-13..15 + IOMODE-11A).         |
+| Input (integration)   |       17 |       11 |      0 |       6 |     65% | Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A).          |
+| CTC + Interrupts      |      133 |      129 |      0 |       4 |     97% | Task 7r2: G49 NR-C0-02 promoted from WONT comment.     |
+| CTC (integration)     |       21 |       12 |      0 |       9 |     57% | Unchanged (Task 7 round 1 baseline).                   |
+| Layer 2               |      115 |      100 |      0 |      15 |     87% | Task 7r2: G02/G05/G09/G14/G17/G28 (G10b..e + L2-G17).  |
+| UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | Task 7r2: G39 ESP-01..04 added.                        |
+| UART (integration)    |       13 |       12 |      0 |       1 |     92% | Unchanged (Task 7 round 1 baseline).                   |
+| DivMMC + SPI          |      110 |      100 |      0 |      10 |     91% | Task 7r2: G46 DM-RETN-PROPER-01..02 added.             |
+| SD Card               |       21 |        8 |      0 |      13 |     38% | Task 7r2: G40/G41 SD-10..15 + MMC-01..03 added.        |
+| Sprites               |      178 |      168 |      0 |      10 |     94% | Task 7r2: G06/G13/G15 OVF + NR70 stubs added.          |
+| Compositor            |      143 |      130 |      0 |      13 |     91% | Task 7r2: G04/G11/G26/G27 (PSCAN/UB/BLANK).            |
 | Compositor (int)      |        2 |        2 |      0 |       0 |    100% | All tests pass.                                        |
-| ULA Video             |       85 |       82 |      0 |       3 |     96% | Task 7: G104/G105/G150 SKIPs added.                    |
-| ULA Video (int)       |       11 |        9 |      0 |       2 |     81% | Task 7: G102/G103 SKIPs added.                         |
+| ULA Video             |       98 |       82 |      0 |      16 |     84% | Task 7r2: G07/G08/G10 (S5-PSL/S9-PSL/S17.x).           |
+| ULA Video (int)       |       11 |        9 |      0 |       2 |     81% | Unchanged (Task 7 round 1 baseline).                   |
 | Floating Bus          |       32 |       32 |      0 |       0 |    100% | All tests pass.                                        |
-| VideoTiming           |       26 |       22 |      0 |       4 |     84% | Task 7: G106/G107/G109 SKIPs added.                    |
-| Contention            |       73 |       68 |      0 |       5 |     93% | Task 7: G141/G142 SKIPs added.                         |
-| I/O Port Dispatch     |       83 |       83 |      0 |       0 |    100% | All tests pass.                                        |
-| Audio (AY+DAC+Beeper) |      134 |      132 |      0 |       2 |     98% | Task 7: G115 SKIPs added.                              |
-| Audio (NextREG)       |       32 |       25 |      0 |       7 |     78% | Task 7: G110/G111/G112/G113 SKIPs added.               |
-| Audio (port dispatch) |       21 |       16 |      0 |       5 |     76% | Task 7: G114 SKIPs added.                              |
-| DMA                   |      152 |      150 |      0 |       2 |     98% | Task 7: G122 SKIPs added.                              |
-| Tilemap               |       64 |       59 |      0 |       5 |     92% | Task 7: G98/G99/G100/G101 SKIPs added.                 |
-| NMI Source Pipeline   |       42 |       32 |      0 |      10 |     76% | Task 7: G88/G125-cross/G152/G153/G162 SKIPs added.     |
-| NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Task 7: G152 integration SKIPs added.                  |
-| **Total**             | **3517** | **3384** |  **0** | **133** |     96% |                                                        |
+| VideoTiming           |       27 |       22 |      0 |       5 |     81% | Task 7r2: G71 VT-26 walkback added.                    |
+| Contention            |       76 |       68 |      0 |       8 |     89% | Task 7r2: G50/G51/G53 (CT-DELAY/TURBO-08/FUSE-05).     |
+| I/O Port Dispatch     |       87 |       83 |      0 |       4 |     95% | Task 7r2: G45 EXPBUS-AND-01..04 added.                 |
+| Audio (AY+DAC+Beeper) |      141 |      132 |      0 |       9 |     93% | Task 7r2: G29/G30/G31 (MX-30 + AY-30..34 + SD-09).     |
+| Audio (NextREG)       |       33 |       25 |      0 |       8 |     75% | Task 7r2: G73 NR-43 mixer-gate added.                  |
+| Audio (port dispatch) |       21 |       16 |      0 |       5 |     76% | Unchanged (Task 7 round 1 baseline).                   |
+| DMA                   |      152 |      150 |      0 |       2 |     98% | Unchanged (Task 7 round 1 baseline).                   |
+| Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
+| NMI Source Pipeline   |       55 |       32 |      0 |      23 |     58% | Task 7r2: G46/G47/G48/G55/G59/G60 (BOOT/MF-G48).       |
+| NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
+| **Total**             | **3684** | **3384** |  **0** | **300** |     92% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
 **Task 7 (2026-04-27) — 76 newly identified gaps (G87-G162) added as SKIP rows.**
 Subsystems re-open with rates < 100% reflecting the audit; no FAILs.
 Pre-Task 7 baseline was 3336/3336/0/0 (zero skips).
-Task 7 added 133 new skip rows across 27 subsystems for the
+Task 7 round 1 added 133 new skip rows across 27 subsystems for the
 KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md gap audit (G87-G162). No `src/`
 modifications; pure plan-doc + skip-stub additions.
+
+**Task 7 round 2 (2026-04-27) — 86 EXISTING gaps (G01-G86) added as SKIP rows.**
+Round 2 added 167 additional skip rows across the same 27 suites for
+the previously-existing gap entries G01-G86 in
+KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md. No `src/` modifications; plan-doc
++ skip-stub additions only. New aggregate: 3684/3384/0/300.

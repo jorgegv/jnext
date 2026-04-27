@@ -23,9 +23,9 @@ with dashboard refresh at `0336c20`.
 - **`test/ctc/ctc_test.cpp`** runtime: **`Total:  133  Passed:  128  Failed:    0  Skipped:    5`**.
   - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_interrupts/ctc_interrupts_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
   - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
-- **Remaining 5 skips** in `ctc_test.cpp` (all defensible, all carry explicit one-line reasons):
+- **Remaining 4 skips** in `ctc_test.cpp` (all defensible, all carry explicit one-line reasons):
   - **CTC-NR-04** — NR 0xC5 vs port-write overlap; cycle-accurate bus arbitration; user-deferred review-later (WONT-sweep candidate, not WONT this wave).
-  - **NR-C0-02** — NR 0xC0 `stackless_nmi` bit; blocked on NMI subsystem (see memory `project_nmi_fragmented_status.md`).
+  - **NR-C0-02** — NR 0xC0 `stackless_nmi` bit; Wave D cut from NMI plan (see G49 in `KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`).
   - **DMA-04** — NMI-driven DMA delay; blocked on the same NMI subsystem.
   - **ULA-INT-04** — line interrupt at `cvc` match; re-home candidate to `ctc_interrupts_test.cpp` (needs live ULA line-counter state).
   - **ULA-INT-06** — line 0 → `c_max_vc` wrap; re-home candidate (needs ULA `c_max_vc` observable).
@@ -317,7 +317,7 @@ Tests based on NextREG read/write logic in zxnext.vhd.
 | ID | Test | Expected |
 |----|------|----------|
 | NR-C0-01 | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs | nr_c0_im2_vector set |
-| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | nr_c0_stackless_nmi set |
+| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | skip — Wave D NMI-PUSH suppression cut from NMI plan; FUSE Z80 core has no pre-NMI-push hook; risks 1356-row regression for one row's benefit (see G49) |
 | NR-C0-03 | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode | nr_c0_int_mode_pulse_0_im2_1 set |
 | NR-C0-04 | Read NextREG 0xC0: returns vector, stackless, im_mode, int_mode | Format: VVV_0_S_MM_I |
 | NR-C4-01 | Write NextREG 0xC4: bit [7] = expansion bus int enable | nr_c4_int_en_0_expbus set |

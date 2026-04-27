@@ -1431,6 +1431,15 @@ void group_nm() {
               s00 && s01 && s10 && s11,
               fmt("s00=%d s01=%d s10=%d s11=%d", s00, s01, s10, s11));
     }
+
+    // DM-RETN-PROPER-01/02 — G46(a): VHDL divmmc.vhd:131 delayed-off
+    // path is the proper model. Today src/core/emulator.cpp:251-264
+    // papers over with a RETN-alias band-aid; the proper invariant
+    // (RETN-alias hit must NOT clear automap_held) is unassertable.
+    skip("DM-RETN-PROPER-01",
+         "VHDL divmmc.vhd:131 delayed-off path missing (see G46)");
+    skip("DM-RETN-PROPER-02",
+         "RETN-alias must not clear automap_held in proper model (see G46)");
 }
 
 // ══════════════════════════════════════════════════════════════════════

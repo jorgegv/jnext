@@ -699,6 +699,7 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 | BOOT-NEX-04 | Inter-bank `loading_delay` honoured | NEX with `loading_delay=10` (10 frames between banks)                   | Loader sleeps 10 frames @ 50 Hz between bank loads; jnext loads instantly. skip — frame-count not honoured (see G156) |
 | BOOT-NEX-05 | `start_delay` before code-entry  | NEX with `start_delay=50` frames                                          | Loader pauses 1 second between final bank load and PC=entry; jnext jumps immediately. skip — frame-count not honoured (see G156) |
 | BOOT-NEX-06 | Loading-bar colour honoured      | NEX with `loading_bar_colour=0x02` (red)                                  | Bar renders red on screen, NOT default. skip — colour ignored (see G156) |
+| BOOT-NEX-07 | NEX loader writes to physical bank 5 do NOT leak ULA attributes | Load synthetic NEX whose bank-5 payload contains non-zero bytes spanning the 0x1800-0x1AFF attribute range; on default-RAM Next, take a screenshot 100 ms post-entry | ULA attribute area in screenshot reflects only the post-entry-point ULA writes — NOT the loader's transient bank-5 fill. skip — NEX loader writes raw bytes via `Mmu::write_byte` without a loader-bank-5 audit gate; cosmetic (see G16) — `nex_loader.cpp:177-223` (bank-5 ingest paths); `BEAST-NEX-INVESTIGATION.md` §Verdict |
 
 ### Category 21: SD Card Hot-Plug / Unmount (parked here as `BOOT-SD-*`)
 
@@ -714,7 +715,86 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 | BOOT-SD-01 | mount → unmount → re-mount round-trip | `sd.mount(img)`; issue CMD17 read; `sd.unmount()`; `sd.mount(img)`; CMD17 read | First read returns image bytes; post-unmount no spurious data leak; second mount reads same bytes. skip — runtime API not exposed in GUI/CLI (see G158) |
 | BOOT-SD-02 | unmount mid-transfer is safe          | `sd.mount(img)`; begin CMD17; call `sd.unmount()` mid-block          | No data race; subsequent reads return safe-default (0xFF). VHDL: card-detect/CS controls. skip — mid-transfer safety untested (see G158) |
 
-**Total: ~140 test cases across 21 categories.**
+### Category 22: Tape SAVE Pipeline (parked here as `BOOT-TAPESAVE-*`)
+
+> Note: jnext currently has no tape-save path. `src/core/tap_loader.*`
+> + `tzx_loader.*` + `wav_loader.*` are read-only loaders; no
+> `tap_saver.cpp` / `tzx_saver.cpp` / `wav_saver.cpp` exists. Real
+> ZX Spectrum software emits the SAVE half via the ROM's tape
+> routines (0x04C2) writing to the EAR/MIC port; capturing that
+> requires modelling the EAR/MIC output ring and serialising to a
+> file format. Rows are parked here as `BOOT-TAPESAVE-*` because the
+> consumers will plug into `Emulator` lifecycle (where `Mmu` is the
+> existing focal point).
+
+| ID            | Test                                                       | Setup                                                                                                         | Expected                                                                                                          |
+|---------------|------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| BOOT-TAPESAVE-01 | ROM SAVE captures EAR pulses to .tap                    | 48K mode; CALL `0x04C2` (SA-BYTES) with header in IX/DE; arm a tape-saver to a temp file path                  | Resulting .tap matches FUSE/CSpect-captured reference. skip — no tape-save infrastructure (see G33) |
+| BOOT-TAPESAVE-02 | ROM SAVE captures EAR pulses to .tzx                    | 48K mode; CALL `0x04C2`; arm a TZX saver                                                                       | Resulting .tzx contains a Standard-Speed Data block matching .tap content. skip — no tape-save infrastructure (see G33) |
+| BOOT-TAPESAVE-03 | ROM SAVE captures EAR pulses to .wav (PCM)              | 48K mode; CALL `0x04C2`; arm a WAV saver at 44100 Hz                                                           | Resulting .wav re-decodes via existing `WavLoader` round-trip-equal. skip — no tape-save infrastructure (see G33) |
+
+### Category 23: `.z80` Snapshot Loader (parked here as `BOOT-Z80-*`)
+
+> Note: `.z80` (v1/v2/v3) is the canonical FUSE/SPIN snapshot format
+> alongside `.sna`/`.szx`; jnext loads `.sna` and `.szx` via
+> `src/core/{sna,szx}_loader.*` but has **no** `.z80` loader. CLI and
+> GUI file dialogs both omit `*.z80`. Parked here because snapshot
+> loaders write through `Mmu`.
+
+| ID         | Test                                                  | Setup                                                                                                         | Expected                                                                                                                              |
+|------------|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip                     | `--load fixture.z80` (48K, v1 header, 49152 bytes raw RAM)                                                    | `Mmu` reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC etc. match header bytes. skip — no `.z80` loader exists (see G34)        |
+| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip                   | `--load fixture.z80` (v2 header; banks RLE-encoded with `ED ED nn xx` runs)                                    | Decompressor reproduces matching RAM image. skip — no `.z80` loader exists (see G34)                                                    |
+| BOOT-Z80-03 | v3 (extended-header, 128K) .z80                       | `--load fixture.z80` (v3 header, 30+ byte extension, 8 × 16 KB banks)                                          | `Ram` banks 0-7 populated; `port_7ffd_` from header byte 0x23. skip — no `.z80` loader exists (see G34)                                  |
+| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected              | `--load fixture-bad.z80` (truncated body)                                                                     | Loader returns error; emulator stays in pre-load state. skip — no `.z80` loader exists (see G34)                                         |
+
+### Category 24: Snapshot Save Pipeline (parked here as `BOOT-SNAPSAVE-*`)
+
+> Note: only `sna_saver.*` exists. There is no `.szx` saver and no
+> `.nex` saver, and no GUI/CLI File-Save-As wiring at all. Parked
+> here because the save path must read `Mmu`/`Cpu`/peripheral state
+> and serialise — the same bus the loaders use.
+
+| ID            | Test                                                | Setup                                                                                                | Expected                                                                                                                           |
+|---------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI               | Run program; trigger a save action; reload the produced `.sna`                                       | Reloaded state byte-equal on RAM + visible registers. skip — `sna_saver` exists but no UI/CLI consumer wires it (see G35) |
+| BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI               | Same; save as `.szx`                                                                                 | Reloaded `.szx` round-trips RAM + extended Next state. skip — no `.szx` saver implementation (see G35)                |
+| BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI               | Same; save as `.nex` v1.3                                                                            | Reloaded `.nex` re-runs from same PC/Bank state. skip — no `.nex` saver implementation (see G35)                                       |
+| BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats         | Open File→Save-As                                                                                    | Filter shows `.sna`, `.szx`, `.nex` entries. skip — no Save-As dialog wired (see G35)                                                  |
+
+### Category 25: Tape DeciLoad / Real-time Loading (parked here as `BOOT-DECI-*`)
+
+> Note: G36 covers TZX block 0x15 (Direct-Recording, used by DeciLoad
+> and similar custom-loader schemes); G37 covers WAV-as-tape
+> real-time loading (the EAR-input pulse-train path, not file-format
+> instant-load). `tzx_loader.cpp` decodes Standard / Turbo / Pure
+> Tone / Pure Data / Pause blocks but does NOT decode block type
+> 0x15. `wav_loader.cpp` exists but real-time pulse-shaping into the
+> EAR latch is not yet audited.
+
+| ID         | Test                                                            | Setup                                                                                          | Expected                                                                                                              |
+|------------|-----------------------------------------------------------------|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| BOOT-DECI-01 | TZX 0x15 Direct-Recording block decoded                       | `--load fixture-deciload.tzx` (block list including a 0x15 block)                              | Pulses are streamed into the EAR latch at the block-encoded sample rate; ROM LD-BYTES routine completes. skip — TZX 0x15 not implemented (see G36) |
+| BOOT-DECI-02 | TZX 0x15 unknown / malformed block tolerated                  | TZX with malformed 0x15 (truncated body)                                                       | Loader skips block, surfaces warning, continues with next block. skip — TZX 0x15 not implemented (see G36)             |
+| BOOT-DECI-03 | WAV real-time DeciLoad loads via custom loader                | `--load fixture-deciload.wav`; custom loader running in 48K | Custom loader reads EAR pulses, decodes ZX0, and reaches its end-of-load entry-point. skip — WAV real-time path unverified (see G37) |
+| BOOT-DECI-04 | WAV resampling preserves pulse-edge timing within tolerance   | `--load fixture-44100.wav`; clock at 3.5 MHz                                                    | EAR-edge intervals match reference within ±2 cycles. skip — WAV real-time path unverified (see G37)                    |
+
+### Category 26: `.dsk` / +3 FDC Loading (parked here as `BOOT-FDC-*`)
+
+> Note: jnext does not model the uPD765 FDC. P1F-07 in this plan is
+> already a WONT decision (commit `3dd892a`, 2026-04-21,
+> *"+3 disk motor — explicit decision NOT to implement; NextZXOS /
+> SD / NEX loaders cover relevant software"*). Tracked for
+> completeness so any future re-evaluation has pre-allocated rows.
+> Future implementer must lift P1F-07 first.
+
+| ID         | Test                                            | Setup                                                                  | Expected                                                                                                |
+|------------|-------------------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| BOOT-FDC-01 | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive | `--machine plus3 --load game.dsk`                                       | FDC enumerates tracks/sectors; +3DOS recognises disk and shows catalog. skip — no uPD765 / no `.dsk` loader; P1F-07 = WONT (see G38) |
+| BOOT-FDC-02 | uPD765 motor-on / read-id behaviour            | Issue Read-ID command; check status registers                          | ST0/ST1/ST2 and CHRN bytes per uPD765 datasheet. skip — uPD765 unmodelled; P1F-07 = WONT (see G38)        |
+| BOOT-FDC-03 | NR 0x81 b3 (`fdc` clken) gates motor-on        | NR 0x81 ← bit3=1; observe drive-motor LED state via NR introspection   | Motor-on visible; NR 0x81 b3=0 ⇒ motor off. skip — FDC unmodelled; P1F-07 = WONT (see G38)              |
+
+**Total: ~159 test cases across 26 categories.**
 
 ## Test Approach
 

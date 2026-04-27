@@ -999,6 +999,19 @@ static void test_group_expbus() {
               DETAIL("NR86=0x%02x 87=0x%02x 88=0x%02x 89=0x%02x",
                      r86, r87, r88, r89));
     }
+
+    // EXPBUS-AND-01..04 — G45: NR 0x86-0x89 expansion-bus mask-AND term
+    // is inert today; no expansion-bus aggregator exists in jnext.
+    // VHDL zxnext.vhd:3468 (port_fe_bus AND-term), :3453 (port_io_bus
+    // AND-term). Cartridge framework deferred to v1.2+ via --cartridge.
+    skip("EXPBUS-AND-01",
+         "NR 0x86 mask-AND with port_fe_bus inert; no aggregator (see G45)");
+    skip("EXPBUS-AND-02",
+         "NR 0x87 mask-AND with port_io_bus inert; no aggregator (see G45)");
+    skip("EXPBUS-AND-03",
+         "NR 0x88 mask-AND with port_io_bus inert; no aggregator (see G45)");
+    skip("EXPBUS-AND-04",
+         "NR 0x89 mask-AND with port_io_bus inert; no aggregator (see G45)");
 }
 
 // ── Group E. Precedence / collision / clear-reregister ─────────────────

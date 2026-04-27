@@ -538,6 +538,41 @@ VHDL-driven state via outputs.
 | G15.NG-06 | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(6)=0 — **impossible** because relatives require attr3(6)=1; document as unreachable | — | — | — | 756 |
 | G15.NG-07 | Negative offset wraps in 9-bit arithmetic: anchor_x=5, rel x0=0xF0 (signed −16) ⇒ pixel at x=`(5-16) mod 512 = 0x1F5` (off-screen) | anchor has `xmirror=1, rotate=0` so the `not(x0)+1` negation path (sprites.vhd:762) is active and x0=0xF0 is treated as signed −16 | — | no pixel, FSM qualifies out | 762, 772 |
 
+### Group 16 — Per-Scanline Attribute Change Log
+
+VHDL `sprites.vhd:327-470` (5 dual-port attribute RAMs, sync-write
+async-read). Required by parallax.nex which Z80N-DMA-streams sprite
+attributes via port 0x57 mid-frame to multiplex 96 sprites across many
+Y positions. Without per-scanline replay, the renderer sees only the
+end-of-frame state.
+
+Algorithm rows (PSL-01..PSL-09): live, see `test/sprites/sprites_test.cpp:2499-2904`.
+Cap-overflow rendering rows (OVF-01..OVF-03) and cross-subsystem placeholder
+G06.NR70-01 are stubbed pending harness extension and Layer2 plan growth.
+
+| ID            | Title                                                                                                                | Stimulus                                                                                                                                                            | Expected                                                                                                                                                                                                                                                          |
+|---------------|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| G16.OVF-01    | Mid-frame attribute writes that fit in cap render correctly even when followed by an overflowing tail (>cap)         | start_frame; lines 0..49 write 4000 attribute bytes spread evenly; lines 50..255 write 5000 more (total 9000, exceeds cap=8192)                                      | Lines 0..49 render as expected. Lines 50+ render with **partial** post-cap state — the dropped writes never apply. stub — log overflow drops late writes silently (`sprites.cpp:79-88`); per-row pixel check needs harness fixture (see G13) |
+| G16.OVF-02    | Overflow warn fires exactly once per frame and resets at next `start_frame`                                          | Run a single frame that writes `cap+100` bytes; observe that `overflow_warned_` latches; call start_frame; write 1 byte and observe NO new warn                       | Warn fires once on the entry that crosses cap; subsequent writes that frame stay silent; `start_frame` clears `overflow_warned_=false` (`sprites.cpp:153`). stub — needs Log-fixture mock not yet in test harness (see G13) |
+| G16.OVF-03    | Z80N-DMA streaming 32 byte-rewrites/scanline × 256 lines = 8192 writes — boundary case, every write must replay      | Per scanline 0..255 issue 32 attribute byte-writes (slot rotates 0..127). Render frame line-by-line                                                                  | All 8192 writes replay (`change_log_size() == 8192`); render shows every per-line attribute combination. stub — boundary case below cap, but exercising it needs an attribute-density fixture (see G13) |
+| G06.NR70-01   | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute L2 width                                                      | Lines 0..99 NR 0x70=0x10 (256-wide); Copper writes 0x20 (320) at 100                                                                                                | L2 width snapshot per-line. stub — `Layer2` resolution is per-frame today; per-scanline NR 0x70 not in change log. Cross-subsystem placeholder until LAYER2 plan grows it (see G06) — VHDL `zxnext.vhd:7400-7470`, `layer2.vhd:128`              |
+
+### Group 17 — Per-Scanline Pattern (port 0x5B) Change Log
+
+VHDL `sprites.vhd:561-572` (16 KB sdpbram_16k_8 pattern RAM, sync-write
+async-read), `sprites.vhd:728-744` (port 0x5B write trigger + auto-increment).
+Required by parallax.nex which Z80N-DMA-streams ~92 pattern bytes per
+frame across 311 distinct scanlines (peak 256 in a single 1 ms burst,
+~21 distinct slots cycled per frame).
+
+Algorithm rows (PSL-PAT-01..03 + 07a/b/c): live, see
+`test/sprites/sprites_test.cpp:2906-end`. PSL-PAT-04 (cap overflow) is
+stubbed.
+
+| ID                | Title                                                                                                       | Stimulus                                                                                                              | Expected                                                                                                                                                                                                                                                |
+|-------------------|-------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| G17.PSL-PAT-04    | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap; in-cap writes still apply                    | start_frame; over 256 visible scanlines, write 64 pattern bytes per line (16384 total) plus 100 more (16484 total)     | Cap saturates at 8192; writes 8193..16484 silently dropped. stub — same root cause as G13: cap is a C++ static budget, not a VHDL behaviour (see G15) — VHDL `sprites.vhd:561-572` (16 KB pattern RAM, no cap), `sprites.vhd:728-744` (write trigger) |
+
 ## Test Implementation Strategy
 
 The goal is a **headless unit harness** that instantiates the emulator's

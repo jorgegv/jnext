@@ -1730,6 +1730,19 @@ static void test_iomode() {
                      m.iomode_en() ? 1 : 0,
                      m.pin7() ? 1 : 0));
     }
+
+    // IOMODE-11A — G72: runtime per-tick callback feeding the IoMode
+    // injectors does not exist. Emulator::tick() does not call
+    // IoMode::set_uart0_tx() / set_uart1_tx() / set_joy_left_bit5() /
+    // set_joy_right_bit5() each tick from Uart::tx_line() / Joystick
+    // bit-5 accessors. The pin-7 multiplex (covered by IOMODE-05/06)
+    // is therefore unit-correct but inert at runtime: pin7() reflects
+    // only whatever the constructor default happens to be plus any
+    // test-only direct setter calls. Verified by grep across src/ —
+    // zero production callers of any of the four injectors.
+    skip("IOMODE-11A",
+         "per-tick UART/joy-bit-5 → IoMode injector callback absent",
+         "Emulator::tick() never feeds IoMode injectors (see G72)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1887,6 +1900,26 @@ static void test_mouse() {
     skip("MOUSE-12",
          "0xDF Kempston-joy alias under Soundrive override",
          "0xDF Kempston-joy alias under Soundrive override missing (see G130)");
+
+    // MOUSE-13 — G43: SDL_MOUSEMOTION events do not dispatch into
+    // KempstonMouse::inject_delta(). Verified: zero callers in src/ outside
+    // the class. Mouse-driven software (Art Studio Next, mouse demos)
+    // cannot move the cursor.
+    skip("MOUSE-13",
+         "SDL motion → inject_delta",
+         "SDL_MOUSEMOTION not dispatched to KempstonMouse (see G43)");
+
+    // MOUSE-14 — G43: SDL_MOUSEBUTTON{DOWN,UP} events do not dispatch
+    // into KempstonMouse::set_buttons(). Same shape as MOUSE-13.
+    skip("MOUSE-14",
+         "SDL button → set_buttons",
+         "SDL_MOUSEBUTTON* not dispatched to KempstonMouse (see G43)");
+
+    // MOUSE-15 — G43: SDL_MOUSEWHEEL events do not feed the 4-bit wheel
+    // counter. Same upstream gap.
+    skip("MOUSE-15",
+         "SDL wheel → 4-bit counter",
+         "SDL_MOUSEWHEEL not dispatched to KempstonMouse (see G43)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════

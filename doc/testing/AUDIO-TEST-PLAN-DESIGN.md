@@ -134,11 +134,11 @@ VHDL ref: `ym2149.vhd` lines 240-249
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| AY-30  | Read R14 with R7 bit 6 = 0 (Port A input mode)  | Returns `port_a_i` (external input)                        |
-| AY-31  | Read R14 with R7 bit 6 = 1 (Port A output mode) | Returns `reg(14) AND port_a_i`                             |
-| AY-32  | Read R15 with R7 bit 7 = 0 (Port B input mode)  | Returns `port_b_i`                                         |
-| AY-33  | Read R15 with R7 bit 7 = 1 (Port B output mode) | Returns `reg(15) AND port_b_i`                             |
-| AY-34  | Port A/B inputs default to 0xFF (pullup)         | In turbosound wiring, port_a_i/port_b_i = all 1s          |
+| AY-30  | Read R14 with R7 bit 6 = 0 (Port A input mode)  | Returns `port_a_i` (external input). skip — AyChip lacks port_a_i accessor (see G30) |
+| AY-31  | Read R14 with R7 bit 6 = 1 (Port A output mode) | Returns `reg(14) AND port_a_i`. skip — reg(14)+port_a_i not modelled (see G30)        |
+| AY-32  | Read R15 with R7 bit 7 = 0 (Port B input mode)  | Returns `port_b_i`. skip — AyChip lacks port_b_i accessor (see G30)                   |
+| AY-33  | Read R15 with R7 bit 7 = 1 (Port B output mode) | Returns `reg(15) AND port_b_i`. skip — reg(15)+port_b_i not modelled (see G30)        |
+| AY-34  | Port A/B inputs default to 0xFF (pullup)         | In turbosound wiring, port_a_i/port_b_i = all 1s. skip — turbosound.vhd:158 tie-high not plumbed (see G30) |
 
 ### 1.4 Clock Divider
 
@@ -355,7 +355,7 @@ VHDL ref: `soundrive.vhd` lines 69-107
 | SD-06  | NextREG 0x2D (mono) writes to chA AND chD        | Both channels A and D updated simultaneously               |
 | SD-07  | NextREG 0x2C (left) writes to chB only           | Channel B updated                                          |
 | SD-08  | NextREG 0x2E (right) writes to chC only          | Channel C updated                                          |
-| SD-09  | Port I/O takes priority over NextREG              | If both fire same cycle, port I/O wins (checked first)     |
+| SD-09  | Port I/O takes priority over NextREG              | If both fire same cycle, port I/O wins (checked first). skip — Dac collapses to last-write-wins per frame; needs event-queue refactor (see G31) |
 | SD-19  | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition   | `soundrive.reset_i = reset OR NOT nr_08_dac_en` — disable rezeroes chA/B/C/D to DC midpoint. skip — `emulator.cpp:1674` only flips `dac_enabled_`; pre-existing values in `Dac::ch_[]` persist (see G111). Note: SD-10..18 already used in §3.2 |
 
 ### 3.2 Port Mapping (from zxnext.vhd)
@@ -436,6 +436,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-04  | AY input: zero-extended 12-bit to 13-bit          | `ay_L = '0' & ay_L_i` (range 0-2295)                      |
 | MX-05  | DAC input: 9-bit left-shifted by 2 + zero-padded  | `dac_L = "00" & dac_L_i & "00"` (range 0-2040)            |
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
+| MX-30  | Pi I2S source delivers a continuous 10-bit sample stream | I2s class exposes only a single set_sample(L,R) latch; no streaming source attached. skip — no Z80 software exercises Pi I2S today (Cat B); upgrade requires a real audio producer + frame-aligned sample queue (see G29) |
 
 ### 5.2 Final Mix
 
@@ -516,6 +517,7 @@ VHDL ref: `zxnext.vhd` lines 1242, 2283-2290, 5564, 6192
 | NR-40  | NR 0xA2 store: 8-bit register write              | `nr_a2_pi_i2s_ctl <= nr_wr_dat` on NR 0xA2 strobe. skip — no NR 0xA2 handler; falls through to generic shadow store (see G113) |
 | NR-41  | NR 0xA2 fan-out to Pi I2S control signals        | b7=enL, b6=enR, b4=inout, b3=muteL, b2=muteR, b0=ear (drives I2S Mixer gate). skip — fan-out not wired (see G113) |
 | NR-42  | NR 0xA2 read: `b[7:6]'0'b[4:2]'1'b[0]`           | bit 5 reads as 0, bit 1 reads as 1 (fixed pattern). skip — read returns raw shadow byte (see G113) |
+| NR-43  | Mixer gates Pi I2S adder by pi_i2s_en[L/R] AND NOT mute[L/R] | audio_mixer.vhd:50-60 — control fan-out from NR 0xA2 must reach the Mixer input gates. skip — Mixer ignores the gate signals (see G73, distinct from G113 NR-handler) |
 
 ## 7. I/O Port Wiring
 

@@ -369,6 +369,15 @@ static void section7_scheduler_wiring() {
          "F-G107-FRAMEINT: frame-int ignores per-machine c_int (see G107)");
     skip("VT-25",
          "F-G109-CUOFFSET: NR 0x64 cu_offset not in line-int (see G109)");
+
+    // VT-26 — walkback row for G71. Once G106 + G107 land per VT-22..VT-24,
+    // the test-only pulse-counter accessors at src/video/timing.h:97-134
+    // MUST become the single source of truth — Emulator::line_int_enabled_
+    // / line_int_value_ (emulator.cpp:2138, 2154) MUST be removed.
+    // VHDL zxula_timing.vhd:563-583. Class G (walkback) per
+    // UNIT-TEST-PLAN-EXECUTION.md taxonomy.
+    skip("VT-26",
+         "G-VT-CLEANUP: pulse-counter dead-code; Emulator scheduler still owns it (see G71)");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

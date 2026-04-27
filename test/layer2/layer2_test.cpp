@@ -1172,6 +1172,22 @@ static void test_group9_boundary() {
     // DEFERRED (tracked separately via log_deferred):
     //   G9-01 (NR 0x69 disable path) — not modelled in Layer2 class.
     //   G9-02 (port 0x123B read-back 0x00 at reset) — port dispatcher test.
+
+    // L2-G17-01 — placeholder per Task 7 round 2 prompt rule.
+    // Root cause UNIDENTIFIED today (six hypotheses disconfirmed in
+    // 2026-04-27 EOD investigation; Phase A sprite-priority +
+    // Phase B bank-6 disassembly are the next steps). Re-discriminate
+    // this row once Phase A/B lands.
+    skip("L2-G17-01",
+         "parallax two-copies root cause unidentified (see G17)");
+
+    // G9-G28-01 — VHDL layer2.vhd:148. Today's renderer is
+    // scanline-granular; the `hc + 1` lift folds into the address
+    // formula and cannot be observed standalone (see G9-06
+    // explanatory note). Re-discriminate once cycle-accurate refactor
+    // lands per EMULATOR-DESIGN-PLAN.md:1159.
+    skip("G9-G28-01",
+         "hc_eff column-pipeline observable gated on cycle-accurate refactor (see G28)");
 }
 
 // =========================================================================
@@ -1278,6 +1294,82 @@ static void test_group10_per_scanline_scroll() {
           l2.change_log_size() == Layer2::MAX_CHANGES_PER_FRAME);
 }
 
+// =========================================================================
+// Group G10b: per-scanline NR 0x15 replay (G02)
+// =========================================================================
+//
+// Renderer at src/video/renderer.h:60,81 stores layer_priority_ and
+// sprite_en_ as scalars; no change-log exists. Both rows skip until
+// the log-pattern clone (mirroring Layer2/PaletteManager) lands.
+static void test_group10b_per_scanline_nr15() {
+    set_group("G10b per-scanline NR 0x15");
+
+    // L2P-G02-01 — VHDL zxnext.vhd:5232, 6799.
+    skip("L2P-G02-01",
+         "NR 0x15 change-log not implemented in Renderer (see G02)");
+
+    // L2P-G02-02 — VHDL zxnext.vhd:6799 (per-line latch oracle).
+    skip("L2P-G02-02",
+         "Renderer apply_changes_for_line(NR 0x15) absent (see G02)");
+}
+
+// =========================================================================
+// Group G10c: per-scanline clip-window replay (G05)
+// =========================================================================
+//
+// Layer2::set_clip_x1/x2/y1/y2 (layer2.h:86-89) are scalar setters
+// with no log_*. Both rows skip until a 4-coord clip change-log lands.
+static void test_group10c_per_scanline_clip() {
+    set_group("G10c per-scanline clip");
+
+    // G10-G05-01 — VHDL zxnext.vhd:5243, 5278. Rotating-index NR 0x18
+    // clip writes need a 4-coord snapshot in the change-log.
+    skip("G10-G05-01",
+         "Layer2 clip-window per-line snapshot not implemented (see G05)");
+
+    // G10-G05-02 — VHDL layer2.vhd:134, 167. Renderer replay path
+    // for clip absent; only baseline scalar honoured.
+    skip("G10-G05-02",
+         "Renderer apply_changes_for_line(clip) absent (see G05)");
+}
+
+// =========================================================================
+// Group G10d: per-scanline NR 0x12/0x13 active-bank replay (G09)
+// =========================================================================
+//
+// Layer2::set_active_bank / set_shadow_bank (layer2.h:37,41) are
+// scalar setters with no log_*. ScrollChange struct (layer2.h:189-193)
+// has no bank field.
+static void test_group10d_per_scanline_bank() {
+    set_group("G10d per-scanline NR 0x12/0x13");
+
+    // G10-G09-01 — VHDL zxnext.vhd:5220, 1135.
+    skip("G10-G09-01",
+         "Layer2 active-bank per-line log not implemented (see G09)");
+
+    // G10-G09-02 — VHDL layer2.vhd:172 (bank flop on CLK_7).
+    skip("G10-G09-02",
+         "Renderer apply_changes_for_line(bank) absent (see G09)");
+}
+
+// =========================================================================
+// Group G10e: per-scanline L2 enable replay (G14)
+// =========================================================================
+//
+// Layer2::set_enabled (layer2.h:82) is a scalar boolean setter; no
+// log entry. enable_ field is not in ScrollChange (layer2.h:189-193).
+static void test_group10e_per_scanline_enable() {
+    set_group("G10e per-scanline L2 enable");
+
+    // G10-G14-01 — VHDL zxnext.vhd:3916, 3924-3925.
+    skip("G10-G14-01",
+         "Layer2 set_enabled per-line log not implemented (see G14)");
+
+    // G10-G14-02 — VHDL layer2.vhd:175, 197-198 (layer2_en_qq).
+    skip("G10-G14-02",
+         "Renderer apply_changes_for_line(enable) absent (see G14)");
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 int main() {
     printf("Layer 2 Compliance Tests (VHDL-derived rewrite)\n");
@@ -1301,6 +1393,14 @@ int main() {
     printf("  Group: G9 boundary — done\n");
     test_group10_per_scanline_scroll();
     printf("  Group: G10 per-scanline scroll — done\n");
+    test_group10b_per_scanline_nr15();
+    printf("  Group: G10b per-scanline NR 0x15 — done\n");
+    test_group10c_per_scanline_clip();
+    printf("  Group: G10c per-scanline clip — done\n");
+    test_group10d_per_scanline_bank();
+    printf("  Group: G10d per-scanline NR 0x12/0x13 — done\n");
+    test_group10e_per_scanline_enable();
+    printf("  Group: G10e per-scanline L2 enable — done\n");
     log_deferred();
 
     printf("\n================================================\n");

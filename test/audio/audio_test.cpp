@@ -423,12 +423,21 @@ static void g_ay_readback() {
 static void g_ay_ports() {
     set_group("AY-ports");
 
-    // G: AY-30..34: port_a_i / port_b_i (ym2149.vhd:240-249) are tied to
-    // all-1s in turbosound.vhd:158 and reg(14)/reg(15) readback depends on
-    // those tie-high inputs. The standalone AyChip class has no accessor
-    // for them and the turbosound wrapper does not plumb the tied-high
-    // signal through. Unobservable without src/ API extension; no known
-    // ZX Next software exercises the PSG GPIO path.
+    // VHDL ym2149.vhd:240-249 + turbosound.vhd:158 — port_a_i/port_b_i
+    // tied to '1's at the turbosound wrapper. AyChip lacks accessors for
+    // these signals; no Z80 software on platform exercises PSG GPIO.
+    // Cat B (no consumer). All five rows skip() rather than be silently
+    // omitted from counters (see G30; unobservable-audit-rule).
+    skip("AY-30",
+         "Read R14 with R7.b6=0: AyChip has no port_a_i accessor (see G30)");
+    skip("AY-31",
+         "Read R14 with R7.b6=1: reg(14) AND port_a_i not modelled (see G30)");
+    skip("AY-32",
+         "Read R15 with R7.b7=0: AyChip has no port_b_i accessor (see G30)");
+    skip("AY-33",
+         "Read R15 with R7.b7=1: reg(15) AND port_b_i not modelled (see G30)");
+    skip("AY-34",
+         "port_a_i/port_b_i tie-high (turbosound.vhd:158) not plumbed (see G30)");
 }
 
 // =====================================================================
@@ -2030,11 +2039,14 @@ static void g_dac() {
                   dac.pcm_left(), dac.pcm_right()));
     }
 
-    // G: SD-09: per-clock if/elsif write priority (port I/O vs NextREG
-    // mirror) is a pipeline ordering artefact of the VHDL core-level
-    // process; the standalone Dac class has last-write-wins semantics
-    // per frame and no time-ordered event queue. Out of scope for this
-    // plan — would require a pipeline-event refactor on Dac.
+    // SD-09 — G31: per-clock if/elsif write priority between port-I/O and
+    // NextREG mirror writes is a clocked-process pipeline ordering artefact
+    // of the VHDL core. The standalone Dac class has frame-level
+    // last-write-wins semantics; modelling per-clock priority would require
+    // a time-ordered event queue refactor on Dac. Cat B (no software
+    // observer for the priority decision specifically).
+    skip("SD-09",
+         "DAC port-vs-NR clock-priority not modelled; needs Dac event queue (see G31)");
 
     // RE-HOME: SD-10 — Soundrive mode 1 port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x5F unwired).
@@ -2250,6 +2262,15 @@ static void g_mixer() {
               s[0] == 4092 && s[1] == 4092,
               fmt("L=%d R=%d VHDL audio_mixer.vhd:89-90,99-100", s[0], s[1]));
     }
+
+    // MX-30 — G29: Pi I2S source-side is a single-latch stub. No streaming
+    // producer drives pi_audio_L/R over time. VHDL audio_mixer.vhd:43-52
+    // expects a continuous 10-bit synchronous sample bus from the Pi side.
+    // No Z80 software on the platform currently exercises this path, so we
+    // have no observable failure to chase. Distinct from G73 (NR/port
+    // wiring of I2S into the Mixer gate).
+    skip("MX-30",
+         "Pi I2S source upgrade pending; no software consumer today (see G29)");
 
     // MX-10 - silence: pcm_L = 0.
     {

@@ -296,6 +296,25 @@ VRAM bank 1 (`vram_a(13) = '1'`), giving per-pixel-row colour attributes.
 | 9 (S5.10) | Hi-res renders at 512 px wide (mode=100) | render_scanline emits 512 distinct pixel slots (one per `shift_reg_32` bit). skip — F-G104-RENDER (see G104) |
 | 10 (S5.11) | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100) | `border_clr_tmx == "01" & (not port_ff(5:3)) & port_ff(5:3)` — 6 bits, NOT (port_ff>>3)&0x07. skip — F-G105-PALGRP (see G105) |
 
+### §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07)
+
+`Ula::screen_mode_reg_` is overwritten on every port-0xFF write; mid-frame
+STANDARD↔HI_COLOUR↔HI_RES splits collapse to last-write. Add
+`Ula::log_port_ff_write` change-log + `set_current_line` +
+`apply_changes_for_line` mirroring the PaletteManager / Layer2 precedent
+(`PER-SCANLINE-DISPLAY-STATE-AUDIT.md` Cat A).
+
+VHDL: `zxula.vhd:259-266` (screen_mode bits 2:0 from `port_ff_reg(2:0)`),
+`zxnext.vhd:2397, 2713, 2813` (port-0xFF write fan-out).
+
+| ID         | Test                                                                                                       | Expected                                                                                  | Status |
+|------------|------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|--------|
+| S5-PSL.01  | Two port-0xFF writes mid-frame at lines L1 < L2 captured at correct scanline boundaries                    | log records both `(line, value)` ordered; replay at L1 sees v1, replay at L2 sees v2     | skip (F-G07-TIMEXMODE, see G07) |
+| S5-PSL.02  | Render at line L produces STANDARD pixels for L < split, HI_COLOUR pixels for L >= split                   | Lines below split use attribute-byte path; lines >= split use second pixel-file path     | skip (F-G07-TIMEXMODE, see G07) |
+| S5-PSL.03  | Mid-frame HI_RES→STANDARD switch at line L: lines >= L revert to 256-px attribute path                     | renderer's mode dispatch flips at the next-line boundary, not at frame end                | skip (F-G07-TIMEXMODE, see G07) |
+| S5-PSL.04  | `Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value | First-line render of frame N uses last-write-of-frame-(N-1) as baseline                  | skip (F-G07-TIMEXMODE, see G07) |
+| S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering             | `Ula::save_state` and `restore_state` round-trip; replay produces identical scanline output | skip (F-G07-TIMEXMODE, see G07) |
+
 > **Width-resolution gap (G104).** The current renderer at
 > `src/video/ula.cpp:646+` (with the comment at lines 635-640 documenting
 > the 256-pixel approximation) discards every alternate hi-res pixel
@@ -513,6 +532,26 @@ Status (Wave A, USER PRIORITY, 2026-04-23): row 1 (S9.01) reclassified to G-comm
 | 10| S9.10 | Y scroll wraps mid-third | 0 | 100 | Wraps across screen thirds correctly | pass |
 
 Integration coverage: **INT-SCROLL-01** (NR 0x26 coarse X), **INT-SCROLL-02** (NR 0x27 Y), **INT-SCROLL-03** (NR 0x68 bit 2 fine X) in `ula_integration_test.cpp`. This was the user-priority cluster that motivated the plan.
+
+### §9-PSL — Per-scanline NR 0x26 / NR 0x27 ULA scroll replay (G08)
+
+`Ula` reads `nr_26_ula_scrollx_` / `nr_27_ula_scrolly_` once at frame
+end. Mid-frame Copper writes coalesce to last-write. Same Copper-driven
+raster-split pattern that drives Beast.nex's NR 0x16/0x17 stripes
+applies here too. Mirror the `PaletteManager` / `Layer2` change-log + add
+`Ula::set_current_line` + `Ula::apply_changes_for_line`. Per-frame
+coverage (S9.02..S9.10) is already live; per-scanline was deliberately
+out-of-scope at ULA-plan closure 2026-04-23.
+
+VHDL: `zxula.vhd:193-216` (vertical scroll: `py_s = vc + scroll_y`),
+`zxula.vhd:199` (horizontal coarse + fine scroll arithmetic).
+
+| ID        | Test                                                                                | Expected                                                                                | Status |
+|-----------|-------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|--------|
+| S9-PSL.01 | Two NR 0x26 writes at scanlines L1 < L2 captured separately                         | log retains both `(line, value)`; replay at L1 sees v1, replay at L2 sees v2            | skip (F-G08-ULASCROLL, see G08) |
+| S9-PSL.02 | Mid-frame NR 0x27 (scroll Y) split renders top/bottom regions with different scroll | Lines below split use baseline; lines >= split use the post-write value                 | skip (F-G08-ULASCROLL, see G08) |
+| S9-PSL.03 | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                           | Coarse-scroll bits unaffected; bit-7 fine-enable only flips below split                  | skip (F-G08-ULASCROLL, see G08) |
+| S9-PSL.04 | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct  | First-line render of frame N uses last-write-of-frame-(N-1) as baseline                  | skip (F-G08-ULASCROLL, see G08) |
 
 ## Section 10: Floating Bus
 
@@ -776,6 +815,26 @@ ULA+ palette-poke side-channel: software that does not raise
 | Reason code   | Semantics                                                                                                | Rows  |
 |---------------|----------------------------------------------------------------------------------------------------------|-------|
 | `F-G150-NRFF` | Add NR 0xFF write_handler that derives the value from `nr_wr_dat` and pokes the bf3b-indexed palette slot. Blocked on G102/G103 palette-store widening. | S16.01 |
+| `F-G07-TIMEXMODE` | Per-scanline port-0xFF Timex screen-mode replay absent. Add `Ula::log_port_ff_write` change-log + `Ula::set_current_line` + `Ula::apply_changes_for_line` mirroring the PaletteManager / Layer2 precedent. | S5-PSL.01..05 |
+| `F-G08-ULASCROLL` | Per-scanline NR 0x26 / NR 0x27 ULA-scroll replay absent. Mirror `PaletteManager` / `Layer2` change-log + `Ula::set_current_line` + `Ula::apply_changes_for_line`. | S9-PSL.01..04 |
+| `F-G10-PALSEL`    | Per-scanline NR 0x43 b1-3 + NR 0x6B b4 active-palette **selector** replay absent. Distinct from palette **content** path (already live). | S17.01..04 |
+
+## Section 17: Per-scanline active-palette select (G10)
+
+### VHDL reference
+
+`zxnext.vhd:6957` writes NR 0x43 b1-3 into the palette-write/active-select
+field. `zxnext.vhd:3614+` writes NR 0x6B b4 into the tilemap-palette
+selector. Both lanes feed the per-scanline active-bank decision in the
+renderer. The PaletteManager change-log already exists for palette
+**content**; this section pins its **selector** sibling.
+
+| ID     | Test                                                                                                  | Expected                                                                                            | Status |
+|--------|-------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|--------|
+| S17.01 | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                | `PaletteManager::log_active_select(line, bits)` records both; replay at L1 picks bank-A, L2 bank-B | skip (F-G10-PALSEL, see G10) |
+| S17.02 | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                   | Tilemap renderer reads `tilemap_palette_select` value-2 for lines >= L; lines < L use value-1     | skip (F-G10-PALSEL, see G10) |
+| S17.03 | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other         | Two change-log streams; cross-write does not race                                                   | skip (F-G10-PALSEL, see G10) |
+| S17.04 | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame   | First-line render of frame N uses last-write-of-frame-(N-1) selector                               | skip (F-G10-PALSEL, see G10) |
 
 ## Total Test Count
 
@@ -785,11 +844,11 @@ ULA+ palette-poke side-channel: software that does not raise
 | 2 | Attribute rendering | 10 |
 | 3 | Border colour | 8 |
 | 4 | Flash timing | 6 |
-| 5 | Timex hi-res/hi-colour | 10 (+S5.10/S5.11 for G104/G105) |
+| 5 | Timex hi-res/hi-colour | 10 (+S5.10/S5.11 for G104/G105; +S5-PSL.01..05 for G07) |
 | 6 | ULAnext mode | 12 (+INT-ULANEXT-02 in integration suite) |
 | 7 | ULA+ mode | 6 (+INT-ULAPLUS-03 in integration suite) |
 | 8 | Clip windows | 8 |
-| 9 | Pixel scrolling | 10 |
+| 9 | Pixel scrolling | 10 (+S9-PSL.01..04 for G08) |
 | 10 | Floating bus | 8 |
 | 11 | Contention timing | 12 |
 | 12 | ULA disable | 4 |
@@ -797,7 +856,8 @@ ULA+ palette-poke side-channel: software that does not raise
 | 14 | Frame interrupt | 6 |
 | 15 | Shadow screen | 4 |
 | 16 | NR 0xFF palette side-channel | 1 (G150) |
-| | **Total** | **~125** |
+| 17 | Per-scanline active-palette select | 4 (G10) |
+| | **Total** | **~138** |
 
 ## Implementation Notes
 

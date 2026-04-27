@@ -480,6 +480,8 @@ The subtraction branch is only entered if `mix_rgb_transparent = '0'`
 | UTB-31 | Mode 11, TM as U, ULA floats above | 11 | 0 | `tm_rgb` | transparent (gate `NOT 0 = 1`) | `ula_rgb` (gate `tm_pixel_below_2 = 0`) → ULA goes to **bot** | 7156–7162 |
 | UTB-40 | Mode 01 (`others`), below=0 | 01 | 0 | transparent | `tm_rgb` | `ula_rgb` | 7163–7176 (else branch) |
 | UTB-41 | Mode 01, below=1 | 01 | 1 | transparent | `ula_rgb` | `tm_rgb` | 7163–7176 (if branch) |
+| UB-G26-01 | UTB-40/41 oracle inversion check: confirm `ula_blend_mode_2 = 01` `mix_top`/`mix_bot` swap on `tm_pixel_below_2` matches FPGA-team intent | mode 01, set ULA+TM with TM pixel below = 1; sample `mix_rgb` source | matches FPGA-team-confirmed expected; if confirmed inverted, UTB-40/41 must be regenerated and this row re-rules | zxnext.vhd:7163-7177 |
+| UB-G26-02 | L2 priority bit in modes 110/111 *over* opaque `mix_top` matches FPGA-team intent | mode 110, L=✓ S=✓ U=✓ mix_top=opaque, L2 priority bit set | additive RGB wins over `mix_top_rgb` (per VHDL 7300/7342 first-`if`); FPGA-team confirms not a copy-paste artefact | zxnext.vhd:7300, 7342 |
 
 Note on UTB-30/UTB-31: the VHDL gating in mode 11 reads as
 `mix_top_transparent <= ula_transparent or not tm_pixel_below_2`, i.e.
@@ -556,6 +558,23 @@ writes after stage 0 are not.
 | LINE-13 | Copper write to NR 0x15 at end of line | Copper writes at hblank | Next line uses new mode | 6799 |
 | LINE-14 | Two writes in one line: only the last is visible next line | Write A, then write B | Line +1 uses B | 6799 |
 
+### Group PSCAN — Per-scanline transparency-key replay (NR 0x14 / 0x4B / 0x4C, G04) and NR 0x68 bits (G11)
+
+Three transparent-key NextREGs are read once per frame today; mid-
+frame Copper writes (sky-vs-foreground swap) collapse to last-write.
+This sub-group adds the log-pattern clone for each of the three keys.
+Three more cover NR 0x68 bit 0 (stencil), bits 6:5 (blend mode), and
+bit 3 (ULA+ enable) per-scanline replay.
+
+| ID            | Title                                                                          | Stimulus                                                                                          | Expected                                                                                          | VHDL                       |
+|---------------|--------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|----------------------------|
+| PSCAN-G04-01  | NR 0x14 write logged with current scanline (RGB332 global transparent)         | start_frame; line=50 NR 0x14 ← 0xC3; line=100 NR 0x14 ← 0xE3                                      | nr_14 change-log holds (50, 0xC3) and (100, 0xE3); apply_changes_for_line replays them            | zxnext.vhd:1137,5226       |
+| PSCAN-G04-02  | NR 0x4B (sprite transparent index) write logged + replayed per scanline        | start_frame; line=80 NR 0x4B ← 0x40                                                               | rows 0..79 use 0xE3 (default); rows 80..end use 0x40                                              | zxnext.vhd:5016,1190       |
+| PSCAN-G04-03  | NR 0x4C (TM transparent nibble) write logged + replayed per scanline           | start_frame; line=120 NR 0x4C ← 0x05                                                              | rows 0..119 use 0xF (default); rows 120..end use 0x05                                             | zxnext.vhd:5018,4395       |
+| PSCAN-G11-01  | NR 0x68 bit 0 (stencil) per-scanline replay                                    | start_frame; line=50 NR 0x68 ← 0x01 (stencil_mode=1)                                              | rows 0..49 see stencil_mode=0; rows 50..end see stencil_mode=1                                    | zxnext.vhd:5445, 7142-7176 |
+| PSCAN-G11-02  | NR 0x68 bits 6:5 (blend mode) per-scanline replay                              | start_frame; line=100 NR 0x68 ← 0x40 (blend mode 10 / mix_rgb=ula_final)                          | rows 0..99 use blend mode 00; rows 100..end use 10 (mix_rgb routing changes)                      | zxnext.vhd:5445, 7142-7176 |
+| PSCAN-G11-03  | NR 0x68 bit 3 (ULA+ gate) per-scanline replay                                  | start_frame; line=80 NR 0x68 ← 0x08 (ulap_en=1)                                                   | rows 0..79 use ULA path; rows 80..end use ULA+ palette path                                       | zxnext.vhd:5445, ulap_en   |
+
 ### Group BLANK — Output blanking
 
 From `zxnext.vhd:7395–7412`:
@@ -571,6 +590,7 @@ else                         rgb_out_o <= (others => '0');
 | BLANK-11 | Horizontal blanking forces 0 | `rgb_blank_n_6=0` | 0 | 7395–7412 |
 | BLANK-12 | Vertical blanking forces 0 | same | 0 | 7395–7412 |
 | BLANK-13 | Fallback colour is NOT shown during blank | `rgb_blank_n_6=0`, NR 0x4A=0xFF | 0 | 7395–7412 |
+| BLANK-G27-01 | `rgb_blank_n_6` lockstep with `rgb_out_6`: a 1-pixel desync at the active-area edge would surface as a single-pixel artefact at hblank entry/exit | drive a known opaque pixel exactly at the active-to-blank transition; sample `rgb_out_o` at the boundary column | edge sample matches `rgb_out_6` (not 0); no one-pixel desync visible | zxnext.vhd:7395-7412 |
 
 ### Group PAL — Palette lookup integration with compositor
 

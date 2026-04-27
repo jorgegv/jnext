@@ -494,6 +494,16 @@ static void test_nr_a2(Emulator& /*emu*/) {
     //   bit-5=0 or bit-1=1 pattern).
     skip("NR-42",
          "NR 0xA2 read missing fixed b5=0/b1=1 pattern (see G113)");
+
+    // NR-43 — G73: distinct from G113 (NR-handler missing). Even with a
+    // future NR 0xA2 handler in place AND a populated I2s source (G29),
+    // Mixer::generate_sample() currently has no path that reads the
+    // pi_i2s_en[L/R] / muteL/R fan-out signals to gate the I2S adder.
+    // VHDL audio_mixer.vhd:50-60 explicitly AND-gates the Pi I2S
+    // contribution by these control bits. End-to-end runtime wiring is
+    // absent — Mixer would always fully sum I2S regardless of NR 0xA2.
+    skip("NR-43",
+         "Mixer never consults Pi-I2S enable/mute gates audio_mixer.vhd:50-60 (see G73)");
 }
 
 // ══════════════════════════════════════════════════════════════════════

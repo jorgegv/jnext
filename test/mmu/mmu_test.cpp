@@ -1578,7 +1578,38 @@ void test_cat11_rom_selection() {
               fmt("ram[12][0]=0x%02X read(0x0000)|en=1,rw=0=0x%02X expected=0x5A/0x5A",
                   in_altram, read_back));
     }
+
+    // ROM-10..12 — G57: three documented gaps in current_rom_bank().
+    // (1) 48K-mode sram_rom3 hardwire path; (2) NR 0x8C altrom factor;
+    // (3) port_1ffd b2 spurious ROM3 in Next mode.
+    skip("ROM-10", "48K-mode sram_rom3 hardwire path untested (see G57)");
+    skip("ROM-11", "NR 0x8C altrom factor in current_rom_bank (see G57)");
+    skip("ROM-12", "port_1ffd b2 spurious ROM3 in Next mode (see G57)");
 }
+
+// ── Cat 21: Nirvana / per-write mux (G12) + Shadow-screen NR (G58) ───
+namespace {
+void test_cat21_nirvana_multiplex() {
+    set_group("G12-MUX");
+
+    // G12-MUX-01..03 — G12: Ram::set_write_observer callback API for
+    // mid-row recolour (Nirvana-class) is not yet implemented. The
+    // observer would carry (addr, val, m1, t) per byte.
+    skip("G12-MUX-01", "Ram::set_write_observer not implemented (see G12)");
+    skip("G12-MUX-02", "per-write callback signature absent (see G12)");
+    skip("G12-MUX-03", "ULA mid-row recolour mux unwired (see G12)");
+}
+
+void test_cat3bis_shadow_screen() {
+    set_group("SHA");
+
+    // SHA-01..03 — G58: broader NR-driven shadow-screen routing rows
+    // beyond the already-LIVE P7F-16/17.
+    skip("SHA-01", "NR 0x69 b6 alias to shadow-screen unwired (see G58)");
+    skip("SHA-02", "shadow read-side bank 7 routing untested (see G58)");
+    skip("SHA-03", "shadow + Timex cross-state discriminative (see G58)");
+}
+} // namespace
 
 // ── Category 12: Alternate ROM (NR 0x8C) ──────────────────────────────
 // VHDL: zxnext.vhd:2247-2265. Branch C.2 adds NR 0x8C register storage
@@ -2472,6 +2503,49 @@ void test_nex_loader() {
          "start_delay frame-count not honoured (see G156)");
     skip("BOOT-NEX-06",
          "loading_bar_colour ignored (see G156)");
+
+    // BOOT-NEX-07 — nex_loader.cpp:177-223 (4 screen-ingest paths
+    // ULA/LoRes/HiRes/HiCol each call write_to_ram(mmu, 10, 0, ...)
+    // for raw bank-5 fill). No bank-5 attribute-leak audit gate.
+    // Cosmetic; documented in BEAST-NEX-INVESTIGATION.md §Verdict.
+    skip("BOOT-NEX-07",
+         "NEX loader bank-5 writes may leak ULA attribute area (see G16)");
+}
+
+// ── Cat 22-26: Tape SAVE / .z80 loader / Snapshot save / DeciLoad / FDC ──
+void test_boot_format_loaders() {
+    set_group("BOOT-FORMATS");
+
+    // Cat 22 — Tape SAVE (G33). No tap_saver/tzx_saver/wav_saver exists;
+    // ROM SAVE-via-EAR/MIC capture pipeline absent.
+    skip("BOOT-TAPESAVE-01", "no tape-save infrastructure (see G33)");
+    skip("BOOT-TAPESAVE-02", "no tape-save infrastructure (see G33)");
+    skip("BOOT-TAPESAVE-03", "no tape-save infrastructure (see G33)");
+
+    // Cat 23 — .z80 loader (G34). No src/core/z80_loader exists.
+    skip("BOOT-Z80-01", "no `.z80` loader exists (see G34)");
+    skip("BOOT-Z80-02", "no `.z80` loader exists (see G34)");
+    skip("BOOT-Z80-03", "no `.z80` loader exists (see G34)");
+    skip("BOOT-Z80-04", "no `.z80` loader exists (see G34)");
+
+    // Cat 24 — Snapshot save (G35). Only sna_saver exists; no UI/CLI
+    // consumer; .szx and .nex savers not implemented.
+    skip("BOOT-SNAPSAVE-01", "sna_saver exists but no UI/CLI consumer (see G35)");
+    skip("BOOT-SNAPSAVE-02", "no `.szx` saver implementation (see G35)");
+    skip("BOOT-SNAPSAVE-03", "no `.nex` saver implementation (see G35)");
+    skip("BOOT-SNAPSAVE-04", "no Save-As dialog wired (see G35)");
+
+    // Cat 25 — Tape DeciLoad / Real-time loading (G36/G37). TZX 0x15
+    // not decoded; WAV real-time pulse-shaping unverified.
+    skip("BOOT-DECI-01", "TZX 0x15 not implemented (see G36)");
+    skip("BOOT-DECI-02", "TZX 0x15 not implemented (see G36)");
+    skip("BOOT-DECI-03", "WAV real-time path unverified (see G37)");
+    skip("BOOT-DECI-04", "WAV real-time path unverified (see G37)");
+
+    // Cat 26 — `.dsk` / +3 FDC (G38). uPD765 unmodelled; P1F-07 = WONT.
+    skip("BOOT-FDC-01", "no uPD765 / no `.dsk` loader; P1F-07=WONT (see G38)");
+    skip("BOOT-FDC-02", "uPD765 unmodelled; P1F-07=WONT (see G38)");
+    skip("BOOT-FDC-03", "FDC unmodelled; P1F-07=WONT (see G38)");
 }
 
 } // namespace
@@ -2504,6 +2578,9 @@ int main() {
     test_boot_rom_overlay();
     test_soundrive_paging_conflict();
     test_nex_loader();
+    test_boot_format_loaders();
+    test_cat21_nirvana_multiplex();
+    test_cat3bis_shadow_screen();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
