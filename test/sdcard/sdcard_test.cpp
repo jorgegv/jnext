@@ -36,6 +36,12 @@ namespace {
 
 int g_pass = 0, g_fail = 0, g_total = 0, g_skip = 0;
 
+struct SkipNote {
+    const char* id;
+    const char* reason;
+};
+std::vector<SkipNote> g_skipped;
+
 void check(const char* id, const char* desc, bool cond,
            const std::string& detail = {}) {
     ++g_total;
@@ -47,6 +53,11 @@ void check(const char* id, const char* desc, bool cond,
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
     }
+}
+
+void skip(const char* id, const char* reason) {
+    ++g_skip;
+    g_skipped.push_back({id, reason});
 }
 
 // Build a temp image of N sectors.  Sector S's first 4 bytes encode S
@@ -341,11 +352,34 @@ int main() {
     test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
 
+    // SD-01 — CRC validation absent. SD spec: card MUST validate CMD0
+    // CRC; CMD59 toggles general CRC. jnext sd_card.cpp:253-283
+    // ignores cmd_buf_[5] (CRC byte); no CMD59 handler. See G159.
+    skip("SD-01",
+         "SD CMD0 CRC + CMD59 toggle absent; cmd_buf_[5] ignored (see G159)");
+
+    // SD-02 — CMD13 response shape (R2 vs R1). Spec: CMD13 returns R2
+    // (2 bytes). jnext sd_card.cpp:280-281 falls into default:, emits
+    // 1 R1 byte; hosts polling .cardinfo hang. See G160.
+    skip("SD-02",
+         "SD CMD13 returns R1 fall-through, not R2 (2 bytes) (see G160)");
+
+    // BOOT-SD-01 / BOOT-SD-02 — VHDL/runtime SD hot-plug (G158 from B10).
+    // SdCardDevice::mount/unmount exist but only the one-time invocation
+    // at src/core/emulator.cpp:2197-2200 is plumbed; no GUI/CLI affordance.
+    skip("BOOT-SD-01", "hot-plug round-trip not exposed at runtime (see G158)");
+    skip("BOOT-SD-02", "unmount mid-transfer untested (see G158)");
+
     sd.unmount();
     std::remove(img.c_str());
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
-                g_total, g_pass, g_fail, g_skip);
+                g_total + g_skip, g_pass, g_fail, g_skip);
+    if (!g_skipped.empty()) {
+        std::printf("\nSkipped rows:\n");
+        for (const auto& s : g_skipped)
+            std::printf("  SKIP %s: %s\n", s.id, s.reason);
+    }
     return g_fail ? 1 : 0;
 }

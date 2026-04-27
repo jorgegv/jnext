@@ -513,6 +513,79 @@ the `-1` (rows here flip to FAIL) or drop the `-1` without the rebase
 (rows here flip to FAIL in a different way). See §Implementation
 coupling.
 
+## Section 7: Production scheduler wiring (G106 / G107 / G109)
+
+### VHDL reference
+
+`zxula_timing.vhd:563-583` defines the per-frame line-interrupt:
+`int_line_num <= c_max_vc when i_int_line=0 else unsigned(i_int_line)-1;`
+pulse on `(hc_ula = 255) and (cvc = int_line_num)`. `cvc` is
+offset-adjusted Copper VC, reloaded from `'0' & i_cu_offset` at
+`zxula_timing.vhd:455-466` (NR 0x64). Per-machine frame-INT position
+comes from `c_int_h`/`c_int_v` per machine (Section 4).
+
+The existing scheduler at `src/core/emulator.cpp:2540-2550` schedules
+`frame_cycle + line_int_value_ * master_cycles_per_line` with **no**
+target-wrap transform and **no** `cu_offset` adjustment. The helper
+`VideoTiming::int_line_num()` exists at `src/video/timing.h:178-186`
+but is never read by the scheduler. The frame-INT scheduler at
+`src/core/emulator.cpp:2523` uses `tstates_per_line * 8` machine-blind,
+ignoring the per-machine `c_int_h`/`c_int_v` exposed by Section 4's
+`VideoTiming::int_position()`.
+
+This Section pins three user-visible bugs from
+`doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`:
+
+- **G106** — line-int fires one full line late; target=0 silently
+  misfires at frame top instead of `c_max_vc` (last line). Reframes
+  G71.
+- **G107** — Pentagon/+3 frame-INT off-position by ≤1 line;
+  T-state-counted demos misalign on non-48K machines.
+- **G109** — NR 0x64 ≠ 0 + line-IRQ raster split misaligned (Copper
+  internal compares are correct; the line-int comparator is not).
+
+### Test cases
+
+| # | Row ID | Test                                                                                           | Expected                                       | Status                |
+|---|--------|------------------------------------------------------------------------------------------------|-----------------------------------------------:|-----------------------|
+| 1 | VT-22  | 48K target=10: line-int fires at `cvc=9, hc_ula=255` (zxula_timing.vhd:563-583)                | Z80 PC at IRQ vector matches T-state for cvc=9 | skip (F-G106-LINEINT) |
+| 2 | VT-23  | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (zxula_timing.vhd:566-570)      | IRQ at end of previous frame, NOT at vc=0      | skip (F-G106-LINEINT) |
+| 3 | VT-24  | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v` (zxula_timing.vhd:187,199)    | T-state matches per-machine int_position()     | skip (F-G107-FRAMEINT)|
+| 4 | VT-25  | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc` (zxula_timing.vhd:577) | IRQ shifted by 5 lines from baseline           | skip (F-G109-CUOFFSET)|
+
+VT-22 and VT-23 are paired — VT-22 pins the off-by-one
+(`target-1` mapping); VT-23 pins the wrap (`target=0 → c_max_vc`).
+Both fail today with the un-transformed `line_int_value_ *
+master_cycles_per_line` arithmetic at
+`src/core/emulator.cpp:2540-2550`.
+
+VT-24 promotes the existing `VideoTiming::int_position()` accessor
+(landed via VT-10..VT-13) into the scheduler hot path. Phase 1 of
+this Section is the production-wiring refactor described in §Coupling
+with VideoTiming production-wiring backlog. It is the narrow,
+user-visible-bug-driven version of the "academic cleanup" deferred
+there — G107 elevates it to High user impact.
+
+VT-25 pins the Copper-offset coupling: the same scheduler that
+consumes `int_line_num()` must read the `cu_offset` Copper register
+(NR 0x64, currently not exposed to `VideoTiming`). Adding a
+`VideoTiming::set_cu_offset(uint16_t)` accessor — and threading the
+NR 0x64 write-handler at `src/core/emulator.cpp` (TBD — currently the
+NR-dispatch table for 0x64 stores raw byte) — is the unblock.
+
+### Skip-reason taxonomy extension
+
+| Reason code        | Semantics                                                                                                  | Rows  |
+|--------------------|------------------------------------------------------------------------------------------------------------|-------|
+| `F-G106-LINEINT`   | Line-int scheduler refactor: target-1 mapping + target=0 wrap + scheduler reads `int_line_num()`.          | VT-22, VT-23 |
+| `F-G107-FRAMEINT`  | Frame-int scheduler reads per-machine `int_position()` instead of machine-blind `tstates_per_line * 8`.    | VT-24 |
+| `F-G109-CUOFFSET`  | Add `set_cu_offset(uint16_t)` to `VideoTiming` + thread NR 0x64 write-handler; line-int compare uses `cvc`.| VT-25 |
+
+All three are class-`F` (real TODO blocked on Emulator change) per
+UNIT-TEST-PLAN-EXECUTION §Skip taxonomy. They share the
+production-wiring refactor described in §Coupling above; landing the
+refactor flips all four rows in a single commit.
+
 ## Implementation coupling — Section 1 ↔ Section 6 (V1 rebase)
 
 > **BLOCKING CALLOUT for future implementers.** Section 1 rows
@@ -624,7 +697,8 @@ them is the production-wiring refactor's job.
 | 4       | Per-machine interrupt position      | 4    |
 | 5       | 60 Hz variant                       | 5    |
 | 6       | Line-interrupt target mapping       | 4    |
-|         | **Total**                           | **22** |
+| 7       | Production scheduler wiring (G106/G107/G109) | 4 |
+|         | **Total**                           | **26** |
 
 Of these 22 rows, **7 are the direct re-homes** from ULA §13+§14
 (VT-04, VT-05, VT-07, VT-10, VT-11, VT-12, VT-14 — mapped from

@@ -62,7 +62,7 @@ struct SkipNote {
     std::string id;
     std::string reason;
 };
-std::vector<SkipNote> g_skipped;  // always empty in this suite — see plan §3
+std::vector<SkipNote> g_skipped;  // populated by skip() for SKIP rows
 
 void set_group(const char* name) { g_group = name; }
 
@@ -79,6 +79,10 @@ void check(const char* id, const char* desc, bool cond,
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
     }
+}
+
+void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
 }
 
 std::string fmt(const char* fmt_str, ...) {
@@ -460,6 +464,14 @@ static void test_ulaplus_integration(Emulator& emu) {
               fmt("off_initial=%d on_via_nr68=%d ulap_mode=0x%02X off_again=%d",
                   off_initial, on_via_nr68, mode_check, off_again));
     }
+
+    // INT-ULAPLUS-03 — port 0xBF3B index write commits to ULA+ palette
+    // window. Encoder is covered by S7.01-S7.06; src/core/emulator.cpp:
+    // 1937-1941 forwards only the top-2 ulap_mode bits to set_ulap_mode
+    // and drops the low-6-bit port_bf3b_ulap_index write that VHDL
+    // zxnext.vhd:4525-4538 latches when port_bf3b_ulap_mode="00". See G103.
+    skip("INT-ULAPLUS-03",
+         "F-G103-RUNTIME: 0xBF3B ulap index latch absent (see G103)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -540,6 +552,15 @@ static void test_ulanext_integration(Emulator& emu) {
                   def_en, def_fmt, en_after, fmt_after,
                   r.pixel, exp_pixel, r.select_bgnd));
     }
+
+    // INT-ULANEXT-02 — runtime renderer integration. Encoder is unit-tested
+    // by S6.01-S6.12 in ula_test.cpp; render_display_line/_hicolour/_hires
+    // at src/video/ula.cpp:386-423 never invoke compute_ulanext_pixel and
+    // kUlaPalette is 16-entry. VHDL zxula.vhd:485-528 + zxnext.vhd:6981
+    // require an 8-bit ula_pixel routed through a 256-entry x 2-bank
+    // palette store. See G102.
+    skip("INT-ULANEXT-02",
+         "F-G102-RUNTIME: ULAnext renderer integration absent (see G102)");
 }
 
 // ══════════════════════════════════════════════════════════════════════

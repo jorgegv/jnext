@@ -345,6 +345,32 @@ static void section6_line_int_target() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 7 — Production scheduler wiring (G106 / G107 / G109)
+// VHDL: zxula_timing.vhd:455-466, :548-557, :563-583
+// Skip reason codes:
+//   F-G106-LINEINT   — line-int scheduler off-by-one + target=0 wrap
+//   F-G107-FRAMEINT  — frame-int scheduler ignores per-machine c_int_*
+//   F-G109-CUOFFSET  — line-int compare ignores NR 0x64 cu_offset
+// All three blocked on the production-wiring refactor described in
+// §Coupling with VideoTiming production-wiring backlog (plan line
+// 579-615). See doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md
+// G106 / G107 / G109.
+// ══════════════════════════════════════════════════════════════════════
+
+static void section7_scheduler_wiring() {
+    set_group("VT-S7-SCHEDULER-WIRING");
+
+    skip("VT-22",
+         "F-G106-LINEINT: line-int target=10 -> cvc=9 not wired (see G106)");
+    skip("VT-23",
+         "F-G106-LINEINT: line-int target=0 -> c_max_vc wrap (see G106)");
+    skip("VT-24",
+         "F-G107-FRAMEINT: frame-int ignores per-machine c_int (see G107)");
+    skip("VT-25",
+         "F-G109-CUOFFSET: NR 0x64 cu_offset not in line-int (see G109)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -372,6 +398,9 @@ int main() {
 
     section6_line_int_target();
     std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 live)\n");
+
+    section7_scheduler_wiring();
+    std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — 4 skipped\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

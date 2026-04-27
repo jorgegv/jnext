@@ -1505,6 +1505,22 @@ static void test_group8_i2c() {
               (scl & 0x01) == 1 && (sda & 0x01) == 1,
               fmt("scl=0x%02x sda=0x%02x", scl, sda));
     }
+
+    // I2C-13 — NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 GPIO mux.
+    // VHDL zxnext.vhd:2280: pi_i2c1_en <= nr_a0_pi_peripheral_en(3);
+    // zxnext.vhd:2309-2318: GPIO 2/3 driven from i2c1_scl/sda only
+    // when pi_i2c1_en='1'. Reset NR 0xA0=0x00, so I2C1 inputs into
+    // wired-AND should be released. jnext i2c.cpp:171-185 has the
+    // wired-AND with no NR 0xA0 wiring. See G138.
+    skip("I2C-13",
+         "NR 0xA0 bit3 pi_i2c1_en gate on GPIO 2/3 mux absent (see G138)");
+
+    // I2C-14 — 24LC256 EEPROM at 0x50 (write address byte 0xA0).
+    // tbblue attaches a DS1307 (0x68) AND 24LC256 EEPROM (0x50) for
+    // config persistence. jnext i2c.cpp registers only I2cRtc; no
+    // EEPROM device class → tbblue firmware reads see NACK. G139.
+    skip("I2C-14",
+         "I2C 24LC256 EEPROM (0x50) device class missing (see G139)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1960,6 +1976,14 @@ static void test_group10_rtc() {
               ok,
               mismatch);
     }
+
+    // RTC-18 — 12h-mode hours snapshot overwrites bit 6 / AM-PM.
+    // DS1307 hours register: bit 6 = 1 → 12h BCD bits 4:0 + AM/PM
+    // bit 5; bit 6 = 0 → 24h BCD bits 5:0. jnext i2c.cpp:111 writes
+    // regs_[2] = to_bcd(t->tm_hour) unconditionally → every start()
+    // snapshot flips back to 24h. See G161.
+    skip("RTC-18",
+         "RTC 12h snapshot overwrites bit6/AM-PM at i2c.cpp:111 (see G161)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1994,6 +2018,30 @@ static void test_group11_interrupts() {
     //   on UART 0 tx_empty with NR 0xC6 bit 2 set.
     // RE-HOME: see test/uart/uart_integration_test.cpp INT-06 — vector 13
     //   on UART 1 tx_empty with NR 0xC6 bit 6 set.
+
+    // INT-07 — UART RX request-mask asymmetry not modelled.
+    // VHDL zxnext.vhd:1941-1944: vector-1 shape is
+    //   uart0_rx_near_full OR (uart0_rx_avail AND NOT nr_c6_int_en_2_0(1))
+    // bit-1-only (near-full) must NOT fire on every rx_avail. jnext
+    // uart.cpp:626-630 fires per byte; im2.cpp:383-392 ANDs enable
+    // only, not request shape. See G134.
+    skip("INT-07",
+         "RX req-mask asymmetry: bit1-only must mask per-byte avail (see G134)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Group 13: NR 0xA0 Pi peripheral enable (G135)
+// VHDL: zxnext.vhd:1241, 2278-2281, 5080
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_group13_nr_a0() {
+    set_group("NR-A0");
+    // NR-40 — zxnext.vhd:5564: nr_a2_pi_i2s_ctl <= nr_wr_dat on NR 0xA2.
+    skip("NR_A0-01",
+         "NR 0xA0 reset default 0x00 unhonoured; no handler (see G135)");
+    // NR_A0-02 — zxnext.vhd:2278-2281 pi_uart_en gates UART1 routing.
+    skip("NR_A0-02",
+         "NR 0xA0 bit4 pi_uart_en route gating absent (see G135)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2041,6 +2089,7 @@ int main() {
     test_group10_rtc();         std::printf("  Group RTC   done\n");
     test_group11_interrupts();  std::printf("  Group INT   done\n");
     test_group12_gating();      std::printf("  Group GATE  done\n");
+    test_group13_nr_a0();       std::printf("  Group NR-A0 done\n");
 
     std::printf("\n===============================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

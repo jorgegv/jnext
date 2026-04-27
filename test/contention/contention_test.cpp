@@ -1155,6 +1155,14 @@ static void test_pent_turbo() {
               + " pre=" + std::to_string(gate_on_after_pre_edge)
               + " post=" + std::to_string(gate_off_after_post_edge));
     }
+
+    // CT-TURBO-07 — VHDL zxnext.vhd:5796-5828 — cpu_speed assignment
+    // deferred until bus-idle (mreq_n & iorq_n & m1_n & not
+    // dma_holds_bus). jnext src/core/emulator.cpp:322-326 commits NR
+    // 0x07 synchronously to clock_ + contention_. Distinct from
+    // CT-TURBO-06 which exercises the NR 0x08 hc(8) commit edge. (G142)
+    skip("CT-TURBO-07", "NR 0x07 bus-idle commit edge",
+         "synchronous commit; bus-idle deferral not modelled (see G142)");
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1427,6 +1435,29 @@ static void test_integration_smoke() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// §16: FUSE in-opcode contention (M1 fetch + no-MREQ tail + IN/OUT port)
+// VHDL: zxula.vhd:583,595,600 — wait_s fires every contended cycle
+// (M1, no-MREQ, data, port). FUSE injects per-cycle contention via
+// contend_read/_no_mreq/_write_no_mreq macros at
+// third_party/fuse-z80/z80_macros.h:109-122. jnext zero-fills both at
+// src/cpu/z80_cpu.cpp:484-508 so the inner-macro path is inert.
+// (G141)
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_fuse_inopcode_contention() {
+    set_group("CT-FUSE");
+
+    skip("CT-FUSE-01", "M1 fetch contention",
+         "FUSE memory_map_read[].contended zero-filled (see G141)");
+    skip("CT-FUSE-02", "no-MREQ tail contention",
+         "FUSE no-MREQ macros inert; ula_contention[] zero (see G141)");
+    skip("CT-FUSE-03", "OUT port contention",
+         "FUSE port-write contention path inert (see G141)");
+    skip("CT-FUSE-04", "IN port contention",
+         "FUSE port-read contention path inert (see G141)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1468,6 +1499,9 @@ int main() {
 
     test_integration_smoke();
     std::printf("  Group: CT-INT         — done\n");
+
+    test_fuse_inopcode_contention();
+    std::printf("  Group: CT-FUSE        — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

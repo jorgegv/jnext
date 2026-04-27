@@ -173,18 +173,20 @@ im2_dma_delay <= im2_dma_int OR
 
 ## Test Case Catalogue
 
-Row counts below sum to **49** across 11 groups. Each row carries a
-short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
+Row counts below sum to **58** across 12 groups (plus 2 parked MF rows).
+Each row carries a short VHDL cite. Row IDs follow the naming pattern
+`GROUP-NN`.
 
-### Group RST — Reset defaults (3 rows)
+### Group RST — Reset defaults (4 rows)
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
 | RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
 | RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
 | RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
+| RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. skip — `nmi_source.nr_02_read()` returns bits 3/2 only (see G153) |
 
-### Group NR02 — NR 0x02 software NMI (Wave A) (6 rows)
+### Group NR02 — NR 0x02 software NMI (Wave A) (8 rows)
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
@@ -194,8 +196,16 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 | NR02-04 | NR 0x02 readback bit layout | zxnext.vhd:5891 | write 0x0C; read NR 0x02; expect bits 3/2 = 1/1 pre-END |
 | NR02-05 | NR 0x02 readback bits 3/2 auto-clear on FSM `S_NMI_END` | zxnext.vhd:5891, 2149-2162 | drive FSM through END; read NR 0x02; expect bits 3/2 = 0 |
 | NR02-06 | Copper MOVE to NR 0x02 reaches same request latches | zxnext.vhd:3830-3872, copper.cpp:148 | strobe NmiSource via Emulator::write_nextreg(0x02, 0x04); observe `divmmc_pending` |
+| NR02-07 | Soft-reset rising edge advances reset_type via `'0' & rt(2) & (rt(1) OR rt(0))` | zxnext.vhd:1732-1739 | strobe soft-reset edge; observe reset_type FSM advance. skip — reset_type permanently 0 today (see G153) |
+| NR02-08 | NR 0x02 readback bits 1:0 reflect reset_type[1:0]; auto-clear independent of bits 3/2 | zxnext.vhd:5891 | drive FSM through reset cycle; read NR 0x02; check bits 1:0 layout. skip — readback layout missing (see G153) |
 
-### Group HK — Hotkey producers (Wave B) (5 rows)
+### Group HK — Hotkey producers (Wave B) (9 rows)
+
+HK-06..09 own F1/F4/F9/F10 NMI/reset dispatch only; F2/F3/F5/F6/F7/F8
+cpu-speed/50-60/scandouble dispatch lives in B8 (G147 / G132) — do not
+duplicate rows here. Test injectors at `emulator.h:328-329` exist;
+missing piece is `gui/main_window.cpp` translating SDL F-keys to those
+calls.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
@@ -204,6 +214,10 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 | HK-03 | NR 0x06 bit 3 = 0 blocks MF producer | zxnext.vhd:1109, 2089 | set NR 0x06 bit 3 = 0; strobe MF button; expect no FSM advance |
 | HK-04 | NR 0x06 bit 4 = 0 blocks DivMMC producer | zxnext.vhd:1110, 2090 | set NR 0x06 bit 4 = 0; strobe DivMMC button; expect no FSM advance |
 | HK-05 | Simultaneous MF + DivMMC button press → MF wins | zxnext.vhd:2097-2105 | strobe both; observe `accept_cause = MF` |
+| HK-06 | Host F9 keystroke → NmiSource MF latch via host-key dispatch | zxnext.vhd:6340-6349, 2089 | press host F9; observe `nmi_mf` latch set. skip — gui/main_window.cpp:94-105 SDL only (see G152) |
+| HK-07 | Host F10 keystroke → NmiSource DivMMC latch via host-key dispatch | zxnext.vhd:6349, 2090 | press host F10; observe `nmi_divmmc` latch set. skip — gui/main_window.cpp:94-105 SDL only (see G152) |
+| HK-08 | Host F4 keystroke → soft-reset edge to NmiSource reset_type FSM | zxnext.vhd:6370-6371, 2090-2091 | press host F4; observe soft-reset rising edge. skip — pairs with G153 (see G152) |
+| HK-09 | Host F1 keystroke → hard-reset path (full Emulator reset) | zxnext.vhd:6340 | press host F1; observe full Emulator reset. skip — no GUI consumer today (see G152) |
 
 ### Group DIS — DivMMC consumer (Wave B) (4 rows)
 
@@ -256,6 +270,12 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 | ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | strobe both; `nmi_divmmc` = 1, `nmi_expbus` = 0 |
 | ARB-04 | `mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | set stub; strobe DivMMC; `nmi_divmmc` = 0 |
 
+<!-- MF rows parked here pending future MULTIFACE-TEST-PLAN-DESIGN.md. -->
+<!-- Prefix `MF-Gxx-NN` makes them easy to migrate later.              -->
+
+| MF-G162-01 | `NmiSource::strobe_iotrap()` propagates to MF assert path (`nmi_sw_gen_mf <= … OR nmi_gen_iotrap`) | zxnext.vhd:3835-3837 | strobe iotrap; observe MF latch set. skip — `nmi_source.cpp:124-127, 384` consumes-and-discards (see G162) |
+| MF-G162-02 | Port 0x2FFD / 0x3FFD trap-decode handler invokes `strobe_iotrap()` | zxnext.vhd:3835-3837 | OUT to 0x2FFD/0x3FFD; observe iotrap strobe. skip — no port handler today (see G162; pairs with G55 expansion) |
+
 ### Group EXPBUS — ExpBus pin (Wave C — stubbed default inactive) (3 rows)
 
 | ID | Description | VHDL cite | Stimulus summary |
@@ -272,21 +292,22 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 | DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
 | DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
 
-### Group Z80 — Z80 drive + integration (Wave A/B) (3 rows)
+### Group Z80 — Z80 drive + integration (Wave A/B) (4 rows)
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
 | Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi()` | zxnext.vhd:1841, 2164-2170 | strobe producer; observe Z80 request_nmi counter flips |
 | Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138, Z80 standard behaviour | strobe producer; step Z80; expect PC = 0x0066 on fetch |
 | Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120, 2149 | drive FSM mid-handler; reset; expect IDLE + Z80 NMI line released |
+| Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085, 6232-6236 | strobe NMI; observe NR 0xC2/0xC3 = pre-NMI PC. skip — cross-link to CTC plan rows NR-C2-01/NR-C3-01 (primary owner); see G88 |
 
 ### Row count summary
 
 | Group | Rows |
 |---|---:|
-| RST | 3 |
-| NR02 | 6 |
-| HK | 5 |
+| RST | 4 |
+| NR02 | 8 |
+| HK | 9 |
 | DIS | 4 |
 | CLR | 4 |
 | GATE | 8 |
@@ -294,8 +315,9 @@ short VHDL cite. Row IDs follow the naming pattern `GROUP-NN`.
 | ARB | 4 |
 | EXPBUS | 3 |
 | DMA | 3 |
-| Z80 | 3 |
-| **Total** | **49** |
+| Z80 | 4 |
+| MF (G162 parked) | 2 |
+| **Total** | **59** |
 
 ## Re-homed rows
 
@@ -359,9 +381,9 @@ bash test/regression.sh
 
 | Group | Tests | Coverage |
 |-------|------:|----------|
-| RST — Reset defaults | 3 | FSM + latch + gate power-on state |
-| NR02 — NR 0x02 software NMI | 6 | Wave A routing, readback, auto-clear |
-| HK — Hotkey producers | 5 | Wave B edge capture + NR 0x06 gating |
+| RST — Reset defaults | 4 | FSM + latch + gate power-on state (+G153 RST-04) |
+| NR02 — NR 0x02 software NMI | 8 | Wave A routing, readback, auto-clear (+G153 NR02-07/08) |
+| HK — Hotkey producers | 9 | Wave B edge capture + NR 0x06 gating (+G152 HK-06..09) |
 | DIS — DivMMC consumer | 4 | Wave B set_button_nmi + is_nmi_hold |
 | CLR — DivMMC clear paths | 4 | Reset / automap_reset / RETN / automap_held |
 | GATE — Gate registers | 8 | NR 0x06, NR 0x81, port 0xE3, config_mode |
@@ -369,5 +391,11 @@ bash test/regression.sh
 | ARB — Priority arbitration | 4 | MF > DivMMC > ExpBus + mf_is_active |
 | EXPBUS — ExpBus pin | 3 | Stubbed default inactive + debounce-disable |
 | DMA — NMI-activated → im2_dma_delay | 3 | Wave E wiring + NR 0xCC bit 7 gate |
-| Z80 — Z80 drive + integration | 3 | request_nmi, PC=0x0066, reset-clear |
-| **Total** | **49** | |
+| Z80 — Z80 drive + integration | 4 | request_nmi, PC=0x0066, reset-clear (+G88 Z80-04 cross-link) |
+| MF — G162 parked rows | 2 | iotrap → MF assert; port 0x2FFD/3FFD trap-decode |
+| **Total** | **59** | |
+
+> **Note: NMI plan additions 2026-04-27** — RST-04, NR02-07/08, HK-06..09,
+> Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162
+> plumbing gaps; skip-stubbed pending implementation. MF-G162-NN rows
+> park here until `MULTIFACE-TEST-PLAN-DESIGN.md` exists.

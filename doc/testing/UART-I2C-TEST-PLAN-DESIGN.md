@@ -333,6 +333,8 @@ Write values are latched on the **rising edge** of i_CLK_28.
 | I2C-10 | I2C port enable gated by internal_port_enable(10) | When disabled, I2C ports do not respond |
 | I2C-11 | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0 | External Pi I2C can pull SCL low |
 | I2C-12 | Reset releases both lines | After reset, both outputs = 1 |
+| I2C-13 | NR 0xA0 bit 3 (`pi_i2c1_en`) gates GPIO 2/3 → I2C1 wired-AND mux | Reset default 0x00: pi_i2c1_scl/sda inputs must be ignored (mux opens). VHDL `zxnext.vhd:2280, 2309-2318`. skip — `i2c.cpp:171-185` has the wired-AND but no NR 0xA0 gate (see G138) |
+| I2C-14 | EEPROM at 0x50 (write addr 0xA0): device ACKs | TBBlue board attaches a 24LC256 alongside the DS1307. jnext `i2c.cpp` registers only `I2cRtc`; address 0xA0 NACKs. skip — EEPROM device class missing (see G139) |
 
 ### Group 9: I2C Protocol Sequences (software-level)
 
@@ -373,6 +375,7 @@ transactions targeting the DS1307.
 | RTC-15 | Sequential write: auto-increment register pointer | Writing multiple bytes advances register pointer |
 | RTC-16 | Clock halt bit (seconds register bit 7) | CH=1 stops oscillator; CH=0 resumes |
 | RTC-17 | NVRAM registers 0x08-0x3F (56 bytes) | Read/write general-purpose SRAM |
+| RTC-18 | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 | DS1307 12h mode (`regs_[2]` bit 6 = 1) requires AM/PM bit 5; jnext `i2c.cpp:111` writes `regs_[2] = to_bcd(t->tm_hour)` unconditionally on every snapshot, silently flipping the register back to 24h encoding. skip — 12h preservation missing (see G161) |
 
 ### Group 11: UART IM2 Interrupt Integration
 
@@ -395,6 +398,7 @@ channel enabled. Note: `im2_int_unq` (NR 0x20 manual-assert,
 | INT-04 | Vector 2 on UART 1 `rx_near_full` (NR 0xC6 bit 5 set) | IM2 vector 2 fires via near-full OR |
 | INT-05 | Vector 12 on UART 0 `tx_empty` (NR 0xC6 bit 2 set) | IM2 vector 12 fires |
 | INT-06 | Vector 13 on UART 1 `tx_empty` (NR 0xC6 bit 6 set) | IM2 vector 13 fires |
+| INT-07 | Asymmetric vector-1 enable: NR 0xC6 bit 1=1, bit 0=0 (near-full only) on UART 0 RX | Vector 1 fires on `uart0_rx_near_full`, NOT on `uart0_rx_avail`. VHDL `zxnext.vhd:1941-1944`: `uart0_rx_near_full or (uart0_rx_avail and not nr_c6_int_en_2_0(1))`. skip — jnext fires on every byte; `uart.cpp:626-630` lacks request-shape mask (see G134) |
 
 ### Group 12: Port Enable Gating
 
@@ -403,6 +407,20 @@ channel enabled. Note: `im2_int_unq` (NR 0x20 manual-assert,
 | GATE-01 | UART port enable (internal_port_enable bit 12) | When disabled, UART ports do not decode |
 | GATE-02 | I2C port enable (internal_port_enable bit 10) | When disabled, I2C ports do not decode |
 | GATE-03 | Enable controlled by NextREG 0x82-0x85 | Writing 0 to appropriate bit disables port |
+
+### Group 13: NR 0xA0 Pi Peripheral Enable
+
+VHDL `zxnext.vhd:1241, 2278-2281, 5080`: NR 0xA0 gates Raspberry Pi
+GPIO routing onto UART1 / I2C1 / SPI0. Reset 0x00 → all off. Bits:
+`[5]` `pi_uart_rxtx`, `[4]` `pi_uart_en`, `[3]` `pi_i2c1_en`. jnext
+has no handler; UART1/I2C1 routing always on. SPI fan-out dormant
+(no Pi SPI device); cross-link I2C bit 3 → Group 8 (I2C-13).
+
+| ID       | Test                                             | Expected                                                   |
+|----------|--------------------------------------------------|------------------------------------------------------------|
+| NR_A0-01 | Reset default NR 0xA0 reads 0x00                 | All routes off (`zxnext.vhd:1241`). skip — no handler (see G135) |
+| NR_A0-02 | Write NR 0xA0 = 0x10 (bit 4): `pi_uart_en` asserted | UART1 RX/TX exposed to Pi GPIO. skip — fan-out missing (see G135) |
+| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 | `pi_uart_en` gates egress (`zxnext.vhd:2278-2281`). skip — integration tier; Pi-GPIO mux + NR 0xA0 handler missing (see G135) |
 
 ## Special Handling
 
@@ -554,9 +572,10 @@ bash test/regression.sh
 | RX FIFO and Reception | 15 | FIFO capacity, errors, noise rejection, flow control |
 | Status Register Clearing | 6 | Sticky flags, clear-on-read, independence |
 | Dual UART Independence | 6 | Separate FIFOs, config, status, routing |
-| I2C Bit-Bang | 12 | Port I/O, enable gating, reset, pin AND-logic |
+| I2C Bit-Bang | 14 | Port I/O, enable gating, reset, pin AND-logic (+G138/G139) |
 | I2C Protocol Sequences | 6 | START/STOP, byte send/receive, ACK/NACK |
-| DS1307 RTC | 17 | Address, registers, BCD time, NVRAM, auto-increment |
-| IM2 Interrupt Integration | 6 | RX/TX interrupt sources, enable control |
+| DS1307 RTC | 18 | Address, registers, BCD time, NVRAM, auto-increment (+G161) |
+| IM2 Interrupt Integration | 7 | RX/TX interrupt sources, enable control (+G134) |
 | Port Enable Gating | 3 | NextREG 0x82-0x85 port disable |
-| **Total** | **~105** | |
+| NR 0xA0 Pi Peripheral Enable | 3 | UART1/I2C1 Pi GPIO routing (G135) |
+| **Total** | **~112** | |

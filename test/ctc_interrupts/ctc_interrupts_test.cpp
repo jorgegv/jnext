@@ -444,6 +444,79 @@ static void test_legacy_status_reads(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section IM2-Decoder-Gaps — known-gap rows (G87 / G88 / G89 / G90)
+// All F-skips: real TODO blocked by emulator gap.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_im2_decoder_gaps() {
+    set_group("IM2-Decoder-Gaps");
+
+    // IM2C-G87-01 — VHDL device/im2_control.vhd:158-209
+    // RETI = ED 4D. VHDL ifetch_fe_t3 fires per M1-fetched byte
+    // including the ED-prefix 2nd byte. jnext Z80Cpu::on_m1_cycle
+    // (z80_cpu.cpp:388,418) fires once per execute() with the FIRST
+    // byte; Im2Controller::advance_decoder (im2.cpp:531-595) thus
+    // never sees ED 4D and o_reti_seen never pulses.
+    skip("IM2C-G87-01",
+         "im2_control.vhd:158-209 ED-2nd-byte unseen by Z80Cpu::on_m1_cycle (see G87)");
+
+    // IM2C-G87-02 — VHDL device/im2_control.vhd:233-238
+    // RETN = ED 45. Same broken path — decoder enters S_ED_T4 on
+    // ED but the next on_m1_cycle carries the FIRST byte of the
+    // following instruction, not 0x45. o_retn_seen never pulses.
+    skip("IM2C-G87-02",
+         "im2_control.vhd:233-238 RETN follows same broken decoder path (see G87)");
+
+    // NR-C2-01 — VHDL zxnext.vhd:2050-2085, 6232-6236
+    // VHDL latches nr_c2_retn_address_lsb on Z80N_command_s = NMIACK_LSB
+    // AND cpu_wr_n='0', regardless of stackless mode. jnext: no NR 0xC2
+    // read handler; NextReg::read falls back to regs_[0xC2] (raw byte
+    // last written, defaults 0xFF). fuse_z80_nmi() pushes PC but does
+    // not write the shadow.
+    skip("NR-C2-01",
+         "zxnext.vhd:2050-2085 NR 0xC2 PC-LSB capture not wired (see G88)");
+
+    // NR-C3-01 — VHDL zxnext.vhd:2050-2085, 6232-6236
+    // Same path for NR 0xC3 (PC MSB). User impact: NMI inspector
+    // tooling reads 0xFF instead of last-NMI PC.
+    skip("NR-C3-01",
+         "zxnext.vhd:2050-2085 NR 0xC3 PC-MSB capture not wired (see G88)");
+
+    // PULSE-G89-01 — VHDL cpu/t80n_mcode.vhd:2098-2138 (LDIRX)
+    // VHDL re-decodes opcode each iteration via I_BT, sampling
+    // INT/NMI on the inter-iteration M1 boundary. jnext z80n_ext.cpp:
+    // 352-427 runs each repeat as a closed C for-loop with no
+    // INT/NMI sample between iterations. 65536-iteration LDIRX is
+    // ~244 ms — IM2-driven music drivers running LDIRX miss frame INT.
+    skip("PULSE-G89-01",
+         "t80n_mcode.vhd:2098-2138 LDIRX no inter-iter INT sample (see G89)");
+
+    // PULSE-G89-02 — VHDL cpu/t80n_mcode.vhd:1953-1991 (LDDRX)
+    // Same closed-loop body in z80n_ext.cpp.
+    skip("PULSE-G89-02",
+         "t80n_mcode.vhd:1953-1991 LDDRX no inter-iter INT sample (see G89)");
+
+    // PULSE-G89-03 — VHDL cpu/t80n_mcode.vhd:2188-2226 (LDPIRX)
+    // Same closed-loop body — distinct stride semantics, INT path
+    // remains uninstrumented.
+    skip("PULSE-G89-03",
+         "t80n_mcode.vhd:2188-2226 LDPIRX no inter-iter INT sample (see G89)");
+
+    // PULSE-G89-04 — VHDL cpu/t80n_mcode.vhd LDIRSCALE (mirrors LDIRX)
+    // Same closed-loop body in z80n_ext.cpp:409+.
+    skip("PULSE-G89-04",
+         "t80n_mcode.vhd LDIRSCALE no inter-iter INT sample (see G89)");
+
+    // PULSE-G90-01 — VHDL zxnext.vhd:3171-3181 cpu_speed="11" drives
+    // sram_wait_n<='0' on every SRAM read. jnext: no sram_wait
+    // references; ContentionModel gated off at 28 MHz per zxnext.vhd:
+    // 4481. Turbo timing 7% fast on read-heavy code; cross-bucket dup
+    // with NEW-CONT-3 (contention plan owns SRAM-cycle side).
+    skip("PULSE-G90-01",
+         "zxnext.vhd:3171-3181 28 MHz SRAM-read wait state unmodelled (see G90)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -465,6 +538,9 @@ int main() {
 
     test_legacy_status_reads(emu);
     std::printf("  Group: Legacy-Status — done\n");
+
+    test_im2_decoder_gaps();
+    std::printf("  Group: IM2-Decoder-Gaps — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

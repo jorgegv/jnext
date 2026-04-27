@@ -412,6 +412,8 @@ identity.
 | G6-07 | Fallback 0xE3 visible when every layer transparent | reset, all layers disabled, NR 0x4A=0xE3 | screenshot | uniform 0xE3 | zxnext.vhd:5014, 6823 |
 | G6-08 | Fallback colour follows NR 0x4A write | reset, all layers disabled, write NR 0x4A=0x1C | screenshot | uniform 0x1C | zxnext.vhd:5407 |
 | G6-09 | Priority bit gated by transparency | NR 0x15[4:2]=000, palette[0x80] has priority bit 9=1 and top-8 RGB = 0xE3 (transparent) | place 0x80 pixel over a sprite | sprite shows (priority ignored, zxnext.vhd:7123) | zxnext.vhd:7121-7123 |
+| G6-10 | NR 0x44 second-write captures palette priority into bit 9 | NR 0x44 stream selecting palette idx N, second byte = 0xC0 (bits 7:6 = 11) | palette word for idx N has priority bit set (skip — see G91) | zxnext.vhd:4920 |
+| G6-11 | Renderer populates `layer2_priority_[]` from palette priority slot | L2 enabled, palette idx N has priority=1 + opaque RGB; sprite opaque underneath | renderer's `layer2_priority_[x]` is `true` at the L2-pixel column (skip — see G91) | zxnext.vhd:7039-7050 |
 
 ### Group 7 — Bank selection and port 0x123B mapping
 
@@ -439,6 +441,9 @@ always sources from NR 0x12 regardless of the `shadow` flag.
 | G7-14 | Port 0x123B segment=11 ⇒ A15:A14 selects page | port 0x123B ← 0xC1 (segment=11, wr_en) | write to 0x0000 and 0xC000 | 0x0000 → page offset 0, 0xC000 → page offset 3 | zxnext.vhd:2966 |
 | G7-15 | Port 0x123B bit 4 (offset latch) | port 0x123B ← 0x11 (bit4=1, bits2:0=001) | write to 0x4000 segment | `port_123b_layer2_offset = "001"`, subsequent writes shifted one 16K page | zxnext.vhd:3922, 2967 |
 | G7-16 | Port 0x123B read-back formatting | port 0x123B ← 0xC9 | IN A,(0x123B) | bit layout `segment=11, bits 5:4 = 00, shadow=1, rd_en=0, en=0, wr_en=1` → `0xC9` (note bit 4 always reads 0) | zxnext.vhd:3933 |
+| G7-17 | port 0x123B write with bit 4 = 1 latches offset, leaves enable/wr_en/rd_en/segment unchanged | reset, port 0x123B ← 0x12 (bit 4 = 1, bits 2:0 = 010), then read-back | `port_123b_layer2_offset = "010"`; `enable`, `wr_en`, `rd_en`, `map_shadow` all unchanged from prior values (skip — see G92) | zxnext.vhd:3914-3923 |
+| G7-18 | port 0x123B bit 3 = 1 routes CPU writes/reads to `nr_13_layer2_shadow_bank` | NR 0x12 = 0x08, NR 0x13 = 0x0B, port 0x123B ← 0x09 (bit 0 = 1, bit 3 = 1), write marker byte at segment-0 offset; toggle bit 3 = 0 and bit 2 = 1 to read | first read returns shadow-bank marker; write landed in NR 0x13 page (0x0B), not NR 0x12 page (0x08) (skip — see G144) | zxnext.vhd:2968 |
+| G7-19 | port 0x123B read returns the formatted control word, not PortDispatch default 0xFF | reset; port 0x123B ← 0x49 (bit 0 = 1, bit 3 = 1, bits 7:6 = 01); IN A,(0x123B) | read returns `0x49` (matches written control word per G7-16 formatter); NOT `0xFF` (skip — see G145) | zxnext.vhd:3933, emulator.cpp:1178 |
 
 ### Group 8 — Layer priority interactions at the Layer 2 boundary
 

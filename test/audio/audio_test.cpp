@@ -1801,6 +1801,26 @@ static void g_ts_enable() {
                   "VHDL turbosound.vhd:307",
                   L_all, L_no2, L_all - L_no2));
     }
+
+    // TS-60 — turbosound.vhd:118-138: synchronous reset block clears
+    //   ay_select <= "11"; psg{0,1,2}_pan <= "11";
+    // and nothing else. enabled / stereo_mode / mono_mode are external
+    // ports (turbosound_en_i, stereo_mode_i, mono_mode_i) supplied by
+    // NR 0x08 / NR 0x09. jnext TurboSound::reset() (src/audio/turbosound.cpp:10-20)
+    // zeroes all five fields, so any reset path drops the NR-driven
+    // settings.
+    // Reserved range: TS-35..59 left unused for future expansion.
+    skip("TS-60",
+         "TurboSound::reset() over-clears NR-driven enabled/stereo/mono (see G115)");
+
+    // TS-61 — zxnext.vhd: NR 0x06 psg_mode=11 path calls
+    //   turbosound_.reset() unconditionally, so it loses NR 0x08 b1
+    //   (turbosound_en), b5 (ABC/ACB), and the NR 0x09 mono triplet —
+    //   exactly the fields TS-60 says reset must preserve. Fix:
+    //   split TurboSound::reset() into a full reset (used at power-on)
+    //   and an ay-only reset (used by audio_ay_reset).
+    skip("TS-61",
+         "psg_mode=11 toggle wipes NR 0x08 b1/b5 + NR 0x09 mono via reset() (see G115)");
 }
 
 static void g_ts_panning() {

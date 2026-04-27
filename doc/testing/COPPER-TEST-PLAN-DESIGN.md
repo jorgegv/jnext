@@ -333,6 +333,8 @@ decide pass/fail; "VHDL" cites the authoritative lines.
 | RAM-AI-03| Full RAM fill                         | `nr_copper_addr=0`, mode=`00`| 2048 `NR 0x60` writes, byte `i & 0xFF`                              | `nr_copper_addr=0x000` (wrapped back); instr[1023]=0xFEFF.                                                      | `zxnext.vhd:5424, 3977, 3998` |
 | RAM-MIX-01| `nr_copper_write_8` latch across 0x60/0x63 mix | fresh reset: `nr_copper_write_8=0`, `nr_copper_addr=0`, `nr_copper_data_stored=0x00`, mode=`00` | Write `NR 0x63 <= 0xA1`; `NR 0x63 <= 0xB2`; `NR 0x60 <= 0xC3`; `NR 0x63 <= 0xD4` | 1) 0x63<=0xA1: `write_8` stays `0`, `addr(0)=0` → `data_stored<=0xA1`, no RAM write, `addr=1`. 2) 0x63<=0xB2: `write_8=0`, `addr(0)=1` → `msb_we=1` (16-bit path), `lsb_we=1`; `copper_msb_dat=data_stored=0xA1`; `MSB RAM[0]=0xA1`, `LSB RAM[0]=0xB2`; `data_stored` unchanged (0xA1); `addr=2`. Instr[0]=`0xA1B2`. 3) 0x60<=0xC3: sets `nr_copper_write_8<='1'` (line 4885, latched); `addr(0)=0` → `data_stored<=0xC3`; `msb_we=(1 AND 0)=1`, `copper_msb_dat=nr_wr_dat=0xC3`; `MSB RAM[1]=0xC3`; `lsb_we=0`; `addr=3`. 4) 0x63<=0xD4: `write_8` **stays `1`** (0x63 case at line 4887 does **not** clear it — only reset does; lines 5423/5439 that would have cleared it are commented out); `addr(0)=1` → line 5434 `addr(0)=0` condition false, `data_stored` unchanged (0xC3); `msb_we=(1 AND 1)=0 OR (0 AND 1)=0 → 0`; `lsb_we=1`; `LSB RAM[1]=0xD4`; `addr=4`. Final: Instr[0]=`0xA1B2`, Instr[1]=`0xC3D4`, `nr_copper_addr=4`, `nr_copper_data_stored=0xC3`, `nr_copper_write_8=1`. **Captures the VHDL quirk that `nr_copper_write_8` latches at `'1'` on the first NR 0x60 write and is not cleared by subsequent NR 0x63 writes — so post-0x60 writes to 0x63 behave as byte-mode, not 16-bit-pair mode.** | `zxnext.vhd:3977, 3978, 3998, 4833, 4883-4887, 5418-5437` |
 | RAM-BK-01| Read-back `NR 0x61`/`NR 0x62`/`NR 0x64`| fresh reset                 | `NR 0x61 <= 0x5A`; `NR 0x62 <= 0x86`; `NR 0x64 <= 0x40`; read each  | `NR 0x61` → `0x5A`; `NR 0x62` → `0x86` (mode=`10`, hi=`110` — **note mode=`10`**); `NR 0x64` → `0x40`.           | `zxnext.vhd:6084` (NR 0x61), `6086-6087` (NR 0x62), `6089-6090` (NR 0x64) |
+| RAM-BK-02 | Read-back `NR 0x61` returns `nr_copper_addr(7..0)` post-autoincrement | fresh reset | `NR 0x60 <= 0x11`; `NR 0x60 <= 0x22`; `NR 0x60 <= 0x33`; read `NR 0x61` | `NR 0x61` returns 0x03 (auto-incremented byte pointer), NOT 0x33 (last data byte). skip — `emulator.cpp:644` registers no read handler for NR 0x61; `Copper::read_reg_0x61()` exists at copper.h:76 but is unwired (see G116) — `zxnext.vhd:6083-6084`; `copper.vhd:42` |
+| RAM-BK-03 | Read-back `NR 0x62` returns `mode & "000" & nr_copper_addr(10..8)` post-autoincrement | fresh reset | `NR 0x62 <= 0x47` (mode=01, hi=111 → addr=0x700); 256 `NR 0x60` writes (rolls bit 8); read `NR 0x62` | `NR 0x62` returns 0x40 (mode=01, hi=000 — bit 8 toggled). skip — same handler-missing prerequisite as RAM-BK-02; `Copper::read_reg_0x62()` at copper.h:79 unwired (see G116) — `zxnext.vhd:6086-6087`; `copper.vhd:42` |
 
 ### Group 2 — MOVE instruction execution
 
@@ -395,6 +397,8 @@ test starts the Copper from `copper_list_addr=0` via the mode-change reset
 | TIM-03 | 10 consecutive MOVEs take 20 clocks  | Instr[0..9]=distinct MOVEs, Instr[10]=WAIT impossible | step 21 clocks                                     | Exactly 10 `copper_req` pulses observed over clocks 0..19; clock 20 begins the impossible WAIT stall.  | `copper.vhd:85-110` |
 | TIM-04 | WAIT then MOVE pipeline              | see MOV-06                                          | as MOV-06                                            | WAIT match cycle advances addr; MOVE executes on the very next clock, no dead cycle in between.        | `copper.vhd:85-110` |
 | TIM-05 | Dual-port instr fetch available      | Write instr[0] via `NR 0x60`, then immediately set mode=`01` | step 2 clocks                              | On the cycle where Copper enters "run", `copper_list_data_i` already reflects the freshly-written byte pair. Documents that our emulator collapses the pos/neg edge timing correctly. | `zxnext.vhd:3959-3998` |
+| TIM-CYC-01 | Copper MOVE burst rate is per 28 MHz cycle, not per Z80 instr | mode=`01`, Instr[0..31]=`MOVE 0x40, k` for k=0x00..0x1F (32 distinct MOVEs) | Run one Z80 NOP (4 T-states ≈ 32 master cycles at 28 MHz) | Copper executes ≥ 1 MOVE per master cycle while running, so over the NOP window addr advances from 0 to 32, NR 0x40 gets all 32 writes (ending value 0x1F). With per-Z80-instr scheduling jnext advances at most 1 step per NOP and only 1 MOVE fires (NR 0x40 = 0x00). skip — F-skip; integration cadence at `emulator.cpp:2791-2797` (see G117) — `device/copper.vhd:54-119`; `zxnext.vhd:3950` |
+| TIM-CYC-02 | Copper WAIT advances per 28 MHz cycle (boundary detection)    | mode=`01`, Instr[0]=WAIT(hpos=0,vpos=0), Instr[1]=`MOVE 0x40, 0xAA`; start at hc=0 cvc=0 with WAIT condition already true | Tick emulator one Z80 NOP at the precise master-cycle window where (hc,cvc) crosses the WAIT match | WAIT.match → addr advance to 1, then MOVE fires same instruction: NR 0x40 = 0xAA at end of NOP. With per-Z80-instr scheduling the MOVE_pending clear-cycle (`copper.vhd:87-89`) consumes the only step jnext gets per NOP, so NR 0x40 stays unwritten until the NEXT Z80 instr. skip — F-skip; same integration-cadence root cause (see G117) — `device/copper.vhd:87-89, 92-97`; `zxnext.vhd:3950` |
 
 ### Group 6 — Copper vertical offset (`NR 0x64`)
 
@@ -453,22 +457,23 @@ These tests replace the old EDG-03/EDG-04 stubs.
 | RST-01 | Copper hard reset    | assert reset | `copper_list_addr_s=0`, `copper_dout_s=0`, `copper_data_o=0`.                                           | `copper.vhd:60-65`  |
 | RST-02 | NR state reset       | assert reset | `nr_62_copper_mode="00"`, `nr_copper_addr=0`, `nr_copper_data_stored=0x00`, `nr_64_copper_offset=0x00`. | `zxnext.vhd:5020-5024` |
 | RST-03 | `last_state_s` reset | assert reset, then `NR 0x62 <= 0x00` | On a hard reset `last_state_s` is `"00"` (VHDL initializer `copper.vhd:50`). Writing `NR 0x62 <= 0x00` is therefore a no-op: the mode-change branch is not entered. Verifies initial-value semantics. | `copper.vhd:50, 70` |
+| RST-04 | Soft reset preserves Copper instruction RAM | upload Instr[0]=`0xABCD`, Instr[1]=`0x4055` via `NR 0x63`; assert reset | After reset: `instruction(0)` still equals `0xABCD`, `instruction(1)` still equals `0x4055`. VHDL `zxnext.vhd:3959-3996` declares `copper_inst_msb_ram` / `copper_inst_lsb_ram` as `dpram2` with no reset port — only `nr_copper_addr` and `nr_62_copper_mode` clear on reset. Soft-reset menus that re-run a previously-uploaded Copper program rely on this. skip — F-skip; today `copper.cpp:51-52` calls `instructions_.fill(0)` on every reset (see G118) — `zxnext.vhd:3959-3996`; `copper.vhd:60-65` |
 
 ## Test Count Summary
 
 | Group                         | Tests |
 |-------------------------------|------:|
-| 1. RAM upload / addressing    |    10 |
+| 1. RAM upload / addressing    |    12 |
 | 2. MOVE execution             |     7 |
 | 3. WAIT execution             |    12 |
 | 4. Start modes (incl. CTL-06a/b/c for mode 10) | 13 |
-| 5. Timing / throughput        |     5 |
+| 5. Timing / throughput        |     7 |
 | 6. Vertical offset            |     6 |
 | 7. Arbitration                |     6 |
 | 8. Self-modifying Copper      |     4 |
 | 9. Edge cases                 |     9 |
-| 10. Reset                     |     3 |
-| **Total**                     | **75** |
+| 10. Reset                     |     4 |
+| **Total**                     | **80** |
 
 **No pass-count is claimed in this plan.** Pass/fail numbers belong in the
 runner output, not the design doc.

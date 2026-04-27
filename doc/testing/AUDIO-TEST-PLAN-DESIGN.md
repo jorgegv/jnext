@@ -313,6 +313,8 @@ VHDL ref: `turbosound.vhd` lines 194-205, 249-260, 304-315
 | TS-32  | PSG0 active when `ay_select="11"` or ts enabled   | PSG0 zeroed only when not selected AND ts disabled         |
 | TS-33  | PSG1 active when `ay_select="10"` or ts enabled   | Same logic for PSG1                                        |
 | TS-34  | PSG2 active when `ay_select="01"` or ts enabled   | Same logic for PSG2                                        |
+| TS-60  | `TurboSound::reset()` clears only `ay_select` + `psg{0,1,2}_pan` | `enabled` / `stereo_mode` / `mono_mode` are external NR-driven inputs; reset must NOT touch them. skip — `turbosound.cpp:10-20` over-clears (see G115). Note: TS-35..59 reserved for future TS work |
+| TS-61  | psg_mode=11 → `audio_ay_reset` does not clobber NR 0x08/0x09 | After psg_mode 11 strobe, NR 0x08 b1 (turbosound_en), b5 (stereo_mode), and NR 0x09 mono bits stay as-set. skip — split needed: full reset (power-on) vs ay-only reset (audio_ay_reset) (see G115) |
 
 ### 2.5 Panning and Final Sum
 
@@ -354,6 +356,7 @@ VHDL ref: `soundrive.vhd` lines 69-107
 | SD-07  | NextREG 0x2C (left) writes to chB only           | Channel B updated                                          |
 | SD-08  | NextREG 0x2E (right) writes to chC only          | Channel C updated                                          |
 | SD-09  | Port I/O takes priority over NextREG              | If both fire same cycle, port I/O wins (checked first)     |
+| SD-19  | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition   | `soundrive.reset_i = reset OR NOT nr_08_dac_en` — disable rezeroes chA/B/C/D to DC midpoint. skip — `emulator.cpp:1674` only flips `dac_enabled_`; pre-existing values in `Dac::ch_[]` persist (see G111). Note: SD-10..18 already used in §3.2 |
 
 ### 3.2 Port Mapping (from zxnext.vhd)
 
@@ -454,6 +457,7 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | MX-20  | `exc_i=1`: EAR and MIC contribute 0 to mix       | Beeper only goes to internal speaker, not line out         |
 | MX-21  | `exc_i=0`: EAR and MIC contribute normally        | Default behaviour                                          |
 | MX-22  | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4 | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
+| MX-23  | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream)  | `pcm_L/R = ay_L/R + dac_L/R + i2s_L/R` only — `ear/mic = 0` regardless of `ear_i/mic_i`. skip — `mixer.cpp:28-29` sums EAR+MIC+AY+DAC+I2S unconditionally; Mixer never reads `Emulator::beep_spkr_excl()` (see G110) |
 
 ## 6. NextREG Configuration
 
@@ -500,6 +504,18 @@ VHDL ref: `zxnext.vhd` lines 4852-4854, `soundrive.vhd`
 | NR-30  | NextREG 0x2C: write to Soundrive chB (left)       | `nr_left_we_i` triggers chB write                          |
 | NR-31  | NextREG 0x2D: write to Soundrive chA+chD (mono)   | `nr_mono_we_i` triggers both chA and chD writes            |
 | NR-32  | NextREG 0x2E: write to Soundrive chC (right)       | `nr_right_we_i` triggers chC write                         |
+| NR-33  | NR 0x2C / NR 0x2E read returns `pi_audio_L/R(9 downto 2)`     | High 8 bits of latest 10-bit Pi I2S sample, not regs_[] shadow. skip — `emulator.cpp:1722-1739` only registers WRITE handlers; reads fall through to regs_[] (see G112) |
+| NR-34  | NR 0x2D read returns `nr_2d_i2s_sample & "000000"`            | Low 2 bits latched on the previous NR 0x2C / 0x2E read. skip — same handler-missing prerequisite as NR-33 (see G112) |
+
+### 6.5 Pi I2S Control (NextREG 0xA2)
+
+VHDL ref: `zxnext.vhd` lines 1242, 2283-2290, 5564, 6192
+
+| ID     | Test                                             | Verification                                               |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| NR-40  | NR 0xA2 store: 8-bit register write              | `nr_a2_pi_i2s_ctl <= nr_wr_dat` on NR 0xA2 strobe. skip — no NR 0xA2 handler; falls through to generic shadow store (see G113) |
+| NR-41  | NR 0xA2 fan-out to Pi I2S control signals        | b7=enL, b6=enR, b4=inout, b3=muteL, b2=muteR, b0=ear (drives I2S Mixer gate). skip — fan-out not wired (see G113) |
+| NR-42  | NR 0xA2 read: `b[7:6]'0'b[4:2]'1'b[0]`           | bit 5 reads as 0, bit 1 reads as 1 (fixed pattern). skip — read returns raw shadow byte (see G113) |
 
 ## 7. I/O Port Wiring
 
@@ -524,6 +540,11 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 | IO-10  | DAC writes require `dac_hw_en=1`                   | Gated by `nr_08_dac_en`                                    |
 | IO-11  | Multiple port mappings can map to same channel     | E.g., chA can be written by ports 0x1F, 0xF1, 0x3F, 0xFB, 0xDF |
 | IO-12  | Port FD conflict: F1 and F9 in mode 2             | `port_fd_conflict_wr` prevents AY false triggers           |
+| IO-13  | NR 0x84 b1 gates Soundrive Mode 2 ports (0xF1/F3/F9/FB)        | `port_dac_sd2_ABCD_f1f3f9fb_io_en <= internal_port_enable(18)`. skip — `emulator.cpp:1500-1567` honours only b0/b2/b5; b1/b3/b4/b6/b7 dropped (see G114) |
+| IO-14  | NR 0x84 b3 gates Profi Covox ports (0x3F chA / 0x5F chD)      | `port_dac_stereo_AD_3f5f_io_en <= internal_port_enable(19)`. skip — bit dropped (see G114) |
+| IO-15  | NR 0x84 b4 gates Covox ports (0x0F chB / 0x4F chC)            | `port_dac_stereo_BC_0f4f_io_en <= internal_port_enable(20)`. skip — bit dropped (see G114) |
+| IO-16  | NR 0x84 b6 gates GS Covox port (0xB3 chB+chC)                 | `port_dac_mono_BC_b3_io_en <= internal_port_enable(22)`. skip — bit dropped (see G114) |
+| IO-17  | NR 0x84 b7 gates SpecDrum port (0xDF chA+chD)                 | `port_dac_mono_AD_df_io_en <= internal_port_enable(23)`. skip — bit dropped (see G114) |
 
 ## Test Implementation Strategy
 
@@ -594,10 +615,10 @@ Z80 test programs (built with z88dk) that produce known audio patterns:
 | Component      | Test IDs    | Count |
 |----------------|-------------|------:|
 | YM2149 core    | AY-01..128  |   ~62 |
-| Turbosound     | TS-01..52   |   ~28 |
-| Soundrive DAC  | SD-01..23   |   ~18 |
+| Turbosound     | TS-01..52, TS-60/61 |   ~30 (+G115) |
+| Soundrive DAC  | SD-01..23, SD-19   |   ~19 (+G111) |
 | Beeper/Tape    | BP-01..23   |   ~14 |
-| Audio Mixer    | MX-01..22   |   ~14 |
-| NextREG Config | NR-01..32   |   ~16 |
-| I/O Port Wiring| IO-01..12   |    ~9 |
-| **Total**      |             | **~161** |
+| Audio Mixer    | MX-01..22, MX-23   |   ~15 (+G110) |
+| NextREG Config | NR-01..32, NR-33/34, NR-40..42 | ~21 (+G112/G113) |
+| I/O Port Wiring| IO-01..12, IO-13..17 |   ~14 (+G114) |
+| **Total**      |             | **~175** |

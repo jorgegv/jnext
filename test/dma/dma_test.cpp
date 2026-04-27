@@ -1698,6 +1698,21 @@ void group13_prescaler_timing() {
               fmt("timer=%u hi9=%u  VHDL dma.vhd:424",
                   dma.dma_timer(), hi9));
     }
+
+    // 13.7 / 13.8 — VHDL dma.vhd:158 (dma_rw_extend) and :172-181
+    // (dma_d_p_s rising-edge latch) implement a 14MHz-only read-latch
+    // and strobe-extension. Today src/peripheral/dma.cpp:686-696 reads
+    // the source byte once via the read_memory/read_io callback with no
+    // notion of falling vs rising edge sampling, and execute_burst()
+    // exposes only byte-level granularity — the rd_n/wr_n strobe shape
+    // is not modelled at all.
+    //
+    // F-SKIP: requires a per-master-cycle bus-strobe model (Dma::tick()
+    // exposing dma_rd_n_o / dma_wr_n_o per master cycle, plus a
+    // turbo-gated dma_d_p_s / dma_d_n_s split in the read path). Until
+    // that lands the rows are unobservable from the public Dma API.
+    skip("13.7", "rising-edge dma_d_p_s latch at 14MHz unmodelled (see G122)");
+    skip("13.8", "dma_rw_extend strobe extension at 14MHz unmodelled (see G122)");
 }
 
 // ══════════════════════════════════════════════════════════════════════

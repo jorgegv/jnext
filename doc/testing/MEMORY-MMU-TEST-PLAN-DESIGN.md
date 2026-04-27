@@ -487,6 +487,7 @@ as `a1495ba`).
 | DFF-06  | Locked by 7FFD bit 5          | Lock, DFFD ← 0x01           | DFFD register unchanged               |
 | DFF-07  | Bit 4 (Profi DFFD override)   | DFFD ← 0x10                 | No effect (Profi disabled in VHDL)    |
 | DFF-08  | Soft reset preserves DFFD     | DFFD ← 0x0F, reset(false)   | port_dffd_reg preserved, MMU6/7 reflect preserved bank (VHDL:3687) |
+| DFF-09  | DFFD bit 6 round-trip via Multiface readback | OUT 0xDFFD ← 0x40; read Multiface paging-state register | Returned byte has bit 6 set. VHDL `zxnext.vhd:877,3694` stores DFFD bit 6 separately in `port_dffd_reg_6`; consumed by Multiface mux at `:4314`. skip — `mmu.cpp:332` masks DFFD writes to bits 4:0; bit 6 dropped (see G148) |
 
 ### Category 5: +3 Paging (Port 0x1FFD)
 
@@ -552,6 +553,7 @@ as `a1495ba`).
 | EF7-03  | Bit 2 = 1 disables Pent-1024     | NR 0x8F=0x03, EFF7 ← 0x04 | pentagon_1024_en = 0, lock is NOT overridden   |
 | EF7-04  | Reset state                       | After reset                | port_eff7_reg_2 = 0, port_eff7_reg_3 = 0     |
 | EF7-05  | Soft reset preserves EFF7 + RAM-at-0 | EFF7 ← 0x0C, reset(false) | port_eff7_reg_{2,3} preserved, slots 0/1 stay RAM (VHDL:3777) |
+| EF7-06  | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x84 b2 ← 0; OUT 0xEFF7 ← 0x08 (RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_3` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441` ANDs port-decode with `internal_port_enable(26)` (= NR 0x84 bit 2). skip — `emulator.cpp:1426-1428` registers handler with no NR 0x84 b2 gate (see G143) |
 
 ### Category 11: ROM Selection
 
@@ -566,6 +568,14 @@ as `a1495ba`).
 | ROM-07  | +3 ROM 3                          | +3          | 1FFD=4, 7FFD=0x10     | sram_rom = "11"      |
 | ROM-08  | ROM is read-only                  | Any         | Write to ROM space     | Write has no effect   |
 | ROM-09  | ROM with altrom_rw = 1            | NR 8C=0xC0  | Write to ROM space     | Write succeeds        |
+
+### Category 11.x: Boot ROM Overlay (`bootrom_en`)
+
+| ID         | Test                                          | Setup                                                                  | Expected                                                                                                |
+|------------|-----------------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF | Load 8 KB blob, `bootrom_en=1`, read 0x0000..0x1FFF and 0x2000..0x3FFF | All four 8 KB quarters return blob bytes; upper 8 KB mirrors lower 8 KB per VHDL `bootrom_mod = cpu_a(12:0)` (`zxnext.vhd:3199-3204`); decode gate is `cpu_a(15:14)="00"` (`zxnext.vhd:1856`). skip — `mmu.h:113-117` overlays only addr < `boot_rom_size_` (see G140) |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF | Same fixture, read 0x4000 | Read falls through to MMU slot 2, NOT to boot ROM (gate is `cpu_a(15:14)="00"`, `zxnext.vhd:1856`). skip — gate scoped to `size_` (see G140) |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic | Load a 4 KB (or 12 KB) blob via `set_boot_rom`; expected behaviour = error or zero-pad to 0x2000 | Loader rejects (or warns and zero-fills to 0x2000). VHDL hardwires `cpu_a(12:0)` (8 KB span) at `zxnext.vhd:3199-3204`; non-8 KB blobs are not real-hardware-faithful. skip — `mmu.h:113-117` overlays whatever size the caller passed (see G157) |
 
 ### Category 12: Alternate ROM (NR 0x8C)
 
@@ -662,7 +672,49 @@ Physical address = `mmu_A21_A13 << 13`.
 | PRI-06  | Altrom overrides normal ROM       | altrom_en=1, ROM space          | Alt ROM address used                   |
 | PRI-07  | Config mode overrides ROM         | config_mode=1, ROM space        | ROMRAM bank address used               |
 
-**Total: ~120 test cases across 18 categories.**
+### Category 19: Soundrive Mode 2 vs Paging-Port Write Conflict (G146)
+
+VHDL `zxnext.vhd:2708, 2718-2720` suppresses `port_7ffd_wr` /
+`port_dffd_wr` / `port_1ffd_wr` when `port_fd_conflict_wr='1'` — i.e.
+the access targets 0xF1FD/0xF3FD/0xF9FD/0xFBFD AND a DAC SD2 channel
+is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
+
+| ID     | Test                                  | Setup                                                                  | Expected                                                                                          |
+|--------|---------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| SD2-01 | SD2-on suppresses 0xF1FD paging       | NR 0x84 enable Soundrive Mode 2 (b1=1); set 7FFD bank=2; OUT 0xF1FD ← 0x03 | port_7ffd register stays at 0x02; VHDL `port_fd_conflict_wr` masks paging update (`zxnext.vhd:2708`). skip — Soundrive SD2 state not consulted by paging handlers (see G146) |
+| SD2-02 | SD2-off lets 0xF1FD paging through    | NR 0x84 b1 ← 0; OUT 0xF1FD ← 0x03                                      | port_7ffd register updates to 0x03; conflict gate inactive. skip — discriminative pair for SD2-01 (see G146) |
+
+### Category 20: NEX Loader (parked here as `BOOT-NEX-*`)
+
+> Note: NEX-loader rows are parked in this plan as `BOOT-NEX-*`. A
+> future `BOOT-NEX-TEST-PLAN-DESIGN.md` may split them out into a
+> dedicated `nex_loader_test.cpp`. Until then they live here because
+> the loader writes through `Mmu`.
+
+| ID         | Test                                                          | Setup                                                                                                  | Expected                                                                                              |
+|------------|---------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM | Load a synthetic NEX V1.1 with `ram_required=2` (2 MB) on a 1 MB-installed `Ram`                       | Loader returns an error/warning; bank loads do NOT proceed. skip — `nex_loader.cpp:81` parses but no consumer (see G155) |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` ≤ installed RAM        | Same NEX with `ram_required=0` (768 KB) on default 2048 KB Ram                                         | Loader proceeds, banks land at expected offsets. skip — discriminative pair for BOOT-NEX-01 (see G155) |
+| BOOT-NEX-03 | Per-bank loading bar rendered    | NEX with `loading_bar=1`, `loading_bar_colour=0x07` (white)              | A 1-pixel-row bar advances along VRAM border per bank loaded. skip — `nex_loader.cpp:89-92` parses but ignores (see G156) |
+| BOOT-NEX-04 | Inter-bank `loading_delay` honoured | NEX with `loading_delay=10` (10 frames between banks)                   | Loader sleeps 10 frames @ 50 Hz between bank loads; jnext loads instantly. skip — frame-count not honoured (see G156) |
+| BOOT-NEX-05 | `start_delay` before code-entry  | NEX with `start_delay=50` frames                                          | Loader pauses 1 second between final bank load and PC=entry; jnext jumps immediately. skip — frame-count not honoured (see G156) |
+| BOOT-NEX-06 | Loading-bar colour honoured      | NEX with `loading_bar_colour=0x02` (red)                                  | Bar renders red on screen, NOT default. skip — colour ignored (see G156) |
+
+### Category 21: SD Card Hot-Plug / Unmount (parked here as `BOOT-SD-*`)
+
+> Note: G158 is a runtime-UX gap (real Next has CD/CS detect; jnext's
+> `SdCardDevice::mount`/`unmount` exist but are invoked only once at
+> startup from `src/core/emulator.cpp:2197-2200`). Rows live in
+> `test/sdcard/sdcard_test.cpp` because the mount/unmount API is
+> reachable there. Future GUI menu work should rebind once a visible
+> affordance lands.
+
+| ID        | Test                                  | Setup                                                                | Expected                                                                                    |
+|-----------|---------------------------------------|----------------------------------------------------------------------|---------------------------------------------------------------------------------------------|
+| BOOT-SD-01 | mount → unmount → re-mount round-trip | `sd.mount(img)`; issue CMD17 read; `sd.unmount()`; `sd.mount(img)`; CMD17 read | First read returns image bytes; post-unmount no spurious data leak; second mount reads same bytes. skip — runtime API not exposed in GUI/CLI (see G158) |
+| BOOT-SD-02 | unmount mid-transfer is safe          | `sd.mount(img)`; begin CMD17; call `sd.unmount()` mid-block          | No data race; subsequent reads return safe-default (0xFF). VHDL: card-detect/CS controls. skip — mid-transfer safety untested (see G158) |
+
+**Total: ~140 test cases across 21 categories.**
 
 ## Test Approach
 

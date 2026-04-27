@@ -421,6 +421,22 @@ non-transparent L2 pixel. `ula_blend_mode_2=00` unless stated.
 | L2P-16 | `layer2_transparent=1` suppresses promotion | 000, L=✗, S=✓ | Sprite (not L2) | Sprite | 7123, 7222 |
 | L2P-17 | Promotion in mode 110 (blend): L2 promoted shows blend output | 110, L=✓ S=✓ U=✓ | `layer2_priority=1` | blend RGB (clamped) | 7300 |
 | L2P-18 | Promotion in mode 111 (blend): L2 promoted shows blend output | 111, L=✓ S=✓ U=✓ | `layer2_priority=1` | blend−5 RGB (clamped) | 7342 |
+| L2P-19 | Native 640 mode + L2 priority bit set: both even and odd pixel columns observe priority promotion | 000 / native 640 | S=✓ L=✓ U=✗ | `layer2_priority_[x]` true for both even and odd `x`; compositor promotes L2 over sprite at every column (skip — see G93) | 7039-7050 |
+
+### Group PFF — port_ff_reg NR-side fan-out (NR 0x69 / NR 0x22 / NR 0xC4)
+
+Re-homed 2026-04-27 from the gap audit (G108). VHDL `zxnext.vhd:3617-3622`
+fans three NextREG writes into the `port_ff_reg` storage that drives
+Timex screen-mode + ULA-int gating. jnext `src/core/emulator.cpp:888-890`
+forwards only NR 0x69 bit 7; bits 5:0 are dropped, NR 0x22 b2 has no
+side-effect, NR 0xC4 b0 handler at `:983` carries an incorrect comment.
+VHDL priority: a port-FF write wins over the NR-side mirror.
+
+| ID            | Title                                                                            | Stimulus                                                                                | Expected                                                                                  | VHDL                  |
+|---------------|----------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|-----------------------|
+| PFF-G108-01   | NR 0x69 bits 5:0 fan into `port_ff_reg(5:0)`                                     | reset; write NR 0x69 ← 0x3F; sample `port_ff_reg` low six bits                          | low six bits = 0x3F (skip — see G108)                                                     | zxnext.vhd:3617-3618  |
+| PFF-G108-02   | NR 0x22 b2 fans into `port_ff_reg(6)`                                            | reset; write NR 0x22 ← 0x04 (bit 2 = 1); sample `port_ff_reg(6)`                        | bit 6 = 1 (skip — see G108)                                                               | zxnext.vhd:3619-3620  |
+| PFF-G108-03   | NR 0xC4 b0 fans into `port_ff_reg(6)` as `not nr_wr_dat(0)` (inverted polarity)  | reset; write NR 0xC4 ← 0x00 (bit 0 = 0); sample `port_ff_reg(6)`                        | bit 6 = 1 (inversion); subsequent NR 0xC4 ← 0x01 sets bit 6 = 0 (skip — see G108)         | zxnext.vhd:3621-3622  |
 
 ### Group BL — Blend modes 110 and 111
 

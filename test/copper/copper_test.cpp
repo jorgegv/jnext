@@ -342,6 +342,15 @@ void group1_ram_upload() {
               r61 == 0x5A && r62 == 0x86,
               fmt("r61=%02x r62=%02x", r61, r62));
     }
+
+    // RAM-BK-02 / RAM-BK-03 — VHDL zxnext.vhd:6083-6087 returns
+    // nr_copper_addr(7..0) and mode|hi from NR 0x61/0x62 reads.
+    // Today emulator.cpp:635-644 registers no read handler for these
+    // NRs, so reads fall through to NextReg::regs_[] (last-write).
+    // Both rows will become check()s once Copper::read_reg_0x61() /
+    // read_reg_0x62() are wired into NextReg via set_read_handler().
+    skip("RAM-BK-02", "NR 0x61 read fallthrough to regs_[] last-write (see G116)");
+    skip("RAM-BK-03", "NR 0x62 read fallthrough to regs_[] last-write (see G116)");
 }
 
 // ── Group 2: MOVE instruction execution ──────────────────────────────
@@ -1059,6 +1068,21 @@ void group5_timing() {
               fires == 1 && last == 0xFE,
               fmt("fires=%d last=%02x", fires, last));
     }
+
+    // TIM-CYC-01 / TIM-CYC-02 — VHDL device/copper.vhd:54-119 advances on
+    // i_CLK_28 rising edge: at most one MOVE/WAIT-step per 28 MHz master
+    // cycle. jnext drives Copper::execute() once per Z80 instruction
+    // (emulator.cpp:2791-2797, :2991-2996), so dense Copper bursts within
+    // a single Z80 instruction window collapse to one step.
+    //
+    // F-SKIP: the unit-test harness here calls cu.execute() directly per
+    // tick — it is the integration cadence (Emulator::run_until_*) that
+    // is the unit under test for this gap, and that surface is not
+    // reachable from the Copper unit suite. Will become check()s in
+    // copper_integration_test.cpp once the cycle-accurate scheduler
+    // lands; cross-link with G65 (NR-write priority on tied edges).
+    skip("TIM-CYC-01", "per-Z80-instr Copper schedule under-runs MOVE bursts (see G117)");
+    skip("TIM-CYC-02", "per-Z80-instr Copper schedule loses MOVE+WAIT pipeline slots (see G117)");
 }
 
 // ── Group 6: Vertical offset (NR 0x64) ────────────────────────────────
@@ -1703,6 +1727,18 @@ void group10_reset() {
               cu.pc() == 0 && cu.mode() == 0,
               fmt("pc=%u mode=%u", cu.pc(), cu.mode()));
     }
+
+    // RST-04 — VHDL zxnext.vhd:3959-3996 declares Copper instruction RAM
+    // as dpram2 (no reset port); copper.vhd:60-65 reset block clears
+    // only addr_s, dout_s, data_o. Today copper.cpp:51-52 calls
+    // instructions_.fill(0) on every reset(), wiping the program.
+    //
+    // F-SKIP: the fix is a 1-line removal of instructions_.fill(0) from
+    // Copper::reset() (i.e. construct it zeroed only via the default
+    // member initializer std::array<...,1024>{} at copper.h:109). Once
+    // that lands, RST-04 becomes a check() that uploads a known program,
+    // calls cu.reset(), and asserts cu.instruction(0)/(1) survive.
+    skip("RST-04", "soft reset clears copper RAM (instructions_.fill(0)) (see G118)");
 }
 
 }  // namespace

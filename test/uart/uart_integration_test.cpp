@@ -630,6 +630,15 @@ static void test_dual_06_iomode_rx_mux(Emulator& emu) {
               u0_empty_step3 ? 1 : 0, u1_empty_step3 ? 1 : 0));
 }
 
+static void test_nr_a0_pi_uart_routing(Emulator& /*emu*/) {
+    set_group("NR_A0-INT");
+    // VHDL zxnext.vhd:2278-2281 — pi_uart_en gates UART1 TX/RX onto the
+    // Pi GPIO 14/15 mux. jnext has neither the GPIO mux nor the NR 0xA0
+    // handler. See G135 (cross-link to I2C-13 / G138 for the I2C side).
+    skip("NR_A0-03",
+         "Pi UART egress gate via NR 0xA0 bit4 unmodelled (see G135)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -655,6 +664,9 @@ int main() {
     test_dual_05_channel_routing(emu);
     test_dual_06_iomode_rx_mux(emu);
     std::printf("  Group: DUAL — done\n");
+
+    test_nr_a0_pi_uart_routing(emu);
+    std::printf("  Group: NR_A0-INT — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

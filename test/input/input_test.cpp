@@ -413,6 +413,19 @@ static void test_kbdhys() {
                      "want before nonzero, after (0x00,0x00)",
                      before_b0, before_b1, after_b0, after_b1));
     }
+
+    // KBDHYS-04: Production wire — tick_scan / cancel_extended_entries.
+    //
+    // VHDL membrane.vhd:178-191: matrix_state_ex_0/1 advance every membrane
+    // scan-cycle; the cancel hook clears the extended-entry latch on the next
+    // scan. jnext keyboard.cpp:312 (tick_scan) and :334
+    // (cancel_extended_entries) exist as methods but production
+    // emulator.cpp does NOT call them — the 1-scan shift hysteresis edge
+    // cases differ and the cancel hook is unreachable until the production
+    // wire lands. Tracked under G133 (also blocks G48 test path).
+    skip("KBDHYS-04",
+         "Keyboard::tick_scan/cancel_extended_entries production wire",
+         "Keyboard::tick_scan/cancel_extended_entries unwired (see G133)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -751,6 +764,16 @@ static void test_jmode() {
               v == 0x40,
               DETAIL("got=0x%02X (Task3: nr_05_joy reset)", v));
     }
+
+    // JMODE-09 — NR 0x05 propagation to MembraneStick.
+    // VHDL membrane_stick.vhd:117-149 — joy_type drives the COE address-start
+    // selector. Production: Joystick::set_nr_05 (joystick.cpp:26-50) does NOT
+    // hold a MembraneStick reference; emulator.cpp:456-458 forwards NR 0x05 to
+    // Joystick only. Side effect: switching joy modes via NR 0x05 leaves the
+    // membrane fold pinned to its constructor default.
+    skip("JMODE-09",
+         "NR 0x05 mode change propagates to MembraneStick fold",
+         "Joystick::set_nr_05 does not call MembraneStick::set_mode (see G126)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -917,6 +940,26 @@ static void test_kemp() {
         uint8_t v = j.read_port_1f();
         check("KEMP-15", "joy0=MD1 L.A → 0x1F=0x40", v == 0x40, DETAIL("got=0x%02X", v));
     }
+
+    // KEMP-16: NR 0x82 b7=0 must un-decode port 0x37.
+    // VHDL zxnext.vhd:2408 + 2675: port_37_io_en <= internal_port_enable(7),
+    // where internal_port_enable(7) gates on NR 0x82 bit 7. jnext
+    // emulator.cpp:1877-1879 registers the port-0x37 handler with no NR-0x82
+    // b7 check (mirror of the NR 0x82 b6 / port-0x1F gate at :1871-1876,
+    // which IS implemented).
+    skip("KEMP-16",
+         "NR 0x82 b7=0 must un-decode port 0x37",
+         "port 0x37 missing NR 0x82 b7 io_en gate (see G128)");
+
+    // KEMP-17: port_1f_hw_en mode-conditional gate.
+    // VHDL zxnext.vhd:2454-2455: port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
+    // these enables come live ONLY in mode Kempston1 (001) or MD3-Left (101).
+    // VHDL :2674-2675 ANDs port_1f_hw_en into the port-0x1F decode. jnext
+    // joystick.cpp:99-103 documents the floating-bus headline but the
+    // implemented gate is NR 0x82 b6 io_en, not the mode-conditional hw_en.
+    skip("KEMP-17",
+         "port_1f mode-conditional hw_en gate (Sinclair2/Cursor case)",
+         "port_1f/0x37 mode-conditional hw_en gate missing (see G129)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1832,6 +1875,18 @@ static void test_mouse() {
     //    NR 0x0A bits 1:0 (nr_0a_mouse_dpi, default "01", zxnext.vhd:1128,
     //    5198) are exposed on o_MOUSE_CONTROL for a host-adapter DPI
     //    divisor. No VHDL consumer uses this signal internally.
+
+    // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled and mouse
+    // disabled. VHDL zxnext.vhd:2674 enables the port_1f path also via
+    // port_df_lsb when port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0.
+    // jnext emulator.cpp:1563-1567 registers the 0xDF read handler that
+    // returns 0x00 unconditionally — Pentagon/ATM Soundrive 1.05 reads of
+    // 0xDF (Kempston joy when mouse disabled) get 0x00 instead of the
+    // joystick byte. Reviewer note (Wave-2 NEW-MS-1): the alias is also
+    // gated on Kempston1 mode being live; both gates must hold.
+    skip("MOUSE-12",
+         "0xDF Kempston-joy alias under Soundrive override",
+         "0xDF Kempston-joy alias under Soundrive override missing (see G130)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2015,6 +2070,63 @@ static void test_port_fe_format() {
     //   Rows covered in test/input/input_integration_test.cpp (Phase 3).
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// 3.14 User-defined joystick keymap (JCAL-*) — NR 0x28-0x2B
+// VHDL: zxnext.vhd:6294-6324 (NR 0x28 keymap_sel, NR 0x29 addr,
+//       NR 0x2B data write/inc; NR 0x2A reservation is dead in VHDL),
+//       membrane_stick.vhd:172-183 (SDP-RAM keymap loaded from
+//       keyjoy_64_6.coe).
+// ════════════════════════════════════════════════════════════════════════
+
+static void test_user_defined_keymap() {
+    set_group("JCAL");
+
+    // JCAL-01: NR 0x28 keymap_sel write. VHDL zxnext.vhd:6294-6300.
+    // jnext: no NR 0x28 handler registered; NextReg::write stores raw
+    // byte with no decode side-effect for this register.
+    skip("JCAL-01",
+         "NR 0x28 keymap_sel write handler",
+         "NR 0x28 keymap_sel write handler absent (see G127)");
+
+    // JCAL-02: NR 0x29 addr-low + NR 0x2B data-write/inc process.
+    // VHDL zxnext.vhd:6301-6324 implements the (sel, addr, data) write
+    // process into the SDP-RAM analogue. jnext: no handlers; the COE
+    // loader does not exist in C++ (membrane_stick.cpp ctor uses a
+    // hard-coded default keymap mirroring keyjoy_64_6.coe).
+    skip("JCAL-02",
+         "NR 0x29/0x2B keymap-RAM write process",
+         "NR 0x29/0x2B keymap-RAM write process absent (see G127)");
+
+    // JCAL-03: NR 0x05 joy0/1=111 (User I/O) + JCAL-01/02-programmed
+    // entry — direction press redirects through user-defined keymap.
+    // VHDL zxnext.vhd:5157-5158 mode 111 selects user-defined; jnext
+    // membrane_stick.cpp:101-104 currently flags "111" as no-op.
+    skip("JCAL-03",
+         "NR 0x05=111 user-defined keymap fold",
+         "NR 0x05=111 user-defined keymap fold no-op (see G127)");
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 3.15 F-key state machine (FNK-*) — emu_fnkeys.vhd 7-state FSM
+// VHDL: input/membrane/emu_fnkeys.vhd:53-202 — consumes i_button_m1_n,
+//       i_button_reset_n, membrane keys F1-F10 → drives o_fnkeys[10:1]
+//       and side-effect strobes for NR 0x07 cpu_speed / 50-60 / scandouble.
+// Cross-link: F1/F4/F9/F10 reset/NMI dispatch covered by G152 (B7).
+// ════════════════════════════════════════════════════════════════════════
+
+static void test_fnkeys() {
+    set_group("FNK");
+
+    // FNK-01: F-key 7-state FSM absent.
+    //
+    // grep for i_SPKEY_FUNCTION / emu_fnkeys returns no hits in src/;
+    // only F9/F10 NMI source pulses are wired (via G152 path). F2 / F3 /
+    // F5 / F6 / F7 / F8 produce no emulator-side side effect.
+    skip("FNK-01",
+         "emu_fnkeys 7-state FSM + F2/F3/F7/F8 dispatch",
+         "emu_fnkeys 7-state FSM + F2/F3/F7/F8 dispatch absent (see G132)");
+}
+
 // ── main ────────────────────────────────────────────────────────────────
 
 int main() {
@@ -2031,6 +2143,8 @@ int main() {
     test_sinclair();        printf("  Group: SINC   done\n");
     test_cursor();          printf("  Group: CURS   done\n");
     test_iomode();          printf("  Group: IOMODE done\n");
+    test_user_defined_keymap(); printf("  Group: JCAL   done\n");
+    test_fnkeys();          printf("  Group: FNK    done\n");
     test_mouse();           printf("  Group: MOUSE  done\n");
     test_nmi();             printf("  Group: NMI    done\n");
     test_port_fe_format();  printf("  Group: FE     done\n");
