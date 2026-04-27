@@ -55,6 +55,7 @@ where possible.
 | G17 | Parallax.nex "two-copies" mystery (post-LoRes)             | Sprites, Layer2                  | A   | Y       | parallax fully usable depends on this                      | M      | High     |
 | G24 | Main-window settings persistence (size/scale/CRT/speed)    | GUI/MainWindow                   | A   | Y       | every launch resets user preferences                       | L      | High     |
 | G46 | NextZXOS boot ladder (firmware-faithful + bypass)          | DivMMC, NMI, Boot, ULA           | B,C | Y       | NextZXOS does not reach BASIC / dot-command shell          | H      | High     |
+| G106| Line-interrupt scheduler off-by-one + target=0 wrap        | Emulator, VideoTiming            | A   | Y       | Line interrupts fire one line late; target=0 misfires      | L      | High     |
 | G04 | Per-scanline transparency replay (NR 0x14/4B/4C)           | Compositor, Sprites, Tilemap     | A   | Y       | sky/foreground transparency-key swaps render flat          | L      | Medium   |
 | G05 | Per-scanline clip-window replay (NR 0x18-0x1B)             | Compositor, NextREG              | A   | Y       | split-screen / picture-in-picture demos blocked            | M      | Medium   |
 | G11 | Per-scanline NR 0x68 other bits (stencil, ULA+, blend)     | Compositor, ULA, NextREG         | A   | Y       | mid-frame ULA+ / blend-mode flips render flat              | L      | Medium   |
@@ -62,6 +63,14 @@ where possible.
 | G50 | Contention `delay()` runtime wiring (Phase 2)              | Memory/Contention, CPU           | C,D | Y       | cycle-accurate contention wrong on +3 / Pentagon / Next    | L      | Medium   |
 | G58 | MMU shadow-screen routing (TASK-MMU-SHADOW-SCREEN)         | MMU, ULA                         | C,D | Y       | 128K shadow-screen double-buffer renders wrong             | L      | Medium   |
 | G83 | Profiling/benchmark mode + 400% speed bottleneck           | GUI/Speed, Profiling             | D   | Y       | speed-control >200% observably broken; no perf data        | M      | Medium   |
+| G91 | NR 0x44 priority bits 7:6 dropped — L2 promotion dead      | Palette, Layer2, Compositor      | A   | Y       | L2 palette-priority promotion is no-op despite passing tests | L    | Medium   |
+| G96 | NR 0x35-0x39 vs 0x75-0x79 increment-semantic divergence    | Sprites, NextREG                 | A   | Y       | NR-mirror sprite stream lands in wrong slots               | M      | Medium   |
+| G102| ULAnext (NR 0x42/0x43 b0) palette-encoding runtime path absent | ULA, Palette                 | A   | Y       | ULAnext programs see plain 16-colour output, not 256       | H      | Medium   |
+| G103| ULA+ (port 0xBF3B/0xFF3B) palette-encoding runtime path absent | ULA, Palette                 | A   | Y       | ULA+ programs cannot drive their 64-entry palette window   | M      | Medium   |
+| G108| NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg | NextREG, ULA, MMU, Compositor    | A,C | Y       | Timex-mode set via NR aliases + ULA-int-disable via aliases dropped | L | Medium |
+| G117| Copper executes per Z80 instr, not per 28 MHz cycle        | Copper, CPU                      | A   | Y       | Dense Copper bursts under-run; possible parallax.nex factor | M     | Medium   |
+| G141| FUSE in-opcode contention macros inert (zero-filled)       | Contention, CPU                  | C   | Y       | M1 fetch + no-MREQ contention dropped; 48K demos off ~7T per opcode | M | Medium |
+| G142| NR 0x07 cpu_speed deferred bus-idle commit not modelled    | Contention, CPU                  | C   | Y       | Turbo flip applies immediately; should defer to bus-idle   | M      | Medium   |
 | G06 | Per-scanline NR 0x6B / NR 0x70 (TM/L2 mode)                | Tilemap, Layer2, NextREG         | A   | Y       | mixed-resolution / rolling-mode demos blocked              | M      | Low      |
 | G07 | Per-scanline port 0xFF Timex screen mode                   | ULA, Timex                       | A   | Y       | Timex mid-frame split demos render flat                    | M      | Low      |
 | G08 | Per-scanline NR 0x26 / NR 0x27 ULA scroll                  | ULA, NextREG                     | A   | Y       | non-square-tile scroll demos                               | L      | Low      |
@@ -78,12 +87,27 @@ where possible.
 | G52 | Contention Phase-4 screenshot rebaseline                   | Contention, Test/Screenshot      | C   | Y       | noisy 48K/128K/+3 screenshot rebaseline pass               | L      | Low      |
 | G65 | CPU/Copper cycle-accurate NR-write priority                | CPU, Copper, NextREG             | C   | Y       | ARB-* tests order stimulus manually; latent                | H      | Low      |
 | G77 | Reopened-suite skips: Compositor NR 0x68 + MMU shadow      | Compositor, MMU                  | D   | Y       | plan-doc backlog; G58 is the runtime side                  | M      | Low      |
+| G92 | port 0x123B cpu_do(4)=1 offset mode ignored                | MMU, Layer2, Port                | A   | Y       | L2 offset-mode workflow corrupts enable state              | L      | Low      |
+| G93 | Compositor L2 priority not pixel-doubled in 640 mode       | Compositor, Layer2               | A   | Y       | Latent: right-pixel artefacts under L2 native 640 + priority | L    | Low      |
+| G94 | LoRes radastan (NR 0x6A) absent — distinct from G01        | LoRes, NextREG                   | A   | Y       | radastan-mode programs do not render                       | M      | Low      |
+| G95 | NR 0x09 bit 4 sprite_tie not wired                         | Sprites, NextREG                 | A,D | Y       | Mirror+attr index drift; mis-targeted sprite writes        | L      | Low      |
+| G98 | Tilemap text-mode RGB transparency check missing           | Tilemap, Compositor              | A   | Y       | Text-mode tilemap pixels with NR 0x14 RGB render opaque    | L      | Low      |
+| G100| Tilemap per-line scroll snapshot caps at line 320          | Tilemap, NextREG                 | A   | Y       | Vblank-DMA-streamed scroll writes silently dropped         | L      | Low      |
+| G101| Tilemap pixel_textmode_o flag not exposed to compositor    | Tilemap, Renderer                | A   | Y       | Precondition for G98; precludes per-pixel text-mode        | L      | Low      |
+| G104| HI_RES (Timex 512×192) renders at 256 px (half-resolution) | ULA, Renderer                    | A   | Y       | Timex hi-res text/programs render at half horizontal res   | M      | Low      |
+| G105| HI_RES 6-bit border palette-group encoding not modelled    | ULA, Palette                     | A   | Y       | HI_RES border colour wrong under ULAnext/ULA+ palettes     | L      | Low      |
+| G109| NR 0x64 cu_offset not applied to line-int compare          | Emulator, Copper, VideoTiming    | A   | Y       | NR 0x64 + line-IRQ raster split misaligned                 | L      | Low      |
+| G132| F-key state machine + 50-60/cpu-speed/scandouble hotkeys absent | Keyboard, GUI, NextREG, VideoTiming | A,B | Y  | Host F1/F2/F3/F4/F7/F8 keys do nothing emulator-side       | M      | Low      |
+| G144| port 0x123B map_shadow bit 3 — read/write-over wrong bank  | MMU, Layer2                      | A   | Y       | L2 double-buffering via 0x123B b3 writes wrong bank        | L      | Low      |
+| G146| port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict | MMU, Audio             | A   | Y       | NR 0x84 SD2 + 0xF1FD/0xF9FD write reapplies paging         | L      | Low      |
+| G147| F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired | Input, NextREG, Contention, Clock, Video | A | Y  | Users cannot cycle CPU speed / 50-60 / scandouble via F-keys | M    | Low      |
 | G33 | Tape SAVE (write to TAP/TZX/WAV)                           | Tape                             | B   |         | cannot save BASIC programs / data — major gap              | M      | High     |
 | G34 | `.z80` snapshot loader                                     | Snapshot                         | B   |         | most-popular legacy snapshot format unsupported            | M      | High     |
 | G35 | Snapshot save (.sna out / .szx out / .nex out) wired       | Snapshot, GUI                    | B   |         | cannot save mid-game state to file                         | M      | High     |
 | G36 | TZX Direct-Recording (DeciLoad 0x15)                       | Tape                             | B   |         | many turbo-loaded games / demos won't load                 | M      | High     |
 | G42 | Joystick / gamepad host wiring (Kempston/Sinclair/MD)      | Joystick, SDL, GUI               | B   |         | gamepad / USB joystick unusable; keyboard-only             | M      | High     |
 | G66 | Save-state schema versioning + per-subsystem framing       | Save-state                       | C,D |         | ANY save_state field reorder corrupts older snapshots      | M      | High     |
+| G126| NR 0x05 mode change does not propagate to MembraneStick    | Joystick, MembraneStick, NextREG | B   |         | Joy mode switch leaves membrane fold pinned to defaults    | L      | High     |
 | G32 | DAC continuous-buzz playback artefact                      | DAC, Audio                       | B   |         | audible quality degradation on DAC software                | H      | Medium   |
 | G37 | WAV DeciLoad real-time loading                             | Tape, WAV                        | B   |         | same as G36 via WAV pipeline                               | M      | Medium   |
 | G38 | DSK / +3 disk image loading + uPD765 FDC                   | FDC, Disk                        | B   |         | all +3 disk software unrunnable                            | H      | Medium   |
@@ -97,6 +121,19 @@ where possible.
 | G74 | No CI pipeline; regression depends on dev discipline       | CI, Test                         | D   |         | visual regressions can slip past PR review                 | M      | Medium   |
 | G75 | Regression tolerance hard-zero; perceptual diff missing    | Test/Regression                  | D   |         | spurious diff failures; no incremental change signal       | M      | Medium   |
 | G80 | Headless-mode host-time leakage audit                      | Test, Determinism                | D   |         | regression flake risk; D14/G76 dependency                  | M      | Medium   |
+| G87 | IM2 RETI/RETN decoder cannot see ED 2nd byte               | CPU, IM2                         | C   |         | IM2 daisy-chain locks up after first ISR (latent)          | M      | Medium   |
+| G89 | Z80N block-repeat ops non-interruptible                    | CPU, Z80N                        | C   |         | Long LDIRX/LDDRX miss frame INT; music/scheduler skew      | L      | Medium   |
+| G107| ULA-int scheduler ignores per-machine c_int_h/c_int_v      | Emulator, VideoTiming            | A   |         | Pentagon/+3 frame INT off-position; raster demos diverge   | L      | Medium   |
+| G110| audio_mixer.exc_i speaker-exclusive gate not enforced      | Mixer, NextREG, Beeper           | B   |         | EAR/MIC contribute to host audio in speaker-only mode      | L      | Medium   |
+| G123| NR 0x0A bit 4 (divmmc_automap_en) not wired                | DivMMC, NextREG                  | C   |         | NR 0x0A toggle of automap silently dropped                 | L      | Medium   |
+| G124| NR 0x83 b0 not propagated to DivMmc::set_port_io_enable    | DivMMC, NextREG, MMU             | C   |         | NR 0x83 bit-0 clear leaves DivMMC ROM/automap mapped       | L      | Medium   |
+| G127| NR 0x05 User-Defined + NR 0x28-0x2B joymap absent          | NextREG, Joystick, MembraneStick | B   |         | Custom joystick→key remap silently has no effect           | M      | Medium   |
+| G128| port 0x37 missing NR 0x82 bit-7 io_en gate                 | Joystick, NextREG, Port          | B   |         | NR 0x82 b7 clear still returns joystick byte on port 0x37  | L      | Medium   |
+| G129| port_1f_hw_en / port_37_hw_en mode-conditional decode missing | Joystick, Port, FloatingBus  | B   |         | "Is Kempston attached?" probes get wrong answer            | L      | Medium   |
+| G151| Z80N NEXTREG opcode mutates nr_register — VHDL preserves   | CPU/Z80N, NextREG, Port-Dispatch | C,D |         | Persistent 0x243B select clobbered by inline Z80N pokes    | L      | Medium   |
+| G152| Host F1/F4/F9/F10 hotkeys not wired to NMI source / reset  | GUI, NMI, NextREG, Reset         | C   |         | User cannot trigger NMI/reset from keyboard (GUI menu only) | L     | Medium   |
+| G153| NR 0x02 reset_type[2:0] FSM and read-back missing          | NextREG, NMI, Boot, DivMMC       | C   |         | reset_type-conditional firmware paths take wrong branch    | L      | Medium   |
+| G154| NR 0x80-0x89 expbus / port-enable readbacks partial        | NextREG, Boot, Port-enable       | C   |         | Firmware reading NR 0x82-0x89 gets raw shadow byte         | M      | Medium   |
 | G19 | Save screenshot in `.SCR` format                           | Screenshot, GUI                  | A   |         | developer workflow gap                                     | L      | Low      |
 | G20 | Auto-named screenshots (no dialog)                         | Screenshot, GUI                  | A   |         | workflow friction                                          | L      | Low      |
 | G22 | ASM-only clipboard copy in disassembly panel               | Debugger                         | A   |         | dev workflow                                               | L      | Low      |
@@ -134,8 +171,47 @@ where possible.
 | G84 | Integration-test design doc missing                        | Test docs                        | D   |         | each integration suite reinvents fixture conventions       | M      | Low      |
 | G85 | Lint baseline tautology coverage stops at substring        | Test lint                        | D   |         | reviewer attention catches what lint doesn't               | M      | Low      |
 | G86 | FEATURES.md "Accurate memory contention" overclaim         | Docs                             | D   |         | user expectation vs reality — narrative gap                | L      | Low      |
+| G88 | NMI does not capture PC into NR 0xC2/0xC3                  | CPU, NextREG, NMI                | C   |         | NMI inspector tooling reads 0xFF instead of last NMI PC    | L      | Low      |
+| G90 | 28 MHz turbo SRAM-read wait state not modelled             | CPU, Memory, NextREG             | C   |         | Turbo-mode timing 7% fast on read-heavy code               | M      | Low      |
+| G97 | NR 0x19 / 0x1A read handlers absent                        | Sprites, NextREG, ULA            | A,D |         | NR 0x19/0x1A reads return last-write byte, not indexed clip | L     | Low      |
+| G99 | NR 0x6E/0x6F bit 6 reserved-bit mask missing on read       | Tilemap, NextREG                 | A,D |         | Software validating writes by read-back sees bit 6 toggle  | L      | Low      |
+| G111| DAC channels not held at 0x80 when nr_08_dac_en=0          | DAC, NextREG, Mixer              | B   |         | DAC-disable leaves residual level instead of silencing     | L      | Low      |
+| G112| NR 0x2C/0x2D/0x2E read-back exposes Pi I2S input           | NextREG, I2S, Audio              | B   |         | NR 0x2C/2E reads return regs_[] noise, not I2S samples     | L      | Low      |
+| G113| NR 0xA2 Pi I2S control register completely unwired         | NextREG, I2S, Audio              | B   |         | mute/dir/channel-enable bits don't gate I2S Mixer path     | L      | Low      |
+| G114| NR 0x84 DAC-port-pair enables (5 of 7 bits) not enforced   | DAC, NextREG, Port               | B   |         | DAC writes hit even when NR 0x84 masked them               | L      | Low      |
+| G115| TurboSound::reset() over-clears NR 0x08/0x09 state on AY reset | TurboSound, NextREG          | B   |         | psg_mode=11 toggle loses turbosound_en/stereo/mono         | L      | Low      |
+| G116| NR 0x61/0x62 Copper read handlers absent                   | NextREG, Copper                  | A,D |         | Copper write-pointer read-back returns last-write, not autoinc | L  | Low      |
+| G118| Copper instruction RAM cleared on soft reset (VHDL preserves) | Copper                        | A   |         | Soft reset wipes Copper program; menu re-runs lose payload | L      | Low      |
+| G119| CTC on_interrupt gated at peripheral, not fabric edge      | CTC, IM2                         | C   |         | int_en toggled between ZC/TO drops the prior pulse         | L      | Low      |
+| G120| CTC prescaler cleared on running TC reload (vs VHDL preserve) | CTC                           | C   |         | Mid-stream TC reload restarts prescaler from 0             | L      | Low      |
+| G121| Pulse-mode 32/36-cycle gate not updated on NR 0x03 timing change | IM2, NextREG               | C   |         | Pulse-INT width wrong if NR 0x03 timing flipped post-boot  | L      | Low      |
+| G122| DMA 14 MHz dma_d_p_s rising-edge read latch unmodelled     | DMA                              | C   |         | Edge-of-burst sequencing differs from VHDL at turbo        | M      | Low      |
+| G125| NR 0x06 bits 7/5 (hotkey enables) not stored / acted on    | NextREG, Hotkey                  | C   |         | F3/F8 NR-side hotkey gates inert; wrong reset defaults     | L      | Low      |
+| G130| Kempston-mouse port_1f alias (Soundrive DAC override) missing | Joystick, Mouse, Port         | B   |         | Pentagon Soundrive 1.05 reads of 0xDF return 0x00          | L      | Low      |
+| G131| NR 0x0A bits 7:6/bit 5 not gated on nr_03_config_mode      | NextREG, SPI/SD, Mouse           | C   |         | Stray bit-5 outside config_mode flips SD-card mapping      | L      | Low      |
+| G133| Keyboard tick_scan + cancel_extended_entries not driven from production | Keyboard           | B   |         | 1-scan shift hysteresis + extended-key cancel not running  | L      | Low      |
+| G134| UART RX request-mask asymmetry (near_full vs avail) not modelled | UART, IM2                | B   |         | NR 0xC6=0x20 (near-full only) sees spurious per-byte INTs  | L      | Low      |
+| G135| NR 0xA0 Pi peripheral enable bits not honoured             | UART, NextREG, GPIO              | B   |         | UART1/Pi bridge always on; bit-routing never gates         | L      | Low      |
+| G136| SPI Flash CS (cpu_do=0x7F) ignored — config-mode-gated select absent | SPI, NextREG          | B   |         | Firmware reading core-loader flash gets all 0xFF           | M      | Low      |
+| G137| SPI master o_spi_wait_n (DMA wait) not surfaced            | SPI, DMA, Contention             | B   |         | DMA-via-SPI loaders complete in 0 cycles, not 16           | L      | Low      |
+| G138| NR 0xA0 bit 3 — Pi I2C-1 routing onto GPIO 2/3 unmodelled  | I2C, NextREG, GPIO               | B   |         | I2C1 wired-AND active even when bit 3 clear                | L      | Low      |
+| G139| I2C 24LCxx EEPROM device unmodelled — only DS1307 attached | I2C                              | B   |         | tbblue config EEPROM reads/writes NACK                     | L      | Low      |
+| G140| Boot ROM overlay: 8 KB → 16 KB mirror at 0x0000-0x3FFF     | MMU, Boot                        | C   |         | Boot-ROM reads at 0x2000-0x3FFF fall through wrongly       | L      | Low      |
+| G143| port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate      | MMU, Port                        | C   |         | NR 0x84 b2 clear still lets EFF7 paging-mode flips land    | L      | Low      |
+| G145| port 0x123B read-back surface absent (returns 0xFF)        | MMU, Layer2, Port                | C,D |         | Software probing L2 control regs reads 0xFF                | L      | Low      |
+| G148| port_dffd_reg_6 not stored — Multiface readback truncated  | MMU, Multiface                   | C   |         | DFFD bit 6 reads back 0; affects Multiface state inspection | L     | Low      |
+| G149| NR write-only registers leak last-written byte on read     | NextREG                          | D   |         | Reads of write-only NRs return last write, not 0x00        | L      | Low      |
+| G150| NR 0xFF write commits ULA/TM palette entry at bf3b-indexed slot | NextREG, Palette            | A   |         | Confirmed observable side-channel for ULA+ legacy palette poke | L  | Low      |
+| G155| NEX loader doesn't honour ram_required field               | NEX loader, RAM                  | C   |         | NEX needing >installed RAM corrupts banks silently         | L      | Low      |
+| G156| NEX loader ignores loading_bar/delay/start_delay/colour    | NEX loader, GUI                  | A   |         | Per-bank loading bar / inter-bank delays unrendered        | M      | Low      |
+| G157| Boot ROM overlay size mismatch silently truncates          | Boot, MMU                        | C   |         | Wrong-sized boot ROM blob silently miscompiles             | L      | Low      |
+| G158| SD card image hot-plug / unmount not exposed at runtime    | SD, GUI                          | C   |         | User cannot swap SD images mid-session                     | L      | Low      |
+| G159| SD card CRC validation absent (CMD0 0x95 hard-coded path)  | SD                               | D   |         | Future CRC-checking tooling silently passes                | L      | Low      |
+| G160| SD CMD13 (SEND_STATUS) returns generic R1 fall-through, not R2 | SD                           | D   |         | Hosts probing card status hang on missing 2nd byte         | L      | Low      |
+| G161| RTC 12h-mode hours register snapshot overwrites bit 6 / AM-PM | RTC                           | B   |         | host snapshot silently flips RTC back to 24h mode          | L      | Low      |
+| G162| NMI iotrap strobe consumed but never propagated to MF assert | NMI Source, NextREG, Port, FDC | C   |         | port_2FFD/3FFD trap path silently silent (FDC NMI dead)    | L      | Low      |
 
-86 entries. Display-affecting rows: 30 (top of table). Non-display: 56.
+162 entries. Display-affecting rows: 53 (top of table). Non-display: 109.
 
 ---
 
@@ -375,6 +451,236 @@ where possible.
 - **Source ref**: `EMULATOR-DESIGN-PLAN.md:1159`.
 - **Effort**: L (gated on cycle-accurate refactor).
 
+### G91. NR 0x44 priority bits 7:6 dropped — L2 priority promotion never fires
+- **What**: VHDL `zxnext.vhd:4920` captures `nr_palette_priority <= nr_wr_dat(7 downto 6)` on NR 0x44 second-write; stored in palette RAM at `:7025` and consumed at `:7039-7050` (`layer2_priority_2 <= layer2_prgb_1(9)`). jnext `palette.cpp:240-252` reads only `val & 0x01` and discards bits 7:6; `renderer.cpp:82` fills `layer2_priority_[]` with `false` every row.
+- **User impact**: any L2 program using palette-bit-9 to promote pixels above sprites/ULA/TM renders with the priority bit as no-op; the compositor's L2-priority branch (`renderer.cpp:289`) is dead in production despite 18+ test rows passing on synthesised inputs.
+- **Source ref**: Wave-1 layer2-lores-compositor (NEW-L2-1); reviewer APPROVE.
+- **Coverage today**: `compositor_test` L2P-01..L2P-18 pass with forced-flag input; no end-to-end L2-44 → renderer flow assertion.
+- **Dependencies**: G93 follows directly (640-mode pixel-doubling).
+- **Effort**: L.
+
+### G92. port 0x123B cpu_do(4)=1 offset mode ignored
+- **What**: VHDL `zxnext.vhd:3914-3923` bifurcates 0x123B writes on `cpu_do(4)`. With bit 4=1, bits 2:0 latch into `port_123b_layer2_offset` and feed `layer2_active_bank_offset` at `:2966-2967`. jnext `mmu.cpp:183-202` has no bit-4 branch; every write is the cpu_do(4)=0 path. Cross-bucket dup with NEW-MMU-3.
+- **User impact**: software using offset-shift workflow (segment + offset writes) overwrites L2 enable/wr_en state, dropping display until base 0x123B re-issued.
+- **Source ref**: Wave-1 layer2 (NEW-L2-2) + Wave-2 memory (NEW-MMU-3); both APPROVE; reviewers note plausible parallax.nex relevance pending disassembly check.
+- **Coverage today**: none.
+- **Dependencies**: G144 (map_shadow bit 3) and G145 (read-back) ship together — same composition formula.
+- **Effort**: L-M.
+
+### G93. Compositor layer2_priority_ not pixel-doubled-aware on native 640
+- **What**: `renderer.cpp:194-201` doubles `layer2_line_` and `layer2_priority_` only inside the `if (!(layer2.enabled() && resolution() >= 2))` branch. In native 640 mode the priority array is neither doubled nor populated — once G91 lands, right-pixel priority will fail.
+- **User impact**: latent until G91 lands; right-pixel artefacts under L2 native 640 + palette priority.
+- **Source ref**: Wave-1 layer2 (NEW-CMP-2); reviewer APPROVE.
+- **Coverage today**: not exercised.
+- **Dependencies**: must land alongside or immediately after G91.
+- **Effort**: L.
+
+### G94. LoRes radastan sub-mode (NR 0x6A) absent — distinct from G01
+- **What**: VHDL `lores.vhd` mode_i='1' selects radastan (128×96 4-bit, dfile via port 0xFF bit 0 XOR `nr_6a_lores_radastan_xor`); NR 0x6A holds radastan/xor/palette_offset (`zxnext.vhd:1203-1205,5032-5034,5456-5458`). jnext: `grep` for `nr_6a|radastan` returns no matches; G01 plan scope omits this surface.
+- **User impact**: radastan-mode programs (niche but real) won't render even after G01 lands.
+- **Source ref**: Wave-1 layer2 (NEW-LR-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: requires G01 / TASK-LORES-PLAN to land first; treat as scope extension within that plan, not standalone.
+- **Effort**: M.
+
+### G95. NR 0x09 bit 4 sprite_tie not wired
+- **What**: VHDL `zxnext.vhd:5187,1123,4352`; `sprites.vhd:60,594-612,653-654` ties NR 0x34 mirror_sprite_q to port 0x303B's attr_index. jnext `emulator.cpp:436-451,1707-1720` set NR 0x09 handlers with no `sprites_.set_mirror_tie(...)`; method does not exist.
+- **User impact**: programs relying on the unified mirror+attr-index path see writes land in the wrong sprite slot.
+- **Source ref**: Wave-1 sprites-tilemap (NEW-SPR-1); reviewer APPROVE.
+- **Coverage today**: G1.AT-11 stub.
+- **Dependencies**: must be implemented together with G96 (VHDL attr_num_change/mirror_num_change interlock).
+- **Effort**: L.
+- Also relevant to section D.
+
+### G96. NR 0x35-0x39 vs 0x75-0x79 increment-semantics divergence
+- **What**: VHDL `zxnext.vhd:4855-4877,4916` — `nr_sprite_mirror_inc <= nr_sprite_mirror_we AND nr_wr_reg(6)`. NR 0x35-0x39 (bit 6=0) MUST NOT increment; NR 0x75-0x79 (bit 6=1) increments after EVERY byte. NR 0x34 doesn't increment. jnext `emulator.cpp:577-580,847-850` dispatches both ranges to same `sprites_.write_attr_byte`, which uses port-0x57-style attr_slot_ and increments only after byte 4 (or byte 3 without extended) — opposite of VHDL.
+- **User impact**: NR-mirror sprite stream lands in wrong slots; 0x75 streams stick on one slot; 0x35-0x39 sees unintended increments.
+- **Source ref**: Wave-1 sprites (NEW-SPR-2) + Wave-2 NextREG (NEW-NR-4 — strict subset, REJECTED for fold). Reviewer APPROVE.
+- **Coverage today**: G1.AT-09/10/12.
+- **Dependencies**: bundle with G95 (attr_num_change/mirror_num_change interlock).
+- **Effort**: M.
+
+### G97. NR 0x19 (sprite clip) and NR 0x1A (ULA clip) read handlers absent
+- **What**: VHDL `zxnext.vhd:5956-5970` — `port_253b_dat` 4-way mux on nr_19_sprite_clip_idx / nr_1a_ula_clip_idx. jnext `emulator.cpp:514-533` registers WRITE only; NR 0x18/0x1B have read handlers (compare `:504-511`/`:548-555`).
+- **User impact**: reads of NR 0x19/0x1A return raw last-write byte, not indexed clip register.
+- **Source ref**: Wave-1 sprites (NEW-SPR-3); reviewer APPROVE — concrete subset of G56.
+- **Coverage today**: subset of G56 systemic.
+- **Dependencies**: copy NR 0x18/0x1B reader pattern; reads must NOT advance idx (matches NR 0x18/0x1B).
+- **Effort**: L.
+- Also relevant to section D.
+
+### G98. Tilemap text-mode RGB transparency check missing
+- **What**: VHDL `zxnext.vhd:7109` — `tm_transparent <= '1' when (tm_pixel_en_2='0') or (tm_pixel_textmode_2='1' and tm_rgb_2(8:1) = transparent_rgb_2) or (tm_en_2='0')`. jnext `renderer.cpp:286` checks alpha=0 only; no NR 0x14 RGB compare; no per-pixel textmode flag (precondition G101).
+- **User impact**: text-mode tilemap pixels with the global-transparent RGB render opaque; ULA does not show through where it should. TM-44/TM-93/TM-94 currently `skip()` for this exact reason.
+- **Source ref**: Wave-1 sprites-tilemap (NEW-TM-1); reviewer APPROVE.
+- **Coverage today**: 3 skip rows; bundle with G101 fix.
+- **Dependencies**: G101 (per-pixel textmode flag).
+- **Effort**: L.
+
+### G99. NR 0x6E / NR 0x6F bit 6 reserved-bit mask missing on read-back
+- **What**: VHDL `zxnext.vhd:6108,6111` — bit 6 forced 0 on read. jnext `tilemap.h:51,55` `get_map_base_raw()` returns raw byte; no NR 0x6E/0x6F read handlers.
+- **User impact**: software validating NR-write by read-back sees bit 6 toggle.
+- **Source ref**: Wave-1 sprites-tilemap (NEW-TM-3); reviewer APPROVE.
+- **Coverage today**: subset of G56.
+- **Dependencies**: 6-line read_handler with mask.
+- **Effort**: L.
+- Also relevant to section D.
+
+### G100. Tilemap per-line scroll snapshot caps at line 320
+- **What**: `tilemap.h:76-87` uses `std::array<uint16_t, 320>` with `if (line >= 0 && line < 320)` guard. Mid-vblank scroll writes (line ≥ 320) silently dropped from snapshot; canonical fix mirrors `SpriteEngine::start_frame` catch-up at `sprites.cpp:119-144`.
+- **User impact**: latent — only matters when a demo DMA-streams NR 0x30/0x31 across vblank.
+- **Source ref**: Wave-1 sprites-tilemap (NEW-TM-7); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: none.
+- **Effort**: L.
+
+### G101. Tilemap pixel_textmode_o flag not exposed to compositor
+- **What**: VHDL `tilemap.vhd:62, 443` exposes `pixel_textmode_o`; consumed at `zxnext.vhd:7072,7109`. jnext `Tilemap` keeps `text_mode_` as a global flag (`tilemap.h:138`), no per-pixel emission; `renderer.h:188` has only `tm_pixel_below_`.
+- **User impact**: precondition for G98; without the flag, mid-frame text/standard mode mix via Copper NR 0x6B can't be honoured per-pixel.
+- **Source ref**: Wave-1 sprites-tilemap (NEW-TM-8); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: bundle with G98.
+- **Effort**: L.
+
+### G102. ULAnext (NR 0x42/0x43 b0) palette-encoding runtime renderer integration absent
+- **What**: VHDL `zxula.vhd:485-528` with `i_ulanext_en='1'` produces 8-bit ula_pixel; `zxnext.vhd:6981` low 8 bits of a 10-bit palette read. jnext `ula.cpp:386-423` has the pure encoder (S6.01-S6.12 pass) but `render_display_line/_hicolour/_hires` never invoke it; `kUlaPalette` is 16 entries.
+- **User impact**: every ULAnext-aware program sees plain 16-colour output.
+- **Source ref**: Wave-1 ula-timing-fbus (NEW-ULA-1); reviewer APPROVE.
+- **Coverage today**: encoder unit-tested; runtime path absent.
+- **Dependencies**: shares palette-store widening (16→256 × 2 banks) with G103/G105; consider unified plan; touches G66 save-state schema.
+- **Effort**: H.
+
+### G103. ULA+ (port 0xBF3B/0xFF3B) palette-encoding runtime path absent
+- **What**: VHDL `zxula.vhd:531-541` `i_ulap_en='1'` 8-bit pixel with bits[7:6]="11"; `zxnext.vhd:4525-4538` `port_bf3b_ulap_index` (low 6 bits when mode_group="00"). jnext `ula.cpp:75` has encoder (S7.01-S7.06 pass); `emulator.cpp:1937-1941` writes only `set_ulap_mode(top 2 bits)` — index stub.
+- **User impact**: ULA+ programs cannot drive their 64-entry palette window; index writes silently discarded.
+- **Source ref**: Wave-1 ula (NEW-ULA-2); reviewer APPROVE.
+- **Coverage today**: encoder unit-tested; runtime path absent.
+- **Dependencies**: shares infrastructure with G102/G105.
+- **Effort**: M.
+
+### G104. HI_RES (Timex 512×192) renders at 256 px (half-resolution)
+- **What**: VHDL `zxula.vhd:389-395` shift_reg_32 untouched in hi-res (14 MHz pixel clock when `screen_mode(2)='1'`). jnext `ula.cpp:646+` discards every alternate hi-res pixel; comment at `:635-640` documents the 256-pixel approximation.
+- **User impact**: Timex hi-res text/programs render at half horizontal resolution; 512-column text becomes unreadable.
+- **Source ref**: Wave-1 ula (NEW-ULA-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: requires compositor-level FB-width / scaling decision (orthogonal to G18 screenshot scaling).
+- **Effort**: M-H.
+
+### G105. HI_RES 6-bit border palette-group encoding not modelled
+- **What**: VHDL `zxula.vhd:419` `border_clr_tmx <= "01" & (not i_port_ff_reg(5:3)) & i_port_ff_reg(5:3)` — 6-bit field with paper-bits-inverted-then-concatenated. jnext `ula.cpp:710-712` takes `(screen_mode_reg_ >> 3) & 0x07` only.
+- **User impact**: HI_RES border colour wrong when ULAnext/ULA+ palette quadrant entries differ from the 0x00-0x07 row.
+- **Source ref**: Wave-1 ula (NEW-ULA-4); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: cheap once G102/G103 land.
+- **Effort**: L.
+
+### G106. Line-interrupt scheduler off-by-one + target=0 wrap not applied
+- **What**: VHDL `zxula_timing.vhd:563-583`: `int_line_num = c_max_vc` when `i_int_line=0`; else `target-1`; pulse on `(hc_ula==255) and (cvc==int_line_num)`. jnext `emulator.cpp:2540-2550` schedules at `frame_cycle + line_int_value_ * master_cycles_per_line` with no transform — helper `VideoTiming::int_line_num()` exists at `timing.h:178-186` but is never read.
+- **User impact**: line interrupts fire one full line late; target=0 silently misfires at frame top instead of `c_max_vc` (last line).
+- **Source ref**: Wave-1 ula (NEW-ULA-5); reviewer APPROVE — high impact.
+- **Coverage today**: G71 reframes from "academic cleanup" to user-visible bug.
+- **Dependencies**: shares fix with G71 / G107.
+- **Effort**: L.
+
+### G107. ULA-frame-interrupt scheduler ignores per-machine c_int_h / c_int_v
+- **What**: VHDL `zxula_timing.vhd:155 (Pentagon),:189 (+3),:233 (60 Hz),:265 (48K)` give different (hc,vc) per machine. jnext `emulator.cpp:2523` uses `tstates_per_line * 8` machine-blind. `VideoTiming::int_position()` correct but unused by scheduler.
+- **User impact**: Pentagon/+3 frame-INT off-position by ≤1 line; T-state-counted demos misalign.
+- **Source ref**: Wave-1 ula (NEW-ULA-6); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: shares fix with G71 / G106.
+- **Effort**: L.
+
+### G108. NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg fan-out absent
+- **What**: VHDL `zxnext.vhd:3617-3622` writes `port_ff_reg(5:0)` from NR 0x69 bits 5:0; `port_ff_reg(6)` from NR 0x22 b2; `port_ff_reg(6)` from `not nr_wr_dat(0)` on NR 0xC4. jnext `emulator.cpp:888-890` only forwards bit 7 of NR 0x69; NR 0xC4 handler comment at `:983` is wrong vs VHDL. Self-flagged at `:3196-3199`.
+- **User impact**: software setting Timex screen mode via NR 0x69 sees no effect; ULA-int-disable via NR 0xC4 b0 silent.
+- **Source ref**: Wave-1 layer2 (NEW-CMP-1) + Wave-1 ula (NEW-ULA-7) + Wave-2 NextREG (NEW-NR-2). Three reports, same gap.
+- **Coverage today**: none; comment fix needed at `emulator.cpp:983`.
+- **Dependencies**: respect VHDL priority — port-FF write wins over NR-side mirror.
+- **Effort**: L.
+- Also relevant to section C.
+
+### G109. NR 0x64 cu_offset not applied to line-int comparison
+- **What**: VHDL `zxula_timing.vhd:577` compares against `cvc` (offset-adjusted Copper VC, reload from `'0' & i_cu_offset` at `:455-466`). jnext `emulator.cpp:2540-2550` schedules at raw `vc`. Copper internal compares are correct.
+- **User impact**: NR 0x64 ≠ 0 + line-IRQ raster split misaligned.
+- **Source ref**: Wave-1 ula (NEW-ULA-8) + Wave-1 copper (NEW-COP-2). Cross-bucket dup; same gap.
+- **Coverage today**: none.
+- **Dependencies**: shares scheduler refactor with G106/G107.
+- **Effort**: L.
+
+### G116. NR 0x61 / NR 0x62 Copper read handlers absent
+- **What**: VHDL `zxnext.vhd:6083-6087` returns nr_copper_addr / mode + addr_msb. jnext `Copper::read_reg_0x61/0x62` exist (`copper.h:76-79`, `copper.cpp:238-244`) but `emulator.cpp:635-644` registers no read handlers; reads fall through to regs_[].
+- **User impact**: Copper development tools / NextDoc API see stale data for nr_copper_addr.
+- **Source ref**: Wave-1 copper (NEW-COP-1); reviewer APPROVE.
+- **Coverage today**: subset of G56 pattern but local 2-line wiring.
+- **Dependencies**: cheap.
+- **Effort**: L.
+- Also relevant to section D.
+
+### G117. Copper executes per Z80 instruction, not per 28 MHz cycle
+- **What**: VHDL `device/copper.vhd:54-119` runs at `i_CLK_28` rising edge — at most one MOVE/WAIT advance per 28 MHz cycle. jnext `copper.cpp:75-155` is called once per Z80 instruction (`emulator.cpp:2791-2797,2991-2996`). Dense Copper bursts in a single instruction window collapse to one step.
+- **User impact**: tilemap-class effects with 32 MOVEs/scanline run as if 32× slower; documented as a contributor to parallax.nex visual divergence.
+- **Source ref**: Wave-1 copper (NEW-COP-3); reviewer APPROVE — distinct from G65.
+- **Coverage today**: PARALLAX-NEX-INVESTIGATION.md hypothesis.
+- **Dependencies**: cross-link with G65 (NR-write priority); under fully cycle-accurate scheduler the two converge.
+- **Effort**: M-H.
+
+### G118. Copper instruction RAM cleared on soft reset (VHDL preserves)
+- **What**: VHDL `zxnext.vhd:3959-3996` — `copper_inst_msb_ram` / `copper_inst_lsb_ram` are dpram2 with no reset port; only `nr_copper_addr` and `nr_62_copper_mode` cleared. jnext `copper.cpp:51-52` calls `instructions_.fill(0)` on reset.
+- **User impact**: soft-reset menus that re-run a Copper program implicitly lose the payload; software must re-load.
+- **Source ref**: Wave-1 copper (NEW-COP-4); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: remove `instructions_.fill(0)` from reset.
+- **Effort**: L.
+
+### G132. F-key state machine + 50-60/cpu-speed/scandouble hotkey edge model absent
+- **What**: VHDL `input/membrane/emu_fnkeys.vhd:53-202` 7-state FSM consuming i_button_m1_n / i_button_reset_n + membrane → `o_fnkeys[10:1]`. jnext: `grep` for `i_SPKEY_FUNCTION`/`emu_fnkeys` returns no hits; only F9/F10 NMI source pulses wired.
+- **User impact**: pressing host-mapped F1/F2/F3/F4/F7/F8 does nothing emulator-side (GUI menus provide equivalents — power-user/kiosk loss).
+- **Source ref**: Wave-2 input (NEW-KB-2); reviewer APPROVE — Display=Y (F2 scandouble + F3 50/60 + F7 scanline weight).
+- **Coverage today**: none.
+- **Dependencies**: distinct from G125 / G147 / G152 (those are NR-side / host-key dispatch).
+- **Effort**: M.
+- Also relevant to section B.
+
+### G144. port 0x123B map_shadow bit 3 — read/write-over uses wrong bank
+- **What**: VHDL `zxnext.vhd:2968` selects `nr_13_layer2_shadow_bank` when `port_123b_layer2_map_shadow='1'`. jnext `mmu.cpp:183-202` records active bank only; `mmu.h:141-156` reads `l2_bank_` always.
+- **User impact**: L2 double-buffering via 0x123B bit-3 (instead of NR 0x12/0x13 swap) writes wrong bank.
+- **Source ref**: Wave-2 memory-mmu (NEW-MMU-4); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: bundle with G92, G145.
+- **Effort**: L.
+
+### G146. port_fd_conflict_wr — Soundrive Mode 2 vs paging-port write conflict
+- **What**: VHDL `zxnext.vhd:2708,2718-2720` suppresses port_7ffd/dffd/1ffd writes when port_f1/f9 + Soundrive SD2 active. jnext paging handlers don't consult Soundrive SD2 state.
+- **User impact**: Soundrive Mode 2 + 0xF1FD/0xF9FD writes reapply paging that VHDL would suppress.
+- **Source ref**: Wave-2 memory (NEW-MMU-6); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: gated by NR 0x84 bit 1 (`port_dac_sd2_ABCD_*_io_en`).
+- **Effort**: L.
+
+### G147. F8/F3/F5/F6 host hotkeys to NR 0x07 / 50-60 / expbus unwired
+- **What**: VHDL `zxnext.vhd:5790-5791,6342-6347` increments `nr_07_cpu_speed` from F8; F3 toggles 50/60Hz; gated by `nr_06_hotkey_*_en`. jnext: searched `src/input/` — no hotkey path; only F1 hard-reset.
+- **User impact**: users have no in-emulator way to cycle CPU speed / 50-60 / scandouble (GUI menu provides equivalents).
+- **Source ref**: Wave-2 memory (NEW-MMU-7); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G125 (NR 0x06 storage) and G132 (FSM); this is host-side dispatch.
+- **Effort**: M.
+
+### G150. NR 0xFF write commits ULA/TM palette entry at bf3b-indexed slot
+- **What**: VHDL `zxnext.vhd:6957`: `nr_ulatm_we <= (nr_palette_we and not (nr_43_palette_write_select(1) xor sel(0))) or nr_ff_we`. NR 0xFF writes the ULA/TM palette RAM at `(0, sel(2), 1, 1, port_bf3b_ulap_index)` with the value derived from `nr_wr_dat`. jnext: no NR 0xFF write_handler; `regs_[0xFF]` storage only.
+- **User impact**: ULA+ legacy palette poke side-channel silent.
+- **Source ref**: Wave-2 NextREG (NEW-NR-5); reviewer APPROVE WITH REVISION (drop "may be cargo-cult" hedge — confirmed observable).
+- **Coverage today**: none.
+- **Dependencies**: G102/G103 palette infrastructure.
+- **Effort**: L.
+
+### G156. NEX loader ignores loading_bar/loading_delay/start_delay/colour
+- **What**: NEX V1.1+ spec — fields at offsets 130/132/133 control per-bank progress bar + inter-bank delays in 50 Hz frames. jnext `nex_loader.cpp:89-92` parses but ignores.
+- **User impact**: NEX files authored with visible loading bar render instantly; cosmetic.
+- **Source ref**: Wave-2 nmi-boot-sd-rtc (NEW-BOOT-4); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: per-bank scheduler + on-screen bar render.
+- **Effort**: M.
+
 ---
 
 ## B. End-user emulation experience — Audio, I/O & peripherals
@@ -559,6 +865,18 @@ where possible.
 - **Proposed**: parallel (a) firmware-faithful — model
   `divmmc.vhd:131` properly + remove RETN-alias band-aid + RAM-loop
   RE; (b) **G59 bypass** ships value sooner.
+- **G153 plausibility (Task 6 / NEW-NMI-2)**: Reviewer note —
+  NR 0x02 reset_type FSM affects SPI-Flash-CS at first power-on
+  (`port_e7_reg <= 0x7F` requires `reset_type(2)='1' OR
+  config_mode='1'`). `--boot-rom roms/nextboot.rom` flow bypasses
+  the FPGA-Flash path entirely, so plausibility is **moderate, not
+  "likely"**. Schedule a port-0xE7-write trace at the G46 stall
+  window before promoting G153 to G46 contributor.
+- **NEW-I2C-2 link explicitly DROPPED**: Task 6 Serial reviewer
+  confirmed via TBBlue firmware source + boot investigation doc that
+  24LCxx EEPROM-NACK does NOT contribute to G46(b) RAM-test loop.
+  The corresponding new gap (G139) is scheduled as standalone I2C
+  peripheral coverage, NOT as a G46 unblocker.
 - **Effort**: H.
 
 ### G47. NextZXOS post-boot regression / dot-command surface
@@ -585,7 +903,188 @@ where possible.
 - **Source ref**: `TASK-8-MULTIFACE-PLAN.md`.
 - **Proposed**: execute Task 8 plan §5 (Branches B/E/F); add Edit→NMI
   GUI affordance + F-key.
+- **Implementation surface (Task 6 audit)** — `multiface.vhd` 197-line
+  peripheral entity + `zxnext.vhd:2611-2616, 2730-2733, 4277-4322`
+  integration. Concretely: mode-decoded port table per
+  `nr_0a_mf_type` (MF +3=00 ports 0x3F/0xBF; MF 128=01/10 ports
+  0xBF/0x3F; MF 48=11 ports 0x9F/0x1F); `mf_a_0066`/`mf_is_active`/
+  `mf_mem_en`/`mf_port_en` signals; `port_io_dly` edge detector
+  (`multiface.vhd:122-131`); INVISIBLE FF (`:152-163`); MF +3-only
+  port 0x1FFD/0x7FFD readback mux on `cpu_a(15:12)`
+  (`zxnext.vhd:4310-4322`).
+- **NR 0x0A bits 7:6 plumbing (Task 6 / NEW-MF-2)** — `nr_0a_mf_type
+  <= nr_wr_dat(7 downto 6)` (`zxnext.vhd:5193`); jnext
+  `emulator.cpp:447-451` does not forward; comment at line 446 admits
+  the gap. Land in the same patch as G123 (NR 0x0A bit 4 plumbing).
+- **NR 0x0A bit 4 plumbing** — covered by G123 separately; land
+  together since both are NR 0x0A handler extensions.
+- **DivMMC RETN-seen gating (Task 6 / NEW-DM-3)** — VHDL
+  `zxnext.vhd:4111`: `divmmc_retn_seen <= z80_retn_seen_28 and not
+  mf_is_active`. jnext `emulator.cpp:275-283` fires
+  `divmmc_.on_retn()` unconditionally. Once Multiface lands, a
+  Multiface NMI handler issuing RETN would spuriously clear DivMMC's
+  automap_held / button_nmi latches — track as **Day-1 invariant**
+  for G48 closure.
+- **port 0xDFFD bit 6 storage (Task 6 / G148 sibling)** — Multiface
+  readback at `zxnext.vhd:4314` consumes `port_dffd_reg_6` which
+  jnext discards (`mmu.cpp:332`). G148 is the MMU-side fix; surface
+  it here so Multiface readback is correct on first landing.
+- **+3 readback decode on cpu_a(15:12)** —
+  `zxnext.vhd:4310-4322` `mf_port_dat` mux conditional on `mf_mode`;
+  jnext currently has no port-prefix-decoded MF read path.
 - **Effort**: M.
+
+### G110. audio_mixer.exc_i speaker-exclusive gate not enforced
+- **What**: VHDL `audio/audio_mixer.vhd:80-81` `ear/mic <= … when … and exc_i='0'`. `zxnext.vhd:6504/6514` ties `beep_spkr_excl` (NR 0x06 b6 AND NR 0x08 b4) into `exc_i`. jnext `mixer.cpp:28-29` adds EAR/MIC unconditionally; `Emulator::beep_spkr_excl()` exposed but Mixer never reads it.
+- **User impact**: in speaker-only mode (NR 0x06 b6 + NR 0x08 b4 set) line-out doubles vs hardware.
+- **Source ref**: Wave-1 audio (NEW-AUD-1); reviewer APPROVE 6/6.
+- **Coverage today**: BP-13 / MX-22 verify the signal at composite level only.
+- **Dependencies**: const-ref pattern matching `Mixer::set_i2s_source()`.
+- **Effort**: L.
+
+### G111. DAC channels not held at 0x80 when nr_08_dac_en=0
+- **What**: VHDL `audio/soundrive.vhd:69-78`+`zxnext.vhd:6436` (`reset_i => reset or not nr_08_dac_en`) — DAC channels latch to 0x80 while disabled. jnext `emulator.cpp:1674` only sets `dac_enabled_` flag; per-port handlers gate writes but never reset existing values.
+- **User impact**: DAC-disable leaves residual non-silent level instead of falling to silence.
+- **Source ref**: Wave-1 audio (NEW-AUD-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: literal `dac_.reset()` on 1→0 transition.
+- **Effort**: L.
+
+### G112. NR 0x2C/0x2D/0x2E read-back exposes Pi I2S input
+- **What**: VHDL `zxnext.vhd:6006-6015` — reads return `pi_audio_L/R(9 downto 2)` and latch the low 2 bits into nr_2d_i2s_sample. jnext `emulator.cpp:1722-1739` wires only write handlers (DAC mirrors); reads return regs_[] noise.
+- **User impact**: Z80 polling NR 0x2C/2E to capture I2S samples reads garbage.
+- **Source ref**: Wave-1 audio (NEW-AUD-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G29 (source-side stub).
+- **Effort**: L.
+
+### G113. NR 0xA2 Pi I2S control register completely unwired
+- **What**: VHDL `zxnext.vhd:1242,2283-2290,5564,6192` — NR 0xA2 stores 8 bits with bit fan-out (enL/enR/inout/muteL/muteR/ear). `grep` over `src/` returns no NR 0xA2 wiring.
+- **User impact**: mute/direction/channel-enable bits never gate the Mixer's I2S contribution; readback returns 0.
+- **Source ref**: Wave-1 audio (NEW-AUD-4); reviewer APPROVE with cross-ref to G73.
+- **Coverage today**: none.
+- **Dependencies**: standalone fix; G73 broader runtime.
+- **Effort**: L.
+
+### G114. NR 0x84 DAC-port-pair enables (5 of 7 bits) not enforced
+- **What**: VHDL `zxnext.vhd:2429-2435` 7-bit DAC-port-pair enable mask. jnext `emulator.cpp:1500-1567` honours bits 0/2/5 only; bits 1/3/4/6/7 ignored.
+- **User impact**: NR 0x84 port-pair masks have no effect; DAC writes hit even when masked.
+- **Source ref**: Wave-1 audio (NEW-AUD-5); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: orthogonal to G31 (per-clock priority).
+- **Effort**: L.
+
+### G115. TurboSound::reset() over-clears NR 0x08/0x09 state on AY reset
+- **What**: VHDL `audio/turbosound.vhd:118-138` synchronous reset clears only `ay_select`/`pan`; enabled/stereo_mode/mono_mode are external NR-driven inputs. jnext `turbosound.cpp:10-20` zeroes all five fields. NR 0x06 psg_mode=11 path calls `turbosound_.reset()` unconditionally.
+- **User impact**: psg_mode=11 toggle loses NR 0x08 b1 (turbosound_en), b5 (ABC/ACB), and NR 0x09 mono settings.
+- **Source ref**: Wave-1 audio (NEW-AUD-6); reviewer APPROVE.
+- **Coverage today**: none; recommend assertion test.
+- **Dependencies**: split TurboSound::reset() into full vs ay-only.
+- **Effort**: L.
+
+### G126. NR 0x05 mode change does not propagate to MembraneStick
+- **What**: VHDL `membrane_stick.vhd:117-149` joy_type drives keymap-region selector. jnext `emulator.cpp:456-458` forwards NR 0x05 to `joystick_.set_nr_05(v)` only; `MembraneStick::set_mode()` never called from production. `joystick.cpp:26-50` has no MembraneStick reference.
+- **User impact**: switching joy modes via NR 0x05 doesn't redirect membrane fold; joy0 inputs vanish from membrane while joy1 keeps default mapping.
+- **Source ref**: Wave-2 input (NEW-JOY-1); reviewer APPROVE — High priority.
+- **Coverage today**: tests use `MembraneStick::set_mode()` directly.
+- **Dependencies**: internal cross-link, distinct from G42 host wiring.
+- **Effort**: L.
+
+### G127. NR 0x05 User-Defined + NR 0x28-0x2B joymap programming absent
+- **What**: VHDL `zxnext.vhd:5157` `"111"` user-defined; `:6294-6324` NR 0x28-0x2B keymap_sel + addr + data write process; `membrane_stick.vhd:172-183` SDP-RAM for User-Defined keymap loaded from `keyjoy_64_6.coe`. jnext: no NR 0x28/0x29/0x2A/0x2B handlers; `membrane_stick.cpp:101-104` flags "111" as no-op.
+- **User impact**: NextZXOS Joystick Calibration tool / homebrew custom remap silently has no effect.
+- **Source ref**: Wave-2 input (NEW-JOY-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G64 (PS/2 keymap WONT).
+- **Effort**: M (SDP-RAM analogue + COE → C++ converter risk).
+
+### G128. port 0x37 missing NR 0x82 bit-7 io_en gate
+- **What**: VHDL `zxnext.vhd:2408,2675` gates port 0x37 on `port_37_io_en <= internal_port_enable(7)`. jnext `emulator.cpp:1877-1879` registers handler with no `cached(0x82) & 0x80` check; mirror of 0x1F at `:1871-1876`.
+- **User impact**: NR 0x82 b7 clear still returns joystick byte on port 0x37.
+- **Source ref**: Wave-2 input (NEW-JOY-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: one-line gate.
+- **Effort**: L.
+
+### G129. port_1f_hw_en / port_37_hw_en mode-conditional decode missing
+- **What**: VHDL `zxnext.vhd:2454-2455,2674-2675` — `port_1f_hw_en <= joyL_1f_en or joyR_1f_en` only when joy mode is Kempston1/MD3Left. jnext `joystick.cpp:99-103` documents floating-bus headline but the gate is bit-6 io_en, not mode-conditional hw_en.
+- **User impact**: port 0x1F when both joys are Sinclair2/Cursor returns 0x00 (no-buttons Kempston) instead of floating bus 0xFF; "Is Kempston attached?" probes get the WRONG answer.
+- **Source ref**: Wave-2 input (NEW-JOY-4); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G42.
+- **Effort**: L.
+
+### G130. Kempston-mouse port_1f alias (Soundrive DAC override) missing
+- **What**: VHDL `zxnext.vhd:2674` enables the port_1f path also via port_df_lsb when `port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0`. jnext `emulator.cpp:1563-1567` registers the 0xDF read but returns 0x00 unconditionally.
+- **User impact**: Pentagon/ATM Soundrive 1.05 reads of 0xDF (Kempston joy when mouse disabled) return 0x00.
+- **Source ref**: Wave-2 input (NEW-MS-1); reviewer APPROVE WITH NIT (also gated on Kempston1 mode).
+- **Coverage today**: none.
+- **Dependencies**: niche.
+- **Effort**: L.
+
+### G133. Keyboard tick_scan + cancel_extended_entries not driven from production
+- **What**: VHDL `membrane.vhd:178-191` — matrix_state_ex_0/1 advance every membrane scan-cycle. jnext `keyboard.cpp:312/334` defines `tick_scan()` / `cancel_extended_entries()` but production `emulator.cpp` does not invoke them.
+- **User impact**: 1-scan shift hysteresis edge cases differ; cancel-extended-entries hook unreachable until G48 lands.
+- **Source ref**: Wave-2 input (NEW-KB-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: tick call per frame.
+- **Effort**: L.
+
+### G134. UART RX request-mask asymmetry not modelled
+- **What**: VHDL `zxnext.vhd:1941-1944`: `uart0/1_rx_near_full or (uart0/1_rx_avail and not nr_c6_int_en_2_*(1))`. jnext `uart.cpp:626-630` fires on every byte unconditionally; `im2.cpp:383-392` ORs mask in enable path only, not request shape.
+- **User impact**: NR 0xC6=0x20 (near-full only) sees spurious per-byte interrupts.
+- **Source ref**: Wave-2 serial (NEW-UART-1); reviewer APPROVE.
+- **Coverage today**: none; distinct from G39/G72.
+- **Dependencies**: small request-mask refactor.
+- **Effort**: L.
+
+### G135. NR 0xA0 Pi peripheral enable bits not honoured
+- **What**: VHDL `zxnext.vhd:1241,2278-2281,5080`: `pi_uart_en <= bit(4)`, `pi_i2c1_en <= bit(3)`, `pi_uart_rxtx <= bit(5)`, etc. Reset default 0x00 → all off. jnext: no NR 0xA0 handler; UART1/I2C1/SPI0 routing always on.
+- **User impact**: probes for "is Pi attached?" inconsistent; benign on default boots.
+- **Source ref**: Wave-2 serial (NEW-UART-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G39 (AT bridge), G72 (pin-7), G73 (I2S).
+- **Effort**: L.
+
+### G136. SPI Flash CS (cpu_do=0x7F) ignored — config-mode-gated select absent
+- **What**: VHDL `zxnext.vhd:3315-3320`: `cpu_do=0x7F AND (config_mode='1' OR reset_type(2)='1')` → port_e7_reg=0x7F → spi_ss_flash_n asserted. jnext `spi.cpp:73-77` literally documents the omission ("Flash select … not modelled at this level"); cpu_do=0x7F → decoded=0xFF (all-deselected).
+- **User impact**: NextZXOS firmware reading core-loader flash gets all 0xFF; firmware-update tooling fails.
+- **Source ref**: Wave-2 serial (NEW-SPI-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: needs Flash device backend (even all-0xFF stub).
+- **Effort**: M.
+
+### G137. SPI master o_spi_wait_n (DMA wait) not surfaced
+- **What**: VHDL `serial/spi_master.vhd:56,177` `o_spi_wait_n <= state_idle or state_last_d` consumed by DMA at `zxnext.vhd:3297` (16-cycle separation). jnext `spi.cpp:99-127` byte exchange instantaneous; no wait_n accessor.
+- **User impact**: DMA-via-SPI loaders complete in 0 cycles instead of ~16; cycle-accurate timing wrong for SD-via-DMA.
+- **Source ref**: Wave-2 serial (NEW-SPI-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G50/G51 (CPU contention).
+- **Effort**: L.
+
+### G138. NR 0xA0 bit 3 — Pi I2C-1 routing onto GPIO 2/3 unmodelled
+- **What**: VHDL `zxnext.vhd:2280, 2309-2318` — `pi_i2c1_en <= nr_a0_pi_peripheral_en(3)` gates GPIO mux. jnext `i2c.cpp:171-185` has the AND-gate but no NR 0xA0 wiring.
+- **User impact**: I2C1 wired-AND active even when bit 3 clear; dormant today (no Pi).
+- **Source ref**: Wave-2 serial (NEW-I2C-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: subset of G135 register but separable.
+- **Effort**: L.
+
+### G139. I2C 24LCxx EEPROM device unmodelled — only DS1307 attached
+- **What**: I2C bus is bit-banged; tbblue board attaches both DS1307 RTC at 0x68 and a 24LC256 EEPROM (typical 0x50/0x57) for tbblue config. jnext `i2c.cpp` only registers `I2cRtc`; no EEPROM device class.
+- **User impact**: tbblue firmware paths reading the 24LC256 see NACK; degraded-mode boot.
+- **Source ref**: Wave-2 serial (NEW-I2C-2); reviewer REVISE — drop G46 link, drop priority Low.
+- **Coverage today**: none.
+- **Dependencies**: standalone peripheral coverage gap; not currently a confirmed G46 contributor.
+- **Effort**: L.
+
+### G161. RTC 12h-mode hours register snapshot overwrites bit 6 / AM-PM
+- **What**: DS1307 12h-mode (bit 6=1) requires AM/PM bit 5 in hours register. jnext `i2c.cpp:111` writes `regs_[2] = to_bcd(t->tm_hour)` unconditionally — every `start()` snapshot overwrites the 12h-mode bit + AM/PM bit.
+- **User impact**: software polling RTC in 12h mode silently sees 24h-mode encoding after each snapshot.
+- **Source ref**: Wave-2 nmi-boot-sd-rtc (NEW-RTC-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: tiny branch on `mode_12h_`.
+- **Effort**: L.
 
 ---
 
@@ -647,23 +1146,63 @@ where possible.
 - **Effort**: L.
 
 ### G55. NR 0xD8 IO-trap (FDC NMI source) — stub
-- **What**: `src/peripheral/nmi_source.h:117,279` strobe stub; no
-  test row. VHDL `zxnext.vhd:3830-3872` (`nmi_gen_iotrap`).
+- **What**: NR 0xD8/D9/DA FDC IO-trap surface — comprehensive, not just the
+  NR 0xD8 enable bit. VHDL `zxnext.vhd:3866-3898, 6268-6272`:
+  `nr_d8_io_trap_fdc_en` enables the trap; `nr_d9_iotrap_write` reads
+  back the CPU write data on the trapped port; `nr_da_iotrap_cause`
+  is a 2-bit field encoding which trap fired (01=2FFD-rd, 10=3FFD-rd,
+  11=3FFD-wr); composed into NR 0x02 bit 4 (`nr_02_iotrap`). jnext:
+  no NR 0xD8/D9/DA write or read handlers; `NmiSource::strobe_iotrap()`
+  exists but `iotrap_strobe_pending_` is consumed and never propagated
+  to `nmi_assert_mf` (Task 6 audit / NEW-NMI-3, tracked as G162 — pair
+  with G55 in one patch). NR 0x02 bit 4 always zero (per G153 missing
+  reset_type FSM).
 - **User impact**: +3 floppy-trap NMI edge (rare).
+- **Pairing**: G55 + G162 (runtime dead-end on iotrap_strobe_pending_)
+  land in one patch. Both required for FDC NMI path to fire.
 - **Effort**: L.
 
 ### G56. NextReg `regs_[]` shadow-store systemic bug
-- **What**: `NextReg::write` (`src/port/nextreg.cpp:114`) stores
-  raw 8-bit value pre-handler-dispatch. Handlers that mask bits do
-  not propagate the mask. Reads return raw byte → disagrees with
-  VHDL `port_253b_dat`. Fixed locally for NR 0x12/0x13; likely
-  affects NR 0x09/0x0A/0x15/0x22/0x23/0x34. Verified — no
-  `SCHEMA_VERSION` / per-NR read-handler scaffolding for these regs.
-  Subset for NR 0x03 machine-type latch (separate concern).
+- **What**: `NextReg::write` (`src/port/nextreg.cpp:114`) stores the raw 8-bit
+  pre-handler-dispatch byte. Handlers that mask write bits do NOT
+  propagate the mask to `regs_[]`. Reads return the raw byte for any
+  NR without a `set_read_handler`. The Task 6 Wave 2 audit of all
+  ~110 NR read-mux entries (`zxnext.vhd:5878-6289`) vs the ~36
+  read-handlers in jnext today identifies the divergent set:
+
+  NR **0x05** (line 5897 — joy0/joy1/scandouble/5060 interleaved with
+  `eff_*` overlays); NR **0x06** (5900 — psg_mode + hotkey enables);
+  NR **0x09** (5909); NR **0x0A** (5912); NR **0x0B** (5915); NR
+  **0x10** (5924); NR **0x15** (5939); NR **0x22** (5992 — bit 7
+  dynamic pulse_int_n); NR **0x23**; NR **0x34**; NR **0x40** (6035 —
+  palette idx with autoinc state); NR **0x43** (6044); NR **0x4C**
+  (6056 — bits 7:4 always 0); NR **0x68** (6093 — bit 4 from
+  port_ff3b_ulap_en, NOT NR 0x68 bit 4); NR **0x69** (6096 — bit 6
+  from port_7ffd_shadow, bits 5:0 from port_ff_reg(5:0)); NR **0x6A**
+  (6098); NR **0x6B** (6101 — bit 7 from nr_6b_tm_en); NR **0x6C**
+  (6104); NR **0x6E** (6107 — bit 6 always 0); NR **0x6F** (6110 —
+  bit 6 always 0); NR **0x70** (6113 — bits 7:6 always 0); NR **0x71**
+  (6116 — bits 7:1 always 0); NR **0x80** (6122); NR **0x81** (6125 —
+  bit 7 from i_BUS_ROMCS_n, bit 2 always 0). At least 16 confirmed
+  divergences; possibly more once palette autoinc + dynamic
+  pulse_int_n are factored. Two NR 0x6E/0x6F sub-rows are tracked as
+  the concrete G99 (reserved-bit mask). The discrete two-register
+  NR 0x19/0x1A read-handler pattern is tracked as G97 (not part of
+  G56 fix).
 - **Source ref**: memory `project_systemic_nextreg_shadow_store.md`.
 - **Proposed**: per-register read_handlers (low risk, opportunistic)
   OR systemic NextReg::write rework (higher blast radius). Add VHDL-
   oracled read-back rows to `nextreg_test.cpp`.
+- **Design fork (Task 6 audit / Open Q3)**: two implementation
+  strategies are viable —
+  (a) **Per-NR read_handlers** (current pattern from NR 0x12/0x13/
+      0x07/0x08/0xC4): replicate ~16 lambdas pulling from the
+      authoritative subsystem mirror. Localised; low blast radius;
+      pattern already proven.
+  (b) **Re-architect `NextReg::write`**: route handler-returned masked
+      value into `regs_[]` so reads of unhandled NRs see the masked
+      state. Higher blast radius but solves any future NR additions
+      without per-NR work. User to decide; (a) recommended near-term.
 - **Effort**: M.
 
 ### G57. MMU `current_rom_bank()` — three documented gaps
@@ -740,6 +1279,14 @@ where possible.
   priority on same-28-MHz-cycle NR writes with CPU deferred. JNEXT
   serialises — priority implicit in tick-loop order, not enforced.
   ARB-01/02/03 tests order stimulus manually.
+- **Cross-link (Task 6 audit / G117)**: G117 — *Copper executes per
+  Z80 instruction, not per 28 MHz cycle* — describes a distinct but
+  related defect. G65 assumes both surfaces are clocked but quibbles
+  over who wins the bus on a tied edge. G117 is about granularity:
+  the Copper does not execute often enough at all, regardless of CPU
+  writes. The two converge under a true cycle-accurate Copper
+  scheduler; for now keep both entries — if a single cycle-accurate
+  refactor lands them, they may be `[merged]`-style closed together.
 - **Effort**: H (cycle-accurate scheduler refactor).
 
 ### G66. Save-state schema versioning + per-subsystem framing [merged C20+D01+D02]
@@ -784,6 +1331,216 @@ where possible.
   leaning unless a user asks.
 - **Effort**: H if pursued.
 
+### G87. IM2 RETI/RETN decoder cannot see ED-prefix second byte
+- **What**: VHDL `device/im2_control.vhd:158-209,233-238` requires `ifetch_fe_t3` per M1-fetched byte (incl. ED 0x4D / 0x45 follow-byte). jnext `Z80Cpu::on_m1_cycle` fires once per `execute()` with the FIRST byte (`z80_cpu.cpp:388,418`); decoder enters S_ED_T4 on ED but next call carries first byte of the next instruction. `Im2Controller::advance_decoder` (`im2.cpp:531-595`) never sees real RETI/RETN; spurious pulses on `LD C,A`/`LD B,L` after any ED-prefix.
+- **User impact**: latent today (default pulse mode early-returns at `im2.cpp:186`); flips to High once NR 0xC0 b0 set — IM2 daisy-chain locks up after the first ISR.
+- **Source ref**: Wave-1 cpu (NEW-CPU-1); reviewer APPROVE.
+- **Coverage today**: G48 DivMMC band-aid is the same root with different consumer; G49 stackless-NMI execution; G61 RETN-alias test gap. None covers this.
+- **Dependencies**: per-byte M1 hook from FUSE core OR pre-decode ED 4D / ED 45 in `z80_cpu.cpp`.
+- **Effort**: M.
+
+### G88. NMI does not capture PC into NR 0xC2 / NR 0xC3
+- **What**: VHDL `zxnext.vhd:2050-2085` latches `nr_c2/c3_retn_address_lsb/msb` on `Z80N_command_s = NMIACK_LSB/MSB AND cpu_wr_n='0'` regardless of stackless mode. Read at `:6232-6236`. jnext: no NR 0xC2/0xC3 handlers; `fuse_z80_nmi()` pushes PC but does not propagate. Cross-bucket dup: NEW-CPU-2 = NEW-IM2-1 — kept once.
+- **User impact**: software polling NR 0xC2/0xC3 to inspect last-NMI PC reads 0xFF; Multiface-style cheat menus and DivMMC NMI handlers can't display "broken at PC=…".
+- **Source ref**: Wave-1 cpu (NEW-CPU-2) + Wave-1 copper (NEW-IM2-1); reviewer APPROVE both.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G49 (stackless EXECUTION) and G56 (write-side shadow store).
+- **Effort**: L.
+
+### G89. Z80N block-repeat ops (LDIRX/LDDRX/LDPIRX/LDIRSCALE) non-interruptible
+- **What**: VHDL `cpu/t80n_mcode.vhd:2098-2138, 1953-1991, 2188-2226` re-decode opcode each iteration via I_BT, sampling INT/NMI on inter-iteration M1 boundary. jnext `z80n_ext.cpp:352-427` runs each repeat as closed C `for` loop; no INT/NMI sampling between iterations. 65 536-iteration LDIRX blocks ~244 ms (12 frames at 50 Hz).
+- **User impact**: Z80N IM2-driven music drivers running LDIRX during a frame miss INT silently; behaviour diverges from hardware.
+- **Source ref**: Wave-1 cpu (NEW-CPU-3); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: standalone — replace `for` with PC-=2 single-iteration body per opcode.
+- **Effort**: L.
+
+### G90. 28 MHz turbo SRAM-read wait state not modelled
+- **What**: VHDL `zxnext.vhd:3171-3181` at `cpu_speed = "11"` drives `sram_wait_n <= '0'` on every SRAM read. ULA+ palette readback wait `:4583` is the same pattern at port-read time. jnext: no `sram_wait` references; `ContentionModel` is gated OFF at 28 MHz per `:4481`. Cross-bucket dup with NEW-CONT-3.
+- **User impact**: turbo-mode timing is 7% fast on read-heavy code; benchmarks/RZX determinism / AY chip timing under turbo diverge.
+- **Source ref**: Wave-1 cpu (NEW-CPU-4) + Wave-2 memory (NEW-CONT-3); reviewer APPROVE both — same gap.
+- **Coverage today**: none (28 MHz is rarely the timing-baseline).
+- **Dependencies**: requires SRAM-page detection in FUSE callback path; gates on cpu_speed=3.
+- **Effort**: M.
+
+### G119. CTC on_interrupt gated at peripheral, not fabric edge
+- **What**: VHDL `zxnext.vhd:1941` carries raw ZC/TO; int_en AND happens at `im2_peripheral.vhd:172`. jnext `ctc.cpp:251-282` only calls `on_interrupt` when channel int_enabled. If int_en flips between ZC/TO, the prior pulse is lost.
+- **User impact**: race-the-edge int_en toggle observable.
+- **Source ref**: Wave-1 copper (NEW-CTC-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: mirror UART RX/TX pattern — raise unconditionally at source.
+- **Effort**: L.
+
+### G120. CTC prescaler cleared on running TC reload (vs VHDL preserve)
+- **What**: VHDL `device/ctc_chan.vhd:131-141` clears p_count only on `reset_soft='1'`. jnext `ctc.cpp:41` clears `prescaler_` on every TC write incl. running-reload (S_RUN_TC → S_RUN).
+- **User impact**: mid-stream TC reload restarts prescaler from 0 — next ZC/TO up to one prescaler period late.
+- **Source ref**: Wave-1 copper (NEW-CTC-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: gate on RESET/RESET_TC state.
+- **Effort**: L.
+
+### G121. Pulse-mode 32/36-cycle gate not updated on NR 0x03 timing change
+- **What**: VHDL `zxnext.vhd:2033-2042` `pulse_count_end` depends on `machine_timing_48 OR _p3` from `nr_03_machine_timing` (`:5132-5145`). jnext: `Im2Controller::set_machine_timing_48_or_p3` called once at `Emulator::reset_machine` only.
+- **User impact**: software switching NR 0x03 timing post-boot sees wrong pulse-INT width; tape loaders timing INT response misalign.
+- **Source ref**: Wave-1 copper (NEW-IM2-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: one extra call inside NR 0x03 handler.
+- **Effort**: L.
+
+### G122. DMA 14 MHz dma_d_p_s rising-edge read latch unmodelled
+- **What**: VHDL `device/dma.vhd:158-181` defines turbo-only `dma_rw_extend` and rising-edge `dma_d_p_s` selected when `turbo_i="10"`. jnext `dma.cpp:686-696` reads source byte without the rising-vs-falling latch difference.
+- **User impact**: edge-of-burst sequencing differs; nil for simple memory-to-memory.
+- **Source ref**: Wave-1 copper (NEW-DMA-1); reviewer APPROVE.
+- **Coverage today**: documented in DMA test plan §6 deviations.
+- **Dependencies**: per-cycle rd/wr_n strobe shape.
+- **Effort**: M.
+
+### G123. NR 0x0A bit 4 (divmmc_automap_en) not wired
+- **What**: VHDL `zxnext.vhd:1126,5196,4112` — `divmmc_automap_reset <= '1' when port_divmmc_io_en='0' or nr_0a_divmmc_automap_en='0'`. jnext `emulator.cpp:447-451` decodes bits 5/3/1:0 only; setter `DivMmc::set_nr_0a_4_enable()` exists at `divmmc.h:113` but never called.
+- **User impact**: NR 0x0A toggle of automap silently dropped; demos disabling automap via 0x0A still trap on RST.
+- **Source ref**: Wave-2 divmmc (NEW-DM-1); reviewer APPROVE.
+- **Coverage today**: in-source comment at `:446` flags it.
+- **Dependencies**: one-line plumbing.
+- **Effort**: L.
+
+### G124. NR 0x83 b0 not propagated to DivMmc::set_port_io_enable
+- **What**: VHDL `zxnext.vhd:2412,4112,4147` — `port_divmmc_io_en` feeds both `divmmc_mod.i_en` (gates ROM/RAM overlay) and `divmmc_automap_reset`. jnext `emulator.cpp:1850/1854` consults the bit at port-0xE3 dispatch only; `DivMmc::set_port_io_enable` has zero callers; `set_enabled(true)` from boot is the only setter — so port_io_enable_ stays true forever after boot.
+- **User impact**: NR 0x83 b0 clear leaves DivMMC ROM mapped (when conmem set) and automap firing.
+- **Source ref**: Wave-2 divmmc (NEW-DM-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: NR 0x82-0x85 write handler suite.
+- **Effort**: L.
+
+### G125. NR 0x06 bits 7/5 (hotkey enables) not stored / acted on
+- **What**: VHDL `zxnext.vhd:1107-1108,5162-5169` — bit 7 hotkey_cpu_speed_en, bit 5 hotkey_5060_en, bit 2 ps2_mode (config_mode-gated). Reset defaults `'1'/'1'`. jnext `emulator.cpp:1591-1626` decodes bits 6/4/3/1:0 only; reset zeroes regs_[0x06] (wrong default 0x00 vs 0xA0).
+- **User impact**: F3/F8 NR-side hotkey gates inert; reset default wrong (latent).
+- **Source ref**: Wave-2 divmmc (NEW-PER-1) + Wave-2 input (NEW-KB-1). Same gap; bundled.
+- **Coverage today**: none.
+- **Dependencies**: pairs with G132 (F-key FSM) + G147 (host F-key dispatch).
+- **Effort**: L.
+
+### G131. NR 0x0A bits 7:6/bit 5 not gated on nr_03_config_mode
+- **What**: VHDL `zxnext.vhd:5191-5198`: bits 7:6 (mf_type) and bit 5 (sd_swap) only update under `nr_03_config_mode='1'`. jnext `emulator.cpp:447-451` writes bit 5 unconditionally to `spi_.set_sd_swap`.
+- **User impact**: stray bit-5 outside config_mode flips SD-card mapping.
+- **Source ref**: Wave-2 input (NEW-MS-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G48 / G56.
+- **Effort**: L.
+
+### G140. Boot ROM overlay 8 KB → 16 KB mirror at 0x0000-0x3FFF
+- **What**: VHDL `zxnext.vhd:1856,3199-3204` — `bootrom_en` gates the overlay on `cpu_a(15:14)='00'` (full 16K); `bootrom_mod` uses `cpu_a(12:0)` (13-bit) so upper 8K mirrors lower 8K. jnext `mmu.h:114-117` overlays only for `addr < boot_rom_size_` (8192).
+- **User impact**: nextboot.rom is exactly 8 KB; future bootrom_ab variant or test stimulus reading 0x2000-0x3FFF expects the mirror.
+- **Source ref**: Wave-2 memory (NEW-MMU-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: change condition + modulo index.
+- **Effort**: L.
+
+### G141. FUSE in-opcode contention macros inert (memory_map_read[]/ula_contention[] zero-filled)
+- **What**: VHDL `zxula.vhd:583,595,600` — `wait_s` fires on every contended cycle (M1, no-MREQ, data, port). FUSE `contend_read/_no_mreq/contend_write_no_mreq` macros at `third_party/fuse-z80/z80_macros.h:109-122` use `memory_map_read[].contended` and `ula_contention[]`. jnext `z80_cpu.cpp:484-508` zero-fills both with explicit comment ("any read returns 0 delay"). The outer-callback path consumes `ContentionModel::contention_tick()` (G50 in flight) but inner FUSE-macro path stays inert.
+- **User impact**: contended `LDIR`/`OUTI`/`INC (HL)` lose contention on M1 + no-MREQ tail; 48K contention-timing demos (rasterbars, copper-style sync, tape decoders) off by 4-7 T-states per contended opcode.
+- **Source ref**: Wave-2 memory (NEW-CONT-1); reviewer APPROVE — high impact.
+- **Coverage today**: G50 covers outer callback only; G53 retirement decision blocked behind this.
+- **Dependencies**: G53 must defer until M1/no-MREQ path re-enters ContentionModel.
+- **Effort**: M.
+
+### G142. NR 0x07 cpu_speed deferred bus-idle commit not modelled
+- **What**: VHDL `zxnext.vhd:5796-5828` — `cpu_speed <= nr_07_cpu_speed` only on `cpu_mreq_n='1' AND cpu_iorq_n='1' AND cpu_m1_n='1' AND dma_holds_bus='0'` (bus-idle). jnext `emulator.cpp:322-326` synchronously calls `clock_.set_cpu_speed` and `contention_.set_cpu_speed` on NR 0x07 write.
+- **User impact**: turbo flip applies immediately in jnext; in VHDL it defers to next bus-idle. Demos bracketing a turbo flip with a contended access expect contention to still apply at 3.5 MHz on that access.
+- **Source ref**: Wave-2 memory (NEW-CONT-2); reviewer APPROVE — distinct from G51 (different commit edge).
+- **Coverage today**: none; parallax.nex turbo experiment (memory handover) exposed it.
+- **Dependencies**: shadow/effective pair like NR 0x08 b6; reviewer notes Clock should defer too for symmetry.
+- **Effort**: M.
+
+### G143. port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate
+- **What**: VHDL `zxnext.vhd:2604,2441` — `port_eff7_io_en <= internal_port_enable(26)` = NR 0x84 bit 2. jnext `emulator.cpp:1426-1428` registers handler with no `cached(0x84) & 0x04` gate (compare 0x7FFD / 0xDFFD which DO gate).
+- **User impact**: NR 0x84 b2 clear still lets EFF7 paging-mode flips land.
+- **Source ref**: Wave-2 memory (NEW-MMU-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: one-line gate.
+- **Effort**: L.
+
+### G145. port 0x123B read-back surface absent (returns 0xFF)
+- **What**: VHDL `zxnext.vhd:3933` — `port_123b_dat <= segment & "00" & map_shadow & rd_en & enable & wr_en`. jnext `emulator.cpp:1178` registers nullptr read; reads fall through to PortDispatch default 0xFF.
+- **User impact**: software probing L2 control register reads 0xFF; resume-time firmware paths may misbehave.
+- **Source ref**: Wave-2 memory (NEW-MMU-5); reviewer REVISE — bundle with G92/G144 (composition formula returns the very fields those add).
+- **Coverage today**: none.
+- **Dependencies**: ship together with G92/G144.
+- **Effort**: L.
+- Also relevant to section D.
+
+### G148. port_dffd_reg_6 not stored — Multiface readback truncated
+- **What**: VHDL `zxnext.vhd:877,3694,4314` — port 0xDFFD bit 6 stored separately in `port_dffd_reg_6`; consumed by Multiface mux. jnext `mmu.cpp:332` masks to bits 4:0; comment at `mmu.h:328-333` admits.
+- **User impact**: Multiface readback of DFFD bit 6 returns 0; affects paging-state inspection (debugger / snapshot).
+- **Source ref**: Wave-2 memory (NEW-MMU-8); reviewer APPROVE — sibling of G48.
+- **Coverage today**: none.
+- **Dependencies**: G48 Multiface plan can pull this in.
+- **Effort**: L.
+
+### G151. Z80N NEXTREG opcode mutates nr_register (selected_) — VHDL preserves
+- **What**: VHDL `zxnext.vhd:4739-4745` — Z80N requester injects (reg, val) directly without mutating `nr_register`. jnext `z80n_ext.cpp:218-238` (NEXTREG_NN/NEXTREG_A) issues two `out()` calls — first to 0x243B (clobbers `NextReg::selected_`), then 0x253B.
+- **User impact**: software pattern (select R via 0x243B, do Z80N NEXTREG R',v inline pokes, then read 0x253B) round-trips R' instead of R.
+- **Source ref**: Wave-2 NextREG (NEW-PD-1); reviewer APPROVE — high impact, SEL-05 already names this.
+- **Coverage today**: SEL-05 in NEXTREG-TEST-PLAN-DESIGN.md defers to fuse_z80_test/z80n_test — coverage unverified.
+- **Dependencies**: bypass port_dispatch in z80n_ext.cpp; call `nextreg_.write(reg, val)` directly. Faithfully bypasses gates per VHDL (CPU-internal path).
+- **Effort**: L.
+- Also relevant to section D.
+
+### G152. Host F1/F4/F9/F10 hotkeys not wired to NMI source / reset
+- **What**: VHDL `zxnext.vhd:6340-6349,6370-6371,2090-2091`: F1=hard reset, F4=soft reset, F9=hotkey_m1 (MF NMI), F10=hotkey_drive (DivMMC). jnext `gui/main_window.cpp:94-105` translates F1-F10 to SDL scancodes only — no NMI / reset consumer. Test injectors at `emulator.h:328-329` exist.
+- **User impact**: user cannot trigger NextZXOS soft-reset (F4) / hard-reset (F1) / Multiface freeze (F9) / DivMMC button (F10) from keyboard.
+- **Source ref**: Wave-2 nmi-boot (NEW-NMI-1, NEW-BOOT-2 — same gap, bundled).
+- **Coverage today**: none.
+- **Dependencies**: distinct from G42 (joystick), G46 (boot ladder), G48 (MF).
+- **Effort**: L.
+
+### G153. NR 0x02 reset_type[2:0] FSM and read-back missing
+- **What**: VHDL `zxnext.vhd:1306,1732-1739,5891` — 3-bit shift register defaults `"100"` at power-on, advances `'0' & rt(2) & (rt(1) or rt(0))` on soft_reset rising edge. Bits 1:0 in NR 0x02 readback. Reviewer corrects: `:3319` consumer is SPI-Flash-CS, NOT DivMMC. jnext: `nmi_source.nr_02_read()` returns bits 3/2 only; reset_type permanently 0.
+- **User impact**: tbblue.fw reset_type-conditional firmware paths take wrong branch; SPI-Flash-CS never armed at first power-on (latent — `--boot-rom` bypasses Flash path).
+- **Source ref**: Wave-2 nmi-boot (NEW-NMI-2); reviewer APPROVE w/ revised framing.
+- **Coverage today**: G46 plausibility moderate, not "likely" — needs port-0xE7 trace at G46 stall.
+- **Dependencies**: distinct from G56/G62/G63.
+- **Effort**: L.
+
+### G154. NR 0x80-0x89 expbus / port-enable readbacks partial
+- **What**: VHDL `zxnext.vhd:5508-5522,6138,6150,5061-5067` — NR 0x82-0x89 expose port-enable masks + reset_type bits via 0x253B reads. NR 0x89 bit 7 inverts (clear-to-0xFF when reset_type=0). jnext: NR 0x82-0x85 stored in regs_[]; NR 0x80/0x86-0x89 not initialised; only NR 0x85 has read handler.
+- **User impact**: firmware reading NR 0x82-0x89 gets raw shadow byte, not VHDL packing `reset_type|"000"|enable[3:0]`.
+- **Source ref**: Wave-2 nmi-boot (NEW-BOOT-1); reviewer APPROVE.
+- **Coverage today**: superset of G56's enumerated NRs.
+- **Dependencies**: per-register read_handlers + NR 0x89 inverted-reset semantics.
+- **Effort**: M.
+
+### G155. NEX loader doesn't honour ram_required field
+- **What**: NEX V1.1+ spec — `ram_required` byte at offset 8 (0=768K/1=1792K/2=2048K). jnext `nex_loader.cpp:81` parses but no consumer; loader silently proceeds.
+- **User impact**: NEX needing >installed RAM gets corrupted bank load instead of a clear error.
+- **Source ref**: Wave-2 nmi-boot (NEW-BOOT-3); reviewer APPROVE w/ Display downgrade (default 2048 KB rarely triggers; warning fix is right shape, not display-band).
+- **Coverage today**: none.
+- **Dependencies**: distinct from G16.
+- **Effort**: L.
+
+### G157. Boot ROM overlay size mismatch silently truncates
+- **What**: VHDL `zxnext.vhd:3199-3204` hardwires `cpu_a(12:0)` = 13-bit = 8 KB span. jnext `mmu.h:113-117` overlays only `addr < boot_rom_size_`; reads beyond fall through to next overlay (NOT real-hardware-faithful).
+- **User impact**: edge case — wrong-sized custom boot ROM blob silently miscompiles, no diagnostic.
+- **Source ref**: Wave-2 nmi-boot (NEW-BOOT-5); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: validate at load + clamp to 0x2000 with zero-fill.
+- **Effort**: L.
+
+### G158. SD card image hot-plug / unmount not exposed at runtime
+- **What**: Real Next supports SD removal via CD/CS detect. `SdCardDevice::mount`/`unmount` exist but only one-time call at `emulator.cpp:2197-2200`; no GUI menu.
+- **User impact**: user cannot swap SD images mid-session; common workflow gap.
+- **Source ref**: Wave-2 nmi-boot (NEW-SD-1); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: 1 menu item + 1 emulator method.
+- **Effort**: L.
+
+### G162. NMI iotrap strobe consumed but never propagated to MF assert
+- **What**: VHDL `zxnext.vhd:3835-3837` — `nmi_sw_gen_mf <= nmi_gen_nr_mf or nmi_gen_iotrap`. jnext `NmiSource::strobe_iotrap()` exists at `nmi_source.cpp:124-127` but `iotrap_strobe_pending_` is consumed and discarded at `:384` — never OR'd into MF assert. No port 0x2FFD/0x3FFD trap-decode handler. NR 0xD8 has zero handlers.
+- **User impact**: +3 floppy-trap NMI path completely silent; FDC software targeting traps sees nothing.
+- **Source ref**: Wave-2 nmi-boot (NEW-NMI-3); reviewer APPROVE — distinct from G55 (test-row gap only).
+- **Coverage today**: G55 needs to be expanded with NR 0xD9/DA companion regs (see expansion-bullets).
+- **Dependencies**: pair with G55 broadening.
+- **Effort**: L.
+
 ---
 
 ## D. Test / verification infrastructure
@@ -825,10 +1582,20 @@ where possible.
   exposed only via test getters; `Emulator` scheduler still owns
   `line_int_enabled_` / `line_int_value_` directly. Two state
   stores for one VHDL signal.
-- **User impact**: classified by user 2026-04-23 as "purely academic"
-  — but blocks 3 S14.04/05/06 rows currently `// G:` walked back.
+- **User impact**: Reframed by Task 6 audit (NEW-ULA-5 / NEW-ULA-6): the original
+  "purely academic cleanup" classification is no longer accurate.
+  User-visible bugs G106 (line-interrupt scheduler off-by-one +
+  target=0 wrap not applied) and G107 (per-machine c_int_h/c_int_v
+  ignored) are exactly the user-impact justification for routing the
+  Emulator scheduler through `VideoTiming::next_int_pos()` /
+  `int_line_num()`. Recommend Priority **Low → Medium**.
 - **Proposed**: drop the two `Emulator` fields; route scheduler
   through `VideoTiming::next_int_pos()` / `set_line_interrupt_*`.
+- **Cross-link**: G106 (off-by-one + target=0 wrap) and G107
+  (per-machine fire offset) are the observable user-visible bugs the
+  architectural cleanup also fixes. Land G106/G107 tactically by
+  calling the helpers directly, then close G71 once the scheduler is
+  fully rerouted through VideoTiming.
 - **Effort**: M.
 
 ### G72. UART pin-7 / IoMode UART-mode injectors not fed at runtime
@@ -977,6 +1744,30 @@ where possible.
   in progress)".
 - **Effort**: L (text tweak); blocked on a defensible state.
 
+### G149. NR write-only registers leak last-written byte on read (default → 0x00)
+- **What**: VHDL `zxnext.vhd:5878-6289` read-mux `when others => port_253b_dat <= (others => '0');`. jnext `nextreg.cpp:101-110` returns `regs_[reg]` whenever no read_handler; write-only NRs (0x04, 0x29, 0x2A, 0x2B, 0x35-0x39, 0x60, 0x63, 0x75-0x79) leak the last-written byte. Distinct from G56 (which is composed-read divergence on NRs *with* read entries).
+- **User impact**: software probing NR 0x04 / 0x60 / 0x63 / 0x29 etc. sees jnext "remembering" writes.
+- **Source ref**: Wave-2 NextREG (NEW-NR-1); reviewer APPROVE.
+- **Coverage today**: distinct from G56 (different defect class).
+- **Dependencies**: gate on `has_read_entry_[]` mask OR uniform `return 0x00` lambda for write-only set.
+- **Effort**: L.
+
+### G159. SD card CRC validation absent (CMD0 0x95 hard-coded path)
+- **What**: SD spec — card MUST validate CMD0 CRC; CMD59 toggles general CRC. jnext `sd_card.cpp:253-283` ignores `cmd_buf_[5]`; no CMD59 handler.
+- **User impact**: nil for current NextZXOS / esxdos; future image tooling exercising CRC silently passes.
+- **Source ref**: Wave-2 nmi-boot (NEW-SD-2); reviewer APPROVE.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G40 (command coverage) / G41 (MMC).
+- **Effort**: L.
+
+### G160. SD CMD13 (SEND_STATUS) returns generic R1 fall-through, not R2
+- **What**: SD spec — CMD13 returns R2 (2 bytes). jnext `sd_card.cpp:280-281` falls into `default:` and emits a single R1 byte; hosts wait for the second byte and hang.
+- **User impact**: any host code probing card-status (`.cardinfo` etc) gets stuck.
+- **Source ref**: Wave-2 nmi-boot (NEW-SD-3); reviewer APPROVE — G40 lists CMD13 but not the R2-vs-R1 shape distinction.
+- **Coverage today**: none.
+- **Dependencies**: distinct from G40.
+- **Effort**: L.
+
 ---
 
 ## E. Cross-cutting dependencies
@@ -1050,32 +1841,34 @@ bundles are:
   These four items unblock the most-frequently-noticed UX gaps
   (no-pad and no-LoRes) plus a parked investigation.
 
-**Top-10 display-priority list** (revised 2026-04-27 per Task 4 — items
+**Top-10 display-priority list** (revised 2026-04-27 per Task 6 — items
 with display impact lead, ordered by Priority, then user-leverage):
 
 1. **G46 NextZXOS boot ladder** — gates the entire NextZXOS UX *and*
    has a display-rendering gap (logo + early loader); display+UX.
-2. **G01 LoRes mode (NR 0x15 b7)** — unblocks parallax.nex and any
+2. **G106 Line-interrupt scheduler off-by-one + target=0 wrap** —
+   line interrupts fire one full line late and target=0 misfires;
+   high-impact display defect with cheap fix.
+3. **G01 LoRes mode (NR 0x15 b7)** — unblocks parallax.nex and any
    LoRes demo; foundational for the parallax investigation.
-3. **G02 Per-scanline NR 0x15 replay** — Copper layer-splits flat
+4. **G91 NR 0x44 priority bits 7:6 dropped** — L2 palette-priority
+   promotion is no-op despite passing tests; clean fix unlocks a
+   documented L2-priority surface.
+5. **G117 Copper executes per Z80 instr (parallax suspect)** —
+   Copper bursts under-run when packed into a single Z80 instruction;
+   plausible parallax.nex contributor, distinct from G65.
+6. **G02 Per-scanline NR 0x15 replay** — Copper layer-splits flat
    without it; cheap (L) follow-on once G01 lands.
-4. **G03 Per-scanline Layer 2 X/Y scroll replay** — L2 parallax
+7. **G03 Per-scanline Layer 2 X/Y scroll replay** — L2 parallax
    renders flat; cheap log-pattern clone.
-5. **G12 Nirvana-class memory-write multiplexers** — whole class of
+8. **G141 FUSE in-opcode contention macros inert** — M1 + no-MREQ
+   contention dropped per opcode; 48K timing-driven demos (rasterbars,
+   tape decoders) drift several T-states per contended opcode.
+9. **G12 Nirvana-class memory-write multiplexers** — whole class of
    48K demoscene multicolour effects render wrong; large but plan now.
-6. **G17 Parallax.nex two-copies mystery** — once G01+G02 land, this
-   is the next parallax blocker.
-7. **G24 Main-window settings persistence** — display chain (CRT,
-   scale) resets every launch; cheapest user-pain reducer.
-8. **G50 Contention `delay()` runtime wiring** — cycle-accurate
-   contention is wrong on +3 / Pentagon / Next; affects timing-driven
-   demo screenshots.
-9. **G58 MMU shadow-screen routing** — 128K games using shadow-screen
-   double-buffer render wrong.
-10. **G42 Joystick / gamepad host wiring** — non-display, but the
-    keyboard-only emulator is a first-impression UX miss; included
-    because it's the highest-leverage non-display-but-user-visible
-    gap and cannot be deferred indefinitely.
+10. **G126 NR 0x05 mode change → MembraneStick** — non-display,
+    but joystick mode switches silently leave membrane fold pinned;
+    high-priority correctness bug for any joy-mode-switching software.
 
 A non-display-priority alternative pick (preserved for reference): the
 original list led with G46, G42, G33, G24, G66, G35, G34, G36, G01, G12
@@ -1142,6 +1935,37 @@ WONT taxonomy (`feedback_wont_taxonomy.md`):
   per-scanline replay; would need sub-scanline interleave.
 - **CTC NR-C5-04 bus-arbitration** (C25) — kept as `skip()` per user
   decision 2026-04-21; revisit as WONT once requirements DB lands.
+- **UART RX framing/parity/break errors → CTC** — VHDL
+  `serial/uart.vhd:391-392, 409-410` declares `o_Rx_*_err`/
+  `o_Rx_*_err_break` outputs; `zxnext.vhd:3391-3392, 3409-3410` ties
+  them `open` in the FPGA itself with comment "to ctc". The hardware
+  does not connect them. Faithful emulation is to leave the wire
+  open. (Source: Task 6 / NEW-UART-2; reviewer REVISE → WONT.)
+- **DS1307 OUT / SQWE / RS[1:0] control bits** — DS1307 datasheet
+  §"Control Register" defines bit 7=OUT, bit 4=SQWE, bits[1:0]=RS[1:0]
+  driving an SQW/OUT pin. Real Next does not route the SQW/OUT pin to
+  the FPGA (only SDA/SCL pinned to `i2c_int_*`); bits have no
+  observable effect. jnext stores the byte verbatim for read-back via
+  `i2c.cpp:78-80` default branch — that is sufficient. Same
+  justification class as the existing DS1307 NVRAM 0x08-0x3F WONT.
+  (Source: Task 6 / NEW-RTC-1; reviewer APPROVE WONT.)
+- **ExpBus NMI latch gates `expbus_eff_en` / `expbus_eff_disable_mem`**
+  — VHDL `zxnext.vhd:2089` `nmi_assert_expbus <= '1' when expbus_eff_en
+  = '1' and expbus_eff_disable_mem = '0' and i_BUS_NMI_n = '0'`.
+  jnext `NmiSource::nmi_assert_expbus` (`nmi_source.cpp:169-179`)
+  models only `i_BUS_NMI_n`; the upstream gates are not consulted.
+  Inherits the existing NextBUS WONT (`expbus_en` / `expbus_speed` /
+  `set_expbus_nmi_n` stub / `hotkey_expbus_freeze`); this entry
+  closes the latch-side coverage hole on the same WONT lineage.
+  (Source: Task 6 / NEW-NMI-6; reviewer APPROVE WONT.)
+- **NR 0x06 bit 2 (`nr_06_ps2_mode`) write-side storage** — VHDL
+  `zxnext.vhd:1111, 5167-5169` stores under `nr_03_config_mode='1'`.
+  PS/2 keyboard / mouse protocol is already WONT (existing Appendix B
+  line). Inherits the protocol WONT but flagged here so that future
+  NR-readback tests can assert the bit IS round-trippable through
+  `regs_[]` — this is a documented sub-correctness gap, not a
+  protocol implementation. (Source: Task 6 / NEW-PER-2; reviewer
+  REVISE → fold into PS/2 WONT bullet with caveat.)
 
 ---
 
@@ -1180,8 +2004,9 @@ Of 116 raw entries authored by the 4 parallel section agents
   - B16 DSK + FDC and the implicit "+3 tape→disk" → **G38**.
   - D16 + D17 reopened-suite skips → **G77** (with G58 as runtime
     side).
-- **Final unique gap entries**: **86** (A: 28, B: 19, C: 20, D: 18,
-  cross-cutting in two categories).
+- **Final unique gap entries** (after Task 6 expansion 2026-04-27):
+  **162** (A: 56, B: 39, C: 46, D: 21, with cross-references for
+  multi-letter Cat values).
 - **Active session note**: G50 contention `delay()` Phase-2 is
   in-flight in this session; entry describes the residual after
   Phase 2 lands. G77 / G58 reopen notes assume Compositor NR 0x68
