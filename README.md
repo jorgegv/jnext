@@ -270,9 +270,12 @@ make regression
 
 ## References and acknowledgments
 
-- **ZX Spectrum Next FPGA core** — The official VHDL sources serve as the authoritative hardware specification for this emulator.
+- **[ZX Spectrum Next FPGA core](https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/master)** — The official VHDL sources serve as the authoritative hardware specification for this emulator.
+- **[TBBlue Firmware sources](https://gitlab.com/thesmog358/tbblue)** — The official firmware sources are useful for problem tracing and debugging.
 - **[FUSE](http://fuse-emulator.sourceforge.net/)** — The Z80 CPU core is adapted from FUSE. ROM files are loaded from the FUSE package installation.
-- **[ZesarUX](https://github.com/chernandezba/zesarux)** — Used as a behavioural reference during development.
+- **[ZesarUX](https://github.com/chernandezba/zesarux)** — Multiple Sinclair system emulator with Next support, used as a behavioural reference during development.
+- **[CSpect](https://mdf200.itch.io/cspect)** — Another ZX Emulator with Next support, also used as a behavioural reference during development.
+- **[ZX Next Wiki](https://wiki.specnext.dev/Main_Page)** - The official reference point for Next development.
 
 ---
 
