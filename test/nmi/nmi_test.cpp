@@ -527,6 +527,66 @@ static void g_mf_g162_skips()
     // Port 0x2FFD/0x3FFD trap-decode handler missing today.
     skip("MF-G162-02",
          "port 0x2FFD/0x3FFD trap-decode handler missing (see G162)");
+
+    // MF-G48-01..07 — Multiface peripheral expansion (G48). Eight
+    // expansion-bullet residuals; class lives at nmi_source.h:150-154
+    // as stubs only. Future MULTIFACE-TEST-PLAN-DESIGN.md will absorb.
+    skip("MF-G48-01",
+         "Mode-decoded MF port table per nr_0a_mf_type missing (see G48)");
+    skip("MF-G48-02",
+         "NR 0x0A b7:6 nr_0a_mf_type forward to MF type missing (see G48)");
+    skip("MF-G48-03",
+         "port_io_dly edge detector multiface.vhd:122-131 missing (see G48)");
+    skip("MF-G48-04",
+         "INVISIBLE FF multiface.vhd:152-163 unmodelled (see G48)");
+    skip("MF-G48-05",
+         "MF +3 port 0x1FFD/0x7FFD readback mux on cpu_a(15:12) missing (see G48)");
+    skip("MF-G48-06",
+         "DivMMC retn_seen AND-NOT mf_is_active gate missing (see G48)");
+    skip("MF-G48-07",
+         "port 0xDFFD bit 6 storage for MF readback (G148 sibling, see G48)");
+}
+
+// =====================================================================
+// Group BOOT — NextZXOS boot ladder + bypass + dot-cmd (G46/G47/G59/G60)
+// All NOT-UNIT-TESTABLE today; pinned-skip rows for traceability.
+// =====================================================================
+
+static void g_boot_skips()
+{
+    set_group("BOOT");
+
+    // BOOT-LOOP-01 — G46(b): RAM-test outer-loop (208 passes × 112 banks
+    // over 15s) is end-to-end behavioural; future regression script
+    // test/regression/nextzxos-boot.sh (see G47) is the owner.
+    skip("BOOT-LOOP-01",
+         "RAM-test loop is end-to-end; covered by future G47 regression (see G46)");
+
+    // BOOT-LOGO-01 — G46(c): missing logo + 4-entry loader log are
+    // rendering / screenshot-regression scope; future G47 owner.
+    skip("BOOT-LOGO-01",
+         "Loader logo+log is rendering; covered by future G47 screenshot ref (see G46)");
+
+    // BOOT-DOT-01 — G47: NextZXOS BASIC + dot-command surface is
+    // end-to-end (load NextZXOS, run .ls, screenshot-compare).
+    skip("BOOT-DOT-01",
+         "NextZXOS BASIC + dot-command surface is end-to-end (see G47)");
+
+    // BYPASS-CLI-01 — G59: --bypass-tbblue-fw CLI flag + SRAM populate
+    // path absent. Branches 1-3 of FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md.
+    skip("BYPASS-CLI-01",
+         "--bypass-tbblue-fw CLI + SRAM populate missing (see G59)");
+
+    // BYPASS-FAT-01 — G59: Host-side FAT32 reader for direct
+    // enNextZX.rom load missing.
+    skip("BYPASS-FAT-01",
+         "Host-side FAT32 reader for direct enNextZX.rom missing (see G59)");
+
+    // BYPASS-INI-01 — G60: config.ini/menu.ini/menu.def parser class
+    // not authored. When parser lands, this single skip explodes into
+    // ~29 unit rows.
+    skip("BYPASS-INI-01",
+         "config.ini/menu.ini/menu.def parser not authored (see G60)");
 }
 
 // =====================================================================
@@ -1050,6 +1110,7 @@ int main() {
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
     g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- done\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
+    g_boot_skips();        std::printf("  BOOT NextZXOS+bypass   -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -1409,6 +1409,14 @@ static void test_cfg_integration(Emulator& emu) {
               cleared,
               std::string("config_mode after = ") + (cleared ? "0" : "1"));
     }
+
+    // CFG-09-INT — G63: NR 0x03 machine-type latch (zxnext.vhd:5137)
+    // separate from regs_[0x03]; jnext NextReg::reset() zeroes
+    // regs_[0x03], losing machine-type read-back. Subset of G56
+    // (per-NR shadow-store systemic). Sited at integration tier where
+    // the write_handler runs.
+    skip("CFG-09-INT",
+         "NR 0x03 machine-type latch read-back lost on reset (see G63)");
 }
 
 // ── N8E RAM-gate: NR 0x8E bit 3 gates MMU6/7 rebuild ─────────────────

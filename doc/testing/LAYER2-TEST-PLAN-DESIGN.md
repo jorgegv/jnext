@@ -475,6 +475,55 @@ retraction notice. None of them appeared in the old plan.
 | G9-04 | Scroll X with wide branch NOT fired | see G3-12 | — | — | — |
 | G9-05 | Wide mode clip `x2=0xFF` ⇒ effective 511 | NR 0x70=0x10, clip x2=0xFF, x1=0 | all 320 columns visible | `clip_x2_q = 0xFF & '1' = 0x1FF = 511`, covers all columns 0..319 | layer2.vhd:134 |
 | G9-06 | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-test, explanatory) | — | documentation only | the +1 is folded into the address formula; G2-12 is the scroll-independent probe | layer2.vhd:148 |
+| L2-G17-01 | Parallax.nex side-by-side duplication root cause (post-LoRes) | parallax.nex run end-to-end after G01/G02 land | rendered frame matches reference (no two-copies mirror) — placeholder; concrete oracle to be authored once Phase A/B parallax investigation lands | PARALLAX-NEX-INVESTIGATION.md required-work table |
+| G9-G28-01 | `hc_eff = hc + 1` per-column observable | gated on cycle-accurate render refactor: render one scanline at column-cycle granularity; sample at hc and hc+1 | column N's pixel address uses `hc+1` (one-cycle pipeline lift); placeholder until cycle-accurate path lands | layer2.vhd:148 |
+
+> *L2-G17-01 is an investigation-class row. Concrete stimulus + expected
+> state to be defined after Phase A/B parallax investigation lands; see
+> `MEMORY.md` 2026-04-27 EOD entry.*
+
+### Group G10b — Per-scanline NR 0x15 replay (LoRes / sprite-en / priority, G02)
+
+Mirrors the L2 scroll change-log (G10-*); adds a parallel log on
+NR 0x15 writes so mid-frame Copper toggles (LoRes-on / sprites-off /
+priority-mode-flip splits) are not collapsed to last-value-wins.
+Required by parallax / Beast-style layer-flip demos.
+
+| ID         | Title                                                                             | Stimulus                                                                                            | Expected                                                                                                  | VHDL cite                              |
+|------------|-----------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|----------------------------------------|
+| L2P-G02-01 | NR 0x15 write logged with current scanline (bit 0 sprite_en, bits 4:2 priority)   | reset; emulator at line 50 writes NR 0x15 ← 0x01 (sprite_en); at line 100 writes NR 0x15 ← 0x14     | renderer's NR-0x15 change-log holds two entries tagged `(line=50, val=0x01)` and `(line=100, val=0x14)`   | zxnext.vhd:5232, 6799 (LINE-10 oracle) |
+| L2P-G02-02 | renderer's `apply_changes_for_line` replays NR 0x15 entries (sprite-en + priority)| log entries as in 01; render rows 0..150                                                            | rows 0..49 see (sprite_en=0, prio=0); rows 50..99 see (sprite_en=1, prio=0); rows 100..150 see (1, 0x14)  | zxnext.vhd:6799                        |
+
+### Group G10c — Per-scanline clip-window replay (NR 0x18-0x1B, G05)
+
+Mid-frame writes to the rotating-index clip register (NR 0x18) are
+captured today only as scalar live state. Demos doing split-screen /
+PIP need 4-coord snapshots replayed per scanline.
+
+| ID         | Title                                                                                         | Stimulus                                                                                                   | Expected                                                                                                       | VHDL cite                |
+|------------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|--------------------------|
+| G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline                              | reset; line=50 emit four NR 0x18 writes setting (x1=0x10, x2=0xF0, y1=0x20, y2=0xC0)                       | clip change-log holds one entry tagged `(line=50, x1=0x10, x2=0xF0, y1=0x20, y2=0xC0)`                         | zxnext.vhd:5243,5278     |
+| G10-G05-02 | Renderer replays clip-window snapshot per scanline (rows above use baseline, rows below new)  | log entry as 01; render rows 0..100 with L2 enabled                                                        | rows 0..49 use clip default (0x00,0xFF,0x00,0xBF); rows 50..100 use new (0x10,0xF0,0x20,0xC0)                  | layer2.vhd:134,167       |
+
+### Group G10d — Per-scanline NR 0x12 / NR 0x13 active-bank replay (G09)
+
+Per-line page-flipping for double-buffered scroll. Niche — only fires
+on demos that race the beam to swap the L2 base-bank mid-frame.
+
+| ID         | Title                                                                              | Stimulus                                                                                       | Expected                                                                              | VHDL cite                |
+|------------|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|--------------------------|
+| G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline                      | reset (NR 0x12=0x08); start_frame; line=64 NR 0x12 ← 0x10                                      | bank change-log holds `(line=64, active_bank=0x10)`                                    | zxnext.vhd:5220, 1135    |
+| G10-G09-02 | Renderer fetches L2 from old bank above line 64 + new bank below                   | log entry as 01; both banks pre-populated with distinct markers; render rows 0..200            | rows 0..63 sample old bank (0x08); rows 64..200 sample new (0x10)                      | layer2.vhd:172           |
+
+### Group G10e — Per-scanline L2 enable replay (port 0x123B b1 / NR 0x69 b7, G14)
+
+Mid-frame `set_enabled` writes for "L2 only on rows N-M" demos.
+Currently last-write-wins; needs change-log + per-line replay.
+
+| ID         | Title                                                                                       | Stimulus                                                                                          | Expected                                                                                | VHDL cite                  |
+|------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|----------------------------|
+| G10-G14-01 | Layer2 set_enabled write logged with current scanline                                       | reset; start_frame; line=50 set_enabled(true); line=150 set_enabled(false)                        | enable change-log holds (50,true) and (150,false)                                       | zxnext.vhd:3916, 3924-3925 |
+| G10-G14-02 | Renderer applies enable per scanline: rows above 50 hidden; 50..149 visible; 150..end hidden| log entries as 01; render rows 0..200 with L2 content                                             | first 50 rows have no L2 pixels; rows 50-149 do; rows 150-200 do not                    | layer2.vhd:175,197-198     |
 
 ## Test Case Summary
 

@@ -212,6 +212,36 @@ void group1_reset_enable() {
                    "VHDL zxnext.vhd NR 0x6B/6C/6E/6F reset — "
                    "ctrl=0, attr=0, map=0x2C, def=0x0C");
     }
+
+    // Per-scanline NR 0x6B mid-frame mode flip (G06) — TM-160..164.
+    // Tilemap class has no per-line change-log today; scalar bools at
+    // tilemap.h:136-141 are overwritten on each set_control() call.
+    // VHDL bit decode authority: tilemap.vhd:189-195 + zxnext.vhd:5461-5462.
+
+    // TM-160: VHDL tilemap.vhd:189 (mode_i <= control_i(6)),
+    // zxnext.vhd:5461-5462 (write storage), :7039, 7072 (downstream pipeline).
+    skip("TM-160",
+         "NR 0x6B b6 (40->80 col) mid-frame: no per-line replay (see G06)");
+
+    // TM-161: VHDL tilemap.vhd:191 (textmode_i <= control_i(3)),
+    // zxnext.vhd:5461-5462.
+    skip("TM-161",
+         "NR 0x6B b3 (textmode) mid-frame: no per-line replay (see G06)");
+
+    // TM-162: VHDL tilemap.vhd:194 (mode_512_i <= control_i(1)),
+    // zxnext.vhd:5461-5462, :6863 (mode_512 ORs into tm_pixel_below).
+    skip("TM-162",
+         "NR 0x6B b1 (256->512 tile) mid-frame: no per-line replay (see G06)");
+
+    // TM-163: VHDL tilemap.vhd:195 (tm_on_top_i <= control_i(0)),
+    // zxnext.vhd:6863, 7116 (priority effect).
+    skip("TM-163",
+         "NR 0x6B b0 (tm_on_top) mid-frame: no per-line replay (see G06)");
+
+    // TM-164: VHDL zxnext.vhd:5461 (nr_6b_tm_en <= nr_wr_dat(7)),
+    // :6820 (tm_en_0 <= nr_6b_tm_en).
+    skip("TM-164",
+         "NR 0x6B b7 (enable) mid-frame: no per-line replay (see G06)");
 }
 
 // ── Group 2: 40-column mode (8-bit tiles) ───────────────────────────────

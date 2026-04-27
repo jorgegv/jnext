@@ -1519,6 +1519,19 @@ static void test_UTB() {
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
+
+    // UB-G26-01 — VHDL zxnext.vhd:7163-7177. The mix_top/mix_bot swap
+    // semantics on tm_pixel_below_2 in mode 01 read inverted to the
+    // flag name; UTB-40/41 encode VHDL as-is. Skip blocked on
+    // FPGA-team oracle confirmation.
+    skip("UB-G26-01",
+         "FPGA-team clarification needed: blend-mode-01 tm_pixel_below swap (see G26)");
+
+    // UB-G26-02 — VHDL zxnext.vhd:7300, 7342. L2-priority `if` is
+    // first in mode 110/111 (more aggressive than non-blend modes).
+    // Skip blocked on FPGA-team confirmation that this is intended.
+    skip("UB-G26-02",
+         "FPGA-team clarification: L2 priority over opaque mix_top in 110/111 (see G26)");
 }
 
 // ── Group PFF — port_ff_reg NR-side fan-out (G108) ──────────────────────
@@ -1873,6 +1886,14 @@ static void test_BLANK() {
               oracle_blank == 0u,
               DETAIL("oracle=0x%08X", oracle_blank));
     }
+
+    // BLANK-G27-01 — VHDL zxnext.vhd:7395-7412. The 6-stage pipeline
+    // alignment between rgb_out_6 and rgb_blank_n_6 is not tested
+    // today (Open Question §6, plan doc :675-679). Currently
+    // unobservable at the unit-tier (compositor model is combinational
+    // — no 6-stage pipeline).
+    skip("BLANK-G27-01",
+         "rgb_blank_n_6 pipeline edge alignment not modelled (see G27)");
 }
 
 // ── Group PAL — Palette integration (VHDL 6936-7005) ─────────────────────
@@ -2269,6 +2290,37 @@ static void test_PSCAN() {
               DETAIL("before=0x%08X (exp red 0x%08X)  after=0x%08X (exp cyan 0x%08X)",
                      before, exp_red, after, exp_cyan));
     }
+
+    // PSCAN-G04-01 — VHDL zxnext.vhd:1137, 5226. NR 0x14 stored as
+    // a scalar global_transparent_rgb_ in palette/compositor; no per-
+    // line change log. Required by sky-vs-foreground swap demos.
+    skip("PSCAN-G04-01",
+         "NR 0x14 per-scanline replay not implemented (see G04)");
+
+    // PSCAN-G04-02 — VHDL zxnext.vhd:5016, 1190. NR 0x4B sprite-
+    // transparent index per-line replay missing.
+    skip("PSCAN-G04-02",
+         "NR 0x4B per-scanline replay not implemented (see G04)");
+
+    // PSCAN-G04-03 — VHDL zxnext.vhd:5018, 4395. NR 0x4C tilemap-
+    // transparent nibble per-line replay missing.
+    skip("PSCAN-G04-03",
+         "NR 0x4C per-scanline replay not implemented (see G04)");
+
+    // PSCAN-G11-01 — VHDL zxnext.vhd:5445, 7142-7176. Renderer
+    // stencil_mode_ at renderer.h:163 is a scalar; no per-line array.
+    skip("PSCAN-G11-01",
+         "NR 0x68 b0 stencil per-scanline replay not implemented (see G11)");
+
+    // PSCAN-G11-02 — VHDL zxnext.vhd:5445, 7142-7176. UDIS-03
+    // landed end-to-end but flat-frame only; bits 6:5 per-line missing.
+    skip("PSCAN-G11-02",
+         "NR 0x68 b6:5 blend per-scanline replay not implemented (see G11)");
+
+    // PSCAN-G11-03 — VHDL zxnext.vhd:5445. ula_.set_ulap_en (ula.h:205)
+    // is scalar; no ulap_en_per_line_ array on Ula.
+    skip("PSCAN-G11-03",
+         "NR 0x68 b3 ulap_en per-scanline replay not implemented (see G11)");
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────

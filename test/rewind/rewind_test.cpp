@@ -25,6 +25,14 @@
 static int pass_count = 0;
 static int fail_count = 0;
 
+// Skip helper — mirrors test/sdcard/sdcard_test.cpp:48-80 shape.
+struct SkipNote { const char* id; const char* reason; };
+static std::vector<SkipNote> g_skipped;
+static void skip(const char* id, const char* reason) {
+    g_skipped.push_back({id, reason});
+    fprintf(stdout, "SKIP %-16s %s\n", id, reason);
+}
+
 #define CHECK(cond, msg) do { \
     if (!(cond)) { \
         fprintf(stderr, "FAIL [%s:%d] %s\n", __FILE__, __LINE__, msg); \
@@ -279,6 +287,33 @@ static int test_step_back_disabled()
 
 // ── main ───────────────────────────────────────────────────────────────────
 
+// ── SS-VER (G66) + RB-FRAME (G67) skips ─────────────────────────────────
+//
+// Save-state schema versioning + per-subsystem framing (G66): no plan
+// doc exists today; pinned-skip rows live here until the plan and
+// SaveStateLoader land.
+
+static void test_ss_ver_skips()
+{
+    skip("SS-VER-01", "schema magic + version head absent (see G66)");
+    skip("SS-VER-02", "per-subsystem TLV framing absent (see G66)");
+    skip("SS-VER-03", "load_state magic-mismatch reject path (see G66)");
+    skip("SS-VER-04", "schema migrator registry absent (see G66)");
+    skip("SS-VER-05", "field-order round-trip lock absent (see G66)");
+    skip("SS-VER-06", "DivMmc pre-NA-03 silent-deserialise (see G66)");
+    skip("SS-VER-07", "RZX SNA path lacks schema head (see G66)");
+
+    // RB-FRAME-01..03 — G67: runtime size-bound assertion guard for
+    // take_snapshot when subsystem widening occurs.
+    skip("RB-FRAME-01", "take_snapshot bound assertion absent (see G67)");
+    skip("RB-FRAME-02", "post-widening clean error path absent (see G67)");
+    skip("RB-FRAME-03", "construction-vs-measured size match check (see G67)");
+
+    // WONT G68: rewind sub-frame granularity is an explicit design choice
+    // per EMULATOR-DESIGN-PLAN.md Phase 8 Step 4 (frame snapshots ring
+    // buffer). Will become a row only if a user asks; not a skip() entry.
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -288,7 +323,10 @@ int main()
     test_rewind_to_frame();
     test_snapshot_roundtrip();
     test_step_back_disabled();
+    test_ss_ver_skips();
 
-    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n", pass_count + fail_count, pass_count, fail_count);
+    printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
+           pass_count + fail_count + (int)g_skipped.size(),
+           pass_count, fail_count, g_skipped.size());
     return fail_count > 0 ? 1 : 0;
 }

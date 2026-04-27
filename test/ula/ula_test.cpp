@@ -586,6 +586,24 @@ static void test_section5_timex() {
     // See G105.
     skip("S5.11",
          "F-G105-PALGRP: hi-res border 6-bit encoding absent (see G105)");
+
+    // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).
+    // Ula has a single screen_mode_reg_ overwritten on each port-0xFF
+    // write. No `Ula::log_port_ff_write` change-log;
+    // mid-frame STANDARD↔HI_COLOUR↔HI_RES splits collapse to last-write.
+    // VHDL zxula.vhd:259-266 (screen_mode bits 2:0 from port_ff_reg(2:0)),
+    // zxnext.vhd:2397, 2713, 2813 (port-0xFF write fan-out).
+
+    skip("S5-PSL.01",
+         "F-G07-TIMEXMODE: per-scanline port-0xFF change-log absent (see G07)");
+    skip("S5-PSL.02",
+         "F-G07-TIMEXMODE: STANDARD/HI_COLOUR mid-frame split absent (see G07)");
+    skip("S5-PSL.03",
+         "F-G07-TIMEXMODE: HI_RES->STANDARD next-line flip absent (see G07)");
+    skip("S5-PSL.04",
+         "F-G07-TIMEXMODE: start_frame rewind of port-0xFF log absent (see G07)");
+    skip("S5-PSL.05",
+         "F-G07-TIMEXMODE: save-state of port-0xFF change-log absent (see G07)");
 }
 
 // =========================================================================
@@ -1264,6 +1282,20 @@ static void test_section9_scrolling() {
     }
 
     // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
+
+    // §9-PSL — Per-scanline NR 0x26 / NR 0x27 ULA scroll replay (G08).
+    // src/video/ula.cpp reads nr_26_ula_scrollx_/nr_27_ula_scrolly_ once
+    // per frame; mid-frame writes coalesced. Beast.nex-class Copper-driven
+    // raster split applies here too. VHDL zxula.vhd:193-216, 199.
+
+    skip("S9-PSL.01",
+         "F-G08-ULASCROLL: NR 0x26/0x27 mid-line change-log absent (see G08)");
+    skip("S9-PSL.02",
+         "F-G08-ULASCROLL: NR 0x27 scroll_y mid-frame split absent (see G08)");
+    skip("S9-PSL.03",
+         "F-G08-ULASCROLL: NR 0x26 fine-scroll mid-frame flip absent (see G08)");
+    skip("S9-PSL.04",
+         "F-G08-ULASCROLL: start_frame rewind of NR 0x26/0x27 log absent (see G08)");
 }
 
 // =========================================================================
@@ -1495,6 +1527,28 @@ static void test_section16_nrff_palette() {
 }
 
 // =========================================================================
+// Section 17: Per-scanline active-palette select (G10)
+// =========================================================================
+//
+// Distinct from per-scanline palette CONTENT (already landed in
+// PaletteManager). G10 covers the SELECTOR bit-lanes (NR 0x43 b1-3 +
+// NR 0x6B b4) which choose which palette bank is active per-line.
+// VHDL zxnext.vhd:6957 (NR 0x43 palette-write-select decode),
+// zxnext.vhd:3614+ (NR 0x6B b4 tilemap-palette select).
+static void test_section17_palette_select() {
+    set_group("S17-PALSEL");
+
+    skip("S17.01",
+         "F-G10-PALSEL: NR 0x43 b1-3 selector change-log absent (see G10)");
+    skip("S17.02",
+         "F-G10-PALSEL: NR 0x6B b4 tilemap-palette mid-frame flip absent (see G10)");
+    skip("S17.03",
+         "F-G10-PALSEL: NR 0x43 / NR 0x6B b4 independent change-streams (see G10)");
+    skip("S17.04",
+         "F-G10-PALSEL: start_frame rewind of selector log absent (see G10)");
+}
+
+// =========================================================================
 // Main
 // =========================================================================
 
@@ -1517,6 +1571,7 @@ int main() {
     test_section14_frame_int();
     test_section15_shadow();
     test_section16_nrff_palette();
+    test_section17_palette_select();
 
     std::printf("\n=== Results by group ===\n");
     std::string last_group;

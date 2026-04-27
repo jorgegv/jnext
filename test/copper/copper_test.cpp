@@ -1393,6 +1393,24 @@ void group7_arbitration() {
                   pre_idle, pre_nomf, nr02_rd_pre, latched_mf, fsm_fetch,
                   nr02_rd_post));
     }
+
+    // ARB-G65-01: True tied-edge CPU+Copper NR-write arbitration.
+    // VHDL zxnext.vhd:4769,4775-4777 — when both `cpu_req` and
+    // `copper_req` rise on the SAME 28 MHz cycle, the priority mux
+    // selects Copper's reg/data and the `cpu_req` is held over to
+    // the next cycle. ARB-01..ARB-03 serialise the stimulus across
+    // two ticks (Cycle A Copper, Cycle B CPU) — they pass under
+    // jnext's per-Z80-instruction tick-loop ordering but do not
+    // exercise the tied-edge mux because no shared 28 MHz bus
+    // exists. This row is the explicit cycle-accurate test that
+    // would fail today if both requests genuinely overlapped.
+    //
+    // Will become check() once the cycle-accurate scheduler refactor
+    // lands (G117 + G65 converge — see KNOWN-FUNCTIONALITY-GAPS-AND-
+    // PLAN.md:1282-1289).
+    skip("ARB-G65-01",
+         "tied-edge CPU+Copper NR-write priority needs cycle-"
+         "accurate bus (see G65)");
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────

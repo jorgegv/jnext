@@ -1456,6 +1456,23 @@ static void test_fuse_inopcode_contention() {
          "FUSE port-write contention path inert (see G141)");
     skip("CT-FUSE-04", "IN port contention",
          "FUSE port-read contention path inert (see G141)");
+
+    // CT-DELAY-01 — G50: full-frame integration drift not bounded yet.
+    // Residual guard row post the 68→0 sweep.
+    skip("CT-DELAY-01", "full-frame integration drift",
+         "full-frame integration drift not bounded yet (see G50)");
+
+    // CT-TURBO-08 — G51: combined hc(8)+bus-idle commit-edge ordering
+    // for simultaneous mid-line NR 0x07 + NR 0x08 writes. Distinct from
+    // CT-TURBO-07 (NR 0x07 single-write) which references G142.
+    skip("CT-TURBO-08", "NR 0x08+0x07 combined commit ordering",
+         "combined hc(8) + bus-idle commit-edge ordering (see G51)");
+
+    // CT-FUSE-05 — G53: FUSE-table retirement bypass-toggle row.
+    // Same stimulus as CT-FUSE-01..04 with FUSE table forcibly bypassed
+    // (jnext only). Bypass switch not exposed yet.
+    skip("CT-FUSE-05", "FUSE-table retirement bypass",
+         "FUSE-table bypass switch not exposed yet (see G53)");
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

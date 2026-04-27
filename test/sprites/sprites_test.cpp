@@ -2901,6 +2901,25 @@ static void group16() {
               postfix_clear_at_10,
               DETAIL("px@10=%d", pixel_index(line100, 10)));
     }
+
+    // G16.OVF-01: VHDL sprites.vhd:327-470 (5 dual-port attribute RAMs,
+    // sync-write async-read — VHDL has no cap; the cap is purely a C++
+    // emulator constraint at MAX_CHANGES_PER_FRAME=8192 sprites.h:227).
+    stub("G16.OVF-01",
+         "Cap-overflow rendering consequence (writes that fit replay; >cap drop)",
+         "log overflow drops late writes silently sprites.cpp:79-88; per-row pixel check (see G13)");
+
+    // G16.OVF-02: VHDL sprites.vhd:327-470. overflow_warned_ observability
+    // needs a Log-fixture mock not yet in test harness.
+    stub("G16.OVF-02",
+         "Overflow warn fires once-per-frame; clears at next start_frame",
+         "needs Log-fixture mock not yet in harness (see G13)");
+
+    // G16.OVF-03: VHDL sprites.vhd:368-380 (per-line CPU-write commit
+    // visible to next line's FSM). Boundary case below cap.
+    stub("G16.OVF-03",
+         "Z80N-DMA 32 byte-rewrites/line × 256 lines = 8192 writes (boundary)",
+         "needs attribute-density fixture + per-line render oracle (see G13)");
 }
 
 // ---------------------------------------------------------------------------
@@ -3371,6 +3390,20 @@ static void group17() {
               pixel_index(l_t1, 1) == 0xBB,
               DETAIL("px@1=%d (expected 0xBB)", pixel_index(l_t1, 1)));
     }
+
+    // G17.PSL-PAT-04: VHDL sprites.vhd:561-572 (16 KB pattern RAM, no cap).
+    // sprites.vhd:728-744 (write trigger). Cap is C++ static budget at
+    // MAX_PATTERN_CHANGES_PER_FRAME=8192 (sprites.h:237).
+    stub("G17.PSL-PAT-04",
+         "Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap",
+         "same root as G13: cap is C++ budget, not VHDL behaviour (see G15)");
+
+    // G06.NR70-01: Cross-subsystem placeholder for L2 NR 0x70 b5:4 width
+    // mid-frame flip. Lives here until LAYER2 plan grows a per-scanline
+    // L2-resolution change-log. VHDL zxnext.vhd:7400-7470, layer2.vhd:128.
+    stub("G06.NR70-01",
+         "NR 0x70 b5:4 L2 resolution flip mid-frame must reroute width",
+         "Layer2 resolution per-frame; per-scanline NR 0x70 not in log (see G06)");
 }
 
 // ---------------------------------------------------------------------------

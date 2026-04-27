@@ -552,6 +552,7 @@ This Section pins three user-visible bugs from
 | 2 | VT-23  | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (zxula_timing.vhd:566-570)      | IRQ at end of previous frame, NOT at vc=0      | skip (F-G106-LINEINT) |
 | 3 | VT-24  | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v` (zxula_timing.vhd:187,199)    | T-state matches per-machine int_position()     | skip (F-G107-FRAMEINT)|
 | 4 | VT-25  | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc` (zxula_timing.vhd:577) | IRQ shifted by 5 lines from baseline           | skip (F-G109-CUOFFSET)|
+| 5 | VT-26  | Once G106 + G107 land per VT-22..VT-24, the test-only pulse-counter accessors at `src/video/timing.h:97-134` MUST be the single source of truth — `Emulator::line_int_enabled_` / `line_int_value_` (`emulator.cpp:2138, 2154`) MUST be removed (`zxula_timing.vhd:563-583`) | `grep -nE "line_int_enabled_\|line_int_value_" src/core/emulator.cpp` returns 0 hits; scheduler reads `videotiming_.next_int_pos()` exclusively | skip (G-VT-CLEANUP, see G71) |
 
 VT-22 and VT-23 are paired — VT-22 pins the off-by-one
 (`target-1` mapping); VT-23 pins the wrap (`target=0 → c_max_vc`).
@@ -580,6 +581,7 @@ NR-dispatch table for 0x64 stores raw byte) — is the unblock.
 | `F-G106-LINEINT`   | Line-int scheduler refactor: target-1 mapping + target=0 wrap + scheduler reads `int_line_num()`.          | VT-22, VT-23 |
 | `F-G107-FRAMEINT`  | Frame-int scheduler reads per-machine `int_position()` instead of machine-blind `tstates_per_line * 8`.    | VT-24 |
 | `F-G109-CUOFFSET`  | Add `set_cu_offset(uint16_t)` to `VideoTiming` + thread NR 0x64 write-handler; line-int compare uses `cvc`.| VT-25 |
+| `G-VT-CLEANUP`     | Walkback row: VideoTiming pulse-counter accessors are test-only dead code today. Production scheduler bypasses them. The cleanup lands as a **consequence** of G106 / G107 fixes (VT-22..VT-24); VT-26 pins the cleanup invariant so the architectural debt closes provably alongside the user-visible-bug fix. Class `G` per UNIT-TEST-PLAN-EXECUTION.md taxonomy. | VT-26 |
 
 All three are class-`F` (real TODO blocked on Emulator change) per
 UNIT-TEST-PLAN-EXECUTION §Skip taxonomy. They share the

@@ -370,6 +370,19 @@ int main() {
     skip("BOOT-SD-01", "hot-plug round-trip not exposed at runtime (see G158)");
     skip("BOOT-SD-02", "unmount mid-transfer untested (see G158)");
 
+    // SD-10..15 — G40: extended SD card commands not modelled.
+    skip("SD-10", "CMD9 SEND_CSD response not synthesised (see G40)");
+    skip("SD-11", "CMD10 SEND_CID response not synthesised (see G40)");
+    skip("SD-12", "CMD16 SET_BLOCKLEN ack absent (see G40)");
+    skip("SD-13", "CMD23 SET_BLOCK_COUNT not handled (see G40)");
+    skip("SD-14", "CMD24 WRITE_BLOCK absent — read-only fixture (see G40)");
+    skip("SD-15", "CMD25 multi-write not modelled (see G40)");
+
+    // MMC-01..03 — G41: MMC card support (vs SDHC only).
+    skip("MMC-01", "MMC CMD1 init path absent — SDHC only (see G41)");
+    skip("MMC-02", "CMD8 illegal-cmd on MMC not modelled (see G41)");
+    skip("MMC-03", "MMC byte/block-addressing duality unsupported (see G41)");
+
     sd.unmount();
     std::remove(img.c_str());
 

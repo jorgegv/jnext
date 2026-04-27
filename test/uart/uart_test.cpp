@@ -2070,6 +2070,38 @@ static void test_group12_gating() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Group 14: ESP-01 / Wi-Fi UART bridge (G39)
+// VHDL: zxnext.vhd:3335-3421. ESP-side AT command set lives off-chip.
+// Distinct from G135 (Pi UART) and G72 (joystick-pin-7 / UART-mode
+// injectors). All existing UART rows exercise the dual-UART core; they
+// do not exercise an attached ESP module.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_group14_esp() {
+    set_group("ESP");
+
+    // ESP-01 — G39: AT command parser absent. UART 0 TX bytes flow to
+    // a no-op sink (Emulator's on_tx_byte forwards nowhere in production).
+    skip("ESP-01",
+         "AT command parser absent; OUT \"AT\\r\\n\" yields no \"OK\\r\\n\" (see G39)");
+
+    // ESP-02 — G39: TCP socket bridge absent. AT+CIPSTART/AT+CIPSEND have
+    // no upstream socket layer; --esp-bridge HOST:PORT flag does not exist.
+    skip("ESP-02",
+         "TCP socket bridge absent; --esp-bridge flag not implemented (see G39)");
+
+    // ESP-03 — G39: incoming socket bytes need "+IPD,<n>:" framing into
+    // UART 0 RX FIFO so AT mode can carve frames.
+    skip("ESP-03",
+         "RX-side +IPD,N: framing emission absent (see G39)");
+
+    // ESP-04 — G39: ESP firmware banner ("ready" / version string) is
+    // expected by NextZXOS network init on UART 0 RX.
+    skip("ESP-04",
+         "ESP boot banner producer absent on UART 0 power-up (see G39)");
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Main
 // ══════════════════════════════════════════════════════════════════════
 
@@ -2090,6 +2122,7 @@ int main() {
     test_group11_interrupts();  std::printf("  Group INT   done\n");
     test_group12_gating();      std::printf("  Group GATE  done\n");
     test_group13_nr_a0();       std::printf("  Group NR-A0 done\n");
+    test_group14_esp();         std::printf("  Group ESP   done\n");
 
     std::printf("\n===============================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

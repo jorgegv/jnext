@@ -191,6 +191,37 @@ The Z80N phase runs `build/test/z80n_test build/test/z80n` and checks the
 exit code. Any failure is reported with the failing test name and
 expected-vs-actual register diff.
 
+## Known coverage gaps
+
+### G61 — Z80 ED-undocumented RETN-alias coverage
+
+The base Z80 specifies that ED-prefix opcodes 0x55, 0x5D, 0x65,
+0x6D, 0x75, 0x7D all behave as RETN (the canonical RETN is 0x45).
+Neither suite pins this:
+
+- `fuse_z80_test` (1356/1356) covers the canonical RETN at ED 45
+  and RETI at ED 4D, but not the 6 aliases.
+- This Z80N suite covers only the 30 Z80N-specific extensions; the
+  ED-undocumented aliases are by definition outside its remit.
+
+**Risk surface**: G46(a) — the IM2 fabric currently has a band-aid
+where the M1 hook treats any `ED <2nd byte>` follow-up that LOOKS
+like a RETN/RETI (low nibble matches) as the canonical opcode.
+Removing that band-aid (gap G87 — IM2 RETI/RETN decoder cannot
+see the ED-prefix second byte) needs the 6 alias opcodes to round-
+trip correctly. A discriminative test would catch a future
+regression.
+
+**Coverage type**: data-driven addition — six new
+`tests.in` / `tests.expected` pairs (one per alias opcode), each
+asserting that PC pops from SP, IFF1<-IFF2, MEMPTR set per spec.
+Add when G46(a) band-aid removal is scheduled.
+
+**No row-level `skip()` row in `z80n_test.cpp`**: the runner is
+purely data-driven with no row-level `skip()` helper; adding one is
+out of scope for this gap. The plan-doc reference here is the
+canonical pointer.
+
 ## How to Run
 
 ```bash

@@ -577,6 +577,50 @@ static void test_cfg() {
               "[zxnext.vhd:1102]",
               back_to_1, std::string("got=") + (back_to_1 ? "1" : "0"));
     }
+
+    // CFG-08 — G62: NR 0x03 config_mode preservation across soft-reset
+    // (NR 0x02 b0 / FSM-driven) is undefined. Only hard reset is tested.
+    skip("CFG-08",
+         "NR 0x03 config_mode preservation across soft-reset undefined (see G62)");
+}
+
+// ── FT — FDC IO-trap (NR 0xD8/D9/DA, G55) ────────────────────────────
+
+static void test_ft_iotrap() {
+    set_group("FT");
+
+    // FT-D8-01..02 — G55: NR 0xD8 nr_d8_io_trap_fdc_en (zxnext.vhd:3866)
+    // — write/read-back missing; enable=1 must allow strobe_iotrap to
+    // assert MF.
+    skip("FT-D8-01",
+         "NR 0xD8 nr_d8_io_trap_fdc_en write/read-back missing (see G55)");
+    skip("FT-D8-02",
+         "NR 0xD8 enable=1 must allow strobe_iotrap to assert MF (see G55)");
+
+    // FT-D9-01 — G55: NR 0xD9 nr_d9_iotrap_write captures CPU write byte.
+    skip("FT-D9-01",
+         "NR 0xD9 nr_d9_iotrap_write captures CPU write byte missing (see G55)");
+
+    // FT-DA-01..02 — G55: NR 0xDA nr_da_iotrap_cause encoding 01/10/11
+    // (VHDL:3878-3880); cause clears via NR 0x02 b4 write=0 (not via
+    // NR-read-acknowledge as a band-aid pattern would suggest).
+    skip("FT-DA-01",
+         "NR 0xDA nr_da_iotrap_cause encoding 01/10/11 missing (see G55)");
+    skip("FT-DA-02",
+         "NR 0xDA cause clears via NR 0x02 b4 write=0 (see G55)");
+}
+
+// ── BYPASS-Q — Bypass Q3-Q8 documentation/blob inspection (G64) ─────
+
+static void test_bypass_q() {
+    set_group("BYPASS-Q");
+
+    // BYPASS-Q-01..02 — G64: VHDL/blob inspection tasks per
+    // FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md Q3-Q8.
+    skip("BYPASS-Q-01",
+         "NR 0x28-0x2B keymap.bin read-back unspecified (see G64)");
+    skip("BYPASS-Q-02",
+         "altROM 0x06/0x07 layout in enNextZX.rom unspecified (see G64)");
 }
 
 // ── 8. Palette Registers (PAL-01..06) ────────────────────────────────
@@ -738,6 +782,47 @@ static void test_write_only_read_default() {
     skip("WO-04", "NR 0x35 leaks last-written byte on read (see G149)");
 }
 
+// ── Composed-Read Divergence (G56) — 24 NR superset ─────────────────
+// Per Task 6 audit: at least 24 NRs have read-side composed values
+// that include dynamic terms beyond regs_[reg]. jnext NextReg::write
+// stores raw 8-bit pre-handler-dispatch (src/port/nextreg.cpp:114) —
+// reads return the raw byte, missing the composition logic at VHDL
+// zxnext.vhd:5897-6125. Distinct from G149 (write-only NRs that have
+// no read entry at all).
+//
+// FOLD-G99: G56-CR-6E/6F/70/71 also lap into G99 reserved-bit
+// territory and may be folded into G99 row IDs at landing time. Author
+// the rows under G56 unless the user explicitly redirects to G99.
+
+static void test_composed_read_divergence() {
+    set_group("G56-CR");
+
+    skip("G56-CR-05", "NR 0x05 composed-read divergence (see G56)");
+    skip("G56-CR-06", "NR 0x06 psg_mode source-of-truth (see G56)");
+    skip("G56-CR-09", "NR 0x09 sprite_tie composed-read (see G56)");
+    skip("G56-CR-0A", "NR 0x0A divmmc_automap_en mirror (see G56)");
+    skip("G56-CR-0B", "NR 0x0B joystick composed-read (see G56)");
+    skip("G56-CR-10", "NR 0x10 video-timing cvc composed (see G56)");
+    skip("G56-CR-15", "NR 0x15 layer composed-read (see G56)");
+    skip("G56-CR-22", "NR 0x22 bit 7 dynamic pulse_int_n (see G56)");
+    skip("G56-CR-23", "NR 0x23 line-int compare ladder (see G56)");
+    skip("G56-CR-34", "NR 0x34 sprite-attr index live counter (see G56)");
+    skip("G56-CR-40", "NR 0x40 palette idx autoinc state (see G56)");
+    skip("G56-CR-43", "NR 0x43 palette ctrl composed-read (see G56)");
+    skip("G56-CR-4C", "NR 0x4C bits 7:4 mask not propagated (see G56)");
+    skip("G56-CR-68", "NR 0x68 b4 from port_ff3b_ulap_en (see G56)");
+    skip("G56-CR-69", "NR 0x69 bits composed from port_ff (see G56)");
+    skip("G56-CR-6A", "NR 0x6A radastan/lores composed (see G56)");
+    skip("G56-CR-6B", "NR 0x6B b7 from nr_6b_tm_en (see G56)");
+    skip("G56-CR-6C", "NR 0x6C tilemap composed-read (see G56)");
+    skip("G56-CR-6E", "NR 0x6E bit 6 always 0 (see G56)");
+    skip("G56-CR-6F", "NR 0x6F bit 6 always 0 (see G56)");
+    skip("G56-CR-70", "NR 0x70 bits 7:6 always 0 (see G56)");
+    skip("G56-CR-71", "NR 0x71 bits 7:1 always 0 (see G56)");
+    skip("G56-CR-80", "NR 0x80 expansion-bus dynamic state (see G56)");
+    skip("G56-CR-81", "NR 0x81 b7 from i_BUS_ROMCS_n (see G56)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -765,6 +850,12 @@ int main() {
     test_cfg();
     std::printf("  Group: Machine-Cfg    — done\n");
 
+    test_ft_iotrap();
+    std::printf("  Group: FT FDC iotrap  — done\n");
+
+    test_bypass_q();
+    std::printf("  Group: BYPASS-Q       — done\n");
+
     test_palette();
     std::printf("  Group: Palette        — done\n");
 
@@ -776,6 +867,9 @@ int main() {
 
     test_write_only_read_default();
     std::printf("  Group: WO             — done\n");
+
+    test_composed_read_divergence();
+    std::printf("  Group: G56-CR         — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

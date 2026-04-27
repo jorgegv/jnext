@@ -323,6 +323,19 @@ static void test_fe_format(Emulator& emu) {
               detail);
     }
 
+    // FE-04A — G44: dynamic symmetric_relaxation transient on tape edges.
+    // VHDL zxnext_top_issue2.vhd:662 models a small analogue time-constant
+    // where i_relax_0 / i_relax_1 lag the digital port_fe_mic / i_AUDIO_EAR
+    // signals; the steady-state collapse used by jnext (audio_ear_eff =
+    // issue2 ? port_fe_mic : 1) only matches once those relax. On
+    // tape-loading edges (LOAD "" pulses), the actual issue-2 board
+    // produces a brief ringing on bit 6 that the steady-state
+    // approximation cannot reproduce. Distinct from FE-04 (steady-state
+    // row, currently passing). User impact: issue-2 16K tape-loading
+    // detection edge.
+    skip("FE-04A",
+         "issue-2 symmetric_relaxation analogue time-constant absent (see G44)");
+
     // WONT FE-05: Expansion-bus AND with port_fe_bus (VHDL zxnext.vhd:3468,
     // :3453). Emulating a physical expansion-bus aggregator (i_BUS_DI,
     // expbus_eff_en, NR 0x8A port_propagate_fe routing) makes no sense on
@@ -516,6 +529,29 @@ static void test_joy_wire() {
     set_group("JOY-WIRE");
     skip("JOY-WIRE-01",
          "OUT 253B+05 propagation to MembraneStick unwired (see G126)");
+
+    // JOY-WIRE-02 — G42: SDL gamepad button events do not dispatch into
+    // Joystick::set_joy_left()/set_joy_right(). Verified: grep across src/
+    // returns zero callers outside the class itself. SDL initialises
+    // SDL_INIT_GAMECONTROLLER but the GUI / platform event loop has no
+    // SDL_CONTROLLERBUTTONDOWN/UP → joy-bit translator. Pressing the host
+    // pad's A button does NOT flip Joystick's bit 4 (Fire 1).
+    skip("JOY-WIRE-02",
+         "SDL_CONTROLLERBUTTON* not dispatched to Joystick::set_joy_left/right (see G42)");
+
+    // JOY-WIRE-03 — G42: SDL gamepad axis events do not dispatch into
+    // Joystick. SDL_CONTROLLERAXISMOTION on left stick must threshold into
+    // U/D/L/R bits per a configurable deadzone. No axis dispatcher exists
+    // in src/platform/ or src/gui/.
+    skip("JOY-WIRE-03",
+         "SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold absent (see G42)");
+
+    // JOY-WIRE-04 — G42: per-connector routing policy unwritten. With two
+    // physical pads attached, there is no rule deciding "pad 0 → joy_left,
+    // pad 1 → joy_right". The Joystick class accepts both lanes; the
+    // host-side mapping does not exist.
+    skip("JOY-WIRE-04",
+         "two-pad → joy_left/joy_right routing policy unwritten (see G42)");
 }
 
 // ── Section HOTKEY — Host F-key dispatch to NR 0x07 / 50-60 (G147) ─────

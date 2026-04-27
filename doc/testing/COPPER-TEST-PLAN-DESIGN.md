@@ -33,8 +33,9 @@
 >   is 10 bits (`copper.vhd:38, 48`).
 
 **Current status (2026-04-15):** test code rewritten and merged to main.
-Honest pass rate: **66/66 live, 10 stub** (OFS-01..06 NR 0x64/cvc offset
-model absent, ARB-01/02/03/06 cycle-accurate bus / NMI model absent).
+Honest pass rate: **66/66 live, 11 stub** (OFS-01..06 NR 0x64/cvc offset
+model absent, ARB-01/02/03/06 cycle-accurate bus / NMI model absent,
+ARB-G65-01 tied-edge bus arbitration not modelled — see G65).
 0 failures. The `nr_copper_write_8` sticky latch (RAM-MIX-01) remains
 unmodelled in the emulator but does not manifest under current stimulus;
 it is on the Task 3 backlog in case other interleavings expose it.
@@ -424,6 +425,7 @@ the *same 28 MHz clock* that the Copper issues its MOVE write-pulse.
 | ARB-04 | Copper reg width masked to 7 bits      | Instr[0]=MOVE with reg bits=`1111111` (0x7F)| step 2 clocks                                                                    | `copper_nr_reg = 0x7F` (bit 7 always 0 per the prepend). Copper cannot address `NR 0x80..0xFF`.                | `zxnext.vhd:4731`      |
 | ARB-05 | No Copper request when stopped         | mode=`00`                                  | CPU writes `NR 0x40 <= 0xAA`                                                     | `copper_req` never rises; CPU write completes with 0-cycle stall.                                              | `zxnext.vhd:4709`; `copper.vhd:112-114` |
 | ARB-06 | Copper write to `NR 0x02` triggers NMI signals | mode=`01`, Instr[0]=MOVE to `NR 0x02` with data=0x08 (bit 3) | step 2 clocks                                                         | `nmi_cu_02_we = 1` on the cycle `copper_req=1` with `copper_nr_reg=0x02`; `nmi_gen_nr_mf = 1`.                  | `zxnext.vhd:3830-3832` |
+| ARB-G65-01 | True tied-edge CPU+Copper write | mode=`01`, Instr[0]=MOVE 0x40,0x55; CPU OUT (NR 0x40),0xAA enqueued so its `cpu_req` rises in the **same** 28 MHz cycle as `copper_req` | step 1 clock with both requests latched simultaneously | `nr_wr_en=1`, `nr_wr_reg=0x40`, `nr_wr_dat=0x55` (Copper wins). `cpu_req` HELD (NOT cleared) into next cycle, where it retires as 0xAA. Distinct from ARB-01/02 which serialise the stimulus across two ticks. | `zxnext.vhd:4769, 4775-4777` |
 
 ### Group 8 — Self-modifying Copper (reinstated)
 

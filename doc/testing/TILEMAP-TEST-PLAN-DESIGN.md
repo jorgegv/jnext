@@ -139,6 +139,20 @@ doc/design/
 | TM-03 | Disable tilemap | Clear 0x6B bit 7 | Tilemap pixels disappear, ULA shows through |
 | TM-04 | Reset defaults readback | Read all TM NextREGs | Values match VHDL reset table above |
 
+#### Per-scanline NR 0x6B mid-frame mode flip (G06)
+
+Tilemap class has no per-line change-log today; scalar bools at
+`tilemap.h:136-141` are overwritten on each `set_control()` call. VHDL
+bit decode authority: `tilemap.vhd:189-195` + `zxnext.vhd:5461-5462`.
+
+| ID     | Test | Stimulus | Expected |
+|--------|------|----------|----------|
+| TM-160 | Per-scanline NR 0x6B b6 (40→80 col) flip mid-frame | Lines 0..99 b6=0 (40 col); Copper writes b6=1 at line 100 | Lines 0..99 emit 8-bit-per-tile fetch; lines 100..255 emit 80-col 4-bit fetch. skip — `Tilemap::mode_80col_` (`tilemap.h:137`) is a single bool, no per-line replay (see G06) |
+| TM-161 | Per-scanline NR 0x6B b3 (textmode) flip mid-frame | Lines 0..99 b3=0 (gfx); Copper writes b3=1 at line 100 | Lines 0..99 produce 8-bit-per-tile bitmap pixels; lines 100..255 produce 7-bit palette-offset textmode pixels. skip — `text_mode_` (`tilemap.h:138`) bool snapshot, no log (see G06) |
+| TM-162 | Per-scanline NR 0x6B b1 (256→512 tile) flip mid-frame | Lines 0..99 b1=0; Copper writes b1=1 at line 100 | Lines 0..99 use 256-tile addressing (8-bit pat idx); lines 100..255 use 9-bit tile idx (b1 also forces ula_below per VHDL `zxnext.vhd:6863`). skip — `mode_512_` (`tilemap.h:140`) bool snapshot (see G06) |
+| TM-163 | Per-scanline NR 0x6B b0 (`tm_on_top`) flip mid-frame | Lines 0..99 b0=0 (TM-below default); Copper writes b0=1 at line 100 | Lines 0..99 follow per-tile below; lines 100..255 force tilemap above ULA. skip — `ula_on_top_` (`tilemap.h:141`) bool snapshot, no log (see G06) |
+| TM-164 | Per-scanline NR 0x6B b7 (enable) flip mid-frame | Lines 0..99 b7=0 (TM off); Copper writes b7=1 at line 100 | Lines 0..99 render no tilemap; lines 100..255 render tilemap. skip — `enabled_` (`tilemap.h:136`) bool snapshot, no log (see G06) |
+
 ### Group 2: 40-Column Mode (8-bit tiles)
 
 The 40x32 mode uses 8x8 pixel tiles, 40 columns, 32 rows. Each tilemap entry
