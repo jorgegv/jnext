@@ -70,7 +70,9 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 | SEL-02 | Reset, read 0x243B | Returns 0x24 (protection default) |
 | SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | Machine ID unaffected (read-only) |
 | SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | Returns 0xAB (user register) |
-| SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register |
+| SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
+| SEL-05a | Pre-select NR 0x07 via 0x243B; execute Z80N `NEXTREG 0x12, 0x10` (ED 91 12 10); read NR 0x07 via 0x253B | NR 0x07 returned (selection preserved). VHDL `zxnext.vhd:4739-4745` injects `(reg, val)` directly without touching `nr_register`. skip — `z80n_ext.cpp:218-238` issues two `out()` calls (0x243B then 0x253B) which clobber `NextReg::selected_` to 0x12 (see G151) |
+| SEL-05b | Same setup; after the Z80N NEXTREG, write 0x253B ← 0x99 (raw data port) | NR 0x07 receives 0x99 (selection still pointed at 0x07). skip — discriminative pair: jnext path lands at NR 0x12 because selected_ clobbered (see G151) |
 
 ### 2. Read-Only Registers
 
@@ -247,6 +249,10 @@ Effective enable = internal AND bus (when bus is active).
 | PE-03 | Disable joystick port (bit 6) | Port 0x1F not decoded |
 | PE-04 | Reset with reset_type=1 | Internal ports reset to 0xFF |
 | PE-05 | Reset with bus reset_type=0 | Bus ports reset to 0xFF |
+| PE-06 | Read NR 0x82 after a write, full VHDL packing | Write NR 0x82 ← 0x55; read NR 0x82 | Returned byte equals VHDL composition (`zxnext.vhd:5508-5522`) — internal-port-enable bits AND with reset_type-derived defaults; NOT raw shadow. skip — jnext stores raw write byte in `regs_[]` (see G154) |
+| PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | Write NR 0x86 ← 0x33; read NR 0x86 | Returned byte equals VHDL packing at `zxnext.vhd:5061-5067`. skip — jnext returns raw `regs_[0x86]` because no read_handler is installed (see G154) |
+| PE-08 | Read NR 0x89 inverted-reset semantics | After power-on with `reset_type=0` (NR 0x02 b0=0), read NR 0x89 | NR 0x89 bit 7 is INVERTED — VHDL `zxnext.vhd:6138, 6150` clears NR 0x89 to 0xFF on `reset_type=0`. skip — jnext returns raw stored byte (0x00 default) (see G154) |
+| PE-09 | Read NR 0x80 / 0x88 not initialised | Power-on, read NR 0x80 / 0x88 | Returned byte matches the VHDL reset-table value, not zero. skip — jnext skips initialisation for NRs without explicit handlers (see G154) |
 
 ### 10. Copper Arbitration
 
@@ -259,11 +265,26 @@ From `zxnext.vhd` lines 4706-4777:
 | COP-03 | CPU write while copper active | CPU waits |
 | COP-04 | Copper register limited to 0x7F | MSB of copper reg forced to 0 |
 
+### 11. Write-Only Register Read Behaviour (G149)
+
+VHDL `zxnext.vhd:5878-6289`: read-mux falls through to `(others => '0')`
+for NRs without read entries. jnext `src/port/nextreg.cpp:101-110`
+returns `regs_[reg]` instead, leaking the last-written byte for
+write-only NRs (0x04, 0x29-0x2B, 0x35-0x39, 0x60, 0x63, 0x75-0x79).
+Distinct from G56 (composed-read divergence on NRs *with* read entries).
+
+| Test  | Scenario                                                    | Expected                                                                                  |
+|-------|-------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| WO-01 | Write NR 0x04 ← 0xA5; read NR 0x04 via 0x243B/0x253B        | Returns 0x00 — `zxnext.vhd:5878-6289` read-mux falls through to `(others => '0')`. skip — jnext leaks last-written byte (see G149) |
+| WO-02 | Write NR 0x29 ← 0x55; read NR 0x29                          | Returns 0x00; sprite stream NRs (0x29/0x2A/0x2B) are write-only per VHDL. skip — leaks last-written byte (see G149) |
+| WO-03 | Write NR 0x60 ← 0x42; read NR 0x60                          | Returns 0x00; copper data port is write-only per VHDL `:5878-6289`. skip — leaks last-written byte (see G149) |
+| WO-04 | Write NR 0x35 ← 0x33; read NR 0x35                          | Returns 0x00; sprite-attribute mirror NR is write-only per VHDL. skip — leaks last-written byte (see G149) |
+
 ## Test Count Summary
 
 | Category | Tests |
 |----------|-------|
-| Register selection/access | ~5 |
+| Register selection/access | ~7 (+SEL-05a/05b G151) |
 | Read-only registers | ~6 |
 | Reset defaults | ~9 |
 | Read/write round-trip | ~12 |
@@ -271,6 +292,7 @@ From `zxnext.vhd` lines 4706-4777:
 | MMU registers | ~4 |
 | Machine config | ~5 |
 | Palette registers | ~6 |
-| Port enable registers | ~5 |
+| Port enable registers | ~9 (+PE-06..09 G154) |
 | Copper arbitration | ~4 |
-| **Total** | **~64** |
+| Write-only read behaviour | 4 (WO-01..04 G149) |
+| **Total** | **~74** |

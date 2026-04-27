@@ -541,6 +541,7 @@ emulator-level (CT-PENT-04), Pentagon full-frame integration
 | CT-TURBO-04 | B | 48K, full `Emulator`, NR 0x07 write to `0x01`, then bank 5 memory read | Zero added T-states (NR 0x07 path must flow to `cpu_speed`) | `zxnext.vhd:5787-5790,5817` |
 | CT-TURBO-05 | B | 48K, full `Emulator`, NR 0x08 write to bit-6=1, then bank 5 memory read | Zero added T-states (NR 0x08 bit 6 path must flow to `eff_nr_08_contention_disable`) | `zxnext.vhd:4481,5823` |
 | CT-TURBO-06 | B | 48K, full `Emulator`, write NR 0x08 with bit 6 set **mid-scanline** (just after an `hc(8)=0→1` edge); issue a bank-5 memory read BEFORE the next `hc(8)` rising edge, then another AFTER it | Pre-commit read still contended (old `eff_nr_08_contention_disable` value); post-commit read uncontended. Pins the `if hc(8)='1'` commit gate at `zxnext.vhd:5822-5823` — mid-line NR 0x08 writes latch only on the next `hc(8)` rising edge, not combinatorially | `zxnext.vhd:5822-5823` |
+| CT-TURBO-07 | B | 48K, full `Emulator`. Mid-instruction NR 0x07 ← 0x01 (turbo) during a contended bank-5 read. VHDL `zxnext.vhd:5796-5828` defers `cpu_speed <= nr_07_cpu_speed` until bus-idle (`mreq_n & iorq_n & m1_n & not dma_holds_bus`). Distinct from CT-TURBO-06 which is the NR 0x08 / `hc(8)` commit edge | In-flight contended access sees 3.5-MHz contention; the next post-bus-idle access sees the turbo gate disable. skip — `emulator.cpp:322-326` commits NR 0x07 synchronously (see G142) | `zxnext.vhd:5796-5828` |
 
 Rows removed vs. the pre-critic draft:
 
@@ -614,6 +615,25 @@ integration-level regression guards.
   builds. This is an implementation-plan decision, not a test-plan
   decision, but it must be surfaced in the Phase-0 review.
 
+### §16. FUSE in-opcode contention (M1 fetch + no-MREQ tail + IN/OUT port)
+
+VHDL `zxula.vhd:583, 595, 600`: `wait_s` fires every contended cycle
+(M1, no-MREQ, data, port). FUSE injects per-cycle contention via
+`contend_read`/`_no_mreq`/`_write_no_mreq` macros at
+`third_party/fuse-z80/z80_macros.h:109-122`, reading
+`memory_map_read[].contended` + `ula_contention[]`. jnext zero-fills
+both at `src/cpu/z80_cpu.cpp:484-508` so the inner-macro path is
+inert; G50's outer `ContentionModel::contention_tick()` only catches
+M-cycle boundary, not M1 fetch or no-MREQ tail. Rows below pin the
+four cycle classes; they flip to `check()` once G141 lands.
+
+| ID         | Phase | Stimulus                                                                              | Expected                                                                                                          | VHDL                                |
+|------------|-------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-------------------------------------|
+| CT-FUSE-01 | C     | 48K, run a `LD A,(0x4000)` from page 0x0A inside the contended display window         | M1 fetch contended (added T-states match VHDL `wait_s` LUT for the M1 cycle); discriminate vs. uncontended page 0. skip — FUSE `memory_map_read[].contended` zero-filled (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:109` |
+| CT-FUSE-02 | C     | 48K, run a `LDIR` block-copy across page 0x0A inside the contended display window     | The `no-MREQ` tail T-states are stretched once per iteration; total opcode T-state count exceeds uncontended baseline by VHDL-derived sum. skip — FUSE no-MREQ macros inert (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:118-122` |
+| CT-FUSE-03 | C     | 48K, `OUT (0xFE),A` inside the contended display window with `port_contend=1` path    | Port-write cycle stretches per `wait_s`; T-state count matches VHDL. skip — port-write contention inert (see G141) | `zxula.vhd:595`; `zxnext.vhd:4496`  |
+| CT-FUSE-04 | C     | 48K, `IN A,(0xFE)` inside the contended display window with `port_contend=1` path     | Port-read cycle stretches per `wait_s`; T-state count matches VHDL. skip — port-read contention inert (see G141) | `zxula.vhd:595`; `zxnext.vhd:4496`  |
+
 ## Integration test suggestions
 
 1. **Frame-timing smoke** — run a known contention-sensitive 48K
@@ -643,10 +663,11 @@ integration-level regression guards.
 | §9  | Wait-pattern window | 10 |
 | §10 | 48K / 128K clock-stretch | 8 |
 | §11 | +3 `WAIT_n` | 8 |
-| §12 | Pentagon + Next-turbo | 7 |
+| §12 | Pentagon + Next-turbo | 8 (+CT-TURBO-07 G142) |
 | §13 | Floating-bus capture | 4 |
 | §14 | Integration smoke | 3 |
-| | **Total** | **68** |
+| §16 | FUSE in-opcode contention | 4 (G141) |
+| | **Total** | **73** |
 
 ### Row phasing summary (C1 phase tags)
 

@@ -293,6 +293,28 @@ VRAM bank 1 (`vram_a(13) = '1'`), giving per-pixel-row colour attributes.
 | 6 | Hi-res uses timex border colour | mode(2)=1 | border_clr_tmx instead of border_clr |
 | 7 | Shadow screen forces mode "000" | shadow_en=1 | Timex modes disabled |
 | 8 | Hi-res attr_reg uses border_clr_tmx | mode(2)=1 | attr_reg loaded with border_clr_tmx |
+| 9 (S5.10) | Hi-res renders at 512 px wide (mode=100) | render_scanline emits 512 distinct pixel slots (one per `shift_reg_32` bit). skip — F-G104-RENDER (see G104) |
+| 10 (S5.11) | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100) | `border_clr_tmx == "01" & (not port_ff(5:3)) & port_ff(5:3)` — 6 bits, NOT (port_ff>>3)&0x07. skip — F-G105-PALGRP (see G105) |
+
+> **Width-resolution gap (G104).** The current renderer at
+> `src/video/ula.cpp:646+` (with the comment at lines 635-640 documenting
+> the 256-pixel approximation) discards every alternate hi-res pixel
+> from the VHDL `shift_reg_32` lane interleaving at `zxula.vhd:389-395`.
+> S5.10 stays SKIP until the renderer doubles its hi-res output stride
+> and the compositor accepts a 512-wide framebuffer in hi-res mode.
+> Cross-link: G18 (screenshot scaling) is orthogonal — G104 is the
+> emit-side fix.
+
+> **6-bit border-group encoding gap (G105).** VHDL `zxula.vhd:419`
+> emits `border_clr_tmx <= "01" & (not port_ff(5:3)) & port_ff(5:3)`
+> — a 6-bit composite where the leading "01" is the palette-base
+> nibble and the inverted-then-concatenated paper bits drive the
+> alternate-quadrant entry. `src/video/ula.cpp:710-712` truncates to
+> `(screen_mode_reg_ >> 3) & 0x07`, dropping the inverted-half. The
+> visible difference is borderline-only on the legacy 16-entry palette
+> (G105 is "cheap once G102/G103 land") but breaks ULAnext/ULA+
+> palette-quadrant entries that differ from the 0x00-0x07 row. S5.11
+> stays SKIP until the palette store widens (shared with G102/G103).
 
 ## Section 6: ULAnext Mode
 
@@ -348,6 +370,17 @@ Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enabl
 
 **Coverage gap (Wave B critic, non-blocking)**: the ULA+ 0x7F format encoder path is coded in src/ but not exercised by any test row in this section. Candidate for a future S6.13 row.
 
+> **Runtime renderer integration (G102, see
+> `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`).** Encoder rows
+> S6.01-S6.12 verify the pure ULAnext lookup; the renderer at
+> `src/video/ula.cpp:386-423` never invokes it because `kUlaPalette` is
+> 16-entry and `render_display_line/_hicolour/_hires` short-circuit on
+> the legacy 16-colour table. New integration row **INT-ULANEXT-02**
+> in `test/ula/ula_integration_test.cpp` is registered as
+> `skip("INT-ULANEXT-02", "F-G102-RUNTIME …")` until the palette store
+> widens to 256×2 banks and the renderer routes per the VHDL
+> `zxula.vhd:485-528 + zxnext.vhd:6981`.
+
 ## Section 7: ULA+ Mode
 
 ### VHDL reference
@@ -384,6 +417,16 @@ Status (Wave C, 2026-04-23): all 6 `check()` — all pass.
 | 6 | S7.06 | Flash bit NOT used (attr bit 7 = palette group) | - | 0x80 | normal | group 2 | pass |
 
 Integration coverage: **INT-ULAPLUS-01** in `ula_integration_test.cpp` — enables port 0xFF3B and verifies palette-group-3 indices in a rendered row. S4.06 (flash disabled in ULA+ mode) also flipped to pass in Wave C.
+
+> **Runtime palette-index path (G103).** Encoder rows S7.01-S7.06 verify
+> the `"11" & attr(7:6) & …` lookup. `src/core/emulator.cpp:1937-1941`
+> only forwards the top-2 mode bits to `set_ulap_mode` — the low-6-bit
+> `port_bf3b_ulap_index` write per VHDL `zxnext.vhd:4525-4538` is
+> silently discarded; ULA+ programs cannot drive their 64-entry
+> palette window. New integration row **INT-ULAPLUS-03** in
+> `test/ula/ula_integration_test.cpp` registered as
+> `skip("INT-ULAPLUS-03", "F-G103-RUNTIME …")` until the index latch is
+> wired and the palette store widens (shared with G102/G105).
 
 ## Section 8: Clip Windows
 
@@ -701,6 +744,39 @@ When shadow is enabled:
 | 3 | Shadow disables Timex modes | 1 | screen_mode forced to "000" |
 | 4 | Shadow bit toggles display | toggle | Correct screen content shown |
 
+## Section 16: NR 0xFF palette write side-channel (G150)
+
+### VHDL reference
+
+`zxnext.vhd:6957`:
+
+```vhdl
+nr_ulatm_we <= (nr_palette_we and not (nr_43_palette_write_select(1)
+                                       xor sel(0)))
+               or nr_ff_we;
+```
+
+NR 0xFF writes commit a value derived from `nr_wr_dat` into the
+ULA/TM palette RAM at address `(0, sel(2), 1, 1, port_bf3b_ulap_index)`
+— i.e., the bf3b-indexed slot of the ULA palette. This is the legacy
+ULA+ palette-poke side-channel: software that does not raise
+`port_ff3b_ulap_en` can still drive the palette by writing NR 0xFF.
+
+`src/port/nextreg.cpp` has no write_handler registered for NR 0xFF;
+`regs_[0xFF]` is raw storage only.
+
+### Test cases
+
+| # | Row ID | Test | Expected | Status |
+|---|--------|------|----------|--------|
+| 1 | S16.01 | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index` (zxnext.vhd:6957) | Palette[bf3b_index] reads back the value written | skip (F-G150-NRFF) |
+
+### Skip-reason taxonomy extension
+
+| Reason code   | Semantics                                                                                                | Rows  |
+|---------------|----------------------------------------------------------------------------------------------------------|-------|
+| `F-G150-NRFF` | Add NR 0xFF write_handler that derives the value from `nr_wr_dat` and pokes the bf3b-indexed palette slot. Blocked on G102/G103 palette-store widening. | S16.01 |
+
 ## Total Test Count
 
 | Section | Area | Tests |
@@ -709,9 +785,9 @@ When shadow is enabled:
 | 2 | Attribute rendering | 10 |
 | 3 | Border colour | 8 |
 | 4 | Flash timing | 6 |
-| 5 | Timex hi-res/hi-colour | 8 |
-| 6 | ULAnext mode | 12 |
-| 7 | ULA+ mode | 6 |
+| 5 | Timex hi-res/hi-colour | 10 (+S5.10/S5.11 for G104/G105) |
+| 6 | ULAnext mode | 12 (+INT-ULANEXT-02 in integration suite) |
+| 7 | ULA+ mode | 6 (+INT-ULAPLUS-03 in integration suite) |
 | 8 | Clip windows | 8 |
 | 9 | Pixel scrolling | 10 |
 | 10 | Floating bus | 8 |
@@ -720,7 +796,8 @@ When shadow is enabled:
 | 13 | Timing constants | 8 |
 | 14 | Frame interrupt | 6 |
 | 15 | Shadow screen | 4 |
-| | **Total** | **~122** |
+| 16 | NR 0xFF palette side-channel | 1 (G150) |
+| | **Total** | **~125** |
 
 ## Implementation Notes
 

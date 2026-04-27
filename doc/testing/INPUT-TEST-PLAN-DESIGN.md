@@ -363,6 +363,7 @@ held an extra scan).
 | KBDHYS-01 | Pulse CS for one scan, then release; read the next scan | CS still reads pressed | 190, 232 |
 | KBDHYS-02 | Hold CS continuously across 3 scans | Reads pressed every scan | 190 |
 | KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan | ex matrix forced to all 1s | 183-186 |
+| KBDHYS-04 | Production: `Emulator` main loop must call `Keyboard::tick_scan()` each membrane scan-cycle; assert via instrumented spy that tick fires N times across an N-frame run | `membrane.vhd:178-191`; `keyboard.cpp:312/334` exist as methods but production `emulator.cpp` does NOT call them. skip — production wire missing (see G133) |
 
 ### 3.3 Extended keys (EXT-*)
 
@@ -408,6 +409,7 @@ Each row below is fully derived: for every byte, the expected
 | JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010 | {0,0,0}=000 | {1,1,0}=110 | (000 Sinclair 2, 110 MD 2) | 5157-5158 |
 | JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000 | {0,0,0}=000 | {0,1,1}=011 | (000 Sinclair 2, 011 Sinclair 1) | 5157-5158 |
 | JMODE-08  | Power-on, read joystick mode | — | — | (001 Kempston 1, 000 Sinclair 2) — signal-declaration defaults | 1105-1106 |
+| JMODE-09  | NR 0x05=0x40 (joy0=Kempston1) → MembraneStick::set_mode(joy0) called from Joystick::set_nr_05 | — | — | `Joystick::set_nr_05` does NOT hold a MembraneStick reference; `emulator.cpp:456-458` forwards NR 0x05 to Joystick only — switching joy modes via NR 0x05 leaves the membrane fold pinned to its constructor default. skip — wiring missing (see G126) — `membrane_stick.vhd:117-149`; `joystick.cpp:26-50` |
 
 JMODE-08 cites the signal-declaration line numbers because the soft
 reset block at `zxnext.vhd` 4926-4942 does not clear `nr_05_joy0` or
@@ -439,6 +441,8 @@ the stimulus. Expected byte computed per section 1.3.
 | KEMP-13 | joy0=001, joy1=001, L.U + R.R | 0x1F | 0x09 (bits 3,0 ORed) | 3499 |
 | KEMP-14 | joy0=001, joy1=100, L.U, R.D | 0x1F = 0x08, 0x37 = 0x04 | — | 3499, 3506 |
 | KEMP-15 | joy0=101, L.A pressed | 0x1F | 0x40 (bit 6 passes in MD mode) | 3478 |
+| KEMP-16 | NR 0x82 b7 = 0; joy0=100 (Kempston2); read port 0x37 → undecoded (floating-bus path), NOT joystick byte | `zxnext.vhd:2408,2675`; `emulator.cpp:1877-1879` registers handler with no NR-0x82 b7 check (mirror of NR 0x82 b6 / port-0x1F gate at :1871-1876, which IS implemented). skip — gate missing (see G128) | 2408, 2675 |
+| KEMP-17 | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F → floating-bus 0xFF (port_1f_hw_en=0 because no Kempston/MD source enables it), NOT 0x00 | `zxnext.vhd:2454-2455, 2674-2675`; `joystick.cpp:99-103` documents floating-bus headline but the implemented gate is NR 0x82 b6 io_en, not the mode-conditional hw_en. skip — mode-conditional gate missing (see G129) | 2454-2455, 2674-2675 |
 
 KEMP-12 checks the `port_1f_hw_en` guard at line 2454 — when no source
 is enabled, the port is not decoded; the corresponding read falls
@@ -620,6 +624,7 @@ Coverage of `zxnext.vhd` 2668-2670 and 3543-3561.
 | MOUSE-09 | NR 0x0A bit 3 = 1 (reverse) | host swaps L/R | verify reversal happens at the adapter, not the VHDL port | 5197 |
 | MOUSE-10 | `port_mouse_io_en=1` | `i_MOUSE_WHEEL = 0xF` (max), then 0x0 (wrap) | 0xFADF | bits 7..4 track `i_MOUSE_WHEEL` directly; VHDL at 3560 does no sign extension, so wrap is a pure 4-bit unsigned roll-over and any "signed wheel delta" semantics live in the host adapter | 104, 3560 |
 | MOUSE-11 | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"` | same physical motion | no visible change in `i_MOUSE_X/Y` at the VHDL port — DPI scaling is applied in the host mouse adapter before it drives `i_MOUSE_X/Y`, not inside `zxnext.vhd`. Open question §6.6. | 1128, 5198 |
+| MOUSE-12 | `port_dac_mono_AD_df_io_en=1` AND `port_mouse_io_en=0` AND joy0=001 (Kempston1) → read 0xDF returns Kempston joy byte (alias path), NOT 0x00 | `zxnext.vhd:2674` enables port_1f path also via port_df_lsb when port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0; `emulator.cpp:1563-1567` returns 0x00 unconditionally. skip — alias path missing; triple-gate (DAC=1 AND mouse=0 AND Kempston1 mode) (see G130) | 2674 |
 
 ### 3.11 NMI buttons (NMI-*)
 
@@ -644,6 +649,46 @@ Coverage of `zxnext.vhd` 2090-2091 and NR 0x06 bits 3-4.
 | FE-03 | Write 0xFE bit 4 high (`port_fe_ear`=1), then read | bit 6 = 1 | 3459 |
 | FE-04 | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0 | bit 6 reflects issue-2 MIC XOR EAR (audio block) | 5182 + audio wiring |
 | FE-05 | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | ANDed with bus (`port_fe_dat = port_fe_dat_0 and port_fe_bus`) → bit 0 forced 0 | 3468 |
+
+### 3.14 User-defined joystick keymap (JCAL-*) — NR 0x28-0x2B
+
+VHDL: `zxnext.vhd:6294-6324` (NR 0x28 keymap_sel, NR 0x29 addr-low,
+NR 0x2B data write/inc), `membrane_stick.vhd:172-183` (SDP-RAM keymap
+loaded from `keyjoy_64_6.coe`).
+
+| ID | Test | Verification |
+|----|------|--------------|
+| JCAL-01 | NR 0x28 keymap_sel write — accepts 2-bit value, persists to NextReg readback | `zxnext.vhd:6294-6300`; jnext: no NR 0x28 handler registered. skip — handler absent (see G127) |
+| JCAL-02 | NR 0x29 addr-low + NR 0x2B data-write/inc — writes one entry into SDP-RAM-analogue mirroring `keyjoy_64_6.coe` | `zxnext.vhd:6301-6324`; jnext: no handlers; COE loader does not exist in C++ (NR 0x2A is dead in VHDL, intentionally omitted). skip — handlers absent (see G127) |
+| JCAL-03 | NR 0x05 joy0/1=111 + JCAL-01/02-programmed entry → membrane fold redirects through user-defined keymap | `zxnext.vhd:5157-5158, 3429-3438`; `membrane_stick.cpp:101-104` (currently no-op). skip — mode-111 redirect not implemented (see G127) |
+
+### 3.15 F-key state machine (FNK-*) and host hotkey dispatch (HOTKEY-*)
+
+VHDL: `input/membrane/emu_fnkeys.vhd:53-202` — consumes
+`i_button_m1_n`, `i_button_reset_n`, membrane keys F1-F10 → drives
+`o_fnkeys[10:1]` and side-effect strobes for NR 0x07 cpu_speed /
+50-60 / scandouble.
+
+> **Cross-link**: F1/F4/F9/F10 reset/NMI dispatch is owned by G152 (B7
+> bucket) — see HK-06..09 in `NMI-PIPELINE-TEST-PLAN-DESIGN.md`. This
+> section covers the F2/F3/F5/F6/F7/F8 family only — the FSM (G132)
+> and SDL→FSM dispatch (G147).
+
+| ID | Test | Verification |
+|----|------|--------------|
+| FNK-01 | F-key FSM (`emu_fnkeys.vhd` 7-state machine) consuming `i_button_m1_n` + `i_button_reset_n` + membrane → `o_fnkeys[10:1]`; F2 scandouble / F3 50-60 / F7 scanline-weight / F8 cpu-speed pulses | `input/membrane/emu_fnkeys.vhd:53-202`; grep for `i_SPKEY_FUNCTION` / `emu_fnkeys` returns no hits in src/. skip — FSM absent (see G132) |
+| HOTKEY-01 | Host SDL_SCANCODE_F8 → emulator increments NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by `nr_06_hotkey_*_en` | `zxnext.vhd:5790-5791, 6342-6347`; `nr_06_hotkey_cpu_speed_en/5060_en` defaults '1' at 4932-4933. skip — F8/F3/F5/F6 host hotkey dispatch absent (see G147) — integration row in `input_integration_test.cpp` |
+
+> **Note on §3.13 numbering**: KBDHYS-04 lives in §3.2 alongside
+> KBDHYS-01..03 (per-section minimum-disturbance path). §3.14 (JCAL)
+> and §3.15 (FNK / HOTKEY) are new sections added 2026-04-27 covering
+> G127 / G132 / G147.
+
+### 3.16 NR 0x05 production-wire integration (JOY-WIRE-*)
+
+| ID | Test | Verification |
+|----|------|--------------|
+| JOY-WIRE-01 | Emulator: OUT (0x253B), 0x40 with reg=0x05; verify MembraneStick fold redirects through full NR-write path through OUT (0x253B) | `emulator.cpp:456-458` + `membrane_stick.vhd:124-131`. skip — production wire missing (integration tier; see G126) — paired with JMODE-09 (bare-class side) |
 
 ---
 
@@ -687,19 +732,22 @@ specific default and fails loudly if any reset path silently zeroes
 | Category | Tests |
 |----------|-------|
 | 3.1 Keyboard standard | 23 |
-| 3.2 Keyboard shift hysteresis | 3 |
+| 3.2 Keyboard shift hysteresis | 4 (+KBDHYS-04 G133) |
 | 3.3 Extended keys | 20 |
-| 3.4 Joystick mode select | 9 |
-| 3.5 Kempston 1/2 | 15 |
+| 3.4 Joystick mode select | 10 (+JMODE-09 G126) |
+| 3.5 Kempston 1/2 | 17 (+KEMP-16/17 G128/G129) |
 | 3.6 MD 3-button | 9 |
 | 3.6a MD 6-button + NR 0xB2 (incl. MD6-11a..i) | 19 |
 | 3.7 Sinclair 1/2 | 11 |
 | 3.8 Cursor | 6 |
 | 3.9 I/O mode | 11 |
-| 3.10 Kempston mouse | 11 |
+| 3.10 Kempston mouse | 12 (+MOUSE-12 G130) |
 | 3.11 NMI buttons | 7 |
 | 3.12 Port 0xFE format | 5 |
-| **Total (nominal)** | **149** |
+| 3.14 User-defined joystick keymap (JCAL) | 3 (G127) |
+| 3.15 F-key FSM + host hotkey dispatch | 2 (G132/G147) |
+| 3.16 NR 0x05 production-wire (JOY-WIRE) | 1 (G126) |
+| **Total (nominal)** | **160** |
 
 No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan

@@ -248,6 +248,8 @@ read from in the 16K VRAM bank.
 | TM-63 | Tile def base (bank 7) | `nr_6f_tilemap_tiles_7=1` | Tile pixels from bank 7 |
 | TM-64 | Address offset computation | `addr_sub(13:8) + offset(5:0)` concatenated with `addr_sub(7:0)` | Upper 6 bits added, lower 8 passed through |
 | TM-65 | Tile address with/without flags | `S_READ_TILE_0`: `tile_sub_sub & '0'` vs `tile_sub_sub` | With flags: entries are 2 bytes (LSB selects byte); without: 1 byte |
+| TM-66 | NR 0x6E read-back masks bit 6 to 0 | Write 0x6E with d6=1 | Read 0x6E returns bit 6 = 0 (raw bit dropped on read). skip — `tilemap.h:51` returns raw byte; no NR 0x6E read handler with mask exists (see G99) |
+| TM-67 | NR 0x6F read-back masks bit 6 to 0 | Write 0x6F with d6=1 | Read 0x6F returns bit 6 = 0 (raw bit dropped on read). skip — `tilemap.h:55` also returns raw byte (see G99) |
 
 VHDL tile map address (lines 395-398):
 ```
@@ -290,6 +292,7 @@ pixel_data(3:0) <= mem_data(7:4) when transformed_x(0)='0' else mem_data(3:0)
 | TM-83 | Y scroll basic | `tm_scroll_y_i` 8-bit | Tilemap shifts up by scroll amount |
 | TM-84 | Y scroll wrap at 256 | `tm_abs_y_s` = `scroll_y + vcounter` (8-bit add, wraps) | Y wraps at 256 pixels (32 tiles * 8) |
 | TM-85 | Per-line scroll update | Scroll is sampled at `S_IDLE` per tile fetch | Scroll can change per scanline via copper |
+| TM-86 | Per-line scroll snapshot survives line ≥ 320 | `init_scroll_per_line()` then `set_scroll_x_lsb(N)`; `snapshot_scroll_for_line(line)` for line in {0, 100, 320, 400, 511} | Scroll values for vblank lines (≥ 320) must be retained, mirroring SpriteEngine catch-up pattern. skip — `tilemap.h:76-87` uses `std::array<uint16_t, 320>` and guards `if (line < 320)`; vblank writes silently dropped (see G100) |
 
 VHDL X-scroll correction (lines 312-316):
 ```
@@ -322,6 +325,7 @@ abs_y_mult = '0' & mult_sub   when mode=40col
 | TM-92 | Custom transparency index | Write 0x4C with different value | Custom index makes those pixels transparent |
 | TM-93 | Text mode transparency (RGB) | `tm_pixel_textmode_2=1 and tm_rgb_2(8:1)=transparent_rgb_2` | Text mode compares post-palette RGB, not index |
 | TM-94 | Text mode vs standard path | `pixel_en_f` logic | Standard: index check; text: always enabled if pixel_en_s, then RGB check |
+| TM-95 | Text-mode RGB transparency at TM tier (not compositor) | `tm_pixel_textmode_2=1`, post-palette `tm_rgb_2(8:1) == nr_14_global_transparent` | Honour transparency at the Tilemap output, not in compositor. Pixel emitted with `pixel_textmode_o=1` and matching RGB → `pixel_en_o=0`. skip — `renderer.cpp:286` checks alpha=0 only; no NR 0x14 RGB compare; precondition: G101 (see G98) |
 
 VHDL transparency enable (lines 427-429):
 ```
@@ -342,6 +346,7 @@ compositor via RGB comparison).
 | TM-102 | Palette routing | `ulatm_pixel_1 = '1' & tm_palette_select & tm_pixel` | Palette address = {1, palette_sel, 8-bit pixel} |
 | TM-103 | Standard pixel composition | `pixel_data = {attr(7:4), nibble}` | 4-bit palette offset + 4-bit pixel = 8-bit index |
 | TM-104 | Text mode pixel composition | `pixel_data = {attr(7:1), bit}` | 7-bit palette offset + 1-bit pixel = 8-bit index |
+| TM-105 | Per-pixel `pixel_textmode_o` flag emitted alongside RGB | Mid-frame Copper write to NR 0x6B b3 mid-line | Tilemap row spanning the toggle | Emitted scanline carries per-pixel textmode flag (precondition for compositor RGB-transparency comparison at G98). skip — `tilemap.h:138` keeps `text_mode_` global; `renderer.h:188` exposes only `tm_pixel_below_` (see G101) — VHDL `tilemap.vhd:62, 443`; `zxnext.vhd:7072, 7109` |
 
 VHDL palette routing (line 6981):
 ```
@@ -471,13 +476,13 @@ Implementation priority (most impactful tests first):
 | 4: 512-tile mode | 3 |
 | 5: Text mode | 5 |
 | 6: Strip flags | 4 |
-| 7: Map address | 6 |
+| 7: Map address | 8 |
 | 8: Pixel address | 3 |
-| 9: Scrolling | 6 |
-| 10: Transparency | 5 |
-| 11: Palette | 5 |
+| 9: Scrolling | 7 |
+| 10: Transparency | 6 |
+| 11: Palette | 6 |
 | 12: Clip window | 7 |
 | 13: Layer priority | 6 |
 | 14: Stencil | 2 |
 | 15: Enable/below interaction | 2 |
-| **Total** | **~67** |
+| **Total** | **~72** |

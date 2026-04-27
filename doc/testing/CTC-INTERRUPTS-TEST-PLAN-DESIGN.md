@@ -138,6 +138,7 @@ Tests based on the prescaler logic in `ctc_chan.vhd`.
 | CTC-TM-06 | ZC/TO reloads time constant automatically | After ZC/TO, counter reloads TC and continues |
 | CTC-TM-07 | ZC/TO pulse duration is exactly 1 clock cycle | o_zc_to asserted for one i_CLK cycle (delayed by 1) |
 | CTC-TM-08 | Read port returns current down-counter value | Verify intermediate counter values |
+| CTC-TM-G120-01 | Mid-stream TC reload preserves prescaler (S_RUN_TC → S_RUN) | skip — ctc.cpp:41 clears prescaler_ on every TC write incl. running-reload; VHDL clears only on reset_soft (see G120) |
 
 ### Section 3: CTC Counter Mode
 
@@ -214,6 +215,8 @@ Tests based on `im2_control.vhd` state machine.
 | IM2C-12 | IM mode detection: ED 5E = IM 2 | im_mode = "10" |
 | IM2C-13 | IM mode updates on falling edge of CLK_CPU | Per VHDL: `falling_edge(i_CLK_CPU)` |
 | IM2C-14 | IM mode default after reset: IM 0 | im_mode = "00" after reset |
+| IM2C-G87-01 | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream | skip — Z80Cpu::on_m1_cycle fires once per execute() with FIRST byte only; ED 2nd byte unobserved (see G87) |
+| IM2C-G87-02 | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream | skip — same per-byte-M1-hook prerequisite as IM2C-G87-01 (see G87) |
 
 ### Section 8: IM2 Device (Per-Peripheral State Machine)
 
@@ -267,6 +270,12 @@ Tests based on `im2_peripheral.vhd` pulse mode and zxnext.vhd pulse logic.
 | PULSE-07 | Pulse counter resets when pulse_int_n=1 | Counter only runs while interrupt is active |
 | PULSE-08 | INT_n to Z80 = pulse_int_n AND im2_int_n | Both paths combined |
 | PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | Same signal output to expansion bus |
+| PULSE-G89-01 | LDIRX samples INT/NMI between iterations | skip — z80n_ext.cpp:352-427 closed C for-loop runs all iterations without INT/NMI sample (see G89) |
+| PULSE-G89-02 | LDDRX samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
+| PULSE-G89-03 | LDPIRX samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
+| PULSE-G89-04 | LDIRSCALE samples INT/NMI between iterations | skip — same closed-loop prerequisite as PULSE-G89-01 (see G89) |
+| PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | skip — ContentionModel gated OFF at 28 MHz; no sram_wait references in jnext (see G90) |
+| PULSE-G121-01 | NR 0x03 machine-timing post-boot updates pulse_count_end | skip — Im2Controller::set_machine_timing_48_or_p3 called once at Emulator::reset_machine only; tape loaders flipping NR 0x03 see wrong pulse width (see G121) |
 
 ### Section 11: IM2 Peripheral Wrapper
 
@@ -283,6 +292,7 @@ Tests based on `im2_peripheral.vhd` edge detection and status logic.
 | IM2W-07 | im2_reset_n = mode_pulse AND NOT reset | IM2 device held in reset during pulse mode |
 | IM2W-08 | Unqualified interrupt (int_unq): bypasses int_en | Direct interrupt regardless of enable bit |
 | IM2W-09 | isr_serviced edge detection across clock domains | isr_serviced_d used for CLK_28 domain crossing |
+| IM2W-G119-01 | ZC/TO raised unconditionally; int_en AND at fabric edge | skip — ctc.cpp:251-282 only calls on_interrupt when channel int_enabled; mid-pulse int_en flip drops prior edge (see G119) |
 
 ### Section 12: ULA and Line Interrupts
 
@@ -323,6 +333,8 @@ Tests based on NextREG read/write logic in zxnext.vhd.
 | NR-CC-01 | Write NextREG 0xCC: DMA interrupt enable group 0 | Bit 7 = dma_int_en_0_7, bits [1:0] = dma_int_en_0_10 |
 | NR-CD-01 | Write NextREG 0xCD: DMA interrupt enable group 1 | Full byte = nr_cd_dma_int_en_1 |
 | NR-CE-01 | Write NextREG 0xCE: DMA interrupt enable group 2 | Bits [6:4] and [2:0] |
+| NR-C2-01 | NMI captures PC into NR 0xC2 (RETN address LSB) | skip — no NR 0xC2/0xC3 read handler in jnext; fuse_z80_nmi() pushes PC but does not propagate to NextReg shadow (see G88) |
+| NR-C3-01 | NMI captures PC into NR 0xC3 (RETN address MSB) | skip — same handler-missing prerequisite as NR-C2-01 (see G88) |
 
 ### Section 14: Interrupt Status and Clear
 
@@ -462,20 +474,20 @@ bash test/regression.sh
 | Section | Tests | Focus |
 |---------|------:|-------|
 | 1. CTC State Machine | 13 | Channel lifecycle, state transitions |
-| 2. CTC Timer Mode | 8 | Prescaler, auto-reload, ZC/TO timing |
+| 2. CTC Timer Mode | 9 | Prescaler, auto-reload, ZC/TO timing (+G120) |
 | 3. CTC Counter Mode | 5 | External edge counting, polarity |
 | 4. CTC Chaining | 6 | ZC/TO cascade, circular topology |
 | 5. CTC Control/Vector | 11 | Register protocol, write classification |
 | 6. CTC NextREG Enable | 4 | NextREG 0xC5 interaction |
-| 7. IM2 Control Block | 14 | RETI/RETN decode, IM mode, DMA delay |
+| 7. IM2 Control Block | 16 | RETI/RETN decode, IM mode, DMA delay (+G87×2) |
 | 8. IM2 Device | 12 | Per-device state machine, vector, ACK |
 | 9. IM2 Daisy Chain | 10 | Priority, blocking, chain restore |
-| 10. Pulse Mode | 9 | Legacy pulse timing, mode selection |
-| 11. IM2 Peripheral | 9 | Edge detect, status, domain crossing |
+| 10. Pulse Mode | 15 | Legacy pulse timing, mode selection (+G89×4 +G90 +G121) |
+| 11. IM2 Peripheral | 10 | Edge detect, status, domain crossing (+G119) |
 | 12. ULA/Line Interrupts | 9 | ULA timing, line number, priority |
-| 13. NextREG Registers | 18 | All interrupt NextREGs 0xC0-0xCE |
+| 13. NextREG Registers | 20 | All interrupt NextREGs 0xC0-0xCE (+G88×2) |
 | 14. Status/Clear | 10 | Status bits, clear mechanism |
 | 15. DMA Interrupt | 6 | DMA delay, NMI interaction |
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
-| **Total** | **~151** | |
+| **Total** | **~163** | |

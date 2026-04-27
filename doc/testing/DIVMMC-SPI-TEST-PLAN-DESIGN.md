@@ -108,6 +108,7 @@ instruction fetches. VHDL reference: `divmmc.vhd` lines 94-96, 148.
 | AM-02 | automap=1, mapram=0: 0x2000-0x3FFF = DivMMC RAM bank N | Same as conmem |
 | AM-03 | automap=1, mapram=1: 0x0000-0x1FFF = DivMMC RAM bank 3 | Same as conmem |
 | AM-04 | automap active, then deactivated: normal ROM restored | Paging removed |
+| AM-08 | NR 0x83 bit 0 clear hides DivMMC ROM/RAM overlay even with conmem=1 | VHDL `zxnext.vhd:4147` `i_en` AND-gates rom_en/ram_en; G124. skip — `DivMmc::set_port_io_enable` zero callers post-boot |
 
 ### 4. Automap Entry Points -- RST Addresses (0x00xx region)
 
@@ -265,6 +266,18 @@ line 4112.
 | NA-01 | NR 0x0A[4]=0 (default): automap_reset asserted | `divmmc_automap_reset=1` |
 | NA-02 | NR 0x0A[4]=1: automap_reset deasserted | Automap can function |
 | NA-03 | port_divmmc_io_en=0: automap_reset asserted | Even if NR 0x0A[4]=1 |
+| NA-04 | NR 0x0A bit 4 toggle calls `DivMmc::set_nr_0a_4_enable` on NextREG write | VHDL `zxnext.vhd:1126,4112,5196`; `divmmc.h:113` setter exists, zero callers. skip — wiring missing (see G123) |
+| NA-05 | NR 0x83 bit 0 clear asserts `divmmc_automap_reset` (port_io_en path) | VHDL `zxnext.vhd:2412,4112`; `DivMmc::set_port_io_enable` zero callers post-boot. skip — propagation missing (see G124) |
+| NA-06 | NR 0x06 reset default = 0xA0 (bits 7/5 set per VHDL power-on) | VHDL `zxnext.vhd:1107-1108,5162-5169`; current `regs_[0x06]=0` after reset. skip — RE-HOME candidate to NEXTREG plan (see G125) |
+| NA-07 | NR 0x06 bit 7 / bit 5 round-trip read after write | VHDL `zxnext.vhd:5162-5169`; `emulator.cpp:1591-1626` decode skips bits 7/5. skip — RE-HOME candidate to NEXTREG plan (see G125) |
+| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when `nr_03_config_mode=0`; mf_type bits 7:6 share gate | VHDL `zxnext.vhd:5191-5198`; `emulator.cpp:447-451` writes unconditionally. skip — config_mode gate missing (see G131) |
+
+> **Note 2026-04-27**: NA-04..08 added 2026-04-27 cover known NR 0x0A /
+> NR 0x83 / NR 0x06 plumbing gaps (G123/G124/G125/G131); skip-stubbed
+> pending implementation. NA-06/07 are NextREG-storage rows — RE-HOME
+> candidates to a future NEXTREG plan; consumer FSMs (CPU-speed hotkey,
+> 50/60 hotkey) live in §10 expansion / future Hotkey plan; row pairs
+> with G132 + G147.
 
 ### 11. DivMMC SRAM Address Mapping
 
@@ -298,7 +311,7 @@ Active-low: a 0 bit means the device is selected.
 | SS-05 | Write 0x02 with sd_swap=1: selects SD1 (swapped) | Reverse of default |
 | SS-06 | Write 0xFB: selects RPI0 (bit 2 = 0) | Exact match required |
 | SS-07 | Write 0xF7: selects RPI1 (bit 3 = 0) | Exact match required |
-| SS-08 | Write 0x7F in config mode: selects Flash | Only allowed in config mode or reset type bit 2 |
+| SS-08 | Write 0x7F in config mode: selects Flash | Only allowed in config mode or reset type bit 2; jnext stub returns 0xFF (Flash device + config_mode signal not modelled) — see G136 (Cat-B promote 2026-04-27) |
 | SS-09 | Write 0x7F outside config mode: all deselected (0xFF) | Flash select blocked |
 | SS-10 | Write any other value: all deselected (0xFF) | Default case |
 | SS-11 | Only one device selected at a time | Hardware enforces single selection |
@@ -347,6 +360,7 @@ lines 86-100.
 | ST-06 | `spi_wait_n = 1` when idle or on last cycle | DMA wait signal |
 | ST-07 | Transfer can begin from idle OR from last state | Allows pipelined transfers |
 | ST-08 | Read/write during mid-transfer: ignored | `spi_begin=0` when not idle/last |
+| ST-09 | DMA-via-SPI: `o_spi_wait_n` stretches DMA byte to 16 SPI clocks | VHDL `serial/spi_master.vhd:56,177` consumed by DMA at `zxnext.vhd:3297`; jnext exchange is instantaneous (no wait_n accessor in `spi.cpp:99-127`). skip — needs accessor (see G137) |
 
 ### 15. SPI MISO Data Latch
 
@@ -481,22 +495,22 @@ bash test/regression.sh
 |---------|------:|----------|
 | Port 0xE3 control register | 8 | Register read/write, bit behaviour |
 | conmem mode paging | 9 | ROM/RAM mapping, read-only, enable |
-| automap mode paging | 4 | Overlay activation/deactivation |
+| automap mode paging | 5 | Overlay activation/deactivation (+AM-08 G124) |
 | RST entry points | 12 | All 8 RST addresses, NR B8/B9/BA |
 | Non-RST entry points | 8 | 0x04C6, 0x0562, 0x04D7, 0x056A, 0x3Dxx, NR BB |
 | Deactivation | 8 | 0x1FF8-0x1FFF range, RETN, reset |
 | Instant vs delayed timing | 5 | Timing semantics |
 | ROM3-conditional | 4 | ROM3 presence checks |
 | NMI / button | 8 | button_nmi lifecycle, disable_nmi |
-| NR 0x0A automap enable | 3 | Global enable/disable |
+| NR 0x0A automap enable | 8 | Global enable/disable (+NA-04..08 G123/G124/G125/G131) |
 | SRAM address mapping | 7 | Physical address ranges |
-| Port 0xE7 chip select | 11 | SS register, sd_swap, flash protection |
+| Port 0xE7 chip select | 11 | SS register, sd_swap, flash protection (SS-08 reclassified to skip per G136) |
 | Port 0xEB SPI exchange | 10 | Full-duplex protocol |
-| SPI state machine | 8 | State counter, wait signal |
+| SPI state machine | 9 | State counter, wait signal (+ST-09 G137) |
 | SPI MISO latch | 6 | Pipeline delay, synchronization |
 | MISO multiplexing | 5 | Device priority |
 | Integration scenarios | 7 | End-to-end sequences |
-| **Total** | **~123** | |
+| **Total** | **~130** | |
 
 ## NMI integration (NM-01..08 un-skip path)
 

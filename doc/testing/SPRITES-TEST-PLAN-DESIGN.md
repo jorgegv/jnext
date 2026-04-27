@@ -327,6 +327,11 @@ Each row is: **ID · Title · Preconditions · Stimulus · Expected · VHDL cite
 | G1.AT-10 | `mirror_inc_i` increments within 7 bits | mirror_sprite_q=0x7F | Pulse `mirror_inc_i` | mirror_sprite_q(6:0) wraps to 0 | 603–605 |
 | G1.AT-11 | `mirror_tie_i=1` syncs attr_index to mirror number | Tie=1 | Mirror num ← 0x10 | attr_index becomes 0x10 & "000" | 653–654 |
 | G1.AT-12 | Mirror write takes priority over pending CPU write | Both latched same cycle | `mirror_served=1` blocks `cpu_served` | attr0_we driven from mirror, not cpu | 704–715 |
+| G1.AT-13 | NR 0x09 bit 4 sprite_tie ties NR 0x34 mirror_sprite_q to attr_index | Set NR 0x09 b4=1 via Emulator | Write 0x10 to NR 0x34 mirror sprite-num | attr_index becomes 0x10<<3 (slot 0x10), bundled with G96 | sprites.vhd:594-612, 653-654; zxnext.vhd:5187, 1123, 4352 |
+| G1.AT-14 | NR 0x35-0x39 (bit 6 = 0) MUST NOT increment sprite slot | Set sprite slot 0x05 via NR 0x34 | Write to NR 0x35; write to NR 0x35 again | Both writes land in slot 5 (no auto-inc) | zxnext.vhd:4855-4877, 4916; sprites.vhd:594-612 |
+| G1.AT-15 | NR 0x75-0x79 (bit 6 = 1) increments sprite slot after EVERY byte | Set sprite slot 0x05 via NR 0x34 | Write 4 bytes to NR 0x75 | Bytes land in slots 5,6,7,8 — one per write, not one per 4-byte attr block | zxnext.vhd:4855-4877, 4916; sprites.vhd:603-605 |
+| G1.AT-16 | NR 0x19 read returns indexed sprite-clip register, NOT raw last write | Write 4 bytes to NR 0x19 (cycles x1,x2,y1,y2) | Read NR 0x19 four times | Reads cycle through indexed clip registers (mirror NR 0x18 reader at zxnext.vhd:5956-5970); reads must not advance idx | zxnext.vhd:5956-5970 |
+| G1.AT-17 | NR 0x1A read returns indexed ULA-clip register, NOT raw last write | Write 4 bytes to NR 0x1A | Read NR 0x1A four times | Reads cycle through indexed clip registers; reads must not advance idx | zxnext.vhd:5956-5970 |
 
 ### Group 2 — Pattern Port 0x5B and Pattern RAM
 
@@ -565,7 +570,7 @@ There is no `check(..., true)`. No row tests "does not crash".
 
 | Group | Rows |
 |-------|-----:|
-| G1 Attr port 0x57 / mirror | 12 |
+| G1 Attr port 0x57 / mirror | 17 |
 | G2 Pattern port 0x5B | 5 |
 | G3 Pixel decoding + transparency | 12 |
 | G4 Position / 9-bit / edges | 7 |
@@ -580,7 +585,7 @@ There is no `check(..., true)`. No row tests "does not crash".
 | G13 Status / collision / overtime | 13 |
 | G14 Reset defaults | 6 |
 | G15 Boundary / negative | 7 |
-| **Total** | **126** |
+| **Total** | **131** |
 
 There is no honest target of "100% pass" until every row above has been
 implemented against the VHDL oracle. Until then, the published status
