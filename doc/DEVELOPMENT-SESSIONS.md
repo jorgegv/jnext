@@ -49,11 +49,11 @@
 |        |      | ula_test 123/48/0/75 → 81/81/0/0 + new ula_integration_test. 29 F-skips re-homed            |
 | 24/4   | 7h   | Task 3 UART+I2C + Audio + Input-re-audit + NMI + 4-subsys + UDIS-01/02/03 ALL CLOSED (131) |
 |        |      | Compositor 125/125/0/0 ZERO skips. 5 emu bugs. Aggregate 3326/3210/0/116 across 32 suites  |
-| 25/4   | 4h   | Task 3 floating_bus closed (26→0, 4 branches). Beast.nex 100% (shadow-screen + per-line palette) |
-|        |      | NextZXOS splash regression bisect + band-aid. Parallax PARKED on LoRes. 3339/3249/0/90      |
-| 26/4   | 5h   | videotiming (22→0) + contention (68→0) closed. **ZERO SKIPS REPO-WIDE** 3336/3336/0/0      |
-|        |      | Task 4 86-gap consolidated plan + Task 5 beast bottom-band fix via per-line NR 0x16 replay |
+| 25/4   | 7h   | Task 3 floating_bus closed (26→0, 4 branches). Beast.nex 100% (shadow-screen + per-line palette) |
+|        |      | NextZXOS splash bisect + band-aid. Parallax investigation (PARKED on LoRes). 3339/3249/0/90 |
+| 26/4   | 8h   | videotiming (22→0) + contention (68→0) closed. **ZERO SKIPS REPO-WIDE** 3336/3336/0/0      |
+|        |      | Task 4 86-gap plan + Task 5 beast bottom-band fix + parallax debugging deep dive           |
 | 27/4   | 7h   | Tasks 4-7 e2e: gaps reprioritised + Task 6 +76 NEW Gxx + Task 7 +300 SKIP rows (r1+r2)     |
 |        |      | Traceability matrix overhaul (32 suites + 7 int sub-sections). README pruned. 3684/3384/0/300 |
 |        |      |                                                                                            |
-| TOTAL: | 171h |                                                                                            |
+| TOTAL: | 177h |                                                                                            |
