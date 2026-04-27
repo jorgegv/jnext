@@ -3391,10 +3391,12 @@ static void group17() {
               DETAIL("px@1=%d (expected 0xBB)", pixel_index(l_t1, 1)));
     }
 
-    // G17.PSL-PAT-04: VHDL sprites.vhd:561-572 (16 KB pattern RAM, no cap).
+    // G17.PSL-PAT-08: VHDL sprites.vhd:561-572 (16 KB pattern RAM, no cap).
     // sprites.vhd:728-744 (write trigger). Cap is C++ static budget at
     // MAX_PATTERN_CHANGES_PER_FRAME=8192 (sprites.h:237).
-    stub("G17.PSL-PAT-04",
+    // (Renumbered from PSL-PAT-04 — collided with existing reset-clears
+    // group at lines 3157/3165/3171.)
+    stub("G17.PSL-PAT-08",
          "Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap",
          "same root as G13: cap is C++ budget, not VHDL behaviour (see G15)");
 
