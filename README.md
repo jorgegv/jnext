@@ -33,25 +33,20 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 
 ## Emulated hardware
 
-- **Z80N CPU** — Standard Z80 plus all 26 Next extended instructions; 100% pass rate on FUSE opcode test suite
-- **ULA** — Standard 48K, Timex hi-colour (8×1 attributes), Timex hi-res (512×192); per-scanline border, floating bus, memory contention
-- **Layer 2** — 256×192, 320×256, and 640×256 @ 8-bit colour; hardware X/Y scroll
-- **Hardware sprites** — 128 sprites, 16×16, 8-bit/4-bit colour, ×1/×2/×4/×8 scaling, composite anchoring
-- **Tilemap** — 40×32 and 80×32 modes, 4bpp/1bpp patterns, hardware scroll
-- **Copper co-processor** — WAIT/MOVE instruction set, per-scanline register writes
-- **6-mode layer compositor** — SLU/LSU/SUL/LUS/USL/ULS priority order
-- **8 palettes** — ULA/Layer2/Sprite/Tilemap × first/second; 9-bit RGB (512 colours)
-- **AY-3-8910 × 3** — TurboSound with tone, noise, envelope, and stereo panning
-- **DAC** — 4-channel 8-bit Soundrive/Specdrum/Covox
-- **Beeper** — EAR/MIC with real-time audio output
-- **DMA** — Z80-DMA compatible + ZXN burst mode
-- **DivMMC** — 8KB SRAM, automap, SD card image mounting
-- **UART** — Dual-channel with 512/64-byte FIFOs
-- **CTC** — 4-channel counter/timer with daisy-chain
-- **SPI / I2C / RTC** — SPI master, bit-bang I2C, DS1307 RTC via host clock
-- **IM1/IM2** — All 14 Next interrupt levels
-- **Kempston and Sinclair joystick** emulation
-- **Keyboard** with compound key mapping (arrows, delete, etc.)
+JNEXT emulates the full ZX Spectrum Next hardware feature set: Z80N CPU,
+ULA (48K + Timex modes), Layer 2, hardware sprites, tilemap, Copper,
+layer compositor, AY-3-8910 × 3 (TurboSound), DAC, Beeper, DMA, DivMMC,
+UART, CTC, SPI / I2C / RTC, IM1/IM2 interrupts, joystick, and keyboard.
+
+For the authoritative, always-current inventory of what is implemented,
+what has known gaps, and what is out of scope, see:
+
+- **[Known functionality gaps and proposed plan](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)**
+  — every subsystem-level gap, sorted by display-impact priority,
+  with affected subsystems, user-visible impact, and effort estimate.
+- **[Subsystem unit-test status](test/SUBSYSTEM-TESTS-STATUS.md)**
+  — live per-subsystem dashboard (Pass / Fail / Skip rows) reflecting
+  exactly what is verified against the ZX Next FPGA VHDL as oracle.
 
 ---
 
