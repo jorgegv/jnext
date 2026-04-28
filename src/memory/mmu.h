@@ -152,7 +152,14 @@ public:
         if (l2_read_enable_ && addr < 0xC000) {
             int segment = addr / 0x4000;  // 0, 1, or 2
             if (l2_segment_mask_ & (1 << segment)) {
-                uint16_t l2_page = static_cast<uint16_t>((l2_bank_ + segment) * 2);
+                // VHDL zxnext.vhd:2966-2969:
+                //   bank        = nr_13 if map_shadow else nr_12     (G144)
+                //   offset_pre  = cpu_a(15:14) when seg=11 else seg
+                //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+                //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
+                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
+                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
                 uint16_t offset = addr % 0x4000;
                 uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
                 const uint8_t* p = ram_.page_ptr(phys_page);
@@ -242,11 +249,15 @@ public:
             int segment = addr / 0x4000;  // 0, 1, or 2
             if (l2_segment_mask_ & (1 << segment)) {
                 // Write to L2 RAM: each segment is 16K = 2 pages.
-                // L2 bank N → pages N*2, N*2+1; three consecutive banks.
+                // VHDL zxnext.vhd:2966-2969 (mirrors the read path above):
+                //   bank        = nr_13 if map_shadow else nr_12     (G144)
+                //   bank_offset = segment + port_123b_layer2_offset  (G92)
                 // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
                 // L2 write-over lands on the same SRAM region Layer 2's
                 // compute_ram_addr fetches from (both shift +0x20 in Next).
-                uint16_t l2_page = static_cast<uint16_t>((l2_bank_ + segment) * 2);
+                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
+                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
                 uint16_t offset = addr % 0x4000;
                 uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
                 uint8_t* p = ram_.page_ptr(phys_page);
@@ -629,6 +640,36 @@ public:
     bool l2_read_enable()  const { return l2_read_enable_; }
     bool l2_write_enable() const { return l2_write_enable_; }
 
+    // VHDL zxnext.vhd:3914-3923 — port 0x123B bit 4 = 1 latches a 3-bit
+    // offset (cpu_do(2:0)) into port_123b_layer2_offset. Added to segment
+    // at zxnext.vhd:2967 to form layer2_active_bank_offset (4 bits).
+    uint8_t l2_offset() const { return l2_offset_; }
+
+    // VHDL zxnext.vhd:3919/2968 — port 0x123B bit 3 = 1 selects
+    // nr_13_layer2_shadow_bank as the layer2_active_bank source for the
+    // L2 read-/write-over CPU paths. Display path is unaffected (uses
+    // nr_12 directly via Layer2::active_bank()).
+    bool l2_map_shadow() const { return l2_map_shadow_; }
+
+    // Emulator pushes NR 0x13 writes here so the L2 CPU map (when bit 3 of
+    // port 0x123B is set) reads/writes through the shadow bank without
+    // the Mmu having to depend on the Layer2 object.
+    void set_l2_shadow_bank(uint8_t bank) { l2_shadow_bank_ = bank & 0x7F; }
+    uint8_t l2_shadow_bank() const { return l2_shadow_bank_; }
+
+    // VHDL zxnext.vhd:3933 — port_123b_dat composition (read-back). Bit
+    // 4 (offset-mode select) and bit 5 always read 0; offset register is
+    // not exposed on the read side.
+    uint8_t l2_port_readback() const {
+        const uint8_t seg = static_cast<uint8_t>(l2_segment_raw_ & 0x03);
+        return static_cast<uint8_t>(
+            (seg << 6) |
+            (l2_map_shadow_   ? 0x08 : 0x00) |
+            (l2_read_enable_  ? 0x04 : 0x00) |
+            (l2_enable_       ? 0x02 : 0x00) |
+            (l2_write_enable_ ? 0x01 : 0x00));
+    }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -795,7 +836,16 @@ private:
     bool    l2_write_enable_  = false;
     bool    l2_read_enable_   = false;  // port 0x123B bit 2 (VHDL zxnext.vhd:3918)
     uint8_t l2_segment_mask_  = 0;     // bitmask: bit 0=seg0, bit 1=seg1, bit 2=seg2 (shared)
+    uint8_t l2_segment_raw_   = 0;     // raw 2-bit segment (VHDL :3920) — kept alongside the mask for the read-back composition (zxnext.vhd:3933)
     uint8_t l2_bank_          = 8;     // 16K bank base (from NextREG 0x12)
+    // VHDL zxnext.vhd:3914-3923 — port 0x123B latches:
+    //   bit 1 = enable (display); also fed by NR 0x69 bit 7 alias at :3924-3925
+    //   bit 3 = map_shadow — when 1, CPU L2 map reads/writes use NR 0x13 bank
+    //   bits 2:0 (when bit 4 = 1) = offset register
+    bool    l2_enable_        = false;
+    bool    l2_map_shadow_    = false;
+    uint8_t l2_offset_        = 0;     // 3-bit, added to segment at :2967
+    uint8_t l2_shadow_bank_   = 11;    // mirror of NR 0x13 (VHDL :2968)
 
     // NR 0x03 config_mode + NR 0x04 romram_bank mirror (pushed by Emulator
     // from NextReg handlers). Default false because these signals only exist

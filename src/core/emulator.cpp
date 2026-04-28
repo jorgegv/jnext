@@ -365,6 +365,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x13: Layer 2 shadow RAM bank
     nextreg_.set_write_handler(0x13, [this](uint8_t v) {
         layer2_.set_shadow_bank(v);
+        // Mirror to Mmu so that port 0x123B bit-3 (map_shadow) routes the
+        // CPU L2 read/write-over through this bank — VHDL zxnext.vhd:2968
+        // selects nr_13_layer2_shadow_bank when port_123b_layer2_map_shadow='1'.
+        mmu_.set_l2_shadow_bank(v);
     });
     // VHDL zxnext.vhd:5931 — port_253b_dat <= '0' & nr_13_layer2_shadow_bank;
     // same pattern as NR 0x12 read above — 7-bit masked read from Layer2.
@@ -1258,29 +1262,42 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- Port dispatch handlers ---
 
     // Layer 2 control — port 0x123B (full 16-bit match).
-    // VHDL zxnext.vhd:3904-3928. When cpu_do(4)=0:
+    // VHDL zxnext.vhd:3904-3935. When cpu_do(4)=0:
     //   bit 0 = write-map enable (CPU writes to L2 RAM banks)
-    //   bit 1 = Layer 2 visible
-    //   bit 2 = read-map  enable (CPU reads from L2 RAM banks — Phase 2 D2)
-    //   bit 3 = shadow-bank select (not on Mmu surface)
+    //   bit 1 = Layer 2 visible (also mirrored by NR 0x69 bit 7 at :3924-3925)
+    //   bit 2 = read-map  enable (CPU reads from L2 RAM banks)
+    //   bit 3 = map_shadow (CPU L2 map uses NR 0x13 bank, VHDL :2968) — G144
     //   bits 7:6 = segment select (shared read+write)
-    // When cpu_do(4)=1: bits 2:0 are the Layer 2 offset register (not
-    // implemented on the Mmu surface — see project docs for D2 scope).
-    // Read-side port handler (port_123b_dat at VHDL:3933) is pre-existing
-    // divergence and out of D2 scope; nullptr preserved.
+    // When cpu_do(4)=1: bits 2:0 are the Layer 2 offset register (G92, :3922).
+    // Read returns port_123b_dat (VHDL :3933): segment | "00" | shadow | rd_en
+    // | enable | wr_en (bit 4 always reads 0; offset register not exposed) —
+    // G145.
     port_.register_handler(0xFFFF, 0x123B,
-        nullptr,
+        [this](uint16_t) -> uint8_t {
+            // VHDL zxnext.vhd:3933 read-back composition (G145).
+            return mmu_.l2_port_readback();
+        },
         [this](uint16_t, uint8_t val) {
-            layer2_.set_enabled((val & 0x02) != 0);
+            // The bit-4 / non-bit-4 dispatch lives inside Mmu::set_l2_port;
+            // here we just forward the byte plus the current NR 0x12/NR 0x13
+            // bank values (the shadow bank is plumbed through the NR 0x13
+            // write handler, but we also push it on every port write to
+            // cover Copper-driven NR 0x13 changes that bypass NextReg).
+            mmu_.set_l2_shadow_bank(layer2_.shadow_bank());
             mmu_.set_l2_port(val, layer2_.active_bank());
+            // Display-enable mirror (port 0x123B bit 1, not in offset mode).
+            // Mmu's set_l2_port records the new latches; the offset-mode
+            // path leaves them untouched. Layer2 has its own enable flag
+            // for the renderer — refresh it from the post-write state.
+            if ((val & 0x10) == 0) {
+                layer2_.set_enabled((val & 0x02) != 0);
+            }
             // Feed L2 read-map-enable into DivMmc so the ROM3-conditional
             // automap gate can honour VHDL zxnext.vhd:3138
             // (sram_divmmc_automap_rom3_en AND NOT sram_layer2_map_en).
-            // Mirrors Mmu::set_l2_port's latch of cpu_do(2); the cpu_do(4)
-            // write-mode divergence on the Mmu side is pre-existing (see
-            // Mmu::set_l2_port comment) and preserved here by identical
-            // bit-extraction.
-            divmmc_.set_layer2_map_read((val & 0x04) != 0);
+            // Read-enable is preserved across an offset-mode write by Mmu;
+            // pull from the authoritative latch instead of re-decoding val.
+            divmmc_.set_layer2_map_read(mmu_.l2_read_enable());
         });
 
     // 128K bank switch — port 0x7FFD.

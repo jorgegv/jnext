@@ -94,7 +94,16 @@ void Mmu::reset(bool hard) {
     l2_write_enable_ = false;
     l2_read_enable_  = false;
     l2_segment_mask_ = 0;
+    l2_segment_raw_  = 0;
+    l2_enable_       = false;
+    l2_map_shadow_   = false;
+    l2_offset_       = 0;
     l2_bank_ = 8;
+    // l2_shadow_bank_ is not in the VHDL :3907-3913 reset block — it
+    // mirrors NR 0x13 (zxnext.vhd:5934 has its own reset writing 11). The
+    // NextReg dispatch will re-push 11 via set_l2_shadow_bank() on
+    // reset; default member init also matches.
+    l2_shadow_bank_  = 11;
     // nr_04_romram_bank resets to 0 (VHDL zxnext.vhd:1104). config_mode stays
     // at its current value — it's pushed in by Emulator per machine type so
     // a reset on a 48K/128K/+3 machine doesn't spuriously activate Next-only
@@ -212,24 +221,37 @@ void Mmu::map_rom(int slot, uint8_t rom_page) {
 }
 
 void Mmu::set_l2_port(uint8_t val, uint8_t active_bank) {
-    // VHDL zxnext.vhd:3915-3920 — on port 0x123B write with cpu_do(4)=0:
-    //   port_123b_layer2_map_wr_en    <= cpu_do(0)  (bit 0)
-    //   port_123b_layer2_map_rd_en    <= cpu_do(2)  (bit 2)
-    //   port_123b_layer2_map_segment  <= cpu_do(7:6) (bits 7:6, SHARED rd+wr)
-    // Read and write enable share the same segment register — one segment
-    // field is selected by the arbiter at VHDL:3077 on cpu_rd_n.
-    l2_write_enable_ = (val & 0x01) != 0;  // bit 0
-    l2_read_enable_  = (val & 0x04) != 0;  // bit 2
+    // VHDL zxnext.vhd:3914-3923 — port 0x123B write bifurcates on cpu_do(4):
+    //   cpu_do(4) = 0:                                      (G92)
+    //     bit 0 = wr_en, bit 1 = enable, bit 2 = rd_en,
+    //     bit 3 = map_shadow (G144), bits 7:6 = segment.
+    //   cpu_do(4) = 1:
+    //     bits 2:0 = port_123b_layer2_offset; all other latches preserved.
+    // l2_bank_ tracks NR 0x12 (active) and is refreshed every write so the
+    // CPU map sees Copper-driven bank changes; the shadow bank is mirrored
+    // separately via set_l2_shadow_bank (NR 0x13 path).
     l2_bank_ = active_bank;
+    if ((val & 0x10) != 0) {
+        // Offset-only update: VHDL zxnext.vhd:3922.
+        l2_offset_ = static_cast<uint8_t>(val & 0x07);
+        Log::memory()->debug("L2 port (offset-only): offset={}", l2_offset_);
+        return;
+    }
+    l2_write_enable_ = (val & 0x01) != 0;  // bit 0
+    l2_enable_       = (val & 0x02) != 0;  // bit 1 (display, mirrored at :3924-3925)
+    l2_read_enable_  = (val & 0x04) != 0;  // bit 2
+    l2_map_shadow_   = (val & 0x08) != 0;  // bit 3 — VHDL :3919, :2968 (G144)
     uint8_t seg = (val >> 6) & 0x03;
+    l2_segment_raw_ = seg;
     switch (seg) {
         case 0: l2_segment_mask_ = 0x01; break;  // 0x0000-0x3FFF
         case 1: l2_segment_mask_ = 0x02; break;  // 0x4000-0x7FFF
         case 2: l2_segment_mask_ = 0x04; break;  // 0x8000-0xBFFF
         case 3: l2_segment_mask_ = 0x07; break;  // all three (auto-segment)
     }
-    Log::memory()->debug("L2 port: wr={} rd={} segment_mask={:#04x} bank={}",
-                          l2_write_enable_, l2_read_enable_, l2_segment_mask_, l2_bank_);
+    Log::memory()->debug("L2 port: wr={} rd={} en={} shadow={} seg={:#04x} mask={:#04x} bank={}",
+                          l2_write_enable_, l2_read_enable_, l2_enable_,
+                          l2_map_shadow_, seg, l2_segment_mask_, l2_bank_);
 }
 
 // VHDL zxnext.vhd:3763-3766 bank composition. Builds the 7-bit
@@ -560,6 +582,18 @@ void Mmu::save_state(StateWriter& w) const
     // (VHDL zxnext.vhd:4498-4509) and per-slot contention mirror.
     w.write_u8(p3_floating_bus_dat_);
     for (int i = 0; i < 4; ++i) w.write_bool(slot_contended_[i]);
+    // Task 8 Tier 1 Wave 2 — port 0x123B G92/G144/G145 latches:
+    //   l2_segment_raw_  — 2-bit raw segment (VHDL zxnext.vhd:3920) for the
+    //                      :3933 read-back composition (G145).
+    //   l2_enable_       — display enable mirror (also driven by NR 0x69).
+    //   l2_map_shadow_   — bit 3 (CPU map shadow bank select, G144).
+    //   l2_offset_       — 3-bit offset register (G92, VHDL :3922).
+    //   l2_shadow_bank_  — NR 0x13 mirror used when map_shadow=1 (:2968).
+    w.write_u8(l2_segment_raw_);
+    w.write_bool(l2_enable_);
+    w.write_bool(l2_map_shadow_);
+    w.write_u8(l2_offset_);
+    w.write_u8(l2_shadow_bank_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -597,6 +631,14 @@ void Mmu::load_state(StateReader& r)
     // and per-slot contention mirror.
     p3_floating_bus_dat_ = r.read_u8();
     for (int i = 0; i < 4; ++i) slot_contended_[i] = r.read_bool();
+    // Task 8 Tier 1 Wave 2 — port 0x123B G92/G144/G145 latches (must
+    // mirror save_state() in order). Older streams that predate this
+    // block will short-read; StateReader's bounds check flags it.
+    l2_segment_raw_  = r.read_u8();
+    l2_enable_       = r.read_bool();
+    l2_map_shadow_   = r.read_bool();
+    l2_offset_       = r.read_u8();
+    l2_shadow_bank_  = r.read_u8();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
