@@ -7,6 +7,7 @@
 #include "sdl_audio.h"
 #include "screenshot.h"
 #include "core/emulator.h"
+#include "input/joystick_dispatcher.h"
 #include "input/mouse_dispatcher.h"
 
 class SdlApp {
@@ -48,6 +49,14 @@ private:
     // emulator's KempstonMouse. Created in init() once emulator_ is
     // bound. unique_ptr so we can defer construction until then.
     std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
+
+    // Joystick / gamepad host adapter — wires SDL_CONTROLLER* events into
+    // the emulator's Joystick. Created in init() once emulator_ is bound.
+    // Closes G42 (JOY-WIRE-02/03/04). Tracks open SDL_GameController
+    // handles so the events get dispatched (SDL only emits CONTROLLER*
+    // events for opened controllers).
+    std::unique_ptr<JoystickDispatcher> joystick_dispatcher_;
+    SDL_GameController* controllers_[2] = { nullptr, nullptr };
 
     // Pending --inject state
     std::string inject_file_;

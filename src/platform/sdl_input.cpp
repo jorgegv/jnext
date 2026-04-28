@@ -19,6 +19,16 @@ bool SdlInput::poll() {
             // via the on_mouse callback (set by SdlApp). Closes G43.
             if (on_mouse) on_mouse(e);
             break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+        case SDL_CONTROLLERAXISMOTION:
+        case SDL_CONTROLLERDEVICEADDED:
+        case SDL_CONTROLLERDEVICEREMOVED:
+            // Host adapter for joystick / gamepad — forward to
+            // JoystickDispatcher via the on_controller callback (set by
+            // SdlApp). Closes G42 (JOY-WIRE-02/03/04).
+            if (on_controller) on_controller(e);
+            break;
         default:
             break;
         }

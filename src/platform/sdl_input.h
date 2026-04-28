@@ -20,4 +20,10 @@ public:
     // is expected to forward into a MouseDispatcher bound to the
     // emulator's KempstonMouse. See doc plan rows MOUSE-13/14/15 (G43).
     std::function<void(const SDL_Event&)> on_mouse;
+
+    // Called for each SDL_CONTROLLERBUTTONDOWN/UP / SDL_CONTROLLERAXISMOTION
+    // / SDL_CONTROLLERDEVICEADDED/REMOVED event with the raw SDL_Event. The
+    // host owner (SdlApp) forwards into a JoystickDispatcher bound to the
+    // emulator's Joystick. See doc plan rows JOY-WIRE-02/03/04 (G42).
+    std::function<void(const SDL_Event&)> on_controller;
 };
