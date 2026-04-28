@@ -491,12 +491,28 @@ static void test_group_registration() {
     }
 
     // REG-19: Kempston 2 0x0037 read. VHDL zxnext.vhd:2675.
+    // Post-G129 (Task 8 T2 W1 closure): port 0x37 decode is gated by
+    // `port_37_hw_en` per zxnext.vhd:2455 = `joyL_37_en or joyR_37_en`.
+    // hw_en is true ONLY when at least one connector is in Kempston2
+    // (mode "100") or Md3Right (mode "110"). At Emulator reset both joys
+    // default to (Kempston1, Sinclair2), so hw_en=0 and the port falls
+    // through to floating-bus 0xFF — that is the VHDL-correct response.
+    // Set joy1 to Kempston2 first so the gate fires, then verify the
+    // handler responds with a non-0xFF byte (joystick lane = 0x00 on
+    // first read; the test asserts only that the read takes the joystick
+    // path and not the floating-bus default).
+    //
+    // Mode set via NR 0x05 = 0x08 (joy1[2:0] = "100" = Kempston2,
+    // joy0[2:0] = "000" = Sinclair2 — JMODE-04 oracle in
+    // test/input/input_test.cpp:691).
     {
+        nr_write(emu, 0x05, 0x08);              // joy1 = Kempston2
         uint8_t joy = emu.port().in(0x0037);
         check("REG-19",
-              "Kempston 2 0x0037 has a read handler",
+              "Kempston 2 0x0037 returns joy lane (not 0xFF) when joy1=K2 (port_37_hw_en gate open)",
               joy != 0xFF,
               DETAIL("kempston2=0x%02x", joy));
+        nr_write(emu, 0x05, 0x40);              // restore reset default
     }
 
     // REG-20: Mouse 0xFADF / 0xFBDF / 0xFFDF. VHDL zxnext.vhd:2668-2670.

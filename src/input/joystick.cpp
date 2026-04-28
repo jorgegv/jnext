@@ -179,3 +179,49 @@ uint8_t Joystick::read_port_37() const
     const uint8_t r = compose_37_lane(joy_right_bits_, joy1_mode_);
     return static_cast<uint8_t>(l | r);
 }
+
+// =============================================================================
+// G129 — port-decode hw_en gates. VHDL zxnext.vhd:2454-2455:
+//   port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
+//   port_37_hw_en <= joyL_37_en or joyR_37_en;
+// where (zxnext.vhd:3475-3488):
+//   joyL_1f_en = '1' when nr_05_joy0 = "001" or mdL_1f_en = '1';
+//   joyL_37_en = '1' when nr_05_joy0 = "100" or mdL_37_en = '1';
+//   joyR_1f_en = '1' when nr_05_joy1 = "001" or mdR_1f_en = '1';
+//   joyR_37_en = '1' when nr_05_joy1 = "100" or mdR_37_en = '1';
+//   mdL_1f_en  = '1' when nr_05_joy0 = "101";
+//   mdR_1f_en  = '1' when nr_05_joy1 = "101";
+//   mdL_37_en  = '1' when nr_05_joy0 = "110";
+//   mdR_37_en  = '1' when nr_05_joy1 = "110";
+//
+// Substituting: port_1f_hw_en is true iff EITHER joy mode ∈ {001, 101}
+// (Kempston1 or Md3Left). port_37_hw_en is true iff EITHER joy mode ∈
+// {100, 110} (Kempston2 or Md3Right). When the gate is false the port
+// decode at zxnext.vhd:2674-2675 fails and the bus floats (0xFF).
+//
+// The data lane (read_port_1f / read_port_37) already returns 0x00 when
+// no joy is in the relevant mode (compose_*_lane masks zero), so the
+// final port byte is 0xFF | 0x00 = 0xFF when the handler returns 0xFF
+// on a hw_en=0 condition — but the handler must explicitly check this
+// gate; the lane on its own is silent.
+//
+// Pre-G129 emulator.cpp gated only on NR 0x82 b6 (port_1f_io_en); the
+// hw_en gate is the OTHER half of VHDL's `port_1f` AND. Both must hold
+// for the port to claim the read.
+// =============================================================================
+
+bool Joystick::port_1f_hw_en() const
+{
+    auto active = [](Mode m) {
+        return m == Mode::Kempston1 || m == Mode::Md3Left;
+    };
+    return active(joy0_mode_) || active(joy1_mode_);
+}
+
+bool Joystick::port_37_hw_en() const
+{
+    auto active = [](Mode m) {
+        return m == Mode::Kempston2 || m == Mode::Md3Right;
+    };
+    return active(joy0_mode_) || active(joy1_mode_);
+}

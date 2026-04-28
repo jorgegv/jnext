@@ -1007,15 +1007,81 @@ static void test_kemp() {
          "NR 0x82 b7=0 must un-decode port 0x37",
          "port 0x37 missing NR 0x82 b7 io_en gate (see G128)");
 
-    // KEMP-17: port_1f_hw_en mode-conditional gate.
-    // VHDL zxnext.vhd:2454-2455: port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
-    // these enables come live ONLY in mode Kempston1 (001) or MD3-Left (101).
-    // VHDL :2674-2675 ANDs port_1f_hw_en into the port-0x1F decode. jnext
-    // joystick.cpp:99-103 documents the floating-bus headline but the
-    // implemented gate is NR 0x82 b6 io_en, not the mode-conditional hw_en.
-    skip("KEMP-17",
-         "port_1f mode-conditional hw_en gate (Sinclair2/Cursor case)",
-         "port_1f/0x37 mode-conditional hw_en gate missing (see G129)");
+    // KEMP-17: port_1f / port_37 mode-conditional hw_en gate (G129 closure).
+    //
+    // VHDL zxnext.vhd:2454-2455:
+    //   port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
+    //   port_37_hw_en <= joyL_37_en or joyR_37_en;
+    // and (zxnext.vhd:3475/3487, 3476/3488):
+    //   joyL_1f_en = '1' when nr_05_joy0 = "001" or mdL_1f_en = '1';
+    //   joyR_1f_en = '1' when nr_05_joy1 = "001" or mdR_1f_en = '1';
+    //   joyL_37_en = '1' when nr_05_joy0 = "100" or mdL_37_en = '1';
+    //   joyR_37_en = '1' when nr_05_joy1 = "100" or mdR_37_en = '1';
+    // mdL_1f_en/mdR_1f_en come live in mode "101" (Md3Left); mdL_37_en/
+    // mdR_37_en in mode "110" (Md3Right).
+    //
+    // Result: port_1f_hw_en is true ONLY when at least one connector is
+    // in Kempston1 or Md3Left; port_37_hw_en is true ONLY when at least
+    // one connector is in Kempston2 or Md3Right. VHDL :2674-2675 AND-
+    // merges hw_en into the port-decode, so when hw_en=0 the port is
+    // un-decoded (floating bus 0xFF). Closure adds `port_1f_hw_en()` /
+    // `port_37_hw_en()` query methods on Joystick + the gate hookup in
+    // emulator.cpp's port handlers.
+    {
+        // (a) Sinclair2 + Sinclair2 — no Kempston / MD path, both
+        // gates must be false.
+        Joystick j;
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Sinclair2);
+        const bool e1f_a = j.port_1f_hw_en();
+        const bool e37_a = j.port_37_hw_en();
+
+        // (b) Cursor + Cursor — same expectation.
+        j.set_mode_direct(Joystick::Mode::Cursor, Joystick::Mode::Cursor);
+        const bool e1f_b = j.port_1f_hw_en();
+        const bool e37_b = j.port_37_hw_en();
+
+        // (c) Kempston1 alone on joy0 — port_1f_hw_en=1, port_37_hw_en=0.
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Sinclair2);
+        const bool e1f_c = j.port_1f_hw_en();
+        const bool e37_c = j.port_37_hw_en();
+
+        // (d) Md3Right on joy1 only — port_1f_hw_en=0, port_37_hw_en=1.
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Md3Right);
+        const bool e1f_d = j.port_1f_hw_en();
+        const bool e37_d = j.port_37_hw_en();
+
+        // (e) Md3Left on joy0 only — port_1f_hw_en=1, port_37_hw_en=0.
+        j.set_mode_direct(Joystick::Mode::Md3Left, Joystick::Mode::Sinclair2);
+        const bool e1f_e = j.port_1f_hw_en();
+        const bool e37_e = j.port_37_hw_en();
+
+        // (f) Kempston2 on joy1 only — port_37_hw_en=1, port_1f_hw_en=0.
+        j.set_mode_direct(Joystick::Mode::Sinclair2, Joystick::Mode::Kempston2);
+        const bool e1f_f = j.port_1f_hw_en();
+        const bool e37_f = j.port_37_hw_en();
+
+        // (g) IoMode + Sinclair1 — neither {001,101} nor {100,110}, both
+        // gates false.
+        j.set_mode_direct(Joystick::Mode::IoMode, Joystick::Mode::Sinclair1);
+        const bool e1f_g = j.port_1f_hw_en();
+        const bool e37_g = j.port_37_hw_en();
+
+        const bool ok =
+            !e1f_a && !e37_a &&   // S2+S2
+            !e1f_b && !e37_b &&   // CURS+CURS
+             e1f_c && !e37_c &&   // K1+S2
+            !e1f_d &&  e37_d &&   // S2+MD3R
+             e1f_e && !e37_e &&   // MD3L+S2
+            !e1f_f &&  e37_f &&   // S2+K2
+            !e1f_g && !e37_g;     // IO+S1
+        check("KEMP-17",
+              "port_1f / port_37 hw_en gates fire only in K1/MD3L / K2/MD3R modes",
+              ok,
+              DETAIL("a=%d%d b=%d%d c=%d%d d=%d%d e=%d%d f=%d%d g=%d%d",
+                     e1f_a, e37_a, e1f_b, e37_b, e1f_c, e37_c,
+                     e1f_d, e37_d, e1f_e, e37_e, e1f_f, e37_f,
+                     e1f_g, e37_g));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
