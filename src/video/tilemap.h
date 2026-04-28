@@ -50,9 +50,18 @@ public:
     void set_map_base(uint8_t val);
     uint8_t get_map_base_raw() const { return map_base_raw_; }
 
+    /// NR 0x6E read-back — VHDL zxnext.vhd:6108 forces bit 6 to '0'
+    /// (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`). The raw
+    /// stored byte is therefore masked when read back through NR 0x6E.
+    uint8_t get_map_base_read() const { return map_base_raw_ & 0xBF; }
+
     /// NextREG 0x6F — Tile definitions base address (same encoding as 0x6E).
     void set_def_base(uint8_t val);
     uint8_t get_def_base_raw() const { return def_base_raw_; }
+
+    /// NR 0x6F read-back — VHDL zxnext.vhd:6111 forces bit 6 to '0'
+    /// (`nr_6f_tilemap_tiles_7 & '0' & nr_6f_tilemap_tiles`).
+    uint8_t get_def_base_read() const { return def_base_raw_ & 0xBF; }
 
     /// NextREG 0x2F — Tilemap X scroll MSB (bits 1:0).
     void set_scroll_x_msb(uint8_t val) { scroll_x_ = (scroll_x_ & 0xFF) | ((val & 0x03) << 8); }
@@ -72,9 +81,17 @@ public:
     /// render time.  Independent from the NR 0x43 palette-I/O target field.
     bool palette_sel() const { return palette_sel_; }
 
+    /// Maximum number of scanlines we track per-line scroll for.  Sized to
+    /// cover every machine timing the emulator supports — Pentagon /
+    /// +3 reach lines_per_frame=320 (vc_max_=319), and we add headroom so
+    /// that mid-vblank NR 0x30/0x31 writes at the very last scanline (and
+    /// any future timing variant) are stored, not silently dropped.
+    /// Mirrors the SpriteEngine catch-up rationale at sprites.cpp:119-144.
+    static constexpr int kSnapshotLines = 528;
+
     /// Snapshot current scroll values for a given scanline (called per-line).
     void snapshot_scroll_for_line(int line) {
-        if (line >= 0 && line < 320) {
+        if (line >= 0 && line < kSnapshotLines) {
             scroll_x_per_line_[line] = scroll_x_;
             scroll_y_per_line_[line] = scroll_y_;
         }
@@ -84,6 +101,17 @@ public:
     void init_scroll_per_line() {
         scroll_x_per_line_.fill(scroll_x_);
         scroll_y_per_line_.fill(scroll_y_);
+    }
+
+    /// Test/debug accessor: per-line snapshotted X scroll for a scanline.
+    /// Returns 0 if the line index is out of range.
+    uint16_t scroll_x_for_line(int line) const {
+        return (line >= 0 && line < kSnapshotLines) ? scroll_x_per_line_[line] : 0;
+    }
+
+    /// Test/debug accessor: per-line snapshotted Y scroll for a scanline.
+    uint8_t scroll_y_for_line(int line) const {
+        return (line >= 0 && line < kSnapshotLines) ? scroll_y_per_line_[line] : 0;
     }
 
     // Clip window (NextREG 0x1B, 4-write cycle)
@@ -153,9 +181,10 @@ private:
     uint16_t scroll_x_       = 0;       // 10-bit X scroll
     uint8_t  scroll_y_       = 0;       // 8-bit Y scroll
 
-    // Per-scanline scroll snapshots (for mid-frame scroll changes)
-    std::array<uint16_t, 320> scroll_x_per_line_{};
-    std::array<uint8_t, 320>  scroll_y_per_line_{};
+    // Per-scanline scroll snapshots (for mid-frame scroll changes).
+    // Sized via kSnapshotLines (>= max lines_per_frame across all machines).
+    std::array<uint16_t, kSnapshotLines> scroll_x_per_line_{};
+    std::array<uint8_t,  kSnapshotLines> scroll_y_per_line_{};
 
     // Clip window — VHDL reset defaults from zxnext.vhd:4977-4980
     // (0x00 / 0x9F / 0x00 / 0xFF cover the full 320x256 visible area;

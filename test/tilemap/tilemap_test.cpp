@@ -828,17 +828,31 @@ void group7_map_addr() {
     }
 
     // TM-66 — NR 0x6E read-back masks bit 6.
-    // VHDL zxnext.vhd:6108 forces bit 6 to 0 on read. jnext
-    // tilemap.h:51 get_map_base_raw() returns the raw byte; no NR 0x6E
-    // read handler with mask exists.
-    skip("TM-66",
-         "NR 0x6E read-back leaves bit 6 unmasked (see G99)");
+    // VHDL zxnext.vhd:6108 forces bit 6 to '0' on read
+    // (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`).  Other bits
+    // (7 + 5:0) must round-trip unchanged from the raw stored byte.
+    {
+        fresh(tm, pal, ram);
+        // 0xFF = all bits set; expected read-back = 0xBF (bit 6 cleared).
+        tm.set_map_base(0xFF);
+        check_pred("TM-66",
+                   tm.get_map_base_read() == 0xBF &&
+                   tm.get_map_base_raw()  == 0xFF,
+                   "VHDL zxnext.vhd:6108 — NR 0x6E read forces bit 6=0; "
+                   "raw store unchanged");
+    }
 
     // TM-67 — NR 0x6F read-back masks bit 6.
-    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E. jnext
-    // tilemap.h:55 also returns the raw byte.
-    skip("TM-67",
-         "NR 0x6F read-back leaves bit 6 unmasked (see G99)");
+    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E.
+    {
+        fresh(tm, pal, ram);
+        tm.set_def_base(0xFF);
+        check_pred("TM-67",
+                   tm.get_def_base_read() == 0xBF &&
+                   tm.get_def_base_raw()  == 0xFF,
+                   "VHDL zxnext.vhd:6111 — NR 0x6F read forces bit 6=0; "
+                   "raw store unchanged");
+    }
 }
 
 // ── Group 8: Tile pixel address ─────────────────────────────────────────
@@ -1029,12 +1043,44 @@ void group9_scroll() {
     }
 
     // TM-86 — Per-line scroll snapshot must survive line >= 320.
-    // tilemap.h:76-87 uses std::array<uint16_t, 320> and guards
-    // `if (line >= 0 && line < 320)`; mid-vblank NR 0x30/0x31 writes
-    // are silently dropped. Canonical fix: SpriteEngine::start_frame
-    // catch-up pattern at sprites.cpp:119-144 (per-line replay).
-    skip("TM-86",
-         "Per-line scroll snapshot drops line>=320; vblank writes lost (see G100)");
+    // VHDL tilemap.vhd:309/326 samples scroll_x/y fresh per scanline.
+    // jnext models that with a per-line snapshot array; the array must
+    // cover every scanline a machine timing produces (Pentagon / +3 reach
+    // lines_per_frame=320, so the last valid line index is 319, plus we
+    // exercise vblank-region writes at line >= 320).  Mirrors the
+    // SpriteEngine catch-up rationale at sprites.cpp:119-144.
+    {
+        fresh(tm, pal, ram);
+        tm.set_enabled(true);
+
+        // (1) Initialise the snapshot array at frame start with scroll=0.
+        tm.set_scroll_x_lsb(0);
+        tm.set_scroll_y(0);
+        tm.init_scroll_per_line();
+
+        // (2) Mid-vblank update: change scroll, snapshot at line 320 — a
+        //     line index the old `< 320` cap would have silently dropped.
+        tm.set_scroll_x_lsb(0x55);
+        tm.set_scroll_y(0xAA);
+        tm.snapshot_scroll_for_line(320);
+
+        // (3) Snapshot at the very last valid Pentagon scanline (319) and
+        //     at a line within the wider safe range to confirm the array
+        //     extends beyond the old 320-element cap.
+        tm.snapshot_scroll_for_line(319);
+        tm.snapshot_scroll_for_line(400);
+
+        check_pred("TM-86",
+                   tm.scroll_x_for_line(319) == 0x55 &&
+                   tm.scroll_y_for_line(319) == 0xAA &&
+                   tm.scroll_x_for_line(320) == 0x55 &&
+                   tm.scroll_y_for_line(320) == 0xAA &&
+                   tm.scroll_x_for_line(400) == 0x55 &&
+                   tm.scroll_y_for_line(400) == 0xAA,
+                   "VHDL tilemap.vhd:309/326 — per-line scroll snapshot must "
+                   "store late (vblank-region) writes; mirrors SpriteEngine "
+                   "catch-up at sprites.cpp:119-144");
+    }
 }
 
 // ── Group 10: Transparency ──────────────────────────────────────────────
