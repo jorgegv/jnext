@@ -555,9 +555,13 @@ static void g_hotkey()
     }
     {
         // HK-07 — F10 -> hotkey_drive -> NmiSource DivMMC producer.
+        // VHDL gates F10 on port_divmmc_io_en (NR 0x83 bit 0). Enable
+        // both gates and verify the strobe; companion HK-07b verifies
+        // the gate-off path is a no-op.
         Emulator emu;
         build_next_emulator(emu);
         emu.nmi_source().set_divmmc_enable(true); // NR 0x06 bit 4 = 1
+        emu.divmmc().set_port_io_enable(true);    // NR 0x83 bit 0 = 1
         emu.on_hotkey_f10_divmmc_nmi();
         emu.nmi_source().tick(1);
         check("HK-07",
@@ -565,6 +569,19 @@ static void g_hotkey()
               emu.nmi_source().nmi_divmmc()
                   && emu.nmi_source().latched() == NmiSource::Src::DivMmc,
               "zxnext.vhd:6349 (hotkey_drive) -> 2091 -> 2099 (latch)");
+    }
+    {
+        // HK-07b — F10 with port_divmmc_io_en=0 must NOT strobe.
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.nmi_source().set_divmmc_enable(true);
+        // port_io_enable defaults to false post-reset (NR 0x83 bit 0=0).
+        emu.on_hotkey_f10_divmmc_nmi();
+        emu.nmi_source().tick(1);
+        check("HK-07b",
+              "F10 honours port_divmmc_io_en gate (no strobe when NR 0x83 bit 0 = 0)",
+              !emu.nmi_source().nmi_divmmc(),
+              "zxnext.vhd:6349 (port_divmmc_io_en AND ...)");
     }
     {
         // HK-08 — F4 -> hotkey_soft_reset -> reset_type FSM advance.

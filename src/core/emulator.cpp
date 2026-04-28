@@ -3311,11 +3311,15 @@ void Emulator::on_hotkey_f9_mf_nmi()
 
 void Emulator::on_hotkey_f10_divmmc_nmi()
 {
-    // VHDL zxnext.vhd:6349, 2091 — `hotkey_drive` is a one-cycle pulse
-    // OR'd into the DivMMC assert; `port_divmmc_io_en` (NR 0x83 bit 0)
-    // and `nr_06_button_drive_nmi_en` (NR 0x06 bit 4) are the gates.
-    // The NmiSource enable check covers NR 0x06 bit 4; the NR 0x83
-    // gate is enforced by the existing DivMmc plumbing chain.
+    // VHDL zxnext.vhd:6349 — `hotkey_drive <= hotkeys_0(10) and not
+    // hotkeys_1(10) and port_divmmc_io_en`. The `port_divmmc_io_en`
+    // gate (NR 0x83 bit 0) suppresses the F10 edge entirely when the
+    // DivMMC port is disabled; honour it here so the strobe never
+    // fires in that state. The NR 0x06 bit 4 gate is honoured
+    // downstream in `NmiSource::nmi_assert_divmmc()`.
+    if (!divmmc_.port_io_enable()) {
+        return;
+    }
     nmi_source_.strobe_divmmc_button();
 }
 
