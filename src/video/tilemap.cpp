@@ -143,7 +143,7 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
     enabled_ = true;
     // Use current register values (not per-line snapshots) so the debugger
     // shows the tilemap with the live scroll position.
-    if (y >= 0 && y < 320) {
+    if (y >= 0 && y < kSnapshotLines) {
         scroll_x_per_line_[y] = scroll_x_;
         scroll_y_per_line_[y] = scroll_y_;
     }
@@ -187,8 +187,8 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const uint8_t transp_idx = palette.tilemap_transparency();
 
     // Use per-scanline scroll values (captured during the frame loop).
-    const uint16_t line_scroll_x = (y >= 0 && y < 320) ? scroll_x_per_line_[y] : scroll_x_;
-    const uint8_t  line_scroll_y = (y >= 0 && y < 320) ? scroll_y_per_line_[y] : scroll_y_;
+    const uint16_t line_scroll_x = (y >= 0 && y < kSnapshotLines) ? scroll_x_per_line_[y] : scroll_x_;
+    const uint8_t  line_scroll_y = (y >= 0 && y < kSnapshotLines) ? scroll_y_per_line_[y] : scroll_y_;
 
 
 
