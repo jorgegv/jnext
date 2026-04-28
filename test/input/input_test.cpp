@@ -2114,29 +2114,136 @@ static void test_port_fe_format() {
 static void test_user_defined_keymap() {
     set_group("JCAL");
 
-    // JCAL-01: NR 0x28 keymap_sel write. VHDL zxnext.vhd:6294-6300.
-    // jnext: no NR 0x28 handler registered; NextReg::write stores raw
-    // byte with no decode side-effect for this register.
-    skip("JCAL-01",
-         "NR 0x28 keymap_sel write handler",
-         "NR 0x28 keymap_sel write handler absent (see G127)");
+    // ─────────────────────────────────────────────────────────────────────
+    // Tier 2 Wave 1 (Agent C, G127) — close JCAL-01..JCAL-03.
+    //
+    // The NR 0x28/0x29/0x2B (sel, addr, data) write process is now
+    // registered in src/core/emulator.cpp, forwarding to MembraneStick:
+    //   write_nr_28(v) — bit 7 → keymap_sel, bit 0 → addr bit 8
+    //   write_nr_29(v) — addr bits 7..0
+    //   write_nr_2b(v) — write data into SDP-RAM if sel=1, then auto-inc
+    //
+    // The SDP-RAM analogue is initialised from keyjoy_64_6.coe (64 cells
+    // × 6 bits) at MembraneStick::reset(). Writes target only the UDK
+    // area (cells 16..31 left, 48..63 right) per VHDL membrane_stick.vhd
+    // :181 hard-wiring of A(4) to '1'.
+    //
+    // JCAL-01/02 use the full Emulator + NR-port path so the handler
+    // registration itself is exercised; JCAL-03 uses the bare
+    // MembraneStick fast-path because the NR 0x05 → set_mode propagation
+    // wire is owned by Agent B (gap G126; tracked by JMODE-09 SKIP). The
+    // pre-programmed-mode tests (SINC1-* / SINC2-* / CURS-*) follow the
+    // same direct-MembraneStick pattern.
+    // ─────────────────────────────────────────────────────────────────────
 
-    // JCAL-02: NR 0x29 addr-low + NR 0x2B data-write/inc process.
-    // VHDL zxnext.vhd:6301-6324 implements the (sel, addr, data) write
-    // process into the SDP-RAM analogue. jnext: no handlers; the COE
-    // loader does not exist in C++ (membrane_stick.cpp ctor uses a
-    // hard-coded default keymap mirroring keyjoy_64_6.coe).
-    skip("JCAL-02",
-         "NR 0x29/0x2B keymap-RAM write process",
-         "NR 0x29/0x2B keymap-RAM write process absent (see G127)");
+    // JCAL-01: NR 0x28 keymap_sel write. VHDL zxnext.vhd:6294-6303.
+    // Verify both bits routed by the handler:
+    //   bit 7 → keymap_sel
+    //   bit 0 → nr_keymap_addr(8)
+    // We pick value 0x81 = sel=1, addr-bit-8=1 to assert both bits land
+    // distinctly. Then we write 0x00 and re-check that both clear.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
 
-    // JCAL-03: NR 0x05 joy0/1=111 (User I/O) + JCAL-01/02-programmed
-    // entry — direction press redirects through user-defined keymap.
-    // VHDL zxnext.vhd:5157-5158 mode 111 selects user-defined; jnext
-    // membrane_stick.cpp:101-104 currently flags "111" as no-op.
-    skip("JCAL-03",
-         "NR 0x05=111 user-defined keymap fold",
-         "NR 0x05=111 user-defined keymap fold no-op (see G127)");
+        nr_write_via_port(emu, 0x28, 0x81);     // sel=1, addr(8)=1
+        const uint8_t  sel1   = emu.membrane_stick().keymap_sel();
+        const uint16_t addr1  = emu.membrane_stick().keymap_addr();
+
+        nr_write_via_port(emu, 0x28, 0x00);     // sel=0, addr(8)=0
+        const uint8_t  sel0   = emu.membrane_stick().keymap_sel();
+        const uint16_t addr0b = emu.membrane_stick().keymap_addr();
+
+        const bool ok = (sel1 == 1u) && ((addr1 & 0x100u) != 0u)
+                     && (sel0 == 0u) && ((addr0b & 0x100u) == 0u);
+        check("JCAL-01",
+              "NR 0x28 keymap_sel write handler routes bit 7 + bit 0",
+              ok,
+              DETAIL("after 0x81: sel=%u addr=0x%03X (expected sel=1, bit8 set); "
+                     "after 0x00: sel=%u addr=0x%03X (expected sel=0, bit8 clear)",
+                     sel1, addr1, sel0, addr0b));
+    }
+
+    // JCAL-02: NR 0x29 addr-low + NR 0x2B data write + auto-increment.
+    // VHDL zxnext.vhd:6304-6308 + 6321-6324.
+    //
+    // Sequence:
+    //   1) NR 0x28 = 0x80  → keymap_sel=1, addr(8)=0  (joymap-write mode)
+    //   2) NR 0x29 = 0x00  → addr(7..0) = 0x00, full addr now 0x000.
+    //                         Cell address = addr(4)<<5 | 0x10 | (addr&0x0F)
+    //                                      = 0x00 | 0x10 | 0x00 = cell 16.
+    //   3) NR 0x2B = 0x2A  → write 0b101010 (row 5, col 2) into cell 16.
+    //                         addr auto-increments to 0x001.
+    //   4) NR 0x2B = 0x15  → write 0b010101 (row 2, col 5) into cell 17.
+    //                         addr auto-increments to 0x002.
+    // Then read back keymap_cell(16/17) and check addr=0x002.
+    //
+    // The 6-bit data masking is per membrane_stick.vhd:182 (i_keymap_data
+    // is a 6-bit port; the upper 2 bits of NR 0x2B are dropped before
+    // storing). We exercise that by setting bit 6 of the data byte too.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+
+        nr_write_via_port(emu, 0x28, 0x80);          // sel=1, addr(8)=0
+        nr_write_via_port(emu, 0x29, 0x00);          // addr(7..0)=0
+        nr_write_via_port(emu, 0x2B, 0x2A);          // cell 16 ← 0x2A
+        nr_write_via_port(emu, 0x2B, 0x55);          // cell 17 ← 0x55 & 0x3F = 0x15
+
+        const uint8_t  c16  = emu.membrane_stick().keymap_cell(16);
+        const uint8_t  c17  = emu.membrane_stick().keymap_cell(17);
+        const uint16_t addr = emu.membrane_stick().keymap_addr();
+
+        const bool ok = (c16 == 0x2A) && (c17 == 0x15) && (addr == 0x002u);
+        check("JCAL-02",
+              "NR 0x29 addr-low + NR 0x2B data write + auto-inc",
+              ok,
+              DETAIL("cell16=0x%02X (exp 0x2A) cell17=0x%02X (exp 0x15) "
+                     "addr=0x%03X (exp 0x002)",
+                     c16, c17, addr));
+    }
+
+    // JCAL-03: NR 0x05=111 (User-Defined) + programmed UDK entry → fold
+    // into membrane row. VHDL membrane_stick.vhd:172-183.
+    //
+    // Strategy: program LEFT-UDK cell 16 (= bit 0 / R direction in the
+    // UDK 12-bit walk, joy_addr_start=10000) to (row 4, col 3) — i.e.
+    // packed value 0b100011 = 0x23. Then with mode=IoMode (==VHDL
+    // joy_type "111") and joystick state bit-0 (R) set, scanning
+    // membrane row 4 should clear column-3 → 0x1F & ~0x08 = 0x17.
+    //
+    // We bypass NR 0x05 → MembraneStick propagation (G126, owned by
+    // Agent B) by calling MembraneStick::set_mode() directly, mirroring
+    // the SINC-* / CURS-* test pattern. The SDP-RAM programming itself
+    // is exercised through the full NR write path so JCAL-03 transitively
+    // re-validates JCAL-01/JCAL-02 wiring end-to-end.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+
+        // Program LEFT-UDK cell 16 = (row 4, col 3) via NR 0x28/0x29/0x2B.
+        nr_write_via_port(emu, 0x28, 0x80);          // sel=1, addr(8)=0
+        nr_write_via_port(emu, 0x29, 0x00);          // addr(7..0)=0 → cell 16
+        nr_write_via_port(emu, 0x2B, 0x23);          // 0b100011 = (4, 3)
+
+        // Engage User-Defined mode on the LEFT connector and inject a
+        // RIGHT-direction press (bit 0 of the 12-bit joystick state).
+        emu.membrane_stick().set_mode(0, Joystick::Mode::IoMode);
+        emu.membrane_stick().inject_joystick_state(0, 0x001);
+
+        // Scan membrane row 4 with all-released base mask.
+        const uint8_t r4 = emu.membrane_stick().compose_into_row(4, 0x1F);
+
+        // And confirm row 3 is untouched (cross-row independence —
+        // membrane_stick.vhd:192 row-match guard).
+        const uint8_t r3 = emu.membrane_stick().compose_into_row(3, 0x1F);
+
+        const bool ok = (r4 == 0x17) && (r3 == 0x1F);
+        check("JCAL-03",
+              "NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low",
+              ok,
+              DETAIL("row4=0x%02X (exp 0x17) row3=0x%02X (exp 0x1F)", r4, r3));
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
