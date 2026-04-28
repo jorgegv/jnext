@@ -3005,6 +3005,12 @@ void Emulator::run_frame()
     // upload's Y positions). VHDL sprites.vhd:327-470.
     sprites_.start_frame();
 
+    // Per-scanline ULA scroll snapshot (NR 0x26 / NR 0x27 / NR 0x68 b2)
+    // — same pattern as Layer2/Palette/Sprites. Required for Copper-
+    // driven mid-frame scroll splits (parallax bands etc.). VHDL
+    // zxula.vhd:193-207 / :199. G08.
+    renderer_.ula().start_frame_scroll();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -3822,6 +3828,9 @@ void Emulator::on_scanline(int line)
     layer2_.set_current_line(line);
     // Same scanline tag for sprite-attribute writes (port 0x57, NR 0x75-0x79).
     sprites_.set_current_line(line);
+    // Same scanline tag for ULA scroll writes (NR 0x26 / NR 0x27 / NR 0x68 b2).
+    // VHDL zxula.vhd:193-207 / :199. G08.
+    renderer_.ula().set_current_scroll_line(line);
 }
 
 void Emulator::on_vsync()

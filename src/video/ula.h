@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 class Mmu;
@@ -75,6 +76,17 @@ public:
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
         shadow_screen_en_    = false; // i_ula_shadow_en default '0'
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
+
+        // Per-scanline scroll change-log (G08) — clear at reset; the next
+        // start_frame_scroll() snapshot will re-baseline from the live
+        // (post-reset) values. Kept in sync with Layer2::reset() shape.
+        scroll_change_count_       = 0;
+        current_scroll_line_       = 0;
+        scroll_render_cursor_      = 0;
+        scroll_overflow_warned_    = false;
+        baseline_scroll_x_coarse_  = 0;
+        baseline_scroll_y_         = 0;
+        baseline_fine_scroll_x_    = 0;
     }
 
     /// Set the palette manager reference (must be called before rendering).
@@ -159,17 +171,74 @@ public:
     // -------------------------------------------------------------------
 
     // NR 0x26 coarse X-scroll (8-bit raw). VHDL zxnext.vhd:5304, zxula.vhd:199.
-    void    set_ula_scroll_x_coarse(uint8_t v) { ula_scroll_x_coarse_ = v; }
+    void    set_ula_scroll_x_coarse(uint8_t v) {
+        ula_scroll_x_coarse_ = v;
+        log_scroll_change();
+    }
     uint8_t get_ula_scroll_x_coarse() const    { return ula_scroll_x_coarse_; }
 
     // NR 0x27 Y-scroll (8-bit raw; cross-third wrap applied by renderer).
     // VHDL zxnext.vhd:5307, zxula.vhd:193-207.
-    void    set_ula_scroll_y(uint8_t v) { ula_scroll_y_ = v; }
+    void    set_ula_scroll_y(uint8_t v) {
+        ula_scroll_y_ = v;
+        log_scroll_change();
+    }
     uint8_t get_ula_scroll_y() const    { return ula_scroll_y_; }
 
     // NR 0x68 bit 2 — fine X-scroll enable. VHDL zxnext.vhd:5449, zxula.vhd:199.
-    void set_ula_fine_scroll_x(bool b)  { ula_fine_scroll_x_ = b; }
+    void set_ula_fine_scroll_x(bool b)  {
+        ula_fine_scroll_x_ = b;
+        log_scroll_change();
+    }
     bool get_ula_fine_scroll_x() const  { return ula_fine_scroll_x_; }
+
+    // -------------------------------------------------------------------
+    // Per-scanline NR 0x26 / NR 0x27 / NR 0x68 b2 scroll change-log (G08).
+    //
+    // Mirrors the Layer2 / PaletteManager / SpriteEngine pattern. Required
+    // for Copper-driven mid-frame scroll splits (e.g. parallax effects via
+    // NR 0x26 / NR 0x27 mid-frame writes). VHDL zxula.vhd:193-207, :199 —
+    // px / py are latched per character cell (i_hc(3:0) = "3" or "B"); a
+    // mid-frame write to NR 0x26 / NR 0x27 takes effect on the next cell
+    // boundary, so per-scanline replay (8-pixel-cell granularity coarsened
+    // to a full scanline) is the natural emulator approximation.
+    //
+    // Lifecycle (called by Emulator::run_frame + Renderer::render_frame):
+    //   ula.start_frame_scroll();              // emulator at frame start
+    //   ...                                    // emulation runs; scroll
+    //                                          // setters append entries
+    //                                          // tagged with current_line_
+    //   ula.rewind_scroll_to_baseline();       // before render_frame
+    //   for row in 0..H:
+    //       ula.apply_scroll_changes_for_line(row);
+    //       render_scanline(row);
+    // -------------------------------------------------------------------
+
+    /// Snapshot the live scroll state as the frame baseline and reset the
+    /// per-frame change log. Called at the start of every frame.
+    void start_frame_scroll();
+
+    /// Update the scanline tag attached to subsequent scroll writes.
+    /// Called from Emulator::on_scanline. Default 0 at frame start.
+    void set_current_scroll_line(int line) {
+        current_scroll_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live scroll state to the frame baseline and reset the
+    /// render cursor. Called once before per-scanline render.
+    void rewind_scroll_to_baseline();
+
+    /// Apply all logged scroll changes whose line tag equals `line`.
+    /// Cursor is monotonically advanced; the log is in scanline order so
+    /// total work across a frame is O(scroll_change_count_).
+    void apply_scroll_changes_for_line(int line);
+
+    /// Number of scroll changes recorded this frame (diagnostic / tests).
+    size_t scroll_change_log_size() const { return scroll_change_count_; }
+
+    /// Static cap for scroll log; overflow drops further writes for the
+    /// remainder of the frame and emits a once-per-frame warning.
+    static constexpr size_t MAX_SCROLL_CHANGES_PER_FRAME = 1024;
 
     // NR 0x42 ULAnext format byte (raw). VHDL default X"07" at reset (zxnext.vhd:5002).
     // Semantics in zxula.vhd:503-515 (case X"01"/X"03"/…/X"7F" ink/paper split).
@@ -358,6 +427,34 @@ private:
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
     bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)
     bool    border_clr_tmx_src_  = false; ///< Wave-D border route select (zxula.vhd:419)
+
+    // ── Per-scanline scroll change log (G08) ─────────────────────────────
+    // VHDL zxnext.vhd:5304 (NR 0x26), :5307 (NR 0x27), :5449 (NR 0x68 b2).
+    // Each entry captures a snapshot of all three live scroll fields after
+    // each setter call, tagged with current_scroll_line_. Two registers
+    // (NR 0x26/0x27) plus the fine-scroll bit are stored together in a
+    // single struct so a single-write to either register always preserves
+    // the unrelated coordinate (avoids "last write wins" interleaving when
+    // a Copper alternates between the two on consecutive scanlines).
+    struct ScrollChange {
+        uint16_t line;             ///< 0..lines_per_frame-1
+        uint8_t  scroll_x_coarse;  ///< NR 0x26 snapshot
+        uint8_t  scroll_y;         ///< NR 0x27 snapshot
+        uint8_t  fine_scroll_x;    ///< NR 0x68 b2 (0 / 1)
+    };
+    std::array<ScrollChange, MAX_SCROLL_CHANGES_PER_FRAME> scroll_change_log_{};
+    size_t   scroll_change_count_    = 0;
+    uint16_t current_scroll_line_    = 0;
+    size_t   scroll_render_cursor_   = 0;
+    bool     scroll_overflow_warned_ = false;
+    uint8_t  baseline_scroll_x_coarse_ = 0;
+    uint8_t  baseline_scroll_y_        = 0;
+    uint8_t  baseline_fine_scroll_x_   = 0;
+
+    /// Append a snapshot of (ula_scroll_x_coarse_, ula_scroll_y_,
+    /// ula_fine_scroll_x_) to the change log, tagged with
+    /// current_scroll_line_. Called from the three scroll setters above.
+    void log_scroll_change();
 
     /// Render a display row in STANDARD or STANDARD_1 mode.
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
