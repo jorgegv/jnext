@@ -71,6 +71,13 @@ public:
     /// SDL_MOUSEWHEEL into the transport-agnostic API. Other event types
     /// are ignored (returns false). Returns true if the event was a mouse
     /// event the dispatcher consumed.
+    ///
+    /// The Qt UI path (default build) does NOT use this entry; MainWindow's
+    /// override handlers translate Qt events directly into the transport-
+    /// agnostic API (handle_motion / handle_button / handle_wheel). That
+    /// keeps Qt out of the input library — the dispatcher only knows
+    /// about SDL conventions, and the GUI translates Qt → SDL at the
+    /// boundary.
     bool handle_sdl_event(const SDL_Event& e);
 
     // ── Test introspection ──────────────────────────────────────────────

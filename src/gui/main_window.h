@@ -3,13 +3,18 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QActionGroup>
+#include <QPoint>
 #include <functional>
+#include <memory>
 #include <SDL2/SDL.h>
 #include "core/emulator_config.h"
 
 class Emulator;
 class EmulatorWidget;
+class MouseDispatcher;
 class QTimer;
+class QMouseEvent;
+class QWheelEvent;
 #ifdef ENABLE_DEBUGGER
 class DebuggerManager;
 #endif
@@ -23,6 +28,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    // Out-of-line so unique_ptr<MouseDispatcher> can use a forward
+    // declaration in this header.
+    ~MainWindow() override;
 
     /// Access the central emulator display widget.
     EmulatorWidget* emulator_widget() { return emulator_widget_; }
@@ -77,6 +85,15 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
+    // Kempston-mouse host-event handlers (G43 closure). Each forwards into
+    // the MouseDispatcher's transport-agnostic API after translating Qt
+    // conventions to SDL ones (button codes, wheel-detent units). The
+    // MouseDispatcher is created lazily in set_emulator() once the bound
+    // KempstonMouse exists.
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
 
 private:
@@ -113,6 +130,13 @@ private:
     Emulator*       emulator_        = nullptr;
     KeyCallback     key_callback_;
     SpeedCallback   speed_callback_;
+
+    // Kempston-mouse host adapter (G43). Mirrors SdlApp's wiring pattern;
+    // owned here because MainWindow is the GUI's host event source. Created
+    // in set_emulator() once Emulator::mouse() is bound.
+    std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
+    QPoint last_mouse_pos_;        ///< Previous mouse position for delta calc.
+    bool   have_last_mouse_pos_ = false;
 
     bool is_fullscreen_ = false;
     int current_scale_ = 2;  ///< Default 2x scale (640x512 viewport).
