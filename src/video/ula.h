@@ -129,6 +129,11 @@ public:
     uint8_t clip_y2() const {
         return (clip_y2_ & 0xC0) == 0xC0 ? 0xBF : clip_y2_;
     }
+    // Raw stored byte of NR 0x1A y2 (no clamp). Mirrors VHDL
+    // `nr_1a_ula_clip_y2` exactly — needed by the NR 0x1A read mux at
+    // zxnext.vhd:5963-5969 which reads the raw register, not the
+    // consumer-facing clamped `ula_clip_y2_0` (zxnext.vhd:6779-6783).
+    uint8_t clip_y2_raw() const { return clip_y2_; }
 
     /// Set the Timex screen mode from a port 0xFF write.
     ///

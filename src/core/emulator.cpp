@@ -577,6 +577,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
         clip_spr_idx_ = (clip_spr_idx_ + 1) & 0x03;
     });
+    // NR 0x19 read: pure combinatorial 4-way mux over sprite clip coords
+    // selected by clip_spr_idx_ (zxnext.vhd:5955-5961). Reading does NOT
+    // advance the idx — only writes advance it (zxnext.vhd:5256). G97.
+    nextreg_.set_read_handler(0x19, [this]() -> uint8_t {
+        switch (clip_spr_idx_) {
+            case 0:  return sprites_.clip_x1();
+            case 1:  return sprites_.clip_x2();
+            case 2:  return sprites_.clip_y1();
+            default: return sprites_.clip_y2();
+        }
+    });
 
     // Register 0x1A: ULA/LoRes clip window
     nextreg_.set_write_handler(0x1A, [this](uint8_t v) {
@@ -587,6 +598,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case 3: renderer_.ula().set_clip_y2(v); break;
         }
         clip_ula_idx_ = (clip_ula_idx_ + 1) & 0x03;
+    });
+    // NR 0x1A read: pure combinatorial 4-way mux over ULA clip coords
+    // selected by clip_ula_idx_ (zxnext.vhd:5963-5969). Reading does NOT
+    // advance the idx — only writes advance it (zxnext.vhd:5265). G97.
+    // y2 returns the raw stored register (`nr_1a_ula_clip_y2`); the
+    // consumer-side clamp at 0xC0..0xFF→0xBF is applied at
+    // `ula_clip_y2_0` (zxnext.vhd:6779-6783), NOT at the NR 0x1A read,
+    // so we use Ula::clip_y2_raw() to mirror the register exactly.
+    nextreg_.set_read_handler(0x1A, [this]() -> uint8_t {
+        switch (clip_ula_idx_) {
+            case 0:  return renderer_.ula().clip_x1();
+            case 1:  return renderer_.ula().clip_x2();
+            case 2:  return renderer_.ula().clip_y1();
+            default: return renderer_.ula().clip_y2_raw();
+        }
     });
 
     // Register 0x1B: Tilemap clip window
