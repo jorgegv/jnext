@@ -1205,7 +1205,8 @@ where possible.
       without per-NR work. User to decide; (a) recommended near-term.
 - **Effort**: M.
 
-### G57. MMU `current_rom_bank()` — three documented gaps
+### G57. MMU `current_rom_bank()` — three documented gaps [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1w2-mmu-v2) — added `Mmu::sram_rom3()` accessor that composes the VHDL `sram_rom3` signal per machine type with NR 0x8C altrom locks factored in (`zxnext.vhd:2985,2990,3000,3004`). The legacy `current_rom_bank()` accessor is unchanged (callers still use it for 4-way ROM-bank reporting); `sram_rom3()` is the VHDL-faithful replacement for "is bank 3 currently active?" gates (DivMMC ROM3-conditional automap, etc.). Test rows ROM-10/11/12 in `mmu_test` flipped to PASS with discriminative coverage of the 48K hardwire, the NR 0x8C lock_rom1 factor, and the +3-vs-ZXN port_1ffd(2) handling.
 - **What**: `src/memory/mmu.h:530-545`:
   - 48K-mode `sram_rom3` hardwire (zxnext.vhd:2985) — we report
     bank 0 regardless of machine type. Impact nil today (DivMMC
@@ -1213,6 +1214,7 @@ where possible.
   - NR 0x8C altrom factor (zxnext.vhd:3138) ignored.
   - Next-mode port_1ffd bit 2 normally gated by NR 0x82 bit 3;
     direct port_1ffd write on Next mode could spuriously claim ROM3.
+- **Coverage today**: ROM-10/11/12 in `mmu_test`.
 - **Effort**: L.
 
 ### G58. MMU shadow-screen routing (TASK-MMU-SHADOW-SCREEN-PLAN)
@@ -1470,12 +1472,13 @@ where possible.
 - **Effort**: L.
 - Also relevant to section D.
 
-### G148. port_dffd_reg_6 not stored — Multiface readback truncated
+### G148. port_dffd_reg_6 not stored — Multiface readback truncated [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1w2-mmu-v2) — `Mmu` now stores cpu_do(6) in a dedicated `port_dffd_reg_6_` flip-flop alongside the 5-bit `port_dffd_reg_`, mirrors the VHDL hard-reset clause, and exposes a `port_dffd_reg_6()` accessor for the future Multiface +3 read-mux. DFF-09 in `mmu_test` flipped to PASS. Save/load_state extended at the tail (binary backward-compatibility break confined to the existing Wave-2 trailing block).
 - **What**: VHDL `zxnext.vhd:877,3694,4314` — port 0xDFFD bit 6 stored separately in `port_dffd_reg_6`; consumed by Multiface mux. jnext `mmu.cpp:332` masks to bits 4:0; comment at `mmu.h:328-333` admits.
 - **User impact**: Multiface readback of DFFD bit 6 returns 0; affects paging-state inspection (debugger / snapshot).
 - **Source ref**: Wave-2 memory (NEW-MMU-8); reviewer APPROVE — sibling of G48.
-- **Coverage today**: none.
-- **Dependencies**: G48 Multiface plan can pull this in.
+- **Coverage today**: DFF-09 in `mmu_test`.
+- **Dependencies**: G48 Multiface plan can pull this in (now reads via `Mmu::port_dffd_reg_6()`).
 - **Effort**: L.
 
 ### G151. Z80N NEXTREG opcode mutates nr_register (selected_) — VHDL preserves
@@ -1933,6 +1936,17 @@ by source / test / commit grep during this audit):
 - **G157 Boot ROM overlay size mismatch** — closed 2026-04-28
   (task8-t1-mmu); `Mmu::set_boot_rom` zero-pads / truncates to 8 KB
   with warn diagnostic. mmu_test row BOOT-OVL-03 PASS.
+- **G148 port_dffd_reg_6 not stored** — closed 2026-04-28
+  (task8-t1w2-mmu-v2); `Mmu` latches cpu_do(6) into a dedicated
+  `port_dffd_reg_6_` flip-flop alongside the 5-bit `port_dffd_reg_`,
+  per VHDL `zxnext.vhd:877,3686-3689,3694`. Accessor
+  `port_dffd_reg_6()` ready for the future Multiface +3 read-mux
+  (VHDL `:4314`). mmu_test row DFF-09 PASS.
+- **G57 MMU `current_rom_bank()` three documented gaps** — closed
+  2026-04-28 (task8-t1w2-mmu-v2); added `Mmu::sram_rom3()` accessor
+  composing the VHDL `sram_rom3` signal per machine type with NR
+  0x8C altrom locks factored in (`zxnext.vhd:2985,2990,3000,3004`).
+  mmu_test rows ROM-10/11/12 PASS with discriminative coverage.
 
 ---
 

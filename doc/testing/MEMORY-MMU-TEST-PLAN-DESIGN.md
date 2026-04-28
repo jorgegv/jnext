@@ -507,7 +507,7 @@ as `a1495ba`).
 | DFF-06  | Locked by 7FFD bit 5          | Lock, DFFD ← 0x01           | DFFD register unchanged               |
 | DFF-07  | Bit 4 (Profi DFFD override)   | DFFD ← 0x10                 | No effect (Profi disabled in VHDL)    |
 | DFF-08  | Soft reset preserves DFFD     | DFFD ← 0x0F, reset(false)   | port_dffd_reg preserved, MMU6/7 reflect preserved bank (VHDL:3687) |
-| DFF-09  | DFFD bit 6 round-trip via Multiface readback | OUT 0xDFFD ← 0x40; read Multiface paging-state register | Returned byte has bit 6 set. VHDL `zxnext.vhd:877,3694` stores DFFD bit 6 separately in `port_dffd_reg_6`; consumed by Multiface mux at `:4314`. skip — `mmu.cpp:332` masks DFFD writes to bits 4:0; bit 6 dropped (see G148) |
+| DFF-09  | DFFD bit 6 round-trip via Mmu accessor | OUT 0xDFFD ← 0x40 / 0x4A / 0x0A / 0xCA; observe `Mmu::port_dffd_reg_6()` and `port_dffd_reg()` | Bit 6 latched into separate `port_dffd_reg_6_` flip-flop; vector storage independent; hard reset clears bit 6. VHDL `zxnext.vhd:877,3686-3689,3693-3694,4314`. pass (G148 closed on `task8-t1w2-mmu-v2`) |
 
 ### Category 5: +3 Paging (Port 0x1FFD)
 
@@ -588,6 +588,9 @@ as `a1495ba`).
 | ROM-07  | +3 ROM 3                          | +3          | 1FFD=4, 7FFD=0x10     | sram_rom = "11"      |
 | ROM-08  | ROM is read-only                  | Any         | Write to ROM space     | Write has no effect   |
 | ROM-09  | ROM with altrom_rw = 1            | NR 8C=0xC0  | Write to ROM space     | Write succeeds        |
+| ROM-10  | 48K hardwires `sram_rom3=1`       | 48K         | Cycle 7FFD/1FFD/lock states | `Mmu::sram_rom3()` always true regardless of port / altrom state per VHDL `zxnext.vhd:2985`. **Implemented** — accessor returns `true` for `MachineType::ZX48K` (G57 closed) |
+| ROM-11  | NR 0x8C altrom-lock factor        | ZXN         | Lock_rom1 only vs lock_rom0 only | `sram_rom3()` follows `nr_8c_altrom_lock_rom1` per VHDL `:3000`; lock_rom0 alone returns false. **Implemented** — accessor branches on locks (G57 closed) |
+| ROM-12  | port_1ffd(2) discrimination       | +3 vs ZXN   | (1FFD=4, 7FFD=0/0x10) on +3; (1FFD=0/4, 7FFD=0/0x10) on ZXN | +3: `sram_rom3 = 1FFD(2) AND 7FFD(4)` per VHDL `:2994`. ZXN: `sram_rom3 = 7FFD(4)` alone per VHDL `:3004` (1FFD bit 2 has no effect on the non-+3 branch). **Implemented** — accessor switches on `machine_type_` (G57 closed) |
 
 ### Category 11.x: Boot ROM Overlay (`bootrom_en`)
 

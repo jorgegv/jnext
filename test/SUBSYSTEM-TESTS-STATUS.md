@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | All tests pass.                                        |
 | Rewind                |       28 |       18 |      0 |      10 |     64% | Task 7r2: G66/G67 SS-VER + RB-FRAME skips added.       |
 | Copper                |       82 |       76 |      0 |       6 |     93% | Task 7r2: G65 ARB-G65-01 tied-edge added.              |
-| Memory/MMU            |      178 |      142 |      0 |      36 |     80% | Task 8 t1: G140/G155/G157 closed; G143 RE-HOME.        |
+| Memory/MMU            |      178 |      146 |      0 |      32 |     82% | Task 8 t1+W2: G140/G155/G157 + G148 + G57 closed; G143 RE-HOME. |
 | NextREG (bare)        |       63 |       21 |      0 |      42 |     33% | Task 7r2: G55/G56/G62/G64 (FT/CR/CFG/BYPASS-Q).        |
 | NextREG (integration) |       74 |       73 |      0 |       1 |     99% | Task 7r2: G63 CFG-09-INT added.                        |
 | Input                 |      152 |      139 |      0 |      13 |     91% | Task 7r2: G43/G72 (MOUSE-13..15 + IOMODE-11A).         |
@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     77% | Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
-| **Total**             | **3690** | **3441** |  **0** | **249** |     93% |                                                        |
+| **Total**             | **3690** | **3445** |  **0** | **245** |     93% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
