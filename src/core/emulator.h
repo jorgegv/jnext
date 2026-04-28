@@ -347,9 +347,9 @@ public:
     /// F10 — VHDL `hotkey_drive` edge pulse. Asserts the DivMMC NMI
     /// producer for one tick; subject to NR 0x06 bit 4
     /// (`button_drive_nmi_en`) gate per VHDL:2091. VHDL further gates
-    /// this on `port_divmmc_io_en` (NR 0x83 bit 0); we leave that to
-    /// the consumer-feedback path so the strobe is delivered and the
-    /// downstream gate decides whether the latch actually fires.
+    /// this on `port_divmmc_io_en` (NR 0x83 bit 0); we honour that
+    /// gate at the dispatcher (early-return when the DivMMC port is
+    /// disabled).
     void on_hotkey_f10_divmmc_nmi();
 
     /// F4 — VHDL `hotkey_soft_reset` edge pulse. Strobes the

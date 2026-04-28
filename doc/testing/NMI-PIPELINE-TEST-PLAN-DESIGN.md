@@ -206,7 +206,9 @@ cpu-speed/50-60/scandouble dispatch lives in B8 (G147 / G132) — do not
 duplicate rows here. **G152 closed (Task 8 t1)** —
 `Emulator::on_hotkey_f1_hard_reset / f4_soft_reset / f9_mf_nmi /
 f10_divmmc_nmi` dispatchers + `gui/main_window.cpp` keyPress/Release
-wiring.
+wiring. Companion row HK-07b (in test source) verifies the
+`port_divmmc_io_en` (NR 0x83 bit 0) gate honoured at the F10
+dispatcher.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
@@ -217,6 +219,7 @@ wiring.
 | HK-05 | Simultaneous MF + DivMMC button press → MF wins | zxnext.vhd:2097-2105 | strobe both; observe `accept_cause = MF` |
 | HK-06 | Host F9 keystroke → NmiSource MF latch via host-key dispatch | zxnext.vhd:6340-6349, 2089 | call `Emulator::on_hotkey_f9_mf_nmi()`; observe `nmi_mf` latch. **G152 closed.** |
 | HK-07 | Host F10 keystroke → NmiSource DivMMC latch via host-key dispatch | zxnext.vhd:6349, 2090 | call `Emulator::on_hotkey_f10_divmmc_nmi()`; observe `nmi_divmmc` latch. **G152 closed.** |
+| HK-07b | Companion: F10 honours `port_divmmc_io_en` (NR 0x83 bit 0) gate at dispatcher | zxnext.vhd:6349 | `set_divmmc_enable(true)` but leave `port_io_enable=false`; call F10 dispatcher; expect no DivMMC strobe. **G152 closed (Task 8 t1).** |
 | HK-08 | Host F4 keystroke → soft-reset edge to NmiSource reset_type FSM | zxnext.vhd:6370-6371, 2090-2091 | clear NR 0x03 config_mode + call `Emulator::on_hotkey_f4_soft_reset()`; observe reset_type advance + config_mode gate honoured. **G152+G153 closed.** |
 | HK-09 | Host F1 keystroke → hard-reset path (full Emulator reset) | zxnext.vhd:6371 | call `Emulator::on_hotkey_f1_hard_reset()`; observe full reset. **G152 closed.** |
 
@@ -318,7 +321,7 @@ wiring.
 | DMA | 3 |
 | Z80 | 4 |
 | MF (G162) | 2 |
-| **Total** | **59** (+ 1 companion MF-G162-01b row in source = 60 binary checks) |
+| **Total** | **59** (+ 2 companions HK-07b and MF-G162-01b in source = 61 binary checks) |
 
 ## Re-homed rows
 
@@ -404,7 +407,7 @@ bash test/regression.sh
 > **Update 2026-04-28 (Task 8 t1):** G153 (RST-04, NR02-07, NR02-08),
 > G152 (HK-06..09), and G162 (MF-G162-01, MF-G162-02) closed end-to-end.
 > Companion row MF-G162-01b added to test the NR 0x06 bit 3 gate path.
-> Suite total now **56/42/0/14** (was 55/32/0/23). Still parked: Z80-04
+> Suite total now **57/43/0/14** (was 55/32/0/23). Still parked: Z80-04
 > (G88 cross-link, primary-owner CTC), MF-G48-01..07 (Multiface peripheral,
 > awaits `MULTIFACE-TEST-PLAN-DESIGN.md`), BOOT/BYPASS rows (G46/G47/G59/G60
 > end-to-end behavioural).

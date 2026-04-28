@@ -146,8 +146,8 @@ void NmiSource::strobe_soft_reset()
 {
     // VHDL zxnext.vhd:1732-1739 — on `nr_02_soft_reset = '1'` rising edge,
     //   nr_02_reset_type <= '0' & rt(2) & (rt(1) OR rt(0))
-    // i.e. shift-right-with-OR collapse: 100 -> 010 -> 001 -> 000 -> 000.
-    // The FSM does not roll over.
+    // i.e. shift-right-with-OR collapse: 100 -> 010 -> 001 -> 001
+    // (saturates at 001 per VHDL:1732-1739). The FSM does not roll over.
     const uint8_t rt = reset_type_ & 0x07;
     const uint8_t b2 = 0;
     const uint8_t b1 = (rt >> 2) & 0x01;
