@@ -71,6 +71,10 @@ void Mmu::reset(bool hard) {
     // not re-bind the extended-paging configuration the bootloader set.
     if (hard) {
         port_dffd_reg_ = 0;
+        // VHDL zxnext.vhd:3686-3689 — the same `if reset='1'` branch
+        // that clears port_dffd_reg also clears port_dffd_reg_6. Same
+        // hard-only domain. (G148)
+        port_dffd_reg_6_ = false;
         port_eff7_reg_2_ = false;
         port_eff7_reg_3_ = false;
     }
@@ -378,11 +382,13 @@ void Mmu::write_port_dffd(uint8_t v) {
         return;
     }
     Log::memory()->debug("port 0xDFFD write: v={:#04x}", v);
-    // VHDL zxnext.vhd:3693 stores cpu_do(4:0). Bits 5-7 are NOT stored.
-    // Bit 6 (port_dffd_reg_6) is consumed by Profi MMU4/5 composition
-    // (VHDL:4660) and Multiface readback (VHDL:4314), neither of which
-    // is on the Mmu surface. Drop silently.
-    port_dffd_reg_ = static_cast<uint8_t>(v & 0x1F);
+    // VHDL zxnext.vhd:3693 stores cpu_do(4:0) into port_dffd_reg, while
+    // :3694 stores cpu_do(6) into the separate port_dffd_reg_6 flip-flop
+    // (VHDL :877). Bits 5 and 7 are not stored. The DFFD-bit-6 latch
+    // feeds the Multiface +3 read-mux at :4314 (`'0' & port_dffd_reg_6
+    // & '0' & port_dffd_reg`). (G148)
+    port_dffd_reg_   = static_cast<uint8_t>(v & 0x1F);
+    port_dffd_reg_6_ = (v & 0x40) != 0;
     // VHDL zxnext.vhd:4619 — port_memory_change_dly rebuilds MMU0..7 on
     // any paging-port write. Bypass the paging_locked gate (we verified
     // above it was unlocked when this write arrived).
@@ -594,6 +600,10 @@ void Mmu::save_state(StateWriter& w) const
     w.write_bool(l2_map_shadow_);
     w.write_u8(l2_offset_);
     w.write_u8(l2_shadow_bank_);
+    // Task 8 Tier 1 Wave 2 — port 0xDFFD bit 6 latch (VHDL zxnext.vhd:877,
+    // 3694, 4314). Single-bit flip-flop, separate from the 5-bit
+    // port_dffd_reg vector. (G148)
+    w.write_bool(port_dffd_reg_6_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -639,6 +649,8 @@ void Mmu::load_state(StateReader& r)
     l2_map_shadow_   = r.read_bool();
     l2_offset_       = r.read_u8();
     l2_shadow_bank_  = r.read_u8();
+    // Task 8 Tier 1 Wave 2 — port 0xDFFD bit 6 latch (G148, VHDL :877/3694/4314).
+    port_dffd_reg_6_ = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:

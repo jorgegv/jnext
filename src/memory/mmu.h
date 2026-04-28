@@ -333,6 +333,14 @@ public:
     // 5-bit storage + lock-gating contract. Bit 4 stores the Profi override,
     // bits 0..3 feed the bank composition.
     uint8_t port_dffd_reg() const { return port_dffd_reg_; }
+    // VHDL zxnext.vhd:877 declares a separate `port_dffd_reg_6` flip-flop
+    // outside the 5-bit port_dffd_reg vector. The write process at
+    // zxnext.vhd:3694 latches `cpu_do(6)` into it on every (gated) port
+    // 0xDFFD write; the only consumer is the Multiface +3 read-mux at
+    // zxnext.vhd:4314 which composes `'0' & port_dffd_reg_6 & '0' &
+    // port_dffd_reg` for the MF DFFD readback. Stored here so the future
+    // Multiface plumbing can read it back without owning the port.
+    bool port_dffd_reg_6() const { return port_dffd_reg_6_; }
 
     // ---------------------------------------------------------------
     // Port 0xEFF7 — Pentagon-1024 disable / RAM-at-0x0000
@@ -619,6 +627,49 @@ public:
         }
     }
 
+    // VHDL `sram_rom3` signal — the "ROM bank 3 currently active" gate
+    // consumed by the SRAM arbiter at zxnext.vhd:3138 (DivMMC automap
+    // ROM3-conditional path) and by the early-decode logic. The VHDL
+    // process at zxnext.vhd:2981-3008 drives sram_rom3 per machine type:
+    //   48K (zxnext.vhd:2985)        → '1'  (hardwired ROM3 on 48K)
+    //   +3  with altrom lock (:2990) → lock_rom1 AND lock_rom0
+    //   +3  no lock         (:2994)  → port_1ffd_rom(1) AND port_1ffd_rom(0)
+    //                                  = port_1ffd(2) AND port_7ffd(4)
+    //   ZXN/128K/Pentagon  (the
+    //   non-48K, non-+3 branch
+    //   at :2997-3007)
+    //     with altrom lock (:3000)   → nr_8c_altrom_lock_rom1
+    //     no lock          (:3004)   → port_1ffd_rom(0) = port_7ffd(4)
+    // The 128K/Pentagon legacy machines share the ZXN sram_rom3 branch
+    // because the VHDL else clause covers everything that isn't
+    // machine_type_48 or machine_type_p3.
+    //
+    // Note: this accessor reports the VHDL-faithful sram_rom3 value
+    // assuming the live port_1ffd / port_7ffd / NR 0x8C state. It does
+    // NOT factor the NR 0x82 bit-3 gate that would normally suppress a
+    // direct port_1ffd write on Next mode (one of the documented G57
+    // gaps); a runtime guard is the caller's responsibility. (G57)
+    bool sram_rom3() const {
+        const bool lk1 = nr_8c_altrom_lock_rom1();
+        const bool lk0 = nr_8c_altrom_lock_rom0();
+        const bool a14 = ((port_7ffd_ >> 4) & 1) != 0;   // port_1ffd_rom(0)
+        const bool a13 = ((port_1ffd_ >> 2) & 1) != 0;   // port_1ffd_rom(1)
+        switch (machine_type_) {
+            case MachineType::ZX48K:
+                // VHDL :2985 — 48K machines hardwire sram_rom3 high.
+                return true;
+            case MachineType::ZX_PLUS3:
+                if (lk1 || lk0) return lk1 && lk0;       // VHDL :2990
+                return a13 && a14;                       // VHDL :2994
+            case MachineType::ZX128K:
+            case MachineType::PENTAGON:
+            case MachineType::ZXN_ISSUE2:
+            default:
+                if (lk1 || lk0) return lk1;              // VHDL :3000
+                return a14;                              // VHDL :3004
+        }
+    }
+
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 
@@ -811,6 +862,13 @@ private:
     // downstream effect in JNEXT. Hard-reset only per VHDL:3686-3690
     // (gated on `reset='1'`).
     uint8_t        port_dffd_reg_ = 0;
+    // VHDL port_dffd_reg_6 (zxnext.vhd:877 declaration; :3694 store from
+    // cpu_do(6); :4314 Multiface +3 read-mux consumer). Stored as a
+    // separate single-bit flip-flop alongside port_dffd_reg, NOT folded
+    // into the 5-bit vector — matches the VHDL signal split. Hard-reset
+    // only per :3686-3689 (cleared inside the same `if reset='1'` clause).
+    // (G148)
+    bool           port_dffd_reg_6_ = false;
 
     // VHDL port_eff7_reg_2 / port_eff7_reg_3 (zxnext.vhd:3778-3782). Stored
     // as two separate bits in VHDL; mirrored here as a single uint8_t with

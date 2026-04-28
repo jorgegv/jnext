@@ -676,12 +676,52 @@ void test_cat4_port_dffd() {
                   pre_reg, pre_g6, pre_g7, post_reg, post_g6, post_g7));
     }
 
-    // DFF-09 — VHDL zxnext.vhd:877 (signal decl), :3694 (assignment from
-    // cpu_do(6)), :4314 (Multiface read-mux consumer). jnext
-    // src/memory/mmu.cpp:332 masks DFFD writes to bits 4:0;
-    // src/memory/mmu.h:328-333 admits the gap. (G148)
-    skip("DFF-09",
-         "DFFD bit 6 dropped before Multiface readback path (see G148)");
+    // DFF-09 — VHDL zxnext.vhd:877 (`signal port_dffd_reg_6 : std_logic;`
+    // — single-bit flip-flop separate from the 5-bit port_dffd_reg
+    // vector), :3693-3694 (write process: `port_dffd_reg <= cpu_do(4
+    // downto 0)` AND `port_dffd_reg_6 <= cpu_do(6)` in the same `elsif
+    // port_dffd_wr='1'` branch), :4314 (Multiface +3 read-mux consumer:
+    // `'0' & port_dffd_reg_6 & '0' & port_dffd_reg`). The Mmu now
+    // latches bit 6 into port_dffd_reg_6_ and exposes port_dffd_reg_6()
+    // for the Multiface read-mux. Verify: (a) bit 6 round-trips through
+    // the accessor; (b) bit 6 is NOT folded into the 5-bit port_dffd_reg
+    // vector; (c) hard reset clears it. (G148)
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x00);
+        // Write DFFD with bit 6 = 1, bits 4:0 = 0x0A. Bit 5 and 7 must
+        // be ignored by the latch path; verify DFFD readback is the
+        // 5-bit field, the bit-6 accessor is true, and the two storage
+        // domains are independent.
+        f.mmu.write_port_dffd(0xCA);            // 1100_1010
+        const uint8_t reg_after_set = f.mmu.port_dffd_reg();
+        const bool    b6_after_set  = f.mmu.port_dffd_reg_6();
+        // Re-write with bit 6 = 0 keeping the 5-bit field non-zero, to
+        // prove the bit-6 latch is independent of the vector storage.
+        f.mmu.write_port_dffd(0x0A);            // 0000_1010
+        const uint8_t reg_after_clr = f.mmu.port_dffd_reg();
+        const bool    b6_after_clr  = f.mmu.port_dffd_reg_6();
+        // Hard reset clears bit 6 (VHDL :3686-3689 same `reset='1'` clause
+        // as port_dffd_reg).
+        f.mmu.write_port_dffd(0x40);            // bit 6 = 1
+        const bool b6_pre_hard = f.mmu.port_dffd_reg_6();
+        f.mmu.reset(true);
+        const bool b6_post_hard = f.mmu.port_dffd_reg_6();
+        check("DFF-09",
+              "DFFD bit 6 latched into port_dffd_reg_6, separate from "
+              "5-bit port_dffd_reg, hard-reset cleared "
+              "— VHDL zxnext.vhd:877, 3693-3694, 3686-3689, 4314",
+              reg_after_set == 0x0A && b6_after_set == true &&
+              reg_after_clr == 0x0A && b6_after_clr == false &&
+              b6_pre_hard == true && b6_post_hard == false,
+              fmt("set: dffd=0x%02X b6=%d / clr: dffd=0x%02X b6=%d / "
+                  "hard reset: pre b6=%d post b6=%d",
+                  reg_after_set, static_cast<int>(b6_after_set),
+                  reg_after_clr, static_cast<int>(b6_after_clr),
+                  static_cast<int>(b6_pre_hard),
+                  static_cast<int>(b6_post_hard)));
+    }
 }
 
 // ── Category 5: +3 paging (port 0x1FFD) ───────────────────────────────
@@ -1582,12 +1622,114 @@ void test_cat11_rom_selection() {
                   in_altram, read_back));
     }
 
-    // ROM-10..12 — G57: three documented gaps in current_rom_bank().
-    // (1) 48K-mode sram_rom3 hardwire path; (2) NR 0x8C altrom factor;
-    // (3) port_1ffd b2 spurious ROM3 in Next mode.
-    skip("ROM-10", "48K-mode sram_rom3 hardwire path untested (see G57)");
-    skip("ROM-11", "NR 0x8C altrom factor in current_rom_bank (see G57)");
-    skip("ROM-12", "port_1ffd b2 spurious ROM3 in Next mode (see G57)");
+    // ROM-10..12 — G57: three documented gaps in the legacy
+    // current_rom_bank() observer. The new Mmu::sram_rom3() accessor
+    // composes the VHDL `sram_rom3` signal per machine type with NR
+    // 0x8C altrom locks factored in (zxnext.vhd:2985,2990,3000,3004).
+    // Each row picks a discriminative pair that current_rom_bank()
+    // alone cannot answer.
+
+    // ROM-10 — 48K hardwire (VHDL zxnext.vhd:2985 `sram_rom3 <= '1'`).
+    // 48K-mode sram_rom3 is always asserted, independent of port_7ffd /
+    // port_1ffd / NR 0x8C state. Discriminative: cycle through several
+    // port states and confirm the accessor never drops to 0.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZX48K);
+        f.mmu.map_128k_bank(0x00);                     // port_7ffd(4)=0
+        f.mmu.map_plus3_bank(0x00);                    // port_1ffd(2)=0
+        f.mmu.set_nr_8c(0x00);                         // no altrom locks
+        const bool s0 = f.mmu.sram_rom3();
+        f.mmu.map_128k_bank(0x10);                     // port_7ffd(4)=1
+        const bool s1 = f.mmu.sram_rom3();
+        f.mmu.set_nr_8c(0x10);                         // lock_rom0 only
+        const bool s2 = f.mmu.sram_rom3();
+        check("ROM-10",
+              "48K hardwires sram_rom3 high for all port / altrom states "
+              "— VHDL zxnext.vhd:2985",
+              s0 && s1 && s2,
+              fmt("sram_rom3 across 3 states: %d %d %d (expect 1 1 1)",
+                  static_cast<int>(s0), static_cast<int>(s1),
+                  static_cast<int>(s2)));
+    }
+
+    // ROM-11 — NR 0x8C altrom-lock factor on the ZXN/128K branch (VHDL
+    // zxnext.vhd:2998-3001 — the lock-asserted path picks `sram_rom3 <=
+    // nr_8c_altrom_lock_rom1`). Discriminative pair: lock_rom1=1 →
+    // sram_rom3=1; lock_rom0=1 alone → sram_rom3=0. The legacy
+    // current_rom_bank() ignored altrom locks entirely, so it cannot
+    // distinguish the two states.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        f.mmu.map_128k_bank(0x00);                     // port_7ffd(4)=0
+        f.mmu.map_plus3_bank(0x00);                    // port_1ffd(2)=0
+        f.mmu.set_nr_8c(0x20);                         // lock_rom1 only
+        const bool s_lk1 = f.mmu.sram_rom3();
+        f.mmu.set_nr_8c(0x10);                         // lock_rom0 only
+        const bool s_lk0 = f.mmu.sram_rom3();
+        check("ROM-11",
+              "ZXN with altrom-lock: sram_rom3 follows lock_rom1, not "
+              "lock_rom0 — VHDL zxnext.vhd:3000",
+              s_lk1 && !s_lk0,
+              fmt("lock_rom1=1 → sram_rom3=%d (exp 1) / lock_rom0=1 → "
+                  "sram_rom3=%d (exp 0)",
+                  static_cast<int>(s_lk1), static_cast<int>(s_lk0)));
+    }
+
+    // ROM-12 — port_1ffd bit 2 selectivity. VHDL zxnext.vhd:2994 (+3
+    // branch): `sram_rom3 <= port_1ffd_rom(1) and port_1ffd_rom(0)`,
+    // i.e. BOTH port_1ffd(2) AND port_7ffd(4) must be set. VHDL :3004
+    // (ZXN/128K branch): `sram_rom3 <= port_1ffd_rom(0)`, i.e. ONLY
+    // port_7ffd(4) — port_1ffd(2) does NOT claim sram_rom3 on its own
+    // in the non-+3 branch (the documented G57 gap is about whether
+    // such a port_1ffd write should reach this signal at all on Next
+    // mode, where NR 0x82 b3 would normally gate it; the accessor
+    // reports the VHDL-faithful sram_rom3 given live ports). Two
+    // states cover the discrimination:
+    //   +3:   port_1ffd(2)=1, port_7ffd(4)=0 → sram_rom3=0 (a13 alone insufficient)
+    //   +3:   port_1ffd(2)=1, port_7ffd(4)=1 → sram_rom3=1 (both bits)
+    //   ZXN:  port_1ffd(2)=1, port_7ffd(4)=0 → sram_rom3=0 (port_7ffd(4) dominates)
+    //   ZXN:  port_1ffd(2)=0, port_7ffd(4)=1 → sram_rom3=1
+    {
+        Fixture fp3a;
+        fp3a.fresh();
+        fp3a.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        fp3a.mmu.map_128k_bank(0x00);                  // port_7ffd(4)=0
+        fp3a.mmu.map_plus3_bank(0x04);                 // port_1ffd(2)=1
+        const bool p3_a13_only = fp3a.mmu.sram_rom3();
+        Fixture fp3b;
+        fp3b.fresh();
+        fp3b.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        fp3b.mmu.map_128k_bank(0x10);                  // port_7ffd(4)=1
+        fp3b.mmu.map_plus3_bank(0x04);                 // port_1ffd(2)=1
+        const bool p3_both = fp3b.mmu.sram_rom3();
+        Fixture fzxa;
+        fzxa.fresh();
+        fzxa.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        fzxa.mmu.map_128k_bank(0x00);                  // port_7ffd(4)=0
+        fzxa.mmu.map_plus3_bank(0x04);                 // port_1ffd(2)=1
+        const bool zxn_a13_only = fzxa.mmu.sram_rom3();
+        Fixture fzxb;
+        fzxb.fresh();
+        fzxb.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        fzxb.mmu.map_128k_bank(0x10);                  // port_7ffd(4)=1
+        fzxb.mmu.map_plus3_bank(0x00);                 // port_1ffd(2)=0
+        const bool zxn_a14_only = fzxb.mmu.sram_rom3();
+        check("ROM-12",
+              "+3 sram_rom3 = 1FFD(2) AND 7FFD(4); ZXN sram_rom3 = "
+              "7FFD(4) alone — VHDL zxnext.vhd:2994,3004",
+              !p3_a13_only && p3_both &&
+              !zxn_a13_only && zxn_a14_only,
+              fmt("+3 a13-only=%d (exp 0) +3 both=%d (exp 1) / "
+                  "ZXN a13-only=%d (exp 0) ZXN a14-only=%d (exp 1)",
+                  static_cast<int>(p3_a13_only),
+                  static_cast<int>(p3_both),
+                  static_cast<int>(zxn_a13_only),
+                  static_cast<int>(zxn_a14_only)));
+    }
 }
 
 // ── Cat 21: Nirvana / per-write mux (G12) + Shadow-screen NR (G58) ───
