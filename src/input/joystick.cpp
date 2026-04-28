@@ -1,4 +1,5 @@
 #include "input/joystick.h"
+#include "input/membrane_stick.h"
 
 // =============================================================================
 // Phase 2 Agent A — NR 0x05 mode decoder implemented VHDL-faithfully per
@@ -47,6 +48,18 @@ void Joystick::set_nr_05(uint8_t v)
     nr_05_raw_ = v;
     joy0_mode_ = static_cast<Mode>(joy0_bits);
     joy1_mode_ = static_cast<Mode>(joy1_bits);
+
+    // G126 — propagate the decoded modes to the membrane-fold module.
+    // VHDL membrane_stick.vhd:117-149 — `joy_type` (== nr_05_joy0 /
+    // nr_05_joy1) drives the COE address-start selector that picks the
+    // per-mode keymap region. Without this forward, the membrane fold
+    // stays pinned to its constructor default and switching mode via
+    // NR 0x05 produces stale rows. See `set_membrane_stick()` for the
+    // wiring contract (set once during Emulator construction).
+    if (membrane_) {
+        membrane_->set_mode(0, joy0_mode_);
+        membrane_->set_mode(1, joy1_mode_);
+    }
 }
 
 void Joystick::set_mode_direct(Mode joy0, Mode joy1)
@@ -54,6 +67,14 @@ void Joystick::set_mode_direct(Mode joy0, Mode joy1)
     // Test-only: bypass the NR 0x05 decoder. Documented in the header.
     joy0_mode_ = joy0;
     joy1_mode_ = joy1;
+
+    // G126 — same propagation contract as set_nr_05(): keep MembraneStick
+    // in sync so test rows that go through the test-bypass path also
+    // exercise the membrane-fold's per-mode keymap region.
+    if (membrane_) {
+        membrane_->set_mode(0, joy0_mode_);
+        membrane_->set_mode(1, joy1_mode_);
+    }
 }
 
 void Joystick::set_joy_left(uint16_t bits12)
@@ -157,4 +178,50 @@ uint8_t Joystick::read_port_37() const
     const uint8_t l = compose_37_lane(joy_left_bits_,  joy0_mode_);
     const uint8_t r = compose_37_lane(joy_right_bits_, joy1_mode_);
     return static_cast<uint8_t>(l | r);
+}
+
+// =============================================================================
+// G129 — port-decode hw_en gates. VHDL zxnext.vhd:2454-2455:
+//   port_1f_hw_en <= joyL_1f_en or joyR_1f_en;
+//   port_37_hw_en <= joyL_37_en or joyR_37_en;
+// where (zxnext.vhd:3475-3488):
+//   joyL_1f_en = '1' when nr_05_joy0 = "001" or mdL_1f_en = '1';
+//   joyL_37_en = '1' when nr_05_joy0 = "100" or mdL_37_en = '1';
+//   joyR_1f_en = '1' when nr_05_joy1 = "001" or mdR_1f_en = '1';
+//   joyR_37_en = '1' when nr_05_joy1 = "100" or mdR_37_en = '1';
+//   mdL_1f_en  = '1' when nr_05_joy0 = "101";
+//   mdR_1f_en  = '1' when nr_05_joy1 = "101";
+//   mdL_37_en  = '1' when nr_05_joy0 = "110";
+//   mdR_37_en  = '1' when nr_05_joy1 = "110";
+//
+// Substituting: port_1f_hw_en is true iff EITHER joy mode ∈ {001, 101}
+// (Kempston1 or Md3Left). port_37_hw_en is true iff EITHER joy mode ∈
+// {100, 110} (Kempston2 or Md3Right). When the gate is false the port
+// decode at zxnext.vhd:2674-2675 fails and the bus floats (0xFF).
+//
+// The data lane (read_port_1f / read_port_37) already returns 0x00 when
+// no joy is in the relevant mode (compose_*_lane masks zero), so the
+// final port byte is 0xFF | 0x00 = 0xFF when the handler returns 0xFF
+// on a hw_en=0 condition — but the handler must explicitly check this
+// gate; the lane on its own is silent.
+//
+// Pre-G129 emulator.cpp gated only on NR 0x82 b6 (port_1f_io_en); the
+// hw_en gate is the OTHER half of VHDL's `port_1f` AND. Both must hold
+// for the port to claim the read.
+// =============================================================================
+
+bool Joystick::port_1f_hw_en() const
+{
+    auto active = [](Mode m) {
+        return m == Mode::Kempston1 || m == Mode::Md3Left;
+    };
+    return active(joy0_mode_) || active(joy1_mode_);
+}
+
+bool Joystick::port_37_hw_en() const
+{
+    auto active = [](Mode m) {
+        return m == Mode::Kempston2 || m == Mode::Md3Right;
+    };
+    return active(joy0_mode_) || active(joy1_mode_);
 }

@@ -23,6 +23,15 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // back-pointer — it is lifetime-bound wiring, not soft-reset state.
     keyboard_.set_membrane_stick(&membrane_stick_);
 
+    // G126 — Task 8 T2 W1 Agent B (Joystick→MembraneStick fold). The
+    // Joystick decodes NR 0x05 and the per-connector mode must propagate
+    // to MembraneStick so the membrane-fold's per-mode keymap region
+    // (VHDL membrane_stick.vhd:117-149 `joy_type` driver) stays in sync.
+    // Same lifetime invariant as the keyboard wiring above: lifetime-
+    // bound, not soft-reset state. Joystick::reset() does NOT clear this
+    // back-pointer.
+    joystick_.set_membrane_stick(&membrane_stick_);
+
     // Audio Phase 1: wire the I2s stub into the Mixer. The Mixer does
     // not own the I2s; lifetime is the Emulator's. See
     // audio_mixer.vhd:89-90,99-100 for the 13-bit sum term.
@@ -2054,14 +2063,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 5054), so bit 6 = 1 and Kempston responds at power-on. When the
     // firmware clears bit 6 (OUT NR 0x82, 0xBF), the port decodes as
     // unhandled and the floating bus default (0xFF) must be returned.
+    //
+    // G129 — additional mode-conditional hw_en gate per VHDL :2674.
+    // `port_1f` decodes only when port_1f_io_en = '1' AND port_1f_hw_en
+    // = '1'. The hw_en signal (zxnext.vhd:2454) is true ONLY when at
+    // least one connector is in Kempston1 (001) or Md3Left (101). With
+    // both joys in Sinclair2/Cursor/etc. the port must un-decode to
+    // floating-bus 0xFF even if NR 0x82 b6 is set.
     port_.register_handler(0x00FF, 0x001F,
         [this](uint16_t) -> uint8_t {
             if ((nextreg_.cached(0x82) & 0x40) == 0) return 0xFF;
+            if (!joystick_.port_1f_hw_en())            return 0xFF;
             return joystick_.read_port_1f();
         },
         nullptr);
+    // G129 mirror for port 0x37: `port_37_hw_en` (zxnext.vhd:2455) gates
+    // the decode and is true ONLY when at least one connector is in
+    // Kempston2 (100) or Md3Right (110). Unlike port 0x1F there is no
+    // NR 0x82 b7 io_en check here yet (G128 — separate gap, owned by a
+    // different test row).
     port_.register_handler(0x00FF, 0x0037,
-        [this](uint16_t) -> uint8_t { return joystick_.read_port_37(); },
+        [this](uint16_t) -> uint8_t {
+            if (!joystick_.port_37_hw_en()) return 0xFF;
+            return joystick_.read_port_37();
+        },
         nullptr);
 
     // Kempston mouse: buttons (0xFADF), X (0xFBDF), Y (0xFFDF).

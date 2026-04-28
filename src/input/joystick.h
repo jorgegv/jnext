@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+class MembraneStick;  // forward — wired via set_membrane_stick(); not owned.
+
 /// Joystick state + NR 0x05 mode decoder + port 0x1F / 0x37 read composer.
 ///
 /// Mirrors the VHDL `nr_05_joy0` / `nr_05_joy1` mode fields
@@ -54,6 +56,16 @@ public:
     /// not call this — it exists only for test parallelism.
     void set_mode_direct(Mode joy0, Mode joy1);
 
+    /// Install a non-owning back-pointer to the MembraneStick that the
+    /// joystick→membrane fold (VHDL `membrane_stick.vhd:117-149`) is wired
+    /// to. Set once at Emulator construction time
+    /// (`emulator.cpp` ctor — mirrors `Keyboard::set_membrane_stick`
+    /// pattern). When set, `set_nr_05()` and `set_mode_direct()` propagate
+    /// the per-connector decoded modes to `MembraneStick::set_mode()` so
+    /// the membrane fold's per-mode keymap region stays in sync with the
+    /// VHDL `joy_type` driver. Pass `nullptr` to detach (test isolation).
+    void set_membrane_stick(MembraneStick* m) { membrane_ = m; }
+
     Mode mode_left()  const { return joy0_mode_; }   ///< joy0
     Mode mode_right() const { return joy1_mode_; }   ///< joy1
 
@@ -74,6 +86,33 @@ public:
     /// implementation lands in Agent B per zxnext.vhd:3480-3494.
     uint8_t read_port_37() const;
 
+    /// Mode-conditional port-decode enable for port 0x1F (G129).
+    ///
+    /// VHDL `zxnext.vhd:2454`: `port_1f_hw_en <= joyL_1f_en or joyR_1f_en;`
+    /// where (`:3475`, `:3487`):
+    ///     joyL_1f_en = '1' when nr_05_joy0 = "001" or mdL_1f_en = '1';
+    ///     joyR_1f_en = '1' when nr_05_joy1 = "001" or mdR_1f_en = '1';
+    /// and `mdL_1f_en` / `mdR_1f_en` go high in mode "101" (Md3Left).
+    /// So `port_1f_hw_en` is true ONLY when at least one connector is in
+    /// Kempston1 (001) or Md3Left (101). VHDL `:2674` AND-merges this
+    /// with the NR 0x82 b6 io_en gate to decide whether port 0x1F is
+    /// claimed at all — when both gates are zero the port falls through
+    /// to the floating-bus path (0xFF). The port-handler in `emulator.cpp`
+    /// is the level that returns 0xFF; this method exposes the lane-side
+    /// signal so the handler can compute the AND.
+    bool port_1f_hw_en() const;
+
+    /// Mode-conditional port-decode enable for port 0x37 (G129).
+    ///
+    /// VHDL `zxnext.vhd:2455`: `port_37_hw_en <= joyL_37_en or joyR_37_en;`
+    /// where (`:3476`, `:3488`):
+    ///     joyL_37_en = '1' when nr_05_joy0 = "100" or mdL_37_en = '1';
+    ///     joyR_37_en = '1' when nr_05_joy1 = "100" or mdR_37_en = '1';
+    /// and `mdL_37_en` / `mdR_37_en` go high in mode "110" (Md3Right).
+    /// So `port_37_hw_en` is true ONLY when at least one connector is in
+    /// Kempston2 (100) or Md3Right (110).
+    bool port_37_hw_en() const;
+
 private:
     // Raw NR 0x05 byte (latched pre-decode so that set_nr_05 round-trips
     // the value for subsequent debug reads). 0x40 is the raw byte that
@@ -88,4 +127,10 @@ private:
     // 12-bit raw connector inputs, one per side. Layout per class comment.
     uint16_t joy_left_bits_  = 0;
     uint16_t joy_right_bits_ = 0;
+
+    // Non-owning back-pointer to the membrane-fold module. Set once at
+    // Emulator construction; nullptr in unit-test fixtures that don't
+    // care about the propagation path. See set_membrane_stick() for the
+    // contract.
+    MembraneStick* membrane_ = nullptr;
 };
