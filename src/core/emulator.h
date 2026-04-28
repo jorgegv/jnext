@@ -36,6 +36,7 @@
 #include "input/md6_connector_x2.h"
 #include "input/membrane_stick.h"
 #include "input/iomode.h"
+#include "input/emu_fnkeys.h"
 #include "debug/trace.h"
 #include "debug/call_stack.h"
 #include "audio/beeper.h"
@@ -206,6 +207,11 @@ public:
     Md6ConnectorX2& md6()            { return md6_; }
     MembraneStick&  membrane_stick() { return membrane_stick_; }
     IoMode&         iomode()         { return iomode_; }
+    /// F-key FSM (G132) — VHDL input/membrane/emu_fnkeys.vhd. Tests drive
+    /// it directly via press_membrane_fkey()/tick(); production code wires
+    /// it from the GUI hotkey path (deferred — G152 already handles the
+    /// reset/NMI keys).
+    EmuFnKeys&      emu_fnkeys()     { return emu_fnkeys_; }
     PaletteManager& palette() { return palette_; }
     Layer2&       layer2()    { return layer2_; }
     SpriteEngine& sprites()   { return sprites_; }
@@ -518,6 +524,12 @@ private:
     Md6ConnectorX2  md6_;
     MembraneStick   membrane_stick_;
     IoMode          iomode_;
+    // F-key FSM (G132) — VHDL input/membrane/emu_fnkeys.vhd:53-202.
+    // Drives F2/F3/F7/F8 side-effect strobes (NR 0x07 cpu_speed inc,
+    // NR 0x05 5060/scandouble toggle, NR 0x09 scanlines inc) per
+    // zxnext.vhd:5789-5791, :5839-5841, :5849-5852, :5861-5863. F1/F4/F9/F10
+    // reset/NMI dispatch is handled by Emulator::on_hotkey_f*() (G152).
+    EmuFnKeys       emu_fnkeys_;
     Beeper          beeper_;
     TurboSound      turbosound_;
     Dac             dac_;

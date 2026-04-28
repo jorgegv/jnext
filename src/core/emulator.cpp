@@ -97,6 +97,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     md6_.reset();
     membrane_stick_.reset();
     iomode_.reset();
+    // F-key FSM (G132) — VHDL emu_fnkeys.vhd:89,106,169,182 reset path:
+    //   timer_count → 0, state → S_IDLE, cancel_nmi → 0, local_fnkeys → 0.
+    emu_fnkeys_.reset();
     beeper_.reset();
     turbosound_.reset();
     dac_.reset();
@@ -1850,7 +1853,63 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // assertion per VHDL:2090-2091.
         nmi_source_.set_mf_enable((v & 0x08) != 0);
         nmi_source_.set_divmmc_enable((v & 0x10) != 0);
+
+        // F-key FSM (G132) — VHDL zxnext.vhd:6342, :6347 — F3 (`hotkey_5060`)
+        // is gated on bit 5, F8 (`hotkey_cpu_speed`) on bit 7. Push both to
+        // EmuFnKeys so the side-effect callbacks fire only while the
+        // host-visible NR 0x06 enable bits are set.
+        emu_fnkeys_.set_nr_06_hotkey_enables(
+            /* cpu_speed_en = */ (v & 0x80) != 0,
+            /* _5060_en     = */ (v & 0x20) != 0);
     });
+
+    // ── F-key FSM side-effect callbacks (G132) ─────────────────────────
+    // VHDL zxnext.vhd:5789-5791, :5839-5841, :5849-5852, :5861-5863.
+    // Each callback fires once on the rising edge of the corresponding
+    // local_fnkey strobe (i.e. on entering MF_DONE) AND only if the
+    // corresponding NR 0x06 gate bit is set (handled inside EmuFnKeys
+    // for F3/F8). F1/F4 reset and F9/F10 NMI dispatch are owned by the
+    // existing on_hotkey_f*() handlers (G152) — EmuFnKeys does not
+    // re-dispatch those. F5/F6 (expbus enable/disable, G147) are
+    // out-of-scope for G132.
+
+    // F2 — toggle NR 0x05 bit 0 (`nr_05_scandouble_en`, VHDL :5849-5852).
+    emu_fnkeys_.set_f2_scandouble_callback([this]() {
+        const uint8_t cur = nextreg_.cached(0x05);
+        nextreg_.write(0x05, cur ^ 0x01);
+    });
+    // F3 — toggle NR 0x05 bit 2 (`nr_05_5060`, VHDL :5839-5841).
+    // Pentagon (machine_timing(2) = '1') forces 50 Hz unconditionally
+    // (VHDL :5836); honour that gate so the F3 hotkey is inert in
+    // Pentagon mode.
+    emu_fnkeys_.set_f3_5060_callback([this]() {
+        if ((nextreg_.nr_03_machine_timing() & 0x04) != 0) {
+            return;  // Pentagon: nr_05_5060 hard-wired '0' (VHDL :5836)
+        }
+        const uint8_t cur = nextreg_.cached(0x05);
+        nextreg_.write(0x05, cur ^ 0x04);
+    });
+    // F7 — increment NR 0x09 bits 1:0 (`nr_09_scanlines`, VHDL :5861-5863).
+    emu_fnkeys_.set_f7_scanlines_callback([this]() {
+        const uint8_t cur = nextreg_.cached(0x09);
+        const uint8_t inc = static_cast<uint8_t>((cur & 0x03) + 1) & 0x03;
+        nextreg_.write(0x09, static_cast<uint8_t>((cur & 0xFC) | inc));
+    });
+    // F8 — increment NR 0x07 bits 1:0 (`nr_07_cpu_speed`, VHDL :5789-5791).
+    emu_fnkeys_.set_f8_cpu_speed_callback([this]() {
+        const uint8_t cur = nextreg_.cached(0x07);
+        const uint8_t inc = static_cast<uint8_t>((cur & 0x03) + 1) & 0x03;
+        nextreg_.write(0x07, static_cast<uint8_t>((cur & 0xFC) | inc));
+    });
+
+    // Push initial NR 0x06 hotkey-enable snapshot to the FSM. The reset
+    // default of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108) — bits 7 and 5
+    // both set, so both the F3 and F8 gates start enabled.
+    {
+        const uint8_t nr06 = nextreg_.cached(0x06);
+        emu_fnkeys_.set_nr_06_hotkey_enables(
+            (nr06 & 0x80) != 0, (nr06 & 0x20) != 0);
+    }
 
     // Register 0x81: Expansion bus control — Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN).
     //   bit 6 = expbus_ula_override         (zxnext.vhd:1223; stored, inert —
@@ -3369,6 +3428,9 @@ void Emulator::reset()
     md6_.reset();
     membrane_stick_.reset();
     iomode_.reset();
+    // F-key FSM (G132) — VHDL emu_fnkeys.vhd:89,106,169,182 reset path:
+    //   timer_count → 0, state → S_IDLE, cancel_nmi → 0, local_fnkeys → 0.
+    emu_fnkeys_.reset();
 
     // Clear framebuffer to black.
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);

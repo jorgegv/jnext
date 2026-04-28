@@ -2583,19 +2583,214 @@ static void test_user_defined_keymap() {
 //       i_button_reset_n, membrane keys F1-F10 → drives o_fnkeys[10:1]
 //       and side-effect strobes for NR 0x07 cpu_speed / 50-60 / scandouble.
 // Cross-link: F1/F4/F9/F10 reset/NMI dispatch covered by G152 (B7).
+// G132 closure (Tier 2 W1 Agent D, 2026-04-28): FSM ported in
+// src/input/emu_fnkeys.{h,cpp}; F2/F3/F7/F8 callbacks wired in
+// Emulator::init() to NR 0x05/0x07/0x09 mutators.
 // ════════════════════════════════════════════════════════════════════════
+
+#include "input/emu_fnkeys.h"
 
 static void test_fnkeys() {
     set_group("FNK");
 
-    // FNK-01: F-key 7-state FSM absent.
-    //
-    // grep for i_SPKEY_FUNCTION / emu_fnkeys returns no hits in src/;
-    // only F9/F10 NMI source pulses are wired (via G152 path). F2 / F3 /
-    // F5 / F6 / F7 / F8 produce no emulator-side side effect.
-    skip("FNK-01",
-         "emu_fnkeys 7-state FSM + F2/F3/F7/F8 dispatch",
-         "emu_fnkeys 7-state FSM + F2/F3/F7/F8 dispatch absent (see G132)");
+    // ── FNK-01: F8 press increments NR 0x07 cpu_speed (per VHDL :5789-5791) ──
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        // NR 0x06 reset default 0xA0 leaves bits 7 and 5 set, so the F8
+        // and F3 gates start enabled. (zxnext.vhd:1107-1108).
+        const uint8_t before = emu.port().in(0x253B);  // dummy — make compiler keep emu live
+        (void)before;
+
+        // Capture NR 0x07 before / after.
+        emu.port().out(0x243B, 0x07);
+        const uint8_t nr07_before = emu.port().in(0x253B) & 0x03;  // low 2 bits
+        emu.emu_fnkeys().simulate_mf_fkey_press(8);
+        emu.port().out(0x243B, 0x07);
+        const uint8_t nr07_after  = emu.port().in(0x253B) & 0x03;
+
+        const uint8_t expected = static_cast<uint8_t>((nr07_before + 1) & 0x03);
+        check("FNK-01",
+              "F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791)",
+              nr07_after == expected,
+              DETAIL("NR 0x07 before=%u after=%u expected=%u",
+                     nr07_before, nr07_after, expected));
+    }
+
+    // ── FNK-02: F3 press toggles NR 0x05 5060 bit (per VHDL :5839-5841) ──
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        // ZXN_ISSUE2 boots with nr_03_machine_timing != Pentagon, so the
+        // F3 hotkey toggle is NOT short-circuited by the machine_timing(2)
+        // gate at VHDL :5836.
+        nr_write_via_port(emu, 0x05, 0x00);  // start with 5060 bit clear
+        const bool before = (emu.port().in(0x253B) & 0x04) != 0;
+        emu.emu_fnkeys().simulate_mf_fkey_press(3);
+        // Re-select NR 0x05 to read.
+        emu.port().out(0x243B, 0x05);
+        const bool after = (emu.port().in(0x253B) & 0x04) != 0;
+
+        check("FNK-02",
+              "F3 press toggles NR 0x05 bit 2 (5060) (VHDL :5839-5841)",
+              after == !before,
+              DETAIL("NR 0x05 bit 2 before=%d after=%d (expected toggle)",
+                     before, after));
+    }
+
+    // ── FNK-03: F2 press toggles NR 0x05 scandouble bit (VHDL :5849-5852) ──
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x05, 0x00);  // start with scandouble bit clear
+        const bool before = (emu.port().in(0x253B) & 0x01) != 0;
+        emu.emu_fnkeys().simulate_mf_fkey_press(2);
+        emu.port().out(0x243B, 0x05);
+        const bool after = (emu.port().in(0x253B) & 0x01) != 0;
+
+        check("FNK-03",
+              "F2 press toggles NR 0x05 bit 0 (scandouble) (VHDL :5849-5852)",
+              after == !before,
+              DETAIL("NR 0x05 bit 0 before=%d after=%d (expected toggle)",
+                     before, after));
+    }
+
+    // ── FNK-04: F7 press increments NR 0x09 scanlines (VHDL :5861-5863) ──
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x09, 0x00);  // start with scanlines = 00
+        emu.port().out(0x243B, 0x09);
+        const uint8_t before = emu.port().in(0x253B) & 0x03;
+        emu.emu_fnkeys().simulate_mf_fkey_press(7);
+        emu.port().out(0x243B, 0x09);
+        const uint8_t after  = emu.port().in(0x253B) & 0x03;
+        const uint8_t expected = static_cast<uint8_t>((before + 1) & 0x03);
+
+        check("FNK-04",
+              "F7 press increments NR 0x09 bits 1:0 (scanlines) (VHDL :5861-5863)",
+              after == expected,
+              DETAIL("NR 0x09 bits 1:0 before=%u after=%u expected=%u",
+                     before, after, expected));
+    }
+
+    // ── FNK-05: F8 with NR 0x06 bit 7 = 0 → no-op (VHDL :6347 gate) ──
+    // hotkey_cpu_speed <= hotkeys_0(8) and not hotkeys_1(8) and
+    //                     nr_06_hotkey_cpu_speed_en;
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        // Disable F8 gate: clear NR 0x06 bit 7.
+        nr_write_via_port(emu, 0x06, 0x20);  // bit 5 still set (5060), bit 7 cleared
+        emu.port().out(0x243B, 0x07);
+        const uint8_t nr07_before = emu.port().in(0x253B) & 0x03;
+        emu.emu_fnkeys().simulate_mf_fkey_press(8);
+        emu.port().out(0x243B, 0x07);
+        const uint8_t nr07_after = emu.port().in(0x253B) & 0x03;
+
+        check("FNK-05",
+              "F8 gated off (NR 0x06 bit 7 = 0) → NR 0x07 unchanged (VHDL :6347)",
+              nr07_after == nr07_before,
+              DETAIL("NR 0x07 before=%u after=%u (expected unchanged)",
+                     nr07_before, nr07_after));
+    }
+
+    // ── FNK-06: F3 with NR 0x06 bit 5 = 0 → no-op (VHDL :6342 gate) ──
+    // hotkey_5060 <= hotkeys_0(3) and not hotkeys_1(3) and nr_06_hotkey_5060_en;
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        // Disable F3 gate: clear NR 0x06 bit 5; keep bit 7 set so F8 stays
+        // enabled (we don't exercise F8 here, but this confirms we are
+        // selectively gating).
+        nr_write_via_port(emu, 0x06, 0x80);  // bit 7 set, bit 5 cleared
+        nr_write_via_port(emu, 0x05, 0x00);
+        emu.port().out(0x243B, 0x05);
+        const bool before = (emu.port().in(0x253B) & 0x04) != 0;
+        emu.emu_fnkeys().simulate_mf_fkey_press(3);
+        emu.port().out(0x243B, 0x05);
+        const bool after = (emu.port().in(0x253B) & 0x04) != 0;
+
+        check("FNK-06",
+              "F3 gated off (NR 0x06 bit 5 = 0) → NR 0x05 bit 2 unchanged (VHDL :6342)",
+              after == before,
+              DETAIL("NR 0x05 bit 2 before=%d after=%d (expected unchanged)",
+                     before, after));
+    }
+
+    // ── FNK-07: bare-FSM 7-state transition smoke test (VHDL :118-151) ──
+    // No NR-side observables; just verify the FSM advances correctly.
+    {
+        EmuFnKeys fsm;
+        // Idle: M1 high, reset high → stays IDLE.
+        fsm.tick();
+        const bool idle_after_idle = (fsm.state() == EmuFnKeys::State::IDLE);
+
+        // Press M1 → FSM should reach MF_ROW_A11 next tick.
+        fsm.set_button_m1_n(false);
+        fsm.tick();
+        const bool a11 = (fsm.state() == EmuFnKeys::State::MF_ROW_A11);
+        // → MF_ROW_A12 → MF_CHECK
+        fsm.tick();
+        const bool a12 = (fsm.state() == EmuFnKeys::State::MF_ROW_A12);
+        fsm.tick();
+        const bool chk = (fsm.state() == EmuFnKeys::State::MF_CHECK);
+        // Release M1 → MF_DONE.
+        fsm.set_button_m1_n(true);
+        fsm.tick();
+        const bool done = (fsm.state() == EmuFnKeys::State::MF_DONE);
+        // → IDLE.
+        fsm.tick();
+        const bool back = (fsm.state() == EmuFnKeys::State::IDLE);
+
+        check("FNK-07",
+              "FSM IDLE→MF_ROW_A11→A12→CHECK→DONE→IDLE on M1 tap (VHDL :118-141)",
+              idle_after_idle && a11 && a12 && chk && done && back,
+              DETAIL("idle=%d a11=%d a12=%d chk=%d done=%d back=%d",
+                     idle_after_idle, a11, a12, chk, done, back));
+    }
+
+    // ── FNK-08X: F8 press does NOT spuriously toggle NR 0x05 (row isolation)
+    // VHDL membrane: keys on a non-selected row don't pull cols low. F8 is
+    // on row 4 (A12) — pressing it must not toggle the F3 (row 3) side-
+    // effect, even though both share col 2. Verifies the FSM consults the
+    // currently-forced row when sampling cols.
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        nr_write_via_port(emu, 0x05, 0x00);
+        emu.port().out(0x243B, 0x05);
+        const uint8_t nr05_before = emu.port().in(0x253B);
+        emu.emu_fnkeys().simulate_mf_fkey_press(8);
+        emu.port().out(0x243B, 0x05);
+        const uint8_t nr05_after = emu.port().in(0x253B);
+        check("FNK-08X",
+              "F8 press leaves NR 0x05 unchanged (row isolation, VHDL :159+:185)",
+              nr05_before == nr05_after,
+              DETAIL("NR 0x05 before=0x%02X after=0x%02X (expected unchanged)",
+                     nr05_before, nr05_after));
+    }
+
+    // ── FNK-08: filtered rows mask other matrix rows during MF scan ──
+    // VHDL :159 — rows_filtered is "11110111" in MF_ROW_A11 and
+    // "11101111" in MF_ROW_A12 (i.e. only A11 / A12 active-low).
+    {
+        EmuFnKeys fsm;
+        fsm.set_input_rows(0x00);  // pretend the rest of the keyboard would
+                                   // appear all-pressed; the FSM should mask
+                                   // it out during MF scan.
+        fsm.set_button_m1_n(false);
+        fsm.tick();  // → MF_ROW_A11
+        const uint8_t r_a11 = fsm.rows_filtered();
+        fsm.tick();  // → MF_ROW_A12
+        const uint8_t r_a12 = fsm.rows_filtered();
+
+        check("FNK-08",
+              "rows_filtered = 0xF7 in MF_ROW_A11, 0xEF in MF_ROW_A12 (VHDL :159)",
+              r_a11 == 0xF7 && r_a12 == 0xEF,
+              DETAIL("rows@A11=0x%02X rows@A12=0x%02X (expected 0xF7, 0xEF)",
+                     r_a11, r_a12));
+    }
 }
 
 // ── main ────────────────────────────────────────────────────────────────
