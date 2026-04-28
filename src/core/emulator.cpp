@@ -754,6 +754,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x62, [this](uint8_t v) { copper_.write_reg_0x62(v); });
     nextreg_.set_write_handler(0x63, [this](uint8_t v) { copper_.write_reg_0x63(v); });
 
+    // NR 0x61 / 0x62 read-back. VHDL zxnext.vhd:6083-6087 returns
+    //   0x61 -> nr_copper_addr(7..0)
+    //   0x62 -> nr_62_copper_mode & "000" & nr_copper_addr(10..8)
+    // Without these, NextReg::read() falls through to regs_[] (last-write
+    // semantics) — wrong for the auto-incrementing copper write pointer.
+    // (G116 closure.)
+    nextreg_.set_read_handler(0x61, [this]() -> uint8_t { return copper_.read_reg_0x61(); });
+    nextreg_.set_read_handler(0x62, [this]() -> uint8_t { return copper_.read_reg_0x62(); });
+
     // Register 0x64: Copper vertical line offset (NR 0x64).
     // VHDL: zxnext.vhd:5442 (write), :6090 (read-back), :6723 (wired
     //       into zxula_timing.vhd i_cu_offset).

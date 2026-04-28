@@ -114,6 +114,14 @@ void wire_nr_to_cu(NextReg& nr, Copper& cu) {
     nr.set_write_handler(0x64, [&cu](uint8_t v) { cu.write_reg_0x64(v); });
 }
 
+// Forward NR 0x61/0x62 reads from a NextReg into the Copper — mirrors
+// the wiring done by Emulator at registration time (G116). VHDL
+// zxnext.vhd:6083-6087.
+void wire_nr_reads_to_cu(NextReg& nr, Copper& cu) {
+    nr.set_read_handler(0x61, [&cu]() -> uint8_t { return cu.read_reg_0x61(); });
+    nr.set_read_handler(0x62, [&cu]() -> uint8_t { return cu.read_reg_0x62(); });
+}
+
 // Directly set the byte pointer nr_copper_addr[10..0] via NR 0x61/0x62
 // (zxnext.vhd:5427, 5430-5431).
 void set_byte_ptr(Copper& cu, uint16_t byte_addr) {
@@ -344,13 +352,43 @@ void group1_ram_upload() {
     }
 
     // RAM-BK-02 / RAM-BK-03 — VHDL zxnext.vhd:6083-6087 returns
-    // nr_copper_addr(7..0) and mode|hi from NR 0x61/0x62 reads.
-    // Today emulator.cpp:635-644 registers no read handler for these
-    // NRs, so reads fall through to NextReg::regs_[] (last-write).
-    // Both rows will become check()s once Copper::read_reg_0x61() /
-    // read_reg_0x62() are wired into NextReg via set_read_handler().
-    skip("RAM-BK-02", "NR 0x61 read fallthrough to regs_[] last-write (see G116)");
-    skip("RAM-BK-03", "NR 0x62 read fallthrough to regs_[] last-write (see G116)");
+    //   0x61 -> nr_copper_addr(7..0)
+    //   0x62 -> nr_62_copper_mode & "000" & nr_copper_addr(10..8)
+    // The Copper auto-increments nr_copper_addr on every NR 0x60/0x63
+    // write (zxnext.vhd:4886-4887), so the read-back reflects the
+    // post-increment pointer, not the last data byte. (G116 closure.)
+    {
+        // RAM-BK-02 — 3 NR 0x60 writes from a fresh reset must land
+        // byte pointer at 0x003. Read NR 0x61 via NextReg (this is what
+        // exercises the read-handler wiring at emulator.cpp).
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        wire_nr_reads_to_cu(nr, cu);
+        nr.write(0x60, 0x11);  // byte 0
+        nr.write(0x60, 0x22);  // byte 1
+        nr.write(0x60, 0x33);  // byte 2 → byte ptr now 0x003
+        uint8_t r61 = nr.read(0x61);
+        check("RAM-BK-02", "NR 0x61 read returns nr_copper_addr(7..0) post-autoincrement",
+              r61 == 0x03,
+              fmt("r61=%02x (expected 0x03 not data byte 0x33)", r61));
+    }
+    {
+        // RAM-BK-03 — set NR 0x62 = 0x47 (mode=01, hi=0x07 → addr_high=0x700);
+        // 256 NR 0x60 writes increment the 11-bit byte pointer from 0x700
+        // to 0x800, which wraps to 0x000 in 11-bit space (zxnext.vhd:4886).
+        // Read NR 0x62 should return mode=01 (0x40) | hi=0x00 = 0x40.
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        wire_nr_reads_to_cu(nr, cu);
+        nr.write(0x62, 0x47);  // mode=01, hi=111 → byte ptr = 0x700
+        for (int i = 0; i < 256; ++i) {
+            nr.write(0x60, static_cast<uint8_t>(i));
+        }
+        uint8_t r62 = nr.read(0x62);
+        check("RAM-BK-03", "NR 0x62 read returns mode|000|addr(10..8) post-autoincrement",
+              r62 == 0x40,
+              fmt("r62=%02x (expected 0x40 = mode 01 | hi 000)", r62));
+    }
 }
 
 // ── Group 2: MOVE instruction execution ──────────────────────────────
