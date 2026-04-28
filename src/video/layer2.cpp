@@ -52,6 +52,12 @@ void Layer2::reset()
     enable_render_cursor_   = 0;
     enable_overflow_warned_ = false;
     baseline_enabled_       = false;
+
+    nr70_change_count_       = 0;
+    nr70_render_cursor_      = 0;
+    nr70_overflow_warned_    = false;
+    baseline_resolution_     = 0;
+    baseline_palette_offset_ = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +138,24 @@ void Layer2::log_enable_change()
     };
 }
 
+void Layer2::log_nr70_change()
+{
+    if (nr70_change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!nr70_overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: NR 0x70 change-log full at line {} (cap {} per "
+                "frame); further NR 0x70 writes this frame will not be "
+                "per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            nr70_overflow_warned_ = true;
+        }
+        return;
+    }
+    nr70_change_log_[nr70_change_count_++] = Nr70Change{
+        current_line_, resolution_, palette_offset_,
+    };
+}
+
 void Layer2::start_frame()
 {
     baseline_scroll_x_ = scroll_x_;
@@ -159,6 +183,12 @@ void Layer2::start_frame()
     enable_change_count_    = 0;
     enable_render_cursor_   = 0;
     enable_overflow_warned_ = false;
+
+    baseline_resolution_     = resolution_;
+    baseline_palette_offset_ = palette_offset_;
+    nr70_change_count_       = 0;
+    nr70_render_cursor_      = 0;
+    nr70_overflow_warned_    = false;
 }
 
 void Layer2::rewind_to_baseline()
@@ -179,6 +209,10 @@ void Layer2::rewind_to_baseline()
 
     enabled_               = baseline_enabled_;
     enable_render_cursor_  = 0;
+
+    resolution_            = baseline_resolution_;
+    palette_offset_        = baseline_palette_offset_;
+    nr70_render_cursor_    = 0;
 }
 
 void Layer2::apply_changes_for_line(int line)
@@ -213,6 +247,13 @@ void Layer2::apply_changes_for_line(int line)
         const auto& c = enable_change_log_[enable_render_cursor_++];
         enabled_ = c.enabled;
     }
+
+    while (nr70_render_cursor_ < nr70_change_count_
+        && nr70_change_log_[nr70_render_cursor_].line == lt) {
+        const auto& c = nr70_change_log_[nr70_render_cursor_++];
+        resolution_     = c.resolution;
+        palette_offset_ = c.palette_offset;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +264,7 @@ void Layer2::set_control(uint8_t val)
 {
     resolution_     = (val >> 4) & 0x03;
     palette_offset_ = val & 0x0F;
+    log_nr70_change();
 }
 
 // ---------------------------------------------------------------------------

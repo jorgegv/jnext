@@ -81,6 +81,11 @@ public:
     /// Current resolution mode: 0=256×192, 1=320×256, 2/3=640×256.
     uint8_t resolution() const { return resolution_; }
 
+    /// Live palette offset (bits 3:0 of NR 0x70). Reflects the current
+    /// per-line snapshot during render_frame after `apply_changes_for_line`
+    /// advances it. Primarily for tests + debugger.
+    uint8_t palette_offset() const { return palette_offset_; }
+
     /// True when in a wide mode (320×256 or 640×256).
     bool is_wide() const { return resolution_ != 0; }
 
@@ -186,6 +191,10 @@ public:
     /// Number of enable changes recorded this frame (diagnostic).
     size_t enable_change_log_size() const { return enable_change_count_; }
 
+    /// Number of NR 0x70 (resolution + palette offset) changes recorded
+    /// this frame (diagnostic).
+    size_t nr70_change_log_size() const { return nr70_change_count_; }
+
     /// Static cap; further writes after this many in a frame are
     /// silently dropped (with a once-per-frame warn). Sized for the
     /// worst-case "Copper writes scroll on every scanline" scenario.
@@ -264,6 +273,27 @@ private:
     bool     enable_overflow_warned_ = false;
     bool     baseline_enabled_       = false;
 
+    // ── NR 0x70 per-scanline change log (G06.NR70-01) ────────────────
+    // VHDL zxnext.vhd:5475-5477 — NR 0x70 captures bits 5:4 (resolution)
+    // and bits 3:0 (palette offset). VHDL layer2.vhd:113 samples
+    // i_resolution every CLK_7 cycle into layer2_resolution_q, and
+    // layer2.vhd:147,150,160 use the live value to choose the row/column-
+    // major address path. A mid-frame Copper write to NR 0x70 must
+    // reroute the renderer width/path on the very next scanline. Without
+    // this log, the renderer would see only the end-of-frame value
+    // (last-write-wins) and collapse all scanlines onto the same path.
+    struct Nr70Change {
+        uint16_t line;
+        uint8_t  resolution;       ///< bits 5:4 of NR 0x70
+        uint8_t  palette_offset;   ///< bits 3:0 of NR 0x70
+    };
+    std::array<Nr70Change, MAX_CHANGES_PER_FRAME> nr70_change_log_{};
+    size_t   nr70_change_count_    = 0;
+    size_t   nr70_render_cursor_   = 0;
+    bool     nr70_overflow_warned_ = false;
+    uint8_t  baseline_resolution_     = 0;
+    uint8_t  baseline_palette_offset_ = 0;
+
     /// Append a snapshot of the live scroll_x_/scroll_y_ to the change
     /// log, tagged with current_line_. Called from the three public
     /// scroll setters above.
@@ -274,4 +304,6 @@ private:
     void log_bank_change();
     /// Append a snapshot of enabled_.
     void log_enable_change();
+    /// Append a snapshot of resolution_ / palette_offset_ (NR 0x70 split).
+    void log_nr70_change();
 };
