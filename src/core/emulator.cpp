@@ -487,6 +487,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         iomode_.set_nr_0b(v);
     });
 
+    // Registers 0x28 / 0x29 / 0x2B — PS/2 keymap + joystick keymap (UDK)
+    // programming. VHDL zxnext.vhd:6294-6324 + membrane_stick.vhd:172-183
+    // (SDP-RAM keyjoy_64_6.coe-loaded defaults). G127 closure (Tier 2 W1
+    // Agent C). NR 0x2A is reserved/dead in VHDL (lines 6312-6319 are
+    // commented out) and intentionally has no handler here.
+    //
+    // Routing: NR 0x28 latches keymap_sel + addr bit 8; NR 0x29 sets the
+    // low 8 bits of the 9-bit nr_keymap_addr; NR 0x2B writes the data
+    // byte (gated by keymap_sel: sel=1 → joystick UDK SDP-RAM; sel=0 →
+    // PS/2 keymap, which jnext does not implement, so the data is just
+    // dropped). The auto-increment of nr_keymap_addr fires regardless.
+    nextreg_.set_write_handler(0x28, [this](uint8_t v) {
+        membrane_stick_.write_nr_28(v);
+    });
+    nextreg_.set_write_handler(0x29, [this](uint8_t v) {
+        membrane_stick_.write_nr_29(v);
+    });
+    nextreg_.set_write_handler(0x2B, [this](uint8_t v) {
+        membrane_stick_.write_nr_2b(v);
+    });
+
     // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.
     // VHDL zxnext.vhd:6206-6215 read compositions. Phase 1 scaffold: the
     // underlying byte getters return 0xFF / 0 until Agents G (extended
