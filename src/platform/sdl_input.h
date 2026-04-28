@@ -14,4 +14,10 @@ public:
 
     // Called on SDL_QUIT
     std::function<void()> on_quit;
+
+    // Called for each SDL_MOUSEMOTION / SDL_MOUSEBUTTON{DOWN,UP} /
+    // SDL_MOUSEWHEEL event with the raw SDL_Event. The host owner (SdlApp)
+    // is expected to forward into a MouseDispatcher bound to the
+    // emulator's KempstonMouse. See doc plan rows MOUSE-13/14/15 (G43).
+    std::function<void(const SDL_Event&)> on_mouse;
 };

@@ -11,6 +11,14 @@ bool SdlInput::poll() {
         case SDL_KEYUP:
             if (on_key) on_key(e.key.keysym.scancode, e.type == SDL_KEYDOWN);
             break;
+        case SDL_MOUSEMOTION:
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+        case SDL_MOUSEWHEEL:
+            // Host adapter for Kempston mouse — forward to MouseDispatcher
+            // via the on_mouse callback (set by SdlApp). Closes G43.
+            if (on_mouse) on_mouse(e);
+            break;
         default:
             break;
         }

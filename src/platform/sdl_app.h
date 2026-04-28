@@ -1,11 +1,13 @@
 #pragma once
 #include <SDL2/SDL.h>
+#include <memory>
 #include <string>
 #include "sdl_display.h"
 #include "sdl_input.h"
 #include "sdl_audio.h"
 #include "screenshot.h"
 #include "core/emulator.h"
+#include "input/mouse_dispatcher.h"
 
 class SdlApp {
 public:
@@ -41,6 +43,11 @@ private:
     SdlAudio   audio_;
     Emulator   emulator_;
     bool       running_ = false;
+
+    // Kempston mouse host adapter — wires SDL_MOUSE* events into the
+    // emulator's KempstonMouse. Created in init() once emulator_ is
+    // bound. unique_ptr so we can defer construction until then.
+    std::unique_ptr<MouseDispatcher> mouse_dispatcher_;
 
     // Pending --inject state
     std::string inject_file_;

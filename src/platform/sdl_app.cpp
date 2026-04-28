@@ -19,6 +19,12 @@ bool SdlApp::init(int argc, char* argv[]) {
         return false;
     }
 
+    // Build the Kempston mouse host adapter now that emulator_ is initialised.
+    mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emulator_.mouse());
+    input_.on_mouse = [this](const SDL_Event& e) {
+        mouse_dispatcher_->handle_sdl_event(e);
+    };
+
     input_.on_quit = [this]() { running_ = false; };
     // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
     input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
