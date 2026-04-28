@@ -1465,18 +1465,164 @@ static void test_section9_scrolling() {
     // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
 
     // §9-PSL — Per-scanline NR 0x26 / NR 0x27 ULA scroll replay (G08).
-    // src/video/ula.cpp reads nr_26_ula_scrollx_/nr_27_ula_scrolly_ once
-    // per frame; mid-frame writes coalesced. Beast.nex-class Copper-driven
-    // raster split applies here too. VHDL zxula.vhd:193-216, 199.
+    // VHDL zxula.vhd:193-207, :199 — px / py latch each character cell on
+    // i_hc(3:0)='3' or 'B'. A Copper write to NR 0x26 / NR 0x27 mid-frame
+    // shifts the scroll on the next cell boundary, so per-scanline replay
+    // (the natural emulator approximation) requires Ula to maintain a
+    // change-log indexed by scanline. The setters log a snapshot tagged
+    // with `current_scroll_line_`; Renderer rewinds to baseline and
+    // applies the log entries for each scanline in order.
+    //
+    // Tests assert against the VHDL semantics already covered by S9.02/05/
+    // 07/10: scroll_y=1+vc=0 → all-row-1 white (VHDL :206); scroll_x=8 →
+    // 1-cell rotation (VHDL :199); fine_scroll=1 → +1 pixel offset; etc.
 
-    skip("S9-PSL.01",
-         "F-G08-ULASCROLL: NR 0x26/0x27 mid-line change-log absent (see G08)");
-    skip("S9-PSL.02",
-         "F-G08-ULASCROLL: NR 0x27 scroll_y mid-frame split absent (see G08)");
-    skip("S9-PSL.03",
-         "F-G08-ULASCROLL: NR 0x26 fine-scroll mid-frame flip absent (see G08)");
-    skip("S9-PSL.04",
-         "F-G08-ULASCROLL: start_frame rewind of NR 0x26/0x27 log absent (see G08)");
+    // -- S9-PSL.01 — mid-frame writes append to change log (G08). ----------
+    // Two writes (one to NR 0x27 tagged line 50, one to NR 0x26 tagged
+    // line 100). VHDL behaviour (zxnext.vhd:5304/5307): each write to a
+    // scroll register is an independent assignment, so the log MUST grow
+    // by one per setter call — even when current_scroll_line_ is unchanged
+    // between the writes. scroll_change_log_size() is a count, not a
+    // dedupe set.
+    {
+        UlaBed bed;
+        bed.ula.start_frame_scroll();
+        const size_t base = bed.ula.scroll_change_log_size();
+        bed.ula.set_current_scroll_line(50);
+        bed.ula.set_ula_scroll_y(7);
+        bed.ula.set_current_scroll_line(100);
+        bed.ula.set_ula_scroll_x_coarse(16);
+        bed.ula.set_ula_fine_scroll_x(true);
+        const size_t after = bed.ula.scroll_change_log_size();
+        check("S9-PSL.01",
+              "zxnext.vhd:5304/5307,5449 — three setter calls append three log entries",
+              after - base == 3,
+              fmt("scroll_change_log_size after=%zu base=%zu (exp +3)",
+                  after, base));
+    }
+
+    // -- S9-PSL.02 — NR 0x27 mid-frame split. ------------------------------
+    // VHDL zxula.vhd:192,206 — at vc=0 with scroll_y=A the renderer fetches
+    // row A; with scroll_y=B it fetches row B (else-branch of py_s wrap).
+    // Mid-frame write at scanline 33 (display_row=1) MUST flip subsequent
+    // line N reads to use scroll_y=B without disturbing line 0.
+    //
+    // Construct: source row 0 = all ink, source row 64 = all ink, all other
+    // rows pre-zeroed. Apply log: line 32 (display_row 0) ← scroll_y=0;
+    // line 33 (display_row 1) ← scroll_y=64. After per-line apply +
+    // render, line 32 is white (from row 0) and line 33 is also white
+    // (from row 64 via cross-third wrap, VHDL :206/:223). Without per-
+    // scanline replay, the "last write wins" semantics would force ALL
+    // lines to use scroll_y=64, which still happens to be white here —
+    // so we instead pick scroll_y values that produce DIFFERENT colours.
+    //
+    // Better split: row 0 = all-white (0xFF), row 1 = all-black (0x00),
+    // attrs uniformly ink-7-on-paper-0. With scroll_y=0 line 32 reads row
+    // 0 → white. With scroll_y=1 line 33 reads row 2, which is 0x00 →
+    // black. (VHDL :206 else branch: py = vc + scroll_y when no wrap.)
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        poke_row_all(bed, 0, 0xFF);  // row 0 = white
+        poke_row_all(bed, 1, 0x00);  // row 1 = black (default; explicit)
+        poke_row_all(bed, 2, 0x00);  // row 2 = black
+        bed.ula.start_frame_scroll();
+        // Apply baseline scroll_y=0 explicitly so per-scanline rewind
+        // restores to zero (rewind targets the baseline snapshot).
+        bed.ula.set_current_scroll_line(32);
+        bed.ula.set_ula_scroll_y(0);
+        bed.ula.set_current_scroll_line(33);
+        bed.ula.set_ula_scroll_y(1);
+        // Simulate Renderer flow: rewind to baseline, then apply per line.
+        bed.ula.rewind_scroll_to_baseline();
+        std::array<uint32_t, 320> line32{}, line33{};
+        bed.ula.apply_scroll_changes_for_line(32);
+        bed.ula.render_scanline(line32.data(), 32, bed.mmu);   // screen_row 0
+        bed.ula.apply_scroll_changes_for_line(33);
+        bed.ula.render_scanline(line33.data(), 33, bed.mmu);   // screen_row 1
+        const bool ok32_white = (line32[32] == WHITE);
+        const bool ok33_black = (line33[32] == BLACK);
+        check("S9-PSL.02",
+              "zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black)",
+              ok32_white && ok33_black,
+              fmt("line32[32]=0x%08X exp WHITE 0x%08X / line33[32]=0x%08X exp BLACK 0x%08X",
+                  line32[32], WHITE, line33[32], BLACK));
+    }
+
+    // -- S9-PSL.03 — NR 0x26 fine-scroll mid-frame flip. -------------------
+    // VHDL zxula.vhd:199 — fine_scroll_x adds 1 pixel of shift. With NR
+    // 0x26 = 0 and fine = 0, source-row col 0 byte at offset 0 (poked to
+    // 0xFF) renders as display pixels [0..7] = white. Toggling fine = 1
+    // mid-frame for line 33 shifts the white run to display pixels
+    // [1..8] (per VHDL src_x = display_x + scroll_x + (fine?1:0)).
+    {
+        UlaBed bed;
+        init_attrs(bed);
+        // Source row 0 col 0 → 0xFF (one byte = 8 white pixels) for both
+        // display rows we render.
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
+        bed.ula.start_frame_scroll();
+        bed.ula.set_current_scroll_line(32);
+        bed.ula.set_ula_fine_scroll_x(false);   // line 32 → no fine offset
+        bed.ula.set_current_scroll_line(33);
+        bed.ula.set_ula_fine_scroll_x(true);    // line 33 → +1 pixel offset
+        bed.ula.rewind_scroll_to_baseline();
+        std::array<uint32_t, 320> line32{}, line33{};
+        bed.ula.apply_scroll_changes_for_line(32);
+        bed.ula.render_scanline(line32.data(), 32, bed.mmu);   // screen_row 0
+        bed.ula.apply_scroll_changes_for_line(33);
+        bed.ula.render_scanline(line33.data(), 33, bed.mmu);   // screen_row 1
+
+        // Without fine: white at display_x ∈ [0..7]; with fine: white at
+        // display_x ∈ [255, 0..6] — i.e. left-edge pixel 0 swaps from
+        // white to white (rotated by 1) but pixel 7 swaps white→black,
+        // pixel 255 swaps black→white. Use those two markers as the
+        // discriminator.
+        const bool no_fine_pixel7  = (line32[32 + 7]   == WHITE);
+        const bool fine_pixel7     = (line33[32 + 7]   == BLACK);
+        const bool fine_pixel255   = (line33[32 + 255] == WHITE);
+        check("S9-PSL.03",
+              "zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line",
+              no_fine_pixel7 && fine_pixel7 && fine_pixel255,
+              fmt("line32[32+7]=0x%08X line33[32+7]=0x%08X line33[32+255]=0x%08X",
+                  line32[32+7], line33[32+7], line33[32+255]));
+    }
+
+    // -- S9-PSL.04 — start_frame_scroll rewinds the log. --------------------
+    // After populating the log + replaying it, a fresh start_frame_scroll
+    // call MUST clear scroll_change_count_ back to 0 and update the
+    // baseline snapshot to the live values. Mirrors Layer2::start_frame
+    // semantics exactly. Without this the log would grow unbounded across
+    // frames and rewind would never see the current frame's baseline.
+    {
+        UlaBed bed;
+        bed.ula.start_frame_scroll();
+        bed.ula.set_current_scroll_line(50);
+        bed.ula.set_ula_scroll_y(42);
+        bed.ula.set_ula_scroll_x_coarse(17);
+        bed.ula.set_ula_fine_scroll_x(true);
+        const size_t mid = bed.ula.scroll_change_log_size();
+        // Rewind would normally happen now (Renderer); then frame ends
+        // and start_frame_scroll re-baselines from current live values.
+        bed.ula.start_frame_scroll();
+        const size_t after = bed.ula.scroll_change_log_size();
+        // Subsequent setter calls must produce a fresh entry counted
+        // from zero, and the live values from before the start_frame
+        // call MUST be preserved (start_frame snapshots, never resets).
+        bed.ula.set_current_scroll_line(10);
+        bed.ula.set_ula_scroll_y(99);
+        const size_t after_one = bed.ula.scroll_change_log_size();
+        check("S9-PSL.04",
+              "zxula.vhd:193-207 — start_frame_scroll clears log and snapshots baseline",
+              mid == 3 && after == 0 && after_one == 1
+                  && bed.ula.get_ula_scroll_x_coarse() == 17
+                  && bed.ula.get_ula_fine_scroll_x() == true,
+              fmt("mid=%zu after_clear=%zu after_one=%zu live(x=%u,fine=%d)",
+                  mid, after, after_one,
+                  bed.ula.get_ula_scroll_x_coarse(),
+                  static_cast<int>(bed.ula.get_ula_fine_scroll_x())));
+    }
 }
 
 // =========================================================================

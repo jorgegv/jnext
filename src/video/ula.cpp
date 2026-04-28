@@ -815,6 +815,77 @@ void Ula::render_border_line(uint32_t* row)
         row[x] = border_argb;
 }
 
+// ---------------------------------------------------------------------------
+// Per-scanline NR 0x26 / NR 0x27 / NR 0x68 b2 scroll change log (G08)
+// ---------------------------------------------------------------------------
+//
+// VHDL refs:
+//   zxnext.vhd:5304 — NR 0x26 storage (nr_26_ula_scrollx <= nr_wr_dat).
+//   zxnext.vhd:5307 — NR 0x27 storage (nr_27_ula_scrolly <= nr_wr_dat).
+//   zxnext.vhd:5449 — NR 0x68 b2 storage (nr_68_ula_fine_scroll_x).
+//   zxula.vhd:192-207 — py = i_vc + i_ula_scroll_y (cross-third wrap).
+//   zxula.vhd:199    — px = fine & (hc(7:3)+scroll_x(7:3)) & scroll_x(2:0).
+//   zxula.vhd:194-212 — px / py latch on falling i_CLK_7 when
+//                      i_hc(3:0)='3' or 'B' (per character cell).
+//
+// Mid-frame Copper writes to these registers shift the scroll on the next
+// character cell boundary. We approximate to per-scanline granularity (the
+// log is keyed by scanline) which suffices for raster-bar and parallax
+// effects whose splits are aligned to scanlines anyway. The implementation
+// mirrors Layer2's per-scanline change log shape line-for-line.
+
+void Ula::log_scroll_change()
+{
+    if (scroll_change_count_ >= MAX_SCROLL_CHANGES_PER_FRAME) {
+        if (!scroll_overflow_warned_) {
+            Log::ula()->warn(
+                "Ula: scroll change-log full at line {} (cap {} per "
+                "frame); further NR 0x26/0x27/0x68b2 writes this frame "
+                "will not be per-scanline.",
+                current_scroll_line_, MAX_SCROLL_CHANGES_PER_FRAME);
+            scroll_overflow_warned_ = true;
+        }
+        return;
+    }
+    scroll_change_log_[scroll_change_count_++] = ScrollChange{
+        current_scroll_line_,
+        ula_scroll_x_coarse_,
+        ula_scroll_y_,
+        static_cast<uint8_t>(ula_fine_scroll_x_ ? 1 : 0),
+    };
+}
+
+void Ula::start_frame_scroll()
+{
+    baseline_scroll_x_coarse_ = ula_scroll_x_coarse_;
+    baseline_scroll_y_        = ula_scroll_y_;
+    baseline_fine_scroll_x_   = static_cast<uint8_t>(ula_fine_scroll_x_ ? 1 : 0);
+    scroll_change_count_      = 0;
+    current_scroll_line_      = 0;
+    scroll_render_cursor_     = 0;
+    scroll_overflow_warned_   = false;
+}
+
+void Ula::rewind_scroll_to_baseline()
+{
+    ula_scroll_x_coarse_  = baseline_scroll_x_coarse_;
+    ula_scroll_y_         = baseline_scroll_y_;
+    ula_fine_scroll_x_    = baseline_fine_scroll_x_ != 0;
+    scroll_render_cursor_ = 0;
+}
+
+void Ula::apply_scroll_changes_for_line(int line)
+{
+    const uint16_t lt = static_cast<uint16_t>(line);
+    while (scroll_render_cursor_ < scroll_change_count_
+        && scroll_change_log_[scroll_render_cursor_].line == lt) {
+        const auto& c = scroll_change_log_[scroll_render_cursor_++];
+        ula_scroll_x_coarse_ = c.scroll_x_coarse;
+        ula_scroll_y_        = c.scroll_y;
+        ula_fine_scroll_x_   = c.fine_scroll_x != 0;
+    }
+}
+
 void Ula::save_state(StateWriter& w) const
 {
     w.write_bool(ula_enabled_);
