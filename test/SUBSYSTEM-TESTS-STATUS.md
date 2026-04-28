@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
 | NMI Source Pipeline   |       57 |       43 |      0 |      14 |     75% | Task 8 t1: G153/G162/G152 closed (-9; +HK/RST/NR02 + HK-07b/MF-G162-01b companions). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
-| **Total**             | **3693** | **3433** |  **0** | **260** |     93% |                                                        |
+| **Total**             | **3693** | **3438** |  **0** | **255** |     93% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
