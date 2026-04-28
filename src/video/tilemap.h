@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 class Ram;
@@ -73,8 +74,28 @@ public:
     void set_scroll_y(uint8_t val) { scroll_y_ = val; }
 
     /// Enable/disable tilemap rendering (bit 7 of NextREG 0x6B).
-    void set_enabled(bool en) { enabled_ = en; }
+    void set_enabled(bool en) {
+        enabled_ = en;
+        log_nr6b_change();
+    }
     bool enabled() const { return enabled_; }
+
+    /// True when in 80-column mode (bit 6 of NextREG 0x6B).
+    /// Live value — reflects current per-line snapshot during render_frame
+    /// after `apply_nr6b_changes_for_line` advances it.
+    bool mode_80col() const { return mode_80col_; }
+
+    /// True when in text mode (bit 3 of NextREG 0x6B).
+    /// VHDL tilemap.vhd:191 textmode_i <= control_i(3).
+    bool text_mode() const { return text_mode_; }
+
+    /// True when in 512-tile mode (bit 1 of NextREG 0x6B).
+    /// VHDL tilemap.vhd:194 mode_512_i <= control_i(1).
+    bool mode_512() const { return mode_512_; }
+
+    /// True when tm_on_top is set (bit 0 of NextREG 0x6B).
+    /// VHDL tilemap.vhd:195 tm_on_top_i <= control_i(0).
+    bool tm_on_top() const { return ula_on_top_; }
 
     /// Tilemap palette select (bit 4 of NextREG 0x6B).
     /// VHDL: nr_6b_tm_palette_select — selects tilemap palette 0 vs 1 at
@@ -167,6 +188,72 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    // -----------------------------------------------------------------
+    // Per-scanline NR 0x6B change log (G06)
+    // -----------------------------------------------------------------
+    //
+    // VHDL zxnext.vhd:5461-5462 latches NR 0x6B on every write
+    // (nr_6b_tm_en <= bit 7, nr_6b_tm_control <= bits 6:0); the downstream
+    // tilemap pipeline reads those latches every clock cycle, so a Copper
+    // MOVE to NR 0x6B mid-frame must take effect on the very next scanline
+    // (mode flip, textmode toggle, 256<->512 tile mode, tm_on_top, enable).
+    // Without this log the renderer would see only the end-of-frame value
+    // (last-write-wins) and collapse all scanlines onto the same path.
+    //
+    // The change-log captures the 5 bits owned by Tilemap (b0/b1/b3/b6/b7).
+    // Bit 4 (palette select) is owned by Ula (UL-C, palsel6b log) — out of
+    // scope here. Bit 5 (force_attr / strip_flags) is currently logged
+    // alongside the others for completeness but is not exercised by
+    // TM-160..164.
+    //
+    // Lifecycle (mirrors layer2 / palette / ula):
+    //   tilemap_.start_frame_nr6b();         // emulator at frame start
+    //   …                                    // emulation runs; set_control
+    //                                        // / set_enabled writes append
+    //                                        // tagged with current_line_
+    //   tilemap_.rewind_nr6b_to_baseline();  // before render_frame
+    //   for row in 0..H:
+    //       tilemap_.apply_nr6b_changes_for_line(row);
+    //       render_scanline(row);
+
+    /// Snapshot the live NR 0x6B state as the frame baseline and reset
+    /// the change log. Called at the start of every frame.
+    void start_frame_nr6b();
+
+    /// Update the scanline tag attached to subsequent NR 0x6B writes.
+    /// Called from Emulator::on_scanline. Default 0 at frame start.
+    void set_current_nr6b_line(int line) {
+        nr6b_current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live NR 0x6B state to the frame baseline and reset
+    /// the render cursor. Called once before per-scanline render.
+    void rewind_nr6b_to_baseline();
+
+    /// Apply all logged NR 0x6B changes whose line tag equals `line`.
+    /// Cursor is monotonically advanced; the log is in scanline order
+    /// so total work across a frame is O(change_count_).
+    void apply_nr6b_changes_for_line(int line);
+
+    /// Apply every remaining NR 0x6B change, regardless of its line tag.
+    /// Called after the per-line render loop so that NR 0x6B writes
+    /// landing in vblank (line >= FB_HEIGHT, where the renderer never
+    /// invokes apply_nr6b_changes_for_line) still update the live state
+    /// — otherwise the next frame's start_frame_nr6b() would snapshot a
+    /// stale baseline equal to the LAST visible-line replay value, and
+    /// firmware that writes NR 0x6B during vblank (waitForScanline(255)
+    /// + sc_update style main loops) would never see the write reflected
+    /// in the rendered output.
+    void flush_remaining_nr6b_changes();
+
+    /// Number of NR 0x6B changes recorded this frame (diagnostic).
+    size_t nr6b_change_log_size() const { return nr6b_change_count_; }
+
+    /// Static cap; further writes after this many in a frame are
+    /// silently dropped (with a once-per-frame warn). Sized for the
+    /// worst-case "Copper writes NR 0x6B on every scanline" scenario.
+    static constexpr size_t MAX_NR6B_CHANGES_PER_FRAME = 1024;
+
 private:
     // --- Control register state ---
     uint8_t  control_raw_    = 0;
@@ -205,4 +292,40 @@ private:
 
     // Helpers
     static uint32_t decode_base_addr(uint8_t reg_val);
+
+    // ── Per-scanline NR 0x6B change log (G06) ────────────────────────
+    // VHDL zxnext.vhd:5461-5462 — NR 0x6B latches every write.
+    // Snapshot captures the 5 Tilemap-owned bits (b7/b6/b5/b3/b1/b0)
+    // packed back into a NR 0x6B byte (bit 4 left as 0 — Ula's territory
+    // via palsel6b log). The reconstructed byte is the input to
+    // set_control during apply.
+    struct Nr6bChange {
+        uint16_t line;
+        uint8_t  control_byte;   ///< Reconstructed NR 0x6B (b4 cleared)
+    };
+    std::array<Nr6bChange, MAX_NR6B_CHANGES_PER_FRAME> nr6b_change_log_{};
+    size_t   nr6b_change_count_    = 0;
+    size_t   nr6b_render_cursor_   = 0;
+    uint16_t nr6b_current_line_    = 0;
+    bool     nr6b_overflow_warned_ = false;
+
+    // Baseline snapshot (taken at start_frame_nr6b).
+    uint8_t  baseline_control_raw_ = 0;
+    bool     baseline_enabled_     = false;
+    bool     baseline_mode_80col_  = false;
+    bool     baseline_text_mode_   = false;
+    bool     baseline_force_attr_  = false;
+    bool     baseline_mode_512_    = false;
+    bool     baseline_ula_on_top_  = false;
+
+    /// Append a snapshot of the live NR 0x6B state (5 owned bits
+    /// reconstructed into a control byte). Called from set_control and
+    /// set_enabled. Bit 4 (palette select) is excluded — Ula's palsel6b
+    /// log owns it.
+    void log_nr6b_change();
+
+    /// Apply a control_byte from the change-log to the live state,
+    /// updating the 5 owned fields without re-appending to the log.
+    /// Bit 4 is intentionally ignored (Ula's territory).
+    void replay_control_byte(uint8_t val);
 };

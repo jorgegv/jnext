@@ -69,6 +69,10 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     ula_.rewind_scroll_to_baseline();
     // Per-scanline ULA active-palette selector (G10).
     ula_.palsel_rewind_to_baseline();
+    // Per-scanline tilemap NR 0x6B (G06: b0/b1/b3/b6/b7).
+    if (tilemap) {
+        tilemap->rewind_nr6b_to_baseline();
+    }
 
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
@@ -84,6 +88,10 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         ula_.apply_scroll_changes_for_line(row);
         // Apply ULA active-palette selector log (G10).
         ula_.palsel_apply_changes_for_line(row);
+        // Apply tilemap NR 0x6B log (G06: b0/b1/b3/b6/b7).
+        if (tilemap) {
+            tilemap->apply_nr6b_changes_for_line(row);
+        }
 
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
@@ -234,6 +242,17 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         }
 
         composite_scanline(out, fb_argb, composite_width_);
+    }
+
+    // Drain any tilemap NR 0x6B log entries that landed in vblank
+    // (line >= FB_HEIGHT). Without this, the live state would equal
+    // the LAST visible-line replay value, and the next frame's
+    // start_frame_nr6b() would snapshot a stale baseline — firmware
+    // that writes NR 0x6B during vblank (waitForScanline(255) +
+    // sc_update style main loops, e.g. dapr-tilemap_02) would never
+    // see the write reflected in subsequent frames.
+    if (tilemap) {
+        tilemap->flush_remaining_nr6b_changes();
     }
 
     // Advance ULA flash state once per frame.

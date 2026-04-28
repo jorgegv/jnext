@@ -3023,6 +3023,12 @@ void Emulator::run_frame()
     // Interrupt handlers may change scroll mid-frame for split-screen effects.
     tilemap_.init_scroll_per_line();
 
+    // Per-scanline tilemap NR 0x6B change log (G06) — baseline snapshot
+    // and reset of the per-frame log so Copper / interrupt-handler writes
+    // to NR 0x6B (mode flip, textmode, 512-tile, tm_on_top, enable) take
+    // effect on the very next scanline.
+    tilemap_.start_frame_nr6b();
+
     // Per-scanline palette snapshot — baseline copy + change-log reset
     // (TASK-PER-SCANLINE-PALETTE-PLAN.md). Without this, Copper writes
     // to NR 0x41 mid-frame collapse to the LAST value at render time
@@ -3873,6 +3879,10 @@ void Emulator::on_scanline(int line)
     renderer_.ula().set_current_scroll_line(line);
     // Same scanline tag for ULA active-palette selector writes (G10).
     renderer_.ula().set_palsel_current_line(line);
+    // Same scanline tag for tilemap NR 0x6B writes (G06: mode flip,
+    // textmode, 512-tile, tm_on_top, enable). Bit 4 (palette select) is
+    // owned by Ula::palsel6b above.
+    tilemap_.set_current_nr6b_line(line);
 }
 
 void Emulator::on_vsync()

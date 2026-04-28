@@ -226,34 +226,134 @@ void group1_reset_enable() {
     }
 
     // Per-scanline NR 0x6B mid-frame mode flip (G06) — TM-160..164.
-    // Tilemap class has no per-line change-log today; scalar bools at
-    // tilemap.h:136-141 are overwritten on each set_control() call.
+    //
+    // Tilemap exposes a per-frame NR 0x6B change-log capturing the 5
+    // owned bits (b7 enable, b6 80-col, b3 textmode, b1 512-tile, b0
+    // tm_on_top). Bit 4 (palette select) is owned by Ula's palsel6b
+    // log and is NOT exercised here.
+    //
+    // Lifecycle (mirrors layer2 / palette / ula):
+    //   start_frame_nr6b()       — at frame start
+    //   set_current_nr6b_line(N) — tag subsequent set_control writes
+    //   rewind_nr6b_to_baseline() — before per-line render
+    //   apply_nr6b_changes_for_line(L) — replay log entries for line L
+    //
     // VHDL bit decode authority: tilemap.vhd:189-195 + zxnext.vhd:5461-5462.
 
     // TM-160: VHDL tilemap.vhd:189 (mode_i <= control_i(6)),
     // zxnext.vhd:5461-5462 (write storage), :7039, 7072 (downstream pipeline).
-    skip("TM-160",
-         "NR 0x6B b6 (40->80 col) mid-frame: no per-line replay (see G06)");
+    {
+        fresh(tm, pal, ram);
+        tm.start_frame_nr6b();
+        // Line 50: 40-col (b6=0, enabled b7=1).
+        tm.set_current_nr6b_line(50);
+        tm.set_control(0x80);  // b7=1, b6=0
+        // Line 100: 80-col (b6=1).
+        tm.set_current_nr6b_line(100);
+        tm.set_control(0xC0);  // b7=1, b6=1
+
+        tm.rewind_nr6b_to_baseline();
+        tm.apply_nr6b_changes_for_line(50);
+        bool at_50 = (tm.mode_80col() == false);
+        tm.apply_nr6b_changes_for_line(100);
+        bool at_100 = (tm.mode_80col() == true);
+
+        check_pred("TM-160", at_50 && at_100,
+                   "VHDL tilemap.vhd:189 + zxnext.vhd:5461-5462 — "
+                   "NR 0x6B b6 mid-frame flip lands on the correct scanline");
+    }
 
     // TM-161: VHDL tilemap.vhd:191 (textmode_i <= control_i(3)),
     // zxnext.vhd:5461-5462.
-    skip("TM-161",
-         "NR 0x6B b3 (textmode) mid-frame: no per-line replay (see G06)");
+    {
+        fresh(tm, pal, ram);
+        tm.start_frame_nr6b();
+        // Line 30: textmode off (b3=0).
+        tm.set_current_nr6b_line(30);
+        tm.set_control(0x80);  // b7=1, b3=0
+        // Line 60: textmode on (b3=1).
+        tm.set_current_nr6b_line(60);
+        tm.set_control(0x88);  // b7=1, b3=1
+
+        tm.rewind_nr6b_to_baseline();
+        tm.apply_nr6b_changes_for_line(30);
+        bool at_30 = (tm.text_mode() == false);
+        tm.apply_nr6b_changes_for_line(60);
+        bool at_60 = (tm.text_mode() == true);
+
+        check_pred("TM-161", at_30 && at_60,
+                   "VHDL tilemap.vhd:191 + zxnext.vhd:5461-5462 — "
+                   "NR 0x6B b3 (textmode) mid-frame flip per scanline");
+    }
 
     // TM-162: VHDL tilemap.vhd:194 (mode_512_i <= control_i(1)),
     // zxnext.vhd:5461-5462, :6863 (mode_512 ORs into tm_pixel_below).
-    skip("TM-162",
-         "NR 0x6B b1 (256->512 tile) mid-frame: no per-line replay (see G06)");
+    {
+        fresh(tm, pal, ram);
+        tm.start_frame_nr6b();
+        // Line 20: 256-tile (b1=0).
+        tm.set_current_nr6b_line(20);
+        tm.set_control(0x80);  // b7=1, b1=0
+        // Line 70: 512-tile (b1=1).
+        tm.set_current_nr6b_line(70);
+        tm.set_control(0x82);  // b7=1, b1=1
+
+        tm.rewind_nr6b_to_baseline();
+        tm.apply_nr6b_changes_for_line(20);
+        bool at_20 = (tm.mode_512() == false);
+        tm.apply_nr6b_changes_for_line(70);
+        bool at_70 = (tm.mode_512() == true);
+
+        check_pred("TM-162", at_20 && at_70,
+                   "VHDL tilemap.vhd:194 + zxnext.vhd:5461-5462 — "
+                   "NR 0x6B b1 (256->512 tile) mid-frame flip per scanline");
+    }
 
     // TM-163: VHDL tilemap.vhd:195 (tm_on_top_i <= control_i(0)),
     // zxnext.vhd:6863, 7116 (priority effect).
-    skip("TM-163",
-         "NR 0x6B b0 (tm_on_top) mid-frame: no per-line replay (see G06)");
+    {
+        fresh(tm, pal, ram);
+        tm.start_frame_nr6b();
+        // Line 10: tm_on_top off (b0=0).
+        tm.set_current_nr6b_line(10);
+        tm.set_control(0x80);  // b7=1, b0=0
+        // Line 80: tm_on_top on (b0=1).
+        tm.set_current_nr6b_line(80);
+        tm.set_control(0x81);  // b7=1, b0=1
+
+        tm.rewind_nr6b_to_baseline();
+        tm.apply_nr6b_changes_for_line(10);
+        bool at_10 = (tm.tm_on_top() == false);
+        tm.apply_nr6b_changes_for_line(80);
+        bool at_80 = (tm.tm_on_top() == true);
+
+        check_pred("TM-163", at_10 && at_80,
+                   "VHDL tilemap.vhd:195 + zxnext.vhd:5461-5462 — "
+                   "NR 0x6B b0 (tm_on_top) mid-frame flip per scanline");
+    }
 
     // TM-164: VHDL zxnext.vhd:5461 (nr_6b_tm_en <= nr_wr_dat(7)),
     // :6820 (tm_en_0 <= nr_6b_tm_en).
-    skip("TM-164",
-         "NR 0x6B b7 (enable) mid-frame: no per-line replay (see G06)");
+    {
+        fresh(tm, pal, ram);
+        tm.start_frame_nr6b();
+        // Line 40: enabled (b7=1).
+        tm.set_current_nr6b_line(40);
+        tm.set_control(0x80);
+        // Line 120: disabled (b7=0).
+        tm.set_current_nr6b_line(120);
+        tm.set_control(0x00);
+
+        tm.rewind_nr6b_to_baseline();
+        tm.apply_nr6b_changes_for_line(40);
+        bool at_40 = (tm.enabled() == true);
+        tm.apply_nr6b_changes_for_line(120);
+        bool at_120 = (tm.enabled() == false);
+
+        check_pred("TM-164", at_40 && at_120,
+                   "VHDL zxnext.vhd:5461 + :6820 — "
+                   "NR 0x6B b7 (enable) mid-frame flip per scanline");
+    }
 }
 
 // ── Group 2: 40-column mode (8-bit tiles) ───────────────────────────────

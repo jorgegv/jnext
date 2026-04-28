@@ -1,8 +1,9 @@
 #include "video/tilemap.h"
 
+#include "core/log.h"
+#include "core/saveable.h"
 #include "memory/ram.h"
 #include "video/palette.h"
-#include "core/saveable.h"
 
 // ---------------------------------------------------------------------------
 // Reset
@@ -26,6 +27,21 @@ void Tilemap::reset()
     def_base_addr_ = decode_base_addr(0x0C);
     scroll_x_      = 0;
     scroll_y_      = 0;
+
+    // Per-scanline NR 0x6B change log cleared. Baseline reset to current
+    // (zero) state; start_frame_nr6b() will re-snapshot from the live
+    // values at the next frame boundary.
+    nr6b_change_count_     = 0;
+    nr6b_render_cursor_    = 0;
+    nr6b_current_line_     = 0;
+    nr6b_overflow_warned_  = false;
+    baseline_control_raw_  = 0;
+    baseline_enabled_      = false;
+    baseline_mode_80col_   = false;
+    baseline_text_mode_    = false;
+    baseline_force_attr_   = false;
+    baseline_mode_512_     = false;
+    baseline_ula_on_top_   = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +66,117 @@ void Tilemap::set_control(uint8_t val)
     text_mode_   = (val & 0x08) != 0;   // bit 3 = textmode
     mode_512_    = (val & 0x02) != 0;
     ula_on_top_  = (val & 0x01) != 0;
+
+    // Log the 5 Tilemap-owned bits for per-scanline replay (G06).
+    log_nr6b_change();
+}
+
+// ---------------------------------------------------------------------------
+// Per-scanline NR 0x6B change log (G06)
+// ---------------------------------------------------------------------------
+//
+// Mirrors layer2's NR 0x70 / scroll / clip / bank / enable change-logs.
+// The 5 bits owned by Tilemap (b7 enable, b6 80-col, b5 force_attr,
+// b3 textmode, b1 512-tile, b0 tm_on_top) are packed into one control
+// byte per snapshot. Bit 4 (palette select) is owned by the Ula class
+// (UL-C's palsel6b log), so it is intentionally cleared in the snapshot
+// — the replay code in this class never touches palette_sel_.
+
+void Tilemap::log_nr6b_change()
+{
+    if (nr6b_change_count_ >= MAX_NR6B_CHANGES_PER_FRAME) {
+        if (!nr6b_overflow_warned_) {
+            Log::video()->warn(
+                "Tilemap: NR 0x6B change-log full at line {} (cap {} per "
+                "frame); further NR 0x6B writes this frame will not be "
+                "per-scanline.",
+                nr6b_current_line_, MAX_NR6B_CHANGES_PER_FRAME);
+            nr6b_overflow_warned_ = true;
+        }
+        return;
+    }
+    // Reconstruct the NR 0x6B byte from the 5 owned fields.
+    // Bit 4 (palette select) is masked off — it is replayed by the
+    // Ula::palsel6b log, not by us.
+    uint8_t control_byte =
+          (enabled_     ? 0x80 : 0)
+        | (mode_80col_  ? 0x40 : 0)
+        | (force_attr_  ? 0x20 : 0)
+        | (text_mode_   ? 0x08 : 0)
+        | (mode_512_    ? 0x02 : 0)
+        | (ula_on_top_  ? 0x01 : 0);
+    nr6b_change_log_[nr6b_change_count_++] = Nr6bChange{
+        nr6b_current_line_, control_byte,
+    };
+}
+
+void Tilemap::replay_control_byte(uint8_t val)
+{
+    // Mirror set_control without recursing into log_nr6b_change.
+    // Bit 4 is intentionally not touched — palette_sel_ is owned by the
+    // Ula class via its palsel6b change-log (UL-C path).
+    enabled_    = (val & 0x80) != 0;
+    mode_80col_ = (val & 0x40) != 0;
+    force_attr_ = (val & 0x20) != 0;
+    text_mode_  = (val & 0x08) != 0;
+    mode_512_   = (val & 0x02) != 0;
+    ula_on_top_ = (val & 0x01) != 0;
+    // control_raw_ is mostly diagnostic; keep it in sync but preserve any
+    // bit 4 state the live setter may have left there.
+    control_raw_ = (control_raw_ & 0x10) | (val & ~uint8_t{0x10});
+}
+
+void Tilemap::start_frame_nr6b()
+{
+    baseline_control_raw_  = control_raw_;
+    baseline_enabled_      = enabled_;
+    baseline_mode_80col_   = mode_80col_;
+    baseline_text_mode_    = text_mode_;
+    baseline_force_attr_   = force_attr_;
+    baseline_mode_512_     = mode_512_;
+    baseline_ula_on_top_   = ula_on_top_;
+    nr6b_change_count_     = 0;
+    nr6b_render_cursor_    = 0;
+    nr6b_current_line_     = 0;
+    nr6b_overflow_warned_  = false;
+}
+
+void Tilemap::rewind_nr6b_to_baseline()
+{
+    control_raw_        = baseline_control_raw_;
+    enabled_            = baseline_enabled_;
+    mode_80col_         = baseline_mode_80col_;
+    text_mode_          = baseline_text_mode_;
+    force_attr_         = baseline_force_attr_;
+    mode_512_           = baseline_mode_512_;
+    ula_on_top_         = baseline_ula_on_top_;
+    nr6b_render_cursor_ = 0;
+}
+
+void Tilemap::apply_nr6b_changes_for_line(int line)
+{
+    const uint16_t lt = static_cast<uint16_t>(line);
+    while (nr6b_render_cursor_ < nr6b_change_count_
+        && nr6b_change_log_[nr6b_render_cursor_].line == lt) {
+        const auto& c = nr6b_change_log_[nr6b_render_cursor_++];
+        replay_control_byte(c.control_byte);
+    }
+}
+
+void Tilemap::flush_remaining_nr6b_changes()
+{
+    // Drain any log entries that the per-line render loop did not reach
+    // — typically vblank writes (line >= FB_HEIGHT). Without this, the
+    // live state at end-of-render would equal the LAST visible-line
+    // replay value, and the next frame's start_frame_nr6b() would
+    // snapshot a stale baseline (e.g. demo writes NR 0x6B during
+    // waitForScanline(255) → sc_update never propagates to subsequent
+    // frames). Replays in log order so the final state matches the
+    // post-emulation live state.
+    while (nr6b_render_cursor_ < nr6b_change_count_) {
+        const auto& c = nr6b_change_log_[nr6b_render_cursor_++];
+        replay_control_byte(c.control_byte);
+    }
 }
 
 // ---------------------------------------------------------------------------
