@@ -824,71 +824,71 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 
 | Test ID | Plan row title                  | VHDL file:line | Status  | Test file:line                     |
 |---------|---------------------------------|----------------|---------|------------------------------------|
-| TM-01   | Tilemap disabled by default     | —              | pass    | test/tilemap/tilemap_test.cpp:179  |
-| TM-02   | Enable tilemap                  | —              | pass    | test/tilemap/tilemap_test.cpp:188  |
-| TM-03   | Disable tilemap                 | —              | pass    | test/tilemap/tilemap_test.cpp:198  |
-| TM-04   | Reset defaults readback         | —              | pass    | test/tilemap/tilemap_test.cpp:207  |
-| TM-10   | 40-col basic display            | —              | pass    | test/tilemap/tilemap_test.cpp:263  |
-| TM-11   | 40-col tile index range         | —              | pass    | test/tilemap/tilemap_test.cpp:279  |
-| TM-12   | 40-col attribute palette offset | —              | pass    | test/tilemap/tilemap_test.cpp:295  |
-| TM-13   | 40-col X-mirror                 | —              | pass    | test/tilemap/tilemap_test.cpp:318  |
-| TM-14   | 40-col Y-mirror                 | —              | pass    | test/tilemap/tilemap_test.cpp:341  |
-| TM-15   | 40-col rotation                 | —              | pass    | test/tilemap/tilemap_test.cpp:369  |
-| TM-16   | 40-col rotation + X-mirror      | —              | pass    | test/tilemap/tilemap_test.cpp:387  |
-| TM-17   | 40-col ULA-over-tile flag       | —              | pass    | test/tilemap/tilemap_test.cpp:402  |
-| TM-20   | 80-col basic display            | —              | pass    | test/tilemap/tilemap_test.cpp:425  |
-| TM-21   | 80-col tile attributes          | —              | pass    | test/tilemap/tilemap_test.cpp:440  |
-| TM-22   | 80-col pixel selection          | —              | pass    | test/tilemap/tilemap_test.cpp:464  |
-| TM-30   | 512-tile mode enable            | —              | pass    | test/tilemap/tilemap_test.cpp:496  |
-| TM-31   | 512-tile index construction     | —              | pass    | test/tilemap/tilemap_test.cpp:513  |
-| TM-32   | 512-tile ULA-over interaction   | —              | pass    | test/tilemap/tilemap_test.cpp:529  |
-| TM-40   | Text mode enable                | —              | pass    | test/tilemap/tilemap_test.cpp:555  |
-| TM-41   | Text mode pixel extraction      | —              | pass    | test/tilemap/tilemap_test.cpp:569  |
-| TM-42   | Text mode palette construction  | —              | pass    | test/tilemap/tilemap_test.cpp:587  |
-| TM-43   | Text mode no transforms         | —              | pass    | test/tilemap/tilemap_test.cpp:605  |
+| TM-01   | Tilemap disabled by default     | —              | pass    | test/tilemap/tilemap_test.cpp:191  |
+| TM-02   | Enable tilemap                  | —              | pass    | test/tilemap/tilemap_test.cpp:200  |
+| TM-03   | Disable tilemap                 | —              | pass    | test/tilemap/tilemap_test.cpp:210  |
+| TM-04   | Reset defaults readback         | —              | pass    | test/tilemap/tilemap_test.cpp:219  |
+| TM-10   | 40-col basic display            | —              | pass    | test/tilemap/tilemap_test.cpp:375  |
+| TM-11   | 40-col tile index range         | —              | pass    | test/tilemap/tilemap_test.cpp:391  |
+| TM-12   | 40-col attribute palette offset | —              | pass    | test/tilemap/tilemap_test.cpp:407  |
+| TM-13   | 40-col X-mirror                 | —              | pass    | test/tilemap/tilemap_test.cpp:430  |
+| TM-14   | 40-col Y-mirror                 | —              | pass    | test/tilemap/tilemap_test.cpp:453  |
+| TM-15   | 40-col rotation                 | —              | pass    | test/tilemap/tilemap_test.cpp:481  |
+| TM-16   | 40-col rotation + X-mirror      | —              | pass    | test/tilemap/tilemap_test.cpp:499  |
+| TM-17   | 40-col ULA-over-tile flag       | —              | pass    | test/tilemap/tilemap_test.cpp:514  |
+| TM-20   | 80-col basic display            | —              | pass    | test/tilemap/tilemap_test.cpp:537  |
+| TM-21   | 80-col tile attributes          | —              | pass    | test/tilemap/tilemap_test.cpp:552  |
+| TM-22   | 80-col pixel selection          | —              | pass    | test/tilemap/tilemap_test.cpp:576  |
+| TM-30   | 512-tile mode enable            | —              | pass    | test/tilemap/tilemap_test.cpp:608  |
+| TM-31   | 512-tile index construction     | —              | pass    | test/tilemap/tilemap_test.cpp:625  |
+| TM-32   | 512-tile ULA-over interaction   | —              | pass    | test/tilemap/tilemap_test.cpp:641  |
+| TM-40   | Text mode enable                | —              | pass    | test/tilemap/tilemap_test.cpp:667  |
+| TM-41   | Text mode pixel extraction      | —              | pass    | test/tilemap/tilemap_test.cpp:681  |
+| TM-42   | Text mode palette construction  | —              | pass    | test/tilemap/tilemap_test.cpp:699  |
+| TM-43   | Text mode no transforms         | —              | pass    | test/tilemap/tilemap_test.cpp:717  |
 | TM-44   | Text mode transparency          | —              | missing | missing                            |
-| TM-50   | Strip flags mode                | —              | pass    | test/tilemap/tilemap_test.cpp:647  |
-| TM-51   | Default attr applied            | —              | pass    | test/tilemap/tilemap_test.cpp:665  |
-| TM-52   | Strip flags + 40-col            | —              | pass    | test/tilemap/tilemap_test.cpp:684  |
-| TM-53   | Strip flags + 80-col            | —              | pass    | test/tilemap/tilemap_test.cpp:705  |
-| TM-60   | Map base address (bank 5)       | —              | pass    | test/tilemap/tilemap_test.cpp:732  |
-| TM-61   | Map base address (bank 7)       | —              | pass    | test/tilemap/tilemap_test.cpp:747  |
-| TM-62   | Tile def base (bank 5)          | —              | pass    | test/tilemap/tilemap_test.cpp:762  |
-| TM-63   | Tile def base (bank 7)          | —              | pass    | test/tilemap/tilemap_test.cpp:776  |
-| TM-64   | Address offset computation      | —              | pass    | test/tilemap/tilemap_test.cpp:797  |
-| TM-65   | Tile address with/without flags | —              | pass    | test/tilemap/tilemap_test.cpp:823  |
-| TM-70   | Standard pixel address          | —              | pass    | test/tilemap/tilemap_test.cpp:863  |
-| TM-71   | Text mode pixel address         | —              | pass    | test/tilemap/tilemap_test.cpp:878  |
-| TM-72   | Pixel nibble selection          | —              | pass    | test/tilemap/tilemap_test.cpp:895  |
-| TM-80   | X scroll basic                  | —              | pass    | test/tilemap/tilemap_test.cpp:921  |
-| TM-81   | X scroll wrap at 320 (40-col)   | —              | pass    | test/tilemap/tilemap_test.cpp:941  |
-| TM-82   | X scroll wrap at 640 (80-col)   | —              | pass    | test/tilemap/tilemap_test.cpp:960  |
-| TM-83   | Y scroll basic                  | —              | pass    | test/tilemap/tilemap_test.cpp:979  |
-| TM-84   | Y scroll wrap at 256            | —              | pass    | test/tilemap/tilemap_test.cpp:997  |
-| TM-85   | Per-line scroll update          | —              | pass    | test/tilemap/tilemap_test.cpp:1024 |
-| TM-90   | Standard transparency index     | —              | pass    | test/tilemap/tilemap_test.cpp:1055 |
-| TM-91   | Default transparency (0xF)      | —              | pass    | test/tilemap/tilemap_test.cpp:1063 |
-| TM-92   | Custom transparency index       | —              | pass    | test/tilemap/tilemap_test.cpp:1077 |
+| TM-50   | Strip flags mode                | —              | pass    | test/tilemap/tilemap_test.cpp:759  |
+| TM-51   | Default attr applied            | —              | pass    | test/tilemap/tilemap_test.cpp:777  |
+| TM-52   | Strip flags + 40-col            | —              | pass    | test/tilemap/tilemap_test.cpp:796  |
+| TM-53   | Strip flags + 80-col            | —              | pass    | test/tilemap/tilemap_test.cpp:817  |
+| TM-60   | Map base address (bank 5)       | —              | pass    | test/tilemap/tilemap_test.cpp:844  |
+| TM-61   | Map base address (bank 7)       | —              | pass    | test/tilemap/tilemap_test.cpp:859  |
+| TM-62   | Tile def base (bank 5)          | —              | pass    | test/tilemap/tilemap_test.cpp:874  |
+| TM-63   | Tile def base (bank 7)          | —              | pass    | test/tilemap/tilemap_test.cpp:888  |
+| TM-64   | Address offset computation      | —              | pass    | test/tilemap/tilemap_test.cpp:909  |
+| TM-65   | Tile address with/without flags | —              | pass    | test/tilemap/tilemap_test.cpp:935  |
+| TM-70   | Standard pixel address          | —              | pass    | test/tilemap/tilemap_test.cpp:989  |
+| TM-71   | Text mode pixel address         | —              | pass    | test/tilemap/tilemap_test.cpp:1004 |
+| TM-72   | Pixel nibble selection          | —              | pass    | test/tilemap/tilemap_test.cpp:1021 |
+| TM-80   | X scroll basic                  | —              | pass    | test/tilemap/tilemap_test.cpp:1047 |
+| TM-81   | X scroll wrap at 320 (40-col)   | —              | pass    | test/tilemap/tilemap_test.cpp:1067 |
+| TM-82   | X scroll wrap at 640 (80-col)   | —              | pass    | test/tilemap/tilemap_test.cpp:1086 |
+| TM-83   | Y scroll basic                  | —              | pass    | test/tilemap/tilemap_test.cpp:1105 |
+| TM-84   | Y scroll wrap at 256            | —              | pass    | test/tilemap/tilemap_test.cpp:1123 |
+| TM-85   | Per-line scroll update          | —              | pass    | test/tilemap/tilemap_test.cpp:1150 |
+| TM-90   | Standard transparency index     | —              | pass    | test/tilemap/tilemap_test.cpp:1213 |
+| TM-91   | Default transparency (0xF)      | —              | pass    | test/tilemap/tilemap_test.cpp:1221 |
+| TM-92   | Custom transparency index       | —              | pass    | test/tilemap/tilemap_test.cpp:1235 |
 | TM-93   | Text mode transparency (RGB)    | —              | missing | missing                            |
 | TM-94   | Text mode vs standard path      | —              | missing | missing                            |
-| TM-100  | Palette select 0                | —              | pass    | test/tilemap/tilemap_test.cpp:1113 |
-| TM-101  | Palette select 1                | —              | pass    | test/tilemap/tilemap_test.cpp:1121 |
-| TM-102  | Palette routing                 | —              | pass    | test/tilemap/tilemap_test.cpp:1135 |
-| TM-103  | Standard pixel composition      | —              | pass    | test/tilemap/tilemap_test.cpp:1149 |
-| TM-104  | Text mode pixel composition     | —              | pass    | test/tilemap/tilemap_test.cpp:1163 |
-| TM-110  | Default clip (full area)        | —              | pass    | test/tilemap/tilemap_test.cpp:1202 |
-| TM-111  | Custom clip window              | —              | pass    | test/tilemap/tilemap_test.cpp:1223 |
-| TM-112  | Clip X coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1245 |
-| TM-113  | Clip Y coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1270 |
+| TM-100  | Palette select 0                | —              | pass    | test/tilemap/tilemap_test.cpp:1324 |
+| TM-101  | Palette select 1                | —              | pass    | test/tilemap/tilemap_test.cpp:1332 |
+| TM-102  | Palette routing                 | —              | pass    | test/tilemap/tilemap_test.cpp:1346 |
+| TM-103  | Standard pixel composition      | —              | pass    | test/tilemap/tilemap_test.cpp:1360 |
+| TM-104  | Text mode pixel composition     | —              | pass    | test/tilemap/tilemap_test.cpp:1374 |
+| TM-110  | Default clip (full area)        | —              | pass    | test/tilemap/tilemap_test.cpp:1461 |
+| TM-111  | Custom clip window              | —              | pass    | test/tilemap/tilemap_test.cpp:1482 |
+| TM-112  | Clip X coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1504 |
+| TM-113  | Clip Y coordinates              | —              | pass    | test/tilemap/tilemap_test.cpp:1529 |
 | TM-114  | Clip index cycling              | —              | missing | missing                            |
 | TM-115  | Clip index reset                | —              | missing | missing                            |
-| TM-116  | Clip readback                   | —              | pass    | test/tilemap/tilemap_test.cpp:1290 |
-| TM-120  | Tilemap on top (default)        | —              | pass    | test/tilemap/tilemap_test.cpp:1309 |
-| TM-121  | Tilemap always on top           | —              | pass    | test/tilemap/tilemap_test.cpp:1322 |
-| TM-122  | Per-tile below flag             | —              | pass    | test/tilemap/tilemap_test.cpp:1335 |
+| TM-116  | Clip readback                   | —              | pass    | test/tilemap/tilemap_test.cpp:1549 |
+| TM-120  | Tilemap on top (default)        | —              | pass    | test/tilemap/tilemap_test.cpp:1568 |
+| TM-121  | Tilemap always on top           | —              | pass    | test/tilemap/tilemap_test.cpp:1581 |
+| TM-122  | Per-tile below flag             | —              | pass    | test/tilemap/tilemap_test.cpp:1594 |
 | TM-123  | Below flag in compositor        | —              | missing | missing                            |
-| TM-124  | tm_on_top overrides per-tile    | —              | pass    | test/tilemap/tilemap_test.cpp:1354 |
-| TM-125  | 512-mode forces below           | —              | pass    | test/tilemap/tilemap_test.cpp:1367 |
+| TM-124  | tm_on_top overrides per-tile    | —              | pass    | test/tilemap/tilemap_test.cpp:1613 |
+| TM-125  | 512-mode forces below           | —              | pass    | test/tilemap/tilemap_test.cpp:1626 |
 | TM-130  | Stencil mode (ULA AND TM)       | —              | missing | missing                            |
 | TM-131  | Stencil transparency            | —              | missing | missing                            |
 | TM-140  | TM disabled, tm_on_top=0        | —              | missing | missing                            |
@@ -2555,23 +2555,23 @@ Hosts production-wire integration scenarios for the membrane keyboard, joystick 
 
 | Test ID     | Plan row title                                                                  | VHDL file:line                          | Status | Test file:line                              |
 |-------------|---------------------------------------------------------------------------------|-----------------------------------------|--------|---------------------------------------------|
-| KBD-22      | Compound key arrow handling end-to-end                                          | membrane.vhd:178-191                    | pass    | test/input/input_integration_test.cpp:157   |
-| KBD-23      | Caps+Sym compound mapping under issue-2/issue-3                                 | membrane.vhd                            | pass    | test/input/input_integration_test.cpp:180   |
-| FE-01       | Port 0xFE keyboard-row read steady-state                                        | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:209   |
-| FE-02       | Port 0xFE EAR-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:226   |
-| FE-03       | Port 0xFE MIC-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:253   |
-| FE-04       | Issue-3 EAR/MIC analogue composition                                            | zxnext_top_issue2.vhd:662               | pass    | test/input/input_integration_test.cpp:317   |
-| FE-04A      | Issue-2 EAR/MIC analogue relaxation (G44, retired WONT 2026-04-28)              | symmetric_relaxation.vhd                | wont    | test/input/input_integration_test.cpp:336   |
-| BP-04       | Beeper EAR-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:389   |
-| BP-20       | Beeper MIC-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:408   |
-| BP-21       | Beeper composite EAR+MIC into Mixer                                             | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:441   |
-| BP-22       | Beeper exclusive-mode AND-gate (NR 0x06+0x08)                                   | audio_mixer.vhd:80-81                   | pass    | test/input/input_integration_test.cpp:481   |
-| BP-23       | Beeper port_fe write triggers EAR/MIC composition                               | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:513   |
-| JOY-WIRE-01 | Production NR 0x05 mode change propagates to MembraneStick (G126)               | membrane_stick.vhd:117-149              | skip    | test/input/input_integration_test.cpp:530   |
-| JOY-WIRE-02 | SDL gamepad button events route to Joystick::set_buttons (G42)                  | —                                       | skip    | test/input/input_integration_test.cpp:539   |
-| JOY-WIRE-03 | SDL gamepad axis events route to Joystick::set_axes (G42)                       | —                                       | skip    | test/input/input_integration_test.cpp:546   |
-| JOY-WIRE-04 | GUI Joystick→Mode menu wires JoystickMode (G42)                                 | —                                       | skip    | test/input/input_integration_test.cpp:553   |
-| HOTKEY-01   | Host F2/F3/F7/F8 hotkeys cycle CPU-speed/50-60/scandouble/scanline (G132/G147)  | input/membrane/emu_fnkeys.vhd:53-202    | skip    | test/input/input_integration_test.cpp:570   |
+| KBD-22      | Compound key arrow handling end-to-end                                          | membrane.vhd:178-191                    | pass    | test/input/input_integration_test.cpp:162   |
+| KBD-23      | Caps+Sym compound mapping under issue-2/issue-3                                 | membrane.vhd                            | pass    | test/input/input_integration_test.cpp:185   |
+| FE-01       | Port 0xFE keyboard-row read steady-state                                        | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:214   |
+| FE-02       | Port 0xFE EAR-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:231   |
+| FE-03       | Port 0xFE MIC-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:258   |
+| FE-04       | Issue-3 EAR/MIC analogue composition                                            | zxnext_top_issue2.vhd:662               | pass    | test/input/input_integration_test.cpp:322   |
+| FE-04A      | Issue-2 EAR/MIC analogue relaxation (G44, retired WONT 2026-04-28)              | symmetric_relaxation.vhd                | missing | missing                                     |
+| BP-04       | Beeper EAR-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:440   |
+| BP-20       | Beeper MIC-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:459   |
+| BP-21       | Beeper composite EAR+MIC into Mixer                                             | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:492   |
+| BP-22       | Beeper exclusive-mode AND-gate (NR 0x06+0x08)                                   | audio_mixer.vhd:80-81                   | pass    | test/input/input_integration_test.cpp:532   |
+| BP-23       | Beeper port_fe write triggers EAR/MIC composition                               | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:564   |
+| JOY-WIRE-01 | Production NR 0x05 mode change propagates to MembraneStick (G126)               | membrane_stick.vhd:117-149              | pass    | test/input/input_integration_test.cpp:624   |
+| JOY-WIRE-02 | SDL gamepad button events route to Joystick::set_buttons (G42)                  | —                                       | pass    | test/input/input_integration_test.cpp:679   |
+| JOY-WIRE-03 | SDL gamepad axis events route to Joystick::set_axes (G42)                       | —                                       | pass    | test/input/input_integration_test.cpp:737   |
+| JOY-WIRE-04 | GUI Joystick→Mode menu wires JoystickMode (G42)                                 | —                                       | pass    | test/input/input_integration_test.cpp:793   |
+| HOTKEY-01   | Host F2/F3/F7/F8 hotkeys cycle CPU-speed/50-60/scandouble/scanline (G132/G147)  | input/membrane/emu_fnkeys.vhd:53-202    | pass    | test/input/input_integration_test.cpp:969   |
 
 
 ## Rewind — `test/rewind/rewind_test.cpp`
