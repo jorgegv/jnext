@@ -28,9 +28,13 @@
 
 #include "video/sprites.h"
 #include "video/palette.h"
+#include "core/log.h"
+#include <spdlog/sinks/callback_sink.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 #include <array>
@@ -190,6 +194,78 @@ static void set5(SpriteEngine& spr, uint8_t slot,
     spr.write_attribute(b2);
     spr.write_attribute(b3 | 0x40);    // force extended
     spr.write_attribute(b4);
+}
+
+// ---------------------------------------------------------------------------
+// Log fixture — count warnings emitted on Log::video()
+// ---------------------------------------------------------------------------
+//
+// SpriteEngine emits a single warn per overflow event via Log::video()->warn
+// (sprites.cpp:81-86 attribute side, sprites.cpp:102-107 pattern side).  To
+// observe the once-per-frame contract we attach a callback_sink to the
+// existing video logger, count messages of >=warn level, and detach on scope
+// exit so other tests aren't disturbed.  The callback runs synchronously on
+// the calling thread, so a single-threaded test reads the counter
+// deterministically right after the write that should have triggered the
+// log.
+//
+// The fixture is RAII: construct -> attach sink -> count warnings; destroy
+// -> detach.  Multiple instances do not nest; tests use one fixture per
+// scoped block.
+struct VideoWarnCounter {
+    int warn_count = 0;
+    std::shared_ptr<spdlog::sinks::callback_sink_mt> sink;
+
+    VideoWarnCounter() {
+        sink = std::make_shared<spdlog::sinks::callback_sink_mt>(
+            [this](const spdlog::details::log_msg& msg) {
+                if (msg.level >= spdlog::level::warn) {
+                    ++warn_count;
+                }
+            });
+        // Filter at the sink level so info/debug/trace below warn don't
+        // count even if the logger's default level lets them through.
+        sink->set_level(spdlog::level::warn);
+        Log::video()->sinks().push_back(sink);
+        // Make sure the logger itself doesn't filter our warns out.
+        prev_level_ = Log::video()->level();
+        if (prev_level_ > spdlog::level::warn || prev_level_ == spdlog::level::off) {
+            Log::video()->set_level(spdlog::level::warn);
+        }
+    }
+
+    ~VideoWarnCounter() {
+        auto& sinks = Log::video()->sinks();
+        sinks.erase(std::remove(sinks.begin(), sinks.end(), sink), sinks.end());
+        Log::video()->set_level(prev_level_);
+    }
+
+    void reset() { warn_count = 0; }
+
+private:
+    spdlog::level::level_enum prev_level_ = spdlog::level::warn;
+};
+
+// ---------------------------------------------------------------------------
+// Attribute-density fixture: drive N attribute byte-writes on a given line
+// ---------------------------------------------------------------------------
+//
+// Models a Z80N-DMA / Copper-driven attribute streaming demo: the CPU is
+// re-uploading sprite-attribute bytes mid-frame; each port-0x57 byte produces
+// exactly one log entry (sprites.cpp:266-285).  We pick a single sprite
+// slot and rewrite byte0 (X-LSB) to a varying value `count` times.  Each
+// call commits exactly `count` log entries tagged with the engine's
+// current_line_.
+//
+// Because byte0 is the only field touched, the auto-increment slot machinery
+// in write_attribute (case 0 path) leaves attr_byte_ at 1, so the next call
+// to write_slot_select(slot) is what we use to reset the cursor before
+// each line's burst.
+static void burst_attr_byte0(SpriteEngine& spr, uint8_t slot, int count) {
+    for (int i = 0; i < count; ++i) {
+        spr.write_slot_select(slot);   // resets attr_byte_ to 0
+        spr.write_attribute(static_cast<uint8_t>(i & 0xFF));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2905,21 +2981,204 @@ static void group16() {
     // G16.OVF-01: VHDL sprites.vhd:327-470 (5 dual-port attribute RAMs,
     // sync-write async-read — VHDL has no cap; the cap is purely a C++
     // emulator constraint at MAX_CHANGES_PER_FRAME=8192 sprites.h:227).
-    stub("G16.OVF-01",
-         "Cap-overflow rendering consequence (writes that fit replay; >cap drop)",
-         "log overflow drops late writes silently sprites.cpp:79-88; per-row pixel check (see G13)");
+    //
+    // Cap-overflow rendering consequence (per-row pixel oracle):
+    // - Writes 0..MAX-1 are logged; their pixel effects ARE visible after
+    //   rewind_to_baseline + apply_changes_for_line at the originating
+    //   line.
+    // - Writes MAX..N (overflow) are NOT appended to the change log
+    //   (sprites.cpp:79-88) and therefore CANNOT be replayed: after
+    //   rewind+apply the engine returns to the last-logged value, NOT
+    //   the live "post-overflow" state.  A sprite whose final mid-frame
+    //   attribute is established by an overflowed write must therefore
+    //   render at its previously-logged position, not the dropped one.
+    //
+    // We model this by mid-frame-rewriting one sprite's X-LSB many times.
+    // The MAX-1'th rewrite is a recognisable signature (X=180); the
+    // rewrites past the cap deliberately move it to X=10.  After
+    // rewind+apply, line 0 must show the sprite at X=180 (logged) — NOT
+    // at X=10 (overflowed).
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        upload_pattern_8bpp_solid(spr, 0, 0x42);
 
-    // G16.OVF-02: VHDL sprites.vhd:327-470. overflow_warned_ observability
-    // needs a Log-fixture mock not yet in test harness.
-    stub("G16.OVF-02",
-         "Overflow warn fires once-per-frame; clears at next start_frame",
-         "needs Log-fixture mock not yet in harness (see G13)");
+        // Pre-frame: place sprite slot 0 at (X=0,Y=20), visible, no extend.
+        spr.write_slot_select(0);
+        spr.write_attribute(0);     // X
+        spr.write_attribute(20);    // Y
+        spr.write_attribute(0);     // attr2
+        spr.write_attribute(0x80);  // visible
+
+        spr.start_frame();          // baseline includes X=0
+        spr.set_current_line(0);
+
+        const size_t cap = SpriteEngine::MAX_CHANGES_PER_FRAME;
+
+        // Drive cap-1 byte-0 rewrites on line 0 (at varying values) to
+        // saturate the log, leaving room for one more logged byte-0
+        // entry.  burst_attr_byte0 commits exactly count log entries.
+        burst_attr_byte0(spr, 0, static_cast<int>(cap - 1));
+        // Slot value at this point is undefined (varying across writes);
+        // last logged value is (cap-2) & 0xFF.
+
+        // Logged-but-distinguishable write: X=180 at line 0.  After
+        // rewind+apply this should be the value seen on line 0.
+        spr.write_slot_select(0);
+        spr.write_attribute(180);   // logged byte0 — fits in cap
+
+        // Now drive overflow writes: ten more byte-0 rewrites all set
+        // X=10.  These commit to the live sprite RAM but log_attr_change
+        // drops them (count_ == cap).  After rewind+apply, the sprite
+        // must NOT render at X=10 because no log entry exists.
+        for (int i = 0; i < 10; ++i) {
+            spr.write_slot_select(0);
+            spr.write_attribute(10);  // overflow — not logged
+        }
+
+        // Per-row replay oracle: rewind, apply line 0, render line 20.
+        spr.rewind_to_baseline();
+        spr.apply_changes_for_line(0);
+
+        uint32_t line20[320]; clear_line(line20);
+        spr.render_scanline(line20, 20, pal);
+
+        // The logged X=180 wins.  Sprite is 16px wide.  Pixel at X=180
+        // must be 0x42 (sprite pattern fill); pixel at X=10 must be -1
+        // (no sprite there).
+        check("G16.OVF-01a",
+              "Cap-overflow: writes-that-fit replay (X=180 visible)",
+              pixel_index(line20, 180) == 0x42,
+              DETAIL("px@180=%d (expected 0x42)", pixel_index(line20, 180)));
+        check("G16.OVF-01b",
+              "Cap-overflow: writes-past-cap dropped (X=10 NOT visible)",
+              pixel_index(line20, 10) == -1,
+              DETAIL("px@10=%d (expected -1)", pixel_index(line20, 10)));
+        check("G16.OVF-01c",
+              "Cap-overflow: change-log saturated at cap",
+              spr.change_log_size() == cap,
+              DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
+    }
+
+    // G16.OVF-02: VHDL sprites.vhd:327-470.  C++ cap is jnext-side
+    // (sprites.h:227) and emits one warn per frame on first overflow
+    // (sprites.cpp:81-86, overflow_warned_ flag).  start_frame
+    // (sprites.cpp:153) clears the flag so the next frame's first
+    // overflow re-warns.  Use VideoWarnCounter to observe.
+    {
+        fresh(spr, pal);
+        VideoWarnCounter warns;
+
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        const size_t cap = SpriteEngine::MAX_CHANGES_PER_FRAME;
+
+        // Saturate the log without overflow: cap byte-0 rewrites on
+        // slot 0.  No warn yet.
+        burst_attr_byte0(spr, 0, static_cast<int>(cap));
+        check("G16.OVF-02a",
+              "At-cap (no overflow yet): zero warns",
+              warns.warn_count == 0,
+              DETAIL("warns=%d", warns.warn_count));
+
+        // First overflow: triggers exactly one warn.
+        burst_attr_byte0(spr, 0, 1);
+        check("G16.OVF-02b",
+              "First overflow: exactly one warn fired",
+              warns.warn_count == 1,
+              DETAIL("warns=%d", warns.warn_count));
+
+        // Subsequent overflow writes within the same frame do NOT
+        // re-warn (overflow_warned_ latched).
+        burst_attr_byte0(spr, 0, 100);
+        check("G16.OVF-02c",
+              "Same-frame overflow: still exactly one warn (once-per-frame)",
+              warns.warn_count == 1,
+              DETAIL("warns=%d", warns.warn_count));
+
+        // start_frame clears overflow_warned_ AND change_count_.  Next
+        // frame's first overflow must fire its own warn.
+        spr.start_frame();
+        spr.set_current_line(0);
+
+        // Saturate again, then push one over.
+        burst_attr_byte0(spr, 0, static_cast<int>(cap));
+        check("G16.OVF-02d",
+              "After start_frame: log cleared, warn flag cleared",
+              spr.change_log_size() == cap && warns.warn_count == 1,
+              DETAIL("count=%zu warns=%d", spr.change_log_size(), warns.warn_count));
+
+        burst_attr_byte0(spr, 0, 1);
+        check("G16.OVF-02e",
+              "Second-frame overflow re-fires warn (clears at start_frame)",
+              warns.warn_count == 2,
+              DETAIL("warns=%d", warns.warn_count));
+    }
 
     // G16.OVF-03: VHDL sprites.vhd:368-380 (per-line CPU-write commit
-    // visible to next line's FSM). Boundary case below cap.
-    stub("G16.OVF-03",
-         "Z80N-DMA 32 byte-rewrites/line × 256 lines = 8192 writes (boundary)",
-         "needs attribute-density fixture + per-line render oracle (see G13)");
+    // visible to next line's FSM). Boundary case at the cap.
+    //
+    // Drive exactly MAX_CHANGES_PER_FRAME=8192 byte-0 rewrites spread
+    // evenly across all 256 visible scanlines (32 byte rewrites/line × 256
+    // lines = 8192). This is the maximum density the C++ engine accepts
+    // without overflowing — a Z80N-DMA streaming demo at this rate fits
+    // exactly. Assertions:
+    //   (a) NO overflow warning fires (we are AT cap, not OVER).
+    //   (b) change_log_size == cap (every write logged).
+    //   (c) Per-line render oracle: on line K (0..255), the last logged
+    //       byte-0 value at line K is K (the densities helper writes
+    //       `i & 0xFF` and we make K==(31)&0xFF==31 the LAST write of the
+    //       line ⇒ rendered X position == 31). Test a sample line.
+    {
+        fresh(spr, pal);
+        VideoWarnCounter warns;
+        pal.set_sprite_transparency(0xE3);
+        upload_pattern_8bpp_solid(spr, 0, 0x42);
+
+        // Pre-frame: place sprite slot 0 at (X=0, Y=20), visible.
+        spr.write_slot_select(0);
+        spr.write_attribute(0);     // X
+        spr.write_attribute(20);    // Y
+        spr.write_attribute(0);     // attr2
+        spr.write_attribute(0x80);  // visible
+
+        spr.start_frame();
+
+        // 32 byte-0 rewrites per line × 256 lines = 8192 writes.
+        // burst_attr_byte0 issues writes with values 0,1,2,...,count-1.
+        // Final value on each line is (count-1) = 31 ⇒ X position 31.
+        const int per_line = 32;
+        const int lines = 256;
+        for (int row = 0; row < lines; ++row) {
+            spr.set_current_line(row);
+            burst_attr_byte0(spr, 0, per_line);
+        }
+
+        const size_t cap = SpriteEngine::MAX_CHANGES_PER_FRAME;
+        check("G16.OVF-03a",
+              "AT cap (32×256=8192): no overflow warn",
+              warns.warn_count == 0,
+              DETAIL("warns=%d", warns.warn_count));
+        check("G16.OVF-03b",
+              "AT cap: every write logged",
+              spr.change_log_size() == cap,
+              DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
+
+        // One more write would tip into overflow.  Don't drive it; just
+        // verify the boundary is intact: render line 100 and check the
+        // sprite's X is 31 (the last logged value at row 100).
+        spr.rewind_to_baseline();
+        for (int row = 0; row <= 100; ++row) spr.apply_changes_for_line(row);
+
+        uint32_t line100[320]; clear_line(line100);
+        spr.render_scanline(line100, 20, pal);  // Y=20 baseline, sprite still 16px high → visible at any line in [20..35]
+
+        check("G16.OVF-03c",
+              "AT cap: per-line replay produces last-logged X=31",
+              pixel_index(line100, 31) == 0x42,
+              DETAIL("px@31=%d (expected 0x42)", pixel_index(line100, 31)));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3396,9 +3655,132 @@ static void group17() {
     // MAX_PATTERN_CHANGES_PER_FRAME=8192 (sprites.h:237).
     // (Renumbered from PSL-PAT-04 — collided with existing reset-clears
     // group at lines 3157/3165/3171.)
-    stub("G17.PSL-PAT-08",
-         "Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap",
-         "same root as G13: cap is C++ budget, not VHDL behaviour (see G15)");
+    //
+    // Re-stream the entire 16 KB pattern RAM in one frame (16384 byte
+    // writes) — well over the 8192 cap.  Assertions mirror G16.OVF-01
+    // for the pattern side:
+    //   (a) Writes 0..MAX-1 ARE replayed: pattern[0]'s value (set by an
+    //       early-frame write) IS visible in the rendered sprite.
+    //   (b) Writes MAX..N (overflow) are NOT replayed: pattern bytes
+    //       written past the cap stay at their baseline (0) value
+    //       through rewind+apply, even though the live pattern_ram_ has
+    //       the new data.
+    //   (c) pattern_change_log_size == cap (saturated).
+    //   (d) Exactly one warn fired on the pattern-side overflow path
+    //       (sprites.cpp:102-107).
+    {
+        fresh(spr, pal);
+        VideoWarnCounter warns;
+        pal.set_sprite_transparency(0xE3);
+
+        // Pre-frame: zero-fill the pattern RAM (so baseline is all 0).
+        // Place sprite slot 0 at (X=0, Y=20) using pattern 0, visible.
+        spr.write_slot_select(0);
+        for (int i = 0; i < 256; ++i) spr.write_pattern(0x00);
+        spr.write_slot_select(0);
+        spr.write_attribute(0);     // X
+        spr.write_attribute(20);    // Y
+        spr.write_attribute(0);     // attr2
+        spr.write_attribute(0x80);  // visible
+
+        spr.start_frame();          // baseline: pattern all-zero
+        spr.set_current_line(0);
+
+        const size_t cap = SpriteEngine::MAX_PATTERN_CHANGES_PER_FRAME;
+
+        // Mid-frame at line 0: stream all 16384 bytes back into pattern
+        // RAM, with a recognisable signature at offset 5 (within the cap)
+        // and at offset cap+10 (beyond the cap).
+        //
+        // Each call to write_slot_select resets pattern_offset_ to a
+        // known 14-bit value.  After write_slot_select(0), pattern_offset_
+        // == 0, then write_pattern auto-increments after each byte.
+        spr.write_slot_select(0);
+        // Write 0..(cap-1) bytes of pattern data; signature 0x42 at
+        // offset 5 (well within the first sprite-pattern chunk so the
+        // render at X=5 will see it).
+        for (size_t i = 0; i < cap; ++i) {
+            uint8_t v = (i == 5) ? 0x42 : 0x11;
+            spr.write_pattern(v);
+        }
+        check("G17.PSL-PAT-08a",
+              "AT cap: zero overflow warns",
+              warns.warn_count == 0,
+              DETAIL("warns=%d", warns.warn_count));
+
+        // Now drive overflow: 100 more pattern bytes.  The first one
+        // triggers exactly one warn; subsequent ones don't re-warn.
+        // Use signature 0xCC for these — they should NOT appear in the
+        // rendered sprite because the cap drops them from the log.
+        for (int i = 0; i < 100; ++i) {
+            spr.write_pattern(0xCC);
+        }
+        check("G17.PSL-PAT-08b",
+              "Pattern overflow: log saturated at cap",
+              spr.pattern_change_log_size() == cap,
+              DETAIL("count=%zu cap=%zu",
+                     spr.pattern_change_log_size(), cap));
+        check("G17.PSL-PAT-08c",
+              "Pattern overflow: exactly one warn (once-per-frame)",
+              warns.warn_count == 1,
+              DETAIL("warns=%d", warns.warn_count));
+
+        // Per-row replay oracle.  Rewind restores baseline (all-zero).
+        // apply_changes_for_line(0) replays the cap entries.  Render
+        // line 20 (sprite Y=20, row 0 of the sprite, pattern offset
+        // [0..15] = first 16 bytes of pattern_ram_).
+        spr.rewind_to_baseline();
+        spr.apply_changes_for_line(0);
+
+        uint32_t line20[320]; clear_line(line20);
+        spr.render_scanline(line20, 20, pal);
+
+        // Within-cap signature at pattern offset 5 must be visible at
+        // X=5 (sprite at X=0, row 0, col 5 → pattern_ram_[5]).
+        check("G17.PSL-PAT-08d",
+              "Pattern within cap: replay restores 0x42 at offset 5",
+              pixel_index(line20, 5) == 0x42,
+              DETAIL("px@5=%d (expected 0x42)", pixel_index(line20, 5)));
+
+        // Beyond-cap pattern bytes (0xCC) MUST NOT be visible in the
+        // replayed pattern RAM.  Pattern offset cap+0 .. cap+99 is in
+        // the second-half of the 16 KB pattern RAM (cap=8192 maps to
+        // sprite pattern slot 32, offset 0).  Those slots are not
+        // referenced by sprite slot 0 (which uses pattern bytes
+        // [0..255] of slot 0).  We verify the cap_drop indirectly by
+        // inspecting the live pattern_ram_ after rewind: at offset
+        // (cap+10) the rewind restored the baseline (0x00), NOT the
+        // overflowed 0xCC.  We expose that via a render of a sprite
+        // pointing at slot 32 (pattern offset 8192).
+        //
+        // Set sprite slot 1 to use pattern 32 at (X=200, Y=20).
+        spr.write_slot_select(1);
+        spr.write_attribute(200);   // X
+        spr.write_attribute(20);    // Y
+        spr.write_attribute(0);     // attr2
+        spr.write_attribute(0x80 | 32);  // visible | pattern=32 (N5:N0)
+
+        // The slot-1 attribute writes above are logged at line 0.
+        // We need to rewind+apply ONLY line 0 again because we want
+        // line 20 to show the sprite at slot 1.  But the engine's
+        // render-cursor was already advanced past line 0; do another
+        // rewind+apply cycle.
+        spr.rewind_to_baseline();
+        spr.apply_changes_for_line(0);
+
+        uint32_t line20b[320]; clear_line(line20b);
+        spr.render_scanline(line20b, 20, pal);
+
+        // Slot 1 sprite at X=200, pattern 32 (offset 8192 in pattern
+        // RAM = cap).  Pattern byte at offset cap+10 was OVERFLOWED.
+        // After rewind, pattern_ram_[cap+10] is back to 0 (baseline).
+        // So the rendered pixel at X=210 (column 10 of slot 1 sprite)
+        // must be 0x00, NOT 0xCC.
+        check("G17.PSL-PAT-08e",
+              "Pattern beyond cap: overflow drops (px@210 != 0xCC)",
+              pixel_index(line20b, 210) != 0xCC,
+              DETAIL("px@210=%d (expected NOT 0xCC)", pixel_index(line20b, 210)));
+    }
 
     // G06.NR70-01: Cross-subsystem placeholder for L2 NR 0x70 b5:4 width
     // mid-frame flip. Lives here until LAYER2 plan grows a per-scanline
