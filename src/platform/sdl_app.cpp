@@ -89,6 +89,30 @@ bool SdlApp::init(int argc, char* argv[]) {
                 display_.set_scale(next_scale);
                 return;
             }
+            // G152 host hotkeys (F1 hard reset / F4 soft reset / F9 MF NMI
+            // / F10 DivMMC NMI). Mirror MainWindow keyPressEvent.
+            if (sc == SDL_SCANCODE_F1)  { emulator_.on_hotkey_f1_hard_reset();   return; }
+            if (sc == SDL_SCANCODE_F4)  { emulator_.on_hotkey_f4_soft_reset();   return; }
+            if (sc == SDL_SCANCODE_F9)  { emulator_.on_hotkey_f9_mf_nmi();       return; }
+            if (sc == SDL_SCANCODE_F10) { emulator_.on_hotkey_f10_divmmc_nmi();  return; }
+            // G147 host hotkeys F3/F5/F6/F7/F8 → EmuFnKeys FSM. Side-effect
+            // callbacks installed by Emulator (NR 0x05/0x07/0x09 toggles).
+            if (sc == SDL_SCANCODE_F3)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(3); return; }
+            if (sc == SDL_SCANCODE_F5)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(5); return; }
+            if (sc == SDL_SCANCODE_F6)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(6); return; }
+            if (sc == SDL_SCANCODE_F7)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(7); return; }
+            if (sc == SDL_SCANCODE_F8)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(8); return; }
+        } else {
+            // Consume release so host hotkeys never bleed into the ZX matrix.
+            switch (sc) {
+            case SDL_SCANCODE_F1: case SDL_SCANCODE_F2: case SDL_SCANCODE_F3:
+            case SDL_SCANCODE_F4: case SDL_SCANCODE_F5: case SDL_SCANCODE_F6:
+            case SDL_SCANCODE_F7: case SDL_SCANCODE_F8: case SDL_SCANCODE_F9:
+            case SDL_SCANCODE_F10: case SDL_SCANCODE_F11:
+                return;
+            default:
+                break;
+            }
         }
         emulator_.keyboard().set_key(sc, pressed);
     };

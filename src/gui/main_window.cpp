@@ -938,6 +938,62 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             }
             break;
 
+        // Host hotkeys -> EmuFnKeys FSM (G147). VHDL zxnext.vhd:6340-6349
+        // emit_F[3,5,6,7,8] are membrane "fnkey strobes" produced by the
+        // emu_fnkeys FSM (input/membrane/emu_fnkeys.vhd) when the user
+        // taps M1+F3/M1+F5/M1+F6/M1+F7/M1+F8. The FSM gates F3/F8 by
+        // NR 0x06 bits 5/7 (handled inside EmuFnKeys). F5/F6 carry the
+        // expansion-bus enable / disable strobes; F7 cycles scanlines.
+        // Routed through Emulator::emu_fnkeys() which the host installed
+        // side-effect callbacks for in emulator.cpp.
+        //
+        // In production the FSM advances on a per-tick cadence driven
+        // by the emulator clock. For host-driven F-key taps we use the
+        // self-contained `simulate_mf_fkey_press()` helper that drives
+        // the FSM through IDLE → MF_ROW_A11 → MF_ROW_A12 → MF_CHECK →
+        // MF_DONE in one host-event boundary. The side-effect callback
+        // fires on entry to MF_DONE.
+        //
+        // F2 is intentionally NOT routed here — it remains the GUI scale
+        // cycler (case Qt::Key_F2 above). F1/F4/F9/F10 are owned by G152
+        // (reset/NMI). When the debugger is active F5/F6/F7/F8/F9 are
+        // claimed earlier in this function and never reach this block.
+        case Qt::Key_F3:
+            if (emulator_) {
+                emulator_->emu_fnkeys().simulate_mf_fkey_press(3);
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F5:
+            if (emulator_) {
+                emulator_->emu_fnkeys().simulate_mf_fkey_press(5);
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F6:
+            if (emulator_) {
+                emulator_->emu_fnkeys().simulate_mf_fkey_press(6);
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F7:
+            if (emulator_) {
+                emulator_->emu_fnkeys().simulate_mf_fkey_press(7);
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F8:
+            if (emulator_) {
+                emulator_->emu_fnkeys().simulate_mf_fkey_press(8);
+                event->accept();
+                return;
+            }
+            break;
+
         default:
             break;
         }
@@ -960,6 +1016,26 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
             || key == Qt::Key_F9 || key == Qt::Key_F10) {
             event->accept();
             return;
+        }
+        // G147 host hotkeys (F3/F5/F6/F7/F8) — same release-consume rule.
+        // The FSM-driven press is fully consumed at keyPressEvent (one-shot
+        // simulate_mf_fkey_press); the release just needs to not bleed into
+        // the ZX matrix.
+        if (key == Qt::Key_F3 || key == Qt::Key_F5
+            || key == Qt::Key_F6 || key == Qt::Key_F7 || key == Qt::Key_F8) {
+#ifdef ENABLE_DEBUGGER
+            // When the debugger is active F5/F6/F7/F8 belong to it — fall
+            // through so the debugger's own release handling can run.
+            if (!(debugger_mgr_ && debugger_mgr_->is_enabled() &&
+                  (key == Qt::Key_F5 || key == Qt::Key_F6 ||
+                   key == Qt::Key_F7 || key == Qt::Key_F8))) {
+                event->accept();
+                return;
+            }
+#else
+            event->accept();
+            return;
+#endif
         }
 #ifdef ENABLE_DEBUGGER
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
