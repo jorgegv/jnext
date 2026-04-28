@@ -684,9 +684,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x6E: Tilemap base address
     nextreg_.set_write_handler(0x6E, [this](uint8_t v) { tilemap_.set_map_base(v); });
+    // VHDL zxnext.vhd:6108 — read mux forces bit 6 to '0'
+    // (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`).
+    nextreg_.set_read_handler(0x6E, [this]() -> uint8_t { return tilemap_.get_map_base_read(); });
 
     // Register 0x6F: Tile definitions base address
     nextreg_.set_write_handler(0x6F, [this](uint8_t v) { tilemap_.set_def_base(v); });
+    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E.
+    nextreg_.set_read_handler(0x6F, [this]() -> uint8_t { return tilemap_.get_def_base_read(); });
 
     // Registers 0x60-0x63: Copper co-processor
     nextreg_.set_write_handler(0x60, [this](uint8_t v) { copper_.write_reg_0x60(v); });

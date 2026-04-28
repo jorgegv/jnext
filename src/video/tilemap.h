@@ -50,9 +50,18 @@ public:
     void set_map_base(uint8_t val);
     uint8_t get_map_base_raw() const { return map_base_raw_; }
 
+    /// NR 0x6E read-back — VHDL zxnext.vhd:6108 forces bit 6 to '0'
+    /// (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`). The raw
+    /// stored byte is therefore masked when read back through NR 0x6E.
+    uint8_t get_map_base_read() const { return map_base_raw_ & 0xBF; }
+
     /// NextREG 0x6F — Tile definitions base address (same encoding as 0x6E).
     void set_def_base(uint8_t val);
     uint8_t get_def_base_raw() const { return def_base_raw_; }
+
+    /// NR 0x6F read-back — VHDL zxnext.vhd:6111 forces bit 6 to '0'
+    /// (`nr_6f_tilemap_tiles_7 & '0' & nr_6f_tilemap_tiles`).
+    uint8_t get_def_base_read() const { return def_base_raw_ & 0xBF; }
 
     /// NextREG 0x2F — Tilemap X scroll MSB (bits 1:0).
     void set_scroll_x_msb(uint8_t val) { scroll_x_ = (scroll_x_ & 0xFF) | ((val & 0x03) << 8); }
