@@ -430,6 +430,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x43, [this](uint8_t v) {
         palette_.write_control(v);
         renderer_.ula().set_ulanext_en((v & 0x01) != 0);
+        // G10: mirror NR 0x43 b1-3 selector bits into Ula's per-scanline
+        // selector change-log. PaletteManager owns the live state used by
+        // the rasterizer; Ula owns the change-log replayed per scanline so
+        // Copper-driven mid-frame selector flips (e.g. split-bank palette
+        // bands) take effect on the next scanline rather than collapsing
+        // to last-write-wins. VHDL zxnext.vhd:5391-5393, :6825-6828.
+        renderer_.ula().set_active_ula_palette((v & 0x02) != 0);
+        renderer_.ula().set_active_layer2_palette((v & 0x04) != 0);
+        renderer_.ula().set_active_sprite_palette((v & 0x08) != 0);
     });
 
     // Register 0x44: Palette value 9-bit (two consecutive writes)
@@ -737,6 +746,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL nr_6b_tm_palette_select (bit 4) — drives the tilemap palette
         // lookup at render time.  Must come from NR 0x6B, NOT from NR 0x43.
         palette_.set_active_tilemap_palette((v & 0x10) != 0);
+        // G10: mirror NR 0x6B b4 into Ula's per-scanline selector change-log
+        // (independent latch from NR 0x43 — VHDL zxnext.vhd:5462, :6826).
+        renderer_.ula().set_active_tilemap_palette((v & 0x10) != 0);
     });
 
     // Register 0x6C: Tilemap default attribute
@@ -3005,6 +3017,14 @@ void Emulator::run_frame()
     // upload's Y positions). VHDL sprites.vhd:327-470.
     sprites_.start_frame();
 
+    // Per-scanline active-palette selector snapshot (G10) — distinct from
+    // PaletteManager::start_frame() (which logs CONTENT). This logs the
+    // SELECTOR bit-lanes (NR 0x43 b1-3 + NR 0x6B b4) so Copper-driven
+    // mid-frame palette-bank switches take effect line-by-line instead of
+    // collapsing to last-write-wins. VHDL zxnext.vhd:5391-5393 (NR 0x43
+    // latches), :5462 (NR 0x6B control(4) latch), :6825-6828 (mux).
+    renderer_.ula().palsel_start_frame();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -3822,6 +3842,9 @@ void Emulator::on_scanline(int line)
     layer2_.set_current_line(line);
     // Same scanline tag for sprite-attribute writes (port 0x57, NR 0x75-0x79).
     sprites_.set_current_line(line);
+    // Same scanline tag for ULA active-palette selector writes
+    // (NR 0x43 b1-3 + NR 0x6B b4). G10 — VHDL zxnext.vhd:5391-5393, :5462.
+    renderer_.ula().set_palsel_current_line(line);
 }
 
 void Emulator::on_vsync()

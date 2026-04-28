@@ -63,6 +63,12 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         sprites->rewind_to_baseline();
     }
 
+    // Per-scanline ULA active-palette selector (G10): same rewind+replay
+    // pattern. NR 0x43 b1-3 picks active palette bank for ULA / Layer 2 /
+    // sprites; NR 0x6B b4 picks active palette bank for tilemap. VHDL
+    // zxnext.vhd:5391-5393 + :5462 latches, :6825-6828 mux.
+    ula_.palsel_rewind_to_baseline();
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
         // layer rendering reads palette state.
@@ -71,6 +77,8 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (sprites) {
             sprites->apply_changes_for_line(row);
         }
+        // Apply ULA active-palette selector log for this scanline (G10).
+        ula_.palsel_apply_changes_for_line(row);
 
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
