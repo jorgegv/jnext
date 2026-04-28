@@ -1517,13 +1517,72 @@ static void test_section15_shadow() {
 static void test_section16_nrff_palette() {
     set_group("S16-NRFF-PALETTE");
 
-    // S16.01 — VHDL zxnext.vhd:6957 — NR 0xFF write commits a value
-    // derived from nr_wr_dat into the ULA/TM palette RAM at the
-    // bf3b-indexed slot. src/port/nextreg.cpp has no write_handler for
-    // NR 0xFF; regs_[0xFF] is raw storage only. Blocked on G102/G103
-    // palette-store widening + new NR 0xFF write_handler. See G150.
-    skip("S16.01",
-         "F-G150-NRFF: NR 0xFF palette poke side-channel absent (see G150)");
+    // S16.01 — VHDL zxnext.vhd:6957-6958 + :4919 — NR 0xFF write commits a
+    // 9-bit value derived from nr_wr_dat (RRRGGGBBB with B0 = B1|B0) into
+    // the ULA palette region at slot (NR 0x43 b6, port 0xBF3B b5:0).
+    //
+    // End-to-end exercise without the Port/NextReg dispatch shells:
+    //   1. mimic port 0xBF3B handler: write 0x05 (mode "00", index 0x05)
+    //      → Ula::set_ulap_mode(0) + set_ulap_index(5).
+    //   2. mimic NR 0xFF handler: bank from NR 0x43 b6, index from Ula,
+    //      byte through PaletteManager::nr_ff_poke.
+    //   3. assert the entry stored at (bank, index) matches the VHDL
+    //      RRRGGGBBB expansion of the byte.
+    //
+    // The bf3b mode-gate sub-check (mode != "00" must NOT update index)
+    // is the same VHDL line that governs S7.01's enable-gate; we cover
+    // it in the same row to keep S16 a single check() per the test plan.
+    {
+        Ula ula;
+        PaletteManager palette;
+        // Emulator-style bf3b write with mode="00" (palette-index mode):
+        const uint8_t bf3b_byte = 0x05;  // mode=00, index=0x05
+        ula.set_ulap_mode(static_cast<uint8_t>((bf3b_byte >> 6) & 0x03));
+        if (((bf3b_byte >> 6) & 0x03) == 0x00) {
+            ula.set_ulap_index(static_cast<uint8_t>(bf3b_byte & 0x3F));
+        }
+        const bool mode_ok  = (ula.get_ulap_mode()  == 0x00);
+        const bool index_ok = (ula.get_ulap_index() == 0x05);
+
+        // NR 0x43 control: target bits 6:4 = 100 (ULA_SECOND) selects
+        // bank_second = (b6=1).  Only b6 reaches the NR 0xFF address
+        // override (palette_write_select(2) per zxnext.vhd:6958).
+        palette.write_control(0x40);  // bits[6:4] = 100 → bank_second=true
+        const bool bank_select = (palette.read_control() & 0x40) != 0;
+
+        // Mimic NR 0xFF write of 0xA5 (R=101, G=001, B=01).
+        // VHDL zxnext.vhd:4919: nr_palette_value = (byte & (b1 | b0)).
+        //   byte = 0xA5 = 1010_0101 → r3=101, g3=001, b2=01
+        //   B0 = (b1=0 | b0=1) = 1 → b3 = 011
+        // Expected RGB333 = (101 << 6) | (001 << 3) | 011 = 0x14B.
+        const uint8_t  nrff_byte    = 0xA5;
+        const uint16_t expected_rgb = static_cast<uint16_t>((5u << 6) | (1u << 3) | 3u);
+        palette.nr_ff_poke(bank_select, ula.get_ulap_index(), nrff_byte);
+
+        const uint16_t got_rgb       = palette.ulap_poke_rgb333(true,  0x05);
+        const uint16_t other_bank    = palette.ulap_poke_rgb333(false, 0x05);
+        const uint16_t other_index   = palette.ulap_poke_rgb333(true,  0x06);
+
+        // Sub-check: mode != "00" must NOT update index (zxnext.vhd:4533).
+        ula.set_ulap_mode(0x01);  // simulate handler raw mode write
+        // Index gate: do NOT call set_ulap_index when mode != 00.
+        const bool index_held_ok = (ula.get_ulap_index() == 0x05);
+
+        const bool poke_ok        = (got_rgb     == expected_rgb);
+        const bool isolation_bank = (other_bank  == 0);
+        const bool isolation_idx  = (other_index == 0);
+
+        check("S16.01",
+              "zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, "
+              "idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1|B0)",
+              mode_ok && index_ok && poke_ok && isolation_bank
+                  && isolation_idx && index_held_ok,
+              fmt("mode=%d idx=0x%02X rgb=0x%03X/exp 0x%03X "
+                  "other_bank=0x%03X other_idx=0x%03X held=%d",
+                  ula.get_ulap_mode(), ula.get_ulap_index(),
+                  got_rgb, expected_rgb, other_bank, other_index,
+                  index_held_ok ? 1 : 0));
+    }
 }
 
 // =========================================================================

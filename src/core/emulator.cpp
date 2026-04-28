@@ -437,6 +437,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         palette_.write_9bit(v);
     });
 
+    // Register 0xFF: ULA+ palette poke side-channel — VHDL zxnext.vhd:6957-6958.
+    // NR 0xFF writes commit a single palette entry into the ULA palette region
+    // at slot (NR 0x43 b6 = bank, port 0xBF3B b5:0 = index), independent of the
+    // NR 0x40 / NR 0x41 / NR 0x44 indexing used by the regular palette I/O
+    // path.  Value byte expansion follows zxnext.vhd:4919 (RRRGGGBB →
+    // RRRGGGBBB with B0 = B1|B0); priority is "00" per zxnext.vhd:4920 since
+    // nr_44_we does not fire.
+    nextreg_.set_write_handler(0xFF, [this](uint8_t v) {
+        // nr_43_palette_write_select(2) = NR 0x43 bit 6 (zxnext.vhd:5390:
+        // `nr_43_palette_write_select <= nr_wr_dat(6 downto 4)`).
+        const bool bank_second = (palette_.read_control() & 0x40) != 0;
+        const uint8_t bf3b_index = renderer_.ula().get_ulap_index();
+        palette_.nr_ff_poke(bank_second, bf3b_index, v);
+    });
+
     // Register 0x4B: Sprite transparency index
     nextreg_.set_write_handler(0x4B, [this](uint8_t v) {
         palette_.set_sprite_transparency(v);
@@ -2323,10 +2338,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0xBF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
         [this](uint16_t, uint8_t v) {
-            // Ula tracks only the mode-group (top 2 bits); the index (low 6
-            // bits) belongs to the Compositor-owned palette path and is
-            // still a stub in Wave C scope.
+            // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
+            // is unconditional on every bf3b write.
             renderer_.ula().set_ulap_mode(static_cast<uint8_t>((v >> 6) & 0x03));
+            // VHDL zxnext.vhd:4533-4535 — the index latch only updates
+            // when cpu_do(7:6) = "00" (palette-index mode).  The index is
+            // consumed by the NR 0xFF palette-poke side-channel
+            // (zxnext.vhd:6957-6958) and by ULA+ palette readback.
+            if (((v >> 6) & 0x03) == 0x00) {
+                renderer_.ula().set_ulap_index(static_cast<uint8_t>(v & 0x3F));
+            }
         });
     port_.register_handler(0xFFFF, 0xFF3B,
         [](uint16_t) -> uint8_t { return 0x00; },
