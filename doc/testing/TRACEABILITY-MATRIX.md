@@ -2707,11 +2707,14 @@ Last-touch commit: `886b4c233a7e00885e469ae783073f4f16b04c24` (`886b4c2`)
 The base 28→0 skip closure for this suite landed on 2026-04-26 via a
 three-phase wave (Phase A=28 bare-class rows, Phase B=36 full-Emulator
 rows, Phase C=4 integration-smoke rows — `doc/testing/CONTENTION-TEST-PLAN-DESIGN.md` §15
-"closed 2026-04-26"). Subsequent additions for G50 (`CT-DELAY-01`),
+"closed 2026-04-26"). Subsequent additions for
 G51 (`CT-TURBO-08`), G53 (`CT-FUSE-05`), G141 (`CT-FUSE-01..04`) and
 G142 (`CT-TURBO-07`) are tracked here as `F-skip` rows pending the
 respective emulator work (FUSE-table retirement, NR 0x07 bus-idle
-commit edge, full-frame drift bound, combined hc(8)+bus-idle ordering).
+commit edge, combined hc(8)+bus-idle ordering). G50
+(`CT-DELAY-01`, full-frame integration drift bound) closed 2026-04-28
+via §14b — drift envelope is `(0, 6·N]` for 48K/128K/+3 and `0` for
+Pentagon, derived from the VHDL `wait_s × pattern` LUT.
 Plan numbering: §4–§14 land green; §16 + post-§14 G-rows are the open
 backlog. The CON-* rows from `test/mmu/mmu_test.cpp` were C2-moved
 into this suite as part of the 2026-04-26 closure.
@@ -2793,7 +2796,7 @@ into this suite as part of the 2026-04-26 closure.
 | CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (G141)| zxula.vhd:595, zxnext.vhd:4496      | skip   | test/contention/contention_test.cpp:1455    |
 | CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (G141)  | zxula.vhd:595, zxnext.vhd:4496      | skip   | test/contention/contention_test.cpp:1457    |
 | CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | —                                   | skip   | test/contention/contention_test.cpp:1474    |
-| CT-DELAY-01  | Full-frame integration drift not bounded yet (G50)                  | —                                   | skip   | test/contention/contention_test.cpp:1462    |
+| CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1488    |
 
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`

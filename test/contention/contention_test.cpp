@@ -1436,6 +1436,119 @@ static void test_integration_smoke() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// §14b. Full-frame integration drift bound (1 row, G50 closure)
+// VHDL oracle: zxula.vhd:582-595 wait_s × per-phase pattern
+// {6,5,4,3,2,1,0,0}. Bound the per-frame drift induced by the runtime
+// `ContentionModel::contention_tick()` path against the hand-derivable
+// pattern envelope across all four contention-relevant machine types
+// (48K, 128K, +3 — drift > 0 and ≤ 6·N; Pentagon — drift == 0).
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_delay_drift_bound() {
+    set_group("CT-DELAY");
+
+    // CT-DELAY-01 — G50 closure. Run the §14 IntSmokeProgram (100
+    // contended LD A,(HL) reads from bank 5, terminated by HALT) on
+    // each contention-relevant machine, sample the cumulative T-state
+    // drift = total - kBaselineT, and bound it against the VHDL
+    // wait_s × pattern envelope:
+    //
+    //   per-iteration drift ∈ {6,5,4,3,2,1,0,0}[hc & 7]   while inside
+    //                          display window (vc ∈ [0, 191], hc ≤ 255)
+    //                       ∈ {0}                          otherwise
+    //
+    // Hard upper bound for N iterations:  N · max(pattern) = N · 6.
+    // Hard lower bound:                   0.
+    //
+    // For 48K/128K/+3 with bank-5 LD A,(HL): mem_contend asserts (page
+    // 0x0A is contended on all three timing modes per zxnext.vhd:4490-
+    // 4492), so the drift must fall STRICTLY inside (0, 6·N]. (Drift
+    // strictly > 0 because the 100-iteration program spans ~10
+    // scanlines starting at vc=0 — the entire trajectory sits inside
+    // the display window, so at least some iterations land in stretched
+    // hc phases.)
+    //
+    // For Pentagon: zxnext.vhd:4481 forces the gate OFF
+    // (`not machine_timing_pentagon`) AND build()'s LUT is left
+    // all-zero (src/memory/contention.cpp:23 early-return), so drift
+    // must be EXACTLY 0. This row layers on top of CT-PENT-05 by
+    // pinning the drift bound for Pentagon to its single-point value.
+    //
+    // Implementation note: the CT-DELAY suite is intentionally distinct
+    // from CT-INT (§14 integration-smoke) — CT-INT-01 only asserts
+    // `total > baseline` (i.e. drift > 0), which is a one-sided guard.
+    // CT-DELAY-01 closes the bound on the high end so that any future
+    // off-by-N or sign-flip regression in `contention_tick()` is caught
+    // even if drift is still strictly positive.
+    struct DriftCase {
+        const char* tag;
+        MachineType type;
+        uint32_t    drift_min;   // strict lower bound (drift >= drift_min)
+        uint32_t    drift_max;   // inclusive upper bound (drift <= drift_max)
+        bool        require_nonzero;
+    };
+    constexpr uint32_t kN          = IntSmokeProgram::kIterations;   // 100
+    constexpr uint32_t kPatternMax = 6;                              // pattern[0]
+    constexpr uint32_t kDriftCap   = kN * kPatternMax;               // 600
+    const DriftCase cases[] = {
+        // 48K  : page 0x0A, mem_contend=1 (bits(3:1)=101) — contended.
+        { "48K",      MachineType::ZX48K,    0, kDriftCap, /*nonzero*/ true  },
+        // 128K : page 0x0A, mem_contend=1 (bit(1)=1)      — contended.
+        { "128K",     MachineType::ZX128K,   0, kDriftCap, /*nonzero*/ true  },
+        // +3   : page 0x0A, mem_contend=1 (bit(3)=1)      — contended.
+        // (+3 also has the hc_adj(3:1)=000 extra-phase clause, but the
+        //  per-phase amplitude is still bounded by max(pattern)=6.)
+        { "+3",       MachineType::ZX_PLUS3, 0, kDriftCap, /*nonzero*/ true  },
+        // Pent : zxnext.vhd:4481 gate forces zero — drift must be 0.
+        { "Pentagon", MachineType::PENTAGON, 0, 0,         /*nonzero*/ false },
+    };
+
+    bool all_bounded = true;
+    bool all_init_ok = true;
+    std::string detail;
+
+    for (const auto& c : cases) {
+        Emulator emu;
+        if (!make_emu(emu, c.type)) {
+            all_init_ok = false;
+            detail += std::string(c.tag) + ":init-failed ";
+            continue;
+        }
+        install_int_smoke_program(emu);
+        const uint32_t total    = run_int_smoke_program(emu);
+        const uint32_t baseline = IntSmokeProgram::kBaselineT;
+        // Drift must always be non-negative under the runtime path —
+        // contention_tick() only ADDS T-states, never subtracts.
+        const bool nonneg     = total >= baseline;
+        const uint32_t drift  = nonneg ? (total - baseline) : 0u;
+        const bool within_max = (drift <= c.drift_max);
+        const bool within_min = (drift >= c.drift_min);
+        const bool nonzero_ok = (!c.require_nonzero) || (drift > 0);
+        const bool ok = nonneg && within_max && within_min && nonzero_ok;
+        if (!ok) all_bounded = false;
+        detail += std::string(c.tag) + ":drift=" + std::to_string(drift)
+               + "/" + std::to_string(c.drift_max) + " ";
+    }
+
+    if (!all_init_ok) {
+        check("CT-DELAY-01",
+              "Emulator::init failed for one or more machines — would "
+              "verify per-frame contention drift bound across 48K/128K/+3/"
+              "Pentagon [zxula.vhd:582-595; zxnext.vhd:4481]",
+              false, detail);
+    } else {
+        check("CT-DELAY-01",
+              "Per-frame contention drift bounded across 48K/128K/+3 "
+              "(0 < drift ≤ 6·N) AND Pentagon (drift==0) for the §14 "
+              "IntSmokeProgram (100 LD A,(0x4000) reads): VHDL "
+              "wait_s × pattern envelope holds end-to-end "
+              "[zxula.vhd:582-595; zxnext.vhd:4481-4492]",
+              all_bounded,
+              detail);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // §16: FUSE in-opcode contention (M1 fetch + no-MREQ tail + IN/OUT port)
 // VHDL: zxula.vhd:583,595,600 — wait_s fires every contended cycle
 // (M1, no-MREQ, data, port). FUSE injects per-cycle contention via
@@ -1456,11 +1569,6 @@ static void test_fuse_inopcode_contention() {
          "FUSE port-write contention path inert (see G141)");
     skip("CT-FUSE-04", "IN port contention",
          "FUSE port-read contention path inert (see G141)");
-
-    // CT-DELAY-01 — G50: full-frame integration drift not bounded yet.
-    // Residual guard row post the 68→0 sweep.
-    skip("CT-DELAY-01", "full-frame integration drift",
-         "full-frame integration drift not bounded yet (see G50)");
 
     // CT-TURBO-08 — G51: combined hc(8)+bus-idle commit-edge ordering
     // for simultaneous mid-line NR 0x07 + NR 0x08 writes. Distinct from
@@ -1516,6 +1624,9 @@ int main() {
 
     test_integration_smoke();
     std::printf("  Group: CT-INT         — done\n");
+
+    test_delay_drift_bound();
+    std::printf("  Group: CT-DELAY       — done\n");
 
     test_fuse_inopcode_contention();
     std::printf("  Group: CT-FUSE        — done\n");
