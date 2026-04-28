@@ -1924,17 +1924,75 @@ static void test_mouse() {
     //    5198) are exposed on o_MOUSE_CONTROL for a host-adapter DPI
     //    divisor. No VHDL consumer uses this signal internally.
 
-    // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled and mouse
-    // disabled. VHDL zxnext.vhd:2674 enables the port_1f path also via
-    // port_df_lsb when port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0.
-    // jnext emulator.cpp:1563-1567 registers the 0xDF read handler that
-    // returns 0x00 unconditionally — Pentagon/ATM Soundrive 1.05 reads of
-    // 0xDF (Kempston joy when mouse disabled) get 0x00 instead of the
-    // joystick byte. Reviewer note (Wave-2 NEW-MS-1): the alias is also
-    // gated on Kempston1 mode being live; both gates must hold.
-    skip("MOUSE-12",
-         "0xDF Kempston-joy alias under Soundrive override",
-         "0xDF Kempston-joy alias under Soundrive override missing (see G130)");
+    // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled, mouse
+    // disabled, and joystick is in a port_1f-active mode (G130 closure).
+    // VHDL zxnext.vhd:2674:
+    //   port_1f = (port_1f_lsb OR
+    //              (port_df_lsb AND port_dac_mono_AD_df_io_en
+    //                          AND NOT port_mouse_io_en))
+    //            AND port_1f_io_en AND port_1f_hw_en
+    //
+    // For port 0xDF the alias gate requires (per the Tier 2 NEW-MS-1
+    // reviewer note):
+    //   * NR 0x84 bit 7 = 1   (port_dac_mono_AD_df_io_en — Specdrum)
+    //   * NR 0x83 bit 5 = 0   (port_mouse_io_en cleared)
+    //   * NR 0x82 bit 6 = 1   (port_1f_io_en — already default)
+    //   * Kempston1 (or MD3-Left) live on either connector
+    //                          (port_1f_hw_en, zxnext.vhd:2454, 3475-3491)
+    //
+    // When all gates hold the read returns the same byte port 0x001F
+    // delivers; otherwise the port stays undecoded (0x00 — matches the
+    // pre-fix unconditional default).
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Reset defaults: NR 0x82 = 0xFF (bit 6 set ⇒ port_1f_io_en),
+        // NR 0x83 = 0xFF (bit 5 set ⇒ mouse enabled), NR 0x84 = 0xFF
+        // (bit 7 set ⇒ Specdrum/DAC enabled). Joystick reset puts joy0
+        // in Kempston1 (port_1f_hw_en already live on the left side).
+
+        // Press a known direction so the joystick byte is non-zero.
+        emu.joystick().set_joy_left(0x08);  // JU = bit 3 = Up
+
+        // 1. Both DAC enable AND mouse-disable required, but mouse
+        //    enabled by default — alias should NOT fire.
+        const uint8_t mouse_on = emu.port().in(0x00DF);
+
+        // 2. Disable mouse by clearing NR 0x83 bit 5. NOW the alias
+        //    should fire (DAC bit set, port_1f_hw_en live via Kempston1).
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xDF);                // bit 5 cleared
+        const uint8_t mouse_off_dac_on_kemp = emu.port().in(0x00DF);
+
+        // 3. Disable DAC (NR 0x84 bit 7 = 0). Alias must NOT fire.
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0x7F);
+        const uint8_t dac_off = emu.port().in(0x00DF);
+
+        // 4. Re-enable DAC, switch joy0 to Sinclair2 (mode 000) so
+        //    port_1f_hw_en goes low — alias must NOT fire (NEW-MS-1).
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0xFF);
+        emu.port().out(0x243B, 0x05);
+        emu.port().out(0x253B, 0x00);                // joy0=000 Sinclair2
+        const uint8_t hw_off = emu.port().in(0x00DF);
+
+        check("MOUSE-12",
+              "0xDF Kempston-joy alias gates: DAC=1 AND mouse=0 AND "
+              "Kempston/MD-Left live  (zxnext.vhd:2674; G130 closure)",
+              mouse_on == 0x00 &&
+              mouse_off_dac_on_kemp == 0x08 &&
+              dac_off == 0x00 &&
+              hw_off == 0x00,
+              DETAIL("mouse_on=0x%02X kemp_on=0x%02X dac_off=0x%02X "
+                     "hw_off=0x%02X (want 0x00, 0x08, 0x00, 0x00)",
+                     mouse_on, mouse_off_dac_on_kemp, dac_off, hw_off));
+    }
 
     // MOUSE-13 — G43: SDL_MOUSEMOTION events do not dispatch into
     // KempstonMouse::inject_delta(). Verified: zero callers in src/ outside

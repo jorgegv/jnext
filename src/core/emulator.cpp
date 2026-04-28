@@ -1721,12 +1721,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             dac_.write_channel(2, val);
         });
 
-    // Specdrum: port 0xDF → channels A+D.  VHDL zxnext.vhd:2674 routes
-    // 0xDF reads through port_1f (joystick 1) when the combo gate fires
-    // (dac_mono_AD_df_io_en AND NOT mouse_io_en AND port_1f_io_en).
-    // Read returns 0x00 (no buttons) matching the Kempston 1 stub.
+    // Specdrum: port 0xDF → channels A+D. VHDL zxnext.vhd:2674 routes
+    // 0xDF reads through port_1f (joystick 1) when the combo gate fires.
+    //
+    // Full VHDL gate at zxnext.vhd:2674:
+    //   port_1f = (port_1f_lsb OR
+    //              (port_df_lsb AND port_dac_mono_AD_df_io_en
+    //                          AND NOT port_mouse_io_en))
+    //            AND port_1f_io_en AND port_1f_hw_en
+    //
+    // For 0xDF the alias gate requires (G130 closure):
+    //   * port_dac_mono_AD_df_io_en (NR 0x84 bit 7,
+    //     internal_port_enable(23), zxnext.vhd:2435)
+    //   * NOT port_mouse_io_en      (NR 0x83 bit 5 cleared,
+    //     internal_port_enable(13), zxnext.vhd:2422)
+    //   * port_1f_io_en             (NR 0x82 bit 6,
+    //     internal_port_enable(6), zxnext.vhd:2407)
+    //   * port_1f_hw_en             (joyL_1f_en OR joyR_1f_en,
+    //     zxnext.vhd:2454; live ⇔ Kempston1 OR MD3-Left on either
+    //     connector per zxnext.vhd:3475-3491). Reviewer NIT (Wave-2
+    //     NEW-MS-1): both this and the Soundrive gate must hold.
+    //
+    // When all four gates hold, the read returns the same byte the
+    // Kempston-1 0x001F path delivers — i.e. joystick_.read_port_1f().
+    // Otherwise the port stays undecoded and the floating-bus default
+    // 0x00 (matching the pre-fix behaviour) is returned. (G130 closure.)
     port_.register_handler(0x00FF, 0x00DF,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
+            if ((nextreg_.cached(0x84) & 0x80) == 0) return 0x00;
+            // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
+            if ((nextreg_.cached(0x83) & 0x20) != 0) return 0x00;
+            // NR 0x82 bit 6 — port_1f_io_en gate.
+            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0x00;
+            // port_1f_hw_en: at least one connector in Kempston1 or
+            // MD3-Left — that is when joyL_1f_en / joyR_1f_en is live.
+            const Joystick::Mode jl = joystick_.mode_left();
+            const Joystick::Mode jr = joystick_.mode_right();
+            const bool jl_1f = (jl == Joystick::Mode::Kempston1) ||
+                               (jl == Joystick::Mode::Md3Left);
+            const bool jr_1f = (jr == Joystick::Mode::Kempston1) ||
+                               (jr == Joystick::Mode::Md3Left);
+            if (!(jl_1f || jr_1f)) return 0x00;
+            return joystick_.read_port_1f();
+        },
         [this](uint16_t, uint8_t val) {
             if (dac_enabled_) { dac_.write_channel(0, val); dac_.write_channel(3, val); }
         });
