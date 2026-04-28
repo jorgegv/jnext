@@ -578,6 +578,26 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     const uint8_t scroll_x = ula_scroll_x_coarse_;
     const bool    fine     = ula_fine_scroll_x_;
 
+    // G103 — ULA+ runtime palette path.  Gate is ulap_en_ (set by port
+    // 0xFF3B b0 with ulap_mode="01", or NR 0x68 b3 ungated).  Default
+    // (ulap_en_=false) keeps the original 16-entry kUlaPalette path
+    // byte-identical.
+    //
+    // VHDL zxula.vhd:531-541 (encoder) + zxnext.vhd:6981 (palette read):
+    //
+    //   ula_pixel(7:6) = "11"            (selects ULA+ region 0xC0..0xFF)
+    //   ula_pixel(5:4) = attr(7:6)       (palette group bits)
+    //   ula_pixel(3)   = screen_mode(2) or not pixel_en
+    //   ula_pixel(2:0) = pixel_en ? attr(2:0) : attr(5:3)
+    //
+    //   palette_utm address = '0' & ula_palette_select_1 & ula_pixel(7:0)
+    //
+    // The runtime read uses NR 0x43 b1 (`active_ula_palette_`) for bank
+    // selection — distinct from NR 0x43 b6 (`palette_write_select(2)`)
+    // used by NR 0xFF poke writes.  ulap_poke_rgb333_ stores 64 entries
+    // per bank, indexed by `ula_pixel & 0x3F` (= bf3b_index for the
+    // matching write).
+    const bool sm2 = (mode_ == TimexScreenMode::HI_RES);
     if (scroll_x == 0 && !fine) {
         // Fast path (unchanged semantics under default NR 0x26/NR 0x68 bit 2).
         for (int col = 0; col < 32; ++col) {
@@ -597,11 +617,27 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
                 uint8_t tmp = ink; ink = paper; paper = tmp;
             }
 
-            const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
-            const uint8_t paper_idx = paper + (bright ? 8 : 0);
-
-            const uint32_t ink_argb   = lookup_colour(ink_idx);
-            const uint32_t paper_argb = lookup_colour(paper_idx);
+            uint32_t ink_argb;
+            uint32_t paper_argb;
+            if (ulap_en_ && palette_) {
+                // ULA+ encoder common bits per zxula.vhd:535 (only differ
+                // by bit 3 = NOT pixel_en):
+                //   low6 = attr(7:6) << 4 | bit3 << 3 | low3
+                const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
+                // ink: bit3 = sm2 (pixel_en=1 → not pixel_en=0).
+                const uint8_t ink_low6 = static_cast<uint8_t>(
+                    (pg << 4) | ((sm2 ? 1u : 0u) << 3) | (attr & 0x07));
+                // paper: bit3 = sm2 OR 1 = 1 (always when pixel_en=0).
+                const uint8_t paper_low6 = static_cast<uint8_t>(
+                    (pg << 4) | (1u << 3) | ((attr >> 3) & 0x07));
+                ink_argb   = palette_->ulap_colour(active_ula_palette_, ink_low6);
+                paper_argb = palette_->ulap_colour(active_ula_palette_, paper_low6);
+            } else {
+                const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
+                const uint8_t paper_idx = paper + (bright ? 8 : 0);
+                ink_argb   = lookup_colour(ink_idx);
+                paper_argb = lookup_colour(paper_idx);
+            }
 
             uint32_t* dst = row + DISP_X + col * 8;
             for (int bit = 7; bit >= 0; --bit) {
@@ -631,10 +667,25 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
             if (flash_a && flash_phase_ && !ulanext_en_ && !ulap_en_) {
                 uint8_t tmp = ink; ink = paper; paper = tmp;
             }
-            const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
-            const uint8_t paper_idx = paper + (bright ? 8 : 0);
-            const uint32_t ink_argb   = lookup_colour(ink_idx);
-            const uint32_t paper_argb = lookup_colour(paper_idx);
+
+            uint32_t ink_argb;
+            uint32_t paper_argb;
+            if (ulap_en_ && palette_) {
+                // G103 — ULA+ runtime path.  Mirrors the fast-path block
+                // above; see comments there for the encoder layout.
+                const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
+                const uint8_t ink_low6 = static_cast<uint8_t>(
+                    (pg << 4) | ((sm2 ? 1u : 0u) << 3) | (attr & 0x07));
+                const uint8_t paper_low6 = static_cast<uint8_t>(
+                    (pg << 4) | (1u << 3) | ((attr >> 3) & 0x07));
+                ink_argb   = palette_->ulap_colour(active_ula_palette_, ink_low6);
+                paper_argb = palette_->ulap_colour(active_ula_palette_, paper_low6);
+            } else {
+                const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
+                const uint8_t paper_idx = paper + (bright ? 8 : 0);
+                ink_argb   = lookup_colour(ink_idx);
+                paper_argb = lookup_colour(paper_idx);
+            }
 
             const bool pix_on = ((pixels >> src_bit) & 1) != 0;
             row[DISP_X + disp_x] = pix_on ? ink_argb : paper_argb;
@@ -690,6 +741,10 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
     for (int x = 0; x < DISP_X; ++x)
         row[x] = border_argb;
 
+    // G103 — HI_COLOUR mode also goes through the ULA+ encoder when
+    // ulap_en_ is set; sm2=false here because HI_COLOUR is mode 010 and
+    // the screen_mode(2) bit is zero (only HI_RES sets it).
+    const bool sm2 = false;
     for (int col = 0; col < 32; ++col) {
         const uint8_t pixels = vram_read(static_cast<uint16_t>(pixel_base + col), mmu);
         const uint8_t attr   = vram_read(static_cast<uint16_t>(attr_base  + col), mmu);
@@ -705,11 +760,23 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
             uint8_t tmp = ink; ink = paper; paper = tmp;
         }
 
-        const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
-        const uint8_t paper_idx = paper + (bright ? 8 : 0);
-
-        const uint32_t ink_argb   = lookup_colour(ink_idx);
-        const uint32_t paper_argb = lookup_colour(paper_idx);
+        uint32_t ink_argb;
+        uint32_t paper_argb;
+        if (ulap_en_ && palette_) {
+            // G103 — ULA+ encoder, see render_display_line for layout.
+            const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
+            const uint8_t ink_low6 = static_cast<uint8_t>(
+                (pg << 4) | ((sm2 ? 1u : 0u) << 3) | (attr & 0x07));
+            const uint8_t paper_low6 = static_cast<uint8_t>(
+                (pg << 4) | (1u << 3) | ((attr >> 3) & 0x07));
+            ink_argb   = palette_->ulap_colour(active_ula_palette_, ink_low6);
+            paper_argb = palette_->ulap_colour(active_ula_palette_, paper_low6);
+        } else {
+            const uint8_t ink_idx   = ink   + (bright ? 8 : 0);
+            const uint8_t paper_idx = paper + (bright ? 8 : 0);
+            ink_argb   = lookup_colour(ink_idx);
+            paper_argb = lookup_colour(paper_idx);
+        }
 
         uint32_t* dst = row + DISP_X + col * 8;
         for (int bit = 7; bit >= 0; --bit) {
