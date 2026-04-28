@@ -1813,18 +1813,87 @@ static void test_iomode() {
                      m.pin7() ? 1 : 0));
     }
 
-    // IOMODE-11A — G72: runtime per-tick callback feeding the IoMode
-    // injectors does not exist. Emulator::tick() does not call
-    // IoMode::set_uart0_tx() / set_uart1_tx() / set_joy_left_bit5() /
-    // set_joy_right_bit5() each tick from Uart::tx_line() / Joystick
-    // bit-5 accessors. The pin-7 multiplex (covered by IOMODE-05/06)
-    // is therefore unit-correct but inert at runtime: pin7() reflects
-    // only whatever the constructor default happens to be plus any
-    // test-only direct setter calls. Verified by grep across src/ —
-    // zero production callers of any of the four injectors.
-    skip("IOMODE-11A",
-         "per-tick UART/joy-bit-5 → IoMode injector callback absent",
-         "Emulator::tick() never feeds IoMode injectors (see G72)");
+    // IOMODE-11A — G72 closure: per-tick UART → IoMode injector wire.
+    //
+    // VHDL zxnext.vhd:3526-3531 routes uart0_tx / uart1_tx into pin7
+    // when NR 0x0B mode is "10"/"11" (UART-driven). Without the
+    // production wire the pin-7 multiplex is unit-correct but inert.
+    // Emulator::run_frame() now calls
+    //   iomode_.set_uart0_tx(uart_.channel(0).tx_line_out())
+    //   iomode_.set_uart1_tx(uart_.channel(1).tx_line_out())
+    // every CPU-instruction tick, immediately after uart_.tick().
+    //
+    // Test idiom (mirrors the per-tick contract): pre-pollute IoMode's
+    // internal `uart0_tx_` / `uart1_tx_` shadows with a value that
+    // disagrees with the live UART tx_line_out_ defaults. After one
+    // run_frame() the wire MUST overwrite them back to the UART's
+    // current state, restoring pin7() observability.
+    //
+    // The per-tick wire is the load-bearing observable; we do not
+    // exercise the bit-level UART engine here (it has its own
+    // dedicated suite). The default tx_line_out_ = true is sufficient
+    // to demonstrate that the injector path actually fires.
+    //
+    // Note: the corresponding Joystick bit-5 injectors (VHDL signals
+    // i_JOY_LEFT(5) / i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT covered
+    // by this row — Joystick currently exposes no public bit-5 accessor.
+    // Tracking under follow-up sub-gap; this row asserts the UART side.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Configure NR 0x0B = 0xA0 — en=1, mode=10 (UART), iomode_0=0.
+        // pin7() now reads `uart0_tx_` directly per IoMode::pin7()
+        // when mode is 10/11.
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xA0);
+
+        // Sanity: iomode_en() reflects the bit-7 latch.
+        const bool iomode_en_after_write = emu.iomode().iomode_en();
+
+        // Stomp IoMode's internal uart0/uart1 shadows to a value that
+        // disagrees with UART idle (true). Without the per-tick wire
+        // these stay false forever; with it, run_frame() overwrites
+        // them on the first instruction tick.
+        emu.iomode().set_uart0_tx(false);
+        emu.iomode().set_uart1_tx(false);
+        const bool pin7_pre_run = emu.iomode().pin7();
+
+        // Run one frame — inside, every per-instruction tick calls
+        // iomode_.set_uart0_tx(uart_.channel(0).tx_line_out()).
+        // UART defaults idle to true → pin7 should now read true.
+        emu.run_frame();
+        const bool pin7_post_run = emu.iomode().pin7();
+        const bool uart0_tx_now = emu.uart().channel(0).tx_line_out();
+
+        // Switch to channel-1 UART path (mode=10, iomode_0=1) and
+        // re-stomp uart1_tx_; verify that wire fires too.
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xA1);
+        emu.iomode().set_uart1_tx(false);
+        const bool pin7_pre_run2 = emu.iomode().pin7();
+        emu.run_frame();
+        const bool pin7_post_run2 = emu.iomode().pin7();
+        const bool uart1_tx_now = emu.uart().channel(1).tx_line_out();
+
+        check("IOMODE-11A",
+              "Emulator::run_frame() feeds IoMode UART injectors per "
+              "tick from Uart::channel(N).tx_line_out()  "
+              "(zxnext.vhd:3526-3531; G72 closure)",
+              iomode_en_after_write == true &&
+              pin7_pre_run == false  && pin7_post_run == uart0_tx_now &&
+              pin7_pre_run2 == false && pin7_post_run2 == uart1_tx_now,
+              DETAIL("en=%d ch0 pre=%d post=%d uart0=%d  "
+                     "ch1 pre=%d post=%d uart1=%d "
+                     "(want en=1, pre=0, post=uartN)",
+                     iomode_en_after_write,
+                     pin7_pre_run, pin7_post_run, uart0_tx_now,
+                     pin7_pre_run2, pin7_post_run2, uart1_tx_now));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

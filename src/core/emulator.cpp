@@ -3041,6 +3041,26 @@ void Emulator::run_frame()
         uart_.tick(static_cast<uint32_t>(master_cycles));
         md6_.tick(static_cast<uint32_t>(master_cycles));
 
+        // G72 closure — per-tick injector callback feeding IoMode from
+        // the live UART TX lines. VHDL zxnext.vhd:3526-3531 wires
+        // `pin7 = uart0_tx` (when NR 0x0B mode=10/11, iomode_0=0) /
+        // `pin7 = uart1_tx` (iomode_0=1). The IoMode pin-7 mux is
+        // unit-correct (covered by IOMODE-05/06) but inert at runtime
+        // until something feeds the injectors. UART::channel(N).tx_line_out()
+        // is updated by the bit-level engine inside uart_.tick() above,
+        // so we sample it immediately afterwards. No-op when pin-7 is
+        // not in a UART mode — IoMode::pin7() reads pin7_ instead and
+        // these stored fields are consulted only under modes 10/11.
+        //
+        // Note (Tier 2 W1): the corresponding `set_joy_left_bit5()` /
+        // `set_joy_right_bit5()` injectors (VHDL i_JOY_LEFT(5) /
+        // i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT yet fed because
+        // Joystick currently has no public bit-5 accessor. That follow-
+        // up is owned by the Joystick agent in a later wave; UART
+        // injectors close G72's primary observable here.
+        iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
+        iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
+
         // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
         // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6
         // in the per-instruction cluster; order among these is not
@@ -3239,6 +3259,12 @@ int Emulator::execute_single_instruction()
     // CTC + UART.
     ctc_.tick(static_cast<uint32_t>(master_cycles));
     uart_.tick(static_cast<uint32_t>(master_cycles));
+
+    // G72 closure — mirror of the per-tick UART → IoMode injector
+    // wire from the run_frame() primary cluster. Keeps the debugger
+    // single-step path observably consistent with the bulk-tick path.
+    iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
+    iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
 
     // NMI source pipeline — mirrors the primary tick cluster above.
     // Wave B: DivMMC consumer-feedback (hold + conmem) + button_nmi strobe.
