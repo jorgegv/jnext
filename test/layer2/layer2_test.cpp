@@ -33,6 +33,8 @@
 #include "video/palette.h"
 #include "video/renderer.h"
 #include "memory/ram.h"
+#include "memory/rom.h"
+#include "memory/mmu.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -1116,25 +1118,77 @@ static void test_group7_bank_transform() {
     // both stress the VHDL SRAM bit-21 check which the C++ renderer does
     // not model at all. Deferred to integration.
 
-    // G7-17 — VHDL zxnext.vhd:3914-3923 (cpu_do(4) write-path
-    // bifurcation). src/memory/mmu.cpp:183-202 has no bit-4 branch;
-    // every port 0x123B write is dispatched as the cpu_do(4)=0 path
-    // and clobbers enable/wr_en/rd_en/segment. RE-HOME-blocked by
-    // the G92 fix; row stays a skip until mmu.cpp grows the bit-4
-    // gated offset-only update.
-    skip("G7-17", "port 0x123B bit-4 offset mode dispatched as cpu_do(4)=0 (see G92)");
+    // ---- G7-17 / G7-18 / G7-19 (Task 8 Tier 1 Wave 2 — G92 / G144 / G145)
+    //
+    // These three rows exercise the Mmu surface (port 0x123B latches and
+    // read-back) — the Layer2 renderer's own state is unchanged. We bring
+    // a bare Ram/Rom/Mmu fixture into scope to drive the latches and probe
+    // the visible composition. This mirrors the L2M-* group inside
+    // test/mmu/mmu_test.cpp without duplicating its Cat-1 slot-assignment
+    // surface; the cross-suite read remains a Layer2 plan-row asserting
+    // VHDL zxnext.vhd:3914-3935 / :2966-2969 from the L2 control angle.
+    {
+        Ram ram_l2;
+        Rom rom_l2;
+        Mmu mmu_l2(ram_l2, rom_l2);
+        mmu_l2.reset();
 
-    // G7-18 — VHDL zxnext.vhd:2968 (map_shadow bank select).
-    // src/memory/mmu.cpp:183-202 records active bank only; mmu.h:141-156
-    // always reads l2_bank_. Bit-3 shadow-mapping path is missing.
-    skip("G7-18", "port 0x123B bit 3 -> shadow-bank CPU map missing (see G144)");
+        // ---------- G7-17: bit 4 = 1 latches offset, leaves other latches.
+        // VHDL zxnext.vhd:3914-3923. First seed the non-offset state with a
+        // known control word (en=1, wr_en=1, rd_en=1, shadow=1, seg=11),
+        // then issue an offset-mode write (bit 4 = 1, bits 2:0 = 010) and
+        // confirm only l2_offset_ moved.
+        mmu_l2.set_l2_port(0xCF, 8);   // 1100_1111: seg=11, shadow=1, rd=1, en=1, wr=1
+        const bool   en_before = mmu_l2.l2_port_readback() & 0x02;
+        const bool   wr_before = mmu_l2.l2_port_readback() & 0x01;
+        const bool   rd_before = mmu_l2.l2_port_readback() & 0x04;
+        const bool   sh_before = mmu_l2.l2_map_shadow();
+        const uint8_t seg_before = (mmu_l2.l2_port_readback() >> 6) & 0x03;
+        mmu_l2.set_l2_port(0x12, 8);   // 0001_0010: bit 4 = 1, bits 2:0 = 010
+        const uint8_t off_after = mmu_l2.l2_offset();
+        check("G7-17",
+              "port 0x123B bit 4 = 1 latches offset only — VHDL zxnext.vhd:3914-3923",
+              off_after == 0x02 &&
+              (mmu_l2.l2_port_readback() & 0x02) == (en_before ? 0x02 : 0x00) &&
+              (mmu_l2.l2_port_readback() & 0x01) == (wr_before ? 0x01 : 0x00) &&
+              (mmu_l2.l2_port_readback() & 0x04) == (rd_before ? 0x04 : 0x00) &&
+              mmu_l2.l2_map_shadow() == sh_before &&
+              ((mmu_l2.l2_port_readback() >> 6) & 0x03) == seg_before,
+              DETAIL("offset=%u readback=0x%02X (expected offset=2; en/wr/rd/shadow/seg unchanged)",
+                     off_after, mmu_l2.l2_port_readback()));
 
-    // G7-19 — VHDL zxnext.vhd:3933 (read-back composition).
-    // src/core/emulator.cpp:1178 registers nullptr read for port 0x123B,
-    // so PortDispatch falls through to its 0xFF default. Bundle with
-    // G92 + G144 — the composition formula returns the very fields
-    // those gaps add.
-    skip("G7-19", "port 0x123B read returns 0xFF (PortDispatch default) (see G145)");
+        // ---------- G7-18: bit 3 = 1 routes CPU writes to shadow bank.
+        // VHDL zxnext.vhd:2968 — layer2_active_bank = nr_13 when
+        // port_123b_layer2_map_shadow = '1'. Set NR 0x12 active = 8 (page
+        // 0x10), NR 0x13 shadow = 11 (page 0x16). With map_shadow=1 + seg=00
+        // + wr_en=1, a write to 0x0000 must land on physical page 0x16
+        // (shadow), not page 0x10 (active).
+        mmu_l2.reset();
+        mmu_l2.set_l2_shadow_bank(11);  // NR 0x13 mirror — page 0x16
+        ram_l2.page_ptr(0x10)[0] = 0xAA; // active sentinel
+        ram_l2.page_ptr(0x16)[0] = 0xBB; // shadow sentinel
+        mmu_l2.set_l2_port(0x09, 8);    // bits: wr_en=1, shadow=1, seg=00, bank=8 (NR 0x12)
+        mmu_l2.write(0x0000, 0xCD);
+        const uint8_t shadow_after = ram_l2.page_ptr(0x16)[0];
+        const uint8_t active_after = ram_l2.page_ptr(0x10)[0];
+        check("G7-18",
+              "port 0x123B bit 3 routes CPU writes through NR 0x13 shadow bank — VHDL zxnext.vhd:2968",
+              shadow_after == 0xCD && active_after == 0xAA,
+              DETAIL("active page 0x10[0]=0x%02X (must stay 0xAA), shadow page 0x16[0]=0x%02X (must be 0xCD)",
+                     active_after, shadow_after));
+
+        // ---------- G7-19: read-back composition.
+        // VHDL zxnext.vhd:3933 — port_123b_dat = segment & "00" & shadow &
+        // rd_en & en & wr_en. With seg=01, shadow=1, rd_en=0, en=0, wr_en=1
+        // we expect 0100_1001 = 0x49 (matches plan row stimulus).
+        mmu_l2.reset();
+        mmu_l2.set_l2_port(0x49, 8);
+        const uint8_t got = mmu_l2.l2_port_readback();
+        check("G7-19",
+              "port 0x123B read returns formatted control word (0x49, not 0xFF) — VHDL zxnext.vhd:3933",
+              got == 0x49,
+              DETAIL("readback=0x%02X expected=0x49", got));
+    }
 }
 
 // =========================================================================

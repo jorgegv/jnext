@@ -17,7 +17,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       11 |      0 |       6 |     65% | Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A).          |
 | CTC + Interrupts      |      133 |      129 |      0 |       4 |     97% | Task 7r2: G49 NR-C0-02 promoted from WONT comment.     |
 | CTC (integration)     |       21 |       12 |      0 |       9 |     57% | Unchanged (Task 7 round 1 baseline).                   |
-| Layer 2               |      120 |      115 |      0 |       5 |     96% | Task 8 t1: G91/G02/G05/G09/G14 closed (driver-side).   |
+| Layer 2               |      120 |      118 |      0 |       2 |     98% | Task 8 W1+W2: G91/G02/G05/G09/G14 + G92/G144/G145.     |
 | UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | Task 7r2: G39 ESP-01..04 added.                        |
 | UART (integration)    |       13 |       12 |      0 |       1 |     92% | Unchanged (Task 7 round 1 baseline).                   |
 | DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | Task 8 t1: G123/G124/G125/G131/G137 closed (-7).       |
@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
 | NMI Source Pipeline   |       57 |       43 |      0 |      14 |     75% | Task 8 t1: G153/G162/G152 closed (-9; +HK/RST/NR02 + HK-07b/MF-G162-01b companions). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
-| **Total**             | **3693** | **3438** |  **0** | **255** |     93% |                                                        |
+| **Total**             | **3693** | **3441** |  **0** | **252** |     93% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
