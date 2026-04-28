@@ -343,8 +343,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x07, [this](uint8_t v) {
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
         Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
-        clock_.set_cpu_speed(speed);
-        contention_.set_cpu_speed(v & 0x03);
+        // VHDL zxnext.vhd:5788-5789 — NR 0x07 write updates the
+        // `nr_07_cpu_speed` register immediately (this IS the shadow).
+        // The effective `cpu_speed` at zxnext.vhd:5817 only commits on
+        // the next CLK_CPU rising edge that satisfies the bus-idle gate
+        // (mreq_n='1' AND iorq_n='1' AND m1_n='1' AND dma_holds_bus='0',
+        // zxnext.vhd:5809). jnext therefore drives the shadow here and
+        // lets Emulator::run_frame()'s post-instruction tick (where the
+        // CPU is naturally bus-idle) commit shadow → effective via
+        // commit_pending_cpu_speed_on_bus_idle(). G142 closure.
+        clock_.set_pending_cpu_speed(speed);
+        contention_.set_pending_cpu_speed(v & 0x03);
     });
     // NR 0x07 read is a COMPOSED format, not a raw register round-trip.
     // VHDL zxnext.vhd:5902-5903:
@@ -3193,6 +3202,23 @@ void Emulator::run_frame()
         contention_.commit_contention_disable_on_hc(
             static_cast<uint16_t>(current_hc()));
 
+        // Commit NR 0x07 cpu_speed shadow → effective on bus-idle, per
+        // VHDL zxnext.vhd:5796-5828. The post-instruction tick is the
+        // natural bus-idle moment in jnext's per-instruction granularity
+        // (CPU is between bus cycles: mreq_n=1, iorq_n=1, m1_n=1).
+        // dma_holds_bus is false here because dma_.tick_burst_wait()
+        // above only counts down the burst-mode prescaler — it does not
+        // hold the bus. Distinct from NR 0x08 b6 which has the
+        // additional hc(8)='1' window gate; NR 0x07 commits on every
+        // bus-idle cycle. This pair of independent commit edges (NR 0x07
+        // bus-idle, NR 0x08 b6 bus-idle AND hc(8)) is the G51 / G142
+        // ordering: simultaneous mid-line writes commit on their own
+        // edges, not in lockstep.
+        const bool bus_idle = true;
+        const bool dma_holds_bus = false;
+        clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+        contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+
         // Tick CTC and UART at 28 MHz rate.
         ctc_.tick(static_cast<uint32_t>(master_cycles));
         uart_.tick(static_cast<uint32_t>(master_cycles));
@@ -3411,6 +3437,21 @@ int Emulator::execute_single_instruction()
         int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
         int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
         copper_.execute(hc, cvc, nextreg_);
+    }
+
+    // Commit shadow → effective for NR 0x08 b6 (hc(8) gate) and NR 0x07
+    // cpu_speed (bus-idle gate), per VHDL zxnext.vhd:5796-5828. Mirrors
+    // the run_frame() primary tick cluster — without it, debugger
+    // single-step paths would not commit deferred NR writes. NR 0x07
+    // commit is unconditional bus-idle (the post-instruction tick is
+    // bus-idle by construction); NR 0x08 b6 also requires hc(8)='1'.
+    contention_.commit_contention_disable_on_hc(
+        static_cast<uint16_t>(current_hc()));
+    {
+        const bool bus_idle = true;
+        const bool dma_holds_bus = false;
+        clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+        contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
     }
 
     // CTC + UART.

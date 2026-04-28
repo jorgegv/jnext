@@ -1038,12 +1038,15 @@ static void test_pent_turbo() {
               !cm.is_contended_access());
     }
     // CT-TURBO-04: 48K full Emulator, write NR 0x07=0x01. Production
-    // NR 0x07 handler (src/core/emulator.cpp:303-308) calls
-    // contention_.set_cpu_speed() AND clock_.set_cpu_speed(). We can't
-    // reach into private contention_, but we can observe the clock
-    // divisor (src/core/clock.h:42) and the NR 0x07 readback (the
-    // composed format — bits[1:0] = nr_07_cpu_speed). Both should
-    // reflect the new value.
+    // NR 0x07 handler (src/core/emulator.cpp NR-0x07 dispatch) drives
+    // clock_.set_pending_cpu_speed() AND contention_.set_pending_cpu_speed()
+    // — i.e. the SHADOW only, per VHDL zxnext.vhd:5788-5789. The
+    // EFFECTIVE divisor commits on the next bus-idle CLK_CPU rising
+    // edge (zxnext.vhd:5809,5817), modelled by
+    // commit_pending_cpu_speed_on_bus_idle(true). Run-frame's post-
+    // instruction tick fires that hook automatically; this row triggers
+    // the commit explicitly to keep the bare-class assertion observable
+    // at the public API level (the Emulator's contention_ is private).
     //
     // We then build a parallel bare-class ContentionModel with the same
     // (cpu_speed=1) and verify the gate is forced low — this is the
@@ -1060,8 +1063,17 @@ static void test_pent_turbo() {
                   false, "Emulator::init returned false");
         } else {
             emu.nextreg().write(0x07, 0x01);
-            const int cpu_div = emu.clock().cpu_divisor();
-            const uint8_t nr07 = emu.nextreg().read(0x07);
+            // Pre-commit: VHDL-faithfully, the effective divisor stays
+            // at the old value (8 = 3.5 MHz) because the commit edge
+            // hasn't fired yet (zxnext.vhd:5809). NR 0x07 readback
+            // already reflects the shadow (bits[1:0] = nr_07_cpu_speed).
+            const int cpu_div_pre  = emu.clock().cpu_divisor();
+            const uint8_t nr07_pre = emu.nextreg().read(0x07);
+            // Trigger the bus-idle commit (post-instruction natural
+            // bus-idle in run_frame()'s tick cluster).
+            emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+            const int cpu_div_post = emu.clock().cpu_divisor();
+            const uint8_t nr07_post = emu.nextreg().read(0x07);
             // Bare-class parallel: gate-off when speed != 0.
             ContentionModel cm;
             cm.build(MachineType::ZX48K);
@@ -1070,12 +1082,17 @@ static void test_pent_turbo() {
             const bool gate_off = !cm.is_contended_access();
             // Production divisor for 7 MHz = 4 (clock.h cpu_divisor mapping).
             check("CT-TURBO-04",
-                  "48K NR 0x07=0x01 → clock divisor=4 (7 MHz) AND NR readback "
-                  "bits[1:0]=01 AND parallel-cm with cpu_speed=1 → gate off "
-                  "[emulator.cpp:303-308; zxnext.vhd:5787-5790,5817]",
-                  cpu_div == 4 && (nr07 & 0x03) == 0x01 && gate_off,
-                  std::string("cpu_div=") + std::to_string(cpu_div)
-                  + " nr07=0x" + std::to_string(nr07)
+                  "48K NR 0x07=0x01 → pre-commit divisor unchanged (=8); "
+                  "post bus-idle commit → divisor=4 (7 MHz); NR readback "
+                  "bits[1:0]=01 throughout; parallel-cm cpu_speed=1 → gate off "
+                  "[emulator.cpp NR-0x07 dispatch; zxnext.vhd:5787-5790,5809,5817]",
+                  cpu_div_pre == 8 && cpu_div_post == 4
+                  && (nr07_pre & 0x03) == 0x01 && (nr07_post & 0x03) == 0x01
+                  && gate_off,
+                  std::string("cpu_div_pre=") + std::to_string(cpu_div_pre)
+                  + " cpu_div_post=" + std::to_string(cpu_div_post)
+                  + " nr07_pre=0x" + std::to_string(nr07_pre)
+                  + " nr07_post=0x" + std::to_string(nr07_post)
                   + " gate_off=" + std::to_string(gate_off));
         }
     }
@@ -1156,13 +1173,78 @@ static void test_pent_turbo() {
               + " post=" + std::to_string(gate_off_after_post_edge));
     }
 
-    // CT-TURBO-07 — VHDL zxnext.vhd:5796-5828 — cpu_speed assignment
-    // deferred until bus-idle (mreq_n & iorq_n & m1_n & not
-    // dma_holds_bus). jnext src/core/emulator.cpp:322-326 commits NR
-    // 0x07 synchronously to clock_ + contention_. Distinct from
-    // CT-TURBO-06 which exercises the NR 0x08 hc(8) commit edge. (G142)
-    skip("CT-TURBO-07", "NR 0x07 bus-idle commit edge",
-         "synchronous commit; bus-idle deferral not modelled (see G142)");
+    // CT-TURBO-07 — NR 0x07 bus-idle commit edge. VHDL zxnext.vhd:
+    // 5796-5828: nr_07_cpu_speed updates immediately on nr_07_we (5788-
+    // 5789), but the EFFECTIVE `cpu_speed` register only commits on a
+    // CLK_CPU rising edge that satisfies
+    //     cpu_mreq_n='1' AND cpu_iorq_n='1' AND cpu_m1_n='1' AND
+    //     dma_holds_bus='0'   (5809).
+    // Implementation: ContentionModel splits cpu_speed_ (effective) from
+    // pending_cpu_speed_ (shadow); set_pending_cpu_speed() updates the
+    // shadow only, and commit_pending_cpu_speed_on_bus_idle(bus_idle)
+    // promotes shadow → effective when bus_idle=true. Distinct from
+    // CT-TURBO-06 which exercises NR 0x08 b6's hc(8) gate. (G142)
+    //
+    // Bare-class stimulus: drive the shadow alone, observe the effective
+    // gate is unchanged; then commit on bus-idle and observe the gate
+    // flips. Use the contention gate as the observable (consults
+    // cpu_speed_ at zxnext.vhd:4481).
+    {
+        ContentionModel cm = make_cm(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);             // bank 5 — would contend
+        const bool gate_on_initial = cm.is_contended_access();
+        const uint8_t eff_initial  = cm.cpu_speed();
+        const uint8_t pend_initial = cm.pending_cpu_speed();
+
+        cm.set_pending_cpu_speed(1);              // shadow = 7 MHz
+        const bool gate_on_after_shadow = cm.is_contended_access();
+        const uint8_t eff_after_shadow  = cm.cpu_speed();
+        const uint8_t pend_after_shadow = cm.pending_cpu_speed();
+
+        // Bus-idle low — commit must NOT fire (mirrors a window where
+        // mreq_n / iorq_n / m1_n are not all high, e.g. mid bus cycle).
+        cm.commit_pending_cpu_speed_on_bus_idle(false);
+        const bool gate_on_after_no_busidle = cm.is_contended_access();
+        const uint8_t eff_after_no_busidle  = cm.cpu_speed();
+
+        // dma_holds_bus high — commit must NOT fire even when bus_idle=1
+        // (zxnext.vhd:5809 inhibits assignment when DMA owns the bus).
+        cm.commit_pending_cpu_speed_on_bus_idle(true, /*dma_holds_bus*/ true);
+        const bool gate_on_after_dma = cm.is_contended_access();
+
+        // bus_idle high, dma_holds_bus low → commit fires.
+        cm.commit_pending_cpu_speed_on_bus_idle(true, /*dma_holds_bus*/ false);
+        const bool gate_off_after_busidle = !cm.is_contended_access();
+        const uint8_t eff_after_busidle   = cm.cpu_speed();
+
+        const bool ok = gate_on_initial             // initial: gate on
+                     && eff_initial  == 0
+                     && pend_initial == 0
+                     && gate_on_after_shadow        // shadow alone: gate stays on
+                     && eff_after_shadow  == 0
+                     && pend_after_shadow == 1
+                     && gate_on_after_no_busidle    // no bus-idle: no commit
+                     && eff_after_no_busidle == 0
+                     && gate_on_after_dma           // dma holds bus: no commit
+                     && gate_off_after_busidle      // bus-idle commit: gate off
+                     && eff_after_busidle  == 1;
+
+        check("CT-TURBO-07",
+              "NR 0x07 cpu_speed shadow → effective commits only on bus-idle "
+              "(mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does "
+              "not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 "
+              "does not commit; bus_idle=1 AND dma_holds_bus=0 commits "
+              "[zxnext.vhd:5796-5828]",
+              ok,
+              std::string("init=(eff=") + std::to_string(eff_initial)
+              + ",pend=" + std::to_string(pend_initial)
+              + ") shadow=(eff=" + std::to_string(eff_after_shadow)
+              + ",pend=" + std::to_string(pend_after_shadow)
+              + ") no_bi=(eff=" + std::to_string(eff_after_no_busidle)
+              + ") dma=(gate_on=" + std::to_string(gate_on_after_dma)
+              + ") commit=(eff=" + std::to_string(eff_after_busidle)
+              + ",gate_off=" + std::to_string(gate_off_after_busidle) + ")");
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

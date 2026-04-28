@@ -16,6 +16,7 @@ void ContentionModel::build(MachineType type) {
     // contention_disable from NR 0x08 after the build() call.
     mem_active_page_           = 0;
     cpu_speed_                 = 0;
+    pending_cpu_speed_         = 0;
     contention_disable_        = false;
     contention_disable_shadow_ = false;
     pentagon_timing_           = (type == MachineType::PENTAGON);
