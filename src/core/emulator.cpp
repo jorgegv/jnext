@@ -1751,12 +1751,44 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             dac_.write_channel(2, val);
         });
 
-    // Specdrum: port 0xDF → channels A+D.  VHDL zxnext.vhd:2674 routes
-    // 0xDF reads through port_1f (joystick 1) when the combo gate fires
-    // (dac_mono_AD_df_io_en AND NOT mouse_io_en AND port_1f_io_en).
-    // Read returns 0x00 (no buttons) matching the Kempston 1 stub.
+    // Specdrum: port 0xDF → channels A+D. VHDL zxnext.vhd:2674 routes
+    // 0xDF reads through port_1f (joystick 1) when the combo gate fires.
+    //
+    // Full VHDL gate at zxnext.vhd:2674:
+    //   port_1f = (port_1f_lsb OR
+    //              (port_df_lsb AND port_dac_mono_AD_df_io_en
+    //                          AND NOT port_mouse_io_en))
+    //            AND port_1f_io_en AND port_1f_hw_en
+    //
+    // For 0xDF the alias gate requires (G130 closure):
+    //   * port_dac_mono_AD_df_io_en (NR 0x84 bit 7,
+    //     internal_port_enable(23), zxnext.vhd:2435)
+    //   * NOT port_mouse_io_en      (NR 0x83 bit 5 cleared,
+    //     internal_port_enable(13), zxnext.vhd:2422)
+    //   * port_1f_io_en             (NR 0x82 bit 6,
+    //     internal_port_enable(6), zxnext.vhd:2407)
+    //   * port_1f_hw_en             (joyL_1f_en OR joyR_1f_en,
+    //     zxnext.vhd:2454; live ⇔ Kempston1 OR MD3-Left on either
+    //     connector per zxnext.vhd:3475-3491). Reviewer NIT (Wave-2
+    //     NEW-MS-1): both this and the Soundrive gate must hold.
+    //
+    // When all four gates hold, the read returns the same byte the
+    // Kempston-1 0x001F path delivers — i.e. joystick_.read_port_1f().
+    // Otherwise the port stays undecoded and the floating-bus default
+    // 0x00 (matching the pre-fix behaviour) is returned. (G130 closure.)
     port_.register_handler(0x00FF, 0x00DF,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
+            if ((nextreg_.cached(0x84) & 0x80) == 0) return 0x00;
+            // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
+            if ((nextreg_.cached(0x83) & 0x20) != 0) return 0x00;
+            // NR 0x82 bit 6 — port_1f_io_en gate.
+            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0x00;
+            // port_1f_hw_en: at least one connector in Kempston1 or
+            // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
+            if (!joystick_.port_1f_hw_en()) return 0x00;
+            return joystick_.read_port_1f();
+        },
         [this](uint16_t, uint8_t val) {
             if (dac_enabled_) { dac_.write_channel(0, val); dac_.write_channel(3, val); }
         });
@@ -2077,14 +2109,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             return joystick_.read_port_1f();
         },
         nullptr);
-    // G129 mirror for port 0x37: `port_37_hw_en` (zxnext.vhd:2455) gates
-    // the decode and is true ONLY when at least one connector is in
-    // Kempston2 (100) or Md3Right (110). Unlike port 0x1F there is no
-    // NR 0x82 b7 io_en check here yet (G128 — separate gap, owned by a
-    // different test row).
+    // Kempston 2 (port 0x0037) is gated by TWO independent signals — both
+    // must hold for the port to decode:
+    //   * NR 0x82 bit 7 io_en (G128) — VHDL zxnext.vhd:2408 + 2675:
+    //     port_37_io_en <= internal_port_enable(7). Reset default 0xFF
+    //     (zxnext.vhd:1226, 5054); firmware clears bit 7 via OUT NR 0x82,
+    //     0x7F. Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
+    //   * port_37_hw_en mode-conditional (G129) — VHDL zxnext.vhd:2455:
+    //     port_37_hw_en <= joyL_37_en or joyR_37_en, true ONLY when at
+    //     least one connector is in Kempston2 (100) or Md3Right (110).
+    //     With both joys in Sinclair2/Cursor/etc. the port un-decodes to
+    //     floating-bus 0xFF.
     port_.register_handler(0x00FF, 0x0037,
         [this](uint16_t) -> uint8_t {
-            if (!joystick_.port_37_hw_en()) return 0xFF;
+            if ((nextreg_.cached(0x82) & 0x80) == 0) return 0xFF;
+            if (!joystick_.port_37_hw_en())            return 0xFF;
             return joystick_.read_port_37();
         },
         nullptr);
@@ -3038,6 +3077,26 @@ void Emulator::run_frame()
         uart_.tick(static_cast<uint32_t>(master_cycles));
         md6_.tick(static_cast<uint32_t>(master_cycles));
 
+        // G72 closure — per-tick injector callback feeding IoMode from
+        // the live UART TX lines. VHDL zxnext.vhd:3526-3531 wires
+        // `pin7 = uart0_tx` (when NR 0x0B mode=10/11, iomode_0=0) /
+        // `pin7 = uart1_tx` (iomode_0=1). The IoMode pin-7 mux is
+        // unit-correct (covered by IOMODE-05/06) but inert at runtime
+        // until something feeds the injectors. UART::channel(N).tx_line_out()
+        // is updated by the bit-level engine inside uart_.tick() above,
+        // so we sample it immediately afterwards. No-op when pin-7 is
+        // not in a UART mode — IoMode::pin7() reads pin7_ instead and
+        // these stored fields are consulted only under modes 10/11.
+        //
+        // Note (Tier 2 W1): the corresponding `set_joy_left_bit5()` /
+        // `set_joy_right_bit5()` injectors (VHDL i_JOY_LEFT(5) /
+        // i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT yet fed because
+        // Joystick currently has no public bit-5 accessor. That follow-
+        // up is owned by the Joystick agent in a later wave; UART
+        // injectors close G72's primary observable here.
+        iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
+        iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
+
         // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
         // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6
         // in the per-instruction cluster; order among these is not
@@ -3143,6 +3202,19 @@ void Emulator::run_frame()
 
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();
+
+    // G133 closure — drive Keyboard::tick_scan() once per video frame
+    // so the two-scan shift hysteresis (membrane.vhd:178-191, 188-191)
+    // advances in production. The VHDL membrane scans at FPGA pixel-
+    // clock rate, but per-frame is the correct cadence here: tick_scan
+    // only snapshots the current matrix shift bits into shift_hist_[],
+    // and shift_hist_ is read by Keyboard::read_rows() to hold a
+    // releasing CS/SYM bit for one extra scan. Faster cadence wouldn't
+    // change the observable — Z80 software polls the membrane via
+    // port 0xFE at most once per frame in normal operation, and the
+    // hysteresis goal is "release lags by ~1 frame", which one tick
+    // per frame matches exactly.
+    keyboard_.tick_scan();
 }
 
 int Emulator::current_scanline() const
@@ -3223,6 +3295,12 @@ int Emulator::execute_single_instruction()
     // CTC + UART.
     ctc_.tick(static_cast<uint32_t>(master_cycles));
     uart_.tick(static_cast<uint32_t>(master_cycles));
+
+    // G72 closure — mirror of the per-tick UART → IoMode injector
+    // wire from the run_frame() primary cluster. Keeps the debugger
+    // single-step path observably consistent with the bulk-tick path.
+    iomode_.set_uart0_tx(uart_.channel(0).tx_line_out());
+    iomode_.set_uart1_tx(uart_.channel(1).tx_line_out());
 
     // NMI source pipeline — mirrors the primary tick cluster above.
     // Wave B: DivMMC consumer-feedback (hold + conmem) + button_nmi strobe.

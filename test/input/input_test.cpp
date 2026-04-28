@@ -414,18 +414,65 @@ static void test_kbdhys() {
                      before_b0, before_b1, after_b0, after_b1));
     }
 
-    // KBDHYS-04: Production wire — tick_scan / cancel_extended_entries.
+    // KBDHYS-04: Production wire — Emulator::run_frame() drives
+    // Keyboard::tick_scan() once per video frame (G133 closure).
     //
-    // VHDL membrane.vhd:178-191: matrix_state_ex_0/1 advance every membrane
-    // scan-cycle; the cancel hook clears the extended-entry latch on the next
-    // scan. jnext keyboard.cpp:312 (tick_scan) and :334
-    // (cancel_extended_entries) exist as methods but production
-    // emulator.cpp does NOT call them — the 1-scan shift hysteresis edge
-    // cases differ and the cancel hook is unreachable until the production
-    // wire lands. Tracked under G133 (also blocks G48 test path).
-    skip("KBDHYS-04",
-         "Keyboard::tick_scan/cancel_extended_entries production wire",
-         "Keyboard::tick_scan/cancel_extended_entries unwired (see G133)");
+    // VHDL membrane.vhd:178-191: matrix_state_ex_0/1 advance every
+    // membrane scan-cycle and the shift bits are "held an extra scan".
+    // The C++ model collapses that to one snapshot per call to
+    // tick_scan() — a CS press latches `pressed` into shift_hist_[0],
+    // and a release without a tick leaves the previous snapshot in
+    // place so read_rows() AND-folds it with the now-released matrix
+    // state and reports CS-still-pressed for one extra scan.
+    //
+    // Emulator-driven test sequence (mirrors the unit-level KBDHYS-01
+    // pattern but relies on run_frame() to deliver tick_scan):
+    //   1. Build emulator. Press CS via emu.keyboard().set_key().
+    //   2. Run one frame → tick_scan snapshots CS-pressed.
+    //   3. Read row 0 → 0x1E (CS pressed; shift_hist[0] bit 0 = 0).
+    //   4. Release CS without ticking; read row 0 → still 0x1E because
+    //      shift_hist[0] retains the pressed snapshot — this is only
+    //      possible if step 2 actually called tick_scan().
+    //   5. Run another frame → tick_scan snapshots CS-released.
+    //   6. Read row 0 → 0x1F (released).
+    //
+    // If Emulator::run_frame() did NOT call tick_scan, step 3 would
+    // still read 0x1E (matrix_[0] is freshly pressed), but step 4 would
+    // read 0x1F immediately because shift_hist_ would still hold the
+    // reset all-released snapshot — the AND of `released-now` &
+    // `released-prev` is `released`. So the load-bearing assertion is
+    // step 4 returning 0x1E.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Press Caps-Shift at row 0 col 0.
+        emu.keyboard().set_key(sc_for(0, 0), true);
+        emu.run_frame();
+        const uint8_t pressed_after_tick = emu.keyboard().read_rows(row_addr(0));
+
+        // Release without ticking: shift_hist[0] still snapshots pressed.
+        emu.keyboard().set_key(sc_for(0, 0), false);
+        const uint8_t held_via_hyst = emu.keyboard().read_rows(row_addr(0));
+
+        // Run another frame so tick_scan snapshots the now-released CS.
+        emu.run_frame();
+        const uint8_t released_after_tick = emu.keyboard().read_rows(row_addr(0));
+
+        check("KBDHYS-04",
+              "Emulator::run_frame() drives Keyboard::tick_scan()  "
+              "(membrane.vhd:178-191; G133 closure)",
+              pressed_after_tick   == 0x1E &&
+              held_via_hyst        == 0x1E &&
+              released_after_tick  == 0x1F,
+              DETAIL("pressed=0x%02X held=0x%02X released=0x%02X "
+                     "(want 0x1E, 0x1E, 0x1F)",
+                     pressed_after_tick, held_via_hyst, released_after_tick));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -997,15 +1044,50 @@ static void test_kemp() {
         check("KEMP-15", "joy0=MD1 L.A → 0x1F=0x40", v == 0x40, DETAIL("got=0x%02X", v));
     }
 
-    // KEMP-16: NR 0x82 b7=0 must un-decode port 0x37.
+    // KEMP-16: NR 0x82 b7=0 must un-decode port 0x37 (G128 closure).
     // VHDL zxnext.vhd:2408 + 2675: port_37_io_en <= internal_port_enable(7),
-    // where internal_port_enable(7) gates on NR 0x82 bit 7. jnext
-    // emulator.cpp:1877-1879 registers the port-0x37 handler with no NR-0x82
-    // b7 check (mirror of the NR 0x82 b6 / port-0x1F gate at :1871-1876,
-    // which IS implemented).
-    skip("KEMP-16",
-         "NR 0x82 b7=0 must un-decode port 0x37",
-         "port 0x37 missing NR 0x82 b7 io_en gate (see G128)");
+    // where internal_port_enable(7) gates on NR 0x82 bit 7. With the
+    // gate cleared the port stays undecoded and the floating-bus default
+    // 0xFF is returned; with the gate set the joystick byte comes
+    // through (mirror of the NR 0x82 bit-6 / port-0x001F gate, already
+    // implemented for KEMP/0x1F).
+    //
+    // Test exercises both polarities through the real port path so the
+    // NextREG cache + Port dispatch path are both validated.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Put joy1 (right connector) into Kempston2 so port 0x37
+        // decodes a meaningful byte. Per zxnext.vhd:5158
+        //   nr_05_joy1 = v[1] & v[5:4]
+        // Kempston2 = "100" requires v[1]=1, v[5:4]=00, so v = 0x02.
+        emu.port().out(0x243B, 0x05);
+        emu.port().out(0x253B, 0x02);
+        // Press joy_right Up on bit 3 → port 0x37 = 0x08.
+        emu.joystick().set_joy_right(0x08);
+
+        // Gate ON (NR 0x82 bit 7 = 1, default 0xFF after init).
+        emu.port().out(0x243B, 0x82);
+        emu.port().out(0x253B, 0xFF);
+        const uint8_t gated_on = emu.port().in(0x0037);
+
+        // Gate OFF (clear bit 7 → 0x7F).
+        emu.port().out(0x243B, 0x82);
+        emu.port().out(0x253B, 0x7F);
+        const uint8_t gated_off = emu.port().in(0x0037);
+
+        check("KEMP-16",
+              "NR 0x82 b7=0 un-decodes port 0x37 → 0xFF; b7=1 returns "
+              "joystick byte  (zxnext.vhd:2408, 2675; G128 closure)",
+              gated_on == 0x08 && gated_off == 0xFF,
+              DETAIL("gated_on=0x%02X gated_off=0x%02X (want 0x08, 0xFF)",
+                     gated_on, gated_off));
+    }
 
     // KEMP-17: port_1f / port_37 mode-conditional hw_en gate (G129 closure).
     //
@@ -1853,18 +1935,87 @@ static void test_iomode() {
                      m.pin7() ? 1 : 0));
     }
 
-    // IOMODE-11A — G72: runtime per-tick callback feeding the IoMode
-    // injectors does not exist. Emulator::tick() does not call
-    // IoMode::set_uart0_tx() / set_uart1_tx() / set_joy_left_bit5() /
-    // set_joy_right_bit5() each tick from Uart::tx_line() / Joystick
-    // bit-5 accessors. The pin-7 multiplex (covered by IOMODE-05/06)
-    // is therefore unit-correct but inert at runtime: pin7() reflects
-    // only whatever the constructor default happens to be plus any
-    // test-only direct setter calls. Verified by grep across src/ —
-    // zero production callers of any of the four injectors.
-    skip("IOMODE-11A",
-         "per-tick UART/joy-bit-5 → IoMode injector callback absent",
-         "Emulator::tick() never feeds IoMode injectors (see G72)");
+    // IOMODE-11A — G72 closure: per-tick UART → IoMode injector wire.
+    //
+    // VHDL zxnext.vhd:3526-3531 routes uart0_tx / uart1_tx into pin7
+    // when NR 0x0B mode is "10"/"11" (UART-driven). Without the
+    // production wire the pin-7 multiplex is unit-correct but inert.
+    // Emulator::run_frame() now calls
+    //   iomode_.set_uart0_tx(uart_.channel(0).tx_line_out())
+    //   iomode_.set_uart1_tx(uart_.channel(1).tx_line_out())
+    // every CPU-instruction tick, immediately after uart_.tick().
+    //
+    // Test idiom (mirrors the per-tick contract): pre-pollute IoMode's
+    // internal `uart0_tx_` / `uart1_tx_` shadows with a value that
+    // disagrees with the live UART tx_line_out_ defaults. After one
+    // run_frame() the wire MUST overwrite them back to the UART's
+    // current state, restoring pin7() observability.
+    //
+    // The per-tick wire is the load-bearing observable; we do not
+    // exercise the bit-level UART engine here (it has its own
+    // dedicated suite). The default tx_line_out_ = true is sufficient
+    // to demonstrate that the injector path actually fires.
+    //
+    // Note: the corresponding Joystick bit-5 injectors (VHDL signals
+    // i_JOY_LEFT(5) / i_JOY_RIGHT(5), zxnext.vhd:3539) are NOT covered
+    // by this row — Joystick currently exposes no public bit-5 accessor.
+    // Tracking under follow-up sub-gap; this row asserts the UART side.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Configure NR 0x0B = 0xA0 — en=1, mode=10 (UART), iomode_0=0.
+        // pin7() now reads `uart0_tx_` directly per IoMode::pin7()
+        // when mode is 10/11.
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xA0);
+
+        // Sanity: iomode_en() reflects the bit-7 latch.
+        const bool iomode_en_after_write = emu.iomode().iomode_en();
+
+        // Stomp IoMode's internal uart0/uart1 shadows to a value that
+        // disagrees with UART idle (true). Without the per-tick wire
+        // these stay false forever; with it, run_frame() overwrites
+        // them on the first instruction tick.
+        emu.iomode().set_uart0_tx(false);
+        emu.iomode().set_uart1_tx(false);
+        const bool pin7_pre_run = emu.iomode().pin7();
+
+        // Run one frame — inside, every per-instruction tick calls
+        // iomode_.set_uart0_tx(uart_.channel(0).tx_line_out()).
+        // UART defaults idle to true → pin7 should now read true.
+        emu.run_frame();
+        const bool pin7_post_run = emu.iomode().pin7();
+        const bool uart0_tx_now = emu.uart().channel(0).tx_line_out();
+
+        // Switch to channel-1 UART path (mode=10, iomode_0=1) and
+        // re-stomp uart1_tx_; verify that wire fires too.
+        emu.port().out(0x243B, 0x0B);
+        emu.port().out(0x253B, 0xA1);
+        emu.iomode().set_uart1_tx(false);
+        const bool pin7_pre_run2 = emu.iomode().pin7();
+        emu.run_frame();
+        const bool pin7_post_run2 = emu.iomode().pin7();
+        const bool uart1_tx_now = emu.uart().channel(1).tx_line_out();
+
+        check("IOMODE-11A",
+              "Emulator::run_frame() feeds IoMode UART injectors per "
+              "tick from Uart::channel(N).tx_line_out()  "
+              "(zxnext.vhd:3526-3531; G72 closure)",
+              iomode_en_after_write == true &&
+              pin7_pre_run == false  && pin7_post_run == uart0_tx_now &&
+              pin7_pre_run2 == false && pin7_post_run2 == uart1_tx_now,
+              DETAIL("en=%d ch0 pre=%d post=%d uart0=%d  "
+                     "ch1 pre=%d post=%d uart1=%d "
+                     "(want en=1, pre=0, post=uartN)",
+                     iomode_en_after_write,
+                     pin7_pre_run, pin7_post_run, uart0_tx_now,
+                     pin7_pre_run2, pin7_post_run2, uart1_tx_now));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2011,17 +2162,75 @@ static void test_mouse() {
     //    5198) are exposed on o_MOUSE_CONTROL for a host-adapter DPI
     //    divisor. No VHDL consumer uses this signal internally.
 
-    // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled and mouse
-    // disabled. VHDL zxnext.vhd:2674 enables the port_1f path also via
-    // port_df_lsb when port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0.
-    // jnext emulator.cpp:1563-1567 registers the 0xDF read handler that
-    // returns 0x00 unconditionally — Pentagon/ATM Soundrive 1.05 reads of
-    // 0xDF (Kempston joy when mouse disabled) get 0x00 instead of the
-    // joystick byte. Reviewer note (Wave-2 NEW-MS-1): the alias is also
-    // gated on Kempston1 mode being live; both gates must hold.
-    skip("MOUSE-12",
-         "0xDF Kempston-joy alias under Soundrive override",
-         "0xDF Kempston-joy alias under Soundrive override missing (see G130)");
+    // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled, mouse
+    // disabled, and joystick is in a port_1f-active mode (G130 closure).
+    // VHDL zxnext.vhd:2674:
+    //   port_1f = (port_1f_lsb OR
+    //              (port_df_lsb AND port_dac_mono_AD_df_io_en
+    //                          AND NOT port_mouse_io_en))
+    //            AND port_1f_io_en AND port_1f_hw_en
+    //
+    // For port 0xDF the alias gate requires (per the Tier 2 NEW-MS-1
+    // reviewer note):
+    //   * NR 0x84 bit 7 = 1   (port_dac_mono_AD_df_io_en — Specdrum)
+    //   * NR 0x83 bit 5 = 0   (port_mouse_io_en cleared)
+    //   * NR 0x82 bit 6 = 1   (port_1f_io_en — already default)
+    //   * Kempston1 (or MD3-Left) live on either connector
+    //                          (port_1f_hw_en, zxnext.vhd:2454, 3475-3491)
+    //
+    // When all gates hold the read returns the same byte port 0x001F
+    // delivers; otherwise the port stays undecoded (0x00 — matches the
+    // pre-fix unconditional default).
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Reset defaults: NR 0x82 = 0xFF (bit 6 set ⇒ port_1f_io_en),
+        // NR 0x83 = 0xFF (bit 5 set ⇒ mouse enabled), NR 0x84 = 0xFF
+        // (bit 7 set ⇒ Specdrum/DAC enabled). Joystick reset puts joy0
+        // in Kempston1 (port_1f_hw_en already live on the left side).
+
+        // Press a known direction so the joystick byte is non-zero.
+        emu.joystick().set_joy_left(0x08);  // JU = bit 3 = Up
+
+        // 1. Both DAC enable AND mouse-disable required, but mouse
+        //    enabled by default — alias should NOT fire.
+        const uint8_t mouse_on = emu.port().in(0x00DF);
+
+        // 2. Disable mouse by clearing NR 0x83 bit 5. NOW the alias
+        //    should fire (DAC bit set, port_1f_hw_en live via Kempston1).
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xDF);                // bit 5 cleared
+        const uint8_t mouse_off_dac_on_kemp = emu.port().in(0x00DF);
+
+        // 3. Disable DAC (NR 0x84 bit 7 = 0). Alias must NOT fire.
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0x7F);
+        const uint8_t dac_off = emu.port().in(0x00DF);
+
+        // 4. Re-enable DAC, switch joy0 to Sinclair2 (mode 000) so
+        //    port_1f_hw_en goes low — alias must NOT fire (NEW-MS-1).
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, 0xFF);
+        emu.port().out(0x243B, 0x05);
+        emu.port().out(0x253B, 0x00);                // joy0=000 Sinclair2
+        const uint8_t hw_off = emu.port().in(0x00DF);
+
+        check("MOUSE-12",
+              "0xDF Kempston-joy alias gates: DAC=1 AND mouse=0 AND "
+              "Kempston/MD-Left live  (zxnext.vhd:2674; G130 closure)",
+              mouse_on == 0x00 &&
+              mouse_off_dac_on_kemp == 0x08 &&
+              dac_off == 0x00 &&
+              hw_off == 0x00,
+              DETAIL("mouse_on=0x%02X kemp_on=0x%02X dac_off=0x%02X "
+                     "hw_off=0x%02X (want 0x00, 0x08, 0x00, 0x00)",
+                     mouse_on, mouse_off_dac_on_kemp, dac_off, hw_off));
+    }
 
     // MOUSE-13 — G43: SDL_MOUSEMOTION events do not dispatch into
     // KempstonMouse::inject_delta(). Verified: zero callers in src/ outside
