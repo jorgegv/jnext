@@ -5,6 +5,7 @@
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
 #include "platform/screenshot.h"
+#include "input/mouse_dispatcher.h"
 #ifdef ENABLE_DEBUGGER
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
@@ -12,6 +13,8 @@
 
 #include <QKeyEvent>
 #include <QCloseEvent>
+#include <QMouseEvent>
+#include <QWheelEvent>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
@@ -141,6 +144,16 @@ MainWindow::MainWindow(QWidget* parent)
     // Ensure the window receives key events even when focus is on a child widget.
     setFocusPolicy(Qt::StrongFocus);
 
+    // Enable mouse tracking so motion events flow continuously even with no
+    // buttons held — Kempston mouse drivers (Art Studio Next, mouse demos)
+    // sample motion every poll, not just while dragging. Both the window
+    // and the central emulator viewport need tracking on; events bubble
+    // up to MainWindow's overrides via Qt's event propagation. (G43.)
+    setMouseTracking(true);
+    if (emulator_widget_) {
+        emulator_widget_->setMouseTracking(true);
+    }
+
     // When the emulator widget detects the real DPR on its first frame,
     // it re-applies its scale and emits scale_changed — we re-fix the
     // window size to match.
@@ -153,8 +166,23 @@ MainWindow::MainWindow(QWidget* parent)
     set_scale(current_scale_);
 }
 
+// Defined out-of-line so unique_ptr<MouseDispatcher> can be declared with
+// only a forward declaration in main_window.h. The header for
+// MouseDispatcher is included at the top of this translation unit, so
+// the compiler has the full type here.
+MainWindow::~MainWindow() = default;
+
 void MainWindow::set_emulator(Emulator* emu) {
     emulator_ = emu;
+    // Construct the Kempston mouse host adapter once the emulator (and its
+    // KempstonMouse) is bound. Mirrors SdlApp::init() — same ownership
+    // pattern, parallel transport (Qt events instead of SDL events).
+    // G43 closure for the Qt UI path (default build).
+    if (emu) {
+        mouse_dispatcher_ = std::make_unique<MouseDispatcher>(emu->mouse());
+    } else {
+        mouse_dispatcher_.reset();
+    }
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, emu, this);
@@ -961,6 +989,105 @@ void MainWindow::handle_key(QKeyEvent* event, bool pressed) {
     } else {
         QMainWindow::keyPressEvent(static_cast<QKeyEvent*>(event));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Mouse event handlers — G43 closure for Qt UI path.
+//
+// Translate Qt events to the SDL conventions the MouseDispatcher expects,
+// then forward to its transport-agnostic API. Kempston ports populated:
+//   port_fbdf_dat  ← X counter (zxnext.vhd:3546)
+//   port_ffdf_dat  ← Y counter (zxnext.vhd:3553)
+//   port_fadf_dat  ← wheel | buttons (zxnext.vhd:3560)
+// MOUSE-13/14/15 unit tests assert the transport-agnostic surface; this
+// path feeds it from the production GUI binary.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Map a Qt::MouseButton to the SDL_BUTTON_* constant the dispatcher
+// already understands. Kempston has only L/M/R, so XButton1/2 are dropped
+// (return 0 → dispatcher ignores).
+uint8_t qt_button_to_sdl(Qt::MouseButton b) {
+    switch (b) {
+    case Qt::LeftButton:   return SDL_BUTTON_LEFT;    // 1
+    case Qt::MiddleButton: return SDL_BUTTON_MIDDLE;  // 2
+    case Qt::RightButton:  return SDL_BUTTON_RIGHT;   // 3
+    default:               return 0;
+    }
+}
+
+} // anonymous namespace
+
+void MainWindow::mouseMoveEvent(QMouseEvent* event) {
+    if (!mouse_dispatcher_) {
+        QMainWindow::mouseMoveEvent(event);
+        return;
+    }
+
+    // Qt6: position() is QPointF in widget-local coords (event source widget).
+    // We use globalPosition() so child widgets (EmulatorWidget) and the
+    // window itself produce the same delta stream — there's no jump when
+    // the cursor crosses widget boundaries inside the window.
+    const QPoint cur = event->globalPosition().toPoint();
+    if (have_last_mouse_pos_) {
+        const int dx = cur.x() - last_mouse_pos_.x();
+        const int dy = cur.y() - last_mouse_pos_.y();
+        if (dx != 0 || dy != 0) {
+            mouse_dispatcher_->handle_motion(dx, dy);
+        }
+    }
+    last_mouse_pos_ = cur;
+    have_last_mouse_pos_ = true;
+    event->accept();
+}
+
+void MainWindow::mousePressEvent(QMouseEvent* event) {
+    if (!mouse_dispatcher_) {
+        QMainWindow::mousePressEvent(event);
+        return;
+    }
+    // Make sure the next motion event computes a delta from the press
+    // location, not from a stale cursor position from before the user
+    // alt-tabbed away.
+    last_mouse_pos_ = event->globalPosition().toPoint();
+    have_last_mouse_pos_ = true;
+
+    const uint8_t sdl_btn = qt_button_to_sdl(event->button());
+    if (sdl_btn) {
+        mouse_dispatcher_->handle_button(sdl_btn, true);
+    }
+    event->accept();
+}
+
+void MainWindow::mouseReleaseEvent(QMouseEvent* event) {
+    if (!mouse_dispatcher_) {
+        QMainWindow::mouseReleaseEvent(event);
+        return;
+    }
+    const uint8_t sdl_btn = qt_button_to_sdl(event->button());
+    if (sdl_btn) {
+        mouse_dispatcher_->handle_button(sdl_btn, false);
+    }
+    event->accept();
+}
+
+void MainWindow::wheelEvent(QWheelEvent* event) {
+    if (!mouse_dispatcher_) {
+        QMainWindow::wheelEvent(event);
+        return;
+    }
+    // Qt6: angleDelta() is in eighths of a degree; one detent = 120 units.
+    // Integer-divide so a half-detent (high-resolution wheels) accumulates
+    // toward the next tick rather than producing fractional Kempston steps.
+    // y > 0 = wheel rolled away from user (matches SDL_MOUSEWHEEL convention
+    // the dispatcher already encodes).
+    const int qt_y = event->angleDelta().y();
+    const int detents = qt_y / 120;
+    if (detents != 0) {
+        mouse_dispatcher_->handle_wheel(detents);
+    }
+    event->accept();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

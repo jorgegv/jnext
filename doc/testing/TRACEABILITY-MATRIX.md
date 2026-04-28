@@ -2371,168 +2371,168 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 
 | Test ID   | Plan row title                                               | VHDL file:line                        | Status | Test file:line                |
 |-----------|--------------------------------------------------------------|---------------------------------------|--------|-------------------------------|
-| MD-01     | Mode 101; `i_JOY_LEFT` = U+D+L+R+A+B (bits 6,4,3,2,1,0)      | —                                     | pass   | test/input/input_test.cpp:979 |
-| KBD-01    | none                                                         | —                                     | pass   | test/input/input_test.cpp:138 |
-| KBD-02    | none                                                         | —                                     | pass   | test/input/input_test.cpp:145 |
-| KBD-03    | none                                                         | —                                     | pass   | test/input/input_test.cpp:152 |
-| KBD-04    | none                                                         | —                                     | pass   | test/input/input_test.cpp:159 |
-| KBD-05    | none                                                         | —                                     | pass   | test/input/input_test.cpp:166 |
-| KBD-06    | none                                                         | —                                     | pass   | test/input/input_test.cpp:173 |
-| KBD-07    | none                                                         | —                                     | pass   | test/input/input_test.cpp:186 |
-| KBD-08    | none                                                         | —                                     | pass   | test/input/input_test.cpp:198 |
-| KBD-09    | none                                                         | —                                     | pass   | test/input/input_test.cpp:209 |
-| KBD-10    | none                                                         | —                                     | pass   | test/input/input_test.cpp:220 |
-| KBD-11    | none                                                         | —                                     | pass   | test/input/input_test.cpp:231 |
-| KBD-12    | none                                                         | —                                     | pass   | test/input/input_test.cpp:242 |
-| KBD-13    | none                                                         | —                                     | pass   | test/input/input_test.cpp:249 |
-| KBD-14    | none                                                         | —                                     | pass   | test/input/input_test.cpp:256 |
-| KBD-15    | none                                                         | —                                     | pass   | test/input/input_test.cpp:263 |
-| KBD-16    | none                                                         | —                                     | pass   | test/input/input_test.cpp:270 |
-| KBD-17    | none                                                         | —                                     | pass   | test/input/input_test.cpp:277 |
-| KBD-18    | none                                                         | —                                     | pass   | test/input/input_test.cpp:286 |
-| KBD-19    | none                                                         | —                                     | pass   | test/input/input_test.cpp:297 |
-| KBD-20    | none                                                         | —                                     | pass   | test/input/input_test.cpp:306 |
-| KBD-21    | none                                                         | —                                     | pass   | test/input/input_test.cpp:316 |
+| MD-01     | Mode 101; `i_JOY_LEFT` = U+D+L+R+A+B (bits 6,4,3,2,1,0)      | —                                     | pass   | test/input/input_test.cpp:980 |
+| KBD-01    | none                                                         | —                                     | pass   | test/input/input_test.cpp:139 |
+| KBD-02    | none                                                         | —                                     | pass   | test/input/input_test.cpp:146 |
+| KBD-03    | none                                                         | —                                     | pass   | test/input/input_test.cpp:153 |
+| KBD-04    | none                                                         | —                                     | pass   | test/input/input_test.cpp:160 |
+| KBD-05    | none                                                         | —                                     | pass   | test/input/input_test.cpp:167 |
+| KBD-06    | none                                                         | —                                     | pass   | test/input/input_test.cpp:174 |
+| KBD-07    | none                                                         | —                                     | pass   | test/input/input_test.cpp:187 |
+| KBD-08    | none                                                         | —                                     | pass   | test/input/input_test.cpp:199 |
+| KBD-09    | none                                                         | —                                     | pass   | test/input/input_test.cpp:210 |
+| KBD-10    | none                                                         | —                                     | pass   | test/input/input_test.cpp:221 |
+| KBD-11    | none                                                         | —                                     | pass   | test/input/input_test.cpp:232 |
+| KBD-12    | none                                                         | —                                     | pass   | test/input/input_test.cpp:243 |
+| KBD-13    | none                                                         | —                                     | pass   | test/input/input_test.cpp:250 |
+| KBD-14    | none                                                         | —                                     | pass   | test/input/input_test.cpp:257 |
+| KBD-15    | none                                                         | —                                     | pass   | test/input/input_test.cpp:264 |
+| KBD-16    | none                                                         | —                                     | pass   | test/input/input_test.cpp:271 |
+| KBD-17    | none                                                         | —                                     | pass   | test/input/input_test.cpp:278 |
+| KBD-18    | none                                                         | —                                     | pass   | test/input/input_test.cpp:287 |
+| KBD-19    | none                                                         | —                                     | pass   | test/input/input_test.cpp:298 |
+| KBD-20    | none                                                         | —                                     | pass   | test/input/input_test.cpp:307 |
+| KBD-21    | none                                                         | —                                     | pass   | test/input/input_test.cpp:317 |
 | KBD-22    | none                                                         | —                                     | missing | missing                       |
 | KBD-23    | none                                                         | —                                     | missing | missing                       |
-| KBDHYS-01 | Pulse CS for one scan, then release; read the next scan      | —                                     | pass   | test/input/input_test.cpp:360 |
-| KBDHYS-02 | Hold CS continuously across 3 scans                          | —                                     | pass   | test/input/input_test.cpp:381 |
-| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan                     | —                                     | pass   | test/input/input_test.cpp:407 |
-| EXT-01    | Press UP, read NR 0xB0                                       | —                                     | pass   | test/input/input_test.cpp:457 |
-| EXT-02    | Press DOWN, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:462 |
-| EXT-03    | Press LEFT, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:467 |
-| EXT-04    | Press RIGHT, read NR 0xB0                                    | —                                     | pass   | test/input/input_test.cpp:472 |
-| EXT-05    | Press ';'                                                    | —                                     | pass   | test/input/input_test.cpp:477 |
-| EXT-06    | Press '"'                                                    | —                                     | pass   | test/input/input_test.cpp:482 |
-| EXT-07    | Press ','                                                    | —                                     | pass   | test/input/input_test.cpp:487 |
-| EXT-08    | Press '.'                                                    | —                                     | pass   | test/input/input_test.cpp:492 |
-| EXT-09    | Press DELETE                                                 | —                                     | pass   | test/input/input_test.cpp:503 |
-| EXT-10    | Press EDIT                                                   | —                                     | pass   | test/input/input_test.cpp:508 |
-| EXT-11    | Press BREAK                                                  | —                                     | pass   | test/input/input_test.cpp:513 |
-| EXT-12    | Press INV VIDEO                                              | —                                     | pass   | test/input/input_test.cpp:518 |
-| EXT-13    | Press TRUE VIDEO                                             | —                                     | pass   | test/input/input_test.cpp:523 |
-| EXT-14    | Press GRAPH                                                  | —                                     | pass   | test/input/input_test.cpp:528 |
-| EXT-15    | Press CAPS LOCK                                              | —                                     | pass   | test/input/input_test.cpp:533 |
-| EXT-16    | Press EXTEND                                                 | —                                     | pass   | test/input/input_test.cpp:538 |
-| EXT-17    | Press EDIT; read 0xF7FE (row 3)                              | —                                     | pass   | test/input/input_test.cpp:557 |
-| EXT-18    | Press ','; read 0xDFFE (row 5)                               | —                                     | pass   | test/input/input_test.cpp:573 |
-| EXT-19    | Press LEFT; read 0x7FFE (row 7)                              | —                                     | pass   | test/input/input_test.cpp:586 |
-| EXT-20    | UP + DOWN + LEFT + RIGHT                                     | —                                     | pass   | test/input/input_test.cpp:600 |
-| JMODE-01  | NR 0x05 = 0x00 = 0b0000_0000                                 | —                                     | pass   | test/input/input_test.cpp:636 |
-| JMODE-02  | NR 0x05 = 0x68 = 0b0110_1000                                 | —                                     | pass   | test/input/input_test.cpp:651 |
-| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001                                 | —                                     | pass   | test/input/input_test.cpp:666 |
-| JMODE-03  | NR 0x05 = 0x40 = 0b0100_0000                                 | —                                     | pass   | test/input/input_test.cpp:681 |
-| JMODE-04  | NR 0x05 = 0x08 = 0b0000_1000                                 | —                                     | pass   | test/input/input_test.cpp:696 |
-| JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000                                 | —                                     | pass   | test/input/input_test.cpp:711 |
-| JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010                                 | —                                     | pass   | test/input/input_test.cpp:726 |
-| JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000                                 | —                                     | pass   | test/input/input_test.cpp:741 |
-| JMODE-08  | Power-on, read joystick mode                                 | —                                     | pass   | test/input/input_test.cpp:762 |
-| KEMP-01   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:812 |
-| KEMP-02   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:820 |
-| KEMP-03   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:828 |
-| KEMP-04   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:836 |
-| KEMP-05   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:844 |
-| KEMP-06   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:852 |
-| KEMP-07   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:861 |
-| KEMP-08   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:869 |
-| KEMP-09   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:878 |
-| KEMP-10   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:887 |
-| KEMP-11   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:895 |
-| KEMP-12   | joy0=000                                                     | —                                     | pass   | test/input/input_test.cpp:908 |
-| KEMP-13   | joy0=001, joy1=001, L.U + R.R                                | —                                     | pass   | test/input/input_test.cpp:919 |
-| KEMP-14   | joy0=001, joy1=100, L.U, R.D                                 | —                                     | pass   | test/input/input_test.cpp:930 |
-| KEMP-15   | joy0=101, L.A pressed                                        | —                                     | pass   | test/input/input_test.cpp:941 |
-| MD-02     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:987 |
-| MD-03     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:995 |
-| MD-04     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1003 |
-| MD-05     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1011 |
-| MD-06     | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:1020 |
-| MD-07     | joy0=110                                                     | —                                     | pass   | test/input/input_test.cpp:1030 |
-| MD-08     | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1040 |
-| MD-09     | joy0=101, joy1=101 (both MD1 — illegal?)                     | —                                     | pass   | test/input/input_test.cpp:1054 |
-| MD6-01    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1084 |
-| MD6-02    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1092 |
-| MD6-03    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1100 |
-| MD6-04    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1108 |
-| MD6-05    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1116 |
-| MD6-06    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1124 |
-| MD6-07    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1132 |
-| MD6-08    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1140 |
-| MD6-09    | both MD                                                      | —                                     | pass   | test/input/input_test.cpp:1149 |
-| MD6-10    | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1`              | —                                     | pass   | test/input/input_test.cpp:1167 |
-| MD6-11a   | 0000 (left, sub=000)                                         | md6_joystick_connector_x2.vhd:135-139 | pass   | test/input/input_test.cpp:1194 |
-| MD6-11b   | 0100 (left, sub=010)                                         | —                                     | pass   | test/input/input_test.cpp:1213 |
-| MD6-11c   | 0110 (left, sub=011)                                         | —                                     | pass   | test/input/input_test.cpp:1227 |
-| MD6-11d   | 1000 (left, sub=100)                                         | —                                     | pass   | test/input/input_test.cpp:1243 |
-| MD6-11e   | 1010 (left, sub=101)                                         | —                                     | pass   | test/input/input_test.cpp:1259 |
-| MD6-11f   | 0101 (right, sub=010)                                        | —                                     | pass   | test/input/input_test.cpp:1273 |
-| MD6-11g   | 0111 (right, sub=011)                                        | —                                     | pass   | test/input/input_test.cpp:1287 |
-| MD6-11h   | 1011 (right, sub=101)                                        | —                                     | pass   | test/input/input_test.cpp:1302 |
-| MD6-11i   | 1000 (left, sub=100), 3-button pad                           | —                                     | pass   | test/input/input_test.cpp:1318 |
-| SINC1-01  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1376 |
-| SINC1-02  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1381 |
-| SINC1-03  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1386 |
-| SINC1-04  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1391 |
-| SINC1-05  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1396 |
-| SINC2-01  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1405 |
-| SINC2-02  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1410 |
-| SINC2-03  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1415 |
-| SINC2-04  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1420 |
-| SINC2-05  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1425 |
-| SINC-06   | joy0=011, joy1=000, both LEFT                                | —                                     | pass   | test/input/input_test.cpp:1449 |
-| CURS-01   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1485 |
-| CURS-02   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1491 |
-| CURS-03   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1497 |
-| CURS-04   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1503 |
-| CURS-05   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1509 |
-| CURS-06   | joy0=010, LEFT + RIGHT                                       | —                                     | pass   | test/input/input_test.cpp:1522 |
-| IOMODE-01 | Reset                                                        | —                                     | pass   | test/input/input_test.cpp:1549 |
-| IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0)             | —                                     | pass   | test/input/input_test.cpp:1559 |
-| IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1)             | —                                     | pass   | test/input/input_test.cpp:1569 |
-| IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | —                                     | pass   | test/input/input_test.cpp:1589 |
-| IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0)             | —                                     | pass   | test/input/input_test.cpp:1606 |
-| IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1)             | —                                     | pass   | test/input/input_test.cpp:1623 |
-| IOMODE-07 | Write NR 0x0B = 0xA0, assert `JOY_LEFT(5)=0`                 | —                                     | pass   | test/input/input_test.cpp:1641 |
-| IOMODE-08 | Write NR 0x0B = 0xA1, assert `JOY_RIGHT(5)=0`                | —                                     | pass   | test/input/input_test.cpp:1661 |
-| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | —                                     | pass   | test/input/input_test.cpp:1674 |
-| IOMODE-10 | Write NR 0x0B = 0x80                                         | —                                     | pass   | test/input/input_test.cpp:1693 |
-| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | —                                     | pass   | test/input/input_test.cpp:1723 |
-| MOUSE-01  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1763 |
-| MOUSE-02  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1775 |
-| MOUSE-03  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1789 |
-| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1802 |
-| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1814 |
-| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1826 |
-| MOUSE-07  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1839 |
-| MOUSE-08  | `port_mouse_io_en=0`                                         | —                                     | pass   | test/input/input_test.cpp:1870 |
+| KBDHYS-01 | Pulse CS for one scan, then release; read the next scan      | —                                     | pass   | test/input/input_test.cpp:361 |
+| KBDHYS-02 | Hold CS continuously across 3 scans                          | —                                     | pass   | test/input/input_test.cpp:382 |
+| KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan                     | —                                     | pass   | test/input/input_test.cpp:408 |
+| EXT-01    | Press UP, read NR 0xB0                                       | —                                     | pass   | test/input/input_test.cpp:458 |
+| EXT-02    | Press DOWN, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:463 |
+| EXT-03    | Press LEFT, read NR 0xB0                                     | —                                     | pass   | test/input/input_test.cpp:468 |
+| EXT-04    | Press RIGHT, read NR 0xB0                                    | —                                     | pass   | test/input/input_test.cpp:473 |
+| EXT-05    | Press ';'                                                    | —                                     | pass   | test/input/input_test.cpp:478 |
+| EXT-06    | Press '"'                                                    | —                                     | pass   | test/input/input_test.cpp:483 |
+| EXT-07    | Press ','                                                    | —                                     | pass   | test/input/input_test.cpp:488 |
+| EXT-08    | Press '.'                                                    | —                                     | pass   | test/input/input_test.cpp:493 |
+| EXT-09    | Press DELETE                                                 | —                                     | pass   | test/input/input_test.cpp:504 |
+| EXT-10    | Press EDIT                                                   | —                                     | pass   | test/input/input_test.cpp:509 |
+| EXT-11    | Press BREAK                                                  | —                                     | pass   | test/input/input_test.cpp:514 |
+| EXT-12    | Press INV VIDEO                                              | —                                     | pass   | test/input/input_test.cpp:519 |
+| EXT-13    | Press TRUE VIDEO                                             | —                                     | pass   | test/input/input_test.cpp:524 |
+| EXT-14    | Press GRAPH                                                  | —                                     | pass   | test/input/input_test.cpp:529 |
+| EXT-15    | Press CAPS LOCK                                              | —                                     | pass   | test/input/input_test.cpp:534 |
+| EXT-16    | Press EXTEND                                                 | —                                     | pass   | test/input/input_test.cpp:539 |
+| EXT-17    | Press EDIT; read 0xF7FE (row 3)                              | —                                     | pass   | test/input/input_test.cpp:558 |
+| EXT-18    | Press ','; read 0xDFFE (row 5)                               | —                                     | pass   | test/input/input_test.cpp:574 |
+| EXT-19    | Press LEFT; read 0x7FFE (row 7)                              | —                                     | pass   | test/input/input_test.cpp:587 |
+| EXT-20    | UP + DOWN + LEFT + RIGHT                                     | —                                     | pass   | test/input/input_test.cpp:601 |
+| JMODE-01  | NR 0x05 = 0x00 = 0b0000_0000                                 | —                                     | pass   | test/input/input_test.cpp:637 |
+| JMODE-02  | NR 0x05 = 0x68 = 0b0110_1000                                 | —                                     | pass   | test/input/input_test.cpp:652 |
+| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001                                 | —                                     | pass   | test/input/input_test.cpp:667 |
+| JMODE-03  | NR 0x05 = 0x40 = 0b0100_0000                                 | —                                     | pass   | test/input/input_test.cpp:682 |
+| JMODE-04  | NR 0x05 = 0x08 = 0b0000_1000                                 | —                                     | pass   | test/input/input_test.cpp:697 |
+| JMODE-05  | NR 0x05 = 0x88 = 0b1000_1000                                 | —                                     | pass   | test/input/input_test.cpp:712 |
+| JMODE-06  | NR 0x05 = 0x22 = 0b0010_0010                                 | —                                     | pass   | test/input/input_test.cpp:727 |
+| JMODE-07  | NR 0x05 = 0x30 = 0b0011_0000                                 | —                                     | pass   | test/input/input_test.cpp:742 |
+| JMODE-08  | Power-on, read joystick mode                                 | —                                     | pass   | test/input/input_test.cpp:763 |
+| KEMP-01   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:813 |
+| KEMP-02   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:821 |
+| KEMP-03   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:829 |
+| KEMP-04   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:837 |
+| KEMP-05   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:845 |
+| KEMP-06   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:853 |
+| KEMP-07   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:862 |
+| KEMP-08   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:870 |
+| KEMP-09   | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:879 |
+| KEMP-10   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:888 |
+| KEMP-11   | joy0=100                                                     | —                                     | pass   | test/input/input_test.cpp:896 |
+| KEMP-12   | joy0=000                                                     | —                                     | pass   | test/input/input_test.cpp:909 |
+| KEMP-13   | joy0=001, joy1=001, L.U + R.R                                | —                                     | pass   | test/input/input_test.cpp:920 |
+| KEMP-14   | joy0=001, joy1=100, L.U, R.D                                 | —                                     | pass   | test/input/input_test.cpp:931 |
+| KEMP-15   | joy0=101, L.A pressed                                        | —                                     | pass   | test/input/input_test.cpp:942 |
+| MD-02     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:988 |
+| MD-03     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:996 |
+| MD-04     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1004 |
+| MD-05     | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1012 |
+| MD-06     | joy0=001                                                     | —                                     | pass   | test/input/input_test.cpp:1021 |
+| MD-07     | joy0=110                                                     | —                                     | pass   | test/input/input_test.cpp:1031 |
+| MD-08     | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1041 |
+| MD-09     | joy0=101, joy1=101 (both MD1 — illegal?)                     | —                                     | pass   | test/input/input_test.cpp:1055 |
+| MD6-01    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1085 |
+| MD6-02    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1093 |
+| MD6-03    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1101 |
+| MD6-04    | joy0=101                                                     | —                                     | pass   | test/input/input_test.cpp:1109 |
+| MD6-05    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1117 |
+| MD6-06    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1125 |
+| MD6-07    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1133 |
+| MD6-08    | joy1=110                                                     | —                                     | pass   | test/input/input_test.cpp:1141 |
+| MD6-09    | both MD                                                      | —                                     | pass   | test/input/input_test.cpp:1150 |
+| MD6-10    | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1`              | —                                     | pass   | test/input/input_test.cpp:1168 |
+| MD6-11a   | 0000 (left, sub=000)                                         | md6_joystick_connector_x2.vhd:135-139 | pass   | test/input/input_test.cpp:1195 |
+| MD6-11b   | 0100 (left, sub=010)                                         | —                                     | pass   | test/input/input_test.cpp:1214 |
+| MD6-11c   | 0110 (left, sub=011)                                         | —                                     | pass   | test/input/input_test.cpp:1228 |
+| MD6-11d   | 1000 (left, sub=100)                                         | —                                     | pass   | test/input/input_test.cpp:1244 |
+| MD6-11e   | 1010 (left, sub=101)                                         | —                                     | pass   | test/input/input_test.cpp:1260 |
+| MD6-11f   | 0101 (right, sub=010)                                        | —                                     | pass   | test/input/input_test.cpp:1274 |
+| MD6-11g   | 0111 (right, sub=011)                                        | —                                     | pass   | test/input/input_test.cpp:1288 |
+| MD6-11h   | 1011 (right, sub=101)                                        | —                                     | pass   | test/input/input_test.cpp:1303 |
+| MD6-11i   | 1000 (left, sub=100), 3-button pad                           | —                                     | pass   | test/input/input_test.cpp:1319 |
+| SINC1-01  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1377 |
+| SINC1-02  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1382 |
+| SINC1-03  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1387 |
+| SINC1-04  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1392 |
+| SINC1-05  | joy0=011                                                     | —                                     | pass   | test/input/input_test.cpp:1397 |
+| SINC2-01  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1406 |
+| SINC2-02  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1411 |
+| SINC2-03  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1416 |
+| SINC2-04  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1421 |
+| SINC2-05  | joy1=000                                                     | —                                     | pass   | test/input/input_test.cpp:1426 |
+| SINC-06   | joy0=011, joy1=000, both LEFT                                | —                                     | pass   | test/input/input_test.cpp:1450 |
+| CURS-01   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1486 |
+| CURS-02   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1492 |
+| CURS-03   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1498 |
+| CURS-04   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1504 |
+| CURS-05   | joy0=010                                                     | —                                     | pass   | test/input/input_test.cpp:1510 |
+| CURS-06   | joy0=010, LEFT + RIGHT                                       | —                                     | pass   | test/input/input_test.cpp:1523 |
+| IOMODE-01 | Reset                                                        | —                                     | pass   | test/input/input_test.cpp:1550 |
+| IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0)             | —                                     | pass   | test/input/input_test.cpp:1560 |
+| IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1)             | —                                     | pass   | test/input/input_test.cpp:1570 |
+| IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3)`  | —                                     | pass   | test/input/input_test.cpp:1590 |
+| IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0)             | —                                     | pass   | test/input/input_test.cpp:1607 |
+| IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1)             | —                                     | pass   | test/input/input_test.cpp:1624 |
+| IOMODE-07 | Write NR 0x0B = 0xA0, assert `JOY_LEFT(5)=0`                 | —                                     | pass   | test/input/input_test.cpp:1642 |
+| IOMODE-08 | Write NR 0x0B = 0xA1, assert `JOY_RIGHT(5)=0`                | —                                     | pass   | test/input/input_test.cpp:1662 |
+| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en`                   | —                                     | pass   | test/input/input_test.cpp:1675 |
+| IOMODE-10 | Write NR 0x0B = 0x80                                         | —                                     | pass   | test/input/input_test.cpp:1694 |
+| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured      | —                                     | pass   | test/input/input_test.cpp:1724 |
+| MOUSE-01  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1764 |
+| MOUSE-02  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1776 |
+| MOUSE-03  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1790 |
+| MOUSE-04  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1803 |
+| MOUSE-05  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1815 |
+| MOUSE-06  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1827 |
+| MOUSE-07  | `port_mouse_io_en=1`                                         | —                                     | pass   | test/input/input_test.cpp:1840 |
+| MOUSE-08  | `port_mouse_io_en=0`                                         | —                                     | pass   | test/input/input_test.cpp:1871 |
 | MOUSE-09  | NR 0x0A bit 3 = 1 (reverse)                                  | —                                     | missing | missing                       |
 | MOUSE-10  | `port_mouse_io_en=1`                                         | —                                     | missing | missing                       |
 | MOUSE-11  | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"`     | —                                     | missing | missing                       |
-| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:1979 |
-| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:1996 |
-| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2013 |
-| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2030 |
-| NMI-05    | NR 0x06 bit 3 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2049 |
-| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2067 |
-| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2085 |
+| NMI-01    | NR 0x06 bit 3 = 1 (M1 en)                                    | —                                     | pass   | test/input/input_test.cpp:2112 |
+| NMI-02    | NR 0x06 bit 3 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2129 |
+| NMI-03    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2146 |
+| NMI-04    | NR 0x06 bit 4 = 0                                            | —                                     | pass   | test/input/input_test.cpp:2163 |
+| NMI-05    | NR 0x06 bit 3 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2182 |
+| NMI-06    | NR 0x06 bit 4 = 1                                            | —                                     | pass   | test/input/input_test.cpp:2200 |
+| NMI-07    | both NR 0x06 bits 3,4 = 1, both hotkeys asserted             | —                                     | pass   | test/input/input_test.cpp:2218 |
 | FE-01     | No keys, EAR=0, no `port_fe_ear`                             | —                                     | missing | missing                       |
 | FE-02     | EAR input high                                               | —                                     | missing | missing                       |
 | FE-03     | Write 0xFE bit 4 high (`port_fe_ear`=1), then read           | —                                     | missing | missing                       |
 | FE-04     | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0                    | —                                     | missing | missing                       |
 | FE-05     | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus dri… | —                                     | missing | missing                       |
-| JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | skip   | test/input/input_test.cpp:774 |
-| KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | skip   | test/input/input_test.cpp:950 |
-| KEMP-17       | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F -> floating-bus 0xFF (port_1f_hw_en=0)       | zxnext.vhd:2454-2455,2674-2675          | skip   | test/input/input_test.cpp:960 |
-| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | skip   | test/input/input_test.cpp:1900 |
-| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | skip   | test/input/input_test.cpp:1908 |
-| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | skip   | test/input/input_test.cpp:1914 |
-| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | skip   | test/input/input_test.cpp:1920 |
-| KBDHYS-04     | `Emulator` main loop calls `Keyboard::tick_scan()` each membrane scan-cycle (production wire)        | membrane.vhd:178-191                    | skip   | test/input/input_test.cpp:426 |
+| JMODE-09      | NR 0x05=0x40 (joy0=Kempston1) -> MembraneStick::set_mode(joy0) called from Joystick::set_nr_05       | membrane_stick.vhd:117-149              | skip   | test/input/input_test.cpp:775 |
+| KEMP-16       | NR 0x82 b7=0; joy0=100 (Kempston2); read port 0x37 -> floating-bus, NOT joystick byte                | zxnext.vhd:2408,2675                    | skip   | test/input/input_test.cpp:951 |
+| KEMP-17       | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F -> floating-bus 0xFF (port_1f_hw_en=0)       | zxnext.vhd:2454-2455,2674-2675          | skip   | test/input/input_test.cpp:961 |
+| MOUSE-12      | port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0 AND joy0=001 -> read 0xDF returns Kempston byte   | zxnext.vhd:2674                         | skip   | test/input/input_test.cpp:1901 |
+| MOUSE-13      | Host SDL mouse motion -> KempstonMouse X/Y deltas at port 0xFADF / 0xFBDF (G43)                      | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:1932 |
+| MOUSE-14      | Host SDL mouse buttons -> KempstonMouse button bits at port 0xFBDF (G43)                             | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:1970 |
+| MOUSE-15      | Host wheel scroll -> KempstonMouse wheel byte (NR 0x0A bit 3 reverse honoured) (G43)                 | kempston_mouse.vhd                      | pass   | test/input/input_test.cpp:2002 |
+| KBDHYS-04     | `Emulator` main loop calls `Keyboard::tick_scan()` each membrane scan-cycle (production wire)        | membrane.vhd:178-191                    | skip   | test/input/input_test.cpp:427 |
 | KBDHYS-05     | `Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod)    | membrane.vhd:178-191                    | missing | missing                       |
-| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | skip   | test/input/input_test.cpp:2120 |
-| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | skip   | test/input/input_test.cpp:2129 |
-| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | skip   | test/input/input_test.cpp:2137 |
-| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | skip   | test/input/input_test.cpp:2158 |
+| JCAL-01       | NR 0x28 keymap_sel write (2-bit) persists to NextReg readback                                        | zxnext.vhd:6294-6300                    | skip   | test/input/input_test.cpp:2253 |
+| JCAL-02       | NR 0x29 addr-low + NR 0x2B data-write/inc -> SDP-RAM-analogue keyjoy_64_6 entry                      | zxnext.vhd:6301-6324                    | skip   | test/input/input_test.cpp:2262 |
+| JCAL-03       | NR 0x05 joy0/1=111 + JCAL-programmed entry -> membrane fold redirects through user-defined keymap   | zxnext.vhd:5157-5158,3429-3438          | skip   | test/input/input_test.cpp:2270 |
+| FNK-01        | F-key 7-state FSM (`emu_fnkeys.vhd`) consuming i_button_m1_n + i_button_reset_n + membrane           | input/membrane/emu_fnkeys.vhd:53-202    | skip   | test/input/input_test.cpp:2291 |
 | HOTKEY-01     | Host SDL_SCANCODE_F8 -> NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by nr_06_hotkey_*_en  | zxnext.vhd:5790-5791,6342-6347          | missing | missing                       |
 | JOY-WIRE-01   | OUT (0x253B), 0x40 with reg=0x05 -> MembraneStick fold redirects through full NR-write path          | emulator.cpp:456-458                    | missing | missing                       |
 | JOY-WIRE-02   | Host SDL gamepad axis -> Kempston bits at port 0x1F (G42)                                            | joystick.vhd                            | missing | missing                       |
@@ -2543,7 +2543,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | HK-WIRE-03    | Host F9 SDL key dispatched into NMI source `assert_mf` injector (G152)                               | nmi_source.cpp                          | missing | missing                       |
 | HK-WIRE-04    | Host F10 SDL key dispatched into DivMMC button NMI injector (G152)                                   | divmmc.cpp                              | missing | missing                       |
 | FE-04A        | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)                          | keyboard.cpp                            | missing | missing                       |
-| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | skip   | test/input/input_test.cpp:1743 |
+| IOMODE-11A    | NR 0x05 joy0/joy1=111 (user I/O) + NR 0x0B with iomode=01 -> CTC ZC/TO routes to UART pin-7 (G72)    | zxnext.vhd                              | skip   | test/input/input_test.cpp:1744 |
 | ESP-01        | UART 0 TX bytes egress to ESP-01 host bridge when nr_a0 ESP-route enabled (G39)                      | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-02        | UART 0 RX bytes from ESP-01 host bridge land in `Uart` RX FIFO (G39)                                 | zxnext.vhd:2278-2281                    | missing | missing                       |
 | ESP-03        | ESP-01 reset line driven from NR 0xA0 / NextZXOS networking signal (G39)                             | zxnext.vhd                              | missing | missing                       |

@@ -26,6 +26,7 @@
 #include "input/joystick.h"
 #include "input/membrane_stick.h"
 #include "input/mouse.h"
+#include "input/mouse_dispatcher.h"
 #include "input/iomode.h"
 #include "input/joystick.h"
 #include "input/md6_connector_x2.h"
@@ -2232,25 +2233,157 @@ static void test_mouse() {
                      mouse_on, mouse_off_dac_on_kemp, dac_off, hw_off));
     }
 
-    // MOUSE-13 — G43: SDL_MOUSEMOTION events do not dispatch into
-    // KempstonMouse::inject_delta(). Verified: zero callers in src/ outside
-    // the class. Mouse-driven software (Art Studio Next, mouse demos)
-    // cannot move the cursor.
-    skip("MOUSE-13",
-         "SDL motion → inject_delta",
-         "SDL_MOUSEMOTION not dispatched to KempstonMouse (see G43)");
+    // ──────────────────────────────────────────────────────────────────────
+    // MOUSE-13/14/15 — G43 closure (Tier 2 W1): SDL host events → KempstonMouse.
+    //
+    // The dispatch from SDL events to KempstonMouse is host-adapter work
+    // (no VHDL oracle for the dispatch itself — VHDL spec ends at i_MOUSE_*
+    // pins, see mouse.h header). The shape that lands in the register file
+    // IS VHDL-cited (zxnext.vhd:3543-3561, MOUSE-01..MOUSE-11 above).
+    //
+    // We test against the transport-agnostic surface of MouseDispatcher
+    // (handle_motion / handle_button / handle_wheel) so the tests do not
+    // depend on synthesising SDL_Event structs. The SDL_Event entry point
+    // (handle_sdl_event) is exercised in a single sanity check at the end.
+    // ──────────────────────────────────────────────────────────────────────
 
-    // MOUSE-14 — G43: SDL_MOUSEBUTTON{DOWN,UP} events do not dispatch
-    // into KempstonMouse::set_buttons(). Same shape as MOUSE-13.
-    skip("MOUSE-14",
-         "SDL button → set_buttons",
-         "SDL_MOUSEBUTTON* not dispatched to KempstonMouse (see G43)");
+    // MOUSE-13 — G43: SDL motion event → KempstonMouse::inject_delta.
+    // Verifies that a host motion delta lands at port 0xFBDF (X) / 0xFFDF (Y)
+    // per zxnext.vhd:3546, 3553. Two-step inject exercises the modulo-256
+    // accumulator (0x40 + 0xC0 = 0x100 → 0x00 mod 256 on X).
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+        d.handle_motion(0x10, 0x20);
+        uint8_t fbdf1 = m.read_port_fbdf();
+        uint8_t ffdf1 = m.read_port_ffdf();
+        d.handle_motion(0x05, -0x01);
+        uint8_t fbdf2 = m.read_port_fbdf();
+        uint8_t ffdf2 = m.read_port_ffdf();
+        check("MOUSE-13",
+              "SDL motion → inject_delta → 0xFBDF/0xFFDF (G43)",
+              fbdf1 == 0x10 && ffdf1 == 0x20 &&
+              fbdf2 == 0x15 && ffdf2 == 0x1F,
+              DETAIL("after (0x10,0x20): fbdf=0x%02X ffdf=0x%02X "
+                     "(want 0x10/0x20); after (+5,-1): fbdf=0x%02X ffdf=0x%02X "
+                     "(want 0x15/0x1F)",
+                     fbdf1, ffdf1, fbdf2, ffdf2));
+    }
 
-    // MOUSE-15 — G43: SDL_MOUSEWHEEL events do not feed the 4-bit wheel
-    // counter. Same upstream gap.
-    skip("MOUSE-15",
-         "SDL wheel → 4-bit counter",
-         "SDL_MOUSEWHEEL not dispatched to KempstonMouse (see G43)");
+    // MOUSE-14 — G43: SDL button events → KempstonMouse::set_buttons.
+    // SDL_BUTTON_LEFT=1 → bit 1 (L), MIDDLE=2 → bit 2 (M), RIGHT=3 → bit 0 (R)
+    // per dispatcher mapping; KempstonMouse re-emits as active-low at port
+    // 0xFADF per zxnext.vhd:3560.
+    //
+    // Sequence:
+    //   1. press L  → mask 0x02 → fadf bit 1 = 0  → 0x0D
+    //   2. press R  → mask 0x03 → fadf bits 0+1=0 → 0x0C
+    //   3. release L→ mask 0x01 → fadf bit 0 = 0  → 0x0E
+    //   4. press M  → mask 0x05 → fadf bits 0+2=0 → 0x0A
+    //   5. release all (R, M)→ mask 0x00 → fadf 0x0F
+    //   6. spurious SDL_BUTTON_X1 (=4) ignored — mask unchanged.
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+        d.handle_button(SDL_BUTTON_LEFT, true);
+        uint8_t v1 = m.read_port_fadf();
+        d.handle_button(SDL_BUTTON_RIGHT, true);
+        uint8_t v2 = m.read_port_fadf();
+        d.handle_button(SDL_BUTTON_LEFT, false);
+        uint8_t v3 = m.read_port_fadf();
+        d.handle_button(SDL_BUTTON_MIDDLE, true);
+        uint8_t v4 = m.read_port_fadf();
+        d.handle_button(SDL_BUTTON_RIGHT, false);
+        d.handle_button(SDL_BUTTON_MIDDLE, false);
+        uint8_t v5 = m.read_port_fadf();
+        d.handle_button(SDL_BUTTON_X1, true);     // ignored
+        uint8_t v6 = m.read_port_fadf();
+        check("MOUSE-14",
+              "SDL button → set_buttons → 0xFADF active-low (G43)",
+              v1 == 0x0D && v2 == 0x0C && v3 == 0x0E &&
+              v4 == 0x0A && v5 == 0x0F && v6 == 0x0F,
+              DETAIL("fadf seq L=0x%02X (0x0D) +R=0x%02X (0x0C) "
+                     "-L=0x%02X (0x0E) +M=0x%02X (0x0A) "
+                     "all-up=0x%02X (0x0F) +X1=0x%02X (0x0F)",
+                     v1, v2, v3, v4, v5, v6));
+    }
+
+    // MOUSE-15 — G43: SDL wheel event → 4-bit unsigned counter mod-16.
+    // Wheel field is bits 7:4 of port 0xFADF per zxnext.vhd:3560. The
+    // counter wraps at 4 bits — VHDL exposes only the raw nibble (plan
+    // row MOUSE-10 = G; signed semantics are host-side, but the
+    // accumulator MUST roll over modulo-16 to stay faithful).
+    //
+    // Sequence: +5 → 5, +6 → 11, +5 → 16 mod 16 = 0, -1 → 15, -20 → -5
+    // mod 16 = 11. Each step asserts both port bits 7:4 and the
+    // dispatcher's introspection accessor.
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+        d.handle_wheel(+5);
+        uint8_t v1 = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+        d.handle_wheel(+6);
+        uint8_t v2 = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+        d.handle_wheel(+5);          // 11 + 5 = 16 → wrap to 0
+        uint8_t v3 = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+        d.handle_wheel(-1);          // 0 - 1 → 15
+        uint8_t v4 = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+        d.handle_wheel(-20);         // 15 - 20 = -5 mod 16 = 11
+        uint8_t v5 = static_cast<uint8_t>((m.read_port_fadf() >> 4) & 0x0F);
+        check("MOUSE-15",
+              "SDL wheel → 4-bit counter mod-16 → 0xFADF[7:4] (G43)",
+              v1 == 0x05 && v2 == 0x0B && v3 == 0x00 &&
+              v4 == 0x0F && v5 == 0x0B,
+              DETAIL("wheel seq +5=0x%X (5) +6=0x%X (B) +5=0x%X (0 wrap) "
+                     "-1=0x%X (F) -20=0x%X (B)",
+                     v1, v2, v3, v4, v5));
+    }
+
+    // MOUSE-13/14/15 sanity — handle_sdl_event routes correctly.
+    // Confirms the SDL_Event entry point used by SdlInput::poll forwards
+    // each of the three event types into the transport-agnostic handlers.
+    // Not a separate plan row — protects the production wiring path that
+    // unit tests would otherwise miss.
+    {
+        KempstonMouse m;
+        MouseDispatcher d(m);
+
+        SDL_Event mot{};
+        mot.type = SDL_MOUSEMOTION;
+        mot.motion.xrel = 0x33;
+        mot.motion.yrel = 0x44;
+        bool consumed_mot = d.handle_sdl_event(mot);
+
+        SDL_Event bdn{};
+        bdn.type = SDL_MOUSEBUTTONDOWN;
+        bdn.button.button = SDL_BUTTON_LEFT;
+        bool consumed_bdn = d.handle_sdl_event(bdn);
+
+        SDL_Event whl{};
+        whl.type = SDL_MOUSEWHEEL;
+        whl.wheel.y = 3;
+        whl.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+        bool consumed_whl = d.handle_sdl_event(whl);
+
+        SDL_Event other{};
+        other.type = SDL_KEYDOWN;
+        bool consumed_other = d.handle_sdl_event(other);
+
+        const uint8_t fbdf = m.read_port_fbdf();
+        const uint8_t ffdf = m.read_port_ffdf();
+        const uint8_t fadf = m.read_port_fadf();
+        check("MOUSE-13/14/15-SDL",
+              "handle_sdl_event routes motion/button/wheel; ignores other",
+              consumed_mot && consumed_bdn && consumed_whl && !consumed_other &&
+              fbdf == 0x33 && ffdf == 0x44 &&
+              (fadf & 0x02) == 0 &&            // L pressed → bit 1 = 0
+              ((fadf >> 4) & 0x0F) == 0x03,    // wheel = 3
+              DETAIL("consumed mot=%d bdn=%d whl=%d other=%d | "
+                     "fbdf=0x%02X (0x33) ffdf=0x%02X (0x44) "
+                     "fadf=0x%02X (bit1 clear, hi nib 0x3)",
+                     consumed_mot, consumed_bdn, consumed_whl, consumed_other,
+                     fbdf, ffdf, fadf));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
