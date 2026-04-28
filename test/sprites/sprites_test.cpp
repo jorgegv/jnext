@@ -28,6 +28,7 @@
 
 #include "video/sprites.h"
 #include "video/palette.h"
+#include "video/layer2.h"
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -3400,12 +3401,97 @@ static void group17() {
          "Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap",
          "same root as G13: cap is C++ budget, not VHDL behaviour (see G15)");
 
-    // G06.NR70-01: Cross-subsystem placeholder for L2 NR 0x70 b5:4 width
-    // mid-frame flip. Lives here until LAYER2 plan grows a per-scanline
-    // L2-resolution change-log. VHDL zxnext.vhd:7400-7470, layer2.vhd:128.
-    stub("G06.NR70-01",
-         "NR 0x70 b5:4 L2 resolution flip mid-frame must reroute width",
-         "Layer2 resolution per-frame; per-scanline NR 0x70 not in log (see G06)");
+    // G06.NR70-01: NR 0x70 b5:4 L2 resolution flip mid-frame must reroute
+    // width on the very next scanline. VHDL zxnext.vhd:5475-5477 captures
+    // bits 5:4 (resolution) and bits 3:0 (palette offset) on every NR 0x70
+    // write. layer2.vhd:113 samples i_resolution every CLK_7 cycle into
+    // layer2_resolution_q, and layer2.vhd:147,150,160 use the live value
+    // to choose the row/column-major address path. Without per-scanline
+    // replay, the renderer would see only the end-of-frame value and
+    // collapse all scanlines onto the same path.
+    //
+    // Layer2 owns the surface; this test pins the per-scanline NR 0x70
+    // change-log + replay shape from the sprites_test side because the
+    // gap is shared (sprites must read the same per-line resolution to
+    // know whether the framebuffer is wide).
+    {
+        Layer2 l2;
+        l2.reset();
+
+        // Frame baseline: NR 0x70 = 0x00 (256x192, palette_offset=0).
+        l2.set_control(0x00);
+        l2.start_frame();
+        check("G06.NR70-01a", "start_frame baseline captures resolution + paloff",
+              l2.nr70_change_log_size() == 0,
+              DETAIL("log_size=%zu", l2.nr70_change_log_size()));
+
+        // Mid-frame writes: at line 100, flip to 320x256 (bits 5:4 = 01,
+        // i.e. 0x10). At line 150, flip again to 640x256 (bits 5:4 = 10,
+        // i.e. 0x20). Each setter call must append a snapshot tagged with
+        // current_line_.
+        l2.set_current_line(100);
+        l2.set_control(0x10);   // 320x256, paloff=0
+        l2.set_current_line(150);
+        l2.set_control(0x25);   // 640x256, paloff=5
+
+        check("G06.NR70-01b",
+              "two NR 0x70 writes appended to log",
+              l2.nr70_change_log_size() == 2,
+              DETAIL("log_size=%zu", l2.nr70_change_log_size()));
+
+        // After rewind, live state snaps back to baseline (resolution=0).
+        l2.rewind_to_baseline();
+        check("G06.NR70-01c",
+              "rewind_to_baseline restores resolution to baseline 0",
+              l2.resolution() == 0 && l2.palette_offset() == 0,
+              DETAIL("res=%u paloff=%u", l2.resolution(), l2.palette_offset()));
+
+        // Per-line replay walks the change-log forward.
+        l2.apply_changes_for_line(0);
+        check("G06.NR70-01d",
+              "line 0 (no change applied): resolution == baseline 0 (256x192)",
+              l2.resolution() == 0 && l2.is_wide() == false,
+              DETAIL("res=%u wide=%d", l2.resolution(), int(l2.is_wide())));
+
+        l2.apply_changes_for_line(99);
+        check("G06.NR70-01e",
+              "line 99 (just before first flip): still 256x192",
+              l2.resolution() == 0 && l2.is_wide() == false,
+              DETAIL("res=%u wide=%d", l2.resolution(), int(l2.is_wide())));
+
+        l2.apply_changes_for_line(100);
+        check("G06.NR70-01f",
+              "line 100 (first flip): resolution == 1 (320x256), is_wide()==true",
+              l2.resolution() == 1 && l2.is_wide() == true,
+              DETAIL("res=%u wide=%d paloff=%u",
+                     l2.resolution(), int(l2.is_wide()), l2.palette_offset()));
+
+        l2.apply_changes_for_line(101);
+        check("G06.NR70-01g",
+              "line 101 (held): still 320x256",
+              l2.resolution() == 1 && l2.is_wide() == true,
+              DETAIL("res=%u", l2.resolution()));
+
+        l2.apply_changes_for_line(150);
+        check("G06.NR70-01h",
+              "line 150 (second flip): resolution == 2 (640x256), paloff==5",
+              l2.resolution() == 2 && l2.is_wide() == true
+                  && l2.palette_offset() == 5,
+              DETAIL("res=%u paloff=%u", l2.resolution(), l2.palette_offset()));
+
+        // Cap honoured: changes beyond MAX_CHANGES_PER_FRAME silently
+        // dropped (overflow guard mirrors scroll/clip/bank/enable logs).
+        l2.reset();
+        l2.start_frame();
+        for (size_t i = 0; i < Layer2::MAX_CHANGES_PER_FRAME + 5; ++i) {
+            l2.set_control(static_cast<uint8_t>(i & 0x3F));
+        }
+        check("G06.NR70-01i",
+              "NR 0x70 change log capped at MAX_CHANGES_PER_FRAME",
+              l2.nr70_change_log_size() == Layer2::MAX_CHANGES_PER_FRAME,
+              DETAIL("log_size=%zu cap=%zu",
+                     l2.nr70_change_log_size(), Layer2::MAX_CHANGES_PER_FRAME));
+    }
 }
 
 // ---------------------------------------------------------------------------
