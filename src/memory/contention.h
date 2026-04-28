@@ -30,7 +30,43 @@ public:
 
     /// 2-bit CPU speed (NR 0x07 bits 1:0): 0=3.5 MHz, 1=7, 2=14, 3=28.
     /// Any non-zero speed disables contention per zxnext.vhd:4481.
-    void set_cpu_speed(uint8_t speed_2bit) { cpu_speed_ = speed_2bit & 0x03; }
+    /// **Immediate** commit of the effective gate; both pending shadow
+    /// and effective fields are updated. Used by tests that need a known
+    /// gate state without modelling the deferred bus-idle commit edge.
+    /// Production NR 0x07 dispatch should instead call
+    /// set_pending_cpu_speed() and let
+    /// commit_pending_cpu_speed_on_bus_idle() latch on the next bus-idle
+    /// CLK_CPU rising edge per zxnext.vhd:5796-5828.
+    void set_cpu_speed(uint8_t speed_2bit) {
+        cpu_speed_         = speed_2bit & 0x03;
+        pending_cpu_speed_ = cpu_speed_;
+    }
+
+    /// Update the **shadow** value of NR 0x07 cpu_speed only — the next
+    /// commit_pending_cpu_speed_on_bus_idle() call with bus-idle=true
+    /// will promote it to the effective gate. Models the latch at
+    /// zxnext.vhd:5788-5789 (immediate on nr_07_we) feeding the
+    /// bus-idle-gated assignment at 5816-5817:
+    ///     cpu_speed <= nr_07_cpu_speed only when
+    ///     cpu_mreq_n='1' AND cpu_iorq_n='1' AND cpu_m1_n='1' AND
+    ///     dma_holds_bus='0'.
+    /// This is the production NR 0x07 write path.
+    void set_pending_cpu_speed(uint8_t speed_2bit) {
+        pending_cpu_speed_ = speed_2bit & 0x03;
+    }
+
+    /// Commit pending → effective cpu_speed when the CPU bus is idle.
+    /// VHDL zxnext.vhd:5809 — the assignment fires on every CLK_CPU
+    /// rising edge that satisfies
+    ///     cpu_mreq_n='1' AND cpu_iorq_n='1' AND cpu_m1_n='1' AND dma_holds_bus='0'.
+    /// Caller folds those four signals into a single `bus_idle` boolean;
+    /// `dma_holds_bus` is exposed separately for symmetry with the VHDL
+    /// gate and for DMA-aware callers. The commit is a no-op when the
+    /// gate is false. Idempotent.
+    void commit_pending_cpu_speed_on_bus_idle(bool bus_idle, bool dma_holds_bus = false) {
+        if (!bus_idle || dma_holds_bus) return;
+        cpu_speed_ = pending_cpu_speed_;
+    }
 
     /// machine_timing_pentagon (zxnext.vhd:4481) — Pentagon never contends.
     /// Normally set by build() from MachineType, but exposed so runtime
@@ -76,6 +112,7 @@ public:
 
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
+    uint8_t pending_cpu_speed()  const { return pending_cpu_speed_; }
     bool    pentagon_timing()    const { return pentagon_timing_; }
     bool    contention_disable() const { return contention_disable_; }
     bool    contention_disable_shadow() const { return contention_disable_shadow_; }
@@ -154,7 +191,14 @@ private:
     // zxnext.vhd:1300 nr_07 cpu_speed ← "00", zxnext.vhd:1380 nr_08
     // contention_disable ← '0', mem_active_page starts 0x00).
     uint8_t mem_active_page_   = 0;
+    // cpu_speed_ is the **effective** gate input consulted by
+    // is_contended_access() / contention_tick(); pending_cpu_speed_ is
+    // the shadow updated by every NR 0x07 write. The two values are
+    // equal outside the bus-idle commit window
+    // (zxnext.vhd:5796-5828 — the latch fires only when
+    // mreq_n & iorq_n & m1_n & not dma_holds_bus).
     uint8_t cpu_speed_         = 0;
+    uint8_t pending_cpu_speed_ = 0;
     bool    pentagon_timing_   = false;
     // contention_disable_ is the **effective** signal consulted by
     // is_contended_access(); contention_disable_shadow_ is the latch
