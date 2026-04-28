@@ -13,3 +13,5 @@ demo/*.o
 demo/*.reloc
 
 test/img/*-diff.png
+
+.claude/*.lock
