@@ -100,6 +100,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     uart_.reset();
     divmmc_.reset();
     nmi_source_.reset();
+    // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
+    nr_d8_io_trap_fdc_en_ = false;
     // Edge-detector level for the /NMI line. VHDL holds nmi_generate_n
     // inactive ('1') after reset; the falling-edge latch must see that
     // baseline so the first real assertion fires. Constructor-init alone
@@ -791,6 +793,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return nmi_source_.nr_02_read();
     });
 
+    // NR 0xD8 — IO trap enable (VHDL zxnext.vhd:1263, 5640, 6266).
+    //   bit 0 = nr_d8_io_trap_fdc_en. Gates the +3 floppy port-trap
+    //   decode (port 0x2FFD read, 0x3FFD read/write) which OR's into
+    //   `nmi_gen_iotrap` (VHDL:3835) and into the `nmi_sw_gen_mf` line
+    //   (VHDL:3837), so when enabled a trap-port access fires the
+    //   Multiface NMI path.
+    // bits 7:1 are unused per VHDL:6266 readback ('0' & nr_d8_io_trap_fdc_en).
+    nextreg_.set_write_handler(0xD8, [this](uint8_t v) {
+        nr_d8_io_trap_fdc_en_ = (v & 0x01) != 0;
+    });
+    nextreg_.set_read_handler(0xD8, [this]() -> uint8_t {
+        return nr_d8_io_trap_fdc_en_ ? 0x01 : 0x00;
+    });
+
     // Register 0x03: Machine type + config_mode transitions.
     // - Writing to this register disables the boot ROM overlay
     //   (VHDL: bootrom_en <= '0' on any write to nr_03).
@@ -1312,6 +1328,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Update FUSE Z80 core's memory page contention flags for 0xC000-0xFFFF.
             z80_set_page_contended(6, slot3_contended);
             z80_set_page_contended(7, slot3_contended);
+        });
+
+    // +3 floppy I/O trap (VHDL zxnext.vhd:2598-2602, 3835).
+    //   port_xffd  <= A15:14="00" AND A1:0="01"
+    //   port_2ffd  <= cpu_a(13:12)="10" AND port_xffd AND nr_d8_io_trap_fdc_en
+    //   port_3ffd  <= cpu_a(13:12)="11" AND port_xffd AND nr_d8_io_trap_fdc_en
+    //   nmi_gen_iotrap <= port_2ffd_rd OR port_3ffd_rd OR port_3ffd_wr
+    // i.e. port 0x2FFD READ, 0x3FFD READ, 0x3FFD WRITE all strobe iotrap;
+    //      port 0x2FFD WRITE does NOT.
+    //
+    // Mask 0xF003: A15:12 + A1:0 — captures the address-line decode
+    // exactly. The handlers strobe NmiSource::strobe_iotrap() only
+    // when the NR 0xD8 bit 0 enable is on (the upstream VHDL gate).
+    // The MF NMI path itself remains gated on NR 0x06 bit 3 (handled
+    // inside `NmiSource::nmi_assert_mf()`).
+    //
+    // (G162 closure — MF-G162-02 in nmi_test plan.)
+    port_.register_handler(0xF003, 0x2001,
+        [this](uint16_t port) -> uint8_t {
+            // 0x2FFD READ — trap (VHDL:3835 port_2ffd_rd term).
+            // When NR 0xD8 bit 0 is off, VHDL's `port_2ffd` decode is
+            // false and the access falls through to floating-bus /
+            // open-bus behaviour. We mirror that by returning 0xFF
+            // only when the gate is on (FDC not modelled); otherwise
+            // surface the floating-bus value via Mmu::floating_bus_read.
+            if (nr_d8_io_trap_fdc_en_) {
+                nmi_source_.strobe_iotrap();
+                return 0xFF;  // FDC data port — open bus, FDC unmodelled.
+            }
+            return floating_bus_read();
+        },
+        nullptr);  // 0x2FFD WRITE: VHDL-only port_2ffd_wr is NOT an iotrap source.
+    port_.register_handler(0xF003, 0x3001,
+        [this](uint16_t port) -> uint8_t {
+            // 0x3FFD READ — trap (VHDL:3835 port_3ffd_rd term).
+            if (nr_d8_io_trap_fdc_en_) {
+                nmi_source_.strobe_iotrap();
+                return 0xFF;
+            }
+            return floating_bus_read();
+        },
+        [this](uint16_t, uint8_t) {
+            // 0x3FFD WRITE — trap (VHDL:3835 port_3ffd_wr term).
+            if (nr_d8_io_trap_fdc_en_) nmi_source_.strobe_iotrap();
         });
 
     // +3 paging — port 0x1FFD.
@@ -3230,6 +3290,58 @@ void Emulator::soft_reset()
         nextreg_.write(0x83, save_83);
         nextreg_.write(0x84, save_84);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Host hotkey dispatchers (G152) — single seam between gui/main_window.cpp
+// F-key handlers and the emulation core. Mirrors VHDL hotkey_m1 /
+// hotkey_drive / hotkey_soft_reset / hotkey_hard_reset semantics
+// (zxnext.vhd:6340-6371, 2089-2091).
+// ---------------------------------------------------------------------------
+
+void Emulator::on_hotkey_f9_mf_nmi()
+{
+    // VHDL zxnext.vhd:6348, 2090 — `hotkey_m1` is a one-cycle pulse OR'd
+    // into the MF assert; the gate at NR 0x06 bit 3 determines whether
+    // the producer actually fires. We strobe the NmiSource button line
+    // unconditionally; the gate is honoured downstream in
+    // `nmi_assert_mf()`.
+    nmi_source_.strobe_mf_button();
+}
+
+void Emulator::on_hotkey_f10_divmmc_nmi()
+{
+    // VHDL zxnext.vhd:6349, 2091 — `hotkey_drive` is a one-cycle pulse
+    // OR'd into the DivMMC assert; `port_divmmc_io_en` (NR 0x83 bit 0)
+    // and `nr_06_button_drive_nmi_en` (NR 0x06 bit 4) are the gates.
+    // The NmiSource enable check covers NR 0x06 bit 4; the NR 0x83
+    // gate is enforced by the existing DivMmc plumbing chain.
+    nmi_source_.strobe_divmmc_button();
+}
+
+void Emulator::on_hotkey_f4_soft_reset()
+{
+    // VHDL zxnext.vhd:6370 — `nr_02_soft_reset <= (hotkey_soft_reset
+    // and not nr_03_config_mode) or (nr_02_we and nr_wr_dat(0))`.
+    // Honour the config_mode gate: while the firmware holds
+    // `nr_03_config_mode = 1`, host F4 must NOT advance the reset_type
+    // FSM nor restart the system.
+    if (nextreg_.nr_03_config_mode()) {
+        return;
+    }
+    nmi_source_.strobe_soft_reset();
+    Log::emulator()->info("Soft reset triggered via host F4 (hotkey_soft_reset)");
+    soft_reset();
+}
+
+void Emulator::on_hotkey_f1_hard_reset()
+{
+    // VHDL zxnext.vhd:6371 — `nr_02_hard_reset <= hotkey_hard_reset or
+    // (nr_02_we and nr_wr_dat(1))`. No config_mode gate (hard reset is
+    // unconditional). Hard reset does NOT advance the reset_type FSM
+    // (FSM advance is only on the soft_reset edge per VHDL:1735).
+    Log::emulator()->info("Hard reset triggered via host F1 (hotkey_hard_reset)");
+    reset();
 }
 
 // ---------------------------------------------------------------------------

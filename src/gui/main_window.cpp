@@ -869,6 +869,47 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             cycle_scale();
             event->accept();
             return;
+
+        // Host hotkeys -> Emulator NMI / reset paths (G152). VHDL
+        // zxnext.vhd:6340-6371: F1=hotkey_hard_reset, F4=hotkey_soft_reset,
+        // F9=hotkey_m1 (Multiface), F10=hotkey_drive (DivMMC). Routed
+        // through Emulator::on_hotkey_f*() dispatchers so the GUI never
+        // touches NmiSource directly.
+        case Qt::Key_F1:
+            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
+                          && !modifiers.testFlag(Qt::ControlModifier)) {
+                emulator_->on_hotkey_f1_hard_reset();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F4:
+            if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
+                          && !modifiers.testFlag(Qt::ControlModifier)) {
+                emulator_->on_hotkey_f4_soft_reset();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F9:
+            // F9 is reserved for the debugger pause when the debugger is
+            // active; the ENABLE_DEBUGGER block above already handles
+            // that case and returns early. Reaching here means the
+            // debugger is OFF and F9 should fire the Multiface NMI.
+            if (emulator_) {
+                emulator_->on_hotkey_f9_mf_nmi();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_F10:
+            if (emulator_) {
+                emulator_->on_hotkey_f10_divmmc_nmi();
+                event->accept();
+                return;
+            }
+            break;
+
         default:
             break;
         }
@@ -882,6 +923,13 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     if (!event->isAutoRepeat()) {
         int key = event->key();
         if (key == Qt::Key_F11 || key == Qt::Key_F2 || key == Qt::Key_Escape) {
+            event->accept();
+            return;
+        }
+        // G152 host hotkeys (F1/F4/F9/F10) — consume release so the ZX
+        // keyboard matrix doesn't see them.
+        if (key == Qt::Key_F1 || key == Qt::Key_F4
+            || key == Qt::Key_F9 || key == Qt::Key_F10) {
             event->accept();
             return;
         }

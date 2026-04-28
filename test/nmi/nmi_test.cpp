@@ -532,16 +532,99 @@ static void g_hotkey()
               "zxnext.vhd:2107-2113 (priority chain — MF branch checked first)");
     }
 
-    // HK-06..HK-09 — Host F-key dispatch gaps (G152 from B7).
-    // VHDL zxnext.vhd:6340-6349, 6370-6371, 2089-2091. Test injectors at
-    // emulator.h:328-329 exist; missing piece is gui/main_window.cpp
-    // translating SDL F-keys to those calls.
-    // Note: F2/F3/F5/F6/F7/F8 are owned by INPUT plan §3.x (G147/G132)
-    //       — see B8 bucket. Do not duplicate here.
-    skip("HK-06", "Host F9 not wired to NmiSource MF producer (see G152)");
-    skip("HK-07", "Host F10 not wired to NmiSource DivMMC producer (see G152)");
-    skip("HK-08", "Host F4 not wired to soft-reset / reset_type FSM (see G152)");
-    skip("HK-09", "Host F1 not wired to hard-reset Emulator path (see G152)");
+    // HK-06..HK-09 — Host F-key dispatch (G152 closure).
+    // VHDL zxnext.vhd:6340-6349, 6370-6371, 2089-2091. The Emulator
+    // exposes the four host-side hotkey dispatchers
+    // `on_hotkey_f1_hard_reset / f4_soft_reset / f9_mf_nmi / f10_divmmc_nmi`
+    // (src/core/emulator.h, .cpp:Emulator::on_hotkey_f*) which the GUI
+    // (gui/main_window.cpp keyPressEvent) wires to Qt::Key_F1/F4/F9/F10.
+    // The unit-test exercises the Emulator-level seam directly; the
+    // GUI plumbing is verified at integration / manual test time.
+    {
+        // HK-06 — F9 -> hotkey_m1 -> NmiSource MF producer.
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.nmi_source().set_mf_enable(true);     // NR 0x06 bit 3 = 1
+        emu.on_hotkey_f9_mf_nmi();
+        emu.nmi_source().tick(1);
+        check("HK-06",
+              "F9 dispatcher strobes NmiSource MF button -> nmi_mf latch",
+              emu.nmi_source().nmi_mf()
+                  && emu.nmi_source().latched() == NmiSource::Src::Mf,
+              "zxnext.vhd:6348 (hotkey_m1) -> 2090 (nmi_assert_mf) -> 2097 (latch)");
+    }
+    {
+        // HK-07 — F10 -> hotkey_drive -> NmiSource DivMMC producer.
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.nmi_source().set_divmmc_enable(true); // NR 0x06 bit 4 = 1
+        emu.on_hotkey_f10_divmmc_nmi();
+        emu.nmi_source().tick(1);
+        check("HK-07",
+              "F10 dispatcher strobes NmiSource DivMMC button -> nmi_divmmc latch",
+              emu.nmi_source().nmi_divmmc()
+                  && emu.nmi_source().latched() == NmiSource::Src::DivMmc,
+              "zxnext.vhd:6349 (hotkey_drive) -> 2091 -> 2099 (latch)");
+    }
+    {
+        // HK-08 — F4 -> hotkey_soft_reset -> reset_type FSM advance.
+        // VHDL zxnext.vhd:6370 gates on NOT nr_03_config_mode (NR 0x03
+        // power-on default '1' per VHDL:1102). We exercise both
+        // halves of the gate: gate-OPEN (config_mode=0) advances the
+        // FSM; gate-CLOSED (config_mode=1) is a no-op.
+        Emulator emu;
+        build_next_emulator(emu);
+        const uint8_t rt0 = emu.nmi_source().reset_type();   // 100
+
+        // Default state: nr_03_config_mode='1' → F4 must NOT advance.
+        emu.on_hotkey_f4_soft_reset();
+        const uint8_t rt_gated = emu.nmi_source().reset_type(); // expect 100
+
+        // Clear config_mode by writing NR 0x03 with bits 2:0 ∈ {001..110}
+        // (VHDL:5147-5151). Use the canonical 'exit-config' value 0x00
+        // — the low 3 bits "000" is documented as no-change in VHDL but
+        // jnext's apply_nr_03_config_mode_transition() drops config_mode
+        // for any non-"111" write per zxnext.vhd:5137 (the machine-type
+        // commit edge). To stay strictly VHDL-faithful pick low 3 bits
+        // "010" (keep machine_type 010 = ZX Next).
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x02);
+
+        // Gate open — F4 should advance.
+        emu.on_hotkey_f4_soft_reset();
+        const uint8_t rt1 = emu.nmi_source().reset_type();    // expect 010
+
+        const bool ok = rt0 == 0b100 && rt_gated == 0b100 && rt1 == 0b010;
+        check("HK-08",
+              "F4 dispatcher advances reset_type FSM and honours config_mode gate",
+              ok,
+              std::string("zxnext.vhd:6370; rt0=") + std::to_string(rt0)
+                  + " rt_gated=" + std::to_string(rt_gated)
+                  + " rt1=" + std::to_string(rt1));
+    }
+    {
+        // HK-09 — F1 -> hotkey_hard_reset -> full Emulator reset.
+        // VHDL zxnext.vhd:6371 has no config_mode gate. Verify by
+        // dirtying CPU state then checking it returns to power-on PC=0.
+        Emulator emu;
+        build_next_emulator(emu);
+        // Dirty something observable: write NR 0x06 bit 3 (MF-enable)
+        // and verify the value is mirrored, then hard-reset and confirm
+        // it's wiped (NextReg::reset() clears the register file).
+        emu.nmi_source().set_mf_enable(true);
+        const bool pre = emu.nmi_source().mf_enable();
+        emu.on_hotkey_f1_hard_reset();
+        const bool post = emu.nmi_source().mf_enable();
+        // After hard reset NmiSource gates default to false (VHDL:1109-
+        // 1110 power-on '0'); reset_type FSM is preserved (VHDL has no
+        // reset branch for nr_02_reset_type).
+        const bool ok = pre && !post
+                        && emu.nmi_source().state() == NmiSource::State::Idle;
+        check("HK-09",
+              "F1 dispatcher triggers hard reset (mf_enable cleared, FSM idle)",
+              ok,
+              "zxnext.vhd:6371 (hotkey_hard_reset)");
+    }
 }
 
 // =====================================================================
@@ -609,10 +692,52 @@ static void g_mf_g162_skips()
               "zxnext.vhd:2090 gate (`nr_06_button_m1_nmi_en`)");
     }
 
-    // MF-G162-02 — VHDL zxnext.vhd:3835-3837
-    // Port 0x2FFD/0x3FFD trap-decode handler missing today.
-    skip("MF-G162-02",
-         "port 0x2FFD/0x3FFD trap-decode handler missing (see G162)");
+    // MF-G162-02 — VHDL zxnext.vhd:3835-3837, 2598-2602.
+    //   nmi_gen_iotrap <= port_2ffd_rd OR port_3ffd_rd OR port_3ffd_wr
+    //   port_xffd  <= A15:14="00" AND A1:0="01"
+    //   port_2ffd  <= cpu_a(13:12)="10" AND port_xffd AND nr_d8_io_trap_fdc_en
+    //   port_3ffd  <= cpu_a(13:12)="11" AND port_xffd AND nr_d8_io_trap_fdc_en
+    // (G162 closure: port handlers in Emulator::init() invoke
+    //  NmiSource::strobe_iotrap() when NR 0xD8 bit 0 is on; the strobe
+    //  OR's into nmi_assert_mf and latches MF when NR 0x06 bit 3 is on.)
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.nmi_source().set_mf_enable(true);  // NR 0x06 bit 3 = 1
+
+        // Enable NR 0xD8 bit 0 (nr_d8_io_trap_fdc_en).
+        emu.port().out(0x243B, 0xD8);
+        emu.port().out(0x253B, 0x01);
+
+        // Trigger via OUT 0x3FFD (port_3ffd_wr term in iotrap).
+        emu.port().out(0x3FFD, 0x55);
+        emu.nmi_source().tick(1);
+        const bool latched_w = emu.nmi_source().nmi_mf();
+
+        // Reset and try IN 0x2FFD (port_2ffd_rd term in iotrap).
+        emu.reset();
+        emu.nmi_source().set_mf_enable(true);
+        emu.port().out(0x243B, 0xD8);
+        emu.port().out(0x253B, 0x01);
+        (void)emu.port().in(0x2FFD);
+        emu.nmi_source().tick(1);
+        const bool latched_r = emu.nmi_source().nmi_mf();
+
+        // With NR 0xD8 bit 0 = 0, the port should NOT trap.
+        emu.reset();
+        emu.nmi_source().set_mf_enable(true);
+        // (NR 0xD8 default is 0 after reset.)
+        emu.port().out(0x3FFD, 0xAA);
+        emu.nmi_source().tick(1);
+        const bool no_trap = !emu.nmi_source().nmi_mf();
+
+        check("MF-G162-02",
+              "port 0x2FFD READ + 0x3FFD WRITE strobe iotrap when NR 0xD8 bit 0 = 1, gated off when bit 0 = 0",
+              latched_w && latched_r && no_trap,
+              std::string("zxnext.vhd:2598-2602,3835-3837; w=") +
+                  std::to_string((int)latched_w) + " r=" + std::to_string((int)latched_r) +
+                  " gated=" + std::to_string((int)no_trap));
+    }
 
     // MF-G48-01..07 — Multiface peripheral expansion (G48). Eight
     // expansion-bullet residuals; class lives at nmi_source.h:150-154

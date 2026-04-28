@@ -330,6 +330,39 @@ public:
     void inject_sw_nmi_mf(bool on)        { test_sw_nmi_mf_    = on; }
     void inject_sw_nmi_divmmc(bool on)    { test_sw_nmi_dmmc_  = on; }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
+    // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,
+    // 2089-2091). These translate the GUI-side F1/F4/F9/F10 key edges
+    // into the corresponding NmiSource / Emulator-reset paths and are
+    // the single seam between gui/main_window.cpp F-key handlers and
+    // the emulation core. (G152 closure.)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// F9 — VHDL `hotkey_m1` edge pulse. Asserts the Multiface NMI
+    /// producer for one tick; subject to NR 0x06 bit 3
+    /// (`button_m1_nmi_en`) gate per VHDL:2090.
+    void on_hotkey_f9_mf_nmi();
+
+    /// F10 — VHDL `hotkey_drive` edge pulse. Asserts the DivMMC NMI
+    /// producer for one tick; subject to NR 0x06 bit 4
+    /// (`button_drive_nmi_en`) gate per VHDL:2091. VHDL further gates
+    /// this on `port_divmmc_io_en` (NR 0x83 bit 0); we leave that to
+    /// the consumer-feedback path so the strobe is delivered and the
+    /// downstream gate decides whether the latch actually fires.
+    void on_hotkey_f10_divmmc_nmi();
+
+    /// F4 — VHDL `hotkey_soft_reset` edge pulse. Strobes the
+    /// `nr_02_soft_reset` path per VHDL:6370 (advances reset_type FSM
+    /// and triggers `Emulator::soft_reset()`). VHDL gates this on NOT
+    /// `nr_03_config_mode`; we honour that gate here.
+    void on_hotkey_f4_soft_reset();
+
+    /// F1 — VHDL `hotkey_hard_reset` edge pulse. Triggers full
+    /// `Emulator::reset()` per VHDL:6371. (No config_mode gate — hard
+    /// reset is unconditional.)
+    void on_hotkey_f1_hard_reset();
+
     // ── NMI AND-gate combinational outputs (test-only readout) ────────────
     //
     // VHDL zxnext.vhd:2090-2091 (combinational, no clock):
@@ -470,6 +503,12 @@ private:
     Uart            uart_;
     DivMmc          divmmc_;
     NmiSource       nmi_source_;  // Phase 1 scaffold (TASK-NMI-SOURCE-PIPELINE-PLAN).
+
+    // NR 0xD8 bit 0 — `nr_d8_io_trap_fdc_en` (VHDL zxnext.vhd:1263).
+    // Gates the port 0x2FFD / 0x3FFD trap decode that strobes the
+    // Multiface NMI path via `nmi_gen_iotrap` (VHDL:2598-2602, 3835).
+    // Power-on default '0' per VHDL:5107.
+    bool nr_d8_io_trap_fdc_en_ = false;
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
