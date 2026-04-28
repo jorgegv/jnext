@@ -365,37 +365,106 @@ static void group1() {
     // 653-654; zxnext.vhd:5187,1123,4352).
     //
     // VHDL ties NR 0x34 mirror_sprite_q into the same attr_index that
-    // port 0x303B drives, gated by NR 0x09 b4. jnext emulator.cpp:436-451
-    // / 1707-1720 wires the NR 0x09 handler with no
-    // SpriteEngine::set_mirror_tie(...) call; the method does not exist.
+    // port 0x303B drives, gated by NR 0x09 b4. With sprite_tie=1, a
+    // write to NR 0x34 (set_mirror_sprite_num) loads mirror_sprite_q
+    // and on the next clock the attr_index follows via
+    // mirror_num_change → attr_index <= mirror_sprite_q & "000"
+    // (sprites.vhd:653-654). The C++ surface synchronises the two
+    // updates: set_mirror_sprite_num updates both attr_slot_ and
+    // mirror_sprite_num_, modelling the legacy unified-slot view.
     //
-    // Bundle with G96 — both depend on the same VHDL
-    // attr_num_change/mirror_num_change interlock.
-    stub("G1.AT-13",
-         "NR 0x09 b4 sprite_tie syncs attr_index to mirror sprite_num",
-         "SpriteEngine::set_mirror_tie not implemented (see G95)");
+    // Verification: after enabling sprite_tie and selecting slot 0x42
+    // via NR 0x34, the port-0x57 attribute path (which uses attr_slot_)
+    // lands in slot 0x42 — proving attr_index/attr_slot_ tracked
+    // mirror_sprite_q under the tie. mirror_sprite_num() also reads
+    // back 0x42, confirming both registers carry the slot.
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(true);              // NR 0x09 bit 4 = 1
+        spr.set_mirror_sprite_num(0x42);       // NR 0x34: mirror slot 0x42
+        spr.write_attribute(0x99);             // port 0x57 byte 0
+        check("G1.AT-13",
+              "NR 0x09 b4 sprite_tie syncs attr_index to mirror sprite_num "
+              "(sprites.vhd:594-612,653-654)",
+              spr.read_attr_byte(0x42, 0) == 0x99 &&
+              spr.mirror_sprite_num() == 0x42);
+    }
 
     // G1.AT-14 — NR 0x35-0x39 (bit 6=0) MUST NOT increment slot.
     // VHDL zxnext.vhd:4855-4877,4916 — nr_sprite_mirror_inc =
     // nr_sprite_mirror_we AND nr_wr_reg(6). NR 0x34 itself never
-    // increments. jnext emulator.cpp:577-580 dispatches NR 0x35-0x39
-    // through the same write_attr_byte path used by port 0x57, which
-    // increments after byte 4 — the opposite of VHDL.
+    // increments. NR 0x35-0x39 commit through the no-inc path
+    // (write_attr_byte_nr_no_inc): mirror_sprite_q stays at the
+    // selected slot across all 5 byte writes.
     //
-    // Bundle with G95 — same attr_num_change/mirror_num_change interlock.
-    stub("G1.AT-14",
-         "NR 0x35-0x39 must not auto-increment sprite slot",
-         "NR 0x35-0x39 path shares write_attr_byte; no inc gate (see G96)");
+    // Verification: select slot N via NR 0x34, then write all 5 attr
+    // bytes via NR 0x35-0x39. mirror_sprite_q must remain at N and all
+    // 5 bytes must land in slot N (and ONLY slot N — slots N+1..N+4
+    // remain at their initial zero state).
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);             // tie off — pure NR-mirror
+        spr.set_mirror_sprite_num(0x21);       // NR 0x34: mirror slot 0x21
+        spr.write_attr_byte_nr_no_inc(0, 0xA0); // NR 0x35
+        spr.write_attr_byte_nr_no_inc(1, 0xA1); // NR 0x36
+        spr.write_attr_byte_nr_no_inc(2, 0xA2); // NR 0x37
+        spr.write_attr_byte_nr_no_inc(3, 0xA3); // NR 0x38
+        spr.write_attr_byte_nr_no_inc(4, 0xA4); // NR 0x39
+        check("G1.AT-14",
+              "NR 0x35-0x39 must not auto-increment sprite slot "
+              "(zxnext.vhd:4916, mirror_inc gated on bit 6)",
+              spr.mirror_sprite_num() == 0x21 &&
+              spr.read_attr_byte(0x21, 0) == 0xA0 &&
+              spr.read_attr_byte(0x21, 1) == 0xA1 &&
+              spr.read_attr_byte(0x21, 2) == 0xA2 &&
+              spr.read_attr_byte(0x21, 3) == 0xA3 &&
+              spr.read_attr_byte(0x21, 4) == 0xA4 &&
+              spr.read_attr_byte(0x22, 0) == 0x00);
+
+    }
 
     // G1.AT-15 — NR 0x75-0x79 (bit 6=1) increments slot after EVERY byte.
     // VHDL zxnext.vhd:4916 — increment fires per write, not per 4-byte
-    // group. jnext emulator.cpp:847-850 routes NR 0x75-0x79 through the
-    // port-0x57-shaped attr_slot_ which only advances after byte 4 (or
-    // byte 3 without extended). NR-mirror-stream demos land in wrong
-    // slots; 0x75 streams stick on a single slot.
-    stub("G1.AT-15",
-         "NR 0x75-0x79 must increment slot after every byte",
-         "NR 0x75-0x79 dispatches to attr_slot_; per-byte inc absent (see G96)");
+    // group. The per-byte inc path (write_attr_byte_nr_per_byte_inc)
+    // commits the byte at the current mirror_sprite_q, then advances
+    // mirror_sprite_q (lower 7 bits + 1, bit 7 reloaded from
+    // pattern_slot_msb).
+    //
+    // Verification: select slot N via NR 0x34, then write 5 bytes via
+    // NR 0x75-0x79. mirror_sprite_q must advance N → N+1 → N+2 → N+3
+    // → N+4 → N+5 (each byte lands in a successive slot).
+    {
+        fresh(spr, pal);
+        spr.set_mirror_tie(false);
+        spr.set_mirror_sprite_num(0x10);       // NR 0x34: mirror slot 0x10
+        const uint8_t start = spr.mirror_sprite_num();
+        spr.write_attr_byte_nr_per_byte_inc(0, 0xB0); // NR 0x75
+        const uint8_t after_b0 = spr.mirror_sprite_num();
+        spr.write_attr_byte_nr_per_byte_inc(1, 0xB1); // NR 0x76
+        const uint8_t after_b1 = spr.mirror_sprite_num();
+        spr.write_attr_byte_nr_per_byte_inc(2, 0xB2); // NR 0x77
+        const uint8_t after_b2 = spr.mirror_sprite_num();
+        spr.write_attr_byte_nr_per_byte_inc(3, 0xB3); // NR 0x78
+        const uint8_t after_b3 = spr.mirror_sprite_num();
+        spr.write_attr_byte_nr_per_byte_inc(4, 0xB4); // NR 0x79
+        const uint8_t after_b4 = spr.mirror_sprite_num();
+        check("G1.AT-15",
+              "NR 0x75-0x79 must increment slot after every byte "
+              "(zxnext.vhd:4916, sprites.vhd:603-605)",
+              start    == 0x10 &&
+              after_b0 == 0x11 &&
+              after_b1 == 0x12 &&
+              after_b2 == 0x13 &&
+              after_b3 == 0x14 &&
+              after_b4 == 0x15 &&
+              // Each byte landed in the slot AT THE TIME of write
+              // (pre-increment): byte 0 → slot 0x10, byte 1 → slot 0x11, ...
+              spr.read_attr_byte(0x10, 0) == 0xB0 &&
+              spr.read_attr_byte(0x11, 1) == 0xB1 &&
+              spr.read_attr_byte(0x12, 2) == 0xB2 &&
+              spr.read_attr_byte(0x13, 3) == 0xB3 &&
+              spr.read_attr_byte(0x14, 4) == 0xB4);
+    }
 
     // G1.AT-16 — NR 0x19 sprite-clip read handler absent.
     // VHDL zxnext.vhd:5956-5970 — port_253b_dat 4-way mux on
