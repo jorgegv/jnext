@@ -323,18 +323,64 @@ static void test_fe_format(Emulator& emu) {
               detail);
     }
 
-    // FE-04A — G44: dynamic symmetric_relaxation transient on tape edges.
-    // VHDL zxnext_top_issue2.vhd:662 models a small analogue time-constant
-    // where i_relax_0 / i_relax_1 lag the digital port_fe_mic / i_AUDIO_EAR
-    // signals; the steady-state collapse used by jnext (audio_ear_eff =
-    // issue2 ? port_fe_mic : 1) only matches once those relax. On
-    // tape-loading edges (LOAD "" pulses), the actual issue-2 board
-    // produces a brief ringing on bit 6 that the steady-state
-    // approximation cannot reproduce. Distinct from FE-04 (steady-state
-    // row, currently passing). User impact: issue-2 16K tape-loading
-    // detection edge.
-    skip("FE-04A",
-         "issue-2 symmetric_relaxation analogue time-constant absent (see G44)");
+    // WONT FE-04A — G44: dynamic symmetric_relaxation transient on tape
+    // edges. (Task 8 Tier 3 W2, retired 2026-04-28.)
+    //
+    // VHDL oracle: zxnext_top_issue2.vhd:662 instantiates symmetric_relaxation
+    // (misc/symmetric_relaxation.vhd) with COUNTER_SIZE=6 (≈1152 µs) on the
+    // EAR-input path:
+    //   i_sig          = ear_port_i_qq XOR NOT zxn_pi_fe_ear   (K7 tape pin)
+    //   i_relax_0      = zxn_issue2_fe_mic
+    //   i_relax_1      = zxn_issue2_fe_mic     (= port_fe_mic AND
+    //                                              nr_08_keyboard_issue2)
+    //   o_sig (= i_AUDIO_EAR) → port-0xFE bit 6 (zxnext.vhd:3459)
+    //
+    // The combinational output (symmetric_relaxation.vhd:89-93) when the
+    // counter has saturated (sig stable for 1152 µs) is:
+    //   sig_relaxed = (i_relax_0 AND NOT sig) OR (i_relax_1 AND sig)
+    // With i_relax_0 = i_relax_1 = MIC, this collapses to MIC regardless of
+    // sig — i.e. MIC changes propagate instantly through the AND-OR while
+    // counter is saturated. The counter only resets on i_sig edges (driven
+    // by the K7 tape pin), not on MIC writes.
+    //
+    // Why retired as WONT (rather than implemented):
+    //
+    // 1. NO-TAPE REGIME (jnext's only stimulus path for issue-2 MIC→EAR
+    //    feedback): the K7 pin is idle (constant), counter is permanently
+    //    saturated, and the model collapses to MIC bit-exactly as the
+    //    current implementation already does (emulator.cpp:1615-1619,
+    //    `audio_ear_eff = beeper_.mic() ? 1 : 0` when issue-2 enabled and
+    //    no tape playing). Implementing the relaxation counter would add
+    //    ~150 lines of state for ZERO observable difference in this regime.
+    //    The FE-04 row (steady-state) already validates this path and
+    //    passes.
+    //
+    // 2. TAPE-PLAYBACK REGIME (where the transient would be observable):
+    //    jnext's port-0xFE handler bypasses i_AUDIO_EAR composition
+    //    entirely during tape playback (emulator.cpp:1606-1614 routes the
+    //    tape bit directly to audio_ear_eff via tape_.tick_realtime() /
+    //    tzx_tape_.update() / wav_tape_.get_ear_bit()). To make the
+    //    transient observable we would have to:
+    //      (a) stop bypassing the issue-2 path during tape playback;
+    //      (b) feed the tape EAR bit through a 6-bit relaxation counter
+    //          clocked at CLK_28_MEMBRANE_EN (≈54.6 kHz);
+    //      (c) OR the relaxed output with port_fe_ear and re-compose bit 6.
+    //    That is a Tape-subsystem refactor (not a Beeper/Keyboard
+    //    accessor add as KNOWN-GAPS G44 originally proposed). Risk of
+    //    regressing all six tape-loading tests for a niche issue-2 corner
+    //    case is high; reward (one issue-2 16K tape-loading edge) is low.
+    //
+    // 3. CROSS-EMULATOR PARITY: FUSE and ZEsarUX both treat issue-2 as a
+    //    pure digital MIC→EAR collapse (no analogue time-constant), and
+    //    the canonical issue-2 software (Jet Set Willy 16K, etc.) runs
+    //    bit-faithfully under that model.
+    //
+    // Conscious decision not to implement. This is the analogue path
+    // ringing on tape-edge transitions on issue-2 boards — a genuine
+    // hardware artefact but unobservable through the emulator's tape
+    // stack and unobservable through any non-tape stimulus.
+    // Future revisit gate: an actual issue-2 tape-loading regression that
+    // the digital model cannot decode (no such case in scope today).
 
     // WONT FE-05: Expansion-bus AND with port_fe_bus (VHDL zxnext.vhd:3468,
     // :3453). Emulating a physical expansion-bus aggregator (i_BUS_DI,

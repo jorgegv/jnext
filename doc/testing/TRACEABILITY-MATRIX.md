@@ -2551,7 +2551,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 
 ### Companion integration suite — `test/input/input_integration_test.cpp`
 
-Hosts production-wire integration scenarios for the membrane keyboard, joystick host wiring, and Beeper composition. Runs at `17 / 11 pass / 0 fail / 6 skip`. The 6 skips track G42 host-joystick wiring debt (JOY-WIRE-01..04) and G147 host-hotkey dispatch (HOTKEY-01) plus G44 issue-2 EAR/MIC composition (FE-04A).
+Hosts production-wire integration scenarios for the membrane keyboard, joystick host wiring, and Beeper composition. Runs at `16 / 11 pass / 0 fail / 5 skip`. The 5 skips track G42 host-joystick wiring debt (JOY-WIRE-01..04) and G147 host-hotkey dispatch (HOTKEY-01). G44 (FE-04A issue-2 analogue relaxation) was retired as WONT 2026-04-28: bit-exact in the no-tape regime; tape-edge transient path is bypassed by jnext's tape stack and would require a Tape-subsystem refactor for a niche issue-2 edge case (FUSE/ZEsarUX both ship without it).
 
 | Test ID     | Plan row title                                                                  | VHDL file:line                          | Status | Test file:line                              |
 |-------------|---------------------------------------------------------------------------------|-----------------------------------------|--------|---------------------------------------------|
@@ -2561,7 +2561,7 @@ Hosts production-wire integration scenarios for the membrane keyboard, joystick 
 | FE-02       | Port 0xFE EAR-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:226   |
 | FE-03       | Port 0xFE MIC-bit composition                                                   | zxnext.vhd                              | pass    | test/input/input_integration_test.cpp:253   |
 | FE-04       | Issue-3 EAR/MIC analogue composition                                            | zxnext_top_issue2.vhd:662               | pass    | test/input/input_integration_test.cpp:317   |
-| FE-04A      | Issue-2 EAR/MIC analogue relaxation (G44)                                       | symmetric_relaxation.vhd                | skip    | test/input/input_integration_test.cpp:336   |
+| FE-04A      | Issue-2 EAR/MIC analogue relaxation (G44, retired WONT 2026-04-28)              | symmetric_relaxation.vhd                | wont    | test/input/input_integration_test.cpp:336   |
 | BP-04       | Beeper EAR-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:389   |
 | BP-20       | Beeper MIC-only composition into Mixer                                          | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:408   |
 | BP-21       | Beeper composite EAR+MIC into Mixer                                             | audio_mixer.vhd                         | pass    | test/input/input_integration_test.cpp:441   |
