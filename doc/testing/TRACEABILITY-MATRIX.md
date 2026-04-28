@@ -308,86 +308,86 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 
 | Test ID | Plan row title                                  | VHDL file:line | Status  | Test file:line            |
 |---------|-------------------------------------------------|----------------|---------|---------------------------|
-| S1.01  | Top-left pixel                                  | —              | pass    | test/ula/ula_test.cpp:185 |
-| S1.02  | First char row, col 1                           | —              | pass    | test/ula/ula_test.cpp:186 |
-| S1.03  | Pixel row 1 in char row 0                       | —              | pass    | test/ula/ula_test.cpp:187 |
-| S1.04  | Pixel row 7 in char row 0                       | —              | pass    | test/ula/ula_test.cpp:188 |
-| S1.05  | Char row 1, pixel row 0                         | —              | pass    | test/ula/ula_test.cpp:189 |
-| S1.06  | Third of screen (py=64)                         | —              | pass    | test/ula/ula_test.cpp:190 |
-| S1.07  | Bottom-right pixel                              | —              | pass    | test/ula/ula_test.cpp:191 |
-| S1.08  | Alternate display file (mode(0)=1)              | —              | pass    | test/ula/ula_test.cpp:192 |
-| S1.09  | Middle of screen (py=96, px=128)                | —              | pass    | test/ula/ula_test.cpp:193 |
-| S1.10  | Wrap within third (py=63)                       | —              | pass    | test/ula/ula_test.cpp:194 |
-| S1.11  | Second third start+1 row                        | —              | pass    | test/ula/ula_test.cpp:195 |
-| S1.12  | Last pixel row of last char                     | —              | pass    | test/ula/ula_test.cpp:196 |
-| S2.01  | Ink, no bright, colour 0                        | —              | pass    | test/ula/ula_test.cpp:220 |
-| S2.02  | Paper, no bright, colour 0                      | —              | pass    | test/ula/ula_test.cpp:221 |
-| S2.03  | Ink, bright, red (2)                            | —              | pass    | test/ula/ula_test.cpp:222 |
-| S2.04  | Paper, bright, green (4)                        | —              | pass    | test/ula/ula_test.cpp:223 |
-| S2.05  | Ink white, no bright                            | —              | pass    | test/ula/ula_test.cpp:224 |
-| S2.06  | Paper white, bright                             | —              | pass    | test/ula/ula_test.cpp:225 |
-| S2.07  | Ink cyan (5), bright                            | —              | pass    | test/ula/ula_test.cpp:226 |
+| S1.01  | Top-left pixel                                  | —              | pass    | test/ula/ula_test.cpp:186 |
+| S1.02  | First char row, col 1                           | —              | pass    | test/ula/ula_test.cpp:187 |
+| S1.03  | Pixel row 1 in char row 0                       | —              | pass    | test/ula/ula_test.cpp:188 |
+| S1.04  | Pixel row 7 in char row 0                       | —              | pass    | test/ula/ula_test.cpp:189 |
+| S1.05  | Char row 1, pixel row 0                         | —              | pass    | test/ula/ula_test.cpp:190 |
+| S1.06  | Third of screen (py=64)                         | —              | pass    | test/ula/ula_test.cpp:191 |
+| S1.07  | Bottom-right pixel                              | —              | pass    | test/ula/ula_test.cpp:192 |
+| S1.08  | Alternate display file (mode(0)=1)              | —              | pass    | test/ula/ula_test.cpp:193 |
+| S1.09  | Middle of screen (py=96, px=128)                | —              | pass    | test/ula/ula_test.cpp:194 |
+| S1.10  | Wrap within third (py=63)                       | —              | pass    | test/ula/ula_test.cpp:195 |
+| S1.11  | Second third start+1 row                        | —              | pass    | test/ula/ula_test.cpp:196 |
+| S1.12  | Last pixel row of last char                     | —              | pass    | test/ula/ula_test.cpp:197 |
+| S2.01  | Ink, no bright, colour 0                        | —              | pass    | test/ula/ula_test.cpp:221 |
+| S2.02  | Paper, no bright, colour 0                      | —              | pass    | test/ula/ula_test.cpp:222 |
+| S2.03  | Ink, bright, red (2)                            | —              | pass    | test/ula/ula_test.cpp:223 |
+| S2.04  | Paper, bright, green (4)                        | —              | pass    | test/ula/ula_test.cpp:224 |
+| S2.05  | Ink white, no bright                            | —              | pass    | test/ula/ula_test.cpp:225 |
+| S2.06  | Paper white, bright                             | —              | pass    | test/ula/ula_test.cpp:226 |
+| S2.07  | Ink cyan (5), bright                            | —              | pass    | test/ula/ula_test.cpp:227 |
 | S2.08  | Flash bit set, no bright, ink                   | —              | missing | missing                                              |
-| S2.09  | Full white on black, bright                     | —              | pass    | test/ula/ula_test.cpp:227 |
+| S2.09  | Full white on black, bright                     | —              | pass    | test/ula/ula_test.cpp:228 |
 | S2.10  | Border pixel (border_active_d=1)                | —              | missing | missing                                           |
-| S3.01  | Black border                                    | —              | pass    | test/ula/ula_test.cpp:255 |
-| S3.02  | Blue border                                     | —              | pass    | test/ula/ula_test.cpp:256 |
-| S3.03  | Red border                                      | —              | pass    | test/ula/ula_test.cpp:257 |
-| S3.04  | White border                                    | —              | pass    | test/ula/ula_test.cpp:258 |
-| S3.05  | Green border                                    | —              | pass    | test/ula/ula_test.cpp:259 |
-| S3.06  | Timex border, port_ff(5:3)=0                    | —              | pass    | test/ula/ula_test.cpp:273 |
-| S3.07  | Timex border, port_ff(5:3)=7                    | —              | pass    | test/ula/ula_test.cpp:281 |
+| S3.01  | Black border                                    | —              | pass    | test/ula/ula_test.cpp:256 |
+| S3.02  | Blue border                                     | —              | pass    | test/ula/ula_test.cpp:257 |
+| S3.03  | Red border                                      | —              | pass    | test/ula/ula_test.cpp:258 |
+| S3.04  | White border                                    | —              | pass    | test/ula/ula_test.cpp:259 |
+| S3.05  | Green border                                    | —              | pass    | test/ula/ula_test.cpp:260 |
+| S3.06  | Timex border, port_ff(5:3)=0                    | —              | pass    | test/ula/ula_test.cpp:274 |
+| S3.07  | Timex border, port_ff(5:3)=7                    | —              | pass    | test/ula/ula_test.cpp:282 |
 | S3.08  | Border active region boundaries                 | —              | missing | missing                                                     |
-| S4.01  | Flash period = 32 frames                        | —              | pass    | test/ula/ula_test.cpp:308 |
-| S4.02  | Flash attr bit=0: no inversion                  | —              | pass    | test/ula/ula_test.cpp:323 |
-| S4.03  | Flash attr bit=1, counter bit4=0                | —              | pass    | test/ula/ula_test.cpp:336 |
-| S4.04  | Flash attr bit=1, counter bit4=1                | —              | pass    | test/ula/ula_test.cpp:350 |
-| S4.05  | Flash disabled in ULAnext mode                  | —              | pass    | test/ula/ula_test.cpp:370 |
-| S4.06  | Flash disabled in ULA+ mode                     | —              | pass    | test/ula/ula_test.cpp:389 |
-| S5.01  | Standard mode (000)                             | —              | pass    | test/ula/ula_test.cpp:407 |
-| S5.02  | Alt display file (001)                          | —              | pass    | test/ula/ula_test.cpp:417 |
-| S5.03  | Hi-colour mode (010)                            | —              | pass    | test/ula/ula_test.cpp:431 |
-| S5.04  | Hi-colour + alt file (011)                      | —              | pass    | test/ula/ula_test.cpp:457 |
-| S5.05  | Hi-res mode (100)                               | —              | pass    | test/ula/ula_test.cpp:476 |
-| S5.06  | Hi-res uses timex border colour                 | —              | pass    | test/ula/ula_test.cpp:498 |
-| S5.07  | Shadow screen forces mode "000"                 | —              | pass    | test/ula/ula_test.cpp:524 |
+| S4.01  | Flash period = 32 frames                        | —              | pass    | test/ula/ula_test.cpp:309 |
+| S4.02  | Flash attr bit=0: no inversion                  | —              | pass    | test/ula/ula_test.cpp:324 |
+| S4.03  | Flash attr bit=1, counter bit4=0                | —              | pass    | test/ula/ula_test.cpp:337 |
+| S4.04  | Flash attr bit=1, counter bit4=1                | —              | pass    | test/ula/ula_test.cpp:351 |
+| S4.05  | Flash disabled in ULAnext mode                  | —              | pass    | test/ula/ula_test.cpp:371 |
+| S4.06  | Flash disabled in ULA+ mode                     | —              | pass    | test/ula/ula_test.cpp:390 |
+| S5.01  | Standard mode (000)                             | —              | pass    | test/ula/ula_test.cpp:408 |
+| S5.02  | Alt display file (001)                          | —              | pass    | test/ula/ula_test.cpp:418 |
+| S5.03  | Hi-colour mode (010)                            | —              | pass    | test/ula/ula_test.cpp:432 |
+| S5.04  | Hi-colour + alt file (011)                      | —              | pass    | test/ula/ula_test.cpp:458 |
+| S5.05  | Hi-res mode (100)                               | —              | pass    | test/ula/ula_test.cpp:477 |
+| S5.06  | Hi-res uses timex border colour                 | —              | pass    | test/ula/ula_test.cpp:499 |
+| S5.07  | Shadow screen forces mode "000"                 | —              | pass    | test/ula/ula_test.cpp:525 |
 | S5.08  | Hi-res attr_reg uses border_clr_tmx             | —              | missing | missing                                               |
-| S6.01  | Ink, format 0x07                                | —              | pass    | test/ula/ula_test.cpp:644 |
-| S6.02  | Paper, format 0x07                              | —              | pass    | test/ula/ula_test.cpp:658 |
-| S6.03  | Ink, format 0x0F                                | —              | pass    | test/ula/ula_test.cpp:672 |
-| S6.04  | Paper, format 0x0F                              | —              | pass    | test/ula/ula_test.cpp:686 |
-| S6.05  | Ink, format 0xFF                                | —              | pass    | test/ula/ula_test.cpp:702 |
-| S6.06  | Paper, format 0xFF                              | —              | pass    | test/ula/ula_test.cpp:715 |
-| S6.07  | Border, format 0x07                             | —              | pass    | test/ula/ula_test.cpp:730 |
-| S6.08  | Border, format 0xFF                             | —              | pass    | test/ula/ula_test.cpp:745 |
-| S6.09  | Ink, format 0x01                                | —              | pass    | test/ula/ula_test.cpp:759 |
-| S6.10  | Paper, format 0x01                              | —              | pass    | test/ula/ula_test.cpp:776 |
-| S6.11  | Ink, format 0x3F                                | —              | pass    | test/ula/ula_test.cpp:790 |
-| S6.12  | Non-standard format (e.g. 0x05)                 | —              | pass    | test/ula/ula_test.cpp:803 |
-| S7.01  | Ink, group 0                                    | —              | pass    | test/ula/ula_test.cpp:835 |
-| S7.02  | Paper, group 0                                  | —              | pass    | test/ula/ula_test.cpp:851 |
-| S7.03  | Ink, group 3                                    | —              | pass    | test/ula/ula_test.cpp:876 |
-| S7.04  | Paper, group 3                                  | —              | pass    | test/ula/ula_test.cpp:900 |
-| S7.05  | Hi-res forces bit 3 high                        | —              | pass    | test/ula/ula_test.cpp:916 |
-| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | —              | pass    | test/ula/ula_test.cpp:946 |
-| S8.01  | Default window, inside                          | —              | pass    | test/ula/ula_test.cpp:963 |
-| S8.02  | Narrow window, inside                           | —              | pass    | test/ula/ula_test.cpp:967 |
-| S8.03  | Narrow window, outside left                     | —              | pass    | test/ula/ula_test.cpp:971 |
-| S8.04  | Narrow window, outside right                    | —              | pass    | test/ula/ula_test.cpp:975 |
-| S8.05  | Narrow window, outside top                      | —              | pass    | test/ula/ula_test.cpp:985 |
+| S6.01  | Ink, format 0x07                                | —              | pass    | test/ula/ula_test.cpp:825 |
+| S6.02  | Paper, format 0x07                              | —              | pass    | test/ula/ula_test.cpp:839 |
+| S6.03  | Ink, format 0x0F                                | —              | pass    | test/ula/ula_test.cpp:853 |
+| S6.04  | Paper, format 0x0F                              | —              | pass    | test/ula/ula_test.cpp:867 |
+| S6.05  | Ink, format 0xFF                                | —              | pass    | test/ula/ula_test.cpp:883 |
+| S6.06  | Paper, format 0xFF                              | —              | pass    | test/ula/ula_test.cpp:896 |
+| S6.07  | Border, format 0x07                             | —              | pass    | test/ula/ula_test.cpp:911 |
+| S6.08  | Border, format 0xFF                             | —              | pass    | test/ula/ula_test.cpp:926 |
+| S6.09  | Ink, format 0x01                                | —              | pass    | test/ula/ula_test.cpp:940 |
+| S6.10  | Paper, format 0x01                              | —              | pass    | test/ula/ula_test.cpp:957 |
+| S6.11  | Ink, format 0x3F                                | —              | pass    | test/ula/ula_test.cpp:971 |
+| S6.12  | Non-standard format (e.g. 0x05)                 | —              | pass    | test/ula/ula_test.cpp:984 |
+| S7.01  | Ink, group 0                                    | —              | pass    | test/ula/ula_test.cpp:1016 |
+| S7.02  | Paper, group 0                                  | —              | pass    | test/ula/ula_test.cpp:1032 |
+| S7.03  | Ink, group 3                                    | —              | pass    | test/ula/ula_test.cpp:1057 |
+| S7.04  | Paper, group 3                                  | —              | pass    | test/ula/ula_test.cpp:1081 |
+| S7.05  | Hi-res forces bit 3 high                        | —              | pass    | test/ula/ula_test.cpp:1097 |
+| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | —              | pass    | test/ula/ula_test.cpp:1127 |
+| S8.01  | Default window, inside                          | —              | pass    | test/ula/ula_test.cpp:1144 |
+| S8.02  | Narrow window, inside                           | —              | pass    | test/ula/ula_test.cpp:1148 |
+| S8.03  | Narrow window, outside left                     | —              | pass    | test/ula/ula_test.cpp:1152 |
+| S8.04  | Narrow window, outside right                    | —              | pass    | test/ula/ula_test.cpp:1156 |
+| S8.05  | Narrow window, outside top                      | —              | pass    | test/ula/ula_test.cpp:1166 |
 | S8.06  | Narrow window, outside bottom                   | —              | missing | missing                                                                     |
 | S8.07  | Border area: never clipped                      | —              | missing | missing                                                                    |
-| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | —              | pass    | test/ula/ula_test.cpp:1016 |
+| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | —              | pass    | test/ula/ula_test.cpp:1197 |
 | S9.01  | No scroll                                       | —              | missing | missing                                          |
-| S9.02  | Scroll Y by 1                                   | —              | pass    | test/ula/ula_test.cpp:1080 |
-| S9.03  | Scroll Y by 191                                 | —              | pass    | test/ula/ula_test.cpp:1098 |
-| S9.04  | Scroll Y wraps at 192                           | —              | pass    | test/ula/ula_test.cpp:1117 |
-| S9.05  | Scroll X by 8 (1 char)                          | —              | pass    | test/ula/ula_test.cpp:1148 |
-| S9.06  | Scroll X by 1 (fine)                            | —              | pass    | test/ula/ula_test.cpp:1173 |
-| S9.07  | Scroll X by 255                                 | —              | pass    | test/ula/ula_test.cpp:1200 |
-| S9.08  | Fine scroll X enabled                           | —              | pass    | test/ula/ula_test.cpp:1227 |
-| S9.09  | Combined X+Y scroll                             | —              | pass    | test/ula/ula_test.cpp:1256 |
-| S9.10  | Y scroll wraps mid-third                        | —              | pass    | test/ula/ula_test.cpp:1278 |
+| S9.02  | Scroll Y by 1                                   | —              | pass    | test/ula/ula_test.cpp:1261 |
+| S9.03  | Scroll Y by 191                                 | —              | pass    | test/ula/ula_test.cpp:1279 |
+| S9.04  | Scroll Y wraps at 192                           | —              | pass    | test/ula/ula_test.cpp:1298 |
+| S9.05  | Scroll X by 8 (1 char)                          | —              | pass    | test/ula/ula_test.cpp:1329 |
+| S9.06  | Scroll X by 1 (fine)                            | —              | pass    | test/ula/ula_test.cpp:1354 |
+| S9.07  | Scroll X by 255                                 | —              | pass    | test/ula/ula_test.cpp:1381 |
+| S9.08  | Fine scroll X enabled                           | —              | pass    | test/ula/ula_test.cpp:1408 |
+| S9.09  | Combined X+Y scroll                             | —              | pass    | test/ula/ula_test.cpp:1437 |
+| S9.10  | Y scroll wraps mid-third                        | —              | pass    | test/ula/ula_test.cpp:1459 |
 | S10.01  | Border region, 48K                              | —              | missing | missing                                                     |
 | S10.02  | Active display, phase 0x9                       | —              | missing | missing                                           |
 | S10.03  | Active display, phase 0xB                       | —              | missing | missing                                           |
@@ -408,14 +408,14 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S11.10  | +3, bank 0 read                                 | —              | missing | missing                                         |
 | S11.11  | Pentagon timing                                 | —              | missing | missing                                         |
 | S11.12  | CPU speed > 3.5 MHz                             | —              | missing | missing                                         |
-| S12.01  | ULA enabled (default)                           | —              | pass    | test/ula/ula_test.cpp:1343 |
+| S12.01  | ULA enabled (default)                           | —              | pass    | test/ula/ula_test.cpp:1670 |
 | S12.02  | ULA disabled                                    | —              | missing | missing                                                       |
 | S12.03  | ULA disable + re-enable                         | —              | missing | missing                                                       |
 | S12.04  | Blend mode bits                                 | —              | missing | missing                                                       |
-| S13.01  | 48K frame length                                | —              | pass    | test/ula/ula_test.cpp:1375 |
-| S13.02  | 128K frame length                               | —              | pass    | test/ula/ula_test.cpp:1385 |
-| S13.03  | Pentagon frame length                           | —              | pass    | test/ula/ula_test.cpp:1395 |
-| S13.04  | Active display start 48K                        | —              | pass    | test/ula/ula_test.cpp:1402 |
+| S13.01  | 48K frame length                                | —              | pass    | test/ula/ula_test.cpp:1702 |
+| S13.02  | 128K frame length                               | —              | pass    | test/ula/ula_test.cpp:1712 |
+| S13.03  | Pentagon frame length                           | —              | pass    | test/ula/ula_test.cpp:1722 |
+| S13.04  | Active display start 48K                        | —              | pass    | test/ula/ula_test.cpp:1729 |
 | S13.05  | Active display start 128K                       | —              | missing | missing                                                          |
 | S13.06  | Active display start Pentagon                   | —              | missing | missing                                                          |
 | S13.07  | ULA hc resets correctly                         | —              | missing | missing                                                          |
@@ -426,26 +426,26 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
-| S15.01  | Normal screen (shadow=0)                        | —              | pass    | test/ula/ula_test.cpp:1484 |
-| S15.02  | Shadow screen (shadow=1)                        | —              | pass    | test/ula/ula_test.cpp:1498 |
+| S15.01  | Normal screen (shadow=0)                        | —              | pass    | test/ula/ula_test.cpp:1811 |
+| S15.02  | Shadow screen (shadow=1)                        | —              | pass    | test/ula/ula_test.cpp:1825 |
 | S15.03  | Shadow disables Timex modes                     | —              | missing | missing                                                            |
 | S15.04  | Shadow bit toggles display                      | —              | missing | missing                                                            |
-| S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389-395               | skip   | test/ula/ula_test.cpp:579       |
-| S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419                   | skip   | test/ula/ula_test.cpp:587       |
-| S5-PSL.01  | Two port-0xFF writes mid-frame at lines L1 < L2 captured separately                                          | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | skip | test/ula/ula_test.cpp:597 |
-| S5-PSL.02  | Render at line L: STANDARD pixels for L < split, HI_COLOUR pixels for L >= split                             | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | skip | test/ula/ula_test.cpp:599 |
-| S5-PSL.03  | Mid-frame HI_RES->STANDARD switch at line L: lines >= L revert to 256-px attribute path                      | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | skip | test/ula/ula_test.cpp:601 |
-| S5-PSL.04  | `Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value  | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | skip | test/ula/ula_test.cpp:603 |
-| S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering               | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | skip | test/ula/ula_test.cpp:605 |
-| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | skip   | test/ula/ula_test.cpp:1291      |
-| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | skip   | test/ula/ula_test.cpp:1293      |
-| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | skip   | test/ula/ula_test.cpp:1295      |
-| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | skip   | test/ula/ula_test.cpp:1297      |
-| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | skip   | test/ula/ula_test.cpp:1525      |
-| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | skip   | test/ula/ula_test.cpp:1541      |
-| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | skip   | test/ula/ula_test.cpp:1543      |
-| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | skip   | test/ula/ula_test.cpp:1545      |
-| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | skip   | test/ula/ula_test.cpp:1547      |
+| S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389-395               | skip   | test/ula/ula_test.cpp:580       |
+| S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419                   | skip   | test/ula/ula_test.cpp:588       |
+| S5-PSL.01  | Two port-0xFF writes mid-frame at lines L1 < L2 captured separately                                          | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:609 |
+| S5-PSL.02  | Render at line L: STANDARD pixels for L < split, HI_COLOUR pixels for L >= split                             | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:662 |
+| S5-PSL.03  | Mid-frame HI_RES->STANDARD switch at line L: lines >= L revert to 256-px attribute path                      | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:699 |
+| S5-PSL.04  | `Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value  | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:727 |
+| S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering               | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:779 |
+| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:1497      |
+| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:1545      |
+| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:1585      |
+| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:1616      |
+| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:1902      |
+| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:1961      |
+| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:3614+                | pass   | test/ula/ula_test.cpp:1991      |
+| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:2033      |
+| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:2073      |
 
 ### Extra coverage (not in plan)
 
@@ -489,7 +489,7 @@ Created 2026-04-23 (commit `08a4296`, renamed and merged at `94ccaf3`) to host e
 | INT-SCROLL-03         | NR 0x68 bit 2 fine scroll X: sub-char offset                   | zxula.vhd:199  | pass    | test/ula/ula_integration_test.cpp:311        |
 | INT-ULAPLUS-01        | Port 0xFF3B enable: palette group 3 picks correct indices      | zxula.vhd:531  | pass    | test/ula/ula_integration_test.cpp:401        |
 | INT-ULANEXT-01        | NR 0x43 bit 0 + NR 0x42=0x0F: paper index uses format lookup   | zxula.vhd:503-515 | pass    | test/ula/ula_integration_test.cpp:545        |
-| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:785        |
+| INT-STANDARD-ALT-01   | Alt-file bit: standard-screen mode 001 selects alt display     | zxula.vhd:218  | pass    | test/ula/ula_integration_test.cpp:949        |
 | INT-ULAPLUS-03  | Port 0xBF3B ULA+ index write commits palette entry at `port_bf3b_ulap_index` slot    | zxnext.vhd:4525-4538                 | skip    | test/ula/ula_integration_test.cpp:473         |
 | INT-ULANEXT-02  | Runtime renderer integration: NR 0x43 ULAnext encoder routed to scanline output       | zxula.vhd:485-528; zxnext.vhd:6981   | skip    | test/ula/ula_integration_test.cpp:562         |
 
