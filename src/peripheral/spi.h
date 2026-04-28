@@ -76,6 +76,19 @@ public:
     /// (matching VHDL: i_spi_rd starts a transfer) and returns the result.
     uint8_t read_data();
 
+    /// VHDL `o_spi_wait_n <= state_idle or state_last_d` (serial/spi_master.vhd:177).
+    /// Consumed by DMA at zxnext.vhd:3297 to throttle DMA-via-SPI bursts to
+    /// the 16-cycle SPI transfer cadence.
+    ///
+    /// JNEXT's SpiMaster is a zero-latency byte wrapper: every write_data/
+    /// read_data completes synchronously and the master is always idle when
+    /// observed by callers. Therefore wait_n is constantly asserted (true,
+    /// VHDL '1'), meaning "no wait". This is VHDL-faithful at byte
+    /// granularity — a cycle-accurate consumer (DMA) would need an FSM
+    /// rewrite (G137 long-term), but the accessor surface lets the unit
+    /// test row ST-09 close on the byte-level invariant.
+    bool spi_wait_n() const { return true; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

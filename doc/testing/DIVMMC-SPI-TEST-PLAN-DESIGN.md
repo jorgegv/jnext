@@ -108,7 +108,7 @@ instruction fetches. VHDL reference: `divmmc.vhd` lines 94-96, 148.
 | AM-02 | automap=1, mapram=0: 0x2000-0x3FFF = DivMMC RAM bank N | Same as conmem |
 | AM-03 | automap=1, mapram=1: 0x0000-0x1FFF = DivMMC RAM bank 3 | Same as conmem |
 | AM-04 | automap active, then deactivated: normal ROM restored | Paging removed |
-| AM-08 | NR 0x83 bit 0 clear hides DivMMC ROM/RAM overlay even with conmem=1 | VHDL `zxnext.vhd:4147` `i_en` AND-gates rom_en/ram_en; G124. skip — `DivMmc::set_port_io_enable` zero callers post-boot |
+| AM-08 | NR 0x83 bit 0 clear hides DivMMC ROM/RAM overlay even with conmem=1 | VHDL `zxnext.vhd:4147` `i_en` AND-gates rom_en/ram_en; G124 — closed 2026-04-28 (Task 8 t1) — emulator NR 0x83 write_handler propagates bit 0 to `DivMmc::set_port_io_enable` |
 
 ### 4. Automap Entry Points -- RST Addresses (0x00xx region)
 
@@ -266,18 +266,20 @@ line 4112.
 | NA-01 | NR 0x0A[4]=0 (default): automap_reset asserted | `divmmc_automap_reset=1` |
 | NA-02 | NR 0x0A[4]=1: automap_reset deasserted | Automap can function |
 | NA-03 | port_divmmc_io_en=0: automap_reset asserted | Even if NR 0x0A[4]=1 |
-| NA-04 | NR 0x0A bit 4 toggle calls `DivMmc::set_nr_0a_4_enable` on NextREG write | VHDL `zxnext.vhd:1126,4112,5196`; `divmmc.h:113` setter exists, zero callers. skip — wiring missing (see G123) |
-| NA-05 | NR 0x83 bit 0 clear asserts `divmmc_automap_reset` (port_io_en path) | VHDL `zxnext.vhd:2412,4112`; `DivMmc::set_port_io_enable` zero callers post-boot. skip — propagation missing (see G124) |
-| NA-06 | NR 0x06 reset default = 0xA0 (bits 7/5 set per VHDL power-on) | VHDL `zxnext.vhd:1107-1108,5162-5169`; current `regs_[0x06]=0` after reset. skip — RE-HOME candidate to NEXTREG plan (see G125) |
-| NA-07 | NR 0x06 bit 7 / bit 5 round-trip read after write | VHDL `zxnext.vhd:5162-5169`; `emulator.cpp:1591-1626` decode skips bits 7/5. skip — RE-HOME candidate to NEXTREG plan (see G125) |
-| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when `nr_03_config_mode=0`; mf_type bits 7:6 share gate | VHDL `zxnext.vhd:5191-5198`; `emulator.cpp:447-451` writes unconditionally. skip — config_mode gate missing (see G131) |
+| NA-04 | NR 0x0A bit 4 toggle calls `DivMmc::set_nr_0a_4_enable` on NextREG write | VHDL `zxnext.vhd:1126,4112,5196`; G123 — closed 2026-04-28 (Task 8 t1) — emulator NR 0x0A handler now wires bit 4 to `DivMmc::set_nr_0a_4_enable` |
+| NA-05 | NR 0x83 bit 0 clear asserts `divmmc_automap_reset` (port_io_en path) | VHDL `zxnext.vhd:2412,4112`; G124 — closed 2026-04-28 (Task 8 t1) — emulator NR 0x83 write_handler propagates bit 0 to `DivMmc::set_port_io_enable` |
+| NA-06 | NR 0x06 reset default = 0xA0 (bits 7/5 set per VHDL power-on) | VHDL `zxnext.vhd:1107-1108,5162-5169`; G125 — closed 2026-04-28 (Task 8 t1) — `NextReg::reset` now stores 0xA0 in `regs_[0x06]` |
+| NA-07 | NR 0x06 bit 7 / bit 5 round-trip read after write | VHDL `zxnext.vhd:5162-5169,5900`; G125 — closed 2026-04-28 (Task 8 t1) — verified via NextReg storage round-trip |
+| NA-08 | NR 0x0A bit 5 (sd_swap) write blocked when `nr_03_config_mode=0`; mf_type bits 7:6 share gate | VHDL `zxnext.vhd:5191-5198`; G131 — closed 2026-04-28 (Task 8 t1) — emulator NR 0x0A handler now gates bits 7:6/5 on `nr_03_config_mode` |
 
-> **Note 2026-04-27**: NA-04..08 added 2026-04-27 cover known NR 0x0A /
-> NR 0x83 / NR 0x06 plumbing gaps (G123/G124/G125/G131); skip-stubbed
-> pending implementation. NA-06/07 are NextREG-storage rows — RE-HOME
-> candidates to a future NEXTREG plan; consumer FSMs (CPU-speed hotkey,
-> 50/60 hotkey) live in §10 expansion / future Hotkey plan; row pairs
-> with G132 + G147.
+> **Note 2026-04-27 / 2026-04-28**: NA-04..08 added 2026-04-27 cover known
+> NR 0x0A / NR 0x83 / NR 0x06 plumbing gaps (G123/G124/G125/G131).
+> CLOSED 2026-04-28 (Task 8 Tier-1 / divmmc): emulator NR 0x83 +
+> NR 0x0A handlers + NextReg NR 0x06 reset default. NA-04/05/08 use a
+> NextReg + DivMmc + SpiMaster fixture in `divmmc_test.cpp`; NA-06/07
+> verify NextReg storage directly. Consumer FSMs (CPU-speed hotkey,
+> 50/60 hotkey) live in §10 expansion / future Hotkey plan; G132 + G147
+> are still open.
 
 ### 11. DivMMC SRAM Address Mapping
 
@@ -360,7 +362,7 @@ lines 86-100.
 | ST-06 | `spi_wait_n = 1` when idle or on last cycle | DMA wait signal |
 | ST-07 | Transfer can begin from idle OR from last state | Allows pipelined transfers |
 | ST-08 | Read/write during mid-transfer: ignored | `spi_begin=0` when not idle/last |
-| ST-09 | DMA-via-SPI: `o_spi_wait_n` stretches DMA byte to 16 SPI clocks | VHDL `serial/spi_master.vhd:56,177` consumed by DMA at `zxnext.vhd:3297`; jnext exchange is instantaneous (no wait_n accessor in `spi.cpp:99-127`). skip — needs accessor (see G137) |
+| ST-09 | DMA-via-SPI: `o_spi_wait_n` stretches DMA byte to 16 SPI clocks | VHDL `serial/spi_master.vhd:56,177` consumed by DMA at `zxnext.vhd:3297`; G137 — closed 2026-04-28 (Task 8 t1) — `SpiMaster::spi_wait_n()` accessor surfaces the byte-level invariant (always idle when observed); cycle-accurate FSM remains future work |
 
 ### 15. SPI MISO Data Latch
 

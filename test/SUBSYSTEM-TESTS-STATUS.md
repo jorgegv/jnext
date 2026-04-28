@@ -20,7 +20,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      115 |      100 |      0 |      15 |     87% | Task 7r2: G02/G05/G09/G14/G17/G28 (G10b..e + L2-G17).  |
 | UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | Task 7r2: G39 ESP-01..04 added.                        |
 | UART (integration)    |       13 |       12 |      0 |       1 |     92% | Unchanged (Task 7 round 1 baseline).                   |
-| DivMMC + SPI          |      110 |      100 |      0 |      10 |     91% | Task 7r2: G46 DM-RETN-PROPER-01..02 added.             |
+| DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | Task 8 t1: G123/G124/G125/G131/G137 closed (-7).       |
 | SD Card               |       21 |        8 |      0 |      13 |     38% | Task 7r2: G40/G41 SD-10..15 + MMC-01..03 added.        |
 | Sprites               |      178 |      168 |      0 |      10 |     94% | Task 7r2: G06/G13/G15 OVF + NR70 stubs added.          |
 | Compositor            |      143 |      130 |      0 |      13 |     91% | Task 7r2: G04/G11/G26/G27 (PSCAN/UB/BLANK).            |

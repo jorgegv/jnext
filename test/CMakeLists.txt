@@ -139,7 +139,9 @@ add_executable(divmmc_test divmmc/divmmc_test.cpp)
 # jnext_memory + jnext_debug added 2026-04-21: PRI-01/02/04 need a
 # Mmu+DivMmc integration fixture (re-homed from test/mmu/mmu_test.cpp
 # commit 7be3deb), which pulls Mmu/Ram/Rom and DebugState transitively.
-target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_debug)
+# jnext_port added 2026-04-28 (Task 8 t1): NA-04..NA-08 wire NR 0x0A /
+# 0x83 / 0x06 verification through a NextReg fixture (G123/G124/G125/G131).
+target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_debug jnext_port)
 target_include_directories(divmmc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME divmmc_tests COMMAND divmmc_test)
 

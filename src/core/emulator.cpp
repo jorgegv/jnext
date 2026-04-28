@@ -439,13 +439,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x0A: Peripheral 2 — SD-card swap + mouse button reverse + DPI.
-    //   bit 5 = sd_swap — invert SD0/SD1 mapping on port 0xE7 writes
-    //   bit 3 = nr_0a_mouse_button_reverse (VHDL zxnext.vhd:5197)
-    //   bits 1:0 = nr_0a_mouse_dpi (VHDL zxnext.vhd:5198)
+    //   bits 7:6 = nr_0a_mf_type      (VHDL zxnext.vhd:5191) — config_mode-gated
+    //   bit 5    = nr_0a_sd_swap      (VHDL zxnext.vhd:5193) — config_mode-gated
+    //   bit 4    = divmmc_automap_en  (VHDL zxnext.vhd:5196) — gates DivMMC automap reset
+    //   bit 3    = nr_0a_mouse_button_reverse (VHDL zxnext.vhd:5197)
+    //   bits 1:0 = nr_0a_mouse_dpi    (VHDL zxnext.vhd:5198)
     // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
-    // MF-type (bits 7:6) and divmmc_automap_en (bit 4) are not wired yet.
+    // VHDL zxnext.vhd:5191-5198: bits 7:6 (mf_type) and bit 5 (sd_swap) only
+    // commit when nr_03_config_mode='1'. Bits 4/3/1:0 commit unconditionally.
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) {
-        spi_.set_sd_swap((v & 0x20) != 0);
+        // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
+        if (nextreg_.nr_03_config_mode()) {
+            spi_.set_sd_swap((v & 0x20) != 0);
+            // bits 7:6 (mf_type) — Multiface model not wired here yet (G132);
+            // gating modeled so writes outside config_mode are inert as in VHDL.
+        }
+        // G123: bit 4 toggles DivMMC automap-enable (independent lever from
+        // NR 0x83 bit 0). VHDL zxnext.vhd:1126,4112,5196.
+        divmmc_.set_nr_0a_4_enable((v & 0x10) != 0);
         mouse_.set_button_reverse((v & 0x08) != 0);
         mouse_.set_dpi(v & 0x03);
     });
@@ -895,6 +906,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0xB9, [this](uint8_t v) { divmmc_.set_entry_valid_0(v); });
     nextreg_.set_write_handler(0xBA, [this](uint8_t v) { divmmc_.set_entry_timing_0(v); });
     nextreg_.set_write_handler(0xBB, [this](uint8_t v) { divmmc_.set_entry_points_1(v); });
+
+    // Register 0x83: Internal port-enable register 2.
+    // VHDL zxnext.vhd:1227, 2392, 2412 — bit 0 of NR 0x83 drives
+    // port_divmmc_io_en (when expansion bus disabled), which in turn:
+    //   • feeds divmmc_mod.i_en (zxnext.vhd:4147) — gates DivMMC ROM/RAM
+    //     overlay; clearing bit 0 hides the overlay even with conmem=1.
+    //   • feeds divmmc_automap_reset (zxnext.vhd:4112) — clearing bit 0
+    //     asserts reset, blocking automap.
+    // Other NR 0x83 bits (port_dffd_io_en at bit 2, port_1ffd_io_en at
+    // bit 3, port_p3_floating_bus_io_en at bit 4, port_mouse_io_en at
+    // bit 5) are consulted at port-decode time via nextreg_.cached(0x83);
+    // here we only need to forward bit 0 to DivMmc as a state setter.
+    // G124.
+    nextreg_.set_write_handler(0x83, [this](uint8_t v) {
+        divmmc_.set_port_io_enable((v & 0x01) != 0);
+    });
 
     // Register 0x85: Port-enable register 4 — read packing.
     // VHDL zxnext.vhd:6138: read returns reset_type & "000" & enable(3:0).

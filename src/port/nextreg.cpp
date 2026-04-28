@@ -28,6 +28,11 @@ void NextReg::reset() {
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x03] = 0x00;  // machine type: ZXNext
     regs_[0x05] = 0x40;  // joy config: VHDL zxnext.vhd:1105-1106 (nr_05 not cleared on soft reset)
+    // NR 0x06 power-on default: 0xA0. VHDL zxnext.vhd:1107-1108:
+    //   nr_06_hotkey_cpu_speed_en := '1' (bit 7)
+    //   nr_06_hotkey_5060_en      := '1' (bit 5)
+    // All other NR 0x06 bits default '0' (zxnext.vhd:1109-1113). G125.
+    regs_[0x06] = 0xA0;
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
     // Sub-version: VHDL g_sub_version = X"03" generic in
