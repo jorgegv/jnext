@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <array>
 #include "video/ula.h"
 
@@ -47,9 +48,18 @@ public:
         stencil_mode_ = false;      // NR 0x68 bit 0 default (VHDL: 0)
         blend_mode_ = 0;            // NR 0x68 bits 6:5 default (VHDL: 00)
         tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
+        nr15_raw_ = 0;
         fallback_per_line_.fill(0xE3);
         ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
         ula_.reset();
+        // Reset NR 0x15 per-scanline change log.
+        nr15_change_count_      = 0;
+        nr15_render_cursor_     = 0;
+        nr15_current_line_      = 0;
+        nr15_overflow_warned_   = false;
+        baseline_nr15_raw_      = 0;
+        baseline_layer_priority_= 0;
+        baseline_sprite_en_     = false;
     }
 
     /// Access the underlying ULA (e.g. to set border colour from port 0xFE).
@@ -59,6 +69,67 @@ public:
     /// Set layer priority from NextREG 0x15 bits 4:2.
     void set_layer_priority(uint8_t val) { layer_priority_ = val & 0x07; }
     uint8_t layer_priority() const { return layer_priority_; }
+    bool sprite_en() const { return sprite_en_; }
+
+    // -----------------------------------------------------------------
+    // Per-scanline NR 0x15 snapshot (G02 — driver-side infrastructure)
+    // -----------------------------------------------------------------
+    //
+    // Mirrors PaletteManager / Layer2 per-scanline change-log idiom.
+    // VHDL zxnext.vhd:5232 (write capture), 6799 (per-line latch oracle).
+    // Required by demos that toggle layer-priority / sprite-en mid-frame
+    // via Copper to multiplex L2/sprite z-orders per band.
+    //
+    // Writes to NR 0x15 land via `write_nr15(byte)` (single-call form);
+    // the byte is also decomposed into `layer_priority_` / `sprite_en_`
+    // for the legacy live-state callers (compositor priority lookup).
+    //
+    //   renderer.start_frame_nr15();              // emulator at frame start
+    //   …                                         // emulation runs; NR 0x15
+    //                                             // writes append to log
+    //                                             // tagged with current_line
+    //   renderer.rewind_to_baseline_nr15();       // before render_frame
+    //   for row in 0..H:
+    //       renderer.apply_changes_for_line_nr15(row);
+    //       …                                     // composite pixel sees
+    //                                             // per-line layer_priority
+
+    /// NR 0x15 raw write — VHDL zxnext.vhd:5229-5234.
+    /// Captures bit 0 (sprite_en) + bits 4:2 (layer_priority) into the
+    /// per-scanline log; updates the legacy live setters as well.  The
+    /// remaining bits (5, 6, 7) are not stored in this class — they
+    /// live on SpriteEngine and the LoRes path; the emulator's NR 0x15
+    /// dispatcher handles those alongside this call.
+    void write_nr15(uint8_t v);
+
+    /// Latest raw NR 0x15 byte snapshot (sprite_en in bit 0, priority
+    /// in bits 4:2).  Reflects the most recent per-scanline replay
+    /// when called between apply_changes_for_line_nr15 invocations.
+    uint8_t nr15_raw() const { return nr15_raw_; }
+
+    /// Snapshot the live NR 0x15 state as the frame baseline and reset
+    /// the change-log.  Called at the start of every frame.
+    void start_frame_nr15();
+
+    /// Update the scanline tag attached to subsequent NR 0x15 writes.
+    /// Default 0 at frame start (set by start_frame_nr15).
+    void set_current_line_nr15(int line) {
+        nr15_current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live NR 0x15 state to baseline; reset render cursor.
+    /// Called once before per-scanline render.
+    void rewind_to_baseline_nr15();
+
+    /// Apply all logged NR 0x15 changes whose line tag equals `line`.
+    /// Cursor monotonically advanced.
+    void apply_changes_for_line_nr15(int line);
+
+    /// Number of NR 0x15 changes recorded this frame (diagnostic).
+    size_t nr15_change_log_size() const { return nr15_change_count_; }
+
+    /// Cap; further writes after this many in a frame are dropped.
+    static constexpr size_t MAX_NR15_CHANGES_PER_FRAME = 1024;
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
@@ -163,6 +234,22 @@ private:
     bool stencil_mode_ = false;      // NextREG 0x68 bit 0 (VHDL: stencil AND mode)
     uint8_t blend_mode_ = 0;         // NextREG 0x68 bits 6:5 (VHDL: ula_blend_mode_2)
     bool tm_enabled_ = false;        // NR 0x6B bit 7 (VHDL: tilemap enable)
+    uint8_t nr15_raw_   = 0;         // last full byte written via write_nr15
+
+    // ── NR 0x15 per-scanline change log (G02) ────────────────────────
+    struct Nr15Change {
+        uint16_t line;
+        uint8_t  raw;             ///< full 8-bit NR 0x15 byte
+    };
+    std::array<Nr15Change, MAX_NR15_CHANGES_PER_FRAME> nr15_change_log_{};
+    size_t   nr15_change_count_     = 0;
+    uint16_t nr15_current_line_     = 0;
+    size_t   nr15_render_cursor_    = 0;
+    bool     nr15_overflow_warned_  = false;
+
+    uint8_t  baseline_nr15_raw_      = 0;
+    uint8_t  baseline_layer_priority_= 0;
+    bool     baseline_sprite_en_     = false;
 
     /// Per-scanline fallback colour snapshot.
     /// Populated during the frame loop by snapshot_fallback_for_line().

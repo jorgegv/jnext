@@ -1,4 +1,5 @@
 #include "video/renderer.h"
+#include "core/log.h"
 #include "core/saveable.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
@@ -501,4 +502,66 @@ void Renderer::load_state(StateReader& r)
     tm_enabled_   = r.read_u8() != 0;
     blend_mode_   = r.read_u8() & 0x03;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
+}
+
+// ---------------------------------------------------------------------------
+// NR 0x15 per-scanline change log (G02)
+// ---------------------------------------------------------------------------
+//
+// Mirrors the PaletteManager / Layer2 idiom.  Driver-side infrastructure
+// for demos that toggle layer-priority / sprite-en mid-frame via Copper.
+// VHDL zxnext.vhd:5232 (write capture into nr_15_layer_priority +
+// nr_15_sprite_en); 6799 (per-line latch into layer_priorities_0).
+
+void Renderer::write_nr15(uint8_t v)
+{
+    nr15_raw_       = v;
+    layer_priority_ = (v >> 2) & 0x07;
+    sprite_en_      = (v & 0x01) != 0;
+
+    if (nr15_change_count_ >= MAX_NR15_CHANGES_PER_FRAME) {
+        if (!nr15_overflow_warned_) {
+            Log::video()->warn(
+                "Renderer: NR 0x15 change-log full at line {} (cap {} per "
+                "frame); further NR 0x15 writes this frame will not be "
+                "per-scanline.",
+                nr15_current_line_, MAX_NR15_CHANGES_PER_FRAME);
+            nr15_overflow_warned_ = true;
+        }
+        return;
+    }
+    nr15_change_log_[nr15_change_count_++] = Nr15Change{
+        nr15_current_line_, v,
+    };
+}
+
+void Renderer::start_frame_nr15()
+{
+    baseline_nr15_raw_       = nr15_raw_;
+    baseline_layer_priority_ = layer_priority_;
+    baseline_sprite_en_      = sprite_en_;
+    nr15_change_count_       = 0;
+    nr15_render_cursor_      = 0;
+    nr15_current_line_       = 0;
+    nr15_overflow_warned_    = false;
+}
+
+void Renderer::rewind_to_baseline_nr15()
+{
+    nr15_raw_           = baseline_nr15_raw_;
+    layer_priority_     = baseline_layer_priority_;
+    sprite_en_          = baseline_sprite_en_;
+    nr15_render_cursor_ = 0;
+}
+
+void Renderer::apply_changes_for_line_nr15(int line)
+{
+    const uint16_t lt = static_cast<uint16_t>(line);
+    while (nr15_render_cursor_ < nr15_change_count_
+        && nr15_change_log_[nr15_render_cursor_].line == lt) {
+        const auto& c = nr15_change_log_[nr15_render_cursor_++];
+        nr15_raw_       = c.raw;
+        layer_priority_ = (c.raw >> 2) & 0x07;
+        sprite_en_      = (c.raw & 0x01) != 0;
+    }
 }
