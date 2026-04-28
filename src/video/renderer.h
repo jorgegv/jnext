@@ -51,6 +51,10 @@ public:
         nr15_raw_ = 0;
         fallback_per_line_.fill(0xE3);
         ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
+        // G04 / G11 — per-scanline arrays mirror the scalar reset values.
+        transparent_rgb_per_line_.fill(0xE3);
+        stencil_mode_per_line_.fill(false);
+        blend_mode_per_line_.fill(0);
         ula_.reset();
         // Reset NR 0x15 per-scanline change log.
         nr15_change_count_      = 0;
@@ -199,6 +203,57 @@ public:
         ula_enabled_per_line_.fill(ula_.ula_enabled());
     }
 
+    /// Per-scanline NR 0x14 (transparent RGB) snapshot — gap G04 closure.
+    ///
+    /// VHDL zxnext.vhd:1137,5226 — `transparent_rgb_2` is captured at
+    /// stage 0 of each line; mid-frame Copper MOVEs to NR 0x14 (sky vs.
+    /// foreground transparency-key swaps) take effect from the next
+    /// scanline onward. The compositor reads `transparent_rgb_per_line_`
+    /// at row N when present so flat-frame replay collapses are
+    /// avoided. Snapshot/init follow the same idiom as
+    /// fallback_per_line_/ula_enabled_per_line_.
+    void snapshot_transparent_rgb_for_line(int line) {
+        if (line >= 0 && line < 320)
+            transparent_rgb_per_line_[line] = transparent_rgb_;
+    }
+    void init_transparent_rgb_per_line() {
+        transparent_rgb_per_line_.fill(transparent_rgb_);
+    }
+    uint8_t transparent_rgb_for_line(int line) const {
+        return (line >= 0 && line < 320) ? transparent_rgb_per_line_[line]
+                                         : transparent_rgb_;
+    }
+
+    /// Per-scanline NR 0x68 bit 0 (stencil_mode) snapshot — gap G11.
+    ///
+    /// VHDL zxnext.vhd:5445, 7142-7176 — `ula_stencil_mode_2` is captured
+    /// at stage 0 of each scanline; a Copper MOVE that flips the bit
+    /// mid-frame takes effect from the next line.
+    void snapshot_stencil_mode_for_line(int line) {
+        if (line >= 0 && line < 320)
+            stencil_mode_per_line_[line] = stencil_mode_;
+    }
+    void init_stencil_mode_per_line() {
+        stencil_mode_per_line_.fill(stencil_mode_);
+    }
+    bool stencil_mode_for_line(int line) const {
+        return (line >= 0 && line < 320) ? stencil_mode_per_line_[line]
+                                         : stencil_mode_;
+    }
+
+    /// Per-scanline NR 0x68 bits 6:5 (ula_blend_mode) snapshot — gap G11.
+    void snapshot_blend_mode_for_line(int line) {
+        if (line >= 0 && line < 320)
+            blend_mode_per_line_[line] = blend_mode_;
+    }
+    void init_blend_mode_per_line() {
+        blend_mode_per_line_.fill(blend_mode_);
+    }
+    uint8_t blend_mode_for_line(int line) const {
+        return (line >= 0 && line < 320) ? blend_mode_per_line_[line]
+                                         : blend_mode_;
+    }
+
     /// Convert an 8-bit RRRGGGBB colour to ARGB8888.
     static uint32_t rrrgggbb_to_argb(uint8_t c) {
         uint8_t r3 = (c >> 5) & 0x07;
@@ -263,6 +318,18 @@ private:
     /// onward; the render loop consumes this array instead of the live
     /// Ula::ula_enabled() flag to preserve that per-line visibility.
     std::array<bool, 320>    ula_enabled_per_line_{};
+
+    /// Per-scanline NR 0x14 transparent RGB snapshot — gap G04 closure.
+    /// Populated by snapshot_transparent_rgb_for_line() during the
+    /// frame loop. VHDL zxnext.vhd:1137,5226: transparent_rgb_2 is
+    /// captured at stage 0 of every line.
+    std::array<uint8_t, 320>  transparent_rgb_per_line_{};
+
+    /// Per-scanline NR 0x68 b0 stencil snapshot — gap G11 closure.
+    std::array<bool, 320>     stencil_mode_per_line_{};
+
+    /// Per-scanline NR 0x68 b6:5 blend-mode snapshot — gap G11 closure.
+    std::array<uint8_t, 320>  blend_mode_per_line_{};
 
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;

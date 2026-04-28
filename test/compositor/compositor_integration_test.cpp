@@ -388,6 +388,127 @@ static void test_udis_integration(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Group PFF-INT — port_ff_reg NR-side fan-out (G108)
+// VHDL: zxnext.vhd:3610-3635 — port_ff_reg storage with four writers:
+//   * port 0xFF write       -> entire byte (highest priority, :3615-3616)
+//   * NR 0x69 b5:0          -> bits 5:0  (:3617-3618)
+//   * NR 0x22 b2            -> bit 6     (:3619-3620)
+//   * NR 0xC4 b0 (inverted) -> bit 6     (:3621-3622, polarity inverted)
+//
+// Re-homed 2026-04-28 from test/compositor/compositor_test.cpp §PFF
+// (skip rows PFF-G108-01/02/03). The bare compositor tier cannot
+// reach `Emulator::port_ff_reg_` — it does not own the NR-side
+// dispatch surface — so the closure lives at the integration tier.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_pff_integration(Emulator& emu) {
+    set_group("PFF-INT");
+
+    // ── PFF-G108-01 — NR 0x69 b5:0 fan into port_ff_reg(5:0) ────────────
+    //
+    // Plan-row stimulus: reset; write NR 0x69 ← 0x3F; sample
+    // port_ff_reg low six bits — must equal 0x3F.
+    //
+    // VHDL :3618 keeps bits 7:6 untouched (only b5:0 of the new
+    // value flow). With reset value = 0x00 the upper bits stay 0.
+    {
+        fresh(emu);
+        nr_write_port(emu, 0x69, 0x3F);
+        const uint8_t got = emu.port_ff_reg();
+        const bool ok_low_six = (got & 0x3F) == 0x3F;
+        const bool ok_top_two = (got & 0xC0) == 0x00;
+        check("PFF-G108-01",
+              "NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged "
+              "(zxnext.vhd:3617-3618)",
+              ok_low_six && ok_top_two,
+              fmt("port_ff_reg=0x%02X (low6 expect 0x3F, top2 expect 0x00)",
+                  got));
+    }
+
+    // ── PFF-G108-02 — NR 0x22 b2 fans into port_ff_reg(6) ───────────────
+    //
+    // VHDL :3620 — `port_ff_reg(6) <= nr_wr_dat(2)`. Reset value 0;
+    // write NR 0x22 ← 0x04 sets bit 6 = 1. Lower 6 bits stay 0
+    // (we drove no NR 0x69 / port-0xFF write between reset and the
+    // NR 0x22 write).
+    {
+        fresh(emu);
+        nr_write_port(emu, 0x22, 0x04);   // bit 2 = 1
+        const uint8_t got = emu.port_ff_reg();
+        const bool ok_bit6 = (got & 0x40) == 0x40;
+        check("PFF-G108-02",
+              "NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620)",
+              ok_bit6,
+              fmt("port_ff_reg=0x%02X (bit 6 expect 1)", got));
+
+        // Companion: a NR 0x22 write with b2=0 must clear port_ff_reg(6).
+        nr_write_port(emu, 0x22, 0x00);
+        const uint8_t got2 = emu.port_ff_reg();
+        const bool ok_cleared = (got2 & 0x40) == 0x00;
+        check("PFF-G108-02b",
+              "NR 0x22 b2=0 clears port_ff_reg(6) (zxnext.vhd:3620)",
+              ok_cleared,
+              fmt("port_ff_reg=0x%02X (bit 6 expect 0)", got2));
+    }
+
+    // ── PFF-G108-03 — NR 0xC4 b0 fans into port_ff_reg(6) (inverted) ────
+    //
+    // VHDL :3622 — `port_ff_reg(6) <= NOT nr_wr_dat(0)`. The
+    // polarity inverts: cpu writes b0=0 ⇒ port_ff_reg(6) = 1; cpu
+    // writes b0=1 ⇒ port_ff_reg(6) = 0.
+    //
+    // Sequenced as: clear bit 6 first (NR 0x22 b2=0), then write
+    // NR 0xC4 ← 0x00 to assert the inverted-set; then NR 0xC4 ← 0x01
+    // to assert the inverted-clear.
+    {
+        fresh(emu);
+        // Clear bit 6 baseline.
+        nr_write_port(emu, 0x22, 0x00);
+        // Write NR 0xC4 ← 0x00 → port_ff_reg(6) = NOT 0 = 1.
+        nr_write_port(emu, 0xC4, 0x00);
+        const uint8_t got_set = emu.port_ff_reg();
+        const bool ok_set = (got_set & 0x40) == 0x40;
+
+        // Write NR 0xC4 ← 0x01 → port_ff_reg(6) = NOT 1 = 0.
+        nr_write_port(emu, 0xC4, 0x01);
+        const uint8_t got_clr = emu.port_ff_reg();
+        const bool ok_clr = (got_clr & 0x40) == 0x00;
+
+        check("PFF-G108-03",
+              "NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity "
+              "(zxnext.vhd:3621-3622)",
+              ok_set && ok_clr,
+              fmt("after NR0xC4=0x00 port_ff=0x%02X (b6 expect 1); "
+                  "after NR0xC4=0x01 port_ff=0x%02X (b6 expect 0)",
+                  got_set, got_clr));
+    }
+
+    // ── PFF-G108-04 — port-0xFF write beats NR-side fan-out ─────────────
+    //
+    // VHDL :3614-3623 case ladder: `port_ff_wr` is the first elsif,
+    // so any port 0xFF write within the same cycle wins over an
+    // NR 0x69 / 0x22 / 0xC4 fan-out. We exercise the priority by
+    // writing NR 0x69 = 0x00 then port 0xFF = 0xAA and confirming
+    // the latched byte reflects the port write end-to-end.
+    //
+    // NR 0x82 bit 0 (`port_ff_io_en`) must be enabled for the port
+    // 0xFF handler at emulator.cpp:1340-1357 to fire. NR 0x82 b0
+    // defaults to 1 after reset (VHDL zxnext.vhd:5092-5096 reset
+    // clauses leave the port-enable bit set), so no extra setup.
+    {
+        fresh(emu);
+        nr_write_port(emu, 0x69, 0x00);
+        emu.port().out(0x00FF, 0xAA);
+        const uint8_t got = emu.port_ff_reg();
+        check("PFF-G108-04",
+              "Port 0xFF write latches the entire byte, beating any "
+              "subsequent NR-side fan-out (zxnext.vhd:3615-3616)",
+              got == 0xAA,
+              fmt("port_ff_reg=0x%02X expect 0xAA", got));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -403,6 +524,9 @@ int main() {
 
     test_udis_integration(emu);
     std::printf("  Group: UDIS-INT — done\n");
+
+    test_pff_integration(emu);
+    std::printf("  Group: PFF-INT — done\n");
 
     std::printf("\n=======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

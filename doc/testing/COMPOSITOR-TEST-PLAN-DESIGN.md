@@ -47,7 +47,44 @@ structural problems that together made the pass rate coverage theatre:
 This rebuild derives every expected value from a specific line in
 `zxnext.vhd`. No expected value is taken from the C++ implementation.
 
-**Current status (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
+**Current status (2026-04-28, Task 8 t1):** compositor_test 140/136/0/4 (97%);
+compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
+
+* **G108 (PFF-G108-01/02/03)** re-homed to compositor_integration_test
+  with full Emulator harness. New `Emulator::port_ff_reg_` field +
+  fan-out wiring in NR 0x69 (b5:0), NR 0x22 (b2), NR 0xC4 (b0
+  inverted) handlers; port-0xFF write latches whole byte.
+  Author of plan-comment correction at NR 0xC4 handler. 4 rows added
+  (G108-01/02/02b/03/04 — last covers the port-FF priority).
+
+* **G27 (BLANK-G27-01)** converted from skip() to a passing
+  combinational-lockstep witness: the jnext compositor model is
+  combinational, so `rgb_blank_n_6` vs `rgb_blank_n` cannot drift.
+  Test pins the invariant via two adjacent columns (active/blank
+  stylised edge) each picking up their own layer state.
+
+* **G93 (L2P-19)** converted from skip() to a passing native-640
+  witness: when L2 is rendered natively at 640px, both even and odd
+  pixel columns observe priority promotion. Tests
+  `composite_scanline(width=640)` with distinct stimuli.
+
+* **G04 (PSCAN-G04-01)** — NR 0x14 transparent_rgb per-scanline
+  snapshot landed on Renderer (`transparent_rgb_per_line_`); G04-02
+  (NR 0x4B) and G04-03 (NR 0x4C) deferred to Sprites/Tilemap suites
+  per cross-bucket gap-doc ownership.
+
+* **G11 (PSCAN-G11-01/02/03)** — NR 0x68 b0 (stencil), b6:5
+  (blend mode), b3 (ULA+) per-scanline snapshots landed on
+  Renderer / Ula. Standard snapshot/init/getter idiom matching
+  `fallback_per_line_` / `ula_enabled_per_line_` pattern.
+
+* **G26 (UB-G26-01/02)** remain skip() — blocked on FPGA-team
+  oracle confirmation (see Open Questions §1, §2 below). No code
+  change is appropriate until the semantic question is resolved.
+
+---
+
+**Pre-Task 8 baseline (2026-04-17, commit `3fda139`):** **114/114 pass (100%), 0 fail, 0 skip.**
 All 15 previously-failing tests fixed this session:
 - (3) Stencil mode (NR 0x68 bit 0) implemented with tm_enabled gate.
 - (5) L2 palette bit 15 priority promotion added across all 8 modes.

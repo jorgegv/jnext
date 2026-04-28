@@ -70,6 +70,7 @@ public:
         ulanext_format_      = 0x07;
         ulanext_en_          = false; // nr_43_ulanext_en reset '0'
         ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
+        ulap_en_per_line_.fill(false);  // gap G11 — mirror reset default
         ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
         shadow_screen_en_    = false; // i_ula_shadow_en default '0'
@@ -205,6 +206,23 @@ public:
     void set_ulap_en(bool b) { ulap_en_ = b; }
     bool get_ulap_en() const { return ulap_en_; }
 
+    /// Per-scanline ULA+ enable snapshot (NR 0x68 b3 / port 0xFF3B path) —
+    /// gap G11 closure. VHDL zxnext.vhd:5445 captures the bit at stage 0
+    /// of every line; mid-frame Copper writes take effect on the next
+    /// line. Mirrors the snapshot/init/getter idiom used by Renderer's
+    /// fallback_per_line_ and ula_enabled_per_line_.
+    void snapshot_ulap_en_for_line(int line) {
+        if (line >= 0 && line < 320)
+            ulap_en_per_line_[line] = ulap_en_;
+    }
+    void init_ulap_en_per_line() {
+        ulap_en_per_line_.fill(ulap_en_);
+    }
+    bool ulap_en_for_line(int line) const {
+        return (line >= 0 && line < 320) ? ulap_en_per_line_[line]
+                                         : ulap_en_;
+    }
+
     // Port 0xBF3B — ULA+ mode/index register (write-only latch).
     // VHDL zxnext.vhd:4525-4538: `port_bf3b_ulap_mode <= cpu_do(7 downto 6)`.
     // Only the top 2 bits are the mode-group; the low 6 bits (index) are
@@ -329,6 +347,8 @@ private:
     uint8_t ulanext_format_      = 0x07;  ///< NR 0x42, VHDL reset X"07" (zxnext.vhd:5002)
     bool    ulanext_en_          = false; ///< NR 0x43 bit 0 (zxnext.vhd:5394)
     bool    ulap_en_             = false; ///< Port 0xFF3B enable (zxnext.vhd:4547)
+    /// Per-scanline ULA+ enable snapshot — gap G11 closure.
+    std::array<bool, 320> ulap_en_per_line_{};
     uint8_t ulap_mode_           = 0;     ///< Port 0xBF3B top-2 bits (zxnext.vhd:4529/4532)
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
     bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)

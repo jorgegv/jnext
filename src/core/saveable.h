@@ -92,6 +92,8 @@ public:
     }
 
     size_t position() const { return pos_; }
+    size_t capacity() const { return capacity_; }
+    bool   eof() const { return pos_ >= capacity_; }
 
 private:
     const uint8_t* data_;

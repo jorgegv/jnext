@@ -378,6 +378,11 @@ public:
     ///   bit 0 = nr_08_keyboard_issue2
     uint8_t nr_08_stored_low() const { return nr_08_stored_low_; }
 
+    /// VHDL zxnext.vhd:3610-3635 `port_ff_reg`. Single store fed by four
+    /// writers (port 0xFF, NR 0x69 b5:0, NR 0x22 b2, NR 0xC4 b0 inverted).
+    /// Bits 5:0 = Timex screen mode; bit 6 = port_ff_interrupt_disable.
+    uint8_t port_ff_reg() const { return port_ff_reg_; }
+
     /// Composite VHDL signal `beep_spkr_excl` (zxnext.vhd:6504) —
     ///   beep_spkr_excl <= nr_06_internal_speaker_beep AND
     ///                     nr_08_internal_speaker_en.
@@ -555,6 +560,20 @@ private:
     // ULA-int disable flag (NR 0x22 bit 2) lives here — it is a separate
     // gate from the line-int path and predates VideoTiming.
     bool     ula_int_disabled_   = false;  ///< NextREG 0x22 bit 2
+
+    // --- port_ff_reg storage (VHDL zxnext.vhd:3610-3635) ---
+    //
+    // The Next collapses Timex screen-mode (bits 5:0) and ULA-int-disable
+    // (bit 6) into a single 8-bit `port_ff_reg`. Four writers share it:
+    //   * port 0xFF write       -> entire byte (port_ff_wr branch :3616)
+    //   * NR 0x69 b5:0          -> bits 5:0 (:3618)
+    //   * NR 0x22 b2            -> bit 6 (:3620)
+    //   * NR 0xC4 b0 (inverted) -> bit 6 = NOT nr_wr_dat(0) (:3622)
+    //
+    // Public storage so the compositor / interrupt-disable path can read
+    // a single source of truth, and so unit/integration tests can pin
+    // the fan-out (gap doc G108).
+    uint8_t  port_ff_reg_        = 0;      ///< VHDL zxnext.vhd:3610-3635
 
     // --- Clip window rotating write indices (NextREG 0x18/0x19/0x1A/0x1B) ---
     // Each clip register cycles through X1,X2,Y1,Y2 on successive writes.

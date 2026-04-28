@@ -136,6 +136,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     video_timing_.set_interrupt_enable(true);
     video_timing_.set_line_interrupt_enable(false);
     video_timing_.set_line_interrupt_target(0);
+    // VHDL zxnext.vhd:3613-3614 — port_ff_reg <= (others => '0') on reset.
+    port_ff_reg_ = 0;
     im2_hw_mode_ = false;
     im2_vector_base_ = 0;
     im2_int_enable_[0] = 0x81;  // legacy shadow; soft reset: ULA + expbus enabled
@@ -712,6 +714,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const uint16_t cur = video_timing_.line_interrupt_target();
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
+        // VHDL zxnext.vhd:3619-3620 — `nr_22_we` fans bit 2 of the new
+        // value into `port_ff_reg(6)` (the ULA-int-disable bit).
+        port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
+                                          | ((v & 0x04) << 4));
     });
 
     // Register 0x23: Line interrupt value LSB
@@ -911,6 +917,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = reserved
     nextreg_.set_write_handler(0x69, [this](uint8_t v) {
         layer2_.set_enabled((v & 0x80) != 0);
+        // VHDL zxnext.vhd:3617-3618 — `nr_69_we` fans bits 5:0 of the
+        // new value into `port_ff_reg(5:0)` (the Timex screen-mode
+        // surface). port_ff_reg_ is the canonical store; the
+        // downstream screen-mode mux still consumes port-0xFF write-
+        // path effects via Ula::screen_mode_reg_ as it always has —
+        // mirroring the bits 5:0 fan-out into Ula is a separate item
+        // (cross-cuts ULA / Timex tests; not in scope for G108
+        // closure).
+        port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xC0)
+                                          | (v & 0x3F));
     });
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
@@ -1020,13 +1036,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // NR 0xC4 — ula_int_en + expbus.
     //   bit 7 = nr_c4_int_en_0_expbus (expansion-bus INT enable; non-IM2)
     //   bit 1 = nr_22_line_interrupt_en (mirror of NR 0x22 bit 1)
-    //   bit 0 = (NOT written by NR 0xC4 — port_ff owns ULA int enable)
+    //   bit 0 = NR-side fan-out into port_ff_reg(6) with INVERTED
+    //           polarity per VHDL :3621-3622:
+    //               port_ff_reg(6) <= NOT nr_wr_dat(0)
+    //           That is the ULA-int-disable bit. A NR 0xC4 write of
+    //           bit 0 = 1 ENABLES the ULA interrupt (clears bit 6); a
+    //           write of bit 0 = 0 DISABLES it (sets bit 6).
     // Read format: E_00000_UU where UU = ula_int_en[1:0] = {line,ula}.
     nextreg_.set_write_handler(0xC4, [this](uint8_t v) {
         im2_.set_int_en_c4(v);
         // Mirror NR 0xC4 bit 1 → nr_22_line_interrupt_en (VHDL:5610).
-        // Bit 0 is NOT written here per VHDL; port_ff owns ULA int enable.
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
+        // VHDL zxnext.vhd:3621-3622 — `nr_c4_we` fans (NOT bit 0) of
+        // the new value into `port_ff_reg(6)`. The polarity is
+        // inverted: cpu writes '1' to clear the disable bit.
+        port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
+                                          | (((~v) & 0x01) << 6));
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
     });
@@ -1386,6 +1411,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t val) {
             if ((nextreg_.cached(0x82) & 0x01) == 0) return;
+            // VHDL zxnext.vhd:3615-3616 — port_ff_wr branch latches
+            // the entire byte into port_ff_reg, beating any NR-side
+            // partial fan-out from NR 0x69 / 0x22 / 0xC4 (G108).
+            port_ff_reg_ = val;
             renderer_.ula().set_screen_mode(val);
         });
 
@@ -3459,6 +3488,11 @@ void Emulator::save_state(StateWriter& w) const
     // reason (backwards-compatible append-only save layout).
     nmi_source_.save_state(w);
     w.write_bool(prev_nmi_generate_n_);
+
+    // G108 — port_ff_reg storage. Appended at the very end so old
+    // saves that predate the field deserialise cleanly (load_state
+    // reads it last and tolerates EOF by leaving the reset default).
+    w.write_u8(port_ff_reg_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -3544,6 +3578,13 @@ void Emulator::load_state(StateReader& r)
     // save_state().
     nmi_source_.load_state(r);
     prev_nmi_generate_n_ = r.read_bool();
+
+    // G108 — port_ff_reg storage. Appended after prev_nmi_generate_n_.
+    // Tolerate older saves that predate the field by checking eof()
+    // first; they keep the reset default (port_ff_reg_ = 0).
+    if (!r.eof()) {
+        port_ff_reg_ = r.read_u8();
+    }
 }
 
 // ---------------------------------------------------------------------------
