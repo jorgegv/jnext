@@ -589,28 +589,78 @@ static void test_ulaplus_integration(Emulator& emu) {
         const uint32_t off_ink   = line_off[Ula::DISP_X + 0];
         const uint32_t off_paper = line_off[Ula::DISP_X + 1];
 
+        // ── Bank-1 isolation: poke distinct values into bank 1 at the
+        // same indices, then read with NR 0x43 b1=1.  Verifies the
+        // bank-select asymmetry (write side = NR 0x43 b6, read side =
+        // NR 0x43 b1) does not alias bank 0 with bank 1.  Also verifies
+        // bank-0 entries survive untouched after bank-1 writes.
+        // VHDL: zxnext.vhd:6957 (write addr nr_43_palette_write_select(2)
+        // = NR 0x43 b6); :6981 (read addr ula_palette_select_1
+        // = NR 0x43 b1).
+        emu.nextreg().write(0x68, 0x08);   // ulap_en = 1 (re-enable)
+        // Distinct bank-1 values, byte format RRRGGGBB (with NR 0xFF
+        // expansion B0 = B1|B0):
+        //   0x1C = 0b000_111_00  → r3=0, g3=7, b3=0  → bright green.
+        //   0xFC = 0b111_111_00  → r3=7, g3=7, b3=0  → bright yellow.
+        const uint8_t  ink_byte_b1   = 0x1C;
+        const uint8_t  paper_byte_b1 = 0xFC;
+        const uint32_t exp_ink_b1   = rgb333_to_argb8888(0, 7, 0);
+        const uint32_t exp_paper_b1 = rgb333_to_argb8888(7, 7, 0);
+
+        // Write to bank 1: NR 0x43 b6=1, b1 still 0 (read still bank 0).
+        emu.nextreg().write(0x43, 0x40);
+        emu.port().out(0xBF3B, ink_idx);
+        emu.nextreg().write(0xFF, ink_byte_b1);
+        emu.port().out(0xBF3B, paper_idx);
+        emu.nextreg().write(0xFF, paper_byte_b1);
+
+        // First, read with active=bank 0 — bank-0 values must be intact.
+        emu.nextreg().write(0x43, 0x00);   // b6=0, b1=0 (read bank 0)
+        std::array<uint32_t, 320> line_b0_after{};
+        render_line(emu, 32, line_b0_after);
+        const uint32_t b0_ink_after   = line_b0_after[Ula::DISP_X + 0];
+        const uint32_t b0_paper_after = line_b0_after[Ula::DISP_X + 1];
+
+        // Now flip read-side to bank 1 — bank-1 values must surface.
+        emu.nextreg().write(0x43, 0x02);   // b6=0, b1=1 (read bank 1)
+        std::array<uint32_t, 320> line_b1{};
+        render_line(emu, 32, line_b1);
+        const uint32_t b1_ink   = line_b1[Ula::DISP_X + 0];
+        const uint32_t b1_paper = line_b1[Ula::DISP_X + 1];
+
         const bool all_ok = en_check
                          && mode_chk  == 0x01
                          && got_ink   == exp_ink
                          && got_paper == exp_paper
                          && en_off
                          && off_ink   == kUlaPalette[7]
-                         && off_paper == kUlaPalette[0];
+                         && off_paper == kUlaPalette[0]
+                         // Bank-0 entries survived the bank-1 writes.
+                         && b0_ink_after   == exp_ink
+                         && b0_paper_after == exp_paper
+                         // Bank-1 entries surface when active read = b1.
+                         && b1_ink   == exp_ink_b1
+                         && b1_paper == exp_paper_b1;
 
         check("INT-ULAPLUS-03",
               "ULA+ runtime palette: BF3B index latch + NR 0xFF poke + "
               "encoder + active_ula_palette routes pixels to ulap_colour; "
+              "bank-0/bank-1 isolation via NR 0x43 b6 (write) / b1 (read); "
               "negative gate (ulap_en=0) restores kUlaPalette  "
               "(zxnext.vhd:4533-4535,6957-6958,6981; zxula.vhd:531-541; "
               "src/video/ula.cpp render_display_line ulap_en branch)",
               all_ok,
-              fmt("en=%d mode=0x%02X got_ink=0x%08X (exp 0x%08X) "
-                  "got_paper=0x%08X (exp 0x%08X) en_off=%d "
-                  "off_ink=0x%08X (exp 0x%08X) off_paper=0x%08X (exp 0x%08X)",
+              fmt("en=%d mode=0x%02X b0_ink=0x%08X (exp 0x%08X) "
+                  "b0_paper=0x%08X (exp 0x%08X) en_off=%d "
+                  "off_ink=0x%08X (exp 0x%08X) off_paper=0x%08X (exp 0x%08X) "
+                  "b0_after_ink=0x%08X b0_after_paper=0x%08X "
+                  "b1_ink=0x%08X (exp 0x%08X) b1_paper=0x%08X (exp 0x%08X)",
                   en_check, mode_chk,
                   got_ink, exp_ink, got_paper, exp_paper,
                   en_off,
-                  off_ink, kUlaPalette[7], off_paper, kUlaPalette[0]));
+                  off_ink, kUlaPalette[7], off_paper, kUlaPalette[0],
+                  b0_ink_after, b0_paper_after,
+                  b1_ink, exp_ink_b1, b1_paper, exp_paper_b1));
     }
 }
 
