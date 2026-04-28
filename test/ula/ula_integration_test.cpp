@@ -564,6 +564,170 @@ static void test_ulanext_integration(Emulator& emu) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Group C2 — Active-palette selector end-to-end through NR 0x43 / NR 0x6B
+// VHDL: zxnext.vhd:5391-5393 (NR 0x43 b1-3 latches),
+//       zxnext.vhd:5462      (NR 0x6B control(4) latch),
+//       zxnext.vhd:6825-6828 (active-palette mux per pixel cycle).
+// jnext: src/core/emulator.cpp NR 0x43 handler (b1-3 → Ula selector setters
+//        + palsel change-log), NR 0x6B handler (b4 → Ula tilemap selector
+//        + palsel change-log).  Lifecycle: Emulator::run_frame →
+//        Ula::palsel_start_frame; Emulator::on_scanline → Ula::
+//        set_palsel_current_line; Renderer::render_frame → Ula::
+//        palsel_rewind_to_baseline + apply_changes_for_line per row.
+//
+// G10 closes S17.01..04 at the bare-Ula level. This INT row pins the
+// END-TO-END pipeline: a NR 0x43 / NR 0x6B write through nextreg().write
+// (the production path the Z80 takes) populates Ula's per-scanline
+// selector change-log, and the rewind+replay machinery restores the
+// pre-write selector for prior scanlines and asserts the post-write
+// selector for subsequent scanlines.  Without the wirings G10's setters
+// are unreached from production and the change-log stays empty.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_palsel_integration(Emulator& emu) {
+    set_group("INT-PALSEL");
+
+    // ── INT-PALSEL-01 — NR 0x43 + NR 0x6B mid-frame writes drive the
+    //                   Ula palsel change-log via nextreg().write ──
+    //
+    // Stimulus, all delivered in scanline order via the production path:
+    //   1. Re-pin baseline:    palsel_start_frame() (mimics Emulator::
+    //                          run_frame's start-of-frame snapshot).
+    //   2. Tag line 50; nextreg().write(0x43, 0x02)
+    //                          → Ula::set_active_ula_palette(true)
+    //                          + b2/b3 cleared (single 3-tuple snapshot).
+    //   3. Tag line 80; nextreg().write(0x43, 0x06)
+    //                          → b1+b2 set, b3 cleared.
+    //   4. Tag line 120; nextreg().write(0x6B, 0x90)
+    //                          → b4 set (TM enable bit 7 also set, but
+    //                          control(4) is the latch we care about).
+    //
+    // After replay+rewind:
+    //   palsel43_change_log_size() == 6  (NR 0x43 stream — 2 writes × 3
+    //                                     setters/write; each setter
+    //                                     captures a 3-tuple snapshot
+    //                                     per UL-C's design).
+    //   palsel6b_change_log_size() == 1  (NR 0x6B b4 stream — 1 write).
+    //   All 3 entries from the same write share the same `line` tag, so
+    //   replay sees the post-write state (last entry on that line wins).
+    //
+    // After palsel_rewind_to_baseline() + apply_changes_for_line(line):
+    //   line=49  → all selectors at baseline (false — VHDL reset zxnext.vhd:5006)
+    //   line=50  → active_ula=true, others baseline
+    //   line=80  → active_ula=true, active_layer2=true (b2 set), spr=false
+    //   line=119 → tilemap selector still false (NR 0x6B latch not yet flipped)
+    //   line=120 → tilemap selector true
+    {
+        // 1. Open frame at baseline state (post-reset = all false).
+        emu.ula().palsel_start_frame();
+
+        const size_t n43_initial = emu.ula().palsel43_change_log_size();
+        const size_t n6b_initial = emu.ula().palsel6b_change_log_size();
+
+        // 2. NR 0x43 write at line 50 — only b1 set (active_ula).
+        emu.ula().set_palsel_current_line(50);
+        emu.nextreg().write(0x43, 0x02);  // b1 = 1 → active_ula
+        // 3. NR 0x43 write at line 80 — b1+b2 set.
+        emu.ula().set_palsel_current_line(80);
+        emu.nextreg().write(0x43, 0x06);  // b1+b2 → active_ula + active_l2
+        // 4. NR 0x6B write at line 120 — b4 set (independent latch).
+        emu.ula().set_palsel_current_line(120);
+        emu.nextreg().write(0x6B, 0x90);  // b7 (TM en) + b4 (palsel) set
+
+        const size_t n43_logged = emu.ula().palsel43_change_log_size();
+        const size_t n6b_logged = emu.ula().palsel6b_change_log_size();
+
+        // NR 0x43 handler invokes 3 separate setters (one per b1/b2/b3
+        // bit-lane), each appending a 3-tuple snapshot to the log; so
+        // 1 NR 0x43 write produces 3 log entries — all with the same
+        // scanline tag, so replay correctly sees the post-write state.
+        // NR 0x6B b4 stream is independent; its single write produces 1
+        // entry. Two NR 0x43 writes + one NR 0x6B write → 43=6, 6b=1.
+        const bool counts_ok =
+            (n43_initial == 0) && (n6b_initial == 0)
+         && (n43_logged  == 6) && (n6b_logged  == 1);
+
+        // Verify line tags. All entries from one NR 0x43 write share that
+        // write's scanline; the LAST entry per write captures the
+        // post-write state (which is what replay locks in).
+        bool tags_ok = false;
+        bool fields_ok = false;
+        if (counts_ok) {
+            // 3 entries from line 50, 3 from line 80.
+            const auto& e0 = emu.ula().palsel43_change_at(0);
+            const auto& e2 = emu.ula().palsel43_change_at(2);  // line 50 final
+            const auto& e3 = emu.ula().palsel43_change_at(3);
+            const auto& e5 = emu.ula().palsel43_change_at(5);  // line 80 final
+            const auto& t0 = emu.ula().palsel6b_change_at(0);
+
+            tags_ok = (e0.line == 50)  && (e2.line == 50)
+                   && (e3.line == 80)  && (e5.line == 80)
+                   && (t0.line == 120);
+
+            // Final state at end of each NR 0x43 write must match the
+            // value byte: line 50 final → only b1 set; line 80 final →
+            // b1+b2 set, b3 cleared.
+            fields_ok =
+                (e2.active_ula == true)  && (e2.active_l2 == false) && (e2.active_spr == false)
+             && (e5.active_ula == true)  && (e5.active_l2 == true)  && (e5.active_spr == false)
+             && (t0.active_tm  == true);
+        }
+
+        // Now exercise the rewind+replay machinery the Renderer drives.
+        // Mid-frame state is "everything set" by the time we get here —
+        // rewind must restore the baseline (all-false post-reset).
+        emu.ula().palsel_rewind_to_baseline();
+        const bool rewind_ula_b   = (emu.ula().get_active_ula_palette()     == false);
+        const bool rewind_l2_b    = (emu.ula().get_active_layer2_palette()  == false);
+        const bool rewind_spr_b   = (emu.ula().get_active_sprite_palette()  == false);
+        const bool rewind_tm_b    = (emu.ula().get_active_tilemap_palette() == false);
+
+        // Replay walks the change-log in scanline order. Apply each line's
+        // entries and read the live selector after.
+        emu.ula().palsel_apply_changes_for_line(49);
+        const bool at49_ula = emu.ula().get_active_ula_palette();
+        emu.ula().palsel_apply_changes_for_line(50);
+        const bool at50_ula = emu.ula().get_active_ula_palette();
+        emu.ula().palsel_apply_changes_for_line(79);
+        const bool at79_l2  = emu.ula().get_active_layer2_palette();
+        emu.ula().palsel_apply_changes_for_line(80);
+        const bool at80_l2  = emu.ula().get_active_layer2_palette();
+        const bool at80_ula = emu.ula().get_active_ula_palette();
+        emu.ula().palsel_apply_changes_for_line(119);
+        const bool at119_tm = emu.ula().get_active_tilemap_palette();
+        emu.ula().palsel_apply_changes_for_line(120);
+        const bool at120_tm = emu.ula().get_active_tilemap_palette();
+
+        const bool replay_ok =
+            // Rewind landed at baseline (all four false).
+            rewind_ula_b && rewind_l2_b && rewind_spr_b && rewind_tm_b
+            // Pre-line-50: ULA selector still baseline; line 50: flips on.
+         && (at49_ula == false) && (at50_ula == true)
+            // Pre-line-80: L2 selector still baseline; line 80: flips on.
+         && (at79_l2  == false) && (at80_l2  == true)  && (at80_ula == true)
+            // NR 0x6B b4 stream: pre-line-120 false; line 120: flips on.
+         && (at119_tm == false) && (at120_tm == true);
+
+        const bool all_ok = counts_ok && tags_ok && fields_ok && replay_ok;
+
+        check("INT-PALSEL-01",
+              "nextreg().write(0x43,…) + write(0x6B,…) end-to-end through "
+              "Ula palsel change-log; rewind+replay restores per-scanline "
+              "selectors  (zxnext.vhd:5391-5393,:5462,:6825-6828; "
+              "emulator.cpp NR 0x43 / NR 0x6B handlers; G10)",
+              all_ok,
+              fmt("counts[43=%zu 6b=%zu] tags=%d fields=%d "
+                  "replay[ula49=%d ula50=%d l279=%d l280=%d ula80=%d "
+                  "tm119=%d tm120=%d]",
+                  n43_logged, n6b_logged,
+                  tags_ok ? 1 : 0, fields_ok ? 1 : 0,
+                  at49_ula ? 1 : 0, at50_ula ? 1 : 0,
+                  at79_l2  ? 1 : 0, at80_l2  ? 1 : 0, at80_ula ? 1 : 0,
+                  at119_tm ? 1 : 0, at120_tm ? 1 : 0));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Group D — Timex alt-file end-to-end through port 0xFF
 // VHDL: zxula.vhd:218,235 (alt-file → vram_a bit 13), zxnext.vhd:2397
 //       (port 0xFF gate by NR 0x82 bit 0), src/core/emulator.cpp:1187-1192
@@ -814,6 +978,9 @@ int main() {
 
     test_ulanext_integration(emu);
     std::printf("  Group: INT-ULANEXT    — done\n");
+
+    test_palsel_integration(emu);
+    std::printf("  Group: INT-PALSEL     — done\n");
 
     test_shadow_integration(emu);
     std::printf("  Group: INT-SHADOW     — done\n");

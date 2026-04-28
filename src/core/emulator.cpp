@@ -430,6 +430,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x43, [this](uint8_t v) {
         palette_.write_control(v);
         renderer_.ula().set_ulanext_en((v & 0x01) != 0);
+        // G10: mirror NR 0x43 b1-3 selector bits into Ula's per-scanline
+        // selector change-log. PaletteManager owns the live state used by
+        // the rasterizer; Ula owns the change-log replayed per scanline so
+        // Copper-driven mid-frame selector flips (e.g. split-bank palette
+        // bands) take effect on the next scanline rather than collapsing
+        // to last-write-wins. VHDL zxnext.vhd:5391-5393, :6825-6828.
+        renderer_.ula().set_active_ula_palette((v & 0x02) != 0);
+        renderer_.ula().set_active_layer2_palette((v & 0x04) != 0);
+        renderer_.ula().set_active_sprite_palette((v & 0x08) != 0);
     });
 
     // Register 0x44: Palette value 9-bit (two consecutive writes)
@@ -752,6 +761,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL nr_6b_tm_palette_select (bit 4) — drives the tilemap palette
         // lookup at render time.  Must come from NR 0x6B, NOT from NR 0x43.
         palette_.set_active_tilemap_palette((v & 0x10) != 0);
+        // G10: mirror NR 0x6B b4 into Ula's per-scanline selector change-log
+        // (independent latch from NR 0x43 — VHDL zxnext.vhd:5462, :6826).
+        renderer_.ula().set_active_tilemap_palette((v & 0x10) != 0);
     });
 
     // Register 0x6C: Tilemap default attribute
@@ -3026,14 +3038,12 @@ void Emulator::run_frame()
     // upload's Y positions). VHDL sprites.vhd:327-470.
     sprites_.start_frame();
 
-    // Per-scanline port-0xFF Timex screen-mode snapshot (G07) —
-    // VHDL zxula.vhd:191/209 samples i_port_ff_reg(2:0) at every
-    // character-cell boundary, so mid-frame writes split the screen
-    // into STANDARD / HI_COLOUR / HI_RES bands.
+    // Per-scanline port-0xFF Timex screen-mode snapshot (G07).
     renderer_.ula().start_frame();
-    // Per-scanline ULA scroll snapshot (NR 0x26 / NR 0x27 / NR 0x68 b2)
-    // — VHDL zxula.vhd:193-207 / :199. G08.
+    // Per-scanline ULA scroll snapshot (G08).
     renderer_.ula().start_frame_scroll();
+    // Per-scanline active-palette selector snapshot (G10).
+    renderer_.ula().palsel_start_frame();
 
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
@@ -3854,8 +3864,10 @@ void Emulator::on_scanline(int line)
     sprites_.set_current_line(line);
     // Same scanline tag for port-0xFF Timex screen-mode writes (G07).
     renderer_.ula().set_current_line(line);
-    // Same scanline tag for ULA scroll writes (NR 0x26 / NR 0x27 / NR 0x68 b2). G08.
+    // Same scanline tag for ULA scroll writes (G08).
     renderer_.ula().set_current_scroll_line(line);
+    // Same scanline tag for ULA active-palette selector writes (G10).
+    renderer_.ula().set_palsel_current_line(line);
 }
 
 void Emulator::on_vsync()

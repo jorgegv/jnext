@@ -92,6 +92,22 @@ public:
         baseline_scroll_x_coarse_  = 0;
         baseline_scroll_y_         = 0;
         baseline_fine_scroll_x_    = 0;
+        // Per-scanline active-palette selectors (G10).
+        active_ula_palette_  = false;
+        active_l2_palette_   = false;
+        active_spr_palette_  = false;
+        active_tm_palette_   = false;
+        palsel43_change_count_     = 0;
+        palsel43_render_cursor_    = 0;
+        palsel43_overflow_warned_  = false;
+        baseline_active_ula_pal_   = false;
+        baseline_active_l2_pal_    = false;
+        baseline_active_spr_pal_   = false;
+        palsel6b_change_count_     = 0;
+        palsel6b_render_cursor_    = 0;
+        palsel6b_overflow_warned_  = false;
+        baseline_active_tm_pal_    = false;
+        palsel_current_line_       = 0;
     }
 
     /// Set the palette manager reference (must be called before rendering).
@@ -438,6 +454,122 @@ public:
     void set_border_clr_tmx_src(bool hi_res) { border_clr_tmx_src_ = hi_res; }
     bool get_border_clr_tmx_src() const       { return border_clr_tmx_src_; }
 
+    // -------------------------------------------------------------------
+    // Per-scanline active-palette select (G10 — Tier 3 W1 closure)
+    // -------------------------------------------------------------------
+    //
+    // Distinct from per-scanline palette CONTENT (PaletteManager change-
+    // log).  Tracks the SELECTOR bit-lanes that pick which palette bank
+    // is active per scanline:
+    //
+    //   NR 0x43 b1 — active_ula_palette     (zxnext.vhd:5393, :6825)
+    //   NR 0x43 b2 — active_layer2_palette  (zxnext.vhd:5392, :6827)
+    //   NR 0x43 b3 — active_sprite_palette  (zxnext.vhd:5391, :6828)
+    //   NR 0x6B b4 — tm_palette_select      (zxnext.vhd:5462, :6826)
+    //
+    // VHDL structure: NR 0x43 latches (b1, b2, b3) and NR 0x6B latch
+    // (control(4)) are independent storage cells; the active-palette mux
+    // at zxnext.vhd:6825-6828 reads them per pixel cycle.  Mid-frame
+    // Copper writes that flip a selector must take effect on the next
+    // scanline; without per-scanline replay, last-write-wins collapses
+    // every line onto the end-of-frame value.
+    //
+    // Two separate change-logs by VHDL semantics: NR 0x43 selects (one
+    // 3-bit field captured atomically per write) and NR 0x6B b4
+    // (1-bit field) flow through different latches and can change
+    // independently.  S17.03 verifies that independence.
+    //
+    // Mirrors layer2.h pattern: setter → log; start_frame() snapshots
+    // baseline + clears log; rewind_to_baseline() restores live to
+    // baseline; apply_changes_for_line(line) replays in scanline order.
+    //
+    // Note: these are MIRROR copies of the selectors that PaletteManager
+    // also stores.  Ula tracks them so per-scanline replay is on a
+    // single subsystem; the renderer/compositor consults the live Ula
+    // state for the appropriate scanline.
+
+    /// NR 0x43 b1 — active ULA palette select (false = palette 0).
+    void set_active_ula_palette(bool second) {
+        active_ula_palette_ = second;
+        log_palsel43_change();
+    }
+    bool get_active_ula_palette() const { return active_ula_palette_; }
+
+    /// NR 0x43 b2 — active Layer 2 palette select.
+    void set_active_layer2_palette(bool second) {
+        active_l2_palette_ = second;
+        log_palsel43_change();
+    }
+    bool get_active_layer2_palette() const { return active_l2_palette_; }
+
+    /// NR 0x43 b3 — active sprite palette select.
+    void set_active_sprite_palette(bool second) {
+        active_spr_palette_ = second;
+        log_palsel43_change();
+    }
+    bool get_active_sprite_palette() const { return active_spr_palette_; }
+
+    /// NR 0x6B b4 — tilemap palette select (separate latch from NR 0x43).
+    void set_active_tilemap_palette(bool second) {
+        active_tm_palette_ = second;
+        log_palsel6b_change();
+    }
+    bool get_active_tilemap_palette() const { return active_tm_palette_; }
+
+    /// Snapshot the live selector state as the frame baseline and reset
+    /// per-frame change logs. Called at the start of every frame.
+    void palsel_start_frame();
+
+    /// Update the scanline tag attached to subsequent selector writes.
+    /// Default 0 at frame start.
+    void set_palsel_current_line(int line) {
+        palsel_current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live selector state to the frame baseline and reset
+    /// the render cursor. Called once before per-scanline render.
+    void palsel_rewind_to_baseline();
+
+    /// Apply all logged selector changes whose line tag equals `line`.
+    /// Cursor is monotonically advanced; the log is in scanline order
+    /// so total work across a frame is O(change_count_).
+    void palsel_apply_changes_for_line(int line);
+
+    /// Number of NR 0x43 selector changes recorded this frame.
+    size_t palsel43_change_log_size() const { return palsel43_change_count_; }
+
+    /// Number of NR 0x6B b4 selector changes recorded this frame.
+    size_t palsel6b_change_log_size() const { return palsel6b_change_count_; }
+
+    /// Static cap; further writes after this many in a frame are
+    /// silently dropped (with a once-per-frame warn).
+    static constexpr size_t MAX_PALSEL_CHANGES_PER_FRAME = 1024;
+
+    /// Single entry of the NR 0x43 selector log — captures all 3 active-
+    /// palette bits atomically (they share a register write).
+    struct PalSel43Change {
+        uint16_t line;
+        bool     active_ula;
+        bool     active_l2;
+        bool     active_spr;
+    };
+
+    /// Single entry of the NR 0x6B b4 selector log — captures the 1-bit
+    /// tilemap palette select.
+    struct PalSel6bChange {
+        uint16_t line;
+        bool     active_tm;
+    };
+
+    /// Read-only access to NR 0x43 selector log entry (for tests/debug).
+    const PalSel43Change& palsel43_change_at(size_t i) const {
+        return palsel43_change_log_[i];
+    }
+    /// Read-only access to NR 0x6B b4 selector log entry (for tests/debug).
+    const PalSel6bChange& palsel6b_change_at(size_t i) const {
+        return palsel6b_change_log_[i];
+    }
+
     /// Render one complete frame.
     ///
     /// @param framebuffer  Pointer to FB_WIDTH × FB_HEIGHT ARGB8888 pixels,
@@ -509,9 +641,9 @@ private:
     // ── Per-scanline scroll change log (G08) ─────────────────────────────
     struct ScrollChange {
         uint16_t line;
-        uint8_t  scroll_x_coarse;  ///< NR 0x26
-        uint8_t  scroll_y;         ///< NR 0x27
-        uint8_t  fine_scroll_x;    ///< NR 0x68 b2
+        uint8_t  scroll_x_coarse;
+        uint8_t  scroll_y;
+        uint8_t  fine_scroll_x;
     };
     std::array<ScrollChange, MAX_SCROLL_CHANGES_PER_FRAME> scroll_change_log_{};
     size_t   scroll_change_count_    = 0;
@@ -522,6 +654,31 @@ private:
     uint8_t  baseline_scroll_y_        = 0;
     uint8_t  baseline_fine_scroll_x_   = 0;
     void log_scroll_change();
+
+    // -- Per-scanline active-palette select (G10) --------------------------
+    bool    active_ula_palette_  = false;
+    bool    active_l2_palette_   = false;
+    bool    active_spr_palette_  = false;
+    bool    active_tm_palette_   = false;
+
+    std::array<PalSel43Change, MAX_PALSEL_CHANGES_PER_FRAME> palsel43_change_log_{};
+    size_t   palsel43_change_count_     = 0;
+    size_t   palsel43_render_cursor_    = 0;
+    bool     palsel43_overflow_warned_  = false;
+    bool     baseline_active_ula_pal_   = false;
+    bool     baseline_active_l2_pal_    = false;
+    bool     baseline_active_spr_pal_   = false;
+
+    std::array<PalSel6bChange, MAX_PALSEL_CHANGES_PER_FRAME> palsel6b_change_log_{};
+    size_t   palsel6b_change_count_     = 0;
+    size_t   palsel6b_render_cursor_    = 0;
+    bool     palsel6b_overflow_warned_  = false;
+    bool     baseline_active_tm_pal_    = false;
+
+    uint16_t palsel_current_line_       = 0;
+
+    void log_palsel43_change();
+    void log_palsel6b_change();
 
     /// Render a display row in STANDARD or STANDARD_1 mode.
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
