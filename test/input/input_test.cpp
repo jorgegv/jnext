@@ -941,15 +941,50 @@ static void test_kemp() {
         check("KEMP-15", "joy0=MD1 L.A → 0x1F=0x40", v == 0x40, DETAIL("got=0x%02X", v));
     }
 
-    // KEMP-16: NR 0x82 b7=0 must un-decode port 0x37.
+    // KEMP-16: NR 0x82 b7=0 must un-decode port 0x37 (G128 closure).
     // VHDL zxnext.vhd:2408 + 2675: port_37_io_en <= internal_port_enable(7),
-    // where internal_port_enable(7) gates on NR 0x82 bit 7. jnext
-    // emulator.cpp:1877-1879 registers the port-0x37 handler with no NR-0x82
-    // b7 check (mirror of the NR 0x82 b6 / port-0x1F gate at :1871-1876,
-    // which IS implemented).
-    skip("KEMP-16",
-         "NR 0x82 b7=0 must un-decode port 0x37",
-         "port 0x37 missing NR 0x82 b7 io_en gate (see G128)");
+    // where internal_port_enable(7) gates on NR 0x82 bit 7. With the
+    // gate cleared the port stays undecoded and the floating-bus default
+    // 0xFF is returned; with the gate set the joystick byte comes
+    // through (mirror of the NR 0x82 bit-6 / port-0x001F gate, already
+    // implemented for KEMP/0x1F).
+    //
+    // Test exercises both polarities through the real port path so the
+    // NextREG cache + Port dispatch path are both validated.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Put joy1 (right connector) into Kempston2 so port 0x37
+        // decodes a meaningful byte. Per zxnext.vhd:5158
+        //   nr_05_joy1 = v[1] & v[5:4]
+        // Kempston2 = "100" requires v[1]=1, v[5:4]=00, so v = 0x02.
+        emu.port().out(0x243B, 0x05);
+        emu.port().out(0x253B, 0x02);
+        // Press joy_right Up on bit 3 → port 0x37 = 0x08.
+        emu.joystick().set_joy_right(0x08);
+
+        // Gate ON (NR 0x82 bit 7 = 1, default 0xFF after init).
+        emu.port().out(0x243B, 0x82);
+        emu.port().out(0x253B, 0xFF);
+        const uint8_t gated_on = emu.port().in(0x0037);
+
+        // Gate OFF (clear bit 7 → 0x7F).
+        emu.port().out(0x243B, 0x82);
+        emu.port().out(0x253B, 0x7F);
+        const uint8_t gated_off = emu.port().in(0x0037);
+
+        check("KEMP-16",
+              "NR 0x82 b7=0 un-decodes port 0x37 → 0xFF; b7=1 returns "
+              "joystick byte  (zxnext.vhd:2408, 2675; G128 closure)",
+              gated_on == 0x08 && gated_off == 0xFF,
+              DETAIL("gated_on=0x%02X gated_off=0x%02X (want 0x08, 0xFF)",
+                     gated_on, gated_off));
+    }
 
     // KEMP-17: port_1f_hw_en mode-conditional gate.
     // VHDL zxnext.vhd:2454-2455: port_1f_hw_en <= joyL_1f_en or joyR_1f_en;

@@ -2039,8 +2039,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             return joystick_.read_port_1f();
         },
         nullptr);
+    // Kempston 2 (port 0x0037) is gated by NR 0x82 bit 7 — VHDL
+    // zxnext.vhd:2408 + 2675: port_37_io_en <= internal_port_enable(7),
+    // whose low byte is nr_82_internal_port_enable. Reset default
+    // nr_82_internal_port_enable = 0xFF (zxnext.vhd:1226, 5054), so bit
+    // 7 = 1 and Kempston 2 responds at power-on. When firmware clears
+    // bit 7 (OUT NR 0x82, 0x7F), the port decodes as unhandled and the
+    // floating bus default (0xFF) must be returned. Mirror of the NR
+    // 0x82 bit-6 / port-0x001F gate above. (G128 closure.)
     port_.register_handler(0x00FF, 0x0037,
-        [this](uint16_t) -> uint8_t { return joystick_.read_port_37(); },
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x82) & 0x80) == 0) return 0xFF;
+            return joystick_.read_port_37();
+        },
         nullptr);
 
     // Kempston mouse: buttons (0xFADF), X (0xFBDF), Y (0xFFDF).
