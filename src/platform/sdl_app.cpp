@@ -25,6 +25,52 @@ bool SdlApp::init(int argc, char* argv[]) {
         mouse_dispatcher_->handle_sdl_event(e);
     };
 
+    // Build the joystick host adapter (G42 closure — JOY-WIRE-02/03/04).
+    // SDL emits SDL_CONTROLLER* events only for SDL_GameControllers that
+    // have been explicitly opened via SDL_GameControllerOpen — the
+    // CONTROLLERDEVICEADDED handler below opens up to two devices and
+    // routes them to slots 0 / 1.
+    joystick_dispatcher_ = std::make_unique<JoystickDispatcher>(emulator_.joystick());
+    input_.on_controller = [this](const SDL_Event& e) {
+        if (e.type == SDL_CONTROLLERDEVICEADDED) {
+            // e.cdevice.which is the device-index here (NOT the
+            // instance-id). Open it, then resolve the instance-id and
+            // map it to the first free connector slot.
+            const int dev_idx = e.cdevice.which;
+            if (SDL_IsGameController(dev_idx)) {
+                int slot = -1;
+                if (controllers_[0] == nullptr)      slot = 0;
+                else if (controllers_[1] == nullptr) slot = 1;
+                if (slot >= 0) {
+                    controllers_[slot] = SDL_GameControllerOpen(dev_idx);
+                    if (controllers_[slot]) {
+                        SDL_Joystick* js = SDL_GameControllerGetJoystick(controllers_[slot]);
+                        if (js) {
+                            const SDL_JoystickID iid = SDL_JoystickInstanceID(js);
+                            joystick_dispatcher_->map_instance_to_slot(iid, slot);
+                        }
+                    }
+                }
+            }
+        } else if (e.type == SDL_CONTROLLERDEVICEREMOVED) {
+            // e.cdevice.which is the instance-id here.
+            const SDL_JoystickID iid = e.cdevice.which;
+            for (int s = 0; s < 2; ++s) {
+                if (controllers_[s]) {
+                    SDL_Joystick* js = SDL_GameControllerGetJoystick(controllers_[s]);
+                    if (js && SDL_JoystickInstanceID(js) == iid) {
+                        joystick_dispatcher_->map_instance_to_slot(iid, -1);
+                        SDL_GameControllerClose(controllers_[s]);
+                        controllers_[s] = nullptr;
+                        break;
+                    }
+                }
+            }
+        } else {
+            joystick_dispatcher_->handle_sdl_event(e);
+        }
+    };
+
     input_.on_quit = [this]() { running_ = false; };
     // Route SDL key events into emulator keyboard matrix; intercept host shortcuts.
     input_.on_key  = [this](SDL_Scancode sc, bool pressed) {
@@ -42,6 +88,30 @@ bool SdlApp::init(int argc, char* argv[]) {
                 if (next_scale > 4) next_scale = 2;
                 display_.set_scale(next_scale);
                 return;
+            }
+            // G152 host hotkeys (F1 hard reset / F4 soft reset / F9 MF NMI
+            // / F10 DivMMC NMI). Mirror MainWindow keyPressEvent.
+            if (sc == SDL_SCANCODE_F1)  { emulator_.on_hotkey_f1_hard_reset();   return; }
+            if (sc == SDL_SCANCODE_F4)  { emulator_.on_hotkey_f4_soft_reset();   return; }
+            if (sc == SDL_SCANCODE_F9)  { emulator_.on_hotkey_f9_mf_nmi();       return; }
+            if (sc == SDL_SCANCODE_F10) { emulator_.on_hotkey_f10_divmmc_nmi();  return; }
+            // G147 host hotkeys F3/F5/F6/F7/F8 → EmuFnKeys FSM. Side-effect
+            // callbacks installed by Emulator (NR 0x05/0x07/0x09 toggles).
+            if (sc == SDL_SCANCODE_F3)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(3); return; }
+            if (sc == SDL_SCANCODE_F5)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(5); return; }
+            if (sc == SDL_SCANCODE_F6)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(6); return; }
+            if (sc == SDL_SCANCODE_F7)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(7); return; }
+            if (sc == SDL_SCANCODE_F8)  { emulator_.emu_fnkeys().simulate_mf_fkey_press(8); return; }
+        } else {
+            // Consume release so host hotkeys never bleed into the ZX matrix.
+            switch (sc) {
+            case SDL_SCANCODE_F1: case SDL_SCANCODE_F2: case SDL_SCANCODE_F3:
+            case SDL_SCANCODE_F4: case SDL_SCANCODE_F5: case SDL_SCANCODE_F6:
+            case SDL_SCANCODE_F7: case SDL_SCANCODE_F8: case SDL_SCANCODE_F9:
+            case SDL_SCANCODE_F10: case SDL_SCANCODE_F11:
+                return;
+            default:
+                break;
             }
         }
         emulator_.keyboard().set_key(sc, pressed);
@@ -136,6 +206,13 @@ void SdlApp::run() {
 }
 
 void SdlApp::shutdown() {
+    // Close any open game-controllers (G42).
+    for (int s = 0; s < 2; ++s) {
+        if (controllers_[s]) {
+            SDL_GameControllerClose(controllers_[s]);
+            controllers_[s] = nullptr;
+        }
+    }
     audio_.shutdown();
     display_.shutdown();
     SDL_Quit();
