@@ -39,6 +39,7 @@ This repository contains the code for a ZX Spectrum Next emulator based on the o
 - When launching Agent Teams, the Manager agent should NOT write or touch any code
 - When launching Agent Teams, each independent function should be worked on in a different branch, to avoid code trashing between agents. When code is ready on each branch, they should be merged to main. If merge problems occur, the agent responsible for fixing them is the one that tried to merge last, and it should try to fix them on their own branch.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
+- **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR".
 - Update task status on the main plan whenever a task is finished
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - When a commit is made, check that the FEATURES.md and TODO.md files are updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update to these files.
