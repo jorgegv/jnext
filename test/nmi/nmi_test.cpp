@@ -649,18 +649,21 @@ static void g_hotkey()
 //
 // VHDL zxnext.vhd:2050-2085 latches `nr_c2_retn_address_lsb` and
 // `nr_c3_retn_address_msb` on `Z80N_command_s = NMIACK_LSB / NMIACK_MSB
-// AND cpu_wr_n='0'`. Read at zxnext.vhd:6232-6236. jnext does not wire
-// these registers; NMI inspector tools read the raw NextReg shadow.
-// Cross-link to CTC plan rows NR-C2-01 / NR-C3-01 (primary owner).
+// AND cpu_wr_n='0'`. Read at zxnext.vhd:6232-6236.
+//
+// RE-HOME (2026-04-28, Wave 2): Z80-04 was a duplicate cross-link to the
+// CTC interrupts plan (primary owner). The CTC suite already covers G88
+// via rows NR-C2-01 / NR-C3-01 in test/ctc_interrupts/ctc_interrupts_test.cpp
+// — see doc/testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md. Skip removed
+// here; closure of G88 is tracked in the CTC plan.
 // =====================================================================
 
 static void g_nmiack_pc_capture()
 {
-    set_group("Z80");
-
-    // Z80-04 — VHDL zxnext.vhd:2050-2085, 6232-6236
-    skip("Z80-04",
-         "zxnext.vhd:2050-2085 NR 0xC2/0xC3 PC capture not wired (see G88)");
+    // Intentionally empty — Z80-04 RE-HOMED to CTC plan (NR-C2-01/NR-C3-01).
+    // Keep this hook so the test layout remains stable for future cross-link
+    // rows that genuinely belong here (e.g. NMI-side observable behaviour
+    // distinct from the NextReg shadow capture).
 }
 
 // =====================================================================
@@ -1336,7 +1339,7 @@ int main() {
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
     g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
-    g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- done\n");
+    g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- RE-HOMED to CTC plan (G88)\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
     g_boot_skips();        std::printf("  BOOT NextZXOS+bypass   -- done\n");
 

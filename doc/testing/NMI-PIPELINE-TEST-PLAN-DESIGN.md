@@ -303,7 +303,7 @@ dispatcher.
 | Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi()` | zxnext.vhd:1841, 2164-2170 | strobe producer; observe Z80 request_nmi counter flips |
 | Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138, Z80 standard behaviour | strobe producer; step Z80; expect PC = 0x0066 on fetch |
 | Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120, 2149 | drive FSM mid-handler; reset; expect IDLE + Z80 NMI line released |
-| Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085, 6232-6236 | strobe NMI; observe NR 0xC2/0xC3 = pre-NMI PC. skip — cross-link to CTC plan rows NR-C2-01/NR-C3-01 (primary owner); see G88 |
+| Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085, 6232-6236 | RE-HOMED 2026-04-28 to CTC plan rows NR-C2-01/NR-C3-01 (primary owner). No skip in nmi_test; G88 closure tracked under doc/testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md |
 
 ### Row count summary
 
@@ -395,19 +395,22 @@ bash test/regression.sh
 | ARB — Priority arbitration | 4 | MF > DivMMC > ExpBus + mf_is_active |
 | EXPBUS — ExpBus pin | 3 | Stubbed default inactive + debounce-disable |
 | DMA — NMI-activated → im2_dma_delay | 3 | Wave E wiring + NR 0xCC bit 7 gate |
-| Z80 — Z80 drive + integration | 4 | request_nmi, PC=0x0066, reset-clear (+G88 Z80-04 cross-link) |
+| Z80 — Z80 drive + integration | 3 | request_nmi, PC=0x0066, reset-clear (Z80-04 RE-HOMED to CTC plan 2026-04-28) |
 | MF — G162 parked rows | 2 | iotrap → MF assert; port 0x2FFD/3FFD trap-decode |
-| **Total** | **59** | |
+| **Total** | **58** | |
 
 > **Note: NMI plan additions 2026-04-27** — RST-04, NR02-07/08, HK-06..09,
 > Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162
 > plumbing gaps; skip-stubbed pending implementation. MF-G162-NN rows
 > park here until `MULTIFACE-TEST-PLAN-DESIGN.md` exists.
 >
-> **Update 2026-04-28 (Task 8 t1):** G153 (RST-04, NR02-07, NR02-08),
+> **Update 2026-04-28 (Task 8 W1):** G153 (RST-04, NR02-07, NR02-08),
 > G152 (HK-06..09), and G162 (MF-G162-01, MF-G162-02) closed end-to-end.
 > Companion row MF-G162-01b added to test the NR 0x06 bit 3 gate path.
-> Suite total now **57/43/0/14** (was 55/32/0/23). Still parked: Z80-04
-> (G88 cross-link, primary-owner CTC), MF-G48-01..07 (Multiface peripheral,
-> awaits `MULTIFACE-TEST-PLAN-DESIGN.md`), BOOT/BYPASS rows (G46/G47/G59/G60
-> end-to-end behavioural).
+> Still parked: MF-G48-01..07 (Multiface peripheral, awaits
+> `MULTIFACE-TEST-PLAN-DESIGN.md`), BOOT/BYPASS rows (G46/G47/G59/G60).
+>
+> **Wave 2 RE-HOME 2026-04-28** — Z80-04 was a duplicate cross-link to the
+> CTC plan, which already owns G88 via NR-C2-01 / NR-C3-01. Skip removed
+> from `test/nmi/nmi_test.cpp`; total Z80 group rows 4 → 3. Suite total
+> after W1+W2: **56/43/0/13** (was 55/32/0/23 baseline).
