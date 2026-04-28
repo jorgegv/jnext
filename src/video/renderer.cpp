@@ -63,6 +63,12 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         sprites->rewind_to_baseline();
     }
 
+    // Per-scanline port-0xFF Timex screen-mode (G07).  Same
+    // rewind+replay pattern; required for any demo that writes port
+    // 0xFF mid-frame to split the screen into STANDARD / HI_COLOUR /
+    // HI_RES bands.  VHDL zxula.vhd:191 + :209.
+    ula_.rewind_to_baseline();
+
     for (int row = 0; row < FB_HEIGHT; ++row) {
         // Replay log entries tagged with this scanline before any
         // layer rendering reads palette state.
@@ -71,6 +77,8 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (sprites) {
             sprites->apply_changes_for_line(row);
         }
+        // Replay port-0xFF (Timex screen-mode) writes (G07).
+        ula_.apply_changes_for_line(row);
 
         uint32_t* out = framebuffer + row * composite_width_;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)

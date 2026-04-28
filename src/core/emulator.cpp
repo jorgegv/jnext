@@ -3005,6 +3005,14 @@ void Emulator::run_frame()
     // upload's Y positions). VHDL sprites.vhd:327-470.
     sprites_.start_frame();
 
+    // Per-scanline port-0xFF Timex screen-mode snapshot (G07) —
+    // VHDL zxula.vhd:191/209 samples i_port_ff_reg(2:0) at every
+    // character-cell boundary, so mid-frame writes split the screen
+    // into STANDARD / HI_COLOUR / HI_RES bands.  Without this hook,
+    // mid-frame port-0xFF writes collapse to last-write-wins and
+    // every scanline renders with the same mode.
+    renderer_.ula().start_frame();
+
     // Schedule per-scanline callbacks (snapshots fallback colour for copper).
     schedule_frame_events();
 
@@ -3822,6 +3830,8 @@ void Emulator::on_scanline(int line)
     layer2_.set_current_line(line);
     // Same scanline tag for sprite-attribute writes (port 0x57, NR 0x75-0x79).
     sprites_.set_current_line(line);
+    // Same scanline tag for port-0xFF Timex screen-mode writes (G07).
+    renderer_.ula().set_current_line(line);
 }
 
 void Emulator::on_vsync()

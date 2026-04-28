@@ -19,6 +19,7 @@
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "memory/contention.h"
+#include "core/saveable.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -588,22 +589,202 @@ static void test_section5_timex() {
          "F-G105-PALGRP: hi-res border 6-bit encoding absent (see G105)");
 
     // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).
-    // Ula has a single screen_mode_reg_ overwritten on each port-0xFF
-    // write. No `Ula::log_port_ff_write` change-log;
-    // mid-frame STANDARD↔HI_COLOUR↔HI_RES splits collapse to last-write.
-    // VHDL zxula.vhd:259-266 (screen_mode bits 2:0 from port_ff_reg(2:0)),
-    // zxnext.vhd:2397, 2713, 2813 (port-0xFF write fan-out).
+    // VHDL zxnext.vhd:3615-3616 (port_ff_reg <= cpu_do on port_ff_wr),
+    // zxnext.vhd:3630 (port_ff_dat_tmx <= port_ff_reg per CPU-clk),
+    // zxula.vhd:191 (screen_mode_s <= i_port_ff_reg(2:0)) and
+    // zxula.vhd:209 (screen_mode <= screen_mode_s, latched per
+    // character cell, X"3"/X"B" of i_hc).  Mid-frame writes change the
+    // per-scanline screen-mode path (STANDARD ↔ HI_COLOUR ↔ HI_RES),
+    // so jnext mirrors the layer2/palette/sprites change-log idiom:
+    //   start_frame() → set_current_line(N) → set_screen_mode(...) →
+    //   rewind_to_baseline() → apply_changes_for_line(row) per row.
 
-    skip("S5-PSL.01",
-         "F-G07-TIMEXMODE: per-scanline port-0xFF change-log absent (see G07)");
-    skip("S5-PSL.02",
-         "F-G07-TIMEXMODE: STANDARD/HI_COLOUR mid-frame split absent (see G07)");
-    skip("S5-PSL.03",
-         "F-G07-TIMEXMODE: HI_RES->STANDARD next-line flip absent (see G07)");
-    skip("S5-PSL.04",
-         "F-G07-TIMEXMODE: start_frame rewind of port-0xFF log absent (see G07)");
-    skip("S5-PSL.05",
-         "F-G07-TIMEXMODE: save-state of port-0xFF change-log absent (see G07)");
+    // S5-PSL.01 — write port 0xFF mid-frame; verify log entry appended
+    // tagged with the current line and snapshotting the written byte.
+    {
+        UlaBed bed;
+        bed.ula.start_frame();
+        bed.ula.set_current_line(50);
+        bed.ula.set_screen_mode(0x10);             // HI_COLOUR (mode 010)
+        check("S5-PSL.01",
+              "zxnext.vhd:3615-3616 + zxula.vhd:191/209 — port-0xFF "
+              "write mid-frame appends one entry to the change log "
+              "tagged with the current scanline",
+              bed.ula.port_ff_change_log_size() == 1u
+              && bed.ula.get_screen_mode_reg() == 0x10,
+              fmt("count=%zu reg=0x%02X",
+                  bed.ula.port_ff_change_log_size(),
+                  bed.ula.get_screen_mode_reg()));
+    }
+
+    // S5-PSL.02 — STANDARD on line N, HI_COLOUR on line N+1: each
+    // scanline must use the correct path after rewind+replay.  We
+    // tag the HI_COLOUR write at line N+1 so the replay renderer pattern
+    // (apply_changes_for_line(row) before render_scanline(row)) flips
+    // the mode at the right boundary.
+    //
+    // Setup:
+    //   STANDARD path (port_ff bits 5:3 = 000):
+    //     pixel byte at 0x4000 + poff(0,0) = 0xFF (all ink),
+    //     attr byte  at 0x5800            = 0x05 (paper black, ink cyan).
+    //     Expected colour = palette[5] = cyan.
+    //   HI_COLOUR path (port_ff bits 5:3 = 010, port_val 0x10):
+    //     pixel byte at 0x4000 + poff(d,0) = 0xFF,
+    //     per-row "attr" byte at 0x6000 + poff(d,0) = 0x47
+    //       (paper black, ink white, bright)  → palette[15].
+    {
+        UlaBed bed;
+        // STANDARD scanline (display row 0 = output row DISP_Y=32).
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x5800,                              0x05);
+        // HI_COLOUR scanline (display row 1 = output row 33).
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(1, 0), 0x47);
+
+        // Begin frame with STANDARD (mode 000) as baseline.
+        bed.ula.set_screen_mode(0x00);
+        bed.ula.start_frame();
+        // Mid-frame write tagged at output row 33 → applies starting
+        // from line 33 (after the apply_changes_for_line(33) call).
+        bed.ula.set_current_line(33);
+        bed.ula.set_screen_mode(0x10);             // 010 = HI_COLOUR
+
+        // Mirror Renderer flow: rewind once, then apply+render per row.
+        bed.ula.rewind_to_baseline();              // back to STANDARD
+        std::array<uint32_t, 320> a{}, b{};
+        bed.ula.apply_changes_for_line(32);        // no entries at line 32
+        bed.ula.render_scanline(a.data(), 32, bed.mmu);   // STANDARD
+        bed.ula.apply_changes_for_line(33);        // applies HI_COLOUR
+        bed.ula.render_scanline(b.data(), 33, bed.mmu);   // HI_COLOUR
+
+        const uint32_t cyan  = kUlaPalette[5];
+        const uint32_t white = kUlaPalette[15];
+        check("S5-PSL.02",
+              "zxula.vhd:191/209 — STANDARD on line 32 + HI_COLOUR on "
+              "line 33: each line renders via its own mode after replay",
+              a[32] == cyan && b[32] == white,
+              fmt("std=0x%08X (exp cyan 0x%08X)  hicol=0x%08X (exp white 0x%08X)",
+                  a[32], cyan, b[32], white));
+    }
+
+    // S5-PSL.03 — HI_RES on line N, STANDARD on line N+1: HI_RES uses
+    // port_ff(2:0) as ink (here ink=2 → red); STANDARD uses the attr
+    // byte at 0x5800 (here ink cyan/5).  After rewind+replay, line N
+    // must be red and line N+1 cyan.  Symmetry with S5-PSL.02.
+    {
+        UlaBed bed;
+        // HI_RES needs both pixel halves; ink = port_ff(2:0).
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        // STANDARD on next display line.
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
+        bed.poke(0x5800,                              0x05);  // ink cyan
+
+        // Baseline HI_RES, ink=2 (red): port_val = 110_010 = 0x32.
+        bed.ula.set_screen_mode(0x32);
+        bed.ula.start_frame();
+        // Switch to STANDARD (mode 000) tagged at line 33.
+        bed.ula.set_current_line(33);
+        bed.ula.set_screen_mode(0x00);
+
+        bed.ula.rewind_to_baseline();              // back to HI_RES
+        std::array<uint32_t, 320> a{}, b{};
+        bed.ula.apply_changes_for_line(32);        // no entries at 32
+        bed.ula.render_scanline(a.data(), 32, bed.mmu);   // HI_RES
+        bed.ula.apply_changes_for_line(33);        // applies STANDARD
+        bed.ula.render_scanline(b.data(), 33, bed.mmu);   // STANDARD
+
+        const uint32_t red  = kUlaPalette[2];
+        const uint32_t cyan = kUlaPalette[5];
+        check("S5-PSL.03",
+              "zxula.vhd:191/209 — HI_RES on line 32 then STANDARD on "
+              "line 33 produces red then cyan after replay",
+              a[32] == red && b[32] == cyan,
+              fmt("hires=0x%08X (exp red 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
+                  a[32], red, b[32], cyan));
+    }
+
+    // S5-PSL.04 — start_frame rewinds the port-0xFF log: the live
+    // screen_mode_reg_ is captured as the next frame's baseline, the
+    // log is cleared, and rewind_to_baseline() restores that baseline.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x10);             // HI_COLOUR baseline
+        bed.ula.start_frame();
+        bed.ula.set_current_line(20);
+        bed.ula.set_screen_mode(0x30);             // HI_RES write
+        const size_t mid_count = bed.ula.port_ff_change_log_size();
+
+        // start_frame again — old log dropped, baseline = current live byte.
+        bed.ula.start_frame();
+        const size_t post_count = bed.ula.port_ff_change_log_size();
+
+        // rewind_to_baseline now restores the live byte (HI_RES, 0x30)
+        // captured by the second start_frame.
+        bed.ula.set_screen_mode(0x00);             // pretend unrelated change
+        bed.ula.rewind_to_baseline();
+
+        check("S5-PSL.04",
+              "Ula::start_frame snapshots live port-0xFF as baseline "
+              "and clears the log; subsequent rewind_to_baseline "
+              "restores that baseline",
+              mid_count == 1u
+              && post_count == 0u
+              && bed.ula.get_screen_mode_reg() == 0x30,
+              fmt("mid=%zu post=%zu after_rewind_reg=0x%02X (exp 0x30)",
+                  mid_count, post_count, bed.ula.get_screen_mode_reg()));
+    }
+
+    // S5-PSL.05 — save state with non-empty log; load; verify
+    // identical render via rewind+replay.  Renders the same scanline
+    // through the change-log replay path before save and after load,
+    // and asserts byte-equal output (a[32] == b[32]).
+    {
+        UlaBed bed;
+        // Stimulus identical to S5-PSL.02: STANDARD baseline → mid-frame
+        // HI_COLOUR write tagged at line 33. Renders row 33 as white.
+        bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(1, 0), 0x47);
+
+        bed.ula.set_screen_mode(0x00);
+        bed.ula.start_frame();
+        bed.ula.set_current_line(33);
+        bed.ula.set_screen_mode(0x10);
+
+        // Render once before save.
+        bed.ula.rewind_to_baseline();
+        bed.ula.apply_changes_for_line(33);
+        std::array<uint32_t, 320> a{};
+        bed.ula.render_scanline(a.data(), 33, bed.mmu);
+
+        // Save → wipe → load → render again.  Use a measure pass first
+        // to size the buffer; mirrors the standard StateWriter idiom.
+        StateWriter measure(nullptr, 0);
+        bed.ula.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        bed.ula.save_state(w);
+
+        UlaBed bed2;
+        bed2.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
+        bed2.poke(0x6000 + emu_pixel_addr_offset(1, 0), 0x47);
+        StateReader rd(buf.data(), buf.size());
+        bed2.ula.load_state(rd);
+
+        bed2.ula.rewind_to_baseline();
+        bed2.ula.apply_changes_for_line(33);
+        std::array<uint32_t, 320> b{};
+        bed2.ula.render_scanline(b.data(), 33, bed2.mmu);
+
+        check("S5-PSL.05",
+              "Ula::save_state + load_state round-trips the port-0xFF "
+              "change log: rendering the same scanline through replay "
+              "produces byte-equal output before and after",
+              a[32] == b[32]
+              && bed2.ula.port_ff_change_log_size() == 1u,
+              fmt("pre=0x%08X post=0x%08X count_post=%zu",
+                  a[32], b[32], bed2.ula.port_ff_change_log_size()));
+    }
 }
 
 // =========================================================================

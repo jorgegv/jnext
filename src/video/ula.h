@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 class Mmu;
@@ -75,6 +76,16 @@ public:
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
         shadow_screen_en_    = false; // i_ula_shadow_en default '0'
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
+
+        // Per-scanline port-0xFF change-log (G07) — VHDL reset zeroes
+        // port_ff_reg (zxnext.vhd:3614). Mirror by snapshotting the
+        // already-zeroed `screen_mode_reg_` as the baseline and clearing
+        // the log; subsequent start_frame() calls will refresh.
+        port_ff_count_           = 0;
+        current_line_            = 0;
+        port_ff_render_cursor_   = 0;
+        port_ff_overflow_warned_ = false;
+        baseline_port_ff_        = screen_mode_reg_;
     }
 
     /// Set the palette manager reference (must be called before rendering).
@@ -143,6 +154,55 @@ public:
 
     /// Return the raw byte last written to port 0xFF.
     uint8_t get_screen_mode_reg() const { return screen_mode_reg_; }
+
+    // -----------------------------------------------------------------
+    // Per-scanline port-0xFF Timex screen-mode replay (G07)
+    // -----------------------------------------------------------------
+    //
+    // Mirrors the layer2 / palette / sprites change-log pattern.  Required
+    // because port 0xFF writes performed mid-frame (typically by Copper or
+    // the Z80 racing the beam) change the per-scanline screen-mode path
+    // (STANDARD vs HI_COLOUR vs HI_RES vs ALT).  Without this log,
+    // mid-frame writes collapse to last-write-wins and every scanline
+    // renders with the same mode.
+    //
+    // VHDL oracle:
+    //   zxnext.vhd:3615-3616 — port_ff_wr latches port_ff_reg <= cpu_do.
+    //   zxnext.vhd:3630      — port_ff_dat_tmx <= port_ff_reg (CPU-clk).
+    //   zxula.vhd:191        — screen_mode_s <= i_port_ff_reg(2:0).
+    //   zxula.vhd:209        — screen_mode <= screen_mode_s (latched at
+    //                          character-cell boundary i_hc(3:0)=X"3"/"B").
+    //
+    // The change log is tagged with the scanline at the write moment;
+    // apply_changes_for_line replays at the start of rendering each
+    // line, so writes during line N take effect at the start of line
+    // N+1 — matching VHDL's per-character-cell sample.
+
+    /// Snapshot the live screen-mode register as the frame baseline and
+    /// reset the per-frame change log. Called from Emulator::run_frame.
+    void start_frame();
+
+    /// Update the scanline tag attached to subsequent port-0xFF writes.
+    /// Called from Emulator::on_scanline. Default 0 at frame start.
+    void set_current_line(int line) {
+        current_line_ = static_cast<uint16_t>(line);
+    }
+
+    /// Restore the live screen-mode register to the frame baseline and
+    /// reset the render cursor. Called once before per-scanline render.
+    void rewind_to_baseline();
+
+    /// Apply all logged port-0xFF writes whose line tag equals `line`.
+    /// Cursor is monotonically advanced; the log is in scanline order so
+    /// total work across a frame is O(port_ff_count_).
+    void apply_changes_for_line(int line);
+
+    /// Number of port-0xFF changes recorded this frame (diagnostic).
+    size_t port_ff_change_log_size() const { return port_ff_count_; }
+
+    /// Static cap; further writes after this many in a frame are
+    /// silently dropped (with a once-per-frame warn).
+    static constexpr size_t MAX_CHANGES_PER_FRAME = 1024;
 
     // -------------------------------------------------------------------
     // Phase-1 scaffold: scroll / ULAnext / ULA+ / shadow / alt-file
@@ -358,6 +418,23 @@ private:
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
     bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)
     bool    border_clr_tmx_src_  = false; ///< Wave-D border route select (zxula.vhd:419)
+
+    // ── Per-scanline port-0xFF change log (G07) ──────────────────────
+    // VHDL zxnext.vhd:3615-3616 — port_ff_wr latches the entire byte;
+    // zxula.vhd:191 + :209 — screen_mode is sampled per character-cell.
+    struct PortFFChange {
+        uint16_t line;           ///< 0..lines_per_frame-1
+        uint8_t  value;          ///< Raw port 0xFF byte after the write
+    };
+    std::array<PortFFChange, MAX_CHANGES_PER_FRAME> port_ff_log_{};
+    size_t   port_ff_count_         = 0;
+    uint16_t current_line_          = 0;
+    size_t   port_ff_render_cursor_ = 0;
+    bool     port_ff_overflow_warned_ = false;
+    uint8_t  baseline_port_ff_      = 0;
+    /// Append a snapshot of `screen_mode_reg_` to the log, tagged with
+    /// `current_line_`. Called from `set_screen_mode`.
+    void log_port_ff_change();
 
     /// Render a display row in STANDARD or STANDARD_1 mode.
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).

@@ -94,6 +94,17 @@ void Ula::set_screen_mode(uint8_t port_val)
 {
     screen_mode_reg_ = port_val;
 
+    // Per-scanline G07 change-log: append BEFORE decoding mode_, so
+    // apply_changes_for_line replays through this same setter and the
+    // mode_ derivation is consistent.  Driving the log from the central
+    // setter (rather than from each emulator port-fan-out callsite)
+    // keeps the snapshot symmetrical with all callers.  When this
+    // function is invoked from apply_changes_for_line() the entry would
+    // be appended to the same line again — guard via a re-entrancy flag
+    // implicit in the cursor-advancement contract: apply_changes_for_line
+    // does not re-call set_screen_mode (it writes the field directly).
+    log_port_ff_change();
+
     // Mode is encoded in bits 5:3 of port 0xFF (jnext convention).  Per VHDL
     // zxula.vhd:191, `screen_mode_s <= i_port_ff_reg(2 downto 0)`; VHDL bit 0 of
     // that 3-bit mode field is the alt-file select (0 = primary 0x4000 pixel
@@ -124,6 +135,95 @@ void Ula::set_screen_mode(uint8_t port_val)
     }
     Log::ula()->debug("Screen mode set: port_val={:#04x} mode={} alt_file={}",
                       port_val, static_cast<int>(mode_), alt_file_);
+}
+
+// ---------------------------------------------------------------------------
+// Per-scanline port-0xFF change-log (G07)
+// ---------------------------------------------------------------------------
+//
+// VHDL refs:
+//   zxnext.vhd:3615-3616  port_ff_wr → port_ff_reg <= cpu_do
+//   zxnext.vhd:3630       port_ff_dat_tmx <= port_ff_reg (CPU-clk latch)
+//   zxula.vhd:191         screen_mode_s <= i_port_ff_reg(2:0)
+//   zxula.vhd:209         screen_mode <= screen_mode_s (per character cell)
+//
+// The renderer pattern mirrors layer2 / palette / sprites: the live
+// `screen_mode_reg_` holds the end-of-frame value after all writes have
+// been applied; the change log captures every write tagged with the
+// scanline at which it occurred.  Before per-scanline render, the live
+// state is rewound to the frame baseline; for each scanline we replay
+// any entries whose line tag matches and re-derive `mode_` / `alt_file_`
+// using the same mode-decode path as `set_screen_mode`.
+
+void Ula::log_port_ff_change()
+{
+    if (port_ff_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!port_ff_overflow_warned_) {
+            Log::ula()->warn(
+                "Ula: port-0xFF change-log full at line {} (cap {} per "
+                "frame); further port-0xFF writes this frame will not "
+                "be per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            port_ff_overflow_warned_ = true;
+        }
+        return;
+    }
+    port_ff_log_[port_ff_count_++] = PortFFChange{
+        current_line_, screen_mode_reg_,
+    };
+}
+
+void Ula::start_frame()
+{
+    baseline_port_ff_        = screen_mode_reg_;
+    port_ff_count_           = 0;
+    port_ff_render_cursor_   = 0;
+    current_line_            = 0;
+    port_ff_overflow_warned_ = false;
+}
+
+// Apply the screen-mode decode used by set_screen_mode without
+// re-logging.  Mirrors the case-statement in set_screen_mode exactly so
+// the post-replay state is identical to the live state at write time.
+static inline void decode_screen_mode_into(
+    uint8_t port_val, TimexScreenMode& mode, bool& alt_file)
+{
+    const uint8_t mode_bits = (port_val >> 3) & 0x07;
+    alt_file = (mode_bits & 0x01) != 0;
+    switch (mode_bits) {
+        case 0:
+        case 1: mode = (mode_bits == 0)
+                       ? TimexScreenMode::STANDARD
+                       : TimexScreenMode::STANDARD_1;
+                break;
+        case 2:
+        case 3: mode = TimexScreenMode::HI_COLOUR;
+                break;
+        case 6:
+        case 7: mode = TimexScreenMode::HI_RES;
+                break;
+        default:
+            mode = TimexScreenMode::STANDARD;
+            break;
+    }
+}
+
+void Ula::rewind_to_baseline()
+{
+    screen_mode_reg_ = baseline_port_ff_;
+    decode_screen_mode_into(screen_mode_reg_, mode_, alt_file_);
+    port_ff_render_cursor_ = 0;
+}
+
+void Ula::apply_changes_for_line(int line)
+{
+    const uint16_t lt = static_cast<uint16_t>(line);
+    while (port_ff_render_cursor_ < port_ff_count_
+        && port_ff_log_[port_ff_render_cursor_].line == lt) {
+        const auto& c = port_ff_log_[port_ff_render_cursor_++];
+        screen_mode_reg_ = c.value;
+        decode_screen_mode_into(screen_mode_reg_, mode_, alt_file_);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -740,6 +840,22 @@ void Ula::save_state(StateWriter& w) const
     w.write_bool(shadow_screen_en_);
     w.write_bool(border_clr_tmx_src_);
     w.write_u8(ulap_mode_);
+
+    // Per-scanline port-0xFF change-log (G07).  Layer 2 / palette only
+    // serialise the live state because the log is regenerated each
+    // frame, but S5-PSL.05 explicitly requires a save/load round-trip
+    // that preserves the in-flight log so post-load re-render through
+    // apply_changes_for_line() reproduces the pre-save frame.  Persist
+    // the baseline + tagged entries; cursor + overflow flag are
+    // transient render-time state and don't need to round-trip.
+    w.write_u8(baseline_port_ff_);
+    w.write_u16(current_line_);
+    const uint16_t n = static_cast<uint16_t>(port_ff_count_);
+    w.write_u16(n);
+    for (uint16_t i = 0; i < n; ++i) {
+        w.write_u16(port_ff_log_[i].line);
+        w.write_u8(port_ff_log_[i].value);
+    }
 }
 
 void Ula::load_state(StateReader& r)
@@ -765,4 +881,16 @@ void Ula::load_state(StateReader& r)
     shadow_screen_en_    = r.read_bool();
     border_clr_tmx_src_  = r.read_bool();
     ulap_mode_           = r.read_u8();
+
+    // Per-scanline port-0xFF change-log (G07) — paired with save_state.
+    baseline_port_ff_      = r.read_u8();
+    current_line_          = r.read_u16();
+    const uint16_t n       = r.read_u16();
+    port_ff_count_         = n;
+    port_ff_render_cursor_ = 0;
+    port_ff_overflow_warned_ = false;
+    for (uint16_t i = 0; i < n; ++i) {
+        port_ff_log_[i].line  = r.read_u16();
+        port_ff_log_[i].value = r.read_u8();
+    }
 }
