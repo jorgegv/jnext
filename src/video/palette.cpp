@@ -134,7 +134,41 @@ void PaletteManager::reset()
         // initial state is undefined in HW but the firmware writes it
         // before use, and 00 is the "not promoted" expectation).
         layer2_priority_[p].fill(0);
+
+        // NR 0xFF / ULA+ palette poke storage — VHDL palette_utm dpram
+        // initial state is undefined in hardware; we zero it so tests
+        // and future ULA+ render consumers see a deterministic baseline.
+        ulap_poke_rgb333_[p].fill(0);
     }
+}
+
+// ---------------------------------------------------------------------------
+// NR 0xFF — ULA+ palette poke side-channel
+// ---------------------------------------------------------------------------
+//
+// VHDL zxnext.vhd:6957-6958 (write enable + address override),
+// :4919 (value byte expansion), :4920 (priority forced to "00" since
+// nr_44_we is not asserted on an NR 0xFF write).
+//
+// We delegate the RRRGGGBB → RRRGGGBBB byte expansion to the same
+// helper that NR 0x41 uses (rrrgggbb_to_rgb333), preserving the
+// `B0 = B1 or B0` rule from the VHDL.
+//
+// Storage layout follows the VHDL palette_utm dpram address derivation:
+// the bf3b_index already corresponds to bits 5:0 of the dpram address
+// (with bits 7:6 = "11" implicit), and bank_second corresponds to bit 8
+// (palette_write_select(2)).  The "11" upper-quadrant placement is
+// implicit in the storage shape: 64 entries per bank, addressed by the
+// 6-bit bf3b_index directly.
+void PaletteManager::nr_ff_poke(bool bank_second, uint8_t bf3b_index,
+                                uint8_t byte)
+{
+    const uint16_t rgb333 = rrrgggbb_to_rgb333(byte);
+    ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F] = rgb333;
+    // NOTE: priority is "00" per VHDL zxnext.vhd:4920 (NR 0x44 is the
+    // only path that captures priority bits); we don't store a separate
+    // priority slot for NR 0xFF pokes because there is nothing to
+    // capture.  The future ULA+ render path will see priority = 0.
 }
 
 // ---------------------------------------------------------------------------

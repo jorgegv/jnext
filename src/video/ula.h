@@ -73,6 +73,7 @@ public:
         ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
         ulap_en_per_line_.fill(false);  // gap G11 — mirror reset default
         ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
+        ulap_index_          = 0;     // port_bf3b_ulap_index reset "000000" (zxnext.vhd:4530)
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
         shadow_screen_en_    = false; // i_ula_shadow_en default '0'
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
@@ -299,6 +300,16 @@ public:
     void    set_ulap_mode(uint8_t m) { ulap_mode_ = static_cast<uint8_t>(m & 0x03); }
     uint8_t get_ulap_mode() const    { return ulap_mode_; }
 
+    // Port 0xBF3B — ULA+ palette-entry index latch (low 6 bits).
+    // VHDL zxnext.vhd:4533-4535: when port_bf3b write has cpu_do(7:6) = "00",
+    // `port_bf3b_ulap_index <= cpu_do(5 downto 0)`.  This latch is the slot
+    // selector for the NR 0xFF palette poke side-channel (zxnext.vhd:6957-6958)
+    // and for ULA+ palette readback (zxnext.vhd:6958 ulap_palette_rd path).
+    // Stored on Ula because that is where the bf3b mode latch lives; future
+    // G103 (ULA+ runtime) work will consume it from here without re-routing.
+    void    set_ulap_index(uint8_t i) { ulap_index_ = static_cast<uint8_t>(i & 0x3F); }
+    uint8_t get_ulap_index() const    { return ulap_index_; }
+
     // ULA+ pixel encoder — VHDL zxula.vhd:531-541.
     //
     // Produces the 8-bit ula_pixel palette index when ULA+ is enabled.
@@ -415,6 +426,7 @@ private:
     /// Per-scanline ULA+ enable snapshot — gap G11 closure.
     std::array<bool, 320> ulap_en_per_line_{};
     uint8_t ulap_mode_           = 0;     ///< Port 0xBF3B top-2 bits (zxnext.vhd:4529/4532)
+    uint8_t ulap_index_          = 0;     ///< Port 0xBF3B low 6 bits (zxnext.vhd:4530/4534)
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)
     bool    shadow_screen_en_    = false; ///< i_ula_shadow_en (zxula.vhd:191)
     bool    border_clr_tmx_src_  = false; ///< Wave-D border route select (zxula.vhd:419)
