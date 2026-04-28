@@ -116,16 +116,25 @@ public:
     /// @param palette        Palette manager for tilemap colour lookup.
     /// @param render_width   Output width: 320 or 640. When 640 and 80-col,
     ///                       renders at native 640px resolution (1:1 mapping).
+    /// @param textmode_flags Optional per-pixel textmode flag buffer
+    ///                       (render_width entries). When non-null, set to true
+    ///                       for any pixel emitted while the tilemap is in
+    ///                       text-mode (NR 0x6B bit 3 / VHDL tilemap.vhd:62,443
+    ///                       pixel_textmode_o); false otherwise. Required by
+    ///                       the compositor for VHDL zxnext.vhd:7109
+    ///                       text-mode RGB transparency check (G98/G101).
     void render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                          const Ram& ram,
                          const PaletteManager& palette,
-                         int render_width = 320) const;
+                         int render_width = 320,
+                         bool* textmode_flags = nullptr) const;
 
     /// Render one scanline regardless of enabled_ state. Used by the debugger.
     void render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                const Ram& ram,
                                const PaletteManager& palette,
-                               int render_width = 320);
+                               int render_width = 320,
+                               bool* textmode_flags = nullptr);
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

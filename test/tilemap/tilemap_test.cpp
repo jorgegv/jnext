@@ -30,6 +30,16 @@
 #include "video/palette.h"
 #include "memory/ram.h"
 
+// G98/G101 — TM-95/TM-105 cross unit/compositor boundaries.  The
+// `private`/`protected` shim mirrors compositor_test.cpp so we can drop
+// engine-prepared layer pixels straight into Renderer::composite_scanline
+// without standing up a full Emulator stack.
+#define private public
+#define protected public
+#include "video/renderer.h"
+#undef private
+#undef protected
+
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -144,6 +154,7 @@ constexpr int MAX_W = 640;
 struct Scan {
     uint32_t pixels[MAX_W];
     bool     ula_over[MAX_W];
+    bool     textmode[MAX_W];
 };
 
 Scan render_line(Tilemap& tm, int y, const Ram& ram,
@@ -151,8 +162,9 @@ Scan render_line(Tilemap& tm, int y, const Ram& ram,
     Scan s;
     std::memset(s.pixels,   0, sizeof(s.pixels));
     std::memset(s.ula_over, 0, sizeof(s.ula_over));
+    std::memset(s.textmode, 0, sizeof(s.textmode));
     tm.init_scroll_per_line();
-    tm.render_scanline(s.pixels, s.ula_over, y, ram, pal, width);
+    tm.render_scanline(s.pixels, s.ula_over, y, ram, pal, width, s.textmode);
     return s;
 }
 
@@ -1088,13 +1100,66 @@ void group10_transparency() {
     // TR-21 (non-text ignores RGB compare) and TR-22 (tm_pixel_en=0 →
     // transparent).
 
-    // TM-95 — Text-mode RGB transparency at the Tilemap tier.
-    // VHDL zxnext.vhd:7109 — tm_transparent ='1' when tm_pixel_textmode_2
-    // ='1' AND tm_rgb_2(8:1) = transparent_rgb_2. jnext renderer.cpp:286
-    // checks alpha=0 only; no NR 0x14 RGB compare; no per-pixel
-    // textmode flag. Precondition: G101 must expose pixel_textmode_o.
-    skip("TM-95",
-         "Text-mode RGB transparency check missing in Tilemap output (see G98)");
+    // TM-95 — Text-mode RGB transparency at the compositor tier.
+    // VHDL zxnext.vhd:7109 —
+    //   tm_transparent <= '1' when (tm_pixel_en_2 = '0')
+    //     or (tm_pixel_textmode_2 = '1' and tm_rgb_2(8:1) = transparent_rgb_2)
+    //     or (tm_en_2 = '0').
+    // The renderer feeds Tilemap output (line buffer + per-pixel textmode
+    // flag) into composite_scanline; the compositor's text-mode RGB-
+    // compare clause must mark a textmode pixel whose 8-bit RGB equals
+    // NR 0x14 as transparent so ULA shows through.  Driver: render a
+    // textmode tilemap whose palette entry equals the global transparent
+    // RGB, then composite with an opaque ULA pixel and verify the
+    // composite output is the ULA pixel (TM-pixel suppressed by RGB
+    // match), not the TM pixel.  Closure: G98 + G101.
+    {
+        fresh(tm, pal, ram);
+        // NR 0x14 transparent RGB = 0xE3 (default) — VHDL zxnext.vhd:7100.
+        const uint8_t kTranspRgb = 0xE3;
+        // Paint the tilemap palette entry that the textmode pixel will
+        // resolve to (attr(7:1)<<1 | bit = 0x55 with attr=0x54, bit=1)
+        // such that its colour equals the NR 0x14 transparent RGB.
+        paint_tm_palette_entry(pal, 0x55, kTranspRgb);
+        fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0xFF);   // all 8 row bits set
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x54); // attr(7:1)=0x2A
+        tm.set_control(0x88);   // enable + textmode (VHDL bit 3)
+        auto s = render_line(tm, 0, ram, pal);
+
+        // Sanity-check the Tilemap-tier emission: pixel RGB == NR 0x14
+        // and the per-pixel textmode flag is set (precondition for the
+        // compositor clause). Without these the compositor cannot fire
+        // the RGB-compare branch at all.
+        const uint32_t nr14_argb = Renderer::rrrgggbb_to_argb(kTranspRgb);
+        const bool tm_pre_ok = (s.pixels[0] == nr14_argb) && s.textmode[0];
+
+        // Drive Renderer::composite_scanline with the rendered TM line
+        // and an opaque ULA pixel; expect the TM pixel to be flagged
+        // transparent (text-mode + RGB match) so ULA wins in mode SLU.
+        Renderer R; R.reset();
+        R.set_layer_priority(0);                    // SLU
+        R.set_transparent_rgb(kTranspRgb);          // NR 0x14
+        R.set_tm_enabled(true);
+        const uint32_t ula_pix = 0xFFAABBCCu;       // distinct opaque ULA
+        for (int i = 0; i < 320; ++i) {
+            R.ula_line_[i]        = (i == 0) ? ula_pix : 0u;
+            R.layer2_line_[i]     = 0u;
+            R.sprite_line_[i]     = 0u;
+            R.tilemap_line_[i]    = s.pixels[i];
+            R.tm_pixel_below_[i]  = s.ula_over[i];
+            R.tm_pixel_textmode_[i] = s.textmode[i];
+            R.layer2_priority_[i] = false;
+            R.ula_border_[i]      = false;
+        }
+        uint32_t out[320];
+        std::memset(out, 0, sizeof(out));
+        R.composite_scanline(out, /*fallback_argb=*/0u, 320);
+
+        check_pred("TM-95",
+                   tm_pre_ok && out[0] == ula_pix,
+                   "VHDL zxnext.vhd:7109 — textmode pixel + RGB==NR0x14 "
+                   "marked transparent at compositor; ULA shows through");
+    }
 }
 
 // ── Group 11: Palette selection / pixel composition ─────────────────────
@@ -1164,13 +1229,61 @@ void group11_palette() {
               "VHDL tilemap.vhd:386 — textmode: idx = attr(7:1)<<1 | bit");
     }
 
-    // TM-105 — Per-pixel pixel_textmode_o flag missing.
-    // VHDL tilemap.vhd:62,443 exposes pixel_textmode_o; consumed at
-    // zxnext.vhd:7072,7109 to drive RGB-transparency. jnext Tilemap
-    // keeps text_mode_ as a global flag (tilemap.h:138); renderer.h:188
-    // exposes only tm_pixel_below_. Precondition for G98.
-    skip("TM-105",
-         "Per-pixel textmode flag not surfaced to compositor (see G101)");
+    // TM-105 — Per-pixel pixel_textmode_o flag emitted by Tilemap.
+    // VHDL tilemap.vhd:62,443 — pixel_textmode_o latched alongside
+    // pixel_en_o and pixel_below_o; consumed at zxnext.vhd:7072
+    // (pipeline stage 2 register) and 7109 (text-mode RGB transparency
+    // gate).  Tilemap::render_scanline now exposes the per-pixel flag
+    // via the optional textmode_flags out-buffer (G101 closure).  This
+    // row drives two scanlines — one with NR 0x6B bit 3 = 1 (textmode),
+    // one with bit 3 = 0 (standard) — and asserts:
+    //   * textmode-on  → emitted pixels carry textmode_flag = true,
+    //                    untouched (transparent) pixels stay false;
+    //   * textmode-off → every pixel's textmode_flag is false, even
+    //                    where the line is opaquely rendered.
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x55, 0xE0);
+        fill_tile_textmode(ram, DEF_DEF_BASE, 1, 0xFF);
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x54);
+
+        // 1) Textmode active: every emitted pixel must report textmode=1.
+        tm.set_control(0x88);   // enable + textmode (VHDL bit 3)
+        auto s_text = render_line(tm, 0, ram, pal);
+        bool tm_flag_set_when_pixel = true;
+        bool tm_flag_clear_when_no_pixel = true;
+        for (int i = 0; i < 320; ++i) {
+            if (s_text.pixels[i] != 0u) {
+                if (!s_text.textmode[i]) { tm_flag_set_when_pixel = false; break; }
+            } else {
+                // VHDL pixel_textmode_o latches alongside pixel_en_o
+                // (tilemap.vhd:437); when no pixel is emitted (alpha=0)
+                // the downstream compositor never reads the flag.  The
+                // emulator keeps the array zeroed where no pixel was
+                // written so callers get a deterministic false.
+                if (s_text.textmode[i]) { tm_flag_clear_when_no_pixel = false; break; }
+            }
+        }
+
+        // 2) Standard (non-textmode): every position must report flag=false.
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
+        tm.set_control(0x80);   // enable, no textmode
+        auto s_std = render_line(tm, 0, ram, pal);
+        bool std_flag_all_false = true;
+        for (int i = 0; i < 320; ++i) {
+            if (s_std.textmode[i]) { std_flag_all_false = false; break; }
+        }
+
+        check_pred("TM-105",
+                   tm_flag_set_when_pixel &&
+                   tm_flag_clear_when_no_pixel &&
+                   std_flag_all_false,
+                   "VHDL tilemap.vhd:62,443 — per-pixel pixel_textmode_o "
+                   "exposed: 1 in textmode for emitted pixels, 0 otherwise");
+    }
 }
 
 // ── Group 12: Clip window ───────────────────────────────────────────────
