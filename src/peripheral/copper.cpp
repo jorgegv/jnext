@@ -49,7 +49,12 @@ Copper::Copper() {
 }
 
 void Copper::reset() {
-    instructions_.fill(0);
+    // VHDL zxnext.vhd:3959-3996 — copper_inst_msb_ram / copper_inst_lsb_ram
+    // are dpram2 entities with NO reset port. Their contents persist
+    // across soft resets; only nr_copper_addr and nr_62_copper_mode are
+    // cleared. Soft-reset menus that re-run a previously-uploaded Copper
+    // program rely on this. (G118 closure.)
+    //   instructions_.fill(0);   // <-- removed: dpram2 has no reset
     pc_ = 0;
     mode_ = 0;
     last_mode_ = 0;

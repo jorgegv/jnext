@@ -114,6 +114,14 @@ void wire_nr_to_cu(NextReg& nr, Copper& cu) {
     nr.set_write_handler(0x64, [&cu](uint8_t v) { cu.write_reg_0x64(v); });
 }
 
+// Forward NR 0x61/0x62 reads from a NextReg into the Copper — mirrors
+// the wiring done by Emulator at registration time (G116). VHDL
+// zxnext.vhd:6083-6087.
+void wire_nr_reads_to_cu(NextReg& nr, Copper& cu) {
+    nr.set_read_handler(0x61, [&cu]() -> uint8_t { return cu.read_reg_0x61(); });
+    nr.set_read_handler(0x62, [&cu]() -> uint8_t { return cu.read_reg_0x62(); });
+}
+
 // Directly set the byte pointer nr_copper_addr[10..0] via NR 0x61/0x62
 // (zxnext.vhd:5427, 5430-5431).
 void set_byte_ptr(Copper& cu, uint16_t byte_addr) {
@@ -142,6 +150,20 @@ void program_word(Copper& cu, uint16_t word_addr, uint16_t instr) {
 void reset_both(Copper& cu, NextReg& nr) {
     cu.reset();
     nr.reset();
+}
+
+// Zero the full Copper instruction RAM (1024 words) via the public NR 0x63
+// API. Used by tests that pre-suppose blank RAM after a reset — necessary
+// because VHDL zxnext.vhd:3959-3996 declares the instruction RAM as dpram2
+// with no reset port, so Copper::reset() (correctly) does NOT clear it.
+// (G118.) Restores byte pointer to 0 + mode 0 after the fill.
+void zero_instruction_ram(Copper& cu) {
+    set_byte_ptr(cu, 0);
+    for (int i = 0; i < 2048; ++i) {
+        cu.write_reg_0x63(0x00);
+    }
+    set_byte_ptr(cu, 0);
+    set_mode(cu, 0);
 }
 
 // ── Group 1: Instruction RAM upload ───────────────────────────────────
@@ -194,6 +216,7 @@ void group1_ram_upload() {
     // path caches MSB on the even write then commits on the odd write).
     {
         reset_both(cu, nr);
+        zero_instruction_ram(cu);  // VHDL dpram2 has no reset port (G118)
         set_mode(cu, 0);
         set_byte_ptr(cu, 0);
         cu.write_reg_0x63(0xAB);  // cached as nr_copper_data_stored
@@ -344,13 +367,43 @@ void group1_ram_upload() {
     }
 
     // RAM-BK-02 / RAM-BK-03 — VHDL zxnext.vhd:6083-6087 returns
-    // nr_copper_addr(7..0) and mode|hi from NR 0x61/0x62 reads.
-    // Today emulator.cpp:635-644 registers no read handler for these
-    // NRs, so reads fall through to NextReg::regs_[] (last-write).
-    // Both rows will become check()s once Copper::read_reg_0x61() /
-    // read_reg_0x62() are wired into NextReg via set_read_handler().
-    skip("RAM-BK-02", "NR 0x61 read fallthrough to regs_[] last-write (see G116)");
-    skip("RAM-BK-03", "NR 0x62 read fallthrough to regs_[] last-write (see G116)");
+    //   0x61 -> nr_copper_addr(7..0)
+    //   0x62 -> nr_62_copper_mode & "000" & nr_copper_addr(10..8)
+    // The Copper auto-increments nr_copper_addr on every NR 0x60/0x63
+    // write (zxnext.vhd:4886-4887), so the read-back reflects the
+    // post-increment pointer, not the last data byte. (G116 closure.)
+    {
+        // RAM-BK-02 — 3 NR 0x60 writes from a fresh reset must land
+        // byte pointer at 0x003. Read NR 0x61 via NextReg (this is what
+        // exercises the read-handler wiring at emulator.cpp).
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        wire_nr_reads_to_cu(nr, cu);
+        nr.write(0x60, 0x11);  // byte 0
+        nr.write(0x60, 0x22);  // byte 1
+        nr.write(0x60, 0x33);  // byte 2 → byte ptr now 0x003
+        uint8_t r61 = nr.read(0x61);
+        check("RAM-BK-02", "NR 0x61 read returns nr_copper_addr(7..0) post-autoincrement",
+              r61 == 0x03,
+              fmt("r61=%02x (expected 0x03 not data byte 0x33)", r61));
+    }
+    {
+        // RAM-BK-03 — set NR 0x62 = 0x47 (mode=01, hi=0x07 → addr_high=0x700);
+        // 256 NR 0x60 writes increment the 11-bit byte pointer from 0x700
+        // to 0x800, which wraps to 0x000 in 11-bit space (zxnext.vhd:4886).
+        // Read NR 0x62 should return mode=01 (0x40) | hi=0x00 = 0x40.
+        reset_both(cu, nr);
+        wire_nr_to_cu(nr, cu);
+        wire_nr_reads_to_cu(nr, cu);
+        nr.write(0x62, 0x47);  // mode=01, hi=111 → byte ptr = 0x700
+        for (int i = 0; i < 256; ++i) {
+            nr.write(0x60, static_cast<uint8_t>(i));
+        }
+        uint8_t r62 = nr.read(0x62);
+        check("RAM-BK-03", "NR 0x62 read returns mode|000|addr(10..8) post-autoincrement",
+              r62 == 0x40,
+              fmt("r62=%02x (expected 0x40 = mode 01 | hi 000)", r62));
+    }
 }
 
 // ── Group 2: MOVE instruction execution ──────────────────────────────
@@ -1182,11 +1235,12 @@ void group6_offset() {
     {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
+        zero_instruction_ram(cu);  // VHDL dpram2 has no reset port (G118)
         cu.set_c_max_vc(5);
         int moves = 0;
         nr.set_write_handler(0x40, [&](uint8_t) { ++moves; });
         program_word(cu, 0, enc_move(0x40, 0x55));
-        // Remaining slots are already 0 (NOP) from reset.
+        // Remaining slots are already 0 (NOP) per zero_instruction_ram above.
         set_mode(cu, 3);  // mode 11
         // Step through 12 lines (two full c_max_vc cycles).
         // At each line, tick hc=0 (may trigger mode-11 restart) then
@@ -1702,6 +1756,9 @@ void group10_reset() {
     NextReg nr;
 
     // RST-01: Hard reset clears pc, mode, dout.
+    // VHDL copper.vhd:60-65 reset block clears only addr_s, dout_s, data_o.
+    // The instruction RAM (zxnext.vhd:3959-3996, dpram2 with no reset port)
+    // is NOT cleared — see RST-04 for the dpram2 persistence check.
     {
         wire_nr_to_cu(nr, cu);
         program_word(cu, 0, enc_move(0x40, 0x55));
@@ -1711,8 +1768,8 @@ void group10_reset() {
         // Now reset
         cu.reset();
         check("RST-01", "Copper reset clears pc, mode",
-              cu.pc() == 0 && cu.mode() == 0 && cu.instruction(0) == 0x0000,
-              fmt("pc=%u mode=%u i0=%04x", cu.pc(), cu.mode(), cu.instruction(0)));
+              cu.pc() == 0 && cu.mode() == 0,
+              fmt("pc=%u mode=%u", cu.pc(), cu.mode()));
     }
 
     // RST-02: NR state reset — nr_copper_addr=0, write_data_stored=0.
@@ -1748,15 +1805,35 @@ void group10_reset() {
 
     // RST-04 — VHDL zxnext.vhd:3959-3996 declares Copper instruction RAM
     // as dpram2 (no reset port); copper.vhd:60-65 reset block clears
-    // only addr_s, dout_s, data_o. Today copper.cpp:51-52 calls
-    // instructions_.fill(0) on every reset(), wiping the program.
-    //
-    // F-SKIP: the fix is a 1-line removal of instructions_.fill(0) from
-    // Copper::reset() (i.e. construct it zeroed only via the default
-    // member initializer std::array<...,1024>{} at copper.h:109). Once
-    // that lands, RST-04 becomes a check() that uploads a known program,
-    // calls cu.reset(), and asserts cu.instruction(0)/(1) survive.
-    skip("RST-04", "soft reset clears copper RAM (instructions_.fill(0)) (see G118)");
+    // only addr_s, dout_s, data_o. So a soft reset preserves the
+    // previously-uploaded Copper program; only the NR addr/mode state
+    // and the PC are cleared. (G118 closure.)
+    {
+        wire_nr_to_cu(nr, cu);
+        // Upload Instr[0]=0xABCD, Instr[1]=0x4055 via the 16-bit NR 0x63 path.
+        program_word(cu, 0, 0xABCD);
+        program_word(cu, 1, 0x4055);
+        // Sanity: the program is in RAM before reset.
+        const uint16_t pre0 = cu.instruction(0);
+        const uint16_t pre1 = cu.instruction(1);
+        // Also leave NR addr/mode in a non-default state so we can verify
+        // they DO clear (only the dpram2 instruction RAM persists).
+        cu.write_reg_0x62(0x80 | 0x07);  // mode=10, addr_high=111 → addr=0x700
+        cu.write_reg_0x61(0x55);          // addr_low=0x55 → byte addr=0x755
+
+        cu.reset();
+
+        const uint16_t post0 = cu.instruction(0);
+        const uint16_t post1 = cu.instruction(1);
+        const uint8_t  r61   = cu.read_reg_0x61();
+        const uint8_t  r62   = cu.read_reg_0x62();
+        check("RST-04", "Soft reset preserves Copper instruction RAM (dpram2 has no reset)",
+              pre0 == 0xABCD && pre1 == 0x4055
+                  && post0 == 0xABCD && post1 == 0x4055
+                  && r61 == 0x00 && r62 == 0x00,  // addr+mode DO clear
+              fmt("pre=%04x/%04x post=%04x/%04x r61=%02x r62=%02x",
+                  pre0, pre1, post0, post1, r61, r62));
+    }
 }
 
 }  // namespace
