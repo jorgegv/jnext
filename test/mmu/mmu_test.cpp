@@ -2572,22 +2572,25 @@ void test_nex_loader() {
 
     // BOOT-NEX-02 — discriminative pair: same predicate must accept the
     // file when installed RAM meets or exceeds the requirement. Also
-    // pin the 0=768/1=1792/2=2048/3=1024 KB enum mapping per the spec.
+    // pin the spec mapping 0=768/1=1792/2=2048 KB (canonical
+    // https://wiki.specnext.dev/NEX_file_format defines 0/1; value 2
+    // documented in G155). Unknown values must return 0 (treated as
+    // warn+default by the loader).
     {
         const bool fits_2mb = NexLoader::ram_required_fits(2, 2048 * 1024);
         const bool fits_768k_on_1mb = NexLoader::ram_required_fits(0, 1024 * 1024);
         const size_t kb0 = NexLoader::ram_required_kb(0);
         const size_t kb1 = NexLoader::ram_required_kb(1);
         const size_t kb2 = NexLoader::ram_required_kb(2);
-        const size_t kb3 = NexLoader::ram_required_kb(3);
+        const size_t kb_unknown = NexLoader::ram_required_kb(3);
         check("BOOT-NEX-02",
               "loader accepts NEX whose ram_required ≤ installed RAM; "
-              "spec mapping 0=768/1=1792/2=2048/3=1024 KB",
+              "spec mapping 0=768/1=1792/2=2048 KB; unknown → 0",
               fits_2mb && fits_768k_on_1mb &&
-              kb0 == 768 && kb1 == 1792 && kb2 == 2048 && kb3 == 1024,
-              fmt("fits_2mb=%d fits_768k_on_1mb=%d kb={%zu,%zu,%zu,%zu}",
+              kb0 == 768 && kb1 == 1792 && kb2 == 2048 && kb_unknown == 0,
+              fmt("fits_2mb=%d fits_768k_on_1mb=%d kb={%zu,%zu,%zu,unk=%zu}",
                   static_cast<int>(fits_2mb), static_cast<int>(fits_768k_on_1mb),
-                  kb0, kb1, kb2, kb3));
+                  kb0, kb1, kb2, kb_unknown));
     }
 
     // BOOT-NEX-03..06 — src/core/nex_loader.cpp:89-92 parses

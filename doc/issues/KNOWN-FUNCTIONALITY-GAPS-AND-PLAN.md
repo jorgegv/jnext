@@ -1427,11 +1427,12 @@ where possible.
 - **Dependencies**: distinct from G48 / G56.
 - **Effort**: L.
 
-### G140. Boot ROM overlay 8 KB → 16 KB mirror at 0x0000-0x3FFF
+### G140. Boot ROM overlay 8 KB → 16 KB mirror at 0x0000-0x3FFF [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — `Mmu::read` now gates `addr < 0x4000` and masks `addr & 0x1FFF` so the upper 8 KB mirrors the lower 8 KB through the 16 KB span. Test rows BOOT-OVL-01/02 in `mmu_test` flipped to PASS.
 - **What**: VHDL `zxnext.vhd:1856,3199-3204` — `bootrom_en` gates the overlay on `cpu_a(15:14)='00'` (full 16K); `bootrom_mod` uses `cpu_a(12:0)` (13-bit) so upper 8K mirrors lower 8K. jnext `mmu.h:114-117` overlays only for `addr < boot_rom_size_` (8192).
 - **User impact**: nextboot.rom is exactly 8 KB; future bootrom_ab variant or test stimulus reading 0x2000-0x3FFF expects the mirror.
 - **Source ref**: Wave-2 memory (NEW-MMU-1); reviewer APPROVE.
-- **Coverage today**: none.
+- **Coverage today**: BOOT-OVL-01/02 in `mmu_test`.
 - **Dependencies**: change condition + modulo index.
 - **Effort**: L.
 
@@ -1451,11 +1452,12 @@ where possible.
 - **Dependencies**: shadow/effective pair like NR 0x08 b6; reviewer notes Clock should defer too for symmetry.
 - **Effort**: M.
 
-### G143. port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate
+### G143. port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — gate landed in `src/core/emulator.cpp:1426-1432`. Test row EF7-06 RE-HOMED from `mmu_test` to integration tier (port-level cross-NR observation; not a pure MMU API surface).
 - **What**: VHDL `zxnext.vhd:2604,2441` — `port_eff7_io_en <= internal_port_enable(26)` = NR 0x84 bit 2. jnext `emulator.cpp:1426-1428` registers handler with no `cached(0x84) & 0x04` gate (compare 0x7FFD / 0xDFFD which DO gate).
 - **User impact**: NR 0x84 b2 clear still lets EFF7 paging-mode flips land.
 - **Source ref**: Wave-2 memory (NEW-MMU-2); reviewer APPROVE.
-- **Coverage today**: none.
+- **Coverage today**: integration tier (RE-HOME from mmu_test EF7-06).
 - **Dependencies**: one-line gate.
 - **Effort**: L.
 
@@ -1511,19 +1513,21 @@ where possible.
 - **Dependencies**: per-register read_handlers + NR 0x89 inverted-reset semantics.
 - **Effort**: M.
 
-### G155. NEX loader doesn't honour ram_required field
+### G155. NEX loader doesn't honour ram_required field [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — `NexLoader::apply` rejects oversize NEX via inline `ram_required_kb` / `ram_required_fits` static helpers in `src/core/nex_loader.h`. Test rows BOOT-NEX-01/02 in `mmu_test` flipped to PASS.
 - **What**: NEX V1.1+ spec — `ram_required` byte at offset 8 (0=768K/1=1792K/2=2048K). jnext `nex_loader.cpp:81` parses but no consumer; loader silently proceeds.
 - **User impact**: NEX needing >installed RAM gets corrupted bank load instead of a clear error.
 - **Source ref**: Wave-2 nmi-boot (NEW-BOOT-3); reviewer APPROVE w/ Display downgrade (default 2048 KB rarely triggers; warning fix is right shape, not display-band).
-- **Coverage today**: none.
+- **Coverage today**: BOOT-NEX-01/02 in `mmu_test`.
 - **Dependencies**: distinct from G16.
 - **Effort**: L.
 
-### G157. Boot ROM overlay size mismatch silently truncates
+### G157. Boot ROM overlay size mismatch silently truncates [closed]
+- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — `Mmu::set_boot_rom` materialises an 8 KB internal buffer with zero-pad/truncate + warn diagnostic on size mismatch. Test row BOOT-OVL-03 in `mmu_test` flipped to PASS.
 - **What**: VHDL `zxnext.vhd:3199-3204` hardwires `cpu_a(12:0)` = 13-bit = 8 KB span. jnext `mmu.h:113-117` overlays only `addr < boot_rom_size_`; reads beyond fall through to next overlay (NOT real-hardware-faithful).
 - **User impact**: edge case — wrong-sized custom boot ROM blob silently miscompiles, no diagnostic.
 - **Source ref**: Wave-2 nmi-boot (NEW-BOOT-5); reviewer APPROVE.
-- **Coverage today**: none.
+- **Coverage today**: BOOT-OVL-03 in `mmu_test`.
 - **Dependencies**: validate at load + clamp to 0x2000 with zero-fill.
 - **Effort**: L.
 
@@ -1918,6 +1922,17 @@ by source / test / commit grep during this audit):
 - **MD6 connector tick** — `md6_.tick(master_cycles)` IS called
   from `src/core/emulator.cpp:2746` (orig D07 was wrong; verified).
   D08 host-side feeder is still missing (folded into G42).
+- **G140 Boot ROM 8 KB → 16 KB mirror** — closed 2026-04-28
+  (task8-t1-mmu); `Mmu::read` gates `addr<0x4000` and masks
+  `addr & 0x1FFF` per VHDL `zxnext.vhd:3199-3204`. mmu_test rows
+  BOOT-OVL-01/02 PASS.
+- **G155 NEX loader ram_required honoured** — closed 2026-04-28
+  (task8-t1-mmu); `NexLoader::apply` rejects oversize NEX via inline
+  `ram_required_kb` / `ram_required_fits` helpers in
+  `src/core/nex_loader.h`. mmu_test rows BOOT-NEX-01/02 PASS.
+- **G157 Boot ROM overlay size mismatch** — closed 2026-04-28
+  (task8-t1-mmu); `Mmu::set_boot_rom` zero-pads / truncates to 8 KB
+  with warn diagnostic. mmu_test row BOOT-OVL-03 PASS.
 
 ---
 

@@ -234,18 +234,18 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | P7F-16      | Shadow disables Timex `screen_mode`                                   | zxula.vhd:191        | pass    | test/mmu/mmu_test.cpp:475  |
 | P7F-17      | Bit 3 -> `Ula::set_shadow_screen_en` routing                          | zxnext.vhd:4453      | pass    | test/mmu/mmu_test.cpp:504  |
 | DFF-09      | DFFD bit 6 round-trip via Multiface readback                          | zxnext.vhd:877,3694  | skip    | test/mmu/mmu_test.cpp:682  |
-| EF7-06      | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes                      | zxnext.vhd:2604,2441 | skip    | test/mmu/mmu_test.cpp:1419 |
+| EF7-06      | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes (G143 closed; RE-HOME to integration tier — gate at src/core/emulator.cpp:1426-1432) | zxnext.vhd:2604,2441 | skip    | test/mmu/mmu_test.cpp:1419 |
 | CON-12a     | Pentagon timing: machine type falls through switch                    | —                    | missing | missing                    |
 | CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention                     | —                    | missing | missing                    |
 | L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:2251 |
 | L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:2270 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | skip    | test/mmu/mmu_test.cpp:2457 |
-| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | skip    | test/mmu/mmu_test.cpp:2459 |
-| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | skip    | test/mmu/mmu_test.cpp:2466 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2457 |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF                                    | zxnext.vhd:1856      | pass    | test/mmu/mmu_test.cpp:2459 |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic                         | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:2466 |
 | SD2-01      | SD2-on suppresses 0xF1FD paging                                       | zxnext.vhd:2708      | skip    | test/mmu/mmu_test.cpp:2477 |
 | SD2-02      | SD2-off lets 0xF1FD paging through                                    | —                    | skip    | test/mmu/mmu_test.cpp:2479 |
-| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | skip    | test/mmu/mmu_test.cpp:2490 |
-| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | skip    | test/mmu/mmu_test.cpp:2492 |
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM         | —                    | pass    | test/mmu/mmu_test.cpp:2490 |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` <= installed RAM               | —                    | pass    | test/mmu/mmu_test.cpp:2492 |
 | BOOT-NEX-03 | Per-bank loading bar rendered                                         | —                    | skip    | test/mmu/mmu_test.cpp:2498 |
 | BOOT-NEX-04 | Inter-bank `loading_delay` honoured                                   | —                    | skip    | test/mmu/mmu_test.cpp:2500 |
 | BOOT-NEX-05 | `start_delay` before code-entry                                       | —                    | skip    | test/mmu/mmu_test.cpp:2502 |

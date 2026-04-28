@@ -10,7 +10,12 @@ class Emulator;
 struct NexHeader {
     char     magic[4];           // "Next"
     char     version[4];         // "V1.0", "V1.1", or "V1.2"
-    uint8_t  ram_required;       // 0 = 768KB, 1 = 1792KB
+    // ram_required: NEX V1.1+ minimum-RAM hint at header offset 8.
+    // Canonical spec (https://wiki.specnext.dev/NEX_file_format) defines
+    // only values 0 = 768 KB and 1 = 1792 KB; value 2 = 2048 KB is in
+    // working use (see KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md G155). Any
+    // other value is treated as unknown by `NexLoader::ram_required_kb`.
+    uint8_t  ram_required;
     uint8_t  num_banks;          // number of 16KB banks in file
     uint8_t  screen_flags;       // bit flags for screen data
     uint8_t  border_colour;      // 0-7
@@ -59,14 +64,16 @@ public:
 
     /// Map the NEX header `ram_required` enum to its KB requirement.
     /// Returns 0 for unrecognised values (loader treats as warn+default).
-    /// Spec: 0=768 KB, 1=1792 KB, 2=2048 KB, 3=1024 KB (NextZXOS).
+    /// Spec mapping (https://wiki.specnext.dev/NEX_file_format):
+    ///   0 = 768 KB, 1 = 1792 KB. Value 2 = 2048 KB is documented in
+    ///   KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md G155 as in-use beyond the
+    ///   canonical spec. Other values fall through to 0 (unknown).
     /// Inline so unit tests can link without pulling in jnext_core.
     static inline size_t ram_required_kb(uint8_t ram_required) {
         switch (ram_required) {
             case 0: return 768;
             case 1: return 1792;
             case 2: return 2048;
-            case 3: return 1024;
             default: return 0;
         }
     }
