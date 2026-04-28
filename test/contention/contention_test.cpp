@@ -1544,11 +1544,103 @@ static void test_fuse_inopcode_contention() {
     skip("CT-DELAY-01", "full-frame integration drift",
          "full-frame integration drift not bounded yet (see G50)");
 
-    // CT-TURBO-08 — G51: combined hc(8)+bus-idle commit-edge ordering
-    // for simultaneous mid-line NR 0x07 + NR 0x08 writes. Distinct from
-    // CT-TURBO-07 (NR 0x07 single-write) which references G142.
-    skip("CT-TURBO-08", "NR 0x08+0x07 combined commit ordering",
-         "combined hc(8) + bus-idle commit-edge ordering (see G51)");
+    // CT-TURBO-08 — Combined NR 0x07 + NR 0x08 bit-6 commit ordering.
+    // Each shadow has its OWN commit edge per VHDL zxnext.vhd:5796-5828:
+    //   * cpu_speed (NR 0x07) commits on bus-idle CLK_CPU (line 5809);
+    //   * eff_nr_08_contention_disable (NR 0x08 b6) commits on bus-idle
+    //     CLK_CPU AND hc(8)='1' (line 5822-5823).
+    // The two commits are INDEPENDENT — a simultaneous mid-line write
+    // to both shadows must produce a state in which only the satisfied
+    // edge has committed. (G51)
+    //
+    // Stimulus: drop both shadows mid-line (hc<256, bus_idle whatever),
+    // then walk through the four combinations of (bus_idle, hc(8)) and
+    // assert each gate independently of the other.
+    {
+        ContentionModel cm = make_cm(MachineType::ZX48K);
+        cm.set_mem_active_page(0x0A);             // bank 5 — would contend
+
+        // Mid-line simultaneous write: NR 0x07 cpu_speed=1, NR 0x08 b6=1.
+        cm.set_pending_cpu_speed(1);
+        cm.set_contention_disable_shadow(true);
+
+        // After the write, neither effective field has changed yet —
+        // the gate still tracks the OLD state (cpu_speed=0,
+        // contention_disable=0).
+        const uint8_t eff_speed_after_writes = cm.cpu_speed();
+        const bool eff_cd_after_writes = cm.contention_disable();
+        const bool gate_on_after_writes = cm.is_contended_access();
+
+        // Step 1: hc<256 (no NR 0x08 b6 commit) AND bus_idle=true
+        // (NR 0x07 commit fires). Expected: cpu_speed flips to 1 (gate
+        // forced off via cpu_speed term), but eff_nr_08_contention_disable
+        // stays at 0.
+        cm.commit_pending_cpu_speed_on_bus_idle(true);
+        cm.commit_contention_disable_on_hc(100);
+        const uint8_t eff_speed_step1 = cm.cpu_speed();
+        const bool eff_cd_step1 = cm.contention_disable();
+        // Gate is now off via cpu_speed (zxnext.vhd:4481 forces gate
+        // low when cpu_speed != 0 OR eff_contention_disable=1).
+        const bool gate_off_step1 = !cm.is_contended_access();
+
+        // Step 2: reset shadows + effectives to 0/false, repeat the
+        // simultaneous-write stimulus, then commit ONLY NR 0x08 b6
+        // (bus_idle false suppresses NR 0x07 commit; hc(8)=1 commits
+        // NR 0x08 b6).
+        cm.set_cpu_speed(0);                       // immediate: clear effective + shadow
+        cm.set_contention_disable(false);          // immediate: clear effective + shadow
+
+        cm.set_pending_cpu_speed(1);
+        cm.set_contention_disable_shadow(true);
+
+        cm.commit_pending_cpu_speed_on_bus_idle(false);  // bus_idle=0 — no commit
+        cm.commit_contention_disable_on_hc(300);   // hc(8)=1 — commits
+        const uint8_t eff_speed_step2 = cm.cpu_speed();
+        const bool eff_cd_step2 = cm.contention_disable();
+        // NR 0x08 b6 committed → gate off via that term, even though
+        // cpu_speed effective is still 0.
+        const bool gate_off_step2 = !cm.is_contended_access();
+
+        // Step 3: now also fire the NR 0x07 commit. Both effectives
+        // should be set; gate stays off.
+        cm.commit_pending_cpu_speed_on_bus_idle(true);
+        const uint8_t eff_speed_step3 = cm.cpu_speed();
+        const bool eff_cd_step3 = cm.contention_disable();
+        const bool gate_off_step3 = !cm.is_contended_access();
+
+        const bool ok = (eff_speed_after_writes == 0)
+                     && (eff_cd_after_writes == false)
+                     && gate_on_after_writes
+                     && (eff_speed_step1 == 1)
+                     && (eff_cd_step1 == false)     // NR 0x08 b6 NOT yet committed
+                     && gate_off_step1              // gate off via cpu_speed
+                     && (eff_speed_step2 == 0)      // NR 0x07 NOT committed (bus_idle=0)
+                     && (eff_cd_step2 == true)      // NR 0x08 b6 committed
+                     && gate_off_step2              // gate off via contention_disable
+                     && (eff_speed_step3 == 1)
+                     && (eff_cd_step3 == true)
+                     && gate_off_step3;
+
+        check("CT-TURBO-08",
+              "Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow "
+              "commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 "
+              "b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one "
+              "edge satisfied does not commit the other "
+              "[zxnext.vhd:5796-5828]",
+              ok,
+              std::string("post_writes=(speed=") + std::to_string(eff_speed_after_writes)
+              + ",cd=" + std::to_string(eff_cd_after_writes)
+              + ",gate_on=" + std::to_string(gate_on_after_writes) + ")"
+              + " step1=(speed=" + std::to_string(eff_speed_step1)
+              + ",cd=" + std::to_string(eff_cd_step1)
+              + ",gate_off=" + std::to_string(gate_off_step1) + ")"
+              + " step2=(speed=" + std::to_string(eff_speed_step2)
+              + ",cd=" + std::to_string(eff_cd_step2)
+              + ",gate_off=" + std::to_string(gate_off_step2) + ")"
+              + " step3=(speed=" + std::to_string(eff_speed_step3)
+              + ",cd=" + std::to_string(eff_cd_step3)
+              + ",gate_off=" + std::to_string(gate_off_step3) + ")");
+    }
 
     // CT-FUSE-05 — G53: FUSE-table retirement bypass-toggle row.
     // Same stimulus as CT-FUSE-01..04 with FUSE table forcibly bypassed
