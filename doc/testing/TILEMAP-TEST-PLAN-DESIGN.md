@@ -152,6 +152,7 @@ bit decode authority: `tilemap.vhd:189-195` + `zxnext.vhd:5461-5462`.
 | TM-162 | Per-scanline NR 0x6B b1 (256→512 tile) flip mid-frame | Lines 0..99 b1=0; Copper writes b1=1 at line 100 | Lines 0..99 use 256-tile addressing (8-bit pat idx); lines 100..255 use 9-bit tile idx (b1 also forces ula_below per VHDL `zxnext.vhd:6863`). skip — `mode_512_` (`tilemap.h:140`) bool snapshot (see G06) |
 | TM-163 | Per-scanline NR 0x6B b0 (`tm_on_top`) flip mid-frame | Lines 0..99 b0=0 (TM-below default); Copper writes b0=1 at line 100 | Lines 0..99 follow per-tile below; lines 100..255 force tilemap above ULA. skip — `ula_on_top_` (`tilemap.h:141`) bool snapshot, no log (see G06) |
 | TM-164 | Per-scanline NR 0x6B b7 (enable) flip mid-frame | Lines 0..99 b7=0 (TM off); Copper writes b7=1 at line 100 | Lines 0..99 render no tilemap; lines 100..255 render tilemap. skip — `enabled_` (`tilemap.h:136`) bool snapshot, no log (see G06) |
+| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | start_frame; line=120 NR 0x4C ← 0x05 | Rows 0..119 use 0xF (default `nr_4c_tm_transparent_index`); rows 120..end use 0x05. skip — `Tilemap::transp_colour_` is a scalar today; no per-scanline change-log on NR 0x4C. Re-homed 2026-04-28 from `compositor_test.cpp` (PSCAN-G04-03) per cross-bucket G04 ownership; NR 0x4C is owned by Tilemap — VHDL `zxnext.vhd:5018, 4395`, `tilemap.vhd:425-429` (`pixel_en_standard_s <= pixel_en_s and (pixel(3:0) /= transp_colour)`) |
 
 ### Group 2: 40-Column Mode (8-bit tiles)
 

@@ -23,7 +23,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | Task 8 t1: G123/G124/G125/G131/G137 closed (-7).       |
 | SD Card               |       21 |        8 |      0 |      13 |     38% | Task 7r2: G40/G41 SD-10..15 + MMC-01..03 added.        |
 | Sprites               |      178 |      168 |      0 |      10 |     94% | Task 7r2: G06/G13/G15 OVF + NR70 stubs added.          |
-| Compositor            |      140 |      136 |      0 |       4 |     97% | Task 8 t1: G27/G93/G04-01/G11×3 closed; G108×3 re-homed. |
+| Compositor            |      138 |      136 |      0 |       2 |     99% | Task 8 W1+W2: G27/G93/G04-01/G11×3 closed; G108×3 + G04-02/03 re-homed. |
 | Compositor (int)      |        7 |        7 |      0 |       0 |    100% | Task 8 t1: G108 PFF×4 added.                            |
 | ULA Video             |       98 |       82 |      0 |      16 |     84% | Task 7r2: G07/G08/G10 (S5-PSL/S9-PSL/S17.x).           |
 | ULA Video (int)       |       11 |        9 |      0 |       2 |     81% | Unchanged (Task 7 round 1 baseline).                   |
@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
 | NMI Source Pipeline   |       57 |       43 |      0 |      14 |     75% | Task 8 t1: G153/G162/G152 closed (-9; +HK/RST/NR02 + HK-07b/MF-G162-01b companions). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
-| **Total**             | **3693** | **3441** |  **0** | **252** |     93% |                                                        |
+| **Total**             | **3691** | **3441** |  **0** | **250** |     93% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 

@@ -1576,16 +1576,20 @@ static void test_UTB() {
 
     // UB-G26-01 — VHDL zxnext.vhd:7163-7177. The mix_top/mix_bot swap
     // semantics on tm_pixel_below_2 in mode 01 read inverted to the
-    // flag name; UTB-40/41 encode VHDL as-is. Skip blocked on
-    // FPGA-team oracle confirmation.
+    // flag name; UTB-40/41 encode VHDL as-is. DEFERRED on FPGA-team
+    // oracle confirmation; see COMPOSITOR-TEST-PLAN-DESIGN.md
+    // §"Open Questions (Honest)" item 1.
     skip("UB-G26-01",
-         "FPGA-team clarification needed: blend-mode-01 tm_pixel_below swap (see G26)");
+         "DEFERRED on FPGA-team oracle: mode-01 mix_top/mix_bot swap inversion "
+         "(COMPOSITOR-TEST-PLAN-DESIGN.md Open Questions §1; G26)");
 
     // UB-G26-02 — VHDL zxnext.vhd:7300, 7342. L2-priority `if` is
     // first in mode 110/111 (more aggressive than non-blend modes).
-    // Skip blocked on FPGA-team confirmation that this is intended.
+    // DEFERRED on FPGA-team confirmation that this is intended; see
+    // COMPOSITOR-TEST-PLAN-DESIGN.md §"Open Questions (Honest)" item 2.
     skip("UB-G26-02",
-         "FPGA-team clarification: L2 priority over opaque mix_top in 110/111 (see G26)");
+         "DEFERRED on FPGA-team oracle: L2 priority over opaque mix_top in 110/111 "
+         "(COMPOSITOR-TEST-PLAN-DESIGN.md Open Questions §2; G26)");
 }
 
 // ── Group PFF — port_ff_reg NR-side fan-out (G108) ──────────────────────
@@ -2433,20 +2437,26 @@ static void test_PSCAN() {
                      r.transparent_rgb_for_line(199)));
     }
 
-    // PSCAN-G04-02 / PSCAN-G04-03 — NR 0x4B (sprite transparent index)
-    // and NR 0x4C (tilemap transparent nibble) per-scanline replay
-    // live on PaletteManager (see palette.h `sprite_transparency_` /
-    // `tilemap_transparency_`). The compositor plan only verifies
-    // boundary integration (TRI-10/11/20). The per-line replay for
-    // NR 0x4B/0x4C must be added on PaletteManager and tested by the
-    // Sprites / Tilemap suites that own those NRs (gap doc cross-
-    // bucket entry under G04 — Compositor + Sprites + Tilemap). This
-    // suite does not own those tests; rows stay deferred to the
-    // owning suites.
-    skip("PSCAN-G04-02",
-         "NR 0x4B per-scanline owned by Sprites suite (see G04 cross-bucket)");
-    skip("PSCAN-G04-03",
-         "NR 0x4C per-scanline owned by Tilemap suite (see G04 cross-bucket)");
+    // PSCAN-G04-02 — RE-HOMED 2026-04-28 to SPRITES-TEST-PLAN-DESIGN.md.
+    // NR 0x4B (sprite-transparent index) lives on `Sprites` per VHDL
+    // zxnext.vhd:5016, 1190 (`nr_4b_sprite_transparent_index` →
+    // `sprite_transparent_index_o` consumed at sprites.vhd's pixel
+    // engine). The per-scanline change-log + replay is therefore the
+    // Sprites suite's responsibility once G04 grows in that bucket;
+    // the compositor only sees the already-keyed sprite output.
+    // Cross-bucket G04 ownership: Sprites suite (the row will be added
+    // to test/sprites/sprites_test.cpp by that suite's owner when the
+    // log lands).
+
+    // PSCAN-G04-03 — RE-HOMED 2026-04-28 to TILEMAP-TEST-PLAN-DESIGN.md.
+    // NR 0x4C (tilemap-transparent nibble) lives on `Tilemap` per VHDL
+    // zxnext.vhd:5018, 4395 (`nr_4c_tm_transparent_index` →
+    // `transp_colour_i` consumed at tilemap.vhd:425-429 inside the
+    // Tilemap engine). The per-scanline change-log + replay belongs
+    // in the Tilemap suite under G04 cross-bucket ownership; the
+    // compositor only sees the already-keyed tilemap output. The row
+    // will be added to test/tilemap/tilemap_test.cpp by that suite's
+    // owner when the log lands.
 
     // PSCAN-G11-01 — VHDL zxnext.vhd:5445, 7142-7176. NR 0x68 b0
     // (stencil_mode) per-scanline snapshot.
