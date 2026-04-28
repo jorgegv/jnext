@@ -1003,6 +1003,141 @@ static void test_clip_cycling(Emulator& emu) {
               tm.clip_x1() == 0xAA && got_1c == 0x40,
               "x1=" + hex2(tm.clip_x1()) + " nr_1c=" + hex2(got_1c));
     }
+
+    // CLIP-11 — NR 0x19 read is a combinatorial 4-way mux over the sprite
+    // clip coords selected by nr_19_sprite_clip_idx (zxnext.vhd:5955-5961).
+    // Reads do NOT advance the idx; only writes do (zxnext.vhd:5256).
+    // Closes G1.AT-16 / G97 — re-homed from sprites_test.cpp because the
+    // mux state lives in Emulator (clip_spr_idx_), not in SpriteEngine.
+    // Mirrors the CLIP-08 idiom: seed all four slots, then walk the idx
+    // via successive same-value writes and read between advances.
+    {
+        // Seed all four slots with distinct values, idx wraps back to 0.
+        nr_write(emu, 0x1C, 0x02);           // reset sprite idx to 0
+        nr_write(emu, 0x19, 0x10);           // x1 ← 0x10, idx 0→1
+        nr_write(emu, 0x19, 0x20);           // x2 ← 0x20, idx 1→2
+        nr_write(emu, 0x19, 0x30);           // y1 ← 0x30, idx 2→3
+        nr_write(emu, 0x19, 0x40);           // y2 ← 0x40, idx 3→0
+
+        // idx = 0 → read returns x1.
+        uint8_t r_x1 = nr_read(emu, 0x19);
+
+        // Advance idx 0→1 by re-writing x1 with the same value.
+        nr_write(emu, 0x19, 0x10);
+        uint8_t r_x2 = nr_read(emu, 0x19);   // idx = 1 → x2
+
+        // Advance idx 1→2 by re-writing x2.
+        nr_write(emu, 0x19, 0x20);
+        uint8_t r_y1 = nr_read(emu, 0x19);   // idx = 2 → y1
+
+        // Advance idx 2→3 by re-writing y1.
+        nr_write(emu, 0x19, 0x30);
+        uint8_t r_y2 = nr_read(emu, 0x19);   // idx = 3 → y2
+
+        check("CLIP-11",
+              "NR 0x19 read mux cycles through x1, x2, y1, y2 as idx advances "
+              "[zxnext.vhd:5955-5961]",
+              r_x1 == 0x10 && r_x2 == 0x20 &&
+              r_y1 == 0x30 && r_y2 == 0x40,
+              "r_x1=" + hex2(r_x1) + " r_x2=" + hex2(r_x2) +
+              " r_y1=" + hex2(r_y1) + " r_y2=" + hex2(r_y2));
+    }
+
+    // CLIP-11b — NR 0x19 read does NOT advance idx (two consecutive reads
+    // equal). Mirrors CLIP-09a for the sprite clip register set. VHDL
+    // zxnext.vhd:5955-5961 is a pure combinatorial mux; only writes
+    // advance idx (:5256). Discriminative against an off-by-one impl
+    // that mistakenly increments on read.
+    {
+        nr_write(emu, 0x1C, 0x02);           // reset sprite idx to 0
+        nr_write(emu, 0x19, 0x77);           // x1 ← 0x77 (idx 0→1)
+        nr_write(emu, 0x1C, 0x02);           // reset sprite idx back to 0
+        uint8_t r1 = nr_read(emu, 0x19);
+        uint8_t r2 = nr_read(emu, 0x19);
+        // Both reads must return x1=0x77; if the read advanced idx,
+        // r2 would return x2 (still default 0xFF post-reset on a fresh
+        // engine, but here we don't re-fresh — assert equality, which
+        // is the load-bearing invariant).
+        check("CLIP-11b",
+              "NR 0x19 read does NOT advance idx (two consecutive reads equal) "
+              "[zxnext.vhd:5955-5961 — combinatorial, no idx increment]",
+              r1 == r2 && r1 == 0x77,
+              "r1=" + hex2(r1) + " r2=" + hex2(r2));
+    }
+
+    // CLIP-12 — NR 0x1A read is a combinatorial 4-way mux over the ULA
+    // clip coords selected by nr_1a_ula_clip_idx (zxnext.vhd:5963-5969).
+    // Reads do NOT advance the idx; only writes do (zxnext.vhd:5265).
+    // Closes G1.AT-17 / G97. Use values < 0xC0 for y2 to avoid the
+    // VHDL clamp at zxnext.vhd:6779-6783 — that clamp applies to the
+    // consumer-facing `ula_clip_y2_0`, not to the raw register the
+    // NR 0x1A read returns. CLIP-12c covers the raw-register property
+    // explicitly.
+    {
+        nr_write(emu, 0x1C, 0x04);           // reset ULA idx to 0
+        nr_write(emu, 0x1A, 0x05);           // x1 ← 0x05, idx 0→1
+        nr_write(emu, 0x1A, 0x15);           // x2 ← 0x15, idx 1→2
+        nr_write(emu, 0x1A, 0x25);           // y1 ← 0x25, idx 2→3
+        nr_write(emu, 0x1A, 0x35);           // y2 ← 0x35, idx 3→0
+
+        uint8_t r_x1 = nr_read(emu, 0x1A);   // idx = 0 → x1
+
+        nr_write(emu, 0x1A, 0x05);           // re-write x1 to advance idx
+        uint8_t r_x2 = nr_read(emu, 0x1A);   // idx = 1 → x2
+
+        nr_write(emu, 0x1A, 0x15);
+        uint8_t r_y1 = nr_read(emu, 0x1A);   // idx = 2 → y1
+
+        nr_write(emu, 0x1A, 0x25);
+        uint8_t r_y2 = nr_read(emu, 0x1A);   // idx = 3 → y2
+
+        check("CLIP-12",
+              "NR 0x1A read mux cycles through x1, x2, y1, y2 as idx advances "
+              "[zxnext.vhd:5963-5969]",
+              r_x1 == 0x05 && r_x2 == 0x15 &&
+              r_y1 == 0x25 && r_y2 == 0x35,
+              "r_x1=" + hex2(r_x1) + " r_x2=" + hex2(r_x2) +
+              " r_y1=" + hex2(r_y1) + " r_y2=" + hex2(r_y2));
+    }
+
+    // CLIP-12b — NR 0x1A read does NOT advance idx (mirrors CLIP-11b /
+    // CLIP-09a). VHDL zxnext.vhd:5963-5969 is combinatorial.
+    {
+        nr_write(emu, 0x1C, 0x04);           // reset ULA idx to 0
+        nr_write(emu, 0x1A, 0x88);           // x1 ← 0x88 (idx 0→1)
+        nr_write(emu, 0x1C, 0x04);           // reset ULA idx back to 0
+        uint8_t r1 = nr_read(emu, 0x1A);
+        uint8_t r2 = nr_read(emu, 0x1A);
+        check("CLIP-12b",
+              "NR 0x1A read does NOT advance idx (two consecutive reads equal) "
+              "[zxnext.vhd:5963-5969 — combinatorial, no idx increment]",
+              r1 == r2 && r1 == 0x88,
+              "r1=" + hex2(r1) + " r2=" + hex2(r2));
+    }
+
+    // CLIP-12c — NR 0x1A read returns the RAW nr_1a_ula_clip_y2 register
+    // (zxnext.vhd:5968), NOT the consumer-side clamped ula_clip_y2_0
+    // signal (zxnext.vhd:6779-6783). Discriminative: write y2=0xFF
+    // (high two bits set, which would clamp to 0xBF on the consumer
+    // side) and verify the NR 0x1A read returns 0xFF.
+    {
+        nr_write(emu, 0x1C, 0x04);           // reset ULA idx to 0
+        nr_write(emu, 0x1A, 0x00);           // x1 ← 0x00, idx 0→1
+        nr_write(emu, 0x1A, 0x00);           // x2 ← 0x00, idx 1→2
+        nr_write(emu, 0x1A, 0x00);           // y1 ← 0x00, idx 2→3
+        nr_write(emu, 0x1A, 0xFF);           // y2 ← 0xFF (raw), idx 3→0
+        // Walk idx back to 3 via 3 same-value writes.
+        nr_write(emu, 0x1A, 0x00);           // x1 (idx 0→1)
+        nr_write(emu, 0x1A, 0x00);           // x2 (idx 1→2)
+        nr_write(emu, 0x1A, 0x00);           // y1 (idx 2→3)
+        uint8_t got = nr_read(emu, 0x1A);    // idx = 3 → y2 raw
+        check("CLIP-12c",
+              "NR 0x1A read at idx=3 returns RAW nr_1a_ula_clip_y2=0xFF "
+              "(NOT consumer-side ula_clip_y2_0 clamped to 0xBF) "
+              "[zxnext.vhd:5968 raw register read; clamp at :6779-6783 "
+              "is on consumer signal only]",
+              got == 0xFF, detail_eq(got, 0xFF));
+    }
 }
 
 // ── PAL-01..06: Palette write pipeline and read-back ────────────────

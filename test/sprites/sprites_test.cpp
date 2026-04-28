@@ -397,21 +397,24 @@ static void group1() {
          "NR 0x75-0x79 must increment slot after every byte",
          "NR 0x75-0x79 dispatches to attr_slot_; per-byte inc absent (see G96)");
 
-    // G1.AT-16 — NR 0x19 sprite-clip read handler absent.
-    // VHDL zxnext.vhd:5956-5970 — port_253b_dat 4-way mux on
-    // nr_19_sprite_clip_idx selects the indexed clip register on read.
-    // jnext emulator.cpp:514-533 registers WRITE only; NR 0x18/0x1B
-    // already have the read handler pattern at :504-511 / :548-555.
-    // Reads MUST NOT advance the clip index (matches NR 0x18/0x1B).
-    stub("G1.AT-16",
-         "NR 0x19 read returns indexed sprite-clip reg (mux at 5956)",
-         "NextReg::read for 0x19 returns raw last-write byte (see G97)");
-
-    // G1.AT-17 — NR 0x1A ULA-clip read handler absent.
-    // Same pattern as G1.AT-16 for the ULA-clip register set.
-    stub("G1.AT-17",
-         "NR 0x1A read returns indexed ULA-clip reg (mux at 5956)",
-         "NextReg::read for 0x1A returns raw last-write byte (see G97)");
+    // G1.AT-16 / G1.AT-17 — NR 0x19 / NR 0x1A indexed clip-read mux.
+    // VHDL zxnext.vhd:5955-5969 — port_253b_dat 4-way mux on
+    // nr_19_sprite_clip_idx / nr_1a_ula_clip_idx selects the indexed clip
+    // register on read; reads do NOT advance idx (only writes do, at
+    // zxnext.vhd:5256 / 5265).
+    //
+    // RE-HOMED 2026-04-28 (Tier 2 Wave 2 — G97 closure): the read mux
+    // state lives in Emulator::clip_spr_idx_ / clip_ula_idx_, NOT in
+    // SpriteEngine / Ula. Per `feedback_rehome_to_owner_plan.md`, F-skip
+    // rows pointing at another subsystem should be re-homed to the
+    // owner. The owner is NextReg integration; coverage now lives at
+    // test/nextreg/nextreg_integration_test.cpp:
+    //   - G1.AT-16 → CLIP-11 + CLIP-11b (NR 0x19 read mux + no-advance)
+    //   - G1.AT-17 → CLIP-12 + CLIP-12b + CLIP-12c (NR 0x1A read mux,
+    //                no-advance, raw y2 register vs consumer clamp).
+    // The corresponding read handlers are installed at
+    // src/core/emulator.cpp NR 0x19 / NR 0x1A read-handler blocks
+    // (mirroring the NR 0x18 / NR 0x1B pattern).
 }
 
 // ---------------------------------------------------------------------------
