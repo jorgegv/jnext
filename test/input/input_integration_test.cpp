@@ -36,6 +36,11 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "input/keyboard.h"
+#include "input/joystick.h"
+#include "input/joystick_dispatcher.h"
+#include "input/membrane_stick.h"
+#include "input/emu_fnkeys.h"
+#include "port/nextreg.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -519,56 +524,408 @@ static void test_fe_read(Emulator& emu) {
 }
 
 // ── Section JOY-WIRE — Production-wire NR 0x05 → MembraneStick (G126) ──
+// ── + SDL gamepad → Joystick host adapter (G42) ─────────────────────────
 //
-// Verifies the Emulator path. See G126 for the bare-class side; this row
-// covers the full NR-write through OUT (0x253B). Once the wiring lands,
-// switching joy0 from default Kempston1 to Sinclair-1 (mode 011) and
-// pressing joy0 RIGHT should toggle membrane row 4 col 3 (key 7).
+// JOY-WIRE-01: full NR-write path OUT 0x253B[5]=v → Joystick::set_nr_05()
+//   → MembraneStick::set_mode(). Closure of G126 (Tier 2 W1 Agent B
+//   propagation) verified end-to-end through the Emulator port handler at
+//   src/core/emulator.cpp:529-531.
+//
+// JOY-WIRE-02/03/04: SDL_CONTROLLER* event → JoystickDispatcher → Joystick
+//   raw 12-bit vector. Closure of G42 (Tier 3 W2). The dispatcher mirrors
+//   the MouseDispatcher / G43 pattern: a transport-agnostic API
+//   (handle_button / handle_axis) plus an SDL_Event entry point
+//   (handle_sdl_event) that resolves the SDL_JoystickID → connector slot
+//   via a host-installed map.
+//
+// VHDL surface (already covered by KEMP-* / MD-* in input_test.cpp):
+//   zxnext.vhd:3441-3442  JOY_LEFT[10:0] / JOY_RIGHT[10:0] raw vectors
+//   zxnext.vhd:3470-3506  port 0x1F / 0x37 mux keyed by nr_05_joy0/joy1
+//   membrane_stick.vhd:117-149  joy_type (NR 0x05 mode) selects keymap region
 
-static void test_joy_wire() {
+static void test_joy_wire(Emulator& emu) {
     set_group("JOY-WIRE");
-    skip("JOY-WIRE-01",
-         "OUT 253B+05 propagation to MembraneStick unwired (see G126)");
 
-    // JOY-WIRE-02 — G42: SDL gamepad button events do not dispatch into
-    // Joystick::set_joy_left()/set_joy_right(). Verified: grep across src/
-    // returns zero callers outside the class itself. SDL initialises
-    // SDL_INIT_GAMECONTROLLER but the GUI / platform event loop has no
-    // SDL_CONTROLLERBUTTONDOWN/UP → joy-bit translator. Pressing the host
-    // pad's A button does NOT flip Joystick's bit 4 (Fire 1).
-    skip("JOY-WIRE-02",
-         "SDL_CONTROLLERBUTTON* not dispatched to Joystick::set_joy_left/right (see G42)");
+    // JOY-WIRE-01 — G126 closure: full Emulator path. OUT 0x243B,0x05;
+    // OUT 0x253B,<v> must reach Joystick::set_nr_05() which propagates
+    // the decoded modes to the bound MembraneStick (per Emulator ctor at
+    // src/core/emulator.cpp:33). We verify by injecting a single direction
+    // into the membrane fold and reading the matching row — same observable
+    // as JMODE-09 in test/input/input_test.cpp, but driven through OUT
+    // ports instead of direct Joystick::set_nr_05() calls.
+    //
+    // Stimulus: NR 0x05 = 0x30 → joy0=Sinclair2, joy1=Sinclair1 (per the
+    // VHDL bit-extraction at zxnext.vhd:5157-5158, decoded in
+    // src/input/joystick.cpp:39-46). joy1=Sinclair1 (mode "011") →
+    // COE addrs 0..4 → row 4. For Sinclair1 LEFT (bit 1 set) the COE
+    // oracle (membrane_stick.cpp:94) gives (row 4, col 4) = key 6.
+    // Expected row 4 mask: 0x1F & ~(1<<4) = 0x0F.
+    {
+        fresh(emu);
+        // Direct NR-write path uses port 0x243B (select) and 0x253B (data).
+        emu.port().out(0x243B, 0x05);          // select NR 0x05
+        emu.port().out(0x253B, 0x30);          // data: joy0=S2, joy1=S1
 
-    // JOY-WIRE-03 — G42: SDL gamepad axis events do not dispatch into
-    // Joystick. SDL_CONTROLLERAXISMOTION on left stick must threshold into
-    // U/D/L/R bits per a configurable deadzone. No axis dispatcher exists
-    // in src/platform/ or src/gui/.
-    skip("JOY-WIRE-03",
-         "SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold absent (see G42)");
+        // Inject LEFT on right connector (bit 1 = LEFT per zxnext.vhd:3441).
+        emu.membrane_stick().inject_joystick_state(1, 0x02);
+        const uint8_t r4 = emu.membrane_stick().compose_into_row(4, 0x1F);
 
-    // JOY-WIRE-04 — G42: per-connector routing policy unwritten. With two
-    // physical pads attached, there is no rule deciding "pad 0 → joy_left,
-    // pad 1 → joy_right". The Joystick class accepts both lanes; the
-    // host-side mapping does not exist.
-    skip("JOY-WIRE-04",
-         "two-pad → joy_left/joy_right routing policy unwritten (see G42)");
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "after OUT 253B,05/30: membrane row 4 = 0x%02X "
+                      "(want 0x0F — Sinclair1 LEFT clears bit 4)",
+                      r4);
+        check("JOY-WIRE-01",
+              "OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; "
+              "zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149)",
+              r4 == 0x0F,
+              detail);
+    }
+
+    // JOY-WIRE-02 — G42: SDL_CONTROLLERBUTTON* → JoystickDispatcher →
+    // Joystick raw bit vector. Per-button mapping (joystick_dispatcher.cpp:
+    // sdl_button_to_jbit):
+    //   SDL_CONTROLLER_BUTTON_A         → bit 4 (B / Fire 1)
+    //   SDL_CONTROLLER_BUTTON_B         → bit 5 (C / Fire 2)
+    //   SDL_CONTROLLER_BUTTON_DPAD_RIGHT→ bit 0 (R)
+    //   SDL_CONTROLLER_BUTTON_DPAD_UP   → bit 3 (U)
+    //
+    // Test: press A on connector 0 → Joystick::read_port_1f() (Kempston1
+    // mode default for joy0) bit 4 = 1. Press DPAD_RIGHT → bit 0 = 1.
+    // Release A → bit 4 = 0 (bit 0 remains). Release everything → 0x00.
+    //
+    // VHDL oracle for the Kempston bit layout: zxnext.vhd:3470-3479,
+    // zxnext.vhd:3441-3442. Joystick reset default joy0=Kempston1
+    // (zxnext.vhd:1105-1106).
+    {
+        Joystick j;                                // bare class, NOT emu
+        JoystickDispatcher d(j);
+
+        // Initial: no buttons → port 0x1F = 0x00 (Kempston1 default,
+        // joy0=K1, joy1=S2 — only joy0 contributes via 0x1F lane).
+        const uint8_t v0 = j.read_port_1f();
+
+        // Press A on connector 0 → bit 4 set.
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);
+        const uint8_t v_a = j.read_port_1f();
+
+        // Press DPAD_RIGHT on connector 0 → bit 0 also set.
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        const uint8_t v_ar = j.read_port_1f();
+
+        // Release A → only bit 0 remains.
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, false);
+        const uint8_t v_r = j.read_port_1f();
+
+        // Release DPAD_RIGHT → 0x00.
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, false);
+        const uint8_t v_off = j.read_port_1f();
+
+        // Out-of-range connector index ignored (JOY-WIRE-04 routing rule).
+        d.handle_button(2, SDL_CONTROLLER_BUTTON_A, true);
+        const uint8_t v_idx2 = j.read_port_1f();
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "v0=0x%02X v_a=0x%02X v_ar=0x%02X v_r=0x%02X "
+                      "v_off=0x%02X v_idx2=0x%02X",
+                      v0, v_a, v_ar, v_r, v_off, v_idx2);
+        check("JOY-WIRE-02",
+              "SDL_CONTROLLERBUTTON* → Joystick port 0x1F (K1 mode)  "
+              "(zxnext.vhd:3441-3442 + :3470-3479; G42)",
+              v0 == 0x00 && v_a == 0x10 && v_ar == 0x11 && v_r == 0x01 &&
+              v_off == 0x00 && v_idx2 == 0x00,
+              detail);
+    }
+
+    // JOY-WIRE-03 — G42: SDL_CONTROLLERAXISMOTION → digital U/D/L/R
+    // threshold. AXIS_THRESHOLD = 16384 (50% of int16). Negative deflection
+    // past -threshold drives L (X axis) or U (Y axis); positive past
+    // +threshold drives R (X) or D (Y). Inside the deadzone all D-pad
+    // bits stay clear.
+    //
+    // Test sequence (connector 0, Kempston1 default):
+    //   1. axis=0     → no bits set
+    //   2. axis=+8000 (deadzone) → no bits set
+    //   3. axis=+20000 (X) → R fires (bit 0)
+    //   4. axis=+20000 (Y) → D fires (bit 2)
+    //   5. axis=0 (X)   → R clears
+    //   6. axis=-25000 (Y) → U fires (bit 3); D clears
+    //   7. axis=0 (Y)   → U clears
+    //
+    // Trigger axis (LEFT_TRIGGER) → silently ignored (no Kempston analogue).
+    {
+        Joystick j;
+        JoystickDispatcher d(j);
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 0);
+        const uint8_t v0 = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 8000);    // deadzone
+        const uint8_t v_dz = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 20000);   // R fires
+        const uint8_t v_r = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, 20000);   // D fires
+        const uint8_t v_rd = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 0);       // R clears
+        const uint8_t v_d = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, -25000);  // U fires, D clears
+        const uint8_t v_u = j.read_port_1f();
+
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, 0);       // U clears
+        const uint8_t v_off = j.read_port_1f();
+
+        // Trigger axis is unmapped — no bits change.
+        d.handle_axis(0, SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32000);
+        const uint8_t v_trig = j.read_port_1f();
+
+        char detail[192];
+        std::snprintf(detail, sizeof(detail),
+                      "v0=0x%02X v_dz=0x%02X v_r=0x%02X v_rd=0x%02X "
+                      "v_d=0x%02X v_u=0x%02X v_off=0x%02X v_trig=0x%02X",
+                      v0, v_dz, v_r, v_rd, v_d, v_u, v_off, v_trig);
+        check("JOY-WIRE-03",
+              "SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold  "
+              "(symmetric ±AXIS_THRESHOLD=16384; G42)",
+              v0    == 0x00 &&
+              v_dz  == 0x00 &&
+              v_r   == 0x01 &&     // R bit 0
+              v_rd  == 0x05 &&     // R + D
+              v_d   == 0x04 &&     // D bit 2 only
+              v_u   == 0x08 &&     // U bit 3 only
+              v_off == 0x00 &&
+              v_trig== 0x00,
+              detail);
+    }
+
+    // JOY-WIRE-04 — G42 routing policy: SDL controller index 0 →
+    // Joystick::set_joy_left() (joy0 / left connector); index 1 →
+    // set_joy_right() (joy1 / right connector). Index 2+ silently ignored.
+    //
+    // Test: in Kempston1 + Kempston2 modes (NR 0x05 = 0x44 — joy0=K1=001,
+    // joy1=K2=100), pressing A on idx 0 should land on port 0x1F bit 4
+    // (left lane), pressing A on idx 1 should land on port 0x37 bit 4
+    // (right lane). Critical: the OPPOSITE lane must remain 0x00 for
+    // each press, otherwise routing is broken.
+    {
+        Joystick j;
+        // K1+K2 splits the two connectors onto different ports —
+        // perfect for testing routing policy because no other lane folds
+        // them together.
+        j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston2);
+        JoystickDispatcher d(j);
+
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);  // → joy_left
+        const uint8_t p1f_a = j.read_port_1f();
+        const uint8_t p37_a = j.read_port_37();
+
+        d.handle_button(1, SDL_CONTROLLER_BUTTON_A, true);  // → joy_right
+        const uint8_t p1f_b = j.read_port_1f();
+        const uint8_t p37_b = j.read_port_37();
+
+        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, false); // release left
+        const uint8_t p1f_c = j.read_port_1f();
+        const uint8_t p37_c = j.read_port_37();
+
+        // Out-of-range index — neither lane changes.
+        d.handle_button(7, SDL_CONTROLLER_BUTTON_A, true);
+        const uint8_t p1f_d = j.read_port_1f();
+        const uint8_t p37_d = j.read_port_37();
+
+        char detail[192];
+        std::snprintf(detail, sizeof(detail),
+                      "after L=A: 1f=0x%02X 37=0x%02X | "
+                      "after L+R=A: 1f=0x%02X 37=0x%02X | "
+                      "after rel L: 1f=0x%02X 37=0x%02X | "
+                      "after idx7: 1f=0x%02X 37=0x%02X",
+                      p1f_a, p37_a, p1f_b, p37_b,
+                      p1f_c, p37_c, p1f_d, p37_d);
+        check("JOY-WIRE-04",
+              "SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored  "
+              "(JOY-WIRE-04 routing policy; G42)",
+              p1f_a == 0x10 && p37_a == 0x00 &&     // L=A: only port 1F
+              p1f_b == 0x10 && p37_b == 0x10 &&     // L+R=A: both ports
+              p1f_c == 0x00 && p37_c == 0x10 &&     // rel L: only port 37
+              p1f_d == 0x00 && p37_d == 0x10,       // idx7 ignored
+              detail);
+    }
+
+    // JOY-WIRE-04-SDL — sanity: handle_sdl_event routes via
+    // SDL_JoystickID → slot mapping. Confirms the production wiring path
+    // (used by SdlApp::on_controller in src/platform/sdl_app.cpp) works
+    // when SDL emits controller events tagged with the device-instance id.
+    // Not a separate plan row — protects production wiring.
+    {
+        Joystick j;
+        JoystickDispatcher d(j);
+
+        // Map two synthetic instance-ids → slots 0 and 1.
+        d.map_instance_to_slot(/*sdl_instance_id=*/100, /*slot=*/0);
+        d.map_instance_to_slot(/*sdl_instance_id=*/101, /*slot=*/1);
+
+        // Synthesise SDL events tagged with those instance-ids.
+        SDL_Event btn0{};
+        btn0.type = SDL_CONTROLLERBUTTONDOWN;
+        btn0.cbutton.which  = 100;
+        btn0.cbutton.button = SDL_CONTROLLER_BUTTON_A;
+        const bool consumed_btn0 = d.handle_sdl_event(btn0);
+        const uint8_t bits0 = static_cast<uint8_t>(d.bits12(0) & 0xFF);
+
+        SDL_Event ax1{};
+        ax1.type = SDL_CONTROLLERAXISMOTION;
+        ax1.caxis.which = 101;
+        ax1.caxis.axis  = SDL_CONTROLLER_AXIS_LEFTX;
+        ax1.caxis.value = 25000;                 // R fires
+        const bool consumed_ax1 = d.handle_sdl_event(ax1);
+        const uint8_t bits1 = static_cast<uint8_t>(d.bits12(1) & 0xFF);
+
+        // Unmapped instance-id → not consumed.
+        SDL_Event orphan{};
+        orphan.type = SDL_CONTROLLERBUTTONDOWN;
+        orphan.cbutton.which  = 999;
+        orphan.cbutton.button = SDL_CONTROLLER_BUTTON_A;
+        const bool consumed_orphan = d.handle_sdl_event(orphan);
+
+        // Non-controller event — not consumed.
+        SDL_Event key_evt{};
+        key_evt.type = SDL_KEYDOWN;
+        const bool consumed_key = d.handle_sdl_event(key_evt);
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "consumed btn0=%d ax1=%d orphan=%d key=%d | "
+                      "bits0=0x%02X (want 0x10) bits1=0x%02X (want 0x01)",
+                      consumed_btn0, consumed_ax1, consumed_orphan,
+                      consumed_key, bits0, bits1);
+        check("JOY-WIRE-04-SDL",
+              "handle_sdl_event resolves SDL_JoystickID → slot via map; "
+              "ignores unmapped + non-controller events (G42)",
+              consumed_btn0 && consumed_ax1 &&
+              !consumed_orphan && !consumed_key &&
+              bits0 == 0x10 && bits1 == 0x01,
+              detail);
+    }
 }
 
-// ── Section HOTKEY — Host F-key dispatch to NR 0x07 / 50-60 (G147) ─────
+// ── Section HOTKEY — Host F-key dispatch to NR 0x07 / 5060 (G147) ──────
 //
-// VHDL zxnext.vhd:5790-5791 increments nr_07_cpu_speed from F8;
-// zxnext.vhd:6342-6347 toggles 50/60 Hz from F3; both gated by
-// nr_06_hotkey_cpu_speed_en / nr_06_hotkey_5060_en (defaults '1' per
-// :4932-4933). jnext: searched src/input/ — no hotkey path; only F1
-// hard-reset wired. F5/F6 expbus dispatch likewise absent.
+// VHDL zxnext.vhd:5789-5791 increments nr_07_cpu_speed from F8;
+// zxnext.vhd:5839-5841 toggles bit 2 of NR 0x05 (`nr_05_5060`) from F3;
+// both gated by nr_06_hotkey_cpu_speed_en / nr_06_hotkey_5060_en (defaults
+// '1' per zxnext.vhd:1107-1108). G132 closure (Tier 2 W1 Agent D) wired
+// the FSM + side-effect callbacks; G147 (this row) closes the host →
+// FSM dispatch.
 //
-// Cross-link: G132 is the FSM (emu_fnkeys.vhd) side; G147 is the SDL→FSM
-// dispatch; G152 (B7 bucket) is F1/F4/F9/F10 reset/NMI dispatch.
+// Path: GUI keyPressEvent (src/gui/main_window.cpp) and SDL on_key
+// (src/platform/sdl_app.cpp) call `Emulator::emu_fnkeys().simulate_mf_fkey_press(idx)`,
+// which advances the FSM IDLE → MF_ROW_A11 → MF_ROW_A12 → MF_CHECK →
+// MF_DONE in one host-event boundary. Entry to MF_DONE fires the
+// `cb_f3_` / `cb_f7_` / `cb_f8_` callbacks which write the NR side-effects.
+// F5/F6 (expbus enable / disable) are part of the FSM strobe vector but
+// have no current callback in jnext — VHDL :6343-6345 wires those to the
+// expansion-bus emulation, which is intentionally not modelled (no cart
+// slot in software emulation). HOTKEY-01 verifies the NR-side observable
+// for F3 / F7 / F8 and confirms the F5 / F6 strobe lands in the FSM
+// fnkey vector even without a side-effect callback.
+//
+// Cross-link: G132 is the FSM; G147 is the host → FSM dispatch; G152 is
+// F1/F4/F9/F10 reset/NMI dispatch (already closed).
 
-static void test_hotkey() {
+static void test_hotkey(Emulator& emu) {
     set_group("HOTKEY");
-    skip("HOTKEY-01",
-         "F8/F3/F5/F6 host hotkey dispatch to NR 0x07/5060/expbus absent (see G147)");
+
+    // HOTKEY-01 — G147 closure. Drive F3 / F5 / F6 / F7 / F8 through the
+    // EmuFnKeys FSM via the host dispatcher entry point (the same path
+    // MainWindow::keyPressEvent / SdlApp::on_key now use) and verify the
+    // VHDL-cited side-effects:
+    //
+    //   F3 (zxnext.vhd:5839-5841): toggles NR 0x05 bit 2.
+    //   F5 (zxnext.vhd:6343):       fnkey(5) strobe latched in FSM
+    //                              (no NR side-effect — expbus only).
+    //   F6 (zxnext.vhd:6345):       fnkey(6) strobe latched in FSM
+    //                              (no NR side-effect — expbus only).
+    //   F7 (zxnext.vhd:5861-5863): increments NR 0x09 bits 1:0.
+    //   F8 (zxnext.vhd:5789-5791): increments NR 0x07 bits 1:0.
+    //
+    // NR 0x06 default 0xA0 (zxnext.vhd:1107-1108) sets cpu_speed_en (bit 7)
+    // and 5060_en (bit 5), so F3 and F8 both fire from a fresh emulator.
+    {
+        fresh(emu);
+        const uint8_t nr05_pre = emu.nextreg().cached(0x05);
+        const uint8_t nr07_pre = emu.nextreg().cached(0x07);
+        const uint8_t nr09_pre = emu.nextreg().cached(0x09);
+
+        // F8 — NR 0x07 cpu_speed bits 1:0 increment.
+        emu.emu_fnkeys().simulate_mf_fkey_press(8);
+        const uint8_t nr07_after_f8 = emu.nextreg().cached(0x07);
+
+        // F3 — NR 0x05 bit 2 toggle.
+        emu.emu_fnkeys().simulate_mf_fkey_press(3);
+        const uint8_t nr05_after_f3 = emu.nextreg().cached(0x05);
+
+        // F7 — NR 0x09 bits 1:0 increment.
+        emu.emu_fnkeys().simulate_mf_fkey_press(7);
+        const uint8_t nr09_after_f7 = emu.nextreg().cached(0x09);
+
+        // F5 / F6 — strobes latched DURING MF_ROW_A11 / MF_ROW_A12 only;
+        // MF_DONE resets `local_fnkeys` to the pure F9 strobe (VHDL :189).
+        // simulate_mf_fkey_press returns the post-MF_DONE latch which has
+        // F5/F6 cleared, so we can't use it. Drive the FSM manually and
+        // sample fnkey(5)/fnkey(6) DURING the matching row scan.
+        //
+        // F5 lives on physical row 3 (col 4) → latched during MF_ROW_A11.
+        // F6 lives on physical row 4 (col 4) → latched during MF_ROW_A12.
+        //
+        // Cycle: IDLE → MF_ROW_A11 → MF_ROW_A12 → MF_CHECK; the F5 strobe
+        // is set once we've ticked into MF_ROW_A11, the F6 strobe once
+        // we're in MF_ROW_A12. Sample both right after the relevant tick.
+        emu.emu_fnkeys().reset();
+        emu.emu_fnkeys().press_membrane_fkey(5);
+        emu.emu_fnkeys().tick();   // IDLE → MF_ROW_A11 (sets fnkey 5 latch)
+        const bool f5_strobed = emu.emu_fnkeys().fnkey(5);
+        emu.emu_fnkeys().release_membrane();
+        emu.emu_fnkeys().tick();   // back toward IDLE
+
+        emu.emu_fnkeys().reset();
+        emu.emu_fnkeys().press_membrane_fkey(6);
+        emu.emu_fnkeys().tick();   // IDLE → MF_ROW_A11
+        emu.emu_fnkeys().tick();   // MF_ROW_A11 → MF_ROW_A12 (sets fnkey 6 latch)
+        const bool f6_strobed = emu.emu_fnkeys().fnkey(6);
+        emu.emu_fnkeys().release_membrane();
+        emu.emu_fnkeys().tick();   // back toward IDLE
+
+        const uint8_t nr07_inc  = static_cast<uint8_t>((nr07_pre & 0x03) + 1) & 0x03;
+        const uint8_t nr09_inc  = static_cast<uint8_t>((nr09_pre & 0x03) + 1) & 0x03;
+        const uint8_t want_nr07 = static_cast<uint8_t>((nr07_pre & 0xFC) | nr07_inc);
+        const uint8_t want_nr09 = static_cast<uint8_t>((nr09_pre & 0xFC) | nr09_inc);
+        const uint8_t want_nr05 = static_cast<uint8_t>(nr05_pre ^ 0x04);
+
+        const bool f8_ok = (nr07_after_f8 == want_nr07);
+        const bool f3_ok = (nr05_after_f3 == want_nr05);
+        const bool f7_ok = (nr09_after_f7 == want_nr09);
+        const bool f5_ok = f5_strobed;
+        const bool f6_ok = f6_strobed;
+
+        char detail[256];
+        std::snprintf(detail, sizeof(detail),
+                      "F8: NR07 0x%02X → 0x%02X (want 0x%02X) | "
+                      "F3: NR05 0x%02X → 0x%02X (want 0x%02X) | "
+                      "F7: NR09 0x%02X → 0x%02X (want 0x%02X) | "
+                      "F5 strobed=%d | F6 strobed=%d",
+                      nr07_pre, nr07_after_f8, want_nr07,
+                      nr05_pre, nr05_after_f3, want_nr05,
+                      nr09_pre, nr09_after_f7, want_nr09,
+                      f5_ok ? 1 : 0, f6_ok ? 1 : 0);
+        check("HOTKEY-01",
+              "F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; "
+              "F5/F6 strobes latched (G147 + G132)",
+              f8_ok && f3_ok && f7_ok && f5_ok && f6_ok,
+              detail);
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -593,10 +950,10 @@ int main() {
     test_fe_read(emu);
     std::printf("  Group: FE-READ — done\n");
 
-    test_joy_wire();
+    test_joy_wire(emu);
     std::printf("  Group: JOY-WIRE — done\n");
 
-    test_hotkey();
+    test_hotkey(emu);
     std::printf("  Group: HOTKEY  — done\n");
 
     std::printf("\n======================================================\n");
