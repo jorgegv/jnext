@@ -129,6 +129,11 @@ void PaletteManager::reset()
         }
         tilemap_rgb333_[p].fill(0);
         tilemap_argb_[p].fill(0xFF000000u);
+        // Priority defaults to 00 at power-on (VHDL zxnext.vhd:4920
+        // else-branch yields 00 for any non-NR-0x44 write; the dpram
+        // initial state is undefined in HW but the firmware writes it
+        // before use, and 00 is the "not promoted" expectation).
+        layer2_priority_[p].fill(0);
     }
 }
 
@@ -237,8 +242,11 @@ void PaletteManager::write_9bit(uint8_t val)
         nine_bit_first_byte_ = val;
         nine_bit_first_written_ = true;
     } else {
-        // Second write: bit 0 = blue LSB (9th bit).
-        // Reconstruct full 9-bit RGB333 from the two writes.
+        // Second write: bit 0 = blue LSB (9th bit), bits 7:6 = palette
+        // priority slot for Layer 2 (VHDL zxnext.vhd:4920 captures
+        // nr_wr_dat(7 downto 6) into nr_palette_priority on the second
+        // NR 0x44 write, then routes those two bits into bits 15:14 of
+        // the L2/sprite dpram word at zxnext.vhd:7025).
         uint8_t first = nine_bit_first_byte_;
         uint8_t r3 = (first >> 5) & 0x07;
         uint8_t g3 = (first >> 2) & 0x07;
@@ -246,7 +254,8 @@ void PaletteManager::write_9bit(uint8_t val)
         uint8_t b3 = static_cast<uint8_t>(((first & 0x03) << 1) | (val & 0x01));
 
         uint16_t rgb333 = static_cast<uint16_t>((r3 << 6) | (g3 << 3) | b3);
-        write_entry(rgb333);
+        uint8_t priority = static_cast<uint8_t>((val >> 6) & 0x03);
+        write_entry(rgb333, priority);
 
         nine_bit_first_written_ = false;
     }
@@ -256,7 +265,7 @@ void PaletteManager::write_9bit(uint8_t val)
 // Internal: write a colour entry to the currently targeted palette
 // ---------------------------------------------------------------------------
 
-void PaletteManager::write_entry(uint16_t rgb333)
+void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
 {
     // Per-scanline log: record BEFORE applying so that apply_change can
     // be reused for replay without re-logging. ULA gets the masked
@@ -269,6 +278,7 @@ void PaletteManager::write_entry(uint16_t rgb333)
             target_palette_,
             static_cast<uint8_t>(is_ula ? (index_ & 0x0F) : index_),
             rgb333,
+            priority,
         };
     } else if (!overflow_warned_) {
         Log::video()->warn(
@@ -280,7 +290,8 @@ void PaletteManager::write_entry(uint16_t rgb333)
     }
 
     apply_change(PaletteChange{current_line_, target_palette_,
-                               static_cast<uint8_t>(index_), rgb333});
+                               static_cast<uint8_t>(index_), rgb333,
+                               priority});
 
     advance_index();
 }
@@ -300,8 +311,13 @@ void PaletteManager::apply_change(const PaletteChange& c)
         }
         case PaletteId::LAYER2_FIRST:
         case PaletteId::LAYER2_SECOND:
-            layer2_rgb333_[bank][c.index] = c.rgb333;
-            layer2_argb_[bank][c.index] = argb;
+            layer2_rgb333_[bank][c.index]   = c.rgb333;
+            layer2_argb_[bank][c.index]     = argb;
+            // Per VHDL zxnext.vhd:4920, only NR 0x44 (9-bit) writes
+            // populate nr_palette_priority; NR 0x41 (8-bit) writes
+            // store '00'. write_9bit / write_8bit pass the right value
+            // through PaletteChange::priority.
+            layer2_priority_[bank][c.index] = c.priority & 0x03;
             break;
         case PaletteId::SPRITE_FIRST:
         case PaletteId::SPRITE_SECOND:
@@ -324,14 +340,15 @@ void PaletteManager::start_frame()
 {
     // Memcpy the live state into the baseline. Same shape on both sides.
     for (int p = 0; p < 2; ++p) {
-        baseline_ula_rgb333_[p]     = ula_rgb333_[p];
-        baseline_ula_argb_[p]       = ula_argb_[p];
-        baseline_layer2_rgb333_[p]  = layer2_rgb333_[p];
-        baseline_layer2_argb_[p]    = layer2_argb_[p];
-        baseline_sprite_rgb333_[p]  = sprite_rgb333_[p];
-        baseline_sprite_argb_[p]    = sprite_argb_[p];
-        baseline_tilemap_rgb333_[p] = tilemap_rgb333_[p];
-        baseline_tilemap_argb_[p]   = tilemap_argb_[p];
+        baseline_ula_rgb333_[p]      = ula_rgb333_[p];
+        baseline_ula_argb_[p]        = ula_argb_[p];
+        baseline_layer2_rgb333_[p]   = layer2_rgb333_[p];
+        baseline_layer2_argb_[p]     = layer2_argb_[p];
+        baseline_sprite_rgb333_[p]   = sprite_rgb333_[p];
+        baseline_sprite_argb_[p]     = sprite_argb_[p];
+        baseline_tilemap_rgb333_[p]  = tilemap_rgb333_[p];
+        baseline_tilemap_argb_[p]    = tilemap_argb_[p];
+        baseline_layer2_priority_[p] = layer2_priority_[p];
     }
     change_count_     = 0;
     render_cursor_    = 0;
@@ -342,14 +359,15 @@ void PaletteManager::start_frame()
 void PaletteManager::rewind_to_baseline()
 {
     for (int p = 0; p < 2; ++p) {
-        ula_rgb333_[p]     = baseline_ula_rgb333_[p];
-        ula_argb_[p]       = baseline_ula_argb_[p];
-        layer2_rgb333_[p]  = baseline_layer2_rgb333_[p];
-        layer2_argb_[p]    = baseline_layer2_argb_[p];
-        sprite_rgb333_[p]  = baseline_sprite_rgb333_[p];
-        sprite_argb_[p]    = baseline_sprite_argb_[p];
-        tilemap_rgb333_[p] = baseline_tilemap_rgb333_[p];
-        tilemap_argb_[p]   = baseline_tilemap_argb_[p];
+        ula_rgb333_[p]      = baseline_ula_rgb333_[p];
+        ula_argb_[p]        = baseline_ula_argb_[p];
+        layer2_rgb333_[p]   = baseline_layer2_rgb333_[p];
+        layer2_argb_[p]     = baseline_layer2_argb_[p];
+        sprite_rgb333_[p]   = baseline_sprite_rgb333_[p];
+        sprite_argb_[p]     = baseline_sprite_argb_[p];
+        tilemap_rgb333_[p]  = baseline_tilemap_rgb333_[p];
+        tilemap_argb_[p]    = baseline_tilemap_argb_[p];
+        layer2_priority_[p] = baseline_layer2_priority_[p];
     }
     render_cursor_ = 0;
 }
@@ -425,6 +443,11 @@ void PaletteManager::save_state(StateWriter& w) const
     w.write_u8(global_transparency_);
     w.write_u8(sprite_transparency_);
     w.write_u8(tilemap_transparency_);
+    // Layer 2 palette priority (NR 0x44 b7:6 capture). Save AFTER the
+    // existing fields so older save-states keep loading via the
+    // backward-compat read path below (priority defaults to 0).
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) w.write_u8(layer2_priority_[p][i]);
 }
 
 void PaletteManager::load_state(StateReader& r)
@@ -463,4 +486,12 @@ void PaletteManager::load_state(StateReader& r)
     global_transparency_ = r.read_u8();
     sprite_transparency_ = r.read_u8();
     tilemap_transparency_ = r.read_u8();
+    // Layer 2 palette priority slots — must be paired with the matching
+    // save_state writer above. The L2/sprite dpram word in VHDL holds
+    // priority (bits 15:14) alongside the colour, so the priority is
+    // re-derivable from rgb333_ alone for entries written via NR 0x44;
+    // we still serialise it explicitly so 8-bit-write entries stay 0.
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i)
+            layer2_priority_[p][i] = r.read_u8();
 }

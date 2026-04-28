@@ -118,6 +118,24 @@ public:
         return static_cast<uint8_t>((r3 << 5) | (g3 << 2) | (b3 >> 1));
     }
 
+    /// Return the 2-bit Layer 2 palette priority field for a palette
+    /// entry on the active L2 palette.  Captured from `nr_wr_dat(7:6)`
+    /// on the second NR 0x44 write (VHDL zxnext.vhd:4920) and stored
+    /// in the dpram word's bits 15:14 (zxnext.vhd:7025, 7039).
+    /// Bit 1 (nr_palette_priority(1) = NR 0x44 b7) is the bit that
+    /// drives `layer2_priority_2` at zxnext.vhd:7050.
+    uint8_t layer2_priority(uint8_t idx) const {
+        return layer2_priority_[active_l2_second_][idx];
+    }
+
+    /// Convenience: true iff the high priority bit (NR 0x44 b7,
+    /// = nr_palette_priority(1)) is set for the entry.  This is the
+    /// bit the compositor uses to promote Layer 2 over sprites
+    /// (VHDL zxnext.vhd:7050, 7220).
+    bool layer2_priority_high(uint8_t idx) const {
+        return (layer2_priority_[active_l2_second_][idx] & 0x02) != 0;
+    }
+
     /// Look up sprite colour by 8-bit pixel value. Uses the active sprite palette.
     uint32_t sprite_colour(uint8_t idx) const {
         return sprite_argb_[active_spr_second_][idx];
@@ -218,6 +236,11 @@ private:
     std::array<uint16_t, FULL_SIZE> sprite_rgb333_[2];
     std::array<uint16_t, FULL_SIZE> tilemap_rgb333_[2];
 
+    // 2-bit palette priority slots (VHDL zxnext.vhd:4920, 7025, 7050).
+    // L2 palette only — sprite/tilemap rgb333 storage doesn't expose a
+    // priority slot in the dpram word the renderer reads.
+    std::array<uint8_t,  FULL_SIZE> layer2_priority_[2]{};
+
     // Cached ARGB8888 lookup tables (rebuilt on palette write).
     std::array<uint32_t, ULA_SIZE>  ula_argb_[2];
     std::array<uint32_t, FULL_SIZE> layer2_argb_[2];
@@ -247,7 +270,7 @@ private:
     uint8_t tilemap_transparency_ = 0x0F;
 
     // Helpers
-    void write_entry(uint16_t rgb333);
+    void write_entry(uint16_t rgb333, uint8_t priority = 0);
     void advance_index();
     void rebuild_argb(PaletteId id, uint8_t idx);
 
@@ -264,6 +287,10 @@ private:
         PaletteId target;      ///< 4 palettes × 2 banks
         uint8_t   index;       ///< 0..255 (ULA wraps to 0..15)
         uint16_t  rgb333;      ///< 9-bit packed RRRGGGBBB
+        uint8_t   priority;    ///< 2-bit nr_palette_priority (L2 only;
+                               ///< 0 for ULA / sprite / tilemap targets
+                               ///< and for NR 0x41 8-bit writes per
+                               ///< zxnext.vhd:4920 else-branch)
     };
 
     std::array<PaletteChange, MAX_CHANGES_PER_FRAME> change_log_{};
@@ -282,6 +309,7 @@ private:
     std::array<uint32_t, FULL_SIZE> baseline_layer2_argb_[2]{};
     std::array<uint32_t, FULL_SIZE> baseline_sprite_argb_[2]{};
     std::array<uint32_t, FULL_SIZE> baseline_tilemap_argb_[2]{};
+    std::array<uint8_t,  FULL_SIZE> baseline_layer2_priority_[2]{};
 
     /// Apply a single change to the live palette state (no logging).
     /// Used by both the replay path and the rewind-then-replay loop.
