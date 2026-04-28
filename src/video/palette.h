@@ -128,6 +128,31 @@ public:
         return ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F];
     }
 
+    /// Look up ULA+ colour as ARGB8888 (G103 runtime path).
+    ///
+    /// VHDL zxnext.vhd:6981 — the runtime read into palette_utm uses
+    /// `('0' & ula_palette_select_1 & ulalores_pixel_1)` as the dpram
+    /// address.  When ULA+ is enabled, `ulalores_pixel_1 = ula_pixel`
+    /// has top 2 bits = "11" (zxula.vhd:535), so the low 6 bits of the
+    /// 8-bit `ula_pixel` directly index the 64-entry ULA+ region of
+    /// each bank.  Bank is selected by `ula_palette_select_1` =
+    /// `nr_43_active_ula_palette` (NR 0x43 bit 1; zxnext.vhd:5393,6825).
+    /// This is a SEPARATE bit from the NR 0x43 bit 6 used by NR 0xFF
+    /// pokes for write addressing.
+    ///
+    /// @param bank_second  false = first ULA palette (NR 0x43 b1=0),
+    ///                     true  = second ULA palette (NR 0x43 b1=1).
+    /// @param bf3b_index   low 6 bits of the 8-bit ULA+ encoder pixel
+    ///                     (i.e. `ula_pixel & 0x3F`).
+    uint32_t ulap_colour(bool bank_second, uint8_t bf3b_index) const {
+        const uint16_t rgb333 =
+            ulap_poke_rgb333_[bank_second ? 1 : 0][bf3b_index & 0x3F];
+        const uint8_t r3 = static_cast<uint8_t>((rgb333 >> 6) & 0x07);
+        const uint8_t g3 = static_cast<uint8_t>((rgb333 >> 3) & 0x07);
+        const uint8_t b3 = static_cast<uint8_t>( rgb333       & 0x07);
+        return rgb333_to_argb8888(r3, g3, b3);
+    }
+
     // -----------------------------------------------------------------
     // Colour lookups (return ARGB8888, used by renderers)
     // -----------------------------------------------------------------

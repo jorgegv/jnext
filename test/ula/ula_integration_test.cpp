@@ -465,13 +465,153 @@ static void test_ulaplus_integration(Emulator& emu) {
                   off_initial, on_via_nr68, mode_check, off_again));
     }
 
-    // INT-ULAPLUS-03 — port 0xBF3B index write commits to ULA+ palette
-    // window. Encoder is covered by S7.01-S7.06; src/core/emulator.cpp:
-    // 1937-1941 forwards only the top-2 ulap_mode bits to set_ulap_mode
-    // and drops the low-6-bit port_bf3b_ulap_index write that VHDL
-    // zxnext.vhd:4525-4538 latches when port_bf3b_ulap_mode="00". See G103.
-    skip("INT-ULAPLUS-03",
-         "F-G103-RUNTIME: 0xBF3B ulap index latch absent (see G103)");
+    // ── INT-ULAPLUS-03 — ULA+ runtime palette path renders end-to-end ──
+    //
+    // Path exercised (VHDL → jnext):
+    //   zxnext.vhd:4533-4535  port 0xBF3B with mode="00" latches the
+    //                         6-bit ulap_index (palette slot selector
+    //                         for NR 0xFF poke + ULA+ palette readback).
+    //   zxnext.vhd:6957-6958  nr_ff_we → palette_utm dpram address
+    //                         '0' & nr_43_palette_write_select(2) & "11"
+    //                         & port_bf3b_ulap_index, value RRRGGGBBB
+    //                         (B0 = B1 OR B0 per :4919).
+    //   zxula.vhd:531-541     ULA+ encoder packs ula_pixel(7:0) =
+    //                         "11" & attr(7:6) & (sm2 OR not pix_en)
+    //                         & (pix_en ? attr(2:0) : attr(5:3)).
+    //   zxnext.vhd:6981       runtime read addr =
+    //                         '0' & ula_palette_select_1 & ula_pixel,
+    //                         where ula_palette_select_1 =
+    //                         nr_43_active_ula_palette (NR 0x43 b1).
+    // jnext handlers:
+    //   src/core/emulator.cpp 0xBF3B port-write — set_ulap_index when
+    //                         ulap_mode=="00".
+    //   src/core/emulator.cpp NR 0xFF write — palette_.nr_ff_poke(
+    //                         bank=NR 0x43 b6, index=ulap_index, val).
+    //   src/video/ula.cpp render_display_line — ulap_en branch reads
+    //                         palette_->ulap_colour(active_ula_palette,
+    //                         encoder_pixel & 0x3F).
+    //
+    // Stimulus:
+    //   1. Enable ULA+ end-to-end (BF3B mode=01, FF3B bit 0=1).
+    //   2. Pick attr=0x07 (palette group 0, ink=7, paper=0).  Encoder:
+    //        ink_pixel  = 0xC0 | 0x00 | 0 | 0x07 = 0xC7  → bf3b_idx 0x07
+    //        paper_pixel= 0xC0 | 0x00 | 8 | 0x00 = 0xC8  → bf3b_idx 0x08
+    //   3. Write distinct ULA+ palette entries at index 0x07 and 0x08
+    //      via the BF3B-latch + NR 0xFF poke side-channel.
+    //      - NR 0x43 b6 = 0 (write to bank 0).
+    //      - NR 0x43 b1 = 0 (active read bank 0) — both default.
+    //   4. Plant pixel byte 0x80 (MSB ink, rest paper) at row 0 col 0.
+    //   5. Render display row 0 (fb row 32).
+    //   6. Assert pixel at fb_x=DISP_X+0 == ulap_argb(idx=7);
+    //      pixels at fb_x=DISP_X+1..7 == ulap_argb(idx=8).
+    //
+    // Negative gate: with ULA+ disabled (set ulap_en=0 via NR 0x68 b3=0),
+    // the renderer falls back to the 16-entry kUlaPalette path, so the
+    // same pixel/attr pair must produce the standard ULA white/black
+    // (kUlaPalette[7] / kUlaPalette[0]).
+    {
+        // ── Setup: enable ULA+ via the canonical port path. ────────────
+        // Reset state to a known baseline (prior INT-ULAPLUS-02 left
+        // ulap_en=0 via NR 0x68=0x00; ulap_mode=0 from BF3B=0x00).
+        // INT-SCROLL-03 left NR 0x27 = 32 (Y-scroll); INT-SCROLL-02
+        // left NR 0x26 / NR 0x68 cleared.  Reset Y-scroll explicitly so
+        // src row 0 maps to display row 0 (otherwise our pixel byte at
+        // src row 0 would be invisible).
+        emu.nextreg().write(0x27, 0x00);   // ula_scroll_y = 0
+        emu.nextreg().write(0x26, 0x00);   // ula_scroll_x = 0
+
+        emu.port().out(0xBF3B, 0x40);   // ulap_mode = 01
+        emu.port().out(0xFF3B, 0x01);   // ulap_en = 1
+        const bool en_check  = emu.ula().get_ulap_en();
+        const uint8_t mode_chk = emu.ula().get_ulap_mode();
+
+        // Drop ulap_mode back to 00 so the BF3B index latch fires for
+        // subsequent writes (zxnext.vhd:4533-4535).  ulap_en holds (we
+        // already verified the gate-hold in INT-ULAPLUS-01).
+        emu.port().out(0xBF3B, 0x00);
+
+        // ── Pick palette indices and concrete RGB333 values. ───────────
+        // Encoder for attr=0x07, pg=0, sm2=0 (STANDARD mode):
+        //   ink low6   = (0<<4) | (0<<3) | 0x07 = 0x07
+        //   paper low6 = (0<<4) | (1<<3) | 0x00 = 0x08
+        const uint8_t ink_idx   = 0x07;
+        const uint8_t paper_idx = 0x08;
+
+        // Write 0xE0 (RRRGGGBB = 111_000_00) → expanded RGB333:
+        //   r3=7, g3=0, b3 = (B1|B0)<<1 + (B1|B0) = 0 → rgb333 = 0x1C0
+        // ARGB8888 = rgb333_to_argb8888(7,0,0).
+        // Write 0x03 (RRRGGGBB = 000_000_11) → r3=0, g3=0, b2=3,
+        //   b3 = (3<<1) | (3>>1 | 3&1) = 6 | 1 = 7 → rgb333 = 0x007.
+        // ARGB8888 = rgb333_to_argb8888(0,0,7).
+        const uint8_t  ink_byte   = 0xE0;   // bright red, RRRGGGBB
+        const uint8_t  paper_byte = 0x03;   // bright blue, RRRGGGBB
+        const uint32_t exp_ink   = rgb333_to_argb8888(7, 0, 0);
+        const uint32_t exp_paper = rgb333_to_argb8888(0, 0, 7);
+
+        // Bank-select for NR 0xFF poke = NR 0x43 b6.  We write to bank 0
+        // (b6=0), and the runtime reads from bank 0 (b1=0 — defaults).
+        // Make NR 0x43 explicit so the test is self-contained.
+        emu.nextreg().write(0x43, 0x00);   // all bits 0: write_select=0,
+                                           // active_ula=0, ulanext_en=0
+        // BF3B latch + NR 0xFF poke for ink slot (idx 0x07).
+        emu.port().out(0xBF3B, ink_idx);   // mode=00, index=0x07
+        emu.nextreg().write(0xFF, ink_byte);
+        // BF3B latch + NR 0xFF poke for paper slot (idx 0x08).
+        emu.port().out(0xBF3B, paper_idx); // mode=00, index=0x08
+        emu.nextreg().write(0xFF, paper_byte);
+
+        // ── Plant the pixel byte and attr. ─────────────────────────────
+        // attr=0x07: pg=0 (no flash/bright/pg-bits), paper=000, ink=111.
+        // pixel byte = 0x80: MSB ink, rest paper.
+        fill_pixels(emu, 0x00);
+        fill_attrs(emu, 0x07);
+        poke_bank5(emu, 0x4000 + emu_pixel_addr_offset(0, 0), 0x80);
+
+        // ── Render and observe. ────────────────────────────────────────
+        // Note: per-scanline ulap_en snapshot is consumed by the
+        // compositor pipeline (renderer_.render_frame); render_scanline
+        // here drives Ula::render_display_line directly with the LIVE
+        // ulap_en_ flag, which is exactly what we want for an isolated
+        // unit-style assertion of the runtime palette path.
+        std::array<uint32_t, 320> line{};
+        render_line(emu, 32, line);
+
+        const uint32_t got_ink   = line[Ula::DISP_X + 0];
+        const uint32_t got_paper = line[Ula::DISP_X + 1];
+
+        // ── Negative gate: disable ULA+ via NR 0x68 b3=0 and confirm ──
+        // the renderer falls back to kUlaPalette (white ink / black
+        // paper for attr=0x07).
+        emu.nextreg().write(0x68, 0x00);   // ulap_en = 0 (ungated)
+        const bool en_off = (emu.ula().get_ulap_en() == false);
+        std::array<uint32_t, 320> line_off{};
+        render_line(emu, 32, line_off);
+        const uint32_t off_ink   = line_off[Ula::DISP_X + 0];
+        const uint32_t off_paper = line_off[Ula::DISP_X + 1];
+
+        const bool all_ok = en_check
+                         && mode_chk  == 0x01
+                         && got_ink   == exp_ink
+                         && got_paper == exp_paper
+                         && en_off
+                         && off_ink   == kUlaPalette[7]
+                         && off_paper == kUlaPalette[0];
+
+        check("INT-ULAPLUS-03",
+              "ULA+ runtime palette: BF3B index latch + NR 0xFF poke + "
+              "encoder + active_ula_palette routes pixels to ulap_colour; "
+              "negative gate (ulap_en=0) restores kUlaPalette  "
+              "(zxnext.vhd:4533-4535,6957-6958,6981; zxula.vhd:531-541; "
+              "src/video/ula.cpp render_display_line ulap_en branch)",
+              all_ok,
+              fmt("en=%d mode=0x%02X got_ink=0x%08X (exp 0x%08X) "
+                  "got_paper=0x%08X (exp 0x%08X) en_off=%d "
+                  "off_ink=0x%08X (exp 0x%08X) off_paper=0x%08X (exp 0x%08X)",
+                  en_check, mode_chk,
+                  got_ink, exp_ink, got_paper, exp_paper,
+                  en_off,
+                  off_ink, kUlaPalette[7], off_paper, kUlaPalette[0]));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
