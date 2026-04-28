@@ -1,4 +1,5 @@
 #include "input/joystick.h"
+#include "input/membrane_stick.h"
 
 // =============================================================================
 // Phase 2 Agent A — NR 0x05 mode decoder implemented VHDL-faithfully per
@@ -47,6 +48,18 @@ void Joystick::set_nr_05(uint8_t v)
     nr_05_raw_ = v;
     joy0_mode_ = static_cast<Mode>(joy0_bits);
     joy1_mode_ = static_cast<Mode>(joy1_bits);
+
+    // G126 — propagate the decoded modes to the membrane-fold module.
+    // VHDL membrane_stick.vhd:117-149 — `joy_type` (== nr_05_joy0 /
+    // nr_05_joy1) drives the COE address-start selector that picks the
+    // per-mode keymap region. Without this forward, the membrane fold
+    // stays pinned to its constructor default and switching mode via
+    // NR 0x05 produces stale rows. See `set_membrane_stick()` for the
+    // wiring contract (set once during Emulator construction).
+    if (membrane_) {
+        membrane_->set_mode(0, joy0_mode_);
+        membrane_->set_mode(1, joy1_mode_);
+    }
 }
 
 void Joystick::set_mode_direct(Mode joy0, Mode joy1)
@@ -54,6 +67,14 @@ void Joystick::set_mode_direct(Mode joy0, Mode joy1)
     // Test-only: bypass the NR 0x05 decoder. Documented in the header.
     joy0_mode_ = joy0;
     joy1_mode_ = joy1;
+
+    // G126 — same propagation contract as set_nr_05(): keep MembraneStick
+    // in sync so test rows that go through the test-bypass path also
+    // exercise the membrane-fold's per-mode keymap region.
+    if (membrane_) {
+        membrane_->set_mode(0, joy0_mode_);
+        membrane_->set_mode(1, joy1_mode_);
+    }
 }
 
 void Joystick::set_joy_left(uint16_t bits12)

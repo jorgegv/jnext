@@ -765,15 +765,71 @@ static void test_jmode() {
               DETAIL("got=0x%02X (Task3: nr_05_joy reset)", v));
     }
 
-    // JMODE-09 — NR 0x05 propagation to MembraneStick.
-    // VHDL membrane_stick.vhd:117-149 — joy_type drives the COE address-start
-    // selector. Production: Joystick::set_nr_05 (joystick.cpp:26-50) does NOT
-    // hold a MembraneStick reference; emulator.cpp:456-458 forwards NR 0x05 to
-    // Joystick only. Side effect: switching joy modes via NR 0x05 leaves the
-    // membrane fold pinned to its constructor default.
-    skip("JMODE-09",
-         "NR 0x05 mode change propagates to MembraneStick fold",
-         "Joystick::set_nr_05 does not call MembraneStick::set_mode (see G126)");
+    // JMODE-09 — NR 0x05 propagation to MembraneStick (G126 closure).
+    //
+    // VHDL membrane_stick.vhd:117-149 — `joy_type` (the per-connector
+    // NR 0x05 mode field) drives the COE address-start selector that
+    // picks the per-mode keymap region. Production wiring (Task 8 T2 W1
+    // closure): Emulator ctor calls `joystick_.set_membrane_stick(&membrane_stick_)`,
+    // and `Joystick::set_nr_05()` forwards both decoded modes to
+    // MembraneStick via `set_mode(0/1, mode)`.
+    //
+    // Test strategy: link a Joystick to a MembraneStick, write a series
+    // of NR 0x05 byte patterns chosen to exercise distinct modes on each
+    // connector, and verify the membrane fold's per-mode keymap row is
+    // selected by injecting a single direction and reading the matching
+    // membrane row. The expected (row, col) cells come from the COE
+    // table (ram/init/keyjoy_64_6.coe:1-66) as decoded in
+    // src/input/membrane_stick.cpp:84-105.
+    {
+        Joystick j;
+        MembraneStick ms;
+        ms.reset();
+        j.set_membrane_stick(&ms);
+
+        // Variant A — NR 0x05 = 0x40 (joy0=Kempston1, joy1=Sinclair2 —
+        // VHDL reset defaults). joy1=Sinclair2 (mode "000") → COE addrs
+        // 5..9 → row 3. Inject LEFT on right connector and verify
+        // row 3 bit 0 (key 1) clears: 0x1F & ~(1<<0) = 0x1E.
+        j.set_nr_05(0x40);
+        ms.inject_joystick_state(1, 0x02);  // LEFT on right connector
+        const uint8_t r3a = ms.compose_into_row(3, 0x1F);
+
+        // Variant B — NR 0x05 = 0x68 (joy0=Md3Left, joy1=Cursor per the
+        // JMODE-02 decode). joy0=Md3Left puts left connector on port-1F
+        // path (no membrane fold); joy1=Cursor (mode "010") → COE addrs
+        // 10..14 (R L D U F order). For Cursor LEFT (direction index 1)
+        // the COE oracle (membrane_stick.cpp:92) gives (row 3, col 4) =
+        // key 5. So row 3 mask: 0x1F & ~(1<<4) = 0x0F.
+        ms.reset();
+        j.set_nr_05(0x68);
+        ms.inject_joystick_state(1, 0x02);  // LEFT on right connector
+        const uint8_t r3b = ms.compose_into_row(3, 0x1F);
+
+        // Variant C — NR 0x05 = 0x30 (joy0=Sinclair2, joy1=Sinclair1 per
+        // JMODE-07 decode). joy1=Sinclair1 (mode "011") → COE addrs 0..4
+        // → row 4. For Sinclair1 LEFT (direction index 1) the COE oracle
+        // (membrane_stick.cpp:94) gives (row 4, col 4) = key 6. So row 4
+        // mask: 0x1F & ~(1<<4) = 0x0F.
+        ms.reset();
+        j.set_nr_05(0x30);
+        ms.inject_joystick_state(1, 0x02);  // LEFT on right connector
+        const uint8_t r4c = ms.compose_into_row(4, 0x1F);
+
+        // VHDL-cited expected values per the COE oracle table at
+        // ram/init/keyjoy_64_6.coe (decoded in membrane_stick.cpp:84-105):
+        //   Variant A: row 3 bit 0 cleared → 0x1E.
+        //   Variant B: row 3 bit 4 cleared → 0x0F.
+        //   Variant C: row 4 bit 4 cleared → 0x0F.
+        // If the propagation were broken (no set_membrane_stick wiring)
+        // the membrane fold would stay on its constructor default
+        // (joy0=K1, joy1=S2) for all three variants and variants B/C
+        // would produce different (incorrect) values.
+        check("JMODE-09",
+              "NR 0x05 propagates per-connector mode to MembraneStick fold",
+              r3a == 0x1E && r3b == 0x0F && r4c == 0x0F,
+              DETAIL("rA=0x%02X rB=0x%02X rC=0x%02X", r3a, r3b, r4c));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

@@ -23,6 +23,15 @@ Emulator::Emulator() : mmu_(ram_, rom_), cpu_(mmu_, port_) {
     // back-pointer — it is lifetime-bound wiring, not soft-reset state.
     keyboard_.set_membrane_stick(&membrane_stick_);
 
+    // G126 — Task 8 T2 W1 Agent B (Joystick→MembraneStick fold). The
+    // Joystick decodes NR 0x05 and the per-connector mode must propagate
+    // to MembraneStick so the membrane-fold's per-mode keymap region
+    // (VHDL membrane_stick.vhd:117-149 `joy_type` driver) stays in sync.
+    // Same lifetime invariant as the keyboard wiring above: lifetime-
+    // bound, not soft-reset state. Joystick::reset() does NOT clear this
+    // back-pointer.
+    joystick_.set_membrane_stick(&membrane_stick_);
+
     // Audio Phase 1: wire the I2s stub into the Mixer. The Mixer does
     // not own the I2s; lifetime is the Emulator's. See
     // audio_mixer.vhd:89-90,99-100 for the 13-bit sum term.
