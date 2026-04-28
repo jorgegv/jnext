@@ -33,6 +33,25 @@ void Layer2::reset()
     overflow_warned_   = false;
     baseline_scroll_x_ = 0;
     baseline_scroll_y_ = 0;
+
+    clip_change_count_     = 0;
+    clip_render_cursor_    = 0;
+    clip_overflow_warned_  = false;
+    baseline_clip_x1_      = 0x00;
+    baseline_clip_x2_      = 0xFF;
+    baseline_clip_y1_      = 0x00;
+    baseline_clip_y2_      = 0xBF;
+
+    bank_change_count_     = 0;
+    bank_render_cursor_    = 0;
+    bank_overflow_warned_  = false;
+    baseline_active_bank_  = 8;
+    baseline_shadow_bank_  = 11;
+
+    enable_change_count_    = 0;
+    enable_render_cursor_   = 0;
+    enable_overflow_warned_ = false;
+    baseline_enabled_       = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +78,60 @@ void Layer2::log_scroll_change()
     };
 }
 
+void Layer2::log_clip_change()
+{
+    if (clip_change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!clip_overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: clip change-log full at line {} (cap {} per "
+                "frame); further NR 0x18 writes this frame will not be "
+                "per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            clip_overflow_warned_ = true;
+        }
+        return;
+    }
+    clip_change_log_[clip_change_count_++] = ClipChange{
+        current_line_, clip_x1_, clip_x2_, clip_y1_, clip_y2_,
+    };
+}
+
+void Layer2::log_bank_change()
+{
+    if (bank_change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!bank_overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: bank change-log full at line {} (cap {} per "
+                "frame); further NR 0x12/0x13 writes this frame will "
+                "not be per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            bank_overflow_warned_ = true;
+        }
+        return;
+    }
+    bank_change_log_[bank_change_count_++] = BankChange{
+        current_line_, active_bank_, shadow_bank_,
+    };
+}
+
+void Layer2::log_enable_change()
+{
+    if (enable_change_count_ >= MAX_CHANGES_PER_FRAME) {
+        if (!enable_overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: enable change-log full at line {} (cap {} per "
+                "frame); further set_enabled writes this frame will "
+                "not be per-scanline.",
+                current_line_, MAX_CHANGES_PER_FRAME);
+            enable_overflow_warned_ = true;
+        }
+        return;
+    }
+    enable_change_log_[enable_change_count_++] = EnableChange{
+        current_line_, enabled_,
+    };
+}
+
 void Layer2::start_frame()
 {
     baseline_scroll_x_ = scroll_x_;
@@ -67,22 +140,78 @@ void Layer2::start_frame()
     render_cursor_     = 0;
     current_line_      = 0;
     overflow_warned_   = false;
+
+    baseline_clip_x1_      = clip_x1_;
+    baseline_clip_x2_      = clip_x2_;
+    baseline_clip_y1_      = clip_y1_;
+    baseline_clip_y2_      = clip_y2_;
+    clip_change_count_     = 0;
+    clip_render_cursor_    = 0;
+    clip_overflow_warned_  = false;
+
+    baseline_active_bank_  = active_bank_;
+    baseline_shadow_bank_  = shadow_bank_;
+    bank_change_count_     = 0;
+    bank_render_cursor_    = 0;
+    bank_overflow_warned_  = false;
+
+    baseline_enabled_       = enabled_;
+    enable_change_count_    = 0;
+    enable_render_cursor_   = 0;
+    enable_overflow_warned_ = false;
 }
 
 void Layer2::rewind_to_baseline()
 {
-    scroll_x_      = baseline_scroll_x_;
-    scroll_y_      = baseline_scroll_y_;
-    render_cursor_ = 0;
+    scroll_x_              = baseline_scroll_x_;
+    scroll_y_              = baseline_scroll_y_;
+    render_cursor_         = 0;
+
+    clip_x1_               = baseline_clip_x1_;
+    clip_x2_               = baseline_clip_x2_;
+    clip_y1_               = baseline_clip_y1_;
+    clip_y2_               = baseline_clip_y2_;
+    clip_render_cursor_    = 0;
+
+    active_bank_           = baseline_active_bank_;
+    shadow_bank_           = baseline_shadow_bank_;
+    bank_render_cursor_    = 0;
+
+    enabled_               = baseline_enabled_;
+    enable_render_cursor_  = 0;
 }
 
 void Layer2::apply_changes_for_line(int line)
 {
+    const uint16_t lt = static_cast<uint16_t>(line);
+
     while (render_cursor_ < change_count_
-        && change_log_[render_cursor_].line == static_cast<uint16_t>(line)) {
+        && change_log_[render_cursor_].line == lt) {
         const auto& c = change_log_[render_cursor_++];
         scroll_x_ = c.scroll_x;
         scroll_y_ = c.scroll_y;
+    }
+
+    while (clip_render_cursor_ < clip_change_count_
+        && clip_change_log_[clip_render_cursor_].line == lt) {
+        const auto& c = clip_change_log_[clip_render_cursor_++];
+        clip_x1_ = c.x1;
+        clip_x2_ = c.x2;
+        clip_y1_ = c.y1;
+        clip_y2_ = c.y2;
+    }
+
+    while (bank_render_cursor_ < bank_change_count_
+        && bank_change_log_[bank_render_cursor_].line == lt) {
+        const auto& c = bank_change_log_[bank_render_cursor_++];
+        active_bank_ = c.active_bank;
+        shadow_bank_ = c.shadow_bank;
+    }
+
+    while (enable_render_cursor_ < enable_change_count_
+        && enable_change_log_[enable_render_cursor_].line == lt) {
+        const auto& c = enable_change_log_[enable_render_cursor_++];
+        enabled_ = c.enabled;
     }
 }
 

@@ -34,11 +34,17 @@ public:
     // -----------------------------------------------------------------
 
     /// NextREG 0x12: active 16K bank (default 8).
-    void set_active_bank(uint8_t bank) { active_bank_ = bank & 0x7F; }
+    void set_active_bank(uint8_t bank) {
+        active_bank_ = bank & 0x7F;
+        log_bank_change();
+    }
     uint8_t active_bank() const { return active_bank_; }
 
     /// NextREG 0x13: shadow 16K bank (default 11).
-    void set_shadow_bank(uint8_t bank) { shadow_bank_ = bank & 0x7F; }
+    void set_shadow_bank(uint8_t bank) {
+        shadow_bank_ = bank & 0x7F;
+        log_bank_change();
+    }
     uint8_t shadow_bank() const { return shadow_bank_; }
 
     /// NextREG 0x16: X scroll LSB.
@@ -79,14 +85,20 @@ public:
     bool is_wide() const { return resolution_ != 0; }
 
     /// Enable/disable Layer 2 rendering (from NextREG 0x69 bit 7 or port 0x123B).
-    void set_enabled(bool en) { enabled_ = en; }
+    void set_enabled(bool en) {
+        enabled_ = en;
+        log_enable_change();
+    }
     bool enabled() const { return enabled_; }
 
-    // Clip window (NextREG 0x18, 4-write cycle)
-    void set_clip_x1(uint8_t v) { clip_x1_ = v; }
-    void set_clip_x2(uint8_t v) { clip_x2_ = v; }
-    void set_clip_y1(uint8_t v) { clip_y1_ = v; }
-    void set_clip_y2(uint8_t v) { clip_y2_ = v; }
+    // Clip window (NextREG 0x18, 4-write cycle).  Each setter logs a
+    // 4-coord snapshot in the per-scanline clip change-log so that
+    // mid-frame Copper writes to the rotating index produce the correct
+    // per-line clip without relying on last-write-wins.
+    void set_clip_x1(uint8_t v) { clip_x1_ = v; log_clip_change(); }
+    void set_clip_x2(uint8_t v) { clip_x2_ = v; log_clip_change(); }
+    void set_clip_y1(uint8_t v) { clip_y1_ = v; log_clip_change(); }
+    void set_clip_y2(uint8_t v) { clip_y2_ = v; log_clip_change(); }
     uint8_t clip_x1() const { return clip_x1_; }
     uint8_t clip_x2() const { return clip_x2_; }
     uint8_t clip_y1() const { return clip_y1_; }
@@ -165,6 +177,15 @@ public:
     /// Number of scroll changes recorded this frame (diagnostic).
     size_t change_log_size() const { return change_count_; }
 
+    /// Number of clip-window snapshots recorded this frame (diagnostic).
+    size_t clip_change_log_size() const { return clip_change_count_; }
+
+    /// Number of bank (NR 0x12 / NR 0x13) changes recorded (diagnostic).
+    size_t bank_change_log_size() const { return bank_change_count_; }
+
+    /// Number of enable changes recorded this frame (diagnostic).
+    size_t enable_change_log_size() const { return enable_change_count_; }
+
     /// Static cap; further writes after this many in a frame are
     /// silently dropped (with a once-per-frame warn). Sized for the
     /// worst-case "Copper writes scroll on every scanline" scenario.
@@ -201,8 +222,56 @@ private:
     uint16_t baseline_scroll_x_ = 0;
     uint8_t  baseline_scroll_y_ = 0;
 
+    // ── Clip-window per-scanline change log (G05) ────────────────────
+    // VHDL zxnext.vhd:5243, 5278 — NR 0x18 rotating index writes.
+    // Snapshot of all 4 coordinates is captured per write.
+    struct ClipChange {
+        uint16_t line;
+        uint8_t  x1, x2, y1, y2;
+    };
+    std::array<ClipChange, MAX_CHANGES_PER_FRAME> clip_change_log_{};
+    size_t   clip_change_count_   = 0;
+    size_t   clip_render_cursor_  = 0;
+    bool     clip_overflow_warned_= false;
+    uint8_t  baseline_clip_x1_    = 0x00;
+    uint8_t  baseline_clip_x2_    = 0xFF;
+    uint8_t  baseline_clip_y1_    = 0x00;
+    uint8_t  baseline_clip_y2_    = 0xBF;
+
+    // ── Bank per-scanline change log (G09) ───────────────────────────
+    // VHDL zxnext.vhd:5220, 1135 — NR 0x12 / NR 0x13 active-bank writes.
+    struct BankChange {
+        uint16_t line;
+        uint8_t  active_bank;
+        uint8_t  shadow_bank;
+    };
+    std::array<BankChange, MAX_CHANGES_PER_FRAME> bank_change_log_{};
+    size_t   bank_change_count_    = 0;
+    size_t   bank_render_cursor_   = 0;
+    bool     bank_overflow_warned_ = false;
+    uint8_t  baseline_active_bank_ = 8;
+    uint8_t  baseline_shadow_bank_ = 11;
+
+    // ── Enable per-scanline change log (G14) ─────────────────────────
+    // VHDL zxnext.vhd:3916, 3924-3925 — port 0x123B b1 / NR 0x69 b7.
+    struct EnableChange {
+        uint16_t line;
+        bool     enabled;
+    };
+    std::array<EnableChange, MAX_CHANGES_PER_FRAME> enable_change_log_{};
+    size_t   enable_change_count_    = 0;
+    size_t   enable_render_cursor_   = 0;
+    bool     enable_overflow_warned_ = false;
+    bool     baseline_enabled_       = false;
+
     /// Append a snapshot of the live scroll_x_/scroll_y_ to the change
     /// log, tagged with current_line_. Called from the three public
     /// scroll setters above.
     void log_scroll_change();
+    /// Append a 4-coord snapshot of the live clip-window state.
+    void log_clip_change();
+    /// Append a snapshot of active_bank_ / shadow_bank_.
+    void log_bank_change();
+    /// Append a snapshot of enabled_.
+    void log_enable_change();
 };
