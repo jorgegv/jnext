@@ -24,6 +24,7 @@
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "memory/contention.h"
+#include "core/nex_loader.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -1412,12 +1413,14 @@ void test_cat10_port_eff7() {
     }
 
     // EF7-06 — VHDL zxnext.vhd:2604 (port_eff7 = port_eff7_lsb AND
-    // port_eff7_io_en), :2441 (port_eff7_io_en = NR 0x84 b2). jnext
-    // src/core/emulator.cpp:1426-1428 registers EFF7 handler
-    // unconditionally — no NR 0x84 b2 gate (compare 0x7FFD / 0xDFFD
-    // which DO gate). (G143)
+    // port_eff7_io_en), :2441 (port_eff7_io_en = NR 0x84 b2). The gate
+    // now lives in src/core/emulator.cpp:1426-1432 (NR 0x84 b2 check
+    // before mmu_.write_port_eff7). The observable is at the port-
+    // dispatch tier — direct calls to write_port_eff7 from mmu_test
+    // bypass the port handler (correct VHDL semantics: the gate sits
+    // above the Mmu register). RE-HOME to integration tier.
     skip("EF7-06",
-         "NR 0x84 b2 not gated on EFF7 handler (see G143)");
+         "RE-HOME: gate now in emulator.cpp; observable at integration tier (G143 fixed in src/, test row owned by integration suite)");
 }
 
 // ── Category 11: ROM selection ────────────────────────────────────────
@@ -2449,22 +2452,91 @@ void test_cat18_priority() {
 void test_boot_rom_overlay() {
     set_group("BOOT-OVL");
 
-    // BOOT-OVL-01 / BOOT-OVL-02 — VHDL zxnext.vhd:1856 (bootrom_en gate
-    // on cpu_a(15:14)="00") and :3199-3204 (bootrom_mod = cpu_a(12:0),
-    // 13-bit so upper 8 KB mirrors lower). jnext mmu.h:113-117 overlays
-    // only addr < boot_rom_size_; an 8 KB blob therefore stops covering
-    // at 0x2000 instead of mirroring through 0x3FFF.
-    skip("BOOT-OVL-01",
-         "8 KB boot ROM mirror to 16 KB not implemented (see G140)");
-    skip("BOOT-OVL-02",
-         "boot-ROM gate scoped to size_, not cpu_a(15:14) (see G140)");
+    // BOOT-OVL-01 — VHDL zxnext.vhd:1856 gates the overlay on
+    // cpu_a(15:14)="00" (full 16 KB at 0x0000-0x3FFF); VHDL:3199-3204
+    // wires the bootrom entity to cpu_a(12:0) (13 bits = 8 KB span)
+    // so the upper 8 KB MIRRORS the lower 8 KB. After the G140/G157
+    // fix, src/memory/mmu.h read() masks `addr & 0x1FFF` and gates
+    // `addr < 0x4000`. Load an 8 KB blob whose byte i = (i ^ 0x5A) &
+    // 0xFF and verify each of the four 8 KB quarters returns the same
+    // expected pattern.
+    {
+        Fixture f;
+        std::vector<uint8_t> blob(0x2000);
+        for (size_t i = 0; i < blob.size(); ++i)
+            blob[i] = static_cast<uint8_t>((i ^ 0x5A) & 0xFF);
+        f.mmu.set_boot_rom(blob.data(), blob.size());
+        f.fresh();
+        bool ok = true;
+        uint32_t fail_addr = 0;
+        uint8_t  fail_exp = 0, fail_act = 0;
+        for (uint32_t addr = 0; addr < 0x4000; addr += 17) {
+            uint8_t expected = blob[addr & 0x1FFF];
+            uint8_t actual   = f.mmu.read(static_cast<uint16_t>(addr));
+            if (actual != expected) {
+                ok = false; fail_addr = addr; fail_exp = expected; fail_act = actual;
+                break;
+            }
+        }
+        check("BOOT-OVL-01",
+              "8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF; upper "
+              "8 KB mirrors lower per VHDL zxnext.vhd:3199-3204 (cpu_a(12:0)) "
+              "and :1856 (cpu_a(15:14)=\"00\" gate)",
+              ok,
+              fmt("addr=0x%04X expected=0x%02X actual=0x%02X",
+                  fail_addr, fail_exp, fail_act));
+    }
+
+    // BOOT-OVL-02 — gate is `cpu_a(15:14)="00"` (VHDL:1856), so reads at
+    // 0x4000 and beyond fall through to the next overlay. With no DivMMC
+    // and no L2 read-over, 0x4000 reads from MMU slot 2 (page 0x0A →
+    // bank5) which is zero on a fresh Ram. The boot ROM sentinel 0xA5
+    // must NOT appear at 0x4000.
+    {
+        Fixture f;
+        std::vector<uint8_t> blob(0x2000, 0xA5);
+        f.mmu.set_boot_rom(blob.data(), blob.size());
+        f.fresh();
+        const uint8_t at_3FFF = f.mmu.read(0x3FFF);
+        const uint8_t at_4000 = f.mmu.read(0x4000);
+        check("BOOT-OVL-02",
+              "boot ROM does not leak past 0x3FFF — gate is cpu_a(15:14) "
+              "per VHDL zxnext.vhd:1856",
+              at_3FFF == 0xA5 && at_4000 != 0xA5,
+              fmt("read(0x3FFF)=0x%02X read(0x4000)=0x%02X (expected 0xA5 / !=0xA5)",
+                  at_3FFF, at_4000));
+    }
 
     // BOOT-OVL-03 — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0), so
-    // the overlay is exactly 8 KB. jnext src/memory/mmu.h:113-117
-    // overlays whatever size the caller passed in via set_boot_rom —
-    // wrong-sized blobs silently miscompile with no diagnostic. (G157)
-    skip("BOOT-OVL-03",
-         "wrong-sized boot ROM silently truncates (see G157)");
+    // the overlay is exactly 8 KB. After the G157 fix, set_boot_rom()
+    // accepts any source size but materialises an 8 KB internal buffer
+    // (zero-padded for short blobs, truncated for long blobs). Load a
+    // 4 KB blob: lower half returns blob bytes; upper half returns
+    // zero (zero-pad); both halves mirror through the upper 8 KB.
+    {
+        Fixture f;
+        std::vector<uint8_t> short_blob(0x1000);
+        for (size_t i = 0; i < short_blob.size(); ++i)
+            short_blob[i] = static_cast<uint8_t>(0x40 | (i & 0x3F));
+        f.mmu.set_boot_rom(short_blob.data(), short_blob.size());
+        f.fresh();
+        const uint8_t at_0000 = f.mmu.read(0x0000);
+        const uint8_t at_0FFF = f.mmu.read(0x0FFF);
+        const uint8_t at_1000 = f.mmu.read(0x1000);
+        const uint8_t at_1FFF = f.mmu.read(0x1FFF);
+        const uint8_t at_2000 = f.mmu.read(0x2000);
+        const uint8_t at_3000 = f.mmu.read(0x3000);
+        check("BOOT-OVL-03",
+              "wrong-sized boot ROM blob is zero-padded to 8 KB and mirrored "
+              "through 16 KB — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0)",
+              at_0000 == 0x40 && at_0FFF == 0x7F &&
+              at_1000 == 0x00 && at_1FFF == 0x00 &&
+              at_2000 == 0x40 && at_3000 == 0x00,
+              fmt("0x0000=0x%02X 0x0FFF=0x%02X 0x1000=0x%02X 0x1FFF=0x%02X "
+                  "0x2000=0x%02X 0x3000=0x%02X "
+                  "(expected 0x40 / 0x7F / 0x00 / 0x00 / 0x40 / 0x00)",
+                  at_0000, at_0FFF, at_1000, at_1FFF, at_2000, at_3000));
+    }
 }
 
 // ── Cat 19: Soundrive Mode 2 vs paging-port write conflict (G146) ────
@@ -2484,13 +2556,39 @@ void test_soundrive_paging_conflict() {
 void test_nex_loader() {
     set_group("BOOT-NEX");
 
-    // BOOT-NEX-01 / BOOT-NEX-02 — src/core/nex_loader.cpp:81 parses
-    // ram_required (offset 8 in V1.1 header) but no consumer downstream.
-    // (G155)
-    skip("BOOT-NEX-01",
-         "ram_required not honoured; oversize NEX silently fails (see G155)");
-    skip("BOOT-NEX-02",
-         "discriminative pair for BOOT-NEX-01 (see G155)");
+    // BOOT-NEX-01 — NEX V1.1+ header byte 8 (`ram_required`) enumerates
+    // the minimum installed RAM the file requires. After the G155 fix,
+    // NexLoader::ram_required_fits() returns false when required_kb >
+    // installed_kb, and apply() aborts before any bank load.
+    {
+        const bool fits_1mb = NexLoader::ram_required_fits(2, 1024 * 1024);
+        check("BOOT-NEX-01",
+              "loader rejects NEX whose ram_required exceeds installed RAM "
+              "— src/core/nex_loader.cpp:apply() honours header.ram_required",
+              fits_1mb == false,
+              fmt("ram_required=2 vs 1024KB installed → fits=%d (expected 0)",
+                  static_cast<int>(fits_1mb)));
+    }
+
+    // BOOT-NEX-02 — discriminative pair: same predicate must accept the
+    // file when installed RAM meets or exceeds the requirement. Also
+    // pin the 0=768/1=1792/2=2048/3=1024 KB enum mapping per the spec.
+    {
+        const bool fits_2mb = NexLoader::ram_required_fits(2, 2048 * 1024);
+        const bool fits_768k_on_1mb = NexLoader::ram_required_fits(0, 1024 * 1024);
+        const size_t kb0 = NexLoader::ram_required_kb(0);
+        const size_t kb1 = NexLoader::ram_required_kb(1);
+        const size_t kb2 = NexLoader::ram_required_kb(2);
+        const size_t kb3 = NexLoader::ram_required_kb(3);
+        check("BOOT-NEX-02",
+              "loader accepts NEX whose ram_required ≤ installed RAM; "
+              "spec mapping 0=768/1=1792/2=2048/3=1024 KB",
+              fits_2mb && fits_768k_on_1mb &&
+              kb0 == 768 && kb1 == 1792 && kb2 == 2048 && kb3 == 1024,
+              fmt("fits_2mb=%d fits_768k_on_1mb=%d kb={%zu,%zu,%zu,%zu}",
+                  static_cast<int>(fits_2mb), static_cast<int>(fits_768k_on_1mb),
+                  kb0, kb1, kb2, kb3));
+    }
 
     // BOOT-NEX-03..06 — src/core/nex_loader.cpp:89-92 parses
     // loading_bar / loading_delay / start_delay / loading_bar_colour

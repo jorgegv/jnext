@@ -1564,9 +1564,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (no port_eff7_rd path). Forwards to Mmu::write_port_eff7 which stores
     // bits 2,3 and re-runs the port_memory_change_dly MMU0/1 rebuild so the
     // RAM-at-0x0000 swap (bit 3) lands immediately per VHDL:4619-4644.
+    //
+    // Gate (G143): VHDL zxnext.vhd:2604 ANDs port_eff7_lsb with
+    // port_eff7_io_en, which per zxnext.vhd:2441 is internal_port_enable(26)
+    // = NR 0x84 bit 2. With the gate clear, EFF7 writes are silently dropped.
     port_.register_handler(0xF0FF, 0xE0F7,
         nullptr,
-        [this](uint16_t, uint8_t v) { mmu_.write_port_eff7(v); });
+        [this](uint16_t, uint8_t v) {
+            if ((nextreg_.cached(0x84) & 0x04) == 0) return;  // NR 0x84 b2 gate
+            mmu_.write_port_eff7(v);
+        });
 
     // --- Audio port handlers ---
 

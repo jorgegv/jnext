@@ -27,6 +27,26 @@ foundation for all memory access in the emulator. This test suite validates:
 
 Rewrite in Phase 2 per-row idiom merged on main 2026-04-15 (`task1-wave1-mmu`).
 
+Task 8 Wave 1 (`task8-t1-mmu`, 2026-04-28) closed 5 skips and re-homed 1:
+- **BOOT-OVL-01 / BOOT-OVL-02 (G140)**: VHDL-faithful boot ROM mirror.
+  `Mmu::read()` now gates `addr < 0x4000` (VHDL zxnext.vhd:1856,
+  cpu_a(15:14)='00') and indexes `addr & 0x1FFF` (VHDL:3199-3204,
+  cpu_a(12:0) — 13-bit, 8 KB span — so upper 8 KB mirrors lower 8 KB).
+- **BOOT-OVL-03 (G157)**: Wrong-sized boot ROM blob. `Mmu::set_boot_rom`
+  now materialises an 8 KB internal buffer, zero-padding short blobs and
+  truncating long ones, with a warn-level diagnostic. Read path is
+  always real-hardware-faithful regardless of caller size.
+- **BOOT-NEX-01 / BOOT-NEX-02 (G155)**: NEX `ram_required` validation.
+  Added inline static helpers `NexLoader::ram_required_kb` /
+  `ram_required_fits` (header-resident so unit tests link without
+  jnext_core). `NexLoader::apply` aborts with a clear error before any
+  bank load when required > installed RAM.
+- **EF7-06 (G143) RE-HOME**: NR 0x84 b2 gate added on the EFF7 port
+  handler in `src/core/emulator.cpp` (mirrors the existing NR 0x82 b2
+  gate on DFFD). Skip remains in mmu_test as a re-home note — the
+  observable lives at the port-dispatch tier, not the Mmu surface.
+- mmu_test counts: 41 → 36 skips (5 closures); 137 → 142 pass; 0 fails.
+
 Measured on main 2026-04-21 post-Task-3 MMU Wave 1 merges:
 
 - **145 plan rows total** (N8E-05 split into 05a/05b + CON-12 split into 12a/12b + L2M-02 split into 02a/02b in test — aggregated by matrix script per SUBLETTERS rule).
@@ -553,7 +573,7 @@ as `a1495ba`).
 | EF7-03  | Bit 2 = 1 disables Pent-1024     | NR 0x8F=0x03, EFF7 ← 0x04 | pentagon_1024_en = 0, lock is NOT overridden   |
 | EF7-04  | Reset state                       | After reset                | port_eff7_reg_2 = 0, port_eff7_reg_3 = 0     |
 | EF7-05  | Soft reset preserves EFF7 + RAM-at-0 | EFF7 ← 0x0C, reset(false) | port_eff7_reg_{2,3} preserved, slots 0/1 stay RAM (VHDL:3777) |
-| EF7-06  | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x84 b2 ← 0; OUT 0xEFF7 ← 0x08 (RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_3` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441` ANDs port-decode with `internal_port_enable(26)` (= NR 0x84 bit 2). skip — `emulator.cpp:1426-1428` registers handler with no NR 0x84 b2 gate (see G143) |
+| EF7-06  | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x84 b2 ← 0; OUT 0xEFF7 ← 0x08 (RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_3` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441` ANDs port-decode with `internal_port_enable(26)` (= NR 0x84 bit 2). **G143 fix landed** in `emulator.cpp:1426-1432` (NR 0x84 b2 gate before `mmu_.write_port_eff7`). Skip remains in mmu_test as RE-HOME — observable lives at port-dispatch tier; pure-Mmu tests bypass the gate by design. Future integration suite should add the row. |
 
 ### Category 11: ROM Selection
 
@@ -573,9 +593,9 @@ as `a1495ba`).
 
 | ID         | Test                                          | Setup                                                                  | Expected                                                                                                |
 |------------|-----------------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF | Load 8 KB blob, `bootrom_en=1`, read 0x0000..0x1FFF and 0x2000..0x3FFF | All four 8 KB quarters return blob bytes; upper 8 KB mirrors lower 8 KB per VHDL `bootrom_mod = cpu_a(12:0)` (`zxnext.vhd:3199-3204`); decode gate is `cpu_a(15:14)="00"` (`zxnext.vhd:1856`). skip — `mmu.h:113-117` overlays only addr < `boot_rom_size_` (see G140) |
-| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF | Same fixture, read 0x4000 | Read falls through to MMU slot 2, NOT to boot ROM (gate is `cpu_a(15:14)="00"`, `zxnext.vhd:1856`). skip — gate scoped to `size_` (see G140) |
-| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic | Load a 4 KB (or 12 KB) blob via `set_boot_rom`; expected behaviour = error or zero-pad to 0x2000 | Loader rejects (or warns and zero-fills to 0x2000). VHDL hardwires `cpu_a(12:0)` (8 KB span) at `zxnext.vhd:3199-3204`; non-8 KB blobs are not real-hardware-faithful. skip — `mmu.h:113-117` overlays whatever size the caller passed (see G157) |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF | Load 8 KB blob, `bootrom_en=1`, read 0x0000..0x1FFF and 0x2000..0x3FFF | All four 8 KB quarters return blob bytes; upper 8 KB mirrors lower 8 KB per VHDL `bootrom_mod = cpu_a(12:0)` (`zxnext.vhd:3199-3204`); decode gate is `cpu_a(15:14)="00"` (`zxnext.vhd:1856`). **Implemented** — `Mmu::read` gates `addr < 0x4000` and indexes `addr & 0x1FFF` (G140 closed) |
+| BOOT-OVL-02 | Boot ROM does not leak past 0x3FFF | Same fixture, read 0x4000 | Read falls through to MMU slot 2, NOT to boot ROM (gate is `cpu_a(15:14)="00"`, `zxnext.vhd:1856`). **Implemented** — gate now uses `addr < 0x4000` (G140 closed) |
+| BOOT-OVL-03 | Wrong-sized boot ROM blob raises a diagnostic | Load a 4 KB (or 12 KB) blob via `set_boot_rom`; expected behaviour = warn + clamp to 8 KB | `Mmu::set_boot_rom` materialises an 8 KB internal buffer (zero-pad / truncate) and emits a warn-level diagnostic. VHDL hardwires `cpu_a(12:0)` (8 KB span) at `zxnext.vhd:3199-3204`. **Implemented** — `boot_rom_buf_` 8 KB always (G157 closed) |
 
 ### Category 12: Alternate ROM (NR 0x8C)
 
@@ -693,8 +713,8 @@ is enabled (`port_dac_sd2_*_io_en`, NR 0x84 b1).
 
 | ID         | Test                                                          | Setup                                                                                                  | Expected                                                                                              |
 |------------|---------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM | Load a synthetic NEX V1.1 with `ram_required=2` (2 MB) on a 1 MB-installed `Ram`                       | Loader returns an error/warning; bank loads do NOT proceed. skip — `nex_loader.cpp:81` parses but no consumer (see G155) |
-| BOOT-NEX-02 | Loader accepts NEX when `ram_required` ≤ installed RAM        | Same NEX with `ram_required=0` (768 KB) on default 2048 KB Ram                                         | Loader proceeds, banks land at expected offsets. skip — discriminative pair for BOOT-NEX-01 (see G155) |
+| BOOT-NEX-01 | Loader rejects NEX whose `ram_required` exceeds installed RAM | Load a synthetic NEX V1.1 with `ram_required=2` (2 MB) on a 1 MB-installed `Ram`                       | Loader returns an error/warning; bank loads do NOT proceed. **Implemented** — `NexLoader::apply` aborts via `ram_required_fits` predicate (G155 closed) |
+| BOOT-NEX-02 | Loader accepts NEX when `ram_required` ≤ installed RAM        | Same NEX with `ram_required=0` (768 KB) on default 2048 KB Ram                                         | Loader proceeds, banks land at expected offsets. **Implemented** — discriminative test on `ram_required_fits`/`ram_required_kb` (G155 closed) |
 | BOOT-NEX-03 | Per-bank loading bar rendered    | NEX with `loading_bar=1`, `loading_bar_colour=0x07` (white)              | A 1-pixel-row bar advances along VRAM border per bank loaded. skip — `nex_loader.cpp:89-92` parses but ignores (see G156) |
 | BOOT-NEX-04 | Inter-bank `loading_delay` honoured | NEX with `loading_delay=10` (10 frames between banks)                   | Loader sleeps 10 frames @ 50 Hz between bank loads; jnext loads instantly. skip — frame-count not honoured (see G156) |
 | BOOT-NEX-05 | `start_delay` before code-entry  | NEX with `start_delay=50` frames                                          | Loader pauses 1 second between final bank load and PC=entry; jnext jumps immediately. skip — frame-count not honoured (see G156) |

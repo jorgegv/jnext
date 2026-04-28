@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | All tests pass.                                        |
 | Rewind                |       28 |       18 |      0 |      10 |     64% | Task 7r2: G66/G67 SS-VER + RB-FRAME skips added.       |
 | Copper                |       82 |       76 |      0 |       6 |     93% | Task 7r2: G65 ARB-G65-01 tied-edge added.              |
-| Memory/MMU            |      178 |      137 |      0 |      41 |     77% | Task 7r2: G12/G16/G33-38/G57/G58 added.                |
+| Memory/MMU            |      178 |      142 |      0 |      36 |     80% | Task 8 t1: G140/G155/G157 closed; G143 RE-HOME.        |
 | NextREG (bare)        |       63 |       21 |      0 |      42 |     33% | Task 7r2: G55/G56/G62/G64 (FT/CR/CFG/BYPASS-Q).        |
 | NextREG (integration) |       74 |       73 |      0 |       1 |     99% | Task 7r2: G63 CFG-09-INT added.                        |
 | Input                 |      152 |      139 |      0 |      13 |     91% | Task 7r2: G43/G72 (MOUSE-13..15 + IOMODE-11A).         |

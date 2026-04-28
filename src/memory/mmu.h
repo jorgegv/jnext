@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 #include "ram.h"
 #include "rom.h"
 #include "cpu/z80_cpu.h"
@@ -55,13 +56,20 @@ public:
     }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
-    // Boot ROM overlay — highest priority at 0x0000-0x1FFF when enabled.
+    // Boot ROM overlay — highest priority at 0x0000-0x3FFF when enabled.
     // Matches VHDL bootrom_en signal: enabled at power-on, disabled by NextREG 0x03.
-    void set_boot_rom(const uint8_t* data, size_t size) {
-        boot_rom_ = data;
-        boot_rom_size_ = size;
-        boot_rom_en_ = (data != nullptr);
-    }
+    //
+    // VHDL zxnext.vhd:1856 gates the overlay on cpu_a(15:14)='00' (full
+    // 16 KB at 0x0000-0x3FFF). VHDL:3199-3204 wires the bootrom entity
+    // to cpu_a(12:0) — 13 bits, exactly 8 KB span — so the upper 8 KB
+    // mirrors the lower 8 KB through the gate window. The read path
+    // implements both: gate `addr < 0x4000`, then index `addr & 0x1FFF`.
+    //
+    // VHDL hardwires the ROM size to 8 KB. Wrong-sized blobs are not
+    // real-hardware-faithful: set_boot_rom() always materialises an 8 KB
+    // internal buffer (zero-padded for short blobs, truncated for long
+    // blobs) and emits a diagnostic. (G140, G157)
+    void set_boot_rom(const uint8_t* data, size_t size);
     void set_boot_rom_enabled(bool en) { boot_rom_en_ = en; }
     bool boot_rom_enabled() const { return boot_rom_en_; }
 
@@ -111,9 +119,12 @@ public:
 
     // Hot-path memory access (inline for performance)
     inline uint8_t read(uint16_t addr) override {
-        // Boot ROM overlay: highest priority at 0x0000-0x1FFF (VHDL bootrom_en)
-        if (boot_rom_en_ && addr < boot_rom_size_) {
-            return boot_rom_[addr];
+        // Boot ROM overlay: highest priority at 0x0000-0x3FFF (VHDL bootrom_en).
+        // VHDL zxnext.vhd:1856 — gate on cpu_a(15:14)="00" (16 KB window).
+        // VHDL zxnext.vhd:3199-3204 — bootrom indexed by cpu_a(12:0) (8 KB
+        // span); upper 8 KB mirrors lower 8 KB. Mask with 0x1FFF accordingly.
+        if (boot_rom_en_ && addr < 0x4000 && boot_rom_) {
+            return boot_rom_[addr & 0x1FFF];
         }
         // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active.
         // VHDL arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode
@@ -796,7 +807,11 @@ private:
     uint8_t nr_04_romram_bank_  = 0;
     bool    rom_in_sram_        = false;  // serve ROM slots from ram_ pages 0..7 (Next only)
 
-    // Boot ROM overlay (non-owning pointer into Emulator-owned storage)
+    // Boot ROM overlay — internal 8 KB buffer (VHDL zxnext.vhd:3199-3204
+    // hardwires bootrom to cpu_a(12:0)). set_boot_rom() copies any source
+    // size into this buffer with zero-pad / truncate so the read path can
+    // unconditionally mask `addr & 0x1FFF` for the VHDL mirror semantics.
+    std::vector<uint8_t> boot_rom_buf_;
     const uint8_t* boot_rom_ = nullptr;
     size_t boot_rom_size_ = 0;
     bool boot_rom_en_ = false;

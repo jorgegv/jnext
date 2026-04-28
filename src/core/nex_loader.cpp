@@ -11,6 +11,9 @@ static uint16_t read_u16(const uint8_t* p) {
     return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
 }
 
+// ram_required_kb / ram_required_fits — defined inline in nex_loader.h
+// (G155). Inline keeps unit tests linkable without jnext_core.
+
 /// Write `len` bytes from `src` into a physical 8K RAM page via the MMU.
 /// Temporarily maps the page into slot 7 (0xE000-0xFFFF), writes, then restores.
 static void write_to_page(Mmu& mmu, uint8_t page, const uint8_t* src, size_t page_offset, size_t len)
@@ -124,6 +127,18 @@ bool NexLoader::apply(Emulator& emu) const
 {
     if (!loaded_) {
         Log::emulator()->error("NEX: apply() called without successful load()");
+        return false;
+    }
+
+    // Validate ram_required (NEX V1.1+ field at header offset 8) against the
+    // installed Ram size. tbblue's official nexload aborts when ram_required
+    // exceeds installed RAM. jnext's previous behaviour was a silent proceed
+    // → corrupted bank loads on under-installed RAM. (G155)
+    if (!ram_required_fits(header_.ram_required, emu.ram().size())) {
+        Log::emulator()->error(
+            "NEX: ram_required={} ({} KB) exceeds installed RAM ({} KB); aborting load",
+            header_.ram_required, ram_required_kb(header_.ram_required),
+            emu.ram().size() / 1024);
         return false;
     }
 

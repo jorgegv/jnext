@@ -57,6 +57,29 @@ public:
     /// set up screen data, configure CPU registers, border, and MMU.
     bool apply(Emulator& emu) const;
 
+    /// Map the NEX header `ram_required` enum to its KB requirement.
+    /// Returns 0 for unrecognised values (loader treats as warn+default).
+    /// Spec: 0=768 KB, 1=1792 KB, 2=2048 KB, 3=1024 KB (NextZXOS).
+    /// Inline so unit tests can link without pulling in jnext_core.
+    static inline size_t ram_required_kb(uint8_t ram_required) {
+        switch (ram_required) {
+            case 0: return 768;
+            case 1: return 1792;
+            case 2: return 2048;
+            case 3: return 1024;
+            default: return 0;
+        }
+    }
+
+    /// Returns true iff the NEX header `ram_required` fits within the
+    /// installed RAM byte count. Used by `apply()` to reject oversize NEX
+    /// files before any bank load corrupts state. (G155)
+    static inline bool ram_required_fits(uint8_t ram_required, size_t installed_bytes) {
+        size_t required_kb = ram_required_kb(ram_required);
+        if (required_kb == 0) return true;  // unknown → don't block load
+        return required_kb <= (installed_bytes / 1024);
+    }
+
 private:
     NexHeader header_{};
     std::vector<uint8_t> file_data_;  // all data after the 512-byte header

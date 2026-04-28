@@ -17,6 +17,37 @@ Mmu::Mmu(Ram& ram, Rom& rom) : ram_(ram), rom_(rom) {
     reset(true);
 }
 
+void Mmu::set_boot_rom(const uint8_t* data, size_t size) {
+    // VHDL zxnext.vhd:3199-3204 hardwires the bootrom entity to
+    // cpu_a(12:0) (13 bits = exactly 8 KB). Wrong-sized blobs are not
+    // real-hardware-faithful: we accept any pointer but always
+    // materialise an 8 KB internal buffer (zero-padded / truncated)
+    // and serve from that, so the read path can safely mask with
+    // 0x1FFF (mirror per VHDL bootrom_mod) regardless of source size.
+    // (G140, G157)
+    constexpr size_t kBootRomSize = 0x2000;  // 8 KB
+    if (data == nullptr || size == 0) {
+        boot_rom_buf_.clear();
+        boot_rom_ = nullptr;
+        boot_rom_size_ = 0;
+        boot_rom_en_ = false;
+        return;
+    }
+    if (size != kBootRomSize) {
+        Log::memory()->warn(
+            "boot ROM size mismatch: got {} bytes, expected {} (8 KB); "
+            "{} per VHDL zxnext.vhd:3199-3204 bootrom is hardwired to 8 KB",
+            size, kBootRomSize,
+            size < kBootRomSize ? "zero-padding" : "truncating");
+    }
+    boot_rom_buf_.assign(kBootRomSize, 0);
+    const size_t copy = std::min(size, kBootRomSize);
+    std::memcpy(boot_rom_buf_.data(), data, copy);
+    boot_rom_ = boot_rom_buf_.data();
+    boot_rom_size_ = kBootRomSize;
+    boot_rom_en_ = true;
+}
+
 void Mmu::reset(bool hard) {
     // paging_locked_ mirrors port_7ffd_reg(5) → port_7ffd_locked
     // (zxnext.vhd:3769 derives the latter from the former). The VHDL
