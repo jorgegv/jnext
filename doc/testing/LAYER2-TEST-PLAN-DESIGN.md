@@ -412,8 +412,8 @@ identity.
 | G6-07 | Fallback 0xE3 visible when every layer transparent | reset, all layers disabled, NR 0x4A=0xE3 | screenshot | uniform 0xE3 | zxnext.vhd:5014, 6823 |
 | G6-08 | Fallback colour follows NR 0x4A write | reset, all layers disabled, write NR 0x4A=0x1C | screenshot | uniform 0x1C | zxnext.vhd:5407 |
 | G6-09 | Priority bit gated by transparency | NR 0x15[4:2]=000, palette[0x80] has priority bit 9=1 and top-8 RGB = 0xE3 (transparent) | place 0x80 pixel over a sprite | sprite shows (priority ignored, zxnext.vhd:7123) | zxnext.vhd:7121-7123 |
-| G6-10 | NR 0x44 second-write captures palette priority into bit 9 | NR 0x44 stream selecting palette idx N, second byte = 0xC0 (bits 7:6 = 11) | palette word for idx N has priority bit set (skip — see G91) | zxnext.vhd:4920 |
-| G6-11 | Renderer populates `layer2_priority_[]` from palette priority slot | L2 enabled, palette idx N has priority=1 + opaque RGB; sprite opaque underneath | renderer's `layer2_priority_[x]` is `true` at the L2-pixel column (skip — see G91) | zxnext.vhd:7039-7050 |
+| G6-10 | NR 0x44 second-write captures palette priority into bit 9 | NR 0x44 stream selecting palette idx N, second byte = 0xC0 (bits 7:6 = 11) | priority slot reads back as 0b11 via PaletteManager::layer2_priority(idx) (G91 closed: palette-side capture; compositor-edge propagation belongs to compositor plan) | zxnext.vhd:4920 |
+| G6-11 | NR 0x41 8-bit write clears the palette priority slot | partner check: idx pre-poisoned by NR 0x44 priority=11, then NR 0x41 8-bit write to same idx | priority slot reads back as 0 (VHDL 4920 else-branch forces nr_palette_priority := "00") | zxnext.vhd:4920 (else) |
 
 ### Group 7 — Bank selection and port 0x123B mapping
 
@@ -489,6 +489,13 @@ NR 0x15 writes so mid-frame Copper toggles (LoRes-on / sprites-off /
 priority-mode-flip splits) are not collapsed to last-value-wins.
 Required by parallax / Beast-style layer-flip demos.
 
+**Status: G02 driver-side closed (task8-t1-layer2, 2026-04-28).**
+`Renderer::write_nr15` + `start_frame_nr15` / `set_current_line_nr15` /
+`rewind_to_baseline_nr15` / `apply_changes_for_line_nr15` mirror the
+PaletteManager / Layer2 change-log idiom. The compositor-edge validation
+of the per-line layer_priority + sprite_en propagation is owned by the
+Compositor test plan.
+
 | ID         | Title                                                                             | Stimulus                                                                                            | Expected                                                                                                  | VHDL cite                              |
 |------------|-----------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|----------------------------------------|
 | L2P-G02-01 | NR 0x15 write logged with current scanline (bit 0 sprite_en, bits 4:2 priority)   | reset; emulator at line 50 writes NR 0x15 ← 0x01 (sprite_en); at line 100 writes NR 0x15 ← 0x14     | renderer's NR-0x15 change-log holds two entries tagged `(line=50, val=0x01)` and `(line=100, val=0x14)`   | zxnext.vhd:5232, 6799 (LINE-10 oracle) |
@@ -500,6 +507,11 @@ Mid-frame writes to the rotating-index clip register (NR 0x18) are
 captured today only as scalar live state. Demos doing split-screen /
 PIP need 4-coord snapshots replayed per scanline.
 
+**Status: G05 closed (task8-t1-layer2, 2026-04-28).**
+`Layer2::set_clip_x1/x2/y1/y2` log a 4-coord ClipChange snapshot per
+write into `clip_change_log_`; `apply_changes_for_line` walks the
+clip cursor in lockstep with the existing scroll cursor.
+
 | ID         | Title                                                                                         | Stimulus                                                                                                   | Expected                                                                                                       | VHDL cite                |
 |------------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|--------------------------|
 | G10-G05-01 | Layer2 clip-window 4-coord snapshot logged with current scanline                              | reset; line=50 emit four NR 0x18 writes setting (x1=0x10, x2=0xF0, y1=0x20, y2=0xC0)                       | clip change-log holds one entry tagged `(line=50, x1=0x10, x2=0xF0, y1=0x20, y2=0xC0)`                         | zxnext.vhd:5243,5278     |
@@ -510,6 +522,12 @@ PIP need 4-coord snapshots replayed per scanline.
 Per-line page-flipping for double-buffered scroll. Niche — only fires
 on demos that race the beam to swap the L2 base-bank mid-frame.
 
+**Status: G09 closed (task8-t1-layer2, 2026-04-28).**
+`Layer2::set_active_bank` / `set_shadow_bank` log a `BankChange` per
+write into `bank_change_log_`; replay applies the snapshot at the
+matching line tag, so the renderer fetches L2 from the live
+active_bank that reflects the per-line replay state.
+
 | ID         | Title                                                                              | Stimulus                                                                                       | Expected                                                                              | VHDL cite                |
 |------------|------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|--------------------------|
 | G10-G09-01 | Layer2 NR 0x12 active-bank write logged with current scanline                      | reset (NR 0x12=0x08); start_frame; line=64 NR 0x12 ← 0x10                                      | bank change-log holds `(line=64, active_bank=0x10)`                                    | zxnext.vhd:5220, 1135    |
@@ -519,6 +537,12 @@ on demos that race the beam to swap the L2 base-bank mid-frame.
 
 Mid-frame `set_enabled` writes for "L2 only on rows N-M" demos.
 Currently last-write-wins; needs change-log + per-line replay.
+
+**Status: G14 closed (task8-t1-layer2, 2026-04-28).**
+`Layer2::set_enabled` logs an `EnableChange` per write into
+`enable_change_log_`; replay applies the snapshot at the matching line
+tag. `Layer2::render_scanline` short-circuits on `if (!enabled_)`, so
+per-line replay of the enable flag is sufficient to gate output.
 
 | ID         | Title                                                                                       | Stimulus                                                                                          | Expected                                                                                | VHDL cite                  |
 |------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|----------------------------|

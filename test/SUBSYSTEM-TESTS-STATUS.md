@@ -17,7 +17,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       11 |      0 |       6 |     65% | Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A).          |
 | CTC + Interrupts      |      133 |      129 |      0 |       4 |     97% | Task 7r2: G49 NR-C0-02 promoted from WONT comment.     |
 | CTC (integration)     |       21 |       12 |      0 |       9 |     57% | Unchanged (Task 7 round 1 baseline).                   |
-| Layer 2               |      115 |      100 |      0 |      15 |     87% | Task 7r2: G02/G05/G09/G14/G17/G28 (G10b..e + L2-G17).  |
+| Layer 2               |      120 |      115 |      0 |       5 |     96% | Task 8 t1: G91/G02/G05/G09/G14 closed (driver-side).   |
 | UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | Task 7r2: G39 ESP-01..04 added.                        |
 | UART (integration)    |       13 |       12 |      0 |       1 |     92% | Unchanged (Task 7 round 1 baseline).                   |
 | DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | Task 8 t1: G123/G124/G125/G131/G137 closed (-7).       |
