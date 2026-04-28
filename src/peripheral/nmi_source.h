@@ -114,9 +114,22 @@ public:
     /// FSM transitions through `S_NMI_END`.
     uint8_t nr_02_read() const;
 
-    /// IO-trap producer stub (NR 0xD8 FDC trap path). Unused in this
-    /// plan; present for VHDL-faithfulness of the producer count.
+    /// IO-trap producer (VHDL `nmi_gen_iotrap`, zxnext.vhd:3835-3837).
+    /// `nmi_sw_gen_mf <= nmi_gen_nr_mf OR nmi_gen_iotrap`, so a strobe
+    /// here OR's into the MF assert path on the next `tick()`.
+    /// VHDL gates the iotrap by `nr_d8_io_trap_fdc_en` upstream
+    /// (`port_2ffd_rd or port_3ffd_rd or port_3ffd_wr`), so by contract
+    /// the caller raises this only when the trap-enable register is on.
     void strobe_iotrap();
+
+    /// Soft-reset rising edge — advances the NR 0x02 `reset_type[2:0]`
+    /// shift register per VHDL zxnext.vhd:1732-1739:
+    ///   `nr_02_reset_type <= '0' & rt(2) & (rt(1) OR rt(0))`.
+    /// Power-on default is `"100"`. Bits 1:0 are surfaced via
+    /// `nr_02_read()` per VHDL:5891. Driven by NR 0x02 bit 0 writes
+    /// AND by the `hotkey_soft_reset` (F4) input AND-NOT-config_mode
+    /// (zxnext.vhd:6370).
+    void strobe_soft_reset();
 
     /// Drive the ExpBus /NMI pin directly. Active-low: `true` = idle,
     /// `false` = asserting. VHDL `i_BUS_NMI_n` power-on is high.
@@ -256,6 +269,12 @@ public:
     /// parity; Multiface integration (Task 8) is the intended consumer.
     bool mf_button_strobe() const { return mf_button_strobe_; }
 
+    /// VHDL `nr_02_reset_type` raw 3-bit FSM state (zxnext.vhd:1306,
+    /// 1732-1739). Power-on default `"100"`; advances on each
+    /// `strobe_soft_reset()` call. Bits 1:0 are surfaced via
+    /// `nr_02_read()` per VHDL:5891.
+    uint8_t reset_type() const { return reset_type_; }
+
 private:
     // Re-evaluate combinational producers + priority latches + FSM
     // transition. Called from tick() and from any setter that might
@@ -306,6 +325,14 @@ private:
     // latch clears (which happens at END).
     bool nr_02_pending_mf_     = false;
     bool nr_02_pending_divmmc_ = false;
+
+    // ---- NR 0x02 reset_type[2:0] FSM (VHDL zxnext.vhd:1306, 1732-1739).
+    // Power-on default = "100"; advances on each soft-reset rising edge
+    // by `'0' & rt(2) & (rt(1) OR rt(0))`. Bits 1:0 are surfaced via
+    // `nr_02_read()` per VHDL:5891. The signal has no reset branch in
+    // the VHDL process, so neither hard nor soft reset clears it; only
+    // strobe_soft_reset() advances it.
+    uint8_t reset_type_ = 0b100;
 
     // ---- Prev-cycle edge tracking ----
     bool prev_wr_n_ = true;

@@ -135,10 +135,19 @@ static void g_rst_defaults()
 
     // RST-04 — VHDL zxnext.vhd:1306, 5891 — NR 0x02 reset_type[2:0] FSM
     // power-on default = "100"; bits 1:0 of read = "00", bit 2 latent.
-    // jnext nmi_source.nr_02_read() returns bits 3/2 only; reset_type
-    // permanently 0. (G153)
-    skip("RST-04",
-         "NR 0x02 reset_type[2:0] power-on default missing (see G153)");
+    // (G153 closure: NmiSource::reset_type_ = 0b100 init-value, surfaced
+    //  via nr_02_read() bits 1:0.)
+    {
+        NmiSource nmi;
+        const uint8_t rt    = nmi.reset_type();
+        const uint8_t r02   = nmi.nr_02_read();
+        const bool   ok_rt  = (rt == 0b100);
+        const bool   ok_r02 = ((r02 & 0x03) == 0x00);
+        check("RST-04",
+              "NR 0x02 reset_type[2:0] power-on default = \"100\" (read bits 1:0 = \"00\")",
+              ok_rt && ok_r02,
+              "zxnext.vhd:1306 (init), 5891 (readback)");
+    }
 }
 
 // =====================================================================
@@ -295,15 +304,61 @@ static void g_nr02_sw_nmi()
     // NR02-07 — VHDL zxnext.vhd:1732-1739
     // Soft-reset rising edge advances reset_type via
     //   '0' & rt(2) & (rt(1) OR rt(0))
-    // jnext: reset_type permanently 0. (G153)
-    skip("NR02-07",
-         "reset_type FSM advance on soft-reset edge missing (see G153)");
+    // (G153 closure: NmiSource::strobe_soft_reset()).
+    //
+    // Trace from power-on:
+    //   100 -> 010 -> 001 -> 001 ... (saturates at 001 because once b0=1
+    //   the new b0 = b1 OR b0 stays 1 forever; b2 has already shifted out).
+    {
+        NmiSource nmi;
+        const uint8_t s0 = nmi.reset_type();
+        nmi.strobe_soft_reset();
+        const uint8_t s1 = nmi.reset_type();
+        nmi.strobe_soft_reset();
+        const uint8_t s2 = nmi.reset_type();
+        nmi.strobe_soft_reset();
+        const uint8_t s3 = nmi.reset_type();
+        nmi.strobe_soft_reset();
+        const uint8_t s4 = nmi.reset_type();
+        const bool ok = s0 == 0b100 && s1 == 0b010 && s2 == 0b001
+                        && s3 == 0b001 && s4 == 0b001;
+        check("NR02-07",
+              "soft-reset edge advances reset_type FSM "
+              "(100 -> 010 -> 001, saturates at 001)",
+              ok,
+              "zxnext.vhd:1732-1739; trace=" +
+                  std::to_string(s0) + "," + std::to_string(s1) + "," +
+                  std::to_string(s2) + "," + std::to_string(s3) + "," +
+                  std::to_string(s4));
+    }
 
     // NR02-08 — VHDL zxnext.vhd:5891
-    // NR 0x02 readback bits 1:0 reflect reset_type[1:0]; auto-clear
-    // independent of bits 3/2. (G153)
-    skip("NR02-08",
-         "NR 0x02 readback bits 1:0 reset_type not surfaced (see G153)");
+    // NR 0x02 readback bits 1:0 reflect reset_type[1:0]; independent of
+    // bits 3/2 (FSM auto-clear of bits 3/2 does not touch the
+    // reset_type FSM). (G153 closure.)
+    {
+        NmiSource nmi;
+        // power-on: rt=100 -> bits 1:0 = "00"
+        const uint8_t r_pwr = nmi.nr_02_read() & 0x03;
+        nmi.strobe_soft_reset();
+        // rt=010 -> bits 1:0 = "10"
+        const uint8_t r_aft1 = nmi.nr_02_read() & 0x03;
+        nmi.strobe_soft_reset();
+        // rt=001 -> bits 1:0 = "01"
+        const uint8_t r_aft2 = nmi.nr_02_read() & 0x03;
+        // Now write bit 3 to set MF pending and verify bits 3/2 don't
+        // disturb reset_type bits 1:0.
+        nmi.set_mf_enable(true);
+        nmi.nr_02_write(0x08);
+        const uint8_t r_with_mf = nmi.nr_02_read();
+        const bool ok = r_pwr == 0b00 && r_aft1 == 0b10 && r_aft2 == 0b01
+                        && (r_with_mf & 0x03) == 0b01
+                        && (r_with_mf & 0x08) != 0;
+        check("NR02-08",
+              "NR 0x02 readback bits 1:0 reflect reset_type[1:0] independent of bits 3/2",
+              ok,
+              "zxnext.vhd:5891");
+    }
 }
 
 // =====================================================================
@@ -518,10 +573,41 @@ static void g_mf_g162_skips()
     set_group("MF");
 
     // MF-G162-01 — VHDL zxnext.vhd:3835-3837
-    // nmi_sw_gen_mf <= ... OR nmi_gen_iotrap; jnext nmi_source.cpp:124-127,384
-    // consumes-and-discards strobe_iotrap().
-    skip("MF-G162-01",
-         "iotrap strobe not OR'd into MF assert (see G162)");
+    //   nmi_sw_gen_mf <= nmi_gen_nr_mf or nmi_gen_iotrap;
+    //   nmi_assert_mf <= '1' when (hotkey_m1 OR nmi_sw_gen_mf) AND
+    //                              nr_06_button_m1_nmi_en;
+    // (G162 closure: NmiSource::strobe_iotrap() is now OR'd into the
+    //  nmi_assert_mf path with the NR 0x06 bit 3 gate honoured.)
+    //
+    // The VHDL upstream gates the iotrap by `nr_d8_io_trap_fdc_en`, so
+    // by contract `strobe_iotrap()` is only invoked when the FDC trap
+    // enable register is on. We model that contract here by simply
+    // calling the strobe; the NR-D8 gate itself is owned by the future
+    // port 0x2FFD/0x3FFD trap-decode handler (MF-G162-02).
+    {
+        NmiSource nmi;
+        nmi.set_mf_enable(true);                 // NR 0x06 bit 3 = 1
+        nmi.strobe_iotrap();
+        nmi.tick(1);
+        const bool latched = (nmi.latched() == NmiSource::Src::Mf);
+        const bool fsm_ok  = (nmi.state()  == NmiSource::State::Fetch);
+        check("MF-G162-01",
+              "strobe_iotrap() OR's into nmi_assert_mf and latches MF",
+              latched && fsm_ok,
+              "zxnext.vhd:3835-3837 (iotrap->MF), 2090 (mf assert), 2097 (latch)");
+    }
+    {
+        // Companion: NR 0x06 bit 3 = 0 still gates the iotrap path off.
+        NmiSource nmi;
+        nmi.set_mf_enable(false);                // gate closed
+        nmi.strobe_iotrap();
+        nmi.tick(1);
+        check("MF-G162-01b",
+              "iotrap honours NR 0x06 bit 3 gate (no latch when MF-en off)",
+              nmi.latched() == NmiSource::Src::None
+                  && nmi.state() == NmiSource::State::Idle,
+              "zxnext.vhd:2090 gate (`nr_06_button_m1_nmi_en`)");
+    }
 
     // MF-G162-02 — VHDL zxnext.vhd:3835-3837
     // Port 0x2FFD/0x3FFD trap-decode handler missing today.

@@ -751,6 +751,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NmiSource::nr_02_write).
         nmi_source_.nr_02_write(v);
 
+        // VHDL zxnext.vhd:6370 — `nr_02_soft_reset <= ... or
+        // (nr_02_we and nr_wr_dat(0))`. The reset_type[2:0] FSM at
+        // VHDL:1732-1739 advances on this edge regardless of whether
+        // the higher-priority hard-reset bit also fires this cycle.
+        // Strobe BEFORE invoking the host-side reset() / soft_reset(),
+        // both of which call init() and re-route through NmiSource —
+        // strobing first guarantees the FSM-advance is observable in
+        // the post-reset readback.
+        if (v & 0x01) {
+            nmi_source_.strobe_soft_reset();
+        }
+
         if (v & 0x02) {
             Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x})", v);
             reset();

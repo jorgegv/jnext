@@ -51,6 +51,13 @@ void NmiSource::reset()
     nr_02_pending_mf_     = false;
     nr_02_pending_divmmc_ = false;
 
+    // VHDL zxnext.vhd:1306 — `signal nr_02_reset_type ... := "100"` is an
+    // initial-value-only default (FPGA power-on). The advance process at
+    // VHDL:1732-1739 has no `reset` branch, so the FSM is **not cleared**
+    // on hard or soft reset — it persists across both. Do NOT touch
+    // `reset_type_` here; the constructor initialises it to 0b100 once
+    // and `strobe_soft_reset()` is the only legitimate mutator.
+
     prev_wr_n_ = true;
 
     // VHDL:2169-2170 — both button strobes are combinationally derived
@@ -110,20 +117,42 @@ void NmiSource::nr_02_write(uint8_t v)
 
 uint8_t NmiSource::nr_02_read() const
 {
-    // VHDL:5891 — readback layout. Only bits 3 / 2 are owned by NmiSource
-    // (mf_pending / divmmc_pending, auto-cleared on S_NMI_END). Other
-    // bits (bus_reset, iotrap, reset_type) are owned elsewhere and
-    // composed by Emulator's NR 0x02 read handler; return only our
-    // two bits here so the Phase-1 scaffold stays a bare producer API.
+    // VHDL:5891 — readback layout:
+    //   bit 7   = nr_02_bus_reset           (owned by Emulator/NextReg)
+    //   bits 6:5 = "00"                     (reserved)
+    //   bit 4   = nr_02_iotrap              (owned by Emulator/NextReg)
+    //   bit 3   = nr_02_generate_mf_nmi     (NmiSource — auto-clear @END)
+    //   bit 2   = nr_02_generate_divmmc_nmi (NmiSource — auto-clear @END)
+    //   bits 1:0 = nr_02_reset_type[1:0]    (NmiSource — VHDL:1732-1739)
+    //
+    // NmiSource owns bits 3/2 (FSM-driven) and 1:0 (reset_type FSM). The
+    // bus_reset (bit 7) and iotrap (bit 4) fields belong to other VHDL
+    // signals not yet modelled; they remain zero until their owning
+    // peripheral lands. The Emulator NR 0x02 read handler may OR in
+    // additional bits if those signals get wired later.
     uint8_t r = 0;
     if (nr_02_pending_mf_)     r |= 0x08;
     if (nr_02_pending_divmmc_) r |= 0x04;
+    r |= static_cast<uint8_t>(reset_type_ & 0x03);
     return r;
 }
 
 void NmiSource::strobe_iotrap()
 {
     iotrap_strobe_pending_ = true;
+}
+
+void NmiSource::strobe_soft_reset()
+{
+    // VHDL zxnext.vhd:1732-1739 — on `nr_02_soft_reset = '1'` rising edge,
+    //   nr_02_reset_type <= '0' & rt(2) & (rt(1) OR rt(0))
+    // i.e. shift-right-with-OR collapse: 100 -> 010 -> 001 -> 000 -> 000.
+    // The FSM does not roll over.
+    const uint8_t rt = reset_type_ & 0x07;
+    const uint8_t b2 = 0;
+    const uint8_t b1 = (rt >> 2) & 0x01;
+    const uint8_t b0 = ((rt >> 1) & 0x01) | (rt & 0x01);
+    reset_type_ = static_cast<uint8_t>((b2 << 2) | (b1 << 1) | b0);
 }
 
 void NmiSource::set_expbus_nmi_n(bool v)
@@ -155,8 +184,14 @@ void NmiSource::set_divmmc_conmem(bool v)   { divmmc_conmem_ = v; }
 
 bool NmiSource::nmi_assert_mf() const
 {
-    // VHDL:2090 — (hotkey_m1 OR nmi_sw_gen_mf) AND nr_06_button_m1_nmi_en.
-    return (mf_button_ || nmi_sw_gen_mf_) && mf_enable_;
+    // VHDL zxnext.vhd:2090 — (hotkey_m1 OR nmi_sw_gen_mf) AND
+    //                        nr_06_button_m1_nmi_en.
+    // VHDL zxnext.vhd:3837 — `nmi_sw_gen_mf <= nmi_gen_nr_mf OR
+    //                        nmi_gen_iotrap`, so the iotrap strobe
+    //                        (VHDL:3835, gated upstream by
+    //                        `nr_d8_io_trap_fdc_en`) OR's into the same
+    //                        producer line.
+    return (mf_button_ || nmi_sw_gen_mf_ || iotrap_strobe_pending_) && mf_enable_;
 }
 
 bool NmiSource::nmi_assert_divmmc() const
@@ -431,6 +466,11 @@ void NmiSource::save_state(StateWriter& w) const
     // to keep the snapshot stream complete and future-proof.
     w.write_bool(mf_button_strobe_);
     w.write_bool(divmmc_button_strobe_);
+
+    // VHDL:1306, 1732-1739 — `nr_02_reset_type` 3-bit FSM. Persist so
+    // a snapshot taken after one or more soft resets reloads with the
+    // same FSM advance position.
+    w.write_u8(reset_type_);
 }
 
 void NmiSource::load_state(StateReader& r)
@@ -467,4 +507,6 @@ void NmiSource::load_state(StateReader& r)
 
     mf_button_strobe_              = r.read_bool();
     divmmc_button_strobe_          = r.read_bool();
+
+    reset_type_                    = r.read_u8();
 }
