@@ -1485,19 +1485,21 @@ where possible.
 - **Effort**: L.
 - Also relevant to section D.
 
-### G152. Host F1/F4/F9/F10 hotkeys not wired to NMI source / reset
+### G152. Host F1/F4/F9/F10 hotkeys not wired to NMI source / reset [merged]
 - **What**: VHDL `zxnext.vhd:6340-6349,6370-6371,2090-2091`: F1=hard reset, F4=soft reset, F9=hotkey_m1 (MF NMI), F10=hotkey_drive (DivMMC). jnext `gui/main_window.cpp:94-105` translates F1-F10 to SDL scancodes only — no NMI / reset consumer. Test injectors at `emulator.h:328-329` exist.
 - **User impact**: user cannot trigger NextZXOS soft-reset (F4) / hard-reset (F1) / Multiface freeze (F9) / DivMMC button (F10) from keyboard.
 - **Source ref**: Wave-2 nmi-boot (NEW-NMI-1, NEW-BOOT-2 — same gap, bundled).
-- **Coverage today**: none.
+- **Coverage today**: nmi_test rows HK-06/07/08/09 (Task 8 t1 closure 2026-04-28).
+- **Closure (Task 8 t1)**: `Emulator::on_hotkey_f1_hard_reset / f4_soft_reset / f9_mf_nmi / f10_divmmc_nmi` dispatchers + `gui/main_window.cpp` keyPress/Release wiring. F4 honours `nr_03_config_mode` gate per VHDL:6370.
 - **Dependencies**: distinct from G42 (joystick), G46 (boot ladder), G48 (MF).
 - **Effort**: L.
 
-### G153. NR 0x02 reset_type[2:0] FSM and read-back missing
+### G153. NR 0x02 reset_type[2:0] FSM and read-back missing [merged]
 - **What**: VHDL `zxnext.vhd:1306,1732-1739,5891` — 3-bit shift register defaults `"100"` at power-on, advances `'0' & rt(2) & (rt(1) or rt(0))` on soft_reset rising edge. Bits 1:0 in NR 0x02 readback. Reviewer corrects: `:3319` consumer is SPI-Flash-CS, NOT DivMMC. jnext: `nmi_source.nr_02_read()` returns bits 3/2 only; reset_type permanently 0.
 - **User impact**: tbblue.fw reset_type-conditional firmware paths take wrong branch; SPI-Flash-CS never armed at first power-on (latent — `--boot-rom` bypasses Flash path).
 - **Source ref**: Wave-2 nmi-boot (NEW-NMI-2); reviewer APPROVE w/ revised framing.
-- **Coverage today**: G46 plausibility moderate, not "likely" — needs port-0xE7 trace at G46 stall.
+- **Coverage today**: nmi_test rows RST-04, NR02-07, NR02-08 (Task 8 t1 closure 2026-04-28).
+- **Closure (Task 8 t1)**: `NmiSource::reset_type_` modelled (init `"100"`, `strobe_soft_reset()` advances per VHDL:1736, saturates at `001`); surfaced via `nr_02_read()` bits 1:0 per VHDL:5891. NR 0x02 bit 0 write + `Emulator::on_hotkey_f4_soft_reset` strobe the FSM. FSM has no reset branch in VHDL — preserved across hard/soft reset by NOT touching `reset_type_` in `NmiSource::reset()`.
 - **Dependencies**: distinct from G56/G62/G63.
 - **Effort**: L.
 
@@ -1533,11 +1535,12 @@ where possible.
 - **Dependencies**: 1 menu item + 1 emulator method.
 - **Effort**: L.
 
-### G162. NMI iotrap strobe consumed but never propagated to MF assert
+### G162. NMI iotrap strobe consumed but never propagated to MF assert [merged]
 - **What**: VHDL `zxnext.vhd:3835-3837` — `nmi_sw_gen_mf <= nmi_gen_nr_mf or nmi_gen_iotrap`. jnext `NmiSource::strobe_iotrap()` exists at `nmi_source.cpp:124-127` but `iotrap_strobe_pending_` is consumed and discarded at `:384` — never OR'd into MF assert. No port 0x2FFD/0x3FFD trap-decode handler. NR 0xD8 has zero handlers.
 - **User impact**: +3 floppy-trap NMI path completely silent; FDC software targeting traps sees nothing.
 - **Source ref**: Wave-2 nmi-boot (NEW-NMI-3); reviewer APPROVE — distinct from G55 (test-row gap only).
-- **Coverage today**: G55 needs to be expanded with NR 0xD9/DA companion regs (see expansion-bullets).
+- **Coverage today**: nmi_test rows MF-G162-01, MF-G162-01b (companion gate row), MF-G162-02 (Task 8 t1 closure 2026-04-28).
+- **Closure (Task 8 t1)**: (a) `iotrap_strobe_pending_` OR'd into `NmiSource::nmi_assert_mf()` with NR 0x06 bit 3 gate honoured. (b) NR 0xD8 bit 0 (`nr_d8_io_trap_fdc_en`) storage + handlers in Emulator. (c) port 0x2FFD/0x3FFD trap-decode handlers (mask `0xF003`) strobe `NmiSource::strobe_iotrap()` only when NR 0xD8 bit 0 is on; `port_2ffd_rd / port_3ffd_rd / port_3ffd_wr` follow VHDL:3835. NR 0xDA `nr_da_iotrap_cause` latch + NR 0x02 bit 4 readback remain unmodelled (see G55 expansion).
 - **Dependencies**: pair with G55 broadening.
 - **Effort**: L.
 

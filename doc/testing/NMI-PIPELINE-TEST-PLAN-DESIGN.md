@@ -184,7 +184,7 @@ Each row carries a short VHDL cite. Row IDs follow the naming pattern
 | RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
 | RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
 | RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
-| RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. skip — `nmi_source.nr_02_read()` returns bits 3/2 only (see G153) |
+| RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
 
 ### Group NR02 — NR 0x02 software NMI (Wave A) (8 rows)
 
@@ -196,16 +196,17 @@ Each row carries a short VHDL cite. Row IDs follow the naming pattern
 | NR02-04 | NR 0x02 readback bit layout | zxnext.vhd:5891 | write 0x0C; read NR 0x02; expect bits 3/2 = 1/1 pre-END |
 | NR02-05 | NR 0x02 readback bits 3/2 auto-clear on FSM `S_NMI_END` | zxnext.vhd:5891, 2149-2162 | drive FSM through END; read NR 0x02; expect bits 3/2 = 0 |
 | NR02-06 | Copper MOVE to NR 0x02 reaches same request latches | zxnext.vhd:3830-3872, copper.cpp:148 | strobe NmiSource via Emulator::write_nextreg(0x02, 0x04); observe `divmmc_pending` |
-| NR02-07 | Soft-reset rising edge advances reset_type via `'0' & rt(2) & (rt(1) OR rt(0))` | zxnext.vhd:1732-1739 | strobe soft-reset edge; observe reset_type FSM advance. skip — reset_type permanently 0 today (see G153) |
-| NR02-08 | NR 0x02 readback bits 1:0 reflect reset_type[1:0]; auto-clear independent of bits 3/2 | zxnext.vhd:5891 | drive FSM through reset cycle; read NR 0x02; check bits 1:0 layout. skip — readback layout missing (see G153) |
+| NR02-07 | Soft-reset rising edge advances reset_type via `'0' & rt(2) & (rt(1) OR rt(0))` | zxnext.vhd:1732-1739 | strobe soft-reset edge; observe reset_type FSM advance. **G153 closed (Task 8 t1)** — `NmiSource::strobe_soft_reset()` advances FSM (100 → 010 → 001, saturates at 001). |
+| NR02-08 | NR 0x02 readback bits 1:0 reflect reset_type[1:0]; independent of bits 3/2 | zxnext.vhd:5891 | strobe soft-reset edges; read NR 0x02; check bits 1:0 layout. **G153 closed (Task 8 t1)** — readback layout matches VHDL:5891. |
 
 ### Group HK — Hotkey producers (Wave B) (9 rows)
 
 HK-06..09 own F1/F4/F9/F10 NMI/reset dispatch only; F2/F3/F5/F6/F7/F8
 cpu-speed/50-60/scandouble dispatch lives in B8 (G147 / G132) — do not
-duplicate rows here. Test injectors at `emulator.h:328-329` exist;
-missing piece is `gui/main_window.cpp` translating SDL F-keys to those
-calls.
+duplicate rows here. **G152 closed (Task 8 t1)** —
+`Emulator::on_hotkey_f1_hard_reset / f4_soft_reset / f9_mf_nmi /
+f10_divmmc_nmi` dispatchers + `gui/main_window.cpp` keyPress/Release
+wiring.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
@@ -214,10 +215,10 @@ calls.
 | HK-03 | NR 0x06 bit 3 = 0 blocks MF producer | zxnext.vhd:1109, 2089 | set NR 0x06 bit 3 = 0; strobe MF button; expect no FSM advance |
 | HK-04 | NR 0x06 bit 4 = 0 blocks DivMMC producer | zxnext.vhd:1110, 2090 | set NR 0x06 bit 4 = 0; strobe DivMMC button; expect no FSM advance |
 | HK-05 | Simultaneous MF + DivMMC button press → MF wins | zxnext.vhd:2097-2105 | strobe both; observe `accept_cause = MF` |
-| HK-06 | Host F9 keystroke → NmiSource MF latch via host-key dispatch | zxnext.vhd:6340-6349, 2089 | press host F9; observe `nmi_mf` latch set. skip — gui/main_window.cpp:94-105 SDL only (see G152) |
-| HK-07 | Host F10 keystroke → NmiSource DivMMC latch via host-key dispatch | zxnext.vhd:6349, 2090 | press host F10; observe `nmi_divmmc` latch set. skip — gui/main_window.cpp:94-105 SDL only (see G152) |
-| HK-08 | Host F4 keystroke → soft-reset edge to NmiSource reset_type FSM | zxnext.vhd:6370-6371, 2090-2091 | press host F4; observe soft-reset rising edge. skip — pairs with G153 (see G152) |
-| HK-09 | Host F1 keystroke → hard-reset path (full Emulator reset) | zxnext.vhd:6340 | press host F1; observe full Emulator reset. skip — no GUI consumer today (see G152) |
+| HK-06 | Host F9 keystroke → NmiSource MF latch via host-key dispatch | zxnext.vhd:6340-6349, 2089 | call `Emulator::on_hotkey_f9_mf_nmi()`; observe `nmi_mf` latch. **G152 closed.** |
+| HK-07 | Host F10 keystroke → NmiSource DivMMC latch via host-key dispatch | zxnext.vhd:6349, 2090 | call `Emulator::on_hotkey_f10_divmmc_nmi()`; observe `nmi_divmmc` latch. **G152 closed.** |
+| HK-08 | Host F4 keystroke → soft-reset edge to NmiSource reset_type FSM | zxnext.vhd:6370-6371, 2090-2091 | clear NR 0x03 config_mode + call `Emulator::on_hotkey_f4_soft_reset()`; observe reset_type advance + config_mode gate honoured. **G152+G153 closed.** |
+| HK-09 | Host F1 keystroke → hard-reset path (full Emulator reset) | zxnext.vhd:6371 | call `Emulator::on_hotkey_f1_hard_reset()`; observe full reset. **G152 closed.** |
 
 ### Group DIS — DivMMC consumer (Wave B) (4 rows)
 
@@ -273,8 +274,8 @@ calls.
 <!-- MF rows parked here pending future MULTIFACE-TEST-PLAN-DESIGN.md. -->
 <!-- Prefix `MF-Gxx-NN` makes them easy to migrate later.              -->
 
-| MF-G162-01 | `NmiSource::strobe_iotrap()` propagates to MF assert path (`nmi_sw_gen_mf <= … OR nmi_gen_iotrap`) | zxnext.vhd:3835-3837 | strobe iotrap; observe MF latch set. skip — `nmi_source.cpp:124-127, 384` consumes-and-discards (see G162) |
-| MF-G162-02 | Port 0x2FFD / 0x3FFD trap-decode handler invokes `strobe_iotrap()` | zxnext.vhd:3835-3837 | OUT to 0x2FFD/0x3FFD; observe iotrap strobe. skip — no port handler today (see G162; pairs with G55 expansion) |
+| MF-G162-01 | `NmiSource::strobe_iotrap()` propagates to MF assert path (`nmi_sw_gen_mf <= … OR nmi_gen_iotrap`) | zxnext.vhd:3835-3837 | strobe iotrap; observe MF latch set. **G162 closed (Task 8 t1)** — OR'd into `nmi_assert_mf()`; companion row MF-G162-01b checks NR 0x06 bit 3 gate. |
+| MF-G162-02 | Port 0x2FFD / 0x3FFD trap-decode handler invokes `strobe_iotrap()` | zxnext.vhd:2598-2602, 3835-3837 | enable NR 0xD8 bit 0; OUT 0x3FFD + IN 0x2FFD; observe iotrap strobe + MF latch; verify gate-off path is no-op. **G162 closed (Task 8 t1)** — Emulator port handlers + NR 0xD8 storage. |
 
 ### Group EXPBUS — ExpBus pin (Wave C — stubbed default inactive) (3 rows)
 
@@ -316,8 +317,8 @@ calls.
 | EXPBUS | 3 |
 | DMA | 3 |
 | Z80 | 4 |
-| MF (G162 parked) | 2 |
-| **Total** | **59** |
+| MF (G162) | 2 |
+| **Total** | **59** (+ 1 companion MF-G162-01b row in source = 60 binary checks) |
 
 ## Re-homed rows
 
@@ -399,3 +400,11 @@ bash test/regression.sh
 > Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162
 > plumbing gaps; skip-stubbed pending implementation. MF-G162-NN rows
 > park here until `MULTIFACE-TEST-PLAN-DESIGN.md` exists.
+>
+> **Update 2026-04-28 (Task 8 t1):** G153 (RST-04, NR02-07, NR02-08),
+> G152 (HK-06..09), and G162 (MF-G162-01, MF-G162-02) closed end-to-end.
+> Companion row MF-G162-01b added to test the NR 0x06 bit 3 gate path.
+> Suite total now **56/42/0/14** (was 55/32/0/23). Still parked: Z80-04
+> (G88 cross-link, primary-owner CTC), MF-G48-01..07 (Multiface peripheral,
+> awaits `MULTIFACE-TEST-PLAN-DESIGN.md`), BOOT/BYPASS rows (G46/G47/G59/G60
+> end-to-end behavioural).
