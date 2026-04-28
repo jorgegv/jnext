@@ -3146,6 +3146,19 @@ void Emulator::run_frame()
 
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();
+
+    // G133 closure — drive Keyboard::tick_scan() once per video frame
+    // so the two-scan shift hysteresis (membrane.vhd:178-191, 188-191)
+    // advances in production. The VHDL membrane scans at FPGA pixel-
+    // clock rate, but per-frame is the correct cadence here: tick_scan
+    // only snapshots the current matrix shift bits into shift_hist_[],
+    // and shift_hist_ is read by Keyboard::read_rows() to hold a
+    // releasing CS/SYM bit for one extra scan. Faster cadence wouldn't
+    // change the observable — Z80 software polls the membrane via
+    // port 0xFE at most once per frame in normal operation, and the
+    // hysteresis goal is "release lags by ~1 frame", which one tick
+    // per frame matches exactly.
+    keyboard_.tick_scan();
 }
 
 int Emulator::current_scanline() const

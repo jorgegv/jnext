@@ -414,18 +414,65 @@ static void test_kbdhys() {
                      before_b0, before_b1, after_b0, after_b1));
     }
 
-    // KBDHYS-04: Production wire — tick_scan / cancel_extended_entries.
+    // KBDHYS-04: Production wire — Emulator::run_frame() drives
+    // Keyboard::tick_scan() once per video frame (G133 closure).
     //
-    // VHDL membrane.vhd:178-191: matrix_state_ex_0/1 advance every membrane
-    // scan-cycle; the cancel hook clears the extended-entry latch on the next
-    // scan. jnext keyboard.cpp:312 (tick_scan) and :334
-    // (cancel_extended_entries) exist as methods but production
-    // emulator.cpp does NOT call them — the 1-scan shift hysteresis edge
-    // cases differ and the cancel hook is unreachable until the production
-    // wire lands. Tracked under G133 (also blocks G48 test path).
-    skip("KBDHYS-04",
-         "Keyboard::tick_scan/cancel_extended_entries production wire",
-         "Keyboard::tick_scan/cancel_extended_entries unwired (see G133)");
+    // VHDL membrane.vhd:178-191: matrix_state_ex_0/1 advance every
+    // membrane scan-cycle and the shift bits are "held an extra scan".
+    // The C++ model collapses that to one snapshot per call to
+    // tick_scan() — a CS press latches `pressed` into shift_hist_[0],
+    // and a release without a tick leaves the previous snapshot in
+    // place so read_rows() AND-folds it with the now-released matrix
+    // state and reports CS-still-pressed for one extra scan.
+    //
+    // Emulator-driven test sequence (mirrors the unit-level KBDHYS-01
+    // pattern but relies on run_frame() to deliver tick_scan):
+    //   1. Build emulator. Press CS via emu.keyboard().set_key().
+    //   2. Run one frame → tick_scan snapshots CS-pressed.
+    //   3. Read row 0 → 0x1E (CS pressed; shift_hist[0] bit 0 = 0).
+    //   4. Release CS without ticking; read row 0 → still 0x1E because
+    //      shift_hist[0] retains the pressed snapshot — this is only
+    //      possible if step 2 actually called tick_scan().
+    //   5. Run another frame → tick_scan snapshots CS-released.
+    //   6. Read row 0 → 0x1F (released).
+    //
+    // If Emulator::run_frame() did NOT call tick_scan, step 3 would
+    // still read 0x1E (matrix_[0] is freshly pressed), but step 4 would
+    // read 0x1F immediately because shift_hist_ would still hold the
+    // reset all-released snapshot — the AND of `released-now` &
+    // `released-prev` is `released`. So the load-bearing assertion is
+    // step 4 returning 0x1E.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Press Caps-Shift at row 0 col 0.
+        emu.keyboard().set_key(sc_for(0, 0), true);
+        emu.run_frame();
+        const uint8_t pressed_after_tick = emu.keyboard().read_rows(row_addr(0));
+
+        // Release without ticking: shift_hist[0] still snapshots pressed.
+        emu.keyboard().set_key(sc_for(0, 0), false);
+        const uint8_t held_via_hyst = emu.keyboard().read_rows(row_addr(0));
+
+        // Run another frame so tick_scan snapshots the now-released CS.
+        emu.run_frame();
+        const uint8_t released_after_tick = emu.keyboard().read_rows(row_addr(0));
+
+        check("KBDHYS-04",
+              "Emulator::run_frame() drives Keyboard::tick_scan()  "
+              "(membrane.vhd:178-191; G133 closure)",
+              pressed_after_tick   == 0x1E &&
+              held_via_hyst        == 0x1E &&
+              released_after_tick  == 0x1F,
+              DETAIL("pressed=0x%02X held=0x%02X released=0x%02X "
+                     "(want 0x1E, 0x1E, 0x1F)",
+                     pressed_after_tick, held_via_hyst, released_after_tick));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
