@@ -550,9 +550,11 @@ private:
     uint8_t nr_08_stored_low_ = 0;
 
     // --- Line interrupt state (NextREG 0x22/0x23) ---
-    bool     line_int_enabled_   = false;  ///< NextREG 0x22 bit 1
+    // G71 (2026-04-28): line-int enable + 9-bit target are owned by
+    // video_timing_ (see set_line_interrupt_enable / _target). Only the
+    // ULA-int disable flag (NR 0x22 bit 2) lives here — it is a separate
+    // gate from the line-int path and predates VideoTiming.
     bool     ula_int_disabled_   = false;  ///< NextREG 0x22 bit 2
-    uint16_t line_int_value_     = 0;      ///< 9-bit line number (0x22 bit0 + 0x23)
 
     // --- Clip window rotating write indices (NextREG 0x18/0x19/0x1A/0x1B) ---
     // Each clip register cycles through X1,X2,Y1,Y2 on successive writes.

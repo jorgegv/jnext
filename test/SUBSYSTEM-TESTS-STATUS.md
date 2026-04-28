@@ -28,7 +28,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video             |       98 |       82 |      0 |      16 |     84% | Task 7r2: G07/G08/G10 (S5-PSL/S9-PSL/S17.x).           |
 | ULA Video (int)       |       11 |        9 |      0 |       2 |     81% | Unchanged (Task 7 round 1 baseline).                   |
 | Floating Bus          |       32 |       32 |      0 |       0 |    100% | All tests pass.                                        |
-| VideoTiming           |       27 |       22 |      0 |       5 |     81% | Task 7r2: G71 VT-26 walkback added.                    |
+| VideoTiming           |       27 |       27 |      0 |       0 |    100% | Task 8 W1: G71/G106/G107/G109 closed (zero skips).     |
 | Contention            |       76 |       68 |      0 |       8 |     89% | Task 7r2: G50/G51/G53 (CT-DELAY/TURBO-08/FUSE-05).     |
 | I/O Port Dispatch     |       87 |       83 |      0 |       4 |     95% | Task 7r2: G45 EXPBUS-AND-01..04 added.                 |
 | Audio (AY+DAC+Beeper) |      141 |      132 |      0 |       9 |     93% | Task 7r2: G29/G30/G31 (MX-30 + AY-30..34 + SD-09).     |
@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       59 |      0 |      10 |     85% | Task 7r2: G06 TM-160..164 mode-flip rows added.        |
 | NMI Source Pipeline   |       55 |       32 |      0 |      23 |     58% | Task 7r2: G46/G47/G48/G55/G59/G60 (BOOT/MF-G48).       |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | Unchanged (Task 7 round 1 baseline).                   |
-| **Total**             | **3684** | **3384** |  **0** | **300** |     92% |                                                        |
+| **Total**             | **3684** | **3389** |  **0** | **295** |     92% |                                                        |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 

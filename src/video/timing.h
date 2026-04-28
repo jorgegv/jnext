@@ -185,6 +185,64 @@ public:
         return static_cast<uint16_t>(int_line_target_ - 1);
     }
 
+    // ---------------------------------------------------------------
+    // Section 7 — Production scheduler wiring (G106 / G107 / G109).
+    // VHDL: zxula_timing.vhd:455-466 (cvc copper-offset reload),
+    //       :548-557 (frame-INT pulse position), :563-583 (line-INT
+    //       compare against cvc).
+    // ---------------------------------------------------------------
+
+    /// NR 0x64 — Copper vertical offset. VHDL `i_cu_offset` is loaded
+    /// into `cvc` at `ula_min_vactive` (zxula_timing.vhd:462). The
+    /// line-int comparator at :577 uses `cvc`, not raw `vc`, so the
+    /// scheduler must factor this offset into the firing-line lookup.
+    void    set_cu_offset(uint8_t v) { cu_offset_ = v; }
+    uint8_t cu_offset() const        { return cu_offset_; }
+
+    /// Frame-INT firing offset within a frame, in 28 MHz master cycles.
+    /// VHDL `int_ula <= '1' when (hc==c_int_h) and (vc==c_int_v)`
+    /// (zxula_timing.vhd:551). Each 7 MHz pixel tick = 4 master cycles
+    /// (28 MHz / 7 MHz). Returned offset is `(c_int_v * pixels_per_line
+    /// + c_int_h) * 4`, where `pixels_per_line = c_max_hc + 1`.
+    uint64_t frame_int_master_cycle_offset() const {
+        const uint64_t pixels_per_line = static_cast<uint64_t>(hc_max_) + 1;
+        return (static_cast<uint64_t>(int_v_) * pixels_per_line
+                + static_cast<uint64_t>(int_h_)) * 4;
+    }
+
+    /// Line-INT firing offset within a frame, in 28 MHz master cycles.
+    /// Returns the master-cycle count at which the line-int pulse fires
+    /// when enabled, accounting for:
+    ///   - target=0 → fires at frame-boundary line c_max_vc (VHDL :567);
+    ///   - target=N → fires at cvc=N-1 (VHDL :569);
+    ///   - cu_offset shift: line-int compares cvc, where cvc is reloaded
+    ///     from cu_offset at ula_min_vactive (VHDL :462).
+    /// Pulse fires when `hc_ula = 255` (VHDL :577); hc_ula counts from
+    /// `ula_min_hactive = c_min_hactive - 12` (VHDL :423), so hc_ula=255
+    /// corresponds to raw hc = (c_min_hactive - 12 + 256) mod (c_max_hc+1).
+    /// We anchor scheduling at hc=0 of the firing scanline; the residual
+    /// in-line offset is at most one scanline and below scheduler
+    /// granularity for IM2/INT-line-pulse semantics.
+    /// Solves cvc(vc) == int_line_num for vc:
+    ///   cvc = ((vc - min_vactive + cu_offset) mod (c_max_vc+1)) for vc
+    ///   in active region; outside the region cvc holds prior value, but
+    ///   for line-int the firing line is always the one where this match
+    ///   first occurs in the frame.
+    uint64_t line_int_master_cycle_offset() const {
+        const uint64_t lines_per_frame  = static_cast<uint64_t>(vc_max_) + 1;
+        const uint64_t pixels_per_line  = static_cast<uint64_t>(hc_max_) + 1;
+        const uint64_t target_cvc       = int_line_num();
+        // cvc(vc) = (vc - min_vactive + cu_offset) mod lines_per_frame
+        //   ⇒ vc = (target_cvc + min_vactive - cu_offset) mod lines_per_frame
+        const uint64_t vc_fire =
+            (target_cvc
+             + static_cast<uint64_t>(min_vactive_)
+             + lines_per_frame
+             - static_cast<uint64_t>(cu_offset_))
+            % lines_per_frame;
+        return vc_fire * pixels_per_line * 4;
+    }
+
 private:
     uint16_t hc_        = 0;
     uint16_t vc_        = 0;
@@ -212,4 +270,8 @@ private:
     uint16_t int_line_target_  = 0;
     int      ula_int_pulses_   = 0;
     int      line_int_pulses_  = 0;
+
+    // NR 0x64 Copper vertical offset (VHDL i_cu_offset, zxnext.vhd:1197;
+    // loaded into cvc at ula_min_vactive — zxula_timing.vhd:462).
+    uint8_t  cu_offset_        = 0;
 };

@@ -574,7 +574,7 @@ where possible.
 - **Dependencies**: cheap once G102/G103 land.
 - **Effort**: L.
 
-### G106. Line-interrupt scheduler off-by-one + target=0 wrap not applied
+### G106. Line-interrupt scheduler off-by-one + target=0 wrap not applied — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: VHDL `zxula_timing.vhd:563-583`: `int_line_num = c_max_vc` when `i_int_line=0`; else `target-1`; pulse on `(hc_ula==255) and (cvc==int_line_num)`. jnext `emulator.cpp:2540-2550` schedules at `frame_cycle + line_int_value_ * master_cycles_per_line` with no transform — helper `VideoTiming::int_line_num()` exists at `timing.h:178-186` but is never read.
 - **User impact**: line interrupts fire one full line late; target=0 silently misfires at frame top instead of `c_max_vc` (last line).
 - **Source ref**: Wave-1 ula (NEW-ULA-5); reviewer APPROVE — high impact.
@@ -582,7 +582,7 @@ where possible.
 - **Dependencies**: shares fix with G71 / G107.
 - **Effort**: L.
 
-### G107. ULA-frame-interrupt scheduler ignores per-machine c_int_h / c_int_v
+### G107. ULA-frame-interrupt scheduler ignores per-machine c_int_h / c_int_v — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: VHDL `zxula_timing.vhd:155 (Pentagon),:189 (+3),:233 (60 Hz),:265 (48K)` give different (hc,vc) per machine. jnext `emulator.cpp:2523` uses `tstates_per_line * 8` machine-blind. `VideoTiming::int_position()` correct but unused by scheduler.
 - **User impact**: Pentagon/+3 frame-INT off-position by ≤1 line; T-state-counted demos misalign.
 - **Source ref**: Wave-1 ula (NEW-ULA-6); reviewer APPROVE.
@@ -599,7 +599,7 @@ where possible.
 - **Effort**: L.
 - Also relevant to section C.
 
-### G109. NR 0x64 cu_offset not applied to line-int comparison
+### G109. NR 0x64 cu_offset not applied to line-int comparison — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: VHDL `zxula_timing.vhd:577` compares against `cvc` (offset-adjusted Copper VC, reload from `'0' & i_cu_offset` at `:455-466`). jnext `emulator.cpp:2540-2550` schedules at raw `vc`. Copper internal compares are correct.
 - **User impact**: NR 0x64 ≠ 0 + line-IRQ raster split misaligned.
 - **Source ref**: Wave-1 ula (NEW-ULA-8) + Wave-1 copper (NEW-COP-2). Cross-bucket dup; same gap.
@@ -1577,7 +1577,7 @@ where possible.
   NextREG + ULA fully use it).
 - **Effort**: M (v1) + M (v2).
 
-### G71. `VideoTiming` pulse-counter surface is test-only dead code
+### G71. `VideoTiming` pulse-counter surface is test-only dead code — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: `src/video/timing.h:97-134` and `timing.cpp:53-94`
   exposed only via test getters; `Emulator` scheduler still owns
   `line_int_enabled_` / `line_int_value_` directly. Two state
@@ -1888,7 +1888,13 @@ by source / test / commit grep during this audit):
 - **Floating-bus subsystem** — closed 2026-04-25; 26→0 skips. +3
   port 0x0FFD surface live.
 - **VideoTiming subsystem** — closed 2026-04-26; 22→0 skips,
-  per-machine `int_position` + 60Hz toggle.
+  per-machine `int_position` + 60Hz toggle. **Section 7
+  (production-scheduler wiring) closed 2026-04-28** on
+  `task8-t1-videotiming` (Task 8 Wave 1) — G71 (drop
+  `Emulator::line_int_enabled_/_value_` shadow), G106 (line-int
+  off-by-one + target=0 wrap), G107 (frame-int per-machine
+  c_int_h/c_int_v), G109 (NR 0x64 cu_offset in line-int compare).
+  Suite now 27/27/0/0.
 - **Contention Phase 1** — partial closure 2026-04-26; 28/68 rows
   live (Phase-A enable-gate + port_contend). G50 Phase-2 in flight
   in this session.

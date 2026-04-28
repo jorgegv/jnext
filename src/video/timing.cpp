@@ -95,9 +95,12 @@ void VideoTiming::advance(int tstates)
     // VHDL zxula_timing.vhd:574-583 gates the line-int pulse on
     //   (inten_line='1') AND (hc_ula == 255) AND (cvc == int_line_num).
     // Here we coarse-grain: each line crossing represents one pixel-clock
-    // tick through hc_ula=255. We fire one pulse whenever `vc_` (≈cvc,
-    // copper offset 0) matches int_line_num at a line boundary, so long
-    // as the line-int enable is asserted. This is the VHDL one-shot
+    // tick through hc_ula=255. The VHDL `cvc` (zxula_timing.vhd:455-466)
+    // reloads to `'0' & i_cu_offset` at `ula_min_vactive` and increments
+    // each line, wrapping at `c_max_vc`. We compute cvc on each line
+    // crossing as
+    //   cvc(vc) = (vc - min_vactive + cu_offset) mod (c_max_vc + 1)
+    // and fire when cvc matches int_line_num. This is the VHDL one-shot
     // semantic at frame granularity — sufficient for S14.05/06 which
     // ask "does the mechanism fire (once per frame) at target line N?".
     //
@@ -106,6 +109,7 @@ void VideoTiming::advance(int tstates)
     // `inten_ula_ == true` — we fire one pulse per frame wrap when
     // enabled, matching the behaviour S14.04 checks (disabled → zero).
     const uint16_t target_line_num = int_line_num();
+    const int      lines_per_frame = vc_max_ + 1;
 
     // Wrap horizontal counter into next lines. Storage holds VHDL c_max_hc
     // (max-reached-before-wrap), so the line period is hc_max_+1 ticks.
@@ -115,9 +119,16 @@ void VideoTiming::advance(int tstates)
         // Line crossing: vc_ is about to become vc_+1. On the VHDL
         // clock edge where cvc transitions to target_line_num, the
         // line-int pulse goes high (held for one 7 MHz tick). Model
-        // this as: fire a pulse when we leave a line where vc_ ==
-        // target_line_num. (cvc copper-offset is 0 for Wave E scope.)
-        if (inten_line_ && vc_ == target_line_num) {
+        // this as: fire a pulse when we leave a line where
+        //   cvc(vc_) == target_line_num,
+        // where cvc = (vc - min_vactive + cu_offset) mod lines_per_frame
+        // per VHDL zxula_timing.vhd:455-466.
+        const int cvc = (static_cast<int>(vc_)
+                         - static_cast<int>(min_vactive_)
+                         + static_cast<int>(cu_offset_)
+                         + lines_per_frame * 2)  // bias to keep mod positive
+                        % lines_per_frame;
+        if (inten_line_ && cvc == static_cast<int>(target_line_num)) {
             ++line_int_pulses_;
         }
 

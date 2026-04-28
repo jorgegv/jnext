@@ -33,12 +33,27 @@ never about the plan.
 
 ## Current status
 
-**CLOSED 2026-04-26 — all 22 rows live (22/22/0/0)**. Plan landed in
-3 cherry-picked commits on main: `34b6710` (Branch A V1 rebase + S1+S6,
-7 rows), `832551a` (Branch B display_origin + prefetch, 6 rows),
-`b1bf9ce` (Branch C int_position + 60 Hz toggle, 9 rows). See task
-plan `doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md` for the closure
-write-up.
+**FULLY CLOSED 2026-04-28 — all 27 rows live, ZERO skips
+(27/27/0/0)**. Section 7 production-scheduler wiring (G71 + G106 +
+G107 + G109) landed on branch `task8-t1-videotiming` (Task 8 Wave 1).
+The Emulator scheduler now reads:
+  - frame-INT firing offset from `VideoTiming::frame_int_master_cycle_offset()`
+    (per-machine `c_int_h` / `c_int_v`), closing G107.
+  - line-INT firing offset from `VideoTiming::line_int_master_cycle_offset()`,
+    which honours the VHDL `int_line_num` mapping (target=0 → c_max_vc,
+    target=N → N-1) and the `cu_offset` shift at `ula_min_vactive`,
+    closing G106 + G109.
+  - the `Emulator::line_int_enabled_` / `line_int_value_` shadow
+    fields are removed; the production state lives on
+    `VideoTiming::{set_line_interrupt_enable, set_line_interrupt_target,
+    set_interrupt_enable, set_cu_offset}`, closing G71.
+
+**Earlier closure (2026-04-26)** — 22/22/0/0 sections 1-6. Plan
+landed in 3 cherry-picked commits on main: `34b6710` (Branch A V1
+rebase + S1+S6, 7 rows), `832551a` (Branch B display_origin +
+prefetch, 6 rows), `b1bf9ce` (Branch C int_position + 60 Hz toggle,
+9 rows). See task plan `doc/design/TASK-VIDEOTIMING-EXPANSION-PLAN.md`
+for the per-section write-up.
 
 ### Historical opening state
 
@@ -548,11 +563,11 @@ This Section pins three user-visible bugs from
 
 | # | Row ID | Test                                                                                           | Expected                                       | Status                |
 |---|--------|------------------------------------------------------------------------------------------------|-----------------------------------------------:|-----------------------|
-| 1 | VT-22  | 48K target=10: line-int fires at `cvc=9, hc_ula=255` (zxula_timing.vhd:563-583)                | Z80 PC at IRQ vector matches T-state for cvc=9 | skip (F-G106-LINEINT) |
-| 2 | VT-23  | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (zxula_timing.vhd:566-570)      | IRQ at end of previous frame, NOT at vc=0      | skip (F-G106-LINEINT) |
-| 3 | VT-24  | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v` (zxula_timing.vhd:187,199)    | T-state matches per-machine int_position()     | skip (F-G107-FRAMEINT)|
-| 4 | VT-25  | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc` (zxula_timing.vhd:577) | IRQ shifted by 5 lines from baseline           | skip (F-G109-CUOFFSET)|
-| 5 | VT-26  | Once G106 + G107 land per VT-22..VT-24, the test-only pulse-counter accessors at `src/video/timing.h:97-134` MUST be the single source of truth — `Emulator::line_int_enabled_` / `line_int_value_` (`emulator.cpp:2138, 2154`) MUST be removed (`zxula_timing.vhd:563-583`) | `grep -nE "line_int_enabled_\|line_int_value_" src/core/emulator.cpp` returns 0 hits; scheduler reads `videotiming_.next_int_pos()` exclusively | skip (G-VT-CLEANUP, see G71) |
+| 1 | VT-22  | 48K target=10: line-int fires at `cvc=9, hc_ula=255` (zxula_timing.vhd:563-583)                | One pulse at vc=73 (= min_vactive+9, cu_offset=0) | live (G106 closed)    |
+| 2 | VT-23  | 48K target=0: line-int fires at `cvc=c_max_vc=311, hc_ula=255` (zxula_timing.vhd:566-570)      | One pulse per frame (at vc=63, cvc=311)        | live (G106 closed)    |
+| 3 | VT-24  | 128K frame-INT fires at `(hc=128, vc=1)` per `c_int_h`/`c_int_v` (zxula_timing.vhd:187,199)    | `frame_int_master_cycle_offset()` == 2336      | live (G107 closed)    |
+| 4 | VT-25  | NR 0x64 = 5 → line-int compare uses `cvc` offset-adjusted, not raw `vc` (zxula_timing.vhd:577) | One pulse at vc=68 (cvc=9, min_vactive=64)     | live (G109 closed)    |
+| 5 | VT-26  | Once G106 + G107 land per VT-22..VT-24, `Emulator::line_int_enabled_` / `line_int_value_` MUST be removed; VideoTiming becomes the single source of truth for line-int enable + 9-bit target (`zxula_timing.vhd:563-583`) | `line_int_enabled_/value_` removed from `src/core/emulator.{cpp,h}`; round-trip enable + target through `VideoTiming::{set_,_}line_interrupt_*` API; `int_line_num(0x123) == 0x122` | live (G71 closed)     |
 
 VT-22 and VT-23 are paired — VT-22 pins the off-by-one
 (`target-1` mapping); VT-23 pins the wrap (`target=0 → c_max_vc`).
@@ -574,19 +589,20 @@ consumes `int_line_num()` must read the `cu_offset` Copper register
 NR 0x64 write-handler at `src/core/emulator.cpp` (TBD — currently the
 NR-dispatch table for 0x64 stores raw byte) — is the unblock.
 
-### Skip-reason taxonomy extension
+### Skip-reason taxonomy extension — CLOSED 2026-04-28
 
-| Reason code        | Semantics                                                                                                  | Rows  |
-|--------------------|------------------------------------------------------------------------------------------------------------|-------|
-| `F-G106-LINEINT`   | Line-int scheduler refactor: target-1 mapping + target=0 wrap + scheduler reads `int_line_num()`.          | VT-22, VT-23 |
-| `F-G107-FRAMEINT`  | Frame-int scheduler reads per-machine `int_position()` instead of machine-blind `tstates_per_line * 8`.    | VT-24 |
-| `F-G109-CUOFFSET`  | Add `set_cu_offset(uint16_t)` to `VideoTiming` + thread NR 0x64 write-handler; line-int compare uses `cvc`.| VT-25 |
-| `G-VT-CLEANUP`     | Walkback row: VideoTiming pulse-counter accessors are test-only dead code today. Production scheduler bypasses them. The cleanup lands as a **consequence** of G106 / G107 fixes (VT-22..VT-24); VT-26 pins the cleanup invariant so the architectural debt closes provably alongside the user-visible-bug fix. Class `G` per UNIT-TEST-PLAN-EXECUTION.md taxonomy. | VT-26 |
+All four reason codes below are CLOSED as of branch
+`task8-t1-videotiming` (Task 8 Wave 1). The single-commit
+production-wiring refactor described in §Coupling landed exactly as
+the plan predicted; the rows flipped from skip → live `check()`
+together. Retained here as historical record.
 
-All three are class-`F` (real TODO blocked on Emulator change) per
-UNIT-TEST-PLAN-EXECUTION §Skip taxonomy. They share the
-production-wiring refactor described in §Coupling above; landing the
-refactor flips all four rows in a single commit.
+| Reason code        | Semantics                                                                                                  | Rows  | Closure |
+|--------------------|------------------------------------------------------------------------------------------------------------|-------|---------|
+| `F-G106-LINEINT`   | Line-int scheduler refactor: target-1 mapping + target=0 wrap + scheduler reads `int_line_num()`.          | VT-22, VT-23 | landed |
+| `F-G107-FRAMEINT`  | Frame-int scheduler reads per-machine `int_position()` instead of machine-blind `tstates_per_line * 8`.    | VT-24 | landed |
+| `F-G109-CUOFFSET`  | Add `set_cu_offset(uint8_t)` to `VideoTiming` + thread NR 0x64 write-handler; line-int compare uses `cvc`.| VT-25 | landed |
+| `G-VT-CLEANUP`     | Walkback row: drop `Emulator::line_int_enabled_/_value_` shadow fields; VideoTiming becomes single source of truth. Class `G` per UNIT-TEST-PLAN-EXECUTION.md taxonomy. | VT-26 | landed |
 
 ## Implementation coupling — Section 1 ↔ Section 6 (V1 rebase)
 

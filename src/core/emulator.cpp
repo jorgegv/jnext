@@ -128,9 +128,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   nr_c0_stackless_nmi       <= '0';
     //   nr_c0_int_mode_pulse_0_im2_1 <= '0';
     //   nr_c4_int_en_0_expbus     <= '1';
-    line_int_enabled_ = false;
+    // G71 (2026-04-28): line-int state lives on video_timing_; only the
+    // ULA-int disable gate is local. video_timing_.init() is called in
+    // run_emulator() / Emulator construction and resets the line-int
+    // enable + target via the standard VideoTiming default-state path.
     ula_int_disabled_ = false;
-    line_int_value_ = 0;
+    video_timing_.set_interrupt_enable(true);
+    video_timing_.set_line_interrupt_enable(false);
+    video_timing_.set_line_interrupt_target(0);
     im2_hw_mode_ = false;
     im2_vector_base_ = 0;
     im2_int_enable_[0] = 0x81;  // legacy shadow; soft reset: ULA + expbus enabled
@@ -651,7 +656,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x64: Copper vertical line offset (NR 0x64).
     // VHDL: zxnext.vhd:5442 (write), :6090 (read-back), :6723 (wired
     //       into zxula_timing.vhd i_cu_offset).
-    nextreg_.set_write_handler(0x64, [this](uint8_t v) { copper_.write_reg_0x64(v); });
+    // G109: i_cu_offset feeds cvc reload at zxula_timing.vhd:462; the
+    // line-int comparator at :577 uses cvc, so VideoTiming must mirror
+    // the offset for line-int scheduling to match VHDL semantics.
+    nextreg_.set_write_handler(0x64, [this](uint8_t v) {
+        copper_.write_reg_0x64(v);
+        video_timing_.set_cu_offset(v);
+    });
     nextreg_.set_read_handler (0x64, [this]() -> uint8_t { return copper_.read_reg_0x64(); });
 
     // Program the Copper c_max_vc wrap to match the active machine timing.
@@ -690,22 +701,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 2 = disable ULA interrupt
     //   bit 1 = enable line interrupt
     //   bit 0 = MSB of line interrupt value
+    //
+    // G71/G106/G107: VideoTiming owns line-int + ULA-int gating state.
+    // run_frame() consumes video_timing_.{line_interrupt_enable,
+    // int_line_num, frame_int_master_cycle_offset, ...} for scheduling.
     nextreg_.set_write_handler(0x22, [this](uint8_t v) {
         ula_int_disabled_ = (v & 0x04) != 0;
-        line_int_enabled_ = (v & 0x02) != 0;
-        line_int_value_ = (line_int_value_ & 0xFF) | ((v & 0x01) << 8);
-        // NOTE: production interrupt scheduling reads these local fields
-        // directly (see run_frame() around the line_int_enabled_ check).
-        // Wave E's new VideoTiming setters (src/video/timing.h) are for
-        // the unit-test pulse-counter observable only — there is no
-        // production VideoTiming instance to forward to. Re-wiring the
-        // class hierarchy so the runtime uses VideoTiming is tracked as
-        // a follow-up; until then the scheduler is the source of truth.
+        video_timing_.set_interrupt_enable(!ula_int_disabled_);
+        video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
+        const uint16_t cur = video_timing_.line_interrupt_target();
+        video_timing_.set_line_interrupt_target(
+            static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
     });
 
     // Register 0x23: Line interrupt value LSB
     nextreg_.set_write_handler(0x23, [this](uint8_t v) {
-        line_int_value_ = (line_int_value_ & 0x100) | v;
+        const uint16_t cur = video_timing_.line_interrupt_target();
+        video_timing_.set_line_interrupt_target(
+            static_cast<uint16_t>((cur & 0x100) | v));
     });
 
     // Register 0x02: Reset control + software NMI strobes.
@@ -1013,7 +1026,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         im2_.set_int_en_c4(v);
         // Mirror NR 0xC4 bit 1 → nr_22_line_interrupt_en (VHDL:5610).
         // Bit 0 is NOT written here per VHDL; port_ff owns ULA int enable.
-        line_int_enabled_ = (v & 0x02) != 0;
+        video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
     });
@@ -1021,9 +1034,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL :6239 — nr_c4_int_en_0_expbus & "00000" & ula_int_en
         // ula_int_en = {nr_22_line_interrupt_en, NOT port_ff_interrupt_disable}
         uint8_t v = 0;
-        if (im2_c4_expbus_)           v |= 0x80;
-        if (line_int_enabled_)        v |= 0x02;   // ula_int_en(1) = LINE
-        if (!ula_int_disabled_)       v |= 0x01;   // ula_int_en(0) = ULA
+        if (im2_c4_expbus_)                       v |= 0x80;
+        if (video_timing_.line_interrupt_enable()) v |= 0x02;
+        if (!ula_int_disabled_)                   v |= 0x01;
         return v;
     });
 
@@ -2535,9 +2548,13 @@ void Emulator::run_frame()
     frame_ts_start_ = 0;
     video_timing_.reset();
 
-    // Schedule the ULA frame interrupt at vc=1, hc=0.
-    // One line = timing_.tstates_per_line T-states; at 28 MHz that is
-    // tstates_per_line * 8 master cycles.
+    // Schedule the ULA frame interrupt.
+    //
+    // G107: VHDL fires the ULA-frame pulse at (hc==c_int_h, vc==c_int_v)
+    // (zxula_timing.vhd:551). Per machine these vary — 48K {116, 0},
+    // 128K {128, 1}, +3 {126, 1}, Pentagon {439, 319}. We delegate the
+    // master-cycle conversion to VideoTiming::frame_int_master_cycle_offset()
+    // which honours the per-machine c_int_h/c_int_v.
     //
     // Routing: the ULA is priority slot 11 in the VHDL IM2 fabric
     // (zxnext.vhd:1937, 1941 — im2_int_req bit 11 = ula_int_pulse). In
@@ -2547,8 +2564,8 @@ void Emulator::run_frame()
     // Z80 INT is asserted through `Im2Controller::int_line_asserted()`
     // instead, so we must NOT also fire the legacy request in that case
     // (would cause a double-fire).
-    const uint64_t int_fire_offset = 1ULL * timing_.tstates_per_line * 8;
     if (!ula_int_disabled_) {
+        const uint64_t int_fire_offset = video_timing_.frame_int_master_cycle_offset();
         scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
                 im2_.raise_req(Im2Controller::DevIdx::ULA);
@@ -2560,21 +2577,30 @@ void Emulator::run_frame()
     }
 
     // Schedule line interrupt if enabled.
+    //
+    // G106/G109: VHDL line-int fires when (hc_ula==255) and (cvc==int_line_num)
+    // (zxula_timing.vhd:577). int_line_num maps target=0→c_max_vc and
+    // target=N→N-1 (:566-570). cvc is offset-adjusted from cu_offset
+    // (NR 0x64) at ula_min_vactive (:462). VideoTiming::
+    // line_int_master_cycle_offset() returns the master-cycle within the
+    // frame at which the firing scanline begins, accounting for all three.
+    //
     // Routing: LINE is priority slot 0 in the VHDL IM2 fabric
     // (zxnext.vhd:1937, 1941 — im2_int_req bit 0 = line_int_pulse, the
     // highest-priority peripheral). Same pulse-vs-IM2 split as the ULA
     // path above.
-    if (line_int_enabled_ && line_int_value_ < static_cast<uint16_t>(timing_.lines_per_frame)) {
-        uint64_t line_cycle = frame_cycle_ +
-            static_cast<uint64_t>(line_int_value_) * timing_.master_cycles_per_line;
-        scheduler_.schedule(line_cycle, EventType::CPU_INT,
-            [this]() {
-                im2_.raise_req(Im2Controller::DevIdx::LINE);
-                if (!im2_.is_im2_mode()) {
-                    cpu_.request_interrupt(0xFF);
-                }
-                im2_int_status_[0] |= 0x02;  // Line interrupt status
-            });
+    if (video_timing_.line_interrupt_enable()) {
+        const uint64_t line_offset = video_timing_.line_int_master_cycle_offset();
+        if (line_offset < timing_.master_cycles_per_frame) {
+            scheduler_.schedule(frame_cycle_ + line_offset, EventType::CPU_INT,
+                [this]() {
+                    im2_.raise_req(Im2Controller::DevIdx::LINE);
+                    if (!im2_.is_im2_mode()) {
+                        cpu_.request_interrupt(0xFF);
+                    }
+                    im2_int_status_[0] |= 0x02;  // Line interrupt status
+                });
+        }
     }
 
     // RZX frame management.
@@ -3390,9 +3416,11 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u64(psg_accum_);
     w.write_u64(sample_accum_);
     w.write_bool(dac_enabled_);
-    w.write_bool(line_int_enabled_);
+    // G71: line_int state owned by video_timing_; mirror through the
+    // existing save layout (bool + u16) for backwards compatibility.
+    w.write_bool(video_timing_.line_interrupt_enable());
     w.write_bool(ula_int_disabled_);
-    w.write_u16(line_int_value_);
+    w.write_u16(video_timing_.line_interrupt_target());
     w.write_bool(im2_hw_mode_);
     w.write_u8(im2_vector_base_);
     w.write_bytes(im2_int_enable_, 3);
@@ -3452,6 +3480,9 @@ void Emulator::load_state(StateReader& r)
 
     // Peripheral subsystems.
     copper_.load_state(r);
+    // G109: mirror the just-loaded NR 0x64 cu_offset onto VideoTiming so
+    // the line-int comparator stays consistent with Copper across save/load.
+    video_timing_.set_cu_offset(copper_.offset());
     ctc_.load_state(r);
     dma_.load_state(r);
     spi_.load_state(r);
@@ -3471,9 +3502,14 @@ void Emulator::load_state(StateReader& r)
     psg_accum_        = r.read_u64();
     sample_accum_     = r.read_u64();
     dac_enabled_      = r.read_bool();
-    line_int_enabled_ = r.read_bool();
-    ula_int_disabled_ = r.read_bool();
-    line_int_value_   = r.read_u16();
+    // G71: line_int state owned by video_timing_; mirror through the
+    // existing save layout (bool + u16) for backwards compatibility.
+    const bool     saved_line_int_en  = r.read_bool();
+    ula_int_disabled_                 = r.read_bool();
+    const uint16_t saved_line_int_tgt = r.read_u16();
+    video_timing_.set_line_interrupt_enable(saved_line_int_en);
+    video_timing_.set_line_interrupt_target(saved_line_int_tgt);
+    video_timing_.set_interrupt_enable(!ula_int_disabled_);
     im2_hw_mode_      = r.read_bool();
     im2_vector_base_  = r.read_u8();
     r.read_bytes(im2_int_enable_, 3);

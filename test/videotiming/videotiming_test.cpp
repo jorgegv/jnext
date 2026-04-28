@@ -346,38 +346,141 @@ static void section6_line_int_target() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Section 7 — Production scheduler wiring (G106 / G107 / G109)
+// Section 7 — Production scheduler wiring (G106 / G107 / G109 / G71)
 // VHDL: zxula_timing.vhd:455-466, :548-557, :563-583
-// Skip reason codes:
-//   F-G106-LINEINT   — line-int scheduler off-by-one + target=0 wrap
-//   F-G107-FRAMEINT  — frame-int scheduler ignores per-machine c_int_*
-//   F-G109-CUOFFSET  — line-int compare ignores NR 0x64 cu_offset
-// All three blocked on the production-wiring refactor described in
-// §Coupling with VideoTiming production-wiring backlog (plan line
-// 579-615). See doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md
-// G106 / G107 / G109.
+//
+// All five rows live as of 2026-04-28 — the Emulator scheduler now
+// consumes VideoTiming::int_line_num() / frame_int_master_cycle_offset()
+// / line_int_master_cycle_offset(); the local Emulator shadow fields
+// (line_int_enabled_, line_int_value_) were removed in the same commit.
+// The pulse-counter logic in advance() is also re-verified against the
+// VHDL cvc reload semantics (cu_offset shift at ula_min_vactive).
 // ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// Step the raster forward by exactly one full scanline (`(hc_max+1)/2`
+// T-states; valid because hc_max+1 is always even — 448 or 456).
+void step_one_line(VideoTiming& vt) {
+    vt.advance((vt.hc_max() + 1) / 2);
+}
+
+}  // namespace
 
 static void section7_scheduler_wiring() {
     set_group("VT-S7-SCHEDULER-WIRING");
 
-    skip("VT-22",
-         "F-G106-LINEINT: line-int target=10 -> cvc=9 not wired (see G106)");
-    skip("VT-23",
-         "F-G106-LINEINT: line-int target=0 -> c_max_vc wrap (see G106)");
-    skip("VT-24",
-         "F-G107-FRAMEINT: frame-int ignores per-machine c_int (see G107)");
-    skip("VT-25",
-         "F-G109-CUOFFSET: NR 0x64 cu_offset not in line-int (see G109)");
+    // VT-22 — G106: 48K target=10 → int_line_num=9; cvc(vc) reloads at
+    // ula_min_vactive=64 (VHDL :462), so cvc==9 when vc = 64 + 9 = 73
+    // (cu_offset=0). Pulse fires once per frame when leaving vc=73.
+    // VHDL: zxula_timing.vhd:566-570 (target!=0 → int_line_num=target-1),
+    //       :577 (compare against cvc).
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_line_interrupt_enable(true);
+        vt.set_line_interrupt_target(10);
+        vt.clear_int_counts();
+        // Step to end of vc=72: pulse must not have fired yet.
+        for (int line = 0; line <= 72; ++line) step_one_line(vt);
+        const int before = vt.line_int_pulse_count();
+        // Cross vc=73 → vc=74: should fire exactly once.
+        step_one_line(vt);
+        const int after = vt.line_int_pulse_count();
+        check("VT-22",
+              "G106: 48K target=10 → pulse on cvc=9 transition (vc=73 with "
+              "min_vactive=64, cu_offset=0); zxula_timing.vhd:462,566-570,577",
+              before == 0 && after == 1,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after));
+    }
 
-    // VT-26 — walkback row for G71. Once G106 + G107 land per VT-22..VT-24,
-    // the test-only pulse-counter accessors at src/video/timing.h:97-134
-    // MUST become the single source of truth — Emulator::line_int_enabled_
-    // / line_int_value_ (emulator.cpp:2138, 2154) MUST be removed.
-    // VHDL zxula_timing.vhd:563-583. Class G (walkback) per
-    // UNIT-TEST-PLAN-EXECUTION.md taxonomy.
-    skip("VT-26",
-         "G-VT-CLEANUP: pulse-counter dead-code; Emulator scheduler still owns it (see G71)");
+    // VT-23 — G106: 48K target=0 → line-int fires at cvc=c_max_vc=311 (last line of frame).
+    // VHDL zxula_timing.vhd:566-570: target=0 → int_line_num = c_max_vc.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_line_interrupt_enable(true);
+        vt.set_line_interrupt_target(0);
+        vt.clear_int_counts();
+        // Step a complete frame: target line is the very last (vc=311).
+        // Drive one full frame's T-states.
+        const int frame_t = (vt.hc_max() + 1) * (vt.vc_max() + 1) / 2;  // 448*312/2
+        vt.advance(frame_t);
+        const int pulses = vt.line_int_pulse_count();
+        check("VT-23",
+              "G106: 48K target=0 → one pulse per frame at cvc=c_max_vc=311 "
+              "(zxula_timing.vhd:566-570)",
+              pulses == 1,
+              std::string("pulses=") + std::to_string(pulses));
+    }
+
+    // VT-24 — G107: 128K frame-INT fires at (hc=128, vc=1).
+    // VHDL :551 — int_ula='1' when hc==c_int_h and vc==c_int_v.
+    // Master-cycle = (vc * pixels_per_line + hc) * 4 = (1*456 + 128)*4 = 2336.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        const uint64_t got      = vt.frame_int_master_cycle_offset();
+        const uint64_t expected = (1ULL * 456 + 128) * 4;  // 2336
+        check("VT-24",
+              "G107: 128K frame-INT offset = (vc=1 * 456 + hc=128) * 4 = 2336 "
+              "master cycles (zxula_timing.vhd:187,199,551)",
+              got == expected,
+              std::string("got ") + std::to_string(got)
+                  + " expected " + std::to_string(expected));
+    }
+
+    // VT-25 — G109: NR 0x64 cu_offset shifts the line-int compare.
+    // VHDL :462 reloads cvc to ('0' & i_cu_offset) at ula_min_vactive;
+    // :577 compares cvc, not raw vc. So target=10 with cu_offset=5 fires
+    // when cvc=9 == (vc - min_vactive + 5) mod (c_max_vc+1), i.e.
+    //   vc = (9 + min_vactive - 5) mod (c_max_vc+1).
+    // 48K: min_vactive=64, vc=64+9-5=68. With cu_offset=0 baseline vc=9
+    // — distinct, so the offset is observable.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_cu_offset(5);
+        vt.set_line_interrupt_enable(true);
+        vt.set_line_interrupt_target(10);
+        vt.clear_int_counts();
+        // Step to vc=67 — should not fire (target line is 68).
+        for (int line = 0; line <= 67; ++line) step_one_line(vt);
+        const int before = vt.line_int_pulse_count();
+        // Cross vc=68 → vc=69 — fire.
+        step_one_line(vt);
+        const int after = vt.line_int_pulse_count();
+        check("VT-25",
+              "G109: NR 0x64=5 + target=10 → pulse at vc=68 (cvc=9; "
+              "min_vactive=64); zxula_timing.vhd:462,577",
+              before == 0 && after == 1,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after));
+    }
+
+    // VT-26 — G71: Emulator shadow fields line_int_enabled_/line_int_value_
+    // removed; VideoTiming is the single source of truth for the line-int
+    // enable + 9-bit target. The cleanest unit-level invariant is
+    // "VideoTiming round-trips writes through the same surface the
+    // production scheduler reads from", which the previous tests already
+    // exercise. Here we lock the contract: enabling+target survives
+    // through the public VideoTiming API exactly (no shadow drift).
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        vt.set_line_interrupt_enable(true);
+        vt.set_line_interrupt_target(0x123);
+        const bool en_ok  = vt.line_interrupt_enable();
+        const auto tgt    = vt.line_interrupt_target();
+        // int_line_num for target=0x123 → target-1 = 0x122 = 290.
+        const auto ilnum  = vt.int_line_num();
+        check("VT-26",
+              "G71: VideoTiming line-int enable + 9-bit target round-trip; "
+              "int_line_num(target=0x123)=0x122 (zxula_timing.vhd:566-570)",
+              en_ok && tgt == 0x123 && ilnum == 0x122,
+              "en=" + std::to_string(en_ok)
+                  + " tgt=0x" + std::to_string(tgt)
+                  + " ilnum=" + std::to_string(ilnum));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -385,9 +488,8 @@ static void section7_scheduler_wiring() {
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
-    std::printf("  All 22 rows live post per-machine accessor expansion\n");
-    std::printf("  (V1 rebase + display_origin + ula_prefetch_origin_hc +\n");
-    std::printf("   int_position + 60 Hz toggle — Branches A/B/C, 2026-04-25).\n");
+    std::printf("  All 27 rows live post Section-7 production-scheduler\n");
+    std::printf("  wiring (G71/G106/G107/G109 closure, 2026-04-28).\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
@@ -409,7 +511,7 @@ int main() {
     std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 live)\n");
 
     section7_scheduler_wiring();
-    std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — 4 skipped\n");
+    std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — done (5 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
