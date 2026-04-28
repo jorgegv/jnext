@@ -1533,19 +1533,166 @@ static void test_section16_nrff_palette() {
 // Distinct from per-scanline palette CONTENT (already landed in
 // PaletteManager). G10 covers the SELECTOR bit-lanes (NR 0x43 b1-3 +
 // NR 0x6B b4) which choose which palette bank is active per-line.
-// VHDL zxnext.vhd:6957 (NR 0x43 palette-write-select decode),
-// zxnext.vhd:3614+ (NR 0x6B b4 tilemap-palette select).
+// VHDL zxnext.vhd:5391-5393 (NR 0x43 b1/b2/b3 latches),
+//      zxnext.vhd:5462      (NR 0x6B control(4) latch),
+//      zxnext.vhd:6825-6828 (active-palette mux per pixel cycle).
+//
+// Two physically-independent latch groups => two separate change-logs;
+// S17.03 verifies the streams stay independent.
 static void test_section17_palette_select() {
     set_group("S17-PALSEL");
 
-    skip("S17.01",
-         "F-G10-PALSEL: NR 0x43 b1-3 selector change-log absent (see G10)");
-    skip("S17.02",
-         "F-G10-PALSEL: NR 0x6B b4 tilemap-palette mid-frame flip absent (see G10)");
-    skip("S17.03",
-         "F-G10-PALSEL: NR 0x43 / NR 0x6B b4 independent change-streams (see G10)");
-    skip("S17.04",
-         "F-G10-PALSEL: start_frame rewind of selector log absent (see G10)");
+    // S17.01 — NR 0x43 b1-3 selector change-log exists and tags entries
+    // with the current scanline. VHDL zxnext.vhd:5391-5393 latches all
+    // three active-palette bits on the same NR 0x43 write, so a single
+    // NR 0x43 write produces ONE log entry with all three fields.
+    {
+        UlaBed bed;
+        bed.ula.palsel_start_frame();
+        // Mid-frame Copper write at line 100: flip active_layer2_palette
+        // to '1' (NR 0x43 bit 2 from VHDL :5392).
+        bed.ula.set_palsel_current_line(100);
+        bed.ula.set_active_layer2_palette(true);
+        // Another write at line 150: flip ULA + sprite together.
+        bed.ula.set_palsel_current_line(150);
+        bed.ula.set_active_ula_palette(true);
+        bed.ula.set_active_sprite_palette(true);
+
+        const size_t n = bed.ula.palsel43_change_log_size();
+        // Three setter calls => 3 log entries (each captures full snapshot).
+        bool ok = (n == 3);
+        if (ok) {
+            const auto& e0 = bed.ula.palsel43_change_at(0);
+            const auto& e1 = bed.ula.palsel43_change_at(1);
+            const auto& e2 = bed.ula.palsel43_change_at(2);
+            ok = ok && (e0.line == 100 && e0.active_ula == false
+                       && e0.active_l2 == true && e0.active_spr == false);
+            ok = ok && (e1.line == 150 && e1.active_ula == true
+                       && e1.active_l2 == true && e1.active_spr == false);
+            ok = ok && (e2.line == 150 && e2.active_ula == true
+                       && e2.active_l2 == true && e2.active_spr == true);
+        }
+        check("S17.01",
+              "zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log "
+              "captures per-line snapshots",
+              ok,
+              fmt("entries=%zu", n));
+    }
+
+    // S17.02 — NR 0x6B b4 tilemap-palette mid-frame flip is recorded
+    // and replayable per scanline. VHDL zxnext.vhd:5462 latches
+    // nr_6b_tm_control(4) on NR 0x6B writes; mux at :6826 picks the
+    // active tilemap palette per scanline.
+    {
+        UlaBed bed;
+        bed.ula.palsel_start_frame();
+        // Line N: tm_palette_select = 0
+        bed.ula.set_palsel_current_line(50);
+        bed.ula.set_active_tilemap_palette(false);
+        // Line N+1: tm_palette_select = 1
+        bed.ula.set_palsel_current_line(51);
+        bed.ula.set_active_tilemap_palette(true);
+
+        bed.ula.palsel_rewind_to_baseline();
+
+        // Replay per-scanline; check the live state matches each line's
+        // expected selector.
+        bed.ula.palsel_apply_changes_for_line(50);
+        bool at50 = (bed.ula.get_active_tilemap_palette() == false);
+        bed.ula.palsel_apply_changes_for_line(51);
+        bool at51 = (bed.ula.get_active_tilemap_palette() == true);
+
+        check("S17.02",
+              "zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands "
+              "on the correct scanline",
+              at50 && at51,
+              fmt("at50=%d at51=%d entries=%zu",
+                  at50 ? 1 : 0, at51 ? 1 : 0,
+                  bed.ula.palsel6b_change_log_size()));
+    }
+
+    // S17.03 — NR 0x43 / NR 0x6B b4 streams are independent. VHDL has
+    // two distinct latch groups (zxnext.vhd:5391-5393 vs :5462); a
+    // write to one MUST NOT append to the other.
+    {
+        UlaBed bed;
+        bed.ula.palsel_start_frame();
+
+        // Three NR 0x43 writes, no NR 0x6B writes.
+        bed.ula.set_palsel_current_line(10);
+        bed.ula.set_active_ula_palette(true);
+        bed.ula.set_palsel_current_line(20);
+        bed.ula.set_active_layer2_palette(true);
+        bed.ula.set_palsel_current_line(30);
+        bed.ula.set_active_sprite_palette(true);
+
+        const size_t n43_after_43_writes = bed.ula.palsel43_change_log_size();
+        const size_t n6b_after_43_writes = bed.ula.palsel6b_change_log_size();
+
+        // Two NR 0x6B b4 writes, no NR 0x43 writes.
+        bed.ula.set_palsel_current_line(40);
+        bed.ula.set_active_tilemap_palette(true);
+        bed.ula.set_palsel_current_line(45);
+        bed.ula.set_active_tilemap_palette(false);
+
+        const size_t n43_after_6b_writes = bed.ula.palsel43_change_log_size();
+        const size_t n6b_after_6b_writes = bed.ula.palsel6b_change_log_size();
+
+        // After NR 0x43 phase: 3 entries on 43-log, 0 on 6b-log.
+        // After NR 0x6B phase: 43-log unchanged, 6b-log gains 2.
+        bool ok = (n43_after_43_writes == 3)
+               && (n6b_after_43_writes == 0)
+               && (n43_after_6b_writes == 3)
+               && (n6b_after_6b_writes == 2);
+        check("S17.03",
+              "zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are "
+              "independent change-streams",
+              ok,
+              fmt("43[after43=%zu after6b=%zu] 6b[after43=%zu after6b=%zu]",
+                  n43_after_43_writes, n43_after_6b_writes,
+                  n6b_after_43_writes, n6b_after_6b_writes));
+    }
+
+    // S17.04 — palsel_start_frame rewinds (clears) both selector logs.
+    // After append + start_frame, both logs must be empty and the
+    // baseline must equal the live state at the moment of start_frame.
+    {
+        UlaBed bed;
+        bed.ula.palsel_start_frame();
+        bed.ula.set_palsel_current_line(80);
+        bed.ula.set_active_ula_palette(true);
+        bed.ula.set_active_tilemap_palette(true);
+
+        const size_t n43_before = bed.ula.palsel43_change_log_size();
+        const size_t n6b_before = bed.ula.palsel6b_change_log_size();
+
+        // start_frame at next frame edge: live state (ULA=1, TM=1) becomes
+        // baseline; logs are cleared.
+        bed.ula.palsel_start_frame();
+
+        const size_t n43_after = bed.ula.palsel43_change_log_size();
+        const size_t n6b_after = bed.ula.palsel6b_change_log_size();
+
+        // After rewind_to_baseline (no replay), live should match the
+        // captured baseline (ULA=1, TM=1) — i.e. NOT reset to power-on
+        // defaults.
+        bed.ula.palsel_rewind_to_baseline();
+        bool live_matches_baseline =
+            (bed.ula.get_active_ula_palette() == true)
+            && (bed.ula.get_active_tilemap_palette() == true);
+
+        bool ok = (n43_before >= 1) && (n6b_before >= 1)
+               && (n43_after  == 0) && (n6b_after  == 0)
+               && live_matches_baseline;
+        check("S17.04",
+              "zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears "
+              "logs and snapshots baseline from live state",
+              ok,
+              fmt("before[43=%zu 6b=%zu] after[43=%zu 6b=%zu] "
+                  "live_eq_baseline=%d",
+                  n43_before, n6b_before, n43_after, n6b_after,
+                  live_matches_baseline ? 1 : 0));
+    }
 }
 
 // =========================================================================

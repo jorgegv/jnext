@@ -766,3 +766,103 @@ void Ula::load_state(StateReader& r)
     border_clr_tmx_src_  = r.read_bool();
     ulap_mode_           = r.read_u8();
 }
+
+// ---------------------------------------------------------------------------
+// Per-scanline active-palette select (G10) — VHDL refs in ula.h
+// ---------------------------------------------------------------------------
+//
+// NR 0x43 b1-3 (active_ula / active_layer2 / active_sprite palette)
+// VHDL zxnext.vhd:5391-5393 latches; mux at zxnext.vhd:6825-6828.
+// NR 0x6B b4 (tm_palette_select)
+// VHDL zxnext.vhd:5462 latch (control(4)); mux at zxnext.vhd:6826.
+//
+// The two latch groups are physically independent in the VHDL — a write
+// to NR 0x43 cannot perturb tm_palette_select (and vice versa) — so we
+// keep two separate change-logs.  S17.03 verifies that independence.
+
+void Ula::log_palsel43_change()
+{
+    if (palsel43_change_count_ >= MAX_PALSEL_CHANGES_PER_FRAME) {
+        if (!palsel43_overflow_warned_) {
+            Log::video()->warn(
+                "Ula: NR 0x43 selector change-log full at line {} (cap {} "
+                "per frame); further NR 0x43 b1-3 writes this frame will "
+                "not be per-scanline.",
+                palsel_current_line_, MAX_PALSEL_CHANGES_PER_FRAME);
+            palsel43_overflow_warned_ = true;
+        }
+        return;
+    }
+    palsel43_change_log_[palsel43_change_count_++] = PalSel43Change{
+        palsel_current_line_,
+        active_ula_palette_,
+        active_l2_palette_,
+        active_spr_palette_,
+    };
+}
+
+void Ula::log_palsel6b_change()
+{
+    if (palsel6b_change_count_ >= MAX_PALSEL_CHANGES_PER_FRAME) {
+        if (!palsel6b_overflow_warned_) {
+            Log::video()->warn(
+                "Ula: NR 0x6B b4 selector change-log full at line {} (cap "
+                "{} per frame); further NR 0x6B b4 writes this frame will "
+                "not be per-scanline.",
+                palsel_current_line_, MAX_PALSEL_CHANGES_PER_FRAME);
+            palsel6b_overflow_warned_ = true;
+        }
+        return;
+    }
+    palsel6b_change_log_[palsel6b_change_count_++] = PalSel6bChange{
+        palsel_current_line_,
+        active_tm_palette_,
+    };
+}
+
+void Ula::palsel_start_frame()
+{
+    baseline_active_ula_pal_   = active_ula_palette_;
+    baseline_active_l2_pal_    = active_l2_palette_;
+    baseline_active_spr_pal_   = active_spr_palette_;
+    palsel43_change_count_     = 0;
+    palsel43_render_cursor_    = 0;
+    palsel43_overflow_warned_  = false;
+
+    baseline_active_tm_pal_    = active_tm_palette_;
+    palsel6b_change_count_     = 0;
+    palsel6b_render_cursor_    = 0;
+    palsel6b_overflow_warned_  = false;
+
+    palsel_current_line_       = 0;
+}
+
+void Ula::palsel_rewind_to_baseline()
+{
+    active_ula_palette_     = baseline_active_ula_pal_;
+    active_l2_palette_      = baseline_active_l2_pal_;
+    active_spr_palette_     = baseline_active_spr_pal_;
+    palsel43_render_cursor_ = 0;
+
+    active_tm_palette_      = baseline_active_tm_pal_;
+    palsel6b_render_cursor_ = 0;
+}
+
+void Ula::palsel_apply_changes_for_line(int line)
+{
+    const uint16_t lt = static_cast<uint16_t>(line);
+
+    while (palsel43_render_cursor_ < palsel43_change_count_
+        && palsel43_change_log_[palsel43_render_cursor_].line == lt) {
+        const auto& c = palsel43_change_log_[palsel43_render_cursor_++];
+        active_ula_palette_ = c.active_ula;
+        active_l2_palette_  = c.active_l2;
+        active_spr_palette_ = c.active_spr;
+    }
+
+    while (palsel6b_render_cursor_ < palsel6b_change_count_
+        && palsel6b_change_log_[palsel6b_render_cursor_].line == lt) {
+        const auto& c = palsel6b_change_log_[palsel6b_render_cursor_++];
+        active_tm_palette_ = c.active_tm;
+    }
+}
