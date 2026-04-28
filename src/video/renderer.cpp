@@ -93,6 +93,7 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         std::fill_n(sprite_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(tilemap_line_.begin(), composite_width_, TRANSPARENT);
         std::fill_n(tm_pixel_below_.begin(), composite_width_, false);
+        std::fill_n(tm_pixel_textmode_.begin(), composite_width_, false);
         std::fill_n(layer2_priority_.begin(), composite_width_, false);
         std::fill_n(ula_border_.begin(), composite_width_, false);
 
@@ -112,7 +113,8 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         if (tilemap && tilemap->enabled()) {
             tilemap->render_scanline(tilemap_line_.data(),
                                      tm_pixel_below_.data(),
-                                     row, ram, palette, composite_width_);
+                                     row, ram, palette, composite_width_,
+                                     tm_pixel_textmode_.data());
         }
 
         // Sprites — Y coordinates are in absolute framebuffer space (0-255)
@@ -224,6 +226,10 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                     tm_pixel_below_[x * 2 + 1] = tm_pixel_below_[x];
                     tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
                 }
+                for (int x = FB_WIDTH - 1; x >= 0; --x) {
+                    tm_pixel_textmode_[x * 2 + 1] = tm_pixel_textmode_[x];
+                    tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
+                }
             }
         }
 
@@ -297,7 +303,16 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
                                 ((l2_px & 0x00FFFFFF) == nr14_rgb);
         // VHDL 6934/7118: sprite_en=0 forces all sprites transparent.
         const bool spr_transp = is_transparent(spr_px) || !sprite_en_;
-        const bool tm_transp  = is_transparent(tm_px);
+        // VHDL zxnext.vhd:7109 — `tm_transparent <= '1' when (tm_pixel_en_2 = '0')
+        // or (tm_pixel_textmode_2 = '1' and tm_rgb_2(8 downto 1) =
+        // transparent_rgb_2) or (tm_en_2 = '0')`.  is_transparent(tm_px)
+        // covers both tm_pixel_en_2='0' (suppressed by render_scanline) and
+        // tm_en_2='0' (Tilemap::render_scanline early-returns when disabled,
+        // leaving the line buffer at TRANSPARENT).  The per-pixel textmode
+        // flag gates the RGB match clause (G98 + G101).
+        const bool tm_transp  = is_transparent(tm_px) ||
+                                (tm_pixel_textmode_[x] &&
+                                 (tm_px & 0x00FFFFFF) == nr14_rgb);
 
         // L2 priority promotion flag (VHDL 7220 etc.: palette bit 15).
         const bool l2_prio = !l2_transp && layer2_priority_[x];

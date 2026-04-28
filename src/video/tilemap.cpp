@@ -137,7 +137,8 @@ void Tilemap::set_def_base(uint8_t val)
 void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                     const Ram& ram,
                                     const PaletteManager& palette,
-                                    int render_width)
+                                    int render_width,
+                                    bool* textmode_flags)
 {
     const bool saved = enabled_;
     enabled_ = true;
@@ -147,14 +148,16 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
         scroll_x_per_line_[y] = scroll_x_;
         scroll_y_per_line_[y] = scroll_y_;
     }
-    render_scanline(dst, ula_over_flags, y, ram, palette, render_width);
+    render_scanline(dst, ula_over_flags, y, ram, palette, render_width,
+                    textmode_flags);
     enabled_ = saved;
 }
 
 void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               const Ram& ram,
                               const PaletteManager& palette,
-                              int render_width) const
+                              int render_width,
+                              bool* textmode_flags) const
 {
     if (!enabled_ || y < 0 || y >= 256)
         return;
@@ -398,6 +401,17 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
 
         if (ula_over_flags)
             ula_over_flags[screen_x] = pixel_below;
+
+        // Per-pixel textmode flag emission (G101).  VHDL tilemap.vhd:426,
+        // 437, 443: `pixel_textmode_s` is latched alongside `pixel_en_f`
+        // and `pixel_below` and surfaced as `pixel_textmode_o`.  In our
+        // line-batched renderer the textmode flag is sourced from the
+        // global `text_mode_` control bit which spans the whole
+        // scanline; only emitted (non-transparent) pixels are tagged so
+        // downstream compositor logic mirrors VHDL `pixel_en_f`-gated
+        // pipeline state.
+        if (textmode_flags)
+            textmode_flags[screen_x] = text_mode_;
     }
 }
 
