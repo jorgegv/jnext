@@ -458,9 +458,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         layer2_.set_scroll_x_msb(v);
     });
 
-    // Register 0x09: Peripheral 4 setting (bit 3 = sprites over border)
+    // Register 0x09: Peripheral 4 setting
+    //   bit 4 = sprite_tie (NR 0x34 ↔ port 0x303B mirror tie, VHDL
+    //           zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612)
+    //   bit 3 = sprites over border
     nextreg_.set_write_handler(0x09, [this](uint8_t v) {
         sprites_.set_over_border((v & 0x08) != 0);
+        sprites_.set_mirror_tie((v & 0x10) != 0);
     });
 
     // Register 0x0A: Peripheral 2 — SD-card swap + mouse button reverse + DPI.
@@ -654,12 +658,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x34: Sprite attribute slot select (alternative to port 0x303B)
-    nextreg_.set_write_handler(0x34, [this](uint8_t v) { sprites_.set_attr_slot(v); });
+    //
+    // VHDL zxnext.vhd:4855 — NR 0x34 sets nr_sprite_mirror_we with the
+    // default mirror_index = "111" (sprites.vhd:600-602 sprite-number
+    // path). Bit 6 of NR address = 0, so nr_sprite_mirror_inc = 0 (no
+    // increment after this write).
+    //
+    // G95: when sprite_tie (NR 0x09 b4) is set, sprites.vhd:653-654
+    // syncs attr_index to mirror_sprite_q on the next clock —
+    // set_mirror_sprite_num models that synchronously by also updating
+    // attr_slot_/attr_byte_/pattern_slot_msb_.
+    nextreg_.set_write_handler(0x34,
+        [this](uint8_t v) { sprites_.set_mirror_sprite_num(v); });
 
-    // Registers 0x75-0x79: Direct sprite attribute byte writes
+    // Registers 0x75-0x79: Direct sprite attribute byte writes WITH
+    // per-byte auto-increment (G96).
+    //
+    // VHDL zxnext.vhd:4857-4875 — same mirror_we/mirror_index decode as
+    // NR 0x35-0x39 but bit 6 of nr_wr_reg = 1, so nr_sprite_mirror_inc
+    // fires per write (zxnext.vhd:4916). sprites.vhd:603-605 increments
+    // mirror_sprite_q's lower 7 bits and reloads bit 7 from
+    // pattern_index(7).
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x75 + i),
-            [this, i](uint8_t v) { sprites_.write_attr_byte(static_cast<uint8_t>(i), v); });
+            [this, i](uint8_t v) {
+                sprites_.write_attr_byte_nr_per_byte_inc(
+                    static_cast<uint8_t>(i), v);
+            });
     }
 
     // Register 0x2F: Tilemap X scroll MSB (bits 1:0)
@@ -964,10 +989,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
     });
 
-    // Registers 0x35-0x39: Sprite attribute bytes 0-4 (with auto-increment)
+    // Registers 0x35-0x39: Sprite attribute bytes 0-4, NO auto-increment
+    // (G96). VHDL zxnext.vhd:4857-4875 dispatches mirror_we with
+    // mirror_index = "000".."100"; zxnext.vhd:4916 — bit 6 of nr_wr_reg
+    // = 0 here, so nr_sprite_mirror_inc stays at 0 and mirror_sprite_q
+    // is NOT advanced. The write targets the current mirror_sprite_q
+    // sprite slot.
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x35 + i),
-            [this, i](uint8_t v) { sprites_.write_attr_byte(static_cast<uint8_t>(i), v); });
+            [this, i](uint8_t v) {
+                sprites_.write_attr_byte_nr_no_inc(
+                    static_cast<uint8_t>(i), v);
+            });
     }
 
     // Register 0x4A: Fallback colour (used when all layers are transparent)
@@ -2018,6 +2051,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //            port_e3_reg(6) := '0')
     nextreg_.set_write_handler(0x09, [this](uint8_t v) {
         sprites_.set_over_border((v & 0x08) != 0);
+        // G95: bit 4 wires nr_09_sprite_tie into the sprite mirror unit
+        // (VHDL zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612).
+        sprites_.set_mirror_tie((v & 0x10) != 0);
         // E3-05: clear DivMMC mapram OR-latch when bit 3 is set.
         if (v & 0x08) {
             divmmc_.clear_mapram();

@@ -94,11 +94,74 @@ public:
 
     /// NextREG 0x34 write: set sprite attribute slot index (alternative to
     /// port 0x303B).  bits 6:0 = sprite index, bit 7 = pattern MSB.
+    ///
+    /// LEGACY: predates the explicit set_mirror_sprite_num / sprite_tie
+    /// modelling.  Internally now delegates to set_mirror_sprite_num() so
+    /// existing callers continue to see the unified-slot behaviour they
+    /// always saw.  The NR 0x34 dispatch in emulator.cpp now goes through
+    /// set_mirror_sprite_num() directly.
     void set_attr_slot(uint8_t val);
 
     /// NextREG 0x75-0x79: direct sprite attribute byte writes for the
     /// currently selected sprite slot.
+    ///
+    /// LEGACY: predates the bit-6 increment-gate modelling. Existing tests
+    /// rely on the post-byte-4 increment semantics this version supplies.
+    /// New emulator NR-dispatch code should call write_attr_byte_nr_no_inc
+    /// (NR 0x35-0x39) or write_attr_byte_nr_per_byte_inc (NR 0x75-0x79).
     void write_attr_byte(uint8_t byte_idx, uint8_t val);
+
+    // ── G95 / G96: VHDL-faithful NR-mirror modelling ─────────────────
+    //
+    // VHDL sprites.vhd:594-612 describes mirror_sprite_q (the NR-side
+    // sprite-number register, 8 bits — 7-bit slot + bit 7 pattern MSB)
+    // and its update process. VHDL sprites.vhd:647-667 describes
+    // attr_index (the port-0x57/0x303B-side address, 10 bits =
+    // 7-bit slot << 3 | byte_index 0..4). The two are tied together when
+    // NR 0x09 bit 4 (sprite_tie) is set — writes to NR 0x34 sync into
+    // attr_index, writes to port 0x303B sync into mirror_sprite_q.
+    //
+    // VHDL zxnext.vhd:4855-4877,4916 — the per-byte-write increment is
+    // gated by the address bit 6:
+    //   nr_sprite_mirror_inc <= nr_sprite_mirror_we AND nr_wr_reg(6);
+    // NR 0x35-0x39 (bit 6 = 0) → no increment.
+    // NR 0x75-0x79 (bit 6 = 1) → increment mirror_sprite_q after every
+    // byte write.
+    // NR 0x34 (bit 6 = 0) → no increment.
+
+    /// NR 0x09 bit 4 sprite_tie. VHDL zxnext.vhd:5187 / 4352 / 1123,
+    /// sprites.vhd:60 (mirror_tie_i). Default 0 at power-on.
+    void set_mirror_tie(bool tied) { mirror_tie_ = tied; }
+    bool mirror_tie() const { return mirror_tie_; }
+
+    /// NR 0x34 — set the sprite-mirror sprite number (mirror_sprite_q).
+    /// VHDL sprites.vhd:600-602 — `mirror_we_i='1' AND mirror_index="111"`
+    /// path. bits 6:0 = sprite slot, bit 7 = pattern MSB.
+    /// When sprite_tie is set, attr_index also syncs to this slot per
+    /// VHDL sprites.vhd:653-654 (mirror_num_change → attr_index).
+    /// Mirrors the corresponding pattern_index sync at sprites.vhd:733-734.
+    void set_mirror_sprite_num(uint8_t val);
+
+    /// NR 0x35-0x39 path — write attribute byte; NO auto-increment.
+    /// byte_idx is 0..4 corresponding to NR 0x35..0x39. Targets the
+    /// mirror-sprite-q slot (which is the same as attr_slot_ when tie=1).
+    /// VHDL: zxnext.vhd:4857-4875 (mirror_we), 4916 (no mirror_inc since
+    /// bit 6 = 0). sprites.vhd:707-715 (attr_a = mirror_sprite_q for
+    /// mirror writes).
+    void write_attr_byte_nr_no_inc(uint8_t byte_idx, uint8_t val);
+
+    /// NR 0x75-0x79 path — write attribute byte; auto-increment AFTER
+    /// every byte. byte_idx is 0..4 corresponding to NR 0x75..0x79.
+    /// VHDL: zxnext.vhd:4857-4875 (mirror_we), 4916 (mirror_inc fires
+    /// since bit 6 = 1). The increment lands BEFORE the next byte,
+    /// per the VHDL `mirror_inc_i` arriving on the same write cycle but
+    /// taking effect synchronously on the next clock — a single write
+    /// commits the byte, then advances mirror_sprite_q.
+    void write_attr_byte_nr_per_byte_inc(uint8_t byte_idx, uint8_t val);
+
+    /// Observability: current mirror_sprite_q (NR 0x34 slot register).
+    /// Bits 6:0 = sprite slot, bit 7 = pattern MSB.
+    uint8_t mirror_sprite_num() const { return mirror_sprite_num_; }
 
     /// NextREG 0x09 bit 3: sprites rendered over border (1) or clipped to
     /// display area (0).
@@ -317,6 +380,16 @@ private:
 
     // Port 0x303B pattern slot MSB (bit 7 of write to 0x303B)
     uint8_t    pattern_slot_msb_ = 0;
+
+    // ── G95 / G96: NR-mirror state ──────────────────────────────────
+    //
+    // VHDL sprites.vhd:594-612 mirror_sprite_q — 8-bit register, the
+    // NR-side sprite-number selector. Bits 6:0 = slot, bit 7 = pattern
+    // MSB. Updated by NR 0x34 (set), NR 0x75-0x79 (auto-increment per
+    // byte), and (when sprite_tie=1) the port-0x57/0x303B side via
+    // attr_num_change.
+    uint8_t    mirror_sprite_num_ = 0;
+    bool       mirror_tie_        = false;  // NR 0x09 bit 4
 
     // Configuration
     bool       sprites_visible_ = false;
