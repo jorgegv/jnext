@@ -36,19 +36,31 @@ BEGIN {
     L["Memory/MMU"]            = "mmu_test"
     L["NextREG (bare)"]        = "nextreg_test"
     L["NextREG (integration)"] = "nextreg_integration_test"
-    L["Input (Keyboard)"]      = "input_test"
+    L["Input"]                 = "input_test"
+    L["Input (integration)"]   = "input_integration_test"
     L["CTC + Interrupts"]      = "ctc_test"
+    L["CTC (integration)"]     = "ctc_interrupts_test"
     L["Layer 2"]               = "layer2_test"
     L["UART + I2C/RTC"]        = "uart_test"
+    L["UART (integration)"]    = "uart_integration_test"
     L["DivMMC + SPI"]          = "divmmc_test"
     L["SD Card"]               = "sdcard_test"
     L["Sprites"]               = "sprites_test"
     L["Compositor"]            = "compositor_test"
+    L["Compositor (int)"]      = "compositor_integration_test"
     L["ULA Video"]             = "ula_test"
+    L["ULA Video (int)"]       = "ula_integration_test"
+    L["Floating Bus"]          = "floating_bus_test"
+    L["VideoTiming"]           = "videotiming_test"
+    L["Contention"]            = "contention_test"
     L["I/O Port Dispatch"]     = "port_test"
     L["Audio (AY+DAC+Beeper)"] = "audio_test"
+    L["Audio (NextREG)"]       = "audio_nextreg_test"
+    L["Audio (port dispatch)"] = "audio_port_dispatch_test"
     L["DMA"]                   = "dma_test"
     L["Tilemap"]               = "tilemap_test"
+    L["NMI Source Pipeline"]   = "nmi_test"
+    L["NMI (integration)"]     = "nmi_integration_test"
 
     while ((getline line < summary) > 0) {
         n = split(line, f, "\t")
@@ -116,7 +128,7 @@ END {
                    fmt_num(pas,  W_PASS) "|" \
                    fmt_num(fail, W_FAIL) "|" \
                    fmt_num(skip, W_SKIP) "|" \
-                   fmt_rate(pas, fail, W_RATE) "|" \
+                   fmt_rate(pas, live, W_RATE) "|" \
                    notes_cell "|"
     }
 
@@ -126,7 +138,7 @@ END {
                            fmt_bold(tot_pass, W_PASS) "|" \
                            fmt_bold(tot_fail, W_FAIL) "|" \
                            fmt_bold(tot_skip, W_SKIP) "|" \
-                           fmt_bold_rate(tot_pass, tot_fail, W_RATE) "|" \
+                           fmt_bold_rate(tot_pass, tot_live, W_RATE) "|" \
                            total_notes "|"
     }
 
@@ -150,9 +162,8 @@ function fmt_num(n, w) {
     return " " rjust(sprintf("%d", n), w - 2) " "
 }
 
-function fmt_rate(pas, fail, w,   denom, r, s) {
-    denom = pas + fail
-    r = (denom > 0) ? int(pas * 100 / denom) : 0
+function fmt_rate(pas, live, w,   r, s) {
+    r = (live > 0) ? int(pas * 100 / live) : 0
     s = sprintf("%d%%", r)
     return " " rjust(s, w - 2) " "
 }
@@ -164,9 +175,8 @@ function fmt_bold(n, w,   s) {
     return rjust(s, w)
 }
 
-function fmt_bold_rate(pas, fail, w,   denom, r, s) {
-    denom = pas + fail
-    r = (denom > 0) ? int(pas * 100 / denom) : 0
+function fmt_bold_rate(pas, live, w,   r, s) {
+    r = (live > 0) ? int(pas * 100 / live) : 0
     s = "**" r "%**"
     if (length(s) + 2 <= w) return " " rjust(s, w - 2) " "
     if (length(s) + 1 <= w) return " " rjust(s, w - 1)
