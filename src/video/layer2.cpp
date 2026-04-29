@@ -256,6 +256,40 @@ void Layer2::apply_changes_for_line(int line)
     }
 }
 
+void Layer2::flush_remaining_changes()
+{
+    // Drain entries the per-line render loop did not reach (line >=
+    // FB_HEIGHT, vblank). See Renderer::render_frame for the rationale —
+    // this is the same pattern as PaletteManager::flush_remaining_changes
+    // and Tilemap::flush_remaining_nr6b_changes.
+    while (render_cursor_ < change_count_) {
+        const auto& c = change_log_[render_cursor_++];
+        scroll_x_ = c.scroll_x;
+        scroll_y_ = c.scroll_y;
+    }
+    while (clip_render_cursor_ < clip_change_count_) {
+        const auto& c = clip_change_log_[clip_render_cursor_++];
+        clip_x1_ = c.x1;
+        clip_x2_ = c.x2;
+        clip_y1_ = c.y1;
+        clip_y2_ = c.y2;
+    }
+    while (bank_render_cursor_ < bank_change_count_) {
+        const auto& c = bank_change_log_[bank_render_cursor_++];
+        active_bank_ = c.active_bank;
+        shadow_bank_ = c.shadow_bank;
+    }
+    while (enable_render_cursor_ < enable_change_count_) {
+        const auto& c = enable_change_log_[enable_render_cursor_++];
+        enabled_ = c.enabled;
+    }
+    while (nr70_render_cursor_ < nr70_change_count_) {
+        const auto& c = nr70_change_log_[nr70_render_cursor_++];
+        resolution_     = c.resolution;
+        palette_offset_ = c.palette_offset;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // NextREG 0x70 — Layer 2 control
 // ---------------------------------------------------------------------------

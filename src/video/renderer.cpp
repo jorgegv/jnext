@@ -244,13 +244,24 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         composite_scanline(out, fb_argb, composite_width_);
     }
 
-    // Drain any tilemap NR 0x6B log entries that landed in vblank
-    // (line >= FB_HEIGHT). Without this, the live state would equal
-    // the LAST visible-line replay value, and the next frame's
-    // start_frame_nr6b() would snapshot a stale baseline — firmware
-    // that writes NR 0x6B during vblank (waitForScanline(255) +
-    // sc_update style main loops, e.g. dapr-tilemap_02) would never
-    // see the write reflected in subsequent frames.
+    // Drain log entries that landed in vblank (line >= FB_HEIGHT) for
+    // every per-scanline log: rewind_to_baseline() at the top of this
+    // function undoes the direct live mutation done by their NR/port
+    // writers, and apply_*_changes_for_line(0..H-1) only replays entries
+    // tagged at visible scanlines. Without these flushes, vblank writes
+    // are lost forever — the next frame's start_frame() snapshots a
+    // baseline missing them. Surfaced by tilemap_demo at NR 0x07 >= 0x02
+    // (CPU 14/28 MHz): setup completes during vblank, so the entire
+    // tilemap palette stays at the zero baseline and every tilemap pixel
+    // renders as palette[0] = black.
+    palette.flush_remaining_changes();
+    layer2.flush_remaining_changes();
+    if (sprites) {
+        sprites->flush_remaining_changes();
+    }
+    ula_.flush_remaining_changes();
+    ula_.flush_remaining_scroll_changes();
+    ula_.palsel_flush_remaining_changes();
     if (tilemap) {
         tilemap->flush_remaining_nr6b_changes();
     }

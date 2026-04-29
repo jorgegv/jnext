@@ -273,6 +273,14 @@ public:
     /// O(change_count_ + pattern_change_count_).
     void apply_changes_for_line(int line);
 
+    /// Apply every remaining attribute and pattern entry, regardless of
+    /// line tag. Called after the per-line render loop so sprite writes
+    /// that landed in vblank still update the live state — without this
+    /// they are lost (rewind undoes direct mutation, the visible-line
+    /// replay never matches them). Mirrors
+    /// Tilemap::flush_remaining_nr6b_changes.
+    void flush_remaining_changes();
+
     /// Number of attribute changes recorded this frame (diagnostic).
     size_t change_log_size() const { return change_count_; }
 

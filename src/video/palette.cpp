@@ -418,6 +418,23 @@ void PaletteManager::apply_changes_for_line(int line)
     }
 }
 
+void PaletteManager::flush_remaining_changes()
+{
+    // Drain log entries that the per-line render loop did not reach.
+    // Mirrors Tilemap::flush_remaining_nr6b_changes. Without this, palette
+    // writes tagged at line >= FB_HEIGHT (vblank) get dropped: rewind has
+    // already undone their direct mutation, and apply_changes_for_line(0..H)
+    // never matches a vblank line. The next frame's start_frame() then
+    // snapshots a stale baseline. tilemap_demo at NR 0x07 >= 0x02 (CPU
+    // 14/28 MHz) finishes its NR 0x40/0x41 setup during vblank, so without
+    // this flush the active tilemap palette stays at its (zero) baseline
+    // every frame and every tilemap pixel renders as palette[0] = black.
+    while (render_cursor_ < change_count_) {
+        apply_change(change_log_[render_cursor_]);
+        ++render_cursor_;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Internal: advance palette index (if auto-increment enabled)
 // ---------------------------------------------------------------------------

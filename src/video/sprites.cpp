@@ -208,6 +208,33 @@ void SpriteEngine::apply_changes_for_line(int line)
     }
 }
 
+void SpriteEngine::flush_remaining_changes()
+{
+    // Drain entries that landed in vblank (line >= FB_HEIGHT). See
+    // Renderer::render_frame for the rationale — without this, sprite
+    // attribute / pattern writes that complete after the last visible
+    // scanline are lost forever (rewind undoes the direct mutation, the
+    // visible-line replay never matches them, and the next frame's
+    // start_frame snapshots a stale baseline). Mirrors
+    // Tilemap::flush_remaining_nr6b_changes.
+    while (render_cursor_ < change_count_) {
+        const auto& c = change_log_[render_cursor_++];
+        SpriteAttr& spr = sprites_[c.slot & 0x7F];
+        switch (c.byte_index) {
+        case 0: spr.byte0 = c.value; break;
+        case 1: spr.byte1 = c.value; break;
+        case 2: spr.byte2 = c.value; break;
+        case 3: spr.byte3 = c.value; break;
+        case 4: spr.byte4 = c.value; break;
+        default: break;
+        }
+    }
+    while (pattern_render_cursor_ < pattern_change_count_) {
+        const auto& p = pattern_change_log_[pattern_render_cursor_++];
+        pattern_ram_[p.pattern_offset & (PATTERN_RAM_SZ - 1)] = p.value;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Port 0x303B write — sprite slot select
 // ---------------------------------------------------------------------------
