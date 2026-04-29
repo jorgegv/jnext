@@ -179,6 +179,15 @@ public:
     /// so total work across a frame is O(change_count_).
     void apply_changes_for_line(int line);
 
+    /// Apply every remaining log entry across all five Layer 2 logs
+    /// (scroll, clip, bank, enable, NR 0x70), regardless of line tag.
+    /// Called after the per-line render loop so writes that landed in
+    /// vblank still update the live state — without this they are lost
+    /// (rewind has undone the live mutation, and apply_changes_for_line
+    /// (0..H-1) never matches a vblank line). Mirrors
+    /// Tilemap::flush_remaining_nr6b_changes.
+    void flush_remaining_changes();
+
     /// Number of scroll changes recorded this frame (diagnostic).
     size_t change_log_size() const { return change_count_; }
 

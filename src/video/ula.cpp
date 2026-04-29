@@ -226,6 +226,18 @@ void Ula::apply_changes_for_line(int line)
     }
 }
 
+void Ula::flush_remaining_changes()
+{
+    // Drain port-0xFF (Timex) entries that landed in vblank. Mirrors
+    // Tilemap::flush_remaining_nr6b_changes — see Renderer::render_frame
+    // for rationale.
+    while (port_ff_render_cursor_ < port_ff_count_) {
+        const auto& c = port_ff_log_[port_ff_render_cursor_++];
+        screen_mode_reg_ = c.value;
+        decode_screen_mode_into(screen_mode_reg_, mode_, alt_file_);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // pixel_addr_offset
 // ---------------------------------------------------------------------------
@@ -953,6 +965,18 @@ void Ula::apply_scroll_changes_for_line(int line)
     }
 }
 
+void Ula::flush_remaining_scroll_changes()
+{
+    // Drain ULA scroll entries (NR 0x26/0x27/0x68 b2) that landed in
+    // vblank. See Renderer::render_frame for rationale.
+    while (scroll_render_cursor_ < scroll_change_count_) {
+        const auto& c = scroll_change_log_[scroll_render_cursor_++];
+        ula_scroll_x_coarse_ = c.scroll_x_coarse;
+        ula_scroll_y_        = c.scroll_y;
+        ula_fine_scroll_x_   = c.fine_scroll_x != 0;
+    }
+}
+
 void Ula::save_state(StateWriter& w) const
 {
     w.write_bool(ula_enabled_);
@@ -1128,6 +1152,22 @@ void Ula::palsel_apply_changes_for_line(int line)
 
     while (palsel6b_render_cursor_ < palsel6b_change_count_
         && palsel6b_change_log_[palsel6b_render_cursor_].line == lt) {
+        const auto& c = palsel6b_change_log_[palsel6b_render_cursor_++];
+        active_tm_palette_ = c.active_tm;
+    }
+}
+
+void Ula::palsel_flush_remaining_changes()
+{
+    // Drain palette-select entries (NR 0x43 + NR 0x6B b4) that landed in
+    // vblank. See Renderer::render_frame for rationale.
+    while (palsel43_render_cursor_ < palsel43_change_count_) {
+        const auto& c = palsel43_change_log_[palsel43_render_cursor_++];
+        active_ula_palette_ = c.active_ula;
+        active_l2_palette_  = c.active_l2;
+        active_spr_palette_ = c.active_spr;
+    }
+    while (palsel6b_render_cursor_ < palsel6b_change_count_) {
         const auto& c = palsel6b_change_log_[palsel6b_render_cursor_++];
         active_tm_palette_ = c.active_tm;
     }

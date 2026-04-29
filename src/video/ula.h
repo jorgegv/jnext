@@ -219,6 +219,12 @@ public:
     /// total work across a frame is O(port_ff_count_).
     void apply_changes_for_line(int line);
 
+    /// Apply every remaining port-0xFF entry, regardless of line tag.
+    /// Called after the per-line render loop so writes that landed in
+    /// vblank still update the live state. Mirrors
+    /// Tilemap::flush_remaining_nr6b_changes.
+    void flush_remaining_changes();
+
     /// Number of port-0xFF changes recorded this frame (diagnostic).
     size_t port_ff_change_log_size() const { return port_ff_count_; }
 
@@ -302,6 +308,11 @@ public:
     /// Cursor is monotonically advanced; the log is in scanline order so
     /// total work across a frame is O(scroll_change_count_).
     void apply_scroll_changes_for_line(int line);
+
+    /// Apply every remaining scroll log entry, regardless of line tag.
+    /// Called after the per-line render loop so vblank writes still
+    /// update the live state. Mirrors flush_remaining_changes.
+    void flush_remaining_scroll_changes();
 
     /// Number of scroll changes recorded this frame (diagnostic / tests).
     size_t scroll_change_log_size() const { return scroll_change_count_; }
@@ -534,6 +545,12 @@ public:
     /// Cursor is monotonically advanced; the log is in scanline order
     /// so total work across a frame is O(change_count_).
     void palsel_apply_changes_for_line(int line);
+
+    /// Apply every remaining selector entry across both palsel logs
+    /// (NR 0x43 + NR 0x6B b4), regardless of line tag. Called after the
+    /// per-line render loop so vblank writes still update the live
+    /// state. Mirrors flush_remaining_changes.
+    void palsel_flush_remaining_changes();
 
     /// Number of NR 0x43 selector changes recorded this frame.
     size_t palsel43_change_log_size() const { return palsel43_change_count_; }

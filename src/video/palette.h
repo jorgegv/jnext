@@ -275,6 +275,17 @@ public:
     /// total work across a frame is O(change_count_).
     void apply_changes_for_line(int line);
 
+    /// Apply every remaining log entry, regardless of its line tag.
+    /// Called after the per-line render loop so palette writes that
+    /// landed in vblank (line >= FB_HEIGHT, where the renderer never
+    /// invokes apply_changes_for_line) still update the live state.
+    /// Without this, rewind_to_baseline at the next frame's start
+    /// snapshots a baseline that lacks those writes — workloads that
+    /// finish their palette setup during vblank (e.g. tilemap_demo at
+    /// CPU >= 14 MHz) end up rendering against an all-zero baseline
+    /// every frame. Mirrors Tilemap::flush_remaining_nr6b_changes.
+    void flush_remaining_changes();
+
     /// Number of palette changes recorded this frame (diagnostic).
     size_t change_log_size() const { return change_count_; }
 

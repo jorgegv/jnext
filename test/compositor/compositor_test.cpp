@@ -2390,6 +2390,201 @@ static void test_PSCAN() {
                      before, exp_red, after, exp_cyan));
     }
 
+    // PSCAN-VBLANK-PALETTE — vblank-flush. A palette write tagged at
+    //   line >= FB_HEIGHT must still update the live state once the
+    //   frame's render-side rewind+per-line-replay+flush completes.
+    //   Without flush_remaining_changes the live state stays at the
+    //   post-rewind baseline (zero) forever, because the rewind has
+    //   undone the direct write_entry mutation and apply_changes_for_line
+    //   (0..255) never matches a vblank line. tilemap_demo at NR 0x07 >=
+    //   0x02 is the workload that surfaced this.
+    {
+        PaletteManager p;
+        p.reset();
+        p.start_frame();
+        p.write_control(0x30);                // tilemap first palette
+        p.set_index(4);
+        p.set_current_line(300);              // vblank tag
+        p.write_8bit(0xE0);                   // RGB333 0x1C0 (bright red)
+
+        p.rewind_to_baseline();               // undoes direct mutation
+        for (int line = 0; line < 256; ++line)
+            p.apply_changes_for_line(line);   // none match line=300
+        const uint32_t before_flush = p.tilemap_colour(4);
+        p.flush_remaining_changes();
+        const uint32_t after_flush  = p.tilemap_colour(4);
+
+        const uint32_t exp_red = Renderer::rrrgggbb_to_argb(0xE0);
+
+        check("PSCAN-VBLANK-PALETTE",
+              "PaletteManager::flush_remaining_changes drains a "
+              "log entry tagged at line >= FB_HEIGHT and applies it to "
+              "the live state (regression check: tilemap_demo black-screen "
+              "at NR 0x07 >= 0x02)",
+              before_flush != exp_red && after_flush == exp_red,
+              DETAIL("before=0x%08X after=0x%08X exp=0x%08X",
+                     before_flush, after_flush, exp_red));
+    }
+
+    // PSCAN-VBLANK-LAYER2 — same vblank-flush coverage for the five
+    //   Layer 2 logs (scroll, clip, bank, enable, NR 0x70). One log entry
+    //   per kind, all tagged at vblank; flush must apply each to live.
+    {
+        Layer2 l2;
+        l2.reset();
+        l2.start_frame();
+        l2.set_current_line(300);
+
+        l2.set_scroll_x_lsb(0x23);                   // scroll x lsb
+        l2.set_scroll_x_msb(0x01);                   // scroll x msb -> X = 0x123
+        l2.set_scroll_y(0x77);
+        l2.set_clip_x1(0x10);
+        l2.set_clip_x2(0xEF);
+        l2.set_clip_y1(0x20);
+        l2.set_clip_y2(0xDF);
+        l2.set_active_bank(0x09);
+        l2.set_shadow_bank(0x0C);
+        l2.set_enabled(true);
+        l2.set_control(static_cast<uint8_t>((1 << 4) | 0x0A));  // NR 0x70
+
+        l2.rewind_to_baseline();
+        for (int line = 0; line < 256; ++line) l2.apply_changes_for_line(line);
+        l2.flush_remaining_changes();
+
+        const bool ok = l2.scroll_x() == 0x123
+                     && l2.scroll_y() == 0x77
+                     && l2.clip_x1() == 0x10 && l2.clip_x2() == 0xEF
+                     && l2.clip_y1() == 0x20 && l2.clip_y2() == 0xDF
+                     && l2.active_bank() == 0x09
+                     && l2.shadow_bank() == 0x0C
+                     && l2.enabled() == true
+                     && l2.resolution() == 1
+                     && l2.palette_offset() == 0x0A;
+
+        check("PSCAN-VBLANK-LAYER2",
+              "Layer2::flush_remaining_changes drains scroll/clip/bank/"
+              "enable/nr70 entries tagged at line >= FB_HEIGHT",
+              ok,
+              DETAIL("scroll=(0x%X,0x%02X) clip=(0x%02X,0x%02X,0x%02X,0x%02X) "
+                     "banks=(0x%02X,0x%02X) en=%d res=%u poff=%u",
+                     l2.scroll_x(), l2.scroll_y(),
+                     l2.clip_x1(), l2.clip_x2(), l2.clip_y1(), l2.clip_y2(),
+                     l2.active_bank(), l2.shadow_bank(),
+                     l2.enabled(), l2.resolution(), l2.palette_offset()));
+    }
+
+    // PSCAN-VBLANK-SPRITE — same vblank-flush coverage for the
+    //   SpriteEngine attribute and pattern logs. parallax.nex bulk-streams
+    //   sprite attributes via port 0x57; any byte that lands during vblank
+    //   would be lost without this flush, leaving the next frame using
+    //   stale baseline coordinates / patterns.
+    {
+        SpriteEngine sp;
+        sp.reset();
+        sp.start_frame();
+        sp.set_current_line(300);
+        // Attribute side: write byte 0 of slot 5 via auto-incrementing
+        // port 0x57. Pattern side: write a pattern byte via port 0x5B.
+        sp.write_slot_select(5);
+        sp.write_attribute(0x42);  // slot 5, byte 0
+        sp.write_slot_select(0);
+        sp.write_pattern(0xA5);    // pattern offset 0
+
+        sp.rewind_to_baseline();
+        for (int line = 0; line < 256; ++line) sp.apply_changes_for_line(line);
+        sp.flush_remaining_changes();
+
+        const bool ok = sp.read_attr_byte(5, 0) == 0x42
+                     && sp.read_pattern(0) == 0xA5;
+
+        check("PSCAN-VBLANK-SPRITE",
+              "SpriteEngine::flush_remaining_changes drains attribute and "
+              "pattern entries tagged at line >= FB_HEIGHT (regression "
+              "check: parallax-style port 0x57 bursts that finish in vblank)",
+              ok,
+              DETAIL("attr5b0=0x%02X pat0=0x%02X",
+                     sp.read_attr_byte(5, 0), sp.read_pattern(0)));
+    }
+
+    // PSCAN-VBLANK-ULA-PORTFF — Timex screen-mode (port 0xFF) flush.
+    {
+        Ula u;
+        u.reset();
+        u.start_frame();
+        u.set_current_line(300);
+        u.set_screen_mode(0x42);  // port-0xFF write at vblank
+
+        u.rewind_to_baseline();
+        for (int line = 0; line < 256; ++line) u.apply_changes_for_line(line);
+        u.flush_remaining_changes();
+
+        check("PSCAN-VBLANK-ULA-PORTFF",
+              "Ula::flush_remaining_changes drains port-0xFF entry tagged "
+              "at line >= FB_HEIGHT",
+              u.get_screen_mode_reg() == 0x42,
+              DETAIL("screen_mode_reg=0x%02X", u.get_screen_mode_reg()));
+    }
+
+    // PSCAN-VBLANK-ULA-SCROLL — NR 0x26/0x27/0x68 b2 scroll flush.
+    {
+        Ula u;
+        u.reset();
+        u.start_frame_scroll();
+        u.set_current_scroll_line(300);
+        u.set_ula_scroll_x_coarse(7);
+        u.set_ula_scroll_y(0x55);
+        u.set_ula_fine_scroll_x(true);
+
+        u.rewind_scroll_to_baseline();
+        for (int line = 0; line < 256; ++line)
+            u.apply_scroll_changes_for_line(line);
+        u.flush_remaining_scroll_changes();
+
+        const bool ok = u.get_ula_scroll_x_coarse() == 7
+                     && u.get_ula_scroll_y() == 0x55
+                     && u.get_ula_fine_scroll_x() == true;
+
+        check("PSCAN-VBLANK-ULA-SCROLL",
+              "Ula::flush_remaining_scroll_changes drains scroll entry "
+              "tagged at line >= FB_HEIGHT",
+              ok,
+              DETAIL("coarse=%u y=0x%02X fine=%d",
+                     u.get_ula_scroll_x_coarse(), u.get_ula_scroll_y(),
+                     u.get_ula_fine_scroll_x()));
+    }
+
+    // PSCAN-VBLANK-ULA-PALSEL — NR 0x43 + NR 0x6B b4 selector flush.
+    {
+        Ula u;
+        u.reset();
+        u.palsel_start_frame();
+        u.set_palsel_current_line(300);
+        u.set_active_ula_palette(true);
+        u.set_active_layer2_palette(true);
+        u.set_active_sprite_palette(true);
+        u.set_active_tilemap_palette(true);
+
+        u.palsel_rewind_to_baseline();
+        for (int line = 0; line < 256; ++line)
+            u.palsel_apply_changes_for_line(line);
+        u.palsel_flush_remaining_changes();
+
+        const bool ok = u.get_active_ula_palette()    == true
+                     && u.get_active_layer2_palette() == true
+                     && u.get_active_sprite_palette() == true
+                     && u.get_active_tilemap_palette() == true;
+
+        check("PSCAN-VBLANK-ULA-PALSEL",
+              "Ula::palsel_flush_remaining_changes drains NR 0x43 + "
+              "NR 0x6B b4 entries tagged at line >= FB_HEIGHT",
+              ok,
+              DETAIL("ula=%d l2=%d spr=%d tm=%d",
+                     u.get_active_ula_palette(),
+                     u.get_active_layer2_palette(),
+                     u.get_active_sprite_palette(),
+                     u.get_active_tilemap_palette()));
+    }
+
     // PSCAN-G04-01 — VHDL zxnext.vhd:1137, 5226. NR 0x14
     // (`transparent_rgb_2`) snapshot per scanline.
     //
