@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Automated regression test suite for JNEXT emulator
-# Runs screenshot tests and FUSE Z80 opcode tests.
+# Automated regression test suite for JNEXT emulator.
+# Runs screenshot tests + a few functional/integration tests.
+# (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
 # Usage: bash test/regression.sh [--update] [test_name...]
 #   --update    Update reference screenshots instead of comparing
@@ -24,12 +25,9 @@ if [[ -z "${JNEXT:-}" ]]; then
     done
     JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
 fi
-# Unit-test binaries (fuse_z80_test, z80n_test, rewind_test) only
-# exist in the canonical build/ tree — gui-release/gui-debug builds
-# disable ENABLE_TESTS. If they are missing the script SKIPs them
-# rather than failing.
-FUSE_TEST="$PROJECT_DIR/build/test/fuse_z80_test"
-FUSE_DATA="$PROJECT_DIR/build/test/fuse"
+# rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON,
+# i.e. via `make unit-test-build`); the rewind functional test below
+# SKIPs gracefully if it is missing.
 CONF="$SCRIPT_DIR/regression_tests.conf"
 IMG_DIR="$SCRIPT_DIR/img"
 TMP_DIR=$(mktemp -d)
@@ -89,62 +87,10 @@ else
 fi
 echo ""
 
-# --- FUSE Z80 opcode tests ---
-echo -e "${BOLD}[fuse-z80] Running FUSE Z80 opcode tests...${RESET}"
-if [[ -x "$FUSE_TEST" && -d "$FUSE_DATA" ]]; then
-    fuse_output=$("$FUSE_TEST" "$FUSE_DATA" 2>&1) || true
-    # Extract from format: "Total: 1356  Passed: 1340  Failed: 16  Skipped: 0"
-    if echo "$fuse_output" | grep -qE "Total:.*Passed:"; then
-        fuse_total=$(echo "$fuse_output" | grep -oP "Total:\s*\K[0-9]+")
-        fuse_pass=$(echo "$fuse_output" | grep -oP "Passed:\s*\K[0-9]+")
-        if [[ "$fuse_pass" -ge 1340 ]]; then
-            echo -e "  ${GREEN}PASS${RESET}: $fuse_pass/$fuse_total opcodes passed"
-            pass=$((pass + 1))
-        else
-            echo -e "  ${RED}FAIL${RESET}: only $fuse_pass/$fuse_total opcodes passed (expected >= 1340)"
-            fail=$((fail + 1))
-        fi
-    else
-        echo -e "  ${RED}FAIL${RESET}: unexpected output format"
-        echo "$fuse_output" | tail -5
-        fail=$((fail + 1))
-    fi
-else
-    echo -e "  ${YELLOW}SKIP${RESET}: fuse_z80_test not built"
-    skip=$((skip + 1))
-fi
-
-echo ""
-
-# --- Z80N extended opcode tests ---
-Z80N_TEST="$PROJECT_DIR/build/test/z80n_test"
-Z80N_DATA="$PROJECT_DIR/build/test/z80n"
-echo -e "${BOLD}[z80n] Running Z80N extended opcode tests...${RESET}"
-if [[ -x "$Z80N_TEST" && -d "$Z80N_DATA" ]]; then
-    z80n_output=$("$Z80N_TEST" "$Z80N_DATA" 2>&1) || true
-    if echo "$z80n_output" | grep -qE "Total:.*Passed:"; then
-        z80n_total=$(echo "$z80n_output" | grep -oP "Total:\s*\K[0-9]+")
-        z80n_pass=$(echo "$z80n_output" | grep -oP "Passed:\s*\K[0-9]+")
-        z80n_fail=$(echo "$z80n_output" | grep -oP "Failed:\s*\K[0-9]+")
-        if [[ "$z80n_fail" -eq 0 ]]; then
-            echo -e "  ${GREEN}PASS${RESET}: $z80n_pass/$z80n_total Z80N opcodes passed"
-            pass=$((pass + 1))
-        else
-            echo -e "  ${RED}FAIL${RESET}: $z80n_pass/$z80n_total passed ($z80n_fail failures)"
-            echo "$z80n_output" | grep "FAIL" | head -10
-            fail=$((fail + 1))
-        fi
-    else
-        echo -e "  ${RED}FAIL${RESET}: unexpected output format"
-        echo "$z80n_output" | tail -5
-        fail=$((fail + 1))
-    fi
-else
-    echo -e "  ${YELLOW}SKIP${RESET}: z80n_test not built"
-    skip=$((skip + 1))
-fi
-
-echo ""
+# FUSE Z80 + Z80N opcode tests are run by `make unit-test`
+# (fuse_z80_test + z80n_test). They were duplicated here historically
+# but added no signal that wasn't already in unit-test, so they have
+# been removed from the regression run.
 
 # --- Screenshot tests ---
 echo -e "${BOLD}Running screenshot tests...${RESET}"
