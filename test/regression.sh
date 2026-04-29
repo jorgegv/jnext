@@ -10,7 +10,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-JNEXT="$PROJECT_DIR/build/jnext"
+# Locate the jnext executable. Prefer gui-release (fastest), then
+# gui-debug, then the canonical build/. The first existing executable
+# wins. Override with JNEXT=... in the environment to bypass the search.
+if [[ -z "${JNEXT:-}" ]]; then
+    for candidate in "$PROJECT_DIR/build/gui-release/jnext" \
+                     "$PROJECT_DIR/build/gui-debug/jnext" \
+                     "$PROJECT_DIR/build/jnext"; do
+        if [[ -x "$candidate" ]]; then
+            JNEXT="$candidate"
+            break
+        fi
+    done
+    JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
+fi
+# Unit-test binaries (fuse_z80_test, z80n_test, rewind_test) only
+# exist in the canonical build/ tree — gui-release/gui-debug builds
+# disable ENABLE_TESTS. If they are missing the script SKIPs them
+# rather than failing.
 FUSE_TEST="$PROJECT_DIR/build/test/fuse_z80_test"
 FUSE_DATA="$PROJECT_DIR/build/test/fuse"
 CONF="$SCRIPT_DIR/regression_tests.conf"
