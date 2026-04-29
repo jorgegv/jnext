@@ -129,7 +129,7 @@ END {
                    fmt_num(fail, W_FAIL) "|" \
                    fmt_num(skip, W_SKIP) "|" \
                    fmt_rate(pas, live, W_RATE) "|" \
-                   notes_cell "|"
+                   fmt_notes(notes_cell, fail, skip) "|"
     }
 
     if (total_idx > 0) {
@@ -139,7 +139,7 @@ END {
                            fmt_bold(tot_fail, W_FAIL) "|" \
                            fmt_bold(tot_skip, W_SKIP) "|" \
                            fmt_bold_rate(tot_pass, tot_live, W_RATE) "|" \
-                           total_notes "|"
+                           fmt_notes(total_notes, tot_fail, tot_skip) "|"
     }
 
     for (i = 1; i <= NR; i++) print lines[i]
@@ -181,6 +181,27 @@ function fmt_bold_rate(pas, live, w,   r, s) {
     if (length(s) + 2 <= w) return " " rjust(s, w - 2) " "
     if (length(s) + 1 <= w) return " " rjust(s, w - 1)
     return rjust(s, w)
+}
+
+# Wrap notes content in an HTML span with a status background colour.
+# Strips any prior <span ...>...</span> wrap so re-runs are idempotent.
+# Trims leading/trailing whitespace and re-emits one space on each side
+# so the span sits in a normal cell with single-space padding.
+#  - red   #ffcccc  if any FAILs
+#  - yellow #fff2cc if any SKIPs (no FAILs)
+#  - green #ccffcc  otherwise
+function fmt_notes(cell, fail, skip,   inner, colour) {
+    inner = cell
+    # Strip a previous wrap if present so re-runs do not nest spans.
+    sub(/^[[:space:]]*<span[^>]*>/, "", inner)
+    sub(/<\/span>[[:space:]]*$/, "", inner)
+    # Trim leading and trailing whitespace inside the cell.
+    sub(/^[[:space:]]+/, "", inner)
+    sub(/[[:space:]]+$/, "", inner)
+    if (fail > 0)      colour = "#ffcccc"
+    else if (skip > 0) colour = "#fff2cc"
+    else               colour = "#ccffcc"
+    return " <span style=\"background-color:" colour "\">" inner "</span> "
 }
 ' "$dashboard" > "$tmp"
 
