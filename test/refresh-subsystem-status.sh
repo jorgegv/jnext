@@ -183,25 +183,30 @@ function fmt_bold_rate(pas, live, w,   r, s) {
     return rjust(s, w)
 }
 
-# Wrap notes content in an HTML span with a status background colour.
-# Strips any prior <span ...>...</span> wrap so re-runs are idempotent.
-# Trims leading/trailing whitespace and re-emits one space on each side
-# so the span sits in a normal cell with single-space padding.
-#  - red   #ffcccc  if any FAILs
-#  - yellow #fff2cc if any SKIPs (no FAILs)
-#  - green #ccffcc  otherwise
-function fmt_notes(cell, fail, skip,   inner, colour) {
+# Prefix the notes cell with a status emoji so the row state shows up
+# in GitHub-rendered markdown (where inline <span style="..."> is
+# stripped). Strips any prior emoji or <span> wrap before prefixing so
+# re-runs are idempotent.
+#  - red   if any FAILs
+#  - yellow if any SKIPs (no FAILs)
+#  - green otherwise
+function fmt_notes(cell, fail, skip,   inner, dot) {
     inner = cell
-    # Strip a previous wrap if present so re-runs do not nest spans.
+    # Migrate from earlier <span style=...>...</span> wrap if present.
     sub(/^[[:space:]]*<span[^>]*>/, "", inner)
     sub(/<\/span>[[:space:]]*$/, "", inner)
+    # Strip a previous emoji prefix (red/yellow/green circles) so we
+    # do not stack them on re-runs. Literal-character class (gawk in
+    # multibyte mode treats bracketed UTF-8 sequences as a set of
+    # codepoints).
+    sub(/^[[:space:]]*[🔴🟡🟢][[:space:]]*/, "", inner)
     # Trim leading and trailing whitespace inside the cell.
     sub(/^[[:space:]]+/, "", inner)
     sub(/[[:space:]]+$/, "", inner)
-    if (fail > 0)      colour = "#ffcccc"
-    else if (skip > 0) colour = "#fff2cc"
-    else               colour = "#ccffcc"
-    return " <span style=\"background-color:" colour "\">" inner "</span> "
+    if (fail > 0)      dot = "\xF0\x9F\x94\xB4"  # 🔴
+    else if (skip > 0) dot = "\xF0\x9F\x9F\xA1"  # 🟡
+    else               dot = "\xF0\x9F\x9F\xA2"  # 🟢
+    return " " dot " " inner " "
 }
 ' "$dashboard" > "$tmp"
 
