@@ -297,6 +297,33 @@ bool NexLoader::apply(Emulator& emu) const
 
     auto& nr = emu.nextreg();
 
+    // tbblue nexload.asm bundle (Task 3) — six NR writes the official
+    // nexload.asm performs that we previously omitted. Source:
+    // /tbblue/src/asm/nexload/nexload.asm:326-365.
+    //
+    // Stop copper before reset:
+    nr.write(0x62, 0x00);   // copper-control HI byte: stop
+    nr.write(0x61, 0x00);   // copper-control LO byte: stop
+    // Peripheral 2 — read-modify-write in tbblue (preserves bits 7+5
+    // F8/F3-enable, clears bit 4 DivMMC autopage, sets bit 3 Multiface).
+    // Reset baseline of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108), so the
+    // post-modify constant is 0xA0 & ~0x10 | 0x08 = 0xA8.
+    nr.write(0x06, 0xA8);
+    // Peripheral 3 — read-modify-write in tbblue (sets bit 7 disable
+    // locked paging, bit 6 disable contention, clears bit 5 stereo→ABC,
+    // sets bits 3/2/1 specdrum/timex/turbosound, clears bit 0).
+    // Reset baseline of NR 0x08 is 0x00, so the post-modify constant is
+    // 0xCE.
+    nr.write(0x08, 0xCE);
+    // Turbo 28 MHz (matches tbblue nexload — assumes loader-issued
+    // turbo is honoured by the CPU model; vblank-flush fix in commit
+    // 346b53b is the prerequisite that prevents tilemap_demo from
+    // black-screening at this speed).
+    nr.write(0x07, 0x03);
+    // ULANext format: 0x0F (allow flashing). Overrides Emulator init's
+    // 0x07 — tbblue nexload.asm:395 writes this every NEX load.
+    nr.write(0x42, 0x0F);
+
     // Sprite/layer system: sprites visible, SLU priority
     nr.write(0x15, 0x01);
 
