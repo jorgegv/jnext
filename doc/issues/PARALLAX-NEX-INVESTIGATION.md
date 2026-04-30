@@ -636,33 +636,60 @@ The chained line-IRQ handler 0x062E (which Shape B unblocked) drives banks **0x2
 
 The per-vsync main-loop CALLs `0x02BF` + `0x00F8` drive banks **0x18 + 0x19 + 0x1A** — these were ALREADY running pre-fix and still run post-fix, so the "middle stays static" symptom is **downstream of those CALLs**, not in the chain.
 
-### Open leads for next session (middle-band investigation)
+### Open leads — investigated 2026-04-30 EOD continuation
 
-1. **NR 0x57 paging mismatch for banks 0x18/0x19/0x1A.** The
-   chained-IRQ banks (0x21+) work; the vsync banks (0x18+) don't.
-   Plausible: an SRAM-page-mapping bug for some bank-number range
-   (similar to the historic +0x20 / +1 shift work for Layer 2).
-   Test: with parallax loaded and paused at frame ≥ 250, peek SRAM
-   at the byte the demo's `LD (HL), A` (HL = 0xE003 + stride) hits
-   when NR 0x57 = 0x19; verify it equals what the compositor reads
-   when L2 sources from physical bank 0x19. If the two differ →
-   that's the bug.
-2. **The strips might be SPRITE-based, not L2.** 96 sprites at
-   y=112 / y=128 (per the demo's sprite attribute table) in two
-   horizontal rows would explain top + bottom strips scrolling
-   while middle is empty. The chained IRQ would then be uploading
-   **sprite pattern data**, not L2 source pixels — and the
-   "middle blank" is the demo's intended look (middle is *only*
-   L2/ULA background). Worth confirming by inspecting NR 0x6E
-   (sprite pattern bank) and the destination addresses inside the
-   chained IRQ handler 0x062E.
-3. **Check NR 0x12 mid-frame writes.** Parallax uploads a 24-byte
-   Copper program each frame via CALL 0x01EF. If that program
-   writes NR 0x12 (L2 active page) mid-frame to switch the active
-   bank for top / middle / bottom regions, jnext's per-scanline
-   NR 0x12 handling needs to match. Inspect the 12 instructions
-   at 0x078F (after the per-frame tween patch in CALL 0x011E
-   updates them).
+#### Point 3 — Copper mid-frame NR 0x12 writes — **RULED OUT**
+
+Copper program at 0x078F decoded (24 bytes = 12 instructions, 6 MOVE + 6 WAIT pairs):
+
+```
+[MOVE NR 0x16 = 0x00] [WAIT line=0xa0]
+[MOVE NR 0x16 = 0x00] [WAIT line=0xa2]
+[MOVE NR 0x16 = 0x00] [WAIT line=0xa6]
+[MOVE NR 0x16 = 0x00] [WAIT line=0xaa]
+[MOVE NR 0x16 = 0x00] [WAIT line=0xb0]
+[MOVE NR 0x16 = 0x00] [WAIT line=0x90]
+```
+
+Copper writes NR 0x16 (L2 X-scroll LSB) = 0 at six scanlines. **No NR 0x12 writes anywhere in the Copper program.** The L2 active page (NR 0x12 = 0x08) is set ONCE at startup and never switched mid-frame. Per-scanline NR 0x12 handling is irrelevant to parallax.
+
+The per-frame `CALL 0x011E` tween writes deltas into the WAIT operands at offsets 0x0794 / 0x0798 / 0x079C / 0x07A0 / 0x07A4 — animating which scanlines the L2 X-scroll is reset, which is how the parallax scroll-strip boundaries move from frame to frame.
+
+#### Point 2 — sprite vs L2 attribution for the strips — **CLARIFIED**
+
+Audit of all NR writes in bank 6 (the entry bank):
+- NR 0x12 (L2 active page) = 0x08, written ONCE at 0x006D.
+- NR 0x14 (global transparency) = 0xE7, written ONCE at 0x0061.
+- NR 0x15 = 0x80 inside CALL 0x0193 (LoRes-en + sprites-disabled), then NR 0x15 = 0x01 at 0x007B (sprites-en, layer-priority=SLU). Final value 0x01.
+- **No sprite-related NR writes in bank 6** (NR 0x4A / 0x4B / 0x4C / 0x4D / 0x6E / 0x69 all unmodified). Sprite transparency / palette / pattern bank use defaults.
+- No mid-frame writes to NR 0x12 / NR 0x14.
+
+User direct confirmation (interactive GUI): cave background + lava bands + small corner details visible both pre- and post-fix; the post-fix improvement is the **scrolling animation** of the top + bottom regions, not new visual content.
+
+So:
+- Cave background = ULA (rendered both pre/post).
+- Top + bottom strips = L2 layer (banks 0x1D/0x1E + 0x21/0x22, populated by chain handler 0x062E — this is what Shape B unblocked).
+- Middle band = ULA cave (intended static).
+- **Game-element content visible in CSpect but missing in jnext** (platforms, lava pillars, characters) = likely **sprites**, but their absence is unrelated to G163 (was missing pre-fix too).
+
+#### Point 1 — NR 0x57 paging audit — **MATH CONSISTENT**
+
+Walked through the SRAM mapping for the chain-handler banks:
+- `Mmu::to_sram_page(0x21)` = 0x21 + 0x20 = 0x41 in Next mode. SRAM byte = 0x41 × 8192 = 0x82000.
+- `Mmu::to_sram_page(0x19)` = 0x39. SRAM byte = 0x72000.
+- L2 active bank = 0x08 reads via `compute_ram_addr` with +16 shift in 16K-bank → physical bank 24..28 → SRAM bytes 0x60000..0x74000.
+
+L2 active region (0x60000..0x74000) is **disjoint** from the chain-handler write region (0x72000+ for bank 0x19, 0x82000+ for bank 0x21). The math is consistent — chain writes don't overlap L2 active reads.
+
+So **the missing-game-content delta is NOT explained by NR 0x57 paging stomping on L2**. Likely candidates:
+- The demo's missing game elements are **sprite patterns** uploaded via dedicated sprite-pattern ports (0x303B / 0x315B), not via NR 0x57 at all. Need to instrument those ports.
+- Or the demo uses **per-frame tilemap updates** that jnext doesn't replicate.
+- Or **DMA stride-5** memcpy via `CALL 0x0543` has a jnext-DMA-emulation gap.
+
+This is now a separate investigation from the line-int chain. Suggest a follow-on session that:
+1. Instruments port 0x303B / 0x315B sprite-pattern uploads — log all writes during a 5-second parallax run; compare to CSpect-equivalent expected sequence.
+2. Dumps SRAM at L2 active bank 0x08 (physical 0x60000..0x74000) at frame 250 in both pre-fix and post-fix runs — verify content matches between runs (this isolates "did chain handler corrupt the active bank").
+3. Inspects the `CALL 0x0543` (DMA stride-5 memcpy) — disassemble + verify each underlying DMA operation lands at the expected destination.
 
 ### As of 2026-04-26 EOD (historical baseline)
 
