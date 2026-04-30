@@ -33,6 +33,7 @@ BEGIN {
     L["Z80N CPU"]              = "z80n_test"
     L["Rewind"]                = "rewind_test"
     L["Copper"]                = "copper_test"
+    L["Copper (integration)"]  = "copper_integration_test"
     L["Memory/MMU"]            = "mmu_test"
     L["NextREG (bare)"]        = "nextreg_test"
     L["NextREG (integration)"] = "nextreg_integration_test"
