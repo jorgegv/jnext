@@ -1083,6 +1083,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // writer to the same register the port-0xFF3B path drives).
         renderer_.ula().set_ulap_en((v & 0x08) != 0);
     });
+    // VHDL zxnext.vhd:6093 reads NR 0x68 by composing bit 3 from the live
+    // `port_ff3b_ulap_en` rather than from a stored copy. Port 0xFF3B writes
+    // mutate ulap_en_ without touching regs_[0x68], so the cached snapshot
+    // diverges. Compose bit 3 from the live state at read time.
+    nextreg_.set_read_handler(0x68, [this]() -> uint8_t {
+        uint8_t v = nextreg_.cached(0x68);
+        v = (v & 0xF7) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
+        return v;
+    });
 
     // Register 0x69: Display Control 1
     //   bit 7 = Layer 2 enable
