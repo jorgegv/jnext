@@ -1,10 +1,11 @@
 # parallax.nex rendering investigation
 
 **Started**: 2026-04-25
-**Last updated**: 2026-04-26 EOD
-**Status**: PARTIALLY RESOLVED — visible content significantly improved, but
-still NOT visually correct vs CSpect. Remaining gap is in a different
-subsystem (LoRes / tilemap / copper-driven layer base re-pointing).
+**Last updated**: 2026-04-30 EOD
+**Status**: **ROOT CAUSE IDENTIFIED** — `Emulator::run_frame` schedules the
+line-interrupt event ONCE at frame start; the demo expects ~13 chained line
+interrupts per frame via mid-frame `NR 0x23` rewrites. Fix shape designed
+(see "Shape B" below); implementation deferred to a follow-on session.
 **Driver file**: `../CSpect3_1_0_0/parallax.nex` (also at
 `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.nex`).
 **CSpect launch script**: `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.sh`
@@ -308,7 +309,260 @@ Three non-blocking nits to track:
    protecting against silently-wrong-shape loads is increasingly
    justified. Already in the 86-gap doc as G66.
 
+## 2026-04-30 session — ROOT CAUSE IDENTIFIED
+
+Five reviewer-approved architectural fixes landed today; **none of them
+moved parallax** (frame-250 screenshot MD5 byte-identical pre/post each).
+Each fix was real (each had a diagnostic test verified to fail without
+the fix), but none was the parallax bug. Phase B disassembly of bank 6
+then identified the actual bug.
+
+### Today's landed fixes — all VHDL-faithful, none parallax-relevant
+
+| Commit | Fix | Diagnostic | Did it move parallax? |
+|---|---|---|---|
+| `45863fd` | NR 0x68 bit-3 read composes live `port_ff3b_ulap_en` per VHDL `:6093` (was returning cached snapshot) | 4 ULAP-* tests; 2 verified to fail without fix | No |
+| `8dc8df5` | Sprite pattern change-log cap `8192 → 81920` (one entry per visible pixel). Pre-fix, parallax overflowed at scanline 188 and silently dropped post-188 pattern writes from per-scanline replay | PSL-PAT-09 added (8200-write parallax-class density); fails under old cap | No |
+| `341f011` | `--compositor-trace FILE [--compositor-trace-frame N]` CLI flag — debug tool that dumps one CSV row per pixel for a target frame | n/a — instrumentation | n/a |
+| `5745801` | G117 cycle-accurate Copper scheduler (per-cycle iteration in `tick_copper_for_master_cycles`) + G65 CPU-wins-tied-edge defer (CPU NR writes deferred to instruction-end) | G117-MPC-01 (16 MOVEs in 3 instructions) + G65-PRI-01 (Copper writes `0x55`, CPU writes `0xAA` same instruction → `0xAA` wins). Both verified to fail without their fix | No |
+
+So the gap-doc's hypothesis that **G117 was a parallax contributor** was
+wrong for this demo. parallax's Copper program is only 6 MOVEs/frame
+across 6 scanlines (not dense enough to surface G117's gap). Trust the
+trace, not the documented hypothesis.
+
+### Phase A — compositor exonerated
+
+Per-pixel compositor trace at frame 250 via the new `--compositor-trace`
+flag. 81920 pixels analysed; the compositor's chosen pixel matches the
+SLU priority chain on every single pixel (100% internally consistent —
+zero phantom transparency, zero priority misroutings).
+
+Pixel distribution at frame 250:
+- 69% pixels = `0xff000000` (black) — the dominant result colour
+- 56% L2 opaque, 9% sprite opaque (rows 128-159), TM unused
+- 0% `l2_prio` branch (parallax never sets per-pixel L2-priority bit)
+
+**The 69% black is L2 *sampling* black bytes from its source banks —
+not a compositor decision.** That's the strongest remaining signal.
+
+NR audit covered five candidates (`0x4A`, `0x4C`, `0x6F`, `0x68`,
+`0x15`) against VHDL. Only deviation found: NR 0x68 bit-3 read
+(landed as `45863fd` above). All other NR handlers byte-exact with
+VHDL for the values parallax writes — including all 6 SLU/LSU/SUL/LUS/
+USL/ULS layer orderings and the 2 blend modes.
+
+### Phase B — bank-6 disassembly via z88dk-dis -mz80n
+
+User added the critical tooling tip: **`z88dk-dis -mz80n`** correctly
+decodes Z80N opcodes (NEXTREG, SWAPNIB, etc.) without manual
+realignment after every `ED 91`. Default `-mz80` silently misaligns.
+
+Bank 6 is at NEX file offset `0x18200` (mapped to slots 0+1 at
+runtime). Extracted:
+
+```bash
+dd if=test/00regression/nex/parallax.nex of=/tmp/parallax-investigation/bank6.bin \
+   bs=1 skip=$((0x18200)) count=16384
+z88dk-dis -mz80n -o 0x0000 -s 0xADDR -e 0xEND /tmp/parallax-investigation/bank6.bin
+```
+
+#### Init code (PC=0x8000 → bank 6 paged in → 0x0053)
+
+```
+0x0053  install IM1 vector at 0x0047 → handler at 0x05E2
+0x0059  NEXTREG 0x22, 0x06        ; line interrupt control
+0x005D  NEXTREG 0x23, 0xC6        ; line interrupt at line 198
+0x0061  NEXTREG 0x14, 0xE7        ; global transparency (NOT 0xE3 default)
+0x0065  NEXTREG 0x07, 0x03        ; CPU 28 MHz turbo
+0x0069  NEXTREG 0x08, 0x40        ; port enable
+0x006D  NEXTREG 0x12, 0x08        ; L2 active = bank 8 (pages 16..21)
+0x0071  CALL 0x0193                ; not yet decoded
+0x0076  OUT (0xFE), 0              ; border = black
+0x0078  CALL 0x037B                ; not yet decoded
+0x007B  NEXTREG 0x15, 0x01        ; SLU + sprite enable
+0x007F  NEXTREG 0x19, 0x08        ; L2 clip x1 = 8     ┐
+0x0083  NEXTREG 0x19, 0xF7        ; L2 clip x2 = 247  │ NR 0x19 cycles
+0x0087  NEXTREG 0x19, 0x00        ; L2 clip y1 = 0    │ x1/x2/y1/y2
+0x008B  NEXTREG 0x19, 0xC0        ; L2 clip y2 = 192  ┘
+0x008F  EI
+0x0090  main loop: wait for IRQ flag, dispatch CALLs
+```
+
+#### Per-frame work calls (from main loop at 0x0090)
+
+- **`CALL 0x011E`** — animation-state tween table walk at 0x0143
+  (8-entry × 4-byte table at 0x016A). Updates 5 bytes inside the
+  Copper instruction template at 0x0794 / 0x0798 / 0x079C / 0x07A0 /
+  0x07A4. RAM-only, no NR/port writes.
+- **`CALL 0x01EF`** — increments scratch counter; calls `0x04CD`
+  (Copper instruction uploader: NR 0x60 ×24 bytes, mode 0 stop, then
+  mode 11 restart). The 24-byte template at 0x078F is:
+  ```
+  16 00 80 A0   MOVE NR 0x16, 0     WAIT vpos=160
+  16 00 80 A2   MOVE NR 0x16, X1    WAIT vpos=162
+  16 00 80 A6   MOVE NR 0x16, X2    WAIT vpos=166
+  16 00 80 AA   MOVE NR 0x16, X3    WAIT vpos=170
+  16 00 80 B0   MOVE NR 0x16, X4    WAIT vpos=176
+  16 00 81 90   MOVE NR 0x16, X5    WAIT vpos=400 (HALT)
+  ```
+  Where X1..X5 are tweened values from 0x011E. This is the
+  **bottom-band parallax** (lines 160-176 only) — the 6-MOVE Copper
+  pattern noted in the 2026-04-26 trace.
+- **`CALL 0x0213`** — pages NR 0x57 = `0x21` or `0x22` into slot 7,
+  pages NR 0x56 = `0x25` into slot 6, then strided memcpy from
+  `0xC0XX` (slot 6) → `0xE003+offset` (slot 7) with 16-byte chunks
+  spaced by 5 bytes per byte, repeated 12 times per call. Writes
+  pixel data into **alternate L2 source banks** (NOT the active
+  bank 8 from NR 0x12).
+- **`CALL 0x0269`** — analogous to 0x0213, but pages `0x1D` / `0x1E`
+  into slot 7 with counter at `(0x0267)`, page `0x27` into slot 6.
+  Different alternate-bank target.
+- **`CALL 0x02BF` / `0x00F8` / `0x0469`** — not yet decoded but
+  follow the same idiom (per the prompt's prior decode notes).
+- **`CALL 0x0193` / `0x037B`** (init only) — not yet decoded.
+
+#### IRQ chain (the smoking gun)
+
+The IM1 handler at `0x05E2` runs at line 198 (vsync IRQ). It:
+
+1. Sets a flag at `(0x80AC)` to wake the main loop (which then runs
+   the per-frame work at 0x009A onward).
+2. **Writes `NEXTREG 0x23, 0xF4`** — re-arms line interrupt at
+   line **244** (this frame).
+3. Self-modifies the IM1 vector at `0x0047` → next IRQ goes to a
+   different handler at `0x062E`.
+4. Returns via `JP 0x003D`.
+
+The handler at `0x062E` (called at line 244) does the actual
+mid-frame L2 source-bank update. Per fire it:
+
+1. Saves current `NR 0x57`.
+2. Writes a new bank into `NR 0x57`, `CALL 0x0543` (DMA / memcpy with
+   stride 5, 12 × 16 = 192 bytes per region).
+3. Repeats steps 1-2 for **3 different slot-7 pages** (3 alternate
+   banks updated per IRQ fire).
+4. Restores old `NR 0x57`.
+5. **Adds `0x10` to the current line-int target, writes back to
+   NEXTREG 0x23** — re-arms next line interrupt.
+6. If the new target reaches `0xB4` (180), switch back to the vsync
+   handler (`0x05E2`) and write `NEXTREG 0x23, 0xC0`.
+
+**Lines fired in order per frame:** 198, 244, 4, 20, 36, 52, 68, 84,
+100, 116, 132, 148, 164. Then 180 stops the chain. Note `244 → 4`
+wraps via 8-bit `ADD 0x10` overflow — line 4 is in the *next* frame.
+
+### What jnext does wrong
+
+[`emulator.cpp:2991-3016`](../../src/core/emulator.cpp#L2991-L3016)
+schedules the line-interrupt event ONCE per frame at frame start in
+`run_frame`, based on the line-int target valid at that moment.
+
+[`emulator.cpp:864-868`](../../src/core/emulator.cpp#L864-L868) — the
+NR 0x23 write handler updates `video_timing_.line_interrupt_target()`
+but **does not re-schedule** for the current frame. The new target
+only takes effect at the NEXT frame's start.
+
+VHDL [`zxula_timing.vhd:577`] fires line-int every cycle when
+`(hc==255 AND cvc==int_line_num)` — fully dynamic. The target is
+read live; mid-frame writes immediately re-target.
+
+So jnext fires the FIRST line-int per frame (line 198), the IRQ
+handler runs and writes `NR 0x23 = 0xF4` to chain, but jnext
+silently swallows the chain — the next ~12 IRQs the demo expects
+never fire. Handler `0x062E` runs **0 times per frame** in jnext, so
+banks `0x1D / 0x1E / 0x21 / 0x22` never get their per-frame
+DMA-paged pixel data → L2 reads zero bytes from those banks → 69%
+black at frame 250. **This explains the dominant signal in the
+compositor trace.**
+
+### Fix shape — Shape B (recommended)
+
+No scheduler API change required.
+
+1. Track `pending_line_int_target_at_schedule_time_` on `Emulator`
+   alongside the schedule call.
+2. When NR 0x22 or NR 0x23 is written: if
+   `video_timing_.line_interrupt_enable()` is true, schedule a NEW
+   `EventType::CPU_INT` for the new target's
+   `frame_cycle + master_cycle_offset`. If the new target's offset
+   has already passed in the current frame (parallax's `0xF4 + 0x10
+   = 0x04` 8-bit-wrap case), schedule for `next_frame_cycle +
+   offset`.
+3. The fired event's callback checks
+   `pending_line_int_target_at_schedule_time_ ==
+   video_timing_.line_interrupt_target()` — if changed, no-op (the
+   previously-scheduled event was superseded by the rewrite). This
+   avoids needing a scheduler `cancel()` API.
+
+**Edge cases:** new target with no enable bit → no new schedule;
+multiple writes per instruction → each schedules, all but last become
+no-ops; same target re-written → still re-schedule (idempotent).
+
+### Test gap
+
+- `videotiming_test` (27 rows) — VT-22..VT-26 cover the line-int
+  target → master-cycle offset math (G106/G107/G109/G71). **None
+  exercise mid-frame retarget.** All are frame-start-only.
+- `nextreg_test` G56-CR-22 / G56-CR-23 skips are about NR 0x22/0x23
+  *read* composition (different concern from scheduling on *write*).
+- **No entry in `KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md`** matching this.
+  G106 was closed for the math fix but the dynamic case was never
+  gap-tracked.
+
+**Proposed:** add new gap entry **G163 — line interrupt schedule does
+not re-evaluate on mid-frame NR 0x22/0x23 writes**. Add 2-3 new VT-*
+rows: (a) write NR 0x23 mid-frame, expect new line-int fires same
+frame; (b) write a target that's already passed → expect fire at
+next frame's line N; (c) write the disable bit → no new schedule.
+
+### Verification protocol after the fix lands
+
+1. Build, run unit-test (expect 3734/3550/0/184 → +2-3 from new VT
+   rows).
+2. Run regression (expect 32/0/0 — copper-demo, beast.nex, dapr-*
+   should be stable; line-int fixes affect frequency, not semantics).
+3. Compare parallax frame-250 screenshot MD5 vs the cached
+   `/tmp/parallax-investigation/parallax-frame250.png` baseline.
+   **Expected to differ this time** — that's the success criterion.
+4. Per-frame `--compositor-trace` re-run: top result-colour
+   distribution should shift away from 69% black toward more diverse
+   colours.
+
+### Tooling artefacts cached for follow-on work
+
+- `/tmp/parallax-investigation/parallax-frame250.csv` — 81920-pixel
+  CSV trace at current main HEAD.
+- `/tmp/parallax-investigation/parallax-frame250.png` — pre-fix
+  baseline screenshot.
+- `/tmp/parallax-investigation/parallax-postg117.png` /
+  `parallax-postg65.png` / `parallax-postcap.png` — all
+  MD5-identical to baseline (each fix verified non-impacting).
+- `/tmp/parallax-investigation/bank6.bin` — extracted bank 6 binary.
+- `/tmp/parallax-investigation/analyze.py` — CSV analyser
+  (per-row branch + transparency aggregates).
+
+### Companion memory
+
+- `~/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/project_parallax_line_int_root_cause.md` — full root-cause analysis with line refs, fix sketch, and edge-case notes (mirrors this section but in the memory store).
+- `~/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/reference_z88dk_dis_z80n.md` — tooling tip.
+
 ## State of tests after this investigation
+
+### As of 2026-04-30 EOD
+
+- Unit: **3734/3550/0/184** (33 suites, all green); 6 new test rows
+  added today (4 ULAP-* in `nextreg_integration_test`, 1 PSL-PAT-09
+  in `sprites_test`, 2 in new `copper_integration_test` —
+  G117-MPC-01 + G65-PRI-01).
+- Regression: **32/0/0** — zero rebaselines required for any of
+  today's 5 fixes.
+- parallax frame 250 MD5: byte-identical pre/post each of today's
+  fixes (intentional — each fix is real but orthogonal to parallax;
+  the parallax bug is the line-int-chain root cause identified in
+  Phase B above and not yet implemented).
+
+### As of 2026-04-26 EOD (historical baseline)
 
 - Unit: 3384/3384/0/0 (32 suites, ZERO skips); +48 new test rows
   (G16 PSL-07/08/09, G17 PSL-PAT-01..07).
