@@ -177,6 +177,84 @@ static void test_g117_cycle_accurate(Emulator& emu) {
     // integration row would be redundant.)
 }
 
+// ── G65 — CPU vs Copper NR-write priority ─────────────────────────────
+
+static void test_g65_cpu_wins_tied_edge(Emulator& emu) {
+    set_group("G65-Priority");
+
+    // G65-PRI-01 — VHDL `zxnext.vhd:4769-4777` arbitration: when CPU
+    // and Copper want to write the same NR within the same instruction
+    // window, Copper's write fires first (priority mux selects Copper)
+    // but CPU's request is HELD OVER and commits the next cycle, so
+    // the FINAL NR value is the CPU's, not the Copper's.
+    //
+    // jnext models this as: CPU NR writes via port 0x253B enqueue
+    // during the per-instruction tick (defer_cpu_nr_writes_=true) and
+    // are flushed AFTER tick_copper_for_master_cycles. So if the
+    // Copper-loop wrote NR X = V_copper at some master cycle in the
+    // window, and the CPU's enqueued write is NR X = V_cpu, the
+    // post-flush value is V_cpu.
+    //
+    // Stimulus: Copper program writes NR 0x14 = 0x55 then HALTs;
+    // start the Copper, then inject a Z80N NEXTREG_NN that writes
+    // NR 0x14 = 0xAA and execute it once.
+    //
+    // Pre-G65: Copper writes 0x55 AFTER the synchronous CPU commit
+    //          inside the same instruction window → final 0x55. FAIL.
+    // Post-G65: CPU write enqueued → Copper writes 0x55 mid-loop →
+    //          flush_pending_cpu_nr_writes commits 0xAA → final 0xAA.
+    {
+        // Reset Copper state — clears PC + last_mode_ so the mode 0→1
+        // edge below genuinely fires (last_mode_ tracking otherwise
+        // leaks across test functions sharing the Emulator). Also
+        // wipes instruction RAM, which is fine because we reload it
+        // right after.
+        emu.copper().reset();
+
+        // Copper program: MOVE NR 0x14, 0x55 at PC 0; HALT at PC 1.
+        for (int i = 0; i < 64; ++i) {
+            program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+        }
+        program_word(emu, 0, enc_move(0x14, 0x55));
+        program_word(emu, 1, enc_wait(0, 511));   // HALT
+
+        // Reset NR 0x14 baseline + start the Copper (mode 0→1 edge).
+        nr_write(emu, 0x14, 0x00);
+        set_copper_mode(emu, 0);
+        set_copper_mode(emu, 1);
+
+        // Inject a Z80N NEXTREG_NN instruction (ED 91 nn vv, 17 T-states).
+        // ED 91 14 AA → write NR 0x14 = 0xAA via the CPU port path.
+        // Place at 0xC000 (RAM bank visible at slot 6 for ZX Next default).
+        const uint16_t code_addr = 0xC000;
+        emu.mmu().write(code_addr + 0, 0xED);
+        emu.mmu().write(code_addr + 1, 0x91);
+        emu.mmu().write(code_addr + 2, 0x14);
+        emu.mmu().write(code_addr + 3, 0xAA);
+
+        // Set PC = 0xC000.
+        auto regs = emu.cpu().get_registers();
+        regs.PC = code_addr;
+        emu.cpu().set_registers(regs);
+
+        // Execute one instruction — the Z80N NEXTREG that writes NR 0x14.
+        // During this one instruction's master-cycle window (~136 cycles
+        // at 3.5 MHz), the Copper-loop fires its single MOVE writing
+        // NR 0x14 = 0x55. Post-G65 the CPU's enqueued 0xAA commits AFTER
+        // that, so the visible NR 0x14 is 0xAA.
+        emu.execute_single_instruction();
+
+        const uint8_t final_nr14 = nr_read(emu, 0x14);
+        check("G65-PRI-01",
+              "Tied-edge CPU vs Copper NR write: CPU value wins as final "
+              "(VHDL zxnext.vhd:4769-4777 — Copper-priority mux + "
+              "CPU-held-over)",
+              final_nr14 == 0xAA,
+              "got NR 0x14 = " + hex2(final_nr14) +
+              " expected 0xAA (CPU deferred-write commits after Copper)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -192,6 +270,9 @@ int main() {
 
     test_g117_cycle_accurate(emu);
     std::printf("  Group: G117-CycleAccurate — done\n");
+
+    test_g65_cpu_wins_tied_edge(emu);
+    std::printf("  Group: G65-Priority — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

@@ -736,6 +736,12 @@ public:
 private:
 
     // -----------------------------------------------------------------------
+    // G65 — deferred CPU NR-write queue (see public method docs).
+    // -----------------------------------------------------------------------
+    bool                                     defer_cpu_nr_writes_ = false;
+    std::vector<std::pair<uint8_t, uint8_t>> pending_cpu_nr_writes_;
+
+    // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
@@ -756,4 +762,25 @@ private:
     /// effects with 32 MOVEs/scanline) into 1-2 effective writes per
     /// scanline. This helper restores per-cycle granularity.
     void tick_copper_for_master_cycles(uint64_t master_cycles);
+
+    /// G65 — deferred CPU NR-write commit. VHDL `zxnext.vhd:4769-4777`
+    /// edge-detects CPU write requests (cpu_requester → cpu_requester_d
+    /// → cpu_req latch), so CPU NR writes reach the bus 1+ cycles after
+    /// the OUT instruction asserts the request. When a Copper MOVE rises
+    /// on the same 28 MHz cycle as the CPU's request edge, the priority
+    /// mux selects Copper, then CPU's held request commits the next
+    /// cycle — final NR value is CPU's, not Copper's.
+    ///
+    /// jnext models this as: while inside the per-instruction tick
+    /// (set_defer_cpu_nr_writes(true) below), CPU NR writes via port
+    /// 0x253B enqueue here instead of committing through NextReg.
+    /// After tick_copper_for_master_cycles runs, the queue is drained
+    /// so CPU writes apply LAST in the instruction window. If both
+    /// Copper and CPU touched the same NR, the CPU value wins —
+    /// matching VHDL's "Copper writes first, CPU held over by one
+    /// cycle, both writes happen, CPU value persists" semantic.
+    void enqueue_cpu_nr_write(uint8_t reg, uint8_t val);
+    void flush_pending_cpu_nr_writes();
+    void set_defer_cpu_nr_writes(bool v) { defer_cpu_nr_writes_ = v; }
+    bool defer_cpu_nr_writes() const { return defer_cpu_nr_writes_; }
 };
