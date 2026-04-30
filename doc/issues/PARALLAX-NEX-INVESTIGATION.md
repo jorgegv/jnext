@@ -672,24 +672,60 @@ So:
 - Middle band = ULA cave (intended static).
 - **Game-element content visible in CSpect but missing in jnext** (platforms, lava pillars, characters) = likely **sprites**, but their absence is unrelated to G163 (was missing pre-fix too).
 
-#### Point 1 — NR 0x57 paging audit — **MATH CONSISTENT**
+#### Point 1 — NR 0x57 paging audit — **MATH CONSISTENT (initial), then re-investigated**
 
 Walked through the SRAM mapping for the chain-handler banks:
 - `Mmu::to_sram_page(0x21)` = 0x21 + 0x20 = 0x41 in Next mode. SRAM byte = 0x41 × 8192 = 0x82000.
 - `Mmu::to_sram_page(0x19)` = 0x39. SRAM byte = 0x72000.
 - L2 active bank = 0x08 reads via `compute_ram_addr` with +16 shift in 16K-bank → physical bank 24..28 → SRAM bytes 0x60000..0x74000.
 
-L2 active region (0x60000..0x74000) is **disjoint** from the chain-handler write region (0x72000+ for bank 0x19, 0x82000+ for bank 0x21). The math is consistent — chain writes don't overlap L2 active reads.
+L2 active region disjoint from chain-handler write region — no overlap.
 
-So **the missing-game-content delta is NOT explained by NR 0x57 paging stomping on L2**. Likely candidates:
-- The demo's missing game elements are **sprite patterns** uploaded via dedicated sprite-pattern ports (0x303B / 0x315B), not via NR 0x57 at all. Need to instrument those ports.
-- Or the demo uses **per-frame tilemap updates** that jnext doesn't replicate.
-- Or **DMA stride-5** memcpy via `CALL 0x0543` has a jnext-DMA-emulation gap.
+### CALL 0x0543 — true mechanism revealed (2026-04-30 EOD continuation)
 
-This is now a separate investigation from the line-int chain. Suggest a follow-on session that:
-1. Instruments port 0x303B / 0x315B sprite-pattern uploads — log all writes during a 5-second parallax run; compare to CSpect-equivalent expected sequence.
-2. Dumps SRAM at L2 active bank 0x08 (physical 0x60000..0x74000) at frame 250 in both pre-fix and post-fix runs — verify content matches between runs (this isolates "did chain handler corrupt the active bank").
-3. Inspects the `CALL 0x0543` (DMA stride-5 memcpy) — disassemble + verify each underlying DMA operation lands at the expected destination.
+The earlier "stride-5 memcpy into L2 alternate banks" interpretation was **WRONG**. Re-disassembly of `CALL 0x0543` revealed it programs the **ZXN-DMA controller** (port `0x6B`):
+
+```
+0x0543: add hl, $E000        ; HL = HL + 0xE000 (slot-7 address)
+0x0547: ld (0x0560), hl       ; PATCH DMA program: PortA src addr
+0x054A: ld (0x0562), bc       ; PATCH DMA program: block length
+0x054E: ld bc, $303B          ; sprite slot select port
+0x0551: out (c), a            ; sprite slot select = A
+0x0553: ld hl, $055C          ; DMA program source
+0x0556: ld bc, $136B          ; B=0x13 bytes, C=0x6B port
+0x0559: otir                  ; upload DMA program
+```
+
+The 19-byte DMA program at `0x055C` decodes to:
+- WR0 = 0x7D: A → B transfer with all 4 sub-bytes (PortA addr LSB/MSB, block length LSB/MSB).
+- WR1 = 0x54: PortA = MEMORY, increment, timing 2.
+- WR2 = 0x68: PortB = I/O, FIXED, timing 2.
+- WR4 = 0xAD: continuous mode, PortB addr = `0x0057` (← the **sprite-attribute upload port**).
+- WR6 sequence: Reset, Reinit, Load, Enable.
+
+**So the chain handler at 0x062E uses ZXN-DMA to copy sprite-attribute data from memory at `0xE000+offset` (slot 7, paged to bank 0x21/0x22/0x1D/0x1E) → port 0x0057 (sprite attributes).**
+
+Each line-IRQ:
+1. Selects sprite slot via `OUT (0x303B), A`.
+2. DMA copies `BC = 0x50 = 80` bytes from memory to port 0x57 (auto-incrementing through sprite slots).
+3. Repeats with 2 more banks at slot offsets +0x10, +0x20.
+
+13 line-IRQs/frame × 3 DMA programs/IRQ × 80 bytes = ~3120 sprite-attribute byte writes/frame. With 5 bytes per sprite (or 4 if extended bit 0), the demo refreshes ~600+ sprite-attribute fields per frame — **multiplexing sprites across scanlines** to render more than the 128-slot hardware limit per frame. This is how the parallax strips animate.
+
+### What headless verification revealed (process error)
+
+- Initial headless captures with `--boot-rom roms/nextboot.rom --divmmc-rom roms/enNxtmmc.rom --load parallax.nex` showed the demo STALLED after init: 0 line-int fires, all NR writes init-only, screen showed red border + all black.
+- Root cause: those ROMs are for **NextZXOS booting only**; for demo .NEX files they cause the boot-ROM overlay to remain active (NR 0x03 never written), and the demo's `RST 0x00` lands in the boot ROM instead of the mapped demo bank — CPU stalls in NOP-fall-through.
+- Correct invocation for demo NEX files: `--machine next --load file.nex` (no boot-rom, no divmmc-rom).
+
+With proper invocation, headless trace at frame 250 shows **L2 52.6% + ULA 43.8% + sprites 3.7%** (similar branch distribution to pre-fix), and screenshot matches what the user sees in GUI. **Sprites moved from rows 128 (pre-fix) to row 32 (post-fix)** — confirming the chain DMA is uploading new sprite-attribute positions per scanline. This is the parallax effect.
+
+### Open work (for next session)
+
+1. **Compare post-fix sprite contribution vs CSpect** — pre-fix sprites at 9.1%, post-fix at 3.7%. The drop is unexplained by the visual (which is dramatically better). May be a sampling-moment artefact of the trace, or sprites are now mostly off-screen at frame 250 because the DMA places them at scrolled positions. Capture multiple frames of trace to characterise.
+2. **Verify multi-row sprite multiplexing** — does jnext correctly render the same sprite slot at multiple Y positions in one frame, given the chain rewrites attributes mid-frame? VHDL `sprites.vhd` per-scanline FSM should pick up the latest attributes. Confirm via per-row trace.
+3. **Headless/GUI parity check** — ensure regression and unit-tests run with `--machine next --load file.nex` (no boot-rom) for demo NEX. Audit existing test invocations.
+4. **Boot-ROM-overlay-still-active behaviour** — when `--boot-rom` IS used (NextZXOS path), should jnext disable the boot-ROM overlay automatically when `--load file.nex` happens? Real hardware relies on firmware to do this; jnext's quick-load skips firmware. Decide whether NEX loader should call `mmu_.set_boot_rom_enabled(false)` or whether the user's invocation responsibility stays as-is.
 
 ### As of 2026-04-26 EOD (historical baseline)
 
