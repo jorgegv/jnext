@@ -36,6 +36,11 @@
 #include "video/timing.h"
 #include "memory/contention.h"  // MachineType
 
+// Section 8 (G163) drives the full Emulator to exercise mid-frame
+// line-interrupt re-evaluation on NR 0x22 / NR 0x23 writes.
+#include "core/emulator.h"
+#include "core/emulator_config.h"
+
 // ── Test infrastructure ───────────────────────────────────────────────
 
 namespace {
@@ -483,13 +488,377 @@ static void section7_scheduler_wiring() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 8 — G163 mid-frame line-interrupt re-evaluation
+// VHDL: zxula_timing.vhd:577 (fire predicate, fully dynamic — fires every
+//       cycle that hc_ula==255 AND cvc==int_line_num);
+//       zxula_timing.vhd:566-570 (target=0 → c_max_vc; target=N → N-1);
+//       zxnext.vhd:5607-5610, :6752-6753 (NR 0x22 bit 1 + NR 0x23 →
+//       i_inten_line, i_int_line).
+//
+// These rows exercise the dynamic re-scheduling on NR 0x22 / NR 0x23
+// mid-frame writes (the parallax.nex chained-line-IRQ pattern). Pre-G163
+// jnext scheduled the line-int once at frame start in run_frame() and
+// the NR write handlers updated VideoTiming state without rescheduling,
+// silently swallowing 12/13 chained line interrupts per frame on
+// parallax.nex. See doc/issues/PARALLAX-NEX-INVESTIGATION.md and gap
+// doc G163 for the root cause + fix shape.
+//
+// Test harness: drive the real Emulator (ZXN_ISSUE2 — 128K/Next timing,
+// master_cycles_per_line=1824). Place a 2-byte JR-to-self at PC=0xC000
+// (12 T-states / 96 master cycles per iteration) and step the CPU via
+// `execute_single_instruction()` until the desired raster position is
+// reached. Observe production line-int fires through
+// `Emulator::line_int_fire_count()` — incremented exactly once per
+// non-superseded EventType::CPU_INT lambda from
+// `reschedule_line_interrupt()`. CPU IFF=0 at reset, so even though
+// `request_interrupt(0xFF)` is called inside the lambda the Z80 ignores
+// it; this lets us observe pure scheduler behaviour without the demo's
+// IRQ handler running.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace g163 {
+
+// Build a fresh ZXN_ISSUE2 emulator with no ROM-driven boot side effects.
+static bool build_emulator(Emulator& emu) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.roms_directory = "/usr/share/fuse";
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// Read NR via the real port path (OUT 0x243B,reg; IN 0x253B).
+[[maybe_unused]] static uint8_t nr_read(Emulator& emu, uint8_t reg) {
+    emu.port().out(0x243B, reg);
+    return emu.port().in(0x253B);
+}
+
+// Write NR via the real port path (OUT 0x243B,reg; OUT 0x253B,val).
+// This routes through NextReg::write so the NR 0x22 / NR 0x23 write
+// handlers (which now call reschedule_line_interrupt()) fire exactly as
+// they would when the Z80 executes a real OUT instruction.
+static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+// Place a `JR $` (0x18 0xFE — jumps to itself, 12 T-states) loop at
+// PC=0xC000 and point the CPU at it. Each execute_single_instruction()
+// returns 12 T-states = 96 master cycles. Used to advance the master
+// clock incrementally so we can perform mid-frame NR writes at
+// arbitrary raster positions.
+static void install_jr_self_loop(Emulator& emu) {
+    constexpr uint16_t code_addr = 0xC000;
+    emu.mmu().write(code_addr + 0, 0x18);  // JR
+    emu.mmu().write(code_addr + 1, 0xFE);  // -2 (self)
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    emu.cpu().set_registers(regs);
+}
+
+// Step the CPU until clock_.get() crosses target_master_cycle.
+// Bounded so a runaway test (e.g. JR loop never advancing clock) cannot
+// hang indefinitely. Returns true if target was reached, false on
+// safety bound.
+static bool step_until_master_cycle(Emulator& emu,
+                                    uint64_t target_master_cycle,
+                                    int max_steps = 100000) {
+    for (int i = 0; i < max_steps; ++i) {
+        if (emu.clock().get() >= target_master_cycle) return true;
+        emu.execute_single_instruction();
+    }
+    return emu.clock().get() >= target_master_cycle;
+}
+
+// Helper: master-cycle offset at which a line-int with `target`
+// (NR 0x23, MSB=0) fires within the frame. Matches
+// VideoTiming::line_int_master_cycle_offset() but standalone so the
+// test row can compute reference values without re-driving the
+// emulator. ZXN_ISSUE2 (128K timing): min_vactive=64, lines_per_frame
+// =311, master_cycles_per_line=1824, cu_offset=0 default.
+static uint64_t line_int_offset_master_cycles(uint16_t target) {
+    constexpr uint64_t min_vactive = 64;
+    constexpr uint64_t lines_per_frame = 311;
+    constexpr uint64_t master_cycles_per_line = 1824;
+    const uint64_t int_line_num =
+        (target == 0) ? (lines_per_frame - 1) : (target - 1);
+    const uint64_t vc_fire =
+        (int_line_num + min_vactive + lines_per_frame) % lines_per_frame;
+    return vc_fire * master_cycles_per_line;
+}
+
+}  // namespace g163
+
+static void section8_g163_dynamic_reschedule() {
+    set_group("VT-S8-G163-DYNAMIC-RESCHEDULE");
+
+    // ────────────────────────────────────────────────────────────────
+    // VT-G163-MIDRETARGET-01 — chained line-IRQ re-targeting fires
+    // BOTH the original and the re-targeted line within the same
+    // frame. Pre-G163 only the first scheduled line-int per frame
+    // fired and any mid-frame NR 0x23 rewrite was silently swallowed.
+    //
+    // VHDL: zxula_timing.vhd:577 (fire predicate, fully dynamic);
+    //       zxula_timing.vhd:566-570 (target-cvc map);
+    //       zxnext.vhd:6753 (i_int_line driven by nr_23_line_interrupt
+    //       — comparator re-checks each cycle).
+    //
+    // Stimulus: enable line-int with target=200; step the CPU past
+    // line 200's firing offset (1 fire). Mid-frame, write NR 0x23
+    // with target=220 (still future this frame). Step further to
+    // cover line 220's offset. Expect line_int_fire_count() == 2.
+    // ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!g163::build_emulator(emu)) {
+            check("VT-G163-MIDRETARGET-01",
+                  "Emulator construction (ZXN_ISSUE2) — required for "
+                  "Section 8",
+                  false, "build_emulator returned false");
+        } else {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+
+            // Prime the schedule: NR 0x23 = 200 (low byte), NR 0x22 =
+            // 0x02 (line-int enable, MSB=0, ULA-int still enabled but
+            // not scheduled because run_frame was never called).
+            g163::nr_write(emu, 0x23, 200);
+            g163::nr_write(emu, 0x22, 0x02);
+
+            // Advance just past line 200's firing offset within the
+            // frame. Add one full scanline of slack so the scheduler
+            // window unambiguously contains the fire cycle.
+            const uint64_t line200_fire = g163::line_int_offset_master_cycles(200);
+            g163::step_until_master_cycle(emu, line200_fire + 1824);
+            const uint64_t after_first = emu.line_int_fire_count();
+
+            // Mid-frame retarget: NR 0x23 = 220 (still future).
+            // The handler calls reschedule_line_interrupt(): bumps
+            // the gen, schedules a fresh CPU_INT at line 220's offset
+            // within the SAME frame.
+            g163::nr_write(emu, 0x23, 220);
+
+            // Advance past line 220's firing offset.
+            const uint64_t line220_fire = g163::line_int_offset_master_cycles(220);
+            g163::step_until_master_cycle(emu, line220_fire + 1824);
+            const uint64_t after_second = emu.line_int_fire_count();
+
+            check("VT-G163-MIDRETARGET-01",
+                  "Mid-frame NR 0x23 retarget schedules a fresh line-int "
+                  "for the same frame; both fires observed "
+                  "(zxula_timing.vhd:577 — fully-dynamic compare)",
+                  after_first == 1 && after_second == 2,
+                  "after_first=" + std::to_string(after_first)
+                      + " after_second=" + std::to_string(after_second));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // VT-G163-WRAP-02 — retarget to a line that has already passed in
+    // the current frame: the new line-int does NOT fire again this
+    // frame, but DOES fire at the new target's offset in the NEXT
+    // frame. Models parallax.nex's `ADD 0x10` 8-bit overflow case
+    // (line 244 + 0x10 = 0x04, i.e. line 4 of the next frame).
+    //
+    // VHDL: same as MIDRETARGET-01. The "roll forward one frame"
+    // behaviour matches the VHDL invariant that the comparator
+    // continues every cycle: cvc wraps into the next frame's count
+    // and the match occurs at line 4 of the next frame.
+    //
+    // Stimulus: enable line-int with target=200; step past line ~210
+    // (1 fire). Write NR 0x23 = 100 (already past in current frame).
+    // Continue stepping to end of current frame: still count==1.
+    // Then run one full frame: count goes to 2.
+    // ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!g163::build_emulator(emu)) {
+            check("VT-G163-WRAP-02",
+                  "Emulator construction (ZXN_ISSUE2) — required for "
+                  "Section 8",
+                  false, "build_emulator returned false");
+        } else {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+
+            g163::nr_write(emu, 0x23, 200);
+            g163::nr_write(emu, 0x22, 0x02);
+
+            // Step past line 210 — first fire (target=200 → line 199
+            // → vc_fire=263) lands first.
+            const uint64_t line210_master = g163::line_int_offset_master_cycles(210);
+            g163::step_until_master_cycle(emu, line210_master);
+            const uint64_t after_first = emu.line_int_fire_count();
+
+            // Retarget to a line that's already passed (100).
+            g163::nr_write(emu, 0x23, 100);
+
+            // Step to end of current frame (master_cycles_per_frame
+            // = 1824 * 311 = 567264 for ZXN_ISSUE2). Should NOT see
+            // another fire in this frame — the new fire-cycle for
+            // target=100 is rolled forward by one frame.
+            constexpr uint64_t master_cycles_per_frame = 1824ULL * 311;
+            g163::step_until_master_cycle(emu, master_cycles_per_frame - 1);
+            const uint64_t after_current_frame = emu.line_int_fire_count();
+
+            // Roll the emulator into the NEXT frame. Each run_frame
+            // advances the master clock by master_cycles_per_frame
+            // and runs the scheduler up to that boundary. The deferred
+            // fire for target=100 sits at cycle line100_offset +
+            // master_cycles_per_frame ≈ 864 576 (within the SECOND
+            // frame), so two run_frame calls are required to land
+            // past it. The frame-start reschedule_line_interrupt()
+            // also re-schedules at the same cycle 864 576 (with a
+            // bumped gen), so exactly one fire lands at that cycle —
+            // the others no-op via the gen-mismatch check.
+            emu.run_frame();   // close out frame 1 (clock to ~567 264).
+            emu.run_frame();   // run frame 2: deferred fire lands.
+            const uint64_t after_next_frame = emu.line_int_fire_count();
+
+            check("VT-G163-WRAP-02",
+                  "Mid-frame retarget to already-passed line: no extra "
+                  "fire this frame; +1 fire after rolling one frame "
+                  "(parallax.nex 8-bit ADD 0x10 wrap; "
+                  "zxula_timing.vhd:566-570,577)",
+                  after_first == 1 && after_current_frame == 1
+                      && after_next_frame == 2,
+                  "after_first=" + std::to_string(after_first)
+                      + " after_current_frame=" + std::to_string(after_current_frame)
+                      + " after_next_frame=" + std::to_string(after_next_frame));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // VT-G163-DISABLE-03 — clearing NR 0x22 bit 1 (line-int enable)
+    // mid-frame stops the pending fire from happening. The previously
+    // scheduled event is invalidated by the generation-counter check
+    // inside the lambda; no replacement schedule is enqueued because
+    // `video_timing_.line_interrupt_enable()` is false.
+    //
+    // VHDL: zxnext.vhd:5607-5610 (NR 0x22 bit 1 → nr_22_line_interrupt_en
+    //       = i_inten_line). Predicate at zxula_timing.vhd:577 gates
+    //       fire on i_inten_line='1'.
+    //
+    // Stimulus: enable line-int with target=200; before line 200 (e.g.
+    // at line 50), write NR 0x22 = 0x00 (line-int disabled, ULA-int
+    // still enabled per bit 2 = 0). Step past where line 200 would
+    // have fired. Expect ZERO line-int fires.
+    // ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!g163::build_emulator(emu)) {
+            check("VT-G163-DISABLE-03",
+                  "Emulator construction (ZXN_ISSUE2) — required for "
+                  "Section 8",
+                  false, "build_emulator returned false");
+        } else {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+
+            g163::nr_write(emu, 0x23, 200);
+            g163::nr_write(emu, 0x22, 0x02);
+
+            // Step to line 50 (well before line 200's firing offset).
+            const uint64_t line50_master = g163::line_int_offset_master_cycles(50);
+            g163::step_until_master_cycle(emu, line50_master);
+            const uint64_t at_line50 = emu.line_int_fire_count();
+
+            // Disable line-int. Bit 2 stays 0 (ULA-int enabled). The
+            // handler calls reschedule_line_interrupt() which bumps
+            // the gen and returns without scheduling a replacement;
+            // the previously-pending fire at line 200 will see a
+            // captured-gen mismatch and no-op.
+            g163::nr_write(emu, 0x22, 0x00);
+
+            // Step past where line 200 would have fired (add slack).
+            const uint64_t line200_fire = g163::line_int_offset_master_cycles(200);
+            g163::step_until_master_cycle(emu, line200_fire + 1824);
+            const uint64_t after_disable = emu.line_int_fire_count();
+
+            check("VT-G163-DISABLE-03",
+                  "NR 0x22 bit 1 cleared mid-frame: pending line-int "
+                  "no-ops via gen-check; zero fires for the rest of "
+                  "the frame (zxnext.vhd:5607-5610; "
+                  "zxula_timing.vhd:577)",
+                  at_line50 == 0 && after_disable == 0,
+                  "at_line50=" + std::to_string(at_line50)
+                      + " after_disable=" + std::to_string(after_disable));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // VT-G163-C4-DISABLE-04 — same as DISABLE-03 but the disable
+    // edge is driven through NR 0xC4 (bit 1) instead of NR 0x22.
+    // NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1 — both
+    // write the SAME `nr_22_line_interrupt_en` flip-flop
+    // (zxnext.vhd:5607-5610) and that FF feeds `i_inten_line` of
+    // the line-int comparator (zxnext.vhd:6752; predicate at
+    // zxula_timing.vhd:577). The NR 0xC4 write handler must call
+    // `reschedule_line_interrupt()` for the same reason NR 0x22
+    // does; without it, a demo that re-arms / disables line
+    // interrupts through NR 0xC4 silently keeps the stale
+    // schedule alive.
+    //
+    // Stimulus: arm the line-int via NR 0x22 with target=200; at
+    // line 50, write NR 0xC4 with bit 1 cleared (other bits
+    // preserve the previous handler-side NR 0xC4 state, i.e. all
+    // zero at this point). Step past where line 200 would fire.
+    // Expect ZERO line-int fires.
+    // ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!g163::build_emulator(emu)) {
+            check("VT-G163-C4-DISABLE-04",
+                  "Emulator construction (ZXN_ISSUE2) — required for "
+                  "Section 8",
+                  false, "build_emulator returned false");
+        } else {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+
+            g163::nr_write(emu, 0x23, 200);
+            g163::nr_write(emu, 0x22, 0x02);
+
+            // Step to line 50 (well before line 200's firing offset).
+            const uint64_t line50_master = g163::line_int_offset_master_cycles(50);
+            g163::step_until_master_cycle(emu, line50_master);
+            const uint64_t at_line50 = emu.line_int_fire_count();
+
+            // Disable line-int via the NR 0xC4 mirror (bit 1 = 0).
+            // Bit 0 = 0 means "disable ULA-int" (port_ff_reg(6)=1 via
+            // inverted polarity), bit 7 = 0 disables expbus int. The
+            // pending fire scheduled via the NR 0x22 handler must be
+            // invalidated by the gen-bump inside the NR 0xC4 handler's
+            // `reschedule_line_interrupt()` call.
+            g163::nr_write(emu, 0xC4, 0x00);
+
+            // Step past where line 200 would have fired (add slack).
+            const uint64_t line200_fire = g163::line_int_offset_master_cycles(200);
+            g163::step_until_master_cycle(emu, line200_fire + 1824);
+            const uint64_t after_disable = emu.line_int_fire_count();
+
+            check("VT-G163-C4-DISABLE-04",
+                  "NR 0xC4 bit 1 (mirror of NR 0x22 bit 1) cleared "
+                  "mid-frame: pending line-int no-ops via gen-check; "
+                  "zero fires for the rest of the frame "
+                  "(zxnext.vhd:5607-5610 mirror; :6752 FF feeds "
+                  "i_inten_line; zxula_timing.vhd:577 fire predicate)",
+                  at_line50 == 0 && after_disable == 0,
+                  "at_line50=" + std::to_string(at_line50)
+                      + " after_disable=" + std::to_string(after_disable));
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
-    std::printf("  All 27 rows live post Section-7 production-scheduler\n");
-    std::printf("  wiring (G71/G106/G107/G109 closure, 2026-04-28).\n");
+    std::printf("  27 rows from Sections 1-7 (G71/G106/G107/G109 closure,\n");
+    std::printf("  2026-04-28) + 4 Section-8 rows for G163 dynamic line-int\n");
+    std::printf("  re-evaluation (2026-04-30; +1 NR 0xC4 mirror row). 31 live.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
@@ -512,6 +881,9 @@ int main() {
 
     section7_scheduler_wiring();
     std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — done (5 live)\n");
+
+    section8_g163_dynamic_reschedule();
+    std::printf("  Section 8: VT-S8-G163-DYNAMIC-RESCHEDULE — done (4 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
