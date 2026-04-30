@@ -13,6 +13,7 @@ public:
     void    select(uint8_t reg);          // write to port 0x243B
     uint8_t read_selected();              // read from port 0x253B
     void    write_selected(uint8_t val);  // write to port 0x253B
+    uint8_t selected() const { return selected_; }  // current pointer (VHDL nr_register)
 
     uint8_t read(uint8_t reg);
     void    write(uint8_t reg, uint8_t val);

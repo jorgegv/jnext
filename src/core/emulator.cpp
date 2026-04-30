@@ -1588,9 +1588,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t, uint8_t v) { nextreg_.select(v); });
 
     // NextREG data — full 16-bit match on port 0x253B.
+    // Writes are deferred during the per-instruction tick window (G65 —
+    // see Emulator::enqueue_cpu_nr_write doc). Outside the window
+    // (test-setup port writes, ROM init via emulator API, etc.) the
+    // commit happens immediately so external callers observe the
+    // expected synchronous behaviour.
     port_.register_handler(0xFFFF, 0x253B,
         [this](uint16_t) -> uint8_t { return nextreg_.read_selected(); },
-        [this](uint16_t, uint8_t v)  { nextreg_.write_selected(v); });
+        [this](uint16_t, uint8_t v)  {
+            if (defer_cpu_nr_writes_) {
+                enqueue_cpu_nr_write(nextreg_.selected(), v);
+            } else {
+                nextreg_.write_selected(v);
+            }
+        });
 
     // ULA — port 0xFE (mask 0x00FF, value 0x00FE).
     // Read (VHDL zxnext.vhd:3459):
@@ -3177,7 +3188,16 @@ void Emulator::run_frame()
             // z80_set_contention_runtime() in init() — the FUSE callbacks
             // derive (hc, vc) from the FUSE tstates counter and feed them
             // into contention_tick() per memory/IO bus cycle.
+            //
+            // G65 — set defer flag around the instruction so any port-0x253B
+            // CPU NR writes go to pending_cpu_nr_writes_ instead of
+            // committing synchronously. The queue is drained AFTER the
+            // Copper-loop runs (below), modeling VHDL's "Copper-wins on
+            // tied edge, CPU held over 1 cycle" behaviour as "CPU writes
+            // apply LAST in the instruction window".
+            defer_cpu_nr_writes_ = true;
             int tstates = cpu_.execute();
+            defer_cpu_nr_writes_ = false;
 
             // Advance VideoTiming so test/debug observers see the post-
             // instruction raster position. The contention path itself
@@ -3249,20 +3269,18 @@ void Emulator::run_frame()
             return;
         }
 
-        // Execute copper at current raster position.
-        // Compute raw vc/hc from cycles elapsed within frame, then derive
-        // the copper vertical counter (cvc).  In the VHDL, cvc resets to 0
-        // at the first active display line (c_min_vactive = 64 for 48K),
-        // so copper WAIT vpos=0 means "first display line".  In our frame
-        // layout the active display starts at row DISP_Y (32).
-        if (copper_.is_running()) {
-            uint64_t elapsed = clock_.get() - frame_cycle_;
-            int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-            int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
-            // Convert raw vc to copper vc: cvc=0 at first display line.
-            int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
-            copper_.execute(hc, cvc, nextreg_);
-        }
+        // Execute the Copper at 28 MHz granularity over the master-cycle
+        // window covered by this CPU instruction (G117). Pre-G117 this
+        // path stepped the Copper exactly once per Z80 instruction, so
+        // dense Copper bursts (tilemap-class effects with 32 MOVEs per
+        // scanline) collapsed into 1-2 effective writes per scanline.
+        tick_copper_for_master_cycles(master_cycles);
+
+        // G65 — drain CPU NR writes deferred during the instruction.
+        // They commit AFTER the Copper-loop, so any same-NR collision
+        // ends with the CPU's value (VHDL: cpu_req held while
+        // copper_req=1, served the next cycle).
+        flush_pending_cpu_nr_writes();
 
         // Commit ContentionModel's NR 0x08 bit-6 shadow when the live
         // raster is in the `hc(8)='1'` window (phc >= 256), per VHDL
@@ -3487,7 +3505,10 @@ int Emulator::execute_single_instruction()
             call_stack_.on_instruction_pre(regs.PC, regs.SP, op0, op1, op2);
         }
 
+        // G65 — see run_frame() primary path for rationale.
+        defer_cpu_nr_writes_ = true;
         int tstates = cpu_.execute();
+        defer_cpu_nr_writes_ = false;
 
         // Mirror video_timing_ advance from run_frame() — single-step
         // path needs the same observable to stay in sync.
@@ -3504,14 +3525,12 @@ int Emulator::execute_single_instruction()
     clock_.tick(master_cycles);
     dma_.tick_burst_wait(master_cycles);
 
-    // Copper.
-    if (copper_.is_running()) {
-        uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-        int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
-        int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
-        copper_.execute(hc, cvc, nextreg_);
-    }
+    // Copper at 28 MHz granularity (G117). See run_frame() primary site
+    // for rationale; this is the debugger single-step / DMA-only path.
+    tick_copper_for_master_cycles(master_cycles);
+
+    // G65 — drain deferred CPU NR writes (after Copper).
+    flush_pending_cpu_nr_writes();
 
     // Commit shadow → effective for NR 0x08 b6 (hc(8) gate) and NR 0x07
     // cpu_speed (bus-idle gate), per VHDL zxnext.vhd:5796-5828. Mirrors
@@ -3864,6 +3883,53 @@ uint8_t Emulator::floating_bus_read() const
         case 4: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1);   // pixel byte +1
         case 5: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1);   // attribute byte +1
         default: return 0xFF;  // idle T-states within the 8T cycle
+    }
+}
+
+void Emulator::enqueue_cpu_nr_write(uint8_t reg, uint8_t val)
+{
+    pending_cpu_nr_writes_.emplace_back(reg, val);
+}
+
+void Emulator::flush_pending_cpu_nr_writes()
+{
+    if (pending_cpu_nr_writes_.empty()) return;
+    // Drain in FIFO order. Each commit goes through the regular
+    // NextReg::write path so write_handlers fire (any side effect
+    // landing here is the same as if the CPU had written directly,
+    // just shifted later by the per-instruction Copper window).
+    for (auto& [reg, val] : pending_cpu_nr_writes_) {
+        nextreg_.write(reg, val);
+    }
+    pending_cpu_nr_writes_.clear();
+}
+
+void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
+{
+    // Hot-path early-out — most of every frame the Copper is in mode 0
+    // (stopped) and the loop body would be pure overhead.
+    if (!copper_.is_running()) return;
+    if (master_cycles == 0) return;
+
+    // `clock_` was already advanced by `master_cycles` before we are
+    // called (see emulator.cpp run_frame / single-step paths). The
+    // pre-instruction master-clock value is therefore `clock_.get() -
+    // master_cycles`, and the Copper steps fire at master cycles
+    // [pre, pre+1, ..., pre+master_cycles-1].
+    const uint64_t post_clock = clock_.get();
+    const uint64_t pre_clock  = post_clock - master_cycles;
+
+    for (uint64_t c = 0; c < master_cycles; ++c) {
+        const uint64_t at = pre_clock + c;
+        const uint64_t elapsed = at - frame_cycle_;
+        const int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+        const int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
+        // Copper vc: cvc=0 at the first active display line, mirroring
+        // VHDL `zxula_timing.vhd:455-472`. In jnext the active display
+        // starts at framebuffer row DISP_Y (32).
+        const int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame)
+                            % timing_.lines_per_frame;
+        copper_.execute(hc, cvc, nextreg_);
     }
 }
 

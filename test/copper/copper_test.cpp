@@ -1448,23 +1448,29 @@ void group7_arbitration() {
                   nr02_rd_post));
     }
 
-    // ARB-G65-01: True tied-edge CPU+Copper NR-write arbitration.
+    // ARB-G65-01: True tied-edge CPU+Copper NR-write arbitration —
+    // moved to copper_integration_test.cpp as G65-PRI-01.
+    //
     // VHDL zxnext.vhd:4769,4775-4777 — when both `cpu_req` and
     // `copper_req` rise on the SAME 28 MHz cycle, the priority mux
     // selects Copper's reg/data and the `cpu_req` is held over to
-    // the next cycle. ARB-01..ARB-03 serialise the stimulus across
-    // two ticks (Cycle A Copper, Cycle B CPU) — they pass under
-    // jnext's per-Z80-instruction tick-loop ordering but do not
-    // exercise the tied-edge mux because no shared 28 MHz bus
-    // exists. This row is the explicit cycle-accurate test that
-    // would fail today if both requests genuinely overlapped.
+    // the next cycle. ARB-01..ARB-03 above serialise the stimulus
+    // across two ticks (Cycle A Copper, Cycle B CPU) which is the
+    // single-Copper unit-tier model; expressing the genuine tied
+    // edge requires a per-instruction tick window that interleaves
+    // CPU and Copper writes, which is the Emulator-level integration
+    // tier exercised by G65-PRI-01.
     //
-    // Will become check() once the cycle-accurate scheduler refactor
-    // lands (G117 + G65 converge — see KNOWN-FUNCTIONALITY-GAPS-AND-
-    // PLAN.md:1282-1289).
-    skip("ARB-G65-01",
-         "tied-edge CPU+Copper NR-write priority needs cycle-"
-         "accurate bus (see G65)");
+    // The 2026-04-30 cycle-accurate scheduler landed (G117 + G65 in
+    // commit 94a26ca / G65 commit forthcoming): CPU NR writes via
+    // port 0x253B are deferred during the per-instruction tick and
+    // flushed AFTER tick_copper_for_master_cycles, so a Copper MOVE
+    // and a CPU NEXTREG NN that target the same NR end with the CPU's
+    // value (CPU wins as the final state, matching VHDL's "Copper-
+    // priority mux + CPU-held-over" pulse semantics).
+    //
+    // No skip(): the row is intentionally retired here — the canonical
+    // coverage is now G65-PRI-01 in copper_integration_test.cpp.
 }
 
 // ── Group 8: Self-modifying Copper ────────────────────────────────────

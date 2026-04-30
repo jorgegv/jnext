@@ -34,6 +34,18 @@ target_link_libraries(copper_test PRIVATE jnext_peripheral jnext_port)
 target_include_directories(copper_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME copper_tests COMMAND copper_test)
 
+# Copper integration test (G117 cycle-accurate scheduler verification).
+# Drives a real Emulator, programs the Copper through NR 0x60-0x63, and
+# observes that 16 MOVEs in one burst all fire within ~3 CPU instructions.
+# Mirrors the nextreg_integration_test linkage (full subsystem stack).
+add_executable(copper_integration_test copper/copper_integration_test.cpp)
+target_link_libraries(copper_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(copper_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME copper_integration_tests COMMAND copper_integration_test)
+
 # Memory/MMU compliance test
 add_executable(mmu_test mmu/mmu_test.cpp)
 target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug)
