@@ -3725,66 +3725,39 @@ static void group17() {
 
     // G17.PSL-PAT-08: VHDL sprites.vhd:561-572 (16 KB pattern RAM, no cap).
     // sprites.vhd:728-744 (write trigger). Cap is C++ static budget at
-    // MAX_PATTERN_CHANGES_PER_FRAME=8192 (sprites.h:237).
-    // (Renumbered from PSL-PAT-04 — collided with existing reset-clears
-    // group at lines 3157/3165/3171.)
+    // MAX_PATTERN_CHANGES_PER_FRAME (sprites.h).
     //
-    // Re-stream the entire 16 KB pattern RAM in one frame (16384 byte
-    // writes) — well over the 8192 cap.  Assertions mirror G16.OVF-01
-    // for the pattern side:
-    //   (a) Writes 0..MAX-1 ARE replayed: pattern[0]'s value (set by an
-    //       early-frame write) IS visible in the rendered sprite.
-    //   (b) Writes MAX..N (overflow) are NOT replayed: pattern bytes
-    //       written past the cap stay at their baseline (0) value
-    //       through rewind+apply, even though the live pattern_ram_ has
-    //       the new data.
-    //   (c) pattern_change_log_size == cap (saturated).
-    //   (d) Exactly one warn fired on the pattern-side overflow path
-    //       (sprites.cpp:102-107).
+    // Drive `cap + 100` pattern writes — pushing just past the cap. Since
+    // the cap (post-2026-04-30 bump = 81920, > PATTERN_RAM_SZ = 16384) now
+    // exceeds the size of pattern RAM, writes wrap repeatedly via the
+    // 14-bit auto-increment mask, so the per-offset rendering oracle from
+    // older revisions of this test no longer holds. We retain the
+    // structural overflow invariants which still apply uniformly:
+    //   (a) AT cap: zero overflow warns.
+    //   (b) AT cap+100: log saturated at exactly `cap`.
+    //   (c) AT cap+100: exactly one warn fired (once-per-frame).
+    // Per-pixel rendering consequences for parallax-class densities
+    // (≤ 16384 writes, all logged) are exercised by PSL-PAT-09 below.
     {
         fresh(spr, pal);
         VideoWarnCounter warns;
-        pal.set_sprite_transparency(0xE3);
 
-        // Pre-frame: zero-fill the pattern RAM (so baseline is all 0).
-        // Place sprite slot 0 at (X=0, Y=20) using pattern 0, visible.
-        spr.write_slot_select(0);
-        for (int i = 0; i < 256; ++i) spr.write_pattern(0x00);
-        spr.write_slot_select(0);
-        spr.write_attribute(0);     // X
-        spr.write_attribute(20);    // Y
-        spr.write_attribute(0);     // attr2
-        spr.write_attribute(0x80);  // visible
-
-        spr.start_frame();          // baseline: pattern all-zero
+        spr.start_frame();
         spr.set_current_line(0);
 
         const size_t cap = SpriteEngine::MAX_PATTERN_CHANGES_PER_FRAME;
 
-        // Mid-frame at line 0: stream all 16384 bytes back into pattern
-        // RAM, with a recognisable signature at offset 5 (within the cap)
-        // and at offset cap+10 (beyond the cap).
-        //
-        // Each call to write_slot_select resets pattern_offset_ to a
-        // known 14-bit value.  After write_slot_select(0), pattern_offset_
-        // == 0, then write_pattern auto-increments after each byte.
+        // Drive exactly `cap` writes — at-cap edge.
         spr.write_slot_select(0);
-        // Write 0..(cap-1) bytes of pattern data; signature 0x42 at
-        // offset 5 (well within the first sprite-pattern chunk so the
-        // render at X=5 will see it).
         for (size_t i = 0; i < cap; ++i) {
-            uint8_t v = (i == 5) ? 0x42 : 0x11;
-            spr.write_pattern(v);
+            spr.write_pattern(static_cast<uint8_t>(i & 0xFF));
         }
         check("G17.PSL-PAT-08a",
               "AT cap: zero overflow warns",
               warns.warn_count == 0,
               DETAIL("warns=%d", warns.warn_count));
 
-        // Now drive overflow: 100 more pattern bytes.  The first one
-        // triggers exactly one warn; subsequent ones don't re-warn.
-        // Use signature 0xCC for these — they should NOT appear in the
-        // rendered sprite because the cap drops them from the log.
+        // Now drive overflow: 100 more pattern bytes.
         for (int i = 0; i < 100; ++i) {
             spr.write_pattern(0xCC);
         }
@@ -3797,62 +3770,46 @@ static void group17() {
               "Pattern overflow: exactly one warn (once-per-frame)",
               warns.warn_count == 1,
               DETAIL("warns=%d", warns.warn_count));
+    }
 
-        // Per-row replay oracle.  Rewind restores baseline (all-zero).
-        // apply_changes_for_line(0) replays the cap entries.  Render
-        // line 20 (sprite Y=20, row 0 of the sprite, pattern offset
-        // [0..15] = first 16 bytes of pattern_ram_).
-        spr.rewind_to_baseline();
-        spr.apply_changes_for_line(0);
+    // G17.PSL-PAT-09 — parallax-class workload: ≥ 8200 pattern writes per
+    // frame must ALL log (no overflow). Anchors the 2026-04-30 cap bump
+    // 8192 → 81920: parallax.nex was observed overflowing the old 8192
+    // cap at scanline 188, silently dropping post-188 pattern updates
+    // from the per-scanline replay path even though they still mutated
+    // pattern_ram_ live (rewind_to_baseline then erased them, leaving
+    // sprites in the lower band rendering with stale pattern bytes).
+    // The new 81920 cap is one entry per visible pixel — beyond which a
+    // demo cannot encode additional observable rendering information.
+    // This row would FAIL under the pre-bump cap.
+    {
+        fresh(spr, pal);
+        VideoWarnCounter warns;
+        spr.start_frame();
+        spr.set_current_line(0);
 
-        uint32_t line20[320]; clear_line(line20);
-        spr.render_scanline(line20, 20, pal);
-
-        // Within-cap signature at pattern offset 5 must be visible at
-        // X=5 (sprite at X=0, row 0, col 5 → pattern_ram_[5]).
-        check("G17.PSL-PAT-08d",
-              "Pattern within cap: replay restores 0x42 at offset 5",
-              pixel_index(line20, 5) == 0x42,
-              DETAIL("px@5=%d (expected 0x42)", pixel_index(line20, 5)));
-
-        // Beyond-cap pattern bytes (0xCC) MUST NOT be visible in the
-        // replayed pattern RAM.  Pattern offset cap+0 .. cap+99 is in
-        // the second-half of the 16 KB pattern RAM (cap=8192 maps to
-        // sprite pattern slot 32, offset 0).  Those slots are not
-        // referenced by sprite slot 0 (which uses pattern bytes
-        // [0..255] of slot 0).  We verify the cap_drop indirectly by
-        // inspecting the live pattern_ram_ after rewind: at offset
-        // (cap+10) the rewind restored the baseline (0x00), NOT the
-        // overflowed 0xCC.  We expose that via a render of a sprite
-        // pointing at slot 32 (pattern offset 8192).
-        //
-        // Set sprite slot 1 to use pattern 32 at (X=200, Y=20).
-        spr.write_slot_select(1);
-        spr.write_attribute(200);   // X
-        spr.write_attribute(20);    // Y
-        spr.write_attribute(0);     // attr2
-        spr.write_attribute(0x80 | 32);  // visible | pattern=32 (N5:N0)
-
-        // The slot-1 attribute writes above are logged at line 0.
-        // We need to rewind+apply ONLY line 0 again because we want
-        // line 20 to show the sprite at slot 1.  But the engine's
-        // render-cursor was already advanced past line 0; do another
-        // rewind+apply cycle.
-        spr.rewind_to_baseline();
-        spr.apply_changes_for_line(0);
-
-        uint32_t line20b[320]; clear_line(line20b);
-        spr.render_scanline(line20b, 20, pal);
-
-        // Slot 1 sprite at X=200, pattern 32 (offset 8192 in pattern
-        // RAM = cap).  Pattern byte at offset cap+10 was OVERFLOWED.
-        // After rewind, pattern_ram_[cap+10] is back to 0 (baseline).
-        // So the rendered pixel at X=210 (column 10 of slot 1 sprite)
-        // must be 0x00, NOT 0xCC.
-        check("G17.PSL-PAT-08e",
-              "Pattern beyond cap: overflow drops (px@210 != 0xCC)",
-              pixel_index(line20b, 210) != 0xCC,
-              DETAIL("px@210=%d (expected NOT 0xCC)", pixel_index(line20b, 210)));
+        // 8200 writes — just over the OLD 8192 cap, well under the new
+        // 81920. Distribute across multiple scanlines to mirror parallax
+        // (which streams via Z80N DMA across many lines per frame).
+        spr.write_slot_select(0);
+        const int N_WRITES = 8200;
+        for (int i = 0; i < N_WRITES; ++i) {
+            // Every 256 writes, advance the scanline tag — models a
+            // bulk DMA burst that straddles scanline boundaries.
+            if (i > 0 && (i % 256) == 0) {
+                spr.set_current_line(i / 256);
+            }
+            spr.write_pattern(static_cast<uint8_t>(i & 0xFF));
+        }
+        check("G17.PSL-PAT-09a",
+              "8200 writes: ALL logged (none dropped)",
+              spr.pattern_change_log_size() == static_cast<size_t>(N_WRITES),
+              DETAIL("logged=%zu expected=%d",
+                     spr.pattern_change_log_size(), N_WRITES));
+        check("G17.PSL-PAT-09b",
+              "8200 writes: zero overflow warns",
+              warns.warn_count == 0,
+              DETAIL("warns=%d", warns.warn_count));
     }
 
     // G06.NR70-01: NR 0x70 b5:4 L2 resolution flip mid-frame must reroute

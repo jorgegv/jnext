@@ -297,15 +297,21 @@ public:
     /// the engine warns once and drops further log entries this frame.
     static constexpr size_t MAX_CHANGES_PER_FRAME = 8192;
 
-    /// Static cap for the per-scanline pattern change log. Sized for the
-    /// worst-case "Copper / Z80N-DMA writes hundreds of pattern bytes per
-    /// scanline" scenario. parallax.nex measured ~92 pattern writes per
-    /// frame at 50 Hz with a 256-write peak inside a single 1 ms DMA
-    /// burst; 8192 gives ~90× headroom over typical and ~32× over peak.
-    /// KNOWN LIMIT: a demo that re-streams the entire 16 KB pattern RAM
-    /// per frame (16384 bytes) would overflow — beyond that point the
-    /// engine warns once and drops further entries this frame.
-    static constexpr size_t MAX_PATTERN_CHANGES_PER_FRAME = 8192;
+    /// Static cap for the per-scanline pattern change log. Sized to one
+    /// log entry per visible pixel of the framebuffer (320 × 256 =
+    /// 81920) — past this, any additional pattern write must overwrite
+    /// an earlier write before being read by any scanline, so it adds
+    /// no observable rendering information. Memory cost ~480 KB
+    /// (sizeof(PatternChange) ≈ 6 B). Bumped from 8192 on 2026-04-30
+    /// after parallax.nex was found to overflow at scanline 188; the
+    /// pre-bump cap silently dropped post-188 pattern writes from the
+    /// per-scanline replay path even though they still mutated
+    /// pattern_ram_ live (the dropped log entries left those mutations
+    /// invisible at render time after rewind_to_baseline). This new
+    /// ceiling is a *pragmatic* bound, not a strict one — a pathological
+    /// demo could overwrite the same offset on the same scanline more
+    /// than 81920 times per frame; no real demo does.
+    static constexpr size_t MAX_PATTERN_CHANGES_PER_FRAME = 81920;
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
