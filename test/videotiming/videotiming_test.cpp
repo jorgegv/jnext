@@ -786,6 +786,69 @@ static void section8_g163_dynamic_reschedule() {
                       + " after_disable=" + std::to_string(after_disable));
         }
     }
+
+    // ────────────────────────────────────────────────────────────────
+    // VT-G163-C4-DISABLE-04 — same as DISABLE-03 but the disable
+    // edge is driven through NR 0xC4 (bit 1) instead of NR 0x22.
+    // NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1 — both
+    // write the SAME `nr_22_line_interrupt_en` flip-flop
+    // (zxnext.vhd:5607-5610) and that FF feeds `i_inten_line` of
+    // the line-int comparator (zxnext.vhd:6752; predicate at
+    // zxula_timing.vhd:577). The NR 0xC4 write handler must call
+    // `reschedule_line_interrupt()` for the same reason NR 0x22
+    // does; without it, a demo that re-arms / disables line
+    // interrupts through NR 0xC4 silently keeps the stale
+    // schedule alive.
+    //
+    // Stimulus: arm the line-int via NR 0x22 with target=200; at
+    // line 50, write NR 0xC4 with bit 1 cleared (other bits
+    // preserve the previous handler-side NR 0xC4 state, i.e. all
+    // zero at this point). Step past where line 200 would fire.
+    // Expect ZERO line-int fires.
+    // ────────────────────────────────────────────────────────────────
+    {
+        Emulator emu;
+        if (!g163::build_emulator(emu)) {
+            check("VT-G163-C4-DISABLE-04",
+                  "Emulator construction (ZXN_ISSUE2) — required for "
+                  "Section 8",
+                  false, "build_emulator returned false");
+        } else {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+
+            g163::nr_write(emu, 0x23, 200);
+            g163::nr_write(emu, 0x22, 0x02);
+
+            // Step to line 50 (well before line 200's firing offset).
+            const uint64_t line50_master = g163::line_int_offset_master_cycles(50);
+            g163::step_until_master_cycle(emu, line50_master);
+            const uint64_t at_line50 = emu.line_int_fire_count();
+
+            // Disable line-int via the NR 0xC4 mirror (bit 1 = 0).
+            // Bit 0 = 0 means "disable ULA-int" (port_ff_reg(6)=1 via
+            // inverted polarity), bit 7 = 0 disables expbus int. The
+            // pending fire scheduled via the NR 0x22 handler must be
+            // invalidated by the gen-bump inside the NR 0xC4 handler's
+            // `reschedule_line_interrupt()` call.
+            g163::nr_write(emu, 0xC4, 0x00);
+
+            // Step past where line 200 would have fired (add slack).
+            const uint64_t line200_fire = g163::line_int_offset_master_cycles(200);
+            g163::step_until_master_cycle(emu, line200_fire + 1824);
+            const uint64_t after_disable = emu.line_int_fire_count();
+
+            check("VT-G163-C4-DISABLE-04",
+                  "NR 0xC4 bit 1 (mirror of NR 0x22 bit 1) cleared "
+                  "mid-frame: pending line-int no-ops via gen-check; "
+                  "zero fires for the rest of the frame "
+                  "(zxnext.vhd:5607-5610 mirror; :6752 FF feeds "
+                  "i_inten_line; zxula_timing.vhd:577 fire predicate)",
+                  at_line50 == 0 && after_disable == 0,
+                  "at_line50=" + std::to_string(at_line50)
+                      + " after_disable=" + std::to_string(after_disable));
+        }
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -794,8 +857,8 @@ int main() {
     std::printf("VideoTiming Expansion Compliance Tests\n");
     std::printf("======================================\n\n");
     std::printf("  27 rows from Sections 1-7 (G71/G106/G107/G109 closure,\n");
-    std::printf("  2026-04-28) + 3 new Section-8 rows for G163 dynamic\n");
-    std::printf("  line-int re-evaluation (2026-04-30). 30 live rows.\n");
+    std::printf("  2026-04-28) + 4 Section-8 rows for G163 dynamic line-int\n");
+    std::printf("  re-evaluation (2026-04-30; +1 NR 0xC4 mirror row). 31 live.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
@@ -820,7 +883,7 @@ int main() {
     std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — done (5 live)\n");
 
     section8_g163_dynamic_reschedule();
-    std::printf("  Section 8: VT-S8-G163-DYNAMIC-RESCHEDULE — done (3 live)\n");
+    std::printf("  Section 8: VT-S8-G163-DYNAMIC-RESCHEDULE — done (4 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

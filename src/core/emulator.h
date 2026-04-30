@@ -807,14 +807,22 @@ private:
     void set_defer_cpu_nr_writes(bool v) { defer_cpu_nr_writes_ = v; }
     bool defer_cpu_nr_writes() const { return defer_cpu_nr_writes_; }
 
-    /// G163 — re-evaluate line-interrupt schedule on every NR 0x22 / NR 0x23
-    /// write and at frame start. VHDL `zxula_timing.vhd:577` fires every
-    /// cycle when `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic.
-    /// Mid-frame retargeting (e.g. parallax.nex's chained line-IRQ chain
-    /// rewriting NR 0x23 to schedule the next firing line) was silently
-    /// swallowed pre-fix because the line-int event was scheduled ONCE
-    /// per frame in `run_frame()` and the NR 0x22/0x23 write handlers
-    /// only updated `VideoTiming` state.
+    /// G163 — re-evaluate line-interrupt schedule on every
+    /// NR 0x22 / NR 0x23 / NR 0xC4 (bit 1 mirror) write and at frame
+    /// start. VHDL `zxula_timing.vhd:577` fires every cycle when
+    /// `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic.
+    /// Mid-frame retargeting (e.g. parallax.nex's chained line-IRQ
+    /// chain rewriting NR 0x23 to schedule the next firing line) was
+    /// silently swallowed pre-fix because the line-int event was
+    /// scheduled ONCE per frame in `run_frame()` and the
+    /// NR 0x22 / NR 0x23 / NR 0xC4 write handlers only updated
+    /// `VideoTiming` state.
+    ///
+    /// NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1: both
+    /// write the same `nr_22_line_interrupt_en` flip-flop
+    /// (zxnext.vhd:5607-5610) which feeds `i_inten_line` of the
+    /// line-int comparator (:6752), so the same reschedule
+    /// requirement applies to every NR 0xC4 write.
     ///
     /// Shape: bumps `line_int_schedule_gen_` and schedules a fresh
     /// `EventType::CPU_INT` for the new target's master-cycle offset

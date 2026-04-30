@@ -1238,6 +1238,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         im2_.set_int_en_c4(v);
         // Mirror NR 0xC4 bit 1 → nr_22_line_interrupt_en (VHDL:5610).
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
+        // G163 — NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1
+        // (both write the same `nr_22_line_interrupt_en` flip-flop at
+        // VHDL zxnext.vhd:5607-5610, which feeds `i_inten_line` of the
+        // line-interrupt comparator at :6752). The same dynamic
+        // re-evaluation requirement applies here: a mid-frame NR 0xC4
+        // write that toggles bit 1 must invalidate / re-arm the
+        // pending line-int event, exactly as for NR 0x22.
+        reschedule_line_interrupt();
         // VHDL zxnext.vhd:3621-3622 — `nr_c4_we` fans (NOT bit 0) of
         // the new value into `port_ff_reg(6)`. The polarity is
         // inverted: cpu writes '1' to clear the disable bit.
@@ -3911,10 +3919,17 @@ void Emulator::flush_pending_cpu_nr_writes()
 // VHDL `zxula_timing.vhd:577` fires the line-int pulse every cycle when
 // `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic. Pre-fix jnext
 // scheduled the line-int once per frame in run_frame() and the NR 0x22 /
-// NR 0x23 write handlers updated VideoTiming state without re-scheduling.
-// Demos that chain line interrupts mid-frame (e.g. parallax.nex's IRQ
-// handler at bank 6 offset 0x062E rewriting NR 0x23 with `target += 0x10`)
-// silently lost ~12/13 line interrupts per frame.
+// NR 0x23 / NR 0xC4 (bit 1 mirror) write handlers updated VideoTiming
+// state without re-scheduling. Demos that chain line interrupts
+// mid-frame (e.g. parallax.nex's IRQ handler at bank 6 offset 0x062E
+// rewriting NR 0x23 with `target += 0x10`) silently lost ~12/13 line
+// interrupts per frame.
+//
+// NR 0xC4 bit 1 is a hardware mirror of NR 0x22 bit 1: both write the
+// SAME `nr_22_line_interrupt_en` flip-flop (VHDL zxnext.vhd:5607-5610),
+// which feeds `i_inten_line` of the line-interrupt comparator at :6752.
+// A demo can re-arm or disable line interrupts via either register, so
+// every write site must reschedule.
 //
 // Strategy: bump a generation counter on every (re)schedule and capture
 // it by-value into the lambda. At fire time the lambda checks the
