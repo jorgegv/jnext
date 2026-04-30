@@ -109,7 +109,7 @@ Result: 1356/1356 pass (100%).
 Run the complete automated test suite (FUSE Z80 opcodes + screenshot tests):
 
 ```bash
-bash test/regression.sh
+bash test/00regression/regression.sh
 ```
 
 This runs all tests in headless mode and compares screenshots to reference images.
@@ -118,7 +118,7 @@ See [doc/testing/REGRESSION-TEST-SUITE.md](doc/testing/REGRESSION-TEST-SUITE.md)
 To update reference screenshots after intentional rendering changes:
 
 ```bash
-bash test/generate-references.sh
+bash test/00regression/generate-references.sh
 ```
 
 ### Headless mode

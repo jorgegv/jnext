@@ -13,10 +13,10 @@ tests and screenshot-based visual regression tests in headless mode.
 
 ```bash
 # Run the full regression suite
-bash test/regression.sh
+bash test/00regression/regression.sh
 
 # Generate/update reference screenshots
-bash test/generate-references.sh
+bash test/00regression/generate-references.sh
 ```
 
 ## Headless Mode
@@ -34,12 +34,12 @@ The emulation runs as fast as possible, making it ideal for automated testing.
 
 ## Test Configuration
 
-Tests are defined in `test/regression_tests.conf`:
+Tests are defined in `test/00regression/regression_tests.conf`:
 
 ```
 # Format: test_name machine_type nex_file screenshot_delay_secs
-boot-48k          48k     BOOT                        3
-palette-demo      next    demo/palette_demo.nex       3
+boot-48k          48k     BOOT                                  3
+palette-demo      next    test/00regression/nex/palette_demo.nex 3
 ```
 
 - `BOOT` as the nex_file means "boot without loading a program" (tests ROM boot)
@@ -55,10 +55,10 @@ baselines for comparison.
 
 ```bash
 # Generate all references
-bash test/generate-references.sh
+bash test/00regression/generate-references.sh
 
 # Generate specific test references
-bash test/generate-references.sh boot-48k palette-demo
+bash test/00regression/generate-references.sh boot-48k palette-demo
 ```
 
 ### When to Regenerate
@@ -71,13 +71,13 @@ before committing updated references.
 
 ```bash
 # Run all tests
-bash test/regression.sh
+bash test/00regression/regression.sh
 
 # Run specific tests
-bash test/regression.sh boot-48k palette-demo
+bash test/00regression/regression.sh boot-48k palette-demo
 
 # Set pixel tolerance (default: 0 = exact match)
-JNEXT_TEST_TOLERANCE=10 bash test/regression.sh
+JNEXT_TEST_TOLERANCE=10 bash test/00regression/regression.sh
 ```
 
 ### Output
@@ -106,10 +106,12 @@ Failed tests save a diff image to `test/img/<test_name>-diff.png` for debugging.
 
 1. Create the demo program in `demo/` (C source compiled with z88dk)
 2. Build it: `make -C demo <name>.nex`
-3. Add a line to `test/regression_tests.conf`
-4. Generate the reference: `bash test/generate-references.sh <test_name>`
-5. Verify the reference screenshot looks correct
-6. Commit the reference image
+3. Copy the built `.nex` into `test/00regression/nex/`
+4. Add a line to `test/00regression/regression_tests.conf`
+   pointing at `test/00regression/nex/<basename>.nex`
+5. Generate the reference: `bash test/00regression/generate-references.sh <test_name>`
+6. Verify the reference screenshot looks correct
+7. Commit the reference image and the .nex asset
 
 ## Building Demo Programs
 
