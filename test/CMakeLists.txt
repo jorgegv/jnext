@@ -230,7 +230,13 @@ add_test(NAME floating_bus_tests COMMAND floating_bus_test)
 # accessors (display_origin, ula_prefetch_origin_hc, int_position) +
 # 60 Hz toggle (2026-04-25, Branches A/B/C).
 add_executable(videotiming_test videotiming/videotiming_test.cpp)
-target_link_libraries(videotiming_test PRIVATE jnext_video spdlog::spdlog)
+# G163 (Section 8) requires driving the full Emulator to exercise the
+# mid-frame line-int re-evaluation path — same linkage as
+# ctc_interrupts_test / nextreg_integration_test.
+target_link_libraries(videotiming_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(videotiming_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME videotiming_tests COMMAND videotiming_test)
 
