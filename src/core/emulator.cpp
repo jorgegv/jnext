@@ -3249,20 +3249,12 @@ void Emulator::run_frame()
             return;
         }
 
-        // Execute copper at current raster position.
-        // Compute raw vc/hc from cycles elapsed within frame, then derive
-        // the copper vertical counter (cvc).  In the VHDL, cvc resets to 0
-        // at the first active display line (c_min_vactive = 64 for 48K),
-        // so copper WAIT vpos=0 means "first display line".  In our frame
-        // layout the active display starts at row DISP_Y (32).
-        if (copper_.is_running()) {
-            uint64_t elapsed = clock_.get() - frame_cycle_;
-            int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-            int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
-            // Convert raw vc to copper vc: cvc=0 at first display line.
-            int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
-            copper_.execute(hc, cvc, nextreg_);
-        }
+        // Execute the Copper at 28 MHz granularity over the master-cycle
+        // window covered by this CPU instruction (G117). Pre-G117 this
+        // path stepped the Copper exactly once per Z80 instruction, so
+        // dense Copper bursts (tilemap-class effects with 32 MOVEs per
+        // scanline) collapsed into 1-2 effective writes per scanline.
+        tick_copper_for_master_cycles(master_cycles);
 
         // Commit ContentionModel's NR 0x08 bit-6 shadow when the live
         // raster is in the `hc(8)='1'` window (phc >= 256), per VHDL
@@ -3504,14 +3496,9 @@ int Emulator::execute_single_instruction()
     clock_.tick(master_cycles);
     dma_.tick_burst_wait(master_cycles);
 
-    // Copper.
-    if (copper_.is_running()) {
-        uint64_t elapsed = clock_.get() - frame_cycle_;
-        int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
-        int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
-        int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame) % timing_.lines_per_frame;
-        copper_.execute(hc, cvc, nextreg_);
-    }
+    // Copper at 28 MHz granularity (G117). See run_frame() primary site
+    // for rationale; this is the debugger single-step / DMA-only path.
+    tick_copper_for_master_cycles(master_cycles);
 
     // Commit shadow → effective for NR 0x08 b6 (hc(8) gate) and NR 0x07
     // cpu_speed (bus-idle gate), per VHDL zxnext.vhd:5796-5828. Mirrors
@@ -3864,6 +3851,35 @@ uint8_t Emulator::floating_bus_read() const
         case 4: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1);   // pixel byte +1
         case 5: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1);   // attribute byte +1
         default: return 0xFF;  // idle T-states within the 8T cycle
+    }
+}
+
+void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
+{
+    // Hot-path early-out — most of every frame the Copper is in mode 0
+    // (stopped) and the loop body would be pure overhead.
+    if (!copper_.is_running()) return;
+    if (master_cycles == 0) return;
+
+    // `clock_` was already advanced by `master_cycles` before we are
+    // called (see emulator.cpp run_frame / single-step paths). The
+    // pre-instruction master-clock value is therefore `clock_.get() -
+    // master_cycles`, and the Copper steps fire at master cycles
+    // [pre, pre+1, ..., pre+master_cycles-1].
+    const uint64_t post_clock = clock_.get();
+    const uint64_t pre_clock  = post_clock - master_cycles;
+
+    for (uint64_t c = 0; c < master_cycles; ++c) {
+        const uint64_t at = pre_clock + c;
+        const uint64_t elapsed = at - frame_cycle_;
+        const int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+        const int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
+        // Copper vc: cvc=0 at the first active display line, mirroring
+        // VHDL `zxula_timing.vhd:455-472`. In jnext the active display
+        // starts at framebuffer row DISP_Y (32).
+        const int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame)
+                            % timing_.lines_per_frame;
+        copper_.execute(hc, cvc, nextreg_);
     }
 }
 

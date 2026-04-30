@@ -747,4 +747,13 @@ private:
 
     /// Called by the VSYNC event handler.
     void on_vsync();
+
+    /// Step the Copper for `master_cycles` 28-MHz cycles ending at the
+    /// current `clock_.get()`. VHDL `device/copper.vhd:54-119` runs at
+    /// the i_CLK_28 rising edge — at most one MOVE / WAIT-compare per
+    /// 28 MHz cycle. Pre-G117 jnext stepped the Copper exactly once per
+    /// Z80 instruction, collapsing dense Copper bursts (e.g. tilemap
+    /// effects with 32 MOVEs/scanline) into 1-2 effective writes per
+    /// scanline. This helper restores per-cycle granularity.
+    void tick_copper_for_master_cycles(uint64_t master_cycles);
 };
