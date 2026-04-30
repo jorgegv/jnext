@@ -336,6 +336,16 @@ public:
     void inject_sw_nmi_mf(bool on)        { test_sw_nmi_mf_    = on; }
     void inject_sw_nmi_divmmc(bool on)    { test_sw_nmi_dmmc_  = on; }
 
+    /// G163 — Test observable: count of production line-interrupt
+    /// callback fires since `reset_line_int_fire_count()` was last
+    /// called. Each non-superseded `EventType::CPU_INT` lambda from
+    /// `reschedule_line_interrupt()` increments this exactly once.
+    /// Used by `videotiming_test` VT-G163-* rows to verify the
+    /// dynamic-rescheduling fix; see also `KNOWN-FUNCTIONALITY-GAPS`
+    /// G163 entry.
+    uint64_t line_int_fire_count() const { return line_int_fire_count_; }
+    void reset_line_int_fire_count() { line_int_fire_count_ = 0; }
+
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
     // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,
@@ -570,6 +580,19 @@ private:
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
 
+    /// G163 — generation counter bumped on every line-interrupt
+    /// (re)schedule. The scheduled `EventType::CPU_INT` lambda captures
+    /// this counter by-value; at fire time it no-ops if the captured
+    /// generation differs from the current one (i.e. a later schedule
+    /// has superseded this event). This avoids needing a Scheduler
+    /// `cancel()` API and correctly handles same-target rewrites.
+    uint64_t line_int_schedule_gen_ = 0;
+
+    /// G163 — test-observable counter incremented inside the
+    /// non-superseded line-int callback. Public accessor
+    /// `line_int_fire_count()` is used by VT-G163-* rows.
+    uint64_t line_int_fire_count_ = 0;
+
     /// Raster position snapshotted at pause time.
     int paused_vc_ = 0;
     int paused_hc_ = 0;
@@ -783,4 +806,23 @@ private:
     void flush_pending_cpu_nr_writes();
     void set_defer_cpu_nr_writes(bool v) { defer_cpu_nr_writes_ = v; }
     bool defer_cpu_nr_writes() const { return defer_cpu_nr_writes_; }
+
+    /// G163 — re-evaluate line-interrupt schedule on every NR 0x22 / NR 0x23
+    /// write and at frame start. VHDL `zxula_timing.vhd:577` fires every
+    /// cycle when `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic.
+    /// Mid-frame retargeting (e.g. parallax.nex's chained line-IRQ chain
+    /// rewriting NR 0x23 to schedule the next firing line) was silently
+    /// swallowed pre-fix because the line-int event was scheduled ONCE
+    /// per frame in `run_frame()` and the NR 0x22/0x23 write handlers
+    /// only updated `VideoTiming` state.
+    ///
+    /// Shape: bumps `line_int_schedule_gen_` and schedules a fresh
+    /// `EventType::CPU_INT` for the new target's master-cycle offset
+    /// within the current frame; if that offset has already passed,
+    /// rolls forward one frame (handles parallax's 8-bit `ADD 0x10`
+    /// wrap from line 244 → 4). The lambda captures the gen by-value
+    /// and no-ops at fire time if a later (re)schedule has bumped the
+    /// counter — strict superset of "compare target at fire time"
+    /// because it correctly handles same-target rewrites too.
+    void reschedule_line_interrupt();
 };

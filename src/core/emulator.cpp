@@ -858,6 +858,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // value into `port_ff_reg(6)` (the ULA-int-disable bit).
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
                                           | ((v & 0x04) << 4));
+        // G163 — re-evaluate the line-int schedule. NR 0x22 carries the
+        // line-int enable bit (bit 1) and the target MSB (bit 0); both
+        // affect the firing line.
+        reschedule_line_interrupt();
     });
 
     // Register 0x23: Line interrupt value LSB
@@ -865,6 +869,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const uint16_t cur = video_timing_.line_interrupt_target();
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0x100) | v));
+        // G163 — chained line-IRQ rewrites NR 0x23 mid-frame to retarget
+        // the next firing line (parallax.nex pattern). VHDL fires every
+        // cycle when match (zxula_timing.vhd:577), so we must reschedule.
+        reschedule_line_interrupt();
     });
 
     // Register 0x02: Reset control + software NMI strobes.
@@ -3001,19 +3009,12 @@ void Emulator::run_frame()
     // (zxnext.vhd:1937, 1941 — im2_int_req bit 0 = line_int_pulse, the
     // highest-priority peripheral). Same pulse-vs-IM2 split as the ULA
     // path above.
-    if (video_timing_.line_interrupt_enable()) {
-        const uint64_t line_offset = video_timing_.line_int_master_cycle_offset();
-        if (line_offset < timing_.master_cycles_per_frame) {
-            scheduler_.schedule(frame_cycle_ + line_offset, EventType::CPU_INT,
-                [this]() {
-                    im2_.raise_req(Im2Controller::DevIdx::LINE);
-                    if (!im2_.is_im2_mode()) {
-                        cpu_.request_interrupt(0xFF);
-                    }
-                    im2_int_status_[0] |= 0x02;  // Line interrupt status
-                });
-        }
-    }
+    //
+    // G163 — delegate to reschedule_line_interrupt(). Bumping the gen
+    // here also invalidates any stale events left over from prior frames
+    // (e.g. a target the demo wrote during the previous frame whose
+    // firing line moved to the current frame's wrap region).
+    reschedule_line_interrupt();
 
     // RZX frame management.
     if (rzx_player_.is_playing()) {
@@ -3902,6 +3903,65 @@ void Emulator::flush_pending_cpu_nr_writes()
         nextreg_.write(reg, val);
     }
     pending_cpu_nr_writes_.clear();
+}
+
+// ---------------------------------------------------------------------------
+// G163 — line-interrupt dynamic re-evaluation.
+//
+// VHDL `zxula_timing.vhd:577` fires the line-int pulse every cycle when
+// `(hc_ula==255 AND cvc==int_line_num)` — fully dynamic. Pre-fix jnext
+// scheduled the line-int once per frame in run_frame() and the NR 0x22 /
+// NR 0x23 write handlers updated VideoTiming state without re-scheduling.
+// Demos that chain line interrupts mid-frame (e.g. parallax.nex's IRQ
+// handler at bank 6 offset 0x062E rewriting NR 0x23 with `target += 0x10`)
+// silently lost ~12/13 line interrupts per frame.
+//
+// Strategy: bump a generation counter on every (re)schedule and capture
+// it by-value into the lambda. At fire time the lambda checks the
+// captured value against the current counter and no-ops if superseded.
+// This is a strict superset of "compare target at fire time": same-
+// target rewrites also produce a fresh schedule, so the old event still
+// becomes a no-op.
+// ---------------------------------------------------------------------------
+void Emulator::reschedule_line_interrupt()
+{
+    if (!video_timing_.line_interrupt_enable()) {
+        // Disable bit cleared mid-frame: bump the gen so any pending
+        // event no-ops, and do not enqueue a replacement.
+        ++line_int_schedule_gen_;
+        return;
+    }
+
+    const uint64_t line_offset = video_timing_.line_int_master_cycle_offset();
+    if (line_offset >= timing_.master_cycles_per_frame) {
+        // Out-of-range target: bump the gen to invalidate any stale
+        // event but do not enqueue a replacement (matches the existing
+        // run_frame guard at the original schedule site).
+        ++line_int_schedule_gen_;
+        return;
+    }
+
+    uint64_t fire_cycle = frame_cycle_ + line_offset;
+    if (fire_cycle <= clock_.get()) {
+        // The firing scanline within this frame has already passed —
+        // roll forward one frame. Handles the parallax 8-bit `ADD 0x10`
+        // overflow case (line 244 → line 4, where line 4 belongs to the
+        // NEXT frame).
+        fire_cycle += timing_.master_cycles_per_frame;
+    }
+
+    ++line_int_schedule_gen_;
+    const uint64_t my_gen = line_int_schedule_gen_;
+    scheduler_.schedule(fire_cycle, EventType::CPU_INT,
+        [this, my_gen]() {
+            if (my_gen != line_int_schedule_gen_) return;  // superseded
+            im2_.raise_req(Im2Controller::DevIdx::LINE);
+            if (!im2_.is_im2_mode()) {
+                cpu_.request_interrupt(0xFF);
+            }
+            im2_int_status_[0] |= 0x02;  // Line interrupt status
+            ++line_int_fire_count_;       // G163 test-observable
+        });
 }
 
 void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
