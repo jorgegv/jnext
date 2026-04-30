@@ -115,7 +115,7 @@ clean: debug-clean release-clean gui-clean unit-test-clean
 
 # Run the full regression test suite (FUSE Z80 opcodes + screenshot tests)
 regression:
-	bash test/regression.sh
+	bash test/00regression/regression.sh
 
 # Run all subsystem unit tests in parallel (rebuilds test binaries first if sources changed)
 unit-test: unit-test-build

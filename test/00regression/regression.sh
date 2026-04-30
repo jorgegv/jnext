@@ -3,14 +3,14 @@
 # Runs screenshot tests + a few functional/integration tests.
 # (FUSE Z80 + Z80N opcode coverage lives in `make unit-test`.)
 #
-# Usage: bash test/regression.sh [--update] [test_name...]
+# Usage: bash test/00regression/regression.sh [--update] [test_name...]
 #   --update    Update reference screenshots instead of comparing
 #   test_name   Run only specified tests (default: all)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Locate the jnext executable. Prefer gui-release (fastest), then
 # gui-debug, then the canonical build/. The first existing executable
 # wins. Override with JNEXT=... in the environment to bypass the search.
@@ -29,7 +29,9 @@ fi
 # i.e. via `make unit-test-build`); the rewind functional test below
 # SKIPs gracefully if it is missing.
 CONF="$SCRIPT_DIR/regression_tests.conf"
-IMG_DIR="$SCRIPT_DIR/img"
+# img/ stays under test/ (shared with other test infra); resolve via
+# PROJECT_DIR so we are not confused by SCRIPT_DIR moving.
+IMG_DIR="$PROJECT_DIR/test/img"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -78,7 +80,7 @@ echo ""
 
 # --- Tautological-assertion lint (fast fail on new offenders) ---
 echo -e "${BOLD}[lint-assertions] Scanning test/ for tautological assertions...${RESET}"
-if bash "$SCRIPT_DIR/lint-assertions.sh"; then
+if bash "$PROJECT_DIR/test/lint-assertions.sh"; then
     echo -e "  ${GREEN}PASS${RESET}: no new tautological assertions"
     pass=$((pass + 1))
 else
