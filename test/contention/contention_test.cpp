@@ -1463,27 +1463,29 @@ static void test_integration_smoke() {
     }
 
     // CT-INT-03: Regression screenshot guardrail. The floating-bus
-    // regression test (test/regression_tests.conf — `floating-bus` row,
-    // 48K, demo/floating_bus_test.nex, 150 frames) IS the canonical
-    // 48K contention-sensitive screenshot smoke. Its reference image
-    // was rebaselined for Phase 2 (commit 78ee69a). This row pins the
-    // expectation that contention regressions surface there: it
-    // confirms the reference image and the conf entry both exist, so
-    // the next time `bash test/regression.sh` runs, contention-driven
+    // regression test (test/00regression/regression_tests.conf —
+    // `floating-bus` row, 48K, test/00regression/nex/floating_bus_test.nex,
+    // 150 frames) IS the canonical 48K contention-sensitive screenshot
+    // smoke. Its reference image was rebaselined for Phase 2 (commit
+    // 78ee69a). This row pins the expectation that contention
+    // regressions surface there: it confirms the reference image and
+    // the conf entry both exist, so the next time
+    // `bash test/00regression/regression.sh` runs, contention-driven
     // pixel drift would be caught.
     {
         // Locate repo root from the test binary path. The contention
         // test runs from build/test/ — walk up to find `test/img/` and
-        // `test/regression_tests.conf`.
+        // `test/00regression/regression_tests.conf` (Task 2 reorg
+        // 2026-04-30: conf moved out of test/ into test/00regression/).
         const char* candidates[] = {
             "test/img/floating-bus-reference.png",
             "../test/img/floating-bus-reference.png",
             "../../test/img/floating-bus-reference.png",
         };
         const char* conf_candidates[] = {
-            "test/regression_tests.conf",
-            "../test/regression_tests.conf",
-            "../../test/regression_tests.conf",
+            "test/00regression/regression_tests.conf",
+            "../test/00regression/regression_tests.conf",
+            "../../test/00regression/regression_tests.conf",
         };
         bool ref_exists = false;
         for (const char* p : candidates) {
@@ -1509,8 +1511,10 @@ static void test_integration_smoke() {
         check("CT-INT-03",
               "Regression suite plumbing: floating-bus reference PNG "
               "exists AND regression_tests.conf includes a `floating-bus` "
-              "entry — contention regressions land via test/regression.sh "
-              "[test/img/floating-bus-reference.png; test/regression_tests.conf]",
+              "entry — contention regressions land via "
+              "test/00regression/regression.sh "
+              "[test/img/floating-bus-reference.png; "
+              "test/00regression/regression_tests.conf]",
               ref_exists && conf_has_fb,
               std::string("ref_exists=") + std::to_string(ref_exists)
               + " conf_has_fb=" + std::to_string(conf_has_fb));
