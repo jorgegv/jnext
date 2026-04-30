@@ -810,7 +810,7 @@ static void test_composed_read_divergence() {
     skip("G56-CR-40", "NR 0x40 palette idx autoinc state (see G56)");
     skip("G56-CR-43", "NR 0x43 palette ctrl composed-read (see G56)");
     skip("G56-CR-4C", "NR 0x4C bits 7:4 mask not propagated (see G56)");
-    skip("G56-CR-68", "NR 0x68 b4 from port_ff3b_ulap_en (see G56)");
+    skip("G56-CR-68", "NR 0x68 b3 from port_ff3b_ulap_en (see G56)");
     skip("G56-CR-69", "NR 0x69 bits composed from port_ff (see G56)");
     skip("G56-CR-6A", "NR 0x6A radastan/lores composed (see G56)");
     skip("G56-CR-6B", "NR 0x6B b7 from nr_6b_tm_en (see G56)");
