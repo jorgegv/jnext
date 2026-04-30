@@ -1705,6 +1705,72 @@ static void test_layer2_bank_nr(Emulator& emu) {
     }
 }
 
+// ── NR 0x68 bit-3 read composition ────────────────────────────────────
+//
+// VHDL zxnext.vhd:6093 reads NR 0x68 by composing bit 3 from the live
+// `port_ff3b_ulap_en` rather than from a stored copy. The enable latch
+// has TWO writers — the NR 0x68 bit-3 write path AND the port 0xFF3B
+// path (gated on port 0xBF3B ulap_mode = "01", VHDL :4548) — so the
+// read must reflect the live state, not the last NR 0x68 snapshot.
+//
+// Pre-fix bug (Phase A audit, 2026-04-30): jnext returned regs_[0x68]
+// directly, so a port 0xFF3B write that mutated ulap_en did not show up
+// in subsequent NR 0x68 reads.
+
+static void test_nr_68_ulap_read_composition(Emulator& emu) {
+    set_group("NR68-ULAP-Compose");
+
+    // Reset baseline: bit 3 = 0.
+    {
+        uint8_t got = nr_read(emu, 0x68);
+        check("ULAP-01",
+              "NR 0x68 bit 3 = 0 at reset (ulap_en=0)",
+              (got & 0x08) == 0, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // Drive ulap_en=1 via the port 0xFF3B path (NOT via NR 0x68 write).
+    // VHDL :4548 — gated on ulap_mode = "01", set via port 0xBF3B.
+    emu.port().out(0xBF3B, 0x40);  // ulap_mode = "01"
+    emu.port().out(0xFF3B, 0x01);  // ulap_en   = 1
+    {
+        uint8_t got = nr_read(emu, 0x68);
+        check("ULAP-02",
+              "NR 0x68 bit 3 reflects port 0xFF3B write (ulap_en=1) "
+              "[zxnext.vhd:6093 read composes from port_ff3b_ulap_en]",
+              (got & 0x08) != 0, detail_eq(got, uint8_t{0x08}));
+    }
+
+    // Diagnostic for the cached-vs-live divergence: NR 0x68 write seeds
+    // bit 3 in regs_[0x68], then port 0xFF3B clears the live ulap_en.
+    // The read must follow LIVE state, not cached. Without the fix the
+    // cached 0x08 leaks through and ULAP-03 fails.
+    nr_write(emu, 0x68, 0x08);     // cache bit 3 = 1 + sync ulap_en = 1
+    emu.port().out(0xBF3B, 0x40);  // ulap_mode = "01"
+    emu.port().out(0xFF3B, 0x00);  // live ulap_en ← 0
+    {
+        uint8_t got = nr_read(emu, 0x68);
+        check("ULAP-03",
+              "NR 0x68 bit 3 prefers LIVE port_ff3b_ulap_en over cached "
+              "regs_[0x68] (port 0xFF3B clear after NR 0x68 set bit3)",
+              (got & 0x08) == 0, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // Sanity: the NR 0x68 bit-3 write path still works end-to-end (cache
+    // and live state both move). Compose bits 6:5 (blend mode) at the
+    // same time to verify other bits stay intact through the read path.
+    nr_write(emu, 0x68, 0x68);  // bit 6=1, bit 5=1 → blend mode 11; bit 3=1
+    {
+        uint8_t got = nr_read(emu, 0x68);
+        check("ULAP-04",
+              "NR 0x68 read preserves cached blend bits + reflects ulap_en "
+              "(write 0x68 → read 0x68)",
+              got == 0x68, detail_eq(got, uint8_t{0x68}));
+    }
+
+    // Restore reset state for downstream tests.
+    nr_write(emu, 0x68, 0x00);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1759,6 +1825,9 @@ int main() {
 
     test_layer2_bank_nr(emu);
     std::printf("  Group: L2-Bank-NR — done\n");
+
+    test_nr_68_ulap_read_composition(emu);
+    std::printf("  Group: NR68-ULAP-Compose — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
