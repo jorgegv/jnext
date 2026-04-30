@@ -562,6 +562,108 @@ next frame's line N; (c) write the disable bit → no new schedule.
   the parallax bug is the line-int-chain root cause identified in
   Phase B above and not yet implemented).
 
+### As of 2026-04-30 EOD continuation — G163 LANDED, parallax now scrolls
+
+- Unit: **3738/3554/0/184** (+4 from G163 VT-* rows).
+- Regression: **32/0/0** (zero rebaseline).
+- Main HEAD: `db908a1` (merge); branch chain `1bfd32d` →
+  `22a5d52` → `cfa5219` → `aa0ff49` (4 atomic commits, single
+  rework for NR 0xC4 wiring).
+- **Visual outcome (GUI, interactive)**: top + bottom parallax
+  strips now scroll smoothly with some artifacts; **middle band
+  remains static**. This is the breakthrough Shape B was designed
+  to deliver.
+- Independent reviewer APPROVE after one rework. Strict-binary
+  rule held.
+
+## 2026-04-30 — G163 fix landed + Phase B disassembly complete
+
+### Shape B implementation
+
+`Emulator::reschedule_line_interrupt()` helper added (`src/core/emulator.cpp` + `.h`):
+
+1. Returns early if `video_timing_.line_interrupt_enable()` is false.
+2. Computes `line_offset = video_timing_.line_int_master_cycle_offset()`.
+3. Range-guards `line_offset >= timing_.master_cycles_per_frame`.
+4. Computes `fire_cycle = frame_cycle_ + line_offset`.
+5. Past-this-frame roll-forward: `if fire_cycle <= clock_.get()` →
+   `fire_cycle += timing_.master_cycles_per_frame`. Handles
+   parallax's 8-bit `ADD 0x10` overflow (line 244 → line 4 next frame).
+6. Bumps a **generation counter** `++line_int_schedule_gen_`.
+7. Schedules a `CPU_INT` lambda that checks the captured gen at
+   fire time; superseded events no-op without raising the IRQ.
+
+Wired from FOUR call sites:
+- NR 0x22 write (`emulator.cpp:864`).
+- NR 0x23 write (`emulator.cpp:875`).
+- NR 0xC4 write (`emulator.cpp:1248`) — bit-1 mirror of NR 0x22 bit 1
+  per VHDL `zxnext.vhd:5607-5610` and `:6752` (caught by reviewer).
+- `run_frame()` frame-start (replaces the prior inline schedule).
+
+Generation-counter chosen over the doc'd target-comparison: it's a
+strict superset that handles the rare "rewrite same target value"
+case (each new schedule supersedes ALL prior pending events for that
+device).
+
+### Test coverage — VT-G163-* rows in videotiming_test Section 8
+
+| Row | Stimulus | Expected | Diagnostic-verified |
+|---|---|---|---|
+| MIDRETARGET-01 | NR 0x22 enable + target=200; mid-frame NR 0x23 to still-future line | 2 fires same frame | yes |
+| WRAP-02 | enable + target=200; mid-frame NR 0x23 to already-passed line | 1 fire this frame, +1 next frame | yes |
+| DISABLE-03 | enable + target=200; mid-frame NR 0x22 bit 1 = 0 | 0 fires | yes |
+| C4-DISABLE-04 | enable + target=200; mid-frame NR 0xC4 bit 1 = 0 | 0 fires | yes |
+
+Each row was verified to FAIL without the corresponding wiring (commenting out the helper's call site, observing the test row fail, restoring). The VHDL traceability anchors each row to `zxula_timing.vhd:577` (fire predicate), `:566-570` (target-cvc map), and (for C4-04) `zxnext.vhd:5607-5610` / `:6752` (FF mirror).
+
+### Phase B disassembly — all 9 untraced CALLs decoded
+
+Per-frame CALL map (parallax bank 6, mapped to slots 0+1):
+
+| CALL | Purpose | Banks/ports |
+|---|---|---|
+| `0x011E` | Tween table walk (8 entries × 4 bytes at 0x016A) → writes deltas into Copper program data slots `0x0794-0x07A4` | RAM |
+| `0x01EF` | Increments counter 0x0209; uploads 24-byte Copper program at 0x078F via NR 0x60; NR 0x61=0; NR 0x62=0xC0 (mode-11 restart) | NR 0x60/0x61/0x62 |
+| `0x0213` | Stride-5 memcpy 16 × 12 into slot 7 with NR 0x57 = 0x21/0x22 | banks 0x21/0x22 (BOTTOM strip) |
+| `0x0269` | Analogous to 0x0213 with NR 0x57 = 0x1D/0x1E and counter at (0x0267) | banks 0x1D/0x1E (TOP strip) |
+| **`0x02BF`** | Stride-5 memcpy 16 × 12 into slot 7 with NR 0x57 = 0x19/0x1A; counter at (0x02BD); NR 0x56 = 0x29 (slot-6 source) | **banks 0x19/0x1A — likely middle** |
+| **`0x00F8`** | Throttled (every 2 frames): cycles counter (0x00F7) mod 8; NR 0x57 = 0x18; CALLs 0x056F memcpy from DE = 0x0127 | **bank 0x18 — likely middle init/refresh** |
+| `0x0469` | Keyboard scan: ports 0xFEFE rows; unpacks to bytes at 0x049D | port 0xFEFE |
+| `0x037B` | `OUT (0x123B), 0x02` — Layer 2 enable | port 0x123B |
+| `0x0193` (init) | NR 0x16/0x17 = 0; NR 0x1C = 0x0F; NR 0x18 × 4 (L2 clip 0x08/0xF7/0x00/0xBF); NR 0x19 × 4 (sprite clip 0x08/0xF7/0x00/0xC0); NR 0x15 = 0x80; CALLs 0x06B8 with HL = 0/1, A = 0x10/0x16 (L2 image-load); NR 0x56 = 0x16 | many |
+
+The chained line-IRQ handler 0x062E (which Shape B unblocked) drives banks **0x21/0x22 + 0x1D/0x1E** → matches the user-confirmed "top + bottom strips scrolling".
+
+The per-vsync main-loop CALLs `0x02BF` + `0x00F8` drive banks **0x18 + 0x19 + 0x1A** — these were ALREADY running pre-fix and still run post-fix, so the "middle stays static" symptom is **downstream of those CALLs**, not in the chain.
+
+### Open leads for next session (middle-band investigation)
+
+1. **NR 0x57 paging mismatch for banks 0x18/0x19/0x1A.** The
+   chained-IRQ banks (0x21+) work; the vsync banks (0x18+) don't.
+   Plausible: an SRAM-page-mapping bug for some bank-number range
+   (similar to the historic +0x20 / +1 shift work for Layer 2).
+   Test: with parallax loaded and paused at frame ≥ 250, peek SRAM
+   at the byte the demo's `LD (HL), A` (HL = 0xE003 + stride) hits
+   when NR 0x57 = 0x19; verify it equals what the compositor reads
+   when L2 sources from physical bank 0x19. If the two differ →
+   that's the bug.
+2. **The strips might be SPRITE-based, not L2.** 96 sprites at
+   y=112 / y=128 (per the demo's sprite attribute table) in two
+   horizontal rows would explain top + bottom strips scrolling
+   while middle is empty. The chained IRQ would then be uploading
+   **sprite pattern data**, not L2 source pixels — and the
+   "middle blank" is the demo's intended look (middle is *only*
+   L2/ULA background). Worth confirming by inspecting NR 0x6E
+   (sprite pattern bank) and the destination addresses inside the
+   chained IRQ handler 0x062E.
+3. **Check NR 0x12 mid-frame writes.** Parallax uploads a 24-byte
+   Copper program each frame via CALL 0x01EF. If that program
+   writes NR 0x12 (L2 active page) mid-frame to switch the active
+   bank for top / middle / bottom regions, jnext's per-scanline
+   NR 0x12 handling needs to match. Inspect the 12 instructions
+   at 0x078F (after the per-frame tween patch in CALL 0x011E
+   updates them).
+
 ### As of 2026-04-26 EOD (historical baseline)
 
 - Unit: 3384/3384/0/0 (32 suites, ZERO skips); +48 new test rows
