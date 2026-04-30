@@ -99,6 +99,12 @@ struct EmulatorConfig {
     uint16_t magic_port_address = 0x0000;  // 16-bit port address (default disabled)
     enum class MagicPortMode : uint8_t { HEX, DEC, ASCII, LINE };
     MagicPortMode magic_port_mode = MagicPortMode::HEX;
+
+    // Compositor per-pixel trace (debug). When path is non-empty, the
+    // renderer dumps one CSV row per pixel for the target frame to that
+    // file. Used for compositor-fidelity investigations (e.g. parallax.nex).
+    std::string compositor_trace_path;
+    int         compositor_trace_frame = 250;
 };
 
 // ---------------------------------------------------------------------------

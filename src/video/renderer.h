@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
 #include <array>
+#include <string>
 #include "video/ula.h"
 
 class Mmu;
@@ -280,7 +282,22 @@ public:
                      SpriteEngine* sprites,
                      Tilemap* tilemap);
 
+    /// Configure the per-pixel compositor trace (debug). When path is
+    /// non-empty, the renderer dumps one CSV row per pixel of the target
+    /// frame to that file, then closes it. Empty path disables tracing.
+    /// Used for compositor-fidelity investigations (parallax.nex etc.).
+    void set_compositor_trace(const std::string& path, int target_frame);
+
 private:
+    // Per-pixel compositor trace (set via set_compositor_trace; see CSV
+    // dump in composite_scanline). Empty path = disabled, zero overhead.
+    std::string trace_path_;
+    int         trace_target_frame_   = 250;
+    int         trace_frame_counter_  = 0;
+    std::FILE*  trace_fp_             = nullptr;
+    bool        trace_active_         = false;
+    int         trace_current_row_    = 0;
+
     Ula ula_;
     uint8_t layer_priority_ = 0;    // NextREG 0x15 bits 4:2 (default SLU)
     uint8_t fallback_colour_ = 0xE3; // NextREG 0x4A (default transparent index)

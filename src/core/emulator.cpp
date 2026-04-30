@@ -2647,6 +2647,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Default border: white (ZX colour index 7).
     renderer_.ula().set_border(7);
 
+    // Compositor per-pixel trace (debug; configured via
+    // --compositor-trace / --compositor-trace-frame). Empty path disables.
+    renderer_.set_compositor_trace(cfg.compositor_trace_path,
+                                   cfg.compositor_trace_frame);
+
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
     if (cfg.rewind_buffer_frames > 0) {

@@ -12,6 +12,27 @@
 #include <cstring>
 
 // ---------------------------------------------------------------------------
+// Compositor per-pixel trace (Task 1 Phase A — parallax.nex investigation).
+// Configured via Renderer::set_compositor_trace, driven by the
+// `--compositor-trace FILE [--compositor-trace-frame N]` CLI flags.
+// One CSV row per visible pixel of the target frame; the file is opened
+// lazily on first call to render_frame and closed after that frame is
+// done. Zero cost when no path is set (trace_active_ stays false; the
+// hot inner loop in composite_scanline skips the dump branch).
+// ---------------------------------------------------------------------------
+
+void Renderer::set_compositor_trace(const std::string& path, int target_frame) {
+    trace_path_         = path;
+    trace_target_frame_ = target_frame;
+    trace_frame_counter_ = 0;
+    if (trace_fp_) {
+        std::fclose(trace_fp_);
+        trace_fp_ = nullptr;
+    }
+    trace_active_ = false;
+}
+
+// ---------------------------------------------------------------------------
 // render_frame — per-scanline compositing
 // ---------------------------------------------------------------------------
 //
@@ -30,6 +51,23 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                             SpriteEngine* sprites,
                             Tilemap* tilemap)
 {
+    // Compositor trace (CLI-gated, see set_compositor_trace + header).
+    // First frame after the path is set opens the file; the frame-counter
+    // races up to trace_target_frame_, then the per-pixel dump fires for
+    // exactly that frame and the file is closed below.
+    if (!trace_path_.empty() && !trace_fp_ && trace_frame_counter_ == 0) {
+        trace_fp_ = std::fopen(trace_path_.c_str(), "w");
+        if (trace_fp_) {
+            std::fprintf(trace_fp_,
+                "frame,row,x,ula_px,l2_px,spr_px,tm_px,"
+                "ula_transp,l2_transp,spr_transp,tm_transp,"
+                "l2_prio,ula_border,tm_below,tm_textmode,"
+                "result_px\n");
+        }
+    }
+    const int trace_frame_no = ++trace_frame_counter_;
+    trace_active_ = (trace_fp_ && trace_frame_no == trace_target_frame_);
+
     // Detect hi-res mode: any 640px layer active this frame?
     hi_res_active_ = (layer2.enabled() && layer2.resolution() >= 2) ||
                      (tilemap && tilemap->enabled() && tilemap->is_80col());
@@ -241,7 +279,16 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             }
         }
 
+        trace_current_row_ = row;
         composite_scanline(out, fb_argb, composite_width_);
+    }
+
+    // Close the trace file once the target frame is done so subsequent
+    // frames don't keep appending (one-shot per --compositor-trace flag).
+    if (trace_active_ && trace_fp_) {
+        std::fclose(trace_fp_);
+        trace_fp_ = nullptr;
+        trace_active_ = false;
     }
 
     // Drain log entries that landed in vblank (line >= FB_HEIGHT) for
@@ -533,6 +580,26 @@ void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int wid
         }
 
         dst[x] = result;
+
+        // Per-pixel trace (CLI-gated, see Renderer::set_compositor_trace).
+        if (trace_active_ && trace_fp_) {
+            std::fprintf(trace_fp_,
+                "%d,%d,%d,"
+                "0x%08x,0x%08x,0x%08x,0x%08x,"
+                "%d,%d,%d,%d,%d,%d,%d,%d,"
+                "0x%08x\n",
+                trace_target_frame_, trace_current_row_, x,
+                ula_px, l2_px, spr_px, tm_px,
+                ula_transp ? 1 : 0,
+                l2_transp  ? 1 : 0,
+                spr_transp ? 1 : 0,
+                tm_transp  ? 1 : 0,
+                l2_prio    ? 1 : 0,
+                ula_border ? 1 : 0,
+                tm_pixel_below_[x]    ? 1 : 0,
+                tm_pixel_textmode_[x] ? 1 : 0,
+                result);
+        }
     }
 }
 
