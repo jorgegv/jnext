@@ -727,6 +727,152 @@ With proper invocation, headless trace at frame 250 shows **L2 52.6% + ULA 43.8%
 3. **Headless/GUI parity check** — ensure regression and unit-tests run with `--machine next --load file.nex` (no boot-rom) for demo NEX. Audit existing test invocations.
 4. **Boot-ROM-overlay-still-active behaviour** — when `--boot-rom` IS used (NextZXOS path), should jnext disable the boot-ROM overlay automatically when `--load file.nex` happens? Real hardware relies on firmware to do this; jnext's quick-load skips firmware. Decide whether NEX loader should call `mmu_.set_boot_rom_enabled(false)` or whether the user's invocation responsibility stays as-is.
 
+## 2026-05-01 — RESOLVED: 7-commit G164v2 fix series — parallax matches CSpect
+
+**parallax.nex now visually matches CSpect end-to-end** (user-validated
+in interactive GUI; copper_demo + beast still render correctly).
+Closing this investigation. Final state on main `31d4424`.
+
+### Root cause(s) — coordinate-space bugs cancelling each other
+
+The investigation that started 2026-04-25 (and bounced through G163,
+G164-attempted-revert, etc.) had been chasing the wrong layer all
+along. The core defect was **three independent VHDL-faithfulness bugs
+in coordinate spaces, with two pairs cancelling each other** so that
+fixing one in isolation made the visual output WORSE (which is
+exactly what happened to the failed 2026-04-30 G164 attempt).
+
+The three bugs, each later confirmed against authoritative VHDL:
+
+1. **Per-scanline change-log tag space mismatch.** `Emulator::on_scanline`
+   was tagging entries with raw VC (0..vc_max), but `Renderer::render_frame`
+   replays via `apply_changes_for_line(row)` where `row` is a *framebuffer
+   row* (0..FB_HEIGHT-1=255). Off by 32 because jnext's framebuffer
+   places top-border at rows 0..31 (= VHDL vc 32..63) and display at
+   rows 32..223 (= VHDL vc 64..255). Correct conversion:
+   `framebuffer_row = vc - DISP_Y (32)`.
+
+2. **Copper cvc origin was DISP_Y, should be `min_vactive`.**
+   `tick_copper_for_master_cycles` passed `cvc = vc - DISP_Y` (32) to
+   `Copper::execute`, but the function expects its `vc` param to be
+   0 at the *first active display line*. VHDL's first active display
+   line is at `vc = min_vactive` (64 for NEXT 50 Hz; 80 for Pentagon;
+   40 for 60Hz overrides). Off by 32.
+
+3. **Layer-2 clip on src (post-scroll) instead of dst (pre-scroll).**
+   VHDL `layer2.vhd:167` clips against `hc_eff` / `vc_eff`, both of
+   which are *destination* (pre-scroll) coordinates (line 152:
+   `x_pre <= ... + scroll_x_q`; line 167 uses `hc_eff`, NOT `x_pre`).
+   jnext clipped `src_x` / `src_y` (post-scroll), so the 8-pixel
+   side-gutter the demo intends with `NR 0x18 = 8/247/0/191` wandered
+   through the display as L2 X-scroll changed.
+
+### How they hid each other
+
+- **Bugs #1 + #2 cancelled.** Pre-fix, Copper fired WAITs at vc shifted
+  by +32 (using DISP_Y in cvc). The Copper's NR writes were tagged
+  with raw VC (which was numerically equal to the framebuffer row
+  the demo intended, because both errors were +32). Per-line replay
+  applied them at the visually correct framebuffer row by accident.
+  Fixing only #1 left #2 wrong → Copper writes now applied at the
+  wrong row → parallax got WORSE. Fixing only #2 left #1 wrong →
+  same outcome the other way. They had to be fixed *together*.
+
+- **Bug #3 was always wrong, but invisible until L2 actually scrolled.**
+  pre-G163 the chain handler didn't fire (bug G163, fixed 2026-04-30),
+  so L2 X-scroll never changed mid-frame and the clip-on-src band sat
+  permanently at display columns 0..7 / 248..255 — exactly where the
+  CSpect-correct dst-clip would put it. Fixing #1+#2 enabled the
+  Copper-driven L2 X-scroll for the bottom strip; the wandering clip
+  band became visible as graphics in the supposed-black gutters.
+
+### Fourth bug: per-line SNAPSHOT mechanism had the same +32 mismatch
+
+Separate from the change-log, jnext also has a *snapshot* mechanism
+for state captured at scanline boundaries (`fallback_per_line_`,
+`ula_enabled_per_line_`, `border_per_line_`, tilemap scroll). These
+arrays are read by the renderer at index `fb_row`, but `Emulator::on_scanline`
+was storing at index `(line - 1)` raw VC. Same +32 off-by-one. Surfaced
+by `compositor_integration_test::UDIS-02` after fix #2 landed.
+
+### Fifth issue: cursor-stall regression introduced by fix #1's first form
+
+The first form of fix #1 used a sentinel value `0xFFFF` for any tag
+in pre-display-vblank rows (vc < DISP_Y). The per-scanline cursor
+walks (`while cursor < count && log[cursor].line == line`) compare
+strict-equal, so a leading 0xFFFF entry could not be skipped — the
+cursor stalled at it for the entire frame, and *all* visible-row
+writes got drained in bulk by `flush_remaining_changes` at end-of-frame
+instead of per-line. Independent reviewer caught this.
+
+Fix: coalesce the pre-display vblank tag to `0` instead of `0xFFFF`.
+Multiple vblank writes to the same field then all apply at fb_row 0
+in time order (last write wins, matching VHDL "writes effective
+immediately from first display line"). Trailing-vblank tags stay
+above FB_HEIGHT (no match in the visible loop) and continue to be
+drained by `flush_remaining_changes`.
+
+### The 7-commit series on main
+
+| Hash | Subject |
+|---|---|
+| `cde0a45` | fix(video): G164v2 — change-log tag = vc - DISP_Y (32) |
+| `f5bed99` | fix(copper): cvc origin = min_vactive (64), not DISP_Y |
+| `8fcb345` | fix(layer2): clip on destination col/row, not source |
+| `460fac6` | fix(video): per-line snapshots indexed by fb_row + vblank coalesce to 0 |
+| `68408d1` | test(regression): canonical test/00regression/nex/ paths for magic-* |
+| `51b04b5` | test(compositor): PSCAN-VBLANK-COALESCE-01 — vblank Copper write hits row 0 |
+| `31d4424` | test(refs): rebaseline copper/tilemap/dapr-tilemap_00 |
+
+Touched code: `src/core/emulator.cpp`, `src/video/layer2.cpp`. Tests
+added: `test/compositor/compositor_integration_test.cpp` (1 row).
+Script fix: `test/00regression/regression.sh`. Reference updates:
+`test/img/copper-demo-reference.png`, `test/img/tilemap-demo-reference.png`,
+`test/img/dapr-tilemap_00-reference.png` (user-authorised, visually verified).
+
+### Test status post-fix
+
+- **Unit tests**: 33/33 suites pass, aggregate **3739 / 3555 / 0 / 184**
+  (T/P/F/S; +1 from baseline for the new PSCAN-VBLANK-COALESCE-01 row).
+- **Regression**: **32 / 0 / 0** (Pass / Fail / Skip).
+- **Independent reviewer**: APPROVE all commits (after one rework
+  cycle on `cde0a45` for the cursor-stall concern).
+- **GUI verification**: parallax.nex matches CSpect end-to-end —
+  top + middle + bottom strips all scroll correctly with no flicker
+  or black-rectangle artefacts. copper_demo + beast still render
+  correctly.
+
+### Process lessons preserved
+
+1. **Multiple coordinate-space bugs cancelling each other will look
+   like "fixing one made it worse"** — every isolated fix unmasks the
+   next. Plan to fix them as a coupled set, with GUI verification at
+   each step. Three round-trips of side-by-side were necessary on this
+   one (after fix #1; after fix #2; after fix #3); each surfaced the
+   next bug in the chain.
+
+2. **The user as visual oracle is irreplaceable for animation-heavy
+   demos.** Headless single-PNG capture cannot validate motion. The
+   2026-04-30 G164 attempt passed all unit tests and zero regression
+   diffs but was visually wrong — only direct user GUI inspection
+   caught it. Re-confirmed today: every fix in this series was
+   user-validated in the GUI before commit.
+
+3. **Worktree → user GUI side-by-side BEFORE merging is the right
+   workflow** for any per-scanline rendering change. Cost ~5 minutes;
+   alternative (commit-then-revert) costs ~1 hour.
+
+4. **An algorithmic regression caught by the reviewer must be fixed
+   in the same phase, not deferred.** The cursor-stall concern was
+   a real correctness regression. Coalescing vblank to 0 (instead of
+   skip-leading-sentinels in 14 places) was the simpler, smaller fix.
+
+5. **Two pairs of bugs cancelled each other (`cde0a45 ↔ f5bed99`)**
+   shows how much hidden VHDL-faithfulness drift can accumulate when
+   coordinate spaces are inconsistent. The L2 clip-on-src bug
+   (`8fcb345`) had been latent for months — invisible until the
+   chain-handler fix (G163, 2026-04-30) made L2 actually scroll.
+
 ### As of 2026-04-26 EOD (historical baseline)
 
 - Unit: 3384/3384/0/0 (32 suites, ZERO skips); +48 new test rows
