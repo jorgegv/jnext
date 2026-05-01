@@ -25,11 +25,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card               |       21 |        8 |      0 |      13 |     38% | 🟡 Task 7r2: G40/G41 SD-10..15 + MMC-01..03 added. |
 | Sprites               |      196 |      196 |      0 |       0 |    100% | 🟢 Task 7r2: G06/G13/G15 OVF + NR70 stubs added. |
 | Compositor            |      144 |      142 |      0 |       2 |     98% | 🟡 Task 8 W1+W2: G27/G93/G04-01/G11×3 closed; G108×3 + G04-02/03 re-homed. |
-| Compositor (int)      |        7 |        7 |      0 |       0 |    100% | 🟢 Task 8 t1: G108 PFF×4 added. |
+| Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 Task 8 t1: G108 PFF×4 added. |
 | ULA Video             |       98 |       96 |      0 |       2 |     97% | 🟡 Task 7r2: G07/G08/G10 (S5-PSL/S9-PSL/S17.x). |
 | ULA Video (int)       |       12 |       11 |      0 |       1 |     91% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | Floating Bus          |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       31 |       31 |      0 |       0 |    100% | 🟢 Task 8 W1: G71/G106/G107/G109 closed (zero skips). |
+| VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 Task 8 W1: G71/G106/G107/G109 closed (zero skips). |
 | Contention            |       76 |       71 |      0 |       5 |     93% | 🟡 Task 7r2: G50/G51/G53 (CT-DELAY/TURBO-08/FUSE-05). |
 | I/O Port Dispatch     |       87 |       83 |      0 |       4 |     95% | 🟡 Task 7r2: G45 EXPBUS-AND-01..04 added. |
 | Audio (AY+DAC+Beeper) |      141 |      132 |      0 |       9 |     93% | 🟡 Task 7r2: G29/G30/G31 (MX-30 + AY-30..34 + SD-09). |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3738** | **3554** |  **0** | **184** | **95%** | 🟡  |
+| **Total**             | **3745** | **3561** |  **0** | **184** | **95%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
