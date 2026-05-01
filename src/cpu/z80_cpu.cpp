@@ -176,6 +176,84 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
     tstates += 3;
 }
 
+// ── G141 (2026-05-01) — FUSE in-opcode contention overrides ────────────
+// The FUSE Z80 opcode files use contend_read / contend_read_no_mreq /
+// contend_write_no_mreq macros (third_party/fuse-z80/z80_macros.h:109-122)
+// for M1 fetch contention and the no-MREQ tail cycles inside multi-cycle
+// instructions (LDIR/LDDR/EX(SP)/DJNZ/etc.). Built with -DCORETEST
+// (src/cpu/CMakeLists.txt) the macros become extern function calls; we
+// implement them here so every in-opcode contention point flows through
+// `ContentionModel::contention_tick()` — the same VHDL-faithful gate the
+// data path uses. This is the G141 fix: every cycle on a contended page
+// during the active raster window now adds the correct stretch instead
+// of zero (the legacy ula_contention[]/memory_map_read[] tables are
+// retired by G53; see z80_build_contention_tables() below).
+//
+// All three functions pass `mreq_n=false` even though the no-MREQ macros
+// nominally represent a non-MREQ tail cycle. Rationale (VHDL oracle —
+// zxula.vhd:582-600):
+//
+//   * `wait_s` (line 582-583) gates ON THE WINDOW — `(hc_adj × vc ×
+//     contention_en)` — independent of MREQ. So both data and no-MREQ
+//     macros need to enter contention_tick() during the same window.
+//   * `o_cpu_contend` for 48K/128K (line 595) fires on:
+//       (mem_c AND mreq23_n='1') OR (port_c AND iorq_n='0' ...)
+//     where `mreq23_n` is the REGISTERED prior-cycle MREQ_n. The path
+//     therefore fires on contended-memory cycles whether the CURRENT
+//     MREQ is asserted or not — the registered version captures the
+//     in-opcode tail.
+//   * `o_cpu_wait_n` for +3 (line 600) fires on:
+//       (mreq_n='0' AND mem_c) AND timing_p3 AND wait_s
+//     i.e. only the asserted-MREQ memory path.
+//
+// jnext's `contention_tick()` collapses both paths into a single returned
+// stretch keyed on `(hc, vc)` and triggers the memory side on
+// `mreq_n == false && mem_c`. Passing `mreq_n=false` for all three macro
+// overrides therefore matches the 48K/128K registered-MREQ semantics
+// (Path A) and the +3 asserted-MREQ semantics (the only +3 path) — both
+// machines now produce the same per-cycle stretch the VHDL would emit.
+//
+// The conceptual model: the FUSE macros represent a cycle on the address
+// bus that touches a memory page; the contention gate keys on the page
+// being contended AND the raster window being active, NOT on whether the
+// CPU happens to assert MREQ on the wire that exact T-state. This is the
+// same model the data callbacks above use.
+extern "C" void contend_read(libspectrum_word address, libspectrum_dword time) {
+    if (s_contention) {
+        s_contention->set_mem_active_page(mem_active_page_for(address));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/false, /*iorq_n*/true,
+            /*rd_n*/false,   /*wr_n*/true,
+            address, pos.hc, pos.vc);
+    }
+    tstates += time;
+}
+
+extern "C" void contend_read_no_mreq(libspectrum_word address, libspectrum_dword time) {
+    if (s_contention) {
+        s_contention->set_mem_active_page(mem_active_page_for(address));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/false, /*iorq_n*/true,
+            /*rd_n*/true,    /*wr_n*/true,
+            address, pos.hc, pos.vc);
+    }
+    tstates += time;
+}
+
+extern "C" void contend_write_no_mreq(libspectrum_word address, libspectrum_dword time) {
+    if (s_contention) {
+        s_contention->set_mem_active_page(mem_active_page_for(address));
+        auto pos = derive_hc_vc(tstates);
+        tstates += s_contention->contention_tick(
+            /*mreq_n*/false, /*iorq_n*/true,
+            /*rd_n*/true,    /*wr_n*/true,
+            address, pos.hc, pos.vc);
+    }
+    tstates += time;
+}
+
 } // extern "C"
 
 // ── Z80N opcode lookup table ────────────────────────────────────────────
