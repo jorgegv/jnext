@@ -743,14 +743,138 @@ static void test_ulanext_integration(Emulator& emu) {
                   r.pixel, exp_pixel, r.select_bgnd));
     }
 
-    // INT-ULANEXT-02 — runtime renderer integration. Encoder is unit-tested
-    // by S6.01-S6.12 in ula_test.cpp; render_display_line/_hicolour/_hires
-    // at src/video/ula.cpp:386-423 never invoke compute_ulanext_pixel and
-    // kUlaPalette is 16-entry. VHDL zxula.vhd:485-528 + zxnext.vhd:6981
-    // require an 8-bit ula_pixel routed through a 256-entry x 2-bank
-    // palette store. See G102.
-    skip("INT-ULANEXT-02",
-         "F-G102-RUNTIME: ULAnext renderer integration absent (see G102)");
+    // INT-ULANEXT-02 — runtime renderer integration end-to-end (G102).
+    //
+    // Path exercised (VHDL → jnext):
+    //   zxula.vhd:485-528  ULAnext encoder produces 8-bit ula_pixel.
+    //                      Paper cycle (pixel_en=0, format=0x07) emits
+    //                      0x80 | ((attr>>3) & 0x1F)  (line 520).
+    //   zxnext.vhd:6981    runtime palette read uses
+    //                      '0' & ula_palette_select_1 & ula_pixel(7:0)
+    //                      i.e. 256-entry x 2-bank ULA palette store.
+    //   zxnext.vhd:6952-6953 NR 0x40+0x41 writes to ULA target populate
+    //                      palette_utm at nr_palette_idx[7:0] (the FULL
+    //                      8-bit index, no 4-bit mask — proven by
+    //                      jnext PaletteManager::write_entry G102 fix).
+    //   zxnext.vhd:5391-5394  NR 0x43 b0 = ULAnext enable;
+    //                         NR 0x43 b1 = active_ula_palette select.
+    // jnext: emulator.cpp NR 0x40/0x41/0x43 handlers route writes into
+    //        PaletteManager + Ula::set_ulanext_en + the palsel mirror;
+    //        Ula::render_display_line ulanext_en branch invokes
+    //        compute_ulanext_pixel and palette_->ulanext_colour.
+    //
+    // Stimulus uses a paper cycle so the encoder lands at idx ≥ 0x80 —
+    // a slot that never touches the legacy 16-entry ULA mirror.  This
+    // makes the negative gate trustworthy: under ulanext_en=0 the
+    // renderer reads `attr & 7 = 5` from the legacy 16-entry mirror,
+    // which we never wrote and thus stays at its default cyan value
+    // (kUlaPalette[5]).
+    //
+    //   1. Enable ULAnext via NR 0x43 = 0x01 (b0=1, b1=0 → bank 0).
+    //   2. NR 0x42 = 0x07 (default; paper encoder = 0x80 | (attr>>3 & 0x1F)).
+    //   3. Plant pixel byte 0x00 (all paper) at row 0 col 0.
+    //   4. Plant attr byte 0x28 (paper=5, ink=0; bits 5:3 = 101 → 5).
+    //      Paper encoder: 0x80 | ((0x28 >> 3) & 0x1F) = 0x80 | 5 = 0x85.
+    //   5. NR 0x43 = 0x01 (target=ULA_FIRST), NR 0x40 = 0x85 (idx),
+    //      NR 0x41 = 0xC3 (bright red).
+    //   6. Render display row 0 (fb row 32); assert pixel at fb_x = DISP_X
+    //      matches the poked colour (idx 0x85 in the wider palette).
+    //
+    // Bank-1 isolation: write a distinct colour into bank 1 at the same
+    // idx, switch active read bank to 1 via NR 0x43 = 0x03 (b0=1, b1=1),
+    // re-render, assert the bank-1 colour now surfaces.
+    //
+    // Negative gate: disable ULAnext (NR 0x43 = 0x00) — the renderer must
+    // fall back to the legacy 16-entry path, producing the standard
+    // ULA "attr=0x28 paper=5" → cyan = kUlaPalette[5].
+    {
+        // Reset baseline scroll state from prior INT rows.
+        emu.nextreg().write(0x27, 0x00);
+        emu.nextreg().write(0x26, 0x00);
+        emu.nextreg().write(0x68, 0x00);   // ulap_en off, fine-x off
+        emu.port().out(0xBF3B, 0x00);      // ulap_mode=00
+        emu.port().out(0xFF3B, 0x00);      // ulap_en=0
+
+        // Plant pixel + attr.  pixel byte 0x00 (all paper); attr 0x28
+        // (paper=5, ink=0).  Paper-cycle encoder yields idx 0x85.
+        fill_pixels(emu, 0x00);
+        fill_attrs(emu, 0x28);
+        poke_bank5(emu, 0x4000 + emu_pixel_addr_offset(0, 0), 0x00);
+
+        // Enable ULAnext, set format = 0x07 (default).
+        emu.nextreg().write(0x42, 0x07);
+        emu.nextreg().write(0x43, 0x01);   // ulanext_en=1, active_ula=0,
+                                           // write_select=0 (ULA_FIRST)
+
+        // VHDL encoder paper cycle (zxula.vhd:520):
+        //   ula_pixel = paper_base_index(7:5) & attr(7:3)
+        //             = "100" & "00101" = 0x85
+        const uint8_t exp_idx_b0 = 0x85;
+
+        // Bank-0 palette write at idx 0x85.  RRRGGGBB byte 0xC3 → bright
+        // red (r=6, g=0, b3=7).
+        const uint8_t  bank0_byte = 0xC3;
+        const uint32_t exp_bank0  = rgb333_to_argb8888(6, 0, 7);
+        emu.nextreg().write(0x40, exp_idx_b0);
+        emu.nextreg().write(0x41, bank0_byte);
+
+        std::array<uint32_t, 320> line_b0{};
+        render_line(emu, 32, line_b0);
+        const uint32_t got_b0 = line_b0[Ula::DISP_X];
+
+        // Bank-1 palette write at the same idx — switch write target to
+        // ULA_SECOND (NR 0x43 b6:4 = 100; ulanext_en stays 1; active_ula
+        // stays 0 so we can verify isolation by switching read bank
+        // separately).  NR 0x43 = 0b01000001 = 0x41.
+        emu.nextreg().write(0x43, 0x41);   // ulanext_en=1, write_select=4
+                                           // (ULA_SECOND), active_ula=0
+        emu.nextreg().write(0x40, exp_idx_b0);
+        const uint8_t  bank1_byte = 0x1C;  // 000_111_00 → r=0, g=7, b3=0
+        const uint32_t exp_bank1  = rgb333_to_argb8888(0, 7, 0);
+        emu.nextreg().write(0x41, bank1_byte);
+
+        // Read with active bank still 0 — bank-0 colour must persist.
+        emu.nextreg().write(0x43, 0x01);
+        std::array<uint32_t, 320> line_b0_after{};
+        render_line(emu, 32, line_b0_after);
+        const uint32_t got_b0_after = line_b0_after[Ula::DISP_X];
+
+        // Flip active read bank to 1 — bank-1 colour must surface.
+        emu.nextreg().write(0x43, 0x03);   // ulanext_en=1, active_ula=1
+        std::array<uint32_t, 320> line_b1{};
+        render_line(emu, 32, line_b1);
+        const uint32_t got_b1 = line_b1[Ula::DISP_X];
+
+        // Negative gate: disable ULAnext.  Renderer must fall back to
+        // the legacy 16-entry path (attr=0x28 paper=5 → cyan).
+        emu.nextreg().write(0x43, 0x00);
+        std::array<uint32_t, 320> line_off{};
+        render_line(emu, 32, line_off);
+        const uint32_t got_off = line_off[Ula::DISP_X];
+
+        const bool all_ok = got_b0       == exp_bank0
+                         && got_b0_after == exp_bank0
+                         && got_b1       == exp_bank1
+                         && got_off      == kUlaPalette[5];
+
+        check("INT-ULANEXT-02",
+              "ULAnext runtime palette: NR 0x43 b0 enable + NR 0x42 format "
+              "+ NR 0x40/0x41 8-bit poke at full nr_palette_idx routes "
+              "pixels through compute_ulanext_pixel + ulanext_colour; "
+              "bank-0/bank-1 isolation via NR 0x43 b1 (active_ula); "
+              "negative gate (ulanext_en=0) restores kUlaPalette  "
+              "(zxula.vhd:485-528, :520; zxnext.vhd:5394, 6952-6981; "
+              "src/video/ula.cpp render_display_line ulanext_en branch)",
+              all_ok,
+              fmt("got_b0=0x%08X (exp 0x%08X) "
+                  "got_b0_after=0x%08X "
+                  "got_b1=0x%08X (exp 0x%08X) "
+                  "got_off=0x%08X (exp cyan 0x%08X)",
+                  got_b0, exp_bank0,
+                  got_b0_after,
+                  got_b1, exp_bank1,
+                  got_off, kUlaPalette[5]));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

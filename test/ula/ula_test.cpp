@@ -582,11 +582,88 @@ static void test_section5_timex() {
 
     // S5.11 — hi-res border encodes border_clr_tmx as 6-bit
     // "01" & (not port_ff(5:3)) & port_ff(5:3) per zxula.vhd:419.
-    // Current src/video/ula.cpp:710-712 truncates to (reg>>3)&0x07,
-    // dropping the leading-"01" base + inverted-paper composite.
-    // See G105.
-    skip("S5.11",
-         "F-G105-PALGRP: hi-res border 6-bit encoding absent (see G105)");
+    // Closed by G105: under i_ulanext_en='1', border_active_d='1' the
+    // VHDL ULAnext encoder (zxula.vhd:504) emits
+    //   ula_pixel = paper_base_index(7:3) & attr_active(5:3)
+    //             = 0x80 | (~paper & 7)
+    // which then indexes the wider 256-entry ULA palette (G102's
+    // ulanext_colour, zxnext.vhd:6981).  jnext's render_border_line now
+    // applies the same math when ulanext_en_=true.
+    //
+    // Stimulus: enable ULAnext, set HI_RES (port_ff bits 5:3 = 110 →
+    // paper=6), poke a distinct RGB into the 256-entry ULAnext palette
+    // at the encoded slot, render row 0 (top border), assert the rendered
+    // pixel matches the poked colour.
+    //
+    // Negative gate: with ULAnext disabled, the renderer falls back to
+    // the legacy 3-bit paper-truncation path — which for paper=6
+    // resolves to kUlaPalette[6] = yellow.  This proves the change is
+    // gated on ulanext_en_ and doesn't perturb the standard-ULA path.
+    {
+        // Bring up a PaletteManager so ulanext_colour has a sane store.
+        UlaBed bed;
+        PaletteManager pal;
+        pal.reset();
+        bed.ula.set_palette(&pal);
+        bed.ula.init_border_per_line();
+
+        // Set HI_RES with paper bits 5:3 = 110 (=6).  border_clr_tmx_8bit
+        // = 0x40 | ((~6 & 7) << 3) | 6 = 0x40 | 0x08 | 6 = 0x4E.
+        // Encoder for ULAnext border (zxula.vhd:504):
+        //   ula_pixel = 0x80 | (border_clr_tmx_8bit(5:3))
+        //             = 0x80 | (0x4E >> 3) & 7
+        //             = 0x80 | 1
+        //             = 0x81
+        const uint8_t paper = 6;
+        const uint8_t exp_idx = static_cast<uint8_t>(0x80 | ((~paper) & 0x07));
+
+        bed.ula.set_screen_mode(static_cast<uint8_t>(paper << 3));  // HI_RES, paper=6
+        bed.ula.set_ulanext_en(true);
+        // Active bank = bank 0 (default); explicit setter for clarity.
+        bed.ula.set_active_ula_palette(false);
+
+        // Write a distinct RGB333 (bright magenta = r=7,g=0,b=7) into
+        // bank 0 at the encoded slot via the regular NR 0x40+0x41 path:
+        //   write_control selects ULA_FIRST (target_palette_),
+        //   set_index sets nr_palette_idx,
+        //   write_8bit commits RGB333 with nr_palette_value (zxnext.vhd:4919).
+        // 0xE3 = 0b111_000_11 → r=7, g=0, b=(11<<1)|((b1|b0)) = 7 → magenta.
+        pal.write_control(0x00);   // ULA_FIRST, auto-inc on, ulanext on
+        pal.set_index(exp_idx);
+        pal.write_8bit(0xE3);
+        const uint32_t exp_argb = rgb333_to_argb8888(7, 0, 7);
+
+        std::array<uint32_t, 320> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
+        const uint32_t got_ulanext = line[0];
+
+        // Negative gate: disable ULAnext and re-render — should fall back
+        // to the legacy 3-bit paper-truncation (paper=6 → kUlaPalette[6]).
+        bed.ula.set_ulanext_en(false);
+        std::array<uint32_t, 320> line_legacy{};
+        bed.ula.render_scanline(line_legacy.data(), 0, bed.mmu);
+        const uint32_t got_legacy = line_legacy[0];
+
+        // VHDL-formula sanity: vhdl_border_clr_tmx(0x30) computes the
+        // 8-bit attr value; assert it matches our derivation 0x4E.
+        const uint8_t btmx_check = vhdl_border_clr_tmx(0x30);
+
+        check("S5.11",
+              "zxula.vhd:419 + :504 — HI_RES border under ULAnext: "
+              "border_clr_tmx 8-bit attr → encoder ula_pixel = 0x80 | "
+              "(~paper & 7) → wider 256-entry ULA palette lookup "
+              "(zxnext.vhd:6981).  Legacy 3-bit fallback preserved "
+              "when ulanext_en=0",
+              btmx_check == 0x4E
+              && got_ulanext == exp_argb
+              && got_legacy  == kUlaPalette[6],
+              fmt("btmx=0x%02X (exp 0x4E) idx=0x%02X "
+                  "got_ulanext=0x%08X (exp 0x%08X)  "
+                  "got_legacy=0x%08X (exp yellow 0x%08X)",
+                  btmx_check, exp_idx,
+                  got_ulanext, exp_argb,
+                  got_legacy, kUlaPalette[6]));
+    }
 
     // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).
     // VHDL zxnext.vhd:3615-3616 (port_ff_reg <= cpu_do on port_ff_wr),

@@ -378,21 +378,26 @@ void PaletteManager::apply_change(const PaletteChange& c)
     switch (c.target) {
         case PaletteId::ULA_FIRST:
         case PaletteId::ULA_SECOND: {
-            // Legacy 16-entry path (preserves byte-identical behaviour for
-            // `ula_colour` consumers — STANDARD ULA renderer, debugger UI,
-            // etc.).  c.index has been masked to 0..15 by write_entry's
-            // `is_ula ? (index_ & 0x0F) : index_` for the legacy log entry,
-            // BUT the wider ULAnext mirror needs the FULL 8-bit
-            // `nr_palette_idx` value the VHDL `palette_utm` write address
-            // would carry (zxnext.vhd:6952, 6957).  We therefore use
-            // `c.index` directly for the ulanext mirror — write_entry
-            // logs ULA changes with the full unmasked index now (see
-            // commit body for the mask-removal rationale).
-            const uint8_t idx_legacy = c.index & 0x0F;
-            ula_rgb333_[bank][idx_legacy] = c.rgb333;
-            ula_argb_[bank][idx_legacy]   = argb;
-            // G102 — wider ULAnext palette mirror.  Full 8-bit index per
-            // VHDL palette_utm address (zxnext.vhd:6952).
+            // G102 — Two parallel mirrors:
+            //
+            //   - Legacy 16-entry `ula_rgb333_` is updated ONLY for
+            //     c.index in 0..15.  Writes at higher indices land
+            //     exclusively in the wider ulanext mirror — without this
+            //     guard, an idx-0x85 ULA-target write would fold into
+            //     legacy[5] (because 0x85 & 0x0F = 5), corrupting the
+            //     legacy 16-entry palette consumer (the standard ULA
+            //     renderer's `ula_colour(5)`) when only the wider
+            //     ULAnext path is meant to receive the value.
+            //
+            //   - Wider 256-entry `ulanext_rgb333_` is always updated at
+            //     the full c.index.  Matches VHDL palette_utm address
+            //     `'0' & write_select(2) & nr_palette_idx[7:0]`
+            //     (zxnext.vhd:6952, 6957) where the 8-bit nr_palette_idx
+            //     drives the dpram address with no folding.
+            if (c.index < ULA_SIZE) {
+                ula_rgb333_[bank][c.index] = c.rgb333;
+                ula_argb_[bank][c.index]   = argb;
+            }
             ulanext_rgb333_[bank][c.index] = c.rgb333;
             ulanext_argb_[bank][c.index]   = argb;
             break;
