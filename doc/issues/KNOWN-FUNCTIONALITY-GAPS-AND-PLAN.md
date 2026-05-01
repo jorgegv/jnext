@@ -1134,19 +1134,11 @@ where possible.
 - **Dependencies**: G50.
 - **Effort**: M.
 
-### G52. Contention Phase-4 screenshot rebaseline
-- **What**: G50 wiring changes frame length on 48K/128K/+3; every
-  screenshot reference under `test/00regression/img/` for those machines must be
-  re-baselined. Plan calls this "primary risk".
-- **Dependencies**: G50.
-- **Effort**: L.
+### G52. Contention Phase-4 screenshot rebaseline [closed-as-noop]
+- **Status: NO-OP 2026-05-01.** After G141 + G53 landed, full regression suite ran 33/0/0 with NO drifted references. The cascade described in the original entry did not materialise empirically: NEXT-mode demos default to contention disabled (NR 0x08 b6 / NR 0x07 ≥ 1); 48K demos that DO run with contention on (boot-48k, floating-bus, contention-test, tap-demo) capture past the active raster window or the per-frame timing shift falls within sub-pixel rendering tolerance. No images rebaselined.
 
-### G53. FUSE-table retirement decision
-- **What**: Once G50 lands, two contention paths coexist (FUSE
-  table at `z80_cpu.cpp:33-122` + new ContentionModel). Coexistence
-  risks divergence; retirement requires removing the table consumer.
-- **Dependencies**: G50.
-- **Effort**: L.
+### G53. FUSE-table retirement decision [closed]
+- **Status: CLOSED 2026-05-01** (commit `f11f023`, part of `feature/g141-g53-fuse-contention`). With G141 routing all in-opcode contention through `ContentionModel::contention_tick()`, the legacy FUSE consumer is dead. Deleted: `z80_build_contention_tables`, `z80_set_page_contended`, the four extern table definitions (`memory_map_read`, `memory_map_write`, `ula_contention`, `ula_contention_no_mreq`), and their declarations in `third_party/fuse-z80/fuse_z80_shim.h`. CT-FUSE-05 asserts the single-source invariant via exact-match equality (gate-OFF totals == un-contended baseline). Independent reviewer APPROVE.
 
 ### G54. Contention port_7ffd_active term (CT-IO-05/06)
 - **What**: Bare-class `port_contend()` does not consume
@@ -1449,13 +1441,10 @@ where possible.
 - **Dependencies**: change condition + modulo index.
 - **Effort**: L.
 
-### G141. FUSE in-opcode contention macros inert (memory_map_read[]/ula_contention[] zero-filled)
-- **What**: VHDL `zxula.vhd:583,595,600` — `wait_s` fires on every contended cycle (M1, no-MREQ, data, port). FUSE `contend_read/_no_mreq/contend_write_no_mreq` macros at `third_party/fuse-z80/z80_macros.h:109-122` use `memory_map_read[].contended` and `ula_contention[]`. jnext `z80_cpu.cpp:484-508` zero-fills both with explicit comment ("any read returns 0 delay"). The outer-callback path consumes `ContentionModel::contention_tick()` (G50 in flight) but inner FUSE-macro path stays inert.
-- **User impact**: contended `LDIR`/`OUTI`/`INC (HL)` lose contention on M1 + no-MREQ tail; 48K contention-timing demos (rasterbars, copper-style sync, tape decoders) off by 4-7 T-states per contended opcode.
-- **Source ref**: Wave-2 memory (NEW-CONT-1); reviewer APPROVE — high impact.
-- **Coverage today**: G50 covers outer callback only; G53 retirement decision blocked behind this.
-- **Dependencies**: G53 must defer until M1/no-MREQ path re-enters ContentionModel.
-- **Effort**: M.
+### G141. FUSE in-opcode contention macros inert (memory_map_read[]/ula_contention[] zero-filled) [closed]
+- **Status: CLOSED 2026-05-01** (`feature/g141-g53-fuse-contention`, commits `9ea5fc4` + `f11f023` + `d9adbd9`). FUSE `contend_read`/`contend_read_no_mreq`/`contend_write_no_mreq` are now implemented as C functions in `src/cpu/z80_cpu.cpp` calling `ContentionModel::contention_tick()`; `CORETEST` is set on `third_party/fuse-z80/fuse_z80_core.c` (single TU containing all FUSE opcode files via `#include`) so all macro-call sites resolve to the function-override path. M1 fetch + no-MREQ tail + data cycles all consult the same VHDL-faithful gate. CT-FUSE-01/02/05 now `check()`; CT-FUSE-03/04 retired (port contention covered by data-path CT-IO-01..09 + CT-INT-01). fuse_z80_test holds 1356/1356.
+- **Coverage today**: contention_test 74/74/0/0 (was 76/71/0/5).
+- Independent reviewer APPROVE.
 
 ### G142. NR 0x07 cpu_speed deferred bus-idle commit not modelled
 - **What**: VHDL `zxnext.vhd:5796-5828` — `cpu_speed <= nr_07_cpu_speed` only on `cpu_mreq_n='1' AND cpu_iorq_n='1' AND cpu_m1_n='1' AND dma_holds_bus='0'` (bus-idle). jnext `emulator.cpp:322-326` synchronously calls `clock_.set_cpu_speed` and `contention_.set_cpu_speed` on NR 0x07 write.

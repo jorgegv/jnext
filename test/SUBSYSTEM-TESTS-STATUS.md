@@ -30,7 +30,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video (int)       |       12 |       11 |      0 |       1 |     91% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | Floating Bus          |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 Task 8 W1: G71/G106/G107/G109 closed (zero skips). |
-| Contention            |       76 |       71 |      0 |       5 |     93% | 🟡 Task 7r2: G50/G51/G53 (CT-DELAY/TURBO-08/FUSE-05). |
+| Contention            |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |       87 |       83 |      0 |       4 |     95% | 🟡 Task 7r2: G45 EXPBUS-AND-01..04 added. |
 | Audio (AY+DAC+Beeper) |      141 |      132 |      0 |       9 |     93% | 🟡 Task 7r2: G29/G30/G31 (MX-30 + AY-30..34 + SD-09). |
 | Audio (NextREG)       |       33 |       25 |      0 |       8 |     75% | 🟡 Task 7r2: G73 NR-43 mixer-gate added. |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3742** | **3561** |  **0** | **181** | **95%** | 🟡  |
+| **Total**             | **3740** | **3564** |  **0** | **176** | **95%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
