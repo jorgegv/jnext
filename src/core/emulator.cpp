@@ -4019,25 +4019,36 @@ void Emulator::on_scanline(int line)
         renderer_.ula().snapshot_border_for_line(line - 1);
         tilemap_.snapshot_scroll_for_line(line - 1);
     }
-    // Tag subsequent palette writes with the new scanline so the
-    // change-log is in scanline order (apply_changes_for_line advances
-    // a single cursor, no per-line search). See TASK-PER-SCANLINE-
-    // PALETTE-PLAN.md.
-    palette_.set_current_line(line);
-    // Same scanline tag for Layer 2 scroll changes (NR 0x16/0x17/0x71).
-    layer2_.set_current_line(line);
-    // Same scanline tag for sprite-attribute writes (port 0x57, NR 0x75-0x79).
-    sprites_.set_current_line(line);
-    // Same scanline tag for port-0xFF Timex screen-mode writes (G07).
-    renderer_.ula().set_current_line(line);
-    // Same scanline tag for ULA scroll writes (G08).
-    renderer_.ula().set_current_scroll_line(line);
-    // Same scanline tag for ULA active-palette selector writes (G10).
-    renderer_.ula().set_palsel_current_line(line);
-    // Same scanline tag for tilemap NR 0x6B writes (G06: mode flip,
-    // textmode, 512-tile, tm_on_top, enable). Bit 4 (palette select) is
-    // owned by Ula::palsel6b above.
-    tilemap_.set_current_nr6b_line(line);
+    // G164v2 — convert raw VC scanline to framebuffer-row before tagging
+    // per-scanline change-log entries. Renderer::render_frame iterates
+    // `row` in framebuffer-row space (0..FB_HEIGHT-1) and calls each
+    // subsystem's apply_changes_for_line(row); the change-log entry's
+    // line tag must be in the SAME space. The offset between raw VC and
+    // framebuffer row is DISP_Y (32) — NOT min_vactive (64), which was
+    // the failed G164 hypothesis. Specifically: jnext's framebuffer
+    // shows top-border at rows 0..31 and display at rows 32..223, while
+    // VHDL has vblank at vc=0..31, top-border at vc=32..63, display at
+    // vc=64..255. So framebuffer_row = vc - 32.
+    //
+    // Rows outside the framebuffer (vc < DISP_Y = vblank, or vc beyond
+    // FB_HEIGHT+DISP_Y = post-display vblank) are tagged with the
+    // sentinel kVblankLineTag = 0xFFFF so they never match a rendered
+    // row; their writes are picked up by the post-render
+    // flush_remaining_changes path or by the next frame's baseline.
+    const int fb_row = line - Renderer::DISP_Y;
+    static constexpr uint16_t kVblankLineTag = 0xFFFF;
+    const uint16_t tag =
+        (fb_row >= 0 && fb_row < Renderer::FB_HEIGHT)
+            ? static_cast<uint16_t>(fb_row)
+            : kVblankLineTag;
+
+    palette_.set_current_line(tag);
+    layer2_.set_current_line(tag);
+    sprites_.set_current_line(tag);
+    renderer_.ula().set_current_line(tag);
+    renderer_.ula().set_current_scroll_line(tag);
+    renderer_.ula().set_palsel_current_line(tag);
+    tilemap_.set_current_nr6b_line(tag);
 }
 
 void Emulator::on_vsync()
