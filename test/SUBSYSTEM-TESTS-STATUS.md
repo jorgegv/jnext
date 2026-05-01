@@ -9,7 +9,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FUSE Z80              |     1356 |     1356 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |       28 |       18 |      0 |      10 |     64% | 🟡 Task 7r2: G66/G67 SS-VER + RB-FRAME skips added. |
-| Copper                |       81 |       79 |      0 |       2 |     97% | 🟡 Task 7r2: G65 ARB-G65-01 tied-edge added. |
+| Copper                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        2 |        2 |      0 |       0 |    100% | 🟢 G117-MPC-01 + G65-PRI-01 (cycle-accurate Copper + tied-edge). |
 | Memory/MMU            |      178 |      146 |      0 |      32 |     82% | 🟡 Task 8 t1+W2: G140/G155/G157 + G148 + G57 closed; G143 RE-HOME. |
 | NextREG (bare)        |       63 |       21 |      0 |      42 |     33% | 🟡 Task 7r2: G55/G56/G62/G64 (FT/CR/CFG/BYPASS-Q). |
@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A). |
 | CTC + Interrupts      |      133 |      129 |      0 |       4 |     96% | 🟡 Task 7r2: G49 NR-C0-02 promoted from WONT comment. |
 | CTC (integration)     |       21 |       12 |      0 |       9 |     57% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| Layer 2               |      120 |      118 |      0 |       2 |     98% | 🟡 Task 8 W1+W2: G91/G02/G05/G09/G14 + G92/G144/G145. |
+| Layer 2               |      119 |      118 |      0 |       1 |     99% | 🟡 Task 8: L2-G17-01 retired (G164v2); G9-G28-01 cycle-accurate deferred. |
 | UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | 🟡 Task 7r2: G39 ESP-01..04 added. |
 | UART (integration)    |       13 |       12 |      0 |       1 |     92% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | 🟡 Task 8 t1: G123/G124/G125/G131/G137 closed (-7). |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3745** | **3561** |  **0** | **184** | **95%** | 🟡  |
+| **Total**             | **3742** | **3561** |  **0** | **181** | **95%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
