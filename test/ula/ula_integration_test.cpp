@@ -761,7 +761,8 @@ static void test_ulanext_integration(Emulator& emu) {
     // jnext: emulator.cpp NR 0x40/0x41/0x43 handlers route writes into
     //        PaletteManager + Ula::set_ulanext_en + the palsel mirror;
     //        Ula::render_display_line ulanext_en branch invokes
-    //        compute_ulanext_pixel and palette_->ulanext_colour.
+    //        compute_ulanext_pixel and palette_->ula_colour (G102:
+    //        single 256-entry × 2-bank store).
     //
     // Stimulus uses a paper cycle so the ULAnext encoder lands at
     // idx ≥ 0x80 — a slot the std-ULA encoder cannot reach (its range
@@ -862,7 +863,7 @@ static void test_ulanext_integration(Emulator& emu) {
         check("INT-ULANEXT-02",
               "ULAnext runtime palette: NR 0x43 b0 enable + NR 0x42 format "
               "+ NR 0x40/0x41 8-bit poke at full nr_palette_idx routes "
-              "pixels through compute_ulanext_pixel + ulanext_colour; "
+              "pixels through compute_ulanext_pixel + ula_colour; "
               "bank-0/bank-1 isolation via NR 0x43 b1 (active_ula); "
               "negative gate (ulanext_en=0) restores std-ULA boot defaults  "
               "(zxula.vhd:485-528, :520; zxnext.vhd:5394, 6952-6981; "

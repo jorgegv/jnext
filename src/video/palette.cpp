@@ -327,15 +327,11 @@ void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
     // Per-scanline log: record BEFORE applying so that apply_change can
     // be reused for replay without re-logging.
     //
-    // G102 — log the FULL 8-bit `index_` for ULA targets too.  The legacy
-    // 16-entry `ula_rgb333_` mirror is kept in lock-step by apply_change
-    // re-masking to `idx & 0x0F` at write time; the new wider 256-entry
-    // `ulanext_rgb333_` mirror uses the full index (matches VHDL's
+    // G102 — log the FULL 8-bit `index_` for ULA targets.  Matches VHDL
     // `nr_palette_idx[7:0]` flowing into the palette_utm address at
-    // zxnext.vhd:6952, 6957).  Older code masked the log entry to 0..15
-    // for ULA targets, which would have dropped any nr_palette_idx >= 16
-    // ULA-target write at the log stage and prevented per-scanline replay
-    // for ULAnext palette writes.
+    // zxnext.vhd:6952, 6957 (8-bit nr_palette_idx drives the dpram
+    // address with no folding; the single 256-entry × 2-bank ULA
+    // store covers the full encoder output range 0x00..0xFF).
     if (change_count_ < MAX_CHANGES_PER_FRAME) {
         change_log_[change_count_++] = PaletteChange{
             current_line_,

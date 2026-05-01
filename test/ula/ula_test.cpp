@@ -599,21 +599,21 @@ static void test_section5_timex() {
     // VHDL ULAnext encoder (zxula.vhd:504) emits
     //   ula_pixel = paper_base_index(7:3) & attr_active(5:3)
     //             = 0x80 | (~paper & 7)
-    // which then indexes the wider 256-entry ULA palette (G102's
-    // ulanext_colour, zxnext.vhd:6981).  jnext's render_border_line now
+    // which then indexes the single 256-entry × 2-bank ULA palette
+    // (G102's ula_colour, zxnext.vhd:6981).  jnext's render_border_line
     // applies the same math when ulanext_en_=true.
     //
     // Stimulus: enable ULAnext, set HI_RES (port_ff bits 5:3 = 110 →
-    // paper=6), poke a distinct RGB into the 256-entry ULAnext palette
+    // paper=6), poke a distinct RGB into the 256-entry ULA palette
     // at the encoded slot, render row 0 (top border), assert the rendered
     // pixel matches the poked colour.
     //
-    // Negative gate: with ULAnext disabled, the renderer falls back to
-    // the legacy 3-bit paper-truncation path — which for paper=6
-    // resolves to kZxStandardColours[6] = yellow.  This proves the change is
-    // gated on ulanext_en_ and doesn't perturb the standard-ULA path.
+    // Negative gate: with ULAnext disabled the std-ULA encoder takes
+    // over.  G102 — see the assertion's exp_legacy derivation for the
+    // VHDL-faithful std-ULA HI_RES border encoding (idx 0x19 in the
+    // 256-entry palette → bright blue at boot defaults).
     {
-        // Bring up a PaletteManager so ulanext_colour has a sane store.
+        // Bring up a PaletteManager so ula_colour has a sane store.
         UlaBed bed;
         PaletteManager pal;
         pal.reset();
