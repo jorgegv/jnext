@@ -116,6 +116,26 @@ void PaletteManager::reset()
         }
     }
 
+    // G102 — Initialize ULAnext 256-entry × 2-bank palette mirror.  Indices
+    // 0..15 mirror the legacy ULA defaults (so a `ulanext_colour(_, idx)`
+    // for idx<16 returns the same value as `ula_colour(idx)`).  Indices
+    // 16..255 default to the same RRRGGGBB-identity used by Layer2/Sprite
+    // (VHDL palette_utm initial state is undefined; firmware overrides
+    // before use, and identity is the "neutral" default that keeps
+    // ULAnext-encoded paper indices like 0x80..0xFE producing distinct
+    // colours when an unconfigured demo lands on them).
+    for (int p = 0; p < 2; ++p) {
+        for (int i = 0; i < ULA_SIZE; ++i) {
+            ulanext_rgb333_[p][i] = kDefaultUlaRgb333[i];
+            ulanext_argb_[p][i]   = rgb333_to_argb(kDefaultUlaRgb333[i]);
+        }
+        for (int i = ULA_SIZE; i < FULL_SIZE; ++i) {
+            uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
+            ulanext_rgb333_[p][i] = rgb333;
+            ulanext_argb_[p][i]   = rgb333_to_argb(rgb333);
+        }
+    }
+
     // Initialize Layer 2 and Sprite palettes to the default RRRGGGBB mapping.
     // On real hardware (VHDL), the default palette maps each index 0-255
     // to its own RRRGGGBB colour value.
@@ -240,8 +260,13 @@ uint8_t PaletteManager::read_8bit() const
     switch (target_palette_) {
         case PaletteId::ULA_FIRST:
         case PaletteId::ULA_SECOND: {
-            uint8_t idx = index_ & 0x0F;  // matches write_entry masking
-            rgb333 = ula_rgb333_[bank][idx];
+            // G102 — read from the wider 256-entry ULAnext mirror so that
+            // reads at idx >= 16 see the values written via NR 0x40+0x41
+            // at the same idx (matches VHDL palette_utm read at
+            // zxnext.vhd:6953 routed through nr_palette_dat).  Indices
+            // 0..15 still agree with `ula_rgb333_` (apply_change writes
+            // both mirrors in lock-step for ULA targets).
+            rgb333 = ulanext_rgb333_[bank][index_];
             break;
         }
         case PaletteId::LAYER2_FIRST:
@@ -302,15 +327,22 @@ void PaletteManager::write_9bit(uint8_t val)
 void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
 {
     // Per-scanline log: record BEFORE applying so that apply_change can
-    // be reused for replay without re-logging. ULA gets the masked
-    // index because that is what the live mutation uses below.
+    // be reused for replay without re-logging.
+    //
+    // G102 — log the FULL 8-bit `index_` for ULA targets too.  The legacy
+    // 16-entry `ula_rgb333_` mirror is kept in lock-step by apply_change
+    // re-masking to `idx & 0x0F` at write time; the new wider 256-entry
+    // `ulanext_rgb333_` mirror uses the full index (matches VHDL's
+    // `nr_palette_idx[7:0]` flowing into the palette_utm address at
+    // zxnext.vhd:6952, 6957).  Older code masked the log entry to 0..15
+    // for ULA targets, which would have dropped any nr_palette_idx >= 16
+    // ULA-target write at the log stage and prevented per-scanline replay
+    // for ULAnext palette writes.
     if (change_count_ < MAX_CHANGES_PER_FRAME) {
-        const bool is_ula = (target_palette_ == PaletteId::ULA_FIRST
-                          || target_palette_ == PaletteId::ULA_SECOND);
         change_log_[change_count_++] = PaletteChange{
             current_line_,
             target_palette_,
-            static_cast<uint8_t>(is_ula ? (index_ & 0x0F) : index_),
+            index_,
             rgb333,
             priority,
         };
@@ -338,9 +370,23 @@ void PaletteManager::apply_change(const PaletteChange& c)
     switch (c.target) {
         case PaletteId::ULA_FIRST:
         case PaletteId::ULA_SECOND: {
-            const uint8_t idx = c.index & 0x0F;
-            ula_rgb333_[bank][idx] = c.rgb333;
-            ula_argb_[bank][idx] = argb;
+            // Legacy 16-entry path (preserves byte-identical behaviour for
+            // `ula_colour` consumers — STANDARD ULA renderer, debugger UI,
+            // etc.).  c.index has been masked to 0..15 by write_entry's
+            // `is_ula ? (index_ & 0x0F) : index_` for the legacy log entry,
+            // BUT the wider ULAnext mirror needs the FULL 8-bit
+            // `nr_palette_idx` value the VHDL `palette_utm` write address
+            // would carry (zxnext.vhd:6952, 6957).  We therefore use
+            // `c.index` directly for the ulanext mirror — write_entry
+            // logs ULA changes with the full unmasked index now (see
+            // commit body for the mask-removal rationale).
+            const uint8_t idx_legacy = c.index & 0x0F;
+            ula_rgb333_[bank][idx_legacy] = c.rgb333;
+            ula_argb_[bank][idx_legacy]   = argb;
+            // G102 — wider ULAnext palette mirror.  Full 8-bit index per
+            // VHDL palette_utm address (zxnext.vhd:6952).
+            ulanext_rgb333_[bank][c.index] = c.rgb333;
+            ulanext_argb_[bank][c.index]   = argb;
             break;
         }
         case PaletteId::LAYER2_FIRST:
@@ -383,6 +429,9 @@ void PaletteManager::start_frame()
         baseline_tilemap_rgb333_[p]  = tilemap_rgb333_[p];
         baseline_tilemap_argb_[p]    = tilemap_argb_[p];
         baseline_layer2_priority_[p] = layer2_priority_[p];
+        // G102 — wider ULAnext mirror baseline.
+        baseline_ulanext_rgb333_[p]  = ulanext_rgb333_[p];
+        baseline_ulanext_argb_[p]    = ulanext_argb_[p];
     }
     change_count_     = 0;
     render_cursor_    = 0;
@@ -402,6 +451,9 @@ void PaletteManager::rewind_to_baseline()
         tilemap_rgb333_[p]  = baseline_tilemap_rgb333_[p];
         tilemap_argb_[p]    = baseline_tilemap_argb_[p];
         layer2_priority_[p] = baseline_layer2_priority_[p];
+        // G102 — wider ULAnext mirror.
+        ulanext_rgb333_[p]  = baseline_ulanext_rgb333_[p];
+        ulanext_argb_[p]    = baseline_ulanext_argb_[p];
     }
     render_cursor_ = 0;
 }
@@ -499,6 +551,13 @@ void PaletteManager::save_state(StateWriter& w) const
     // backward-compat read path below (priority defaults to 0).
     for (int p = 0; p < 2; ++p)
         for (int i = 0; i < FULL_SIZE; ++i) w.write_u8(layer2_priority_[p][i]);
+    // G102 — ULAnext 256-entry × 2-bank ULA palette mirror.  Appended at
+    // the end so the in-memory rewind ring buffer (the only consumer of
+    // save/load) round-trips correctly; legacy on-disk save-states
+    // predating this widening will fail to fully load.  Save-state
+    // schema versioning is the deferred work tracked by G66.
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) w.write_u16(ulanext_rgb333_[p][i]);
 }
 
 void PaletteManager::load_state(StateReader& r)
@@ -545,4 +604,14 @@ void PaletteManager::load_state(StateReader& r)
     for (int p = 0; p < 2; ++p)
         for (int i = 0; i < FULL_SIZE; ++i)
             layer2_priority_[p][i] = r.read_u8();
+    // G102 — ULAnext 256-entry × 2-bank ULA palette mirror.  Paired with
+    // the matching save_state writer above.  Indices 0..15 will be
+    // overwritten with the ULA-bank values (already loaded above) by the
+    // first apply_change cycle; indices 16..255 hold the ULAnext-only
+    // entries written via NR 0x40+0x41 with idx >= 16.
+    for (int p = 0; p < 2; ++p)
+        for (int i = 0; i < FULL_SIZE; ++i) {
+            ulanext_rgb333_[p][i] = r.read_u16();
+            ulanext_argb_[p][i]   = rgb333_to_argb(ulanext_rgb333_[p][i]);
+        }
 }

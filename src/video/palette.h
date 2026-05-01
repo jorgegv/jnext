@@ -162,6 +162,37 @@ public:
         return ula_argb_[active_ula_second_][idx & 0x0F];
     }
 
+    /// Look up ULAnext colour as ARGB8888 by 8-bit pixel index.
+    ///
+    /// G102 — VHDL `zxnext.vhd:6981` runtime read uses
+    /// `('0' & ula_palette_select_1 & ulalores_pixel_1)` as the 10-bit
+    /// dpram address into `palette_utm`.  When `i_ulanext_en='1'`,
+    /// `ula_pixel` is the full 8-bit value emitted by `compute_ulanext_pixel`
+    /// (zxula.vhd:485-528), so the runtime reads from a 256-entry × 2-bank
+    /// store.  Bank is selected by `nr_43_active_ula_palette` (NR 0x43
+    /// bit 1; zxnext.vhd:5393, :6825) — the SAME bank as the standard
+    /// ULA / ULA+ paths use at runtime.
+    ///
+    /// Storage shadow: writes to `PaletteId::ULA_FIRST/SECOND` populate
+    /// both the legacy 16-entry array (for backward-compat `ula_colour`)
+    /// and this wider 256-entry array.  Indices 0..15 therefore agree
+    /// between the two stores; indices 16..255 are RRRGGGBB-identity by
+    /// default and overridable via NR 0x40/0x41/0x44.
+    ///
+    /// @param bank_second  false = first ULA palette (NR 0x43 b1=0),
+    ///                     true  = second ULA palette (NR 0x43 b1=1).
+    /// @param idx          full 8-bit ULAnext-encoded pixel value.
+    uint32_t ulanext_colour(bool bank_second, uint8_t idx) const {
+        return ulanext_argb_[bank_second ? 1 : 0][idx];
+    }
+
+    /// Read the stored RGB333 value at (bank, idx) in the ULAnext 256-entry
+    /// palette (G102).  Used for tests / save-state diagnostics; runtime
+    /// readers should use `ulanext_colour` for ARGB8888.
+    uint16_t ulanext_rgb333(bool bank_second, uint8_t idx) const {
+        return ulanext_rgb333_[bank_second ? 1 : 0][idx];
+    }
+
     /// Look up Layer 2 colour by 8-bit pixel value. Uses the active L2 palette.
     uint32_t layer2_colour(uint8_t idx) const {
         return layer2_argb_[active_l2_second_][idx];
@@ -306,6 +337,19 @@ private:
     std::array<uint16_t, FULL_SIZE> sprite_rgb333_[2];
     std::array<uint16_t, FULL_SIZE> tilemap_rgb333_[2];
 
+    // G102 — ULAnext 256-entry × 2-bank ULA palette store (parallel mirror
+    // of the legacy 16-entry `ula_rgb333_`).  VHDL `palette_utm` dpram
+    // (zxnext.vhd:6960) is 1024×16 logically split into ULA bank0/bank1
+    // (256 entries each) at addresses 0x000-0x0FF / 0x100-0x1FF, and
+    // tilemap bank0/bank1 at 0x200-0x2FF / 0x300-0x3FF.  jnext stores ULA
+    // in this mirror and tilemap in `tilemap_rgb333_`; runtime ULA reads
+    // (`ulanext_colour`) consult this mirror when ULAnext is enabled.
+    // Indices 0..15 mirror `ula_rgb333_` (always written together by
+    // `apply_change` for ULA targets); indices 16..255 default to
+    // RRRGGGBB-identity (matches layer2 / sprite default) and can be
+    // overridden via NR 0x40/0x41/0x44 with `nr_palette_idx >= 16`.
+    std::array<uint16_t, FULL_SIZE> ulanext_rgb333_[2];
+
     // 2-bit palette priority slots (VHDL zxnext.vhd:4920, 7025, 7050).
     // L2 palette only — sprite/tilemap rgb333 storage doesn't expose a
     // priority slot in the dpram word the renderer reads.
@@ -323,6 +367,9 @@ private:
     std::array<uint32_t, FULL_SIZE> layer2_argb_[2];
     std::array<uint32_t, FULL_SIZE> sprite_argb_[2];
     std::array<uint32_t, FULL_SIZE> tilemap_argb_[2];
+
+    // G102 — Cached ARGB8888 mirror of `ulanext_rgb333_` (rebuilt on write).
+    std::array<uint32_t, FULL_SIZE> ulanext_argb_[2];
 
     // Control state
     uint8_t control_ = 0;         // NextREG 0x43 raw value
@@ -387,6 +434,14 @@ private:
     std::array<uint32_t, FULL_SIZE> baseline_sprite_argb_[2]{};
     std::array<uint32_t, FULL_SIZE> baseline_tilemap_argb_[2]{};
     std::array<uint8_t,  FULL_SIZE> baseline_layer2_priority_[2]{};
+
+    // G102 — Per-scanline replay baselines for the wider ULAnext store.
+    // Mirrors the existing per-target baseline pattern.  Snapshotted at
+    // start_frame and restored at rewind_to_baseline so per-scanline
+    // ULAnext palette writes (Copper-driven gradient bands, etc.) replay
+    // correctly per scanline.
+    std::array<uint16_t, FULL_SIZE> baseline_ulanext_rgb333_[2]{};
+    std::array<uint32_t, FULL_SIZE> baseline_ulanext_argb_[2]{};
 
     /// Apply a single change to the live palette state (no logging).
     /// Used by both the replay path and the rewind-then-replay loop.
