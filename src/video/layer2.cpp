@@ -383,12 +383,13 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (y < 0 || y >= 192)
             return;
 
+        // Clip Y check on DESTINATION row (pre-scroll), per VHDL
+        // layer2.vhd:167 — clip uses `vc_eff`, not `y_pre`.
+        if (y < clip_y1_ || y > clip_y2_)
+            return;
+
         // Y scroll wraps at 192.
         int src_y = (y + scroll_y_) % 192;
-
-        // Clip Y check (256x192 mode: clip_y range is 0-191).
-        if (src_y < clip_y1_ || src_y > clip_y2_)
-            return;
 
         // Bank and row offset.
         int third = src_y / 64;
@@ -396,11 +397,15 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         uint32_t l2_addr_base = static_cast<uint32_t>(src_y) * 256;
 
         for (int x = 0; x < 256; ++x) {
-            int src_x = (x + (scroll_x_ & 0xFF)) & 0xFF;
-
-            // Clip X check.
-            if (src_x < clip_x1_ || src_x > clip_x2_)
+            // Clip X check on DESTINATION column (pre-scroll), per VHDL
+            // layer2.vhd:167 — clip uses `hc_eff`, not `x_pre`. Without
+            // this, the 8-pixel "clipped band" wanders through the
+            // display as L2 scrolls (parallax.nex bottom band exposed
+            // it: side gutters that should be black showed graphics).
+            if (x < clip_x1_ || x > clip_x2_)
                 continue;
+
+            int src_x = (x + (scroll_x_ & 0xFF)) & 0xFF;
 
             uint32_t l2_addr = l2_addr_base + src_x;
             uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
@@ -423,12 +428,12 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (row < 0 || row >= 256)
             return;
 
+        // Clip Y on DESTINATION row (pre-scroll), per VHDL layer2.vhd:167.
+        if (row < clip_y1_ || row > clip_y2_)
+            return;
+
         // Y scroll wraps at 256 (natural 8-bit wrap).
         uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
-
-        // Clip Y (wide mode: 0-255).
-        if (src_y < clip_y1_ || src_y > clip_y2_)
-            return;
 
         // VHDL clip for wide mode: clip_x1 & '0', clip_x2 & '1'
         // So clip register value is doubled: clip_x1*2 .. clip_x2*2+1
@@ -436,13 +441,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
 
         for (int x = 0; x < 320; ++x) {
+            // Clip X on DESTINATION column (pre-scroll), per VHDL
+            // layer2.vhd:167.
+            if (x < clip_x1_eff || x > clip_x2_eff)
+                continue;
+
             // X scroll with wrap at 320.
             int src_x_pre = x + (scroll_x_ & 0x1FF);
             int src_x = (src_x_pre >= 320) ? (src_x_pre - 320) : src_x_pre;
-
-            // Clip X.
-            if (src_x < clip_x1_eff || src_x > clip_x2_eff)
-                continue;
 
             // Column-major: addr = x * 256 + y (17-bit).
             uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
@@ -466,10 +472,11 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (row < 0 || row >= 256)
             return;
 
-        uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
-
-        if (src_y < clip_y1_ || src_y > clip_y2_)
+        // Clip Y on DESTINATION row (pre-scroll), per VHDL layer2.vhd:167.
+        if (row < clip_y1_ || row > clip_y2_)
             return;
+
+        uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
 
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
@@ -477,14 +484,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // Each memory address holds 2 horizontal pixels (left=high nibble, right=low nibble).
         // When render_width=640, output both pixels; when 320, output only the left pixel.
         for (int col = 0; col < 320; ++col) {
+            // Clip X on DESTINATION column (pre-scroll), per VHDL
+            // layer2.vhd:167. Compare column index directly against
+            // the doubled clip register; do NOT divide.
+            if (col < clip_x1_eff || col > clip_x2_eff)
+                continue;
+
             int src_col_pre = col + (scroll_x_ & 0x1FF);
             int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
-
-            // VHDL: hc_eff (column 0-319) compared directly against
-            // clip_x1_q (clip_x1 & '0') and clip_x2_q (clip_x2 & '1').
-            // Do NOT divide clip values — compare column index directly.
-            if (src_col < clip_x1_eff || src_col > clip_x2_eff)
-                continue;
 
             uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
             uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
