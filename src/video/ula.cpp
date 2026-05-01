@@ -631,7 +631,28 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 
             uint32_t ink_argb;
             uint32_t paper_argb;
-            if (ulap_en_ && palette_) {
+            if (ulanext_en_ && palette_) {
+                // G102 — ULAnext runtime palette path.  Encoder per
+                // zxula.vhd:485-528 produces an 8-bit ula_pixel; runtime
+                // read into palette_utm uses the full 8-bit value as the
+                // low address bits with `ula_palette_select_1` selecting
+                // the bank (zxnext.vhd:6981).
+                //
+                // S6.06/S6.12 cover the encoder's `select_bgnd` paths;
+                // at the renderer level we still feed the (undefined)
+                // `pixel` to the lookup — VHDL routes select_bgnd to
+                // the compositor's fallback, which is composit-handled
+                // not ULA-handled.  Mirrors the existing G103 ULA+
+                // shape: encode + lookup + render.
+                const auto ink_pix   = compute_ulanext_pixel(
+                    /*pixel_en*/true,  /*border*/false, attr);
+                const auto paper_pix = compute_ulanext_pixel(
+                    /*pixel_en*/false, /*border*/false, attr);
+                ink_argb   = palette_->ulanext_colour(active_ula_palette_,
+                                                      ink_pix.pixel);
+                paper_argb = palette_->ulanext_colour(active_ula_palette_,
+                                                      paper_pix.pixel);
+            } else if (ulap_en_ && palette_) {
                 // ULA+ encoder common bits per zxula.vhd:535 (only differ
                 // by bit 3 = NOT pixel_en):
                 //   low6 = attr(7:6) << 4 | bit3 << 3 | low3
@@ -682,7 +703,18 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 
             uint32_t ink_argb;
             uint32_t paper_argb;
-            if (ulap_en_ && palette_) {
+            if (ulanext_en_ && palette_) {
+                // G102 — ULAnext runtime path; see fast-path for full
+                // VHDL citations.
+                const auto ink_pix   = compute_ulanext_pixel(
+                    /*pixel_en*/true,  /*border*/false, attr);
+                const auto paper_pix = compute_ulanext_pixel(
+                    /*pixel_en*/false, /*border*/false, attr);
+                ink_argb   = palette_->ulanext_colour(active_ula_palette_,
+                                                      ink_pix.pixel);
+                paper_argb = palette_->ulanext_colour(active_ula_palette_,
+                                                      paper_pix.pixel);
+            } else if (ulap_en_ && palette_) {
                 // G103 — ULA+ runtime path.  Mirrors the fast-path block
                 // above; see comments there for the encoder layout.
                 const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
@@ -774,7 +806,18 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 
         uint32_t ink_argb;
         uint32_t paper_argb;
-        if (ulap_en_ && palette_) {
+        if (ulanext_en_ && palette_) {
+            // G102 — ULAnext runtime path; see render_display_line for
+            // full VHDL citations.
+            const auto ink_pix   = compute_ulanext_pixel(
+                /*pixel_en*/true,  /*border*/false, attr);
+            const auto paper_pix = compute_ulanext_pixel(
+                /*pixel_en*/false, /*border*/false, attr);
+            ink_argb   = palette_->ulanext_colour(active_ula_palette_,
+                                                  ink_pix.pixel);
+            paper_argb = palette_->ulanext_colour(active_ula_palette_,
+                                                  paper_pix.pixel);
+        } else if (ulap_en_ && palette_) {
             // G103 — ULA+ encoder, see render_display_line for layout.
             const uint8_t pg = static_cast<uint8_t>((attr >> 6) & 0x03);
             const uint8_t ink_low6 = static_cast<uint8_t>(
@@ -828,8 +871,22 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     const uint8_t ink_idx   = screen_mode_reg_ & 0x07;
     const uint8_t paper_idx = (screen_mode_reg_ >> 3) & 0x07;
 
-    const uint32_t ink_argb   = lookup_colour(ink_idx);
-    const uint32_t paper_argb = lookup_colour(paper_idx);
+    // G102 — ULAnext runtime path lookups go through the wider 256-entry
+    // palette mirror.  The current 256-px hi-res approximation ignores
+    // the per-pixel ULAnext encoder semantics (a true VHDL-faithful
+    // hi-res + ULAnext path needs G104's 512-px renderer); this routes
+    // the existing port-0xFF-derived ink/paper indices through
+    // ulanext_colour so a firmware-poked palette entry at idx 0..7 is
+    // observable in HI_RES+ULAnext at the same resolution as today.
+    uint32_t ink_argb;
+    uint32_t paper_argb;
+    if (ulanext_en_ && palette_) {
+        ink_argb   = palette_->ulanext_colour(active_ula_palette_, ink_idx);
+        paper_argb = palette_->ulanext_colour(active_ula_palette_, paper_idx);
+    } else {
+        ink_argb   = lookup_colour(ink_idx);
+        paper_argb = lookup_colour(paper_idx);
+    }
     const uint32_t border_argb = lookup_colour(border_colour_);
 
     // The interleaved pixel row offset is the same for both screens.
