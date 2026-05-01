@@ -543,13 +543,8 @@ where possible.
 - **Dependencies**: bundle with G98.
 - **Effort**: L.
 
-### G102. ULAnext (NR 0x42/0x43 b0) palette-encoding runtime renderer integration absent
-- **What**: VHDL `zxula.vhd:485-528` with `i_ulanext_en='1'` produces 8-bit ula_pixel; `zxnext.vhd:6981` low 8 bits of a 10-bit palette read. jnext `ula.cpp:386-423` has the pure encoder (S6.01-S6.12 pass) but `render_display_line/_hicolour/_hires` never invoke it; `kUlaPalette` is 16 entries.
-- **User impact**: every ULAnext-aware program sees plain 16-colour output.
-- **Source ref**: Wave-1 ula-timing-fbus (NEW-ULA-1); reviewer APPROVE.
-- **Coverage today**: encoder unit-tested; runtime path absent.
-- **Dependencies**: shares palette-store widening (16→256 × 2 banks) with G103/G105; consider unified plan; touches G66 save-state schema.
-- **Effort**: H.
+### G102. ULAnext (NR 0x42/0x43 b0) palette-encoding runtime renderer integration absent [closed]
+- **Status: CLOSED 2026-05-01** (13-commit chain on `feature/g102-g105-ulanext-palette` ending at `455e286`). Collapsed jnext's two-mirror ULA palette (legacy 16-entry + wider 256-entry) into a single 256-entry × 2-bank store matching VHDL `palette_utm` (`zxnext.vhd:6960`). Standard ULA renderer now computes 8-bit `ula_pixel` per VHDL `zxula.vhd:543-553` and reads the wider palette at the full 8-bit address — no fold, no 16-entry mirror. `kUlaPalette` constant deleted; legacy storage / accessors / save-load / baseline tier all removed; debugger updated to show 32 std-ULA palette entries; ~60 test sites reframed to query the wider palette via VHDL-faithful `ula_pixel` addresses. INT-ULANEXT-02 promoted to live check covering ULAnext renderer + bank isolation. **Validated on real ZX Next hardware via beast.nex** (which writes paper colours via the documented `PAPER_INDEX equ 16` idiom; pre-fix renderer broke beast — magenta-sky regression caught by user GUI inspection + hardware verification). Independent reviewer APPROVE. Regression 33/0/0 on main, every demo 0 pixel diff including beast/copper/parallax/tilemap.
 
 ### G103. ULA+ (port 0xBF3B/0xFF3B) palette-encoding runtime path absent
 - **What**: VHDL `zxula.vhd:531-541` `i_ulap_en='1'` 8-bit pixel with bits[7:6]="11"; `zxnext.vhd:4525-4538` `port_bf3b_ulap_index` (low 6 bits when mode_group="00"). jnext `ula.cpp:75` has encoder (S7.01-S7.06 pass); `emulator.cpp:1937-1941` writes only `set_ulap_mode(top 2 bits)` — index stub.
@@ -567,13 +562,8 @@ where possible.
 - **Dependencies**: requires compositor-level FB-width / scaling decision (orthogonal to G18 screenshot scaling).
 - **Effort**: M-H.
 
-### G105. HI_RES 6-bit border palette-group encoding not modelled
-- **What**: VHDL `zxula.vhd:419` `border_clr_tmx <= "01" & (not i_port_ff_reg(5:3)) & i_port_ff_reg(5:3)` — 6-bit field with paper-bits-inverted-then-concatenated. jnext `ula.cpp:710-712` takes `(screen_mode_reg_ >> 3) & 0x07` only.
-- **User impact**: HI_RES border colour wrong when ULAnext/ULA+ palette quadrant entries differ from the 0x00-0x07 row.
-- **Source ref**: Wave-1 ula (NEW-ULA-4); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: cheap once G102/G103 land.
-- **Effort**: L.
+### G105. HI_RES 6-bit border palette-group encoding not modelled [closed]
+- **Status: CLOSED 2026-05-01** (part of the G102 13-commit chain; primary commit `a3dc90a` then VHDL-faithful for std ULA in `e0c9970` after the single-mirror collapse). HI_RES border `border_clr_tmx` now computed as the 8-bit `0x10 | (attr(6)<<3) | (~paper&7)` per VHDL `zxula.vhd:419 + :543-553` and looked up in the wider 256-entry palette. The std-ULA fallback that used to truncate to 3-bit-paper became natural under the single-mirror design — no "documented limitation." S5.11 promoted to live check covering ULAnext + ULA+ + std-ULA paths. Independent reviewer APPROVE.
 
 ### G106. Line-interrupt scheduler off-by-one + target=0 wrap not applied — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: VHDL `zxula_timing.vhd:563-583`: `int_line_num = c_max_vc` when `i_int_line=0`; else `target-1`; pulse on `(hc_ula==255) and (cvc==int_line_num)`. jnext `emulator.cpp:2540-2550` schedules at `frame_cycle + line_int_value_ * master_cycles_per_line` with no transform — helper `VideoTiming::int_line_num()` exists at `timing.h:178-186` but is never read.
