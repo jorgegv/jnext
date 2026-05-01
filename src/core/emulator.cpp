@@ -4000,9 +4000,20 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
         const int vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
         const int hc = static_cast<int>(elapsed % timing_.master_cycles_per_line);
         // Copper vc: cvc=0 at the first active display line, mirroring
-        // VHDL `zxula_timing.vhd:455-472`. In jnext the active display
-        // starts at framebuffer row DISP_Y (32).
-        const int cvc = (vc - Renderer::DISP_Y + timing_.lines_per_frame)
+        // VHDL `zxula_timing.vhd:455-472`. The first active display line
+        // in VHDL is vc=min_vactive (64 for NEXT 50Hz). The previous
+        // implementation used DISP_Y (32), which is the FRAMEBUFFER-ROW
+        // origin for the display, NOT the VHDL VC origin — that
+        // off-by-32 made the Copper fire WAITs 32 lines too early.
+        // The bug was masked pre-G164v2 because the per-scanline
+        // change-log was also off by 32 in the same direction, so
+        // Copper-driven NR writes happened to land at the right
+        // framebuffer row by accident. After the change-log fix
+        // (this commit's parent) tagged writes in framebuffer-row
+        // space, the Copper-side miscount became visible (parallax.nex
+        // bottom-third banding).
+        const int cvc = (vc - static_cast<int>(video_timing_.display_origin().vc)
+                              + timing_.lines_per_frame)
                             % timing_.lines_per_frame;
         copper_.execute(hc, cvc, nextreg_);
     }
