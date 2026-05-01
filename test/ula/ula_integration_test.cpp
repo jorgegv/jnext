@@ -153,6 +153,29 @@ static void render_line(Emulator& emu, int fb_row,
     emu.ula().render_scanline(line.data(), fb_row, emu.mmu());
 }
 
+// VHDL zxula.vhd:543-553 — std-ULA encoder produces an 8-bit ula_pixel
+// that indexes the single 256-entry × 2-bank ULA palette
+// (zxnext.vhd:6981).  These helpers query the live Emulator palette
+// for the ARGB the renderer would emit for an N-coloured ink or paper
+// cycle on the active read bank.  Boot defaults seed indices
+// 0x00..0x0F (ink) and 0x10..0x1F (paper) with the canonical ZX
+// colours, so callers can express assertions in terms of the encoder
+// pixel address the std-ULA path actually produces.
+static inline uint8_t std_ula_ink_pixel(uint8_t colour /*0..15*/) {
+    return static_cast<uint8_t>(colour & 0x0F);
+}
+static inline uint8_t std_ula_paper_pixel(uint8_t colour /*0..15*/) {
+    return static_cast<uint8_t>(0x10 | (colour & 0x0F));
+}
+static inline uint32_t emu_ink_argb(Emulator& emu, uint8_t colour) {
+    const bool bank = emu.palette().read_control() & 0x02;  // NR 0x43 b1
+    return emu.palette().ula_colour(bank, std_ula_ink_pixel(colour));
+}
+static inline uint32_t emu_paper_argb(Emulator& emu, uint8_t colour) {
+    const bool bank = emu.palette().read_control() & 0x02;
+    return emu.palette().ula_colour(bank, std_ula_paper_pixel(colour));
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Group A — ULA scroll end-to-end through NR 0x26 / 0x27 / 0x68 bit 2
 // VHDL: zxula.vhd:193-216 (py/px fold), zxnext.vhd:5304/5307/5449 (NR
@@ -162,12 +185,12 @@ static void render_line(Emulator& emu, int fb_row,
 static void test_scroll_integration(Emulator& emu) {
     set_group("INT-SCROLL");
 
-    // Palette indices used in the assertions below. kZxStandardColours[0] is the
-    // ARGB8888 value for ZX colour 0 (black), [7] for white. Declared in
-    // video/palette.h (included above); the standard ULA colour table
-    // matches the FPGA palette defaults (src/video/palette.cpp:26).
-    const uint32_t WHITE = kZxStandardColours[7];
-    const uint32_t BLACK = kZxStandardColours[0];
+    // Expected ARGB values used by the assertions below.  Sourced live
+    // from the 256-entry × 2-bank ULA palette (VHDL palette_utm at
+    // zxnext.vhd:6960) via the std-ULA encoder addresses the renderer
+    // would emit for ink-7 (white) and paper-0 (black) at boot defaults.
+    const uint32_t WHITE = emu_ink_argb(emu, 7);
+    const uint32_t BLACK = emu_paper_argb(emu, 0);
 
     // ── INT-SCROLL-01 — NR 0x26 = 8 via nextreg().write → 8-pixel shift ──
     //
@@ -628,13 +651,21 @@ static void test_ulaplus_integration(Emulator& emu) {
         const uint32_t b1_ink   = line_b1[Ula::DISP_X + 0];
         const uint32_t b1_paper = line_b1[Ula::DISP_X + 1];
 
+        // Negative-gate expectations: with ulap_en=0 the std-ULA encoder
+        // takes over and reads the unmodified ULA palette boot defaults
+        // (NR 0xFF poke writes only the separate ulap_poke_rgb333_ store
+        // per zxnext.vhd:6957-6958, so ula_pixel 0x07 / 0x10 retain their
+        // canonical white / black ARGB).  Bank: NR 0x43 b1=0 above.
+        const uint32_t off_exp_ink   = emu_ink_argb(emu, 7);
+        const uint32_t off_exp_paper = emu_paper_argb(emu, 0);
+
         const bool all_ok = en_check
                          && mode_chk  == 0x01
                          && got_ink   == exp_ink
                          && got_paper == exp_paper
                          && en_off
-                         && off_ink   == kZxStandardColours[7]
-                         && off_paper == kZxStandardColours[0]
+                         && off_ink   == off_exp_ink
+                         && off_paper == off_exp_paper
                          // Bank-0 entries survived the bank-1 writes.
                          && b0_ink_after   == exp_ink
                          && b0_paper_after == exp_paper
@@ -658,7 +689,7 @@ static void test_ulaplus_integration(Emulator& emu) {
                   en_check, mode_chk,
                   got_ink, exp_ink, got_paper, exp_paper,
                   en_off,
-                  off_ink, kZxStandardColours[7], off_paper, kZxStandardColours[0],
+                  off_ink, off_exp_ink, off_paper, off_exp_paper,
                   b0_ink_after, b0_paper_after,
                   b1_ink, exp_ink_b1, b1_paper, exp_paper_b1));
     }
@@ -848,17 +879,20 @@ static void test_ulanext_integration(Emulator& emu) {
         render_line(emu, 32, line_b1);
         const uint32_t got_b1 = line_b1[Ula::DISP_X];
 
-        // Negative gate: disable ULAnext.  Renderer must fall back to
-        // the legacy 16-entry path (attr=0x28 paper=5 → cyan).
+        // Negative gate: disable ULAnext.  The renderer falls back to
+        // the std-ULA encoder, which emits ula_pixel = 0x15 for the
+        // paper cycle of attr=0x28 (paper=5).  Boot-default ULA palette
+        // at idx 0x15 holds ZX colour 5 (cyan).
         emu.nextreg().write(0x43, 0x00);
         std::array<uint32_t, 320> line_off{};
         render_line(emu, 32, line_off);
         const uint32_t got_off = line_off[Ula::DISP_X];
+        const uint32_t exp_off = emu_paper_argb(emu, 5);
 
         const bool all_ok = got_b0       == exp_bank0
                          && got_b0_after == exp_bank0
                          && got_b1       == exp_bank1
-                         && got_off      == kZxStandardColours[5];
+                         && got_off      == exp_off;
 
         check("INT-ULANEXT-02",
               "ULAnext runtime palette: NR 0x43 b0 enable + NR 0x42 format "
@@ -876,7 +910,7 @@ static void test_ulanext_integration(Emulator& emu) {
                   got_b0, exp_bank0,
                   got_b0_after,
                   got_b1, exp_bank1,
-                  got_off, kZxStandardColours[5]));
+                  got_off, exp_off));
     }
 }
 
@@ -1165,8 +1199,8 @@ static void test_shadow_integration(Emulator& emu) {
         // Restore so subsequent rows in the suite see the reset state.
         emu.port().out(0x7FFD, 0x00);
 
-        const uint32_t cyan = kZxStandardColours[5];
-        const uint32_t red  = kZxStandardColours[2];
+        const uint32_t cyan = emu_ink_argb(emu, 5);
+        const uint32_t red  = emu_ink_argb(emu, 2);
         check("INT-SHADOW-02",
               "OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side "
               "regression for the half-implemented set_shadow_screen_en that "
@@ -1180,8 +1214,8 @@ static void test_shadow_integration(Emulator& emu) {
 static void test_altfile_integration(Emulator& emu) {
     set_group("INT-STANDARD-ALT");
 
-    const uint32_t WHITE = kZxStandardColours[7];
-    const uint32_t BLACK = kZxStandardColours[0];
+    const uint32_t WHITE = emu_ink_argb(emu, 7);
+    const uint32_t BLACK = emu_paper_argb(emu, 0);
 
     // ── INT-STANDARD-ALT-01 — port 0xFF bit 0 selects alt screen bank ──
     //
