@@ -933,20 +933,73 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 
 void Ula::render_border_line(uint32_t* row)
 {
-    // Default route: standard `border_clr` from port 0xFE bits 2:0
-    // (zxula.vhd:418).  Hi-res route: when `border_clr_tmx_src_` is set OR the
-    // current Timex screen mode is HI_RES, use `border_clr_tmx` (zxula.vhd:419,
-    // :443-448): in VHDL the attr_reg is loaded with `border_clr_tmx` whenever
-    // `shift_screen_mode(2)='1'`.  jnext approximates the 6-bit tmx colour by
-    // taking port_ff paper bits (5:3) as a 0–7 palette index, since we don't
-    // plumb the full 6-bit `"01" & not paper & paper` palette-group encoding
-    // — a documented limitation tracked by S5.06's one-line citation.
+    // Border routing per VHDL zxula.vhd:419, :443-448:
+    //   - In HI_RES (or border_clr_tmx_src_ explicit), attr_reg is loaded
+    //     with `border_clr_tmx <= "01" & (not port_ff(5:3)) & port_ff(5:3)`
+    //     — an 8-bit attr value with bits 7:6 = "01", bits 5:3 = ~paper,
+    //     bits 2:0 = paper.
+    //   - Otherwise attr_reg holds `border_clr <= "00" & port_fe & port_fe`.
+    // The 8-bit attr value then flows through the standard / ULAnext /
+    // ULA+ encoder (line 543-554 / :492-528 / :531-541) with
+    // `border_active_d=1` forcing pixel_en=0.  The resulting `ula_pixel`
+    // indexes the wider palette.
+    //
+    // Standard-ULA legacy path is preserved byte-for-byte for the
+    // ulanext_en=0 / ulap_en=0 default — the renderer keeps the existing
+    // 3-bit paper-only fallback for STANDARD HI_RES border so the
+    // unconfigured 16-entry kUlaPalette path doesn't shift indices into
+    // its undefined 0x18..0x1F slice.  The fix is fully observable under
+    // ULAnext (idx 0x80..0x87 in the new 256-entry mirror, G102) or
+    // ULA+ (low-6 idx 0x18..0x1F in the 64-entry ULA+ buffer, G103).
     const bool     use_tmx = border_clr_tmx_src_
                              || (mode_ == TimexScreenMode::HI_RES);
-    const uint8_t  idx     = use_tmx
-        ? static_cast<uint8_t>((screen_mode_reg_ >> 3) & 0x07)
-        : border_colour_;
-    const uint32_t border_argb = lookup_colour(idx);
+    if (!use_tmx) {
+        // Standard non-Timex border path (port 0xFE bits 2:0).
+        const uint32_t border_argb = lookup_colour(border_colour_);
+        for (int x = 0; x < FB_WIDTH; ++x)
+            row[x] = border_argb;
+        return;
+    }
+
+    // HI_RES / TMX border — VHDL-faithful 6-bit-via-8-bit encoding.
+    const uint8_t paper_bits = static_cast<uint8_t>((screen_mode_reg_ >> 3) & 0x07);
+    // border_clr_tmx_8bit per zxula.vhd:419.  bits 7:6 = "01", 5:3 = ~paper,
+    // 2:0 = paper.  Even though the legacy paths don't use this directly,
+    // we compute it once so the encoder math reads exactly like VHDL.
+    const uint8_t btmx = static_cast<uint8_t>(
+        0x40 | (((~paper_bits) & 0x07) << 3) | paper_bits);
+
+    uint32_t border_argb;
+    if (ulanext_en_ && palette_) {
+        // VHDL zxula.vhd:504: ula_pixel = "10000" & attr(5:3) for border.
+        // attr(5:3) = ~paper.  Result: idx = 0x80 | (~paper & 7).
+        const uint8_t idx = static_cast<uint8_t>(0x80 | ((btmx >> 3) & 0x07));
+        border_argb = palette_->ulanext_colour(active_ula_palette_, idx);
+    } else if (ulap_en_ && palette_) {
+        // VHDL zxula.vhd:535-540 with border_active_d=1 (pixel_en=0):
+        //   ula_pixel(7:3) = "11" & attr(7:6) & (sm2 OR not pixel_en)
+        //                  = "11" & "01" & "1"  = 0x1B
+        //   ula_pixel(2:0) = attr(5:3) = ~paper & 7
+        // Hence ula_pixel = 0xD8 | (~paper & 7); the low 6 bits (the
+        // 64-entry ULA+ slot index per G103's ulap_colour) are
+        // 0x18 | (~paper & 7).
+        const uint8_t low6 = static_cast<uint8_t>(0x18 | ((btmx >> 3) & 0x07));
+        border_argb = palette_->ulap_colour(active_ula_palette_, low6);
+    } else {
+        // STANDARD-ULA fallback — keep existing 3-bit paper truncation
+        // so the default 16-entry kUlaPalette path stays byte-identical
+        // to before G102/G105 landed.  Documented limitation: VHDL
+        // would index 0x18 | (~paper & 7) in the 256-entry palette;
+        // jnext's standard mode never had a 256-entry ULA palette to
+        // index into pre-G102, and switching this in would shift demos
+        // using HI_RES border off the 16-entry approximation they
+        // shipped with.
+        const uint32_t argb = lookup_colour(paper_bits);
+        for (int x = 0; x < FB_WIDTH; ++x)
+            row[x] = argb;
+        return;
+    }
+
     for (int x = 0; x < FB_WIDTH; ++x)
         row[x] = border_argb;
 }

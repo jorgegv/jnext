@@ -116,20 +116,28 @@ void PaletteManager::reset()
         }
     }
 
-    // G102 — Initialize ULAnext 256-entry × 2-bank palette mirror.  Indices
-    // 0..15 mirror the legacy ULA defaults (so a `ulanext_colour(_, idx)`
-    // for idx<16 returns the same value as `ula_colour(idx)`).  Indices
-    // 16..255 default to the same RRRGGGBB-identity used by Layer2/Sprite
-    // (VHDL palette_utm initial state is undefined; firmware overrides
-    // before use, and identity is the "neutral" default that keeps
-    // ULAnext-encoded paper indices like 0x80..0xFE producing distinct
-    // colours when an unconfigured demo lands on them).
+    // G102 — Initialize ULAnext 256-entry × 2-bank palette mirror.
+    //
+    // Standard ULA encoder produces ula_pixel in {0x00..0x1F}:
+    //   0x00..0x07: pixel_en=1, attr(6)=0 → ink colour 0..7
+    //   0x08..0x0F: pixel_en=1, attr(6)=1 → ink bright colour 8..15
+    //   0x10..0x17: pixel_en=0, attr(6)=0 → paper colour 0..7 (= ink 0..7)
+    //   0x18..0x1F: pixel_en=0, attr(6)=1 → paper bright 8..15 (= ink 8..15)
+    // So a firmware-untouched palette must hold the 16 ZX colours at both
+    // 0x00..0x0F AND 0x10..0x1F so that the 32 standard-ULA encodings all
+    // resolve to the right colour.  Indices 0x20..0xFF default to RRRGGGBB-
+    // identity (matches Layer2/Sprite defaults; ULAnext / ULA+ programs
+    // override these before use).
     for (int p = 0; p < 2; ++p) {
         for (int i = 0; i < ULA_SIZE; ++i) {
-            ulanext_rgb333_[p][i] = kDefaultUlaRgb333[i];
-            ulanext_argb_[p][i]   = rgb333_to_argb(kDefaultUlaRgb333[i]);
+            ulanext_rgb333_[p][i]              = kDefaultUlaRgb333[i];
+            ulanext_argb_[p][i]                = rgb333_to_argb(kDefaultUlaRgb333[i]);
+            // Mirror at 0x10..0x1F (paper variants of the 0x00..0x0F ink
+            // values; same colour, different encoder branch).
+            ulanext_rgb333_[p][i + ULA_SIZE]   = kDefaultUlaRgb333[i];
+            ulanext_argb_[p][i + ULA_SIZE]     = rgb333_to_argb(kDefaultUlaRgb333[i]);
         }
-        for (int i = ULA_SIZE; i < FULL_SIZE; ++i) {
+        for (int i = 2 * ULA_SIZE; i < FULL_SIZE; ++i) {
             uint16_t rgb333 = rrrgggbb_to_rgb333(static_cast<uint8_t>(i));
             ulanext_rgb333_[p][i] = rgb333;
             ulanext_argb_[p][i]   = rgb333_to_argb(rgb333);
