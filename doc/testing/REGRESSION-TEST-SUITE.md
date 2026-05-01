@@ -48,7 +48,7 @@ palette-demo      next    test/00regression/nex/palette_demo.nex 3
 
 ## Reference Screenshots
 
-Stored in `test/img/<test_name>-reference.png`. These are the known-good
+Stored in `test/00regression/img/<test_name>-reference.png`. These are the known-good
 baselines for comparison.
 
 ### Generating References
@@ -100,7 +100,7 @@ Running screenshot tests...
 
 Exit code is 0 if all tests pass, 1 if any fail.
 
-Failed tests save a diff image to `test/img/<test_name>-diff.png` for debugging.
+Failed tests save a diff image to `test/00regression/img/<test_name>-diff.png` for debugging.
 
 ## Adding New Tests
 

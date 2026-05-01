@@ -29,9 +29,8 @@ fi
 # i.e. via `make unit-test-build`); the rewind functional test below
 # SKIPs gracefully if it is missing.
 CONF="$SCRIPT_DIR/regression_tests.conf"
-# img/ stays under test/ (shared with other test infra); resolve via
-# PROJECT_DIR so we are not confused by SCRIPT_DIR moving.
-IMG_DIR="$PROJECT_DIR/test/img"
+# img/ lives next to this script under test/00regression/img.
+IMG_DIR="$SCRIPT_DIR/img"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 

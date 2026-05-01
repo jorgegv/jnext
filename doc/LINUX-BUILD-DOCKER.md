@@ -86,7 +86,7 @@ docker run --rm \
     bash /src/test/regression.sh
 ```
 
-The script compares screenshots to reference images in `test/img/`. To update references after an intentional rendering change:
+The script compares screenshots to reference images in `test/00regression/img/`. To update references after an intentional rendering change:
 
 ```sh
 docker run --rm \

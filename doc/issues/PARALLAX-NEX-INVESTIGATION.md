@@ -827,8 +827,8 @@ drained by `flush_remaining_changes`.
 Touched code: `src/core/emulator.cpp`, `src/video/layer2.cpp`. Tests
 added: `test/compositor/compositor_integration_test.cpp` (1 row).
 Script fix: `test/00regression/regression.sh`. Reference updates:
-`test/img/copper-demo-reference.png`, `test/img/tilemap-demo-reference.png`,
-`test/img/dapr-tilemap_00-reference.png` (user-authorised, visually verified).
+`test/00regression/img/copper-demo-reference.png`, `test/00regression/img/tilemap-demo-reference.png`,
+`test/00regression/img/dapr-tilemap_00-reference.png` (user-authorised, visually verified).
 
 ### Test status post-fix
 
@@ -878,7 +878,7 @@ Script fix: `test/00regression/regression.sh`. Reference updates:
 - Unit: 3384/3384/0/0 (32 suites, ZERO skips); +48 new test rows
   (G16 PSL-07/08/09, G17 PSL-PAT-01..07).
 - Regression: 34/0/0; one screenshot rebaselined
-  (`test/img/dapr-sprite-reference.png`) for VHDL-faithful timing
+  (`test/00regression/img/dapr-sprite-reference.png`) for VHDL-faithful timing
   shift on `b0a45a3` — justified per critic.
 - Beast.nex regression: full forest scene renders perfectly post-fix.
 

@@ -1136,7 +1136,7 @@ where possible.
 
 ### G52. Contention Phase-4 screenshot rebaseline
 - **What**: G50 wiring changes frame length on 48K/128K/+3; every
-  screenshot reference under `test/img/` for those machines must be
+  screenshot reference under `test/00regression/img/` for those machines must be
   re-baselined. Plan calls this "primary risk".
 - **Dependencies**: G50.
 - **Effort**: L.

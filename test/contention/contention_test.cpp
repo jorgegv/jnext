@@ -1474,13 +1474,14 @@ static void test_integration_smoke() {
     // pixel drift would be caught.
     {
         // Locate repo root from the test binary path. The contention
-        // test runs from build/test/ — walk up to find `test/img/` and
-        // `test/00regression/regression_tests.conf` (Task 2 reorg
-        // 2026-04-30: conf moved out of test/ into test/00regression/).
+        // test runs from build/test/ — walk up to find
+        // `test/00regression/img/` and `test/00regression/regression_tests.conf`
+        // (img/ moved under test/00regression/ on 2026-05-01 alongside
+        // the conf, since these reference PNGs are regression-only).
         const char* candidates[] = {
-            "test/img/floating-bus-reference.png",
-            "../test/img/floating-bus-reference.png",
-            "../../test/img/floating-bus-reference.png",
+            "test/00regression/img/floating-bus-reference.png",
+            "../test/00regression/img/floating-bus-reference.png",
+            "../../test/00regression/img/floating-bus-reference.png",
         };
         const char* conf_candidates[] = {
             "test/00regression/regression_tests.conf",
@@ -1513,7 +1514,7 @@ static void test_integration_smoke() {
               "exists AND regression_tests.conf includes a `floating-bus` "
               "entry — contention regressions land via "
               "test/00regression/regression.sh "
-              "[test/img/floating-bus-reference.png; "
+              "[test/00regression/img/floating-bus-reference.png; "
               "test/00regression/regression_tests.conf]",
               ref_exists && conf_has_fb,
               std::string("ref_exists=") + std::to_string(ref_exists)
