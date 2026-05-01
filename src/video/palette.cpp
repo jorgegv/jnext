@@ -22,30 +22,11 @@ uint32_t rgb333_to_argb8888(uint8_t r3, uint8_t g3, uint8_t b3)
 }
 
 // ---------------------------------------------------------------------------
-// Canonical 16 ZX Spectrum colour values (ARGB8888).  See header.
-// ---------------------------------------------------------------------------
-
-const uint32_t kZxStandardColours[16] = {
-    rgb333_to_argb8888(0, 0, 0),   // 0 Black
-    rgb333_to_argb8888(0, 0, 6),   // 1 Blue
-    rgb333_to_argb8888(6, 0, 0),   // 2 Red
-    rgb333_to_argb8888(6, 0, 6),   // 3 Magenta
-    rgb333_to_argb8888(0, 6, 0),   // 4 Green
-    rgb333_to_argb8888(0, 6, 6),   // 5 Cyan
-    rgb333_to_argb8888(6, 6, 0),   // 6 Yellow
-    rgb333_to_argb8888(6, 6, 6),   // 7 White
-    rgb333_to_argb8888(0, 0, 0),   // 8  Bright Black
-    rgb333_to_argb8888(0, 0, 7),   // 9  Bright Blue
-    rgb333_to_argb8888(7, 0, 0),   // 10 Bright Red
-    rgb333_to_argb8888(7, 0, 7),   // 11 Bright Magenta
-    rgb333_to_argb8888(0, 7, 0),   // 12 Bright Green
-    rgb333_to_argb8888(0, 7, 7),   // 13 Bright Cyan
-    rgb333_to_argb8888(7, 7, 0),   // 14 Bright Yellow
-    rgb333_to_argb8888(7, 7, 7),   // 15 Bright White
-};
-
-// ---------------------------------------------------------------------------
-// Default ULA palette as RGB333 values
+// Default ULA palette as RGB333 values — the 16 hardware-defined boot
+// defaults of the 256-entry palette.  Used ONLY by reset() to seed the
+// std-ULA encoder slots (0x00..0x0F ink, 0x10..0x1F paper).  Not exposed
+// outside this translation unit: the hardware has a single 256-entry
+// palette and no narrower colour table.
 // ---------------------------------------------------------------------------
 
 static const uint16_t kDefaultUlaRgb333[16] = {

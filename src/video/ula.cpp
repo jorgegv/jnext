@@ -40,7 +40,7 @@ static inline uint8_t std_ula_paper_pixel(uint8_t attr)
 //
 // G102 — `ula_pixel` is the FULL 8-bit value emitted by any of the std/
 // ULAnext/ULA+ encoders.  Indexes the single 256-entry × 2-bank ULA
-// palette directly.  No fallback to a 16-entry colour table — production
+// palette directly.  No narrower colour-table fallback — production
 // code always has `palette_` set; the null fallback is just defensive
 // for orphan tests.
 // ---------------------------------------------------------------------------
@@ -633,8 +633,9 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 
     // G103 — ULA+ runtime palette path.  Gate is ulap_en_ (set by port
     // 0xFF3B b0 with ulap_mode="01", or NR 0x68 b3 ungated).  Default
-    // (ulap_en_=false) keeps the original 16-entry kZxStandardColours path
-    // byte-identical.
+    // (ulap_en_=false) keeps the std-ULA encoder path against the
+    // single 256-entry × 2-bank ULA palette (zxula.vhd:543-553 +
+    // zxnext.vhd:6981) byte-identical.
     //
     // VHDL zxula.vhd:531-541 (encoder) + zxnext.vhd:6981 (palette read):
     //
