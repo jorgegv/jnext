@@ -386,6 +386,105 @@ static void test_udis_integration(Emulator& emu) {
                   post_disabled_1, post_disabled_2, kRed,
                   ula_en_end));
     }
+
+    // ── PSCAN-VBLANK-COALESCE-01 — Copper write during pre-display vblank ─
+    //
+    // Companion to UDIS-02. Confirms that a Copper MOVE at a raster
+    // position ABOVE the active display window (pre-display vblank,
+    // jnext raw VC < DISP_Y = 32) propagates correctly into the
+    // per-scanline replay so its effect is visible from fb_row 0
+    // onwards. This is the regression-guard for the G164v2 fix series:
+    //
+    //   * Pre-fix, vblank writes were tagged with a 0xFFFF sentinel,
+    //     and the per-scanline cursor walk (`while line == log[c]`)
+    //     stalled at the leading sentinel — visible-row writes never
+    //     applied per-line, defeating per-scanline replay across
+    //     palette / layer2 / sprites / ULA / tilemap / NR 15.
+    //   * The fix coalesces vblank tag → 0 (pre-display) so the
+    //     cursor walks normally, AND fixes the snapshot indexing so
+    //     `ula_enabled_per_line_[fb_row]` reflects the post-write
+    //     state from fb_row 0.
+    //
+    // Stimulus: same 3-instruction Copper program as UDIS-02, but
+    // WAIT vpos chosen to fire BEFORE the active display:
+    //   In jnext, `tick_copper_for_master_cycles` passes
+    //     `cvc = (vc - min_vactive + lines_per_frame) mod lines_per_frame`
+    //   to `Copper::execute`, which then computes
+    //     `cvc_effective = (cvc + offset_) mod (c_max_vc + 1)`.
+    //   With offset_=0 and lines_per_frame=312 (NEXT 50 Hz), vc=10
+    //   maps to cvc=258. So WAIT vpos=258 fires at raw vc=10 — well
+    //   below DISP_Y=32, in pre-display vblank.
+    //
+    // Assertion: with NR 0x68 bit 7 written during vblank, the entire
+    // visible frame must show the fallback colour (red) — including
+    // fb_row DISP_Y (the very first display row).
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+
+        // Plant a marker that would ordinarily render as WHITE at
+        // (fb_row DISP_Y, fb_col DISP_X). If the vblank ULA-disable
+        // doesn't propagate to fb_row 0, the marker is what we'd see.
+        fill_pixels(emu, 0x00);
+        fill_attrs(emu, 0x07);
+        for (int col = 0; col < 32; ++col) {
+            poke_bank5(emu, 0x4000 + emu_pixel_addr_offset(0, col), 0xFF);
+        }
+
+        // Distinct fallback colour so disabled-ULA pixels are obvious.
+        const uint8_t  kFallback = 0xE0;          // RRR=111 GGG=000 BB=00
+        const uint32_t kRed      = Renderer::rrrgggbb_to_argb(kFallback);
+        nr_write_port(emu, 0x4A, kFallback);
+        nr_write_port(emu, 0x68, 0x00);  // baseline: ULA enabled
+
+        // Build Copper program: WAIT vpos=258 (= raw vc=10) → MOVE
+        // NR 0x68,0x80 → HALT.
+        const uint16_t WAIT_V_VBLANK = static_cast<uint16_t>(0x8000u | 258u);
+        const uint16_t MOVE_68_80    = static_cast<uint16_t>((0x68u << 8) | 0x80u);
+        const uint16_t WAIT_HALT     = static_cast<uint16_t>(0x8000u | 511u);
+
+        // Reset Copper write address to 0, then push 6 bytes.
+        nr_write_port(emu, 0x61, 0x00);
+        nr_write_port(emu, 0x62, 0x00);
+        nr_write_port(emu, 0x60, static_cast<uint8_t>((WAIT_V_VBLANK >> 8) & 0xFF));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>( WAIT_V_VBLANK       & 0xFF));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>((MOVE_68_80    >> 8) & 0xFF));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>( MOVE_68_80          & 0xFF));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>((WAIT_HALT     >> 8) & 0xFF));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>( WAIT_HALT           & 0xFF));
+
+        // Mode 11: restart PC each vsync + run continuously.
+        nr_write_port(emu, 0x62, 0xC0);
+
+        emu.run_frame();
+
+        // First display row: must already be fallback because the
+        // vblank Copper write at vc=10 disabled ULA before vc=64
+        // (first active line).
+        const uint32_t row0_marker = fb_pixel(emu,
+                                              Renderer::DISP_Y,
+                                              Renderer::DISP_X);
+
+        // Mid-display sample for confidence (independent of marker).
+        const uint32_t row100_offmk = fb_pixel(emu,
+                                               Renderer::DISP_Y + 100,
+                                               Renderer::DISP_X + 100);
+
+        const bool ula_en_end = emu.ula().ula_enabled();
+
+        const bool ok_row0    = (row0_marker == kRed);
+        const bool ok_row100  = (row100_offmk == kRed);
+        const bool ok_end     = (ula_en_end == false);
+
+        check("PSCAN-VBLANK-COALESCE-01",
+              "Copper MOVE NR 0x68,0x80 at WAIT vpos=258 (raw vc=10, pre-display "
+              "vblank) → first display row already shows NR 0x4A fallback "
+              "(G164v2 vblank coalesce-to-0 + snapshot indexing fixes).",
+              ok_row0 && ok_row100 && ok_end,
+              fmt("row0_marker=0x%08X (exp RED 0x%08X) "
+                  "row100_offmk=0x%08X ula_en_end=%d (exp 0)",
+                  row0_marker, kRed, row100_offmk, ula_en_end));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
