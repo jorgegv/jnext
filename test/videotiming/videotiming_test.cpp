@@ -851,6 +851,84 @@ static void section8_g163_dynamic_reschedule() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 9 — vblank_top() per-machine offset (Task 13)
+// VHDL: zxula_timing.vhd:147-312 (c_min_vactive per machine)
+// jnext: src/video/timing.h vblank_top()
+//
+// `vblank_top` = `min_vactive - DISP_Y` is the count of raw-VC scanlines
+// that fall ABOVE jnext's framebuffer top border. It's the correct
+// offset for converting raw VC to framebuffer row in the per-scanline
+// change-log (Emulator::on_scanline). Pre-Task-13 callers used
+// `Renderer::DISP_Y` (32) directly, which was correct only for
+// machines with min_vactive == 64 (NEXT 50Hz family — numerical
+// coincidence). Pentagon (min_vactive=80) and 60Hz overrides
+// (min_vactive=40) needed the corrected per-machine accessor.
+// ══════════════════════════════════════════════════════════════════════
+
+static void section9_vblank_top() {
+    set_group("VT-S9-VBLANK-TOP");
+
+    // VT-VBT-01 — NEXT 50 Hz family: min_vactive=64, DISP_Y=32 → 32.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZXN_ISSUE2);
+        const int v = vt.vblank_top();
+        check("VT-VBT-01",
+              "NEXT 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              v == 32, "got " + std::to_string(v));
+    }
+    // VT-VBT-02 — 48K 50 Hz: same 64-32=32.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX48K);
+        const int v = vt.vblank_top();
+        check("VT-VBT-02",
+              "48K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              v == 32, "got " + std::to_string(v));
+    }
+    // VT-VBT-03 — 128K 50 Hz: same 64-32=32.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZX128K);
+        const int v = vt.vblank_top();
+        check("VT-VBT-03",
+              "128K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              v == 32, "got " + std::to_string(v));
+    }
+    // VT-VBT-04 — Pentagon: min_vactive=80, DISP_Y=32 → 48 (off-by-16
+    // from NEXT, the bug Task 13 fixes).
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON);
+        const int v = vt.vblank_top();
+        check("VT-VBT-04",
+              "Pentagon vblank_top() = min_vactive(80) - DISP_Y(32) = 48",
+              v == 48, "got " + std::to_string(v));
+    }
+    // VT-VBT-05 — NEXT 60 Hz: min_vactive=40, DISP_Y=32 → 8 (off-by-24
+    // from NEXT 50Hz).
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZXN_ISSUE2, /*refresh_60hz=*/true);
+        const int v = vt.vblank_top();
+        check("VT-VBT-05",
+              "NEXT 60Hz vblank_top() = min_vactive(40) - DISP_Y(32) = 8",
+              v == 8, "got " + std::to_string(v));
+    }
+    // VT-VBT-06 — Pentagon refresh_60hz silently ignored (no 60Hz VHDL
+    // branch for Pentagon, init() resets refresh_60hz_ to false).
+    {
+        VideoTiming vt;
+        vt.init(MachineType::PENTAGON, /*refresh_60hz=*/true);
+        const int v = vt.vblank_top();
+        check("VT-VBT-06",
+              "Pentagon vblank_top() ignores 60Hz flag (no Pentagon 60Hz "
+              "VHDL branch) → still 48",
+              v == 48, "got " + std::to_string(v));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -858,7 +936,9 @@ int main() {
     std::printf("======================================\n\n");
     std::printf("  27 rows from Sections 1-7 (G71/G106/G107/G109 closure,\n");
     std::printf("  2026-04-28) + 4 Section-8 rows for G163 dynamic line-int\n");
-    std::printf("  re-evaluation (2026-04-30; +1 NR 0xC4 mirror row). 31 live.\n");
+    std::printf("  re-evaluation (2026-04-30; +1 NR 0xC4 mirror row) +\n");
+    std::printf("  6 Section-9 rows for vblank_top() per-machine offset\n");
+    std::printf("  (Task 13, 2026-05-01). 37 live.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
@@ -884,6 +964,9 @@ int main() {
 
     section8_g163_dynamic_reschedule();
     std::printf("  Section 8: VT-S8-G163-DYNAMIC-RESCHEDULE — done (4 live)\n");
+
+    section9_vblank_top();
+    std::printf("  Section 9: VT-S9-VBLANK-TOP         — done (6 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

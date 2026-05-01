@@ -4031,10 +4031,12 @@ void Emulator::on_scanline(int line)
     // G164v2 — index by FRAMEBUFFER ROW, not raw VC. The renderer reads
     // these arrays at `row` (fb_row), so the snapshot index must be in
     // the same space. Convert (line-1) raw VC → fb_row by subtracting
-    // DISP_Y; values outside [0, FB_HEIGHT) are vblank/off-frame and
-    // shouldn't be snapshotted (the bounds check filters them out).
+    // the per-machine vblank-top (= min_vactive - DISP_Y; equals 32 for
+    // NEXT-family but 48 for Pentagon, 8 for 60Hz overrides). Values
+    // outside [0, FB_HEIGHT) are vblank/off-frame and shouldn't be
+    // snapshotted — the bounds check filters them out. (Task 13.)
     {
-        const int prev_fb_row = (line - 1) - Renderer::DISP_Y;
+        const int prev_fb_row = (line - 1) - video_timing_.vblank_top();
         if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
             renderer_.snapshot_fallback_for_line(prev_fb_row);
             renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
@@ -4046,12 +4048,16 @@ void Emulator::on_scanline(int line)
     // per-scanline change-log entries. Renderer::render_frame iterates
     // `row` in framebuffer-row space (0..FB_HEIGHT-1) and calls each
     // subsystem's apply_changes_for_line(row); the change-log entry's
-    // line tag must be in the SAME space. The offset between raw VC and
-    // framebuffer row is DISP_Y (32) — NOT min_vactive (64), which was
-    // the failed G164 hypothesis. Specifically: jnext's framebuffer
-    // shows top-border at rows 0..31 and display at rows 32..223, while
-    // VHDL has vblank at vc=0..31, top-border at vc=32..63, display at
-    // vc=64..255. So framebuffer_row = vc - 32.
+    // line tag must be in the SAME space.
+    //
+    // The offset between raw VC and framebuffer row is PER-MACHINE
+    // (Task 13): `vblank_top = min_vactive - DISP_Y`. For NEXT 50Hz /
+    // 48K / 128K / +3 50Hz that's 64-32=32 (numerical coincidence with
+    // DISP_Y); for Pentagon 80-32=48; for 60 Hz overrides 40-32=8.
+    // Pre-Task-13 callers used `Renderer::DISP_Y` directly, which is
+    // correct ONLY for the NEXT family — Pentagon and 60Hz suffered a
+    // 16/24-row misalignment that no current demo exercised in the
+    // regression suite, but was nonetheless wrong by VHDL.
     //
     // Pre-display vblank writes (fb_row < 0): coalesce to fb_row 0 so
     // they get applied at the START of the visible frame. This matches
@@ -4067,7 +4073,7 @@ void Emulator::on_scanline(int line)
     // flush_remaining_changes drains them at end-of-frame so they
     // become next frame's baseline. The cursor naturally reaches them
     // only after all visible entries have been applied, so no stall.
-    const int fb_row = line - Renderer::DISP_Y;
+    const int fb_row = line - video_timing_.vblank_top();
     const uint16_t tag = (fb_row < 0) ? 0u : static_cast<uint16_t>(fb_row);
 
     palette_.set_current_line(tag);

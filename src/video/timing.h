@@ -86,6 +86,23 @@ public:
     /// where the 256x192 active area starts for the current machine.
     RasterPos display_origin() const { return {min_hactive_, min_vactive_}; }
 
+    /// Number of raw-VC scanlines that fall ABOVE jnext's framebuffer
+    /// top border (i.e. true vblank lines that are NOT visible in the
+    /// rendered framebuffer). Per-machine because `min_vactive` varies:
+    ///   * NEXT 50 Hz / 48K / 128K / +3 50Hz : min_vactive=64 → 32
+    ///   * Pentagon                          : min_vactive=80 → 48
+    ///   * 60 Hz overrides                   : min_vactive=40 → 8
+    /// jnext's framebuffer geometry is fixed: top-border = `Renderer::DISP_Y`
+    /// (32 rows). The conversion `framebuffer_row = vc - vblank_top()` maps
+    /// raw VC scanlines onto the framebuffer correctly for every machine.
+    /// Pre-G164v2 callers used `Renderer::DISP_Y` as the offset, which is
+    /// numerically correct only for `min_vactive == 64` (a NEXT-family
+    /// coincidence). See doc/issues/PARALLAX-NEX-INVESTIGATION.md.
+    int vblank_top() const {
+        constexpr int kFbDispY = 32;  // matches Renderer::DISP_Y
+        return static_cast<int>(min_vactive_) - kFbDispY;
+    }
+
     /// ULA prefetch origin (VHDL zxula_timing.vhd:423: c_min_hactive - 12).
     /// The ULA begins fetching screen data 12 pixel-ticks before the active
     /// display window opens, so by the time hc reaches min_hactive_ the
