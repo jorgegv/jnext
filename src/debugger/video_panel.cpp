@@ -25,11 +25,16 @@
 #include <algorithm>
 
 // ---------------------------------------------------------------------------
-// PaletteSwatchWidget — 16 ULA colours in a horizontal row.
+// PaletteSwatchWidget — 32 std-ULA palette entries in a horizontal row.
+// G102: shows the full std-ULA encoder range (0x00..0x1F = 4 sub-cycles
+// × 8 colours = ink, paper, ink-bright, paper-bright sub-bands of the
+// 256-entry × 2-bank ULA palette per VHDL zxula.vhd:543-553).
 // ---------------------------------------------------------------------------
 
 class PaletteSwatchWidget : public QWidget {
 public:
+    static constexpr int N = 32;
+
     explicit PaletteSwatchWidget(QWidget* parent = nullptr)
         : QWidget(parent)
     {
@@ -37,8 +42,8 @@ public:
         std::fill(std::begin(colours_), std::end(colours_), 0xFF000000u);
     }
 
-    void set_colours(const uint32_t colours[16]) {
-        std::copy(colours, colours + 16, colours_);
+    void set_colours(const uint32_t colours[N]) {
+        std::copy(colours, colours + N, colours_);
         update();
     }
 
@@ -46,9 +51,9 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setPen(Qt::gray);
-        int cell = width() / 16;
+        int cell = width() / N;
         if (cell < 1) cell = 1;
-        for (int i = 0; i < 16; ++i) {
+        for (int i = 0; i < N; ++i) {
             uint32_t argb = colours_[i];
             QColor c(static_cast<int>((argb >> 16) & 0xFF),
                      static_cast<int>((argb >>  8) & 0xFF),
@@ -60,7 +65,7 @@ protected:
 
 private:
     static constexpr int CELL = 20;
-    uint32_t colours_[16]{};
+    uint32_t colours_[N]{};
 };
 
 // ---------------------------------------------------------------------------
@@ -533,10 +538,19 @@ void VideoPanel::refresh()
     for (int i = 0; i < 6; ++i)
         set_flag(prio_flags_[i], i == priority);
 
-    // ── ULA Palette ──────────────────────────────────────────────────────────
-    uint32_t colours[16];
-    for (int i = 0; i < 16; ++i)
-        colours[i] = emulator_->palette().ula_colour(static_cast<uint8_t>(i));
+    // ── ULA Palette (std-ULA range, 32 entries) ──────────────────────────────
+    // G102 — VHDL std-ULA encoder produces ula_pixel in [0, 0x1F]:
+    //   0x00..0x07: ink   (BRIGHT=0)
+    //   0x08..0x0F: ink   (BRIGHT=1)
+    //   0x10..0x17: paper (BRIGHT=0)
+    //   0x18..0x1F: paper (BRIGHT=1)
+    // Display shows the active ULA palette bank's 32 std-ULA-reachable
+    // entries; ULAnext / ULA+ entries (0x20..0xFF) are not shown here.
+    uint32_t colours[PaletteSwatchWidget::N];
+    const bool active_bank = emulator_->ula().get_active_ula_palette();
+    for (int i = 0; i < PaletteSwatchWidget::N; ++i)
+        colours[i] = emulator_->palette().ula_colour(active_bank,
+                                                     static_cast<uint8_t>(i));
     static_cast<PaletteSwatchWidget*>(palette_widget_)->set_colours(colours);
 
     // ── Layer sub-panel views — only refresh the visible tab ─────────────────
