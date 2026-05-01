@@ -75,7 +75,7 @@ gui-debug:
 		-DCMAKE_BUILD_TYPE=Debug \
 		-DCMAKE_C_COMPILER=$(CC) \
 		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-g -fno-omit-frame-pointer" \
+		-DCMAKE_CXX_FLAGS="-Og -g -fno-omit-frame-pointer" \
 		-DENABLE_QT_UI=ON \
 		-DENABLE_TESTS=ON
 	$(CMAKE) --build $(BUILD_DIR_GUI_DEBUG) -j$(JOBS)
