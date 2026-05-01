@@ -1124,18 +1124,15 @@ void group5_timing() {
 
     // TIM-CYC-01 / TIM-CYC-02 — VHDL device/copper.vhd:54-119 advances on
     // i_CLK_28 rising edge: at most one MOVE/WAIT-step per 28 MHz master
-    // cycle. jnext drives Copper::execute() once per Z80 instruction
-    // (emulator.cpp:2791-2797, :2991-2996), so dense Copper bursts within
-    // a single Z80 instruction window collapse to one step.
+    // cycle. The 2026-04-30 cycle-accurate scheduler landed (G117): a
+    // single Z80 instruction = 32 master cycles → up to 32 Copper steps,
+    // so dense MOVE bursts and MOVE+WAIT pipelines now fire within one
+    // CPU instruction window.
     //
-    // F-SKIP: the unit-test harness here calls cu.execute() directly per
-    // tick — it is the integration cadence (Emulator::run_until_*) that
-    // is the unit under test for this gap, and that surface is not
-    // reachable from the Copper unit suite. Will become check()s in
-    // copper_integration_test.cpp once the cycle-accurate scheduler
-    // lands; cross-link with G65 (NR-write priority on tied edges).
-    skip("TIM-CYC-01", "per-Z80-instr Copper schedule under-runs MOVE bursts (see G117)");
-    skip("TIM-CYC-02", "per-Z80-instr Copper schedule loses MOVE+WAIT pipeline slots (see G117)");
+    // No skip(): the rows are intentionally retired here — the canonical
+    // coverage is now G117-MPC-01 in copper_integration_test.cpp, which
+    // exercises the burst behaviour at the Emulator::execute_single_-
+    // instruction cadence that this unit harness cannot reach.
 }
 
 // ── Group 6: Vertical offset (NR 0x64) ────────────────────────────────

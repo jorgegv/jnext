@@ -1263,13 +1263,20 @@ static void test_group9_boundary() {
     //   G9-01 (NR 0x69 disable path) — not modelled in Layer2 class.
     //   G9-02 (port 0x123B read-back 0x00 at reset) — port dispatcher test.
 
-    // L2-G17-01 — placeholder per Task 7 round 2 prompt rule.
-    // Root cause UNIDENTIFIED today (six hypotheses disconfirmed in
-    // 2026-04-27 EOD investigation; Phase A sprite-priority +
-    // Phase B bank-6 disassembly are the next steps). Re-discriminate
-    // this row once Phase A/B lands.
-    skip("L2-G17-01",
-         "parallax two-copies root cause unidentified (see G17)");
+    // L2-G17-01 — RESOLVED 2026-05-01.
+    // The "two-copies" symptom was three independent VHDL-faithfulness
+    // coordinate-space bugs cancelling each other (G164v2 fix series,
+    // commits cde0a45 / f5bed99 / 8fcb345 / 460fac6): per-scanline
+    // change-log tag space, Copper cvc origin, Layer2 clip-on-source,
+    // and per-line snapshot indexing all needed `min_vactive`-based
+    // coordinates rather than raw VC. parallax.nex now visually matches
+    // CSpect end-to-end.
+    //
+    // No skip(): the row is intentionally retired here — the fixes are
+    // covered by PSCAN-VBLANK-COALESCE-01 in compositor_test, the
+    // per-scanline change-log unit tests across this suite (G10/G10b/
+    // G10c/G10d/G10e), and the pinned 100-frame parallax-demo regression
+    // baseline.
 
     // G9-G28-01 — VHDL layer2.vhd:148. Today's renderer is
     // scanline-granular; the `hc + 1` lift folds into the address
