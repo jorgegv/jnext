@@ -612,7 +612,7 @@ public:
     void load_state(class StateReader& r);
 
 private:
-    PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kZxStandardColours)
+    PaletteManager*  palette_         = nullptr; ///< 256-entry × 2-bank ULA palette (G102)
     Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
     bool             vram_use_bank7_  = false; ///< When true, vram_read() reads from bank 7 (page 14) not bank 5 (page 10)
@@ -736,8 +736,11 @@ private:
     /// @param row  Pointer to the start of the output row (FB_WIDTH pixels).
     void render_border_line(uint32_t* row);
 
-    /// Look up a ULA colour by index (0-15). Uses PaletteManager if available.
-    uint32_t lookup_colour(uint8_t idx) const;
+    /// Look up a ULA colour by 8-bit `ula_pixel` (the encoder output)
+    /// in the active ULA palette bank (NR 0x43 b1).  Uses PaletteManager
+    /// when wired; else returns opaque black (production paths always
+    /// have the palette set).  G102 — VHDL zxnext.vhd:6981.
+    uint32_t lookup_colour(uint8_t ula_pixel) const;
 
     /// Read from ULA VRAM directly from physical bank 5 (or bank 7 for shadow).
     /// On real hardware, the ULA has a dedicated port to bank 5 RAM, bypassing
