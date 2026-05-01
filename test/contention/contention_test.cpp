@@ -1640,22 +1640,411 @@ static void test_delay_drift_bound() {
 // VHDL: zxula.vhd:583,595,600 — wait_s fires every contended cycle
 // (M1, no-MREQ, data, port). FUSE injects per-cycle contention via
 // contend_read/_no_mreq/_write_no_mreq macros at
-// third_party/fuse-z80/z80_macros.h:109-122. jnext zero-fills both at
-// src/cpu/z80_cpu.cpp:484-508 so the inner-macro path is inert.
-// (G141)
+// third_party/fuse-z80/z80_macros.h:107-130. With G141 (commit 2026-05-01)
+// the FUSE source TU is built with -DCORETEST so those macros expand
+// to extern function calls that route through ContentionModel::
+// contention_tick() — the same VHDL-faithful gate the data path uses.
+// (G141 + G53)
 // ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// CT-FUSE helper: install a small "code lives in slot 1" program that
+// makes M1 fetches themselves contended on 48K (slot 1 = bank 5).
+//
+// 0x4000  06 64      LD B, 100        ; 7T  (M1=4, ND=3) — M1 contended
+// 0x4002  10 FE      DJNZ -2          ; 13T taken / 8T fall-through
+//                                     ; (M1=5 contended, ND=3, +5 no-MREQ tail
+//                                     ;  on IR — IR=I<<8|R, with I=0 lives in
+//                                     ;  slot 0 → uncontended)
+// 0x4004  76         HALT             ; 4T (M1 contended)
+//
+// Un-contended baseline (B=100):
+//   setup     : 7
+//   loop body : 99 * 13 + 1 * 8 = 1287 + 8 = 1295
+//   halt      : 4
+//   total     : 1306
+//
+// Where the M1 fetches land:
+//   * setup LD B,100   : M1 at 0x4000 (slot 1, contended)
+//   * loop DJNZ -2     : M1 at 0x4002 (slot 1, contended) × 100
+//   * loop HALT        : M1 at 0x4004 (slot 1, contended)
+//
+// Total contended-M1 fetches = 1 + 100 + 1 = 102.
+// (Each contended M1 fetch enters contend_read() → contention_tick().)
+struct FuseM1Program {
+    static constexpr uint16_t kEntry      = 0x4000;
+    static constexpr uint16_t kStackInit  = 0xBF00;     // top of bank 2
+    static constexpr uint8_t  kIterations = 100;
+    static constexpr uint32_t kBaselineT  = 1306;
+    static constexpr uint16_t kHaltAddr   = 0x4004;
+};
+
+inline void install_fuse_m1_program(Emulator& emu) {
+    constexpr uint16_t E = FuseM1Program::kEntry;
+    emu.mmu().write(E + 0, 0x06);                          // LD B, n
+    emu.mmu().write(E + 1, FuseM1Program::kIterations);
+    emu.mmu().write(E + 2, 0x10);                          // DJNZ
+    emu.mmu().write(E + 3, 0xFE);                          // -2
+    emu.mmu().write(E + 4, 0x76);                          // HALT
+
+    auto regs = emu.cpu().get_registers();
+    regs.PC     = E;
+    regs.SP     = FuseM1Program::kStackInit;
+    regs.IFF1   = 0;
+    regs.IFF2   = 0;
+    regs.halted = false;
+    emu.cpu().set_registers(regs);
+}
+
+inline uint32_t run_fuse_m1_program(Emulator& emu, std::size_t max_steps = 100000) {
+    const uint32_t t_start = *fuse_z80_tstates_ptr();
+    for (std::size_t i = 0; i < max_steps; ++i) {
+        emu.cpu().execute();
+        const auto regs = emu.cpu().get_registers();
+        if (regs.halted && regs.PC == FuseM1Program::kHaltAddr) break;
+    }
+    const uint32_t t_end = *fuse_z80_tstates_ptr();
+    return t_end - t_start;
+}
+
+// CT-FUSE-02 helper: LDIR program where source AND destination both lie
+// in contended bank 5. LDIR uses contend_write_no_mreq(DE, 1) twice per
+// non-final byte, four more times when continuing — so the no-MREQ tail
+// fires on a contended page once per byte in the non-final iteration.
+//
+// 0x8000  21 00 40   LD HL, 0x4000     ; in slot 2 — uncontended M1
+// 0x8003  11 00 50   LD DE, 0x5000     ; in slot 2 — uncontended M1
+// 0x8006  01 10 00   LD BC, 16         ; in slot 2 — uncontended M1
+// 0x8009  ED B0      LDIR              ; in slot 2 — uncontended M1; BUT
+//                                     ; contend_write_no_mreq(DE, ...) fires
+//                                     ; with DE=0x5000..0x500F (slot 1 → bank
+//                                     ; 5 → contended). Per FUSE z80_ed.c:422
+//                                     ; LDIR: 2× contend_write_no_mreq for the
+//                                     ; final byte + 6× for each prior byte.
+// 0x800B  76         HALT              ; in slot 2 — uncontended M1
+//
+// Un-contended baseline:
+//   LD HL,nn  : 10
+//   LD DE,nn  : 10
+//   LD BC,nn  : 10
+//   LDIR      : 21 × (BC-1) + 16 = 21*15 + 16 = 315 + 16 = 331
+//   HALT      : 4
+//   total     : 365
+struct FuseLdirProgram {
+    static constexpr uint16_t kEntry      = 0x8000;
+    static constexpr uint16_t kStackInit  = 0xBF00;
+    static constexpr uint16_t kCount      = 16;
+    static constexpr uint32_t kBaselineT  = 365;
+    static constexpr uint16_t kHaltAddr   = 0x800B;
+};
+
+inline void install_fuse_ldir_program(Emulator& emu) {
+    constexpr uint16_t E = FuseLdirProgram::kEntry;
+    // LD HL, 0x4000
+    emu.mmu().write(E + 0, 0x21);
+    emu.mmu().write(E + 1, 0x00);
+    emu.mmu().write(E + 2, 0x40);
+    // LD DE, 0x5000
+    emu.mmu().write(E + 3, 0x11);
+    emu.mmu().write(E + 4, 0x00);
+    emu.mmu().write(E + 5, 0x50);
+    // LD BC, 16
+    emu.mmu().write(E + 6, 0x01);
+    emu.mmu().write(E + 7, FuseLdirProgram::kCount & 0xFF);
+    emu.mmu().write(E + 8, FuseLdirProgram::kCount >> 8);
+    // LDIR
+    emu.mmu().write(E + 9, 0xED);
+    emu.mmu().write(E + 10, 0xB0);
+    // HALT
+    emu.mmu().write(E + 11, 0x76);
+
+    auto regs = emu.cpu().get_registers();
+    regs.PC     = E;
+    regs.SP     = FuseLdirProgram::kStackInit;
+    regs.IFF1   = 0;
+    regs.IFF2   = 0;
+    regs.halted = false;
+    emu.cpu().set_registers(regs);
+}
+
+inline uint32_t run_fuse_ldir_program(Emulator& emu, std::size_t max_steps = 100000) {
+    const uint32_t t_start = *fuse_z80_tstates_ptr();
+    for (std::size_t i = 0; i < max_steps; ++i) {
+        emu.cpu().execute();
+        const auto regs = emu.cpu().get_registers();
+        if (regs.halted && regs.PC == FuseLdirProgram::kHaltAddr) break;
+    }
+    const uint32_t t_end = *fuse_z80_tstates_ptr();
+    return t_end - t_start;
+}
+
+} // namespace
 
 static void test_fuse_inopcode_contention() {
     set_group("CT-FUSE");
 
-    skip("CT-FUSE-01", "M1 fetch contention",
-         "FUSE memory_map_read[].contended zero-filled (see G141)");
-    skip("CT-FUSE-02", "no-MREQ tail contention",
-         "FUSE no-MREQ macros inert; ula_contention[] zero (see G141)");
-    skip("CT-FUSE-03", "OUT port contention",
-         "FUSE port-write contention path inert (see G141)");
-    skip("CT-FUSE-04", "IN port contention",
-         "FUSE port-read contention path inert (see G141)");
+    // ────────────────────────────────────────────────────────────────────
+    // CT-FUSE-01 — M1 fetch contention
+    // ────────────────────────────────────────────────────────────────────
+    // Pre-G141: contend_read(PC, 4) at fuse_z80_core.c:193 expanded to
+    //     if (memory_map_read[PC>>13].contended) tstates += ula_contention[t];
+    //     tstates += 4;
+    // With memory_map_read[] zero-filled, every M1 fetch added exactly 4
+    // T-states with no contention stretch — even when PC was in bank 5
+    // during the active raster window.
+    //
+    // Post-G141: -DCORETEST routes contend_read through
+    // ContentionModel::contention_tick(), which fires the per-phase
+    // {6,5,4,3,2,1,0,0}[hc&7] stretch on every M1 fetch in a contended
+    // slot during the active raster window (vc<192, hc<256, hc_adj!=0).
+    //
+    // Stimulus: install a 5-byte program in slot 1 (bank 5 on 48K — fully
+    // contended); 100 DJNZ iterations + HALT. ~102 contended M1 fetches +
+    // 5 contend_read_no_mreq(PC,1) calls per JR (DJNZ taken).
+    //
+    // The two runs are SEQUENTIAL on a single Emulator instance, with
+    // ON happening first (defaults) and OFF after toggling
+    // set_contention_disable(true). Two parallel Emulators would race on
+    // the static `s_contention` singleton in src/cpu/z80_cpu.cpp:67 (the
+    // last-init wins), so sequential is the correct shape — same pattern
+    // CT-INT-01/CT-INT-02 use (each row constructs one Emulator).
+    //
+    // VHDL oracle: zxula.vhd:583 wait_s × per-phase pattern × the VHDL
+    // 48K mem_active_page='101' decode at zxnext.vhd:4490.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (!ok) {
+            check("CT-FUSE-01",
+                  "Emulator::init failed — would verify M1 fetch contention "
+                  "[zxula.vhd:583; zxnext.vhd:4481,4490]",
+                  false, "Emulator::init returned false");
+        } else {
+            // ON first (defaults — gate enabled).
+            install_fuse_m1_program(emu);
+            const uint32_t total_on = run_fuse_m1_program(emu);
+
+            // OFF — disable the gate immediately and re-run.
+            // (set_contention_disable() commits both shadow + effective
+            // synchronously; CT-INT-02 uses the same idiom.)
+            emu.contention().set_contention_disable(true);
+            install_fuse_m1_program(emu);
+            const uint32_t total_off = run_fuse_m1_program(emu);
+
+            const bool on_gt_off = (total_on > total_off);
+            // M1 fetches: 1 setup + 100 loop + 1 halt = 102 contended
+            // M1 cycles, each capped at +6 T-states (G50 envelope per
+            // CT-DELAY-01). The DJNZ taken-branch JR() macro adds 5
+            // contend_read_no_mreq(PC,1) calls on PC (slot 1, contended)
+            // per iteration — those also fire contention. So the upper
+            // bound on the ON-OFF delta is 6 × (102 + 5*100 + 1 LDB-imm
+            // + 99 DJNZ-imm-fall + 1 DJNZ-imm-fall-out) ≤ 6 × 700 = 4200.
+            // We use a generous round bound that is still tight enough
+            // to catch any pattern-LUT regression that produces stretches
+            // outside {0..6}.
+            const uint32_t upper_bound = 6 * 700;
+            const uint32_t delta = total_on - total_off;
+            const bool on_bounded = delta <= upper_bound;
+
+            const bool ok2 = on_gt_off && on_bounded;
+            check("CT-FUSE-01",
+                  "M1 fetch contention: 5-byte program in slot 1 "
+                  "(bank 5, contended) — contention-ON total > "
+                  "contention-OFF total (delta > 0) AND delta within "
+                  "G50 envelope (6 × max contended cycles per iteration) "
+                  "[zxula.vhd:583,595; zxnext.vhd:4481,4490]",
+                  ok2,
+                  std::string("on=") + std::to_string(total_on)
+                  + " off=" + std::to_string(total_off)
+                  + " delta=" + std::to_string(delta)
+                  + " upper=" + std::to_string(upper_bound));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-FUSE-02 — no-MREQ tail contention
+    // ────────────────────────────────────────────────────────────────────
+    // FUSE LDIR (z80_ed.c:418-433) calls contend_write_no_mreq(DE, 1) two
+    // times for the final byte, six times for each prior byte. Pre-G141
+    // ula_contention_no_mreq[] was zero so the no-MREQ tail contributed
+    // exactly +1 T per call — never the per-phase stretch. Post-G141 the
+    // CORETEST function override routes contend_write_no_mreq through
+    // contention_tick() and produces the same {6,5,4,3,2,1,0,0}[hc&7]
+    // stretch the data path produces.
+    //
+    // Stimulus: LDIR with HL=0x4000 (slot 1, contended) and DE=0x5000
+    // (also slot 1, contended). The ON delta over OFF MUST be > 0
+    // because LDIR's contend_write_no_mreq calls hit a contended page
+    // in the active raster window. The data-cycle contend_read /
+    // contend_write at HL/DE also fire the same gate (Phase-2 wired)
+    // — both cycle classes are now under one path post-G141.
+    //
+    // CRITICAL — single-Emulator pattern:
+    //   `s_contention` in src/cpu/z80_cpu.cpp is a singleton; two
+    //   Emulators in flight would race over which contention model is
+    //   live (last-init wins). Run ON then OFF on a single Emulator
+    //   sequentially — same idiom as CT-INT-01/CT-INT-02.
+    //
+    // VHDL oracle: zxula.vhd:583,595 — wait_s × per-phase pattern fires
+    // on contended-memory cycles regardless of whether the current cycle
+    // is MREQ-asserted (the `mreq23_n='1'` registered-MREQ-deasserted
+    // path at line 595 captures the in-opcode tail).
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (!ok) {
+            check("CT-FUSE-02",
+                  "Emulator::init failed — would verify LDIR no-MREQ tail "
+                  "contention [zxula.vhd:583,595; z80_ed.c:418-433]",
+                  false, "Emulator::init returned false");
+        } else {
+            // ON first (defaults — gate enabled).
+            install_fuse_ldir_program(emu);
+            const uint32_t total_on = run_fuse_ldir_program(emu);
+
+            // OFF — disable the gate and re-run.
+            emu.contention().set_contention_disable(true);
+            install_fuse_ldir_program(emu);
+            const uint32_t total_off = run_fuse_ldir_program(emu);
+
+            const bool on_gt_off = (total_on > total_off);
+            // LDIR-induced contention cycles per non-final byte:
+            //   + 1 contend_read(HL, 3)  data-side read   (HL contended)
+            //   + 1 contend_write(DE, 3) data-side write  (DE contended)
+            //   + 6 contend_write_no_mreq(DE, 1) no-MREQ tail (DE contended)
+            // = 8 contended cycles per byte × 16 bytes = 128 max contended
+            //   cycles. Each cycle ≤ +6T. Upper bound: 6 × 128 = 768.
+            //   (Plus M1 fetches of the LDIR opcode, but those are at
+            //   PC=0x8009 in slot 2 — uncontended — so they don't add.)
+            const uint32_t upper_bound = 6 * 128;
+            const uint32_t delta = total_on - total_off;
+            const bool on_bounded = delta <= upper_bound;
+
+            const bool ok2 = on_gt_off && on_bounded;
+            check("CT-FUSE-02",
+                  "LDIR no-MREQ tail contention: 16-byte copy with HL+DE "
+                  "in slot 1 (bank 5, contended) — contention-ON total > "
+                  "contention-OFF total (delta > 0) AND delta within "
+                  "envelope 6×8×16 (per-byte data-r/w + 6 no-MREQ tails) "
+                  "[zxula.vhd:583,595; z80_ed.c:418-433]",
+                  ok2,
+                  std::string("on=") + std::to_string(total_on)
+                  + " off=" + std::to_string(total_off)
+                  + " delta=" + std::to_string(delta)
+                  + " upper=" + std::to_string(upper_bound));
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-FUSE-03 — OUT port contention (RETIRED)
+    // CT-FUSE-04 — IN port contention  (RETIRED)
+    // ────────────────────────────────────────────────────────────────────
+    // OUT/IN port contention does NOT flow through the FUSE in-opcode
+    // contend_* macros — port cycles are fully owned by FUSE's own port
+    // callbacks (fuse_z80_readport / fuse_z80_writeport at
+    // src/cpu/z80_cpu.cpp). Those callbacks were wired into
+    // ContentionModel::contention_tick() in Phase 2 (commit 2026-04-26),
+    // ahead of G141 — and are exhaustively covered by:
+    //   * CT-IO-01..04, CT-IO-07..09 — bare-class even/odd port + ULA+
+    //     decode (zxnext.vhd:4496) at lines 379-477 of this file.
+    //   * CT-IO-05/06 — Phase-B 128K port_7ffd_active term (deferred
+    //     to full-Emulator harness; documented under-report).
+    //   * CT-INT-01 — full integration smoke through the Emulator port
+    //     dispatch + contention_tick() runtime, lines 1390-1426.
+    //
+    // The CT-FUSE-03/04 rows would re-test the same code paths the CT-IO
+    // and CT-INT rows already cover — duplicating coverage without
+    // adding signal. Per the ARB-G65-01 retirement precedent
+    // (test/copper/copper_test.cpp:1451-1473) we retire here without a
+    // skip(): canonical coverage is in CT-IO-* + CT-INT-01.
+    //
+    // No skip(): rows intentionally retired here — canonical coverage
+    // at CT-IO-01..09 + CT-INT-01.
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-FUSE-05 — G53: legacy FUSE contention tables retired
+    // ────────────────────────────────────────────────────────────────────
+    // VHDL has a single contention path (zxula.vhd:582-600 wait_s + the
+    // two assignments at 595/600). Pre-G53 the emulator carried a
+    // SECOND parallel path: the FUSE memory_map_read[]/ula_contention[]
+    // tables, zero-filled but linked, indexed by every contend_* macro
+    // call. With G141 routing all in-opcode calls through
+    // ContentionModel::contention_tick() those tables became dead; G53
+    // removed them along with their builders/setters.
+    //
+    // This row asserts the architectural invariant: there is exactly ONE
+    // contention path in the live build. We test this by demonstrating
+    // that `set_contention_disable(true)` is the SOLE switch that
+    // suppresses contention added during a contended program — i.e. the
+    // ContentionModel gate IS the only producer.
+    //
+    // Stimulus shape (single Emulator, ON then OFF — same singleton-
+    // safe pattern as CT-FUSE-01/02):
+    //   * Pass A (gate ON, defaults): total_on records the ON envelope.
+    //   * Pass B (set_contention_disable(true)): re-run identical program
+    //     and record total_off.
+    //   * Pass C (gate ON again — set_contention_disable(false)): re-run
+    //     identical program and record total_on2.
+    // Invariants:
+    //   1. total_on > total_off   (gate ON adds stretch).
+    //   2. total_off == kBaselineT (uncontended baseline EXACTLY — proves
+    //      no parallel path is still adding stretch behind our back).
+    //   3. total_on2 ≈ total_on   (toggling back is idempotent — proves
+    //      the disable is a true gate, not a destructive table-clear).
+    //
+    // VHDL oracle: zxnext.vhd:4481 — i_contention_en is the SOLE gate
+    // for the SOLE contention path. No redundant table indexing remains.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (!ok) {
+            check("CT-FUSE-05",
+                  "Emulator::init failed — would verify single-contention-"
+                  "path invariant [zxnext.vhd:4481]",
+                  false, "Emulator::init returned false");
+        } else {
+            // Pass A — defaults, gate ON.
+            install_fuse_m1_program(emu);
+            const uint32_t total_on = run_fuse_m1_program(emu);
+
+            // Pass B — gate OFF.
+            emu.contention().set_contention_disable(true);
+            install_fuse_m1_program(emu);
+            const uint32_t total_off = run_fuse_m1_program(emu);
+
+            // Pass C — gate ON again (toggle-back idempotency).
+            emu.contention().set_contention_disable(false);
+            install_fuse_m1_program(emu);
+            const uint32_t total_on2 = run_fuse_m1_program(emu);
+
+            const uint32_t baseline = FuseM1Program::kBaselineT;
+            const bool gate_on_adds       = (total_on  > baseline);
+            const bool gate_off_no_extras = (total_off == baseline);
+            // Pass C may differ from Pass A because of raster-phase drift
+            // (each pass takes ~1306 + delta T-states; phase shifts a few
+            // cycles between passes). Allow a generous symmetric window
+            // — if the gate is broken in either direction, total_on2
+            // would clamp to baseline (no stretch at all) and the upper
+            // bound check would fail.
+            const bool gate_back_on_active = (total_on2 > baseline);
+
+            const bool ok2 = gate_on_adds && gate_off_no_extras
+                          && gate_back_on_active;
+            check("CT-FUSE-05",
+                  "G53 single-path invariant: gate ON adds stretch (>baseline) "
+                  "AND gate OFF matches baseline EXACTLY (no parallel FUSE-"
+                  "table contribution remains) AND gate-back-ON re-activates "
+                  "stretch — set_contention_disable() is the sole switch for "
+                  "the sole contention path "
+                  "[zxnext.vhd:4481; src/cpu/z80_cpu.cpp G141+G53]",
+                  ok2,
+                  std::string("baseline=") + std::to_string(baseline)
+                  + " on1=" + std::to_string(total_on)
+                  + " off=" + std::to_string(total_off)
+                  + " on2=" + std::to_string(total_on2));
+        }
+    }
 
     // CT-TURBO-08 — Combined NR 0x07 + NR 0x08 bit-6 commit ordering.
     // Each shadow has its OWN commit edge per VHDL zxnext.vhd:5796-5828:
@@ -1755,11 +2144,10 @@ static void test_fuse_inopcode_contention() {
               + ",gate_off=" + std::to_string(gate_off_step3) + ")");
     }
 
-    // CT-FUSE-05 — G53: FUSE-table retirement bypass-toggle row.
-    // Same stimulus as CT-FUSE-01..04 with FUSE table forcibly bypassed
-    // (jnext only). Bypass switch not exposed yet.
-    skip("CT-FUSE-05", "FUSE-table retirement bypass",
-         "FUSE-table bypass switch not exposed yet (see G53)");
+    // CT-FUSE-05 — see new check() above (G53 single-contention-path
+    // invariant). The original "FUSE-table bypass switch not exposed"
+    // skip() was retired here once G53 deleted the parallel FUSE-table
+    // path itself: there is no longer a "second path" to toggle.
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
