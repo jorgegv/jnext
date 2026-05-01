@@ -904,7 +904,7 @@ static void g_ay_vol_tables() {
               fmt("lo=0x%02x hi=0x%02x VHDL ym2149.vhd:157-162", lo, hi));
     }
 
-    // AY-91 - AY 16-entry table: index = top 4 bits of 5-bit volume.
+    // AY-91 - AY 4-bit volume DAC: index = top 4 bits of 5-bit volume.
     {
         AyChip ay;
         ay.set_ay_mode(true);
