@@ -156,11 +156,18 @@ struct UlaBed {
     Rom rom;
     Mmu mmu;
     Ula ula;
+    PaletteManager palette;
     UlaBed() : ram(), rom(), mmu(ram, rom) {
         mmu.reset();
         mmu.set_page(2, 10);  // bank 5 page 10 → 0x4000
         mmu.set_page(3, 11);  // bank 5 page 11 → 0x6000
         ula.set_ram(&ram);
+        // G102 — wire the 256-entry × 2-bank ULA palette so the
+        // renderer's std-ULA path resolves to the canonical 16 ZX
+        // colours at boot defaults (mirrored at idx 0x00..0x1F).
+        // Without this, lookup_colour returns opaque black.
+        palette.reset();
+        ula.set_palette(&palette);
         ula.reset();
         ula.init_border_per_line();
     }
@@ -484,11 +491,15 @@ static void test_section5_timex() {
     // zxula.vhd:443-448: when `border_active='1'` and `screen_mode_r(2)='1'`
     // (hi-res), attr_reg is loaded with `border_clr_tmx` (zxula.vhd:419)
     // instead of `border_clr` (zxula.vhd:418).  jnext's render_border_line
-    // auto-routes to tmx when mode_==HI_RES.  We approximate the 6-bit VHDL
-    // tmx colour by taking port_ff paper bits (5:3) as a 0–7 palette index.
-    // Here we set port_fe border = 0 (black) and port 0xFF with mode 110
-    // (hi-res) and paper bits 110 (= 6 = yellow).  In standard modes the
-    // border would render black; in hi-res it must render yellow.
+    // auto-routes to tmx when mode_==HI_RES.
+    //
+    // G102 — std-ULA encoder per VHDL :543-553 maps the TMX 8-bit attr
+    // (bits 7:6="01", 5:3=~paper, 2:0=paper) to ula_pixel:
+    //   ula_pixel = 0x10 | (attr(6)<<3) | attr(5:3)
+    //             = 0x10 | 0x08 | (~paper & 7)
+    // For paper=6: ~6 & 7 = 1 → ula_pixel = 0x19.  Boot default at
+    // idx 0x19 is the paper-cycle mirror of ZX colour 9 (bright blue,
+    // RGB333 (0,0,7)).
     {
         UlaBed bed;
         bed.ula.set_border(0);            // port 0xFE bits 2:0 = 0 → black
@@ -496,13 +507,15 @@ static void test_section5_timex() {
         bed.ula.set_screen_mode(0x30);    // bits 5:3 = 110 → HI_RES, paper 6
         std::array<uint32_t, 320> line{};
         bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
+
+        const uint32_t exp_argb = rgb333_to_argb8888(0, 0, 7);  // bright blue
         check("S5.06",
-              "zxula.vhd:419 + :443-448 — HI_RES border uses border_clr_tmx "
-              "(port_ff paper bits 5:3) instead of border_clr; "
-              "port_fe=0 (black) + port_ff=0x30 (paper=6=yellow) → yellow",
-              line[0] == kZxStandardColours[6],
-              fmt("got 0x%08X exp 0x%08X (yellow)",
-                  line[0], kZxStandardColours[6]));
+              "zxula.vhd:419 + :443-448 + :543-553 — HI_RES border uses "
+              "border_clr_tmx through std-ULA encoder; paper=6 → ula_pixel=0x19 "
+              "(boot default = bright blue paper-cycle mirror)",
+              line[0] == exp_argb,
+              fmt("got 0x%08X exp 0x%08X (bright blue)",
+                  line[0], exp_argb));
     }
 
     // S5.07 — shadow screen forces screen_mode to "000" per VHDL zxula.vhd:191:
@@ -637,8 +650,19 @@ static void test_section5_timex() {
         bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
         const uint32_t got_ulanext = line[0];
 
-        // Negative gate: disable ULAnext and re-render — should fall back
-        // to the legacy 3-bit paper-truncation (paper=6 → kZxStandardColours[6]).
+        // Negative gate: disable ULAnext and re-render.  G102 — std-ULA
+        // encoder takes over: VHDL :543-553 with TMX 8-bit attr 0x4E
+        // (bits 7:6="01" silently dropped, but attr(6)=1 → BRIGHT lit),
+        // border_active_d=1 (paper cycle):
+        //   ula_pixel = 0x10 | (attr(6)<<3) | attr(5:3)
+        //             = 0x10 | 0x08 | 1   (~paper bits = ~6 & 7 = 1)
+        //             = 0x19
+        // Boot-default ULA palette mirrors the canonical 16 ZX colours
+        // at idx 0x10..0x1F (paper-cycle), so idx 0x19 = bright ZX
+        // colour 9 = bright blue (RGB333 (0,0,7)).  This is now the
+        // VHDL-faithful std-ULA HI_RES border colour (previously a
+        // documented limitation: 3-bit paper-truncation against the
+        // legacy 16-entry mirror).
         bed.ula.set_ulanext_en(false);
         std::array<uint32_t, 320> line_legacy{};
         bed.ula.render_scanline(line_legacy.data(), 0, bed.mmu);
@@ -648,21 +672,25 @@ static void test_section5_timex() {
         // 8-bit attr value; assert it matches our derivation 0x4E.
         const uint8_t btmx_check = vhdl_border_clr_tmx(0x30);
 
+        // Boot default at idx 0x19 = paper-cycle mirror of bright blue.
+        const uint32_t exp_legacy = rgb333_to_argb8888(0, 0, 7);
+
         check("S5.11",
               "zxula.vhd:419 + :504 — HI_RES border under ULAnext: "
               "border_clr_tmx 8-bit attr → encoder ula_pixel = 0x80 | "
-              "(~paper & 7) → wider 256-entry ULA palette lookup "
-              "(zxnext.vhd:6981).  Legacy 3-bit fallback preserved "
-              "when ulanext_en=0",
+              "(~paper & 7) → 256-entry ULA palette lookup (zxnext.vhd:6981).  "
+              "Negative gate (ulanext_en=0) routes through the std-ULA "
+              "encoder: ula_pixel = 0x10 | (attr(6)<<3) | (~paper & 7) "
+              "= 0x19 → boot default = bright blue (paper-cycle mirror)",
               btmx_check == 0x4E
               && got_ulanext == exp_argb
-              && got_legacy  == kZxStandardColours[6],
+              && got_legacy  == exp_legacy,
               fmt("btmx=0x%02X (exp 0x4E) idx=0x%02X "
                   "got_ulanext=0x%08X (exp 0x%08X)  "
-                  "got_legacy=0x%08X (exp yellow 0x%08X)",
+                  "got_legacy=0x%08X (exp bright blue 0x%08X)",
                   btmx_check, exp_idx,
                   got_ulanext, exp_argb,
-                  got_legacy, kZxStandardColours[6]));
+                  got_legacy, exp_legacy));
     }
 
     // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).

@@ -506,9 +506,9 @@ static void test_ulaplus_integration(Emulator& emu) {
     //      pixels at fb_x=DISP_X+1..7 == ulap_argb(idx=8).
     //
     // Negative gate: with ULA+ disabled (set ulap_en=0 via NR 0x68 b3=0),
-    // the renderer falls back to the 16-entry kZxStandardColours path, so the
-    // same pixel/attr pair must produce the standard ULA white/black
-    // (kZxStandardColours[7] / kZxStandardColours[0]).
+    // the std-ULA encoder takes over (G102 — single 256-entry palette).
+    // attr=0x07 produces ula_pixel = 7 (ink) / 0x10 (paper); both slots
+    // hold the canonical ZX colours 7 (white) / 0 (black) at boot.
     {
         // ── Setup: enable ULA+ via the canonical port path. ────────────
         // Reset state to a known baseline (prior INT-ULAPLUS-02 left
@@ -580,7 +580,7 @@ static void test_ulaplus_integration(Emulator& emu) {
         const uint32_t got_paper = line[Ula::DISP_X + 1];
 
         // ── Negative gate: disable ULA+ via NR 0x68 b3=0 and confirm ──
-        // the renderer falls back to kZxStandardColours (white ink / black
+        // the std-ULA encoder takes over (G102 single mirror) — attr=0x07
         // paper for attr=0x07).
         emu.nextreg().write(0x68, 0x00);   // ulap_en = 0 (ungated)
         const bool en_off = (emu.ula().get_ulap_en() == false);
@@ -646,7 +646,7 @@ static void test_ulaplus_integration(Emulator& emu) {
               "ULA+ runtime palette: BF3B index latch + NR 0xFF poke + "
               "encoder + active_ula_palette routes pixels to ulap_colour; "
               "bank-0/bank-1 isolation via NR 0x43 b6 (write) / b1 (read); "
-              "negative gate (ulap_en=0) restores kZxStandardColours  "
+              "negative gate (ulap_en=0) restores std-ULA boot defaults  "
               "(zxnext.vhd:4533-4535,6957-6958,6981; zxula.vhd:531-541; "
               "src/video/ula.cpp render_display_line ulap_en branch)",
               all_ok,
@@ -763,12 +763,13 @@ static void test_ulanext_integration(Emulator& emu) {
     //        Ula::render_display_line ulanext_en branch invokes
     //        compute_ulanext_pixel and palette_->ulanext_colour.
     //
-    // Stimulus uses a paper cycle so the encoder lands at idx ≥ 0x80 —
-    // a slot that never touches the legacy 16-entry ULA mirror.  This
-    // makes the negative gate trustworthy: under ulanext_en=0 the
-    // renderer reads `attr & 7 = 5` from the legacy 16-entry mirror,
-    // which we never wrote and thus stays at its default cyan value
-    // (kZxStandardColours[5]).
+    // Stimulus uses a paper cycle so the ULAnext encoder lands at
+    // idx ≥ 0x80 — a slot the std-ULA encoder cannot reach (its range
+    // is 0x00..0x1F per VHDL :543-553).  This makes the negative gate
+    // trustworthy: under ulanext_en=0 the std-ULA encoder for paper
+    // bits 5:3=5 emits ula_pixel = 0x10 | 0 | 5 = 0x15, which holds
+    // the boot-default ZX colour 5 (cyan) — the ULAnext-only write
+    // at idx 0x85 cannot perturb it.
     //
     //   1. Enable ULAnext via NR 0x43 = 0x01 (b0=1, b1=0 → bank 0).
     //   2. NR 0x42 = 0x07 (default; paper encoder = 0x80 | (attr>>3 & 0x1F)).
@@ -784,9 +785,10 @@ static void test_ulanext_integration(Emulator& emu) {
     // idx, switch active read bank to 1 via NR 0x43 = 0x03 (b0=1, b1=1),
     // re-render, assert the bank-1 colour now surfaces.
     //
-    // Negative gate: disable ULAnext (NR 0x43 = 0x00) — the renderer must
-    // fall back to the legacy 16-entry path, producing the standard
-    // ULA "attr=0x28 paper=5" → cyan = kZxStandardColours[5].
+    // Negative gate: disable ULAnext (NR 0x43 = 0x00) — the std-ULA
+    // encoder takes over and emits ula_pixel = 0x15 for the paper
+    // cycle of attr=0x28; idx 0x15 holds the canonical ZX colour 5
+    // (cyan) at boot defaults.
     {
         // Reset baseline scroll state from prior INT rows.
         emu.nextreg().write(0x27, 0x00);
@@ -862,7 +864,7 @@ static void test_ulanext_integration(Emulator& emu) {
               "+ NR 0x40/0x41 8-bit poke at full nr_palette_idx routes "
               "pixels through compute_ulanext_pixel + ulanext_colour; "
               "bank-0/bank-1 isolation via NR 0x43 b1 (active_ula); "
-              "negative gate (ulanext_en=0) restores kZxStandardColours  "
+              "negative gate (ulanext_en=0) restores std-ULA boot defaults  "
               "(zxula.vhd:485-528, :520; zxnext.vhd:5394, 6952-6981; "
               "src/video/ula.cpp render_display_line ulanext_en branch)",
               all_ok,

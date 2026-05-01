@@ -2179,14 +2179,14 @@ static void test_PSCAN() {
     {
         PaletteManager p;
         p.reset();
-        const uint32_t baseline_5 = p.ula_colour(5);   // default cyan
+        const uint32_t baseline_5 = p.ula_colour(false, 5);   // default cyan
         p.start_frame();
         p.write_control(0x00);
         p.set_index(5);
         p.write_8bit(0xE0);                             // bright red
-        const uint32_t after_write = p.ula_colour(5);
+        const uint32_t after_write = p.ula_colour(false, 5);
         p.rewind_to_baseline();
-        const uint32_t after_rewind = p.ula_colour(5);
+        const uint32_t after_rewind = p.ula_colour(false, 5);
 
         check("PSCAN-02",
               "rewind_to_baseline restores live palette state",
@@ -2214,36 +2214,36 @@ static void test_PSCAN() {
         p.rewind_to_baseline();
 
         // Capture sentinel values BEFORE any replay (post-rewind).
-        const uint32_t baseline_0 = p.ula_colour(0);
-        const uint32_t baseline_1 = p.ula_colour(1);
-        const uint32_t baseline_2 = p.ula_colour(2);
-        const uint32_t baseline_3 = p.ula_colour(3);
+        const uint32_t baseline_0 = p.ula_colour(false, 0);
+        const uint32_t baseline_1 = p.ula_colour(false, 1);
+        const uint32_t baseline_2 = p.ula_colour(false, 2);
+        const uint32_t baseline_3 = p.ula_colour(false, 3);
 
         // Walk lines 0..9 — no entries should fire.
         for (int line = 0; line < 10; ++line) p.apply_changes_for_line(line);
-        const bool none_yet = (p.ula_colour(0) == baseline_0
-                            && p.ula_colour(1) == baseline_1
-                            && p.ula_colour(2) == baseline_2
-                            && p.ula_colour(3) == baseline_3);
+        const bool none_yet = (p.ula_colour(false, 0) == baseline_0
+                            && p.ula_colour(false, 1) == baseline_1
+                            && p.ula_colour(false, 2) == baseline_2
+                            && p.ula_colour(false, 3) == baseline_3);
 
         // Apply line 10 — entries 0 & 1 fire.
         p.apply_changes_for_line(10);
-        const bool ten_ok = (p.ula_colour(0) != baseline_0
-                          && p.ula_colour(1) != baseline_1
-                          && p.ula_colour(2) == baseline_2
-                          && p.ula_colour(3) == baseline_3);
+        const bool ten_ok = (p.ula_colour(false, 0) != baseline_0
+                          && p.ula_colour(false, 1) != baseline_1
+                          && p.ula_colour(false, 2) == baseline_2
+                          && p.ula_colour(false, 3) == baseline_3);
 
         // Lines 11..49 — nothing more.
         for (int line = 11; line < 50; ++line) p.apply_changes_for_line(line);
         // Apply line 50 — entry 2 fires.
         p.apply_changes_for_line(50);
-        const bool fifty_ok = (p.ula_colour(2) != baseline_2
-                            && p.ula_colour(3) == baseline_3);
+        const bool fifty_ok = (p.ula_colour(false, 2) != baseline_2
+                            && p.ula_colour(false, 3) == baseline_3);
 
         // Apply line 100 — entry 3 fires.
         for (int line = 51; line < 100; ++line) p.apply_changes_for_line(line);
         p.apply_changes_for_line(100);
-        const bool hundred_ok = (p.ula_colour(3) != baseline_3);
+        const bool hundred_ok = (p.ula_colour(false, 3) != baseline_3);
 
         check("PSCAN-03",
               "apply_changes_for_line replays only matching lines, cursor "
@@ -2377,7 +2377,7 @@ static void test_PSCAN() {
         const uint32_t after  = fb[200 * Renderer::FB_WIDTH + 32];
 
         // Compare to expected ARGB. Both come through PaletteManager
-        // ula_colour(2) at the moment of render.
+        // ula_colour(false, 2) at the moment of render.
         const uint32_t exp_red  = Renderer::rrrgggbb_to_argb(0xE0);
         const uint32_t exp_cyan = Renderer::rrrgggbb_to_argb(0x1F);
 
