@@ -71,25 +71,15 @@ extern libspectrum_byte parity_table[];
 extern libspectrum_dword tstates;
 extern libspectrum_dword event_next_event;
 
-/* ── Contention data structures (used by z80_macros.h contend_* macros) ── */
+/* ── Page-size constant (still used by z80_macros.h CORETEST decl path) ── */
 
-/* Memory pages: 8 KB each (2^13), giving 8 pages for 64 KB address space. */
+/* Memory pages: 8 KB each (2^13), giving 8 pages for 64 KB address space.
+ * G53 (2026-05-01): the memory_map_*[]/ula_contention*[] tables were
+ * retired here. The FUSE source TU is now built with CORETEST so the
+ * contend_* macros become extern function calls implemented in z80_cpu.cpp
+ * (see G141). The MEMORY_PAGE_SIZE_LOGARITHM macro is kept because
+ * other FUSE macros may still reference it. */
 #define MEMORY_PAGE_SIZE_LOGARITHM 13
-
-typedef struct {
-    int contended;   /* non-zero if this page is contended */
-} memory_page_entry_t;
-
-/* Per-page contention flags — set by emulator init for the current machine type */
-extern memory_page_entry_t memory_map_read[8];
-extern memory_page_entry_t memory_map_write[8];
-
-/* Contention delay lookup tables indexed by T-state position in frame.
- * ula_contention[t] = extra T-states of delay at position t.
- * Size must accommodate the largest frame (Pentagon: 71680 T-states) + margin. */
-#define ULA_CONTENTION_TABLE_SIZE 80000
-extern libspectrum_dword ula_contention[ULA_CONTENTION_TABLE_SIZE];
-extern libspectrum_dword ula_contention_no_mreq[ULA_CONTENTION_TABLE_SIZE];
 
 /* ── Memory / IO access callbacks ──────────────────────────────────────── */
 

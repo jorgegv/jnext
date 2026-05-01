@@ -207,22 +207,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
     im2_.set_machine_timing_48_or_p3(cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
 
-    // Build FUSE Z80 core's internal contention tables.  These provide
-    // per-access contention for opcode fetches, data reads/writes, and
-    // internal timing delays — matching real hardware more accurately
-    // than the external callback approach.
-    //
-    // Phase-2 retirement (2026-04-26): the FUSE table is now zero-filled
-    // (see src/cpu/z80_cpu.cpp). z80_set_contention_runtime() below
-    // installs ContentionModel::contention_tick() as the active path.
-    z80_build_contention_tables(cfg.type);
-
     // Wire ContentionModel into the FUSE memory/IO callbacks (Phase-2
     // contention plan, 2026-04-26). After this call, every Z80 memory
     // read/write/IORQ adds VHDL-faithful per-cycle contention via
     // ContentionModel::contention_tick(), gated by the live (hc, vc)
     // computed from the FUSE tstates counter and the machine's
     // tstates_per_line. Mmu provides mem_active_page per cycle.
+    //
+    // G141 + G53 (2026-05-01): the FUSE in-opcode contention macros
+    // (contend_read/_no_mreq/_write_no_mreq) also flow through this
+    // ContentionModel via CORETEST function overrides in z80_cpu.cpp,
+    // and the legacy z80_build_contention_tables() / z80_set_page_contended()
+    // were retired in lockstep.
     z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
 
     // Clear all port dispatch handlers before re-registering them.
@@ -235,9 +231,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return floating_bus_read();
     });
 
-    // Memory contention is now handled by the FUSE Z80 core's built-in
-    // contend_read/contend_write macros (ula_contention[] tables).
-    // No external callback needed.
+    // Memory contention flows through ContentionModel::contention_tick()
+    // (Phase-2 wiring 2026-04-26 + G141 in-opcode 2026-05-01) — the FUSE
+    // memory/IO callbacks and the contend_read[_no_mreq]/_write_no_mreq
+    // overrides in src/cpu/z80_cpu.cpp call it per cycle. No external
+    // on_contention callback is needed.
     cpu_.on_contention = nullptr;
 
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
@@ -1509,9 +1507,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509)
             // captures CPU r/w bytes on contended pages.
             mmu_.set_slot_contended(3, slot3_contended);
-            // Update FUSE Z80 core's memory page contention flags for 0xC000-0xFFFF.
-            z80_set_page_contended(6, slot3_contended);
-            z80_set_page_contended(7, slot3_contended);
+            // G53 (2026-05-01): the legacy z80_set_page_contended(6/7,...)
+            // calls were retired alongside the FUSE memory_map_*[] tables.
+            // Per-cycle contention now flows from `contention_` (above) +
+            // `mmu_` (mem_active_page) into `ContentionModel::contention_tick()`
+            // via the FUSE callbacks in src/cpu/z80_cpu.cpp.
         });
 
     // +3 floppy I/O trap (VHDL zxnext.vhd:2598-2602, 3835).
@@ -2964,9 +2964,10 @@ void Emulator::run_frame()
 
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
-    // Reset FUSE tstates counter to 0 at frame start.  The FUSE Z80 core's
-    // built-in contention macros index ula_contention[tstates], so tstates
-    // must be relative to the frame start (0 = first T-state of frame).
+    // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
+    // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
+    // so the FUSE counter must be frame-relative for ContentionModel::
+    // contention_tick() to gate on the right raster window.
     //
     // VideoTiming reset alongside: derive_hc_vc() in z80_cpu.cpp computes
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side

@@ -24,7 +24,6 @@
 #include "memory/mmu.h"
 
 #include <cstdint>
-#include <cstring>
 
 // ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
@@ -32,12 +31,14 @@ extern "C" {
 #include "fuse_z80_shim.h"
 }
 
-// ── FUSE built-in contention data (defined here, declared in shim) ──────
-
-memory_page_entry_t memory_map_read[8]  = {};
-memory_page_entry_t memory_map_write[8] = {};
-libspectrum_dword ula_contention[ULA_CONTENTION_TABLE_SIZE]        = {};
-libspectrum_dword ula_contention_no_mreq[ULA_CONTENTION_TABLE_SIZE] = {};
+// G53 (2026-05-01) — the legacy FUSE contention tables (memory_map_read,
+// memory_map_write, ula_contention, ula_contention_no_mreq) and their
+// builders/setters are retired. The FUSE opcode TU is now built with
+// CORETEST defined (src/cpu/CMakeLists.txt) so contend_read /
+// contend_read_no_mreq / contend_write_no_mreq are extern function
+// calls implemented below — they go through ContentionModel::contention_tick()
+// instead of indexing zero-filled tables. No code in the codebase reads
+// the tables; the FUSE shim's extern declarations were removed in lockstep.
 
 // ── Memory/IO callback state ────────────────────────────────────────────
 
@@ -51,19 +52,18 @@ static IoInterface*     s_io  = nullptr;
 // contended address. The callback adds the contention delay to tstates.
 static std::function<void(uint16_t addr)>* s_contention_cb = nullptr;
 
-// ── Phase-2 contention runtime (2026-04-26) ────────────────────────────
+// ── Phase-2 contention runtime (2026-04-26) + G141 (2026-05-01) ────────
 // Per-cycle VHDL-faithful contention via ContentionModel::contention_tick().
 // Set by Emulator::init() through z80_set_contention_runtime(); when null,
 // no contention is applied (FUSE Z80 test harness path — preserves the
 // 1356/1356 compliance score).
 //
-// Per `feedback_lang_c_builds.md` the FUSE table was the prior path but
-// is now retired for the production emulator. The FUSE table symbols
-// (memory_map_read, memory_map_write, ula_contention*) stay as zero-filled
-// definitions because the FUSE Z80 opcode files reference them via the
-// `contend_read`/`contend_write` macros — but those macros expand to
-// `fuse_z80_readbyte_internal` calls which never path through the FUSE
-// table directly; we override the externally-linked callbacks here.
+// G141: the FUSE in-opcode contend_read[_no_mreq]/_write_no_mreq macros
+// (z80_macros.h:107-130) are also routed here via the CORETEST function-
+// override path (-DCORETEST in src/cpu/CMakeLists.txt). All four sites —
+// the four C callbacks below and the three CORETEST overrides — share the
+// same `s_contention` gate, so on the FUSE-Z80 standalone path they all
+// stay inert.
 static ContentionModel* s_contention      = nullptr;
 static Mmu*             s_contention_mmu  = nullptr;
 static int              s_tstates_per_line = 224;
@@ -186,8 +186,8 @@ void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
 // `ContentionModel::contention_tick()` — the same VHDL-faithful gate the
 // data path uses. This is the G141 fix: every cycle on a contended page
 // during the active raster window now adds the correct stretch instead
-// of zero (the legacy ula_contention[]/memory_map_read[] tables are
-// retired by G53; see z80_build_contention_tables() below).
+// of zero (the legacy ula_contention[]/memory_map_read[] tables and
+// their builders/setters were retired in lockstep — G53).
 //
 // All three functions pass `mreq_n=false` even though the no-MREQ macros
 // nominally represent a non-MREQ tail cycle. Rationale (VHDL oracle —
@@ -559,40 +559,11 @@ void Z80Cpu::load_state(StateReader& r)
 
 #include "core/emulator_config.h"
 
-void z80_build_contention_tables(MachineType /*type*/)
-{
-    // Phase-2 retirement (2026-04-26): the FUSE `ula_contention[]` /
-    // `memory_map_read[]` tables are no longer the source of contention
-    // delays in the production emulator. Contention now flows through
-    // ContentionModel::contention_tick() per-cycle (see
-    // fuse_z80_readbyte/writebyte/readport/writeport above).
-    //
-    // The FUSE table symbols stay defined (zero-filled at file scope
-    // above) because the FUSE Z80 opcode files reference them via the
-    // `contend_read` / `contend_write` macros expanded inside the FUSE
-    // sources; with our overridden `fuse_z80_readbyte` / `fuse_z80_writebyte`
-    // they're effectively unused but the externs must resolve at link
-    // time. Leaving them zero is safe — any read returns 0 delay.
-    //
-    // The FUSE Z80 opcode test suite (`fuse_z80_test`) does NOT install
-    // the contention runtime via z80_set_contention_runtime() — its
-    // baseline 1356/1356 score relies on contention being inert on that
-    // path, which the early-return at the top of each callback preserves
-    // when `s_contention == nullptr`.
-    std::memset(ula_contention, 0, sizeof(ula_contention));
-    std::memset(ula_contention_no_mreq, 0, sizeof(ula_contention_no_mreq));
-    std::memset(memory_map_read, 0, sizeof(memory_map_read));
-    std::memset(memory_map_write, 0, sizeof(memory_map_write));
-}
-
-void z80_set_page_contended(int /*page*/, bool /*contended*/)
-{
-    // Phase-2 retirement (2026-04-26): legacy hook — no-op. Per-page
-    // contention is decoded inside ContentionModel via mem_active_page
-    // (set per-cycle from Mmu::get_effective_page() in the FUSE callbacks
-    // above). The Emulator port-handler call sites still call this for
-    // compile-time symbol stability; it has no runtime effect.
-}
+// G53 (2026-05-01) — z80_build_contention_tables() and
+// z80_set_page_contended() are retired. The FUSE in-opcode contention
+// path now goes through ContentionModel::contention_tick() via the
+// CORETEST function overrides at the top of this file (G141). No
+// callers remain in the codebase.
 
 void z80_set_contention_runtime(ContentionModel* cm, Mmu* mmu, MachineType machine_type)
 {

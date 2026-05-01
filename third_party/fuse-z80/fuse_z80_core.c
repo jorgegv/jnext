@@ -21,9 +21,13 @@
 #include "fuse_z80_shim.h"
 #include "z80_macros.h"
 
-/* Use the contention macros from z80_macros.h — they check memory_map_read[]
- * and apply delays from ula_contention[tstates].  The emulator builds these
- * tables at init time from VHDL-derived timing data. */
+/* G141 + G53 (2026-05-01): this TU is built with -DCORETEST so the
+ * contend_read / contend_read_no_mreq / contend_write_no_mreq macros in
+ * z80_macros.h:107-130 become extern function calls. They are
+ * implemented in src/cpu/z80_cpu.cpp and route through
+ * ContentionModel::contention_tick() — VHDL-faithful per-cycle gate.
+ * The legacy memory_map_*[]/ula_contention*[] tables and their
+ * builders/setters were retired in lockstep. */
 
 /* Override IS_CMOS — we emulate NMOS Z80 */
 #undef IS_CMOS

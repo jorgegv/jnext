@@ -35,25 +35,12 @@ enum class MachineType;
 class ContentionModel;
 class Mmu;
 
-/// Build the FUSE Z80 core's internal contention tables (ula_contention[],
-/// memory_map_read[]) for the given machine type.  Must be called at init
-/// and whenever the machine type changes.
-///
-/// **Phase-2 contention wiring (2026-04-26)**: the FUSE table is no longer
-/// the source of contention delays — `Z80Cpu::set_contention_runtime()`
-/// installs `ContentionModel::contention_tick()` as the per-cycle path.
-/// This function is retained so FUSE link symbols (`memory_map_read[]`,
-/// `ula_contention[]`) stay defined; the populated values are unused.
-void z80_build_contention_tables(MachineType type);
-
-/// Update contention flag for a specific 8KB memory page (0-7).
-/// page 0 = 0x0000-0x1FFF, page 2 = 0x4000-0x5FFF, page 6 = 0xC000-0xDFFF, etc.
-/// Called when 128K bank paging changes which RAM bank is at 0xC000.
-///
-/// **Phase-2 contention wiring (2026-04-26)**: this is now a no-op kept for
-/// compile-time compatibility. Per-page contention is queried from
-/// `ContentionModel::is_contended_access()` driven by `mem_active_page`.
-void z80_set_page_contended(int page, bool contended);
+// G53 (2026-05-01) — z80_build_contention_tables() and
+// z80_set_page_contended() were retired with the FUSE legacy
+// contention-table consumer. The FUSE in-opcode contention path now
+// goes through ContentionModel::contention_tick() via CORETEST function
+// overrides in z80_cpu.cpp (G141). All callers were removed in the same
+// commit.
 
 /// Install the per-cycle contention runtime (Phase-2 wiring, 2026-04-26).
 /// `cm` is the `ContentionModel` whose `contention_tick()` is called per
