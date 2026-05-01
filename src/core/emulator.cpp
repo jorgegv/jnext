@@ -3423,11 +3423,13 @@ void Emulator::run_frame()
     frame_cycle_ = frame_end;
 
     // Snapshot the fallback/border/ULA-enable colour and tilemap scroll
-    // for the last scanline.
-    renderer_.snapshot_fallback_for_line(timing_.lines_per_frame - 1);
-    renderer_.snapshot_ula_enabled_for_line(timing_.lines_per_frame - 1);
-    renderer_.ula().snapshot_border_for_line(timing_.lines_per_frame - 1);
-    tilemap_.snapshot_scroll_for_line(timing_.lines_per_frame - 1);
+    // for the last visible framebuffer row. G164v2 — these arrays are
+    // indexed by fb_row in [0, FB_HEIGHT), so the end-of-frame snapshot
+    // must use FB_HEIGHT-1 (=255), not the raw last VC line.
+    renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
+    tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -4021,14 +4023,24 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
 
 void Emulator::on_scanline(int line)
 {
-    // Snapshot the fallback colour for the previous scanline.
-    // By the time on_scanline(N) fires, the copper has finished executing
-    // for line N-1, so the fallback colour reflects the copper's MOVE writes.
-    if (line > 0) {
-        renderer_.snapshot_fallback_for_line(line - 1);
-        renderer_.snapshot_ula_enabled_for_line(line - 1);
-        renderer_.ula().snapshot_border_for_line(line - 1);
-        tilemap_.snapshot_scroll_for_line(line - 1);
+    // Snapshot the fallback colour / ULA-enable / border / tilemap scroll
+    // for the previous scanline. By the time on_scanline(N) fires, the
+    // copper has finished executing for vc=N-1, so the snapshotted
+    // values reflect mid-frame Copper MOVE writes that landed in vc=N-1.
+    //
+    // G164v2 — index by FRAMEBUFFER ROW, not raw VC. The renderer reads
+    // these arrays at `row` (fb_row), so the snapshot index must be in
+    // the same space. Convert (line-1) raw VC → fb_row by subtracting
+    // DISP_Y; values outside [0, FB_HEIGHT) are vblank/off-frame and
+    // shouldn't be snapshotted (the bounds check filters them out).
+    {
+        const int prev_fb_row = (line - 1) - Renderer::DISP_Y;
+        if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
+            renderer_.snapshot_fallback_for_line(prev_fb_row);
+            renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
+            renderer_.ula().snapshot_border_for_line(prev_fb_row);
+            tilemap_.snapshot_scroll_for_line(prev_fb_row);
+        }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
     // per-scanline change-log entries. Renderer::render_frame iterates
@@ -4041,17 +4053,22 @@ void Emulator::on_scanline(int line)
     // VHDL has vblank at vc=0..31, top-border at vc=32..63, display at
     // vc=64..255. So framebuffer_row = vc - 32.
     //
-    // Rows outside the framebuffer (vc < DISP_Y = vblank, or vc beyond
-    // FB_HEIGHT+DISP_Y = post-display vblank) are tagged with the
-    // sentinel kVblankLineTag = 0xFFFF so they never match a rendered
-    // row; their writes are picked up by the post-render
-    // flush_remaining_changes path or by the next frame's baseline.
+    // Pre-display vblank writes (fb_row < 0): coalesce to fb_row 0 so
+    // they get applied at the START of the visible frame. This matches
+    // VHDL's "writes take effect immediately" semantic — a write during
+    // vblank is visible from the first display line onward. Tagging
+    // them with a sentinel like 0xFFFF would stall the per-scanline
+    // cursor walk (`while cursor < N && log[cursor].line == line`)
+    // because the sentinel sits at the front of the log and never
+    // matches a visible row.
+    //
+    // Post-display writes (fb_row >= FB_HEIGHT): tag stays out-of-range
+    // (> FB_HEIGHT-1). The visible-row apply loop never matches them;
+    // flush_remaining_changes drains them at end-of-frame so they
+    // become next frame's baseline. The cursor naturally reaches them
+    // only after all visible entries have been applied, so no stall.
     const int fb_row = line - Renderer::DISP_Y;
-    static constexpr uint16_t kVblankLineTag = 0xFFFF;
-    const uint16_t tag =
-        (fb_row >= 0 && fb_row < Renderer::FB_HEIGHT)
-            ? static_cast<uint16_t>(fb_row)
-            : kVblankLineTag;
+    const uint16_t tag = (fb_row < 0) ? 0u : static_cast<uint16_t>(fb_row);
 
     palette_.set_current_line(tag);
     layer2_.set_current_line(tag);
