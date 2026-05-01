@@ -7,9 +7,13 @@
 /// to ARGB8888.
 uint32_t rgb333_to_argb8888(uint8_t r3, uint8_t g3, uint8_t b3);
 
-/// Standard ZX Spectrum ULA palette (16 entries, ARGB8888).
-/// Indices 0-7 are normal colours, 8-15 are bright versions.
-extern const uint32_t kUlaPalette[16];
+/// Canonical 16 ZX Spectrum colour values (ARGB8888).  These are the
+/// hardware-defined RGB triplets a power-on Spectrum produces: indices
+/// 0-7 are the standard colours, 8-15 the bright variants.  They are
+/// used as the default contents of the ULA palette and as ground-truth
+/// expected values in tests.  This is NOT a "palette" data structure —
+/// it is the constant table of the 16 ZX colour ARGB values.
+extern const uint32_t kZxStandardColours[16];
 
 // ---------------------------------------------------------------------------
 // Palette identifiers used by NextREG 0x43 bits 6:4

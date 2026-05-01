@@ -612,7 +612,7 @@ public:
     void load_state(class StateReader& r);
 
 private:
-    PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kUlaPalette)
+    PaletteManager*  palette_         = nullptr; ///< Enhanced palette (falls back to kZxStandardColours)
     Ram*             ram_             = nullptr; ///< Physical RAM for direct VRAM reads
     bool             ula_enabled_     = true;  ///< ULA rendering enabled (NextREG 0x68 bit 7)
     bool             vram_use_bank7_  = false; ///< When true, vram_read() reads from bank 7 (page 14) not bank 5 (page 10)

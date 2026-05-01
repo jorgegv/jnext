@@ -181,14 +181,14 @@ static uint32_t fb_pixel(Emulator& emu, int fb_row, int fb_col) {
 static void test_udis_integration(Emulator& emu) {
     set_group("UDIS-INT");
 
-    const uint32_t WHITE = kUlaPalette[7];
+    const uint32_t WHITE = kZxStandardColours[7];
 
     // ── UDIS-01 — NR 0x68 bit 7 toggles whole-ULA transparency ─────────
     //
     // Plants a white marker at screen (row 0, col 0) with all-white ink
     // + black-paper attributes so that with ULA enabled the display-area
-    // pixel at framebuffer (DISP_Y, DISP_X) is WHITE (kUlaPalette[7])
-    // and an off-marker pixel is BLACK (kUlaPalette[0]).
+    // pixel at framebuffer (DISP_Y, DISP_X) is WHITE (kZxStandardColours[7])
+    // and an off-marker pixel is BLACK (kZxStandardColours[0]).
     //
     // Path A — ULA enabled (NR 0x68 bit 7 = 0):
     //   Renderer::render_frame fills ula_line_ from Ula::render_scanline
@@ -249,7 +249,7 @@ static void test_udis_integration(Emulator& emu) {
 
     {
         const bool ok_a = (path_a_marker == WHITE)
-                       && (path_a_offmk  == kUlaPalette[0])   // BLACK paper
+                       && (path_a_offmk  == kZxStandardColours[0])   // BLACK paper
                        && (ula_en_a      == true);
         const bool ok_b = (path_b_marker == kRed)
                        && (path_b_offmk  == kRed)
@@ -263,7 +263,7 @@ static void test_udis_integration(Emulator& emu) {
               fmt("A_marker=0x%08X exp WHITE 0x%08X A_offmk=0x%08X exp BLACK 0x%08X "
                   "B_marker=0x%08X B_offmk=0x%08X exp RED 0x%08X "
                   "ula_en_A=%d ula_en_B=%d",
-                  path_a_marker, WHITE, path_a_offmk, kUlaPalette[0],
+                  path_a_marker, WHITE, path_a_offmk, kZxStandardColours[0],
                   path_b_marker, path_b_offmk, kRed,
                   ula_en_a, ula_en_b));
     }

@@ -16,7 +16,7 @@ inline uint32_t Ula::lookup_colour(uint8_t idx) const
 {
     if (palette_)
         return palette_->ula_colour(idx);
-    return kUlaPalette[idx & 0x0F];
+    return kZxStandardColours[idx & 0x0F];
 }
 
 // ---------------------------------------------------------------------------
@@ -592,7 +592,7 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 
     // G103 — ULA+ runtime palette path.  Gate is ulap_en_ (set by port
     // 0xFF3B b0 with ulap_mode="01", or NR 0x68 b3 ungated).  Default
-    // (ulap_en_=false) keeps the original 16-entry kUlaPalette path
+    // (ulap_en_=false) keeps the original 16-entry kZxStandardColours path
     // byte-identical.
     //
     // VHDL zxula.vhd:531-541 (encoder) + zxnext.vhd:6981 (palette read):
@@ -947,7 +947,7 @@ void Ula::render_border_line(uint32_t* row)
     // Standard-ULA legacy path is preserved byte-for-byte for the
     // ulanext_en=0 / ulap_en=0 default — the renderer keeps the existing
     // 3-bit paper-only fallback for STANDARD HI_RES border so the
-    // unconfigured 16-entry kUlaPalette path doesn't shift indices into
+    // unconfigured 16-entry kZxStandardColours path doesn't shift indices into
     // its undefined 0x18..0x1F slice.  The fix is fully observable under
     // ULAnext (idx 0x80..0x87 in the new 256-entry mirror, G102) or
     // ULA+ (low-6 idx 0x18..0x1F in the 64-entry ULA+ buffer, G103).
@@ -987,7 +987,7 @@ void Ula::render_border_line(uint32_t* row)
         border_argb = palette_->ulap_colour(active_ula_palette_, low6);
     } else {
         // STANDARD-ULA fallback — keep existing 3-bit paper truncation
-        // so the default 16-entry kUlaPalette path stays byte-identical
+        // so the default 16-entry kZxStandardColours path stays byte-identical
         // to before G102/G105 landed.  Documented limitation: VHDL
         // would index 0x18 | (~paper & 7) in the 256-entry palette;
         // jnext's standard mode never had a 256-entry ULA palette to

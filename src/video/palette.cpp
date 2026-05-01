@@ -22,10 +22,10 @@ uint32_t rgb333_to_argb8888(uint8_t r3, uint8_t g3, uint8_t b3)
 }
 
 // ---------------------------------------------------------------------------
-// Standard ZX Spectrum ULA palette (kept for backward compatibility)
+// Canonical 16 ZX Spectrum colour values (ARGB8888).  See header.
 // ---------------------------------------------------------------------------
 
-const uint32_t kUlaPalette[16] = {
+const uint32_t kZxStandardColours[16] = {
     rgb333_to_argb8888(0, 0, 0),   // 0 Black
     rgb333_to_argb8888(0, 0, 6),   // 1 Blue
     rgb333_to_argb8888(6, 0, 0),   // 2 Red

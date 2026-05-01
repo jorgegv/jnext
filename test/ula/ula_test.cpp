@@ -336,8 +336,8 @@ static void test_section4_flash_timing() {
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         check("S4.03",
               "zxula.vhd:470 — flash_cnt(4)=0 leaves pixel_en unchanged (ink stays ink)",
-              a[32] == kUlaPalette[7],
-              fmt("got 0x%08X exp 0x%08X", a[32], kUlaPalette[7]));
+              a[32] == kZxStandardColours[7],
+              fmt("got 0x%08X exp 0x%08X", a[32], kZxStandardColours[7]));
     }
 
     // S4.04 — attr(7)=1, flash_cnt(4)=1: pixel_en inverted (ink↔paper).
@@ -350,8 +350,8 @@ static void test_section4_flash_timing() {
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         check("S4.04",
               "zxula.vhd:470 — flash_cnt(4)=1 XOR inverts ink/paper selection",
-              a[32] == kUlaPalette[0],
-              fmt("got 0x%08X exp 0x%08X", a[32], kUlaPalette[0]));
+              a[32] == kZxStandardColours[0],
+              fmt("got 0x%08X exp 0x%08X", a[32], kZxStandardColours[0]));
     }
 
     // S4.05 — ULAnext disables flash (zxula.vhd:470 "and not i_ulanext_en").
@@ -370,9 +370,9 @@ static void test_section4_flash_timing() {
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
         check("S4.05",
               "zxula.vhd:470 — i_ulanext_en=1 gates off flash XOR term (flash inert)",
-              a[32] == b[32] && a[32] == kUlaPalette[7],
+              a[32] == b[32] && a[32] == kZxStandardColours[7],
               fmt("phase0=0x%08X phase1=0x%08X exp=0x%08X",
-                  a[32], b[32], kUlaPalette[7]));
+                  a[32], b[32], kZxStandardColours[7]));
     }
 
     // S4.06 — ULA+ disables flash (zxula.vhd:470 "and not i_ulap_en").
@@ -431,8 +431,8 @@ static void test_section5_timex() {
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         check("S5.03",
               "zxula.vhd:386-392 — hi-colour: second vram fetch from bank 1 (0x6000) for per-row attr",
-              line[32] == kUlaPalette[15],
-              fmt("got 0x%08X exp 0x%08X (bright white)", line[32], kUlaPalette[15]));
+              line[32] == kZxStandardColours[15],
+              fmt("got 0x%08X exp 0x%08X (bright white)", line[32], kZxStandardColours[15]));
     }
 
     // S5.04 — hi-colour + alt display file (mode 011).  In VHDL zxula.vhd:218
@@ -460,10 +460,10 @@ static void test_section5_timex() {
               "attr from 0x6000+poff (collapsed byte); 0xC7 pixel bit 7=1, "
               "ink=7 bright=1 → palette[15]",
               bed.ula.get_alt_file() == true
-              && line[32] == kUlaPalette[15],
+              && line[32] == kZxStandardColours[15],
               fmt("alt_file=%d got 0x%08X exp 0x%08X",
                   static_cast<int>(bed.ula.get_alt_file()),
-                  line[32], kUlaPalette[15]));
+                  line[32], kZxStandardColours[15]));
     }
 
     // S5.05 — hi-res mode (mode 110 = port_ff bits 5:3 = 110).
@@ -476,8 +476,8 @@ static void test_section5_timex() {
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         check("S5.05",
               "zxula.vhd:389 — hi-res shift_reg_32 interleaves primary/secondary bytes; ink from port_ff(2:0)",
-              line[32] == kUlaPalette[2],
-              fmt("got 0x%08X exp 0x%08X (red)", line[32], kUlaPalette[2]));
+              line[32] == kZxStandardColours[2],
+              fmt("got 0x%08X exp 0x%08X (red)", line[32], kZxStandardColours[2]));
     }
 
     // S5.06 — hi-res border colour uses border_clr_tmx.  Per VHDL
@@ -500,9 +500,9 @@ static void test_section5_timex() {
               "zxula.vhd:419 + :443-448 — HI_RES border uses border_clr_tmx "
               "(port_ff paper bits 5:3) instead of border_clr; "
               "port_fe=0 (black) + port_ff=0x30 (paper=6=yellow) → yellow",
-              line[0] == kUlaPalette[6],
+              line[0] == kZxStandardColours[6],
               fmt("got 0x%08X exp 0x%08X (yellow)",
-                  line[0], kUlaPalette[6]));
+                  line[0], kZxStandardColours[6]));
     }
 
     // S5.07 — shadow screen forces screen_mode to "000" per VHDL zxula.vhd:191:
@@ -562,8 +562,8 @@ static void test_section5_timex() {
         bed.ula.set_shadow_screen_en(true);
         bed.ula.render_scanline(line_on.data(), 32, bed.mmu);
 
-        const uint32_t cyan = kUlaPalette[5];
-        const uint32_t red  = kUlaPalette[2];
+        const uint32_t cyan = kZxStandardColours[5];
+        const uint32_t red  = kZxStandardColours[2];
         check("S5.09",
               "shadow_screen_en=1 must switch ULA to bank 7 (page 14); "
               "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
@@ -597,7 +597,7 @@ static void test_section5_timex() {
     //
     // Negative gate: with ULAnext disabled, the renderer falls back to
     // the legacy 3-bit paper-truncation path — which for paper=6
-    // resolves to kUlaPalette[6] = yellow.  This proves the change is
+    // resolves to kZxStandardColours[6] = yellow.  This proves the change is
     // gated on ulanext_en_ and doesn't perturb the standard-ULA path.
     {
         // Bring up a PaletteManager so ulanext_colour has a sane store.
@@ -638,7 +638,7 @@ static void test_section5_timex() {
         const uint32_t got_ulanext = line[0];
 
         // Negative gate: disable ULAnext and re-render — should fall back
-        // to the legacy 3-bit paper-truncation (paper=6 → kUlaPalette[6]).
+        // to the legacy 3-bit paper-truncation (paper=6 → kZxStandardColours[6]).
         bed.ula.set_ulanext_en(false);
         std::array<uint32_t, 320> line_legacy{};
         bed.ula.render_scanline(line_legacy.data(), 0, bed.mmu);
@@ -656,13 +656,13 @@ static void test_section5_timex() {
               "when ulanext_en=0",
               btmx_check == 0x4E
               && got_ulanext == exp_argb
-              && got_legacy  == kUlaPalette[6],
+              && got_legacy  == kZxStandardColours[6],
               fmt("btmx=0x%02X (exp 0x4E) idx=0x%02X "
                   "got_ulanext=0x%08X (exp 0x%08X)  "
                   "got_legacy=0x%08X (exp yellow 0x%08X)",
                   btmx_check, exp_idx,
                   got_ulanext, exp_argb,
-                  got_legacy, kUlaPalette[6]));
+                  got_legacy, kZxStandardColours[6]));
     }
 
     // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).
@@ -734,8 +734,8 @@ static void test_section5_timex() {
         bed.ula.apply_changes_for_line(33);        // applies HI_COLOUR
         bed.ula.render_scanline(b.data(), 33, bed.mmu);   // HI_COLOUR
 
-        const uint32_t cyan  = kUlaPalette[5];
-        const uint32_t white = kUlaPalette[15];
+        const uint32_t cyan  = kZxStandardColours[5];
+        const uint32_t white = kZxStandardColours[15];
         check("S5-PSL.02",
               "zxula.vhd:191/209 — STANDARD on line 32 + HI_COLOUR on "
               "line 33: each line renders via its own mode after replay",
@@ -771,8 +771,8 @@ static void test_section5_timex() {
         bed.ula.apply_changes_for_line(33);        // applies STANDARD
         bed.ula.render_scanline(b.data(), 33, bed.mmu);   // STANDARD
 
-        const uint32_t red  = kUlaPalette[2];
-        const uint32_t cyan = kUlaPalette[5];
+        const uint32_t red  = kZxStandardColours[2];
+        const uint32_t cyan = kZxStandardColours[5];
         check("S5-PSL.03",
               "zxula.vhd:191/209 — HI_RES on line 32 then STANDARD on "
               "line 33 produces red then cyan after replay",
@@ -1317,8 +1317,8 @@ static void test_section9_scrolling() {
         }
     };
 
-    const uint32_t WHITE = kUlaPalette[7];
-    const uint32_t BLACK = kUlaPalette[0];
+    const uint32_t WHITE = kZxStandardColours[7];
+    const uint32_t BLACK = kZxStandardColours[0];
 
     // -- S9.02 scroll_y=1: screen_row=0 should read source row 1. ------------
     // VHDL zxula.vhd:192 — py_s = vc + scroll_y; vc=0, scroll_y=1 → py_s=1
@@ -1887,8 +1887,8 @@ static void test_section15_shadow() {
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         check("S15.01",
               "zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM",
-              line[32] == kUlaPalette[7],
-              fmt("got 0x%08X exp 0x%08X", line[32], kUlaPalette[7]));
+              line[32] == kZxStandardColours[7],
+              fmt("got 0x%08X exp 0x%08X", line[32], kZxStandardColours[7]));
     }
 
     // S15.02 — i_ula_shadow_en routes bank 7 (page 14).
@@ -1901,8 +1901,8 @@ static void test_section15_shadow() {
         bed.ula.render_scanline_screen1(line.data(), 32, bed.mmu);
         check("S15.02",
               "zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM",
-              line[32] == kUlaPalette[0],
-              fmt("got 0x%08X exp 0x%08X (black paper)", line[32], kUlaPalette[0]));
+              line[32] == kZxStandardColours[0],
+              fmt("got 0x%08X exp 0x%08X (black paper)", line[32], kZxStandardColours[0]));
     }
 
     // S15.03/04 — RE-HOME to doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md.
