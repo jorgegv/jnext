@@ -921,12 +921,12 @@ static void test_L2P() {
         r.layer2_priority_[0] = true;
         r.layer2_priority_[1] = true;
 
-        // Composite at full hi-res width (640) — exercises the same
-        // index path the production native-640 case takes.
-        uint32_t out[Renderer::FB_WIDTH_HI];
+        // Composite at the canonical 640 width — exercises the same
+        // index path the production native-640 case takes (G104:
+        // FB_WIDTH is now always 640; FB_WIDTH_HI was retired).
+        uint32_t out[Renderer::FB_WIDTH];
         std::memset(out, 0, sizeof(out));
-        r.composite_scanline(out, Renderer::rrrgggbb_to_argb(0xE3),
-                             Renderer::FB_WIDTH_HI);
+        r.composite_scanline(out, Renderer::rrrgggbb_to_argb(0xE3));
 
         const bool col0_promoted = (out[0] == L2_A);
         const bool col1_promoted = (out[1] == L2_B);
@@ -2358,7 +2358,7 @@ static void test_PSCAN() {
         pal.set_index(2);
         pal.write_8bit(0x1F);
 
-        std::array<uint32_t, Renderer::FB_WIDTH_HI * Renderer::FB_HEIGHT> fb{};
+        std::array<uint32_t, Renderer::FB_WIDTH * Renderer::FB_HEIGHT> fb{};
         // Build minimal layer adapters: we only need ULA. Use the
         // existing Renderer::render_frame path which now does
         // rewind + per-line apply.
