@@ -157,14 +157,18 @@ struct Scan {
     bool     textmode[MAX_W];
 };
 
+// G104 phase 4: render_scanline always emits 640 pixels.
+//   - 80-col mode: native 1:1 (640 unique source pixels).
+//   - 40-col mode: each source pixel doubled into dst[2x] AND dst[2x+1].
+// Tests that previously asserted dst[N] in 40-col now assert dst[2*N].
 Scan render_line(Tilemap& tm, int y, const Ram& ram,
-                 const PaletteManager& pal, int width = 320) {
+                 const PaletteManager& pal) {
     Scan s;
     std::memset(s.pixels,   0, sizeof(s.pixels));
     std::memset(s.ula_over, 0, sizeof(s.ula_over));
     std::memset(s.textmode, 0, sizeof(s.textmode));
     tm.init_scroll_per_line();
-    tm.render_scanline(s.pixels, s.ula_over, y, ram, pal, width, s.textmode);
+    tm.render_scanline(s.pixels, s.ula_over, y, ram, pal, s.textmode);
     return s;
 }
 
@@ -388,9 +392,11 @@ void group2_40col() {
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 255, 0x00);
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 src pixel 0 → dst[0]; tile 1 src pixel 0
+        // (= 320-grid screen_x=8) → dst[16].
         check_pred("TM-11",
-                   s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[8] == pal.tilemap_colour(0x02),
+                   s.pixels[0]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[16] == pal.tilemap_colour(0x02),
                    "VHDL tilemap.vhd:393 — tilemap_0 selects tile 0..255 "
                    "within a 256-tile bank");
     }
@@ -427,9 +433,10 @@ void group2_40col() {
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 1, 0x08);  // bit 3 = x mirror
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 src 0 → dst[0]; tile 1 src 8 → dst[16].
         check_pred("TM-13",
-                   s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[8] == pal.tilemap_colour(0x02),
+                   s.pixels[0]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[16] == pal.tilemap_colour(0x02),
                    "VHDL tilemap.vhd:320-321 — attr(3) inverts "
                    "effective_x when rotate=0");
     }
@@ -450,9 +457,10 @@ void group2_40col() {
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 1, 0x04);  // bit 2 = y mirror
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 src 0 → dst[0]; tile 1 src 8 → dst[16].
         check_pred("TM-14",
-                   s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[8] == pal.tilemap_colour(0x02),
+                   s.pixels[0]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[16] == pal.tilemap_colour(0x02),
                    "VHDL tilemap.vhd:322 — attr(2) inverts effective_y");
     }
 
@@ -478,9 +486,10 @@ void group2_40col() {
         tm.set_enabled(true);
         auto s0 = render_line(tm, 0, ram, pal);
         // 90° rotation: pixel 0 reads (tx=0,ty=7)=val2; pixel 7 reads (tx=0,ty=0)=val1
+        // 40-col doubled: src pixel 0 → dst[0]; src pixel 7 → dst[14,15].
         check_pred("TM-15",
-                   s0.pixels[0] == pal.tilemap_colour(0x02) &&
-                   s0.pixels[7] == pal.tilemap_colour(0x01),
+                   s0.pixels[0]  == pal.tilemap_colour(0x02) &&
+                   s0.pixels[14] == pal.tilemap_colour(0x01),
                    "VHDL tilemap.vhd:320-324 — rotate is 90° (swap + XOR mirror)");
     }
 
@@ -511,8 +520,9 @@ void group2_40col() {
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 1, 0x01);   // below=1
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile-1 src pixel 8 → dst[16,17].
         check_pred("TM-17",
-                   s.ula_over[0] == false && s.ula_over[8] == true,
+                   s.ula_over[0] == false && s.ula_over[16] == true,
                    "VHDL tilemap.vhd:388 — per-tile below = attr(0) when "
                    "mode_512=0 AND tm_on_top=0");
     }
@@ -533,7 +543,7 @@ void group3_80col() {
         for (int c = 0; c < 80; ++c)
             write_map2(ram, DEF_MAP_BASE, c, 0, 80, 1, 0x00);
         tm.set_control(0xC0);   // enable + bit 6 (80-col)
-        auto s = render_line(tm, 0, ram, pal, 640);
+        auto s = render_line(tm, 0, ram, pal);
         check("TM-20", s.pixels[639], pal.tilemap_colour(0x03),
               "VHDL tilemap.vhd:189 — control(6)=1 selects 80-col, "
               "rightmost map column reaches native pixel 639");
@@ -548,16 +558,16 @@ void group3_80col() {
         fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
         write_map2(ram, DEF_MAP_BASE, 0, 0, 80, 1, 0x10);
         tm.set_control(0xC0);
-        auto s = render_line(tm, 0, ram, pal, 640);
+        auto s = render_line(tm, 0, ram, pal);
         check("TM-21", s.pixels[0], pal.tilemap_colour(0x13),
               "VHDL tilemap.vhd:382 — attr(7:4) palette offset holds in 80-col");
     }
 
-    // TM-22: 80-col subpixel selection — rendering downsampled to 320
-    // still maps each screen pixel to a tilemap pixel (2:1). Fill every
-    // other column with a distinct palette-entry colour, then verify the
-    // 320-wide buffer picks up at least one colour of each.
-    // VHDL: tilemap.vhd:228 hcount_effsub downsample for tm_mode=1.
+    // TM-22: 80-col native 1:1 — alternating colour columns produce
+    // BOTH colours in the 640-wide output.  G104 phase 4: 80-col is now
+    // emitted natively (no downsample), so every alternating tile is
+    // visible in the 640-wide buffer.
+    // VHDL: tilemap.vhd:228 hcount_effsub = hcount(10:1) → 14 MHz pacing.
     {
         fresh(tm, pal, ram);
         paint_tm_palette_entry(pal, 0x03, 0xE0);
@@ -567,15 +577,15 @@ void group3_80col() {
         for (int c = 0; c < 80; ++c)
             write_map2(ram, DEF_MAP_BASE, c, 0, 80, (c & 1) ? 2 : 1, 0x00);
         tm.set_control(0xC0);
-        auto s = render_line(tm, 0, ram, pal, 320);
+        auto s = render_line(tm, 0, ram, pal);
         bool saw_val3 = false, saw_val5 = false;
-        for (int x = 0; x < 320; ++x) {
+        for (int x = 0; x < 640; ++x) {
             if (s.pixels[x] == pal.tilemap_colour(0x03)) saw_val3 = true;
             if (s.pixels[x] == pal.tilemap_colour(0x05)) saw_val5 = true;
         }
         check_pred("TM-22", saw_val3 && saw_val5,
-                   "VHDL tilemap.vhd:228 — 80-col downsample still yields "
-                   "both tile colours in a 320px output");
+                   "VHDL tilemap.vhd:228 — 80-col native 640 emits both "
+                   "alternating tile colours");
     }
 }
 
@@ -622,9 +632,10 @@ void group4_512tile() {
         write_map2(ram, MAP512_BASE, 1, 0, 40, 0, 0x01);   // bit 0 = 1 → tile 256
         tm.set_control(0x82);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 src 0 → dst[0]; tile 1 src 8 → dst[16].
         check_pred("TM-31",
-                   s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[8] == pal.tilemap_colour(0x02),
+                   s.pixels[0]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[16] == pal.tilemap_colour(0x02),
                    "VHDL tilemap.vhd:393 — attr(0) becomes tile bit 8 in 512 mode");
     }
 
@@ -669,7 +680,10 @@ void group5_textmode() {
     }
 
     // TM-41: text-mode pixel extraction via shift_left(mem, abs_x(2:0))
-    // then bit 7. Pattern 0xAA = 10101010 → pixels 0,2,4,6 = 1; 1,3,5,7 = 0.
+    // then bit 7. Pattern 0xAA = 10101010 → src pixels 0,2,4,6 = 1;
+    // 1,3,5,7 = 0. G104 phase 4 (40-col doubled): each src pixel emits
+    // into TWO output cells, so:
+    //   dst[0,1] = lit, dst[2,3] = 0, dst[4,5] = lit, dst[6,7] = 0.
     // VHDL: tilemap.vhd:385-386.
     {
         fresh(tm, pal, ram);
@@ -680,10 +694,15 @@ void group5_textmode() {
         auto s = render_line(tm, 0, ram, pal);
         check_pred("TM-41",
                    s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[1] == 0 &&
-                   s.pixels[2] == pal.tilemap_colour(0x01) &&
-                   s.pixels[3] == 0,
-                   "VHDL tilemap.vhd:385-386 — shift_left(mem, abs_x(2:0))(7)");
+                   s.pixels[1] == pal.tilemap_colour(0x01) &&
+                   s.pixels[2] == 0 &&
+                   s.pixels[3] == 0 &&
+                   s.pixels[4] == pal.tilemap_colour(0x01) &&
+                   s.pixels[5] == pal.tilemap_colour(0x01) &&
+                   s.pixels[6] == 0 &&
+                   s.pixels[7] == 0,
+                   "VHDL tilemap.vhd:385-386 — shift_left(mem, abs_x(2:0))(7); "
+                   "G104 40-col doubled into 2-cell pairs");
     }
 
     // TM-42: 7-bit palette offset + 1-bit pixel. attr = 0x42 → bits 7:1 =
@@ -704,6 +723,8 @@ void group5_textmode() {
     // the palette offset in text mode, not transforms. Asymmetric 1bpp
     // tile with only pixel 0 set, rendered twice (attr=0, attr=0x0E).
     // Both columns must show a lit pixel at screen x=0 of their tile.
+    // G104 phase 4: 40-col doubles each src pixel — tile-0 src pixel 0
+    // → dst[0,1]; tile-1 src pixel 8 (= screen x=8 in 320-grid) → dst[16,17].
     // VHDL: tilemap.vhd:386 — transforms not used on the textmode path.
     {
         fresh(tm, pal, ram);
@@ -715,11 +736,14 @@ void group5_textmode() {
         tm.set_control(0x88);
         auto s = render_line(tm, 0, ram, pal);
         check_pred("TM-43",
-                   s.pixels[0] == pal.tilemap_colour(0x01) &&
-                   s.pixels[8] == pal.tilemap_colour(0x0F) &&
-                   s.pixels[1] == 0 && s.pixels[9] == 0,
+                   s.pixels[0]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[1]  == pal.tilemap_colour(0x01) &&
+                   s.pixels[16] == pal.tilemap_colour(0x0F) &&
+                   s.pixels[17] == pal.tilemap_colour(0x0F) &&
+                   s.pixels[2] == 0 && s.pixels[3] == 0 &&
+                   s.pixels[18] == 0 && s.pixels[19] == 0,
                    "VHDL tilemap.vhd:386 — attr(3..1) belong to palette offset "
-                   "in textmode, not transform controls");
+                   "in textmode, not transform controls; G104 40-col 2-cell pairs");
     }
 
     // TM-44 — COVERED AT COMPOSITOR TIER (not a skip).  Text-mode RGB
@@ -756,9 +780,10 @@ void group6_strip_flags() {
         tm.set_control(0xA0);   // enable + bit 5 (strip_flags per VHDL)
         tm.set_default_attr(0x00);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 src 0 → dst[0]; tile 1 src 8 → dst[16].
         check_pred("TM-50",
-                   s.pixels[0] == pal.tilemap_colour(0x03) &&
-                   s.pixels[8] == pal.tilemap_colour(0x05),
+                   s.pixels[0]  == pal.tilemap_colour(0x03) &&
+                   s.pixels[16] == pal.tilemap_colour(0x05),
                    "VHDL tilemap.vhd:190 — control(5)=strip_flags; "
                    "map packed 1 byte per tile");
     }
@@ -812,8 +837,8 @@ void group6_strip_flags() {
         for (int c = 0; c < 80; ++c) write_map1(ram, DEF_MAP_BASE, c, 1, 80, 2);
         tm.set_default_attr(0x00);
         tm.set_control(0xE0);   // enable + 80-col + strip_flags (VHDL bits 7,6,5)
-        auto s0 = render_line(tm, 0, ram, pal, 640);
-        auto s8 = render_line(tm, 8, ram, pal, 640);
+        auto s0 = render_line(tm, 0, ram, pal);
+        auto s8 = render_line(tm, 8, ram, pal);
         check_pred("TM-53",
                    s0.pixels[0] == pal.tilemap_colour(0x03) &&
                    s8.pixels[0] == pal.tilemap_colour(0x05),
@@ -932,9 +957,10 @@ void group7_map_addr() {
         write_map2(ram, DEF_MAP_BASE, 1, 0, 40, 2, 0x00);
         tm.set_control(0x80);   // enable, no strip
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: tile 0 occupies dst[0..15]; tile 1 occupies dst[16..31].
         check_pred("TM-65",
-                   s.pixels[0] == pal.tilemap_colour(0x03) &&
-                   s.pixels[8] == pal.tilemap_colour(0x05),
+                   s.pixels[0]  == pal.tilemap_colour(0x03) &&
+                   s.pixels[16] == pal.tilemap_colour(0x05),
                    "VHDL tilemap.vhd:396 — strip=0 uses 2-byte entries "
                    "(tile_index at even byte, flags at odd)");
     }
@@ -986,7 +1012,8 @@ void group8_pixel_addr() {
         write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
         tm.set_enabled(true);
         auto s = render_line(tm, 3, ram, pal);
-        check("TM-70", s.pixels[5], pal.tilemap_colour(0x07),
+        // 40-col doubled: src col 5 → dst[10,11].
+        check("TM-70", s.pixels[10], pal.tilemap_colour(0x07),
               "VHDL tilemap.vhd:394 — standard pix addr = idx*32 + y*4 + x/2");
     }
 
@@ -1018,9 +1045,11 @@ void group8_pixel_addr() {
         write_map2(ram, DEF_MAP_BASE, 0, 0, 40, 1, 0x00);
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
+        // 40-col doubled: src pixel 0 (high nibble = 0xA) → dst[0,1];
+        // src pixel 1 (low nibble = 0x5) → dst[2,3].
         check_pred("TM-72",
                    s.pixels[0] == pal.tilemap_colour(0x0A) &&
-                   s.pixels[1] == pal.tilemap_colour(0x05),
+                   s.pixels[2] == pal.tilemap_colour(0x05),
                    "VHDL tilemap.vhd:383 — nibble select: x(0)=0 high, x(0)=1 low");
     }
 }
@@ -1082,7 +1111,7 @@ void group9_scroll() {
         tm.set_control(0xC0);     // enable + 80-col
         tm.set_scroll_x_msb(2);   // 512
         tm.set_scroll_x_lsb(128); // +128 = 640
-        auto s = render_line(tm, 0, ram, pal, 640);
+        auto s = render_line(tm, 0, ram, pal);
         check("TM-82", s.pixels[0], pal.tilemap_colour(0x03),
               "VHDL tilemap.vhd:314 — scroll_x=640 wraps to 0 in 80-col");
     }
@@ -1145,8 +1174,8 @@ void group9_scroll() {
         Scan s0, s1;
         std::memset(&s0, 0, sizeof(s0));
         std::memset(&s1, 0, sizeof(s1));
-        tm.render_scanline(s0.pixels, s0.ula_over, 0, ram, pal, 320);
-        tm.render_scanline(s1.pixels, s1.ula_over, 1, ram, pal, 320);
+        tm.render_scanline(s0.pixels, s0.ula_over, 0, ram, pal);
+        tm.render_scanline(s1.pixels, s1.ula_over, 1, ram, pal);
         check_pred("TM-85",
                    s0.pixels[0] == pal.tilemap_colour(0x03) &&
                    s1.pixels[0] == pal.tilemap_colour(0x05),
@@ -1287,7 +1316,8 @@ void group10_transparency() {
         R.set_transparent_rgb(kTranspRgb);          // NR 0x14
         R.set_tm_enabled(true);
         const uint32_t ula_pix = 0xFFAABBCCu;       // distinct opaque ULA
-        for (int i = 0; i < 320; ++i) {
+        // G104 phase 4: tilemap line buffer is now 640-native.
+        for (int i = 0; i < Renderer::FB_WIDTH; ++i) {
             R.ula_line_[i]        = (i == 0) ? ula_pix : 0u;
             R.layer2_line_[i]     = 0u;
             R.sprite_line_[i]     = 0u;
@@ -1398,7 +1428,8 @@ void group11_palette() {
         auto s_text = render_line(tm, 0, ram, pal);
         bool tm_flag_set_when_pixel = true;
         bool tm_flag_clear_when_no_pixel = true;
-        for (int i = 0; i < 320; ++i) {
+        // G104 phase 4: 640-cell output (40-col doubled).
+        for (int i = 0; i < 640; ++i) {
             if (s_text.pixels[i] != 0u) {
                 if (!s_text.textmode[i]) { tm_flag_set_when_pixel = false; break; }
             } else {
@@ -1419,7 +1450,8 @@ void group11_palette() {
         tm.set_control(0x80);   // enable, no textmode
         auto s_std = render_line(tm, 0, ram, pal);
         bool std_flag_all_false = true;
-        for (int i = 0; i < 320; ++i) {
+        // G104 phase 4: 640-cell output (40-col doubled).
+        for (int i = 0; i < 640; ++i) {
             if (s_std.textmode[i]) { std_flag_all_false = false; break; }
         }
 
@@ -1457,7 +1489,8 @@ void group12_clip() {
         tm.set_enabled(true);
         auto s = render_line(tm, 0, ram, pal);
         bool all_opaque = true;
-        for (int i = 0; i < 320; ++i) if (s.pixels[i] == 0u) { all_opaque = false; break; }
+        // G104 phase 4: 640-cell output (40-col doubled).
+        for (int i = 0; i < 640; ++i) if (s.pixels[i] == 0u) { all_opaque = false; break; }
         check_pred("TM-110", all_opaque,
                    "Default clip 0x00..0x9F/0x00..0xFF renders full scanline");
     }
@@ -1478,7 +1511,8 @@ void group12_clip() {
         tm.set_clip_y2(0x80);
         auto out_of_y = render_line(tm, 0x20, ram, pal);
         bool all_trans = true;
-        for (int i = 0; i < 320; ++i) if (out_of_y.pixels[i] != 0u) { all_trans = false; break; }
+        // G104 phase 4: 640-cell output.
+        for (int i = 0; i < 640; ++i) if (out_of_y.pixels[i] != 0u) { all_trans = false; break; }
         check_pred("TM-111", all_trans,
                    "Y outside clip (y=0x20 < clip_y1=0x40) → scanline transparent");
     }

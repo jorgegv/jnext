@@ -310,20 +310,27 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int clip_xlo_320 = static_cast<int>(clip_x1_) * 2;
     const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
 
-    // Shift that maps screen_x (0..639) into the source-pixel index used
-    // for the clip comparator (which lives in the 320-grid hcounter
-    // domain — VHDL tilemap.vhd:415-424).
-    //
-    // VHDL evidence for col-mode pixel rates (tilemap.vhd:228):
-    //   tm_mode='1' (80-col) — hcount_effsub = hcount(10 downto 1):
-    //     14 MHz pixel rate, 1 source pixel per output cell.  Source
-    //     index == screen_x; clip-grid coord = screen_x >> 1.
-    //   tm_mode='0' (40-col) — hcount_effsub = hcount(10 downto 2):
-    //     7 MHz pixel rate, 1 source pixel per TWO output cells.  Source
-    //     index == screen_x >> 1; clip-grid coord = screen_x >> 1.
-    //
-    // We clip on source-index against the (already 320-grid) clip
-    // bounds — so 80-col halves once, 40-col passes through.
+    // Shift mapping screen_x (0..639) into the index that is compared
+    // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  VHDL
+    // tilemap.vhd:415-424 fires the clip gate at 7 MHz (hcounter
+    // granularity).  In our 14 MHz / 640-cell framebuffer:
+    //   80-col (VHDL tm_mode='1'): hcount(10:1) = 14 MHz source pixels
+    //     → 1 source pixel per output cell, 2 source pixels per
+    //     hcounter step.  Map screen_x → hcounter via `>> 1`.
+    //   40-col (VHDL tm_mode='0'): hcount(10:2) = 7 MHz source pixels
+    //     held into the 14 MHz output → 1 source pixel per 2 output
+    //     cells, 1 source pixel per hcounter step.  In this code path
+    //     each output cell receives an independent clip decision keyed
+    //     directly on screen_x (i.e. shift=0); pairs of output cells
+    //     fall on the same source-pixel anyway, so clip ranges that
+    //     are 2-cell-aligned reproduce hcounter-granular gating, while
+    //     odd-aligned ranges split a doubled source pixel — the paired
+    //     downstream code in `tilemap_x = screen_x >> 1` makes the two
+    //     halves still reference the same RAM byte, only one is masked.
+    //     This matches the prompt's locked decision; if VHDL-faithful
+    //     hcounter-granular gating is required (i.e. force shift=1 for
+    //     both modes), TM-112-style 2-cell tests need to assert
+    //     dst[0x40..0x43] opaque instead of dst[0x20..0x21].
     const int clip_x_shift = mode_80col_ ? 1 : 0;
 
     const uint8_t transp_idx = palette.tilemap_transparency();
