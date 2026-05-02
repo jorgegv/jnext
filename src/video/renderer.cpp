@@ -151,8 +151,15 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 // Phase 3 (G104): Layer 2 emits 640 natively (resolution 0
                 // pixel-doubled into [DISP_X..DISP_X+512), resolution 1
                 // pixel-doubled across the full 640, resolution 2/3 native).
+                // G179 issue #3: per-pixel priority bit (NR 0x44 b7) flows
+                // from the L2 palette into layer2_priority_[] so the
+                // compositor can promote L2 above sprites for opaque pixels
+                // whose palette entry has the priority bit set (VHDL
+                // zxnext.vhd:7050, 7220). The buffer is zero-filled at the
+                // top of this loop so transparent pixels stay false.
                 layer2.render_scanline(layer2_line_.data(), row, ram, palette,
-                                       mmu.rom_in_sram());
+                                       mmu.rom_in_sram(),
+                                       layer2_priority_.data());
             }
         }
 
