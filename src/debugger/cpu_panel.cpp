@@ -244,10 +244,23 @@ void CpuPanel::refresh() {
         reg_halted_->setStyleSheet("");
     }
 
-    // ULA active screen
+    // ULA active screen.  Mode bits live in port_ff(2:0) per VHDL
+    // zxula.vhd:191 (`screen_mode_s <= i_port_ff_reg(2 downto 0)`).
     bool shadow = (emulator_->mmu().port_7ffd() >> 3) & 1;
     uint8_t screen_mode_reg = emulator_->renderer().ula().get_screen_mode_reg();
-    TimexScreenMode mode = static_cast<TimexScreenMode>((screen_mode_reg >> 3) & 0x07);
+    const uint8_t mode_bits = static_cast<uint8_t>(screen_mode_reg & 0x07);
+    // Map raw mode_bits to the TimexScreenMode enum; mirrors the
+    // case-statement in Ula::set_screen_mode.
+    TimexScreenMode mode;
+    switch (mode_bits) {
+        case 0: mode = TimexScreenMode::STANDARD;   break;
+        case 1: mode = TimexScreenMode::STANDARD_1; break;
+        case 2:
+        case 3: mode = TimexScreenMode::HI_COLOUR;  break;
+        case 6:
+        case 7: mode = TimexScreenMode::HI_RES;     break;
+        default: mode = TimexScreenMode::STANDARD;  break;
+    }
 
     QString screen_text = shadow ? "Bank 7" : "Bank 5";
     switch (mode) {

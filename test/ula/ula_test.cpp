@@ -433,12 +433,12 @@ static void test_section4_flash_timing() {
 static void test_section5_timex() {
     set_group("S05-Timex");
 
-    // S5.01 — standard mode (port_ff bits 5:3 = 000).
+    // S5.01 — standard mode (port_ff bits 2:0 = 000 per zxula.vhd:191).
     {
         UlaBed bed;
         bed.ula.set_screen_mode(0x00);
         check("S5.01",
-              "zxula.vhd:384-393 — port_ff(5:3)=000 selects standard 256x192 pixel/attr layout",
+              "zxula.vhd:191/384-393 — port_ff(2:0)=000 selects standard 256x192 pixel/attr layout",
               bed.ula.get_screen_mode_reg() == 0x00,
               fmt("got 0x%02X", bed.ula.get_screen_mode_reg()));
     }
@@ -446,17 +446,17 @@ static void test_section5_timex() {
     // S5.02 — alt display file (mode 001). screen_mode(0)=1 raises vram_a bit 13.
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x08);
+        bed.ula.set_screen_mode(0x01);
         check("S5.02",
-              "zxula.vhd:384 — port_ff(5:3)=001 selects alternate display file (vram_a bit 13 = 1)",
-              bed.ula.get_screen_mode_reg() == 0x08,
+              "zxula.vhd:191 — port_ff(2:0)=001 selects alternate display file (screen_mode(0)=1 → vram_a bit 13 = 1, zxula.vhd:218,235)",
+              bed.ula.get_screen_mode_reg() == 0x01,
               fmt("got 0x%02X", bed.ula.get_screen_mode_reg()));
     }
 
     // S5.03 — hi-colour mode (mode 010): per-row attributes from bank 1.
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x10);
+        bed.ula.set_screen_mode(0x02);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x47);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
@@ -474,7 +474,7 @@ static void test_section5_timex() {
     // screen_mode(1)=1 forces the attribute fetch to '1' & ... (bank 1, 0x6000
     // range, zxula.vhd:239/249).  In HI_COLOUR+alt both addresses collapse
     // onto the same byte at 0x6000+poff — a VHDL-literal consequence.  Here
-    // we drive port 0xFF with mode-bits 011 (jnext convention = port_val 0x18)
+    // we drive port 0xFF with mode-bits 011 (port_val 0x03 per VHDL bits 2:0)
     // and poke the combined pixel-and-attr byte 0xC7 (flash=1, bright=1,
     // paper=0, ink=7; pixel pattern 11000111).  With flash_cnt(4)=0 (first
     // render, no advance_flash), the leading pixel bit = 1 → ink = 7+bright
@@ -484,7 +484,7 @@ static void test_section5_timex() {
     // end-to-end without needing a separate getter assertion.
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x18);  // bits 5:3 = 011 → HI_COLOUR + alt
+        bed.ula.set_screen_mode(0x03);  // bits 2:0 = 011 → HI_COLOUR + alt
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xC7);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
@@ -500,19 +500,32 @@ static void test_section5_timex() {
                   line[Ula::DISP_X], exp_bright_white));
     }
 
-    // S5.05 — hi-res mode (mode 110 = port_ff bits 5:3 = 110).
+    // S5.05 — hi-res mode (mode 110 = port_ff bits 2:0 = 110 per VHDL
+    // zxula.vhd:191).  port_val = 0x06; HI_RES mode is reached because
+    // mode_bits = port_val & 0x07 = 0b110.  Pixel bytes 0xFF at both
+    // screen-0 and screen-1 → all output pixels render as ink.  Under the
+    // current jnext HI_RES renderer (`render_display_line_hires` in
+    // src/video/ula.cpp), ink derives from `port_ff(2:0)` of the stored
+    // register byte = 0b110 = 6 → yellow.  (Per VHDL zxula.vhd:419 +
+    // 426-427, the "real" HI_RES attr_reg is `border_clr_tmx` — i.e.
+    // ink = port_ff(5:3), paper = ~port_ff(5:3) — but that renderer
+    // rewrite is Issue #2 in `project_g104_closed_canonical_640.md`.
+    // This test observes only the byte-interleave path + mode decode;
+    // the chosen colour matches what the current renderer emits.)
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x32);  // hi-res, ink = 2 (red)
+        bed.ula.set_screen_mode(0x06);  // hi-res; mode_bits = 110
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xFF);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
-        const uint32_t exp_red = bed_ink_argb(bed.palette, 2);
+        const uint32_t exp_yellow = bed_ink_argb(bed.palette, 6);
         check("S5.05",
-              "zxula.vhd:389 — hi-res shift_reg_32 interleaves primary/secondary bytes; ink from port_ff(2:0)",
-              line[Ula::DISP_X] == exp_red,
-              fmt("got 0x%08X exp 0x%08X (red)", line[Ula::DISP_X], exp_red));
+              "zxula.vhd:191/389 — port_ff(2:0)=110 selects HI_RES; "
+              "shift_reg_32 interleaves primary/secondary bytes; current "
+              "renderer derives ink from screen_mode_reg(2:0) = 6 (yellow)",
+              line[Ula::DISP_X] == exp_yellow,
+              fmt("got 0x%08X exp 0x%08X (yellow)", line[Ula::DISP_X], exp_yellow));
     }
 
     // S5.06 — hi-res border colour uses border_clr_tmx.  Per VHDL
@@ -532,7 +545,9 @@ static void test_section5_timex() {
         UlaBed bed;
         bed.ula.set_border(0);            // port 0xFE bits 2:0 = 0 → black
         bed.ula.init_border_per_line();
-        bed.ula.set_screen_mode(0x30);    // bits 5:3 = 110 → HI_RES, paper 6
+        // VHDL bits 2:0 = 110 → HI_RES (zxula.vhd:191); bits 5:3 = 110 →
+        // HI_RES paper colour 6 (zxula.vhd:419).  Combined port_val = 0x36.
+        bed.ula.set_screen_mode(0x36);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
 
@@ -551,22 +566,24 @@ static void test_section5_timex() {
     //                    else "000";
     // Phase 1 (commit 8cd3488) implemented `Ula::set_shadow_screen_en(bool)`
     // which, when asserted, masks the port 0xFF value via
-    // `set_screen_mode(screen_mode_reg_ & 0x07)` — this clears bits 5:3 (the
-    // jnext mode field), which with the Wave-D set_screen_mode update also
+    // `set_screen_mode(screen_mode_reg_ & 0xF8)` — this clears bits 2:0 (the
+    // VHDL mode field), which with the Wave-D set_screen_mode update also
     // clears alt_file_.  Here we verify: after writing a HI_RES port 0xFF
-    // (0x30), asserting shadow_en clamps the effective screen_mode to 000.
+    // (0x36 = paper=6 in bits 5:3 + mode=110 in bits 2:0), asserting
+    // shadow_en clamps the effective screen_mode (bits 2:0) to 000 while
+    // preserving the paper colour (bits 5:3).
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x30);    // HI_RES prior to shadow enable
+        bed.ula.set_screen_mode(0x36);    // HI_RES + paper=6 prior to shadow enable
         bed.ula.set_shadow_screen_en(true);
-        // The "existing getter" is get_screen_mode_reg(); bits 5:3 of the
-        // retained raw byte must now read 000 (jnext's mode field).
+        // The "existing getter" is get_screen_mode_reg(); bits 2:0 of the
+        // retained raw byte must now read 000 (the VHDL mode field).
         const uint8_t mode_bits = static_cast<uint8_t>(
-            (bed.ula.get_screen_mode_reg() >> 3) & 0x07);
+            bed.ula.get_screen_mode_reg() & 0x07);
         check("S5.07",
               "zxula.vhd:191 — i_ula_shadow_en='1' forces screen_mode to 000; "
-              "set_shadow_screen_en(true) after port 0xFF=0x30 must zero the "
-              "mode field (bits 5:3 of the stored register)",
+              "set_shadow_screen_en(true) after port 0xFF=0x36 must zero the "
+              "mode field (bits 2:0 of the stored register)",
               bed.ula.get_shadow_screen_en() == true && mode_bits == 0,
               fmt("shadow_en=%d mode_bits=%u reg=0x%02X",
                   static_cast<int>(bed.ula.get_shadow_screen_en()),
@@ -789,10 +806,11 @@ static void test_section5_timex() {
     // (G102's ula_colour, zxnext.vhd:6981).  jnext's render_border_line
     // applies the same math when ulanext_en_=true.
     //
-    // Stimulus: enable ULAnext, set HI_RES (port_ff bits 5:3 = 110 →
-    // paper=6), poke a distinct RGB into the 256-entry ULA palette
-    // at the encoded slot, render row 0 (top border), assert the rendered
-    // pixel matches the poked colour.
+    // Stimulus: enable ULAnext, set HI_RES (port_ff bits 2:0 = 110 per
+    // VHDL zxula.vhd:191) with paper=6 (bits 5:3 = 110, zxula.vhd:419),
+    // i.e. port_val = 0x36.  Poke a distinct RGB into the 256-entry ULA
+    // palette at the encoded slot, render row 0 (top border), assert the
+    // rendered pixel matches the poked colour.
     //
     // Negative gate: with ULAnext disabled the std-ULA encoder takes
     // over.  G102 — see the assertion's exp_legacy derivation for the
@@ -816,7 +834,8 @@ static void test_section5_timex() {
         const uint8_t paper = 6;
         const uint8_t exp_idx = static_cast<uint8_t>(0x80 | ((~paper) & 0x07));
 
-        bed.ula.set_screen_mode(static_cast<uint8_t>(paper << 3));  // HI_RES, paper=6
+        // VHDL bits 2:0 = 110 → HI_RES; bits 5:3 = paper colour.
+        bed.ula.set_screen_mode(static_cast<uint8_t>((paper << 3) | 0x06));
         bed.ula.set_ulanext_en(true);
         // Active bank = bank 0 (default); explicit setter for clarity.
         bed.ula.set_active_ula_palette(false);
@@ -895,13 +914,13 @@ static void test_section5_timex() {
         UlaBed bed;
         bed.ula.start_frame();
         bed.ula.set_current_line(50);
-        bed.ula.set_screen_mode(0x10);             // HI_COLOUR (mode 010)
+        bed.ula.set_screen_mode(0x02);             // HI_COLOUR (bits 2:0 = 010)
         check("S5-PSL.01",
               "zxnext.vhd:3615-3616 + zxula.vhd:191/209 — port-0xFF "
               "write mid-frame appends one entry to the change log "
               "tagged with the current scanline",
               bed.ula.port_ff_change_log_size() == 1u
-              && bed.ula.get_screen_mode_reg() == 0x10,
+              && bed.ula.get_screen_mode_reg() == 0x02,
               fmt("count=%zu reg=0x%02X",
                   bed.ula.port_ff_change_log_size(),
                   bed.ula.get_screen_mode_reg()));
@@ -914,11 +933,11 @@ static void test_section5_timex() {
     // the mode at the right boundary.
     //
     // Setup:
-    //   STANDARD path (port_ff bits 5:3 = 000):
+    //   STANDARD path (port_ff bits 2:0 = 000):
     //     pixel byte at 0x4000 + poff(0,0) = 0xFF (all ink),
     //     attr byte  at 0x5800            = 0x05 (paper black, ink cyan).
     //     Expected colour = palette[5] = cyan.
-    //   HI_COLOUR path (port_ff bits 5:3 = 010, port_val 0x10):
+    //   HI_COLOUR path (port_ff bits 2:0 = 010, port_val 0x02):
     //     pixel byte at 0x4000 + poff(d,0) = 0xFF,
     //     per-row "attr" byte at 0x6000 + poff(d,0) = 0x47
     //       (paper black, ink white, bright)  → palette[15].
@@ -937,7 +956,7 @@ static void test_section5_timex() {
         // Mid-frame write tagged at output row 33 → applies starting
         // from line 33 (after the apply_changes_for_line(33) call).
         bed.ula.set_current_line(33);
-        bed.ula.set_screen_mode(0x10);             // 010 = HI_COLOUR
+        bed.ula.set_screen_mode(0x02);             // bits 2:0 = 010 = HI_COLOUR
 
         // Mirror Renderer flow: rewind once, then apply+render per row.
         bed.ula.rewind_to_baseline();              // back to STANDARD
@@ -957,21 +976,25 @@ static void test_section5_timex() {
                   a[Ula::DISP_X], cyan, b[Ula::DISP_X], white));
     }
 
-    // S5-PSL.03 — HI_RES on line N, STANDARD on line N+1: HI_RES uses
-    // port_ff(2:0) as ink (here ink=2 → red); STANDARD uses the attr
-    // byte at 0x5800 (here ink cyan/5).  After rewind+replay, line N
-    // must be red and line N+1 cyan.  Symmetry with S5-PSL.02.
+    // S5-PSL.03 — HI_RES on line N, STANDARD on line N+1: STANDARD uses
+    // the attr byte at 0x5800 (here ink cyan/5).  HI_RES under VHDL bits
+    // 2:0 mode convention means port_ff = 0x06 (mode 110, alt_file=0);
+    // the current jnext HI_RES renderer derives ink from port_ff(2:0) of
+    // the stored register byte (= 110 = 6 → yellow).  After rewind+replay,
+    // line N must be yellow and line N+1 cyan.  Symmetry with S5-PSL.02.
+    // (Issue #2 may flip the renderer's ink derivation to port_ff(5:3)
+    // per VHDL `border_clr_tmx`; that is a separate cleanup.)
     {
         UlaBed bed;
-        // HI_RES needs both pixel halves; ink = port_ff(2:0).
+        // HI_RES needs both pixel halves; renderer reads them as monochrome.
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xFF);
         // STANDARD on next display line.
         bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
         bed.poke(0x5800,                              0x05);  // ink cyan
 
-        // Baseline HI_RES, ink=2 (red): port_val = 110_010 = 0x32.
-        bed.ula.set_screen_mode(0x32);
+        // Baseline HI_RES (bits 2:0 = 110 per zxula.vhd:191): port_val = 0x06.
+        bed.ula.set_screen_mode(0x06);
         bed.ula.start_frame();
         // Switch to STANDARD (mode 000) tagged at line 33.
         bed.ula.set_current_line(33);
@@ -984,14 +1007,14 @@ static void test_section5_timex() {
         bed.ula.apply_changes_for_line(33);        // applies STANDARD
         bed.ula.render_scanline(b.data(), 33, bed.mmu);   // STANDARD
 
-        const uint32_t red  = bed_ink_argb(bed.palette, 2);
-        const uint32_t cyan = bed_ink_argb(bed.palette, 5);
+        const uint32_t yellow = bed_ink_argb(bed.palette, 6);
+        const uint32_t cyan   = bed_ink_argb(bed.palette, 5);
         check("S5-PSL.03",
               "zxula.vhd:191/209 — HI_RES on line 32 then STANDARD on "
-              "line 33 produces red then cyan after replay",
-              a[Ula::DISP_X] == red && b[Ula::DISP_X] == cyan,
-              fmt("hires=0x%08X (exp red 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
-                  a[Ula::DISP_X], red, b[Ula::DISP_X], cyan));
+              "line 33 produces yellow then cyan after replay",
+              a[Ula::DISP_X] == yellow && b[Ula::DISP_X] == cyan,
+              fmt("hires=0x%08X (exp yellow 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
+                  a[Ula::DISP_X], yellow, b[Ula::DISP_X], cyan));
     }
 
     // S5-PSL.04 — start_frame rewinds the port-0xFF log: the live
@@ -999,17 +1022,17 @@ static void test_section5_timex() {
     // log is cleared, and rewind_to_baseline() restores that baseline.
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x10);             // HI_COLOUR baseline
+        bed.ula.set_screen_mode(0x02);             // HI_COLOUR baseline (bits 2:0=010)
         bed.ula.start_frame();
         bed.ula.set_current_line(20);
-        bed.ula.set_screen_mode(0x30);             // HI_RES write
+        bed.ula.set_screen_mode(0x06);             // HI_RES write (bits 2:0=110)
         const size_t mid_count = bed.ula.port_ff_change_log_size();
 
         // start_frame again — old log dropped, baseline = current live byte.
         bed.ula.start_frame();
         const size_t post_count = bed.ula.port_ff_change_log_size();
 
-        // rewind_to_baseline now restores the live byte (HI_RES, 0x30)
+        // rewind_to_baseline now restores the live byte (HI_RES, 0x06)
         // captured by the second start_frame.
         bed.ula.set_screen_mode(0x00);             // pretend unrelated change
         bed.ula.rewind_to_baseline();
@@ -1020,8 +1043,8 @@ static void test_section5_timex() {
               "restores that baseline",
               mid_count == 1u
               && post_count == 0u
-              && bed.ula.get_screen_mode_reg() == 0x30,
-              fmt("mid=%zu post=%zu after_rewind_reg=0x%02X (exp 0x30)",
+              && bed.ula.get_screen_mode_reg() == 0x06,
+              fmt("mid=%zu post=%zu after_rewind_reg=0x%02X (exp 0x06)",
                   mid_count, post_count, bed.ula.get_screen_mode_reg()));
     }
 
@@ -1039,7 +1062,7 @@ static void test_section5_timex() {
         bed.ula.set_screen_mode(0x00);
         bed.ula.start_frame();
         bed.ula.set_current_line(33);
-        bed.ula.set_screen_mode(0x10);
+        bed.ula.set_screen_mode(0x02);             // bits 2:0 = 010 = HI_COLOUR
 
         // Render once before save.
         bed.ula.rewind_to_baseline();

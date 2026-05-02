@@ -1089,9 +1089,11 @@ static void test_palsel_integration(Emulator& emu) {
 //       (port 0xFF gate by NR 0x82 bit 0), src/core/emulator.cpp:1187-1192
 //
 // Scope: verifies the alt-file → pixel-base routing in STANDARD_1 mode
-// (bits 5:3 = 001 + alt_file bit = 1, i.e. port 0xFF = 0x09). The plan
-// originally named this "HICOLOUR-ALT" (mode 011 = 0x18) but renamed
-// here to STANDARD-ALT because:
+// (port_ff(2:0) = 001 per VHDL zxula.vhd:191; alt_file = mode bit 0 = 1;
+// i.e. port 0xFF = 0x01).  Note: byte 0x09 also works numerically because
+// it has both bit 0 and bit 3 set — but the canonical VHDL value is 0x01.
+// Historical: the plan originally named this "HICOLOUR-ALT" (mode 011 =
+// VHDL byte 0x03) but renamed here to STANDARD-ALT because:
 //   - The alt_file → 0x6000 routing is identical across all modes
 //     (VHDL :235 drives vram_a(13) from screen_mode(0) unconditionally).
 //   - HI_COLOUR+alt would additionally require planting attributes at
@@ -1235,18 +1237,18 @@ static void test_altfile_integration(Emulator& emu) {
     //   port_.register_handler(0xFFFF, 0x00FF, nullptr, [](v){
     //       if ((nr_82 & 1) == 0) return;
     //       renderer_.ula().set_screen_mode(val); });
-    // Ula::set_screen_mode routes bits(0) → alt_file_ (mode STANDARD_1),
-    // bits(5:3) → mode field. Byte 0x09 = bits_5:3=001 (STANDARD_1) +
-    // bit_0=1 (alt-file) — the canonical "select alternate screen"
-    // value at zxula.vhd:218.
+    // Ula::set_screen_mode reads mode from port_ff(2:0) per VHDL
+    // zxula.vhd:191; bit 0 of the 3-bit mode field is the alt-file
+    // select.  Byte 0x01 = bits_2:0=001 (STANDARD_1 with alt_file=1) —
+    // the canonical "select alternate screen" value at zxula.vhd:218.
     //
     // Stimulus:
     //   1. Plant white marker at row 0 col 0 of the ALTERNATE screen
     //      (CPU 0x6000 + offset = physical bank 5, bank-offset 0x2000
     //      per zxula.vhd:235 which also maps alt_file → vram_a bit 13).
     //   2. Plant black across primary screen (0x4000) to distinguish.
-    //   3. OUT 0xFF, 0x09 (alt-file = 1, mode = STANDARD_1 to route the
-    //      renderer through the alt-base path — zxula.vhd:235).
+    //   3. OUT 0xFF, 0x01 (mode = STANDARD_1 with alt-file=1 per VHDL
+    //      bits 2:0 = 001 — zxula.vhd:191/218/235).
     //   4. Render row 0. Expect WHITE at display_x ∈ [0..7] (alt marker)
     //      rather than BLACK (primary).
     //
@@ -1279,9 +1281,9 @@ static void test_altfile_integration(Emulator& emu) {
         emu.port().out(0xBF3B, 0x40);
         emu.port().out(0xFF3B, 0x00);     // disable ULA+
 
-        // Stimulus: OUT 0xFF, 0x09 — VHDL zxula.vhd:191/218/235. Mode
-        // bits 5:3 = 001 (STANDARD_1), alt-file bit 0 = 1.
-        emu.port().out(0x00FF, 0x09);
+        // Stimulus: OUT 0xFF, 0x01 — VHDL zxula.vhd:191/218/235. Mode
+        // bits 2:0 = 001 (STANDARD_1 with alt-file=1 per :218).
+        emu.port().out(0x00FF, 0x01);
 
         const bool alt_flag   = emu.ula().get_alt_file();
         const uint8_t mode_reg = emu.ula().get_screen_mode_reg();
@@ -1303,9 +1305,9 @@ static void test_altfile_integration(Emulator& emu) {
         }
 
         check("INT-STANDARD-ALT-01",
-              "OUT 0xFF=0x09 → STANDARD_1 alt-file routes ULA to 0x6000 base  "
+              "OUT 0xFF=0x01 → STANDARD_1 alt-file routes ULA to 0x6000 base  "
               "(zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192)",
-              alt_flag && mode_reg == 0x09 && ok_white && ok_black,
+              alt_flag && mode_reg == 0x01 && ok_white && ok_black,
               fmt("alt_file=%d mode_reg=0x%02X ok_white=%d ok_black=%d "
                   "line[DISP_X]=0x%08X line[DISP_X+2*8]=0x%08X",
                   alt_flag, mode_reg, ok_white, ok_black,
