@@ -180,6 +180,14 @@ void VideoLayerView::render_to_image(int vc)
             // 40-col scenes (heap corruption in the QImage scanline).
             layer_w = 640;
             break;
+        case Layer::SPRITES:
+            // G104 phase 5: sprite engine now emits 640 cells (internal
+            // 320-grid + emit pixel-double).  layer_w must match or the
+            // QImage scanline buffer is overrun on every visible sprite —
+            // any sprite at logical x writes to dst[2x] AND dst[2x+1],
+            // overflowing a 320-wide buffer.
+            layer_w = 640;
+            break;
         default:
             break;
     }
