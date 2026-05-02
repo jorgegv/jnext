@@ -19,37 +19,42 @@ enum class TimexScreenMode : uint8_t {
     STANDARD   = 0,  ///< Normal ULA 256×192; pixel+attr from 0x4000/0x5800
     STANDARD_1 = 1,  ///< Alternate screen: pixel+attr from 0x6000/0x7800
     HI_COLOUR  = 2,  ///< 256×192; pixels from 0x4000, per-row-column attr from 0x6000
-    HI_RES     = 6,  ///< 512-wide monochrome (rendered at 256 pixels — see note below)
+    HI_RES     = 6,  ///< 512-wide monochrome rendered natively (s0/s1 byte-interleaved per VHDL)
 };
 
 /// ULA pixel renderer.
 ///
-/// Renders the full 320×256 output frame into a uint32_t (ARGB8888) framebuffer
+/// Renders the full 640×256 output frame into a uint32_t (ARGB8888) framebuffer
 /// by reading pixel data and attributes from VRAM via the MMU.
 ///
-/// Layout of the 320×256 output framebuffer:
+/// Layout of the 640×256 output framebuffer (G104 canonical 640px):
 ///
 ///   ┌──────────────────────────────────────┐
 ///   │         32px top border              │  rows 0–31
 ///   ├────┬─────────────────────────┬───────┤
-///   │ 32 │  256×192 display area   │  32   │  rows 32–223
+///   │ 64 │  512×192 display area   │  64   │  rows 32–223
 ///   │ px │                         │  px   │
 ///   ├────┴─────────────────────────┴───────┤
 ///   │         32px bottom border           │  rows 224–255
 ///   └──────────────────────────────────────┘
 ///
-/// Left/right borders are each 32 pixels wide (32 + 256 + 32 = 320).
+/// Left/right borders are each 64 pixels wide (64 + 512 + 64 = 640).
 /// Top and bottom borders are each 32 rows (32 + 192 + 32 = 256), symmetric.
+/// In STANDARD/STANDARD_1/HI_COLOUR each source bit emits two adjacent
+/// framebuffer cells (VHDL zxula.vhd:390-393 — lo-res shift register doubles
+/// every shift_pbyte bit).  In HI_RES the renderer emits a true 512-pixel
+/// display with bytes from screens 0 and 1 byte-interleaved
+/// (VHDL zxula.vhd:389 — shift_reg_32 = pbyte_hi & abyte_hi & pbyte_lo & abyte_lo).
 class Ula {
 public:
-    // Output framebuffer dimensions
-    static constexpr int FB_WIDTH   = 320;
+    // Output framebuffer dimensions (G104: canonical 640).
+    static constexpr int FB_WIDTH   = 640;
     static constexpr int FB_HEIGHT  = 256;
 
     // Active display area within the framebuffer
-    static constexpr int DISP_X     = 32;   // left border width in output pixels
+    static constexpr int DISP_X     = 64;   // left border width in output pixels
     static constexpr int DISP_Y     = 32;   // top border height in output pixels
-    static constexpr int DISP_W     = 256;
+    static constexpr int DISP_W     = 512;
     static constexpr int DISP_H     = 192;
 
     /// Reset ULA state to power-on defaults (preserves palette/RAM pointers).
@@ -594,8 +599,9 @@ public:
     /// @param mmu          MMU for reading VRAM (screen at 0x4000, attrs at 0x5800).
     void render_frame(uint32_t* framebuffer, Mmu& mmu);
 
-    /// Render a single scanline (row 0..FB_HEIGHT-1) into a 320-pixel buffer.
-    /// Used by the compositor for per-scanline rendering.
+    /// Render a single scanline (row 0..FB_HEIGHT-1) into a FB_WIDTH-pixel
+    /// buffer (640 cells under G104).  Used by the compositor for per-scanline
+    /// rendering.
     void render_scanline(uint32_t* dst, int row, Mmu& mmu);
 
     /// Render a single scanline from the 128K shadow screen (bank 7, page 14).
@@ -720,19 +726,23 @@ private:
 
     /// Render a display row in HI_RES mode.
     ///
-    /// True Timex hi-res is 512 pixels wide (monochrome).  The framebuffer is
-    /// only 320 pixels wide, so we render at 256 output pixels by taking one
-    /// output pixel per two hi-res pixels (every other hi-res pixel is dropped).
-    /// This is a known limitation; a future revision could offer a scrolled
-    /// or scaled view.
+    /// Native 512-pixel rendering per VHDL zxula.vhd:389: in HI_RES mode
+    /// (`shift_screen_mode(2) = '1'`) the shift register is loaded with
+    /// `shift_pbyte(15:8) & shift_abyte(15:8) & shift_pbyte(7:0) &
+    /// shift_abyte(7:0)` and emitted MSB-first at the 14 MHz pixel clock.
+    /// So per source-column pair the 32 emitted hi-res pixels are: 8 px from
+    /// screen-0 col N (bits 7..0), then 8 px from screen-1 col N (bits 7..0),
+    /// then 8 px from screen-0 col N+1, then 8 px from screen-1 col N+1.
+    /// Border fills 64 cells either side.
     ///
-    /// Ink colour = bits 2:0 of port 0xFF; paper = bits 5:3.
+    /// Ink colour = bits 2:0 of port 0xFF; paper = bits 5:3.  BRIGHT is not
+    /// available in HI_RES (no attribute-byte plane).
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
     /// @param screen_row  ZX screen row [0, 191].
     /// @param mmu         MMU for VRAM access.
     void render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu);
 
-    /// Fill an entire output row with the border colour.
+    /// Fill an entire output row with the border colour (FB_WIDTH = 640 cells).
     /// @param row  Pointer to the start of the output row (FB_WIDTH pixels).
     void render_border_line(uint32_t* row);
 
