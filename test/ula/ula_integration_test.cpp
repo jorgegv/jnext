@@ -148,7 +148,7 @@ static void fill_pixels(Emulator& emu, uint8_t v) {
 // full compositor; the NR/port plumbing this suite exercises lands in
 // Ula state, which Ula::render_scanline consumes unchanged.
 static void render_line(Emulator& emu, int fb_row,
-                        std::array<uint32_t, 320>& line) {
+                        std::array<uint32_t, Ula::FB_WIDTH>& line) {
     line.fill(0);
     emu.ula().render_scanline(line.data(), fb_row, emu.mmu());
 }
@@ -221,16 +221,16 @@ static void test_scroll_integration(Emulator& emu) {
         // the NR handler fired).
         const uint8_t stored = emu.ula().get_ula_scroll_x_coarse();
 
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         render_line(emu, 32, line);   // fb row 32 = first display row.
 
         bool ok_white  = true;
         bool ok_black  = true;
         for (int x = 0; x < 256; ++x) {
             if (x >= 248 && x <= 255) {
-                if (line[32 + x] != WHITE) { ok_white = false; break; }
+                if (line[Ula::DISP_X + 2*x] != WHITE) { ok_white = false; break; }
             } else {
-                if (line[32 + x] != BLACK) { ok_black = false; break; }
+                if (line[Ula::DISP_X + 2*x] != BLACK) { ok_black = false; break; }
             }
         }
         check("INT-SCROLL-01",
@@ -238,9 +238,9 @@ static void test_scroll_integration(Emulator& emu) {
               "(zxula.vhd:199; zxnext.vhd:5304; emulator.cpp:524-526)",
               stored == 8 && ok_white && ok_black,
               fmt("stored=%u ok_white=%d ok_black=%d "
-                  "line[32+248]=0x%08X line[32+247]=0x%08X",
+                  "line[DISP_X+2*248]=0x%08X line[DISP_X+2*247]=0x%08X",
                   stored, ok_white, ok_black,
-                  line[32 + 248], line[32 + 247]));
+                  line[Ula::DISP_X + 2*248], line[Ula::DISP_X + 2*247]));
     }
 
     // ── INT-SCROLL-02 — NR 0x68 bit 2 (fine X-scroll) via nextreg().write ──
@@ -274,21 +274,21 @@ static void test_scroll_integration(Emulator& emu) {
 
         const bool fine = emu.ula().get_ula_fine_scroll_x();
 
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         render_line(emu, 32, line);
 
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const bool should_white = (x == 255) || (x >= 0 && x <= 6);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("INT-SCROLL-02",
               "nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift  "
               "(zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768)",
               fine == true && ok,
-              fmt("fine=%d line[32]=0x%08X line[32+255]=0x%08X line[32+7]=0x%08X",
-                  fine, line[32], line[32 + 255], line[32 + 7]));
+              fmt("fine=%d line[DISP_X]=0x%08X line[DISP_X+2*255]=0x%08X line[DISP_X+2*7]=0x%08X",
+                  fine, line[Ula::DISP_X], line[Ula::DISP_X + 2*255], line[Ula::DISP_X + 2*7]));
     }
 
     // ── INT-SCROLL-03 — NR 0x27 = 32 via nextreg().write → 32-row Y shift ──
@@ -324,19 +324,19 @@ static void test_scroll_integration(Emulator& emu) {
 
         const uint8_t stored = emu.ula().get_ula_scroll_y();
 
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         render_line(emu, 32, line);  // screen row 0 → should pull src row 32
 
         bool all_white = true;
         for (int x = 0; x < 256; ++x) {
-            if (line[32 + x] != WHITE) { all_white = false; break; }
+            if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         }
         check("INT-SCROLL-03",
               "nextreg().write(0x27,32) → Y-scroll 32 rows end-to-end  "
               "(zxula.vhd:193-207; zxnext.vhd:5307; emulator.cpp:532-534)",
               stored == 32 && all_white,
               fmt("stored=%u all_white=%d display[0]=0x%08X exp 0x%08X",
-                  stored, all_white, line[32], WHITE));
+                  stored, all_white, line[Ula::DISP_X], WHITE));
     }
 }
 
@@ -596,21 +596,26 @@ static void test_ulaplus_integration(Emulator& emu) {
         // here drives Ula::render_display_line directly with the LIVE
         // ulap_en_ flag, which is exactly what we want for an isolated
         // unit-style assertion of the runtime palette path.
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         render_line(emu, 32, line);
 
-        const uint32_t got_ink   = line[Ula::DISP_X + 0];
-        const uint32_t got_paper = line[Ula::DISP_X + 1];
+        // G104 native 640: pixel byte 0x80 = bit7 ink, bit6..0 paper.  Source
+        // bit 7 of column 0 occupies fb cells [DISP_X..+1]; source bit 6
+        // (the first paper bit) occupies [DISP_X+2..+3].  Sample one cell
+        // from each adjacent doubled-pixel window to preserve the test's
+        // intent under VHDL-faithful pixel doubling (zxula.vhd:390-393).
+        const uint32_t got_ink   = line[Ula::DISP_X + 0];   // bit 7 (ink)
+        const uint32_t got_paper = line[Ula::DISP_X + 2];   // bit 6 (paper)
 
         // ── Negative gate: disable ULA+ via NR 0x68 b3=0 and confirm ──
         // the std-ULA encoder takes over (G102 single mirror) — attr=0x07
         // paper for attr=0x07).
         emu.nextreg().write(0x68, 0x00);   // ulap_en = 0 (ungated)
         const bool en_off = (emu.ula().get_ulap_en() == false);
-        std::array<uint32_t, 320> line_off{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{};
         render_line(emu, 32, line_off);
         const uint32_t off_ink   = line_off[Ula::DISP_X + 0];
-        const uint32_t off_paper = line_off[Ula::DISP_X + 1];
+        const uint32_t off_paper = line_off[Ula::DISP_X + 2];
 
         // ── Bank-1 isolation: poke distinct values into bank 1 at the
         // same indices, then read with NR 0x43 b1=1.  Verifies the
@@ -639,17 +644,17 @@ static void test_ulaplus_integration(Emulator& emu) {
 
         // First, read with active=bank 0 — bank-0 values must be intact.
         emu.nextreg().write(0x43, 0x00);   // b6=0, b1=0 (read bank 0)
-        std::array<uint32_t, 320> line_b0_after{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_b0_after{};
         render_line(emu, 32, line_b0_after);
         const uint32_t b0_ink_after   = line_b0_after[Ula::DISP_X + 0];
-        const uint32_t b0_paper_after = line_b0_after[Ula::DISP_X + 1];
+        const uint32_t b0_paper_after = line_b0_after[Ula::DISP_X + 2];
 
         // Now flip read-side to bank 1 — bank-1 values must surface.
         emu.nextreg().write(0x43, 0x02);   // b6=0, b1=1 (read bank 1)
-        std::array<uint32_t, 320> line_b1{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_b1{};
         render_line(emu, 32, line_b1);
         const uint32_t b1_ink   = line_b1[Ula::DISP_X + 0];
-        const uint32_t b1_paper = line_b1[Ula::DISP_X + 1];
+        const uint32_t b1_paper = line_b1[Ula::DISP_X + 2];
 
         // Negative-gate expectations: with ulap_en=0 the std-ULA encoder
         // takes over and reads the unmodified ULA palette boot defaults
@@ -852,7 +857,7 @@ static void test_ulanext_integration(Emulator& emu) {
         emu.nextreg().write(0x40, exp_idx_b0);
         emu.nextreg().write(0x41, bank0_byte);
 
-        std::array<uint32_t, 320> line_b0{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_b0{};
         render_line(emu, 32, line_b0);
         const uint32_t got_b0 = line_b0[Ula::DISP_X];
 
@@ -869,13 +874,13 @@ static void test_ulanext_integration(Emulator& emu) {
 
         // Read with active bank still 0 — bank-0 colour must persist.
         emu.nextreg().write(0x43, 0x01);
-        std::array<uint32_t, 320> line_b0_after{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_b0_after{};
         render_line(emu, 32, line_b0_after);
         const uint32_t got_b0_after = line_b0_after[Ula::DISP_X];
 
         // Flip active read bank to 1 — bank-1 colour must surface.
         emu.nextreg().write(0x43, 0x03);   // ulanext_en=1, active_ula=1
-        std::array<uint32_t, 320> line_b1{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_b1{};
         render_line(emu, 32, line_b1);
         const uint32_t got_b1 = line_b1[Ula::DISP_X];
 
@@ -884,7 +889,7 @@ static void test_ulanext_integration(Emulator& emu) {
         // paper cycle of attr=0x28 (paper=5).  Boot-default ULA palette
         // at idx 0x15 holds ZX colour 5 (cyan).
         emu.nextreg().write(0x43, 0x00);
-        std::array<uint32_t, 320> line_off{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{};
         render_line(emu, 32, line_off);
         const uint32_t got_off = line_off[Ula::DISP_X];
         const uint32_t exp_off = emu_paper_argb(emu, 5);
@@ -1188,7 +1193,7 @@ static void test_shadow_integration(Emulator& emu) {
         emu.ram().write(14u * 8192u + poff,    0xFF);
         emu.ram().write(14u * 8192u + 0x1800u, 0x02);  // bank7 ink=red
 
-        std::array<uint32_t, 320> line_off{}, line_on{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{}, line_on{};
 
         emu.port().out(0x7FFD, 0x00);
         render_line(emu, 32, line_off);
@@ -1205,9 +1210,9 @@ static void test_shadow_integration(Emulator& emu) {
               "OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side "
               "regression for the half-implemented set_shadow_screen_en that "
               "tripped beast.nex 2026-04-25",
-              line_off[32] == cyan && line_on[32] == red,
+              line_off[Ula::DISP_X] == cyan && line_on[Ula::DISP_X] == red,
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
-                  line_off[32], cyan, line_on[32], red));
+                  line_off[Ula::DISP_X], cyan, line_on[Ula::DISP_X], red));
     }
 }
 
@@ -1281,7 +1286,7 @@ static void test_altfile_integration(Emulator& emu) {
         const bool alt_flag   = emu.ula().get_alt_file();
         const uint8_t mode_reg = emu.ula().get_screen_mode_reg();
 
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         render_line(emu, 32, line);
 
         // Expected: WHITE at display_x [0..7] (alt marker), BLACK at
@@ -1291,9 +1296,9 @@ static void test_altfile_integration(Emulator& emu) {
         bool ok_black = true;
         for (int x = 0; x < 256; ++x) {
             if (x >= 0 && x <= 7) {
-                if (line[32 + x] != WHITE) { ok_white = false; break; }
+                if (line[Ula::DISP_X + 2*x] != WHITE) { ok_white = false; break; }
             } else {
-                if (line[32 + x] != BLACK) { ok_black = false; break; }
+                if (line[Ula::DISP_X + 2*x] != BLACK) { ok_black = false; break; }
             }
         }
 
@@ -1302,9 +1307,9 @@ static void test_altfile_integration(Emulator& emu) {
               "(zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192)",
               alt_flag && mode_reg == 0x09 && ok_white && ok_black,
               fmt("alt_file=%d mode_reg=0x%02X ok_white=%d ok_black=%d "
-                  "line[32]=0x%08X line[32+8]=0x%08X",
+                  "line[DISP_X]=0x%08X line[DISP_X+2*8]=0x%08X",
                   alt_flag, mode_reg, ok_white, ok_black,
-                  line[32], line[32 + 8]));
+                  line[Ula::DISP_X], line[Ula::DISP_X + 2*8]));
     }
 }
 

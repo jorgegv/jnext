@@ -331,14 +331,14 @@ static void test_section4_flash_timing() {
         UlaBed bed;
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);  // flash=1, paper=black, ink=white
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
         check("S4.01",
               "zxula.vhd:474-481 — flash_cnt(4) toggles every 16 frames (32-frame period)",
-              a[32] != b[32],
-              fmt("phase0=0x%08X phase1=0x%08X", a[32], b[32]));
+              a[Ula::DISP_X] != b[Ula::DISP_X],
+              fmt("phase0=0x%08X phase1=0x%08X", a[Ula::DISP_X], b[Ula::DISP_X]));
     }
 
     // S4.02 — attr(7)=0 disables flash XOR.
@@ -346,14 +346,14 @@ static void test_section4_flash_timing() {
         UlaBed bed;
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x07);
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
         check("S4.02",
               "zxula.vhd:470 — attr(7)=0 disables flash XOR; pixel invariant across frames",
-              a[32] == b[32],
-              fmt("phaseA=0x%08X phaseB=0x%08X", a[32], b[32]));
+              a[Ula::DISP_X] == b[Ula::DISP_X],
+              fmt("phaseA=0x%08X phaseB=0x%08X", a[Ula::DISP_X], b[Ula::DISP_X]));
     }
 
     // S4.03 — attr(7)=1, flash_cnt(4)=0: pixel_en unchanged (ink stays ink).
@@ -361,13 +361,13 @@ static void test_section4_flash_timing() {
         UlaBed bed;
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);
-        std::array<uint32_t, 320> a{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         const uint32_t exp_ink7 = bed_ink_argb(bed.palette, 7);
         check("S4.03",
               "zxula.vhd:470 — flash_cnt(4)=0 leaves pixel_en unchanged (ink stays ink)",
-              a[32] == exp_ink7,
-              fmt("got 0x%08X exp 0x%08X", a[32], exp_ink7));
+              a[Ula::DISP_X] == exp_ink7,
+              fmt("got 0x%08X exp 0x%08X", a[Ula::DISP_X], exp_ink7));
     }
 
     // S4.04 — attr(7)=1, flash_cnt(4)=1: pixel_en inverted (ink↔paper).
@@ -376,13 +376,13 @@ static void test_section4_flash_timing() {
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
-        std::array<uint32_t, 320> a{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         const uint32_t exp_paper0 = bed_paper_argb(bed.palette, 0);
         check("S4.04",
               "zxula.vhd:470 — flash_cnt(4)=1 XOR inverts ink/paper selection",
-              a[32] == exp_paper0,
-              fmt("got 0x%08X exp 0x%08X", a[32], exp_paper0));
+              a[Ula::DISP_X] == exp_paper0,
+              fmt("got 0x%08X exp 0x%08X", a[Ula::DISP_X], exp_paper0));
     }
 
     // S4.05 — ULAnext disables flash (zxula.vhd:470 "and not i_ulanext_en").
@@ -395,16 +395,16 @@ static void test_section4_flash_timing() {
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);
         bed.ula.set_ulanext_en(true);
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
         const uint32_t exp_ink7 = bed_ink_argb(bed.palette, 7);
         check("S4.05",
               "zxula.vhd:470 — i_ulanext_en=1 gates off flash XOR term (flash inert)",
-              a[32] == b[32] && a[32] == exp_ink7,
+              a[Ula::DISP_X] == b[Ula::DISP_X] && a[Ula::DISP_X] == exp_ink7,
               fmt("phase0=0x%08X phase1=0x%08X exp=0x%08X",
-                  a[32], b[32], exp_ink7));
+                  a[Ula::DISP_X], b[Ula::DISP_X], exp_ink7));
     }
 
     // S4.06 — ULA+ disables flash (zxula.vhd:470 "and not i_ulap_en").
@@ -415,14 +415,14 @@ static void test_section4_flash_timing() {
         bed.ula.set_ulap_en(true);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);  // attr(7)=1 (would-be flash), paper=0, ink=7
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
         check("S4.06",
               "zxula.vhd:470 — ULA+ enable suppresses flash XOR (pixel stable across phase)",
-              a[32] == b[32],
-              fmt("phase0=0x%08X phase1=0x%08X", a[32], b[32]));
+              a[Ula::DISP_X] == b[Ula::DISP_X],
+              fmt("phase0=0x%08X phase1=0x%08X", a[Ula::DISP_X], b[Ula::DISP_X]));
     }
 }
 
@@ -459,13 +459,13 @@ static void test_section5_timex() {
         bed.ula.set_screen_mode(0x10);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x47);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         const uint32_t exp_bright_white = bed_ink_argb(bed.palette, 15);
         check("S5.03",
               "zxula.vhd:386-392 — hi-colour: second vram fetch from bank 1 (0x6000) for per-row attr",
-              line[32] == exp_bright_white,
-              fmt("got 0x%08X exp 0x%08X (bright white)", line[32], exp_bright_white));
+              line[Ula::DISP_X] == exp_bright_white,
+              fmt("got 0x%08X exp 0x%08X (bright white)", line[Ula::DISP_X], exp_bright_white));
     }
 
     // S5.04 — hi-colour + alt display file (mode 011).  In VHDL zxula.vhd:218
@@ -486,7 +486,7 @@ static void test_section5_timex() {
         UlaBed bed;
         bed.ula.set_screen_mode(0x18);  // bits 5:3 = 011 → HI_COLOUR + alt
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xC7);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         const uint32_t exp_bright_white = bed_ink_argb(bed.palette, 15);
         check("S5.04",
@@ -494,10 +494,10 @@ static void test_section5_timex() {
               "attr from 0x6000+poff (collapsed byte); 0xC7 pixel bit 7=1, "
               "ink=7 bright=1 → ula_pixel 0x0F",
               bed.ula.get_alt_file() == true
-              && line[32] == exp_bright_white,
+              && line[Ula::DISP_X] == exp_bright_white,
               fmt("alt_file=%d got 0x%08X exp 0x%08X",
                   static_cast<int>(bed.ula.get_alt_file()),
-                  line[32], exp_bright_white));
+                  line[Ula::DISP_X], exp_bright_white));
     }
 
     // S5.05 — hi-res mode (mode 110 = port_ff bits 5:3 = 110).
@@ -506,13 +506,13 @@ static void test_section5_timex() {
         bed.ula.set_screen_mode(0x32);  // hi-res, ink = 2 (red)
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xFF);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         const uint32_t exp_red = bed_ink_argb(bed.palette, 2);
         check("S5.05",
               "zxula.vhd:389 — hi-res shift_reg_32 interleaves primary/secondary bytes; ink from port_ff(2:0)",
-              line[32] == exp_red,
-              fmt("got 0x%08X exp 0x%08X (red)", line[32], exp_red));
+              line[Ula::DISP_X] == exp_red,
+              fmt("got 0x%08X exp 0x%08X (red)", line[Ula::DISP_X], exp_red));
     }
 
     // S5.06 — hi-res border colour uses border_clr_tmx.  Per VHDL
@@ -533,7 +533,7 @@ static void test_section5_timex() {
         bed.ula.set_border(0);            // port 0xFE bits 2:0 = 0 → black
         bed.ula.init_border_per_line();
         bed.ula.set_screen_mode(0x30);    // bits 5:3 = 110 → HI_RES, paper 6
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
 
         const uint32_t exp_argb = rgb333_to_argb8888(0, 0, 7);  // bright blue
@@ -597,7 +597,7 @@ static void test_section5_timex() {
         bed.ram.write(bank7_pix, 0xFF);
         bed.ram.write(bank7_att, 0x02);   // paper black, ink red
 
-        std::array<uint32_t, 320> line_off{}, line_on{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{}, line_on{};
         bed.ula.set_shadow_screen_en(false);
         bed.ula.render_scanline(line_off.data(), 32, bed.mmu);
         bed.ula.set_shadow_screen_en(true);
@@ -608,18 +608,169 @@ static void test_section5_timex() {
         check("S5.09",
               "shadow_screen_en=1 must switch ULA to bank 7 (page 14); "
               "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
-              line_off[32] == cyan && line_on[32] == red,
+              line_off[Ula::DISP_X] == cyan && line_on[Ula::DISP_X] == red,
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
-                  line_off[32], cyan, line_on[32], red));
+                  line_off[Ula::DISP_X], cyan, line_on[Ula::DISP_X], red));
     }
 
-    // S5.10 — hi-res mode renders at 512 horizontal pixels (zxula.vhd:
-    // 389-395 — shift_reg_32 interleaves shift_pbyte/shift_abyte byte
-    // halves at the 14 MHz pixel clock). Current renderer at
-    // src/video/ula.cpp:646+ discards alternate pixels (see comment
-    // :635-640). See G104.
-    skip("S5.10",
-         "F-G104-RENDER: hi-res renders at 256 px not 512 px (see G104)");
+    // S5.10 — G104: HI_RES mode renders at native 512 horizontal pixels via
+    // VHDL byte-interleave (zxula.vhd:131-138, 271-306, 384-406).
+    // shift_reg_32 = pbyte_hi & abyte_hi & pbyte_lo & abyte_lo, emitted
+    // MSB-first.  So per source-column pair the 32 emitted hi-res pixels
+    // are: 8 px from screen-0 col N, 8 px from screen-1 col N, 8 px from
+    // screen-0 col N+1, 8 px from screen-1 col N+1.
+    //
+    // Distinct stimulus: plant 0xAA into screen-0 col 0 and 0x55 into
+    // screen-1 col 0 — different bit patterns so an implementation that
+    // discards b0 (the pre-G104 bug) cannot pass by accident.
+    {
+        UlaBed bed;
+        const uint8_t paper_idx = 5;        // bits 5:3 = 101 (cyan)
+        const uint8_t ink_idx   = 2;        // bits 2:0 = 010 (red)
+        const uint8_t port_ff_val = static_cast<uint8_t>(
+            0x30                            // mode 110 = HI_RES
+            | (paper_idx << 3) | ink_idx);
+        bed.ula.set_screen_mode(port_ff_val);  // HI_RES, paper cyan, ink red
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        bed.poke(0x4000 + poff, 0xAA);      // screen-0 col 0 = 1010_1010
+        bed.poke(0x6000 + poff, 0x55);      // screen-1 col 0 = 0101_0101
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);  // display row 0
+
+        const uint32_t ink_argb   = bed_ink_argb(bed.palette, ink_idx);
+        const uint32_t paper_argb = bed_paper_argb(bed.palette, paper_idx);
+
+        // Cells [DISP_X+0..+7] = screen-0 col 0 bits 7..0 = 0xAA
+        //   bit7=1 → ink, bit6=0 → paper, bit5=1 → ink, ...
+        const uint32_t exp_b0[8] = {
+            ink_argb, paper_argb, ink_argb, paper_argb,
+            ink_argb, paper_argb, ink_argb, paper_argb,
+        };
+        // Cells [DISP_X+8..+15] = screen-1 col 0 bits 7..0 = 0x55
+        //   bit7=0 → paper, bit6=1 → ink, bit5=0 → paper, ...
+        const uint32_t exp_b1[8] = {
+            paper_argb, ink_argb, paper_argb, ink_argb,
+            paper_argb, ink_argb, paper_argb, ink_argb,
+        };
+
+        bool ok_s0 = true;
+        for (int i = 0; i < 8; ++i) {
+            if (line[Ula::DISP_X + i] != exp_b0[i]) { ok_s0 = false; break; }
+        }
+        bool ok_s1 = true;
+        for (int i = 0; i < 8; ++i) {
+            if (line[Ula::DISP_X + 8 + i] != exp_b1[i]) { ok_s1 = false; break; }
+        }
+
+        check("S5.10",
+              "zxula.vhd:389 — HI_RES native 512 px byte-interleaved s0/s1: "
+              "8 px from screen-0 col 0 (0xAA → ink/paper alt MSB-first), then "
+              "8 px from screen-1 col 0 (0x55 → paper/ink alt MSB-first). "
+              "Pre-G104 implementation discarded screen-0 entirely (used b1 only) "
+              "— this test would fail under that buggy semantics.",
+              ok_s0 && ok_s1,
+              fmt("ok_s0=%d ok_s1=%d "
+                  "line[DISP_X+0]=0x%08X (exp ink 0x%08X) "
+                  "line[DISP_X+1]=0x%08X (exp paper 0x%08X) "
+                  "line[DISP_X+8]=0x%08X (exp paper 0x%08X) "
+                  "line[DISP_X+9]=0x%08X (exp ink 0x%08X)",
+                  ok_s0, ok_s1,
+                  line[Ula::DISP_X + 0], ink_argb,
+                  line[Ula::DISP_X + 1], paper_argb,
+                  line[Ula::DISP_X + 8], paper_argb,
+                  line[Ula::DISP_X + 9], ink_argb));
+    }
+
+    // S5.10b — column-1 follow-on: distinct bytes in screen-0 col 1 and
+    // screen-1 col 1 land at fb cells [DISP_X+16..+31].  Validates that
+    // each source column contributes a 16-cell window (8 cells s0 then
+    // 8 cells s1) at base DISP_X + col * 16, matching VHDL zxula.vhd:389
+    // shift_reg_32 emit order across multiple columns.
+    {
+        UlaBed bed;
+        const uint8_t paper_idx = 5;
+        const uint8_t ink_idx   = 2;
+        bed.ula.set_screen_mode(static_cast<uint8_t>(
+            0x30 | (paper_idx << 3) | ink_idx));
+
+        // Column 0: keep simple test value
+        const uint16_t poff0 = emu_pixel_addr_offset(0, 0);
+        bed.poke(0x4000 + poff0, 0xFF);     // screen-0 col 0 all-ink
+        bed.poke(0x6000 + poff0, 0x00);     // screen-1 col 0 all-paper
+        // Column 1: distinct mid-row pattern
+        const uint16_t poff1 = emu_pixel_addr_offset(0, 1);
+        bed.poke(0x4000 + poff1, 0xF0);     // screen-0 col 1: ink ink ink ink, paper paper paper paper
+        bed.poke(0x6000 + poff1, 0x0F);     // screen-1 col 1: paper paper paper paper, ink ink ink ink
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+        const uint32_t ink_argb   = bed_ink_argb(bed.palette, ink_idx);
+        const uint32_t paper_argb = bed_paper_argb(bed.palette, paper_idx);
+
+        // Col 1 screen-0 bits 7..0 = 0xF0 = ink,ink,ink,ink,paper,paper,paper,paper
+        // → cells [DISP_X+16..+23]
+        bool ok_c1_s0 = true;
+        for (int i = 0; i < 8; ++i) {
+            const uint32_t exp = (0xF0 >> (7-i)) & 1 ? ink_argb : paper_argb;
+            if (line[Ula::DISP_X + 16 + i] != exp) { ok_c1_s0 = false; break; }
+        }
+        // Col 1 screen-1 bits 7..0 = 0x0F = paper,paper,paper,paper,ink,ink,ink,ink
+        // → cells [DISP_X+24..+31]
+        bool ok_c1_s1 = true;
+        for (int i = 0; i < 8; ++i) {
+            const uint32_t exp = (0x0F >> (7-i)) & 1 ? ink_argb : paper_argb;
+            if (line[Ula::DISP_X + 24 + i] != exp) { ok_c1_s1 = false; break; }
+        }
+
+        check("S5.10b",
+              "zxula.vhd:389 — HI_RES per-column emission: col 1 source bytes "
+              "land at fb cells [DISP_X+16..+31] (16-cell window per source "
+              "column = base DISP_X + col*16). Distinct s0=0xF0/s1=0x0F bytes "
+              "ensure the test catches a byte-swap regression.",
+              ok_c1_s0 && ok_c1_s1,
+              fmt("ok_c1_s0=%d ok_c1_s1=%d "
+                  "line[DISP_X+16]=0x%08X line[DISP_X+19]=0x%08X "
+                  "line[DISP_X+24]=0x%08X line[DISP_X+27]=0x%08X",
+                  ok_c1_s0, ok_c1_s1,
+                  line[Ula::DISP_X + 16], line[Ula::DISP_X + 19],
+                  line[Ula::DISP_X + 24], line[Ula::DISP_X + 27]));
+    }
+
+    // S5.10c — HI_RES border row width: render a top-border row (fb row 0)
+    // through render_border_line and assert all FB_WIDTH cells are filled
+    // with the HI_RES TMX-encoded border colour.  Pre-G104 the row width
+    // was 320; G104 widens to 640 (64+512+64).  S5.06 already pins the
+    // colour encoding; this test only pins that the 640-cell widening
+    // doesn't leave gaps in the right half of the row.
+    {
+        UlaBed bed;
+        bed.ula.set_border(0);
+        bed.ula.init_border_per_line();
+        bed.ula.set_screen_mode(0x30);      // HI_RES, paper=6
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
+        // For HI_RES paper=6 the std-ULA-encoded border-clr_tmx maps to
+        // ula_pixel idx 0x19 → boot-default bright blue (S5.06 derivation).
+        const uint32_t exp_border = rgb333_to_argb8888(0, 0, 7);
+
+        bool ok_all = true;
+        int  bad_x  = -1;
+        for (int x = 0; x < Ula::FB_WIDTH; ++x) {
+            if (line[x] != exp_border) { ok_all = false; bad_x = x; break; }
+        }
+
+        check("S5.10c",
+              "G104 — HI_RES top-border row fills all FB_WIDTH=640 cells "
+              "with the TMX-encoded border colour (S5.06 encoding). Pins "
+              "that the constants flip from 320 → 640 widens render_border_"
+              "line uniformly without leaving the right half blank.",
+              ok_all,
+              fmt("ok_all=%d bad_x=%d line[0]=0x%08X line[FB_WIDTH-1]=0x%08X "
+                  "exp 0x%08X (bright blue)",
+                  ok_all, bad_x, line[0], line[Ula::FB_WIDTH - 1], exp_border));
+    }
 
     // S5.11 — hi-res border encodes border_clr_tmx as 6-bit
     // "01" & (not port_ff(5:3)) & port_ff(5:3) per zxula.vhd:419.
@@ -674,7 +825,7 @@ static void test_section5_timex() {
         pal.write_8bit(0xE3);
         const uint32_t exp_argb = rgb333_to_argb8888(7, 0, 7);
 
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 0, bed.mmu);  // top border row
         const uint32_t got_ulanext = line[0];
 
@@ -691,7 +842,7 @@ static void test_section5_timex() {
         // std-ULA HI_RES border colour (previously a documented
         // limitation: 3-bit paper-truncation against a narrower mirror).
         bed.ula.set_ulanext_en(false);
-        std::array<uint32_t, 320> line_legacy{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_legacy{};
         bed.ula.render_scanline(line_legacy.data(), 0, bed.mmu);
         const uint32_t got_legacy = line_legacy[0];
 
@@ -783,7 +934,7 @@ static void test_section5_timex() {
 
         // Mirror Renderer flow: rewind once, then apply+render per row.
         bed.ula.rewind_to_baseline();              // back to STANDARD
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.apply_changes_for_line(32);        // no entries at line 32
         bed.ula.render_scanline(a.data(), 32, bed.mmu);   // STANDARD
         bed.ula.apply_changes_for_line(33);        // applies HI_COLOUR
@@ -794,9 +945,9 @@ static void test_section5_timex() {
         check("S5-PSL.02",
               "zxula.vhd:191/209 — STANDARD on line 32 + HI_COLOUR on "
               "line 33: each line renders via its own mode after replay",
-              a[32] == cyan && b[32] == white,
+              a[Ula::DISP_X] == cyan && b[Ula::DISP_X] == white,
               fmt("std=0x%08X (exp cyan 0x%08X)  hicol=0x%08X (exp white 0x%08X)",
-                  a[32], cyan, b[32], white));
+                  a[Ula::DISP_X], cyan, b[Ula::DISP_X], white));
     }
 
     // S5-PSL.03 — HI_RES on line N, STANDARD on line N+1: HI_RES uses
@@ -820,7 +971,7 @@ static void test_section5_timex() {
         bed.ula.set_screen_mode(0x00);
 
         bed.ula.rewind_to_baseline();              // back to HI_RES
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.apply_changes_for_line(32);        // no entries at 32
         bed.ula.render_scanline(a.data(), 32, bed.mmu);   // HI_RES
         bed.ula.apply_changes_for_line(33);        // applies STANDARD
@@ -831,9 +982,9 @@ static void test_section5_timex() {
         check("S5-PSL.03",
               "zxula.vhd:191/209 — HI_RES on line 32 then STANDARD on "
               "line 33 produces red then cyan after replay",
-              a[32] == red && b[32] == cyan,
+              a[Ula::DISP_X] == red && b[Ula::DISP_X] == cyan,
               fmt("hires=0x%08X (exp red 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
-                  a[32], red, b[32], cyan));
+                  a[Ula::DISP_X], red, b[Ula::DISP_X], cyan));
     }
 
     // S5-PSL.04 — start_frame rewinds the port-0xFF log: the live
@@ -870,7 +1021,7 @@ static void test_section5_timex() {
     // S5-PSL.05 — save state with non-empty log; load; verify
     // identical render via rewind+replay.  Renders the same scanline
     // through the change-log replay path before save and after load,
-    // and asserts byte-equal output (a[32] == b[32]).
+    // and asserts byte-equal output (a[Ula::DISP_X] == b[Ula::DISP_X]).
     {
         UlaBed bed;
         // Stimulus identical to S5-PSL.02: STANDARD baseline → mid-frame
@@ -886,7 +1037,7 @@ static void test_section5_timex() {
         // Render once before save.
         bed.ula.rewind_to_baseline();
         bed.ula.apply_changes_for_line(33);
-        std::array<uint32_t, 320> a{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{};
         bed.ula.render_scanline(a.data(), 33, bed.mmu);
 
         // Save → wipe → load → render again.  Use a measure pass first
@@ -905,17 +1056,17 @@ static void test_section5_timex() {
 
         bed2.ula.rewind_to_baseline();
         bed2.ula.apply_changes_for_line(33);
-        std::array<uint32_t, 320> b{};
+        std::array<uint32_t, Ula::FB_WIDTH> b{};
         bed2.ula.render_scanline(b.data(), 33, bed2.mmu);
 
         check("S5-PSL.05",
               "Ula::save_state + load_state round-trips the port-0xFF "
               "change log: rendering the same scanline through replay "
               "produces byte-equal output before and after",
-              a[32] == b[32]
+              a[Ula::DISP_X] == b[Ula::DISP_X]
               && bed2.ula.port_ff_change_log_size() == 1u,
               fmt("pre=0x%08X post=0x%08X count_post=%zu",
-                  a[32], b[32], bed2.ula.port_ff_change_log_size()));
+                  a[Ula::DISP_X], b[Ula::DISP_X], bed2.ula.port_ff_change_log_size()));
     }
 }
 
@@ -1244,11 +1395,11 @@ static void test_section7_ulaplus() {
         bed.ula.set_ulap_en(true);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x87);  // attr(7)=1, paper=0, ink=7
-        std::array<uint32_t, 320> a{}, b{};
+        std::array<uint32_t, Ula::FB_WIDTH> a{}, b{};
         bed.ula.render_scanline(a.data(), 32, bed.mmu);
         for (int i = 0; i < 16; ++i) bed.ula.advance_flash();
         bed.ula.render_scanline(b.data(), 32, bed.mmu);
-        const bool stable = (a[32] == b[32]);
+        const bool stable = (a[Ula::DISP_X] == b[Ula::DISP_X]);
 
         // Encoder check: attr(7)=1 → ula_pixel(5)=1 (part of palette-group
         // select, not flash). With attr = 0x80 → attr(7:6)=10b=pg=2, so the
@@ -1388,16 +1539,16 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         poke_row_all(bed, 1, 0xFF);  // source row 1 = all ink
         bed.ula.set_ula_scroll_y(1);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         // Expected per VHDL :199-207: py=1 → render pulls pixel byte row 1 =
         // 0xFF → all 256 display pixels white.
         bool all_white = true;
-        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        for (int x = 0; x < 256; ++x) if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         check("S9.02",
               "zxula.vhd:192,206 — scroll_y=1 + vc=0 → py=1 (passthrough else branch)",
               all_white,
-              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[Ula::DISP_X], WHITE));
     }
 
     // -- S9.03 scroll_y=191, vc=1 → py_s=192 (0xC0) → middle branch wraps to 0.
@@ -1408,14 +1559,14 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         poke_row_all(bed, 0, 0xFF);  // source row 0 = all ink
         bed.ula.set_ula_scroll_y(191);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 33, bed.mmu);  // screen_row=1
         bool all_white = true;
-        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        for (int x = 0; x < 256; ++x) if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         check("S9.03",
               "zxula.vhd:203-204 — scroll_y=191 + vc=1 → py=0 (cross-third wrap)",
               all_white,
-              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[Ula::DISP_X], WHITE));
     }
 
     // -- S9.04 scroll_y=192, vc=0 → py_s=192 (0xC0) → py = 0.
@@ -1427,14 +1578,14 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         poke_row_all(bed, 0, 0xFF);
         bed.ula.set_ula_scroll_y(192);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         bool all_white = true;
-        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        for (int x = 0; x < 256; ++x) if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         check("S9.04",
               "zxula.vhd:203-204 — scroll_y=192 + vc=0 → py=0 (modulo-192 boundary)",
               all_white,
-              fmt("display[0]=0x%08X exp 0x%08X (white)", line[32], WHITE));
+              fmt("display[0]=0x%08X exp 0x%08X (white)", line[Ula::DISP_X], WHITE));
     }
 
     // -- S9.05 scroll_x=8, vc=0 → 8-pixel horizontal shift.
@@ -1454,19 +1605,19 @@ static void test_section9_scrolling() {
         // Only col 0 of row 0 is white.
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.ula.set_ula_scroll_x_coarse(8);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         // Expect white at display_x = 248..255, black elsewhere.
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const uint32_t exp = (x >= 248 && x <= 255) ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("S9.05",
               "zxula.vhd:199 — NR 0x26=8 → 8-pixel shift (scroll_x(7:3)=1, (2:0)=0)",
               ok,
-              fmt("line[32+248]=0x%08X line[32+247]=0x%08X",
-                  line[32 + 248], line[32 + 247]));
+              fmt("line[DISP_X+2*248]=0x%08X line[DISP_X+2*247]=0x%08X",
+                  line[Ula::DISP_X + 2*248], line[Ula::DISP_X + 2*247]));
     }
 
     // -- S9.06 fine_scroll_x=1 (NR 0x68 bit 2), scroll_x=0 → 1-pixel shift.
@@ -1479,19 +1630,19 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.ula.set_ula_fine_scroll_x(true);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const bool should_white = (x == 255) || (x >= 0 && x <= 6);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("S9.06",
               "zxula.vhd:199,216 — fine_scroll_x=1 → 1-pixel source offset",
               ok,
-              fmt("line[32]=0x%08X line[32+255]=0x%08X line[32+7]=0x%08X",
-                  line[32], line[32 + 255], line[32 + 7]));
+              fmt("line[DISP_X]=0x%08X line[DISP_X+2*255]=0x%08X line[DISP_X+2*7]=0x%08X",
+                  line[Ula::DISP_X], line[Ula::DISP_X + 2*255], line[Ula::DISP_X + 2*7]));
     }
 
     // -- S9.07 NR 0x26=255 → 255-pixel shift (= −1 mod 256).
@@ -1506,19 +1657,19 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.ula.set_ula_scroll_x_coarse(255);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const bool should_white = (x >= 1 && x <= 8);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("S9.07",
               "zxula.vhd:199 — NR 0x26=0xFF → 255-pixel shift (wraps mod 256)",
               ok,
-              fmt("line[32+1]=0x%08X line[32+8]=0x%08X line[32+9]=0x%08X",
-                  line[32 + 1], line[32 + 8], line[32 + 9]));
+              fmt("line[DISP_X+2*1]=0x%08X line[DISP_X+2*8]=0x%08X line[DISP_X+2*9]=0x%08X",
+                  line[Ula::DISP_X + 2*1], line[Ula::DISP_X + 2*8], line[Ula::DISP_X + 2*9]));
     }
 
     // -- S9.08 fine_scroll_x isolation: only NR 0x68 bit 2 must drive fine.
@@ -1533,19 +1684,19 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.ula.set_ula_fine_scroll_x(false);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         // Expect original unscrolled window: display_x ∈ [0..7] white.
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const uint32_t exp = (x >= 0 && x <= 7) ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("S9.08",
               "zxula.vhd:199 — fine_scroll_x=0 leaves px(8)=0 (no 1-pixel offset)",
               ok,
-              fmt("line[32]=0x%08X line[32+7]=0x%08X line[32+8]=0x%08X",
-                  line[32], line[32 + 7], line[32 + 8]));
+              fmt("line[DISP_X]=0x%08X line[DISP_X+2*7]=0x%08X line[DISP_X+2*8]=0x%08X",
+                  line[Ula::DISP_X], line[Ula::DISP_X + 2*7], line[Ula::DISP_X + 2*8]));
     }
 
     // -- S9.09 combined scroll: scroll_y=2, NR 0x26=16 (2-byte/16-pixel
@@ -1562,19 +1713,19 @@ static void test_section9_scrolling() {
         bed.ula.set_ula_scroll_y(2);
         bed.ula.set_ula_scroll_x_coarse(16);
         bed.ula.set_ula_fine_scroll_x(true);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         bool ok = true;
         for (int x = 0; x < 256; ++x) {
             const bool should_white = (x >= 247 && x <= 254);
             const uint32_t exp = should_white ? WHITE : BLACK;
-            if (line[32 + x] != exp) { ok = false; break; }
+            if (line[Ula::DISP_X + 2*x] != exp) { ok = false; break; }
         }
         check("S9.09",
               "zxula.vhd:193-216 — scroll_y=2 + NR 0x26=16 + fine=1 compose",
               ok,
-              fmt("line[32+247]=0x%08X line[32+254]=0x%08X line[32+255]=0x%08X",
-                  line[32 + 247], line[32 + 254], line[32 + 255]));
+              fmt("line[DISP_X+2*247]=0x%08X line[DISP_X+2*254]=0x%08X line[DISP_X+2*255]=0x%08X",
+                  line[Ula::DISP_X + 2*247], line[Ula::DISP_X + 2*254], line[Ula::DISP_X + 2*255]));
     }
 
     // -- S9.10 cross-third wrap: scroll_y=64 + vc=0 → py_s=64 (0x40).
@@ -1588,14 +1739,14 @@ static void test_section9_scrolling() {
         init_attrs(bed);
         poke_row_all(bed, 64, 0xFF);
         bed.ula.set_ula_scroll_y(64);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // screen_row=0
         bool all_white = true;
-        for (int x = 0; x < 256; ++x) if (line[32 + x] != WHITE) { all_white = false; break; }
+        for (int x = 0; x < 256; ++x) if (line[Ula::DISP_X + 2*x] != WHITE) { all_white = false; break; }
         check("S9.10",
               "zxula.vhd:206,223 — scroll_y=64 → py=64 (third-0→third-1 swap)",
               all_white,
-              fmt("display[0]=0x%08X exp 0x%08X (white from row 64)", line[32], WHITE));
+              fmt("display[0]=0x%08X exp 0x%08X (white from row 64)", line[Ula::DISP_X], WHITE));
     }
 
     // S9.01 — G: no-scroll baseline already covered by §1 address tests + §2 rendering.
@@ -1671,18 +1822,18 @@ static void test_section9_scrolling() {
         bed.ula.set_ula_scroll_y(1);
         // Simulate Renderer flow: rewind to baseline, then apply per line.
         bed.ula.rewind_scroll_to_baseline();
-        std::array<uint32_t, 320> line32{}, line33{};
+        std::array<uint32_t, Ula::FB_WIDTH> line32{}, line33{};
         bed.ula.apply_scroll_changes_for_line(32);
         bed.ula.render_scanline(line32.data(), 32, bed.mmu);   // screen_row 0
         bed.ula.apply_scroll_changes_for_line(33);
         bed.ula.render_scanline(line33.data(), 33, bed.mmu);   // screen_row 1
-        const bool ok32_white = (line32[32] == WHITE);
-        const bool ok33_black = (line33[32] == BLACK);
+        const bool ok32_white = (line32[Ula::DISP_X] == WHITE);
+        const bool ok33_black = (line33[Ula::DISP_X] == BLACK);
         check("S9-PSL.02",
               "zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black)",
               ok32_white && ok33_black,
-              fmt("line32[32]=0x%08X exp WHITE 0x%08X / line33[32]=0x%08X exp BLACK 0x%08X",
-                  line32[32], WHITE, line33[32], BLACK));
+              fmt("line32[Ula::DISP_X]=0x%08X exp WHITE 0x%08X / line33[Ula::DISP_X]=0x%08X exp BLACK 0x%08X",
+                  line32[Ula::DISP_X], WHITE, line33[Ula::DISP_X], BLACK));
     }
 
     // -- S9-PSL.03 — NR 0x26 fine-scroll mid-frame flip. -------------------
@@ -1704,7 +1855,7 @@ static void test_section9_scrolling() {
         bed.ula.set_current_scroll_line(33);
         bed.ula.set_ula_fine_scroll_x(true);    // line 33 → +1 pixel offset
         bed.ula.rewind_scroll_to_baseline();
-        std::array<uint32_t, 320> line32{}, line33{};
+        std::array<uint32_t, Ula::FB_WIDTH> line32{}, line33{};
         bed.ula.apply_scroll_changes_for_line(32);
         bed.ula.render_scanline(line32.data(), 32, bed.mmu);   // screen_row 0
         bed.ula.apply_scroll_changes_for_line(33);
@@ -1715,14 +1866,14 @@ static void test_section9_scrolling() {
         // white to white (rotated by 1) but pixel 7 swaps white→black,
         // pixel 255 swaps black→white. Use those two markers as the
         // discriminator.
-        const bool no_fine_pixel7  = (line32[32 + 7]   == WHITE);
-        const bool fine_pixel7     = (line33[32 + 7]   == BLACK);
-        const bool fine_pixel255   = (line33[32 + 255] == WHITE);
+        const bool no_fine_pixel7  = (line32[Ula::DISP_X + 2*7]   == WHITE);
+        const bool fine_pixel7     = (line33[Ula::DISP_X + 2*7]   == BLACK);
+        const bool fine_pixel255   = (line33[Ula::DISP_X + 2*255] == WHITE);
         check("S9-PSL.03",
               "zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line",
               no_fine_pixel7 && fine_pixel7 && fine_pixel255,
-              fmt("line32[32+7]=0x%08X line33[32+7]=0x%08X line33[32+255]=0x%08X",
-                  line32[32+7], line33[32+7], line33[32+255]));
+              fmt("line32[DISP_X+2*7]=0x%08X line33[DISP_X+2*7]=0x%08X line33[DISP_X+2*255]=0x%08X",
+                  line32[Ula::DISP_X + 2*7], line33[Ula::DISP_X + 2*7], line33[Ula::DISP_X + 2*255]));
     }
 
     // -- S9-PSL.04 — start_frame_scroll rewinds the log. --------------------
@@ -1942,13 +2093,13 @@ static void test_section15_shadow() {
         UlaBed bed;
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x5800, 0x07);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
         const uint32_t exp_ink7 = bed_ink_argb(bed.palette, 7);
         check("S15.01",
               "zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM",
-              line[32] == exp_ink7,
-              fmt("got 0x%08X exp 0x%08X", line[32], exp_ink7));
+              line[Ula::DISP_X] == exp_ink7,
+              fmt("got 0x%08X exp 0x%08X", line[Ula::DISP_X], exp_ink7));
     }
 
     // S15.02 — i_ula_shadow_en routes bank 7 (page 14).
@@ -1957,13 +2108,13 @@ static void test_section15_shadow() {
         uint32_t shadow_base = 14u * 8192u;
         bed.ram.write(shadow_base + emu_pixel_addr_offset(0, 0), 0x00);
         bed.ram.write(shadow_base + (0x5800 - 0x4000), 0x07);
-        std::array<uint32_t, 320> line{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline_screen1(line.data(), 32, bed.mmu);
         const uint32_t exp_paper0 = bed_paper_argb(bed.palette, 0);
         check("S15.02",
               "zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM",
-              line[32] == exp_paper0,
-              fmt("got 0x%08X exp 0x%08X (black paper)", line[32], exp_paper0));
+              line[Ula::DISP_X] == exp_paper0,
+              fmt("got 0x%08X exp 0x%08X (black paper)", line[Ula::DISP_X], exp_paper0));
     }
 
     // S15.03/04 — RE-HOME to doc/design/TASK-MMU-SHADOW-SCREEN-PLAN.md.
