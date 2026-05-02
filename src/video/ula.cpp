@@ -906,16 +906,27 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 // ---------------------------------------------------------------------------
 //
 // Timex hi-res mode provides 512 monochrome pixels per scanline by
-// interleaving two 256-pixel-wide screens:
-//   - Screen 0 (0x4000): provides odd display columns (columns 1, 3, 5, …)
-//   - Screen 1 (0x6000): provides even display columns (columns 0, 2, 4, …)
+// byte-interleaving two 256-pixel-wide screens.  G104 — native 512-px
+// rendering, no approximation.
 //
-// LIMITATION: the output framebuffer is only 320 pixels wide (256 active
-// display pixels).  A true 512-pixel render does not fit.  This implementation
-// renders at 256 output pixels by discarding every second hi-res pixel
-// (one output pixel per two hi-res pixels, taken from the most-significant
-// bit of each pair).  This halves the horizontal resolution but keeps aspect
-// ratio consistent with the other modes.
+// VHDL zxula.vhd:131-138, 271-306, 384-406 (authoritative spec):
+//
+//   shift_pbyte <= (pbyte00 & pbyte01)         -- 16 bits = bytes from screen 0
+//   shift_abyte <= (abyte00 & abyte01)         -- 16 bits = bytes from screen 1
+//   shift_reg_32 <= shift_pbyte(15:8) & shift_abyte(15:8)
+//                 & shift_pbyte(7:0)  & shift_abyte(7:0)
+//                  when shift_screen_mode(2) = '1'
+//   shift_reg_ld <= shift_left(shift_reg_32, scroll)   -- emits MSB-first
+//
+// So per source-column pair (cols N and N+1) the 32 emitted hi-res pixels are:
+//   8 px from screen-0 col N (pbyte bits 7..0)
+//   8 px from screen-1 col N (abyte bits 7..0)
+//   8 px from screen-0 col N+1
+//   8 px from screen-1 col N+1
+//
+// At column granularity that decomposes as "for each col 0..31: emit 8 px from
+// s0[col] then 8 px from s1[col]", which is what we do.  Each column contributes
+// 16 hi-res output pixels to the framebuffer at offset DISP_X + col * 16.
 //
 // Ink colour  = bits 2:0 of the last value written to port 0xFF (screen_mode_reg_).
 // Paper colour = bits 5:3 of screen_mode_reg_.
@@ -929,14 +940,11 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     // so the encoder helpers produce the right ula_pixel.
     const uint8_t hires_attr = static_cast<uint8_t>(screen_mode_reg_ & 0x3F);
 
-    // G102 — ULAnext runtime path consults the same 256-entry × 2-bank
-    // palette as the std-ULA path; the only difference is the encoder
-    // (compute_ulanext_pixel under ulanext_en_).  The current 256-px
-    // hi-res approximation ignores per-pixel ULAnext encoder semantics
-    // (a true VHDL-faithful hi-res + ULAnext path needs G104's 512-px
-    // renderer); this routes the existing port-0xFF-derived ink/paper
-    // indices through the std-ULA encoder so firmware-poked palette
-    // entries at the std-ULA `ula_pixel` slots stay observable.
+    // G102 — std-ULA encoder per VHDL zxula.vhd:543-553 emits an 8-bit
+    // ula_pixel that indexes the single 256-entry × 2-bank ULA palette
+    // (zxnext.vhd:6981).  ULAnext / ULA+ encoder paths are not yet wired
+    // into the HI_RES route — they would need separate per-pixel encoder
+    // calls; G102/G103 keep the std-ULA path identity-mapped at boot.
     const uint32_t ink_argb   = lookup_colour(std_ula_ink_pixel(hires_attr));
     const uint32_t paper_argb = lookup_colour(std_ula_paper_pixel(hires_attr));
 
@@ -948,38 +956,32 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
 
     // The interleaved pixel row offset is the same for both screens.
-    const uint16_t poff = pixel_addr_offset(screen_row, 0);
+    const uint16_t poff         = pixel_addr_offset(screen_row, 0);
     const uint16_t screen0_base = static_cast<uint16_t>(0x4000u | poff);
     const uint16_t screen1_base = static_cast<uint16_t>(0x6000u | poff);
 
-    // Fill left border.
+    // Fill left border (DISP_X = 64 cells under G104).
     for (int x = 0; x < DISP_X; ++x)
         row[x] = border_argb;
 
-    // Each of the 32 display columns produces 16 hi-res pixels (8 from screen 0,
-    // 8 from screen 1, interleaved).  We render them as 8 output pixels (one per
-    // hi-res pair) to fit within the 256-pixel display width.
-    //
-    // Column interleaving: for display column c (0–31):
-    //   screen1 byte  → bits 7,5,3,1 of hi-res pixels (even hi-res cols)
-    //   screen0 byte  → bits 6,4,2,0 of hi-res pixels (odd hi-res cols)
-    //
-    // The hi-res columns run left-to-right as: s1_bit7, s0_bit7, s1_bit6,
-    // s0_bit6, …  i.e. screen 1 contributes the first pixel of each pair.
-    // We output one pixel per pair (the screen-1 pixel = left pixel of pair).
-
+    // VHDL-faithful native 512 px: per column, emit 8 screen-0 pixels first
+    // (MSB..LSB) then 8 screen-1 pixels (MSB..LSB).  Each column contributes
+    // 16 framebuffer cells at base DISP_X + col * 16; total 512 cells across
+    // 32 columns fills the entire display width.
     for (int col = 0; col < 32; ++col) {
         const uint8_t b0 = vram_read(static_cast<uint16_t>(screen0_base + col), mmu);
         const uint8_t b1 = vram_read(static_cast<uint16_t>(screen1_base + col), mmu);
 
-        uint32_t* dst = row + DISP_X + col * 8;
-        for (int bit = 7; bit >= 0; --bit) {
-            // Take the screen-1 bit as the representative pixel for this pair.
+        uint32_t* dst = row + DISP_X + col * 16;
+        // Screen-0 byte first (VHDL shift_pbyte(15:8) lands at shift_reg_32(31:24)).
+        for (int bit = 7; bit >= 0; --bit)
+            *dst++ = (b0 >> bit) & 1 ? ink_argb : paper_argb;
+        // Then screen-1 byte (VHDL shift_abyte(15:8) lands at shift_reg_32(23:16)).
+        for (int bit = 7; bit >= 0; --bit)
             *dst++ = (b1 >> bit) & 1 ? ink_argb : paper_argb;
-        }
     }
 
-    // Fill right border.
+    // Fill right border (FB_WIDTH - DISP_X - DISP_W = 64 cells under G104).
     uint32_t* right = row + DISP_X + DISP_W;
     for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
         right[x] = border_argb;
