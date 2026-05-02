@@ -68,15 +68,6 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     const int trace_frame_no = ++trace_frame_counter_;
     trace_active_ = (trace_fp_ && trace_frame_no == trace_target_frame_);
 
-    // PHASE 1 SCAFFOLD (G104): the framebuffer is now 640-wide canonically.
-    // Per-layer renderers (Ula, Layer2, Tilemap, SpriteEngine) still emit at
-    // 320-grid in this phase; the per-line buffers are 640-wide storage but
-    // only cells [0..319] are populated by the layer pass. After all layers
-    // fill their 320-grid line, an unconditional pixel-doubling pass below
-    // expands [0..319] -> [0..639]. Phases 2-5 land each layer at native 640;
-    // Phase 6 deletes this scaffold and the layer-side 320 emission.
-    static constexpr int kLegacyLayerWidth = 320;
-
     // Per-scanline palette: rewind to the frame's baseline so the
     // line-by-line apply below sees the same starting state the Z80
     // saw at frame start. The change-log was populated during emulation
@@ -254,17 +245,6 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 }
             }
         }
-
-        // PHASE 1 SCAFFOLD (G104): unconditional pixel-doubling pass.
-        // Each remaining 320-emit layer fills [0..319] at 320-grid; this
-        // expands every cell into two adjacent cells in [0..639] (right-
-        // to-left to avoid self-overwrite). Phases 2-5 land each layer
-        // at native 640; Phase 6 deletes this entire block.
-        // Phase 2 (G104): ULA + ula_border_ now 640-native — removed.
-        // Phase 3 (G104): Layer2 + layer2_priority_ now 640-native — removed.
-        // Phase 4 (G104): Tilemap + tm_pixel_below_/textmode_ now 640-native — removed.
-        // Phase 5 (G104): Sprites now 640-native (internal 320-grid + emit pixel double) — removed.
-        // ALL LAYERS NOW 640-NATIVE. Phase 6 deletes this entire (now-empty) loop.
 
         trace_current_row_ = row;
         composite_scanline(out, fb_argb);
