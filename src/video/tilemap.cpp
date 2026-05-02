@@ -229,15 +229,17 @@ void Tilemap::set_def_base(uint8_t val)
 // Tilemap layout (VHDL-derived):
 //
 // 40-column mode:
-//   - 40 tiles per row, each 8 pixels wide = 320 display pixels
+//   - 40 tiles per row, each 8 source pixels wide = 320 source pixels
+//   - Each source pixel covers 2 framebuffer cells (7 MHz tap; VHDL
+//     tilemap.vhd:228 hcount(10:2)) → 640 framebuffer cells per scanline.
 //   - Map entry = 2 bytes when flags present: [tile_index, attribute]
 //   - Map entry = 1 byte when flags stripped: [tile_index]
 //   - Map memory size: 40*32*2 = 2560 bytes (with flags), 40*32 = 1280 (stripped)
-//   - Total tilemap area is 40*8 = 320 pixels wide, 32*8 = 256 pixels tall
 //
 // 80-column mode:
-//   - 80 tiles per row, each 8 pixels wide = 640 tilemap pixels
-//   - Displayed 2:1 onto 320 physical pixels (each screen pixel = 2 tilemap pixels)
+//   - 80 tiles per row, each 8 source pixels wide = 640 source pixels
+//   - 1:1 mapping onto 640 framebuffer cells (14 MHz tap; VHDL
+//     tilemap.vhd:228 hcount(10:1)).
 //   - Map entry same format as 40-col
 //   - Map memory size: 80*32*2 = 5120 bytes (with flags), 80*32 = 2560 (stripped)
 //
@@ -264,7 +266,6 @@ void Tilemap::set_def_base(uint8_t val)
 void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                     const Ram& ram,
                                     const PaletteManager& palette,
-                                    int render_width,
                                     bool* textmode_flags)
 {
     const bool saved = enabled_;
@@ -275,28 +276,27 @@ void Tilemap::render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
         scroll_x_per_line_[y] = scroll_x_;
         scroll_y_per_line_[y] = scroll_y_;
     }
-    render_scanline(dst, ula_over_flags, y, ram, palette, render_width,
-                    textmode_flags);
+    render_scanline(dst, ula_over_flags, y, ram, palette, textmode_flags);
     enabled_ = saved;
 }
 
 void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               const Ram& ram,
                               const PaletteManager& palette,
-                              int render_width,
                               bool* textmode_flags) const
 {
     if (!enabled_ || y < 0 || y >= 256)
         return;
 
-    // Clip window — VHDL tilemap.vhd:424 pixel_en_s gates the pixel output
-    // against [clip_x1*2, clip_x2*2+1] horizontal and [clip_y1, clip_y2]
-    // vertical.  When pixel_en_s=0 the downstream pixel is forced
-    // transparent.  X coords are doubled (tilemap.vhd:416-417); Y coords
-    // are direct.
+    // Clip window — VHDL tilemap.vhd:415-424 pixel_en_s gates output
+    // against [xsv, xev] horizontal and [ysv, yev] vertical, where
+    //   xsv <= clip_x1 & '0'   (= clip_x1 * 2)
+    //   xev <= clip_x2 & '1'   (= clip_x2 * 2 + 1)
+    // and the comparator runs in the 9-bit hcounter domain (hcounter <
+    // 320 visible).  Y coords are direct.
     //
-    // Output width (matches logic further below).
-    const int clip_out_width = mode_80col_ ? render_width : 320;
+    // G104: output is now 640 cells wide regardless of col-mode.
+    const int clip_out_width = 640;
 
     // Y-clip short-circuit — entire scanline outside clip rectangle.
     if (y < clip_y1_ || y > clip_y2_) {
@@ -305,14 +305,26 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
         return;
     }
 
-    // X-clip bounds in 320-pixel domain (integer to avoid 8-bit wrap since
-    // clip_x2_*2+1 can reach 0x13F = 319).
+    // X-clip bounds in the VHDL hcounter (320-grid) domain — int so the
+    // upper bound 0x13F = 319 is safe (no 8-bit wrap).
     const int clip_xlo_320 = static_cast<int>(clip_x1_) * 2;
     const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
 
-    // Shift that maps screen_x to the 320-pixel clip domain.  Hoisted out
-    // of the per-pixel loop — only 80-col render_width=640 needs to halve.
-    const int clip_x_shift = (mode_80col_ && render_width == 640) ? 1 : 0;
+    // Shift that maps screen_x (0..639) into the source-pixel index used
+    // for the clip comparator (which lives in the 320-grid hcounter
+    // domain — VHDL tilemap.vhd:415-424).
+    //
+    // VHDL evidence for col-mode pixel rates (tilemap.vhd:228):
+    //   tm_mode='1' (80-col) — hcount_effsub = hcount(10 downto 1):
+    //     14 MHz pixel rate, 1 source pixel per output cell.  Source
+    //     index == screen_x; clip-grid coord = screen_x >> 1.
+    //   tm_mode='0' (40-col) — hcount_effsub = hcount(10 downto 2):
+    //     7 MHz pixel rate, 1 source pixel per TWO output cells.  Source
+    //     index == screen_x >> 1; clip-grid coord = screen_x >> 1.
+    //
+    // We clip on source-index against the (already 320-grid) clip
+    // bounds — so 80-col halves once, 40-col passes through.
+    const int clip_x_shift = mode_80col_ ? 1 : 0;
 
     const uint8_t transp_idx = palette.tilemap_transparency();
 
@@ -330,9 +342,8 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Number of tiles per row.
     const int tiles_per_row = mode_80col_ ? 80 : 40;
 
-    // 80-col mode is 640x256 (80 tiles × 8 pixels), displayed in 320 physical
-    // pixels. Each screen pixel maps to 2 tilemap pixels; we show the left one
-    // (even column). X scroll wraps at 640 in 80-col, 320 in 40-col.
+    // X scroll wrap: 320 in 40-col (40 tiles × 8 px), 640 in 80-col
+    // (80 tiles × 8 px).
     const int wrap_x = mode_80col_ ? 640 : 320;
 
     // Map memory layout:
@@ -355,37 +366,36 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // Row offset in map memory (tile entries).
     const uint32_t map_row_offset = static_cast<uint32_t>(tile_row) * tiles_per_row;
 
-    // The output framebuffer has 32px left border + 256px display + 32px right border = 320px total.
-    // Tilemap covers the full 320px display width in the framebuffer.
-    // Wait -- looking at the layer2.cpp, it offsets by 32 for 256px content. But tilemap is 320px wide.
-    // Actually the framebuffer is 320 pixels, with indices 0-319. The ULA display area is at
-    // offset 32 (pixels 32-287). But the tilemap covers all 320 pixels (it's a 320px-wide layer).
-    // Let me check the VHDL: pixel_en_s checks hcounter_i < 320 && vcounter_i(8) = '0'.
-    // So tilemap is active for the full 320-pixel display width, overlapping the border area.
+    // G104: framebuffer is now canonical 640 (64 left border + 512 display
+    // + 64 right border).  Tilemap covers the full 640 width — VHDL
+    // tilemap.vhd:424 gates pixel_en_s purely on hcounter_i < 320 and
+    // vcounter_i(8)='0', i.e. tilemap overlays the border area too.
 
-    // Output width: in 80-col mode, render_width=640 gives 1:1 mapping,
-    // render_width=320 downsamples 2:1.  40-col always renders 320px.
-    const int out_width = mode_80col_ ? render_width : 320;
+    // Output width is always 640 — no col-mode branch.
+    const int out_width = 640;
 
     for (int screen_x = 0; screen_x < out_width; ++screen_x) {
-        // Per-pixel X-clip — blank to transparent when screen_x (mapped to
-        // the 320-pixel clip domain via clip_x_shift) falls outside
-        // [clip_x1*2, clip_x2*2+1] (VHDL tilemap.vhd:416-417, 424).
+        // Tile-fetch source-pixel index.
+        //   80-col (VHDL tm_mode='1', 14 MHz tap): native 1:1 — each
+        //     output cell reads its own tilemap pixel (640 unique).
+        //     tilemap_x = screen_x  (range 0..639).
+        //   40-col (VHDL tm_mode='0', 7 MHz tap): each tilemap pixel
+        //     covers two adjacent output cells.  Pairs (2k, 2k+1) read
+        //     the same source.  tilemap_x = screen_x >> 1 (range 0..319).
+        const int tilemap_x = mode_80col_ ? screen_x : (screen_x >> 1);
+
+        // Per-pixel X-clip — blank to transparent when the source-pixel
+        // index (mapped to the 320-grid clip domain via clip_x_shift)
+        // falls outside [clip_x1*2, clip_x2*2+1].  Because clip_x_shift
+        // also collapses the 80-col 14 MHz pacing into the same 320-grid
+        // hcounter coord, both modes share one comparator.  VHDL
+        // tilemap.vhd:415-424.
         const int pixel_x_320 = screen_x >> clip_x_shift;
         if (pixel_x_320 < clip_xlo_320 || pixel_x_320 > clip_xhi_320) {
             dst[screen_x] = 0u;  // transparent — skip rest of per-pixel work
             continue;
         }
 
-        // In 80-col mode with render_width=640: 1:1 mapping (no downsampling).
-        // In 80-col mode with render_width=320: 2:1 downsampling (show left pixel).
-        // In 40-col mode: direct 1:1 mapping at 320px.
-        int tilemap_x;
-        if (mode_80col_) {
-            tilemap_x = (render_width == 640) ? screen_x : (screen_x * 2);
-        } else {
-            tilemap_x = screen_x;
-        }
         int abs_x = (tilemap_x + line_scroll_x) % wrap_x;
 
         // Tile column and pixel within tile (always 8 pixels per tile).

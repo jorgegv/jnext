@@ -158,31 +158,38 @@ public:
 
     /// Render one scanline of tilemap into an ARGB8888 buffer.
     ///
-    /// @param dst            Output buffer (render_width pixels wide).
-    /// @param ula_over_flags Per-pixel ULA priority flags (render_width entries).
+    /// Always renders 640 pixels into `dst`.
+    ///   - 80-col mode: native 1:1 (each tilemap pixel maps to one output cell).
+    ///   - 40-col mode: each source column is pixel-doubled — every tilemap
+    ///     pixel is emitted into two adjacent output cells (`dst[2k]` and
+    ///     `dst[2k+1]`).
+    /// VHDL tilemap.vhd:228 confirms the rate: tm_mode=1 selects the 14 MHz
+    /// tap (hcount(10:1)) → 640 pixels per scanline, tm_mode=0 selects the
+    /// 7 MHz tap (hcount(10:2)) → 320 source pixels each emitted as two
+    /// 14 MHz cells.  G104 (HI_RES 512px canonical framebuffer).
+    ///
+    /// @param dst            Output buffer (640 pixels wide).
+    /// @param ula_over_flags Per-pixel ULA priority flags (640 entries).
     /// @param y              Display row (0-255 within the active display area).
     /// @param ram            Physical RAM for direct access.
     /// @param palette        Palette manager for tilemap colour lookup.
-    /// @param render_width   Output width: 320 or 640. When 640 and 80-col,
-    ///                       renders at native 640px resolution (1:1 mapping).
-    /// @param textmode_flags Optional per-pixel textmode flag buffer
-    ///                       (render_width entries). When non-null, set to true
-    ///                       for any pixel emitted while the tilemap is in
-    ///                       text-mode (NR 0x6B bit 3 / VHDL tilemap.vhd:62,443
+    /// @param textmode_flags Optional per-pixel textmode flag buffer (640
+    ///                       entries). When non-null, set to true for any
+    ///                       pixel emitted while the tilemap is in text-mode
+    ///                       (NR 0x6B bit 3 / VHDL tilemap.vhd:62,443
     ///                       pixel_textmode_o); false otherwise. Required by
     ///                       the compositor for VHDL zxnext.vhd:7109
     ///                       text-mode RGB transparency check (G98/G101).
     void render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                          const Ram& ram,
                          const PaletteManager& palette,
-                         int render_width = 320,
                          bool* textmode_flags = nullptr) const;
 
     /// Render one scanline regardless of enabled_ state. Used by the debugger.
+    /// Always emits 640 pixels — same emit semantics as render_scanline.
     void render_scanline_debug(uint32_t* dst, bool* ula_over_flags, int y,
                                const Ram& ram,
                                const PaletteManager& palette,
-                               int render_width = 320,
                                bool* textmode_flags = nullptr);
 
     void save_state(class StateWriter& w) const;
