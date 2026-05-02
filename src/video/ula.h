@@ -610,13 +610,28 @@ public:
     /// Render a single scanline (row 0..FB_HEIGHT-1) into a FB_WIDTH-pixel
     /// buffer (640 cells under G104).  Used by the compositor for per-scanline
     /// rendering.
-    void render_scanline(uint32_t* dst, int row, Mmu& mmu);
+    ///
+    /// @param dst         Output ARGB buffer of FB_WIDTH (640) pixels.
+    /// @param row         Scanline index 0..FB_HEIGHT-1.
+    /// @param mmu         MMU for VRAM access.
+    /// @param border_dst  Optional per-pixel border flag buffer (FB_WIDTH
+    ///                    bools). When non-null, every cell painted with
+    ///                    the border colour gets `true`; display-area cells
+    ///                    are left untouched (caller must pre-fill `false`).
+    ///                    Mirrors VHDL `ula_border_2` (zxnext.vhd:7256/7266
+    ///                    /7278) sourced from `border_active` (zxula.vhd:415,
+    ///                    exposed as `o_ula_border` at zxula.vhd:567).
+    ///                    Default nullptr — non-compositor callers (debugger
+    ///                    video panel, subsystem tests) don't need it.
+    void render_scanline(uint32_t* dst, int row, Mmu& mmu,
+                         bool* border_dst = nullptr);
 
     /// Render a single scanline from the 128K shadow screen (bank 7, page 14).
     /// Bank 7 uses the same ZX pixel/attribute layout as bank 5 but lives in
     /// physical pages 14-15.  The FPGA implements it as 8K BRAM (enough for
     /// the ~7KB screen data).  Selected by port 0x7FFD bit 3.
     /// Used by the debugger video panel; does NOT affect live rendering state.
+    /// Border-flag plumbing is unused for the debugger view (always nullptr).
     void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu);
 
     /// Advance flash state (call once per frame after all scanlines rendered).
@@ -718,10 +733,15 @@ private:
     /// @param attr_base_row  Base address of attribute row: 0x5800+(row/8)*32
     ///                       or 0x7800+(row/8)*32 for alternate screen.
     /// @param mmu         MMU for VRAM access.
+    /// @param border_dst  Optional per-pixel border-flag buffer (FB_WIDTH
+    ///                    bools). When non-null, the left/right border
+    ///                    strips set the corresponding cells to `true`;
+    ///                    display-area cells are left untouched.
     void render_display_line(uint32_t* row, int screen_row,
                              uint16_t pixel_base_offset,
                              uint16_t attr_row_base,
-                             Mmu& mmu);
+                             Mmu& mmu,
+                             bool* border_dst = nullptr);
 
     /// Render a display row in HI_COLOUR mode.
     /// Pixel data from primary screen (0x4000), per-row-column attribute from
@@ -730,7 +750,9 @@ private:
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
     /// @param screen_row  ZX screen row [0, 191].
     /// @param mmu         MMU for VRAM access.
-    void render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu);
+    /// @param border_dst  Optional border-flag buffer; see render_display_line.
+    void render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
+                                      bool* border_dst = nullptr);
 
     /// Render a display row in HI_RES mode.
     ///
@@ -752,11 +774,16 @@ private:
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
     /// @param screen_row  ZX screen row [0, 191].
     /// @param mmu         MMU for VRAM access.
-    void render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu);
+    /// @param border_dst  Optional border-flag buffer; see render_display_line.
+    void render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
+                                   bool* border_dst = nullptr);
 
     /// Fill an entire output row with the border colour (FB_WIDTH = 640 cells).
-    /// @param row  Pointer to the start of the output row (FB_WIDTH pixels).
-    void render_border_line(uint32_t* row);
+    /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
+    /// @param border_dst  Optional border-flag buffer (FB_WIDTH bools); when
+    ///                    non-null, every cell is marked `true` (top/bottom
+    ///                    border rows are entirely border).
+    void render_border_line(uint32_t* row, bool* border_dst = nullptr);
 
     /// Look up a ULA colour by 8-bit `ula_pixel` (the encoder output)
     /// in the active ULA palette bank (NR 0x43 b1).  Uses PaletteManager

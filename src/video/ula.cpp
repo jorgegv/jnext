@@ -422,7 +422,7 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 // render_scanline — render a single row for the compositor
 // ---------------------------------------------------------------------------
 
-void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
+void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
 {
     // Temporarily use the per-line border colour for rendering, but restore
     // the live border_colour_ afterwards so init_border_per_line() at the
@@ -440,25 +440,28 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu)
                 const uint16_t poff     = pixel_addr_offset(screen_row, 0);
                 const uint16_t attr_row = static_cast<uint16_t>(
                     0x5800u + (screen_row / 8) * 32);
-                render_display_line(dst, screen_row, poff, attr_row, mmu);
+                render_display_line(dst, screen_row, poff, attr_row, mmu,
+                                    border_dst);
                 break;
             }
             case TimexScreenMode::STANDARD_1: {
                 const uint16_t poff     = pixel_addr_offset(screen_row, 0);
                 const uint16_t attr_row = static_cast<uint16_t>(
                     0x7800u + (screen_row / 8) * 32);
-                render_display_line(dst, screen_row, poff, attr_row, mmu);
+                render_display_line(dst, screen_row, poff, attr_row, mmu,
+                                    border_dst);
                 break;
             }
             case TimexScreenMode::HI_COLOUR:
-                render_display_line_hicolour(dst, screen_row, mmu);
+                render_display_line_hicolour(dst, screen_row, mmu, border_dst);
                 break;
             case TimexScreenMode::HI_RES:
-                render_display_line_hires(dst, screen_row, mmu);
+                render_display_line_hires(dst, screen_row, mmu, border_dst);
                 break;
         }
     } else {
-        render_border_line(dst);
+        // Top or bottom border row — every cell is border.
+        render_border_line(dst, border_dst);
     }
 
     border_colour_ = saved_border;
@@ -601,7 +604,8 @@ Ula::UlaNextPixel Ula::compute_ulanext_pixel(bool pixel_en, bool border,
 void Ula::render_display_line(uint32_t* row, int screen_row,
                                uint16_t pixel_base_offset,
                                uint16_t attr_row_base,
-                               Mmu& mmu)
+                               Mmu& mmu,
+                               bool* border_dst)
 {
     // Apply the ULA Y-scroll fold per zxula.vhd:192-207. With scroll_y==0
     // this returns screen_row unchanged so the default no-scroll case is
@@ -630,8 +634,13 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     const uint8_t border_attr  = static_cast<uint8_t>(
         ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
     const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
-    for (int x = 0; x < DISP_X; ++x)
+    for (int x = 0; x < DISP_X; ++x) {
         row[x] = border_argb;
+        // VHDL zxula.vhd:415 — border_active_v is asserted at every left-
+        // border column; ula_border_2 (zxnext.vhd:7256/7266/7278) inherits
+        // it via the o_ula_border output (zxula.vhd:567).
+        if (border_dst) border_dst[x] = true;
+    }
 
     // X-scroll fold per zxula.vhd:199: source pixel for display pixel X is
     //   src_x = (X + scroll_x + fine_scroll_x) mod 256.
@@ -795,8 +804,11 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 
     // Fill right border pixels (FB_WIDTH - DISP_X - DISP_W = 64 pixels under G104).
     uint32_t* right = row + DISP_X + DISP_W;
-    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
+    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x) {
         right[x] = border_argb;
+        // VHDL zxula.vhd:415 — border_active asserted on the right strip too.
+        if (border_dst) border_dst[DISP_X + DISP_W + x] = true;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -822,7 +834,8 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
 // Flash and bright are derived from the attribute byte exactly as in standard
 // mode.
 
-void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
+void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu,
+                                       bool* border_dst)
 {
     const uint16_t poff = pixel_addr_offset(screen_row, 0);
     // Wave D (S5.04) — VHDL zxula.vhd:218/235 shows the pixel vram_a uses
@@ -842,8 +855,10 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
     const uint8_t border_attr_hc  = static_cast<uint8_t>(
         ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
     const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr_hc));
-    for (int x = 0; x < DISP_X; ++x)
+    for (int x = 0; x < DISP_X; ++x) {
         row[x] = border_argb;
+        if (border_dst) border_dst[x] = true;
+    }
 
     // G103 — HI_COLOUR mode also goes through the ULA+ encoder when
     // ulap_en_ is set; sm2=false here because HI_COLOUR is mode 010 and
@@ -906,8 +921,10 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 
     // Fill right border (FB_WIDTH - DISP_X - DISP_W = 64 cells under G104).
     uint32_t* right = row + DISP_X + DISP_W;
-    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
+    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x) {
         right[x] = border_argb;
+        if (border_dst) border_dst[DISP_X + DISP_W + x] = true;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -952,7 +969,8 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 // user-controllable).  The previous derivation read port_ff(2:0) as ink and
 // port_ff(5:3) as paper independently — that contradicts VHDL.
 
-void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
+void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
+                                    bool* border_dst)
 {
     // VHDL zxula.vhd:419 + 426-427: in HI_RES mode (shift_screen_mode(2)='1')
     // the whole attr_reg is loaded with border_clr_tmx, where
@@ -990,8 +1008,10 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
     const uint16_t screen1_base = static_cast<uint16_t>(0x6000u | poff);
 
     // Fill left border (DISP_X = 64 cells under G104).
-    for (int x = 0; x < DISP_X; ++x)
+    for (int x = 0; x < DISP_X; ++x) {
         row[x] = border_argb;
+        if (border_dst) border_dst[x] = true;
+    }
 
     // VHDL-faithful native 512 px: per column, emit 8 screen-0 pixels first
     // (MSB..LSB) then 8 screen-1 pixels (MSB..LSB).  Each column contributes
@@ -1012,15 +1032,17 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 
     // Fill right border (FB_WIDTH - DISP_X - DISP_W = 64 cells under G104).
     uint32_t* right = row + DISP_X + DISP_W;
-    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
+    for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x) {
         right[x] = border_argb;
+        if (border_dst) border_dst[DISP_X + DISP_W + x] = true;
+    }
 }
 
 // ---------------------------------------------------------------------------
 // render_border_line
 // ---------------------------------------------------------------------------
 
-void Ula::render_border_line(uint32_t* row)
+void Ula::render_border_line(uint32_t* row, bool* border_dst)
 {
     // Border routing per VHDL zxula.vhd:419, :443-448:
     //   - In HI_RES (or border_clr_tmx_src_ explicit), attr_reg is loaded
@@ -1045,8 +1067,13 @@ void Ula::render_border_line(uint32_t* row)
         const uint8_t border_attr = static_cast<uint8_t>(
             ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
         const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
-        for (int x = 0; x < FB_WIDTH; ++x)
+        for (int x = 0; x < FB_WIDTH; ++x) {
             row[x] = border_argb;
+            // VHDL zxula.vhd:415 — border_active_v is forced high on every
+            // top/bottom border row (vc(8) OR (vc(7) AND vc(6))), so
+            // every horizontal cell asserts ula_border_2.
+            if (border_dst) border_dst[x] = true;
+        }
         return;
     }
 
@@ -1084,8 +1111,12 @@ void Ula::render_border_line(uint32_t* row)
         border_argb = lookup_colour(std_ula_paper_pixel(btmx));
     }
 
-    for (int x = 0; x < FB_WIDTH; ++x)
+    for (int x = 0; x < FB_WIDTH; ++x) {
         row[x] = border_argb;
+        // HI_RES / TMX border path — every cell of a top/bottom border row
+        // is border_active (zxula.vhd:415).
+        if (border_dst) border_dst[x] = true;
+    }
 }
 
 // ---------------------------------------------------------------------------
