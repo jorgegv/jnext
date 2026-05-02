@@ -177,7 +177,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             sprites->render_scanline(sprite_line_.data(), row, palette);
         }
 
-        // Render ULA scanline (always 320px).
+        // Render ULA scanline (G104 Phase 2: native 640 emit).
         const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
         ula_.render_scanline(ula_line_.data(), row, mmu);
         // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
@@ -193,21 +193,14 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // for rows that follow the toggle. Matches the per-line fallback
         // snapshot handling already used for NR 0x4A.
         if (!ula_enabled_per_line_[row]) {
-            // Phase 1: zero the 320-grid populated half; doubling below
-            // will mirror this state into the upper half.
-            std::fill_n(ula_line_.begin(), kLegacyLayerWidth, TRANSPARENT);
+            // G104 Phase 2: ULA emits native 640, zero the full line.
+            std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
         }
 
         // ULA clip window (NextREG 0x1A).
-        // PHASE 1 SCAFFOLD: clip math runs at 320-grid because ULA still
-        // emits 320-wide; the unconditional doubling pass below then
-        // expands ula_line_ [0..319] into [0..639]. Phase 2 widens the
-        // ULA renderer to 640 and these locals collapse to Renderer::DISP_*.
+        // G104 Phase 2: clip math runs at canonical 640 grid (DISP_X=64,
+        // DISP_W=512, FB_WIDTH=640) since ULA now emits native 640.
         {
-            static constexpr int kLegacyDispX = 32;   // Ula::DISP_X (Phase-1)
-            static constexpr int kLegacyDispW = 256;  // Ula::DISP_W (Phase-1)
-            static constexpr int kLegacyFbW   = kLegacyLayerWidth;
-
             uint8_t cx1 = ula_.clip_x1();
             uint8_t cx2 = ula_.clip_x2();
             uint8_t cy1 = ula_.clip_y1();
@@ -220,7 +213,7 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             bool in_border_y = !row_in_display;
 
             if (y_clipped) {
-                for (int x = kLegacyDispX; x < kLegacyDispX + kLegacyDispW; ++x)
+                for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
                     ula_line_[x] = TRANSPARENT;
             }
 
@@ -232,37 +225,42 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                     clip_border_row = true;
                 }
                 if (clip_border_row) {
-                    std::fill_n(ula_line_.begin(), kLegacyFbW, TRANSPARENT);
+                    std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
                 }
             }
 
             if (row_in_display && !y_clipped) {
-                for (int x = 0; x < kLegacyDispW; ++x) {
-                    if (x < cx1 || x > cx2)
-                        ula_line_[kLegacyDispX + x] = TRANSPARENT;
+                // NR 0x1A clip-x range is in 256-pixel display-coordinate
+                // space (zxnext.vhd:6779-6783); under G104 native-512
+                // each source clip-coord covers two adjacent framebuffer
+                // cells (the same VHDL-faithful pixel doubling the ULA
+                // renderer does — zxula.vhd:390-393).
+                for (int x = 0; x < DISP_W; ++x) {
+                    const int src_x = x / 2;
+                    if (src_x < cx1 || src_x > cx2)
+                        ula_line_[DISP_X + x] = TRANSPARENT;
                 }
                 bool left_clipped  = (cx1 > 0);
-                bool right_clipped = (cx2 < (kLegacyDispW - 1)) || (cx1 > cx2);
+                bool right_clipped = (cx2 < 255) || (cx1 > cx2);
                 if (left_clipped) {
-                    for (int x = 0; x < kLegacyDispX; ++x)
+                    for (int x = 0; x < DISP_X; ++x)
                         ula_line_[x] = TRANSPARENT;
                 }
                 if (right_clipped) {
-                    for (int x = kLegacyDispX + kLegacyDispW; x < kLegacyFbW; ++x)
+                    for (int x = DISP_X + DISP_W; x < FB_WIDTH; ++x)
                         ula_line_[x] = TRANSPARENT;
                 }
             }
         }
 
         // PHASE 1 SCAFFOLD (G104): unconditional pixel-doubling pass.
-        // Each layer fills [0..319] at 320-grid; this expands every cell
-        // into two adjacent cells in [0..639] (right-to-left to avoid
-        // self-overwrite). Phases 2-5 land each layer at native 640;
-        // Phase 6 deletes this entire block.
+        // Each (remaining) layer fills [0..319] at 320-grid; this expands
+        // every cell into two adjacent cells in [0..639] (right-to-left to
+        // avoid self-overwrite). Phase 2 (G104): ULA + ula_border_ now
+        // 640-native — removed from doubling. Phases 3/4/5 own their own
+        // layer's removal; Phase 6 deletes the rest of this block.
         {
             for (int x = kLegacyLayerWidth - 1; x >= 0; --x) {
-                ula_line_[x * 2 + 1]    = ula_line_[x];
-                ula_line_[x * 2]        = ula_line_[x];
                 layer2_line_[x * 2 + 1] = layer2_line_[x];
                 layer2_line_[x * 2]     = layer2_line_[x];
                 sprite_line_[x * 2 + 1] = sprite_line_[x];
@@ -275,8 +273,6 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
                 layer2_priority_[x * 2 + 1] = layer2_priority_[x];
                 layer2_priority_[x * 2]     = layer2_priority_[x];
-                ula_border_[x * 2 + 1] = ula_border_[x];
-                ula_border_[x * 2]     = ula_border_[x];
             }
         }
 
