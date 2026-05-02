@@ -1879,27 +1879,30 @@ static void test_group11_priority_propagation() {
         std::fill_n(prio, BUF_WIDTH, true);
 
         l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal,
-                           /*render_width*/ 320,
                            /*rom_in_sram*/ false,
                            /*priority_dst*/ prio);
 
-        // Pixels (0,0), (1,0), (2,0) emit at framebuffer columns
-        // DISP_X_NARROW + 0, +1, +2 respectively (narrow mode offset).
+        // G104 Phase 3: each 256-mode source pixel writes 2 framebuffer cells
+        // (pixel-doubled). Source pixel x lives at DISP_X_NARROW + 2*x AND
+        // DISP_X_NARROW + 2*x + 1 — both should reflect the same priority.
         check("G11-01a",
-              "narrow: priority bit on (idx K) propagates to priority_dst",
-              prio[DISP_X_NARROW + 0] == true,
-              DETAIL("prio[%d]=%d", DISP_X_NARROW + 0,
-                     int(prio[DISP_X_NARROW + 0])));
-        check("G11-01b",
-              "narrow: priority bit off (idx K+1) overwrites priority_dst false",
-              prio[DISP_X_NARROW + 1] == false,
-              DETAIL("prio[%d]=%d", DISP_X_NARROW + 1,
+              "narrow: priority bit on (idx K) propagates to priority_dst (doubled)",
+              prio[DISP_X_NARROW + 0] == true && prio[DISP_X_NARROW + 1] == true,
+              DETAIL("prio[%d]=%d prio[%d]=%d", DISP_X_NARROW + 0,
+                     int(prio[DISP_X_NARROW + 0]), DISP_X_NARROW + 1,
                      int(prio[DISP_X_NARROW + 1])));
+        check("G11-01b",
+              "narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled)",
+              prio[DISP_X_NARROW + 2] == false && prio[DISP_X_NARROW + 3] == false,
+              DETAIL("prio[%d]=%d prio[%d]=%d", DISP_X_NARROW + 2,
+                     int(prio[DISP_X_NARROW + 2]), DISP_X_NARROW + 3,
+                     int(prio[DISP_X_NARROW + 3])));
         check("G11-01c",
-              "narrow: priority bit on (idx K+2) propagates to priority_dst",
-              prio[DISP_X_NARROW + 2] == true,
-              DETAIL("prio[%d]=%d", DISP_X_NARROW + 2,
-                     int(prio[DISP_X_NARROW + 2])));
+              "narrow: priority bit on (idx K+2) propagates to priority_dst (doubled)",
+              prio[DISP_X_NARROW + 4] == true && prio[DISP_X_NARROW + 5] == true,
+              DETAIL("prio[%d]=%d prio[%d]=%d", DISP_X_NARROW + 4,
+                     int(prio[DISP_X_NARROW + 4]), DISP_X_NARROW + 5,
+                     int(prio[DISP_X_NARROW + 5])));
     }
 
     // ---------- G11-02: narrow transparent pixels leave priority untouched ----------
@@ -1935,7 +1938,7 @@ static void test_group11_priority_propagation() {
         // priority bit anyway, this assertion catches it.
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, 320, false, prio);
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, false, prio);
 
         check("G11-02b",
               "narrow: transparent L2 pixel leaves priority_dst untouched",
@@ -1967,16 +1970,17 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal, 320, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
 
+        // G104 Phase 3: 320-mode pixel-doubles → source pixel x at cells [2x, 2x+1].
         check("G11-03a",
-              "wide: priority bit on (idx K) propagates at col 0",
-              prio[0] == true,
-              DETAIL("prio[0]=%d", int(prio[0])));
+              "wide: priority bit on (idx K) propagates at cols 0..1 (doubled)",
+              prio[0] == true && prio[1] == true,
+              DETAIL("prio[0]=%d prio[1]=%d", int(prio[0]), int(prio[1])));
         check("G11-03b",
-              "wide: priority bit off (idx K+1) overwrites false at col 1",
-              prio[1] == false,
-              DETAIL("prio[1]=%d", int(prio[1])));
+              "wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled)",
+              prio[2] == false && prio[3] == false,
+              DETAIL("prio[2]=%d prio[3]=%d", int(prio[2]), int(prio[3])));
     }
 
     // ---------- G11-04: 640x256 native (res-2) propagates to BOTH cells ----------
@@ -2007,8 +2011,7 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal,
-                           /*render_width*/ 640, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
 
         check("G11-04a",
               "640px: left nibble (idx 0x01) writes priority TRUE at col*2",
@@ -2045,8 +2048,7 @@ static void test_group11_priority_propagation() {
         memset(buf, 0, sizeof(buf));
         std::fill_n(prio, BUF_WIDTH, true);
 
-        l2.render_scanline(buf, /*row*/ 0, ram, pal,
-                           /*render_width*/ 320, false, prio);
+        l2.render_scanline(buf, /*row*/ 0, ram, pal, false, prio);
 
         check("G11-05a",
               "640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0",
@@ -2075,7 +2077,7 @@ static void test_group11_priority_propagation() {
         // Pass nullptr explicitly. The fact this returns is the assertion;
         // the colour buffer is also checked to confirm rendering still
         // worked.
-        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, 320, false,
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, false,
                            /*priority_dst*/ nullptr);
         check("G11-06",
               "nullptr priority_dst: render still emits colour, no crash",
