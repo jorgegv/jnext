@@ -342,8 +342,8 @@ static void test_section3_border_colour() {
         bed.poke(0x5800, 0x07);
         bed.ula.set_border(2);  // any non-zero border colour
 
-        std::array<uint32_t, 320> line{};
-        std::array<bool, 320>    flags{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        std::array<bool, Ula::FB_WIDTH>    flags{};
         std::fill(flags.begin(), flags.end(), false);
 
         bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu, flags.data());
@@ -373,8 +373,8 @@ static void test_section3_border_colour() {
         UlaBed bed;
         bed.ula.set_border(4);
 
-        std::array<uint32_t, 320> line{};
-        std::array<bool, 320>    flags{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        std::array<bool, Ula::FB_WIDTH>    flags{};
         std::fill(flags.begin(), flags.end(), false);
 
         bed.ula.render_scanline(line.data(), 0, bed.mmu, flags.data());
@@ -398,8 +398,8 @@ static void test_section3_border_colour() {
         UlaBed bed;
         bed.ula.set_border(6);
 
-        std::array<uint32_t, 320> line{};
-        std::array<bool, 320>    flags{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        std::array<bool, Ula::FB_WIDTH>    flags{};
         std::fill(flags.begin(), flags.end(), false);
 
         bed.ula.render_scanline(line.data(), Ula::DISP_Y + Ula::DISP_H,
@@ -427,8 +427,8 @@ static void test_section3_border_colour() {
         bed.poke(0x5800, 0x47);
         bed.ula.set_border(3);
 
-        std::array<uint32_t, 320> line_null{}, line_with{};
-        std::array<bool,    320>  flags{};
+        std::array<uint32_t, Ula::FB_WIDTH> line_null{}, line_with{};
+        std::array<bool, Ula::FB_WIDTH>     flags{};
         std::fill(flags.begin(), flags.end(), false);
 
         bed.ula.render_scanline(line_null.data(), Ula::DISP_Y, bed.mmu);
@@ -452,8 +452,8 @@ static void test_section3_border_colour() {
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x47);
         bed.ula.set_border(1);
 
-        std::array<uint32_t, 320> line{};
-        std::array<bool, 320>     flags{};
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        std::array<bool, Ula::FB_WIDTH>     flags{};
         std::fill(flags.begin(), flags.end(), false);
 
         bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu, flags.data());
