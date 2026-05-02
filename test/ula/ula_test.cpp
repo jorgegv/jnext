@@ -317,6 +317,166 @@ static void test_section3_border_colour() {
     // S3.08 — border_active boundaries (zxula.vhd:414-415: border_active_v
     // = vc(8) OR (vc(7) AND vc(6))) not exposed on Ula.
     // G: border_active_v raw-vc boundary (zxula.vhd:414-415) has no Ula accessor; compositor-level.
+
+    // -----------------------------------------------------------------
+    // border_dst per-pixel flag plumbing (G179 issue 4).
+    //
+    // VHDL zxula.vhd:415 (border_active <= i_phc(8) or border_active_v)
+    //   :567 (o_ula_border <= border_active) drives the FPGA's
+    //   ula_border signal; zxnext.vhd:7256/7266/7278 mode 011/100/101
+    //   gate the ULA-vs-sprite border exception on `ula_border_2='1'`.
+    //   jnext's Renderer::ula_border_[] is the per-pixel materialization,
+    //   filled by the Ula renderer per row.  The contract: every cell in
+    //   [0, FB_WIDTH) must either be set true (border) or stay at the
+    //   caller-managed pre-fill false (display).
+    // -----------------------------------------------------------------
+
+    // S3.09 — display row: left strip [0..31] = border, display [32..287]
+    // = NOT border, right strip [288..319] = border.
+    {
+        UlaBed bed;
+        // Drive a display-area row (screen_row=0 → fb_row=DISP_Y=32).
+        // Pixel and attr pokes ensure render_display_line takes a
+        // non-trivial display-area path, but we only assert on flags.
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xAA);
+        bed.poke(0x5800, 0x07);
+        bed.ula.set_border(2);  // any non-zero border colour
+
+        std::array<uint32_t, 320> line{};
+        std::array<bool, 320>    flags{};
+        std::fill(flags.begin(), flags.end(), false);
+
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu, flags.data());
+
+        bool left_ok    = true;
+        bool display_ok = true;
+        bool right_ok   = true;
+        for (int x = 0; x < Ula::DISP_X; ++x)
+            if (!flags[x]) { left_ok = false; break; }
+        for (int x = Ula::DISP_X; x < Ula::DISP_X + Ula::DISP_W; ++x)
+            if (flags[x])  { display_ok = false; break; }
+        for (int x = Ula::DISP_X + Ula::DISP_W; x < Ula::FB_WIDTH; ++x)
+            if (!flags[x]) { right_ok = false; break; }
+
+        check("S3.09",
+              "zxula.vhd:415,:567 — display row: border_dst true on "
+              "[0..31] + [288..319], false on display [32..287]",
+              left_ok && display_ok && right_ok,
+              fmt("left=%d display=%d right=%d  (true=ok)",
+                  static_cast<int>(left_ok),
+                  static_cast<int>(display_ok),
+                  static_cast<int>(right_ok)));
+    }
+
+    // S3.10 — top-border row (fb_row=0): every cell border_dst==true.
+    {
+        UlaBed bed;
+        bed.ula.set_border(4);
+
+        std::array<uint32_t, 320> line{};
+        std::array<bool, 320>    flags{};
+        std::fill(flags.begin(), flags.end(), false);
+
+        bed.ula.render_scanline(line.data(), 0, bed.mmu, flags.data());
+
+        bool all_border = true;
+        int  first_bad  = -1;
+        for (int x = 0; x < Ula::FB_WIDTH; ++x) {
+            if (!flags[x]) { all_border = false; first_bad = x; break; }
+        }
+        check("S3.10",
+              "zxula.vhd:414-415,:567 — top-border row: border_dst true "
+              "on every cell [0..319]",
+              all_border,
+              fmt("first non-border cell idx=%d", first_bad));
+    }
+
+    // S3.11 — bottom-border row (fb_row=DISP_Y+DISP_H = 224): every cell
+    // border_dst==true (mirrors top-border row; vc(7) AND vc(6) asserts
+    // border_active_v at zxula.vhd:414).
+    {
+        UlaBed bed;
+        bed.ula.set_border(6);
+
+        std::array<uint32_t, 320> line{};
+        std::array<bool, 320>    flags{};
+        std::fill(flags.begin(), flags.end(), false);
+
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y + Ula::DISP_H,
+                                bed.mmu, flags.data());
+
+        bool all_border = true;
+        int  first_bad  = -1;
+        for (int x = 0; x < Ula::FB_WIDTH; ++x) {
+            if (!flags[x]) { all_border = false; first_bad = x; break; }
+        }
+        check("S3.11",
+              "zxula.vhd:414-415,:567 — bottom-border row: border_dst "
+              "true on every cell [0..319]",
+              all_border,
+              fmt("first non-border cell idx=%d", first_bad));
+    }
+
+    // S3.12 — render_scanline with border_dst=nullptr is a no-op on the
+    // flag side (back-compat default arg).  Just exercise the path to
+    // confirm no crash and pixel output is unchanged when nullptr is
+    // passed vs. when a buffer is passed (compare ARGB row).
+    {
+        UlaBed bed;
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0x55);
+        bed.poke(0x5800, 0x47);
+        bed.ula.set_border(3);
+
+        std::array<uint32_t, 320> line_null{}, line_with{};
+        std::array<bool,    320>  flags{};
+        std::fill(flags.begin(), flags.end(), false);
+
+        bed.ula.render_scanline(line_null.data(), Ula::DISP_Y, bed.mmu);
+        bed.ula.render_scanline(line_with.data(), Ula::DISP_Y, bed.mmu,
+                                flags.data());
+
+        check("S3.12",
+              "zxula.vhd:415 — border_dst=nullptr default arg is back-"
+              "compat: identical ARGB output and no flag side-effects",
+              line_null == line_with,
+              "ARGB rows should match between nullptr and buffered call");
+    }
+
+    // S3.13 — display row in HI_COLOUR mode (bits 5:3=010, port 0xFF=0x10):
+    // verify the border_dst contract still holds when the alternate
+    // renderer path is taken.
+    {
+        UlaBed bed;
+        bed.ula.set_screen_mode(0x10);                 // HI_COLOUR
+        bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
+        bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x47);
+        bed.ula.set_border(1);
+
+        std::array<uint32_t, 320> line{};
+        std::array<bool, 320>     flags{};
+        std::fill(flags.begin(), flags.end(), false);
+
+        bed.ula.render_scanline(line.data(), Ula::DISP_Y, bed.mmu, flags.data());
+
+        bool left_ok    = true;
+        bool display_ok = true;
+        bool right_ok   = true;
+        for (int x = 0; x < Ula::DISP_X; ++x)
+            if (!flags[x]) { left_ok = false; break; }
+        for (int x = Ula::DISP_X; x < Ula::DISP_X + Ula::DISP_W; ++x)
+            if (flags[x])  { display_ok = false; break; }
+        for (int x = Ula::DISP_X + Ula::DISP_W; x < Ula::FB_WIDTH; ++x)
+            if (!flags[x]) { right_ok = false; break; }
+
+        check("S3.13",
+              "zxula.vhd:415 — HI_COLOUR display row: border_dst true on "
+              "left+right strips, false on display area",
+              left_ok && display_ok && right_ok,
+              fmt("left=%d display=%d right=%d",
+                  static_cast<int>(left_ok),
+                  static_cast<int>(display_ok),
+                  static_cast<int>(right_ok)));
+    }
 }
 
 // =========================================================================
