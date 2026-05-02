@@ -35,12 +35,16 @@ bool save_screenshot_png(const std::string& path,
     }
 
     png_init_io(png, fp);
-    png_set_IHDR(png, info, width, height, 8,
+    // PNG file dimensions: width × (height * 2). The input framebuffer is
+    // 640×256; the PNG is 640×512 — each in-memory row written twice for
+    // square-pixel CRT-faithful 4:3 geometry (G104 Phase 7).
+    png_set_IHDR(png, info, width, height * 2, 8,
                  PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
 
-    // Convert ARGB8888 to RGB888 row by row.
+    // Convert ARGB8888 to RGB888 row by row, emitting each row twice
+    // (vertical 2× doubling at PNG-export time).
     std::vector<uint8_t> row(width * 3);
     for (int y = 0; y < height; ++y) {
         const uint32_t* src = framebuffer + y * width;
@@ -50,6 +54,8 @@ bool save_screenshot_png(const std::string& path,
             row[x * 3 + 1] = (pixel >>  8) & 0xFF;  // G
             row[x * 3 + 2] = (pixel >>  0) & 0xFF;  // B
         }
+        // Each input row contributes two consecutive output rows.
+        png_write_row(png, row.data());
         png_write_row(png, row.data());
     }
 
