@@ -495,6 +495,8 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // 640x256 @ 4bpp (column-major: addr = x * 256 + y, 2 px/byte)
         // ---------------------------------------------------------------
         // resolution_ == 2 or 3 both select this mode (VHDL: resolution(1)='1').
+        // G104 Phase 3: native 640-emit only; the legacy 320 downsampled
+        // fallback branch is gone.
         if (row < 0 || row >= 256)
             return;
 
@@ -504,15 +506,18 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
 
         uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
 
+        // Wide-mode clip (layer2.vhd:133-134): 9-bit, 0..511 grid.
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
 
-        // Each memory address holds 2 horizontal pixels (left=high nibble, right=low nibble).
-        // When render_width=640, output both pixels; when 320, output only the left pixel.
+        // Each memory address holds 2 horizontal pixels (left = high
+        // nibble, right = low nibble). Iterate 320 bytes; emit two
+        // adjacent destination cells per byte for the canonical 640.
         for (int col = 0; col < 320; ++col) {
             // Clip X on DESTINATION column (pre-scroll), per VHDL
-            // layer2.vhd:167. Compare column index directly against
-            // the doubled clip register; do NOT divide.
+            // layer2.vhd:167. Compare column byte-index directly
+            // against the doubled clip register (preserved from the
+            // pre-G104 semantics); do NOT divide.
             if (col < clip_x1_eff || col > clip_x2_eff)
                 continue;
 
@@ -526,21 +531,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // High nibble = left pixel.
             uint8_t left_nib = (byte >> 4) & 0x0F;
             uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
+            if (palette.layer2_rgb8(left_idx) != transp_rgb)
+                dst[col * 2] = palette.layer2_colour(left_idx);
 
-            if (render_width == 640) {
-                // Native 640px: output both pixels.
-                if (palette.layer2_rgb8(left_idx) != transp_rgb)
-                    dst[col * 2] = palette.layer2_colour(left_idx);
-
-                uint8_t right_nib = byte & 0x0F;
-                uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
-                if (palette.layer2_rgb8(right_idx) != transp_rgb)
-                    dst[col * 2 + 1] = palette.layer2_colour(right_idx);
-            } else {
-                // 320px: only the left pixel.
-                if (palette.layer2_rgb8(left_idx) != transp_rgb)
-                    dst[col] = palette.layer2_colour(left_idx);
-            }
+            // Low nibble = right pixel.
+            uint8_t right_nib = byte & 0x0F;
+            uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
+            if (palette.layer2_rgb8(right_idx) != transp_rgb)
+                dst[col * 2 + 1] = palette.layer2_colour(right_idx);
         }
     }
 }
