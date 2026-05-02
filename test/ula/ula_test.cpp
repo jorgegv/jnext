@@ -331,8 +331,8 @@ static void test_section3_border_colour() {
     //   caller-managed pre-fill false (display).
     // -----------------------------------------------------------------
 
-    // S3.09 — display row: left strip [0..31] = border, display [32..287]
-    // = NOT border, right strip [288..319] = border.
+    // S3.09 — display row: left strip [0..63] = border, display [64..575]
+    // = NOT border, right strip [576..639] = border (post-G104 FB_WIDTH=640).
     {
         UlaBed bed;
         // Drive a display-area row (screen_row=0 → fb_row=DISP_Y=32).
@@ -360,7 +360,7 @@ static void test_section3_border_colour() {
 
         check("S3.09",
               "zxula.vhd:415,:567 — display row: border_dst true on "
-              "[0..31] + [288..319], false on display [32..287]",
+              "[0..63] + [576..639], false on display [64..575]",
               left_ok && display_ok && right_ok,
               fmt("left=%d display=%d right=%d  (true=ok)",
                   static_cast<int>(left_ok),
@@ -386,7 +386,7 @@ static void test_section3_border_colour() {
         }
         check("S3.10",
               "zxula.vhd:414-415,:567 — top-border row: border_dst true "
-              "on every cell [0..319]",
+              "on every cell [0..639]",
               all_border,
               fmt("first non-border cell idx=%d", first_bad));
     }
@@ -412,7 +412,7 @@ static void test_section3_border_colour() {
         }
         check("S3.11",
               "zxula.vhd:414-415,:567 — bottom-border row: border_dst "
-              "true on every cell [0..319]",
+              "true on every cell [0..639]",
               all_border,
               fmt("first non-border cell idx=%d", first_bad));
     }
@@ -442,12 +442,13 @@ static void test_section3_border_colour() {
               "ARGB rows should match between nullptr and buffered call");
     }
 
-    // S3.13 — display row in HI_COLOUR mode (bits 5:3=010, port 0xFF=0x10):
-    // verify the border_dst contract still holds when the alternate
-    // renderer path is taken.
+    // S3.13 — display row in HI_COLOUR mode (bits 2:0=010 per VHDL
+    // zxula.vhd:191; port 0xFF=0x02): verify the border_dst contract
+    // still holds when the alternate render_display_line_hicolour path
+    // is taken (separate left/right border loops in the helper).
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x10);                 // HI_COLOUR
+        bed.ula.set_screen_mode(0x02);                 // HI_COLOUR (mode 010)
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0x47);
         bed.ula.set_border(1);
