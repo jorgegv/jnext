@@ -46,8 +46,14 @@ public:
     static constexpr int DISPLAY_H = NATIVE_H * 2;
 
     /// Minimum and maximum supported scale factors.
-    static constexpr int MIN_SCALE = 2;
-    static constexpr int MAX_SCALE = 4;
+    /// Post-G104 the in-memory framebuffer is 640×256 displayed at 640×512
+    /// (vertical 2× scaling — see DISPLAY_H above).  Scale=1 → 640×512
+    /// physical; scale=2 → 1280×1024; scale=3 → 1920×1536.  Pre-G104 the
+    /// range was 2..4 to compensate for the 320×256 native size; post-G104
+    /// 1..3 covers the equivalent physical-pixel envelope without making
+    /// the default window 4× bigger than it used to be.
+    static constexpr int MIN_SCALE = 1;
+    static constexpr int MAX_SCALE = 3;
 
 signals:
     /// Emitted once, on the first frame, after the widget re-applies its

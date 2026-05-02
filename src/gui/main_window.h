@@ -141,7 +141,7 @@ private:
     bool   have_last_mouse_pos_ = false;
 
     bool is_fullscreen_ = false;
-    int current_scale_ = 2;  ///< Default 2× scale (1280×1024 viewport — 640×512 logical × 2).
+    int current_scale_ = 1;  ///< Default 1× scale (640×512 viewport — post-G104, was 2× / 1280×1024 pre-G104).
 
     // Status bar labels
     QLabel* fps_label_     = nullptr;
