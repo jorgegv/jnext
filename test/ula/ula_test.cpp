@@ -623,14 +623,22 @@ static void test_section5_timex() {
     // Distinct stimulus: plant 0xAA into screen-0 col 0 and 0x55 into
     // screen-1 col 0 — different bit patterns so an implementation that
     // discards b0 (the pre-G104 bug) cannot pass by accident.
+    // jnext port_ff convention quirk (TODO: separate cleanup): set_screen_mode
+    // decodes mode from bits 5:3 (not VHDL bits 2:0).  As a consequence, in
+    // HI_RES mode bits 5:3 are LOCKED to 0b110=6 (alt_file=0) or 0b111=7
+    // (alt_file=1), which the existing renderer ALSO reads as "paper colour"
+    // (bits 5:3) — so paper is locked to yellow (6) or white (7) under jnext
+    // convention.  Ink (bits 2:0) remains user-selectable.  The byte-
+    // interleave geometry (the focus of S5.10) is independent of this colour-
+    // encoding quirk; this test exercises geometry only.  The pre-existing
+    // colour-derivation drift vs VHDL `border_clr_tmx = "01" & ~port_ff(5:3)
+    // & port_ff(5:3)` (zxula.vhd:419, 426-427) is logged as a follow-up.
     {
         UlaBed bed;
-        const uint8_t paper_idx = 5;        // bits 5:3 = 101 (cyan)
         const uint8_t ink_idx   = 2;        // bits 2:0 = 010 (red)
-        const uint8_t port_ff_val = static_cast<uint8_t>(
-            0x30                            // mode 110 = HI_RES
-            | (paper_idx << 3) | ink_idx);
-        bed.ula.set_screen_mode(port_ff_val);  // HI_RES, paper cyan, ink red
+        const uint8_t paper_idx = 6;        // forced by jnext HI_RES mode = bits 5:3 = 0b110 (yellow)
+        const uint8_t port_ff_val = static_cast<uint8_t>(0x30 | ink_idx);
+        bed.ula.set_screen_mode(port_ff_val);  // HI_RES, paper yellow (locked), ink red
         const uint16_t poff = emu_pixel_addr_offset(0, 0);
         bed.poke(0x4000 + poff, 0xAA);      // screen-0 col 0 = 1010_1010
         bed.poke(0x6000 + poff, 0x55);      // screen-1 col 0 = 0101_0101
@@ -689,10 +697,9 @@ static void test_section5_timex() {
     // shift_reg_32 emit order across multiple columns.
     {
         UlaBed bed;
-        const uint8_t paper_idx = 5;
-        const uint8_t ink_idx   = 2;
-        bed.ula.set_screen_mode(static_cast<uint8_t>(
-            0x30 | (paper_idx << 3) | ink_idx));
+        const uint8_t ink_idx   = 2;        // bits 2:0 = 010 (red)
+        const uint8_t paper_idx = 6;        // forced by jnext HI_RES mode (see S5.10 comment)
+        bed.ula.set_screen_mode(static_cast<uint8_t>(0x30 | ink_idx));
 
         // Column 0: keep simple test value
         const uint16_t poff0 = emu_pixel_addr_offset(0, 0);
