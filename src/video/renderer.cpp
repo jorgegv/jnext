@@ -177,9 +177,16 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             sprites->render_scanline(sprite_line_.data(), row, palette);
         }
 
-        // Render ULA scanline (G104 Phase 2: native 640 emit).
+        // Render ULA scanline (G104 Phase 2: native 640 emit). Pass
+        // ula_border_ so the ULA renderer marks every cell painted with
+        // the border colour for the compositor stage's `ula_border_2`
+        // mux gate (VHDL zxnext.vhd:7256/7266/7278; source signal at
+        // zxula.vhd:415, exposed as o_ula_border at :567). The pre-fill
+        // at line ~143 leaves display-area cells at false, so the ULA
+        // only needs to write the border strips (left/right per display
+        // row + entire top/bottom border rows).
         const uint32_t fb_argb = rrrgggbb_to_argb(fallback_per_line_[row]);
-        ula_.render_scanline(ula_line_.data(), row, mmu);
+        ula_.render_scanline(ula_line_.data(), row, mmu, ula_border_.data());
         // When ULA is disabled (NR 0x68 bit 7 = 1), the whole ULA output
         // is transparent — display AND border — per VHDL zxnext.vhd:7103
         //   ula_transparent <= '1' when (ula_mix_transparent = '1')
