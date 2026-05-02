@@ -174,7 +174,11 @@ void VideoLayerView::render_to_image(int vc)
             layer_w = 640;
             break;
         case Layer::TILEMAP:
-            if (emu.tilemap().is_80col()) layer_w = 640;
+            // G104 phase 4: tilemap renderer now emits 640 cells in BOTH
+            // col-modes (40-col pixel-doubled, 80-col native).  Force
+            // layer_w=640 to match — a 320-wide buffer would be overrun by
+            // 40-col scenes (heap corruption in the QImage scanline).
+            layer_w = 640;
             break;
         default:
             break;
