@@ -225,8 +225,10 @@ void VideoLayerView::render_to_image(int vc)
             case Layer::TILEMAP: {
                 bool ula_over[640];
                 std::fill_n(ula_over, layer_w, false);
+                // G104 phase 4: tilemap render_scanline_debug always
+                // emits 640 (no width parameter).
                 emu.tilemap().render_scanline_debug(
-                    dst, ula_over, row, emu.ram(), emu.palette(), layer_w);
+                    dst, ula_over, row, emu.ram(), emu.palette());
                 break;
             }
         }

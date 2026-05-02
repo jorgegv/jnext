@@ -165,12 +165,12 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             }
         }
 
-        // Tilemap — covers the full 320×256 framebuffer (VHDL: vcounter(8)='0')
+        // Tilemap — covers the full 640-wide framebuffer (VHDL: vcounter(8)='0').
+        // G104 phase 4: native 640 emit (80-col 1:1, 40-col internal double).
         if (tilemap && tilemap->enabled()) {
-            // PHASE 1 SCAFFOLD: pass 320-grid width; doubling below.
             tilemap->render_scanline(tilemap_line_.data(),
                                      tm_pixel_below_.data(),
-                                     row, ram, palette, kLegacyLayerWidth,
+                                     row, ram, palette,
                                      tm_pixel_textmode_.data());
         }
 
@@ -258,20 +258,15 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // PHASE 1 SCAFFOLD (G104): unconditional pixel-doubling pass.
         // Each remaining 320-emit layer fills [0..319] at 320-grid; this
         // expands every cell into two adjacent cells in [0..639] (right-
-        // to-left to avoid self-overwrite). Phases 2-5 land each layer at
-        // native 640; Phase 6 deletes this entire block.
+        // to-left to avoid self-overwrite). Phases 2-5 land each layer
+        // at native 640; Phase 6 deletes this entire block.
         // Phase 2 (G104): ULA + ula_border_ now 640-native — removed.
         // Phase 3 (G104): Layer2 + layer2_priority_ now 640-native — removed.
+        // Phase 4 (G104): Tilemap + tm_pixel_below_/textmode_ now 640-native — removed.
         {
             for (int x = kLegacyLayerWidth - 1; x >= 0; --x) {
                 sprite_line_[x * 2 + 1] = sprite_line_[x];
                 sprite_line_[x * 2]     = sprite_line_[x];
-                tilemap_line_[x * 2 + 1] = tilemap_line_[x];
-                tilemap_line_[x * 2]     = tilemap_line_[x];
-                tm_pixel_below_[x * 2 + 1] = tm_pixel_below_[x];
-                tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
-                tm_pixel_textmode_[x * 2 + 1] = tm_pixel_textmode_[x];
-                tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
             }
         }
 
