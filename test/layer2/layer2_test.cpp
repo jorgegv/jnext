@@ -91,10 +91,14 @@ static char g_buf[512];
 // ── Helpers ──────────────────────────────────────────────────────────────
 //
 // Narrow 256x192 display-area row mapping (layer2.cpp render_scanline):
-//   the Layer2 renderer offsets by +32 in both X and Y to sit inside the
-//   overall 320x256 framebuffer. These constants match that convention.
-static constexpr int DISP_X_NARROW = 32;  // src/video/layer2.cpp:94
-static constexpr int DISP_Y_NARROW = 32;  // src/video/layer2.cpp:93
+//   The canonical 640-wide framebuffer (G104 Phase 1) places the 256-mode
+//   Layer 2 image at DISP_X = 64 (left border = 64 cells) and pixel-doubles
+//   each source column into two adjacent destination cells. Single-pixel
+//   probes use `buf[DISP_X_NARROW + 2*x]` for the LEFT cell of the doubled
+//   pair (or just `buf[DISP_X_NARROW + 2*x + 1]` for the right cell);
+//   DISP_Y is unchanged at 32.
+static constexpr int DISP_X_NARROW = 64;  // src/video/layer2.cpp (G104 Phase 3)
+static constexpr int DISP_Y_NARROW = 32;  // src/video/layer2.cpp
 static constexpr int BUF_WIDTH     = 640;
 
 // Compute the RAM byte address that the VHDL bank-transform should read.
@@ -172,10 +176,15 @@ static void fill_640x256(Ram& ram, uint8_t bank, F pat) {
 }
 
 // Render a scanline at the given framebuffer row.
+//
+// G104 Phase 3: render_scanline always emits 640 (the legacy `render_width`
+// argument is gone). Tests that previously distinguished 320 vs 640 calls
+// now share a single path; res-2/3 (640×256 4bpp) is native, res-0/1 are
+// pixel-doubled into the same 640-wide buffer.
 static void render_row(const Layer2& l2, Ram& ram, PaletteManager& pal,
-                       uint32_t* buf, int fb_row, int render_width = 320) {
+                       uint32_t* buf, int fb_row) {
     memset(buf, 0, sizeof(uint32_t) * BUF_WIDTH);
-    l2.render_scanline(buf, fb_row, ram, pal, render_width);
+    l2.render_scanline(buf, fb_row, ram, pal);
 }
 
 // Program a single palette entry (8-bit RRRGGGBB) into the currently-active
@@ -301,10 +310,10 @@ static void test_group2_resolution_modes() {
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(0),
           DETAIL("got 0x%08X", buf[DISP_X_NARROW + 0]));
 
-    // (1,0): index = 0 XOR 1 = 1
+    // (1,0): index = 0 XOR 1 = 1; pixel-doubled into dst[DISP_X_NARROW + 2*1].
     check("G2-01b", "narrow (1,0) = palette[1]",
-          buf[DISP_X_NARROW + 1] == pal.layer2_colour(1),
-          DETAIL("got 0x%08X", buf[DISP_X_NARROW + 1]));
+          buf[DISP_X_NARROW + 2] == pal.layer2_colour(1),
+          DETAIL("got 0x%08X", buf[DISP_X_NARROW + 2]));
 
     // (0,1): index = 1 XOR 0 = 1
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 1);
@@ -312,21 +321,21 @@ static void test_group2_resolution_modes() {
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(1),
           DETAIL("got 0x%08X", buf[DISP_X_NARROW + 0]));
 
-    // (255,191): index = 191 XOR 255 = 0x40 (64)
+    // (255,191): index = 191 XOR 255 = 0x40 (64); pixel-doubled at 2*255.
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 191);
     check("G2-01d", "narrow (255,191) = palette[191 XOR 255]",
-          buf[DISP_X_NARROW + 255] ==
+          buf[DISP_X_NARROW + 2 * 255] ==
               pal.layer2_colour(static_cast<uint8_t>(191 ^ 255)),
-          DETAIL("got 0x%08X", buf[DISP_X_NARROW + 255]));
+          DETAIL("got 0x%08X", buf[DISP_X_NARROW + 2 * 255]));
 
     // ---------- G2-02: row pitch is exactly 256 ----------
     // VHDL: layer2.vhd:160  stepping y by 1 advances the linear address
     // by 0x100. Two identical pixel positions sourced from row y and
     // row y+1 must differ by exactly the y XOR x change.
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 0);
-    uint32_t y0_x5 = buf[DISP_X_NARROW + 5];
+    uint32_t y0_x5 = buf[DISP_X_NARROW + 2 * 5];
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 1);
-    uint32_t y1_x5 = buf[DISP_X_NARROW + 5];
+    uint32_t y1_x5 = buf[DISP_X_NARROW + 2 * 5];
     check("G2-02", "narrow: y=1,x=5 differs from y=0,x=5 (row pitch acts)",
           y0_x5 != y1_x5 &&
           y0_x5 == pal.layer2_colour(5) &&
@@ -358,40 +367,44 @@ static void test_group2_resolution_modes() {
     l2.set_clip_y2(0xFF);
     fill_320x256(ram, 8, [](int x, int y){ return static_cast<uint8_t>(y ^ x); });
 
+    // G104 Phase 3: 320-mode source pixels are pixel-doubled into the
+    // 640 framebuffer; source x lives at buf[2*x].
     render_row(l2, ram, pal, buf, 0);
     check("G2-05a", "wide (0,0) = palette[0]",
-          buf[0] == pal.layer2_colour(0),
+          buf[2 * 0] == pal.layer2_colour(0),
           DETAIL("got 0x%08X", buf[0]));
     check("G2-05b", "wide (1,0) = palette[1]",
-          buf[1] == pal.layer2_colour(1),
-          DETAIL("got 0x%08X", buf[1]));
+          buf[2 * 1] == pal.layer2_colour(1),
+          DETAIL("got 0x%08X", buf[2 * 1]));
     render_row(l2, ram, pal, buf, 1);
     check("G2-05c", "wide (0,1) = palette[1]",
-          buf[0] == pal.layer2_colour(1),
+          buf[2 * 0] == pal.layer2_colour(1),
           DETAIL("got 0x%08X", buf[0]));
     render_row(l2, ram, pal, buf, 255);
     check("G2-05d", "wide (319,255) = palette[255 XOR 319 & 0xFF]",
-          buf[319] ==
+          buf[2 * 319] ==
               pal.layer2_colour(static_cast<uint8_t>(255 ^ (319 & 0xFF))),
-          DETAIL("got 0x%08X", buf[319]));
+          DETAIL("got 0x%08X", buf[2 * 319]));
 
     // ---------- G2-06: wide column pitch is 256 ----------
     // VHDL: layer2.vhd:160 wide — stepping x by 1 advances addr by 0x100.
     // For fixed y, (x=0) and (x=1) bytes must decode as bytes at offsets
     // differing by 256. Because our pattern is y^x, the indices at (0,y)
-    // and (1,y) differ by exactly 1.
+    // and (1,y) differ by exactly 1.  G104 Phase 3: probe source pixels
+    // 0 and 1 at framebuffer cells 0 and 2 (each source pixel doubled).
     render_row(l2, ram, pal, buf, 10);
     check("G2-06", "wide: (0,10) and (1,10) indices differ by 1 (column pitch)",
-          buf[0] == pal.layer2_colour(static_cast<uint8_t>(10)) &&
-          buf[1] == pal.layer2_colour(static_cast<uint8_t>(0xA ^ 1)),
-          DETAIL("b0=0x%08X b1=0x%08X", buf[0], buf[1]));
+          buf[2 * 0] == pal.layer2_colour(static_cast<uint8_t>(10)) &&
+          buf[2 * 1] == pal.layer2_colour(static_cast<uint8_t>(0xA ^ 1)),
+          DETAIL("b0=0x%08X b2=0x%08X", buf[2 * 0], buf[2 * 1]));
 
     // ---------- G2-08: wide y=255 visible ----------
     // VHDL: layer2.vhd:165 wide  vc_valid = vc_eff(8)='0' (rows 0..255).
     render_row(l2, ram, pal, buf, 255);
-    // Pattern: (0,255) byte = 255 XOR 0 = 0xFF
+    // Pattern: (0,255) byte = 255 XOR 0 = 0xFF.  G104 Phase 3: source pixel
+    // 0 is pixel-doubled into buf[0..1]; probe buf[0] for the left cell.
     check("G2-08", "wide y=255 row is visible",
-          buf[0] == pal.layer2_colour(0xFF),
+          buf[2 * 0] == pal.layer2_colour(0xFF),
           DETAIL("got 0x%08X", buf[0]));
 
     // ---------- G2-09: 4-bit mode high nibble is left pixel ----------
@@ -403,7 +416,7 @@ static void test_group2_resolution_modes() {
     // Place 0x5A at column 0, row 0. High nibble = 5, low = A.
     fill_640x256(ram, 8, [](int c, int y){ (void)c; (void)y; return 0x00; });
     write_both(ram, 8, 0u, 0x5A);  // col 0, row 0
-    render_row(l2, ram, pal, buf, 0, 640);
+    render_row(l2, ram, pal, buf, 0);
     check("G2-09a", "640: left pixel at (0,0) = palette[0x05] (high nibble)",
           buf[0] == pal.layer2_colour(0x05),
           DETAIL("got 0x%08X", buf[0]));
@@ -421,7 +434,7 @@ static void test_group2_resolution_modes() {
         uint8_t  first_bad_want = 0;
         for (int byte = 0; byte < 256; ++byte) {
             write_both(ram, 8, 0u, static_cast<uint8_t>(byte));
-            render_row(l2, ram, pal, buf, 0, 640);
+            render_row(l2, ram, pal, buf, 0);
             // High nibble index is byte>>4; left pixel palette index is
             // that 4-bit value with palette_offset=0 → must live in 0..15.
             uint8_t left_expected = static_cast<uint8_t>((byte >> 4) & 0x0F);
@@ -477,11 +490,11 @@ static void test_group3_scroll() {
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x22),
           DETAIL("got 0x%08X", buf[DISP_X_NARROW + 0]));
     check("G3-01b", "narrow scroll_x=128: col 127 = 0x22",
-          buf[DISP_X_NARROW + 127] == pal.layer2_colour(0x22));
+          buf[DISP_X_NARROW + 2 * 127] == pal.layer2_colour(0x22));
     check("G3-01c", "narrow scroll_x=128: col 128 = 0x11 (wrap to left half)",
-          buf[DISP_X_NARROW + 128] == pal.layer2_colour(0x11));
+          buf[DISP_X_NARROW + 2 * 128] == pal.layer2_colour(0x11));
     check("G3-01d", "narrow scroll_x=128: col 255 = 0x11",
-          buf[DISP_X_NARROW + 255] == pal.layer2_colour(0x11));
+          buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x11));
 
     // ---------- G3-02: narrow scroll X = 255 ----------
     // VHDL: layer2.vhd:152  x_pre = 0 + 255 = 255; src_x=255 → right half.
@@ -557,13 +570,14 @@ static void test_group3_scroll() {
     setup_wide(160);
     l2.set_scroll_x_lsb(160);
     render_row(l2, ram, pal, buf, 0);
+    // G104 Phase 3: 320-mode source pixels live at buf[2*x].
     check("G3-07a", "wide scroll_x=160 col 0 = 0x22",
-          buf[0] == pal.layer2_colour(0x22),
+          buf[2 * 0] == pal.layer2_colour(0x22),
           DETAIL("got 0x%08X", buf[0]));
     check("G3-07b", "wide scroll_x=160 col 159 = 0x22",
-          buf[159] == pal.layer2_colour(0x22));
+          buf[2 * 159] == pal.layer2_colour(0x22));
     check("G3-07c", "wide scroll_x=160 col 160 = 0x11",
-          buf[160] == pal.layer2_colour(0x11));
+          buf[2 * 160] == pal.layer2_colour(0x11));
 
     // ---------- G3-08: wide scroll X = 319 ----------
     // VHDL: layer2.vhd:152 with scroll_x=319 (bits: 100111111).
@@ -573,7 +587,7 @@ static void test_group3_scroll() {
     render_row(l2, ram, pal, buf, 0);
     // src_col for col 0 = (0 + 319) mod 320 = 319 → right half.
     check("G3-08", "wide scroll_x=319 col 0 sources src=319 (0x22)",
-          buf[0] == pal.layer2_colour(0x22));
+          buf[2 * 0] == pal.layer2_colour(0x22));
 
     // ---------- G3-10: wide scroll Y = 128 ----------
     // VHDL: layer2.vhd:157 wide — no +1 branch; plain 8-bit wrap.
@@ -587,10 +601,10 @@ static void test_group3_scroll() {
     l2.set_scroll_y(128);
     render_row(l2, ram, pal, buf, 0);
     check("G3-10a", "wide scroll_y=128 row 0 sources y=128 (0x22)",
-          buf[0] == pal.layer2_colour(0x22));
+          buf[2 * 0] == pal.layer2_colour(0x22));
     render_row(l2, ram, pal, buf, 128);
     check("G3-10b", "wide scroll_y=128 row 128 sources y=0 (0x11)",
-          buf[0] == pal.layer2_colour(0x11));
+          buf[2 * 0] == pal.layer2_colour(0x11));
 
     // ---------- G3-12: wide scroll X < 320 does not take wrap branch ----------
     // VHDL: layer2.vhd:153 (wrap branch condition). With scroll_x=100 and
@@ -599,7 +613,7 @@ static void test_group3_scroll() {
     l2.set_scroll_x_lsb(100);
     render_row(l2, ram, pal, buf, 0);
     check("G3-12", "wide scroll_x=100 col 0 sources src=100 (0x11, no wrap)",
-          buf[0] == pal.layer2_colour(0x11));
+          buf[2 * 0] == pal.layer2_colour(0x11));
 
     // G2-12 (lookahead probe) and G3-09 (wide scroll wrap branch
     // arithmetic) and G3-11 (640 byte-level scroll) are DEFERRED:
@@ -649,7 +663,7 @@ static void test_group4_clip() {
     check("G4-05a", "narrow default clip: (0,0) visible",
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x5A));
     check("G4-05b", "narrow default clip: (255,0) visible",
-          buf[DISP_X_NARROW + 255] == pal.layer2_colour(0x5A));
+          buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x5A));
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 191);
     check("G4-05c", "narrow default clip: (0,191) visible",
           buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x5A));
@@ -660,18 +674,18 @@ static void test_group4_clip() {
     l2.set_clip_y1(64); l2.set_clip_y2(127);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 64);
     check("G4-06a", "clip 96..159 x 64..127: (96,64) visible",
-          buf[DISP_X_NARROW + 96] == pal.layer2_colour(0x5A));
+          buf[DISP_X_NARROW + 2 * 96] == pal.layer2_colour(0x5A));
     check("G4-06b", "clip 96..159 x 64..127: (95,64) clipped",
-          buf[DISP_X_NARROW + 95] == 0);
+          buf[DISP_X_NARROW + 2 * 95] == 0);
     check("G4-06c", "clip: (159,64) visible, (160,64) clipped",
-          buf[DISP_X_NARROW + 159] == pal.layer2_colour(0x5A) &&
-          buf[DISP_X_NARROW + 160] == 0);
+          buf[DISP_X_NARROW + 2 * 159] == pal.layer2_colour(0x5A) &&
+          buf[DISP_X_NARROW + 2 * 160] == 0);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 63);
     check("G4-06d", "clip y1=64: row 63 has no L2",
-          buf[DISP_X_NARROW + 100] == 0);
+          buf[DISP_X_NARROW + 2 * 100] == 0);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 128);
     check("G4-06e", "clip y2=127: row 128 has no L2",
-          buf[DISP_X_NARROW + 100] == 0);
+          buf[DISP_X_NARROW + 2 * 100] == 0);
 
     // ---------- G4-07: clip x1==x2 = single column ----------
     // VHDL: layer2.vhd:167 inclusive: x >= x1 AND x <= x2.
@@ -679,11 +693,11 @@ static void test_group4_clip() {
     l2.set_clip_y1(0);   l2.set_clip_y2(191);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 10);
     check("G4-07a", "clip x1=x2=100: col 100 visible",
-          buf[DISP_X_NARROW + 100] == pal.layer2_colour(0x5A));
+          buf[DISP_X_NARROW + 2 * 100] == pal.layer2_colour(0x5A));
     check("G4-07b", "clip x1=x2=100: col 99 clipped",
-          buf[DISP_X_NARROW + 99] == 0);
+          buf[DISP_X_NARROW + 2 * 99] == 0);
     check("G4-07c", "clip x1=x2=100: col 101 clipped",
-          buf[DISP_X_NARROW + 101] == 0);
+          buf[DISP_X_NARROW + 2 * 101] == 0);
 
     // ---------- G4-08: clip x1>x2 → empty ----------
     // VHDL: layer2.vhd:167 AND of two compares — both must hold.
@@ -697,7 +711,8 @@ static void test_group4_clip() {
 
     // ---------- G4-09: wide clip X is doubled ----------
     // VHDL: layer2.vhd:133-134  clip_x1_q = x1&'0', clip_x2_q = x2&'1'
-    // clip x1=50, x2=99 → effective 100..199.
+    // clip x1=50, x2=99 → effective source-column range 100..199.
+    // G104 Phase 3: source pixel x lives at buf[2*x] (and buf[2*x+1]).
     l2.reset(); l2.set_enabled(true); l2.set_control(0x10);
     pal.set_global_transparency(0x00);
     set_l2_palette_8bit(pal, 0x00, 0xFC);
@@ -706,13 +721,13 @@ static void test_group4_clip() {
     l2.set_clip_y1(0);  l2.set_clip_y2(255);
     render_row(l2, ram, pal, buf, 10);
     check("G4-09a", "wide clip x1=50: col 99 clipped (99 < 100)",
-          buf[99] == 0);
+          buf[2 * 99] == 0);
     check("G4-09b", "wide clip x1=50: col 100 visible",
-          buf[100] == pal.layer2_colour(0x5A));
+          buf[2 * 100] == pal.layer2_colour(0x5A));
     check("G4-09c", "wide clip x2=99: col 199 visible (2*99+1)",
-          buf[199] == pal.layer2_colour(0x5A));
+          buf[2 * 199] == pal.layer2_colour(0x5A));
     check("G4-09d", "wide clip x2=99: col 200 clipped",
-          buf[200] == 0);
+          buf[2 * 200] == 0);
 
     // ---------- G4-10: wide clip Y is NOT doubled ----------
     // VHDL: layer2.vhd:137-138 — y1/y2 are used as-is.
@@ -720,28 +735,31 @@ static void test_group4_clip() {
     l2.set_clip_y1(50); l2.set_clip_y2(99);
     render_row(l2, ram, pal, buf, 49);
     check("G4-10a", "wide clip y1=50: row 49 clipped",
-          buf[0] == 0);
+          buf[2 * 0] == 0);
     render_row(l2, ram, pal, buf, 50);
     check("G4-10b", "wide clip y1=50: row 50 visible",
-          buf[0] == pal.layer2_colour(0x5A));
+          buf[2 * 0] == pal.layer2_colour(0x5A));
     render_row(l2, ram, pal, buf, 99);
     check("G4-10c", "wide clip y2=99: row 99 visible",
-          buf[0] == pal.layer2_colour(0x5A));
+          buf[2 * 0] == pal.layer2_colour(0x5A));
     render_row(l2, ram, pal, buf, 100);
     check("G4-10d", "wide clip y2=99: row 100 clipped",
-          buf[0] == 0);
+          buf[2 * 0] == 0);
 
-    // ---------- G4-11: wide clip x1=x2=0 → 2-pixel strip ----------
-    // VHDL: layer2.vhd:133-134 effective = 0..1.
+    // ---------- G4-11: wide clip x1=x2=0 → 2-source-pixel strip ----------
+    // VHDL: layer2.vhd:133-134 effective source-column range = 0..1
+    // (clip_x1_q = 0, clip_x2_q = 1).  G104 Phase 3: each source pixel
+    // emits 2 framebuffer cells, so the visible band is buf[0..3] and
+    // buf[4..] is clipped.  Probe one cell per source-column.
     l2.set_clip_x1(0); l2.set_clip_x2(0);
     l2.set_clip_y1(0); l2.set_clip_y2(255);
     render_row(l2, ram, pal, buf, 10);
-    check("G4-11a", "wide clip 0,0: col 0 visible",
-          buf[0] == pal.layer2_colour(0x5A));
-    check("G4-11b", "wide clip 0,0: col 1 visible",
-          buf[1] == pal.layer2_colour(0x5A));
-    check("G4-11c", "wide clip 0,0: col 2 clipped",
-          buf[2] == 0);
+    check("G4-11a", "wide clip 0,0: src col 0 visible",
+          buf[2 * 0] == pal.layer2_colour(0x5A));
+    check("G4-11b", "wide clip 0,0: src col 1 visible",
+          buf[2 * 1] == pal.layer2_colour(0x5A));
+    check("G4-11c", "wide clip 0,0: src col 2 clipped",
+          buf[2 * 2] == 0);
 
     // ---------- G4-12: 640 clip uses same doubling ----------
     // VHDL: layer2.vhd:133-134 — applies whenever i_resolution /= "00".
@@ -752,11 +770,12 @@ static void test_group4_clip() {
     fill_640x256(ram, 8, [](int c, int y){ (void)c; (void)y; return uint8_t{0x55}; });
     l2.set_clip_x1(10); l2.set_clip_x2(19);
     l2.set_clip_y1(0);  l2.set_clip_y2(255);
-    render_row(l2, ram, pal, buf, 10, 640);
-    // Effective src_col range per VHDL = 20..39 inclusive. With
-    // render_width=640 the renderer writes buf[src_col*2] (left pixel)
-    // and buf[src_col*2+1] (right pixel). So the visible output columns
-    // are buf[40..79].
+    render_row(l2, ram, pal, buf, 10);
+    // Effective src_col range per VHDL = 20..39 inclusive. The 640-mode
+    // renderer writes buf[src_col*2] (left pixel from high nibble) and
+    // buf[src_col*2+1] (right pixel from low nibble). So the visible
+    // output cells are buf[40..79]. (G104 Phase 3 dropped the legacy
+    // 320-down-sampled fallback path; 640-mode is now native unconditionally.)
     check("G4-12a", "640 clip x1=10,x2=19: buf[40] visible (src_col 20 left)",
           buf[40] == pal.layer2_colour(0x05),
           DETAIL("got 0x%08X", buf[40]));
@@ -778,14 +797,14 @@ static void test_group4_clip() {
     l2.set_clip_y1(30); l2.set_clip_y2(40);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 30);
     check("G4-13a", "narrow clip inclusive: (10,30) visible",
-          buf[DISP_X_NARROW + 10] == pal.layer2_colour(0x5A));
+          buf[DISP_X_NARROW + 2 * 10] == pal.layer2_colour(0x5A));
     check("G4-13b", "narrow clip inclusive: (9,30) clipped",
-          buf[DISP_X_NARROW + 9] == 0);
+          buf[DISP_X_NARROW + 2 * 9] == 0);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 40);
     check("G4-13c", "narrow clip inclusive: (20,40) visible",
-          buf[DISP_X_NARROW + 20] == pal.layer2_colour(0x5A));
+          buf[DISP_X_NARROW + 2 * 20] == pal.layer2_colour(0x5A));
     check("G4-13d", "narrow clip inclusive: (21,40) clipped",
-          buf[DISP_X_NARROW + 21] == 0);
+          buf[DISP_X_NARROW + 2 * 21] == 0);
 }
 
 // =========================================================================
@@ -853,7 +872,7 @@ static void test_group5_palette() {
     set_l2_palette_8bit(pal, 0x05, 0x1C);
     fill_640x256(ram, 8, [](int c, int y){ (void)c; (void)y; return uint8_t{0x00}; });
     write_both(ram, 8, 0u, 0x50);  // high=5 low=0
-    render_row(l2, ram, pal, buf, 0, 640);
+    render_row(l2, ram, pal, buf, 0);
     check("G5-05", "640 offset=0 byte=0x50 left pixel = palette[0x05]",
           buf[0] == pal.layer2_colour(0x05),
           DETAIL("got 0x%08X", buf[0]));
@@ -862,7 +881,7 @@ static void test_group5_palette() {
     // VHDL: layer2.vhd:202-203 pixel_pre=0x05, +0x30 = 0x35.
     l2.set_control(0x23);  // res=10 → 640, offset=3
     set_l2_palette_8bit(pal, 0x35, 0x9C);
-    render_row(l2, ram, pal, buf, 0, 640);
+    render_row(l2, ram, pal, buf, 0);
     check("G5-06", "640 offset=3 byte=0x50 left pixel = palette[0x35]",
           buf[0] == pal.layer2_colour(0x35),
           DETAIL("got 0x%08X", buf[0]));
@@ -872,7 +891,7 @@ static void test_group5_palette() {
     l2.set_control(0x20);
     write_both(ram, 8, 0u, 0x5A);
     set_l2_palette_8bit(pal, 0x0A, 0xE3 ^ 0xFF);  // any non-transparent
-    render_row(l2, ram, pal, buf, 0, 640);
+    render_row(l2, ram, pal, buf, 0);
     check("G5-07", "640 byte=0x5A right pixel = palette[0x0A]",
           buf[1] == pal.layer2_colour(0x0A),
           DETAIL("got 0x%08X", buf[1]));
@@ -986,7 +1005,7 @@ static void test_group6_transparency() {
     l2.set_clip_y1(0); l2.set_clip_y2(0);
     render_row(l2, ram, pal, buf, DISP_Y_NARROW + 100);
     check("G6-05", "clip to (0,0) kills pixel at (100,100) regardless",
-          buf[DISP_X_NARROW + 100] == 0);
+          buf[DISP_X_NARROW + 2 * 100] == 0);
 
     // ---------- G6-06: L2 disabled => all transparent ----------
     // VHDL: layer2.vhd:175 layer2_en_q='0' => layer2_en=0.
@@ -1226,8 +1245,10 @@ static void test_group9_boundary() {
     check("G9-03", "narrow clip y1=200 > y2=100 ⇒ no L2 pixels anywhere",
           any == false);
 
-    // ---------- G9-05: wide mode clip x2=0xFF covers all 320 cols ----------
+    // ---------- G9-05: wide mode clip x2=0xFF covers all 320 source cols ----------
     // VHDL: layer2.vhd:134  clip_x2_q = x2 & '1' = 0x1FF = 511, covers 0..319.
+    // G104 Phase 3: 320-mode source pixels are pixel-doubled into the full
+    // 640-wide framebuffer, so all 640 cells should be opaque.
     l2.reset(); l2.set_enabled(true); l2.set_control(0x10);
     pal.reset();
     pal.set_global_transparency(0xFE);
@@ -1237,13 +1258,13 @@ static void test_group9_boundary() {
     l2.set_clip_y1(0); l2.set_clip_y2(255);
     render_row(l2, ram, pal, buf, 0);
     bool all_visible = true;
-    for (int col = 0; col < 320; ++col) {
+    for (int col = 0; col < BUF_WIDTH; ++col) {
         if (buf[col] != pal.layer2_colour(0x5A)) {
             all_visible = false;
             break;
         }
     }
-    check("G9-05", "wide clip x2=0xFF renders all 320 columns (2*255+1=511)",
+    check("G9-05", "wide clip x2=0xFF renders all 640 framebuffer cells (320 src cols ×2)",
           all_visible);
 
     // G9-04 — COVERED ELSEWHERE (not a skip).
@@ -1568,7 +1589,7 @@ static void test_group10c_per_scanline_clip() {
                 // (framebuffer col 32) transparent; col 0x10 visible.
                 render_row(l2, ram, pal, buf, row);
                 row82_left_clipped  = (buf[DISP_X_NARROW + 0] == 0);
-                row82_right_visible = (buf[DISP_X_NARROW + 0x10]
+                row82_right_visible = (buf[DISP_X_NARROW + 2 * 0x10]
                                       == pal.layer2_colour(0x5A));
             }
         }

@@ -157,9 +157,11 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // 320×256 and 640×256 ("wide") modes cover all 256 rows.
         if (layer2.enabled()) {
             if (layer2.is_wide() || in_display) {
-                // PHASE 1 SCAFFOLD: pass 320-grid width; doubling below.
+                // Phase 3 (G104): Layer 2 emits 640 natively (resolution 0
+                // pixel-doubled into [DISP_X..DISP_X+512), resolution 1
+                // pixel-doubled across the full 640, resolution 2/3 native).
                 layer2.render_scanline(layer2_line_.data(), row, ram, palette,
-                                       kLegacyLayerWidth, mmu.rom_in_sram());
+                                       mmu.rom_in_sram());
             }
         }
 
@@ -254,15 +256,14 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         }
 
         // PHASE 1 SCAFFOLD (G104): unconditional pixel-doubling pass.
-        // Each (remaining) layer fills [0..319] at 320-grid; this expands
-        // every cell into two adjacent cells in [0..639] (right-to-left to
-        // avoid self-overwrite). Phase 2 (G104): ULA + ula_border_ now
-        // 640-native — removed from doubling. Phases 3/4/5 own their own
-        // layer's removal; Phase 6 deletes the rest of this block.
+        // Each remaining 320-emit layer fills [0..319] at 320-grid; this
+        // expands every cell into two adjacent cells in [0..639] (right-
+        // to-left to avoid self-overwrite). Phases 2-5 land each layer at
+        // native 640; Phase 6 deletes this entire block.
+        // Phase 2 (G104): ULA + ula_border_ now 640-native — removed.
+        // Phase 3 (G104): Layer2 + layer2_priority_ now 640-native — removed.
         {
             for (int x = kLegacyLayerWidth - 1; x >= 0; --x) {
-                layer2_line_[x * 2 + 1] = layer2_line_[x];
-                layer2_line_[x * 2]     = layer2_line_[x];
                 sprite_line_[x * 2 + 1] = sprite_line_[x];
                 sprite_line_[x * 2]     = sprite_line_[x];
                 tilemap_line_[x * 2 + 1] = tilemap_line_[x];
@@ -271,8 +272,6 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                 tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
                 tm_pixel_textmode_[x * 2 + 1] = tm_pixel_textmode_[x];
                 tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
-                layer2_priority_[x * 2 + 1] = layer2_priority_[x];
-                layer2_priority_[x * 2]     = layer2_priority_[x];
             }
         }
 

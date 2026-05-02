@@ -169,7 +169,9 @@ void VideoLayerView::render_to_image(int vc)
             break;
         case Layer::LAYER2_ACTIVE:
         case Layer::LAYER2_SHADOW:
-            if (emu.layer2().resolution() >= 2) layer_w = 640;
+            // G104 Phase 3: Layer 2 always emits 640 (pixel-doubled in
+            // 256-mode, pixel-doubled in 320-mode, native in 640-mode).
+            layer_w = 640;
             break;
         case Layer::TILEMAP:
             if (emu.tilemap().is_80col()) layer_w = 640;
@@ -204,15 +206,16 @@ void VideoLayerView::render_to_image(int vc)
                 break;
 
             case Layer::LAYER2_ACTIVE:
+                // G104 Phase 3: render_scanline_debug always emits 640.
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().active_bank(), layer_w);
+                    emu.layer2().active_bank());
                 break;
 
             case Layer::LAYER2_SHADOW:
                 emu.layer2().render_scanline_debug(
                     dst, row, emu.ram(), emu.palette(),
-                    emu.layer2().shadow_bank(), layer_w);
+                    emu.layer2().shadow_bank());
                 break;
 
             case Layer::SPRITES:
