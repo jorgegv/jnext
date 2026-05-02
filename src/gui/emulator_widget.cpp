@@ -47,11 +47,13 @@ void EmulatorWidget::set_scale(int factor) {
 
     // Widget size is in Qt logical pixels.  On Hi-DPI (Wayland, etc.) Qt
     // multiplies by devicePixelRatio to get physical pixels.  We want the
-    // *physical* size to be exactly NATIVE_W*factor × NATIVE_H*factor, so
-    // the logical size must be divided by the DPR.
+    // *physical* size to be exactly NATIVE_W*factor × DISPLAY_H*factor, so
+    // the logical size must be divided by the DPR. DISPLAY_H = NATIVE_H * 2
+    // gives the vertical 2× scaling that turns the 640×256 in-memory
+    // framebuffer into a square-pixel 640×512 viewport (G104 Phase 7).
     const qreal dpr = devicePixelRatioF();
     const int lw = qRound(NATIVE_W * factor / dpr);
-    const int lh = qRound(NATIVE_H * factor / dpr);
+    const int lh = qRound(DISPLAY_H * factor / dpr);
     setFixedSize(lw, lh);
 
     // Re-scale the cached image for the new factor.
@@ -82,16 +84,26 @@ void EmulatorWidget::prescale() {
     int target_w, target_h;
 
     if (fullscreen_mode_) {
-        // Compute the largest integer scale that fits within the widget.
+        // Square-pixel CRT geometry: use NATIVE_W (640) for the horizontal
+        // step and DISPLAY_H (NATIVE_H × 2 = 512) for the vertical step so
+        // the integer fullscreen scale lands on a 4:3-correct grid (G104
+        // Phase 7). The source image is still NATIVE_H rows tall; the
+        // generic nearest-neighbour scaling loop below handles the
+        // nh→target_h vertical stretch (typically 2× per fs_scale step).
         const int sx = pw / NATIVE_W;
-        const int sy = ph / NATIVE_H;
+        const int sy = ph / DISPLAY_H;
         const int fs_scale = std::max(1, std::min(sx, sy));
         target_w = NATIVE_W * fs_scale;
-        target_h = NATIVE_H * fs_scale;
+        target_h = DISPLAY_H * fs_scale;
         // Offset to center the image (in logical pixels for paintEvent).
         fs_offset_ = QPoint(qRound((pw - target_w) / (2.0 * dpr)),
                             qRound((ph - target_h) / (2.0 * dpr)));
     } else {
+        // In windowed mode setFixedSize() already gives us a physical
+        // NATIVE_W × DISPLAY_H × scale viewport, so target_w/target_h match
+        // pw/ph. The generic nh→target_h mapping below performs the
+        // vertical 2× doubling implicitly (e.g. nh=256, target_h=512 →
+        // each src row sampled twice).
         target_w = pw;
         target_h = ph;
         fs_offset_ = QPoint(0, 0);
@@ -103,7 +115,11 @@ void EmulatorWidget::prescale() {
     // Tag with DPR so Qt maps image pixels 1:1 to physical screen pixels.
     scaled_.setDevicePixelRatio(dpr);
 
-    // Nearest-neighbour scale from native → target dimensions.
+    // Nearest-neighbour scale from native → target dimensions. The
+    // dy * nh / target_h mapping naturally vertically doubles when
+    // target_h = 2 * nh: rows 0,1 of the destination both sample src row 0,
+    // rows 2,3 sample src row 1, etc. Horizontal scaling is unchanged.
+    if (target_w <= 0 || target_h <= 0 || nw <= 0 || nh <= 0) return;
     for (int dy = 0; dy < target_h; ++dy) {
         const auto* src = reinterpret_cast<const uint32_t*>(
             native_.scanLine(dy * nh / target_h));

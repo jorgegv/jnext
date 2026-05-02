@@ -9,8 +9,9 @@
 /// The in-memory framebuffer is 640×256; the widget displays it at
 /// 640×512 (vertical 2× scaling) at 1× scale_, scaled to integer multiples
 /// thereof. One in-memory row paints two display rows for square-pixel
-/// 4:3 output. Phase 7 (G104) wires the actual prescale pipeline; Phase 1
-/// only flips the geometry constants below.
+/// 4:3 output. The vertical doubling is performed during prescale via the
+/// generic nearest-neighbour mapping `dy * NATIVE_H / target_h` — when
+/// target_h = NATIVE_H × 2 each src row gets sampled twice.
 class EmulatorWidget : public QWidget {
     Q_OBJECT
 public:

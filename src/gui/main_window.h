@@ -23,7 +23,9 @@ class DebuggerManager;
 /// toolbar, and status bar.  Keyboard events are dispatched to a configurable callback.
 ///
 /// The window is non-resizable; scale is changed via the View menu (2x/3x/4x)
-/// or F2 key.  The EmulatorWidget is always an exact integer multiple of 320x256.
+/// or F2 key. The EmulatorWidget is always an exact integer multiple of
+/// 640×512 (in-memory 640×256 framebuffer with vertical 2× scaling — square
+/// pixels for 4:3 CRT-faithful geometry, G104 Phase 7).
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -139,7 +141,7 @@ private:
     bool   have_last_mouse_pos_ = false;
 
     bool is_fullscreen_ = false;
-    int current_scale_ = 2;  ///< Default 2x scale (640x512 viewport).
+    int current_scale_ = 2;  ///< Default 2× scale (1280×1024 viewport — 640×512 logical × 2).
 
     // Status bar labels
     QLabel* fps_label_     = nullptr;
