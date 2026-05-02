@@ -743,8 +743,12 @@ private:
     /// then 8 px from screen-0 col N+1, then 8 px from screen-1 col N+1.
     /// Border fills 64 cells either side.
     ///
-    /// Ink colour = bits 2:0 of port 0xFF; paper = bits 5:3.  BRIGHT is not
-    /// available in HI_RES (no attribute-byte plane).
+    /// Ink / paper derivation per VHDL zxula.vhd:419, 426-427: in HI_RES
+    /// (shift_screen_mode(2)='1') the WHOLE attr_reg is loaded with
+    /// `border_clr_tmx <= "01" & (not port_ff(5:3)) & port_ff(5:3)`.  So
+    /// BRIGHT=1 (implicit), ink colour = port_ff(5:3), paper colour =
+    /// ~port_ff(5:3) & 7.  port_ff(5:3) is the user-controllable "screen
+    /// colour"; there is no independent ink/paper field.
     /// @param row         Pointer to the start of the output row (FB_WIDTH pixels).
     /// @param screen_row  ZX screen row [0, 191].
     /// @param mmu         MMU for VRAM access.

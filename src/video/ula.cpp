@@ -937,32 +937,52 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
 // s0[col] then 8 px from s1[col]", which is what we do.  Each column contributes
 // 16 hi-res output pixels to the framebuffer at offset DISP_X + col * 16.
 //
-// Ink colour  = bits 2:0 of the last value written to port 0xFF (screen_mode_reg_).
-// Paper colour = bits 5:3 of screen_mode_reg_.
-// Bright flag is not available in hi-res mode; colours are non-bright (indices 0–7).
+// Ink / paper derivation (G179, Issue #2 — VHDL zxula.vhd:419, 426-427):
+//   border_clr_tmx <= "01" & (not i_port_ff_reg(5 downto 3)) & i_port_ff_reg(5 downto 3);
+//   ...
+//   if shift_screen_mode(2) = '1' then
+//      attr_reg <= border_clr_tmx & border_clr_tmx;
+// In HI_RES the WHOLE attr_reg (display + border) is loaded with this 8-bit
+// `border_clr_tmx`.  Decoding the bit fields as a std-ULA attr:
+//   bit 7 = '0', bit 6 = '1' (BRIGHT on)
+//   bits 5:3 (PAPER nibble) = ~port_ff(5:3)
+//   bits 2:0 (INK   nibble) =  port_ff(5:3)
+// So the user-controllable "screen colour" is port_ff(5:3) and is rendered
+// as bright ink + bright complementary paper.  BRIGHT is implicit (not
+// user-controllable).  The previous derivation read port_ff(2:0) as ink and
+// port_ff(5:3) as paper independently — that contradicts VHDL.
 
 void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu)
 {
-    // Decode ink / paper from port 0xFF register value.  Port 0xFF in
-    // HI_RES mode encodes ink (bits 2:0) and paper (bits 5:3); BRIGHT is
-    // not available.  Synthesize a std-ULA `attr` with bit 6 (BRIGHT) = 0
-    // so the encoder helpers produce the right ula_pixel.
-    const uint8_t hires_attr = static_cast<uint8_t>(screen_mode_reg_ & 0x3F);
+    // VHDL zxula.vhd:419 + 426-427: in HI_RES mode (shift_screen_mode(2)='1')
+    // the whole attr_reg is loaded with border_clr_tmx, where
+    //   border_clr_tmx <= "01" & (not port_ff(5:3)) & port_ff(5:3).
+    // Synthesize the same 8-bit attr value: bit 6 (BRIGHT)=1, bits 5:3
+    // (PAPER)=~port_ff(5:3), bits 2:0 (INK)=port_ff(5:3).
+    const uint8_t paper_color = static_cast<uint8_t>((screen_mode_reg_ >> 3) & 0x07);
+    const uint8_t hires_attr  = static_cast<uint8_t>(
+          0x40                                  // bit 6 = BRIGHT = 1
+        | ((~paper_color & 0x07) << 3)          // PAPER bits = ~port_ff(5:3)
+        |  (paper_color & 0x07));               // INK   bits =  port_ff(5:3)
 
     // G102 — std-ULA encoder per VHDL zxula.vhd:543-553 emits an 8-bit
     // ula_pixel that indexes the single 256-entry × 2-bank ULA palette
     // (zxnext.vhd:6981).  ULAnext / ULA+ encoder paths are not yet wired
-    // into the HI_RES route — they would need separate per-pixel encoder
-    // calls; G102/G103 keep the std-ULA path identity-mapped at boot.
+    // into the HI_RES display route — they would need separate per-pixel
+    // encoder calls; G102/G103 keep the std-ULA path identity-mapped at
+    // boot.  For paper_color=N: ink = bright N (ula_pixel 0x08|N), paper =
+    // bright (~N&7) (ula_pixel 0x10|0x08|(~N&7) = 0x18|(~N&7)).
     const uint32_t ink_argb   = lookup_colour(std_ula_ink_pixel(hires_attr));
     const uint32_t paper_argb = lookup_colour(std_ula_paper_pixel(hires_attr));
 
-    // Border: HI_RES border is handled in render_border_line; the call
-    // sites here only paint the left/right strip of the display line, so
-    // re-apply the std-ULA border encoding (paper cycle on border_clr).
-    const uint8_t border_attr  = static_cast<uint8_t>(
-        ((border_colour_ & 0x07) << 3) | (border_colour_ & 0x07));
-    const uint32_t border_argb = lookup_colour(std_ula_paper_pixel(border_attr));
+    // HI_RES strip-border (the left/right strips of a display row): VHDL
+    // zxula.vhd:426-427 routes border_clr_tmx through the SAME encoder
+    // with pixel_en=0 (forced by border_active_d), so the strip pixel is
+    // the paper cycle of the same `hires_attr` — i.e. exactly paper_argb
+    // computed above.  Routing through port_fe (`border_colour_`) here
+    // would contradict the VHDL: in HI_RES, port_fe does not reach the
+    // strip border.  See render_border_line for the full-row path.
+    const uint32_t border_argb = paper_argb;
 
     // The interleaved pixel row offset is the same for both screens.
     const uint16_t poff         = pixel_addr_offset(screen_row, 0);
