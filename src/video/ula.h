@@ -176,7 +176,10 @@ public:
     /// Set the Timex screen mode from a port 0xFF write.
     ///
     /// The full byte is stored so callers can read it back (e.g. for
-    /// floating-bus emulation).  The mode is decoded from bits 5:3.
+    /// floating-bus emulation).  The mode is decoded from bits 2:0 per
+    /// VHDL zxula.vhd:191 (`screen_mode_s <= i_port_ff_reg(2 downto 0)`).
+    /// Bits 5:3 carry the HI_RES paper colour (zxula.vhd:419) and are
+    /// consumed by the renderer / border path, NOT by the mode decoder.
     void set_screen_mode(uint8_t port_val);
 
     /// Return the raw byte last written to port 0xFF.
@@ -449,15 +452,20 @@ public:
         // the shadow screen contents. Beast.nex 2026-04-25.
         vram_use_bank7_ = b;
         if (b) {
-            // Force screen_mode_reg_ bits 5:3 (jnext's mode field) to 000
-            // (STANDARD).  Use the existing setter so side-effects propagate
-            // consistently — in particular, Wave-D's set_screen_mode update
-            // re-derives `alt_file_` from mode_bits(0), which is cleared by
-            // this mask.  That matches VHDL zxula.vhd:191 exactly: the full
-            // 3-bit screen_mode (including the alt-file bit) is forced to
-            // "000" when `i_ula_shadow_en='1'`.  The low 3 raw bits of port
-            // 0xFF (non-mode register content) are preserved.
-            const uint8_t masked = static_cast<uint8_t>(screen_mode_reg_ & 0x07);
+            // Force screen_mode_reg_ bits 2:0 (the VHDL mode field per
+            // zxula.vhd:191) to "000" (STANDARD, alt_file=0).  Use the
+            // existing setter so side-effects propagate consistently —
+            // in particular, Wave-D's set_screen_mode update re-derives
+            // `alt_file_` from mode_bits(0), which is cleared by this
+            // mask.  That matches VHDL exactly: when `i_ula_shadow_en='1'`,
+            // screen_mode_s collapses to "000" for the entire 3-bit mode
+            // field (including the alt-file bit).  Bits 5:3 of port 0xFF
+            // (HI_RES paper colour, zxula.vhd:419) and bits 7:6 are
+            // preserved — the VHDL gate at :191 only touches the 3-bit
+            // mode field.  G179 — mask flipped from 0x07 to 0xF8 when the
+            // mode field migrated from bits 5:3 (jnext drift) to VHDL
+            // bits 2:0.
+            const uint8_t masked = static_cast<uint8_t>(screen_mode_reg_ & 0xF8);
             set_screen_mode(masked);
         }
     }

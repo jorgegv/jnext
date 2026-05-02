@@ -138,13 +138,21 @@ void Ula::set_screen_mode(uint8_t port_val)
     // does not re-call set_screen_mode (it writes the field directly).
     log_port_ff_change();
 
-    // Mode is encoded in bits 5:3 of port 0xFF (jnext convention).  Per VHDL
-    // zxula.vhd:191, `screen_mode_s <= i_port_ff_reg(2 downto 0)`; VHDL bit 0 of
-    // that 3-bit mode field is the alt-file select (0 = primary 0x4000 pixel
-    // base, 1 = alternate 0x6000 pixel base) — see zxula.vhd:218 and the
-    // `vram_a <= screen_mode(0) & …` fetches at zxula.vhd:235/245.  In jnext's
-    // port-bit convention that corresponds to bit 0 of `mode_bits`.
-    const uint8_t mode_bits = (port_val >> 3) & 0x07;
+    // Mode is encoded in bits 2:0 of port 0xFF per VHDL zxula.vhd:191:
+    //
+    //     screen_mode_s <= i_port_ff_reg(2 downto 0)
+    //                      when i_ula_shadow_en = '0' else "000";
+    //
+    // Bit 0 of the 3-bit mode field is the alt-file select (0 = primary
+    // 0x4000 pixel base, 1 = alternate 0x6000 pixel base) — see
+    // zxula.vhd:218 and the `vram_a <= screen_mode(0) & …` fetches at
+    // zxula.vhd:235/245.  Bits 5:3 of port 0xFF carry the HI_RES paper
+    // colour (decoded by the renderer / border path) and are NOT part of
+    // the mode field.  Pre-G179 jnext used bits 5:3 for the mode (a drift
+    // documented in `project_g104_closed_canonical_640.md` Issue #1) which
+    // made HI_RES unreachable from real Timex programs that write the
+    // mode bits to port 0xFF(2:0) per the SCLD spec.
+    const uint8_t mode_bits = port_val & 0x07;
     // Wave D (S5.04) — alt-file bit tracks mode_bits(0).  Keep `alt_file_`
     // consistent with the last write to port 0xFF so that HI_COLOUR (mode 010)
     // vs. HI_COLOUR+alt (mode 011) can be distinguished by the renderer.
@@ -218,10 +226,11 @@ void Ula::start_frame()
 // Apply the screen-mode decode used by set_screen_mode without
 // re-logging.  Mirrors the case-statement in set_screen_mode exactly so
 // the post-replay state is identical to the live state at write time.
+// Mode bits live in port_ff(2:0) per VHDL zxula.vhd:191.
 static inline void decode_screen_mode_into(
     uint8_t port_val, TimexScreenMode& mode, bool& alt_file)
 {
-    const uint8_t mode_bits = (port_val >> 3) & 0x07;
+    const uint8_t mode_bits = port_val & 0x07;
     alt_file = (mode_bits & 0x01) != 0;
     switch (mode_bits) {
         case 0:

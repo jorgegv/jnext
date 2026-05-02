@@ -429,7 +429,8 @@ public:
 
     /// VHDL zxnext.vhd:3610-3635 `port_ff_reg`. Single store fed by four
     /// writers (port 0xFF, NR 0x69 b5:0, NR 0x22 b2, NR 0xC4 b0 inverted).
-    /// Bits 5:0 = Timex screen mode; bit 6 = port_ff_interrupt_disable.
+    /// Bits 2:0 = Timex screen mode (zxula.vhd:191); bits 5:3 = HI_RES
+    /// paper colour (zxula.vhd:419); bit 6 = port_ff_interrupt_disable.
     uint8_t port_ff_reg() const { return port_ff_reg_; }
 
     /// Composite VHDL signal `beep_spkr_excl` (zxnext.vhd:6504) —

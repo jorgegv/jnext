@@ -1669,8 +1669,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
 
     // Timex screen mode — port 0xFF (full 16-bit match).
-    // Write: bits 5:3 = video mode (0=standard, 1=standard_1, 2=hi-colour, 6=hi-res).
-    //        bits 2:0 = screen bank (0=primary 0x4000, 1=alternate 0x6000).
+    // Write: bits 2:0 = video mode per VHDL zxula.vhd:191
+    //                   `screen_mode_s <= i_port_ff_reg(2 downto 0)`
+    //          (0=standard, 1=standard+alt, 2=hi-colour, 3=hi-colour+alt,
+    //           6=hi-res, 7=hi-res+alt).  Bit 0 selects alt-display-file
+    //          (vram_a bit 13, zxula.vhd:218,235).
+    //        bits 5:3 = HI_RES paper colour (zxula.vhd:419 — encoded as
+    //                   border_clr_tmx <= "01" & ~port_ff(5:3) & port_ff(5:3)).
     // Read is not implemented on real hardware; omit read handler.
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
     port_.register_handler(0xFFFF, 0x00FF,
