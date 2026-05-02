@@ -1788,6 +1788,303 @@ static void test_group10e_per_scanline_enable() {
     }
 }
 
+// =========================================================================
+// Group 11 — Per-pixel layer2_priority_dst propagation (g179, Issue #3)
+// =========================================================================
+//
+// VHDL reference: zxnext.vhd:7050
+//   `layer2_priority_2 <= nr_palette_priority(1) when …`
+// i.e. the L2 palette priority bit 1 (latched from NR 0x44 b7 — see VHDL
+// zxnext.vhd:4920) is fanned out per-pixel to the compositor, where it
+// drives the L2-over-sprites promotion at zxnext.vhd:7220.
+//
+// Until g179, Renderer::layer2_priority_[] was zero-filled at frame start
+// and never updated — Layer2::render_scanline emitted only `dst[]`. The
+// compositor read the (always-false) array, so promotion silently never
+// fired regardless of palette content. This group asserts the fix:
+//
+//   - Opaque emitted L2 pixels write the palette's priority-high bit
+//     (`PaletteManager::layer2_priority_high(idx)`) into `priority_dst[x]`.
+//   - Transparent pixels (skipped via `continue`) leave `priority_dst[x]`
+//     untouched — keeping the renderer's pre-fill `false` intact.
+//   - Coverage spans all three resolution modes (256x192, 320x256,
+//     640x256), since each has its own emit loop.
+//   - Priority is propagated to BOTH framebuffer cells per source pixel
+//     in res-2/3 (640px native: col*2 and col*2+1) and would for res-0/1
+//     after the renderer's 320->640 doubling pass (which copies
+//     layer2_priority_[x] alongside layer2_line_[x]).
+//
+// Helper: program a Layer2 palette entry with both colour and priority
+// bit. Mirrors VHDL zxnext.vhd:4920: priority is captured ONLY on NR 0x44
+// (9-bit) writes — bit 7 of the second NR 0x44 byte drives priority(1),
+// which is the bit `layer2_priority_high` returns. `set_priority` here
+// writes 0x80 (priority=11, bit 1 set) for true, 0x00 for false.
+static void set_l2_palette_with_priority(PaletteManager& pal, uint8_t idx,
+                                          uint8_t rgb8, bool priority) {
+    pal.write_control(0x10);      // target = LAYER2_FIRST, active_l2_second=0
+    pal.set_index(idx);
+    pal.write_9bit(rgb8);         // first NR 0x44 byte: RRRGGGBB
+    // Second NR 0x44 byte: bit 0 = blue LSB (we use 0), bit 7 = priority(1).
+    pal.write_9bit(priority ? 0x80 : 0x00);
+}
+
+static void test_group11_priority_propagation() {
+    set_group("G11 priority propagation");
+
+    // ---------- G11-01: narrow 256x192 propagates priority bit ----------
+    // VHDL zxnext.vhd:7050 — every opaque emitted L2 pixel must drive
+    // its palette-priority bit into the per-pixel buffer the compositor
+    // reads (renderer.cpp layer2_priority_[]).
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        // Make NR 0x14 unreachable so our index 0 / 1 / 2 are all opaque.
+        pal.set_global_transparency(0xFF);  // VHDL zxnext.vhd:5226
+        // Plant 3 palette entries:
+        //   K   = 0x40 with priority bit set (true)
+        //   K+1 = 0x41 without priority (false)
+        //   K+2 = 0x42 with priority bit set (true) -- adjacency check
+        constexpr uint8_t K = 0x40;
+        set_l2_palette_with_priority(pal, K + 0, OPAQUE_RGB,    /*prio*/ true);
+        set_l2_palette_with_priority(pal, K + 1, OPAQUE_RGB+1,  /*prio*/ false);
+        set_l2_palette_with_priority(pal, K + 2, OPAQUE_RGB+2,  /*prio*/ true);
+
+        // Sanity: palette captured the priority bit correctly. This
+        // is what G6-10 already asserts for one entry; we re-check our
+        // helper here so a mis-encoding of the second byte fails fast.
+        check("G11-00a", "palette layer2_priority_high(K) == true",
+              pal.layer2_priority_high(K + 0) == true);
+        check("G11-00b", "palette layer2_priority_high(K+1) == false",
+              pal.layer2_priority_high(K + 1) == false);
+        check("G11-00c", "palette layer2_priority_high(K+2) == true",
+              pal.layer2_priority_high(K + 2) == true);
+
+        // Plant pixel (0,0)=K, (1,0)=K+1, (2,0)=K+2 in narrow VRAM.
+        // Other pixels stay 0; palette[0] default = transparent (and
+        // even if not, we only inspect the 3 columns we wrote).
+        fill_256x192(ram, 8, [](int, int){ return uint8_t(0); });
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, K + 0);
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 1u, K + 1);
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 2u, K + 2);
+
+        uint32_t buf[BUF_WIDTH];
+        bool prio[BUF_WIDTH];
+        // Pre-fill priority buffer with TRUE so we can detect both
+        // "should be true and got true" and "should be false and got
+        // overwritten to false" — i.e. the renderer pre-fills with
+        // false at frame start (renderer.cpp:143), then any opaque
+        // emitted pixel must overwrite. Pre-fill TRUE here makes
+        // "false-after-emit" assertions meaningful.
+        memset(buf, 0, sizeof(buf));
+        std::fill_n(prio, BUF_WIDTH, true);
+
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal,
+                           /*render_width*/ 320,
+                           /*rom_in_sram*/ false,
+                           /*priority_dst*/ prio);
+
+        // Pixels (0,0), (1,0), (2,0) emit at framebuffer columns
+        // DISP_X_NARROW + 0, +1, +2 respectively (narrow mode offset).
+        check("G11-01a",
+              "narrow: priority bit on (idx K) propagates to priority_dst",
+              prio[DISP_X_NARROW + 0] == true,
+              DETAIL("prio[%d]=%d", DISP_X_NARROW + 0,
+                     int(prio[DISP_X_NARROW + 0])));
+        check("G11-01b",
+              "narrow: priority bit off (idx K+1) overwrites priority_dst false",
+              prio[DISP_X_NARROW + 1] == false,
+              DETAIL("prio[%d]=%d", DISP_X_NARROW + 1,
+                     int(prio[DISP_X_NARROW + 1])));
+        check("G11-01c",
+              "narrow: priority bit on (idx K+2) propagates to priority_dst",
+              prio[DISP_X_NARROW + 2] == true,
+              DETAIL("prio[%d]=%d", DISP_X_NARROW + 2,
+                     int(prio[DISP_X_NARROW + 2])));
+    }
+
+    // ---------- G11-02: narrow transparent pixels leave priority untouched ----------
+    // VHDL zxnext.vhd:7121 — a transparency match (palette RRRGGGBB ==
+    // NR 0x14) suppresses L2 pixel emission. Our impl `continue`s, so
+    // priority_dst[x] must keep whatever value the caller pre-filled. The
+    // renderer relies on this to keep transparent positions at the frame-
+    // start zero-fill (false).
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        pal.set_global_transparency(0xE3);  // VHDL default
+        // Plant entry K with priority TRUE but its palette colour matches
+        // NR 0x14 → transparent. The pixel must NOT update priority_dst.
+        constexpr uint8_t K = 0x70;
+        set_l2_palette_with_priority(pal, K, /*RGB=transp*/ 0xE3, /*prio*/ true);
+        // Sanity: the palette's RGB8 lookup must equal NR 0x14 so the
+        // L2 transparency check fires.
+        check("G11-02a (precond)",
+              "palette layer2_rgb8(K) == NR 0x14 (= 0xE3)",
+              pal.layer2_rgb8(K) == 0xE3,
+              DETAIL("rgb8(K)=0x%02X", unsigned(pal.layer2_rgb8(K))));
+
+        fill_256x192(ram, 8, [](int, int){ return uint8_t(0); });
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, K);
+
+        uint32_t buf[BUF_WIDTH];
+        bool prio[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        // Sentinel: pre-fill priority TRUE everywhere. After render, the
+        // pixel position should still be TRUE (untouched) since the L2
+        // pixel was suppressed by transparency. If the impl wrote the
+        // priority bit anyway, this assertion catches it.
+        std::fill_n(prio, BUF_WIDTH, true);
+
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, 320, false, prio);
+
+        check("G11-02b",
+              "narrow: transparent L2 pixel leaves priority_dst untouched",
+              prio[DISP_X_NARROW + 0] == true,
+              DETAIL("prio[%d]=%d", DISP_X_NARROW + 0,
+                     int(prio[DISP_X_NARROW + 0])));
+    }
+
+    // ---------- G11-03: 320x256 wide-mode propagation ----------
+    // VHDL: layer2.vhd:160 — wide column-major emit. Same priority
+    // semantic as narrow.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        pal.set_global_transparency(0xFF);
+        l2.set_control(0x10);     // resolution = 01 (320x256)
+        l2.set_clip_y2(0xFF);     // disable y-clip for full coverage
+        constexpr uint8_t K = 0x50;
+        set_l2_palette_with_priority(pal, K + 0, OPAQUE_RGB,    /*prio*/ true);
+        set_l2_palette_with_priority(pal, K + 1, OPAQUE_RGB+1,  /*prio*/ false);
+
+        // Plant pixel at (col=0, y=0)=K and (col=1, y=0)=K+1 (column-major).
+        fill_320x256(ram, 8, [](int, int){ return uint8_t(0); });
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, K + 0);  // col=0, y=0
+        write_both(ram, 8, /*l2_addr*/ 1u * 256u + 0u, K + 1);  // col=1, y=0
+
+        uint32_t buf[BUF_WIDTH];
+        bool prio[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        std::fill_n(prio, BUF_WIDTH, true);
+
+        l2.render_scanline(buf, /*row*/ 0, ram, pal, 320, false, prio);
+
+        check("G11-03a",
+              "wide: priority bit on (idx K) propagates at col 0",
+              prio[0] == true,
+              DETAIL("prio[0]=%d", int(prio[0])));
+        check("G11-03b",
+              "wide: priority bit off (idx K+1) overwrites false at col 1",
+              prio[1] == false,
+              DETAIL("prio[1]=%d", int(prio[1])));
+    }
+
+    // ---------- G11-04: 640x256 native (res-2) propagates to BOTH cells ----------
+    // VHDL: layer2.vhd:160 — 640x256 packs 2 pixels per byte (high nibble
+    // = left, low nibble = right). When render_width=640, BOTH framebuffer
+    // cells must receive the priority bit. (Tested both nibbles of the
+    // same source byte to verify the code paths are independent.)
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        pal.set_global_transparency(0xFF);
+        l2.set_control(0x20);     // resolution = 10 (640x256, 4bpp)
+        l2.set_clip_y2(0xFF);
+        // 4bpp uses palette_offset (NR 0x70 b3:0) << 4 | nibble for the
+        // index. NR 0x70 = 0x20 sets palette_offset = 0, so nibble N
+        // selects palette index 0x0N. Plant entries 0x01 and 0x02:
+        set_l2_palette_with_priority(pal, 0x01, OPAQUE_RGB,    /*prio*/ true);
+        set_l2_palette_with_priority(pal, 0x02, OPAQUE_RGB+1,  /*prio*/ false);
+
+        // Plant byte 0x12 at (col=0, y=0): high nibble = 1 (priority TRUE),
+        // low nibble = 2 (priority FALSE). With render_width=640 these
+        // emit at framebuffer cells col*2=0 and col*2+1=1.
+        fill_640x256(ram, 8, [](int, int){ return uint8_t(0); });
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, 0x12);
+
+        uint32_t buf[BUF_WIDTH];
+        bool prio[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        std::fill_n(prio, BUF_WIDTH, true);
+
+        l2.render_scanline(buf, /*row*/ 0, ram, pal,
+                           /*render_width*/ 640, false, prio);
+
+        check("G11-04a",
+              "640px: left nibble (idx 0x01) writes priority TRUE at col*2",
+              prio[0] == true,
+              DETAIL("prio[0]=%d", int(prio[0])));
+        check("G11-04b",
+              "640px: right nibble (idx 0x02) writes priority FALSE at col*2+1",
+              prio[1] == false,
+              DETAIL("prio[1]=%d", int(prio[1])));
+    }
+
+    // ---------- G11-05: 640x256 in 320 fallback emits left nibble only ----------
+    // When render_width=320 in res-2/3, only the left pixel of each
+    // source byte is emitted (at column `col`, not `col*2`). Priority
+    // propagation must follow the same path.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        pal.set_global_transparency(0xFF);
+        l2.set_control(0x20);     // resolution = 10
+        l2.set_clip_y2(0xFF);
+        set_l2_palette_with_priority(pal, 0x01, OPAQUE_RGB,    /*prio*/ true);
+        set_l2_palette_with_priority(pal, 0x02, OPAQUE_RGB+1,  /*prio*/ false);
+
+        fill_640x256(ram, 8, [](int, int){ return uint8_t(0); });
+        // col=0 byte = 0x12, col=1 byte = 0x21
+        //   col=0 left nibble = 1 (prio TRUE)
+        //   col=1 left nibble = 2 (prio FALSE)
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, 0x12);
+        write_both(ram, 8, /*l2_addr*/ 1u * 256u + 0u, 0x21);
+
+        uint32_t buf[BUF_WIDTH];
+        bool prio[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        std::fill_n(prio, BUF_WIDTH, true);
+
+        l2.render_scanline(buf, /*row*/ 0, ram, pal,
+                           /*render_width*/ 320, false, prio);
+
+        check("G11-05a",
+              "640@320: col=0 left nibble (idx 0x01) writes prio TRUE at col 0",
+              prio[0] == true,
+              DETAIL("prio[0]=%d", int(prio[0])));
+        check("G11-05b",
+              "640@320: col=1 left nibble (idx 0x02) writes prio FALSE at col 1",
+              prio[1] == false,
+              DETAIL("prio[1]=%d", int(prio[1])));
+    }
+
+    // ---------- G11-06: nullptr priority_dst is honoured (no crash) ----------
+    // The debugger video panel calls render_scanline_debug, which forwards
+    // nullptr. This must not crash and must not write anywhere.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset(); l2.set_enabled(true);
+        pal.set_global_transparency(0xFF);
+        constexpr uint8_t K = 0x40;
+        set_l2_palette_with_priority(pal, K, OPAQUE_RGB, true);
+        fill_256x192(ram, 8, [](int, int){ return uint8_t(0); });
+        write_both(ram, 8, /*l2_addr*/ 0u * 256u + 0u, K);
+
+        uint32_t buf[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        // Pass nullptr explicitly. The fact this returns is the assertion;
+        // the colour buffer is also checked to confirm rendering still
+        // worked.
+        l2.render_scanline(buf, DISP_Y_NARROW + 0, ram, pal, 320, false,
+                           /*priority_dst*/ nullptr);
+        check("G11-06",
+              "nullptr priority_dst: render still emits colour, no crash",
+              buf[DISP_X_NARROW + 0] == pal.layer2_colour(K),
+              DETAIL("buf[%d]=0x%08X", DISP_X_NARROW + 0,
+                     buf[DISP_X_NARROW + 0]));
+    }
+}
+
 // ── main ─────────────────────────────────────────────────────────────────
 int main() {
     printf("Layer 2 Compliance Tests (VHDL-derived rewrite)\n");
@@ -1819,6 +2116,8 @@ int main() {
     printf("  Group: G10d per-scanline NR 0x12/0x13 — done\n");
     test_group10e_per_scanline_enable();
     printf("  Group: G10e per-scanline L2 enable — done\n");
+    test_group11_priority_propagation();
+    printf("  Group: G11 priority propagation — done\n");
     log_deferred();
 
     printf("\n================================================\n");
