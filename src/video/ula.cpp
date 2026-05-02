@@ -883,13 +883,19 @@ void Ula::render_display_line_hicolour(uint32_t* row, int screen_row, Mmu& mmu)
             paper_argb = lookup_colour(std_ula_paper_pixel(attr));
         }
 
-        uint32_t* dst = row + DISP_X + col * 8;
+        // VHDL zxula.vhd:390-393 — lo-res shift_reg_32 doubles each
+        // shift_pbyte bit; HI_COLOUR is mode 010 (shift_screen_mode(2)='0')
+        // so the same intrinsic doubling applies.  Each source bit emits
+        // 2 adjacent framebuffer cells; per source byte = 16 cells emitted.
+        uint32_t* dst = row + DISP_X + col * 16;
         for (int bit = 7; bit >= 0; --bit) {
-            *dst++ = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+            const uint32_t px = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+            *dst++ = px;
+            *dst++ = px;
         }
     }
 
-    // Fill right border.
+    // Fill right border (FB_WIDTH - DISP_X - DISP_W = 64 cells under G104).
     uint32_t* right = row + DISP_X + DISP_W;
     for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
         right[x] = border_argb;
