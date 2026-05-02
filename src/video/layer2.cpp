@@ -438,6 +438,10 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // ---------------------------------------------------------------
         // 320x256 @ 8bpp (column-major: addr = x * 256 + y)
         // ---------------------------------------------------------------
+        // G104 Phase 3: 320 source pixels → 640 emitted (each doubled).
+        // The 320-mode source covers the entire 640-wide framebuffer
+        // (no border on the sides) — VHDL layer2.vhd:164 marks the
+        // wide mode active over hc_eff = 0..319.
         if (row < 0 || row >= 256)
             return;
 
@@ -448,8 +452,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // Y scroll wraps at 256 (natural 8-bit wrap).
         uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
 
-        // VHDL clip for wide mode: clip_x1 & '0', clip_x2 & '1'
-        // So clip register value is doubled: clip_x1*2 .. clip_x2*2+1
+        // VHDL clip for wide mode: clip_x1_q = i_clip_x1 & '0',
+        //                          clip_x2_q = i_clip_x2 & '1'
+        // (layer2.vhd:133-134). 9-bit register space spans 0..511; the
+        // 8-bit clip register is therefore in units of "2 source pixels"
+        // and `<<1` maps it onto the source column index x ∈ 0..319.
+        // hc_eff (the per-pixel comparison signal at line 167) traverses
+        // the same 0..319 source space in 320-mode, so direct comparison
+        // against x is VHDL-faithful.
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
 
@@ -474,7 +484,10 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             if (palette.layer2_rgb8(colour_idx) == transp_rgb)
                 continue;
 
-            dst[x] = palette.layer2_colour(colour_idx);
+            // Pixel-double: 320 source → 640 framebuffer cells.
+            uint32_t argb = palette.layer2_colour(colour_idx);
+            dst[2 * x]     = argb;
+            dst[2 * x + 1] = argb;
         }
     }
     else {
