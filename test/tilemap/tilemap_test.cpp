@@ -1299,7 +1299,7 @@ void group10_transparency() {
         }
         uint32_t out[320];
         std::memset(out, 0, sizeof(out));
-        R.composite_scanline(out, /*fallback_argb=*/0u, 320);
+        R.composite_scanline(out, /*fallback_argb=*/0u);
 
         check_pred("TM-95",
                    tm_pre_ok && out[0] == ula_pix,
