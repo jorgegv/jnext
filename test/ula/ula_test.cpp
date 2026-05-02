@@ -501,31 +501,29 @@ static void test_section5_timex() {
     }
 
     // S5.05 — hi-res mode (mode 110 = port_ff bits 2:0 = 110 per VHDL
-    // zxula.vhd:191).  port_val = 0x06; HI_RES mode is reached because
-    // mode_bits = port_val & 0x07 = 0b110.  Pixel bytes 0xFF at both
-    // screen-0 and screen-1 → all output pixels render as ink.  Under the
-    // current jnext HI_RES renderer (`render_display_line_hires` in
-    // src/video/ula.cpp), ink derives from `port_ff(2:0)` of the stored
-    // register byte = 0b110 = 6 → yellow.  (Per VHDL zxula.vhd:419 +
-    // 426-427, the "real" HI_RES attr_reg is `border_clr_tmx` — i.e.
-    // ink = port_ff(5:3), paper = ~port_ff(5:3) — but that renderer
-    // rewrite is Issue #2 in `project_g104_closed_canonical_640.md`.
-    // This test observes only the byte-interleave path + mode decode;
-    // the chosen colour matches what the current renderer emits.)
+    // zxula.vhd:191).  port_val = 0x06 | (5 << 3) = 0x2E; mode_bits = 110
+    // selects HI_RES; paper bits 5:3 = 5 (cyan) per Timex spec.
+    // Per VHDL zxula.vhd:419 + 426-427: HI_RES attr_reg is loaded with
+    // `border_clr_tmx = "01" & ~port_ff(5:3) & port_ff(5:3)` — bit 6=BRIGHT,
+    // ink bits 2:0 = port_ff(5:3) = 5, paper bits 5:3 = ~5 & 7 = 2.
+    // Pixel bytes 0xFF at both screen-0 and screen-1 → all output pixels
+    // render as ink = bright cyan.
     {
         UlaBed bed;
-        bed.ula.set_screen_mode(0x06);  // hi-res; mode_bits = 110
+        bed.ula.set_screen_mode(0x06 | (5 << 3));  // 0x2E: HI_RES + paper=cyan
         bed.poke(0x4000 + emu_pixel_addr_offset(0, 0), 0xFF);
         bed.poke(0x6000 + emu_pixel_addr_offset(0, 0), 0xFF);
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
-        const uint32_t exp_yellow = bed_ink_argb(bed.palette, 6);
+        // Per VHDL border_clr_tmx: ink = bright(port_ff(5:3)) = bright cyan.
+        const uint32_t exp_bright_cyan = bed_ink_argb(bed.palette, 5 | 0x08);
         check("S5.05",
-              "zxula.vhd:191/389 — port_ff(2:0)=110 selects HI_RES; "
-              "shift_reg_32 interleaves primary/secondary bytes; current "
-              "renderer derives ink from screen_mode_reg(2:0) = 6 (yellow)",
-              line[Ula::DISP_X] == exp_yellow,
-              fmt("got 0x%08X exp 0x%08X (yellow)", line[Ula::DISP_X], exp_yellow));
+              "zxula.vhd:191/389/419/426-427 — HI_RES via port_ff(2:0)=110; "
+              "byte-interleave + border_clr_tmx ink derivation: ink = "
+              "bright(port_ff(5:3)) = bright cyan when paper bits = 5",
+              line[Ula::DISP_X] == exp_bright_cyan,
+              fmt("got 0x%08X exp 0x%08X (bright cyan)",
+                  line[Ula::DISP_X], exp_bright_cyan));
     }
 
     // S5.06 — hi-res border colour uses border_clr_tmx.  Per VHDL
@@ -1004,12 +1002,11 @@ static void test_section5_timex() {
 
     // S5-PSL.03 — HI_RES on line N, STANDARD on line N+1: STANDARD uses
     // the attr byte at 0x5800 (here ink cyan/5).  HI_RES under VHDL bits
-    // 2:0 mode convention means port_ff = 0x06 (mode 110, alt_file=0);
-    // the current jnext HI_RES renderer derives ink from port_ff(2:0) of
-    // the stored register byte (= 110 = 6 → yellow).  After rewind+replay,
-    // line N must be yellow and line N+1 cyan.  Symmetry with S5-PSL.02.
-    // (Issue #2 may flip the renderer's ink derivation to port_ff(5:3)
-    // per VHDL `border_clr_tmx`; that is a separate cleanup.)
+    // 2:0 mode convention with paper=cyan in bits 5:3 means port_ff =
+    // 0x06 | (5 << 3) = 0x2E.  Per VHDL zxula.vhd:419 + 426-427, HI_RES
+    // ink = bright(port_ff(5:3)) = bright cyan.  After rewind+replay,
+    // line N must render bright cyan; line N+1 STANDARD renders cyan
+    // from attr.  Symmetry with S5-PSL.02.
     {
         UlaBed bed;
         // HI_RES needs both pixel halves; renderer reads them as monochrome.
@@ -1019,8 +1016,8 @@ static void test_section5_timex() {
         bed.poke(0x4000 + emu_pixel_addr_offset(1, 0), 0xFF);
         bed.poke(0x5800,                              0x05);  // ink cyan
 
-        // Baseline HI_RES (bits 2:0 = 110 per zxula.vhd:191): port_val = 0x06.
-        bed.ula.set_screen_mode(0x06);
+        // Baseline HI_RES (bits 2:0=110 per zxula.vhd:191; paper=5 in bits 5:3): port_val = 0x2E.
+        bed.ula.set_screen_mode(0x06 | (5 << 3));
         bed.ula.start_frame();
         // Switch to STANDARD (mode 000) tagged at line 33.
         bed.ula.set_current_line(33);
@@ -1033,14 +1030,15 @@ static void test_section5_timex() {
         bed.ula.apply_changes_for_line(33);        // applies STANDARD
         bed.ula.render_scanline(b.data(), 33, bed.mmu);   // STANDARD
 
-        const uint32_t yellow = bed_ink_argb(bed.palette, 6);
-        const uint32_t cyan   = bed_ink_argb(bed.palette, 5);
+        const uint32_t bright_cyan = bed_ink_argb(bed.palette, 5 | 0x08);
+        const uint32_t cyan        = bed_ink_argb(bed.palette, 5);
         check("S5-PSL.03",
-              "zxula.vhd:191/209 — HI_RES on line 32 then STANDARD on "
-              "line 33 produces yellow then cyan after replay",
-              a[Ula::DISP_X] == yellow && b[Ula::DISP_X] == cyan,
-              fmt("hires=0x%08X (exp yellow 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
-                  a[Ula::DISP_X], yellow, b[Ula::DISP_X], cyan));
+              "zxula.vhd:191/209/419/426-427 — HI_RES (paper=5) on line 32 "
+              "then STANDARD on line 33: bright cyan ink in HI_RES then "
+              "non-bright cyan in STANDARD after replay",
+              a[Ula::DISP_X] == bright_cyan && b[Ula::DISP_X] == cyan,
+              fmt("hires=0x%08X (exp bright cyan 0x%08X)  std=0x%08X (exp cyan 0x%08X)",
+                  a[Ula::DISP_X], bright_cyan, b[Ula::DISP_X], cyan));
     }
 
     // S5-PSL.04 — start_frame rewinds the port-0xFF log: the live
