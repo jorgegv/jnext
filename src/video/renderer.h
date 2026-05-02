@@ -31,14 +31,18 @@ enum class LayerPriority : uint8_t {
 /// VHDL reference: zxnext.vhd lines 7193-7354 (compositor process).
 class Renderer {
 public:
-    static constexpr int FB_WIDTH     = 320;
-    static constexpr int FB_WIDTH_HI  = 640;
+    // Canonical 640-wide framebuffer (G104). Layout:
+    //   64 left border + 512 display + 64 right border = 640 columns.
+    //   32 top border + 192 display + 32 bottom border = 256 rows.
+    static constexpr int FB_WIDTH     = 640;
     static constexpr int FB_HEIGHT    = 256;
 
-    // Display area within the framebuffer (matches ULA constants)
-    static constexpr int DISP_X = 32;   // left border width
+    // Display area within the framebuffer (matches ULA-side widened constants
+    // post-Phase-2; Phase 1 keeps the per-layer renderers emitting 320-grid
+    // and the compositor doubles in-place — see renderer.cpp scaffold).
+    static constexpr int DISP_X = 64;   // left border width
     static constexpr int DISP_Y = 32;   // top border height
-    static constexpr int DISP_W = 256;  // active display width
+    static constexpr int DISP_W = 512;  // active display width
     static constexpr int DISP_H = 192;  // active display height
 
     /// Reset renderer state to power-on defaults.
@@ -269,18 +273,17 @@ public:
 
     /// Render one complete frame into the ARGB8888 framebuffer.
     ///
-    /// @param framebuffer  Pointer to FB_WIDTH_HI x FB_HEIGHT pixels (max).
+    /// @param framebuffer  Pointer to FB_WIDTH x FB_HEIGHT pixels (always 640×256).
     /// @param mmu          MMU for VRAM access (ULA).
     /// @param ram          Physical RAM for Layer 2 and Tilemap.
     /// @param palette      Palette manager for colour lookups.
     /// @param sprites      Sprite engine (may be null if not yet wired).
     /// @param tilemap      Tilemap renderer (may be null if not yet wired).
-    /// @return             Actual composite width (320 or 640).
-    int render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
-                     PaletteManager& palette,
-                     class Layer2& layer2,
-                     SpriteEngine* sprites,
-                     Tilemap* tilemap);
+    void render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
+                      PaletteManager& palette,
+                      class Layer2& layer2,
+                      SpriteEngine* sprites,
+                      Tilemap* tilemap);
 
     /// Configure the per-pixel compositor trace (debug). When path is
     /// non-empty, the renderer dumps one CSV row per pixel of the target
@@ -351,26 +354,20 @@ private:
     // Transparent pixel marker — alpha channel = 0.
     static constexpr uint32_t TRANSPARENT = 0x00000000;
 
-    // Per-scanline layer buffers (640 pixels max to support hi-res modes)
-    std::array<uint32_t, FB_WIDTH_HI> ula_line_{};
-    std::array<uint32_t, FB_WIDTH_HI> layer2_line_{};
-    std::array<uint32_t, FB_WIDTH_HI> sprite_line_{};
-    std::array<uint32_t, FB_WIDTH_HI> tilemap_line_{};
-    std::array<bool, FB_WIDTH_HI>     tm_pixel_below_{};  // VHDL tm_pixel_below_2: per-pixel tilemap-below-ULA flag
-    std::array<bool, FB_WIDTH_HI>     tm_pixel_textmode_{}; // VHDL tm_pixel_textmode_2: per-pixel textmode flag (G101)
-    std::array<bool, FB_WIDTH_HI>     layer2_priority_{}; // palette bit 15 (L2 promotion)
-    std::array<bool, FB_WIDTH_HI>     ula_border_{};      // true when pixel is border region
-
-    /// True when any 640px layer is active this frame.
-    bool hi_res_active_ = false;
-
-    /// Active composite width (320 or 640) for the current frame.
-    int composite_width_ = FB_WIDTH;
+    // Per-scanline layer buffers (640 columns — canonical width post-G104).
+    std::array<uint32_t, FB_WIDTH> ula_line_{};
+    std::array<uint32_t, FB_WIDTH> layer2_line_{};
+    std::array<uint32_t, FB_WIDTH> sprite_line_{};
+    std::array<uint32_t, FB_WIDTH> tilemap_line_{};
+    std::array<bool, FB_WIDTH>     tm_pixel_below_{};  // VHDL tm_pixel_below_2: per-pixel tilemap-below-ULA flag
+    std::array<bool, FB_WIDTH>     tm_pixel_textmode_{}; // VHDL tm_pixel_textmode_2: per-pixel textmode flag (G101)
+    std::array<bool, FB_WIDTH>     layer2_priority_{}; // palette bit 15 (L2 promotion)
+    std::array<bool, FB_WIDTH>     ula_border_{};      // true when pixel is border region
 
     /// Composite one scanline from the layer buffers into the output.
+    /// Always operates at FB_WIDTH (640) columns post-G104 Phase 1.
     /// @param fallback_argb  ARGB8888 fallback colour for when all layers are transparent.
-    /// @param width          Composite width (320 or 640).
-    void composite_scanline(uint32_t* dst, uint32_t fallback_argb, int width);
+    void composite_scanline(uint32_t* dst, uint32_t fallback_argb);
 
     /// Check if a pixel is transparent (alpha channel = 0).
     static bool is_transparent(uint32_t argb) { return (argb & 0xFF000000) == 0; }

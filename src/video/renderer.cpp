@@ -45,11 +45,11 @@ void Renderer::set_compositor_trace(const std::string& path, int target_frame) {
 //
 // VHDL reference: zxnext.vhd lines 7193-7354.
 
-int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
-                            PaletteManager& palette,
-                            Layer2& layer2,
-                            SpriteEngine* sprites,
-                            Tilemap* tilemap)
+void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
+                             PaletteManager& palette,
+                             Layer2& layer2,
+                             SpriteEngine* sprites,
+                             Tilemap* tilemap)
 {
     // Compositor trace (CLI-gated, see set_compositor_trace + header).
     // First frame after the path is set opens the file; the frame-counter
@@ -68,10 +68,14 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
     const int trace_frame_no = ++trace_frame_counter_;
     trace_active_ = (trace_fp_ && trace_frame_no == trace_target_frame_);
 
-    // Detect hi-res mode: any 640px layer active this frame?
-    hi_res_active_ = (layer2.enabled() && layer2.resolution() >= 2) ||
-                     (tilemap && tilemap->enabled() && tilemap->is_80col());
-    composite_width_ = hi_res_active_ ? FB_WIDTH_HI : FB_WIDTH;
+    // PHASE 1 SCAFFOLD (G104): the framebuffer is now 640-wide canonically.
+    // Per-layer renderers (Ula, Layer2, Tilemap, SpriteEngine) still emit at
+    // 320-grid in this phase; the per-line buffers are 640-wide storage but
+    // only cells [0..319] are populated by the layer pass. After all layers
+    // fill their 320-grid line, an unconditional pixel-doubling pass below
+    // expands [0..319] -> [0..639]. Phases 2-5 land each layer at native 640;
+    // Phase 6 deletes this scaffold and the layer-side 320 emission.
+    static constexpr int kLegacyLayerWidth = 320;
 
     // Per-scanline palette: rewind to the frame's baseline so the
     // line-by-line apply below sees the same starting state the Z80
@@ -131,17 +135,20 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             tilemap->apply_nr6b_changes_for_line(row);
         }
 
-        uint32_t* out = framebuffer + row * composite_width_;
+        uint32_t* out = framebuffer + row * FB_WIDTH;
         const int screen_row = row - DISP_Y;  // display row (negative = top border)
 
         // --- Clear layer buffers to transparent ---
-        std::fill_n(layer2_line_.begin(), composite_width_, TRANSPARENT);
-        std::fill_n(sprite_line_.begin(), composite_width_, TRANSPARENT);
-        std::fill_n(tilemap_line_.begin(), composite_width_, TRANSPARENT);
-        std::fill_n(tm_pixel_below_.begin(), composite_width_, false);
-        std::fill_n(tm_pixel_textmode_.begin(), composite_width_, false);
-        std::fill_n(layer2_priority_.begin(), composite_width_, false);
-        std::fill_n(ula_border_.begin(), composite_width_, false);
+        // Clear the FULL 640-wide line buffer: layers still emit only into
+        // [0..319] at Phase 1; the upper half stays TRANSPARENT until the
+        // doubling scaffold below overwrites it.
+        std::fill_n(layer2_line_.begin(), FB_WIDTH, TRANSPARENT);
+        std::fill_n(sprite_line_.begin(), FB_WIDTH, TRANSPARENT);
+        std::fill_n(tilemap_line_.begin(), FB_WIDTH, TRANSPARENT);
+        std::fill_n(tm_pixel_below_.begin(), FB_WIDTH, false);
+        std::fill_n(tm_pixel_textmode_.begin(), FB_WIDTH, false);
+        std::fill_n(layer2_priority_.begin(), FB_WIDTH, false);
+        std::fill_n(ula_border_.begin(), FB_WIDTH, false);
 
         // --- Render each layer for this scanline ---
         const bool in_display = (screen_row >= 0 && screen_row < DISP_H);
@@ -150,16 +157,18 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // 320×256 and 640×256 ("wide") modes cover all 256 rows.
         if (layer2.enabled()) {
             if (layer2.is_wide() || in_display) {
+                // PHASE 1 SCAFFOLD: pass 320-grid width; doubling below.
                 layer2.render_scanline(layer2_line_.data(), row, ram, palette,
-                                       composite_width_, mmu.rom_in_sram());
+                                       kLegacyLayerWidth, mmu.rom_in_sram());
             }
         }
 
         // Tilemap — covers the full 320×256 framebuffer (VHDL: vcounter(8)='0')
         if (tilemap && tilemap->enabled()) {
+            // PHASE 1 SCAFFOLD: pass 320-grid width; doubling below.
             tilemap->render_scanline(tilemap_line_.data(),
                                      tm_pixel_below_.data(),
-                                     row, ram, palette, composite_width_,
+                                     row, ram, palette, kLegacyLayerWidth,
                                      tm_pixel_textmode_.data());
         }
 
@@ -184,11 +193,21 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // for rows that follow the toggle. Matches the per-line fallback
         // snapshot handling already used for NR 0x4A.
         if (!ula_enabled_per_line_[row]) {
-            std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
+            // Phase 1: zero the 320-grid populated half; doubling below
+            // will mirror this state into the upper half.
+            std::fill_n(ula_line_.begin(), kLegacyLayerWidth, TRANSPARENT);
         }
 
         // ULA clip window (NextREG 0x1A).
+        // PHASE 1 SCAFFOLD: clip math runs at 320-grid because ULA still
+        // emits 320-wide; the unconditional doubling pass below then
+        // expands ula_line_ [0..319] into [0..639]. Phase 2 widens the
+        // ULA renderer to 640 and these locals collapse to Renderer::DISP_*.
         {
+            static constexpr int kLegacyDispX = 32;   // Ula::DISP_X (Phase-1)
+            static constexpr int kLegacyDispW = 256;  // Ula::DISP_W (Phase-1)
+            static constexpr int kLegacyFbW   = kLegacyLayerWidth;
+
             uint8_t cx1 = ula_.clip_x1();
             uint8_t cx2 = ula_.clip_x2();
             uint8_t cy1 = ula_.clip_y1();
@@ -201,7 +220,7 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
             bool in_border_y = !row_in_display;
 
             if (y_clipped) {
-                for (int x = DISP_X; x < DISP_X + DISP_W; ++x)
+                for (int x = kLegacyDispX; x < kLegacyDispX + kLegacyDispW; ++x)
                     ula_line_[x] = TRANSPARENT;
             }
 
@@ -213,74 +232,56 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
                     clip_border_row = true;
                 }
                 if (clip_border_row) {
-                    std::fill_n(ula_line_.begin(), FB_WIDTH, TRANSPARENT);
+                    std::fill_n(ula_line_.begin(), kLegacyFbW, TRANSPARENT);
                 }
             }
 
             if (row_in_display && !y_clipped) {
-                for (int x = 0; x < DISP_W; ++x) {
+                for (int x = 0; x < kLegacyDispW; ++x) {
                     if (x < cx1 || x > cx2)
-                        ula_line_[DISP_X + x] = TRANSPARENT;
+                        ula_line_[kLegacyDispX + x] = TRANSPARENT;
                 }
                 bool left_clipped  = (cx1 > 0);
-                bool right_clipped = (cx2 < (DISP_W - 1)) || (cx1 > cx2);
+                bool right_clipped = (cx2 < (kLegacyDispW - 1)) || (cx1 > cx2);
                 if (left_clipped) {
-                    for (int x = 0; x < DISP_X; ++x)
+                    for (int x = 0; x < kLegacyDispX; ++x)
                         ula_line_[x] = TRANSPARENT;
                 }
                 if (right_clipped) {
-                    for (int x = DISP_X + DISP_W; x < FB_WIDTH; ++x)
+                    for (int x = kLegacyDispX + kLegacyDispW; x < kLegacyFbW; ++x)
                         ula_line_[x] = TRANSPARENT;
                 }
             }
         }
 
-        // Pixel-double 320px layers in-place when hi-res is active.
-        // Must go right-to-left to avoid overwriting source pixels.
-        if (hi_res_active_) {
-            // ULA (always 320px) + border flag
-            for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                ula_line_[x * 2 + 1] = ula_line_[x];
-                ula_line_[x * 2]     = ula_line_[x];
-                ula_border_[x * 2 + 1] = ula_border_[x];
-                ula_border_[x * 2]     = ula_border_[x];
-            }
-
-            // Sprites (always 320px)
-            for (int x = FB_WIDTH - 1; x >= 0; --x) {
+        // PHASE 1 SCAFFOLD (G104): unconditional pixel-doubling pass.
+        // Each layer fills [0..319] at 320-grid; this expands every cell
+        // into two adjacent cells in [0..639] (right-to-left to avoid
+        // self-overwrite). Phases 2-5 land each layer at native 640;
+        // Phase 6 deletes this entire block.
+        {
+            for (int x = kLegacyLayerWidth - 1; x >= 0; --x) {
+                ula_line_[x * 2 + 1]    = ula_line_[x];
+                ula_line_[x * 2]        = ula_line_[x];
+                layer2_line_[x * 2 + 1] = layer2_line_[x];
+                layer2_line_[x * 2]     = layer2_line_[x];
                 sprite_line_[x * 2 + 1] = sprite_line_[x];
                 sprite_line_[x * 2]     = sprite_line_[x];
-            }
-
-            // Layer2: only double if NOT natively 640px
-            if (!(layer2.enabled() && layer2.resolution() >= 2)) {
-                for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                    layer2_line_[x * 2 + 1] = layer2_line_[x];
-                    layer2_line_[x * 2]     = layer2_line_[x];
-                    layer2_priority_[x * 2 + 1] = layer2_priority_[x];
-                    layer2_priority_[x * 2]     = layer2_priority_[x];
-                }
-            }
-
-            // Tilemap: only double if NOT natively 80-col
-            if (!(tilemap && tilemap->enabled() && tilemap->is_80col())) {
-                for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                    tilemap_line_[x * 2 + 1] = tilemap_line_[x];
-                    tilemap_line_[x * 2]     = tilemap_line_[x];
-                }
-                for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                    tm_pixel_below_[x * 2 + 1] = tm_pixel_below_[x];
-                    tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
-                }
-                for (int x = FB_WIDTH - 1; x >= 0; --x) {
-                    tm_pixel_textmode_[x * 2 + 1] = tm_pixel_textmode_[x];
-                    tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
-                }
+                tilemap_line_[x * 2 + 1] = tilemap_line_[x];
+                tilemap_line_[x * 2]     = tilemap_line_[x];
+                tm_pixel_below_[x * 2 + 1] = tm_pixel_below_[x];
+                tm_pixel_below_[x * 2]     = tm_pixel_below_[x];
+                tm_pixel_textmode_[x * 2 + 1] = tm_pixel_textmode_[x];
+                tm_pixel_textmode_[x * 2]     = tm_pixel_textmode_[x];
+                layer2_priority_[x * 2 + 1] = layer2_priority_[x];
+                layer2_priority_[x * 2]     = layer2_priority_[x];
+                ula_border_[x * 2 + 1] = ula_border_[x];
+                ula_border_[x * 2]     = ula_border_[x];
             }
         }
 
         trace_current_row_ = row;
-        composite_scanline(out, fb_argb, composite_width_);
+        composite_scanline(out, fb_argb);
     }
 
     // Close the trace file once the target frame is done so subsequent
@@ -315,8 +316,6 @@ int Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
 
     // Advance ULA flash state once per frame.
     ula_.advance_flash();
-
-    return composite_width_;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,13 +360,13 @@ static uint32_t channels_to_argb(uint8_t r3, uint8_t g3, uint8_t b2) {
     return Renderer::rrrgggbb_to_argb(rgb8);
 }
 
-void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb, int width)
+void Renderer::composite_scanline(uint32_t* dst, uint32_t fallback_argb)
 {
     // Pre-compute NR 0x14 transparency reference (RGB portion only).
     // VHDL 7100: ula_rgb_2(8 downto 1) = transparent_rgb_2
     const uint32_t nr14_rgb = rrrgggbb_to_argb(transparent_rgb_) & 0x00FFFFFF;
 
-    for (int x = 0; x < width; ++x) {
+    for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
         const uint32_t l2_px   = layer2_line_[x];
         const uint32_t spr_px  = sprite_line_[x];
