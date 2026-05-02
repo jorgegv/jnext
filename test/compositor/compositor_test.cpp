@@ -164,7 +164,7 @@ static void clear_layers(Renderer& r) {
 static uint32_t composite_one(Renderer& r, uint32_t fb_argb) {
     uint32_t out[W];
     std::memset(out, 0, sizeof(out));
-    r.composite_scanline(out, fb_argb, W);
+    r.composite_scanline(out, fb_argb);
     return out[0];
 }
 
@@ -1979,7 +1979,7 @@ static void test_BLANK() {
         const uint32_t fb = Renderer::rrrgggbb_to_argb(0xE3);
         uint32_t out[W];
         std::memset(out, 0, sizeof(out));
-        r.composite_scanline(out, fb, W);
+        r.composite_scanline(out, fb);
 
         const bool col0_active = (out[0] == PIX_ULA);
         const bool col1_blank  = (out[1] == fb);
