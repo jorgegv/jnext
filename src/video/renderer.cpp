@@ -263,12 +263,8 @@ void Renderer::render_frame(uint32_t* framebuffer, Mmu& mmu, Ram& ram,
         // Phase 2 (G104): ULA + ula_border_ now 640-native — removed.
         // Phase 3 (G104): Layer2 + layer2_priority_ now 640-native — removed.
         // Phase 4 (G104): Tilemap + tm_pixel_below_/textmode_ now 640-native — removed.
-        {
-            for (int x = kLegacyLayerWidth - 1; x >= 0; --x) {
-                sprite_line_[x * 2 + 1] = sprite_line_[x];
-                sprite_line_[x * 2]     = sprite_line_[x];
-            }
-        }
+        // Phase 5 (G104): Sprites now 640-native (internal 320-grid + emit pixel double) — removed.
+        // ALL LAYERS NOW 640-NATIVE. Phase 6 deletes this entire (now-empty) loop.
 
         trace_current_row_ = row;
         composite_scanline(out, fb_argb);
