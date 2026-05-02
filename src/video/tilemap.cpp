@@ -311,27 +311,24 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
 
     // Shift mapping screen_x (0..639) into the index that is compared
-    // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  VHDL
-    // tilemap.vhd:415-424 fires the clip gate at 7 MHz (hcounter
-    // granularity).  In our 14 MHz / 640-cell framebuffer:
-    //   80-col (VHDL tm_mode='1'): hcount(10:1) = 14 MHz source pixels
-    //     → 1 source pixel per output cell, 2 source pixels per
-    //     hcounter step.  Map screen_x → hcounter via `>> 1`.
-    //   40-col (VHDL tm_mode='0'): hcount(10:2) = 7 MHz source pixels
-    //     held into the 14 MHz output → 1 source pixel per 2 output
-    //     cells, 1 source pixel per hcounter step.  In this code path
-    //     each output cell receives an independent clip decision keyed
-    //     directly on screen_x (i.e. shift=0); pairs of output cells
-    //     fall on the same source-pixel anyway, so clip ranges that
-    //     are 2-cell-aligned reproduce hcounter-granular gating, while
-    //     odd-aligned ranges split a doubled source pixel — the paired
-    //     downstream code in `tilemap_x = screen_x >> 1` makes the two
-    //     halves still reference the same RAM byte, only one is masked.
-    //     This matches the prompt's locked decision; if VHDL-faithful
-    //     hcounter-granular gating is required (i.e. force shift=1 for
-    //     both modes), TM-112-style 2-cell tests need to assert
-    //     dst[0x40..0x43] opaque instead of dst[0x20..0x21].
-    const int clip_x_shift = mode_80col_ ? 1 : 0;
+    // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  Per
+    // VHDL tilemap.vhd:424, the clip comparator (`pixel_en_s`) runs
+    // against `hcounter_i` (9-bit, 0..319 visible, paced at 7 MHz)
+    // — NOT against `hcount_effsub` — so the clip decision is paced at
+    // 320-grid hcounter granularity REGARDLESS of col-mode.  In our
+    // 14 MHz / 640-cell framebuffer each pair of output cells
+    // (2k, 2k+1) shares one `hcounter_i` step; mapping
+    // screen_x → hcounter_i is `screen_x >> 1` in BOTH col-modes.
+    //
+    // The col-mode only affects which SOURCE PIXEL each output cell
+    // reads (VHDL tilemap.vhd:228 selects `hcount(10:1)` for 80-col
+    // vs `hcount(10:2)` for 40-col, i.e. hcount_effsub).  It does NOT
+    // affect the clip-comparator rate.  Consequently, a single
+    // clip_x register-pair (xsv = clip_x1*2, xev = clip_x2*2+1)
+    // covers exactly 4 output cells in the 640-grid: cells
+    // (2*xsv, 2*xsv+1, 2*xev, 2*xev+1) — or, with xsv=clip_x1*2 and
+    // xev=clip_x2*2+1 contiguous, cells [2*clip_x1*2 .. 2*(clip_x2*2+1)+1].
+    const int clip_x_shift = 1;
 
     const uint8_t transp_idx = palette.tilemap_transparency();
 
