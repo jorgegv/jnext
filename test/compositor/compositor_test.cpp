@@ -106,7 +106,7 @@ static char g_buf[512];
 // and asserts equality. Such assertions will legitimately fail until
 // the emulator is fixed.
 
-static constexpr int W = 320;
+static constexpr int W = Renderer::FB_WIDTH;  // G104 phase1: canonical 640
 
 // VHDL: fallback_rgb_2 & (fallback_rgb_2(1) or fallback_rgb_2(0)) — line 7214.
 // Returns the synthesised 9-bit value as an unsigned int.
@@ -2371,10 +2371,10 @@ static void test_PSCAN() {
 
         // Display row 0 = framebuffer row 32 (DISP_Y), so:
         //   line 100 means framebuffer row 100 (above DISP_Y+100 = 132).
-        // Sample left of border (x=32) at fb_row 50 (before line 100,
-        //   so inside display rows 18..23) and fb_row 200 (after).
-        const uint32_t before = fb[ 50 * Renderer::FB_WIDTH + 32];
-        const uint32_t after  = fb[200 * Renderer::FB_WIDTH + 32];
+        // Sample first display column (x=DISP_X=64 in canonical 640-wide FB) at
+        //   fb_row 50 (before line 100, so inside display rows 18..23) and fb_row 200 (after).
+        const uint32_t before = fb[ 50 * Renderer::FB_WIDTH + Renderer::DISP_X];
+        const uint32_t after  = fb[200 * Renderer::FB_WIDTH + Renderer::DISP_X];
 
         // Compare to expected ARGB. Both come through PaletteManager
         // ula_colour(false, 2) at the moment of render.
