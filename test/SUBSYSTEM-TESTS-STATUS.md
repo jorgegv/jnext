@@ -18,7 +18,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A). |
 | CTC + Interrupts      |      133 |      129 |      0 |       4 |     96% | 🟡 Task 7r2: G49 NR-C0-02 promoted from WONT comment. |
 | CTC (integration)     |       21 |       12 |      0 |       9 |     57% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| Layer 2               |      119 |      118 |      0 |       1 |     99% | 🟡 Task 8: L2-G17-01 retired (G164v2); G9-G28-01 cycle-accurate deferred. |
+| Layer 2               |      134 |      133 |      0 |       1 |     99% | 🟡 Task 8: L2-G17-01 retired (G164v2); G9-G28-01 cycle-accurate deferred. |
 | UART + I2C/RTC        |      102 |       92 |      0 |      10 |     90% | 🟡 Task 7r2: G39 ESP-01..04 added. |
 | UART (integration)    |       13 |       12 |      0 |       1 |     92% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | 🟡 Task 8 t1: G123/G124/G125/G131/G137 closed (-7). |
@@ -26,7 +26,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 Task 7r2: G06/G13/G15 OVF + NR70 stubs added. |
 | Compositor            |      144 |      142 |      0 |       2 |     98% | 🟡 Task 8 W1+W2: G27/G93/G04-01/G11×3 closed; G108×3 + G04-02/03 re-homed. |
 | Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 Task 8 t1: G108 PFF×4 added. |
-| ULA Video             |      100 |      100 |      0 |       0 |    100% | 🟢 G104 closed (S5.10 HI_RES 512px byte-interleave); G105 HI_RES border closed. |
+| ULA Video             |      105 |      105 |      0 |       0 |    100% | 🟢 G104 closed (S5.10 HI_RES 512px byte-interleave); G105 HI_RES border closed. |
 | ULA Video (int)       |       12 |       12 |      0 |       0 |    100% | 🟢 Task 8: G102 ULAnext palette runtime closed. |
 | Floating Bus          |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       37 |       37 |      0 |       0 |    100% | 🟢 Task 8 W1: G71/G106/G107/G109 closed (zero skips). |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3743** | **3570** |  **0** | **173** | **95%** | 🟡  |
+| **Total**             | **3763** | **3590** |  **0** | **173** | **95%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
