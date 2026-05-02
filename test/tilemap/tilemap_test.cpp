@@ -1519,7 +1519,13 @@ void group12_clip() {
 
     // TM-112: clip X coordinates are doubled by VHDL tilemap.vhd:416-417:
     //   xsv = clip_x1*2, xev = clip_x2*2 + 1.
-    // Set clip_x1=clip_x2=0x10 → window covers pixel-x 0x20..0x21 only.
+    // Set clip_x1=clip_x2=0x10 → window covers hcounter_i ∈ [0x20, 0x21]
+    // (320-grid).  Per VHDL tilemap.vhd:424 the clip comparator runs
+    // against `hcounter_i` regardless of col-mode, so in jnext's 14 MHz
+    // / 640-cell framebuffer each `hcounter_i` step covers a pair of
+    // output cells.  hcounter_i=0x20 → cells [0x40..0x41];
+    // hcounter_i=0x21 → cells [0x42..0x43]; total 4 opaque cells in
+    // BOTH col-modes.  Default mode here is 40-col (set_enabled only).
     {
         fresh(tm, pal, ram);
         paint_tm_palette_entry(pal, 0x03, 0xE0);
@@ -1532,12 +1538,16 @@ void group12_clip() {
         tm.set_clip_y1(0x00);
         tm.set_clip_y2(0xFF);
         auto s = render_line(tm, 0, ram, pal);
-        // Pixels 0x20 and 0x21 must be opaque, outside must be transparent.
-        bool ok = (s.pixels[0x20] != 0u) && (s.pixels[0x21] != 0u) &&
-                  (s.pixels[0x1F] == 0u) && (s.pixels[0x22] == 0u);
+        // Cells 0x40..0x43 must be opaque (one clip_x register pair = 4
+        // 640-grid cells under VHDL `pixel_en_s` hcounter-granular
+        // gating); cells 0x3F and 0x44 must be transparent.
+        bool ok = (s.pixels[0x40] != 0u) && (s.pixels[0x41] != 0u) &&
+                  (s.pixels[0x42] != 0u) && (s.pixels[0x43] != 0u) &&
+                  (s.pixels[0x3F] == 0u) && (s.pixels[0x44] == 0u);
         check_pred("TM-112", ok,
-                   "clip_x1=clip_x2=0x10 → 2 opaque pixels at x=0x20..0x21 "
-                   "(VHDL tilemap.vhd:416-417)");
+                   "clip_x1=clip_x2=0x10 → 4 opaque cells at x=0x40..0x43 "
+                   "(VHDL tilemap.vhd:416-417,424 — clip comparator runs "
+                   "against hcounter_i, doubled into 640-grid)");
     }
 
     // TM-113: clip Y coordinates are direct (no doubling): clip_y1, clip_y2
