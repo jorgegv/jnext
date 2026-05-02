@@ -130,9 +130,22 @@ public:
     ///                     bank units) to the active bank so the Layer 2
     ///                     fetch hits the same SRAM region that the MMU
     ///                     writes to via Mmu::to_sram_page.
+    /// @param priority_dst Optional per-pixel priority output (size matches
+    ///                     `dst`). When non-null, every emitted opaque pixel
+    ///                     also writes the L2 palette priority bit (NR 0x44
+    ///                     b7 = nr_palette_priority(1), VHDL zxnext.vhd:
+    ///                     7050) to the corresponding cell. Transparent
+    ///                     pixels (skipped via the `continue` paths) leave
+    ///                     the buffer untouched, so the renderer's frame-
+    ///                     start zero-fill is preserved. Used by the
+    ///                     compositor to drive Layer 2 priority promotion
+    ///                     above sprites (VHDL zxnext.vhd:7220). Pass
+    ///                     nullptr from contexts (debugger view) that do
+    ///                     not need per-pixel priority info.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette,
-                         bool rom_in_sram = false) const;
+                         bool rom_in_sram = false,
+                         bool* priority_dst = nullptr) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.

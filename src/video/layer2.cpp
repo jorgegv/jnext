@@ -354,14 +354,16 @@ void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
     const uint8_t saved_bank = active_bank_;
     enabled_      = true;
     active_bank_  = bank;
-    render_scanline(dst, row, ram, palette, rom_in_sram);
+    // Debugger view doesn't need per-pixel priority info — pass nullptr.
+    render_scanline(dst, row, ram, palette, rom_in_sram, /*priority_dst=*/nullptr);
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
 
 void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
                              const PaletteManager& palette,
-                             bool rom_in_sram) const
+                             bool rom_in_sram,
+                             bool* priority_dst) const
 {
     if (!enabled_)
         return;
@@ -432,6 +434,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint32_t argb = palette.layer2_colour(colour_idx);
             dst[DISP_X + 2 * x]     = argb;
             dst[DISP_X + 2 * x + 1] = argb;
+            // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
+            // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
+            // uses this to promote L2 above sprites (zxnext.vhd:7220).
+            if (priority_dst) {
+                const bool prio = palette.layer2_priority_high(colour_idx);
+                priority_dst[DISP_X + 2 * x]     = prio;
+                priority_dst[DISP_X + 2 * x + 1] = prio;
+            }
         }
     }
     else if (resolution_ == 1) {
@@ -488,6 +498,12 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             uint32_t argb = palette.layer2_colour(colour_idx);
             dst[2 * x]     = argb;
             dst[2 * x + 1] = argb;
+            // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
+            if (priority_dst) {
+                const bool prio = palette.layer2_priority_high(colour_idx);
+                priority_dst[2 * x]     = prio;
+                priority_dst[2 * x + 1] = prio;
+            }
         }
     }
     else {
@@ -531,14 +547,21 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // High nibble = left pixel.
             uint8_t left_nib = (byte >> 4) & 0x0F;
             uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
-            if (palette.layer2_rgb8(left_idx) != transp_rgb)
+            if (palette.layer2_rgb8(left_idx) != transp_rgb) {
                 dst[col * 2] = palette.layer2_colour(left_idx);
+                // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
+                if (priority_dst)
+                    priority_dst[col * 2] = palette.layer2_priority_high(left_idx);
+            }
 
             // Low nibble = right pixel.
             uint8_t right_nib = byte & 0x0F;
             uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
-            if (palette.layer2_rgb8(right_idx) != transp_rgb)
+            if (palette.layer2_rgb8(right_idx) != transp_rgb) {
                 dst[col * 2 + 1] = palette.layer2_colour(right_idx);
+                if (priority_dst)
+                    priority_dst[col * 2 + 1] = palette.layer2_priority_high(right_idx);
+            }
         }
     }
 }
