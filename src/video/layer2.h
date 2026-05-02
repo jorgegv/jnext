@@ -115,12 +115,16 @@ public:
 
     /// Render one scanline of Layer 2 into an ARGB8888 buffer.
     ///
-    /// @param dst          Output buffer (render_width pixels wide).
+    /// Always renders 640 pixels into `dst`. The function pixel-doubles the
+    /// 256×192 source (writes 512 cells centred at DISP_X=64) and the
+    /// 320×256 source (writes the full 640) modes, and emits 640-native for
+    /// resolution ≥ 2 (640×256 4bpp). Cells outside the painted range are
+    /// left untouched (caller is expected to pre-fill with TRANSPARENT).
+    ///
+    /// @param dst          Output buffer — must hold at least 640 pixels.
     /// @param row          Framebuffer row (0–255).
     /// @param ram          Physical RAM for direct bank access.
     /// @param palette      Palette manager for Layer 2 colour lookup.
-    /// @param render_width Output width: 320 or 640. When 640 and resolution
-    ///                     is 640×256, renders both nibbles per byte.
     /// @param rom_in_sram  Next-mode flag — when true, apply VHDL zxnext.vhd:
     ///                     2964 +0x20 shift (in 8K-page units = +16 in 16K-
     ///                     bank units) to the active bank so the Layer 2
@@ -128,14 +132,13 @@ public:
     ///                     writes to via Mmu::to_sram_page.
     void render_scanline(uint32_t* dst, int row, const Ram& ram,
                          const PaletteManager& palette,
-                         int render_width = 320,
                          bool rom_in_sram = false) const;
 
     /// Render one scanline using a specific bank, regardless of enabled_ state.
     /// Used by the debugger video panel to show active and shadow Layer 2 content.
+    /// Always renders 640 pixels — see render_scanline doc.
     void render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
                                const PaletteManager& palette, uint8_t bank,
-                               int render_width = 320,
                                bool rom_in_sram = false);
 
     void save_state(class StateWriter& w) const;
