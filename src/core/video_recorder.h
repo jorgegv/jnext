@@ -38,7 +38,10 @@ public:
     bool stop();
 
     /// Capture one video frame.  `framebuffer` is ARGB8888 (0xAARRGGBB),
-    /// dimensions `width` x `height`.  Converts to RGB24 for FFmpeg.
+    /// dimensions `width × height` describe the IN-MEMORY framebuffer
+    /// (canonical 640×256 post-G104). Each input row is emitted twice to
+    /// the raw RGB24 stream, so FFmpeg sees `width × (height * 2)` frames
+    /// (640×512 — square-pixel CRT-faithful geometry, G104 Phase 7).
     void capture_frame(const uint32_t* framebuffer, int width, int height);
 
     /// Capture audio samples.  `samples` is interleaved stereo s16le,

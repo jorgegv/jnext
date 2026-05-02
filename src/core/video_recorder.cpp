@@ -136,21 +136,33 @@ void VideoRecorder::capture_frame(const uint32_t* framebuffer, int width, int he
 {
     if (!recording_ || !video_file_) return;
 
-    // Store dimensions from first frame.
+    // The IN-MEMORY framebuffer is 640×256; FFmpeg gets 640×512 frames so
+    // the recorded MP4 has square pixels (G104 Phase 7). Each input row is
+    // emitted twice into the raw RGB24 stream.
+    const int out_height = height * 2;
+
+    // Store dimensions from first frame. frame_height_ reflects the OUTPUT
+    // height (post-doubling), so FFmpeg's -video_size is correct.
     if (frame_width_ == 0) {
         frame_width_ = width;
-        frame_height_ = height;
-        rgb_buffer_.resize(static_cast<size_t>(width) * height * 3);
+        frame_height_ = out_height;
+        rgb_buffer_.resize(static_cast<size_t>(width) * out_height * 3);
     }
 
-    // Convert ARGB8888 (0xAARRGGBB) to RGB24.
-    const size_t pixel_count = static_cast<size_t>(width) * height;
+    // Convert ARGB8888 (0xAARRGGBB) to RGB24, writing each input row twice.
     uint8_t* dst = rgb_buffer_.data();
-    for (size_t i = 0; i < pixel_count; ++i) {
-        uint32_t argb = framebuffer[i];
-        dst[i * 3 + 0] = static_cast<uint8_t>((argb >> 16) & 0xFF); // R
-        dst[i * 3 + 1] = static_cast<uint8_t>((argb >> 8) & 0xFF);  // G
-        dst[i * 3 + 2] = static_cast<uint8_t>(argb & 0xFF);         // B
+    const size_t row_bytes = static_cast<size_t>(width) * 3;
+    for (int y = 0; y < height; ++y) {
+        const uint32_t* src = framebuffer + static_cast<size_t>(y) * width;
+        uint8_t* dst_row = dst + static_cast<size_t>(y) * 2 * row_bytes;
+        for (int x = 0; x < width; ++x) {
+            uint32_t argb = src[x];
+            dst_row[x * 3 + 0] = static_cast<uint8_t>((argb >> 16) & 0xFF); // R
+            dst_row[x * 3 + 1] = static_cast<uint8_t>((argb >> 8) & 0xFF);  // G
+            dst_row[x * 3 + 2] = static_cast<uint8_t>(argb & 0xFF);         // B
+        }
+        // Replicate row N as the second of two output rows (vertical 2×).
+        std::memcpy(dst_row + row_bytes, dst_row, row_bytes);
     }
 
     fwrite(rgb_buffer_.data(), 1, rgb_buffer_.size(), video_file_);
