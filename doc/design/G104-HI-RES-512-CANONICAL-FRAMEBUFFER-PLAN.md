@@ -58,6 +58,7 @@ The existing comment in `src/video/ula.cpp:945-953` claims a bit-granularity int
 - **`PaletteManager::FB_HEIGHT_HEADROOM`-style line caps (palette.cpp:434, palette.h:307) stay.** They are vertical, not horizontal.
 - **VHDL is the spec.** When the existing C++ comment disagrees with VHDL (e.g. the hi-res bit-order comment), VHDL wins. This is mandated by `doc/testing/UNIT-TEST-PLAN-EXECUTION.md` §1.
 - **Existing G102 (palette mirror collapse) and G105 (HI_RES 6-bit border encoding) stay as-is.** G104 builds on top of them.
+- **~~jnext port_ff convention drift~~ (RESOLVED 2026-05-02 by G179, Issue #1).** The original G104 work shipped with `Ula::set_screen_mode` decoding the Timex mode from `port_ff(5:3)`, contradicting VHDL `zxula.vhd:191` (`screen_mode_s <= i_port_ff_reg(2 downto 0)`). The S5.10 family was rewritten to fit that drift (`port_ff_val = 0x30 | ink_idx`). G179 retires the drift: `set_screen_mode` now reads bits 2:0 per VHDL, every emulator-side decoder/test fixture follows the same convention, and the B.8.1 stimulus formula `port_ff_reg_ = 0x06 | (paper << 3) | ink` becomes the canonical encoding (`paper` lives in bits 5:3 only as the HI_RES paper colour per `zxula.vhd:419`). The HI_RES renderer's ink/paper derivation in `render_display_line_hires` is tracked separately as Issue #2 in `project_g104_closed_canonical_640.md`.
 
 ### A.5 USER QUESTIONS surfaced during planning (none new beyond locked decisions)
 
