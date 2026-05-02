@@ -376,8 +376,14 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // 256x192 @ 8bpp (row-major)
         // ---------------------------------------------------------------
         // row is a framebuffer row (0-255). Display area is rows 32-223.
+        // G104 Phase 3: emit at canonical 640-grid. Each source pixel
+        // (256 across) is pixel-doubled into two adjacent destination
+        // cells, spanning the display strip [DISP_X..DISP_X+512). VHDL
+        // layer2.vhd at narrow res samples at 7 MHz and the compositor
+        // re-samples the layer at 14 MHz; the doubling here matches that
+        // 1-pixel-into-2-clocks expansion.
         static constexpr int DISP_Y = 32;
-        static constexpr int DISP_X = 32;
+        static constexpr int DISP_X = 64;
         int y = row - DISP_Y;
         if (y < 0 || y >= 192)
             return;
@@ -401,6 +407,9 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             // this, the 8-pixel "clipped band" wanders through the
             // display as L2 scrolls (parallax.nex bottom band exposed
             // it: side gutters that should be black showed graphics).
+            // VHDL clip space at narrow res is 9-bit but the high bit is
+            // 0 (clip_x1_q = '0' & i_clip_x1, layer2.vhd:130) so direct
+            // 8-bit comparison against x (0..255) is faithful.
             if (x < clip_x1_ || x > clip_x2_)
                 continue;
 
@@ -417,7 +426,12 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
             if (palette.layer2_rgb8(colour_idx) == transp_rgb)
                 continue;
 
-            dst[DISP_X + x] = palette.layer2_colour(colour_idx);
+            // Pixel-double: each 256-mode source pixel writes two
+            // 640-grid cells (matches VHDL's narrow-res 7 MHz output
+            // re-sampled at the compositor's 14 MHz pixel clock).
+            uint32_t argb = palette.layer2_colour(colour_idx);
+            dst[DISP_X + 2 * x]     = argb;
+            dst[DISP_X + 2 * x + 1] = argb;
         }
     }
     else if (resolution_ == 1) {
