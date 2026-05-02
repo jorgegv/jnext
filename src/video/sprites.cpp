@@ -655,6 +655,15 @@ SpriteEngine::SpriteAttr SpriteEngine::resolve_relative(const SpriteAttr& rel,
 
 // ---------------------------------------------------------------------------
 // Render one scanline of sprites
+//
+// G104 Phase 5 (2026-05-02): emits into a 640-wide line buffer.  All
+// internal arithmetic (sprite X, scaled width, clip window, collision
+// tracker) stays in the 9-bit/320-grid hardware coordinate space.  The
+// emit step pixel-doubles each 320-grid pixel into two adjacent buffer
+// cells at [2x] and [2x+1].  This matches VHDL semantics: sprites are
+// clocked at 7 MHz (sprites.vhd:1004,1017,1037 i_CLK_7) and the 14 MHz
+// compositor reads each sprite pixel twice — i.e. sprites are always
+// pixel-doubled regardless of layer mode.
 // ---------------------------------------------------------------------------
 
 void SpriteEngine::render_scanline_debug(uint32_t* dst, int y,
@@ -731,7 +740,12 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
     if (line_cycles > SPR_LINE_BUDGET_CYCLES)
         max_sprites_ = true;
 
-    // Line-occupied tracker for collision detection (320 pixels max).
+    // Line-occupied tracker for collision detection.  G104 Phase 5: the
+    // array shape widens to DISPLAY_WIDTH = 640 cells but logically still
+    // operates in the 320-grid: a pixel painted at logical screen_x writes
+    // line_occupied[2*screen_x] only.  Subsequent collision checks hit the
+    // same [2x] cell so the collision-detection semantics are unchanged
+    // versus the pre-Phase-5 320-cell array (sprites.vhd 7-MHz domain).
     bool line_occupied[DISPLAY_WIDTH] = {};
 
     if (zero_on_top_) {
@@ -820,6 +834,11 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
     //   When over_border='0': clip coords are shifted by +32 into display area.
     //     x_s = (('0' & clip_x1(7:5)) + 1) & clip_x1(4:0)
     //     This produces x_s=32 for clip_x1=0, clipping sprites in the border.
+    //
+    // G104 Phase 5: clip arithmetic stays in the 9-bit/320-grid coordinate
+    // space (clip_xe=319, clip_xs=0..319 max, clip_x1_*2 max=510).  The
+    // 640-wide buffer is reached only at the final emit step via the
+    // dst[2*screen_x] / dst[2*screen_x+1] doubling pair.
 
     int clip_xs, clip_xe, clip_ys, clip_ye;
 
@@ -852,12 +871,18 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
 
     // Iterate over scaled width of the sprite.
     // Each screen pixel maps to a pattern column via division by scale factor.
+    //
+    // G104 Phase 5: screen_x and the clip window stay in the 9-bit/320-grid
+    // hardware coordinate space.  DISPLAY_WIDTH (640) describes the final
+    // line-buffer cell count, not the sprite engine's logical X range; the
+    // visible-on-screen bound stays at 320 to match VHDL spr_cur_hcount_valid
+    // (sprites.vhd:855-860 / 1001 hcounter_i_valid).
     for (int col = 0; col < scaled_width; ++col) {
         int screen_x = spr_x + col;
 
         // Wrap X within 9-bit space (0-511), but only draw if on-screen (0-319).
         screen_x &= 0x1FF;
-        if (screen_x >= DISPLAY_WIDTH)
+        if (screen_x >= 320)
             continue;
 
         // Check X clip
@@ -923,13 +948,22 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
 
         // Collision detection: if this pixel position is already occupied by
         // another sprite's non-transparent pixel, set the collision flag.
-        if (line_occupied[screen_x]) {
+        // G104 Phase 5: collision marker indexed at the doubled position
+        // (logical-grid pixel x marks line_occupied[2*x] only).  Reads use
+        // the same indexing so the per-pixel collision semantics match the
+        // pre-Phase-5 320-cell array.
+        const int dst_x = screen_x * 2;
+        if (line_occupied[dst_x]) {
             collision_ = true;
         }
-        line_occupied[screen_x] = true;
+        line_occupied[dst_x] = true;
 
-        // Write the pixel to the output buffer.
-        dst[screen_x] = palette.sprite_colour(pixel_val);
+        // Write the pixel to the output buffer.  G104 Phase 5: VHDL-faithful
+        // 7-MHz -> 14-MHz pixel-doubling — emit each 320-grid sprite pixel
+        // into the two adjacent 640-grid cells (dst[2x] and dst[2x+1]).
+        const uint32_t argb = palette.sprite_colour(pixel_val);
+        dst[dst_x]     = argb;
+        dst[dst_x + 1] = argb;
     }
 }
 
