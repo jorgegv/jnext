@@ -355,7 +355,7 @@ static int fold_ula_x(int raw_x, uint8_t scroll_x, bool fine_scroll_x)
 
 void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 {
-    // The 320×256 output framebuffer is laid out as follows:
+    // The 640×256 output framebuffer is laid out as follows (G104 canonical):
     //
     //   Rows   0..DISP_Y-1              → top border  (DISP_Y = 32)
     //   Rows   DISP_Y..DISP_Y+DISP_H-1 → display area (192 rows)
@@ -363,6 +363,7 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
     //
     // Framebuffer height is 256, giving symmetric borders:
     //   top = 32, display = 192, bottom = 256 - 32 - 192 = 32.
+    // Per row: 64px left border + 512px display + 64px right border = 640.
 
     for (int row = 0; row < FB_HEIGHT; ++row) {
         uint32_t* line = framebuffer + row * FB_WIDTH;
@@ -610,7 +611,7 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
     const uint16_t eff_attr_base = static_cast<uint16_t>((alt ? 0x7800u : 0x5800u)
                                                          + (eff_row / 8) * 32);
 
-    // Fill left border pixels (DISP_X = 32 pixels).
+    // Fill left border pixels (DISP_X = 64 pixels under G104).
     //
     // VHDL zxula.vhd:418 — `border_clr <= "00" & port_fe & port_fe`, so
     // attr = (border<<3) | border (paper bits 5:3 = ink bits 2:0 = border
@@ -710,18 +711,27 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
                 paper_argb = lookup_colour(std_ula_paper_pixel(attr));
             }
 
-            uint32_t* dst = row + DISP_X + col * 8;
+            // VHDL zxula.vhd:390-393 — in lo-res mode (shift_screen_mode(2)='0')
+            // shift_reg_32 doubles each shift_pbyte bit (`shift_pbyte(15) &
+            // shift_pbyte(15) & shift_pbyte(14) & shift_pbyte(14) & ...`).
+            // So each source bit emits TWO adjacent framebuffer cells; total
+            // output = 16 cells per source byte = 512 cells per 32-byte row.
+            uint32_t* dst = row + DISP_X + col * 16;
             for (int bit = 7; bit >= 0; --bit) {
-                *dst++ = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+                const uint32_t px = (pixels >> bit) & 1 ? ink_argb : paper_argb;
+                *dst++ = px;
+                *dst++ = px;
             }
         }
     } else {
         // Scrolled path: per-pixel source lookup. The VHDL shift-register
         // emits px(7:3) (byte column) and px(2:0) (within-byte bit phase)
-        // with px(8) adding a 1-pixel fine offset (line 199 + 216). At the
-        // observable output granularity that collapses to fold_ula_x().
-        for (int disp_x = 0; disp_x < 256; ++disp_x) {
-            const int src_x  = fold_ula_x(disp_x, scroll_x, fine);
+        // with px(8) adding a 1-pixel fine offset (line 199 + 216). The
+        // intrinsic source-bit doubling (VHDL zxula.vhd:390-393) becomes
+        // observable as: each pair of output pixels reads the same source
+        // bit (src_x = disp_x / 2 + scroll). Total emit = 512 cells.
+        for (int disp_x = 0; disp_x < 512; ++disp_x) {
+            const int src_x  = fold_ula_x(disp_x / 2, scroll_x, fine);
             const int src_col = src_x >> 3;          // byte column 0..31
             const int src_bit = 7 - (src_x & 0x7);   // MSB-first within byte
             const uint8_t pixels = vram_read(
@@ -774,7 +784,7 @@ void Ula::render_display_line(uint32_t* row, int screen_row,
         }
     }
 
-    // Fill right border pixels (FB_WIDTH - DISP_X - DISP_W = 32 pixels).
+    // Fill right border pixels (FB_WIDTH - DISP_X - DISP_W = 64 pixels under G104).
     uint32_t* right = row + DISP_X + DISP_W;
     for (int x = 0; x < FB_WIDTH - DISP_X - DISP_W; ++x)
         right[x] = border_argb;
