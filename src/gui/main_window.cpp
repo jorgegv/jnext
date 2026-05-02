@@ -344,7 +344,8 @@ void MainWindow::create_menus() {
         if (path.isEmpty()) return;
         if (!path.endsWith(".png", Qt::CaseInsensitive))
             path += ".png";
-        // Use the existing screenshot function with the current framebuffer.
+        // The framebuffer is canonical 640×256 in-memory; save_screenshot_png
+        // vertically doubles to a 640×512 PNG with square pixels (G104).
         bool ok = save_screenshot_png(path.toStdString(),
                                        emulator_->get_framebuffer(),
                                        emulator_->get_framebuffer_width(),

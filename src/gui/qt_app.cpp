@@ -206,12 +206,15 @@ void QtApp::on_frame_tick() {
         }
     }
 
-    // Update the display widget with the current framebuffer (even when paused).
+    // Update the display widget with the in-memory framebuffer (640×256).
+    // The widget vertically doubles to 640×512 internally during prescale.
     main_window_->emulator_widget()->update_frame(
         emulator_.get_framebuffer(),
         emulator_.get_framebuffer_width(), emulator_.get_framebuffer_height());
 
-    // Delayed screenshot: take after countdown expires.
+    // Delayed screenshot: take after countdown expires. The screenshot
+    // helper vertically doubles the in-memory 640×256 framebuffer so the
+    // emitted PNG is 640×512 (square pixels, G104 Phase 7).
     if (screenshot_countdown_ == 0) {
         save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
                             emulator_.get_framebuffer_width(),
