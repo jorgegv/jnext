@@ -37,7 +37,7 @@ public:
     static constexpr int NUM_SPRITES    = 128;
     static constexpr int PATTERN_RAM_SZ = 16384;  // 16 KB, 14-bit address
     static constexpr int SPRITE_SIZE    = 16;
-    static constexpr int DISPLAY_WIDTH  = 320;     // full pixel width including border
+    static constexpr int DISPLAY_WIDTH  = 640;     // full pixel width: 64 left border + 512 display + 64 right border
 
     SpriteEngine() { reset(); }
 
@@ -168,22 +168,34 @@ public:
     void set_over_border(bool val) { over_border_ = val; }
 
     /// NextREG 0x15 bit 5: border-clip enable.  When 0 and over_border=1,
-    /// the sprite clip window is ignored and the full 320x256 area is drawn
-    /// (VHDL sprites.vhd lines 1043-1048).  Default is 0 at power-on.
+    /// the sprite clip window is ignored and the full 9-bit-grid 320x256 area
+    /// is drawn (VHDL sprites.vhd lines 1043-1048).  The internal sprite
+    /// engine arithmetic is in this 9-bit/320-grid space; the final emit
+    /// pixel-doubles into the 640-wide line buffer (G104 Phase 5).  Default
+    /// is 0 at power-on.
     void set_border_clip_en(bool val) { border_clip_en_ = val; }
 
     // -----------------------------------------------------------------
     // Rendering
     // -----------------------------------------------------------------
 
-    /// Render sprites for one scanline into a 320-pixel ARGB8888 buffer.
+    /// Render sprites for one scanline into a 640-pixel ARGB8888 buffer.
     ///
     /// Sprites are rendered in order 0..127.  Later (higher-index) sprites
     /// appear on top of earlier ones by default.  The zero_on_top flag
     /// (NextREG 0x15 bit 5) reverses this so sprite 0 is on top.
     ///
-    /// @param dst       Output buffer, 320 pixels wide (same layout as ULA
-    ///                  framebuffer: 32px border + 256px display + 32px border).
+    /// G104 Phase 5: the sprite engine internally addresses a 320-grid
+    /// (matching its 9-bit hardware X coordinate space; VHDL sprites.vhd
+    /// is clocked at 7 MHz at lines 1004,1017,1037 and the 14 MHz
+    /// compositor reads each 7 MHz sprite pixel twice — i.e. sprites are
+    /// always pixel-doubled regardless of layer mode). Each emitted pixel
+    /// at logical screen_x in 0..319 writes both dst[2*screen_x] and
+    /// dst[2*screen_x+1] in the 640-wide line buffer.
+    ///
+    /// @param dst       Output buffer, 640 pixels wide (same layout as ULA
+    ///                  framebuffer: 64px border + 512px display + 64px
+    ///                  border).
     /// @param y         Scanline number in display coordinates (0-255 visible).
     /// @param palette   Palette manager for sprite colour lookups.
     void render_scanline(uint32_t* dst, int y,
