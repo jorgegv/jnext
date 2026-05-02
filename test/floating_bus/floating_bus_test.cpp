@@ -776,18 +776,19 @@ static void test_section6_nr08_override(void) {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         // NR 0x82 default 0xFF (bit 0 set → port_ff_io_en=1). Set NR 0x08
-        // bit 2 to enable the Timex arm, then write port 0xFF = 0x05.
+        // bit 2 to enable the Timex arm, then write port 0xFF = 0x02
+        // (mode 010 = HI_COLOUR; canonical so no unknown-mode warn).
         emu.nextreg().write(0x08, 0x14);            // bit 4 (default) + bit 2
         // Write port 0xFF — gated by port_ff_io_en (NR 0x82 b0). Use the
         // dispatcher to pin the full integration path.
-        emu.port().out(0x00FF, 0x05);
+        emu.port().out(0x00FF, 0x02);
         set_raster_position(emu, 32, 64);           // border (so floating-bus arm
                                                      // would yield 0xFF)
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-07",
-              "48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 "
+              "48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 "
               "(Timex arm wins; zxnext.vhd:2813,5180,3630)",
-              v == 0x05, fmt("v=0x%02X", v));
+              v == 0x02, fmt("v=0x%02X", v));
     }
 
     // FB-6A — reset state NR 0x08=0 → floating-bus wins (port 0xFF write
@@ -797,7 +798,7 @@ static void test_section6_nr08_override(void) {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         // NR 0x08 reset default has bit 2 = 0 (only bit 4 set).
-        emu.port().out(0x00FF, 0x05);               // write Timex reg
+        emu.port().out(0x00FF, 0x02);               // write Timex reg (canonical mode 010 = HI_COLOUR; no unknown-mode warn)
         set_raster_position(emu, 32, 64);           // border
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-6A",
@@ -815,7 +816,7 @@ static void test_section6_nr08_override(void) {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
         emu.nextreg().write(0x08, 0x14);            // bit 4 + bit 2
-        emu.port().out(0x00FF, 0x05);               // seed Timex reg while io_en=1
+        emu.port().out(0x00FF, 0x02);               // seed Timex reg while io_en=1 (mode 010 = HI_COLOUR; canonical so no unknown-mode warn)
         emu.nextreg().write(0x82, 0xFE);            // clear NR 0x82 b0 only
         set_raster_position(emu, 32, 64);           // border
         const uint8_t v = read_port_default(emu, 0x00FF);
