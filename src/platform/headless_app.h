@@ -65,6 +65,12 @@ private:
     };
     std::vector<DelayedKey> delayed_keys_;
 
-    static constexpr int NATIVE_W = 320;
+    // In-memory framebuffer size (canonical 640×256 post-G104). Headless
+    // never opens a window; these constants are declarative for symmetry
+    // with sdl_app / qt_app and any future headless-rendering hooks. The
+    // delayed-screenshot path emits a 640×512 PNG via vertical 2×
+    // doubling inside save_screenshot_png.
+    static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
+    static constexpr int DISPLAY_H = NATIVE_H * 2;
 };

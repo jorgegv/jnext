@@ -7,7 +7,8 @@ bool SdlApp::init(int argc, char* argv[]) {
         Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
     }
-    if (!display_.init("JNEXT — ZX Spectrum Next Emulator", NATIVE_W, NATIVE_H)) return false;
+    if (!display_.init("JNEXT — ZX Spectrum Next Emulator",
+                       NATIVE_W, NATIVE_H, DISPLAY_H)) return false;
     if (!audio_.init()) {
         Log::platform()->warn("Audio init failed — continuing without sound");
     }

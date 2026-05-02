@@ -1,13 +1,17 @@
 #include "sdl_display.h"
 #include "core/log.h"
 
-bool SdlDisplay::init(const char* title, int native_w, int native_h) {
+bool SdlDisplay::init(const char* title, int native_w, int native_h, int display_h) {
     native_w_ = native_w;
     native_h_ = native_h;
+    display_h_ = display_h;
 
+    // Window sized at NATIVE_W × DISPLAY_H × scale gives square pixels: SDL
+    // stretches the NATIVE_W × NATIVE_H texture across the NATIVE_W ×
+    // DISPLAY_H logical viewport (G104 Phase 7).
     window_ = SDL_CreateWindow(title,
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        native_w * scale_, native_h * scale_,
+        native_w * scale_, display_h * scale_,
         SDL_WINDOW_SHOWN);
     if (!window_) {
         Log::platform()->error("SDL_CreateWindow: {}", SDL_GetError());
@@ -21,7 +25,10 @@ bool SdlDisplay::init(const char* title, int native_w, int native_h) {
         return false;
     }
 
-    SDL_RenderSetLogicalSize(renderer_, native_w, native_h);
+    // Logical size = NATIVE_W × DISPLAY_H so the renderer letterboxes
+    // correctly in fullscreen and the texture stretch ratio matches the
+    // window aspect (1×H, 2×V).
+    SDL_RenderSetLogicalSize(renderer_, native_w, display_h);
 
     texture_ = SDL_CreateTexture(renderer_,
         SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
@@ -54,9 +61,10 @@ void SdlDisplay::set_scale(int scale) {
     if (scale < 2) scale = 2;
     if (scale > 4) scale = 4;
     scale_ = scale;
-    // Only resize if not in fullscreen; fullscreen ignores scale.
+    // Only resize if not in fullscreen; fullscreen ignores scale. Window is
+    // sized at NATIVE_W × DISPLAY_H × scale (square pixels, G104 Phase 7).
     if (!fullscreen_) {
-        SDL_SetWindowSize(window_, native_w_ * scale_, native_h_ * scale_);
+        SDL_SetWindowSize(window_, native_w_ * scale_, display_h_ * scale_);
     }
 }
 
