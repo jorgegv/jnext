@@ -105,6 +105,8 @@ private:
     // Emulator speed multiplier (1.0 = real-time 50 Hz)
     double speed_multiplier_ = 1.0;
 
-    static constexpr int NATIVE_W = 320;
+    static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
+    /// Vertical 2× — square-pixel display height (Phase 7 wires the pipeline).
+    static constexpr int DISPLAY_H = NATIVE_H * 2;
 };

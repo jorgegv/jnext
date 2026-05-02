@@ -79,8 +79,10 @@ private:
     EmulatorConfig config_;
     bool           config_set_ = false;
 
-    static constexpr int NATIVE_W = 320;
+    static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
+    /// Vertical 2× — square-pixel display height (Phase 7 wires the pipeline).
+    static constexpr int DISPLAY_H = NATIVE_H * 2;
     // Target: 50 Hz = 20 ms per frame
     static constexpr uint32_t FRAME_MS = 20;
 };

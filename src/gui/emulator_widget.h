@@ -6,9 +6,11 @@
 
 /// Emulator display widget — renders the emulator framebuffer as a QImage.
 ///
-/// The widget is always sized to an exact integer multiple of the native
-/// framebuffer (320x256), guaranteeing pixel-perfect rendering with
-/// nearest-neighbour scaling.
+/// The in-memory framebuffer is 640×256; the widget displays it at
+/// 640×512 (vertical 2× scaling) at 1× scale_, scaled to integer multiples
+/// thereof. One in-memory row paints two display rows for square-pixel
+/// 4:3 output. Phase 7 (G104) wires the actual prescale pipeline; Phase 1
+/// only flips the geometry constants below.
 class EmulatorWidget : public QWidget {
     Q_OBJECT
 public:
@@ -20,7 +22,7 @@ public:
     /// @param h            Framebuffer height in pixels.
     void update_frame(const uint32_t* framebuffer, int w, int h);
 
-    /// Set the integer scale factor (2-4).  Resizes the widget to NATIVE_W*s x NATIVE_H*s.
+    /// Set the integer scale factor (2-4).  Resizes the widget to NATIVE_W*s x DISPLAY_H*s.
     void set_scale(int factor);
     int scale() const { return scale_; }
 
@@ -34,9 +36,13 @@ public:
     void set_fullscreen_mode(bool fs);
     bool fullscreen_mode() const { return fullscreen_mode_; }
 
-    /// Native framebuffer dimensions (320x256 for ZX Next).
-    static constexpr int NATIVE_W = 320;
+    /// Native framebuffer dimensions (640×256 in-memory, post-G104).
+    static constexpr int NATIVE_W = 640;
     static constexpr int NATIVE_H = 256;
+    /// Logical display height after vertical 2× scaling — 512. Used for
+    /// window-sizing arithmetic so that scale=1 is geometrically square
+    /// (640×512). Phase 7 wires the actual vertical doubling at prescale.
+    static constexpr int DISPLAY_H = NATIVE_H * 2;
 
     /// Minimum and maximum supported scale factors.
     static constexpr int MIN_SCALE = 2;
@@ -55,7 +61,7 @@ private:
     /// Software-scale native_ into scaled_ at the current scale factor.
     void prescale();
 
-    QImage native_;   ///< Original framebuffer (320x256 ARGB32).
+    QImage native_;   ///< Original framebuffer (640×256 ARGB32).
     QImage scaled_;   ///< Pre-scaled framebuffer (drawn 1:1, no painter scaling).
     int scale_ = MIN_SCALE;
     bool crt_filter_ = false;
