@@ -637,25 +637,26 @@ static void test_section5_timex() {
     // are: 8 px from screen-0 col N, 8 px from screen-1 col N, 8 px from
     // screen-0 col N+1, 8 px from screen-1 col N+1.
     //
+    // G179 (Issue #2) — colour derivation now follows VHDL zxula.vhd:419 +
+    // 426-427.  In HI_RES the whole attr_reg is loaded with
+    //   border_clr_tmx <= "01" & (not port_ff(5:3)) & port_ff(5:3),
+    // so BRIGHT=1, ink colour = port_ff(5:3), paper colour =
+    // ~port_ff(5:3) & 7.  port_ff(5:3) is the user-controllable
+    // "screen colour"; mode lives in port_ff(2:0) (post-Agent-A
+    // VHDL-faithful convention).
+    //
     // Distinct stimulus: plant 0xAA into screen-0 col 0 and 0x55 into
     // screen-1 col 0 — different bit patterns so an implementation that
     // discards b0 (the pre-G104 bug) cannot pass by accident.
-    // jnext port_ff convention quirk (TODO: separate cleanup): set_screen_mode
-    // decodes mode from bits 5:3 (not VHDL bits 2:0).  As a consequence, in
-    // HI_RES mode bits 5:3 are LOCKED to 0b110=6 (alt_file=0) or 0b111=7
-    // (alt_file=1), which the existing renderer ALSO reads as "paper colour"
-    // (bits 5:3) — so paper is locked to yellow (6) or white (7) under jnext
-    // convention.  Ink (bits 2:0) remains user-selectable.  The byte-
-    // interleave geometry (the focus of S5.10) is independent of this colour-
-    // encoding quirk; this test exercises geometry only.  The pre-existing
-    // colour-derivation drift vs VHDL `border_clr_tmx = "01" & ~port_ff(5:3)
-    // & port_ff(5:3)` (zxula.vhd:419, 426-427) is logged as a follow-up.
     {
         UlaBed bed;
-        const uint8_t ink_idx   = 2;        // bits 2:0 = 010 (red)
-        const uint8_t paper_idx = 6;        // forced by jnext HI_RES mode = bits 5:3 = 0b110 (yellow)
-        const uint8_t port_ff_val = static_cast<uint8_t>(0x30 | ink_idx);
-        bed.ula.set_screen_mode(port_ff_val);  // HI_RES, paper yellow (locked), ink red
+        const uint8_t paper_color = 5;        // port_ff(5:3) = 101 (cyan)
+        // Mode = HI_RES (VHDL screen_mode_s = port_ff(2:0) = 110); paper colour
+        // in bits 5:3.  After Agent A's set_screen_mode rework, mode is
+        // decoded from bits 2:0 — this byte selects HI_RES with screen-colour=5.
+        const uint8_t port_ff_val = static_cast<uint8_t>(
+            0x06 | (paper_color << 3));
+        bed.ula.set_screen_mode(port_ff_val);
         const uint16_t poff = emu_pixel_addr_offset(0, 0);
         bed.poke(0x4000 + poff, 0xAA);      // screen-0 col 0 = 1010_1010
         bed.poke(0x6000 + poff, 0x55);      // screen-1 col 0 = 0101_0101
@@ -663,8 +664,15 @@ static void test_section5_timex() {
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);  // display row 0
 
-        const uint32_t ink_argb   = bed_ink_argb(bed.palette, ink_idx);
-        const uint32_t paper_argb = bed_paper_argb(bed.palette, paper_idx);
+        // Per VHDL border_clr_tmx (zxula.vhd:419):
+        //   ink   = bright(port_ff(5:3))         = bright(paper_color)
+        //   paper = bright(~port_ff(5:3) & 7)    = bright(~paper_color & 7)
+        // bed_ink_argb / bed_paper_argb take a 4-bit colour where bit 3 is
+        // the BRIGHT bit.
+        const uint32_t ink_argb   = bed_ink_argb(
+            bed.palette, static_cast<uint8_t>(paper_color | 0x08));
+        const uint32_t paper_argb = bed_paper_argb(
+            bed.palette, static_cast<uint8_t>((~paper_color & 0x07) | 0x08));
 
         // Cells [DISP_X+0..+7] = screen-0 col 0 bits 7..0 = 0xAA
         //   bit7=1 → ink, bit6=0 → paper, bit5=1 → ink, ...
@@ -689,11 +697,11 @@ static void test_section5_timex() {
         }
 
         check("S5.10",
-              "zxula.vhd:389 — HI_RES native 512 px byte-interleaved s0/s1: "
-              "8 px from screen-0 col 0 (0xAA → ink/paper alt MSB-first), then "
-              "8 px from screen-1 col 0 (0x55 → paper/ink alt MSB-first). "
-              "Pre-G104 implementation discarded screen-0 entirely (used b1 only) "
-              "— this test would fail under that buggy semantics.",
+              "zxula.vhd:389 + :419 — HI_RES native 512 px byte-interleaved "
+              "s0/s1, with ink/paper from border_clr_tmx (BRIGHT=1, ink=port_ff(5:3), "
+              "paper=~port_ff(5:3)&7).  Stimulus: paper_color=5 (cyan), s0=0xAA, "
+              "s1=0x55 → expect bright-cyan ink + bright-red paper, alternating "
+              "MSB-first across the screen-0 then screen-1 byte windows.",
               ok_s0 && ok_s1,
               fmt("ok_s0=%d ok_s1=%d "
                   "line[DISP_X+0]=0x%08X (exp ink 0x%08X) "
@@ -711,12 +719,15 @@ static void test_section5_timex() {
     // screen-1 col 1 land at fb cells [DISP_X+16..+31].  Validates that
     // each source column contributes a 16-cell window (8 cells s0 then
     // 8 cells s1) at base DISP_X + col * 16, matching VHDL zxula.vhd:389
-    // shift_reg_32 emit order across multiple columns.
+    // shift_reg_32 emit order across multiple columns.  Uses a different
+    // paper_color from S5.10 to also exercise the colour formula on a
+    // second value (S5.10 only pins paper_color=5).
     {
         UlaBed bed;
-        const uint8_t ink_idx   = 2;        // bits 2:0 = 010 (red)
-        const uint8_t paper_idx = 6;        // forced by jnext HI_RES mode (see S5.10 comment)
-        bed.ula.set_screen_mode(static_cast<uint8_t>(0x30 | ink_idx));
+        const uint8_t paper_color = 2;        // port_ff(5:3) = 010 (red)
+        const uint8_t port_ff_val = static_cast<uint8_t>(
+            0x06 | (paper_color << 3));
+        bed.ula.set_screen_mode(port_ff_val);
 
         // Column 0: keep simple test value
         const uint16_t poff0 = emu_pixel_addr_offset(0, 0);
@@ -729,8 +740,11 @@ static void test_section5_timex() {
 
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 32, bed.mmu);
-        const uint32_t ink_argb   = bed_ink_argb(bed.palette, ink_idx);
-        const uint32_t paper_argb = bed_paper_argb(bed.palette, paper_idx);
+        // VHDL border_clr_tmx: ink = bright(paper_color), paper = bright(~paper_color&7).
+        const uint32_t ink_argb   = bed_ink_argb(
+            bed.palette, static_cast<uint8_t>(paper_color | 0x08));
+        const uint32_t paper_argb = bed_paper_argb(
+            bed.palette, static_cast<uint8_t>((~paper_color & 0x07) | 0x08));
 
         // Col 1 screen-0 bits 7..0 = 0xF0 = ink,ink,ink,ink,paper,paper,paper,paper
         // → cells [DISP_X+16..+23]
@@ -748,10 +762,12 @@ static void test_section5_timex() {
         }
 
         check("S5.10b",
-              "zxula.vhd:389 — HI_RES per-column emission: col 1 source bytes "
-              "land at fb cells [DISP_X+16..+31] (16-cell window per source "
-              "column = base DISP_X + col*16). Distinct s0=0xF0/s1=0x0F bytes "
-              "ensure the test catches a byte-swap regression.",
+              "zxula.vhd:389 + :419 — HI_RES per-column emission: col 1 source "
+              "bytes land at fb cells [DISP_X+16..+31] (16-cell window per "
+              "source column = base DISP_X + col*16).  Distinct s0=0xF0/s1=0x0F "
+              "bytes catch a byte-swap regression; paper_color=2 (red) "
+              "exercises the ink/paper formula on a second value distinct "
+              "from S5.10's paper_color=5.",
               ok_c1_s0 && ok_c1_s1,
               fmt("ok_c1_s0=%d ok_c1_s1=%d "
                   "line[DISP_X+16]=0x%08X line[DISP_X+19]=0x%08X "
@@ -766,17 +782,27 @@ static void test_section5_timex() {
     // with the HI_RES TMX-encoded border colour.  Pre-G104 the row width
     // was 320; G104 widens to 640 (64+512+64).  S5.06 already pins the
     // colour encoding; this test only pins that the 640-cell widening
-    // doesn't leave gaps in the right half of the row.
+    // doesn't leave gaps in the right half of the row.  Post-Agent-A:
+    // mode lives in port_ff(2:0), screen-colour in port_ff(5:3).
     {
         UlaBed bed;
         bed.ula.set_border(0);
         bed.ula.init_border_per_line();
-        bed.ula.set_screen_mode(0x30);      // HI_RES, paper=6
+        const uint8_t paper_color = 6;        // port_ff(5:3) = 110 → unchanged
+        const uint8_t port_ff_val = static_cast<uint8_t>(
+            0x06 | (paper_color << 3));       // HI_RES, screen-colour=6
+        bed.ula.set_screen_mode(port_ff_val);
 
         std::array<uint32_t, Ula::FB_WIDTH> line{};
         bed.ula.render_scanline(line.data(), 0, bed.mmu);   // top border row
-        // For HI_RES paper=6 the std-ULA-encoded border-clr_tmx maps to
-        // ula_pixel idx 0x19 → boot-default bright blue (S5.06 derivation).
+        // For HI_RES paper_color=6 the std-ULA-encoded border_clr_tmx maps
+        // to ula_pixel idx 0x19 → boot-default bright blue (S5.06 derivation).
+        // The 8-bit border_clr_tmx attr is 0x40|((~6&7)<<3)|6 = 0x4E; the
+        // std-ULA encoder paper cycle yields:
+        //   ula_pixel = 0x10 | ((attr&0x40)>>3) | ((attr>>3)&7)
+        //             = 0x10 | 0x08 | 0x01 = 0x19
+        // Boot defaults mirror canonical ZX colours at idx 0x10..0x1F
+        // (paper-cycle slots), so idx 0x19 = bright blue (RGB333 0,0,7).
         const uint32_t exp_border = rgb333_to_argb8888(0, 0, 7);
 
         bool ok_all = true;
@@ -787,7 +813,7 @@ static void test_section5_timex() {
 
         check("S5.10c",
               "G104 — HI_RES top-border row fills all FB_WIDTH=640 cells "
-              "with the TMX-encoded border colour (S5.06 encoding). Pins "
+              "with the TMX-encoded border colour (S5.06 encoding).  Pins "
               "that the constants flip from 320 → 640 widens render_border_"
               "line uniformly without leaving the right half blank.",
               ok_all,
