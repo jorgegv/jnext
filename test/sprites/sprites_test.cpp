@@ -120,14 +120,22 @@ static void install_identity_sprite_palette(PaletteManager& pal) {
 // Pre-fill sentinel for "no pixel written by sprite engine".
 static constexpr uint32_t SENTINEL = 0xDEADBEEFu;
 
+// G104 Phase 5: line buffer is 640-wide (internal sprite arithmetic at
+// 320-grid; emit pixel-doubles each pixel into dst[2x] AND dst[2x+1]).
+// Tests still address logical 320-grid via pixel_index() which reads at
+// dst[2x].  See sprites.h DISPLAY_WIDTH = 640 and sprites.cpp render
+// loop dst_x = screen_x * 2 emit pair.
+static constexpr int kSpritesTestBufW = 640;
+
 static void clear_line(uint32_t* line) {
-    for (int i = 0; i < 320; ++i) line[i] = SENTINEL;
+    for (int i = 0; i < kSpritesTestBufW; ++i) line[i] = SENTINEL;
 }
 
 // Return -1 if pixel was untouched, else 0..255 (recovered palette index).
+// x is in logical 320-grid; the doubled emit is read from line[2*x].
 static int pixel_index(const uint32_t* line, int x) {
     if (x < 0 || x >= 320) return -1;
-    uint32_t a = line[x];
+    uint32_t a = line[x * 2];
     if (a == SENTINEL) return -1;
     auto it = g_argb_to_index.find(a);
     return it == g_argb_to_index.end() ? -2 : static_cast<int>(it->second);
@@ -585,7 +593,7 @@ static void group2() {
         set4(spr, 0, 0, 0, 0x00, 0x80);            // visible, pattern=0
         // Place sprite 1 at (20,0), pattern 1.
         set4(spr, 1, 20, 0, 0x00, 0x81);           // visible, pattern=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G2.PL-01",
               "256-byte upload into pattern 0 observable via render (728-744)",
@@ -600,7 +608,7 @@ static void group2() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 63, 0x9E);
         set4(spr, 0, 5, 0, 0x00, 0x80 | 63);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G2.PL-02", "Pattern index 63 writable and readable (728-744)",
               pixel_index(line, 5) == 0x9E,
@@ -616,7 +624,7 @@ static void group2() {
         // sprite 0 points to pattern 0; sprite 1 points to pattern 1.
         set4(spr, 0, 0, 0, 0x00, 0x80);
         set4(spr, 1, 20, 0, 0x00, 0x81);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // pattern 0 byte 0 = 0; pattern 1 byte 0 = 0 (since i=256 -> 0 too).
         // Use col 1 to distinguish: pattern 0 byte 1 = 1; pattern 1 byte 1
@@ -641,7 +649,7 @@ static void group2() {
             spr.write_pattern(static_cast<uint8_t>(0xA0 + (i & 0x0F)));
         // Use 8bpp sprite: pattern 0, draw at y=8 so row 8 reads bytes 128..143
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 8, pal);
         check("G2.PL-04",
               "0x303B bit7 -> half-pattern offset 128 (736)",
@@ -662,7 +670,7 @@ static void group2() {
             spr.write_pattern(static_cast<uint8_t>(0x11));
         // Pattern 0 byte 0 must still be 0xDD.
         set4(spr, 0, 0, 0, 0x00, 0x80);  // render pattern 0 at y=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G2.PL-05",
               "Pattern RAM top does not wrap to 0 (738, 14-bit mask)",
@@ -686,7 +694,7 @@ static void group3() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x42);
         set4(spr, 0, 0, 0, 0x00, 0x80);  // paloff=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-01", "8bpp opaque pixel 0x42 at (0,0) (968,971)",
               pixel_index(line, 0) == 0x42,
@@ -700,7 +708,7 @@ static void group3() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x15);
         set4(spr, 0, 0, 0, 0x30, 0x80);  // attr2 bits 7:4 = 3
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-02", "8bpp paloff +3 on upper nibble 0x15->0x45 (968)",
               pixel_index(line, 0) == 0x45,
@@ -714,7 +722,7 @@ static void group3() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0xF5);
         set4(spr, 0, 0, 0, 0x20, 0x80);  // paloff=2
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-03", "8bpp paloff upper nibble wraps mod 16 (968)",
               pixel_index(line, 0) == 0x15,
@@ -732,7 +740,7 @@ static void group3() {
         for (int i = 0; i < 128; ++i) spr.write_pattern(0x73);
         // Sprite: attr4(7)=H=1, visible, paloff=4.
         set5(spr, 0, 0, 0, 0x40, 0x80, 0x80);  // ext, H=1, paloff=4
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-04", "4bpp even col -> upper nibble + paloff (967-968)",
               pixel_index(line, 0) == 0x47,
@@ -746,7 +754,7 @@ static void group3() {
         spr.write_slot_select(0);
         for (int i = 0; i < 128; ++i) spr.write_pattern(0x73);
         set5(spr, 0, 0, 0, 0x40, 0x80, 0x80); // H=1, paloff=4
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-05", "4bpp odd col -> lower nibble + paloff (967)",
               pixel_index(line, 1) == 0x43,
@@ -765,7 +773,7 @@ static void group3() {
         for (int i = 0; i < 128; ++i) spr.write_pattern(0x22);
         // Sprite: base pattern 0, H=1, N6=1 -> should see 0x22 half.
         set5(spr, 0, 0, 0, 0x00, 0x80, 0xC0); // H=1, N6=1, paloff=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PX-06", "4bpp N6 selects high half of pattern bank (962-964)",
               pixel_index(line, 0) == 0x02 && pixel_index(line, 1) == 0x02,
@@ -779,7 +787,7 @@ static void group3() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0xE3);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-01", "8bpp pattern byte == transp -> not written (971)",
               pixel_index(line, 0) == -1,
@@ -799,7 +807,7 @@ static void group3() {
         spr.write_slot_select(0);
         for (int i = 0; i < 128; ++i) spr.write_pattern(0x3A);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);  // H=1, paloff=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-02",
               "4bpp transparent upper nibble; lower nibble still writes (971)",
@@ -826,11 +834,11 @@ static void group3() {
         pal.set_sprite_transparency(0x04);
         upload_pattern_8bpp_solid(spr, 0, 0xFC);
         set4(spr, 0, 0, 0, 0x00, 0x80);  // paloff=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-03",
               "Transparency compare is on palette index, not ARGB (971)",
-              line[0] != SENTINEL,
+              line[0] != SENTINEL,                  // logical x=0 -> line[0] (==2*0)
               DETAIL("argb=%08X", line[0]));
     }
 
@@ -844,11 +852,11 @@ static void group3() {
         pal.set_sprite_transparency(0xFF);
         upload_pattern_8bpp_solid(spr, 0, 0x10);
         set4(spr, 0, 0, 0, 0xF0, 0x80); // paloff=0xF
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-04",
               "8bpp transparency compares pre-palette-offset byte (971,968)",
-              line[0] != SENTINEL,
+              line[0] != SENTINEL,                  // logical x=0 -> line[0] (==2*0)
               DETAIL("argb=%08X", line[0]));
     }
 
@@ -860,7 +868,7 @@ static void group3() {
         spr.write_slot_select(0);
         for (int i = 0; i < 128; ++i) spr.write_pattern(0x5A);
         set5(spr, 0, 0, 0, 0xC0, 0x80, 0x80); // paloff=0xC, H=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PA-01",
               "4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (968)",
@@ -876,11 +884,12 @@ static void group3() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x11);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PA-02",
               "opaque write marks line buffer (969) — observed as pixel set",
-              line[0] != SENTINEL && line[15] != SENTINEL);
+              // G104 Phase 5: logical x=0 -> line[0]; logical x=15 -> line[30].
+              line[0] != SENTINEL && line[15 * 2] != SENTINEL);
     }
 }
 
@@ -899,11 +908,12 @@ static void group4() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_unique(spr, 0);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         bool ok = true;
+        // G104 Phase 5: read at logical-grid line[2x].
         for (int x = 0; x < 16 && ok; ++x)
-            if (line[x] == SENTINEL) ok = false;
+            if (line[x * 2] == SENTINEL) ok = false;
         check("G4.XY-01", "Sprite (0,0) fills cols 0..15 on line 0 (796-799)",
               ok);
     }
@@ -914,7 +924,7 @@ static void group4() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x77);
         set4(spr, 0, 0x20, 0, 0x01, 0x80); // x = 256 + 32 = 288
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G4.XY-02",
               "X MSB: attr2(0)=1 -> x=256+attr0 (799)",
@@ -954,7 +964,7 @@ static void group4() {
         upload_pattern_8bpp_solid(spr, 0, 0x55);
         set4(spr, 0, 319 & 0xFF, 0, (319 >> 8) & 1, 0x80); // x=319
         spr.set_over_border(true);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G4.XY-05", "x=319 renders at col 319 (822,855-860)",
               pixel_index(line, 319) == 0x55);
@@ -969,10 +979,10 @@ static void group4() {
         upload_pattern_8bpp_solid(spr, 0, 0x66);
         set4(spr, 0, 320 & 0xFF, 0, (320 >> 8) & 1, 0x80); // x=320
         spr.set_over_border(true);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         bool any = false;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) any = true;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
         check("G4.XY-06", "x=320 1x scale produces zero pixels (822,855)",
               !any);
     }
@@ -984,11 +994,13 @@ static void group4() {
         upload_pattern_8bpp_solid(spr, 0, 0x88);
         set5(spr, 0, 300 & 0xFF, 0, (300 >> 8) & 1, 0x80, 0x08); // xs=01
         spr.set_over_border(true);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         int first_hit = -1, last_hit = -1;
+        // G104 Phase 5: scan logical 320-grid via line[x*2] (each logical
+        // pixel writes line[2x] AND line[2x+1]; reading [2x] is sufficient).
         for (int x = 0; x < 320; ++x) {
-            if (line[x] != SENTINEL) {
+            if (line[x * 2] != SENTINEL) {
                 if (first_hit < 0) first_hit = x;
                 last_hit = x;
             }
@@ -997,6 +1009,41 @@ static void group4() {
               "2x scale from x=300 draws 300..319 (919-927)",
               first_hit == 300 && last_hit == 319,
               DETAIL("first=%d last=%d", first_hit, last_hit));
+    }
+
+    // G4.XY-08 — G104 Phase 5 emit-doubling sentinel.
+    //
+    // VHDL evidence: sprites.vhd is clocked at 7 MHz (lines 1004,1017,1037
+    // i_CLK_7), the compositor reads at 14 MHz, so each sprite pixel covers
+    // two consecutive 14 MHz cells — sprites are always pixel-doubled into
+    // the 640-wide line buffer.  Verify directly: a sprite pixel at logical
+    // screen_x writes BOTH line[2*screen_x] AND line[2*screen_x + 1].
+    {
+        fresh(spr, pal);
+        pal.set_sprite_transparency(0xE3);
+        upload_pattern_8bpp_solid(spr, 0, 0x99);
+        set4(spr, 0, 5, 0, 0x00, 0x80);   // x=5, y=0, visible, pattern 0
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
+        spr.render_scanline(line, 0, pal);
+        // Sprite covers logical x=5..20 (1x scale, 16 px wide).  Each
+        // logical pixel must paint both [2x] and [2x+1].
+        bool doubled = true;
+        for (int lx = 5; lx <= 20; ++lx) {
+            if (line[lx * 2] == SENTINEL || line[lx * 2 + 1] == SENTINEL ||
+                line[lx * 2] != line[lx * 2 + 1]) {
+                doubled = false;
+                break;
+            }
+        }
+        // And the cells immediately outside the sprite stay SENTINEL.
+        bool outside_clean = (line[4 * 2] == SENTINEL) &&
+                             (line[4 * 2 + 1] == SENTINEL) &&
+                             (line[21 * 2] == SENTINEL) &&
+                             (line[21 * 2 + 1] == SENTINEL);
+        check("G4.XY-08",
+              "G104 Phase 5: each 320-grid sprite pixel writes both "
+              "line[2x] and line[2x+1] (sprites.vhd:1004,1017,1037 i_CLK_7)",
+              doubled && outside_clean);
     }
 }
 
@@ -1014,7 +1061,7 @@ static void group5() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x11);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G5.VIS-01", "visible + on-scanline renders (842,917)",
               pixel_index(line, 0) == 0x11);
@@ -1025,10 +1072,10 @@ static void group5() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x22);
         set4(spr, 0, 0, 0, 0x00, 0x00); // visible bit clear
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G5.VIS-02", "attr3(7)=0 -> sprite skipped (842,848)",
-              line[0] == SENTINEL);
+              line[0] == SENTINEL);                 // logical x=0 -> line[0]
     }
 
     // G5.VIS-03 — Y not on scanline -> skipped.
@@ -1036,10 +1083,10 @@ static void group5() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x33);
         set4(spr, 0, 0, 50, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 80, pal); // y=80 above sprite y=50+16
         check("G5.VIS-03", "Scanline outside sprite Y -> skipped (842,918)",
-              line[0] == SENTINEL);
+              line[0] == SENTINEL);                 // logical x=0 -> line[0]
     }
 
     // G5.VIS-04 — x=320 + 1x -> no writes.
@@ -1047,10 +1094,10 @@ static void group5() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x44);
         set4(spr, 0, 320 & 0xFF, 0, (320 >> 8) & 1, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         bool any = false;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) any = true;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
         check("G5.VIS-04", "x=320, 1x scale -> zero pixels (822,855)", !any);
     }
 
@@ -1069,10 +1116,10 @@ static void group5() {
         spr.write_attr_byte(2, 0x00);
         spr.write_attr_byte(3, 0xC0);  // visible, extended
         spr.write_attr_byte(4, 0x40);  // type 01 -> relative
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         bool any = false;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) any = true;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
         check("G5.VIS-05",
               "Invisible anchor -> relative child invisible (917,784)",
               !any);
@@ -1093,7 +1140,7 @@ static void group6() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x10);
         set4(spr, 0, 50, 50, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-01", "Reset clip defaults pass (50,50) pixel (1055-1060)",
               pixel_index(line, 50) == 0x10);
@@ -1112,7 +1159,7 @@ static void group6() {
         set5(spr, 0, 32, 50, 0x00, 0x80, 0x00); // x=32, ext, scale 1x
         // Widen to 64 px to cross x_s = 63.
         set5(spr, 0, 32, 50, 0x00, 0x80, 0x18); // xs=11 (8x) -> 128 px wide
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         // cols [32..62] must be clipped; col 63 (=0x3F) is x_s, first drawn.
         check("G6.CL-02",
@@ -1138,7 +1185,7 @@ static void group6() {
         // Place sprite at x=0x50 (cols 80..95) so the x_e=0x5F boundary is
         // actually straddled by sprite pixels.
         set5(spr, 0, 0x50, 50, 0x00, 0x80, 0x00); // x=80 scale 1x
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-03",
               "clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (1056)",
@@ -1153,7 +1200,7 @@ static void group6() {
         spr.set_over_border(true);
         upload_pattern_8bpp_solid(spr, 0, 0x40);
         set4(spr, 0, 0, 200, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 200, pal);
         check("G6.CL-04",
               "over_border=1 draws at y=200 (1044-1048)",
@@ -1172,10 +1219,10 @@ static void group6() {
         spr.set_clip_x2(0x80);
         upload_pattern_8bpp_solid(spr, 0, 0x50);
         set4(spr, 0, 0x60, 50, 0x00, 0x80); // clipped
-        uint32_t l1[320]; clear_line(l1);
+        uint32_t l1[kSpritesTestBufW]; clear_line(l1);
         spr.render_scanline(l1, 50, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (l1[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (l1[x * 2] != SENTINEL) none = false;
         check("G6.CL-05",
               "over_border clip: x1*2=0x80 -> x=0x60 fully clipped (1049-1053)",
               none);
@@ -1190,11 +1237,12 @@ static void group6() {
         spr.set_clip_x1(0x20);
         upload_pattern_8bpp_solid(spr, 0, 0x60);
         set4(spr, 0, 10, 50, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-06",
               "Pixel at col 10 outside clip (x_s>10) suppressed (1067)",
-              line[10] == SENTINEL);
+              // G104 Phase 5: logical x=10 -> line[20].
+              line[10 * 2] == SENTINEL);
     }
 
     // G6.CL-07 — emitted inside clip.
@@ -1202,7 +1250,7 @@ static void group6() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x70);
         set4(spr, 0, 100, 50, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-07", "Pixel inside clip emitted (1067)",
               pixel_index(line, 100) == 0x70);
@@ -1226,7 +1274,7 @@ static void group7() {
         set4(spr, 0, 50, 0, 0x00, 0x80);          // pattern 0
         set4(spr, 1, 50, 0, 0x00, 0x81);          // pattern 1
         spr.set_zero_on_top(false);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G7.PR-01",
               "zero_on_top=0: higher-index sprite wins overlap (972)",
@@ -1242,7 +1290,7 @@ static void group7() {
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.set_zero_on_top(true);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G7.PR-02",
               "zero_on_top=1: lower-index sprite wins overlap (972)",
@@ -1258,8 +1306,8 @@ static void group7() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x77);
         set4(spr, 0, 50, 0, 0x00, 0x80); // y=0..15
-        uint32_t l0[320]; clear_line(l0);
-        uint32_t l1[320]; clear_line(l1);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
+        uint32_t l1[kSpritesTestBufW]; clear_line(l1);
         spr.read_status();               // drain
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l1, 1, pal);
@@ -1278,7 +1326,7 @@ static void group7() {
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.set_zero_on_top(true);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
         check("G7.PR-04",
@@ -1311,7 +1359,7 @@ static void group9() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G9.MI-01", "Plain render: col i has pattern byte (i+1) (811-820)",
               pixel_index(line, 0) == 1 && pixel_index(line, 15) == 16);
@@ -1324,7 +1372,7 @@ static void group9() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x08, 0x80); // xmirror=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G9.MI-02", "X-mirror: col 0 has byte 16, col 15 has byte 1 (813,817-820)",
               pixel_index(line, 0) == 16 && pixel_index(line, 15) == 1);
@@ -1342,7 +1390,7 @@ static void group9() {
                 buf[r * 16 + c] = static_cast<uint8_t>(r + 1);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x04, 0x80); // ymirror=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G9.MI-03", "Y-mirror row 0 reads pattern row 15 (811)",
               pixel_index(line, 0) == 16);
@@ -1358,7 +1406,7 @@ static void group9() {
                 buf[r * 16 + c] = static_cast<uint8_t>((r * 16 + c) | 1);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x0C, 0x80); // xmirror+ymirror
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Row 0 col 0 in the flipped view reads row 15 col 15 -> index 255|1 = 255.
         check("G9.MI-04", "X+Y mirror = 180 degrees (811,813)",
@@ -1377,7 +1425,7 @@ static void group9() {
         for (int i = 0; i < 256; ++i) buf[i] = static_cast<uint8_t>(i | 1);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x02, 0x80); // rotate=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Review fix: the prior expectations ignored x_mirror_eff =
         // xmirror XOR rotate = 1. With rotate=1 alone, col 0 resolves to
@@ -1399,7 +1447,7 @@ static void group9() {
         for (int i = 0; i < 256; ++i) buf[i] = static_cast<uint8_t>(i | 1);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x02, 0x80); // rotate=1, xmirror=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // The C++ impl computes x_mirror_eff = xmirror XOR rotate, then
         // pattern_col -> px = (15-pattern_col) if mirror. For col 0 this
@@ -1444,7 +1492,7 @@ static void group10() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x00); // ext, xs=00, ys=00
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         bool ok = true;
         for (int c = 0; c < 16 && ok; ++c)
@@ -1459,7 +1507,7 @@ static void group10() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x08); // xs=01
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-02",
               "2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (909)",
@@ -1474,7 +1522,7 @@ static void group10() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x10); // xs=10
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-03", "4x X: 64 px, byte 1 repeats in 0..3 (911)",
               pixel_index(line, 0) == 1 && pixel_index(line, 3) == 1 &&
@@ -1488,7 +1536,7 @@ static void group10() {
         uint8_t buf[256]; unique_cols(buf);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x18); // xs=11
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-04", "8x X: 128 px, byte 1 in 0..7 (913)",
               pixel_index(line, 0) == 1 && pixel_index(line, 7) == 1 &&
@@ -1504,8 +1552,8 @@ static void group10() {
             for (int c = 0; c < 16; ++c) buf[r * 16 + c] = static_cast<uint8_t>(r + 1);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x02); // ys=01
-        uint32_t l0[320]; clear_line(l0);
-        uint32_t l1[320]; clear_line(l1);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
+        uint32_t l1[kSpritesTestBufW]; clear_line(l1);
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l1, 1, pal);
         check("G10.SC-05", "Y 2x: lines 0,1 both show row 0 (808)",
@@ -1521,9 +1569,9 @@ static void group10() {
             for (int c = 0; c < 16; ++c) buf[r * 16 + c] = static_cast<uint8_t>(r + 1);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x04); // ys=10
-        uint32_t l0[320]; clear_line(l0);
-        uint32_t l3[320]; clear_line(l3);
-        uint32_t l4[320]; clear_line(l4);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
+        uint32_t l3[kSpritesTestBufW]; clear_line(l3);
+        uint32_t l4[kSpritesTestBufW]; clear_line(l4);
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l3, 3, pal);
         spr.render_scanline(l4, 4, pal);
@@ -1541,9 +1589,9 @@ static void group10() {
             for (int c = 0; c < 16; ++c) buf[r * 16 + c] = static_cast<uint8_t>(r + 1);
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x06); // ys=11
-        uint32_t l0[320]; clear_line(l0);
-        uint32_t l7[320]; clear_line(l7);
-        uint32_t l8[320]; clear_line(l8);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
+        uint32_t l7[kSpritesTestBufW]; clear_line(l7);
+        uint32_t l8[kSpritesTestBufW]; clear_line(l8);
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l7, 7, pal);
         spr.render_scanline(l8, 8, pal);
@@ -1560,7 +1608,7 @@ static void group10() {
         for (int i = 0; i < 256; ++i) buf[i] = static_cast<uint8_t>(i | 1);
         upload_pattern_raw(spr, 0, buf);
         set4(spr, 0, 0, 0, 0x00, 0x80); // no attr4 -> scale 1x
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // sprite width must be 16; col 16 must be SENTINEL.
         check("G10.SC-08",
@@ -1574,9 +1622,9 @@ static void group10() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x77);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x12); // xs=10, ys=01
-        uint32_t l0[320]; clear_line(l0);
-        uint32_t l31[320]; clear_line(l31);
-        uint32_t l32[320]; clear_line(l32);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
+        uint32_t l31[kSpritesTestBufW]; clear_line(l31);
+        uint32_t l32[kSpritesTestBufW]; clear_line(l32);
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l31, 31, pal);
         spr.render_scanline(l32, 32, pal);
@@ -1592,7 +1640,7 @@ static void group10() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x88);
         set5(spr, 0, 300 & 0xFF, 0, (300 >> 8) & 1, 0x80, 0x08); // xs=01
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-10",
               "2x scale from x=300 stops at x=319 (921)",
@@ -1617,10 +1665,10 @@ static void group11() {
         spr.set_clip_y2(0xBF);                      // restore VHDL default
         upload_pattern_8bpp_solid(spr, 0, 0x10);
         set4(spr, 0, 0, 200, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 200, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G11.OB-01", "over_border=0, y=200 -> not emitted (1055-1067)", none);
     }
 
@@ -1630,7 +1678,7 @@ static void group11() {
         spr.set_over_border(true);
         upload_pattern_8bpp_solid(spr, 0, 0x20);
         set4(spr, 0, 0, 200, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 200, pal);
         check("G11.OB-02", "over_border=1 -> sprite at y=200 emitted (1044-1048)",
               pixel_index(line, 0) == 0x20);
@@ -1655,7 +1703,7 @@ static void group11() {
         upload_pattern_8bpp_solid(spr, 0, 0x30);
         set4(spr, 0, 0,  10, 0x00, 0x80);   // outside clip
         set4(spr, 1, 20, 10, 0x00, 0x80);   // inside clip
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 10, pal);
         check("G11.OB-03",
               "over_border=1 + border_clip_en=1 applies clip window "
@@ -1674,10 +1722,10 @@ static void group11() {
         // Use y=224 (the VHDL hard-gate boundary) rather than y=223 which is
         // still inside display area.
         set4(spr, 0, 0, 224, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 223, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G11.OB-04", "over_border=0: y>=224 suppressed (1067)", none);
     }
 }
@@ -1698,7 +1746,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xA0);
         set5(spr, 0, 50, 50, 0x00, 0x80, 0x00); // anchor type 0
         set5(spr, 1, 10, 5, 0x00, 0x80, 0x40);  // relative type 0 (attr4(7:6)=01)
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 55, pal);    // 50+5 = row 5
         check("G12.AN-01", "Anchor latches (x,y); relative draws at anchor+off (929-936,760-773)",
               pixel_index(line, 60) == 0xA0,
@@ -1712,7 +1760,7 @@ static void group12() {
         // Type 1 anchor: attr4 bit5=1, xs=01 -> rel inherits 2x.
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x28);   // type1, xs=01
         set5(spr, 1, 5, 0, 0x00, 0x80, 0x40);   // rel type 0 attr4=01
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // rel offset 5 * 2 (xscale) = 10. Rel draws at x=10 (2x width).
         // Anchor itself draws cols 0..15.
@@ -1729,7 +1777,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xA3);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x08);   // type0, xs=01 (ignored for rel)
         set5(spr, 1, 5, 0, 0x00, 0x80, 0x40);   // rel type0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Type 0 anchor: xscale NOT inherited. Rel offset stays 5.
         // The anchor itself uses xs=01 -> 32 px wide from x=0 so covers 0..31.
@@ -1748,7 +1796,7 @@ static void group12() {
         set5(spr, 0, 50, 50, 0x00, 0x80, 0x00); // anchor at (50,50)
         set4(spr, 1, 100, 100, 0x00, 0x80);     // 4-byte -> not anchor
         set5(spr, 2, 5, 5, 0x00, 0x80, 0x40);   // relative
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 55, pal);     // anchor y=50, offset 5
         check("G12.AN-04",
               "4-byte sprite does not overwrite anchor state (929)",
@@ -1774,10 +1822,10 @@ static void group12() {
         spr.write_attr_byte(2, 0x00);
         spr.write_attr_byte(3, 0xC0);
         spr.write_attr_byte(4, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G12.AN-05", "anchor_vis=0 -> relatives invisible (932,784)", none);
     }
 
@@ -1787,7 +1835,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xB1);
         set5(spr, 0, 100, 100, 0x00, 0x80, 0x00);
         set5(spr, 1, 10, 5, 0x00, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 105, pal);
         check("G12.RE-01", "Relative at anchor+(10,5) (760-773)",
               pixel_index(line, 110) == 0xB1);
@@ -1810,10 +1858,10 @@ static void group12() {
         spr.write_attr_byte(2, 0);
         spr.write_attr_byte(3, 0xC0);
         spr.write_attr_byte(4, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G12.RE-02", "Invisible anchor propagates to relative (784)", none);
     }
 
@@ -1827,7 +1875,7 @@ static void group12() {
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x00);   // anchor paloff=0
         // rel: attr2 paloff=0x5, attr2(0)=0 (direct) -> pal = 5 only.
         set5(spr, 1, 20, 0, 0x50, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // pattern byte 0x12, paloff 5 -> ((0x1+5)<<4)|0x2 = 0x62.
         check("G12.RE-03",
@@ -1845,7 +1893,7 @@ static void group12() {
         set5(spr, 0, 0, 0, 0x30, 0x80, 0x00);
         // Rel: paloff=2, attr2(0)=1 -> sum=5.
         set5(spr, 1, 20, 0, 0x21, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // pattern byte 0x10, effective paloff 5 -> ((0x1+5)<<4)|0x0 = 0x60.
         check("G12.RE-04",
@@ -1862,7 +1910,7 @@ static void group12() {
         set5(spr, 0, 100, 100, 0x02, 0x80, 0x20); // type1, rotate=1
         set5(spr, 1, 10, 4, 0x00, 0x80, 0x40);    // rel attr0=10, attr1=4
         // Anchor rotate swaps axes: rel draws at (100+4, 100+10)
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 110, pal);     // 100+10
         check("G12.RE-05",
               "Anchor rotate swaps rel offset axes (760-761)",
@@ -1877,7 +1925,7 @@ static void group12() {
         // Anchor type1, xmirror=1 rotate=0 -> x negate.
         set5(spr, 0, 100, 100, 0x08, 0x80, 0x20); // xmirror=1
         set5(spr, 1, 10, 0, 0x00, 0x80, 0x40);    // rel attr0=+10
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         // Expected x = (100 - 10) & 0x1FF = 90. The rel sprite is 16 wide,
         // so cols 90..105 would be drawn.
@@ -1893,7 +1941,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xB7);
         set5(spr, 0, 100, 100, 0x04, 0x80, 0x20); // ymirror=1 type1
         set5(spr, 1, 0, 4, 0x00, 0x80, 0x40);     // rel attr1=+4
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         // Expected y = 100 - 4 = 96.
         spr.render_scanline(line, 96, pal);
         check("G12.RE-07",
@@ -1907,7 +1955,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xB8);
         set5(spr, 0, 100, 100, 0x00, 0x80, 0x28); // type1 xs=01
         set5(spr, 1, 5, 0, 0x00, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         // 100 + (5 << 1) = 110.
         check("G12.RE-08",
@@ -1921,7 +1969,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xB9);
         set5(spr, 0, 0, 100, 0x00, 0x80, 0x24); // type1 ys=10
         set5(spr, 1, 0, 3, 0x00, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         // 100 + 3*4 = 112
         spr.render_scanline(line, 112, pal);
         check("G12.RE-09",
@@ -1935,7 +1983,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xBA);
         set5(spr, 0, 100, 100, 0x00, 0x80, 0x38); // type1 xs=11
         set5(spr, 1, 2, 0, 0x00, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         check("G12.RE-10",
               "Anchor xscale=11 x8 rel X offset (767)",
@@ -1954,7 +2002,7 @@ static void group12() {
         upload_pattern_raw(spr, 0, buf);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x00);      // anchor type0
         set5(spr, 1, 50, 0, 0x08, 0x80, 0x40);     // rel with xmirror=1
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Rel x=50..65 with x-mirror -> col 50 reads byte 16, col 65 byte 1.
         check("G12.RT-01",
@@ -1976,7 +2024,7 @@ static void group12() {
         set5(spr, 0, 0, 0, 0x08, 0x80, 0x20);       // anchor type1 xmirror=1
         set5(spr, 1, 0xCE, 0, 0x08, 0x80, 0x40);    // rel offset=-50 xmirror=1
         // XOR: effective xmirror=0 -> normal render at cols 50..65.
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RT-02",
               "Type1 rel xmirror = anchor XOR rel (783)",
@@ -2001,7 +2049,7 @@ static void group12() {
         set5(spr, 0, 100, 0, 0x02, 0x80, 0x20);    // anchor type1 rotate=1 x=100
         set5(spr, 1, 0, 50, 0x00, 0x80, 0x40);     // rel raw=(0,50) rotate=0
         // XOR: effective rotate=1 for relative.
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RT-03",
               "Type1 rel rotate = anchor XOR rel (783)",
@@ -2021,7 +2069,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xC4);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x30);      // type1 xscale=2 (4x)
         set5(spr, 1, 25, 0, 0x00, 0x80, 0x40);     // rel raw_x=25 -> final=100
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Rel 4x wide -> cols 100..163; sample col 160.
         check("G12.RT-04",
@@ -2037,7 +2085,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 5, 0xD5);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x00); // anchor pattern 0
         set5(spr, 1, 50, 0, 0x00, 0x85, 0x40); // rel pattern 5, add=0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RP-01", "Rel pattern 5 (no add) -> renders pattern 5 (803-804)",
               pixel_index(line, 50) == 0xD5);
@@ -2050,7 +2098,7 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 8, 0xE8);
         set5(spr, 0, 0, 0, 0x00, 0x83, 0x00);   // anchor pattern 3
         set5(spr, 1, 50, 0, 0x00, 0x85, 0x41);  // rel pattern 5, attr4(0)=1 (add)
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RP-02", "Rel attr4(0)=1 -> anchor_pattern+rel_pattern (803)",
               pixel_index(line, 50) == 0xE8,
@@ -2085,7 +2133,7 @@ static void group12() {
         // Rel at (50,0): rel marker 01, rel_n6=0 (bit5=0), no add.
         // attr4 = 0b01000000 = 0x40.
         set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);
-        uint32_t l_n0[320]; clear_line(l_n0);
+        uint32_t l_n0[kSpritesTestBufW]; clear_line(l_n0);
         spr.render_scanline(l_n0, 0, pal);
         // Re-run with rel_n6=1: attr4 = 0b01100000 = 0x60.
         fresh(spr, pal);
@@ -2095,7 +2143,7 @@ static void group12() {
         for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);       // anchor 4bpp
         set5(spr, 1, 50, 0, 0x00, 0x80, 0x60);      // rel N6=1
-        uint32_t l_n1[320]; clear_line(l_n1);
+        uint32_t l_n1[kSpritesTestBufW]; clear_line(l_n1);
         spr.render_scanline(l_n1, 0, pal);
         check("G12.RP-03",
               "Rel effective N6 = anchor_h AND rel.byte4(5) (785,802)",
@@ -2128,7 +2176,7 @@ static void group12() {
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x80);
         // Rel slot 1 at (50,0): rel marker only. byte4=0x40 (no N6, no add).
         set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);
-        uint32_t l_4[320]; clear_line(l_4);
+        uint32_t l_4[kSpritesTestBufW]; clear_line(l_4);
         spr.render_scanline(l_4, 0, pal);
         // Re-run with anchor 8bpp (H=0): anchor byte4 = 0x00.
         fresh(spr, pal);
@@ -2138,7 +2186,7 @@ static void group12() {
         for (int i = 0; i < 128; ++i) spr.write_pattern(0xAA);
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x00);       // anchor 8bpp (H=0)
         set5(spr, 1, 50, 0, 0x00, 0x80, 0x40);      // same rel
-        uint32_t l_8[320]; clear_line(l_8);
+        uint32_t l_8[kSpritesTestBufW]; clear_line(l_8);
         spr.render_scanline(l_8, 0, pal);
         check("G12.RP-04",
               "4bpp anchor -> rel renders 4bpp; 8bpp anchor -> rel 8bpp (785)",
@@ -2158,11 +2206,11 @@ static void group12() {
         upload_pattern_8bpp_solid(spr, 0, 0xF1);
         // Relative sprite as the very first entry.
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x40);   // rel, no anchor
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Zero'd anchor has anchor_vis=0, so eff_vis=0 -> nothing drawn.
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) { none = false; break; }
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) { none = false; break; }
         check("G12.NG-01",
               "Rel with no prior anchor inherits anchor_vis=0 (893-897)",
               none);
@@ -2175,7 +2223,7 @@ static void group12() {
         set5(spr, 0, 100, 100, 0x00, 0x80, 0x00); // anchor 0
         set5(spr, 1, 50, 50, 0x00, 0x80, 0x00);   // anchor 1 replaces
         set5(spr, 2, 0, 0, 0x00, 0x80, 0x40);     // rel at anchor1 +(0,0) = (50,50)
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G12.NG-02", "Second anchor replaces first (929)",
               pixel_index(line, 50) == 0xF2);
@@ -2189,7 +2237,7 @@ static void group12() {
         set5(spr, 0, 100, 100, 0x00, 0x80, 0x00);
         set4(spr, 1, 50, 50, 0x00, 0x80);
         set5(spr, 2, 10, 0, 0x00, 0x80, 0x40);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         check("G12.NG-03",
               "4-byte sprite between anchor and rel preserves anchor (929)",
@@ -2213,7 +2261,7 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 1, 0x22);
         set4(spr, 0, 0, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
         check("G13.CO-01", "Non-overlap: collision bit 0 (991)",
@@ -2227,7 +2275,7 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 1, 0x22);
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
         check("G13.CO-02", "Overlap sets collision bit (991)",
@@ -2243,7 +2291,7 @@ static void group13() {
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.set_zero_on_top(true);
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G13.CO-03",
               "Collision fires even with zero_on_top=1 (991)",
@@ -2259,7 +2307,7 @@ static void group13() {
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G13.CO-04",
               "Transparent sprite's pixels do not collide (971,991)",
@@ -2273,7 +2321,7 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 1, 0x22);
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t first = spr.read_status();
         uint8_t second = spr.read_status();
@@ -2289,12 +2337,12 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 1, 0x22);
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
-        uint32_t l1[320]; clear_line(l1);
+        uint32_t l1[kSpritesTestBufW]; clear_line(l1);
         spr.read_status();
         spr.render_scanline(l1, 0, pal);             // collision fires
         // Disable the overlap by hiding sprite 1 and re-render.
         set4(spr, 1, 50, 0, 0x00, 0x01);             // not visible
-        uint32_t l2[320]; clear_line(l2);
+        uint32_t l2[kSpritesTestBufW]; clear_line(l2);
         spr.render_scanline(l2, 0, pal);
         check("G13.CO-06",
               "Collision sticky until read (986-991)",
@@ -2308,7 +2356,7 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 0, 0x11);
         set4(spr, 0, 0, 0, 0x00, 0x80);
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G13.OT-01", "Few sprites: overtime bit 0 (977)",
               (spr.read_status() & 0x02) == 0);
@@ -2326,7 +2374,7 @@ static void group13() {
             set4(spr, i, 0, 0, 0x00, 0x80);   // visible, pattern 0, in range
         }
         spr.read_status();                     // clear any sticky state
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
         check("G13.OT-02",
@@ -2346,7 +2394,7 @@ static void group13() {
             set4(spr, i, 0, 0, 0x00, 0x80);
         }
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
         check("G13.OT-03",
@@ -2364,7 +2412,7 @@ static void group13() {
             set4(spr, i, 0, 0, 0x00, 0x80);        // all at same position
         }
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
         check("G13.OT-04",
@@ -2381,7 +2429,7 @@ static void group13() {
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
         check("G13.SR-01", "Status bits 7:2 are zero (975-995)",
@@ -2396,7 +2444,7 @@ static void group13() {
         upload_pattern_8bpp_solid(spr, 1, 0x22);
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
         uint8_t s1 = spr.read_status();
@@ -2413,8 +2461,8 @@ static void group13() {
         set4(spr, 0, 50, 0, 0x00, 0x80);
         set4(spr, 1, 50, 0, 0x00, 0x81);
         spr.read_status();
-        uint32_t l1[320]; clear_line(l1);
-        uint32_t l2[320]; clear_line(l2);
+        uint32_t l1[kSpritesTestBufW]; clear_line(l1);
+        uint32_t l2[kSpritesTestBufW]; clear_line(l2);
         spr.render_scanline(l1, 0, pal);
         spr.render_scanline(l2, 1, pal);
         check("G13.SR-03", "Repeated collisions keep bit set until read (991)",
@@ -2441,11 +2489,11 @@ static void group14() {
         upload_pattern_8bpp_solid(spr, 0, 0x11);
         // Make sprite 0 relative immediately.
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x40);   // relative with no prior anchor
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Power-on anchor.visible = false -> relative must be invisible.
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G14.RST-01", "anchor_vis=0 at reset -> first rel invisible (888,784)",
               none);
     }
@@ -2456,7 +2504,7 @@ static void group14() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x22);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G14.RST-02", "spr_cur_index resets to 0 (876,898)",
               pixel_index(line, 0) == 0x22);
@@ -2485,7 +2533,7 @@ static void group14() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x33);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G14.RST-05",
               "Line buffer usable immediately after reset (534-550)",
@@ -2514,7 +2562,7 @@ static void group14() {
         spr.write_attribute(0x00);               // sprite 0 byte 1
         spr.write_attribute(0x00);
         spr.write_attribute(0x80);               // visible, pattern 0
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G14.RST-06",
               "attr_index/pattern_index zero after reset (651-652,731-732)",
@@ -2545,7 +2593,7 @@ static void group15() {
         upload_pattern_8bpp_solid(spr, 0, 0x00);
         // attr3 bits: visible=1 ext=1 pattern=1 -> 0xC1, plus attr4 no N6.
         set5(spr, 0, 0, 0, 0x00, 0xC1, 0x00);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G15.NG-01", "attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (804)",
               pixel_index(line, 0) == 0x11);
@@ -2557,10 +2605,10 @@ static void group15() {
         upload_pattern_8bpp_solid(spr, 0, 0x55);
         // x=500, y=500 via 9-bit fields. 500 = 0x1F4. attr0 = 0xF4, attr2 bit0 = 1.
         set5(spr, 0, 0xF4, 0xF4, 0x01, 0x80, 0x01);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 500 & 0xFF, pal);  // arbitrary scanline
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G15.NG-02", "Off-screen sprite (500,500) writes nothing (842)",
               none);
     }
@@ -2570,7 +2618,7 @@ static void group15() {
         fresh(spr, pal);
         upload_pattern_8bpp_solid(spr, 0, 0x66);
         set4(spr, 0, 0, 0, 0x00, 0x80);
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G15.NG-03", "(0,0) with no ext byte renders 1x (796,907,919)",
               pixel_index(line, 0) == 0x66 && pixel_index(line, 16) == -1);
@@ -2582,7 +2630,7 @@ static void group15() {
         pal.set_sprite_transparency(0xE3);
         upload_pattern_8bpp_solid(spr, 0, 0x15);  // upper=1, lower=5
         set4(spr, 0, 0, 0, 0xF0, 0x80);           // paloff=F
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // (0x1+0xF)&0xF = 0 -> final byte = 0x05
         check("G15.NG-04", "paloff upper-nibble wraps mod 16 (968)",
@@ -2597,10 +2645,10 @@ static void group15() {
         upload_pattern_8bpp_solid(spr, 0, 0xE3);
         set4(spr, 0, 50, 0, 0x00, 0x80);
         spr.read_status();
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         bool none = true;
-        for (int x = 0; x < 320; ++x) if (line[x] != SENTINEL) none = false;
+        for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G15.NG-05",
               "All-transparent sprite: zero pixels, no collision (971)",
               none && (spr.read_status() & 0x03) == 0);
@@ -2623,12 +2671,13 @@ static void group15() {
         upload_pattern_8bpp_solid(spr, 0, 0x77);
         set5(spr, 0, 5, 0, 0x08, 0x80, 0x20);       // anchor type1, xmirror=1
         set5(spr, 1, 0x10, 0, 0x00, 0x80, 0x40);    // rel raw_x=+16 -> negated
-        uint32_t line[320]; clear_line(line);
+        uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // Anchor renders at cols 5..20 (xmirror pattern still fills 16px).
         // No relative pixels anywhere else on the line.
         bool rel_empty = true;
-        for (int x = 21; x < 320; ++x) if (line[x] != SENTINEL) rel_empty = false;
+        // G104 Phase 5: scan logical 320-grid via line[x*2].
+        for (int x = 21; x < 320; ++x) if (line[x * 2] != SENTINEL) rel_empty = false;
         check("G15.NG-07",
               "Negative rel offset wraps 9-bit, off-screen (762,772)",
               rel_empty && pixel_index(line, 5) == 0x77,
@@ -3018,12 +3067,12 @@ static void group16() {
         spr.rewind_to_baseline();
 
         // Render line 20 — sprite should be at X=10..25 (baseline).
-        uint32_t line20[320]; clear_line(line20);
+        uint32_t line20[kSpritesTestBufW]; clear_line(line20);
         for (int row = 0; row <= 20; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(line20, 20, pal);
 
         // Render line 100 — sprite should be at X=200..215 (mid-frame).
-        uint32_t line100[320]; clear_line(line100);
+        uint32_t line100[kSpritesTestBufW]; clear_line(line100);
         for (int row = 21; row <= 100; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(line100, 100, pal);
 
@@ -3113,7 +3162,7 @@ static void group16() {
         spr.rewind_to_baseline();
         spr.apply_changes_for_line(0);
 
-        uint32_t line20[320]; clear_line(line20);
+        uint32_t line20[kSpritesTestBufW]; clear_line(line20);
         spr.render_scanline(line20, 20, pal);
 
         // The logged X=180 wins.  Sprite is 16px wide.  Pixel at X=180
@@ -3244,7 +3293,7 @@ static void group16() {
         spr.rewind_to_baseline();
         for (int row = 0; row <= 100; ++row) spr.apply_changes_for_line(row);
 
-        uint32_t line100[320]; clear_line(line100);
+        uint32_t line100[kSpritesTestBufW]; clear_line(line100);
         spr.render_scanline(line100, 20, pal);  // Y=20 baseline, sprite still 16px high → visible at any line in [20..35]
 
         check("G16.OVF-03c",
@@ -3303,7 +3352,7 @@ static void group17() {
         // them as well. (Pattern-side test is the focus.)
         spr.apply_changes_for_line(0);
 
-        uint32_t line0[320]; clear_line(line0);
+        uint32_t line0[kSpritesTestBufW]; clear_line(line0);
         spr.render_scanline(line0, 0, pal);
         check("G17.PSL-PAT-01b",
               "render sees pre-frame pattern byte 0x77 at sprite px 0",
@@ -3366,7 +3415,7 @@ static void group17() {
         spr.rewind_to_baseline();
 
         // Line 0: pattern[0] still 0xAA.
-        uint32_t line0b[320]; clear_line(line0b);
+        uint32_t line0b[kSpritesTestBufW]; clear_line(line0b);
         spr.apply_changes_for_line(0);
         spr.render_scanline(line0b, 0, pal);
         check("G17.PSL-PAT-02a",
@@ -3376,7 +3425,7 @@ static void group17() {
 
         // Skip lines 1..99 (no entries should fire).
         for (int row = 1; row < 100; ++row) spr.apply_changes_for_line(row);
-        uint32_t line99[320]; clear_line(line99);
+        uint32_t line99[kSpritesTestBufW]; clear_line(line99);
         spr.render_scanline(line99, 0, pal);
         check("G17.PSL-PAT-02b",
               "Line 99: still baseline pattern byte 0xAA at sprite px 0",
@@ -3385,7 +3434,7 @@ static void group17() {
 
         // Line 100: replay applies the mid-frame write.
         spr.apply_changes_for_line(100);
-        uint32_t line100[320]; clear_line(line100);
+        uint32_t line100[kSpritesTestBufW]; clear_line(line100);
         spr.render_scanline(line100, 0, pal);
         check("G17.PSL-PAT-02c",
               "Line 100: post-write pattern byte 0xBB at sprite px 0",
@@ -3394,7 +3443,7 @@ static void group17() {
 
         // Line 200: no further entries; pattern stays at 0xBB.
         for (int row = 101; row < 200; ++row) spr.apply_changes_for_line(row);
-        uint32_t line200[320]; clear_line(line200);
+        uint32_t line200[kSpritesTestBufW]; clear_line(line200);
         spr.render_scanline(line200, 0, pal);
         check("G17.PSL-PAT-02d",
               "Line 200: pattern byte still 0xBB (carried)",
@@ -3432,7 +3481,7 @@ static void group17() {
         spr.rewind_to_baseline();
 
         // Line 0: sprite px at X=10..25 should be 0x33.
-        uint32_t l0[320]; clear_line(l0);
+        uint32_t l0[kSpritesTestBufW]; clear_line(l0);
         spr.apply_changes_for_line(0);
         spr.render_scanline(l0, 0, pal);
         bool line0_baseline = (pixel_index(l0, 10) == 0x33) &&
@@ -3468,7 +3517,7 @@ static void group17() {
         spr.rewind_to_baseline();
 
         // Line 5 (within pre-rewrite span: lines 0..19 baseline).
-        uint32_t l5[320]; clear_line(l5);
+        uint32_t l5[kSpritesTestBufW]; clear_line(l5);
         for (int row = 0; row <= 5; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(l5, 5, pal);
         check("G17.PSL-PAT-03b",
@@ -3477,7 +3526,7 @@ static void group17() {
               DETAIL("px@10=%d", pixel_index(l5, 10)));
 
         // Line 20: replay applies the rewrite; pixels should be 0x66.
-        uint32_t l20[320]; clear_line(l20);
+        uint32_t l20[kSpritesTestBufW]; clear_line(l20);
         for (int row = 6; row <= 20; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(l20, 20, pal);
         check("G17.PSL-PAT-03c",
@@ -3635,7 +3684,7 @@ static void group17() {
 
         spr.rewind_to_baseline();
         for (int row = 0; row <= 60; ++row) spr.apply_changes_for_line(row);
-        uint32_t lpat2[320]; clear_line(lpat2);
+        uint32_t lpat2[kSpritesTestBufW]; clear_line(lpat2);
         spr.render_scanline(lpat2, 60, pal);
         check("G17.PSL-PAT-06g",
               "Line 60: rendered pixel uses post-rewrite pattern byte 0x99",
@@ -3711,7 +3760,7 @@ static void group17() {
         // Render line 0; pixel column 1 should map to pattern[1].
         spr.rewind_to_baseline();
         spr.apply_changes_for_line(0);  // attribute write tagged at line 0
-        uint32_t l_t1[320]; clear_line(l_t1);
+        uint32_t l_t1[kSpritesTestBufW]; clear_line(l_t1);
         spr.render_scanline(l_t1, 0, pal);
         check("G17.PSL-PAT-07b",
               "Catch-up: pattern[0]=0xAA in next-frame baseline",
