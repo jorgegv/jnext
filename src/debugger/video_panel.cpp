@@ -158,8 +158,15 @@ void VideoLayerView::render_to_image(int vc)
     Emulator& emu = *emulator_;
 
     // Determine the native width for this layer.
+    // G104 phase 2: ULA renderer now emits 640 cells natively (canonical
+    // framebuffer width). The debugger panel must match or the QImage scanline
+    // dst will be overrun on every render call.
     int layer_w = NATIVE_W;
     switch (layer_) {
+        case Layer::ULA_PRIMARY:
+        case Layer::ULA_SHADOW:
+            layer_w = 640;
+            break;
         case Layer::LAYER2_ACTIVE:
         case Layer::LAYER2_SHADOW:
             if (emu.layer2().resolution() >= 2) layer_w = 640;
