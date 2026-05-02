@@ -172,13 +172,13 @@ public:
     // Framebuffer access
     // -----------------------------------------------------------------------
 
-    /// Returns a pointer to the ARGB8888 framebuffer (up to 640×256).
+    /// Returns a pointer to the ARGB8888 framebuffer (640×256).
     /// The pointer is valid for the lifetime of the Emulator object.
     /// Contents are updated by run_frame().
     uint32_t* get_framebuffer() { return framebuffer_.data(); }
 
-    /// Framebuffer width in pixels (320 or 640, depending on last frame).
-    int get_framebuffer_width()  const { return last_frame_width_; }
+    /// Framebuffer width in pixels (canonical 640 post-G104).
+    int get_framebuffer_width()  const { return FRAMEBUFFER_WIDTH; }
 
     /// Framebuffer height in pixels.
     int get_framebuffer_height() const { return FRAMEBUFFER_HEIGHT; }
@@ -485,10 +485,12 @@ public:
     }
 
 private:
-    static constexpr int FRAMEBUFFER_WIDTH      = 320;
-    static constexpr int FRAMEBUFFER_WIDTH_MAX  = 640;
-    static constexpr int FRAMEBUFFER_HEIGHT     = 256;
-    static constexpr int FRAMEBUFFER_PIXELS_MAX = FRAMEBUFFER_WIDTH_MAX * FRAMEBUFFER_HEIGHT;
+    // Canonical 640×256 ARGB framebuffer (G104). Vertical 2× scaling for
+    // square-pixel display (640×512) is applied at the GUI/screenshot layer
+    // (Phase 7).
+    static constexpr int FRAMEBUFFER_WIDTH  = 640;
+    static constexpr int FRAMEBUFFER_HEIGHT = 256;
+    static constexpr int FRAMEBUFFER_PIXELS = FRAMEBUFFER_WIDTH * FRAMEBUFFER_HEIGHT;
 
     EmulatorConfig config_;
     MachineTiming  timing_;          // per-machine timing from VHDL
@@ -571,11 +573,8 @@ private:
     /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
     std::vector<uint8_t> boot_rom_;
 
-    /// ARGB8888 framebuffer (up to 640 × 256 pixels).
+    /// ARGB8888 framebuffer (canonical 640 × 256 pixels post-G104).
     std::vector<uint32_t> framebuffer_;
-
-    /// Actual width of the last rendered frame (320 or 640).
-    int last_frame_width_ = FRAMEBUFFER_WIDTH;
 
     /// Master cycle counter at which the current frame started.
     uint64_t frame_cycle_ = 0;
