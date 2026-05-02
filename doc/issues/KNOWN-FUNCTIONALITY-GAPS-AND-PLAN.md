@@ -97,6 +97,10 @@ where possible.
 | G101| Tilemap pixel_textmode_o flag not exposed to compositor    | Tilemap, Renderer                | A   | Y       | Precondition for G98; precludes per-pixel text-mode        | L      | Low      |
 | G104| HI_RES (Timex 512×192) renders at 256 px (half-resolution) | ULA, Renderer                    | A   | Y       | Timex hi-res text/programs render at half horizontal res   | M      | Low      |
 | G105| HI_RES 6-bit border palette-group encoding not modelled    | ULA, Palette                     | A   | Y       | HI_RES border colour wrong under ULAnext/ULA+ palettes     | L      | Low      |
+| G164| set_screen_mode decoded mode from port_ff(5:3) not (2:0)   | ULA, NextREG                     | A   | Y       | Real Timex programs writing port_ff(2:0) couldn't reach HI_RES | L  | Low      |
+| G165| HI_RES display ink/paper used independent bits not border_clr_tmx | ULA, Palette              | A   | Y       | Timex hi-res monochrome rendered with wrong colours + no BRIGHT | L | Low      |
+| G166| Renderer::ula_border_[] per-pixel border-active never written | ULA, Renderer, Compositor   | A   | Y       | Latent: NR 0x68 stencil + ULA-disabled border_exc paths read false | L | Low |
+| G167| ULAnext / ULA+ encoder dispatch absent in HI_RES display path | ULA, Palette                | A   | Y       | HI_RES under ULAnext/ULA+ palette renders wrong inner colours | L   | Low      |
 | G109| NR 0x64 cu_offset not applied to line-int compare          | Emulator, Copper, VideoTiming    | A   | Y       | NR 0x64 + line-IRQ raster split misaligned                 | L      | Low      |
 | G132| F-key state machine + 50-60/cpu-speed/scandouble hotkeys absent | Keyboard, GUI, NextREG, VideoTiming | A,B | Y  | Host F1/F2/F3/F4/F7/F8 keys do nothing emulator-side       | M      | Low      |
 | G144| port 0x123B map_shadow bit 3 — read/write-over wrong bank  | MMU, Layer2                      | A   | Y       | L2 double-buffering via 0x123B b3 writes wrong bank        | L      | Low      |
@@ -452,13 +456,14 @@ where possible.
 - **Source ref**: `EMULATOR-DESIGN-PLAN.md:1159`.
 - **Effort**: L (gated on cycle-accurate refactor).
 
-### G91. NR 0x44 priority bits 7:6 dropped — L2 priority promotion never fires
-- **What**: VHDL `zxnext.vhd:4920` captures `nr_palette_priority <= nr_wr_dat(7 downto 6)` on NR 0x44 second-write; stored in palette RAM at `:7025` and consumed at `:7039-7050` (`layer2_priority_2 <= layer2_prgb_1(9)`). jnext `palette.cpp:240-252` reads only `val & 0x01` and discards bits 7:6; `renderer.cpp:82` fills `layer2_priority_[]` with `false` every row.
-- **User impact**: any L2 program using palette-bit-9 to promote pixels above sprites/ULA/TM renders with the priority bit as no-op; the compositor's L2-priority branch (`renderer.cpp:289`) is dead in production despite 18+ test rows passing on synthesised inputs.
+### G91. NR 0x44 priority bits 7:6 dropped — L2 priority promotion never fires [closed]
+- **Status: CLOSED 2026-05-03** by G179 Issue #3 (commits `af59e12 → ec365db`). Two halves to the original gap, both now fixed:
+  1. **Palette side** (`palette.cpp:240-252` claimed `val & 0x01`): already corrected ahead of G179. `palette.cpp:295` extracts `(val >> 6) & 0x03` on the second NR 0x44 byte and stores into the 2-bit `layer2_priority_[bank][idx]` slot per VHDL `zxnext.vhd:4920, :7025-7039`.
+  2. **Renderer side** (`renderer.cpp` fills `layer2_priority_[]` with false every row): closed by G179 Issue #3. `Layer2::render_scanline` gained a `bool* priority_dst = nullptr` parameter; each opaque emit writes `priority_dst[x] = palette.layer2_priority_high(colour_idx)`. All three resolution modes propagate (res-0 256→640 doubled, res-1 320→640 doubled, res-2/3 native 640 per-nibble). Renderer wires `layer2_priority_.data()`; debugger panel passes nullptr.
+- **Test coverage**: `test/layer2/layer2_test.cpp` Group 11 (G11-00..06) — narrow, wide-320, native-640, transparency, nullptr default. Per-scanline NR 0x44 priority replay was already wired by `PaletteManager::change_log_` infrastructure.
+- **What was originally observed**: VHDL `zxnext.vhd:4920` captures `nr_palette_priority <= nr_wr_dat(7 downto 6)` on NR 0x44 second-write; stored in palette RAM at `:7025` and consumed at `:7039-7050` (`layer2_priority_2 <= layer2_prgb_1(9)`).
+- **User impact (was)**: any L2 program using palette-bit-9 to promote pixels above sprites/ULA/TM rendered with the priority bit as no-op; compositor's L2-priority branch was dead in production despite 18+ test rows passing on synthesised inputs.
 - **Source ref**: Wave-1 layer2-lores-compositor (NEW-L2-1); reviewer APPROVE.
-- **Coverage today**: `compositor_test` L2P-01..L2P-18 pass with forced-flag input; no end-to-end L2-44 → renderer flow assertion.
-- **Dependencies**: G93 follows directly (640-mode pixel-doubling).
-- **Effort**: L.
 
 ### G92. port 0x123B cpu_do(4)=1 offset mode ignored
 - **What**: VHDL `zxnext.vhd:3914-3923` bifurcates 0x123B writes on `cpu_do(4)`. With bit 4=1, bits 2:0 latch into `port_123b_layer2_offset` and feed `layer2_active_bank_offset` at `:2966-2967`. jnext `mmu.cpp:183-202` has no bit-4 branch; every write is the cpu_do(4)=0 path. Cross-bucket dup with NEW-MMU-3.
@@ -554,13 +559,14 @@ where possible.
 - **Dependencies**: shares infrastructure with G102/G105.
 - **Effort**: M.
 
-### G104. HI_RES (Timex 512×192) renders at 256 px (half-resolution)
-- **What**: VHDL `zxula.vhd:389-395` shift_reg_32 untouched in hi-res (14 MHz pixel clock when `screen_mode(2)='1'`). jnext `ula.cpp:646+` discards every alternate hi-res pixel; comment at `:635-640` documents the 256-pixel approximation.
-- **User impact**: Timex hi-res text/programs render at half horizontal resolution; 512-column text becomes unreadable.
+### G104. HI_RES (Timex 512×192) renders at 256 px (half-resolution) [closed]
+- **Status: CLOSED 2026-05-02** via the 8-phase G104 plan (`doc/design/G104-HI-RES-512-CANONICAL-FRAMEBUFFER-PLAN.md`); plus an ink/paper VHDL drift addressed in G179 Issue #2 (G165, see below). Final main HEAD `b631b94`. Aggregate 3763/3590/0/173; regression 34/0/0 with 27 PNG references regenerated at canonical 640×512.
+- **What landed**: canonical 640-wide framebuffer end-to-end (`Renderer::FB_WIDTH = 640`, `DISP_X = 64`, `DISP_W = 512`); ULA / Layer2 / Tilemap / Sprites all emit native 640 (with VHDL-faithful pixel-doubling at the hardware-shift-register level for std-ULA / 256-mode L2 / 40-col tilemap). HI_RES Timex emits true 512 active pixels via byte-interleaved s0/s1 emission per VHDL `zxula.vhd:389` (8 px from screen-0 col N, then 8 px from screen-1 col N, MSB-first). The pre-existing comment at `ula.cpp:945-953` had described a bit-granularity interleave that contradicted VHDL — also fixed.
+- **GUI / output**: vertical 2× scaling at the GUI prescale step (in-memory 640×256 → displayed 640×512) for CRT-faithful 4:3 geometry; PNG screenshots and FFmpeg video recorder emit 640×512 (vertical-doubled at export).
+- **What was originally observed**: VHDL `zxula.vhd:389-395` shift_reg_32 untouched in hi-res (14 MHz pixel clock when `screen_mode(2)='1'`). jnext `ula.cpp:646+` discarded every alternate hi-res pixel; comment at `:635-640` documented the 256-pixel approximation.
+- **User impact (was)**: Timex hi-res text/programs rendered at half horizontal resolution; 512-column text was unreadable.
+- **Test coverage**: `test/ula/ula_test.cpp` S5.10 / S5.10b (byte-interleave geometry with 0xAA/0x55 + 0xF0/0x0F distinct stimuli); S5.10c (HI_RES border row 640-cell width). S3.09-S3.13 (border-flag plumbing, G179 Issue #4).
 - **Source ref**: Wave-1 ula (NEW-ULA-3); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: requires compositor-level FB-width / scaling decision (orthogonal to G18 screenshot scaling).
-- **Effort**: M-H.
 
 ### G105. HI_RES 6-bit border palette-group encoding not modelled [closed]
 - **Status: CLOSED 2026-05-01** (part of the G102 13-commit chain; primary commit `a3dc90a` then VHDL-faithful for std ULA in `e0c9970` after the single-mirror collapse). HI_RES border `border_clr_tmx` now computed as the 8-bit `0x10 | (attr(6)<<3) | (~paper&7)` per VHDL `zxula.vhd:419 + :543-553` and looked up in the wider 256-entry palette. The std-ULA fallback that used to truncate to 3-bit-paper became natural under the single-mirror design — no "documented limitation." S5.11 promoted to live check covering ULAnext + ULA+ + std-ULA paths. Independent reviewer APPROVE.
@@ -681,6 +687,39 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: per-bank scheduler + on-screen bar render.
 - **Effort**: M.
+
+### G164. jnext `Ula::set_screen_mode` decoded mode bits from port_ff(5:3) instead of VHDL port_ff(2:0) [closed]
+- **Status: CLOSED 2026-05-03** by G179 Issue #1 (commits `9d885d8 → 40cf581`).
+- **What was originally observed**: `set_screen_mode` (`src/video/ula.cpp:147` pre-fix) computed `mode_bits = (port_val >> 3) & 0x07` per a deliberate jnext convention documented inline at lines 141-146 — contradicts VHDL `zxula.vhd:191` (`screen_mode_s <= i_port_ff_reg(2 downto 0)`).
+- **User impact (was)**: real Timex programs writing the SCLD-spec mode bits to port_ff(2:0) silently fell into STANDARD mode forever; HI_RES was unreachable from real software, only from test fixtures using the buggy bits-5:3 convention.
+- **Fix**: `mode_bits = port_val & 0x07` per VHDL. `Ula::set_shadow_screen_en` mask flipped `0x07` → `0xF8` so the gated bits are 2:0 (not 5:3). 25+ test fixtures + debugger CPU-panel mode-label decoder updated to the bits-2:0 convention. Plan-doc `doc/design/G104-HI-RES-512-CANONICAL-FRAMEBUFFER-PLAN.md` Section A.4 marks the convention drift resolved.
+- **Test coverage**: full `test/ula/` + `test/ula/ula_integration_test.cpp` re-baselined; existing S5.x tests now exercise the right code paths.
+- **Dependency for**: G108 (NR 0x69/0x22/0xC4 → port_ff_reg fan-out) is a prerequisite hop. Now that `set_screen_mode` is VHDL-correct, plumbing the fan-out from NR handlers becomes meaningful.
+
+### G165. HI_RES display ink/paper used port_ff bits 2:0/5:3 independently instead of VHDL `border_clr_tmx` [closed]
+- **Status: CLOSED 2026-05-03** by G179 Issue #2 (commits `822b10b → d23f306`). Complementary to G105 which closed the HI_RES *border* row encoding; G165 closes the HI_RES *display row* ink/paper derivation.
+- **What was originally observed**: `Ula::render_display_line_hires` (`src/video/ula.cpp:935+` pre-fix) treated port_ff bits 2:0 as ink and bits 5:3 as paper, INDEPENDENTLY — contradicts VHDL `zxula.vhd:419, 426-427`. Per VHDL the entire HI_RES display attr_reg is loaded with `border_clr_tmx = "01" & ~port_ff(5:3) & port_ff(5:3)`: bit 6 = BRIGHT = 1, paper bits 5:3 = `~port_ff(5:3)`, ink bits 2:0 = `port_ff(5:3)`. So **ink = port_ff(5:3) (BRIGHT)**, **paper = ~port_ff(5:3) & 0x07 (BRIGHT)** — NOT independent fields.
+- **User impact (was)**: Timex hi-res monochrome programs picking specific port_ff(5:3) paper colours rendered with wrong colours; the BRIGHT bit was always off; ink and paper could be set to arbitrary independent pairs that real hardware cannot produce.
+- **Fix**: synthesize attr per VHDL: `0x40 | ((~paper_color & 7) << 3) | (paper_color & 7)`, where `paper_color = (screen_mode_reg_ >> 3) & 0x07`. HI_RES strip-border (left/right of a display row) now derives from the same `paper_argb` (paper cycle of `border_clr_tmx`) — port_fe is NOT routed to HI_RES borders per VHDL.
+- **Test coverage**: S5.10 / S5.10b / S5.10c rewrites lock in: distinct paper_color stimuli; expected ink = bright(port_ff(5:3)); expected paper = bright(~port_ff(5:3) & 7).
+- **Source ref**: surfaced during G104 Phase 2 reviewer pass; logged in `project_g104_closed_canonical_640.md` then promoted to G179.
+
+### G166. `Renderer::ula_border_[]` per-pixel border-active flag never written [closed]
+- **Status: CLOSED 2026-05-03** by G179 Issue #4 (commits `dbb5d94 → fececef`).
+- **What was originally observed**: `Renderer::ula_border_[]` (`src/video/renderer.h:362`) is a per-pixel `std::array<bool, FB_WIDTH>` consumed by the compositor at `renderer.cpp:392` for the `border_exc` flag (NR 0x68 stencil + ULA-disabled paths). Pre-fix: zero-filled at frame start (`renderer.cpp:142` `std::fill_n(..., false)`) and never updated by any ULA renderer. Compositor always saw `false`.
+- **User impact (was)**: latent — the `border_exc` consumer paths are themselves gated by G26 (FPGA-team Open Questions on NR 0x68 modes 011/100/101). Not visibly breaking any current demo, but blocking G26 from being meaningfully testable.
+- **Fix**: `Ula::render_scanline` gained `bool* border_dst = nullptr` parameter, threaded through 4 internal renderers (`render_display_line` STANDARD/STANDARD_1, `render_display_line_hicolour`, `render_display_line_hires`, `render_border_line`). Border-fill loops (left strip [0..63], right strip [576..639], full top/bottom border row [0..639]) write `border_dst[x] = true`; display-area cells stay at the caller's pre-fill `false`. Renderer wires `ula_border_.data()`; debugger video panel passes nullptr.
+- **VHDL ref**: `zxula.vhd:415` (`border_active <= i_phc(8) or border_active_v`), `:567` (`o_ula_border <= border_active`), consumed by `zxnext.vhd:7256, 7266, 7278` for the ULA-vs-sprite border exception in modes 011/100/101.
+- **Test coverage**: S3.09 / S3.10 / S3.11 / S3.12 / S3.13 in `test/ula/ula_test.cpp` (display row border strips, top-border row, bottom-border row, nullptr default-arg back-compat, HI_COLOUR display row).
+- **Source ref**: surfaced during G104 Phase 2 reviewer pass; logged in `project_g104_closed_canonical_640.md` then promoted to G179.
+
+### G167. ULAnext / ULA+ encoder dispatch is NOT wired into HI_RES display path
+- **What**: VHDL `zxula.vhd:485-554` defines three encoder paths — std-ULA (`:543-553`), ULAnext (`:492-528`), ULA+ (`:531-541`). Per `zxula.vhd:426-427` the HI_RES display attr_reg is `border_clr_tmx & border_clr_tmx`, which then flows through whichever encoder is active per `ulanext_en` / `ulap_en`. The HI_RES border row goes through encoder dispatch correctly (closed by G105). But `Ula::render_display_line_hires` only calls the std-ULA encoder helpers (`std_ula_ink_pixel` / `std_ula_paper_pixel`) — it does NOT consult `ulanext_en_` / `ulap_en_` and route through `compute_ulanext_pixel` / `compute_ulap_pixel` like the other renderer paths do.
+- **User impact**: a HI_RES program running under ULAnext or ULA+ palette mode (firmware-poked palette entries at `ula_pixel` slots that the std-ULA encoder doesn't reach) will see wrong colours in the display area only — the border (closed by G105) renders correctly, but the inner 512-px display does not. Latent: no current demo exercises HI_RES with ULAnext/ULA+ enabled.
+- **Source ref**: surfaced during G179 Issue #2 reviewer pass (Reviewer B, 2026-05-03).
+- **Coverage today**: none.
+- **Dependencies**: cheap — fold the existing ULAnext/ULA+ encoder branches from `render_display_line` / `render_display_line_hicolour` into `render_display_line_hires`. Same pattern as G105's HI_RES border encoder dispatch fix.
+- **Effort**: L.
 
 ---
 
