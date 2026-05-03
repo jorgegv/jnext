@@ -119,7 +119,7 @@ where possible.
 | G43 | Kempston Mouse host wiring                                 | Mouse, SDL                       | B   |         | Art Studio Next, mouse demos unusable                      | M      | Medium   |
 | G47 | NextZXOS post-boot regression / dot-command surface        | Test, Boot                       | B   |         | no automation for NextZXOS-native software regressions     | L      | Medium   |
 | G48 | Multiface peripheral (Task 8) + RETN-alias band-aid        | Multiface, NMI, DivMMC           | B,C |         | no NMI freeze/cheat menu; 8 DivMMC + Copper rows skipped   | M      | Medium   |
-| G56 | NextReg `regs_[]` shadow-store systemic bug                | NextREG                          | C,D |         | NR 0x09/0x0A/0x15/0x22/0x23/0x34 readback returns garbage  | M      | Medium   |
+| G56 | NextReg `regs_[]` shadow-store systemic bug (option a partial — option b pending) | NextREG                          | C,D |         | per-NR read_handlers landed for ~24 NRs; `NextReg::write` contract unfixed | M | Medium |
 | G59 | NextZXOS bypass-tbblue-fw boot path                        | Boot, NextREG, MMU               | C   |         | pragmatic instant-boot mitigation for G46                  | H      | Medium   |
 | G67 | Rewind buffer pre-allocated bound + assertion              | Rewind                           | C   |         | save-state widening silently overflows ring slots          | L      | Medium   |
 | G69 | Traceability matrix structurally stale + extractor         | Test/Matrix                      | D   |         | audit / theatre-detection get wrong numbers                | M      | Medium   |
@@ -179,7 +179,7 @@ where possible.
 | G88 | NMI does not capture PC into NR 0xC2/0xC3                  | CPU, NextREG, NMI                | C   |         | NMI inspector tooling reads 0xFF instead of last NMI PC    | L      | Low      |
 | G90 | 28 MHz turbo SRAM-read wait state not modelled             | CPU, Memory, NextREG             | C   |         | Turbo-mode timing 7% fast on read-heavy code               | M      | Low      |
 | G97 | NR 0x19 / 0x1A read handlers absent                        | Sprites, NextREG, ULA            | A,D |         | NR 0x19/0x1A reads return last-write byte, not indexed clip | L     | Low      |
-| G99 | NR 0x6E/0x6F bit 6 reserved-bit mask missing on read       | Tilemap, NextREG                 | A,D |         | Software validating writes by read-back sees bit 6 toggle  | L      | Low      |
+| ~~G99~~ | ~~NR 0x6E/0x6F bit 6 reserved-bit mask missing on read~~       | ~~Tilemap, NextREG~~                 | ~~A,D~~ |         | ~~Software validating writes by read-back sees bit 6 toggle~~  | ~~L~~      | ~~Low~~      |
 | G111| DAC channels not held at 0x80 when nr_08_dac_en=0          | DAC, NextREG, Mixer              | B   |         | DAC-disable leaves residual level instead of silencing     | L      | Low      |
 | G112| NR 0x2C/0x2D/0x2E read-back exposes Pi I2S input           | NextREG, I2S, Audio              | B   |         | NR 0x2C/2E reads return regs_[] noise, not I2S samples     | L      | Low      |
 | G113| NR 0xA2 Pi I2S control register completely unwired         | NextREG, I2S, Audio              | B   |         | mute/dir/channel-enable bits don't gate I2S Mixer path     | L      | Low      |
@@ -523,14 +523,10 @@ where possible.
 - **Dependencies**: G101 (per-pixel textmode flag).
 - **Effort**: L.
 
-### G99. NR 0x6E / NR 0x6F bit 6 reserved-bit mask missing on read-back
-- **What**: VHDL `zxnext.vhd:6108,6111` — bit 6 forced 0 on read. jnext `tilemap.h:51,55` `get_map_base_raw()` returns raw byte; no NR 0x6E/0x6F read handlers.
-- **User impact**: software validating NR-write by read-back sees bit 6 toggle.
-- **Source ref**: Wave-1 sprites-tilemap (NEW-TM-3); reviewer APPROVE.
-- **Coverage today**: subset of G56.
-- **Dependencies**: 6-line read_handler with mask.
-- **Effort**: L.
-- Also relevant to section D.
+### G99. NR 0x6E / NR 0x6F bit 6 reserved-bit mask missing on read-back [closed]
+- **Status: CLOSED 2026-05-03** by G56 cluster E (commit `b1606fb`). The VHDL-faithful `& 0xBF` mask was already present in `Tilemap::get_map_base_read()` / `get_def_base_read()` since commit `e375456` (2026-04-28); cluster E added explicit `set_read_handler(0x6E)` / `set_read_handler(0x6F)` wiring + comment attribution + VHDL-cited test rows in `nextreg_integration_test.cpp` group `G56-CR-Cluster-E`.
+- **What was originally observed**: VHDL `zxnext.vhd:6108,6111` — bit 6 forced 0 on read. jnext `tilemap.h:51,55` `get_map_base_raw()` returned raw byte; no NR 0x6E/0x6F read handlers were registered, so reads fell through to `regs_[]` and bit 6 leaked through write-mask divergence.
+- **Test coverage**: `G56-CR-NR6E-FF` (write 0xFF → read 0xBF) + `G56-CR-NR6E-RT` (round-trip) + matching pair for NR 0x6F in `nextreg_integration_test.cpp`.
 
 ### G100. Tilemap per-line scroll snapshot caps at line 320
 - **What**: `tilemap.h:76-87` uses `std::array<uint16_t, 320>` with `if (line >= 0 && line < 320)` guard. Mid-vblank scroll writes (line ≥ 320) silently dropped from snapshot; canonical fix mirrors `SpriteEngine::start_frame` catch-up at `sprites.cpp:119-144`.
@@ -1195,7 +1191,29 @@ where possible.
   land in one patch. Both required for FDC NMI path to fire.
 - **Effort**: L.
 
-### G56. NextReg `regs_[]` shadow-store systemic bug
+### G56. NextReg `regs_[]` shadow-store systemic bug — **PARTIAL CLOSURE 2026-05-03 (option a)**
+
+**Status (2026-05-03)**: Option (a) per-NR `read_handlers` landed for the entire Task 6 Wave 2 audit list (~24 NRs across 5 clusters). The systemic `NextReg::write` contract — option (b) — is **NOT** yet rewritten; this remains the actual G56 closure work and is parked for a fresh session per user direction. The per-NR work surfaced + fixed two latent bugs in the same scope: NR 0x05 reset default `0x40 → 0x41` (VHDL `nr_05_scandouble_en := '1'` per `zxnext.vhd:1303`), and NR 0x06 bit 2 (`ps2_mode`) write was not gated on `nr_03_config_mode` (VHDL `:5167-5169`); both fixed in cluster A. Cluster E also closes G99 (NR 0x6E/0x6F bit 6 reserved-zero mask attribution; the actual mask was already in `Tilemap::get_*_read()` accessors since 2026-04-28 commit `e375456`).
+
+**What's done (option a)**:
+
+| Cluster | Commit | NRs covered | Pass delta |
+|---------|--------|-------------|------------|
+| A | `0eb502a` | 0x05, 0x06 (+ NR 0x05 reset fix, NR 0x06 ps2_mode write gate) | +9 |
+| B | `677625b` (+ `1b562d5` save/load fix) | 0x09, 0x0A, 0x0B, 0x10, 0x15, 0x34 | +24 +1 |
+| C | `fd8f805` | 0x22, 0x23 | +10 |
+| D | `cb29394` | 0x40, 0x43, 0x4C, 0x69, 0x6A, 0x6B, 0x6C | +14 |
+| E | `b1606fb` | 0x6E, 0x6F, 0x70, 0x71, 0x80, 0x81 (+ G99 attribution) | +13 |
+
+Aggregate +71 PASS rows in `nextreg_integration_test`. Final unit-test sweep: 3843/3670/0/173 across 33/33 suites. Regression 34/0/0 byte-identical.
+
+**What remains (option b)** — the actual G56 closure, parked for a fresh session:
+
+The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write` still does `regs_[reg] = val;` unconditionally before the write_handler runs. Any future NR added with a write-mask handler but no matching read_handler will silently re-introduce the divergence pattern. Option (b) re-architects the contract — either (b1) handler returns the canonical masked byte and `NextReg::write` stores that, or (b2) handlers explicitly call `NextReg::store(reg, masked)`. Higher blast radius (must audit ~40+ existing handlers) but solves the contract systemically. Option (b) does NOT replace option (a) entirely: live-state and dynamic registers (NR 0x05 eff_overlays, NR 0x10 SPKEY_BUTTONS, NR 0x22 pulse_int_n, NR 0x40 autoinc, NR 0x68 ulap_en, NR 0x69 cross-subsystem composition) still need read_handlers regardless. So a fully-closed G56 is option (b) + retain ~9 of the per-NR read_handlers from this session.
+
+**Original audit reference (kept for context):**
+
+
 - **What**: `NextReg::write` (`src/port/nextreg.cpp:114`) stores the raw 8-bit
   pre-handler-dispatch byte. Handlers that mask write bits do NOT
   propagate the mask to `regs_[]`. Reads return the raw byte for any
