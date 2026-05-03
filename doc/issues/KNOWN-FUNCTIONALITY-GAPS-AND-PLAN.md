@@ -1391,6 +1391,8 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Coverage today**: G48 DivMMC band-aid is the same root with different consumer; G49 stackless-NMI execution; G61 RETN-alias test gap. None covers this.
 - **Dependencies**: per-byte M1 hook from FUSE core OR pre-decode ED 4D / ED 45 in `z80_cpu.cpp`.
 - **Effort**: M.
+- **Status (2026-05-03d)**: ED-prefix path closed. `Z80Cpu::execute()` now fires `on_m1_cycle` on BOTH bytes of the ED-prefix sequence (`z80_cpu.cpp:480-481, 507-508`), the im2 decoder FSM advances S_ED_T4 → S_ED4D_T4 / S_ED45_T4 correctly, and the legacy `prev_ed`+RETN-alias band-aid in `emulator.cpp` was retired.
+- **Follow-up — DD/FD/CB prefix per-byte M1 delivery**: still missing for the non-ED prefix paths in `z80_cpu.cpp:514-525, 527-528`. The im2 decoder FSM has `S_DDFD_T4` and `S_CB_T4` states (`im2_control.vhd:158-209`) that would benefit from per-byte delivery the same way the ED path now does. The SKIP rows targeted by G87 were RETI/RETN only, so these prefixes were left alone — but any future SKIP/audit rows that depend on FSM advancement through DD/FD/CB will need this same per-byte fix. Effort: S (mirror the ED-path two-byte `on_m1_cycle` calls into the DD/FD/CB branches, then verify against `im2_control.vhd:158-209`).
 
 ### G88. NMI does not capture PC into NR 0xC2 / NR 0xC3
 - **What**: VHDL `zxnext.vhd:2050-2085` latches `nr_c2/c3_retn_address_lsb/msb` on `Z80N_command_s = NMIACK_LSB/MSB AND cpu_wr_n='0'` regardless of stackless mode. Read at `:6232-6236`. jnext: no NR 0xC2/0xC3 handlers; `fuse_z80_nmi()` pushes PC but does not propagate. Cross-bucket dup: NEW-CPU-2 = NEW-IM2-1 — kept once.
