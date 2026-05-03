@@ -1299,13 +1299,17 @@ static void test_group9_boundary() {
     // G10c/G10d/G10e), and the pinned 100-frame parallax-demo regression
     // baseline.
 
-    // G9-G28-01 — VHDL layer2.vhd:148. Today's renderer is
-    // scanline-granular; the `hc + 1` lift folds into the address
-    // formula and cannot be observed standalone (see G9-06
-    // explanatory note). Re-discriminate once cycle-accurate refactor
-    // lands per EMULATOR-DESIGN-PLAN.md:1159.
-    skip("G9-G28-01",
-         "hc_eff column-pipeline observable gated on cycle-accurate refactor (see G28)");
+    // WONT G9-G28-01 — VHDL layer2.vhd:148 `hc_eff <= hc + 1` column-pipeline
+    // observable. Today's Layer 2 renderer is scanline-granular: the +1 lift
+    // folds into the address formula and cannot be observed standalone. The
+    // gating dependency is NOT G117 (Copper cycle-accurate scheduler — already
+    // CLOSED via copper_integration_test G117-MPC-01); it is a separate
+    // pixel-granular Layer 2 renderer refactor (architectural-grade, touches
+    // the renderer hot path every scanline). Practical demand for per-pixel
+    // L2 timing observability in jnext-target software (NextZXOS + modern
+    // Next demos) is essentially zero. Revisit only if a specific demo or
+    // program demonstrates per-pixel L2 timing sensitivity that cannot be
+    // resolved through other means. See G28.
 }
 
 // =========================================================================
