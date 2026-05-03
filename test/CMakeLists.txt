@@ -3,10 +3,13 @@ add_executable(fuse_z80_test fuse/fuse_z80_test.cpp)
 target_link_libraries(fuse_z80_test PRIVATE jnext_cpu)
 target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# Copy FUSE test data (tests.in / tests.expected) to the build directory;
-# the test code sits in the same source dir but we don't need it copied.
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fuse/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/fuse/
-     FILES_MATCHING PATTERN "tests.*")
+# Stage FUSE test data; configure_file() registers each source as a
+# configure-time dep so edits re-copy on next build (file(COPY) doesn't).
+file(GLOB FUSE_TEST_DATA "${CMAKE_CURRENT_SOURCE_DIR}/fuse/tests.*")
+foreach(_src ${FUSE_TEST_DATA})
+    get_filename_component(_fname ${_src} NAME)
+    configure_file(${_src} ${CMAKE_CURRENT_BINARY_DIR}/fuse/${_fname} COPYONLY)
+endforeach()
 
 # Register as CTest target
 add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
@@ -24,8 +27,13 @@ add_test(NAME rewind_tests COMMAND rewind_test)
 add_executable(z80n_test z80n/z80n_test.cpp)
 target_link_libraries(z80n_test PRIVATE jnext_cpu)
 target_include_directories(z80n_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/z80n/ DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/z80n/
-     FILES_MATCHING PATTERN "tests.*")
+# Stage Z80N test data; configure_file() registers each source as a
+# configure-time dep so edits re-copy on next build (file(COPY) doesn't).
+file(GLOB Z80N_TEST_DATA "${CMAKE_CURRENT_SOURCE_DIR}/z80n/tests.*")
+foreach(_src ${Z80N_TEST_DATA})
+    get_filename_component(_fname ${_src} NAME)
+    configure_file(${_src} ${CMAKE_CURRENT_BINARY_DIR}/z80n/${_fname} COPYONLY)
+endforeach()
 add_test(NAME z80n_tests COMMAND z80n_test ${CMAKE_CURRENT_BINARY_DIR}/z80n)
 
 # Copper coprocessor compliance test
