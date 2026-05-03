@@ -49,6 +49,7 @@ public:
         app_cmd_ = false;
         multi_block_ = false;
         multi_block_sector_ = 0;
+        pending_write_after_r1_ = false;
     }
 
     /// Returns true if an image is mounted.
@@ -104,6 +105,14 @@ private:
     // going IDLE.
     bool     multi_block_        = false;
     uint32_t multi_block_sector_ = 0;  // next sector to send after current block
+
+    // CMD24 R1-then-data bridge: cmd24_write_single_block() sets this so
+    // that send() can transition RESPONDING → RECEIVING_DATA only AFTER
+    // the queued R1 byte (and its NCR) has actually been emitted on MISO.
+    // Without it, the previous code clobbered State::RESPONDING with
+    // RECEIVING_DATA before send() ran, hanging FatFs's send_cmd which
+    // polls for the first non-0xFF byte.
+    bool pending_write_after_r1_ = false;
 
     // Backing store
     std::fstream file_;
