@@ -1409,6 +1409,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Coverage today**: none.
 - **Dependencies**: standalone — replace `for` with PC-=2 single-iteration body per opcode.
 - **Effort**: L.
+- **Status (2026-05-03e)**: CLOSED. `src/cpu/z80n_ext.cpp` rewritten one-iteration-per-`execute()` with `regs.PC = (regs.PC - 2) & 0xFFFF` if BC≠0; `Z80Cpu::execute()` samples INT at the top of the call (`z80_cpu.cpp:419-449`) so the rewind restores standard Z80-LDIR-style inter-iteration INT sampling. BC=0 → 65536 iterations preserved via underflow. Sibling fix landed in same commit: LDDRX DE-direction (VHDL `t80n_mcode.vhd:2250` `IncDec_16 <= "0101"` increments DE; old jnext was decrementing). Coverage: 5 PASS rows in `test/ctc_interrupts/ctc_interrupts_test.cpp` IM2-Decoder-Gaps group (PULSE-G89-01..04 per-opcode iter+rewind + PULSE-G89-INT combined INT-sample). Test data: `test/z80n/tests.expected` 6 entries refreshed (R 02→04 for per-iter R-bumps; edbc_basic also DE 9fff→a003, mem a000→a002). Branch `g89-z80n-block-move-int-sample` (`b33eb07`), merged as `607a55a`. Full regression 34/0/0 byte-identical.
 
 ### G90. 28 MHz turbo SRAM-read wait state not modelled
 - **What**: VHDL `zxnext.vhd:3171-3181` at `cpu_speed = "11"` drives `sram_wait_n <= '0'` on every SRAM read. ULA+ palette readback wait `:4583` is the same pattern at port-read time. jnext: no `sram_wait` references; `ContentionModel` is gated OFF at 28 MHz per `:4481`. Cross-bucket dup with NEW-CONT-3.
