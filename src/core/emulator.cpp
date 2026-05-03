@@ -1002,6 +1002,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         reschedule_line_interrupt();
     });
 
+    // VHDL zxnext.vhd:5992 — NR 0x22 read composes:
+    //   bit 7   = NOT pulse_int_n        (Im2Controller dynamic pulse)
+    //   bits 6:3 = "0000"                (constants)
+    //   bit 2   = port_ff_interrupt_disable = port_ff_reg(6) (zxnext.vhd:3635)
+    //   bit 1   = nr_22_line_interrupt_en   (VideoTiming::line_interrupt_enable)
+    //   bit 0   = nr_23_line_interrupt(8)   (target MSB)
+    //
+    // Pre-G56-cluster-C: bare regs_[0x22] echoed the last write — fail
+    // mode (1) middle nibble bits 6:3 leak the input rather than reading
+    // 0; (2) port-0xFF writes mutate port_ff_reg(6) without updating the
+    // regs_[] cache, so bit 2 read-back diverges from VHDL contract.
+    nextreg_.set_read_handler(0x22, [this]() -> uint8_t {
+        const bool pulse_n = im2_.pulse_int_n();
+        const uint8_t bit7 = pulse_n ? 0x00 : 0x80;
+        const uint8_t bit2 = (port_ff_reg_ >> 4) & 0x04;       // port_ff_reg(6) → bit 2
+        const uint8_t bit1 = video_timing_.line_interrupt_enable() ? 0x02 : 0x00;
+        const uint8_t bit0 = static_cast<uint8_t>(
+            (video_timing_.line_interrupt_target() >> 8) & 0x01);
+        return static_cast<uint8_t>(bit7 | bit2 | bit1 | bit0);
+    });
+
     // Register 0x23: Line interrupt value LSB
     nextreg_.set_write_handler(0x23, [this](uint8_t v) {
         const uint16_t cur = video_timing_.line_interrupt_target();
@@ -1011,6 +1032,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // the next firing line (parallax.nex pattern). VHDL fires every
         // cycle when match (zxula_timing.vhd:577), so we must reschedule.
         reschedule_line_interrupt();
+    });
+    // VHDL zxnext.vhd:5995 — NR 0x23 read returns nr_23_line_interrupt(7:0).
+    // Authoritative store is VideoTiming::line_interrupt_target() & 0xFF;
+    // bare regs_[0x23] echo passed accidentally (the write also stores raw)
+    // but is structurally wrong — pulls from the wrong source of truth.
+    nextreg_.set_read_handler(0x23, [this]() -> uint8_t {
+        return static_cast<uint8_t>(
+            video_timing_.line_interrupt_target() & 0xFF);
     });
 
     // Register 0x02: Reset control + software NMI strobes.

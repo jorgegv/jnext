@@ -2409,6 +2409,188 @@ static void test_g56_cluster_b(Emulator& emu) {
     }
 }
 
+// ── G56 cluster C — NR 0x22 / NR 0x23 line-interrupt read composition ─
+//
+// VHDL zxnext.vhd:5992 (NR 0x22 read):
+//   port_253b_dat <= (not pulse_int_n) & "0000"
+//                    & port_ff_interrupt_disable
+//                    & nr_22_line_interrupt_en
+//                    & nr_23_line_interrupt(8);
+//
+// Bit layout:
+//   bit 7   = NOT pulse_int_n  (dynamic; INT pulse asserted-low → bit7=1)
+//   bits 6:3 = "0000"          (constants)
+//   bit 2   = port_ff_interrupt_disable = port_ff_reg(6)
+//   bit 1   = nr_22_line_interrupt_en   (VideoTiming::line_interrupt_enable)
+//   bit 0   = nr_23_line_interrupt(8)   (line_interrupt_target() >> 8)
+//
+// VHDL zxnext.vhd:5995 (NR 0x23 read):
+//   port_253b_dat <= nr_23_line_interrupt(7 downto 0);
+//
+// Pre-fix bug: jnext returned regs_[0x22] / regs_[0x23] verbatim. The
+// write-handler at emulator.cpp:847-872 stored authoritative state in
+// VideoTiming + port_ff_reg_, but never the raw byte; reads bypassed
+// the structured state and exposed a "regs_[] echo" — which happened
+// to match the input only in a narrow case. NR 0x22 in particular
+// fails round-trip because the constant "0000" middle nibble is not
+// part of the input.
+
+static void test_nr_22_23_lineint_read(Emulator& emu) {
+    set_group("LineINT-NR22-NR23");
+
+    // L22-01 — Reset baseline: line-int-en=0, target=0, port_ff_reg(6)=0,
+    //         pulse_int_n=1 (idle) → bit7=0. Whole register reads 0x00.
+    // VHDL zxnext.vhd:5992. Pre-fix returned regs_[0x22]=0 too, so this
+    // row passed by accident. We keep it as a regression anchor.
+    {
+        // Establish a known-clean baseline — prior tests may have left
+        // line-int wiring set; rewrite both regs to defaults.
+        nr_write(emu, 0x22, 0x00);
+        nr_write(emu, 0x23, 0x00);
+        emu.port().out(0xFF, 0x00);  // clear port_ff_reg(6) too
+
+        const uint8_t got = nr_read(emu, 0x22);
+        check("L22-01",
+              "NR 0x22 reset/idle reads 0x00 (no line-int, no INT pulse) "
+              "[zxnext.vhd:5992]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // L22-02 — Round-trip: write 0x07 (bit2|bit1|bit0). Bits 2/1/0 are
+    // authoritative; middle nibble 6:3 must read back as "0000" (NOT the
+    // input's middle bits). Bit 7 reflects pulse_int_n: idle → 0.
+    // Pre-fix: read returns regs_[0x22]=0x07 — passes accidentally.
+    // Post-fix: read returns 0x07 (bits 2|1|0 all 1, bits 6:3 = 0,
+    //           bit 7 = NOT pulse_int_n = 0).
+    {
+        nr_write(emu, 0x22, 0x07);
+        const uint8_t got = nr_read(emu, 0x22);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "got=0x%02X expected=0x07 (bits 2|1|0 set, "
+                      "middle nibble = 0, bit7 = NOT pulse_int_n)",
+                      got);
+        check("L22-02",
+              "NR 0x22 round-trip: write 0x07 → read 0x07 "
+              "[zxnext.vhd:5992 composes bits 2/1/0 from "
+              "port_ff_reg(6)/line-int-en/target-msb]",
+              got == 0x07, detail);
+    }
+
+    // L22-03 — Constant-bits-cleared invariant: write 0xFF and verify
+    // bits 6:3 are masked out on readback (return "0000"). This is the
+    // canonical pre-fix divergence: regs_[0x22] echo would read 0xFF or
+    // similar; the read-handler must compose only bits 7|2|1|0.
+    // Pre-fix: read returns 0xFF (all-bits echo). Post-fix: read returns
+    // 0x07 because the only authoritative bits set by the write are
+    // line-int-en (bit1), target-MSB (bit0), and port_ff_reg(6) (← bit2).
+    // Bit 7 = NOT pulse_int_n → 0 at idle.
+    {
+        nr_write(emu, 0x22, 0xFF);
+        const uint8_t got = nr_read(emu, 0x22);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "got=0x%02X expected=0x07 (bits 6:3 must be 0; "
+                      "regs_[] echo would return 0xFF or 0x7F)",
+                      got);
+        check("L22-03",
+              "NR 0x22 middle-nibble bits 6:3 read as constant 0 even "
+              "after write 0xFF [zxnext.vhd:5992 'X' & \"0000\" & ...]",
+              got == 0x07, detail);
+
+        // Cleanup: clear the residual line-int-en + target-msb + ULA-int-disable.
+        nr_write(emu, 0x22, 0x00);
+        emu.port().out(0xFF, 0x00);
+    }
+
+    // L22-04 — Bit 2 propagation from port-FF write through to NR 0x22
+    // readback. The shared store is port_ff_reg(6); G108 wired the
+    // port-0xFF-write side, so OUT 0xFF,0x40 sets port_ff_reg(6)=1 and
+    // a subsequent read of NR 0x22 must reflect that bit. Pre-fix the
+    // regs_[0x22] echo did not see this OUT, so bit 2 read 0.
+    // VHDL zxnext.vhd:3615-3635 (port_ff_reg writers) + :5992 (read).
+    {
+        nr_write(emu, 0x22, 0x00);     // clear NR-side authoritative bits
+        emu.port().out(0xFF, 0x40);    // port_ff_reg(6) ← 1
+        const uint8_t got = nr_read(emu, 0x22);
+        char detail[96];
+        std::snprintf(detail, sizeof(detail),
+                      "got=0x%02X expected=0x04 (bit 2 from port_ff_reg(6))",
+                      got);
+        check("L22-04",
+              "NR 0x22 bit 2 reflects port-0xFF-driven port_ff_reg(6) "
+              "[zxnext.vhd:3615 + :3635 + :5992]",
+              got == 0x04, detail);
+
+        emu.port().out(0xFF, 0x00);  // restore
+    }
+
+    // L22-05 — Bit 7 dynamic semantics: at idle (no pending INT pulse),
+    // pulse_int_n=1 → bit 7 = NOT pulse_int_n = 0. We assert the
+    // asserted-default-low contract; full pulse-active semantics await
+    // a deeper INT-driven test that synchronises with the Im2 pulse FSM.
+    // VHDL zxnext.vhd:5992 bit 7 = `not pulse_int_n`; :2017-2031 sequencer.
+    {
+        nr_write(emu, 0x22, 0x00);
+        emu.port().out(0xFF, 0x00);
+        const uint8_t got = nr_read(emu, 0x22);
+        check("L22-05",
+              "NR 0x22 bit 7 = 0 at idle (pulse_int_n=1 → NOT = 0) "
+              "[zxnext.vhd:5992 + :2017-2031]",
+              (got & 0x80) == 0, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // L23-01 — Round-trip: NR 0x23 stores low 8 bits of the line-int
+    // target. Pure 8-bit echo through VideoTiming::line_interrupt_target.
+    // VHDL zxnext.vhd:5995. Pre-fix the regs_[0x23] echo passed by
+    // accident (the WRITE handler also keeps the low byte intact); we
+    // assert post-fix that the value flows through VideoTiming.
+    {
+        for (uint8_t v : {0x00, 0x55, 0xAA, 0xFF}) {
+            nr_write(emu, 0x23, v);
+            const uint8_t got = nr_read(emu, 0x23);
+            char id[16];
+            char desc[160];
+            char detail[96];
+            std::snprintf(id, sizeof(id), "L23-01.%02X", v);
+            std::snprintf(desc, sizeof(desc),
+                          "NR 0x23 round-trip 0x%02X → reads back from "
+                          "VideoTiming::line_interrupt_target() & 0xFF "
+                          "[zxnext.vhd:5995]", v);
+            std::snprintf(detail, sizeof(detail),
+                          "got=0x%02X expected=0x%02X", got, v);
+            check(id, desc, got == v, detail);
+        }
+    }
+
+    // L23-02 — High-bit isolation: when NR 0x22 carries the target MSB
+    // (bit 0 → bit 8 of the 9-bit target), NR 0x23 reads ONLY the low 8
+    // bits. Set target=0x1AA (MSB=1, low=0xAA) and verify NR 0x23=0xAA
+    // and NR 0x22 bit 0 = 1.
+    // VHDL zxnext.vhd:5992 + :5995.
+    {
+        nr_write(emu, 0x23, 0xAA);   // low byte = 0xAA
+        nr_write(emu, 0x22, 0x01);   // target MSB ← 1 (bit 0 of NR 0x22)
+
+        const uint8_t r23 = nr_read(emu, 0x23);
+        const uint8_t r22 = nr_read(emu, 0x22);
+
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "NR 0x23 read=0x%02X (expect 0xAA), "
+                      "NR 0x22 read=0x%02X (expect bit0=1)",
+                      r23, r22);
+        check("L23-02",
+              "NR 0x22/NR 0x23 split a 9-bit line-int target; NR 0x23 "
+              "reads bits 7:0 only [zxnext.vhd:5992 + :5995]",
+              r23 == 0xAA && (r22 & 0x01) == 0x01, detail);
+
+        // Cleanup
+        nr_write(emu, 0x22, 0x00);
+        nr_write(emu, 0x23, 0x00);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2478,6 +2660,9 @@ int main() {
 
     test_g56_cluster_b(emu);
     std::printf("  Group: G56-Cluster-B — done\n");
+
+    test_nr_22_23_lineint_read(emu);
+    std::printf("  Group: LineINT-NR22-NR23 — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
