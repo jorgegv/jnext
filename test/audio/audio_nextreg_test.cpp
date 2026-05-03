@@ -460,8 +460,15 @@ static void test_nr_dac(Emulator& emu) {
     // verify the byte returned matches the expected high-8 bits and that
     // the latch (observable via the next NR 0x2D read, NR-34 below) carries
     // the low 2 bits in [7:6]. Symmetric check for NR 0x2E (right channel).
+    //
+    // G113: pi_audio_L/R is the GATED signal (zxnext.vhd:2358-2359). At
+    // power-on, NR 0xA2 = 0 → pi_i2s_en = 0 → both channels read back
+    // the silence midpoint 0x200, NOT the raw I2s sample latch. We
+    // explicitly enable both channels (NR 0xA2 = 0xC0; enL=enR=1, no
+    // mute, ear=0) so the gate passes the raw sample through.
     {
         fresh(emu);
+        nr_write(emu, 0xA2, 0xC0);                 // enL+enR, no mute, ear=0
         // Inject a known 10-bit pattern into the I2s stub.
         emu.i2s().set_sample(0x3A5, 0x12C);
 
@@ -478,7 +485,7 @@ static void test_nr_dac(Emulator& emu) {
         check("NR-33",
               "NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches "
               "pi_audio_L/R(1..0) into nr_2d_i2s_sample "
-              "[zxnext.vhd:6006-6015]",
+              "[zxnext.vhd:6006-6015, :2358-2359]",
               l_byte == 0xE9 && l_latch == 0x40 &&
               r_byte == 0x4B && r_latch == 0x00,
               fmt("L byte=0x%02X latch=0x%02X (want 0xE9/0x40); "
@@ -492,11 +499,15 @@ static void test_nr_dac(Emulator& emu) {
     // read of NR 0x2C with a non-aligned (low 2 bits != 00) sample, the
     // latch holds those 2 bits in byte [7:6] and reading NR 0x2D returns
     // exactly that pattern (low 6 bits zero).
+    //
+    // G113: same gating note as NR-33 — enable NR 0xA2 = 0xC0 first so
+    // the gated pi_audio_L/R passes the raw I2s sample through.
     {
         fresh(emu);
         // Initial NR 0x2D read — latch defaults to 0 (no prior I2S read).
         const uint8_t initial = nr_read(emu, 0x2D);
 
+        nr_write(emu, 0xA2, 0xC0);                 // enL+enR, no mute, ear=0
         // Inject a non-aligned left sample (low 2 bits = 0b11).
         emu.i2s().set_sample(0x3FF, 0x000);
         (void) nr_read(emu, 0x2C);                 // updates the latch
@@ -528,36 +539,123 @@ static void test_nr_dac(Emulator& emu) {
 // I2S audio path.
 // ══════════════════════════════════════════════════════════════════════
 
-static void test_nr_a2(Emulator& /*emu*/) {
+static void test_nr_a2(Emulator& emu) {
     set_group("NR-0xA2");
 
     // NR-40 — zxnext.vhd:5564: nr_a2_pi_i2s_ctl <= nr_wr_dat on NR 0xA2.
-    //   No write handler in src/core/emulator.cpp; NR 0xA2 falls through
-    //   to the generic shadow store, never reaching an I2S API.
-    skip("NR-40",
-         "NR 0xA2 has no handler; control byte never reaches I2s (see G113)");
+    // G113: NR 0xA2 has a write handler that pushes the raw 8-bit value
+    // into I2s::nr_a2_ctl_; round-trip via the new accessor confirms
+    // storage. Use a non-trivial pattern (0xCD) so a stuck-at-0/1 bug
+    // would be caught.
+    {
+        fresh(emu);
+        nr_write(emu, 0xA2, 0xCD);
+        const uint8_t got = emu.i2s().nr_a2_ctl();
+        check("NR-40",
+              "NR 0xA2 write handler stores nr_a2_pi_i2s_ctl into I2s "
+              "[zxnext.vhd:5564, :2283-2290]",
+              got == 0xCD,
+              fmt("i2s.nr_a2_ctl()=0x%02X (want 0xCD)", got));
+    }
 
     // NR-41 — zxnext.vhd:2283-2290: bit fan-out drives pi_i2s_en[L/R],
-    //   inout, muteL/R, ear. No corresponding fan-out in jnext I2s class.
-    skip("NR-41",
-         "NR 0xA2 fan-out (en/mute/inout/ear) not propagated to I2s (see G113)");
+    // inout, muteL/R, ear. Closing the loop end-to-end: drive a known
+    // sample through the I2s, then assert the gated read path NR 0x2C
+    // (= pi_audio_L per zxnext.vhd:6007) responds to the NR 0xA2 fan-out.
+    //   Step 1: NR 0xA2 = 0x80 (enL=1) → pi_audio_L = raw left =
+    //           0x3FF; high byte = (0x3FF >> 2) & 0xFF = 0xFF.
+    //   Step 2: NR 0xA2 = 0x88 (enL=1, muteL=1) → pi_audio_L = 0x200
+    //           (silence midpoint); high byte = (0x200 >> 2) & 0xFF
+    //           = 0x80.
+    {
+        fresh(emu);
+        emu.i2s().set_sample(0x3FF, 0x000);
+        nr_write(emu, 0xA2, 0x80);                 // enL=1, no mute
+        const uint8_t enabled = nr_read(emu, 0x2C);
+        nr_write(emu, 0xA2, 0x88);                 // enL=1, muteL=1
+        const uint8_t muted   = nr_read(emu, 0x2C);
+        check("NR-41",
+              "NR 0xA2 fan-out reaches I2s gate (mute drops gated read "
+              "to silence midpoint) [zxnext.vhd:2283-2290, :2358]",
+              enabled == 0xFF && muted == 0x80,
+              fmt("enabled=0x%02X muted=0x%02X (want 0xFF/0x80)",
+                  enabled, muted));
+    }
 
     // NR-42 — zxnext.vhd:6192: read returns
     //   nr_a2_pi_i2s_ctl(7 downto 6) & '0' & nr_a2_pi_i2s_ctl(4 downto 2)
-    //   & '1' & nr_a2_pi_i2s_ctl(0). jnext returns raw shadow (no fixed
-    //   bit-5=0 or bit-1=1 pattern).
-    skip("NR-42",
-         "NR 0xA2 read missing fixed b5=0/b1=1 pattern (see G113)");
+    //   & '1' & nr_a2_pi_i2s_ctl(0).
+    // Pass-through bits = b7,b6,b4,b3,b2,b0 (mask 0xDD); fixed b5=0,
+    // fixed b1=1 (constant 0x02). Three orthogonal patterns:
+    //   c=0x00 → (0x00 & 0xDD) | 0x02 = 0x02
+    //   c=0xFF → (0xFF & 0xDD) | 0x02 = 0xDF
+    //   c=0x55 → (0x55 & 0xDD) | 0x02 = 0x57
+    {
+        fresh(emu);
+        nr_write(emu, 0xA2, 0x00);
+        const uint8_t r0 = nr_read(emu, 0xA2);
+        nr_write(emu, 0xA2, 0xFF);
+        const uint8_t r1 = nr_read(emu, 0xA2);
+        nr_write(emu, 0xA2, 0x55);
+        const uint8_t r2 = nr_read(emu, 0xA2);
+        check("NR-42",
+              "NR 0xA2 read returns ctl[7:6] & 0 & ctl[4:2] & 1 & ctl[0] "
+              "[zxnext.vhd:6192]",
+              r0 == 0x02 && r1 == 0xDF && r2 == 0x57,
+              fmt("c=0x00→0x%02X c=0xFF→0x%02X c=0x55→0x%02X "
+                  "(want 0x02/0xDF/0x57)", r0, r1, r2));
+    }
 
-    // NR-43 — G73: distinct from G113 (NR-handler missing). Even with a
-    // future NR 0xA2 handler in place AND a populated I2s source (G29),
-    // Mixer::generate_sample() currently has no path that reads the
-    // pi_i2s_en[L/R] / muteL/R fan-out signals to gate the I2S adder.
-    // VHDL audio_mixer.vhd:50-60 explicitly AND-gates the Pi I2S
-    // contribution by these control bits. End-to-end runtime wiring is
-    // absent — Mixer would always fully sum I2S regardless of NR 0xA2.
-    skip("NR-43",
-         "Mixer never consults Pi-I2S enable/mute gates audio_mixer.vhd:50-60 (see G73)");
+    // NR-43 — G73: Mixer gates I2S contribution by NR 0xA2 enable/mute.
+    // VHDL pi_audio_L/R (zxnext.vhd:2358-2359) feeds audio_mixer's
+    // pi_i2s_L_i / pi_i2s_R_i ports (zxnext.vhd:6505-6506) — so the
+    // mixer adds the GATED 10-bit value (silence midpoint 0x200 when
+    // disabled/muted), not the raw sample. End-to-end check: same I2s
+    // sample 0x3FF, two NR 0xA2 settings, observe pcm_L delta.
+    //   enabled  (NR 0xA2 = 0xC0): i2s_L = 0x3FF = 1023.
+    //                              pcm_L = 0+0+0+0+1024+1023 = 2047.
+    //                              int16 = (2047-1024)*4        = +4092.
+    //   disabled (NR 0xA2 = 0x00): i2s_L = 0x200 = 512  (silence).
+    //                              pcm_L = 0+0+0+0+1024+512  = 1536.
+    //                              int16 = (1536-1024)*4        = +2048.
+    //   delta = 4092 - 2048 = 2044  (= 511 * 4, the 10-bit gating delta
+    //                                in the int16 ×4 domain).
+    {
+        // Enabled scenario.
+        fresh(emu);
+        {
+            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+            emu.mixer().read_samples(scratch, emu.mixer().available());
+        }
+        emu.i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(emu, 0xA2, 0xC0);                 // enL+enR, no mute
+        emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+        int16_t buf_on[2] = {0, 0};
+        const int got_on = emu.mixer().read_samples(buf_on, 1);
+        const int16_t pcm_L_on = buf_on[0];
+
+        // Disabled scenario.
+        fresh(emu);
+        {
+            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+            emu.mixer().read_samples(scratch, emu.mixer().available());
+        }
+        emu.i2s().set_sample(0x3FF, 0x3FF);
+        nr_write(emu, 0xA2, 0x00);                 // disabled (default)
+        emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+        int16_t buf_off[2] = {0, 0};
+        const int got_off = emu.mixer().read_samples(buf_off, 1);
+        const int16_t pcm_L_off = buf_off[0];
+
+        const int delta = static_cast<int>(pcm_L_on) - static_cast<int>(pcm_L_off);
+        check("NR-43",
+              "Mixer gates Pi I2S contribution by NR 0xA2 enable/mute "
+              "(audio_mixer.vhd:91-92, zxnext.vhd:2358-2359)",
+              got_on == 1 && got_off == 1 &&
+              pcm_L_on == 4092 && pcm_L_off == 2048 && delta == 2044,
+              fmt("pcm_L on=%d off=%d delta=%d (want 4092/2048/2044)",
+                  pcm_L_on, pcm_L_off, delta));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
