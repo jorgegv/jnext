@@ -38,8 +38,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | DMA                   |      150 |      150 |      0 |       0 |    100% | 🟢 Tier 6: G122 13.7+13.8 → WONT (14 MHz dma_d_p_s + rw_extend). |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
-| NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3793** | **3730** |  **0** |  **63** | **98%** | 🟡  |
+| NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 G152: HK-06/07/08/09-INT PASS (F9 MF NMI / F10 DivMMC NMI / F4 soft-reset gated by nr_03_config_mode / F1 hard-reset). |
+| **Total**             | **3793** | **3734** |  **0** |  **59** | **98%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 

@@ -1568,6 +1568,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Closure (Task 8 t1)**: `Emulator::on_hotkey_f1_hard_reset / f4_soft_reset / f9_mf_nmi / f10_divmmc_nmi` dispatchers + `gui/main_window.cpp` keyPress/Release wiring. F4 honours `nr_03_config_mode` gate per VHDL:6370.
 - **Dependencies**: distinct from G42 (joystick), G46 (boot ladder), G48 (MF).
 - **Effort**: L.
+- **Status (2026-05-03h)**: integration-test side closed. nmi_integration_test HK-06/07/08/09-INT PASS rows added — exercise end-to-end dispatch through the existing `on_hotkey_fN_*` API: F9 latches `nmi_source().nmi_mf()` and CPU services NMI (PC ∈ 0x0066-0x006F); F10 same with `port_divmmc_io_en` pre-opened; F4 with `nr_03_config_mode=0` is no-op (PC stays, reset_type unchanged) and with `nr_03_config_mode=1` advances reset_type 0b100→0b010 per VHDL `:1306`; F1 is ungated and triggers full hard-reset. Test-only commit (no src/ changes). Branch `g152-nmi-integration` (`6816a33`).
 
 ### G153. NR 0x02 reset_type[2:0] FSM and read-back missing [merged]
 - **What**: VHDL `zxnext.vhd:1306,1732-1739,5891` — 3-bit shift register defaults `"100"` at power-on, advances `'0' & rt(2) & (rt(1) or rt(0))` on soft_reset rising edge. Bits 1:0 in NR 0x02 readback. Reviewer corrects: `:3319` consumer is SPI-Flash-CS, NOT DivMMC. jnext: `nmi_source.nr_02_read()` returns bits 3/2 only; reset_type permanently 0.
