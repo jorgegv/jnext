@@ -10,6 +10,11 @@ void Mixer::reset()
     write_pos_ = 0;
     read_pos_ = 0;
     count_ = 0;
+    // VHDL audio_mixer.vhd: exc_i is a combinational input that follows
+    // beep_spkr_excl (zxnext.vhd:6504). Default both NR 0x06 b6 and NR 0x08
+    // b4 cleared at power-on means exc_i='0'. Emulator::reset() restores it
+    // via set_exc_i(beep_spkr_excl()) once NR 0x08 has settled to 0x10.
+    exc_i_ = false;
 }
 
 void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Dac& dac)
@@ -28,6 +33,16 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     uint16_t ear = beeper.ear() ? 512u : 0u;
     uint16_t mic = beeper.mic() ? 128u : 0u;
     uint16_t tape_ear = beeper.tape_ear() ? 512u : 0u;
+
+    // VHDL audio_mixer.vhd:80-81 — when exc_i='1' (speaker-exclusive mode,
+    // beep_spkr_excl from zxnext.vhd:6504) the ear/mic muxes are gated to
+    // (others=>'0'). The tape-EAR contribution rides the same i_AUDIO_EAR
+    // wire upstream of the mux, so it is silenced by the same gate.
+    if (exc_i_) {
+        ear = 0;
+        mic = 0;
+        tape_ear = 0;
+    }
 
     uint16_t ay_L = ts.pcm_left();    // 12-bit, already correct scale
     uint16_t ay_R = ts.pcm_right();

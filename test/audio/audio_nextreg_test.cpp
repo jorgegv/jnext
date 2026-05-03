@@ -710,14 +710,54 @@ static void test_nr_mixer(Emulator& emu) {
                   base ? 1 : 0, kept ? 1 : 0));
     }
 
-    // MX-23 — audio_mixer.vhd:80-81: ear/mic muxes are gated by exc_i.
-    // jnext Mixer (src/audio/mixer.cpp:28-29) sums EAR+MIC+AY+DAC+I2S
-    // unconditionally. The Mixer never reads Emulator::beep_spkr_excl(),
-    // so even with NR 0x06 b6 + NR 0x08 b4 set the line-out doubles
-    // vs. hardware. Re-enable once Mixer gains a const-ref / setter
-    // mirroring set_i2s_source().
-    skip("MX-23",
-         "Mixer ignores exc_i; EAR/MIC always sum to pcm_L/R (see G110)");
+    // MX-23 — audio_mixer.vhd:80-81: ear/mic muxes are gated by exc_i,
+    // which is wired to beep_spkr_excl (zxnext.vhd:6504 = NR 0x06 b6 AND
+    // NR 0x08 b4). With EAR=1 and exc_i=0 the Mixer must add the 13-bit
+    // ear=512 term; with EAR=1 and exc_i=1 the term is forced to 0. The
+    // Mixer's int16 sample is centred on DC (1024 in 13-bit space) and
+    // scaled ×4, so the EAR contribution is 512×4 = 2048 of int16 swing.
+    // Closes G110.
+    {
+        // Baseline: exc_i=0. NR 0x06 b6=0 (default) AND NR 0x08 b4=1
+        // (power-on default 0x10) ⇒ beep_spkr_excl=0. Set EAR=1 and read
+        // the resulting sample.
+        fresh(emu);
+        // Drain any latent samples first so we read the one we generate.
+        {
+            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+            emu.mixer().read_samples(scratch, emu.mixer().available());
+        }
+        emu.beeper().set_ear(true);
+        emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+        int16_t buf_off[2] = {0, 0};
+        const int got_off = emu.mixer().read_samples(buf_off, 1);
+        const int16_t pcm_L_off = buf_off[0];
+
+        // Speaker-exclusive: NR 0x06 b6=1 AND NR 0x08 b4=1 ⇒ exc_i=1.
+        // EAR=1 again; the ear term must vanish from pcm_L.
+        fresh(emu);
+        {
+            int16_t scratch[2 * Mixer::RING_BUFFER_SIZE] = {0};
+            emu.mixer().read_samples(scratch, emu.mixer().available());
+        }
+        nr_write(emu, 0x06, 0x40);   // bit 6 = 1
+        nr_write(emu, 0x08, 0x10);   // bit 4 = 1 (already default; explicit)
+        emu.beeper().set_ear(true);
+        emu.mixer().generate_sample(emu.beeper(), emu.turbosound(), emu.dac());
+        int16_t buf_on[2] = {0, 0};
+        const int got_on = emu.mixer().read_samples(buf_on, 1);
+        const int16_t pcm_L_on = buf_on[0];
+
+        // Expected delta is the gated 13-bit ear term (512) times the
+        // Mixer's int16 ×4 scale = 2048.
+        const int delta = static_cast<int>(pcm_L_off) - static_cast<int>(pcm_L_on);
+        check("MX-23",
+              "Mixer gates EAR/MIC when exc_i=1 (audio_mixer.vhd:80-81; "
+              "exc_i = beep_spkr_excl per zxnext.vhd:6504)",
+              got_off == 1 && got_on == 1 && delta == 512 * 4,
+              fmt("pcm_L exc_i=0:%d exc_i=1:%d delta=%d (want 2048)",
+                  pcm_L_off, pcm_L_on, delta));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
