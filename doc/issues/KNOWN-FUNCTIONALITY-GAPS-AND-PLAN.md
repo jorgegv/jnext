@@ -731,6 +731,7 @@ where possible.
 - **Proposed**: driver producing samples at 48 kHz / I2S clock; fed
   by `--i2s-input file.wav` or host capture.
 - **Effort**: H.
+- **Status (2026-05-03g)**: WONT (until `--i2s-input` driver lands). MX-30 in `audio_test` converted to `// WONT MX-30` comment. Branch `tier6-audio-cluster`.
 
 ### G30. AY GPIO ports (PORTA / PORTB)
 - **What**: AY R14/R15 (port A/B I/O) emulation absent. AyChip stores
@@ -741,12 +742,14 @@ where possible.
 - **Proposed**: `AyChip` GPIO surface mirroring `ym2149.vhd`; single
   dummy `IoBus` consumer in `Emulator`.
 - **Effort**: M.
+- **Status (2026-05-03g)**: WONT. AY GPIO unused by jnext target software. AY-30..AY-34 in `audio_test` converted to `// WONT` comments. Revisit when jnext adds vintage AY-as-GPIO peripheral support (Currah µSpeech, AY MIDI, AY-as-keyboard-mux). Branch `tier6-audio-cluster`.
 
 ### G31. DAC per-clock write-priority model (SD-09)
 - **What**: Multiple Soundrive/Covox aliases targeting same DAC
   channel within one frame collapse to last-write-wins; VHDL has
   per-CLK_28 if/elsif priority.
 - **Effort**: M (re-evaluate when scanline-level audio refactor lands).
+- **Status (2026-05-03g)**: WONT. SD-09 in `audio_test` converted to `// WONT SD-09` comment. Revisit when scanline-level audio refactor lands. Branch `tier6-audio-cluster`.
 
 ### G32. DAC continuous-buzz playback artefact
 - **What**: Soundrive DAC demo produces continuous low-frequency
@@ -821,6 +824,7 @@ where possible.
 - **Proposed**: stub AT command set + TCP socket bridge; optional
   `--esp-bridge HOST:PORT`.
 - **Effort**: H.
+- **Status (2026-05-03g)**: WONT (until `--esp-bridge` feature added). ESP-01..ESP-04 in `uart_test` converted to `// WONT` comments. Branch `tier6-uart-cluster`.
 
 ### G40. SD card command coverage gaps
 - **What**: `SdCardDevice` supports CMD0/1/8/12/17/18/24/55/58 +
@@ -1015,6 +1019,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: orthogonal to G31 (per-clock priority).
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. All 7 NR 0x84 bits now gate per VHDL `zxnext.vhd:2429-2435`: b0 ay (existing), b1 SD1 (1F/0F/4F/5F), b2 SD2 (F1/F3/F9/FB), b3 Profi (3F/5F), b4 Covox (0F/4F), b5 mono FB (existing), b6 GS (B3), b7 SpecDrum write (DF). Bonus catch: existing test stub had b1→SD2 mislabeled; corrected to b1→SD1 per VHDL. Tests IO-13..IO-17 closed (PASS). Branch `tier6-audio-cluster`.
 
 ### G115. TurboSound::reset() over-clears NR 0x08/0x09 state on AY reset
 - **What**: VHDL `audio/turbosound.vhd:118-138` synchronous reset clears only `ay_select`/`pan`; enabled/stereo_mode/mono_mode are external NR-driven inputs. jnext `turbosound.cpp:10-20` zeroes all five fields. NR 0x06 psg_mode=11 path calls `turbosound_.reset()` unconditionally.
@@ -1023,6 +1028,7 @@ where possible.
 - **Coverage today**: none; recommend assertion test.
 - **Dependencies**: split TurboSound::reset() into full vs ay-only.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. `TurboSound::reset_ay_only()` added to clear only `ay_select`/`pan` (matching VHDL `:118-138` synchronous-reset clause); full `reset()` still used by hard-reset path. NR 0x06 psg_mode=11 callsite now uses `reset_ay_only()`. Tests TS-60+TS-61 closed (PASS). Branch `tier6-audio-cluster`.
 
 ### G126. NR 0x05 mode change does not propagate to MembraneStick
 - **What**: VHDL `membrane_stick.vhd:117-149` joy_type drives keymap-region selector. jnext `emulator.cpp:456-458` forwards NR 0x05 to `joystick_.set_nr_05(v)` only; `MembraneStick::set_mode()` never called from production. `joystick.cpp:26-50` has no MembraneStick reference.
@@ -1079,6 +1085,7 @@ where possible.
 - **Coverage today**: none; distinct from G39/G72.
 - **Dependencies**: small request-mask refactor.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. `Emulator::on_rx_interrupt` callback gates request as `near_full || (avail && !mask_bit)` per VHDL `:1941-1944`. UART0 mask = NR 0xC6 bit 1; UART1 = bit 5. Test INT-07 closed (PASS, re-homed to `uart_integration_test`). Branch `tier6-uart-cluster`.
 
 ### G135. NR 0xA0 Pi peripheral enable bits not honoured
 - **What**: VHDL `zxnext.vhd:1241,2278-2281,5080`: `pi_uart_en <= bit(4)`, `pi_i2c1_en <= bit(3)`, `pi_uart_rxtx <= bit(5)`, etc. Reset default 0x00 → all off. jnext: no NR 0xA0 handler; UART1/I2C1/SPI0 routing always on.
@@ -1087,6 +1094,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: distinct from G39 (AT bridge), G72 (pin-7), G73 (I2S).
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED (also covers G138). NR 0xA0 control byte stored in Emulator with bit fan-out per VHDL `zxnext.vhd:2278-2281`; setters wired into UART1 + I2C1 routing. Read mask `(c & 0x39)` per VHDL `:6189` (b5,b4,b3,b0 pass-through, others 0). Save-state appended at end-of-Emulator-stream (EOF-tolerant). Tests NR_A0-01/02/03 (PASS in `uart_integration_test` — re-homed from `uart_test`) + I2C-13 (PASS in `uart_test`). Branch `tier6-uart-cluster`.
 
 ### G136. SPI Flash CS (cpu_do=0x7F) ignored — config-mode-gated select absent
 - **What**: VHDL `zxnext.vhd:3315-3320`: `cpu_do=0x7F AND (config_mode='1' OR reset_type(2)='1')` → port_e7_reg=0x7F → spi_ss_flash_n asserted. jnext `spi.cpp:73-77` literally documents the omission ("Flash select … not modelled at this level"); cpu_do=0x7F → decoded=0xFF (all-deselected).
@@ -1111,6 +1119,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: subset of G135 register but separable.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED jointly with G135. `I2cController` now carries `pi_i2c1_en_` mirror state set by Emulator after NR 0xA0 writes (re-synced on save-state load). Pre-existing test I2C-11 setup updated to explicitly open the gate (`set_pi_i2c1_en(true)`) before exercising the wired-AND assertion. Test I2C-13 closed (PASS). Branch `tier6-uart-cluster`.
 
 ### G139. I2C 24LCxx EEPROM device unmodelled — only DS1307 attached
 - **What**: I2C bus is bit-banged; tbblue board attaches both DS1307 RTC at 0x68 and a 24LC256 EEPROM (typical 0x50/0x57) for tbblue config. jnext `i2c.cpp` only registers `I2cRtc`; no EEPROM device class.
@@ -1119,6 +1128,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: standalone peripheral coverage gap; not currently a confirmed G46 contributor.
 - **Effort**: L.
+- **Status (2026-05-03g)**: WONT (until tbblue.fw boot path requires the EEPROM contents). I2C-14 in `uart_test` converted to `// WONT I2C-14` comment. Branch `tier6-uart-cluster`.
 
 ### G161. RTC 12h-mode hours register snapshot overwrites bit 6 / AM-PM
 - **What**: DS1307 12h-mode (bit 6=1) requires AM/PM bit 5 in hours register. jnext `i2c.cpp:111` writes `regs_[2] = to_bcd(t->tm_hour)` unconditionally — every `start()` snapshot overwrites the 12h-mode bit + AM/PM bit.
@@ -1127,6 +1137,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: tiny branch on `mode_12h_`.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. `i2c.cpp` `start()` snapshot now branches on `mode_12h_` and re-encodes hours in 12h-AM/PM form (bit 6=1, bit 5=PM). Edge cases verified: hour 0 → 12 AM, hour 12 → 12 PM, hour 13 → 1 PM. Test RTC-18 closed (PASS). Branch `tier6-uart-cluster`.
 
 ---
 
@@ -1431,6 +1442,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Coverage today**: none.
 - **Dependencies**: mirror UART RX/TX pattern — raise unconditionally at source.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. `src/peripheral/ctc.cpp` raises `on_interrupt` UNCONDITIONALLY at the ZC/TO source edge; `Im2Controller::step_devices()` Phase 1 (im2.cpp:711-732) keeps the gate at the latch level (`int_req && int_en`) per VHDL `im2_peripheral.vhd:172`. Test IM2W-G119-01 closed (PASS). Branch `tier6-ctc`.
 
 ### G120. CTC prescaler cleared on running TC reload (vs VHDL preserve)
 - **What**: VHDL `device/ctc_chan.vhd:131-141` clears p_count only on `reset_soft='1'`. jnext `ctc.cpp:41` clears `prescaler_` on every TC write incl. running-reload (S_RUN_TC → S_RUN).
@@ -1439,6 +1451,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Coverage today**: none.
 - **Dependencies**: gate on RESET/RESET_TC state.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. `prescaler_` clear in `ctc.cpp` now gated on `state_ == State::RESET_TC` per VHDL `ctc_chan.vhd:117` (`reset_soft = state /= S_RUN and state /= S_RUN_TC`). Mid-stream TC reload preserves prescaler. Test CTC-TM-G120-01 closed (PASS). Branch `tier6-ctc`.
 
 ### G121. Pulse-mode 32/36-cycle gate not updated on NR 0x03 timing change
 - **What**: VHDL `zxnext.vhd:2033-2042` `pulse_count_end` depends on `machine_timing_48 OR _p3` from `nr_03_machine_timing` (`:5132-5145`). jnext: `Im2Controller::set_machine_timing_48_or_p3` called once at `Emulator::reset_machine` only.
@@ -1447,6 +1460,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Coverage today**: none.
 - **Dependencies**: one extra call inside NR 0x03 handler.
 - **Effort**: L.
+- **Status (2026-05-03g)**: CLOSED. NR 0x03 write_handler in `src/core/emulator.cpp` now calls `Im2Controller::set_machine_timing_48_or_p3` after each write per VHDL `zxnext.vhd:2033-2042` (idempotent). Test PULSE-G121-01 closed (PASS). Branch `tier6-ctc`.
 
 ### G122. DMA 14 MHz dma_d_p_s rising-edge read latch unmodelled
 - **What**: VHDL `device/dma.vhd:158-181` defines turbo-only `dma_rw_extend` and rising-edge `dma_d_p_s` selected when `turbo_i="10"`. jnext `dma.cpp:686-696` reads source byte without the rising-vs-falling latch difference.
