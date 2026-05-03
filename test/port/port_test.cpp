@@ -686,10 +686,10 @@ static void test_group_nr_gating() {
         Emulator emu; build_next_emulator(emu);
         // Seed a known mode via an ungated write first (NR 0x82 default
         // has bit 0 = 1 after reset so this goes through).
-        emu.port().out(0x00FF, 0x08);                  // standard_1
+        emu.port().out(0x00FF, 0x08);                  // STANDARD, paper-colour=1 (bits 2:0=000, bits 5:3=001)
         uint8_t before = emu.renderer().ula().get_screen_mode_reg();
         nr_write(emu, 0x82, 0xFE);                     // clear bit 0
-        emu.port().out(0x00FF, 0x30);                  // hi-colour (gated off)
+        emu.port().out(0x00FF, 0x30);                  // gated off — write must not change before/after
         uint8_t after = emu.renderer().ula().get_screen_mode_reg();
         check("NR82-00",
               "NR 0x82 b0=0 silences OUT 0xFF (Timex SCLD handler gated off)",
@@ -1301,8 +1301,9 @@ static void test_group_wired_or() {
         // Clear NR 0x08 bit 2 (port_ff_rd_en) — leave all other bits alone.
         uint8_t n08 = nr_read(emu, 0x08);
         nr_write(emu, 0x08, n08 & 0xFB);
-        // OUT 0x00FF ← 0x38 to install a known Timex screen mode. The
-        // read-back must now NOT return the Timex byte; it returns the
+        // OUT 0x00FF ← 0x38 (STANDARD, paper-colour=7 per bits 2:0 / 5:3
+        // VHDL convention) to install a known port_ff_reg byte. The
+        // read-back must now NOT return that byte; it returns the
         // ULA floating-bus fallback instead.
         emu.port().out(0x00FF, 0x38);
         uint8_t rd = emu.port().in(0x00FF);
