@@ -2,8 +2,16 @@
 //
 // Parses tests.in / tests.expected files for Z80N extended instructions
 // and runs each test case against our Z80 CPU implementation.
-// Based on the FUSE Z80 test runner but simplified — Z80N repeating blocks
-// (LDIRX etc.) loop internally, so a single execute() call suffices.
+// Based on the FUSE Z80 test runner.
+//
+// G89 (2026-05-03): the four Z80N repeating block-move ops
+// (LDIRX/LDDRX/LDPIRX/LDIRSCALE) now run ONE iteration per execute() and
+// rewind PC by 2 if BC!=0, mirroring VHDL t80n_mcode.vhd MCycles="100" +
+// the standard Z80 LDIR repeat shape. The reference tests.expected files
+// here describe the *terminal* state (PC past the opcode, BC=0), so the
+// runner must keep calling execute() while PC is still rewound to the
+// opcode — i.e. while the opcode is still repeating. Bounded by 70000
+// iterations to catch runaway loops (BC=0 on entry => 65536 iterations).
 
 #include "cpu/z80_cpu.h"
 #include <cstdio>
@@ -297,8 +305,34 @@ int main(int argc, char* argv[]) {
         // Set up initial state
         apply_state(cpu, mem, input);
 
-        // Single execute() call — Z80N repeating blocks loop internally
-        cpu.execute();
+        // G89: detect Z80N repeating block-move opcodes (ED B4/B6/B7/BC)
+        // — these now run ONE iteration per execute() and rewind PC by 2
+        // if BC!=0. Drive execute() in a bounded loop until PC moves past
+        // the opcode (i.e. the iteration with BC=1 ran and didn't rewind).
+        // Bound at 70000 iterations to catch runaway loops; BC=0 on entry
+        // means 65536 iterations.
+        bool is_repeating_z80n = false;
+        if (input.mem_blocks.size() > 0) {
+            const auto& mb = input.mem_blocks[0];
+            if (mb.addr == input.PC && mb.data.size() >= 2 && mb.data[0] == 0xED) {
+                uint8_t op = mb.data[1];
+                is_repeating_z80n = (op == 0xB4) || (op == 0xB6)
+                                  || (op == 0xB7) || (op == 0xBC);
+            }
+        }
+
+        if (is_repeating_z80n) {
+            // Loop until PC has advanced past the 2-byte opcode.
+            uint16_t opcode_pc = input.PC;
+            int safety = 0;
+            do {
+                cpu.execute();
+                if (++safety > 70000) break;
+            } while (cpu.get_registers().PC == opcode_pc);
+        } else {
+            // Single execute() call for non-repeating Z80N opcodes.
+            cpu.execute();
+        }
 
         // Compare
         std::vector<RegDiff> reg_diffs;

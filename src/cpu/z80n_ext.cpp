@@ -350,80 +350,97 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::LDIRX: {
-            // ED B4 — repeating block transfer with transparency, HL/DE increment
+            // ED B4 — repeating block transfer with transparency, HL/DE increment.
+            // G89: per-iteration step (LDIR-style). Each call performs ONE
+            // iteration and rewinds PC by 2 if BC!=0 so the next
+            // Z80Cpu::execute() re-fetches ED B4 — and gets the chance to take
+            // any pending INT first (z80_cpu.cpp samples INT at the top of
+            // execute()). Mirrors VHDL t80n_mcode.vhd:2095-2138 where
+            // MCycles="100" runs once per iteration and the t80n core handles
+            // repetition by rewinding PC. BC=0 on entry => 65536 iterations:
+            // post-decrement gives BC=0xFFFF, loop continues, BC underflows
+            // back to 0 after exactly 65536 calls.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            // BC=0 on entry means 65536 iterations
-            uint32_t count = (regs.BC == 0) ? 65536 : regs.BC;
-            for (uint32_t i = 0; i < count; ++i) {
-                uint8_t temp = cpu.memory().read(regs.HL);
-                if (temp != A) {
-                    cpu.memory().write(regs.DE, temp);
-                }
-                regs.DE = (regs.DE + 1) & 0xFFFF;
-                regs.HL = (regs.HL + 1) & 0xFFFF;
+            uint8_t temp = cpu.memory().read(regs.HL);
+            if (temp != A) {
+                cpu.memory().write(regs.DE, temp);
             }
-            regs.BC = 0;
+            regs.DE = (regs.DE + 1) & 0xFFFF;
+            regs.HL = (regs.HL + 1) & 0xFFFF;
+            regs.BC = (regs.BC - 1) & 0xFFFF;
+            if (regs.BC != 0) {
+                regs.PC = (regs.PC - 2) & 0xFFFF;
+            }
             cpu.set_registers(regs);
-            return 13 * count;
+            return 13;  // per-iteration timing preserved (LDIR=21/16 split out of scope)
         }
 
         case Z80NOpcode::LDDRX: {
-            // ED BC — repeating block transfer with transparency, HL/DE decrement
+            // ED BC — repeating block transfer with transparency, HL decrements,
+            // DE increments. G89 inter-iteration INT-sample shape.
+            // Mirrors VHDL t80n_mcode.vhd:2230-2256 (LDDX/LDDRX share the same
+            // MCycles="100" decoder block; per VHDL DE INCREMENTS while HL
+            // DECREMENTS — confirmed by IncDec_16 codes "0101" (inc DE) and
+            // "1110" (dec HL) at lines 2240+2244).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint32_t count = (regs.BC == 0) ? 65536 : regs.BC;
-            for (uint32_t i = 0; i < count; ++i) {
-                uint8_t temp = cpu.memory().read(regs.HL);
-                if (temp != A) {
-                    cpu.memory().write(regs.DE, temp);
-                }
-                regs.DE = (regs.DE - 1) & 0xFFFF;
-                regs.HL = (regs.HL - 1) & 0xFFFF;
+            uint8_t temp = cpu.memory().read(regs.HL);
+            if (temp != A) {
+                cpu.memory().write(regs.DE, temp);
             }
-            regs.BC = 0;
+            regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
+            regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
+            regs.BC = (regs.BC - 1) & 0xFFFF;
+            if (regs.BC != 0) {
+                regs.PC = (regs.PC - 2) & 0xFFFF;
+            }
             cpu.set_registers(regs);
-            return 13 * count;
+            return 13;
         }
 
         case Z80NOpcode::LDPIRX: {
-            // ED B7 — pattern fill with transparency, repeats until BC=0
+            // ED B7 — pattern fill with transparency, repeats until BC=0.
+            // G89 inter-iteration INT-sample shape. Mirrors VHDL
+            // t80n_mcode.vhd:1953-1991 (LDPIRX MCycles="100" with PC rewind).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint32_t count = (regs.BC == 0) ? 65536 : regs.BC;
-            for (uint32_t i = 0; i < count; ++i) {
-                // Source: upper 13 bits of HL | lower 3 bits of E
-                uint16_t src_addr = (regs.HL & 0xFFF8) | (regs.DE & 0x0007);
-                uint8_t temp = cpu.memory().read(src_addr);
-                if (temp != A) {
-                    cpu.memory().write(regs.DE, temp);
-                }
-                regs.DE = (regs.DE + 1) & 0xFFFF;
-                // HL does NOT change (pattern base)
+            // Source: upper 13 bits of HL | lower 3 bits of E (HL stays fixed)
+            uint16_t src_addr = (regs.HL & 0xFFF8) | (regs.DE & 0x0007);
+            uint8_t temp = cpu.memory().read(src_addr);
+            if (temp != A) {
+                cpu.memory().write(regs.DE, temp);
             }
-            regs.BC = 0;
+            regs.DE = (regs.DE + 1) & 0xFFFF;
+            // HL does NOT change (pattern base)
+            regs.BC = (regs.BC - 1) & 0xFFFF;
+            if (regs.BC != 0) {
+                regs.PC = (regs.PC - 2) & 0xFFFF;
+            }
             cpu.set_registers(regs);
-            return 13 * count;
+            return 13;
         }
 
         case Z80NOpcode::LDIRSCALE: {
-            // ED B6 — scaled block load with transparency
+            // ED B6 — scaled block load with transparency. G89 inter-iteration
+            // INT-sample shape. Mirrors VHDL t80n_mcode.vhd:2188-2226 (same
+            // MCycles="100" + PC-rewind repeat shape as LDIRX).
             // VHDL note: the BC'/DE' alternate register additions are commented
             // out in the FPGA source. The mcode uses standard HL++, DE++.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint32_t count = (regs.BC == 0) ? 65536 : regs.BC;
-            for (uint32_t i = 0; i < count; ++i) {
-                uint8_t temp = cpu.memory().read(regs.HL);
-                if (temp != A) {
-                    cpu.memory().write(regs.DE, temp);
-                }
-                regs.DE = (regs.DE + 1) & 0xFFFF;
-                regs.HL = (regs.HL + 1) & 0xFFFF;
+            uint8_t temp = cpu.memory().read(regs.HL);
+            if (temp != A) {
+                cpu.memory().write(regs.DE, temp);
             }
-            regs.BC = 0;
+            regs.DE = (regs.DE + 1) & 0xFFFF;
+            regs.HL = (regs.HL + 1) & 0xFFFF;
+            regs.BC = (regs.BC - 1) & 0xFFFF;
+            if (regs.BC != 0) {
+                regs.PC = (regs.PC - 2) & 0xFFFF;
+            }
             cpu.set_registers(regs);
-            return 13 * count;
+            return 13;
         }
 
         case Z80NOpcode::LOOP: {
