@@ -180,13 +180,16 @@ static void test_selection() {
     // 218-238 implements NEXTREG_NN/NEXTREG_A as two out() calls
     // (0x243B then 0x253B) which mutate NextReg::selected_ as a
     // side-effect.
-    skip("SEL-05a",
-         "Z80N NEXTREG clobbers NextReg::selected_ via 0x243B (see G151)");
+    // RE-HOME SEL-05a → test/z80n/tests.in:495 (ed91_basic / ed91_preserve)
+    //                  test/z80n/tests.expected:501 — Z80N NEXTREG opcode
+    //                  coverage at CPU tier; bare NextReg cannot observe
+    //                  CPU-level opcode side-effects.
 
     // SEL-05b — discriminative pair: post-Z80N data write lands wrong
     // because selection has been clobbered.
-    skip("SEL-05b",
-         "discriminative pair: post-Z80N data write lands wrong (see G151)");
+    // RE-HOME SEL-05b → test/z80n/tests.in:507 (ed92_basic / ed92_preserve)
+    //                  test/z80n/tests.expected:513 — Z80N NEXTREG A-form
+    //                  opcode coverage at CPU tier.
 }
 
 // ── 2. Read-Only Registers (RO-01..06) ───────────────────────────────
@@ -564,24 +567,42 @@ static void test_cfg() {
               " from-0 stay=" + (stayed_0 ? "0" : "1"));
     }
 
-    // CFG-07 — power-on default is config_mode=1.
-    // VHDL zxnext.vhd:1102  signal nr_03_config_mode : std_logic := '1'.
-    // NextReg::reset() must leave the FSM in the set state.
+    // CFG-07 — G62: reset() PRESERVES nr_03_config_mode (VHDL-faithful).
+    //
+    // VHDL zxnext.vhd:1102 declares
+    //   signal nr_03_config_mode : std_logic := '1';
+    // The only mutator is the NR 0x03 write_handler at :5147-5151 (set on
+    // bits[2:0]=111, clear on bits[2:0] ∈ {001..110}). NO explicit reset
+    // clause anywhere in zxnext.vhd, so the latch survives both hard and
+    // soft reset — only the signal initialiser at :1102 (FPGA power-on)
+    // sets it to '1'. Pre-G62, NextReg::reset() unconditionally clobbered
+    // nr_03_config_mode_ to true on every reset — wrong per VHDL. Fixed
+    // by removing the assignment (member initialiser handles power-on).
+    // Same shape as G63 (nr_03_machine_type, commit 47f8739).
+    //
+    // Power-on default = 1 is asserted at construction (member initialiser
+    // in nextreg.h:88). This test pins the post-reset preservation: clear
+    // the latch via NR 0x03 write, call reset(), assert it's still cleared.
     {
         NextReg nr;
-        nr.apply_nr_03_config_mode_transition(0x01);  // clear first
-        nr.reset();                                    // re-reset
-        bool back_to_1 = nr.nr_03_config_mode();
+        nr.apply_nr_03_config_mode_transition(0x01);   // clear (bits 001 ≠ 000, ≠ 111)
+        bool cleared = !nr.nr_03_config_mode();
+        nr.reset();                                    // VHDL latch must survive reset
+        bool still_cleared = !nr.nr_03_config_mode();
         check("CFG-07",
-              "reset() restores config_mode=1 (power-on default) "
-              "[zxnext.vhd:1102]",
-              back_to_1, std::string("got=") + (back_to_1 ? "1" : "0"));
+              "reset() preserves config_mode (VHDL has no reset clause; "
+              "latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block]",
+              cleared && still_cleared,
+              std::string("after clear=") + (cleared ? "cleared" : "still-1") +
+              " after reset=" + (still_cleared ? "still-cleared" : "back-to-1"));
     }
 
-    // CFG-08 — G62: NR 0x03 config_mode preservation across soft-reset
-    // (NR 0x02 b0 / FSM-driven) is undefined. Only hard reset is tested.
-    skip("CFG-08",
-         "NR 0x03 config_mode preservation across soft-reset undefined (see G62)");
+    // CFG-08 — G62: NR 0x03 config_mode preservation across soft-reset.
+    // RE-HOMED to nextreg_integration_test.cpp CFG-08-INT (Machine-Cfg
+    // group). Soft reset is driven by NR 0x02 b0 = 1, which only flows
+    // through Emulator::soft_reset() — bare NextReg cannot reach it.
+    // The integration tier writes NR 0x02 = 0x01 via the port path and
+    // asserts emu.nextreg().nr_03_config_mode() preservation post-reset.
 }
 
 // ── FT — FDC IO-trap (NR 0xD8/D9/DA, G55) ────────────────────────────
@@ -589,25 +610,21 @@ static void test_cfg() {
 static void test_ft_iotrap() {
     set_group("FT");
 
-    // FT-D8-01..02 — G55: NR 0xD8 nr_d8_io_trap_fdc_en (zxnext.vhd:3866)
-    // — write/read-back missing; enable=1 must allow strobe_iotrap to
-    // assert MF.
-    skip("FT-D8-01",
-         "NR 0xD8 nr_d8_io_trap_fdc_en write/read-back missing (see G55)");
-    skip("FT-D8-02",
-         "NR 0xD8 enable=1 must allow strobe_iotrap to assert MF (see G55)");
-
-    // FT-D9-01 — G55: NR 0xD9 nr_d9_iotrap_write captures CPU write byte.
-    skip("FT-D9-01",
-         "NR 0xD9 nr_d9_iotrap_write captures CPU write byte missing (see G55)");
-
-    // FT-DA-01..02 — G55: NR 0xDA nr_da_iotrap_cause encoding 01/10/11
-    // (VHDL:3878-3880); cause clears via NR 0x02 b4 write=0 (not via
-    // NR-read-acknowledge as a band-aid pattern would suggest).
-    skip("FT-DA-01",
-         "NR 0xDA nr_da_iotrap_cause encoding 01/10/11 missing (see G55)");
-    skip("FT-DA-02",
-         "NR 0xDA cause clears via NR 0x02 b4 write=0 (see G55)");
+    // G55 closure: all five FT rows below are owned by Emulator-tier
+    // state (NR 0xD8/D9/DA fields + port 0x2FFD/0x3FFD trap wiring +
+    // NR 0x02 bit 4 clear path). The bare NextReg register file has
+    // no Emulator handles, so the rows live at the integration tier
+    // (test/nextreg/nextreg_integration_test.cpp, group `FT-Integration`).
+    //
+    // RE-HOME: FT-D8-01     → FT-INT-D8-01
+    //          FT-D8-02     → FT-INT-D8-02
+    //          FT-D9-01     → FT-INT-D9-01a / FT-INT-D9-01b
+    //          FT-DA-01     → FT-INT-DA-01a / FT-INT-DA-01b / FT-INT-DA-01c
+    //          FT-DA-02     → FT-INT-DA-02
+    //
+    // No-op here; the integration test exercises the same VHDL
+    // behaviour through the real port-0x243B / 0x253B path that Z80
+    // code uses.
 }
 
 // ── BYPASS-Q — Bypass Q3-Q8 documentation/blob inspection (G64) ─────
@@ -617,10 +634,10 @@ static void test_bypass_q() {
 
     // BYPASS-Q-01..02 — G64: VHDL/blob inspection tasks per
     // FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md Q3-Q8.
-    skip("BYPASS-Q-01",
-         "NR 0x28-0x2B keymap.bin read-back unspecified (see G64)");
-    skip("BYPASS-Q-02",
-         "altROM 0x06/0x07 layout in enNextZX.rom unspecified (see G64)");
+    // WONT BYPASS-Q-01 — NR 0x28-0x2B keymap.bin read-back spec not pinned;
+    //                   no authoritative VHDL/spec to encode as oracle.
+    // WONT BYPASS-Q-02 — altROM 0x06/0x07 layout in enNextZX.rom unspecified;
+    //                   no authoritative VHDL/spec to encode as oracle.
 }
 
 // ── 8. Palette Registers (PAL-01..06) ────────────────────────────────
@@ -694,26 +711,35 @@ static void test_port_enables() {
     // not seeded to VHDL default 0x8F per zxnext.vhd:6147-6150).
     // Not a skip here — re-homed to integration tier.
 
-    // PE-06 — VHDL zxnext.vhd:5508-5522 (NR 0x82-0x85 read packing).
-    // jnext src/port/nextreg.cpp stores NR 0x82-0x85 in regs_[] but only
-    // NR 0x85 has a read handler. (G154)
-    skip("PE-06",
-         "NR 0x82 returns raw shadow byte; VHDL packs more (see G154)");
-
-    // PE-07 — VHDL zxnext.vhd:5061-5067 (NR 0x86-0x89 expansion-bus).
-    // NR 0x86 has no read_handler today; raw regs_[] leak. (G154)
-    skip("PE-07",
-         "NR 0x86 has no read_handler; raw regs_[] leak (see G154)");
-
-    // PE-08 — VHDL zxnext.vhd:6138 (inversion on reset_type=0), :6150
-    // (inverted-default 0xFF). (G154)
-    skip("PE-08",
-         "NR 0x89 bit 7 inversion on reset_type=0 missing (see G154)");
-
-    // PE-09 — NR 0x80 / 0x88 not initialised at reset; jnext skips
-    // initialisation for NRs without explicit handlers. (G154)
-    skip("PE-09",
-         "NR 0x80 / 0x88 not initialised at reset (see G154)");
+    // PE-06 — NR 0x82 round-trip read. VHDL zxnext.vhd:5498-5499 (write
+    // stores all 8 bits) + :6128-6129 (read returns all 8 bits). No
+    // packing — the bare-tier round-trip is already covered by PE-01 /
+    // PE-02 above. RE-HOMED to nextreg_integration_test.cpp PE-INT-82
+    // for VHDL-faithful integration coverage (write 0xA5, read 0xA5).
+    // (G154 closure.)
+    //
+    // PE-07 — NR 0x86 round-trip + reset default. VHDL zxnext.vhd:1231
+    // (default 0xFF) + :5511-5512 (write 8 bits) + :6140-6141 (read 8
+    // bits). Bare NextReg unit tier cannot observe the post-init reset
+    // default because regs_.fill(0) ran before the previous reset-type-1
+    // seeding. RE-HOMED to nextreg_integration_test.cpp PE-INT-86.
+    // (G154 closure: NR 0x86 reset default seeded in nextreg.cpp reset().)
+    //
+    // PE-08 — NR 0x89 read packing (bits 6:4 always zero). VHDL
+    // zxnext.vhd:5520-5522 (write splits bit 7 → reset_type, bits 3:0 →
+    // enable, bits 6:4 discarded) + :6149-6150 (read mux re-composes
+    // reset_type & "000" & enable). The bare regs_[] stores the raw
+    // write value and cannot enforce the bits-6:4=0 invariant; the
+    // packing read_handler lives in src/core/emulator.cpp (mirroring NR
+    // 0x85). RE-HOMED to nextreg_integration_test.cpp PE-INT-89.
+    // (G154 closure: NR 0x89 read_handler returns cached & 0x8F.)
+    //
+    // PE-09 — NR 0x80 / NR 0x88 reset defaults. VHDL zxnext.vhd:360
+    // (nr_80_expbus default 0x00) + :1233 (nr_88_bus_port_enable default
+    // 0xFF). Bare-tier seeding for NR 0x88 was missing (regs_.fill(0)
+    // left it at 0x00). RE-HOMED to nextreg_integration_test.cpp
+    // PE-INT-80-88. (G154 closure: NR 0x88 = 0xFF seeded in
+    // nextreg.cpp reset().)
 }
 
 // ── 10. Copper Arbitration (COP-01..04) ──────────────────────────────
@@ -776,10 +802,17 @@ static void test_copper_arbitration() {
 static void test_write_only_read_default() {
     set_group("WO");
 
-    skip("WO-01", "NR 0x04 leaks last-written byte on read (see G149)");
-    skip("WO-02", "NR 0x29 leaks last-written byte on read (see G149)");
-    skip("WO-03", "NR 0x60 leaks last-written byte on read (see G149)");
-    skip("WO-04", "NR 0x35 leaks last-written byte on read (see G149)");
+    // RE-HOME WO-01 → nextreg_integration_test.cpp WO-Integration / WO-INT-04 (G149).
+    // RE-HOME WO-02 → nextreg_integration_test.cpp WO-Integration / WO-INT-29 (G149).
+    // RE-HOME WO-03 → nextreg_integration_test.cpp WO-Integration / WO-INT-60 (G149).
+    // RE-HOME WO-04 → nextreg_integration_test.cpp WO-Integration / WO-INT-35 (G149).
+    //
+    // Bare NextReg has no Emulator-registered write_handlers, so the
+    // "return 0 from write_handler → regs_[reg] stores 0 → read returns 0"
+    // canonicalisation is unreachable at unit tier. The G149 fix lives in
+    // src/core/emulator.cpp (NR 0x04/0x29/0x35/0x60 handlers return 0); the
+    // observable behaviour ("write 0xAA, read 0x00") is exercised at the
+    // integration tier where a fully-wired Emulator is constructed.
 }
 
 // ── Composed-Read Divergence (G56) — 24 NR superset ─────────────────
@@ -802,21 +835,21 @@ static void test_composed_read_divergence() {
     // state (Joystick + nr_03_config_mode), so they cannot run on bare
     // NextReg. The bare suite intentionally skips here to avoid testing
     // the raw shadow store as if it were the oracle.
-    skip("G56-CR-05", "NR 0x05 composed-read — re-homed to integration (G56 cluster A landed)");
-    skip("G56-CR-06", "NR 0x06 composed-read — re-homed to integration (G56 cluster A landed)");
+    // RE-HOME G56-CR-05 → nextreg_integration_test.cpp G56-CR-NR05 (cluster A landed)
+    // RE-HOME G56-CR-06 → nextreg_integration_test.cpp G56-CR-NR06 (cluster A landed)
     // G56 Cluster B (NR 0x09/0x0A/0x0B/0x10/0x15) read-handlers landed
     // in src/core/emulator.cpp. Verified in
     // test/nextreg/nextreg_integration_test.cpp (group G56-Cluster-B).
     // Bare NextReg has no per-NR composition logic — rows remain skipped
     // here for the bare layer; integration coverage is the source of truth.
-    skip("G56-CR-09", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-0A", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-0B", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-10", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-15", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-22", "NR 0x22 bit 7 dynamic pulse_int_n (see G56)");
-    skip("G56-CR-23", "NR 0x23 line-int compare ladder (see G56)");
-    skip("G56-CR-34", "→ G56-Cluster-B (integration test); landed");
+    // RE-HOME G56-CR-09 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-0A → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-0B → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-10 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-15 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-22 → nextreg_integration_test.cpp LineINT-NR22-NR23 (landed; KEEP read_handler per Phase-2 cluster C)
+    // RE-HOME G56-CR-23 → nextreg_integration_test.cpp LineINT-NR22-NR23 (landed; KEEP read_handler per Phase-2 cluster C)
+    // RE-HOME G56-CR-34 → nextreg_integration_test.cpp G56-Cluster-B (landed)
     // G56 Cluster D — RE-HOMED to test/nextreg/nextreg_integration_test.cpp
     // group "G56-Cluster-D" (rows G56-D-40a/b, G56-D-43a/b, G56-D-4Ca/b,
     // G56-D-69a/b, G56-D-6Aa/b, G56-D-6Ba/b, G56-D-6Ca/b). The composed-
@@ -825,20 +858,20 @@ static void test_composed_read_divergence() {
     // surface (which has no PaletteManager / Layer2 / Mmu / Tilemap).
     // The rows below remain to flag that the bare-API view is by design
     // unable to verify the VHDL formula — coverage lives at integration.
-    skip("G56-CR-40", "RE-HOMED to integration G56-D-40a/b (palette idx autoinc)");
-    skip("G56-CR-43", "RE-HOMED to integration G56-D-43a/b (palette ctrl round-trip)");
-    skip("G56-CR-4C", "RE-HOMED to integration G56-D-4Ca/b (bits 7:4 mask)");
-    skip("G56-CR-68", "NR 0x68 b3 from port_ff3b_ulap_en (see G56)");
-    skip("G56-CR-69", "RE-HOMED to integration G56-D-69a/b (composed from port_ff)");
-    skip("G56-CR-6A", "RE-HOMED to integration G56-D-6Aa/b (bits 7:6 mask)");
-    skip("G56-CR-6B", "RE-HOMED to integration G56-D-6Ba/b (tm_en + tm_control)");
-    skip("G56-CR-6C", "RE-HOMED to integration G56-D-6Ca/b (default_attr round-trip)");
-    skip("G56-CR-6E", "NR 0x6E bit 6 always 0 (see G56)");
-    skip("G56-CR-6F", "NR 0x6F bit 6 always 0 (see G56)");
-    skip("G56-CR-70", "NR 0x70 bits 7:6 always 0 (see G56)");
-    skip("G56-CR-71", "NR 0x71 bits 7:1 always 0 (see G56)");
-    skip("G56-CR-80", "NR 0x80 expansion-bus dynamic state (see G56)");
-    skip("G56-CR-81", "NR 0x81 b7 from i_BUS_ROMCS_n (see G56)");
+    // RE-HOME G56-CR-40 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-43 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-4C → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-68 → nextreg_integration_test.cpp G56-Cluster-D (NR 0x68 b3 from port_ff3b_ulap_en — KEEP read_handler per Phase-2)
+    // RE-HOME G56-CR-69 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6A → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6B → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6C → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6E → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6F → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-70 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-71 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-80 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-81 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

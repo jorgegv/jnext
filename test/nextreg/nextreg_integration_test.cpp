@@ -1357,6 +1357,99 @@ static void test_pe_05(Emulator& emu) {
     }
 }
 
+// ── PE-INT-82, PE-INT-86, PE-INT-89, PE-INT-80-88: G154 closure ──────
+//
+// These rows came down from nextreg_test.cpp PE-06..09 when G154
+// was closed. They cover NR 0x80 / 0x82 / 0x86 / 0x88 / 0x89 read
+// packing + reset defaults end-to-end through the full Emulator
+// fixture (port path), which is the only tier where the
+// emulator-side handlers + NextReg::reset() seeds are wired.
+//
+// Oracles (zxnext.vhd, all line numbers verified):
+//   NR 0x80: signal default 0x00 at line 360; read mux at 6122-6123
+//            returns nr_80_expbus directly; no pack mask.
+//   NR 0x82: default 0xFF at 1226; reset_type-1 reload at 5054; write
+//            stores 8 bits at 5499; read returns 8 bits at 6128-6129.
+//            No pack mask. Round-trip identity.
+//   NR 0x86: default 0xFF at 1231; reset_type-0 reload at 5063; write
+//            stores 8 bits at 5512; read returns 8 bits at 6140-6141.
+//            Round-trip identity.
+//   NR 0x88: default 0xFF at 1233; reset_type-0 reload at 5065; write
+//            stores 8 bits at 5518; read returns 8 bits at 6146-6147.
+//            Round-trip identity.
+//   NR 0x89: enable default 0xF + reset_type='1' at 1234-1235; write
+//            splits bit 7 → reset_type, bits 3:0 → enable, bits 6:4
+//            discarded (5520-5522); read recomposes reset_type &
+//            "000" & enable (6149-6150). Pack mask 0x8F enforced by
+//            read_handler in src/core/emulator.cpp.
+
+static void test_pe_integration(Emulator& emu) {
+    set_group("PE-Integration");
+
+    // PE-INT-80-88 — Post-reset defaults for NR 0x80 and NR 0x88.
+    //   NR 0x80 = 0x00 (zxnext.vhd:360)
+    //   NR 0x88 = 0xFF (zxnext.vhd:1233)
+    {
+        uint8_t got80 = nr_read(emu, 0x80);
+        uint8_t got88 = nr_read(emu, 0x88);
+        const bool ok = (got80 == 0x00) && (got88 == 0xFF);
+        check("PE-INT-80-88",
+              "NR 0x80 reset=0x00, NR 0x88 reset=0xFF "
+              "[zxnext.vhd:360, 1233]",
+              ok,
+              "NR 0x80 got=" + hex2(got80) + " expected=0x00; "
+              "NR 0x88 got=" + hex2(got88) + " expected=0xFF");
+    }
+
+    // PE-INT-82 — NR 0x82 round-trip (no packing). Write 0xA5; expect
+    // 0xA5 back per VHDL :5499 (write 8 bits) and :6128-6129 (read 8
+    // bits). Restore 0xFF afterwards so downstream rows see the reset
+    // default (NR 0x82 bit 1 / bit 3 gate port FD/1FFD elsewhere).
+    {
+        nr_write(emu, 0x82, 0xA5);
+        uint8_t got = nr_read(emu, 0x82);
+        nr_write(emu, 0x82, 0xFF);  // restore reset default
+        check("PE-INT-82",
+              "NR 0x82 write=0xA5 read=0xA5 (no pack mask) "
+              "[zxnext.vhd:5499, 6128-6129]",
+              got == 0xA5, detail_eq(got, 0xA5));
+    }
+
+    // PE-INT-86 — NR 0x86 round-trip + reset default observation.
+    // Verify pre-write reset default 0xFF (zxnext.vhd:1231), then
+    // confirm write 0x5A round-trips (zxnext.vhd:5512, 6140-6141).
+    // Restore 0xFF afterwards.
+    {
+        uint8_t reset_default = nr_read(emu, 0x86);
+        nr_write(emu, 0x86, 0x5A);
+        uint8_t got = nr_read(emu, 0x86);
+        nr_write(emu, 0x86, 0xFF);  // restore reset default
+        const bool ok = (reset_default == 0xFF) && (got == 0x5A);
+        check("PE-INT-86",
+              "NR 0x86 reset=0xFF + write=0x5A read=0x5A "
+              "[zxnext.vhd:1231, 5512, 6140-6141]",
+              ok,
+              "reset=" + hex2(reset_default) + " (want 0xFF), "
+              "round-trip=" + hex2(got) + " (want 0x5A)");
+    }
+
+    // PE-INT-89 — NR 0x89 read packing (bits 6:4 always zero). Write
+    // 0xF7 = 1111_0111: stored bit 7 → reset_type=1, bits 3:0 →
+    // enable=0x7; bits 6:4 of write discarded. Read returns
+    // reset_type & "000" & enable = 1_000_0111 = 0x87, NOT the 0xF7
+    // we wrote. This is the exact pack-mask shape of NR 0x85.
+    // Restore 0x8F afterwards (NR 0x89 reset default).
+    {
+        nr_write(emu, 0x89, 0xF7);
+        uint8_t got = nr_read(emu, 0x89);
+        nr_write(emu, 0x89, 0x8F);  // restore reset default
+        check("PE-INT-89",
+              "NR 0x89 write=0xF7 read=0x87 (bits 6:4 always 0) "
+              "[zxnext.vhd:5520-5522, 6149-6150]",
+              got == 0x87, detail_eq(got, 0x87));
+    }
+}
+
 // ── RW-01, RW-02: asymmetric read/write registers ────────────────────
 //
 // Plan row group 4 in NEXTREG-TEST-PLAN-DESIGN.md. NR 0x07 (CPU speed)
@@ -1602,6 +1695,54 @@ static void test_cfg_integration(Emulator& emu) {
         check("CFG-09-INT",
               "NR 0x03 machine-type latch survives soft reset "
               "[zxnext.vhd:1103, :5137-5145, :5894 — no reset clause]",
+              ok, detail);
+    }
+
+    // CFG-08-INT — G62: NR 0x03 config_mode latch survives soft reset.
+    //
+    // VHDL zxnext.vhd:1102 — `nr_03_config_mode` has signal initialiser
+    // '1' (FPGA power-on default). The only mutator is the NR 0x03
+    // write_handler at :5147-5151 (set on bits[2:0]=111, clear on bits
+    // [2:0] ∈ {001..110}). NO explicit reset clause anywhere in zxnext.vhd
+    // — verified by `grep -n "nr_03_config_mode" zxnext.vhd`: no occurrence
+    // inside any `if reset = '1' then` block — so the latch survives both
+    // hard and soft reset.
+    //
+    // Pre-G62 jnext clobbered nr_03_config_mode_ to true in every
+    // NextReg::reset() call — wrong per VHDL. Fixed by removing the
+    // unconditional reset assignment; member initialiser handles
+    // power-on. (See src/port/nextreg.cpp `reset()` G62 comment.)
+    //
+    // RE-HOMED here from nextreg_test.cpp CFG-08 because soft reset
+    // (NR 0x02 b0 = 1) flows through Emulator::soft_reset(), not
+    // reachable from bare NextReg.
+    //
+    // Sequence:
+    //   1. Re-enter config_mode (NR 0x03 = 0x07 → bits[2:0]=111).
+    //   2. Clear config_mode via NR 0x03 = 0x01 (bits[2:0]=001).
+    //   3. Assert emu.nextreg().nr_03_config_mode() == false — pre-soft-reset baseline.
+    //   4. Soft reset (NR 0x02 = 0x01). Per VHDL the latch survives.
+    //   5. Assert emu.nextreg().nr_03_config_mode() == false — preserved.
+    {
+        // Re-enter config_mode first to guarantee a deterministic starting state
+        // (earlier subtests may have left config_mode in either polarity).
+        nr_write(emu, 0x03, 0x07);
+        // Clear config_mode (bits[2:0]=001 ≠ 000, ≠ 111).
+        nr_write(emu, 0x03, 0x01);
+        const bool pre_cleared = !emu.nextreg().nr_03_config_mode();
+
+        // Soft reset. Per VHDL nr_03_config_mode has no reset clause.
+        nr_write(emu, 0x02, 0x01);              // NR 0x02 b0 = RESET_SOFT
+        const bool post_cleared = !emu.nextreg().nr_03_config_mode();
+
+        const bool ok = pre_cleared && post_cleared;
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "pre-soft-reset config_mode=%d; post-soft-reset config_mode=%d",
+                      static_cast<int>(!pre_cleared), static_cast<int>(!post_cleared));
+        check("CFG-08-INT",
+              "NR 0x03 config_mode latch survives soft reset "
+              "[zxnext.vhd:1102, :5147-5151 — no reset clause]",
               ok, detail);
     }
 }
@@ -2085,8 +2226,13 @@ static void test_nr_06_composed_read(Emulator& emu) {
         emu.init(cfg);
     }
 
-    // After init, config_mode is '1' (VHDL :1102 power-on default; jnext
-    // NextReg::reset() reasserts it), so NR 0x06 bit-2 writes will latch.
+    // G62: nr_03_config_mode has NO reset clause in VHDL (zxnext.vhd:1102 +
+    // :5147-5151), so NextReg::reset() preserves whatever state earlier
+    // groups left it in. Explicitly re-enter config_mode here (NR 0x03 =
+    // 0x07 → bits[2:0]=111) so the gated NR 0x06 bit-2 writes below latch
+    // deterministically. Same pattern as CFG-09-INT and CFG-08-INT.
+    nr_write(emu, 0x03, 0x07);
+
     // Reset default read formula (VHDL :5900):
     //   bits 7=1, 6=0, 5=1, 4=0, 3=0, 2=0, 1:0=00 → 0xA0.
     {
@@ -3057,6 +3203,232 @@ static void test_g56_cluster_e(Emulator& emu) {
     }
 }
 
+// ── Write-Only Register Read Behaviour (G149) ─────────────────────────
+//
+// VHDL zxnext.vhd:5878-6289 — the NR read mux falls through to
+// (others => '0') for any NR with no read entry. The historical jnext
+// behaviour returned regs_[reg] (last-written byte) for unhandled NRs,
+// leaking write-only state. Phase 1 of G149 retrofitted the Emulator
+// write_handlers for NR 0x04/0x29/0x35/0x60 to return 0 (instead of v),
+// so the canonicalised regs_[reg] stores 0 and reads return 0 — matching
+// VHDL exactly. The observable behaviour requires a fully-wired Emulator
+// (the write_handlers are registered in Emulator::init()), so this lives
+// at integration tier; the bare NextReg unit test rows WO-01..WO-04 were
+// re-homed here.
+static void test_write_only_read_zero(Emulator& emu) {
+    set_group("WO-Integration");
+
+    // WO-INT-04 — NR 0x04 (ROM/RAM bank latch).
+    // VHDL zxnext.vhd:1104,5716-5732 (write-only nr_04_romram_bank);
+    // no read-mux entry — read falls through to (others => '0').
+    {
+        nr_write(emu, 0x04, 0xAA);
+        const uint8_t got = nr_read(emu, 0x04);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-04",
+              "NR 0x04 write-only — read returns 0 (no leak of romram_bank) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-29 — NR 0x29 (keymap address LSB).
+    // VHDL zxnext.vhd:6304 (nr_29_we triggers internal nr_keymap_addr
+    // load + auto-increment); no read-mux entry.
+    {
+        nr_write(emu, 0x29, 0xAA);
+        const uint8_t got = nr_read(emu, 0x29);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-29",
+              "NR 0x29 write-only — read returns 0 (no leak of keymap LSB) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-35 — NR 0x35 (sprite attribute byte 0, no auto-increment).
+    // VHDL zxnext.vhd:4857-4875 dispatches mirror_we for the no-inc path;
+    // no read-mux entry (NR 0x34 IS readable but 0x35 is not).
+    {
+        nr_write(emu, 0x35, 0xAA);
+        const uint8_t got = nr_read(emu, 0x35);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-35",
+              "NR 0x35 write-only — read returns 0 (no leak of sprite attr) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-60 — NR 0x60 (Copper data write).
+    // VHDL routes the byte through the Copper subsystem; no read-mux
+    // entry (NR 0x61/0x62 ARE readable — Copper addr/mode — but 0x60 is
+    // not).
+    {
+        nr_write(emu, 0x60, 0xAA);
+        const uint8_t got = nr_read(emu, 0x60);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-60",
+              "NR 0x60 write-only — read returns 0 (no leak of copper data) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+}
+
+// ── FT-Integration — FDC IO-trap registers (NR 0xD8/0xD9/0xDA, G55) ───
+//
+// VHDL `cores/zxnext/src/zxnext.vhd`:
+//   :1263-1265 — signal declarations (nr_d8_io_trap_fdc_en,
+//                nr_d9_iotrap_write, nr_da_iotrap_cause).
+//   :2598-2602 — port_2ffd / port_3ffd decode, gated by NR 0xD8 b0.
+//   :3835-3837 — `nmi_gen_iotrap` OR's into `nmi_sw_gen_mf` so a trap
+//                event drives the Multiface NMI path.
+//   :3866-3883 — nr_da_iotrap_cause cause encoding + NR 0x02 b4=0 clear.
+//   :3887-3898 — nr_d9_iotrap_write capture (port_3ffd_wr) + NR 0xD9
+//                direct-write path (`nr_d9_we`).
+//   :5107      — NR 0xD8 power-on default '0'.
+//   :5640      — NR 0xD8 write_handler (bit 0 → enable).
+//   :6266-6272 — NR 0xD8 / 0xD9 / 0xDA read mux.
+//
+// These rows were RE-HOMED here from the bare-NextReg unit test
+// (test/nextreg/nextreg_test.cpp, group `FT`) per the unit-tier vs
+// integration-tier split: state lives in Emulator, not in the bare
+// NextReg register file.
+
+static void test_ft_iotrap_integration(Emulator& emu) {
+    set_group("FT-Integration");
+
+    // Reset state before the group so prior tests don't bleed in.
+    emu.reset();
+
+    // FT-INT-D8-01 — NR 0xD8 nr_d8_io_trap_fdc_en write/read-back.
+    // VHDL :5640 (write bit 0) + :6266 (read mux "0000000" & bit).
+    {
+        nr_write(emu, 0xD8, 0x01);
+        uint8_t got1 = nr_read(emu, 0xD8);
+        nr_write(emu, 0xD8, 0x00);
+        uint8_t got0 = nr_read(emu, 0xD8);
+        check("FT-INT-D8-01",
+              "NR 0xD8 nr_d8_io_trap_fdc_en write/read-back round-trip "
+              "[zxnext.vhd:5640 + 6266]",
+              got1 == 0x01 && got0 == 0x00,
+              "got1=" + hex2(got1) + " got0=" + hex2(got0));
+    }
+
+    // FT-INT-D8-02 — NR 0xD8 enable=1 must allow strobe_iotrap to
+    // assert the MF NMI path. VHDL :3835-3837 — `nmi_sw_gen_mf <=
+    // nmi_gen_nr_mf OR nmi_gen_iotrap`. The MF producer is gated by
+    // NR 0x06 bit 3 (`nr_06_button_m1_nmi_en`, VHDL :2090).
+    //
+    // Test: enable NR 0xD8 + NR 0x06 b3, fire a port-0x3FFD write,
+    // assert NmiSource::nmi_assert_mf() is true.
+    {
+        emu.reset();
+        // Snapshot the current NR 0x06 so we don't fight the existing
+        // reset default (0xA0); just OR in bit 3 so the MF gate opens.
+        const uint8_t nr06_before = nr_read(emu, 0x06);
+        nr_write(emu, 0x06, static_cast<uint8_t>(nr06_before | 0x08));
+        nr_write(emu, 0xD8, 0x01);
+
+        // Fire port 0x3FFD WRITE — VHDL :3835 port_3ffd_wr term.
+        emu.port().out(0x3FFD, 0xCC);
+
+        const bool mf_asserts = emu.nmi_source().nmi_assert_mf();
+        check("FT-INT-D8-02",
+              "NR 0xD8=1 + NR 0x06 b3=1 + port 0x3FFD write → "
+              "NmiSource::nmi_assert_mf() asserts [zxnext.vhd:3835-3837]",
+              mf_asserts,
+              std::string{"mf_assert="} + (mf_asserts ? "true" : "false"));
+    }
+
+    // FT-INT-D9-01a — NR 0xD9 firmware direct-write round-trip.
+    // VHDL :4901 + :3894-3895 — `nr_d9_we` writer path.
+    {
+        emu.reset();
+        nr_write(emu, 0xD9, 0xAA);
+        uint8_t got = nr_read(emu, 0xD9);
+        check("FT-INT-D9-01a",
+              "NR 0xD9 firmware direct-write round-trip "
+              "[zxnext.vhd:4901 nr_d9_we + :3894-3895]",
+              got == 0xAA, detail_eq(got, uint8_t{0xAA}));
+    }
+
+    // FT-INT-D9-01b — NR 0xD9 captures the byte written to port 0x3FFD
+    // when the trap is enabled. VHDL :3892-3893 —
+    //   nr_d9_iotrap_write <= cpu_do  when port_3ffd_wr AND nmi_accept_cause
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0x55);
+        uint8_t got = nr_read(emu, 0xD9);
+        check("FT-INT-D9-01b",
+              "NR 0xD9 captures port 0x3FFD write byte when NR 0xD8=1 "
+              "[zxnext.vhd:3892-3893]",
+              got == 0x55, detail_eq(got, uint8_t{0x55}));
+    }
+
+    // FT-INT-DA-01a — port_2ffd_rd → cause "01". VHDL :3871-3873.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        (void)emu.port().in(0x2FFD);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01a",
+              "NR 0xDA cause=01 after port 0x2FFD READ "
+              "[zxnext.vhd:3871-3873]",
+              got == 0x01, detail_eq(got, uint8_t{0x01}));
+    }
+
+    // FT-INT-DA-01b — port_3ffd_rd → cause "10". VHDL :3874-3875.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        (void)emu.port().in(0x3FFD);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01b",
+              "NR 0xDA cause=10 after port 0x3FFD READ "
+              "[zxnext.vhd:3874-3875]",
+              got == 0x02, detail_eq(got, uint8_t{0x02}));
+    }
+
+    // FT-INT-DA-01c — port_3ffd_wr → cause "11". VHDL :3876-3878.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0xFF);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01c",
+              "NR 0xDA cause=11 after port 0x3FFD WRITE "
+              "[zxnext.vhd:3876-3878]",
+              got == 0x03, detail_eq(got, uint8_t{0x03}));
+    }
+
+    // FT-INT-DA-02 — NR 0xDA cause clears via NR 0x02 b4 write=0.
+    // VHDL :3879-3880 — `elsif nr_02_we = '1' and nr_wr_dat(4) = '0'
+    // then nr_da_iotrap_cause <= (others => '0')`.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0xFF);    // cause ← "11"
+        uint8_t before = nr_read(emu, 0xDA);
+
+        // Write NR 0x02 with bit 4 = 0 (other bits zero so we don't
+        // trigger soft/hard reset or NMI strobes).
+        nr_write(emu, 0x02, 0x00);
+        uint8_t after = nr_read(emu, 0xDA);
+
+        check("FT-INT-DA-02",
+              "NR 0xDA cause cleared by NR 0x02 b4=0 write "
+              "[zxnext.vhd:3879-3880]",
+              before == 0x03 && after == 0x00,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Restore reset state so downstream tests aren't affected.
+    emu.reset();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3090,6 +3462,9 @@ int main() {
 
     test_pe_05(emu);
     std::printf("  Group: Port-Enable-Bus — done\n");
+
+    test_pe_integration(emu);
+    std::printf("  Group: PE-Integration — done\n");
 
     test_rw_asymmetric(emu);
     std::printf("  Group: RW-Asymmetric — done\n");
@@ -3135,6 +3510,12 @@ int main() {
 
     test_g56_cluster_e(emu);
     std::printf("  Group: G56-CR-Cluster-E — done\n");
+
+    test_write_only_read_zero(emu);
+    std::printf("  Group: WO-Integration — done\n");
+
+    test_ft_iotrap_integration(emu);
+    std::printf("  Group: FT-Integration — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

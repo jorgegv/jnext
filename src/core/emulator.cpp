@@ -113,6 +113,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nmi_source_.reset();
     // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
     nr_d8_io_trap_fdc_en_ = false;
+    // VHDL zxnext.vhd:3870, 3891 — both NR 0xDA cause field and NR 0xD9
+    // captured-byte field reset to all zeros on i_reset.
+    nr_d9_iotrap_write_ = 0;
+    nr_da_iotrap_cause_ = 0;
     // Edge-detector level for the /NMI line. VHDL holds nmi_generate_n
     // inactive ('1') after reset; the falling-edge latch must see that
     // baseline so the first real assertion fires. Constructor-init alone
@@ -713,7 +717,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
     nextreg_.set_write_handler(0x29, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_29(v);
-        return v;
+        // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x29
+        // (write-only keymap address LSB; auto-incremented internally and
+        // not exposed). Fall-through is (others => '0'); return 0 so the
+        // canonical regs_[0x29] stores 0 and reads return 0.
+        return 0;
     });
     nextreg_.set_write_handler(0x2B, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_2b(v);
@@ -1018,7 +1026,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_read_handler(0x6F, [this]() -> uint8_t { return tilemap_.get_def_base_read(); });
 
     // Registers 0x60-0x63: Copper co-processor
-    nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return v; });
+    // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x60
+    // (Copper data is consumed by the Copper subsystem on write; not
+    // exposed on read). Fall-through is (others => '0'); return 0 so reads
+    // of NR 0x60 return 0 (NRs 0x61/0x62 keep their composed read handlers).
+    nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return 0; });
     nextreg_.set_write_handler(0x61, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x61(v); return v; });
     nextreg_.set_write_handler(0x62, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x62(v); return v; });
     nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return v; });
@@ -1178,6 +1190,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NmiSource::nr_02_write).
         nmi_source_.nr_02_write(v);
 
+        // VHDL zxnext.vhd:3879-3880 — NR 0xDA `nr_da_iotrap_cause`
+        // clears when NR 0x02 is written with bit 4 = 0 (the
+        // `nr_02_iotrap` ack/clear path). VHDL:3885 also gates the
+        // NR 0x02 readback bit 4 from this same field. The clear is
+        // unconditional on bit 4 polarity — write bit 4 = 0 to
+        // acknowledge / clear; bit 4 = 1 leaves the cause latched.
+        // (No trap-event vs nr_02_we race in this single-write path —
+        // trap events arrive via separate port-0x?FFD accesses on
+        // different cycles.)
+        if ((v & 0x10) == 0) {
+            nr_da_iotrap_cause_ = 0;
+        }
+
         // VHDL zxnext.vhd:6370 — `nr_02_soft_reset <= ... or
         // (nr_02_we and nr_wr_dat(0))`. The reset_type[2:0] FSM at
         // VHDL:1732-1739 advances on this edge regardless of whether
@@ -1232,6 +1257,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
     nextreg_.set_read_handler(0xD8, [this]() -> uint8_t {
         return nr_d8_io_trap_fdc_en_ ? 0x01 : 0x00;
+    });
+
+    // NR 0xD9 — IO-trap captured CPU write byte.
+    //   VHDL zxnext.vhd:1264, 3887-3898 — process clocks
+    //     nr_d9_iotrap_write <= cpu_do  when port_3ffd_wr AND nmi_accept_cause
+    //     nr_d9_iotrap_write <= nr_wr_dat  when nr_d9_we ('1' on NR 0xD9 write)
+    //   Read mux at VHDL:6269 returns the full 8-bit field.
+    //   Reset to 0 at VHDL:3891.
+    // Trap-side capture is wired in the port 0x3FFD WRITE handler
+    // (see nmi_source_.strobe_iotrap() block below); this handler covers
+    // the firmware-side direct-write path.
+    nextreg_.set_write_handler(0xD9, [this](uint8_t v) -> uint8_t {
+        nr_d9_iotrap_write_ = v;
+        return v;  // last-write-wins; full 8 bits retained.
+    });
+    nextreg_.set_read_handler(0xD9, [this]() -> uint8_t {
+        return nr_d9_iotrap_write_;
+    });
+
+    // NR 0xDA — IO-trap cause (VHDL zxnext.vhd:1265, 3866-3883, 6271-6272).
+    //   Read mux at VHDL:6272: "000000" & nr_da_iotrap_cause(1:0).
+    //   Reset to "00" (VHDL:3870).
+    //   Set on trap event by the NMI-accept clause (VHDL:3871-3878):
+    //     port_2ffd_rd  → "01"
+    //     port_3ffd_rd  → "10"
+    //     port_3ffd_wr  → "11"
+    //   Cleared by NR 0x02 write with bit 4 = 0 (VHDL:3879-3880);
+    //   that clause lives in the NR 0x02 write handler above.
+    //   NR 0xDA itself has NO write path in VHDL — the
+    //   `when X"DA" => nr_da_we <= '1';` arm at VHDL:5645-5646 is
+    //   commented out — so direct writes are silently ignored.
+    nextreg_.set_write_handler(0xDA, [this](uint8_t /*v*/) -> uint8_t {
+        // VHDL: NR 0xDA write is unmapped (commented out in zxnext.vhd:5645).
+        // The cause field is unaffected; the canonical regs_[0xDA] mirrors
+        // the live cause so that cached reads shadow the live read mux.
+        return static_cast<uint8_t>(nr_da_iotrap_cause_ & 0x03);
+    });
+    nextreg_.set_read_handler(0xDA, [this]() -> uint8_t {
+        return static_cast<uint8_t>(nr_da_iotrap_cause_ & 0x03);
     });
 
     // Register 0x03: Machine type + config_mode transitions.
@@ -1327,7 +1391,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nextreg_.set_nr_04_romram_bank(v);
         mmu_.set_nr_04_romram_bank(v);
         Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
-        return v;
+        // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x04
+        // (write-only ROM/RAM bank latch; only consumed by the SRAM
+        // address-composition path). Fall-through is (others => '0'); return
+        // 0 so reads of NR 0x04 return 0 instead of leaking the latched bank.
+        return 0;
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4, NO auto-increment
@@ -1336,12 +1404,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // = 0 here, so nr_sprite_mirror_inc stays at 0 and mirror_sprite_q
     // is NOT advanced. The write targets the current mirror_sprite_q
     // sprite slot.
+    // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x35-0x39
+    // (write-only sprite-attribute mirror commits). Fall-through is
+    // (others => '0'); the lambdas return 0 so reads return 0 instead of
+    // leaking the last attribute byte through regs_[].
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x35 + i),
             [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_no_inc(
                     static_cast<uint8_t>(i), v);
-                return v;
+                return 0;
             });
     }
 
@@ -1451,6 +1523,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 6:4 always read back as zero.
     nextreg_.set_read_handler(0x85, [this]() -> uint8_t {
         return nextreg_.cached(0x85) & 0x8F;
+    });
+
+    // Register 0x89: Bus port-enable register 4 — read packing. (G154)
+    // VHDL zxnext.vhd:5520-5522 (write): bit 7 → nr_89_bus_port_reset_type,
+    // bits 3:0 → nr_89_bus_port_enable; bits 6:4 of the write are discarded.
+    // VHDL zxnext.vhd:6149-6150 (read): port_253b_dat <=
+    //   nr_89_bus_port_reset_type & "000" & nr_89_bus_port_enable.
+    // Bits 6:4 always read back as zero. Same pack-mask shape as NR 0x85.
+    nextreg_.set_read_handler(0x89, [this]() -> uint8_t {
+        return nextreg_.cached(0x89) & 0x8F;
     });
 
     // Register 0x8C: Alternate ROM control
@@ -1863,6 +1945,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // surface the floating-bus value via Mmu::floating_bus_read.
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
+                // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01".
+                nr_da_iotrap_cause_ = 0x01;
                 return 0xFF;  // FDC data port — open bus, FDC unmodelled.
             }
             return floating_bus_read();
@@ -1873,13 +1957,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // 0x3FFD READ — trap (VHDL:3835 port_3ffd_rd term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
+                // VHDL zxnext.vhd:3874-3875 — port_3ffd_rd → cause "10".
+                nr_da_iotrap_cause_ = 0x02;
                 return 0xFF;
             }
             return floating_bus_read();
         },
-        [this](uint16_t, uint8_t) {
+        [this](uint16_t, uint8_t v) {
             // 0x3FFD WRITE — trap (VHDL:3835 port_3ffd_wr term).
-            if (nr_d8_io_trap_fdc_en_) nmi_source_.strobe_iotrap();
+            if (nr_d8_io_trap_fdc_en_) {
+                nmi_source_.strobe_iotrap();
+                // VHDL zxnext.vhd:3876-3878 — port_3ffd_wr → cause "11".
+                nr_da_iotrap_cause_ = 0x03;
+                // VHDL zxnext.vhd:3892-3893 — `nr_d9_iotrap_write <= cpu_do`
+                // when port_3ffd_wr AND nmi_accept_cause. The accept gate
+                // is the same condition that drives nr_da set, so we
+                // capture in the same conditional.
+                nr_d9_iotrap_write_ = v;
+            }
         });
 
     // +3 paging — port 0x1FFD.
@@ -4603,6 +4698,13 @@ void Emulator::save_state(StateWriter& w) const
     // Append-only at the very end (after port_ff_reg_) for backwards
     // compatibility with prior saves; load_state tolerates EOF.
     w.write_u8(nr_10_coreid_);
+
+    // G55 — IO-trap registers (NR 0xD8/0xD9/0xDA). Appended after
+    // nr_10_coreid_ for backwards-compatible save layout (load tolerates
+    // EOF by leaving reset defaults).
+    w.write_bool(nr_d8_io_trap_fdc_en_);
+    w.write_u8(nr_d9_iotrap_write_);
+    w.write_u8(nr_da_iotrap_cause_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -4702,6 +4804,18 @@ void Emulator::load_state(StateReader& r)
     // behaviour for a fresh boot.
     if (!r.eof()) {
         nr_10_coreid_ = r.read_u8();
+    }
+
+    // G55 — IO-trap registers. Same backwards-compat tolerance: older
+    // saves predate these fields and we keep the reset defaults.
+    if (!r.eof()) {
+        nr_d8_io_trap_fdc_en_ = r.read_bool();
+    }
+    if (!r.eof()) {
+        nr_d9_iotrap_write_ = r.read_u8();
+    }
+    if (!r.eof()) {
+        nr_da_iotrap_cause_ = r.read_u8();
     }
 }
 
