@@ -142,6 +142,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G56: NR 0x10 coreid reset to VHDL default "00001" (zxnext.vhd:1133).
     nr_10_coreid_ = 0x01;
 
+    // G112: NR 0x2D I2S sample latch (VHDL signal nr_2d_i2s_sample,
+    // zxnext.vhd:1176). Stored pre-shifted into bits [7:6]; bits [5:0]
+    // always zero. Power-on value is 0 (no I2S reads have occurred yet).
+    nr_2d_i2s_sample_ = 0;
+
     // Reset line interrupt and IM2 hardware mode state.
     // VHDL zxnext.vhd:5092-5096 reset defaults:
     //   nr_c0_im2_vector          <= (others => '0');
@@ -2675,6 +2680,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
 
+    // G112: NR 0x2C/0x2D/0x2E read handlers — Pi I2S input.
+    // VHDL zxnext.vhd:6006-6015:
+    //   NR 0x2C read → port_253b_dat <= pi_audio_L(9 downto 2);
+    //                  nr_2d_i2s_sample <= pi_audio_L(1 downto 0);
+    //   NR 0x2E read → port_253b_dat <= pi_audio_R(9 downto 2);
+    //                  nr_2d_i2s_sample <= pi_audio_R(1 downto 0);
+    //   NR 0x2D read → port_253b_dat <= nr_2d_i2s_sample & "000000";
+    // Mutating nr_2d_i2s_sample_ from inside the read lambda is the
+    // intended VHDL semantic — the latch updates ON read of NR 0x2C/0x2E.
+    nextreg_.set_read_handler(0x2C, [this]() -> uint8_t {
+        const uint16_t L = i2s_.left() & 0x3FF;                     // 10-bit
+        nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
+        return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
+    });
+    nextreg_.set_read_handler(0x2E, [this]() -> uint8_t {
+        const uint16_t R = i2s_.right() & 0x3FF;
+        nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
+        return static_cast<uint8_t>((R >> 2) & 0xFF);
+    });
+    nextreg_.set_read_handler(0x2D, [this]() -> uint8_t {
+        return nr_2d_i2s_sample_;  // already in [7:6] form, low 6 bits = 0
+    });
+
     // --- Phase 5 peripheral port handlers ---
 
     // CTC channels 0-3: VHDL zxnext.vhd:2690 — cpu_a(15:11)="00011"
@@ -4723,6 +4751,11 @@ void Emulator::save_state(StateWriter& w) const
     w.write_bool(nr_d8_io_trap_fdc_en_);
     w.write_u8(nr_d9_iotrap_write_);
     w.write_u8(nr_da_iotrap_cause_);
+
+    // G112 — NR 0x2D I2S sample latch (pre-shifted into bits [7:6]).
+    // Appended at the very end so older saves remain forwards-readable;
+    // load_state tolerates EOF by leaving the reset default of 0.
+    w.write_u8(nr_2d_i2s_sample_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -4834,6 +4867,12 @@ void Emulator::load_state(StateReader& r)
     }
     if (!r.eof()) {
         nr_da_iotrap_cause_ = r.read_u8();
+    }
+
+    // G112 — NR 0x2D I2S sample latch. Saves predating this slot leave
+    // the field at its init() default of 0.
+    if (!r.eof()) {
+        nr_2d_i2s_sample_ = r.read_u8();
     }
 }
 

@@ -123,6 +123,13 @@ static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
     emu.port().out(0x253B, val);
 }
 
+// Read NextREG register through the real port path (OUT 0x243B,reg;
+// IN 0x253B). Used by NR-33/NR-34 to exercise the live read handlers.
+static uint8_t nr_read(Emulator& emu, uint8_t reg) {
+    emu.port().out(0x243B, reg);
+    return emu.port().in(0x253B);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Group NR-0x06 — PSG mode handler + audio_ay_reset + internal_speaker_beep
 // ══════════════════════════════════════════════════════════════════════
@@ -448,21 +455,68 @@ static void test_nr_dac(Emulator& emu) {
               fmt("L=0x%03X R=0x%03X (want 0x100/0x0C0)", L, R));
     }
 
-    // NR-33 / NR-34 — zxnext.vhd:6006-6015 read-side semantics:
-    //   NR 0x2C read: port_253b_dat <= pi_audio_L(9 downto 2);
-    //                 nr_2d_i2s_sample <= pi_audio_L(1 downto 0);
-    //   NR 0x2E read: port_253b_dat <= pi_audio_R(9 downto 2);
-    //                 nr_2d_i2s_sample <= pi_audio_R(1 downto 0);
-    //   NR 0x2D read: port_253b_dat <= nr_2d_i2s_sample & "000000";
-    // jnext Emulator::register_handlers (src/core/emulator.cpp:1722-1739)
-    // only registers WRITE handlers for these three NRs (DAC mirrors).
-    // Reads fall through to regs_[] shadow → Z80 polling NR 0x2C/2E for
-    // I2S samples gets stale write bytes. Distinct from G29 (Pi I2S
-    // source-side stub).
-    skip("NR-33",
-         "NR 0x2C/2E read returns regs_[] noise, not pi_audio_L/R high 8 bits (see G112)");
-    skip("NR-34",
-         "NR 0x2D read returns regs_[] shadow, not nr_2d_i2s_sample latch (see G112)");
+    // NR-33 — zxnext.vhd:6006-6010 read of NR 0x2C returns pi_audio_L(9..2)
+    // AND atomically latches pi_audio_L(1..0) into nr_2d_i2s_sample. We
+    // verify the byte returned matches the expected high-8 bits and that
+    // the latch (observable via the next NR 0x2D read, NR-34 below) carries
+    // the low 2 bits in [7:6]. Symmetric check for NR 0x2E (right channel).
+    {
+        fresh(emu);
+        // Inject a known 10-bit pattern into the I2s stub.
+        emu.i2s().set_sample(0x3A5, 0x12C);
+
+        // Read NR 0x2C → byte = (0x3A5 >> 2) & 0xFF = 0xE9.
+        const uint8_t l_byte = nr_read(emu, 0x2C);
+        // Latch (via NR 0x2D) = (0x3A5 & 0x03) << 6 = 0x40.
+        const uint8_t l_latch = nr_read(emu, 0x2D);
+
+        // Read NR 0x2E → byte = (0x12C >> 2) & 0xFF = 0x4B.
+        const uint8_t r_byte = nr_read(emu, 0x2E);
+        // Latch (via NR 0x2D) = (0x12C & 0x03) << 6 = 0x00.
+        const uint8_t r_latch = nr_read(emu, 0x2D);
+
+        check("NR-33",
+              "NR 0x2C/0x2E read returns pi_audio_L/R(9..2) and latches "
+              "pi_audio_L/R(1..0) into nr_2d_i2s_sample "
+              "[zxnext.vhd:6006-6015]",
+              l_byte == 0xE9 && l_latch == 0x40 &&
+              r_byte == 0x4B && r_latch == 0x00,
+              fmt("L byte=0x%02X latch=0x%02X (want 0xE9/0x40); "
+                  "R byte=0x%02X latch=0x%02X (want 0x4B/0x00)",
+                  l_byte, l_latch, r_byte, r_latch));
+    }
+
+    // NR-34 — zxnext.vhd:6010-6011 read of NR 0x2D returns
+    //   port_253b_dat <= nr_2d_i2s_sample & "000000".
+    // The latch starts at 0 (init() seeds nr_2d_i2s_sample_ = 0); after a
+    // read of NR 0x2C with a non-aligned (low 2 bits != 00) sample, the
+    // latch holds those 2 bits in byte [7:6] and reading NR 0x2D returns
+    // exactly that pattern (low 6 bits zero).
+    {
+        fresh(emu);
+        // Initial NR 0x2D read — latch defaults to 0 (no prior I2S read).
+        const uint8_t initial = nr_read(emu, 0x2D);
+
+        // Inject a non-aligned left sample (low 2 bits = 0b11).
+        emu.i2s().set_sample(0x3FF, 0x000);
+        (void) nr_read(emu, 0x2C);                 // updates the latch
+        const uint8_t after_2c = nr_read(emu, 0x2D);  // (0x3FF & 0x03) << 6 = 0xC0
+
+        // Now read NR 0x2E with a different low-2 pattern (0b10) to confirm
+        // NR 0x2E updates the same latch.
+        emu.i2s().set_sample(0x000, 0x002);
+        (void) nr_read(emu, 0x2E);                 // updates the latch
+        const uint8_t after_2e = nr_read(emu, 0x2D);  // (0x002 & 0x03) << 6 = 0x80
+
+        check("NR-34",
+              "NR 0x2D read returns nr_2d_i2s_sample & \"000000\"; latch "
+              "updated by NR 0x2C/0x2E reads "
+              "[zxnext.vhd:6010-6011, :6008, :6015]",
+              initial == 0x00 && after_2c == 0xC0 && after_2e == 0x80,
+              fmt("initial=0x%02X after_2c=0x%02X after_2e=0x%02X "
+                  "(want 0x00/0xC0/0x80)",
+                  initial, after_2c, after_2e));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
