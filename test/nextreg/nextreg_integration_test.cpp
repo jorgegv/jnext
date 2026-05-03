@@ -3276,6 +3276,159 @@ static void test_write_only_read_zero(Emulator& emu) {
     }
 }
 
+// ── FT-Integration — FDC IO-trap registers (NR 0xD8/0xD9/0xDA, G55) ───
+//
+// VHDL `cores/zxnext/src/zxnext.vhd`:
+//   :1263-1265 — signal declarations (nr_d8_io_trap_fdc_en,
+//                nr_d9_iotrap_write, nr_da_iotrap_cause).
+//   :2598-2602 — port_2ffd / port_3ffd decode, gated by NR 0xD8 b0.
+//   :3835-3837 — `nmi_gen_iotrap` OR's into `nmi_sw_gen_mf` so a trap
+//                event drives the Multiface NMI path.
+//   :3866-3883 — nr_da_iotrap_cause cause encoding + NR 0x02 b4=0 clear.
+//   :3887-3898 — nr_d9_iotrap_write capture (port_3ffd_wr) + NR 0xD9
+//                direct-write path (`nr_d9_we`).
+//   :5107      — NR 0xD8 power-on default '0'.
+//   :5640      — NR 0xD8 write_handler (bit 0 → enable).
+//   :6266-6272 — NR 0xD8 / 0xD9 / 0xDA read mux.
+//
+// These rows were RE-HOMED here from the bare-NextReg unit test
+// (test/nextreg/nextreg_test.cpp, group `FT`) per the unit-tier vs
+// integration-tier split: state lives in Emulator, not in the bare
+// NextReg register file.
+
+static void test_ft_iotrap_integration(Emulator& emu) {
+    set_group("FT-Integration");
+
+    // Reset state before the group so prior tests don't bleed in.
+    emu.reset();
+
+    // FT-INT-D8-01 — NR 0xD8 nr_d8_io_trap_fdc_en write/read-back.
+    // VHDL :5640 (write bit 0) + :6266 (read mux "0000000" & bit).
+    {
+        nr_write(emu, 0xD8, 0x01);
+        uint8_t got1 = nr_read(emu, 0xD8);
+        nr_write(emu, 0xD8, 0x00);
+        uint8_t got0 = nr_read(emu, 0xD8);
+        check("FT-INT-D8-01",
+              "NR 0xD8 nr_d8_io_trap_fdc_en write/read-back round-trip "
+              "[zxnext.vhd:5640 + 6266]",
+              got1 == 0x01 && got0 == 0x00,
+              "got1=" + hex2(got1) + " got0=" + hex2(got0));
+    }
+
+    // FT-INT-D8-02 — NR 0xD8 enable=1 must allow strobe_iotrap to
+    // assert the MF NMI path. VHDL :3835-3837 — `nmi_sw_gen_mf <=
+    // nmi_gen_nr_mf OR nmi_gen_iotrap`. The MF producer is gated by
+    // NR 0x06 bit 3 (`nr_06_button_m1_nmi_en`, VHDL :2090).
+    //
+    // Test: enable NR 0xD8 + NR 0x06 b3, fire a port-0x3FFD write,
+    // assert NmiSource::nmi_assert_mf() is true.
+    {
+        emu.reset();
+        // Snapshot the current NR 0x06 so we don't fight the existing
+        // reset default (0xA0); just OR in bit 3 so the MF gate opens.
+        const uint8_t nr06_before = nr_read(emu, 0x06);
+        nr_write(emu, 0x06, static_cast<uint8_t>(nr06_before | 0x08));
+        nr_write(emu, 0xD8, 0x01);
+
+        // Fire port 0x3FFD WRITE — VHDL :3835 port_3ffd_wr term.
+        emu.port().out(0x3FFD, 0xCC);
+
+        const bool mf_asserts = emu.nmi_source().nmi_assert_mf();
+        check("FT-INT-D8-02",
+              "NR 0xD8=1 + NR 0x06 b3=1 + port 0x3FFD write → "
+              "NmiSource::nmi_assert_mf() asserts [zxnext.vhd:3835-3837]",
+              mf_asserts,
+              std::string{"mf_assert="} + (mf_asserts ? "true" : "false"));
+    }
+
+    // FT-INT-D9-01a — NR 0xD9 firmware direct-write round-trip.
+    // VHDL :4901 + :3894-3895 — `nr_d9_we` writer path.
+    {
+        emu.reset();
+        nr_write(emu, 0xD9, 0xAA);
+        uint8_t got = nr_read(emu, 0xD9);
+        check("FT-INT-D9-01a",
+              "NR 0xD9 firmware direct-write round-trip "
+              "[zxnext.vhd:4901 nr_d9_we + :3894-3895]",
+              got == 0xAA, detail_eq(got, uint8_t{0xAA}));
+    }
+
+    // FT-INT-D9-01b — NR 0xD9 captures the byte written to port 0x3FFD
+    // when the trap is enabled. VHDL :3892-3893 —
+    //   nr_d9_iotrap_write <= cpu_do  when port_3ffd_wr AND nmi_accept_cause
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0x55);
+        uint8_t got = nr_read(emu, 0xD9);
+        check("FT-INT-D9-01b",
+              "NR 0xD9 captures port 0x3FFD write byte when NR 0xD8=1 "
+              "[zxnext.vhd:3892-3893]",
+              got == 0x55, detail_eq(got, uint8_t{0x55}));
+    }
+
+    // FT-INT-DA-01a — port_2ffd_rd → cause "01". VHDL :3871-3873.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        (void)emu.port().in(0x2FFD);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01a",
+              "NR 0xDA cause=01 after port 0x2FFD READ "
+              "[zxnext.vhd:3871-3873]",
+              got == 0x01, detail_eq(got, uint8_t{0x01}));
+    }
+
+    // FT-INT-DA-01b — port_3ffd_rd → cause "10". VHDL :3874-3875.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        (void)emu.port().in(0x3FFD);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01b",
+              "NR 0xDA cause=10 after port 0x3FFD READ "
+              "[zxnext.vhd:3874-3875]",
+              got == 0x02, detail_eq(got, uint8_t{0x02}));
+    }
+
+    // FT-INT-DA-01c — port_3ffd_wr → cause "11". VHDL :3876-3878.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0xFF);
+        uint8_t got = nr_read(emu, 0xDA);
+        check("FT-INT-DA-01c",
+              "NR 0xDA cause=11 after port 0x3FFD WRITE "
+              "[zxnext.vhd:3876-3878]",
+              got == 0x03, detail_eq(got, uint8_t{0x03}));
+    }
+
+    // FT-INT-DA-02 — NR 0xDA cause clears via NR 0x02 b4 write=0.
+    // VHDL :3879-3880 — `elsif nr_02_we = '1' and nr_wr_dat(4) = '0'
+    // then nr_da_iotrap_cause <= (others => '0')`.
+    {
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        emu.port().out(0x3FFD, 0xFF);    // cause ← "11"
+        uint8_t before = nr_read(emu, 0xDA);
+
+        // Write NR 0x02 with bit 4 = 0 (other bits zero so we don't
+        // trigger soft/hard reset or NMI strobes).
+        nr_write(emu, 0x02, 0x00);
+        uint8_t after = nr_read(emu, 0xDA);
+
+        check("FT-INT-DA-02",
+              "NR 0xDA cause cleared by NR 0x02 b4=0 write "
+              "[zxnext.vhd:3879-3880]",
+              before == 0x03 && after == 0x00,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Restore reset state so downstream tests aren't affected.
+    emu.reset();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3360,6 +3513,9 @@ int main() {
 
     test_write_only_read_zero(emu);
     std::printf("  Group: WO-Integration — done\n");
+
+    test_ft_iotrap_integration(emu);
+    std::printf("  Group: FT-Integration — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -610,25 +610,21 @@ static void test_cfg() {
 static void test_ft_iotrap() {
     set_group("FT");
 
-    // FT-D8-01..02 — G55: NR 0xD8 nr_d8_io_trap_fdc_en (zxnext.vhd:3866)
-    // — write/read-back missing; enable=1 must allow strobe_iotrap to
-    // assert MF.
-    skip("FT-D8-01",
-         "NR 0xD8 nr_d8_io_trap_fdc_en write/read-back missing (see G55)");
-    skip("FT-D8-02",
-         "NR 0xD8 enable=1 must allow strobe_iotrap to assert MF (see G55)");
-
-    // FT-D9-01 — G55: NR 0xD9 nr_d9_iotrap_write captures CPU write byte.
-    skip("FT-D9-01",
-         "NR 0xD9 nr_d9_iotrap_write captures CPU write byte missing (see G55)");
-
-    // FT-DA-01..02 — G55: NR 0xDA nr_da_iotrap_cause encoding 01/10/11
-    // (VHDL:3878-3880); cause clears via NR 0x02 b4 write=0 (not via
-    // NR-read-acknowledge as a band-aid pattern would suggest).
-    skip("FT-DA-01",
-         "NR 0xDA nr_da_iotrap_cause encoding 01/10/11 missing (see G55)");
-    skip("FT-DA-02",
-         "NR 0xDA cause clears via NR 0x02 b4 write=0 (see G55)");
+    // G55 closure: all five FT rows below are owned by Emulator-tier
+    // state (NR 0xD8/D9/DA fields + port 0x2FFD/0x3FFD trap wiring +
+    // NR 0x02 bit 4 clear path). The bare NextReg register file has
+    // no Emulator handles, so the rows live at the integration tier
+    // (test/nextreg/nextreg_integration_test.cpp, group `FT-Integration`).
+    //
+    // RE-HOME: FT-D8-01     → FT-INT-D8-01
+    //          FT-D8-02     → FT-INT-D8-02
+    //          FT-D9-01     → FT-INT-D9-01a / FT-INT-D9-01b
+    //          FT-DA-01     → FT-INT-DA-01a / FT-INT-DA-01b / FT-INT-DA-01c
+    //          FT-DA-02     → FT-INT-DA-02
+    //
+    // No-op here; the integration test exercises the same VHDL
+    // behaviour through the real port-0x243B / 0x253B path that Z80
+    // code uses.
 }
 
 // ── BYPASS-Q — Bypass Q3-Q8 documentation/blob inspection (G64) ─────
