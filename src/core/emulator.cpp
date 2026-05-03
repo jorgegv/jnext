@@ -517,10 +517,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x70, [this](uint8_t v) {
         layer2_.set_control(v);
     });
+    // VHDL zxnext.vhd:6113 — port_253b_dat <= "00" & nr_70_layer2_resolution &
+    // nr_70_layer2_palette_offset.  Bits 7:6 are constant "00"; bits 5:4 are
+    // the 2-bit resolution; bits 3:0 are the 4-bit palette offset.  G56:
+    // without this handler, NextReg::read() falls through regs_[0x70] which
+    // is the unmasked raw byte, so a write of 0xFF reads 0xFF instead of the
+    // VHDL-spec 0x3F.  Pulls from Layer2 where set_control() stored the
+    // masked fields.
+    nextreg_.set_read_handler(0x70, [this]() -> uint8_t {
+        return static_cast<uint8_t>(((layer2_.resolution() & 0x03) << 4) |
+                                    (layer2_.palette_offset() & 0x0F));
+    });
 
     // Register 0x71: Layer 2 X scroll MSB
     nextreg_.set_write_handler(0x71, [this](uint8_t v) {
         layer2_.set_scroll_x_msb(v);
+    });
+    // VHDL zxnext.vhd:6116 — port_253b_dat <= "0000000" & nr_71_layer2_scrollx_msb.
+    // Only bit 0 carries information; bits 7:1 are constant zero.  G56: without
+    // this handler, regs_[0x71] retains the raw last-write byte and a write of
+    // 0xFF reads 0xFF instead of the VHDL-spec 0x01.  Pull bit 8 of Layer2's
+    // 9-bit scroll_x and emit it at bit 0.
+    nextreg_.set_read_handler(0x71, [this]() -> uint8_t {
+        return static_cast<uint8_t>((layer2_.scroll_x() >> 8) & 0x01);
     });
 
     // Register 0x09: Peripheral 4 setting
@@ -962,12 +981,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x6E: Tilemap base address
     nextreg_.set_write_handler(0x6E, [this](uint8_t v) { tilemap_.set_map_base(v); });
     // VHDL zxnext.vhd:6108 — read mux forces bit 6 to '0'
-    // (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`).
+    // (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`).  G56 + G99: the
+    // bit-6 reserved-zero mask is applied here (Tilemap::get_map_base_read
+    // returns map_base_raw_ & 0xBF), so a raw write of 0xFF reads back 0xBF
+    // rather than the unmasked 0xFF that regs_[0x6E] would otherwise return.
     nextreg_.set_read_handler(0x6E, [this]() -> uint8_t { return tilemap_.get_map_base_read(); });
 
     // Register 0x6F: Tile definitions base address
     nextreg_.set_write_handler(0x6F, [this](uint8_t v) { tilemap_.set_def_base(v); });
-    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E.
+    // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E.  G56 + G99: bit 6 is
+    // the reserved-zero in the read composition; def_base_raw_ & 0xBF.
     nextreg_.set_read_handler(0x6F, [this]() -> uint8_t { return tilemap_.get_def_base_read(); });
 
     // Registers 0x60-0x63: Copper co-processor
@@ -2359,6 +2382,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x81, [this](uint8_t v) {
         nr_81_ = v;
         nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
+    });
+    // VHDL zxnext.vhd:6125 — port_253b_dat <= i_BUS_ROMCS_n &
+    //   nr_81_expbus_ula_override & nr_81_expbus_nmi_debounce_disable &
+    //   nr_81_expbus_clken & nr_81_expbus_fdc & '0' & nr_81_expbus_speed.
+    // Bit 7 is the i_BUS_ROMCS_n input from the expansion bus — with no
+    // expbus device wired in jnext today (G45 tracks expansion-bus emul),
+    // ROMCS_n is hard-deasserted i.e. constant '1'.  Bit 2 is constant '0'.
+    // Bits 6, 5, 4, 3, 1, 0 echo the corresponding stored fields from the
+    // last NR 0x81 write (cached in `nr_81_`).  G56: without this handler,
+    // regs_[0x81] retains the unmasked raw byte (e.g. 0xFF round-trips as
+    // 0xFF instead of VHDL-spec 0xFB = bit 2 cleared, bit 7 forced).
+    nextreg_.set_read_handler(0x81, [this]() -> uint8_t {
+        return static_cast<uint8_t>(0x80 | (nr_81_ & 0x7B));
+    });
+
+    // Register 0x80: Expansion bus configuration — VHDL zxnext.vhd:6122
+    //   port_253b_dat <= nr_80_expbus.  Full 8-bit field, no masking.
+    // No expansion-bus device is wired in jnext today (G45 tracks expbus
+    // emulation), so the byte is purely write-storage and round-trips
+    // unchanged.  G56: NextReg::write() already stores the raw byte in
+    // regs_[0x80], so this read_handler is functionally a documentation
+    // marker — it makes the VHDL traceability explicit and ensures a
+    // future cached-vs-live divergence (if expbus ever drives some bits
+    // dynamically) is caught here rather than silently falling through.
+    nextreg_.set_read_handler(0x80, [this]() -> uint8_t {
+        return nextreg_.cached(0x80);
     });
 
     // Register 0x08: Peripheral 3

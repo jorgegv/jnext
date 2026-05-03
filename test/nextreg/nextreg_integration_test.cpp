@@ -2806,6 +2806,173 @@ static void test_g56_cluster_d(Emulator& emu) {
     nr_write(emu, 0x6C, 0x00);   // restore
 }
 
+// ── G56 Cluster E: NR 0x6E / 0x6F / 0x70 / 0x71 / 0x80 / 0x81 ─────────
+//
+// Composed-read divergence + reserved-bit masking through the real
+// Emulator wiring (NextReg::write stores raw 8-bit pre-handler-dispatch;
+// without explicit read_handlers, reads leak the unmasked byte).  Each
+// row writes 0xFF (all-bits-set) and asserts the read-back equals the
+// VHDL-spec masked value, plus a canonical round-trip row that exercises
+// the in-band field path.
+//
+// Folds G99 (NR 0x6E/0x6F bit-6 reserved-zero mask) into G56-CR-6E/6F.
+
+static void test_g56_cluster_e(Emulator& emu) {
+    set_group("G56-CR-Cluster-E");
+
+    // NR 0x6E — VHDL zxnext.vhd:6107
+    //   port_253b_dat <= nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base.
+    // Bit 6 is constant '0' (reserved); bits 7 + 5:0 are the tilemap base.
+    {
+        nr_write(emu, 0x6E, 0xFF);
+        const uint8_t got = nr_read(emu, 0x6E);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xBF", got);
+        check("G56-CR-6E-MASK",
+              "NR 0x6E read masks bit 6 (write 0xFF -> read 0xBF) "
+              "[zxnext.vhd:6107 + G99]",
+              got == 0xBF, d);
+    }
+    {
+        nr_write(emu, 0x6E, 0xA5);  // 0b1010_0101 — bit 7 + bits 5,2,0
+        const uint8_t got = nr_read(emu, 0x6E);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xA5", got);
+        check("G56-CR-6E-RT",
+              "NR 0x6E round-trip canonical (bits 7,5:0 preserved; bit 6 zero) "
+              "[zxnext.vhd:6107]",
+              got == 0xA5, d);
+    }
+
+    // NR 0x6F — VHDL zxnext.vhd:6110
+    //   port_253b_dat <= nr_6f_tilemap_tiles_7 & '0' & nr_6f_tilemap_tiles.
+    {
+        nr_write(emu, 0x6F, 0xFF);
+        const uint8_t got = nr_read(emu, 0x6F);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xBF", got);
+        check("G56-CR-6F-MASK",
+              "NR 0x6F read masks bit 6 (write 0xFF -> read 0xBF) "
+              "[zxnext.vhd:6110 + G99]",
+              got == 0xBF, d);
+    }
+    {
+        nr_write(emu, 0x6F, 0x9C);  // 0b1001_1100 — bit 7 + bits 4,3,2
+        const uint8_t got = nr_read(emu, 0x6F);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x9C", got);
+        check("G56-CR-6F-RT",
+              "NR 0x6F round-trip canonical (bits 7,5:0 preserved; bit 6 zero) "
+              "[zxnext.vhd:6110]",
+              got == 0x9C, d);
+    }
+
+    // NR 0x70 — VHDL zxnext.vhd:6113
+    //   port_253b_dat <= "00" & nr_70_layer2_resolution & nr_70_layer2_palette_offset.
+    // Bits 7:6 const "00"; bits 5:4 resolution; bits 3:0 palette offset.
+    {
+        nr_write(emu, 0x70, 0xFF);
+        const uint8_t got = nr_read(emu, 0x70);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x3F", got);
+        check("G56-CR-70-MASK",
+              "NR 0x70 read masks bits 7:6 (write 0xFF -> read 0x3F) "
+              "[zxnext.vhd:6113]",
+              got == 0x3F, d);
+    }
+    {
+        nr_write(emu, 0x70, 0x1A);  // resolution=01 (320x256), pal off=0xA
+        const uint8_t got = nr_read(emu, 0x70);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "got=0x%02X want=0x1A res=%u pal=%u",
+            got, emu.layer2().resolution(), emu.layer2().palette_offset());
+        check("G56-CR-70-RT",
+              "NR 0x70 round-trip resolution=01 + pal_off=0xA "
+              "[zxnext.vhd:6113 via Layer2 fields]",
+              got == 0x1A, d);
+    }
+
+    // NR 0x71 — VHDL zxnext.vhd:6116
+    //   port_253b_dat <= "0000000" & nr_71_layer2_scrollx_msb.
+    // Only bit 0 is significant; bits 7:1 const zero.
+    {
+        nr_write(emu, 0x71, 0xFF);
+        const uint8_t got = nr_read(emu, 0x71);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x01", got);
+        check("G56-CR-71-MASK",
+              "NR 0x71 read masks bits 7:1 (write 0xFF -> read 0x01) "
+              "[zxnext.vhd:6116]",
+              got == 0x01, d);
+    }
+    {
+        nr_write(emu, 0x71, 0x00);
+        const uint8_t got0 = nr_read(emu, 0x71);
+        nr_write(emu, 0x71, 0x01);
+        const uint8_t got1 = nr_read(emu, 0x71);
+        char d[64]; std::snprintf(d, sizeof(d), "got0=0x%02X got1=0x%02X", got0, got1);
+        check("G56-CR-71-RT",
+              "NR 0x71 round-trip bit 0 toggle (0x00 -> 0x00, 0x01 -> 0x01) "
+              "[zxnext.vhd:6116 via Layer2 scroll_x bit 8]",
+              got0 == 0x00 && got1 == 0x01, d);
+    }
+
+    // NR 0x80 — VHDL zxnext.vhd:6122
+    //   port_253b_dat <= nr_80_expbus.  Full 8-bit field; no masking.
+    // jnext has no expansion-bus device wired today (G45 tracks expbus
+    // emulation), so the byte is pure write-storage and round-trips.
+    {
+        nr_write(emu, 0x80, 0xFF);
+        const uint8_t got = nr_read(emu, 0x80);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xFF", got);
+        check("G56-CR-80-FF",
+              "NR 0x80 full 8-bit round-trip (write 0xFF -> read 0xFF) "
+              "[zxnext.vhd:6122 — expbus stored, G45 inert]",
+              got == 0xFF, d);
+    }
+    {
+        nr_write(emu, 0x80, 0x5A);
+        const uint8_t got = nr_read(emu, 0x80);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x5A", got);
+        check("G56-CR-80-RT",
+              "NR 0x80 canonical round-trip 0x5A "
+              "[zxnext.vhd:6122 — full byte preserved]",
+              got == 0x5A, d);
+        // Restore reset baseline so downstream tests see a clean slate.
+        nr_write(emu, 0x80, 0x00);
+    }
+
+    // NR 0x81 — VHDL zxnext.vhd:6125
+    //   port_253b_dat <= i_BUS_ROMCS_n & nr_81_expbus_ula_override &
+    //                    nr_81_expbus_nmi_debounce_disable & nr_81_expbus_clken &
+    //                    nr_81_expbus_fdc & '0' & nr_81_expbus_speed.
+    // Bit 7 = i_BUS_ROMCS_n (no expbus device wired -> constant '1', G45);
+    // bit 2 = constant '0'; bits 6:3 + 1:0 stored from the last NR 0x81 write.
+    {
+        nr_write(emu, 0x81, 0xFF);
+        const uint8_t got = nr_read(emu, 0x81);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xFB", got);
+        check("G56-CR-81-MASK",
+              "NR 0x81 read masks bit 2 + forces bit 7=1 "
+              "(write 0xFF -> read 0xFB) [zxnext.vhd:6125, G45 expbus inert]",
+              got == 0xFB, d);
+    }
+    {
+        nr_write(emu, 0x81, 0x00);
+        const uint8_t got = nr_read(emu, 0x81);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x80", got);
+        check("G56-CR-81-RESET",
+              "NR 0x81 write 0x00 reads 0x80 (only bit 7 ROMCS_n forced) "
+              "[zxnext.vhd:6125]",
+              got == 0x80, d);
+    }
+    {
+        nr_write(emu, 0x81, 0x6B);  // bits 6,5,3,1,0; bit 2 = 0 already
+        const uint8_t got = nr_read(emu, 0x81);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0xEB", got);
+        check("G56-CR-81-RT",
+              "NR 0x81 round-trip stored bits + ROMCS_n force "
+              "(write 0x6B -> read 0xEB) [zxnext.vhd:6125]",
+              got == 0xEB, d);
+        // Restore reset baseline.
+        nr_write(emu, 0x81, 0x00);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2881,6 +3048,9 @@ int main() {
 
     test_g56_cluster_d(emu);
     std::printf("  Group: G56-Cluster-D — done\n");
+
+    test_g56_cluster_e(emu);
+    std::printf("  Group: G56-CR-Cluster-E — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
