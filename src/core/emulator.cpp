@@ -135,6 +135,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
 
+    // G56: NR 0x10 coreid reset to VHDL default "00001" (zxnext.vhd:1133).
+    nr_10_coreid_ = 0x01;
+
     // Reset line interrupt and IM2 hardware mode state.
     // VHDL zxnext.vhd:5092-5096 reset defaults:
     //   nr_c0_im2_vector          <= (others => '0');
@@ -496,6 +499,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sprites_.set_over_border((v & 0x08) != 0);
         sprites_.set_mirror_tie((v & 0x10) != 0);
     });
+    // VHDL zxnext.vhd:5909 — NR 0x09 read composes:
+    //   nr_09_psg_mono [7:5] & nr_09_sprite_tie [4] & '0' [3]
+    //     & (NOT nr_09_hdmi_audio_en) [2] & eff_nr_09_scanlines [1:0]
+    // Bit 3 always reads 0; bit 4 sourced from sprites_.mirror_tie() (the
+    // authoritative store wired through Sprites). Bits 7:5 (psg_mono) and
+    // bits 1:0 (eff_scanlines) are not separately latched in jnext yet —
+    // both echo the last-write byte through the cached regs_[0x09] (the
+    // VHDL latches them too, just into named signals). Bit 2 reads back
+    // the WRITE bit 2: VHDL stores `not nr_wr_dat(2)` so the read of
+    // `not nr_09_hdmi_audio_en` returns nr_wr_dat(2) — same as cached. G56.
+    nextreg_.set_read_handler(0x09, [this]() -> uint8_t {
+        const uint8_t cached = nextreg_.cached(0x09);
+        // Mask: drop bit 4 (sprite_tie comes from sprites_) and bit 3
+        // (always 0 per VHDL).
+        const uint8_t base = static_cast<uint8_t>(cached & 0xE7);
+        const uint8_t tie  = sprites_.mirror_tie() ? 0x10 : 0x00;
+        return static_cast<uint8_t>(base | tie);
+    });
 
     // Register 0x0A: Peripheral 2 — SD-card swap + mouse button reverse + DPI.
     //   bits 7:6 = nr_0a_mf_type      (VHDL zxnext.vhd:5191) — config_mode-gated
@@ -518,6 +539,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.set_nr_0a_4_enable((v & 0x10) != 0);
         mouse_.set_button_reverse((v & 0x08) != 0);
         mouse_.set_dpi(v & 0x03);
+    });
+    // VHDL zxnext.vhd:5912 — NR 0x0A read composes:
+    //   nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
+    //     & nr_0a_divmmc_automap_en [4] & nr_0a_mouse_button_reverse [3]
+    //     & '0' [2] & nr_0a_mouse_dpi [1:0]
+    // Bit 2 always reads 0. mf_type [7:6] is unmodelled (G132) — sourced
+    // from cached last-write byte; gating divergence is a separate issue
+    // tracked there, not G56. Other fields use authoritative subsystem
+    // accessors. G56.
+    nextreg_.set_read_handler(0x0A, [this]() -> uint8_t {
+        uint8_t v = static_cast<uint8_t>(nextreg_.cached(0x0A) & 0xC0); // mf_type
+        if (spi_.sd_swap())          v = static_cast<uint8_t>(v | 0x20);
+        if (divmmc_.nr_0a_4_enable()) v = static_cast<uint8_t>(v | 0x10);
+        if (mouse_.button_reverse()) v = static_cast<uint8_t>(v | 0x08);
+        // bit 2 always 0
+        v = static_cast<uint8_t>(v | (mouse_.dpi() & 0x03));
+        return v;
     });
 
     // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
@@ -561,6 +599,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Phase 1 scaffold: IoMode::set_nr_0b() is a stub; Agent E fills in.
     nextreg_.set_write_handler(0x0B, [this](uint8_t v) {
         iomode_.set_nr_0b(v);
+    });
+    // VHDL zxnext.vhd:5915 — NR 0x0B read composes:
+    //   nr_0b_joy_iomode_en [7] & '0' [6] & nr_0b_joy_iomode [5:4]
+    //     & "000" [3:1] & nr_0b_joy_iomode_0 [0]
+    // Bit 6 always 0; bits 3:1 always "000". All authoritative state lives
+    // in IoMode (input/iomode.h), populated by set_nr_0b(). G56.
+    nextreg_.set_read_handler(0x0B, [this]() -> uint8_t {
+        uint8_t v = 0;
+        if (iomode_.iomode_en()) v = static_cast<uint8_t>(v | 0x80);
+        v = static_cast<uint8_t>(v | ((iomode_.iomode_bits() & 0x03) << 4));
+        if (iomode_.iomode_0())  v = static_cast<uint8_t>(v | 0x01);
+        return v;
+    });
+
+    // Register 0x10: core/board ID + flashboot. VHDL zxnext.vhd:5677-5687
+    // (Issue 2/3 board path — jnext defaults to ZXN_ISSUE2):
+    //   nr_10_flashboot <= nr_wr_dat(7);                  -- always
+    //   if config_mode = '1' then
+    //     nr_10_coreid <= nr_wr_dat(4 downto 0);          -- gated
+    //   end if;
+    // Read mux at zxnext.vhd:5924:
+    //   '0' [7] & nr_10_coreid [6:2] & i_SPKEY_BUTTONS(1:0) [1:0]
+    // jnext does not model SPKEY_BUTTONS (the M1+Drive front-panel buttons)
+    // — they read as 0 (idle). nr_10_flashboot is not exposed on the read
+    // path. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
+    // on writes per VHDL Issue 2/3 path. Reset default 0x01 ("00001"),
+    // VHDL zxnext.vhd:1133. G56.
+    nextreg_.set_write_handler(0x10, [this](uint8_t v) {
+        if (nextreg_.nr_03_config_mode()) {
+            nr_10_coreid_ = static_cast<uint8_t>(v & 0x1F);
+        }
+        // bit 7 = nr_10_flashboot (always written, but not exposed in the
+        // NR 0x10 read; would surface only in board-specific power-on flow
+        // which jnext does not model). G56 read-back is unaffected.
+    });
+    nextreg_.set_read_handler(0x10, [this]() -> uint8_t {
+        // Bit 7 always 0; bits 6:2 = coreid (5 bits, left-shifted into
+        // place); bits 1:0 = SPKEY_BUTTONS = 0 (idle, unmodelled).
+        return static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
     });
 
     // Registers 0x28 / 0x29 / 0x2B — PS/2 keymap + joystick keymap (UDK)
@@ -606,6 +683,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sprites_.set_sprites_visible((v & 0x01) != 0);
         renderer_.set_sprite_en((v & 0x01) != 0);      // VHDL 6934/7118
         renderer_.set_layer_priority((v >> 2) & 0x07);
+    });
+    // VHDL zxnext.vhd:5939 — NR 0x15 read composes:
+    //   nr_15_lores_en [7] & nr_15_sprite_priority [6]
+    //     & nr_15_sprite_border_clip_en [5]
+    //     & nr_15_layer_priority [4:2]
+    //     & nr_15_sprite_over_border_en [1]
+    //     & nr_15_sprite_en [0]
+    // bit 7 (lores_en): not modeled in jnext yet — sourced from cached
+    // last-write byte (deferred LoRes implementation, separate concern
+    // from G56). All other bits use authoritative subsystem accessors.
+    // G56.
+    nextreg_.set_read_handler(0x15, [this]() -> uint8_t {
+        uint8_t v = static_cast<uint8_t>(nextreg_.cached(0x15) & 0x80); // lores_en
+        if (sprites_.zero_on_top())     v = static_cast<uint8_t>(v | 0x40);
+        if (sprites_.border_clip_en())  v = static_cast<uint8_t>(v | 0x20);
+        v = static_cast<uint8_t>(v | ((renderer_.layer_priority() & 0x07) << 2));
+        if (sprites_.over_border())     v = static_cast<uint8_t>(v | 0x02);
+        if (renderer_.sprite_en())      v = static_cast<uint8_t>(v | 0x01);
+        return v;
     });
 
     // Registers 0x18-0x1B: Clip windows (4-write rotating: X1, X2, Y1, Y2)
@@ -730,6 +826,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // attr_slot_/attr_byte_/pattern_slot_msb_.
     nextreg_.set_write_handler(0x34,
         [this](uint8_t v) { sprites_.set_mirror_sprite_num(v); });
+    // VHDL zxnext.vhd:6033 — NR 0x34 read: '0' [7] & sprite_mirror_id [6:0].
+    // sprite_mirror_id is the 7-bit mirror_sprite_q index (sprites.vhd:594-612).
+    // jnext stores this in mirror_sprite_num_ (8 bits — the high bit is the
+    // pattern_index MSB which the VHDL formula intentionally drops). G56.
+    nextreg_.set_read_handler(0x34, [this]() -> uint8_t {
+        return static_cast<uint8_t>(sprites_.mirror_sprite_num() & 0x7F);
+    });
 
     // Registers 0x75-0x79: Direct sprite attribute byte writes WITH
     // per-byte auto-increment (G96).

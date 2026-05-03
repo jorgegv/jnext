@@ -43,6 +43,11 @@ void NextReg::reset() {
     regs_[0x06] = 0xA0;
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
+    // NR 0x10 power-on default. VHDL zxnext.vhd:1133:
+    //   nr_10_coreid <= "00001"  (5 bits, lands in NR 0x10 read at bits 6:2)
+    // Read mux at zxnext.vhd:5924: '0' & nr_10_coreid & i_SPKEY_BUTTONS(1:0)
+    // → 0_00001_00 = 0x04 with buttons idle (jnext models them as 0). G56.
+    regs_[0x10] = 0x04;
     // Sub-version: VHDL g_sub_version = X"03" generic in
     // zxnext_top_issue2.vhd:38 (also issue4/issue5). Read mux at
     // zxnext.vhd:5917-5918 returns g_sub_version verbatim.

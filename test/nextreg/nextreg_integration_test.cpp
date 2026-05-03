@@ -2119,6 +2119,296 @@ static void test_nr_06_composed_read(Emulator& emu) {
     nr_write(emu, 0x06, 0xA0);  // back to reset default
 }
 
+// ── G56 Cluster B — composed-read VHDL-faithful read handlers ────────
+//
+// Verifies that NR 0x09, 0x0A, 0x0B, 0x10, 0x15, 0x34 read back via the
+// VHDL composition formula (zxnext.vhd:5909, :5912, :5915, :5924,
+// :5939, :6033) rather than echoing the last-written byte through
+// NextReg::write's raw cache store.
+//
+// Without these read_handlers, write(0xFF) → read returns 0xFF for any
+// NR with reserved/const-zero bits or fields composed from authoritative
+// state. Each VHDL formula is cited in the row description.
+
+static void test_g56_cluster_b(Emulator& emu) {
+    set_group("G56-Cluster-B");
+
+    // Ensure config_mode = 1 so writes that are gated on it (NR 0x0A
+    // mf_type/sd_swap, NR 0x10 coreid) commit normally. Earlier tests
+    // (test_cfg_integration, test_soft_reset) may have left it cleared.
+    // Bits[2:0] = 111 → config_mode <- 1 (zxnext.vhd:5147).
+    nr_write(emu, 0x03, 0x07);
+
+    // ── NR 0x09 — Peripheral 4 control / scanlines ────────────────────
+    // VHDL zxnext.vhd:5909:
+    //   port_253b_dat <= nr_09_psg_mono [7:5] & nr_09_sprite_tie [4]
+    //                  & '0' [3] & (NOT nr_09_hdmi_audio_en) [2]
+    //                  & eff_nr_09_scanlines [1:0]
+    // - psg_mono [7:5]: from cached last-write (no consumer)
+    // - sprite_tie [4]: from sprites_.mirror_tie()
+    // - bit 3: const-0
+    // - bit 2: echoes the WRITE bit 2 (VHDL: stored as `not`, read as `not not`)
+    // - eff_scanlines [1:0]: from cached last-write
+    {
+        // Round-trip with all bits set: bit 3 must read 0, bit 4 must
+        // come from sprites_.mirror_tie() (which is set by the same
+        // write — both should agree).
+        nr_write(emu, 0x09, 0xFF);
+        uint8_t got = nr_read(emu, 0x09);
+        check("G56-09-01",
+              "NR 0x09 write=0xFF read=0xF7 (bit 3 const-0)",
+              got == 0xF7, detail_eq(got, uint8_t{0xF7}));
+    }
+    {
+        // Clear path — round-trip 0x00.
+        nr_write(emu, 0x09, 0x00);
+        uint8_t got = nr_read(emu, 0x09);
+        check("G56-09-02",
+              "NR 0x09 write=0x00 read=0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Bit-mask: write a pattern that exercises sprite_tie + scanlines
+        // + hdmi_audio bit. 0x14 = sprite_tie=1, hdmi_audio_en write
+        // bit 2 = 1. Read should be 0x14 (bit 4 + bit 2 set).
+        nr_write(emu, 0x09, 0x14);
+        uint8_t got = nr_read(emu, 0x09);
+        check("G56-09-03",
+              "NR 0x09 write=0x14 → bit4 (sprite_tie) + bit2 (hdmi_audio) "
+              "[zxnext.vhd:5909]",
+              got == 0x14, detail_eq(got, uint8_t{0x14}));
+    }
+    {
+        // Bit 3 of write must be ignored on read.
+        nr_write(emu, 0x09, 0x08);
+        uint8_t got = nr_read(emu, 0x09);
+        check("G56-09-04",
+              "NR 0x09 write=0x08 → read=0x00 (bit 3 forced 0) "
+              "[zxnext.vhd:5909]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // ── NR 0x0A — SD-card swap + mouse + DivMMC + Multiface ──────────
+    // VHDL zxnext.vhd:5912:
+    //   port_253b_dat <= nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
+    //                  & nr_0a_divmmc_automap_en [4]
+    //                  & nr_0a_mouse_button_reverse [3] & '0' [2]
+    //                  & nr_0a_mouse_dpi [1:0]
+    {
+        nr_write(emu, 0x0A, 0xFF);
+        uint8_t got = nr_read(emu, 0x0A);
+        check("G56-0A-01",
+              "NR 0x0A write=0xFF read=0xFB (bit 2 const-0) "
+              "[zxnext.vhd:5912]",
+              got == 0xFB, detail_eq(got, uint8_t{0xFB}));
+    }
+    {
+        // Clear-path round trip — but mouse_dpi reset default is "01"
+        // (zxnext.vhd:1128) — KempstonMouse::reset() sets dpi_=0x01.
+        // After write(0x00), set_dpi(0) drives dpi to 0, so read=0x00.
+        nr_write(emu, 0x0A, 0x00);
+        uint8_t got = nr_read(emu, 0x0A);
+        check("G56-0A-02",
+              "NR 0x0A write=0x00 read=0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Bit-mask: only divmmc_automap (bit 4) set. config_mode is 1 at
+        // power-on (re-default in NextReg::reset), but nothing in the
+        // tests has flipped it, so writes commit fully.
+        nr_write(emu, 0x0A, 0x10);
+        uint8_t got = nr_read(emu, 0x0A);
+        check("G56-0A-03",
+              "NR 0x0A write=0x10 → bit 4 (divmmc_automap_en) only "
+              "[zxnext.vhd:5912]",
+              got == 0x10, detail_eq(got, uint8_t{0x10}));
+    }
+    {
+        // Bit 2 must read 0 even when written 1.
+        nr_write(emu, 0x0A, 0x04);
+        uint8_t got = nr_read(emu, 0x0A);
+        check("G56-0A-04",
+              "NR 0x0A write=0x04 → read=0x00 (bit 2 forced 0) "
+              "[zxnext.vhd:5912]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // ── NR 0x0B — Joystick I/O mode ──────────────────────────────────
+    // VHDL zxnext.vhd:5915:
+    //   port_253b_dat <= nr_0b_joy_iomode_en [7] & '0' [6]
+    //                  & nr_0b_joy_iomode [5:4] & "000" [3:1]
+    //                  & nr_0b_joy_iomode_0 [0]
+    {
+        nr_write(emu, 0x0B, 0xFF);
+        uint8_t got = nr_read(emu, 0x0B);
+        check("G56-0B-01",
+              "NR 0x0B write=0xFF read=0xB1 (bits 6 + 3:1 forced 0) "
+              "[zxnext.vhd:5915]",
+              got == 0xB1, detail_eq(got, uint8_t{0xB1}));
+    }
+    {
+        nr_write(emu, 0x0B, 0x00);
+        uint8_t got = nr_read(emu, 0x0B);
+        check("G56-0B-02",
+              "NR 0x0B write=0x00 read=0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Bits 6 + 3:1 const-0 even when written 1.
+        nr_write(emu, 0x0B, 0x4E);  // bits 6,3,2,1 set
+        uint8_t got = nr_read(emu, 0x0B);
+        check("G56-0B-03",
+              "NR 0x0B write=0x4E → read=0x00 (bits 6 + 3:1 forced 0) "
+              "[zxnext.vhd:5915]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Just enable + iomode 5:4 + iomode_0.
+        nr_write(emu, 0x0B, 0xB1);  // bit 7 + bits 5:4 + bit 0
+        uint8_t got = nr_read(emu, 0x0B);
+        check("G56-0B-04",
+              "NR 0x0B write=0xB1 → read=0xB1 (en + iomode 5:4 + iomode_0) "
+              "[zxnext.vhd:5915]",
+              got == 0xB1, detail_eq(got, uint8_t{0xB1}));
+    }
+    // Restore reset value so other tests aren't perturbed.
+    nr_write(emu, 0x0B, 0x01);
+
+    // ── NR 0x10 — core/board ID + SPKEY_BUTTONS ──────────────────────
+    // VHDL zxnext.vhd:5924:
+    //   port_253b_dat <= '0' [7] & nr_10_coreid [6:2]
+    //                  & i_SPKEY_BUTTONS(1:0) [1:0]
+    // jnext does not model SPKEY_BUTTONS — they read 0 (idle).
+    // Power-on default: nr_10_coreid = "00001" (zxnext.vhd:1133),
+    // so reset read = 0_00001_00 = 0x04.
+    {
+        // Reset default. Note this test runs after other tests that may
+        // have written NR 0x10. If config_mode is still 1 at this point,
+        // the previous writes will have changed coreid. Reset emu state
+        // by writing the VHDL default explicitly.
+        nr_write(emu, 0x10, 0x01);  // coreid = 0x01
+        uint8_t got = nr_read(emu, 0x10);
+        check("G56-10-01",
+              "NR 0x10 coreid=0x01 → read=0x04 (bit7=0, coreid<<2, "
+              "buttons=0 idle) [zxnext.vhd:5924]",
+              got == 0x04, detail_eq(got, uint8_t{0x04}));
+    }
+    {
+        // coreid = 0x1F → bits 6:2 = 11111 → 0x7C.
+        nr_write(emu, 0x10, 0x1F);
+        uint8_t got = nr_read(emu, 0x10);
+        check("G56-10-02",
+              "NR 0x10 coreid=0x1F → read=0x7C (bits 6:2 set, bit 7 + 1:0 = 0) "
+              "[zxnext.vhd:5924]",
+              got == 0x7C, detail_eq(got, uint8_t{0x7C}));
+    }
+    {
+        // Bit 7 of write (flashboot) does NOT appear on read.
+        nr_write(emu, 0x10, 0x80);
+        uint8_t got = nr_read(emu, 0x10);
+        check("G56-10-03",
+              "NR 0x10 write=0x80 (flashboot) → read=0x00 "
+              "(flashboot not exposed in NR 0x10 read) [zxnext.vhd:5924]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // SPKEY_BUTTONS [1:0] dynamic path: jnext models them as 0
+        // (no front-panel button input wired). Verify read returns 0
+        // for the bottom 2 bits regardless of write.
+        nr_write(emu, 0x10, 0x03);  // tries to set buttons in cache
+        uint8_t got = nr_read(emu, 0x10);
+        check("G56-10-04",
+              "NR 0x10 write=0x03 → read bits 1:0 = 0 "
+              "(SPKEY_BUTTONS unmodelled, idle) [zxnext.vhd:5924]",
+              (got & 0x03) == 0, detail_eq(got, uint8_t{0x00}));
+    }
+    // Restore reset coreid so downstream tests see VHDL default.
+    nr_write(emu, 0x10, 0x01);
+
+    // ── NR 0x15 — Sprite + layer system setup ─────────────────────────
+    // VHDL zxnext.vhd:5939:
+    //   port_253b_dat <= nr_15_lores_en [7] & nr_15_sprite_priority [6]
+    //                  & nr_15_sprite_border_clip_en [5]
+    //                  & nr_15_layer_priority [4:2]
+    //                  & nr_15_sprite_over_border_en [1]
+    //                  & nr_15_sprite_en [0]
+    {
+        nr_write(emu, 0x15, 0xFF);
+        uint8_t got = nr_read(emu, 0x15);
+        // All 8 bits are real fields, no const-0. Round-trip 0xFF→0xFF.
+        check("G56-15-01",
+              "NR 0x15 write=0xFF read=0xFF (round-trip) "
+              "[zxnext.vhd:5939]",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+    {
+        nr_write(emu, 0x15, 0x00);
+        uint8_t got = nr_read(emu, 0x15);
+        check("G56-15-02",
+              "NR 0x15 write=0x00 read=0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Bit-mask: layer priority 110 (USL) + sprite_en, otherwise 0.
+        nr_write(emu, 0x15, 0x19);  // 0001_1001 = priority 110, en=1
+        uint8_t got = nr_read(emu, 0x15);
+        check("G56-15-03",
+              "NR 0x15 write=0x19 → priority=110 + sprite_en "
+              "[zxnext.vhd:5939]",
+              got == 0x19, detail_eq(got, uint8_t{0x19}));
+    }
+    {
+        // sprite_priority (bit 6) + border_clip_en (bit 5).
+        nr_write(emu, 0x15, 0x60);
+        uint8_t got = nr_read(emu, 0x15);
+        check("G56-15-04",
+              "NR 0x15 write=0x60 → bit6 (sprite_priority) + bit5 "
+              "(border_clip_en) [zxnext.vhd:5939]",
+              got == 0x60, detail_eq(got, uint8_t{0x60}));
+    }
+    // Restore reset value.
+    nr_write(emu, 0x15, 0x00);
+
+    // ── NR 0x34 — Sprite mirror_id (alternate to port 0x303B) ────────
+    // VHDL zxnext.vhd:6033:
+    //   port_253b_dat <= '0' [7] & sprite_mirror_id [6:0]
+    {
+        nr_write(emu, 0x34, 0xFF);
+        uint8_t got = nr_read(emu, 0x34);
+        // sprites_.set_mirror_sprite_num(0xFF) stores 0xFF (8 bits) but
+        // sprite_mirror_id is only 7 bits in VHDL — read formula masks
+        // to 0x7F.
+        check("G56-34-01",
+              "NR 0x34 write=0xFF read=0x7F (bit 7 const-0) "
+              "[zxnext.vhd:6033]",
+              got == 0x7F, detail_eq(got, uint8_t{0x7F}));
+    }
+    {
+        nr_write(emu, 0x34, 0x00);
+        uint8_t got = nr_read(emu, 0x34);
+        check("G56-34-02",
+              "NR 0x34 write=0x00 read=0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        // Mid-range: sprite slot 0x42 — bit 7 must read 0.
+        nr_write(emu, 0x34, 0x42);
+        uint8_t got = nr_read(emu, 0x34);
+        check("G56-34-03",
+              "NR 0x34 write=0x42 → read=0x42 (bit 7 already 0)",
+              got == 0x42, detail_eq(got, uint8_t{0x42}));
+    }
+    {
+        // Slot 0x80 (write would set bit 7 + slot 0). Read masks bit 7.
+        nr_write(emu, 0x34, 0x80);
+        uint8_t got = nr_read(emu, 0x34);
+        check("G56-34-04",
+              "NR 0x34 write=0x80 → read=0x00 (bit 7 forced 0) "
+              "[zxnext.vhd:6033]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2185,6 +2475,9 @@ int main() {
 
     test_nr_06_composed_read(emu);
     std::printf("  Group: G56-CR-NR06 — done\n");
+
+    test_g56_cluster_b(emu);
+    std::printf("  Group: G56-Cluster-B — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

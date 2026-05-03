@@ -804,14 +804,19 @@ static void test_composed_read_divergence() {
     // the raw shadow store as if it were the oracle.
     skip("G56-CR-05", "NR 0x05 composed-read — re-homed to integration (G56 cluster A landed)");
     skip("G56-CR-06", "NR 0x06 composed-read — re-homed to integration (G56 cluster A landed)");
-    skip("G56-CR-09", "NR 0x09 sprite_tie composed-read (see G56)");
-    skip("G56-CR-0A", "NR 0x0A divmmc_automap_en mirror (see G56)");
-    skip("G56-CR-0B", "NR 0x0B joystick composed-read (see G56)");
-    skip("G56-CR-10", "NR 0x10 video-timing cvc composed (see G56)");
-    skip("G56-CR-15", "NR 0x15 layer composed-read (see G56)");
+    // G56 Cluster B (NR 0x09/0x0A/0x0B/0x10/0x15) read-handlers landed
+    // in src/core/emulator.cpp. Verified in
+    // test/nextreg/nextreg_integration_test.cpp (group G56-Cluster-B).
+    // Bare NextReg has no per-NR composition logic — rows remain skipped
+    // here for the bare layer; integration coverage is the source of truth.
+    skip("G56-CR-09", "→ G56-Cluster-B (integration test); landed");
+    skip("G56-CR-0A", "→ G56-Cluster-B (integration test); landed");
+    skip("G56-CR-0B", "→ G56-Cluster-B (integration test); landed");
+    skip("G56-CR-10", "→ G56-Cluster-B (integration test); landed");
+    skip("G56-CR-15", "→ G56-Cluster-B (integration test); landed");
     skip("G56-CR-22", "NR 0x22 bit 7 dynamic pulse_int_n (see G56)");
     skip("G56-CR-23", "NR 0x23 line-int compare ladder (see G56)");
-    skip("G56-CR-34", "NR 0x34 sprite-attr index live counter (see G56)");
+    skip("G56-CR-34", "→ G56-Cluster-B (integration test); landed");
     skip("G56-CR-40", "NR 0x40 palette idx autoinc state (see G56)");
     skip("G56-CR-43", "NR 0x43 palette ctrl composed-read (see G56)");
     skip("G56-CR-4C", "NR 0x4C bits 7:4 mask not propagated (see G56)");

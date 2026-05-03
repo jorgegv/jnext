@@ -656,6 +656,11 @@ private:
     uint8_t clip_ula_idx_  = 0;   ///< ULA/LoRes clip write index (0-3)
     uint8_t clip_tm_idx_   = 0;   ///< Tilemap clip write index (0-3)
 
+    /// G56: NR 0x10 coreid (5-bit), VHDL zxnext.vhd:1133 default "00001".
+    /// Updated only when nr_03_config_mode = 1 (zxnext.vhd:5682). Composed
+    /// into NR 0x10 read at bits 6:2 (zxnext.vhd:5924).
+    uint8_t nr_10_coreid_ = 0x01;
+
     // --- IM2 hardware mode state (NextREG 0xC0–0xCF) ---
     //
     // Phase 2 Wave 2 (Agent E): authoritative state now lives inside

@@ -66,6 +66,14 @@ public:
     uint8_t x() const { return x_; }
     uint8_t y() const { return y_; }
 
+    /// G56 read-back: NR 0x0A bit 3 (mouse_button_reverse).
+    /// VHDL zxnext.vhd:5912 composes this back into NR 0x0A reads.
+    bool    button_reverse() const { return button_reverse_; }
+
+    /// G56 read-back: NR 0x0A bits 1:0 (mouse_dpi). Default "01" per
+    /// zxnext.vhd:1128. Composed into NR 0x0A reads at zxnext.vhd:5912.
+    uint8_t dpi() const { return dpi_; }
+
 private:
     uint8_t x_ = 0;             // i_MOUSE_X, driven by host adapter
     uint8_t y_ = 0;             // i_MOUSE_Y, driven by host adapter

@@ -167,6 +167,21 @@ public:
     /// display area (0).
     void set_over_border(bool val) { over_border_ = val; }
 
+    /// G56 read-back: NR 0x15 bit 1 (sprite_over_border_en) is composed
+    /// into the NR 0x15 read at zxnext.vhd:5939. Note this is a different
+    /// bit from NR 0x09 bit 3 (which uses the same field) — NR 0x09's
+    /// over_border is only the WRITE-side path; NR 0x15 also writes
+    /// over_border_ via bit 1.
+    bool over_border() const { return over_border_; }
+
+    /// G56 read-back: NR 0x15 bit 6 (sprite_priority / zero_on_top).
+    /// Composed into NR 0x15 read at zxnext.vhd:5939.
+    bool zero_on_top() const { return zero_on_top_; }
+
+    /// G56 read-back: NR 0x15 bit 5 (sprite_border_clip_en).
+    /// Composed into NR 0x15 read at zxnext.vhd:5939.
+    bool border_clip_en() const { return border_clip_en_; }
+
     /// NextREG 0x15 bit 5: border-clip enable.  When 0 and over_border=1,
     /// the sprite clip window is ignored and the full 9-bit-grid 320x256 area
     /// is drawn (VHDL sprites.vhd lines 1043-1048).  The internal sprite
