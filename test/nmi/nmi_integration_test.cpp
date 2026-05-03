@@ -323,17 +323,157 @@ static void test_int_rows() {
 // ── Group HOST-HK — Host F-key dispatch end-to-end (G152) ──────────────
 //
 // VHDL zxnext.vhd:6340-6349 (F1/F4/F9/F10 host hotkeys) + 2089-2091
-// (NMIACK gates). gui/main_window.cpp:94-105 only translates SDL F-keys
-// for screenshot/quit; no path to NmiSource MF/DivMMC producers nor
-// to soft/hard reset. Cross-link to B8's G147 (F8/F3/F5/F6 dispatch).
+// (NMIACK gates) + 6370-6371 (soft/hard reset edges).
+//
+// G152 dispatchers (Task 8 t1, 2026-04-28) live on the Emulator API:
+//   on_hotkey_f1_hard_reset / on_hotkey_f4_soft_reset /
+//   on_hotkey_f9_mf_nmi    / on_hotkey_f10_divmmc_nmi
+// (src/core/emulator.h ~line 360-381, src/core/emulator.cpp ~4386-4433).
+// gui/main_window.cpp keyPress/Release translates Qt::Key_F1/F4/F9/F10
+// edges to these dispatchers. The bare-NmiSource HK-06..HK-09 rows live
+// in test/nmi/nmi_test.cpp; the rows below exercise the SAME
+// dispatchers but verify the END-TO-END consequence:
+//   F9/F10  → NmiSource latch + Z80 takes NMI to PC=0x0066
+//   F4      → reset_type FSM advances + CPU PC reset to 0x0000 (gated)
+//   F1      → CPU PC reset to 0x0000 + NmiSource gates cleared (ungated)
 
 static void g_host_hotkey()
 {
     set_group("HOST-HK");
-    skip("HK-06-INT", "GUI F9 -> NmiSource MF end-to-end not wired (see G152)");
-    skip("HK-07-INT", "GUI F10 -> NmiSource DivMMC end-to-end not wired (see G152)");
-    skip("HK-08-INT", "GUI F4 -> soft-reset end-to-end not wired (see G152)");
-    skip("HK-09-INT", "GUI F1 -> hard-reset end-to-end not wired (see G152)");
+
+    // HK-06-INT — F9 dispatcher end-to-end. Going through the Emulator
+    // dispatcher (not strobe_mf_button() directly) must reach NmiSource
+    // AND let the Z80 take the NMI on the next execute(s). Pre-state
+    // mirrors INT-05: enable NR 0x06 bit 3 (mf_enable) and let the
+    // priority chain clear (no other latch competes).
+    // VHDL chain: zxnext.vhd:6348 (hotkey_m1) → :2090 (nmi_assert_mf) →
+    // :2095-2170 (FSM) → :1841 (z80_nmi_n) → CPU jump to 0x0066.
+    {
+        Emulator emu;
+        fresh_cpu_at_c000(emu);
+        emu.nmi_source().set_mf_enable(true);          // NR 0x06 bit 3 = 1
+
+        const uint16_t pc_before = emu.cpu().get_registers().PC;
+        emu.on_hotkey_f9_mf_nmi();                     // dispatcher seam
+        const auto r = step_until_nmi_taken(emu);
+        const bool mf_latched = emu.nmi_source().nmi_mf();
+
+        check("HK-06-INT",
+              "F9 dispatcher → NmiSource MF latch → /NMI → Z80 PC=0x0066 "
+              "end-to-end (VHDL zxnext.vhd:6348, :2090, :2095-2170, :1841)",
+              r.took_nmi && mf_latched && pc_before == 0xC000
+                         && r.final_pc >= 0x0066 && r.final_pc <= 0x006F,
+              fmt("pc_before=0x%04x mf_latched=%d final_pc=0x%04x steps=%d "
+                  "took_nmi=%d",
+                  pc_before, mf_latched, r.final_pc, r.steps, r.took_nmi));
+    }
+
+    // HK-07-INT — F10 dispatcher end-to-end. Same shape as HK-06-INT but
+    // through the DivMMC producer. F10 has the extra port_divmmc_io_en
+    // gate (NR 0x83 bit 0, VHDL:6349) which the dispatcher honours via
+    // early-return; we open it here so the strobe reaches the FSM.
+    // VHDL chain: zxnext.vhd:6349 (hotkey_drive) → :2091 (nmi_assert_divmmc)
+    // → :2095-2170 (FSM) → :1841 (z80_nmi_n) → CPU jump to 0x0066.
+    {
+        Emulator emu;
+        fresh_cpu_at_c000(emu);
+        emu.nmi_source().set_divmmc_enable(true);      // NR 0x06 bit 4 = 1
+        emu.divmmc().set_port_io_enable(true);         // NR 0x83 bit 0 = 1
+
+        const uint16_t pc_before = emu.cpu().get_registers().PC;
+        emu.on_hotkey_f10_divmmc_nmi();                // dispatcher seam
+        const auto r = step_until_nmi_taken(emu);
+        const bool dmc_latched = emu.nmi_source().nmi_divmmc();
+
+        check("HK-07-INT",
+              "F10 dispatcher → NmiSource DivMMC latch → /NMI → Z80 "
+              "PC=0x0066 end-to-end "
+              "(VHDL zxnext.vhd:6349, :2091, :2095-2170, :1841)",
+              r.took_nmi && dmc_latched && pc_before == 0xC000
+                         && r.final_pc >= 0x0066 && r.final_pc <= 0x006F,
+              fmt("pc_before=0x%04x dmc_latched=%d final_pc=0x%04x steps=%d "
+                  "took_nmi=%d",
+                  pc_before, dmc_latched, r.final_pc, r.steps, r.took_nmi));
+    }
+
+    // HK-08-INT — F4 dispatcher end-to-end with config_mode gate. Two
+    // sub-assertions (VHDL zxnext.vhd:6370):
+    //   (a) nr_03_config_mode = 1 (power-on default per VHDL:1102):
+    //       on_hotkey_f4_soft_reset() must early-return → reset_type
+    //       FSM unchanged AND CPU is NOT reset (PC stays at 0xC000).
+    //   (b) nr_03_config_mode = 0 (firmware has exited config_mode):
+    //       on_hotkey_f4_soft_reset() strobes soft-reset (reset_type
+    //       advances 0b100 → 0b010 per VHDL:1732-1739) and runs the
+    //       full soft_reset() path → Z80 PC clamped to 0x0000.
+    {
+        // Sub (a): gated path. Use build_next_emulator (NOT
+        // fresh_cpu_at_c000 — that helper exits config_mode). Park the
+        // CPU at 0xC000 by hand and exercise the gate.
+        Emulator emu_gated;
+        build_next_emulator(emu_gated);
+        inject_idle_loop_at_c000(emu_gated);
+        park_cpu_at_c000(emu_gated);
+        const uint8_t  rt0_gated     = emu_gated.nmi_source().reset_type();
+        const uint16_t pc0_gated     = emu_gated.cpu().get_registers().PC;
+        emu_gated.on_hotkey_f4_soft_reset();
+        const uint8_t  rt_after_gate = emu_gated.nmi_source().reset_type();
+        const uint16_t pc_after_gate = emu_gated.cpu().get_registers().PC;
+        const bool gated_no_op = rt0_gated == 0b100
+                                 && rt_after_gate == 0b100
+                                 && pc0_gated == 0xC000
+                                 && pc_after_gate == 0xC000;
+
+        // Sub (b): gate-open path via fresh_cpu_at_c000() (which writes
+        // NR 0x03 to drop config_mode). After dispatch, reset_type
+        // advances and Z80::reset() clears PC to 0x0000.
+        Emulator emu_open;
+        fresh_cpu_at_c000(emu_open);
+        const uint8_t  rt0_open    = emu_open.nmi_source().reset_type();
+        emu_open.on_hotkey_f4_soft_reset();
+        const uint8_t  rt_advanced = emu_open.nmi_source().reset_type();
+        const uint16_t pc_after    = emu_open.cpu().get_registers().PC;
+        const bool open_advanced = rt0_open == 0b100
+                                   && rt_advanced == 0b010
+                                   && pc_after == 0x0000;
+
+        check("HK-08-INT",
+              "F4 dispatcher honours nr_03_config_mode gate; when open, "
+              "advances reset_type FSM AND drives soft_reset() → PC=0x0000 "
+              "(VHDL zxnext.vhd:6370, :1732-1739, :1102)",
+              gated_no_op && open_advanced,
+              fmt("gated:rt0=%u→%u pc=0x%04x→0x%04x; "
+                  "open:rt0=%u→%u pc_after=0x%04x",
+                  rt0_gated, rt_after_gate, pc0_gated, pc_after_gate,
+                  rt0_open, rt_advanced, pc_after));
+    }
+
+    // HK-09-INT — F1 dispatcher end-to-end. Hard reset is NOT gated by
+    // config_mode (VHDL:6371). Verify the dispatcher drives the full
+    // Emulator::reset() path: Z80 PC clamped to 0x0000 AND NmiSource
+    // gate state cleared (mf_enable, set pre-call, must be cleared
+    // post-reset per VHDL:1109-1110 power-on '0' defaults).
+    {
+        Emulator emu;
+        fresh_cpu_at_c000(emu);
+        emu.nmi_source().set_mf_enable(true);          // dirty observable
+        const bool     mf_pre  = emu.nmi_source().mf_enable();
+        const uint16_t pc_pre  = emu.cpu().get_registers().PC;
+        emu.on_hotkey_f1_hard_reset();                 // dispatcher seam
+        const bool     mf_post = emu.nmi_source().mf_enable();
+        const uint16_t pc_post = emu.cpu().get_registers().PC;
+        const auto     fsm     = emu.nmi_source().state();
+
+        check("HK-09-INT",
+              "F1 dispatcher → full Emulator::reset() → CPU PC=0x0000, "
+              "NmiSource mf_enable cleared, FSM idle (no config_mode gate) "
+              "(VHDL zxnext.vhd:6371, :1109-1110, :2120)",
+              mf_pre && !mf_post && pc_pre == 0xC000 && pc_post == 0x0000
+                     && fsm == NmiSource::State::Idle,
+              fmt("mf_pre=%d mf_post=%d pc_pre=0x%04x pc_post=0x%04x "
+                  "fsm_idle=%d",
+                  mf_pre, mf_post, pc_pre, pc_post,
+                  fsm == NmiSource::State::Idle));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
