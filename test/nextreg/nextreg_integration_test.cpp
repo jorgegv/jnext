@@ -1357,6 +1357,99 @@ static void test_pe_05(Emulator& emu) {
     }
 }
 
+// ── PE-INT-82, PE-INT-86, PE-INT-89, PE-INT-80-88: G154 closure ──────
+//
+// These rows came down from nextreg_test.cpp PE-06..09 when G154
+// was closed. They cover NR 0x80 / 0x82 / 0x86 / 0x88 / 0x89 read
+// packing + reset defaults end-to-end through the full Emulator
+// fixture (port path), which is the only tier where the
+// emulator-side handlers + NextReg::reset() seeds are wired.
+//
+// Oracles (zxnext.vhd, all line numbers verified):
+//   NR 0x80: signal default 0x00 at line 360; read mux at 6122-6123
+//            returns nr_80_expbus directly; no pack mask.
+//   NR 0x82: default 0xFF at 1226; reset_type-1 reload at 5054; write
+//            stores 8 bits at 5499; read returns 8 bits at 6128-6129.
+//            No pack mask. Round-trip identity.
+//   NR 0x86: default 0xFF at 1231; reset_type-0 reload at 5063; write
+//            stores 8 bits at 5512; read returns 8 bits at 6140-6141.
+//            Round-trip identity.
+//   NR 0x88: default 0xFF at 1233; reset_type-0 reload at 5065; write
+//            stores 8 bits at 5518; read returns 8 bits at 6146-6147.
+//            Round-trip identity.
+//   NR 0x89: enable default 0xF + reset_type='1' at 1234-1235; write
+//            splits bit 7 → reset_type, bits 3:0 → enable, bits 6:4
+//            discarded (5520-5522); read recomposes reset_type &
+//            "000" & enable (6149-6150). Pack mask 0x8F enforced by
+//            read_handler in src/core/emulator.cpp.
+
+static void test_pe_integration(Emulator& emu) {
+    set_group("PE-Integration");
+
+    // PE-INT-80-88 — Post-reset defaults for NR 0x80 and NR 0x88.
+    //   NR 0x80 = 0x00 (zxnext.vhd:360)
+    //   NR 0x88 = 0xFF (zxnext.vhd:1233)
+    {
+        uint8_t got80 = nr_read(emu, 0x80);
+        uint8_t got88 = nr_read(emu, 0x88);
+        const bool ok = (got80 == 0x00) && (got88 == 0xFF);
+        check("PE-INT-80-88",
+              "NR 0x80 reset=0x00, NR 0x88 reset=0xFF "
+              "[zxnext.vhd:360, 1233]",
+              ok,
+              "NR 0x80 got=" + hex2(got80) + " expected=0x00; "
+              "NR 0x88 got=" + hex2(got88) + " expected=0xFF");
+    }
+
+    // PE-INT-82 — NR 0x82 round-trip (no packing). Write 0xA5; expect
+    // 0xA5 back per VHDL :5499 (write 8 bits) and :6128-6129 (read 8
+    // bits). Restore 0xFF afterwards so downstream rows see the reset
+    // default (NR 0x82 bit 1 / bit 3 gate port FD/1FFD elsewhere).
+    {
+        nr_write(emu, 0x82, 0xA5);
+        uint8_t got = nr_read(emu, 0x82);
+        nr_write(emu, 0x82, 0xFF);  // restore reset default
+        check("PE-INT-82",
+              "NR 0x82 write=0xA5 read=0xA5 (no pack mask) "
+              "[zxnext.vhd:5499, 6128-6129]",
+              got == 0xA5, detail_eq(got, 0xA5));
+    }
+
+    // PE-INT-86 — NR 0x86 round-trip + reset default observation.
+    // Verify pre-write reset default 0xFF (zxnext.vhd:1231), then
+    // confirm write 0x5A round-trips (zxnext.vhd:5512, 6140-6141).
+    // Restore 0xFF afterwards.
+    {
+        uint8_t reset_default = nr_read(emu, 0x86);
+        nr_write(emu, 0x86, 0x5A);
+        uint8_t got = nr_read(emu, 0x86);
+        nr_write(emu, 0x86, 0xFF);  // restore reset default
+        const bool ok = (reset_default == 0xFF) && (got == 0x5A);
+        check("PE-INT-86",
+              "NR 0x86 reset=0xFF + write=0x5A read=0x5A "
+              "[zxnext.vhd:1231, 5512, 6140-6141]",
+              ok,
+              "reset=" + hex2(reset_default) + " (want 0xFF), "
+              "round-trip=" + hex2(got) + " (want 0x5A)");
+    }
+
+    // PE-INT-89 — NR 0x89 read packing (bits 6:4 always zero). Write
+    // 0xF7 = 1111_0111: stored bit 7 → reset_type=1, bits 3:0 →
+    // enable=0x7; bits 6:4 of write discarded. Read returns
+    // reset_type & "000" & enable = 1_000_0111 = 0x87, NOT the 0xF7
+    // we wrote. This is the exact pack-mask shape of NR 0x85.
+    // Restore 0x8F afterwards (NR 0x89 reset default).
+    {
+        nr_write(emu, 0x89, 0xF7);
+        uint8_t got = nr_read(emu, 0x89);
+        nr_write(emu, 0x89, 0x8F);  // restore reset default
+        check("PE-INT-89",
+              "NR 0x89 write=0xF7 read=0x87 (bits 6:4 always 0) "
+              "[zxnext.vhd:5520-5522, 6149-6150]",
+              got == 0x87, detail_eq(got, 0x87));
+    }
+}
+
 // ── RW-01, RW-02: asymmetric read/write registers ────────────────────
 //
 // Plan row group 4 in NEXTREG-TEST-PLAN-DESIGN.md. NR 0x07 (CPU speed)
@@ -3090,6 +3183,9 @@ int main() {
 
     test_pe_05(emu);
     std::printf("  Group: Port-Enable-Bus — done\n");
+
+    test_pe_integration(emu);
+    std::printf("  Group: PE-Integration — done\n");
 
     test_rw_asymmetric(emu);
     std::printf("  Group: RW-Asymmetric — done\n");
