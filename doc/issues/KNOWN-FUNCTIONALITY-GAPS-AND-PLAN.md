@@ -68,7 +68,7 @@ where possible.
 | G96 | NR 0x35-0x39 vs 0x75-0x79 increment-semantic divergence    | Sprites, NextREG                 | A   | Y       | NR-mirror sprite stream lands in wrong slots               | M      | Medium   |
 | G102| ULAnext (NR 0x42/0x43 b0) palette-encoding runtime path absent | ULA, Palette                 | A   | Y       | ULAnext programs see plain 16-colour output, not 256       | H      | Medium   |
 | G103| ULA+ (port 0xBF3B/0xFF3B) palette-encoding runtime path absent | ULA, Palette                 | A   | Y       | ULA+ programs cannot drive their 64-entry palette window   | M      | Medium   |
-| G108| NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg | NextREG, ULA, MMU, Compositor    | A,C | Y       | Timex-mode set via NR aliases + ULA-int-disable via aliases dropped | L | Medium |
+| ~~G108~~| ~~NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg~~ | ~~NextREG, ULA, MMU, Compositor~~    | ~~A,C~~ | ~~Y~~       | ~~Timex-mode set via NR aliases + ULA-int-disable via aliases dropped~~ | ~~L~~ | ~~Medium~~ |
 | G117| Copper executes per Z80 instr, not per 28 MHz cycle        | Copper, CPU                      | A   | Y       | Dense Copper bursts under-run; possible parallax.nex factor | M     | Medium   |
 | G141| FUSE in-opcode contention macros inert (zero-filled)       | Contention, CPU                  | C   | Y       | M1 fetch + no-MREQ contention dropped; 48K demos off ~7T per opcode | M | Medium |
 | G142| NR 0x07 cpu_speed deferred bus-idle commit not modelled    | Contention, CPU                  | C   | Y       | Turbo flip applies immediately; should defer to bus-idle   | M      | Medium   |
@@ -587,14 +587,14 @@ where possible.
 - **Dependencies**: shares fix with G71 / G106.
 - **Effort**: L.
 
-### G108. NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg fan-out absent
-- **What**: VHDL `zxnext.vhd:3617-3622` writes `port_ff_reg(5:0)` from NR 0x69 bits 5:0; `port_ff_reg(6)` from NR 0x22 b2; `port_ff_reg(6)` from `not nr_wr_dat(0)` on NR 0xC4. jnext `emulator.cpp:888-890` only forwards bit 7 of NR 0x69; NR 0xC4 handler comment at `:983` is wrong vs VHDL. Self-flagged at `:3196-3199`.
-- **User impact**: software setting Timex screen mode via NR 0x69 sees no effect; ULA-int-disable via NR 0xC4 b0 silent.
-- **Source ref**: Wave-1 layer2 (NEW-CMP-1) + Wave-1 ula (NEW-ULA-7) + Wave-2 NextREG (NEW-NR-2). Three reports, same gap.
-- **Coverage today**: none; comment fix needed at `emulator.cpp:983`.
-- **Dependencies**: respect VHDL priority — port-FF write wins over NR-side mirror.
-- **Effort**: L.
-- Also relevant to section C.
+### G108. NR 0x69 bits 6/5:0 + NR 0x22 b2 + NR 0xC4 b0 → port_ff_reg fan-out absent [closed]
+- **Status: CLOSED 2026-05-03**.
+- **What was originally observed**: VHDL `zxnext.vhd:3617-3622` updates `port_ff_reg(5:0)` from NR 0x69 bits 5:0; `port_ff_reg(6)` from NR 0x22 bit 2; `port_ff_reg(6)` from `NOT nr_wr_dat(0)` on NR 0xC4. Three earlier waves left the picture inconsistent: by 2026-04 the three NR handlers in `src/core/emulator.cpp` already updated `Emulator::port_ff_reg_` correctly, but none of them propagated the change to `Ula::screen_mode_reg_`. So a Timex program switching mode via NR 0x69 (rather than port 0xFF) saw `port_ff_reg_` updated but the renderer never re-decoded — the screen mode in `Ula::mode_` stayed at whatever the last port-FF write had left.
+- **User impact (was)**: NextZXOS firmware and Timex software switching screen modes via NR 0x69 had no rendered effect. NR 0xC4 bit 0 ULA-int-disable mirror via the inverted-polarity bit was also silent on the renderer side (it remained correctly observed by the int-controller path, but didn't ripple through Ula).
+- **Fix**: each of the three NR handlers (`emulator.cpp:847` for NR 0x22, `:1106` for NR 0x69, `:1234` for NR 0xC4) now calls `renderer_.ula().set_screen_mode(port_ff_reg_)` after updating `port_ff_reg_`. `Ula::set_screen_mode` re-decodes mode_/alt_file_ from bits 2:0 and appends a per-scanline G07 change-log entry — keeping the per-scanline replay symmetric with port-FF and the other NR-side writes.
+- **VHDL ref**: `zxnext.vhd:3610-3635` (the elsif-priority chain), `zxula.vhd:191` (`screen_mode_s <= i_port_ff_reg(2:0)`), `zxula.vhd:419 + 426-427` (HI_RES paper from bits 5:3).
+- **Test coverage**: `nextreg_integration_test` group `G108-PortFF-Fanout` with 7 rows: G108-NR69-MODE (NR 0x69 = HI_RES + paper=5 → port_ff_reg(5:0) + Ula::screen_mode_reg_ + mode bits 2:0 = 110), G108-NR69-PRESERVE-BIT7 (NR 0x69 fan-out only touches bits 5:0; bit 6 from prior port-FF write preserved), G108-NR22-INTDIS-SET / -CLR (NR 0x22 bit 2 sets/clears port_ff_reg(6)), G108-NRC4-INTDIS-SET / -CLR (NR 0xC4 bit 0 inverted polarity), G108-PORTFF-WINS (direct port-FF write supersedes accumulated NR-side fan-out — full byte replace).
+- **Source ref**: Wave-1 layer2 (NEW-CMP-1) + Wave-1 ula (NEW-ULA-7) + Wave-2 NextREG (NEW-NR-2). Closure followed G164 (which made `set_screen_mode` VHDL-correct on bits 2:0) — no longer pointless to plumb the fan-out into the renderer.
 
 ### G109. NR 0x64 cu_offset not applied to line-int comparison — CLOSED 2026-04-28 (task8-t1-videotiming)
 - **What**: VHDL `zxula_timing.vhd:577` compares against `cvc` (offset-adjusted Copper VC, reload from `'0' & i_cu_offset` at `:455-466`). jnext `emulator.cpp:2540-2550` schedules at raw `vc`. Copper internal compares are correct.

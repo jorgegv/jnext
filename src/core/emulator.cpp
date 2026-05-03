@@ -855,6 +855,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // value into `port_ff_reg(6)` (the ULA-int-disable bit).
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
                                           | ((v & 0x04) << 4));
+        // G108 — propagate the updated port_ff_reg into Ula::screen_mode_reg_
+        // so the renderer sees the change. Bits 2:0 (mode) + 5:3 (paper
+        // colour) are preserved from the previous port_ff_reg state; only
+        // bit 6 is touched by NR 0x22. Ula does not consume bit 6 directly,
+        // so the rendered output is byte-identical when bits 5:0 are stable
+        // — but routing through set_screen_mode keeps the per-scanline
+        // change-log (G07) symmetric with port-FF and sister NR-side writes.
+        renderer_.ula().set_screen_mode(port_ff_reg_);
         // G163 — re-evaluate the line-int schedule. NR 0x22 carries the
         // line-int enable bit (bit 1) and the target MSB (bit 0); both
         // affect the firing line.
@@ -1108,13 +1116,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL zxnext.vhd:3617-3618 — `nr_69_we` fans bits 5:0 of the
         // new value into `port_ff_reg(5:0)` (the Timex screen-mode
         // surface). port_ff_reg_ is the canonical store; the
-        // downstream screen-mode mux still consumes port-0xFF write-
-        // path effects via Ula::screen_mode_reg_ as it always has —
-        // mirroring the bits 5:0 fan-out into Ula is a separate item
-        // (cross-cuts ULA / Timex tests; not in scope for G108
-        // closure).
+        // downstream screen-mode mux must also see the change.
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xC0)
                                           | (v & 0x3F));
+        // G108 — propagate the updated port_ff_reg into Ula::screen_mode_reg_
+        // so set_screen_mode re-decodes mode_ + alt_file_ (bits 2:0) and
+        // re-derives the HI_RES paper colour (bits 5:3). NextZXOS firmware
+        // and Timex programs that switch screen mode via NR 0x69 instead
+        // of port 0xFF previously left the renderer in its old mode.
+        renderer_.ula().set_screen_mode(port_ff_reg_);
     });
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
@@ -1248,6 +1258,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // inverted: cpu writes '1' to clear the disable bit.
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
                                           | (((~v) & 0x01) << 6));
+        // G108 — propagate the updated port_ff_reg into Ula::screen_mode_reg_
+        // (same rationale as NR 0x22: only bit 6 is touched, but the
+        // per-scanline change-log stays symmetric with port-FF / NR 0x22
+        // by routing every fan-out through Ula::set_screen_mode).
+        renderer_.ula().set_screen_mode(port_ff_reg_);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
     });

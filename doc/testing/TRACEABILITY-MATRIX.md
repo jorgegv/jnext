@@ -434,6 +434,13 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419                   | pass   | test/ula/ula_test.cpp:1066      |
 | S5.12      | HI_RES display path dispatches through ULAnext encoder (G167)                                               | zxula.vhd:485-528               | pass   | test/ula/ula_test.cpp:1165      |
 | S5.13      | HI_RES display path dispatches through ULA+ encoder (G167)                                                  | zxula.vhd:531-541               | pass   | test/ula/ula_test.cpp:1258      |
+| G108-NR69-MODE          | NR 0x69 bits 5:0 fan out to port_ff_reg(5:0) + Ula::screen_mode_reg_; mode re-decoded         | zxnext.vhd:3617-3618 + zxula.vhd:191 | pass | test/nextreg/nextreg_integration_test.cpp:1817 |
+| G108-NR69-PRESERVE-BIT7 | NR 0x69 fan-out only touches bits 5:0; bit 6 from prior port-FF write preserved              | zxnext.vhd:3617-3618 | pass | test/nextreg/nextreg_integration_test.cpp:1832 |
+| G108-NR22-INTDIS-SET    | NR 0x22 bit 2 → port_ff_reg(6); bits 5:0 preserved; Ula propagated                            | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:1846 |
+| G108-NR22-INTDIS-CLR    | NR 0x22 bit 2 = 0 clears port_ff_reg(6); bits 5:0 preserved                                   | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:1859 |
+| G108-NRC4-INTDIS-CLR    | NR 0xC4 bit 0 = 1 → port_ff_reg(6) ← 0 (inverted polarity)                                    | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:1877 |
+| G108-NRC4-INTDIS-SET    | NR 0xC4 bit 0 = 0 → port_ff_reg(6) ← 1 (inverted polarity)                                    | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:1890 |
+| G108-PORTFF-WINS        | Direct port-FF write supersedes accumulated NR-side fan-out (elsif priority)                  | zxnext.vhd:3614-3622 | pass | test/nextreg/nextreg_integration_test.cpp:1910 |
 | S5-PSL.01  | Two port-0xFF writes mid-frame at lines L1 < L2 captured separately                                          | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1102 |
 | S5-PSL.02  | Render at line L: STANDARD pixels for L < split, HI_COLOUR pixels for L >= split                             | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1155 |
 | S5-PSL.03  | Mid-frame HI_RES->STANDARD switch at line L: lines >= L revert to 256-px attribute path                      | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1195 |

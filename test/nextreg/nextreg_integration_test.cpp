@@ -19,6 +19,7 @@
 #include "core/emulator_config.h"
 
 #include <cstdio>
+#include <cstdarg>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -86,6 +87,17 @@ std::string detail_eq(uint8_t got, uint8_t expected) {
 
 std::string detail_eq(uint16_t got, uint16_t expected) {
     return "got=" + hex4(got) + " expected=" + hex4(expected);
+}
+
+// Lightweight printf-style detail formatter for multi-value rows.
+// Returns a std::string with up to 256 chars of formatted output.
+static std::string fmt(const char* f, ...) {
+    char buf[256];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return buf;
 }
 
 } // namespace
@@ -1771,6 +1783,156 @@ static void test_nr_68_ulap_read_composition(Emulator& emu) {
     nr_write(emu, 0x68, 0x00);
 }
 
+// ── G108: NR 0x69 / 0x22 / 0xC4 → port_ff_reg fan-out ─────────────────
+//
+// VHDL zxnext.vhd:3610-3635 — port_ff_reg is updated from FOUR sources
+// in `elsif` priority order (port_ff_wr highest, then nr_69_we, nr_22_we,
+// nr_c4_we). Each NR-side write touches only a sub-field:
+//   nr_69_we  → port_ff_reg(5:0) <= nr_wr_dat(5:0)        [mode + paper]
+//   nr_22_we  → port_ff_reg(6)   <= nr_wr_dat(2)          [int-disable]
+//   nr_c4_we  → port_ff_reg(6)   <= NOT nr_wr_dat(0)      [int-disable, inverted]
+//
+// G108 closure: each handler writes Emulator::port_ff_reg_ AND drives
+// Ula::set_screen_mode(port_ff_reg_) so the renderer sees the change
+// (was: only port-FF writes propagated to Ula::screen_mode_reg_).
+//
+// These tests verify the end-to-end propagation: an NR write must update
+// both port_ff_reg() and Ula::get_screen_mode_reg() and (for NR 0x69)
+// re-decode mode_ + alt_file_.
+static void test_g108_port_ff_fanout(Emulator& emu) {
+    set_group("G108-PortFF-Fanout");
+
+    // Reset port_ff_reg to a known baseline before each test by writing 0
+    // through the port-FF path (highest priority).
+    auto port_ff_write = [&](uint8_t v) { emu.port().out(0x00FF, v); };
+    auto get_smr = [&]() -> uint8_t {
+        return emu.renderer().ula().get_screen_mode_reg();
+    };
+
+    // G108-NR69-MODE — writing NR 0x69 with bits 5:0 = HI_RES + paper=5
+    // (= 0x06 | (5<<3) = 0x2E) updates port_ff_reg(5:0) AND
+    // Ula::screen_mode_reg_(5:0) AND drives mode_ to HI_RES.
+    {
+        port_ff_write(0x00);                 // baseline: STANDARD
+        nr_write(emu, 0x69, 0x2E);           // bits 5:0 = HI_RES, paper=5
+        const uint8_t pff       = emu.port_ff_reg();
+        const uint8_t smr       = get_smr();
+        const uint8_t mode_bits = static_cast<uint8_t>(smr & 0x07);
+        check("G108-NR69-MODE",
+              "NR 0x69 bits 5:0 fan out to port_ff_reg(5:0) AND "
+              "Ula::screen_mode_reg_; mode bits 2:0 = 110 (HI_RES) per "
+              "VHDL [zxnext.vhd:3617-3618 + zxula.vhd:191]",
+              (pff & 0x3F) == 0x2E && (smr & 0x3F) == 0x2E && mode_bits == 0x06,
+              fmt("pff=0x%02X smr=0x%02X mode_bits=0x%02X (exp 0x06=HI_RES)",
+                  pff, smr, mode_bits));
+    }
+
+    // G108-NR69-PRESERVE-BIT7 — NR 0x69 bits 7:6 are NOT in the fan-out
+    // window. They must NOT mutate port_ff_reg(7:6). Bit 7 of NR 0x69 is
+    // Layer 2 enable (separate handler effect); bit 6 is "ULA shadow"
+    // (separate handler effect). Bit 6 of NR 0x69 happens to also be a
+    // value we write here but the fan-out only touches port_ff_reg(5:0).
+    {
+        port_ff_write(0x40);                 // pre-set port_ff_reg(6)=1
+        nr_write(emu, 0x69, 0xFF);           // all bits set; only 5:0 fan out
+        const uint8_t pff = emu.port_ff_reg();
+        check("G108-NR69-PRESERVE-BIT7",
+              "NR 0x69 fan-out only touches port_ff_reg(5:0); bit 6 "
+              "(carried in from earlier port-FF write) preserved "
+              "[zxnext.vhd:3617-3618]",
+              (pff & 0xFF) == 0x7F,
+              fmt("pff=0x%02X (exp 0x7F)", pff));
+    }
+
+    // G108-NR22-INTDIS-SET — preset port_ff_reg(5:0) via port-FF, then
+    // write NR 0x22 with bit 2 = 1; verify port_ff_reg(6) ← 1, bits 5:0
+    // preserved, Ula::screen_mode_reg_ in sync.
+    {
+        port_ff_write(0x2A);                 // bits 5:0 = 0x2A, bit 6 = 0
+        nr_write(emu, 0x22, 0x04);           // bit 2 = 1 → port_ff_reg(6) ← 1
+        const uint8_t pff = emu.port_ff_reg();
+        const uint8_t smr = get_smr();
+        check("G108-NR22-INTDIS-SET",
+              "NR 0x22 bit 2 → port_ff_reg(6); port_ff_reg(5:0) preserved; "
+              "Ula::screen_mode_reg_ propagated [zxnext.vhd:3619-3620]",
+              pff == 0x6A && smr == 0x6A,
+              fmt("pff=0x%02X smr=0x%02X (exp 0x6A both)", pff, smr));
+    }
+
+    // G108-NR22-INTDIS-CLR — same baseline; NR 0x22 bit 2 = 0 clears
+    // port_ff_reg(6).
+    {
+        port_ff_write(0x6A);                 // bit 6 = 1, bits 5:0 = 0x2A
+        nr_write(emu, 0x22, 0x00);           // bit 2 = 0 → port_ff_reg(6) ← 0
+        const uint8_t pff = emu.port_ff_reg();
+        const uint8_t smr = get_smr();
+        check("G108-NR22-INTDIS-CLR",
+              "NR 0x22 bit 2 = 0 clears port_ff_reg(6); bits 5:0 preserved "
+              "[zxnext.vhd:3619-3620]",
+              pff == 0x2A && smr == 0x2A,
+              fmt("pff=0x%02X smr=0x%02X (exp 0x2A both)", pff, smr));
+    }
+
+    // G108-NRC4-INTDIS-CLR — NR 0xC4 polarity is INVERTED:
+    //   port_ff_reg(6) <= NOT nr_wr_dat(0)
+    // So writing bit 0 = 1 ENABLES the ULA int (clears port_ff_reg(6));
+    // writing bit 0 = 0 DISABLES it (sets port_ff_reg(6)).
+    // Note bit 1 of NR 0xC4 also fires reschedule_line_interrupt, so we
+    // pick a v whose bit 1 is well-defined for this test.
+    {
+        port_ff_write(0x6A);                 // bit 6 = 1
+        nr_write(emu, 0xC4, 0x01);           // bit 0 = 1 → port_ff_reg(6) ← 0
+        const uint8_t pff = emu.port_ff_reg();
+        const uint8_t smr = get_smr();
+        check("G108-NRC4-INTDIS-CLR",
+              "NR 0xC4 bit 0 = 1 → port_ff_reg(6) ← 0 (inverted polarity); "
+              "bits 5:0 preserved; Ula::screen_mode_reg_ propagated "
+              "[zxnext.vhd:3621-3622]",
+              pff == 0x2A && smr == 0x2A,
+              fmt("pff=0x%02X smr=0x%02X (exp 0x2A both)", pff, smr));
+    }
+
+    // G108-NRC4-INTDIS-SET — bit 0 = 0 → port_ff_reg(6) ← 1.
+    {
+        port_ff_write(0x2A);                 // bit 6 = 0
+        nr_write(emu, 0xC4, 0x00);           // bit 0 = 0 → port_ff_reg(6) ← 1
+        const uint8_t pff = emu.port_ff_reg();
+        const uint8_t smr = get_smr();
+        check("G108-NRC4-INTDIS-SET",
+              "NR 0xC4 bit 0 = 0 → port_ff_reg(6) ← 1 (inverted polarity) "
+              "[zxnext.vhd:3621-3622]",
+              pff == 0x6A && smr == 0x6A,
+              fmt("pff=0x%02X smr=0x%02X (exp 0x6A both)", pff, smr));
+    }
+
+    // G108-PORTFF-WINS — port-FF write supersedes any NR-side fan-out.
+    // After staging bit 6 = 1 via NR 0xC4 and bits 5:0 via NR 0x69, a
+    // subsequent direct port-FF write must overwrite the FULL 8 bits.
+    {
+        port_ff_write(0x00);                 // baseline
+        nr_write(emu, 0xC4, 0x00);           // port_ff_reg(6) ← 1
+        nr_write(emu, 0x69, 0x06);           // port_ff_reg(5:0) ← 0x06 (HI_RES, paper=0)
+        // Pre-port-FF state should be 0x46 (bit 6 + HI_RES mode bits).
+        const uint8_t pre  = emu.port_ff_reg();
+        port_ff_write(0x12);                 // direct write of full byte
+        const uint8_t post = emu.port_ff_reg();
+        const uint8_t smr  = get_smr();
+        check("G108-PORTFF-WINS",
+              "Direct port-FF write supersedes accumulated NR-side fan-out; "
+              "all 8 bits replaced [zxnext.vhd:3614-3622 elsif chain]",
+              pre == 0x46 && post == 0x12 && smr == 0x12,
+              fmt("pre=0x%02X (exp 0x46 NR accumulation) "
+                  "post=0x%02X smr=0x%02X (exp 0x12 both)",
+                  pre, post, smr));
+    }
+
+    // Restore reset baseline for downstream tests.
+    port_ff_write(0x00);
+    nr_write(emu, 0x22, 0x00);
+    nr_write(emu, 0xC4, 0x01);  // ULA int enabled (port_ff_reg(6) ← 0)
+    port_ff_write(0x00);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1828,6 +1990,9 @@ int main() {
 
     test_nr_68_ulap_read_composition(emu);
     std::printf("  Group: NR68-ULAP-Compose — done\n");
+
+    test_g108_port_ff_fanout(emu);
+    std::printf("  Group: G108-PortFF-Fanout — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
