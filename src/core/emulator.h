@@ -528,6 +528,25 @@ private:
     // Multiface NMI path via `nmi_gen_iotrap` (VHDL:2598-2602, 3835).
     // Power-on default '0' per VHDL:5107.
     bool nr_d8_io_trap_fdc_en_ = false;
+
+    // NR 0xD9 — `nr_d9_iotrap_write` (VHDL zxnext.vhd:1264, 3887-3898).
+    // Captures the CPU write byte that triggered an IO trap on
+    // port_3ffd_wr (the VHDL clause `nr_d9_iotrap_write <= cpu_do`
+    // when `port_3ffd_wr = '1' AND nmi_accept_cause = '1'`). Also
+    // accepts direct firmware writes via NR 0xD9 (`nr_d9_we`,
+    // VHDL:4901, :3894-3895). Reset value '0' (VHDL:3891).
+    uint8_t nr_d9_iotrap_write_ = 0;
+
+    // NR 0xDA — `nr_da_iotrap_cause` (VHDL zxnext.vhd:1265, 3866-3883).
+    // 2-bit encoding of which FDC port event triggered the most
+    // recent IO trap:
+    //   "01" = port_2ffd READ
+    //   "10" = port_3ffd READ
+    //   "11" = port_3ffd WRITE
+    // Read-only from NR 0xDA itself (VHDL:5645-5646 commented out).
+    // Cleared by NR 0x02 write with bit 4 = 0 (VHDL:3879-3880).
+    // Reset value '0' (VHDL:3870).
+    uint8_t nr_da_iotrap_cause_ = 0;
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
