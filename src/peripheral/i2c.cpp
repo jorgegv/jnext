@@ -108,7 +108,20 @@ void I2cRtc::snapshot_time() {
 
     regs_[0] = to_bcd(t->tm_sec);             // 0x00: seconds (BCD, bit 7 = CH = 0)
     regs_[1] = to_bcd(t->tm_min);             // 0x01: minutes
-    regs_[2] = to_bcd(t->tm_hour);            // 0x02: hours (24h mode, bit 6 = 0)
+    // G161 — DS1307 hours register (datasheet §Hours register): bit 6 = mode
+    // (0 = 24h, 1 = 12h); when 12h, bit 5 = AM/PM (0 = AM, 1 = PM) and bits
+    // 4:0 = BCD hours 1..12; when 24h, bits 5:0 = BCD hours 0..23. Honour the
+    // host-set mode_12h_ flag so the snapshot does not silently flip the mode
+    // bit back to 0 each transaction (i2c.cpp pre-G161 wrote
+    // to_bcd(tm_hour) unconditionally → mode/AM-PM lost on every start()).
+    if (mode_12h_) {
+        const int h24 = t->tm_hour;
+        const int h12 = ((h24 % 12) == 0) ? 12 : (h24 % 12);
+        const bool pm = (h24 >= 12);
+        regs_[2] = static_cast<uint8_t>(to_bcd(h12) | 0x40 | (pm ? 0x20 : 0x00));
+    } else {
+        regs_[2] = to_bcd(t->tm_hour);        // 0x02: hours (24h mode, bit 6 = 0)
+    }
     regs_[3] = to_bcd(t->tm_wday + 1);        // 0x03: day of week (1-7)
     regs_[4] = to_bcd(t->tm_mday);            // 0x04: date
     regs_[5] = to_bcd(t->tm_mon + 1);         // 0x05: month (1-12)
@@ -134,6 +147,10 @@ void I2cController::reset() {
     // when asserting.
     pi_i2c1_scl_ = true;
     pi_i2c1_sda_ = true;
+    // G138 — NR 0xA0 bit 3 (pi_i2c1_en) defaults '0' at hardware reset
+    // (zxnext.vhd:5080 → nr_a0_pi_peripheral_en <= (others => '0')). When
+    // disabled, the Pi-side wires are forced high at the AND boundary.
+    pi_i2c1_en_  = false;
     state_ = State::IDLE;
     bit_count_ = 0;
     shift_reg_ = 0;
@@ -173,7 +190,10 @@ uint8_t I2cController::read_scl() const {
     // zxnext.vhd:3259: port_103b_dat <= "1111111" & (i_I2C_SCL_n and pi_i2c1_scl);
     // Our scl_ mirrors i_I2C_SCL_n (the local master drives it). pi_i2c1_scl_
     // defaults to 1 (released) — AND-gate is a no-op until a test drives low.
-    return 0xFE | (scl_ & pi_i2c1_scl_);
+    // G138 — pi_i2c1_scl is FORCED HIGH at the gate when pi_i2c1_en=0
+    // (zxnext.vhd:2318): pi_i2c1_scl <= i_GPIO(3) when pi_i2c1_en='1' else '1'.
+    const uint8_t pi_scl_gated = pi_i2c1_en_ ? pi_i2c1_scl_ : uint8_t{1};
+    return 0xFE | (scl_ & pi_scl_gated);
 }
 
 uint8_t I2cController::read_sda() const {
@@ -181,7 +201,10 @@ uint8_t I2cController::read_sda() const {
     // zxnext.vhd:3266: port_113b_dat <= "1111111" & (i_I2C_SDA_n and pi_i2c1_sda);
     // SDA is the wired-AND of sda_out_, the device-driven sda_in_, and the
     // Raspberry Pi bridge sda (open-drain on all three sides).
-    return 0xFE | (sda_out_ & sda_in_ & pi_i2c1_sda_);
+    // G138 — pi_i2c1_sda is FORCED HIGH at the gate when pi_i2c1_en=0
+    // (zxnext.vhd:2317): pi_i2c1_sda <= i_GPIO(2) when pi_i2c1_en='1' else '1'.
+    const uint8_t pi_sda_gated = pi_i2c1_en_ ? pi_i2c1_sda_ : uint8_t{1};
+    return 0xFE | (sda_out_ & sda_in_ & pi_sda_gated);
 }
 
 void I2cController::attach_device(uint8_t address, I2cDevice* device) {
@@ -384,6 +407,11 @@ void I2cController::save_state(StateWriter& w) const
     // Phase-1: pi_i2c1 inputs — saved so rewind replays them correctly.
     w.write_bool(pi_i2c1_scl_);
     w.write_bool(pi_i2c1_sda_);
+    // G138 — NR 0xA0 bit 3 mirror (pi_i2c1_en_) is intentionally NOT
+    // serialised here. The owning byte (nr_a0_pi_peripheral_en_) is
+    // appended at the end of the Emulator snapshot stream and synced into
+    // I2cController via Emulator::load_state. This avoids growing the i2c
+    // sub-block mid-stream and breaking snapshots predating G135/G138.
 }
 
 void I2cController::load_state(StateReader& r)

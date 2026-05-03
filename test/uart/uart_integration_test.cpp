@@ -279,6 +279,49 @@ static void test_uart_im2_interrupts(Emulator& emu) {
               (ca & 0x40) != 0,
               "NR 0xCA=" + hex2(ca) + " (expected bit 6 set)");
     }
+
+    // INT-07 — UART RX request-mask asymmetry (G134). VHDL zxnext.vhd:1941-1944
+    // request shape is uart0_rx_near_full OR (uart0_rx_avail AND NOT
+    // nr_c6_int_en_2_210(1)). With NR 0xC6 bit 1 set + bit 0 clear:
+    //   - int_en for UART0_RX = bit1 OR bit0 = 1 (latch is armed)
+    //   - per-byte rx_avail is suppressed by AND-NOT-bit1 → a single
+    //     inject_rx must NOT fire vector 1.
+    //   - rx_near_full path is OR'd in unconditionally → once the FIFO
+    //     crosses the 3/4 (= 384 / 512) threshold, the request fires and
+    //     UART0_RX status bits 1:0 in NR 0xCA latch.
+    //
+    // This is the asymmetry between int_en (bit1 OR bit0) and int_req
+    // (near_full OR (avail AND NOT bit1)). Pre-G134 the emulator raised on
+    // every byte regardless of the mask — see the PLAN DRIFT NOTE on INT-02
+    // above; the proper near-full-only behaviour is now active.
+    {
+        fresh(emu);
+        nr_write(emu, 0xC6, 0x02);          // bit 1 set, bit 0 clear
+
+        // Single byte first — must NOT raise UART0_RX status because the
+        // per-byte avail is masked by NR 0xC6 bit 1.
+        emu.uart().inject_rx(0, 0x42);
+        settle(emu);
+        const uint8_t ca_one = nr_read(emu, 0xCA);
+        const bool one_byte_silent = (ca_one & 0x03) == 0;
+
+        // Now cross the 3/4 near-full threshold (384 of 512). 399 more
+        // injects (1 already in FIFO → 400 total) puts us firmly past.
+        for (int i = 0; i < 399; ++i) {
+            emu.uart().inject_rx(0, static_cast<uint8_t>(i & 0xFF));
+        }
+        settle(emu);
+        const uint8_t ca_full = nr_read(emu, 0xCA);
+        const bool near_full_fires = (ca_full & 0x03) != 0;
+
+        check("INT-07",
+              "UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — "
+              "single per-byte avail must NOT fire when bit 1 is set, near-full does "
+              "[zxnext.vhd:1941-1944, G134]",
+              one_byte_silent && near_full_fires,
+              fmt("after 1 byte: NR_CA=0x%02X (expect bits1:0 clear); after 400: NR_CA=0x%02X "
+                  "(expect bits1:0 set)", ca_one, ca_full));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -630,13 +673,99 @@ static void test_dual_06_iomode_rx_mux(Emulator& emu) {
               u0_empty_step3 ? 1 : 0, u1_empty_step3 ? 1 : 0));
 }
 
-static void test_nr_a0_pi_uart_routing(Emulator& /*emu*/) {
+static void test_nr_a0_pi_uart_routing(Emulator& emu) {
     set_group("NR_A0-INT");
-    // VHDL zxnext.vhd:2278-2281 — pi_uart_en gates UART1 TX/RX onto the
-    // Pi GPIO 14/15 mux. jnext has neither the GPIO mux nor the NR 0xA0
-    // handler. See G135 (cross-link to I2C-13 / G138 for the I2C side).
-    skip("NR_A0-03",
-         "Pi UART egress gate via NR 0xA0 bit4 unmodelled (see G135)");
+    // VHDL zxnext.vhd:1241, 2278-2281, 5080, 5560-5561, 6188-6189.
+    // NR 0xA0 = "Pi peripheral enable byte". Bit fan-out:
+    //   bit 5 = pi_uart_rxtx (UART1 cross on Pi GPIO mux)
+    //   bit 4 = pi_uart_en   (UART1 GPIO mux enable)
+    //   bit 3 = pi_i2c1_en   (I2C1 GPIO 2/3 mux enable)
+    //   bit 0 = pi_spi0_en   (SPI0 GPIO mux enable)
+    // Reset 0x00. Read mask 0x39 ("00" & b5..b3 & "00" & b0).
+
+    // NR_A0-01 — write/read handler round-trip + reset default + read mask.
+    // VHDL :5080 reset = 0x00; VHDL :5560-5561 stores raw byte on write;
+    // VHDL :6188-6189 read returns "00" & nr_a0(5..3) & "00" & nr_a0(0).
+    {
+        fresh(emu);
+        const uint8_t reset_val = nr_read(emu, 0xA0);
+
+        // Probe the read mask: write 0xFF, expect 0x39 (bits 5/4/3/0).
+        nr_write(emu, 0xA0, 0xFF);
+        const uint8_t mask_full = nr_read(emu, 0xA0);
+
+        // Probe a sparse pattern: 0xA5 = 1010 0101 → masked = 0x21
+        // (bits 5 + 0 set). Verifies the dropped bits 7,6,2,1.
+        nr_write(emu, 0xA0, 0xA5);
+        const uint8_t mask_a5 = nr_read(emu, 0xA0);
+
+        check("NR_A0-01",
+              "NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per "
+              "zxnext.vhd:5080, :6188-6189",
+              reset_val == 0x00 && mask_full == 0x39 && mask_a5 == 0x21,
+              fmt("reset=0x%02X (want 0x00); 0xFF→0x%02X (want 0x39); "
+                  "0xA5→0x%02X (want 0x21)", reset_val, mask_full, mask_a5));
+    }
+
+    // NR_A0-02 — bit fan-out accessors (b5 pi_uart_rxtx, b4 pi_uart_en,
+    // b3 pi_i2c1_en, b0 pi_spi0_en) all reflect the stored raw byte.
+    // Walk a 4-bit pattern across the 4 live bits.
+    {
+        fresh(emu);
+        // Write 0x39 (all four live bits set) and verify each accessor.
+        nr_write(emu, 0xA0, 0x39);
+        const bool b5 = emu.pi_uart_rxtx();
+        const bool b4 = emu.pi_uart_en();
+        const bool b3 = emu.pi_i2c1_en();
+        const bool b0 = emu.pi_spi0_en();
+        const bool all_set = b5 && b4 && b3 && b0;
+
+        // Now write 0x00 and verify all clear.
+        nr_write(emu, 0xA0, 0x00);
+        const bool b5z = emu.pi_uart_rxtx();
+        const bool b4z = emu.pi_uart_en();
+        const bool b3z = emu.pi_i2c1_en();
+        const bool b0z = emu.pi_spi0_en();
+        const bool all_clear = !b5z && !b4z && !b3z && !b0z;
+
+        check("NR_A0-02",
+              "NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), "
+              "pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281",
+              all_set && all_clear,
+              fmt("set: b5=%d b4=%d b3=%d b0=%d (want 1111); "
+                  "clear: b5=%d b4=%d b3=%d b0=%d (want 0000)",
+                  b5 ? 1 : 0, b4 ? 1 : 0, b3 ? 1 : 0, b0 ? 1 : 0,
+                  b5z ? 1 : 0, b4z ? 1 : 0, b3z ? 1 : 0, b0z ? 1 : 0));
+    }
+
+    // NR_A0-03 — bit 3 pi_i2c1_en gates the I2C1 wired-AND read path.
+    // VHDL zxnext.vhd:2317-2318:
+    //   pi_i2c1_sda <= i_GPIO(2) when pi_i2c1_en='1' else '1';
+    //   pi_i2c1_scl <= i_GPIO(3) when pi_i2c1_en='1' else '1';
+    // i.e. the Pi-side bridge inputs are forced HIGH at the AND boundary
+    // when the gate is OFF (NR 0xA0 bit 3 = 0, the reset default), so a
+    // Pi pulling SCL/SDA low must NOT propagate to port 0x103B/0x113B.
+    {
+        fresh(emu);
+        // Drive pi_i2c1_scl/sda LOW from the bridge side.
+        emu.i2c().set_pi_i2c1(false, false);
+
+        // Reset state — NR 0xA0 = 0x00 → gate OFF. Pi-low must not show.
+        const uint8_t scl_off = emu.port().in(0x103B) & 0x01;
+        const uint8_t sda_off = emu.port().in(0x113B) & 0x01;
+
+        // Open the gate via NR 0xA0 bit 3.
+        nr_write(emu, 0xA0, 0x08);
+        const uint8_t scl_on = emu.port().in(0x103B) & 0x01;
+        const uint8_t sda_on = emu.port().in(0x113B) & 0x01;
+
+        check("NR_A0-03",
+              "NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per "
+              "zxnext.vhd:2280, 2317-2318 (G135 + G138)",
+              scl_off == 1 && sda_off == 1 && scl_on == 0 && sda_on == 0,
+              fmt("gate off: scl=%u sda=%u (want 1/1); on: scl=%u sda=%u (want 0/0)",
+                  scl_off, sda_off, scl_on, sda_on));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

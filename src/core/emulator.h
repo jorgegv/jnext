@@ -709,6 +709,18 @@ private:
     // so the read handler returns exactly what was written.
     uint8_t  nr_c6_uart_int_en_  = 0;
 
+    // NR 0xA0 — Pi peripheral enable byte (G135). VHDL zxnext.vhd:1241,
+    // 2278-2281, 5080, 5561, 6189. Reset 0x00 (zxnext.vhd:5080). Bit
+    // fan-out:
+    //   bit 5 = pi_uart_rxtx (UART1 RX/TX cross on Pi GPIO 14/15 mux)
+    //   bit 4 = pi_uart_en   (UART1 GPIO 14/15 mux enable)
+    //   bit 3 = pi_i2c1_en   (I2C1 GPIO 2/3 mux enable)
+    //   bit 0 = pi_spi0_en   (SPI0 GPIO 7..11 mux enable)
+    // Read mask per VHDL :6189:
+    //   port_253b_dat <= "00" & nr_a0(5 downto 3) & "00" & nr_a0(0)
+    // → mask 0x39, bits 7,6,2,1 read as 0.
+    uint8_t  nr_a0_pi_peripheral_en_ = 0;
+
     // --- IM2 DMA delay enables (NextREG 0xCC / 0xCD / 0xCE) ---
     // VHDL zxnext.vhd:1259-1262, :5629-5637, :6257-6263.
     // NR 0xCC bit 7   = dma delay on NMI    (nr_cc_dma_int_en_0_7)
@@ -794,6 +806,21 @@ public:
 
     /// Read-only view of the latched im2_dma_delay (for tests).
     bool im2_dma_delay() const { return im2_dma_delay_latched_; }
+
+    /// G135 — NR 0xA0 Pi peripheral enable raw byte (zxnext.vhd:1241).
+    /// Test-only readback of the stored byte (read handler returns the
+    /// VHDL-masked composition, not this raw value).
+    uint8_t  nr_a0_pi_peripheral_en() const { return nr_a0_pi_peripheral_en_; }
+
+    /// G135 / VHDL zxnext.vhd:2278-2281 — bit fan-out accessors.
+    bool pi_uart_rxtx() const { return (nr_a0_pi_peripheral_en_ & 0x20) != 0; }  ///< b5
+    bool pi_uart_en()   const { return (nr_a0_pi_peripheral_en_ & 0x10) != 0; }  ///< b4
+    bool pi_i2c1_en()   const { return (nr_a0_pi_peripheral_en_ & 0x08) != 0; }  ///< b3
+    bool pi_spi0_en()   const { return (nr_a0_pi_peripheral_en_ & 0x01) != 0; }  ///< b0
+
+    /// G135 — direct NR 0xA0 setter (test-only path; the production path
+    /// goes through the NR 0xA0 write handler installed in init()).
+    void set_nr_a0_pi_peripheral_en(uint8_t v) { nr_a0_pi_peripheral_en_ = v; }
 
 private:
 
