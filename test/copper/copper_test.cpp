@@ -107,11 +107,11 @@ constexpr uint16_t enc_wait(uint8_t hpos, uint16_t vpos) {
 // CPU addresses those registers, and it is also what enables the self-
 // modifying MUT-* scenarios in which a Copper MOVE targets NR 0x60/0x62.
 void wire_nr_to_cu(NextReg& nr, Copper& cu) {
-    nr.set_write_handler(0x60, [&cu](uint8_t v) { cu.write_reg_0x60(v); });
-    nr.set_write_handler(0x61, [&cu](uint8_t v) { cu.write_reg_0x61(v); });
-    nr.set_write_handler(0x62, [&cu](uint8_t v) { cu.write_reg_0x62(v); });
-    nr.set_write_handler(0x63, [&cu](uint8_t v) { cu.write_reg_0x63(v); });
-    nr.set_write_handler(0x64, [&cu](uint8_t v) { cu.write_reg_0x64(v); });
+    nr.set_write_handler(0x60, [&cu](uint8_t v) -> uint8_t { cu.write_reg_0x60(v); return v; });
+    nr.set_write_handler(0x61, [&cu](uint8_t v) -> uint8_t { cu.write_reg_0x61(v); return v; });
+    nr.set_write_handler(0x62, [&cu](uint8_t v) -> uint8_t { cu.write_reg_0x62(v); return v; });
+    nr.set_write_handler(0x63, [&cu](uint8_t v) -> uint8_t { cu.write_reg_0x63(v); return v; });
+    nr.set_write_handler(0x64, [&cu](uint8_t v) -> uint8_t { cu.write_reg_0x64(v); return v; });
 }
 
 // Forward NR 0x61/0x62 reads from a NextReg into the Copper — mirrors
@@ -426,9 +426,10 @@ void group2_move() {
     // Track every write handed to NR 0x40 so we can count pulses exactly.
     int      r40_writes = 0;
     uint8_t  r40_last   = 0;
-    nr.set_write_handler(0x40, [&](uint8_t v) {
+    nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t {
         ++r40_writes;
         r40_last = v;
+        return v;
     });
     // Recapture wired forwarding for NR 0x60-0x63 was done above; 0x40 is
     // just an observer (it's a target register, not a Copper control reg).
@@ -440,7 +441,7 @@ void group2_move() {
         wire_nr_to_cu(nr, cu);
         r40_writes = 0;
         r40_last   = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++r40_writes; r40_last = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++r40_writes; r40_last = v; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);                  // mode-change cycle
@@ -463,7 +464,7 @@ void group2_move() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int seen_reg = -1;
-        nr.set_write_handler(0x7F, [&](uint8_t v) { seen_reg = v; });
+        nr.set_write_handler(0x7F, [&](uint8_t v) -> uint8_t { seen_reg = v; return v; });
         program_word(cu, 0, enc_move(0x7F, 0x33));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);  // mode change
@@ -480,7 +481,7 @@ void group2_move() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int nr0_writes = 0;
-        nr.set_write_handler(0x00, [&](uint8_t) { ++nr0_writes; });
+        nr.set_write_handler(0x00, [&](uint8_t v) -> uint8_t { ++nr0_writes; return v; });
         program_word(cu, 0, enc_move(0x00, 0xAA));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);
@@ -496,8 +497,8 @@ void group2_move() {
         wire_nr_to_cu(nr, cu);
         int  r40 = 0, r41 = 0;
         uint8_t v40 = 0, v41 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++r40; v40 = v; });
-        nr.set_write_handler(0x41, [&](uint8_t v) { ++r41; v41 = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++r40; v40 = v; return v; });
+        nr.set_write_handler(0x41, [&](uint8_t v) -> uint8_t { ++r41; v41 = v; return v; });
         program_word(cu, 0, enc_move(0x40, 0x11));
         program_word(cu, 1, enc_move(0x41, 0x22));
         set_mode(cu, 1);
@@ -517,7 +518,7 @@ void group2_move() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int writes = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++writes; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++writes; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         program_word(cu, 1, enc_wait(0, 511));   // HALT (copper.vhd:35 — 9-bit vpos)
         set_mode(cu, 1);
@@ -554,7 +555,7 @@ void group2_move() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         uint8_t seen = 0;
-        nr.set_write_handler(0x7F, [&](uint8_t v) { seen = v; });
+        nr.set_write_handler(0x7F, [&](uint8_t v) -> uint8_t { seen = v; return v; });
         program_word(cu, 0, enc_move(0x7F, 0xFF));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);
@@ -665,7 +666,7 @@ void group3_wait() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int r40 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++r40; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++r40; return v; });
         program_word(cu, 0, enc_wait(0, 50));
         program_word(cu, 1, enc_move(0x40, 0x77));
         set_mode(cu, 1);
@@ -684,7 +685,7 @@ void group3_wait() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(0, 50));
         program_word(cu, 1, enc_wait(0, 100));
         program_word(cu, 2, enc_move(0x40, 0xAA));
@@ -720,7 +721,7 @@ void group3_wait() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(0, 500));   // vpos 500 never reached in mock range
         program_word(cu, 1, enc_move(0x40, 0x99));
         set_mode(cu, 1);
@@ -739,7 +740,7 @@ void group3_wait() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(0, 50));
         program_word(cu, 1, enc_move(0x40, 0xBB));
         set_mode(cu, 1);
@@ -757,7 +758,7 @@ void group3_wait() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(0, 50));
         program_word(cu, 1, enc_move(0x40, 0xBB));
         set_mode(cu, 3);
@@ -848,8 +849,8 @@ void group4_modes() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires_40 = 0, fires_41 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires_40; });
-        nr.set_write_handler(0x41, [&](uint8_t) { ++fires_41; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires_40; return v; });
+        nr.set_write_handler(0x41, [&](uint8_t v) -> uint8_t { ++fires_41; return v; });
         program_word(cu, 0, enc_move(0x40, 0x11));
         program_word(cu, 1, enc_move(0x41, 0x22));
         program_word(cu, 2, enc_wait(0, 511));  // HALT
@@ -873,7 +874,7 @@ void group4_modes() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         program_word(cu, 1, enc_wait(0, 511));  // HALT
         set_mode(cu, 3);
@@ -969,7 +970,7 @@ void group4_modes() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         program_word(cu, 1, enc_move(0x40, 0x66));
         set_mode(cu, 1);
@@ -1075,7 +1076,7 @@ void group5_timing() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int pulses = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++pulses; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++pulses; return v; });
         for (int i = 0; i < 10; ++i) program_word(cu, i, enc_move(0x40, static_cast<uint8_t>(i)));
         program_word(cu, 10, enc_wait(0, 511));   // HALT
         set_mode(cu, 1);
@@ -1092,7 +1093,7 @@ void group5_timing() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(0, 50));
         program_word(cu, 1, enc_move(0x40, 0xAB));
         set_mode(cu, 1);
@@ -1112,7 +1113,7 @@ void group5_timing() {
         wire_nr_to_cu(nr, cu);
         int fires = 0;
         uint8_t last = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++fires; last = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; last = v; return v; });
         program_word(cu, 0, enc_move(0x40, 0xFE));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);   // mode change
@@ -1164,7 +1165,7 @@ void group6_offset() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int moves = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++moves; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++moves; return v; });
         nr.write(0x64, 0x20);                           // NR 0x64 <- 0x20
         program_word(cu, 0, enc_wait(0, 0x20));
         program_word(cu, 1, enc_move(0x40, 0xAA));
@@ -1189,7 +1190,7 @@ void group6_offset() {
         wire_nr_to_cu(nr, cu);
         int moves = 0;
         uint8_t last = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++moves; last = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++moves; last = v; return v; });
         nr.write(0x64, 10);
         program_word(cu, 0, enc_wait(0, 10));
         program_word(cu, 1, enc_move(0x40, 0x77));
@@ -1235,7 +1236,7 @@ void group6_offset() {
         zero_instruction_ram(cu);  // VHDL dpram2 has no reset port (G118)
         cu.set_c_max_vc(5);
         int moves = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++moves; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++moves; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         // Remaining slots are already 0 (NOP) per zero_instruction_ram above.
         set_mode(cu, 3);  // mode 11
@@ -1276,8 +1277,8 @@ void group7_arbitration() {
         wire_nr_to_cu(nr, cu);
         uint8_t seen_at_7f = 0;
         uint8_t seen_at_ff = 0;
-        nr.set_write_handler(0x7F, [&](uint8_t v) { seen_at_7f = v; });
-        nr.set_write_handler(0xFF, [&](uint8_t v) { seen_at_ff = v; });
+        nr.set_write_handler(0x7F, [&](uint8_t v) -> uint8_t { seen_at_7f = v; return v; });
+        nr.set_write_handler(0xFF, [&](uint8_t v) -> uint8_t { seen_at_ff = v; return v; });
         program_word(cu, 0, enc_move(0x7F, 0x5A));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);
@@ -1296,7 +1297,7 @@ void group7_arbitration() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int copper_pulses = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++copper_pulses; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++copper_pulses; return v; });
         program_word(cu, 0, enc_move(0x40, 0xAA));
         set_mode(cu, 0);
         for (int i = 0; i < 50; ++i) cu.execute(12, 0, nr);
@@ -1323,7 +1324,7 @@ void group7_arbitration() {
         wire_nr_to_cu(nr, cu);
         int      pulses = 0;
         uint8_t  last_v = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++pulses; last_v = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++pulses; last_v = v; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         set_mode(cu, 1);
         // Cycle A: Copper asserts its write first, per VHDL priority.
@@ -1345,7 +1346,7 @@ void group7_arbitration() {
         struct Pulse { uint8_t reg, val; };
         std::vector<Pulse> seen;
         nr.set_write_handler(0x40,
-            [&](uint8_t v) { seen.push_back({0x40, v}); });
+            [&](uint8_t v) -> uint8_t { seen.push_back({0x40, v}); return v;});
         program_word(cu, 0, enc_move(0x40, 0x55));
         set_mode(cu, 1);
         // Cycle A: Copper pulses 0x55.
@@ -1375,8 +1376,8 @@ void group7_arbitration() {
         wire_nr_to_cu(nr, cu);
         uint8_t saw_07 = 0, saw_40 = 0;
         int     n07 = 0, n40 = 0;
-        nr.set_write_handler(0x07, [&](uint8_t v) { saw_07 = v; ++n07; });
-        nr.set_write_handler(0x40, [&](uint8_t v) { saw_40 = v; ++n40; });
+        nr.set_write_handler(0x07, [&](uint8_t v) -> uint8_t { saw_07 = v; ++n07; return v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { saw_40 = v; ++n40; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         set_mode(cu, 1);
         // Cycle A: Copper writes NR 0x40 = 0x55.
@@ -1409,7 +1410,7 @@ void group7_arbitration() {
         NmiSource nmi;
         nmi.reset();
         nmi.set_mf_enable(true);  // NR 0x06 bit 3 = 1: gate MF producer on
-        nr.set_write_handler(0x02, [&nmi](uint8_t v) { nmi.nr_02_write(v); });
+        nr.set_write_handler(0x02, [&nmi](uint8_t v) -> uint8_t { nmi.nr_02_write(v); return v; });
 
         const bool pre_idle   = (nmi.state() == NmiSource::State::Idle);
         const bool pre_nomf   = !nmi.nmi_mf();
@@ -1490,7 +1491,7 @@ void group8_self_modifying() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int r40 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++r40; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++r40; return v; });
         program_word(cu, 0, enc_move(0x62, 0x00));  // mode<-00
         program_word(cu, 1, enc_move(0x40, 0xFF));  // should never fire
         set_mode(cu, 1);
@@ -1510,7 +1511,7 @@ void group8_self_modifying() {
         wire_nr_to_cu(nr, cu);
         int r40 = 0;
         uint8_t v40 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++r40; v40 = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++r40; v40 = v; return v; });
         program_word(cu, 0, enc_move(0x62, 0x80));  // mode<-10
         program_word(cu, 1, enc_move(0x40, 0xAA));
         set_mode(cu, 1);
@@ -1606,7 +1607,7 @@ void group9_edge() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_wait(63, 500));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);
@@ -1624,7 +1625,7 @@ void group9_edge() {
         wire_nr_to_cu(nr, cu);
         int fires = 0;
         uint8_t v40 = 0;
-        nr.set_write_handler(0x40, [&](uint8_t v) { ++fires; v40 = v; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; v40 = v; return v; });
         for (int i = 0; i < 1023; ++i) program_word(cu, i, enc_move(0x00, 0));
         program_word(cu, 1023, enc_move(0x40, 0xEE));
         set_mode(cu, 1);
@@ -1644,7 +1645,7 @@ void group9_edge() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_move(0x40, 0x55));
         program_word(cu, 1, enc_move(0x40, 0x66));  // would-fire second MOVE
         set_mode(cu, 1);
@@ -1664,7 +1665,7 @@ void group9_edge() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         program_word(cu, 0, enc_move(0x40, 0x77));
         program_word(cu, 1, enc_wait(0, 511));  // HALT
         set_mode(cu, 3);
@@ -1698,7 +1699,7 @@ void group9_edge() {
         reset_both(cu, nr);
         wire_nr_to_cu(nr, cu);
         int fires = 0;
-        nr.set_write_handler(0x40, [&](uint8_t) { ++fires; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++fires; return v; });
         for (int i = 0; i < 1024; ++i) program_word(cu, i, enc_wait(0, 500));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);
@@ -1714,7 +1715,7 @@ void group9_edge() {
         wire_nr_to_cu(nr, cu);
         int any_nr = 0;
         // Install a wild card on a random reg to be sure.
-        nr.set_write_handler(0x40, [&](uint8_t) { ++any_nr; });
+        nr.set_write_handler(0x40, [&](uint8_t v) -> uint8_t { ++any_nr; return v; });
         for (int i = 0; i < 1024; ++i) program_word(cu, i, enc_move(0x00, 0));
         set_mode(cu, 1);
         cu.execute(12, 0, nr);

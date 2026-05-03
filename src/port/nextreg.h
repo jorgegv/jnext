@@ -18,8 +18,15 @@ public:
     uint8_t read(uint8_t reg);
     void    write(uint8_t reg, uint8_t val);
 
-    // Install a handler called when a specific register is written
-    void set_write_handler(uint8_t reg, std::function<void(uint8_t)> fn);
+    // Install a handler called when a specific register is written.
+    // Contract: the handler returns the canonical byte that NextReg::write
+    // stores into regs_[reg]. Handlers that don't need to canonicalise
+    // (subsystem stores raw byte verbatim, or there's a dedicated
+    // read_handler) should `return v;` to preserve last-write-wins
+    // semantics. Handlers that mask reserved bits or compose canonical
+    // state should `return masked_byte;` so subsequent reads read back
+    // the VHDL-faithful value. G56 closure (Option C strategy b1).
+    void set_write_handler(uint8_t reg, std::function<uint8_t(uint8_t)> fn);
 
     // Install a handler called when a specific register is read.
     // The handler returns the dynamic value; if no handler is set, the cached
@@ -83,6 +90,6 @@ private:
     uint8_t nr_03_machine_timing_ = 0x03;  // VHDL zxnext.vhd:1099 "011" default
     bool    nr_03_user_dt_lock_   = false; // VHDL zxnext.vhd:1100 '0' default
     uint8_t nr_03_machine_type_   = 0x03;  // VHDL zxnext.vhd:1103 "011" default
-    std::array<std::function<void(uint8_t)>, 256> write_handlers_{};
+    std::array<std::function<uint8_t(uint8_t)>, 256> write_handlers_{};
     std::array<std::function<uint8_t()>, 256> read_handlers_{};
 };

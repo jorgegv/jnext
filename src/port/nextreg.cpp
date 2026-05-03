@@ -129,13 +129,21 @@ uint8_t NextReg::read(uint8_t reg) {
 
 void NextReg::write(uint8_t reg, uint8_t val) {
     Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
-    regs_[reg] = val;
+    // G56 closure (Option C strategy b1): if a handler is registered, it
+    // returns the canonical byte to be stored in regs_[reg]. Without a
+    // handler, fall through to the raw written byte. Pre-G56 the raw byte
+    // was always stored before calling the handler, which silently
+    // overwrote any handler decision to mask reserved bits or reject
+    // gated writes — making `regs_[]` diverge from the VHDL-faithful
+    // value the handler had committed to subsystem state.
     if (write_handlers_[reg]) {
-        write_handlers_[reg](val);
+        regs_[reg] = write_handlers_[reg](val);
+    } else {
+        regs_[reg] = val;
     }
 }
 
-void NextReg::set_write_handler(uint8_t reg, std::function<void(uint8_t)> fn) {
+void NextReg::set_write_handler(uint8_t reg, std::function<uint8_t(uint8_t)> fn) {
     write_handlers_[reg] = std::move(fn);
 }
 

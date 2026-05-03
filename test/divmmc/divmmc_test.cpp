@@ -1538,11 +1538,12 @@ void group_na() {
         d.set_enabled(true);          // both levers true at boot
         // Emulator-side NR 0x0A handler (mirror — keep in sync with
         // the production handler at src/core/emulator.cpp).
-        nr.set_write_handler(0x0A, [&](uint8_t v) {
+        nr.set_write_handler(0x0A, [&](uint8_t v) -> uint8_t {
             if (nr.nr_03_config_mode()) {
                 s.set_sd_swap((v & 0x20) != 0);
             }
             d.set_nr_0a_4_enable((v & 0x10) != 0);
+            return v;
         });
 
         // NR 0x0A bit 4 = 0 → set_nr_0a_4_enable(false).
@@ -1566,8 +1567,9 @@ void group_na() {
         DivMmc d; d.reset();
         d.set_enabled(true);          // both levers true at boot
         // Mirror production NR 0x83 handler.
-        nr.set_write_handler(0x83, [&](uint8_t v) {
+        nr.set_write_handler(0x83, [&](uint8_t v) -> uint8_t {
             d.set_port_io_enable((v & 0x01) != 0);
+            return v;
         });
 
         // NR 0x83 bit 0 = 0 → port_io_enable_=false; enabled_ collapses.
@@ -1632,11 +1634,12 @@ void group_na() {
         DivMmc d; d.reset();
         SpiMaster s;
         d.set_enabled(true);
-        nr.set_write_handler(0x0A, [&](uint8_t v) {
+        nr.set_write_handler(0x0A, [&](uint8_t v) -> uint8_t {
             if (nr.nr_03_config_mode()) {
                 s.set_sd_swap((v & 0x20) != 0);
             }
             d.set_nr_0a_4_enable((v & 0x10) != 0);
+            return v;
         });
 
         // Power-on default: nr_03_config_mode_ = true. Write NR 0x0A bit
