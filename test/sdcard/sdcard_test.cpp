@@ -432,13 +432,11 @@ static void test_cmd24_write(SdCardDevice& sd) {
     for (int i = 0; i < 512; ++i)
         pattern[i] = static_cast<uint8_t>(i ^ 0xA5);
 
-    // Issue CMD24 sector=8.  Note: the existing cmd24_write_single_block
-    // overwrites state to RECEIVING_DATA immediately after queue_r1, so the
-    // pre-data R1 byte is not actually emitted on MISO.  The data-response
-    // token (0x05) returned AFTER the block is the canonical write-success
-    // signal in SPI mode (SD spec § 7.3.3.1) and is what we assert on, plus
-    // the CMD17 round-trip readback.
-    (void)send_cmd_r1(sd, 24, 8);
+    // Issue CMD24 sector=8.  After the cmd24-r1-emission fix, R1 is
+    // emitted on MISO before the data phase (SD spec § 7.2.4 / 7.3.3.1):
+    // send_cmd_r1() polls past the NCR 0xFF and returns the actual R1
+    // byte, which must be 0x00 for an initialized card.
+    uint8_t r1_wr = send_cmd_r1(sd, 24, 8);
 
     // Send 0xFE start token + 512 pattern bytes + 2 CRC bytes (0xFF).
     spi_write(sd, 0xFE);
@@ -468,10 +466,11 @@ static void test_cmd24_write(SdCardDevice& sd) {
     bool match = std::memcmp(got, pattern, 512) == 0;
 
     check("SD-14",
-          "CMD24 WRITE_BLOCK round-trip: data-response 0x05 + CMD17 readback "
-          "returns identical 512 bytes",
-          data_resp_ok && r1_rd == 0x00 && tok && match,
-          "resp=" + std::string(data_resp_ok ? "1" : "0") +
+          "CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + "
+          "CMD17 readback returns identical 512 bytes",
+          r1_wr == 0x00 && data_resp_ok && r1_rd == 0x00 && tok && match,
+          "r1_wr=" + std::to_string(r1_wr) +
+          " resp=" + std::string(data_resp_ok ? "1" : "0") +
           " r1_rd=" + std::to_string(r1_rd) +
           " tok=" + (tok ? "1" : "0") +
           " match=" + (match ? "1" : "0"));

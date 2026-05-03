@@ -60,6 +60,7 @@ void SdCardDevice::unmount() {
     state_ = State::IDLE;
     initialized_ = false;
     file_size_ = 0;
+    pending_write_after_r1_ = false;
 }
 
 void SdCardDevice::deselect() {
@@ -78,6 +79,10 @@ void SdCardDevice::deselect() {
     // the stream on CS high without needing CMD12 in SPI mode).
     multi_block_        = false;
     multi_block_sector_ = 0;
+    // CMD24 R1-bridge flag also clears: a CS deassert mid-CMD24 (after R1
+    // queued but before the data phase started) must not leave the card
+    // primed to flip to RECEIVING_DATA on the next host activation.
+    pending_write_after_r1_ = false;
     // Note: initialized_ is NOT reset — the card stays initialized
     sd_log()->debug("CS deasserted — protocol state reset to IDLE");
 }
@@ -163,6 +168,11 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // and silently resume after the new command's block.
                 multi_block_        = false;
                 multi_block_sector_ = 0;
+                // Same logic for the CMD24 R1-bridge flag: a new command
+                // arriving mid-CMD24 (between the queued R1 and the data
+                // phase) must not leave the bridge armed and silently
+                // promote the next response into a write-data phase.
+                pending_write_after_r1_ = false;
             }
             break;
     }
@@ -184,9 +194,32 @@ uint8_t SdCardDevice::send() {
 
         case State::RESPONDING:
             if (resp_idx_ < resp_buf_.size()) {
-                return resp_buf_[resp_idx_++];
+                uint8_t b = resp_buf_[resp_idx_++];
+                // Eagerly handle exhaustion when emitting the LAST byte so
+                // any subsequent host activity (write data after CMD24's R1,
+                // for instance) sees the post-response state immediately.
+                // CMD24 sets pending_write_after_r1_ so we transition to
+                // RECEIVING_DATA only AFTER R1 (and its NCR prefix) have
+                // actually been emitted on MISO — see SD spec § 7.2.4 /
+                // 7.3.3.1 and FatFs send_cmd in tbblue diskio.c which polls
+                // for the first non-0xFF byte (the R1).
+                if (resp_idx_ >= resp_buf_.size()) {
+                    if (pending_write_after_r1_) {
+                        pending_write_after_r1_ = false;
+                        state_ = State::RECEIVING_DATA;
+                    } else {
+                        state_ = State::IDLE;
+                    }
+                }
+                return b;
             }
-            state_ = State::IDLE;
+            // Buffer was already exhausted on entry — defensive idle path.
+            if (pending_write_after_r1_) {
+                pending_write_after_r1_ = false;
+                state_ = State::RECEIVING_DATA;
+            } else {
+                state_ = State::IDLE;
+            }
             return 0xFF;
 
         case State::SENDING_DATA:
@@ -443,11 +476,17 @@ void SdCardDevice::cmd24_write_single_block() {
         return;
     }
 
-    // Send R1, then wait for host to send 0xFE + 512 bytes + 2 CRC
+    // Send R1, then wait for host to send 0xFE + 512 bytes + 2 CRC.
+    // queue_r1() puts us in State::RESPONDING with {0xFF, 0x00}.  We set
+    // the bridge flag so send() flips to RECEIVING_DATA only AFTER both
+    // bytes have actually been emitted on MISO.  (Previously the next
+    // line unconditionally clobbered RESPONDING with RECEIVING_DATA, so
+    // send() in RECEIVING_DATA returned 0xFF and the host's R1 poll
+    // hung forever — see FatFs send_cmd in tbblue diskio.c.)
     queue_r1(0x00);
     data_idx_ = 0;
     data_crc_count_ = 0;
-    state_ = State::RECEIVING_DATA;
+    pending_write_after_r1_ = true;
 }
 
 void SdCardDevice::cmd55_app_cmd() {
