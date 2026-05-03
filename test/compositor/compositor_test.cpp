@@ -1574,22 +1574,39 @@ static void test_UTB() {
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
 
-    // UB-G26-01 — VHDL zxnext.vhd:7163-7177. The mix_top/mix_bot swap
-    // semantics on tm_pixel_below_2 in mode 01 read inverted to the
-    // flag name; UTB-40/41 encode VHDL as-is. DEFERRED on FPGA-team
-    // oracle confirmation; see COMPOSITOR-TEST-PLAN-DESIGN.md
-    // §"Open Questions (Honest)" item 1.
-    skip("UB-G26-01",
-         "DEFERRED on FPGA-team oracle: mode-01 mix_top/mix_bot swap inversion "
-         "(COMPOSITOR-TEST-PLAN-DESIGN.md Open Questions §1; G26)");
+    // RE-HOME UB-G26-01 → UTB-40 + UTB-41 (mode-01 mix_top/mix_bot swap on tm_pixel_below_2; VHDL zxnext.vhd:7163-7177). Original "FPGA-team oracle" deferral retired per VHDL-as-oracle rule.
 
-    // UB-G26-02 — VHDL zxnext.vhd:7300, 7342. L2-priority `if` is
-    // first in mode 110/111 (more aggressive than non-blend modes).
-    // DEFERRED on FPGA-team confirmation that this is intended; see
-    // COMPOSITOR-TEST-PLAN-DESIGN.md §"Open Questions (Honest)" item 2.
-    skip("UB-G26-02",
-         "DEFERRED on FPGA-team oracle: L2 priority over opaque mix_top in 110/111 "
-         "(COMPOSITOR-TEST-PLAN-DESIGN.md Open Questions §2; G26)");
+    // UB-G26-02 — VHDL zxnext.vhd:7300 (additive cascade) / 7342
+    // (subtractive cascade): the `if layer2_priority='1'` arm is the
+    // FIRST cascade element in modes 110/111, so an L2 pixel with the
+    // priority bit set wins over an opaque mix_top source. Encoded
+    // here per the VHDL-as-oracle rule (no external "FPGA-team"
+    // confirmation needed). Mode 110 (additive blend) chosen so the
+    // L2-priority result and the mix_top result are visibly distinct.
+    {
+        clear_layers(r);
+        r.set_layer_priority(6);              // mode 110 additive
+        r.set_blend_mode(0);                  // NR 0x68 bits 6:5 = 00
+        const uint32_t L2_PIX  = Renderer::rrrgggbb_to_argb(0x49);  // r=2 g=2 b=1
+        const uint32_t ULA_PIX = Renderer::rrrgggbb_to_argb(0x92);  // r=4 g=4 b=2
+        const uint32_t TM_PIX  = Renderer::rrrgggbb_to_argb(0x24);  // distinct decoy
+        r.layer2_line_[0]     = L2_PIX;
+        r.layer2_priority_[0] = true;         // VHDL 7220: l2_prio bit
+        r.ula_line_[0]        = ULA_PIX;      // mix_rgb in mode-00 blend
+        r.tilemap_line_[0]    = TM_PIX;       // mix_top in mode-00 blend
+        r.tm_pixel_below_[0]  = false;        // mix_top opaque (tm_below=0)
+        uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+        // Additive: r=2+4=6, g=2+4=6, b=1+2=3 → packed rrrgggbb = 110_110_11 = 0xDB.
+        const uint32_t expected_blend = Renderer::rrrgggbb_to_argb(0xDB);
+        check("UB-G26-02",
+              "NR0x68 mode 110 (additive): layer2_priority wins over opaque mix_top "
+              "(VHDL zxnext.vhd:7300 first if)",
+              got == expected_blend,
+              DETAIL("got=0x%08X expected=0x%08X (TM=0x%08X mix_top would have been TM)",
+                     got, expected_blend, TM_PIX));
+        r.set_layer_priority(0);
+        r.set_blend_mode(0);
+    }
 }
 
 // ── Group PFF — port_ff_reg NR-side fan-out (G108) ──────────────────────
