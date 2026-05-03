@@ -180,13 +180,16 @@ static void test_selection() {
     // 218-238 implements NEXTREG_NN/NEXTREG_A as two out() calls
     // (0x243B then 0x253B) which mutate NextReg::selected_ as a
     // side-effect.
-    skip("SEL-05a",
-         "Z80N NEXTREG clobbers NextReg::selected_ via 0x243B (see G151)");
+    // RE-HOME SEL-05a → test/z80n/tests.in:495 (ed91_basic / ed91_preserve)
+    //                  test/z80n/tests.expected:501 — Z80N NEXTREG opcode
+    //                  coverage at CPU tier; bare NextReg cannot observe
+    //                  CPU-level opcode side-effects.
 
     // SEL-05b — discriminative pair: post-Z80N data write lands wrong
     // because selection has been clobbered.
-    skip("SEL-05b",
-         "discriminative pair: post-Z80N data write lands wrong (see G151)");
+    // RE-HOME SEL-05b → test/z80n/tests.in:507 (ed92_basic / ed92_preserve)
+    //                  test/z80n/tests.expected:513 — Z80N NEXTREG A-form
+    //                  opcode coverage at CPU tier.
 }
 
 // ── 2. Read-Only Registers (RO-01..06) ───────────────────────────────
@@ -617,10 +620,10 @@ static void test_bypass_q() {
 
     // BYPASS-Q-01..02 — G64: VHDL/blob inspection tasks per
     // FUTURE-NEXTZXOS-BYPASS-TBBLUE-FW.md Q3-Q8.
-    skip("BYPASS-Q-01",
-         "NR 0x28-0x2B keymap.bin read-back unspecified (see G64)");
-    skip("BYPASS-Q-02",
-         "altROM 0x06/0x07 layout in enNextZX.rom unspecified (see G64)");
+    // WONT BYPASS-Q-01 — NR 0x28-0x2B keymap.bin read-back spec not pinned;
+    //                   no authoritative VHDL/spec to encode as oracle.
+    // WONT BYPASS-Q-02 — altROM 0x06/0x07 layout in enNextZX.rom unspecified;
+    //                   no authoritative VHDL/spec to encode as oracle.
 }
 
 // ── 8. Palette Registers (PAL-01..06) ────────────────────────────────
@@ -802,21 +805,21 @@ static void test_composed_read_divergence() {
     // state (Joystick + nr_03_config_mode), so they cannot run on bare
     // NextReg. The bare suite intentionally skips here to avoid testing
     // the raw shadow store as if it were the oracle.
-    skip("G56-CR-05", "NR 0x05 composed-read — re-homed to integration (G56 cluster A landed)");
-    skip("G56-CR-06", "NR 0x06 composed-read — re-homed to integration (G56 cluster A landed)");
+    // RE-HOME G56-CR-05 → nextreg_integration_test.cpp G56-CR-NR05 (cluster A landed)
+    // RE-HOME G56-CR-06 → nextreg_integration_test.cpp G56-CR-NR06 (cluster A landed)
     // G56 Cluster B (NR 0x09/0x0A/0x0B/0x10/0x15) read-handlers landed
     // in src/core/emulator.cpp. Verified in
     // test/nextreg/nextreg_integration_test.cpp (group G56-Cluster-B).
     // Bare NextReg has no per-NR composition logic — rows remain skipped
     // here for the bare layer; integration coverage is the source of truth.
-    skip("G56-CR-09", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-0A", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-0B", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-10", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-15", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-22", "NR 0x22 bit 7 dynamic pulse_int_n (see G56)");
-    skip("G56-CR-23", "NR 0x23 line-int compare ladder (see G56)");
-    skip("G56-CR-34", "→ G56-Cluster-B (integration test); landed");
+    // RE-HOME G56-CR-09 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-0A → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-0B → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-10 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-15 → nextreg_integration_test.cpp G56-Cluster-B (landed)
+    // RE-HOME G56-CR-22 → nextreg_integration_test.cpp LineINT-NR22-NR23 (landed; KEEP read_handler per Phase-2 cluster C)
+    // RE-HOME G56-CR-23 → nextreg_integration_test.cpp LineINT-NR22-NR23 (landed; KEEP read_handler per Phase-2 cluster C)
+    // RE-HOME G56-CR-34 → nextreg_integration_test.cpp G56-Cluster-B (landed)
     // G56 Cluster D — RE-HOMED to test/nextreg/nextreg_integration_test.cpp
     // group "G56-Cluster-D" (rows G56-D-40a/b, G56-D-43a/b, G56-D-4Ca/b,
     // G56-D-69a/b, G56-D-6Aa/b, G56-D-6Ba/b, G56-D-6Ca/b). The composed-
@@ -825,20 +828,20 @@ static void test_composed_read_divergence() {
     // surface (which has no PaletteManager / Layer2 / Mmu / Tilemap).
     // The rows below remain to flag that the bare-API view is by design
     // unable to verify the VHDL formula — coverage lives at integration.
-    skip("G56-CR-40", "RE-HOMED to integration G56-D-40a/b (palette idx autoinc)");
-    skip("G56-CR-43", "RE-HOMED to integration G56-D-43a/b (palette ctrl round-trip)");
-    skip("G56-CR-4C", "RE-HOMED to integration G56-D-4Ca/b (bits 7:4 mask)");
-    skip("G56-CR-68", "NR 0x68 b3 from port_ff3b_ulap_en (see G56)");
-    skip("G56-CR-69", "RE-HOMED to integration G56-D-69a/b (composed from port_ff)");
-    skip("G56-CR-6A", "RE-HOMED to integration G56-D-6Aa/b (bits 7:6 mask)");
-    skip("G56-CR-6B", "RE-HOMED to integration G56-D-6Ba/b (tm_en + tm_control)");
-    skip("G56-CR-6C", "RE-HOMED to integration G56-D-6Ca/b (default_attr round-trip)");
-    skip("G56-CR-6E", "NR 0x6E bit 6 always 0 (see G56)");
-    skip("G56-CR-6F", "NR 0x6F bit 6 always 0 (see G56)");
-    skip("G56-CR-70", "NR 0x70 bits 7:6 always 0 (see G56)");
-    skip("G56-CR-71", "NR 0x71 bits 7:1 always 0 (see G56)");
-    skip("G56-CR-80", "NR 0x80 expansion-bus dynamic state (see G56)");
-    skip("G56-CR-81", "NR 0x81 b7 from i_BUS_ROMCS_n (see G56)");
+    // RE-HOME G56-CR-40 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-43 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-4C → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-68 → nextreg_integration_test.cpp G56-Cluster-D (NR 0x68 b3 from port_ff3b_ulap_en — KEEP read_handler per Phase-2)
+    // RE-HOME G56-CR-69 → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6A → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6B → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6C → nextreg_integration_test.cpp G56-Cluster-D (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6E → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-6F → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-70 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-71 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-80 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
+    // RE-HOME G56-CR-81 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
