@@ -409,6 +409,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x40, [this](uint8_t v) {
         palette_.set_index(v);
     });
+    // VHDL zxnext.vhd:6035-6036 — port_253b_dat <= nr_palette_idx;
+    // Read returns the live 8-bit palette index. The index auto-increments
+    // after NR 0x44 9-bit completes and (when not gated by NR 0x43 bit 7)
+    // after NR 0x41 8-bit writes — see PaletteManager::write_entry →
+    // advance_index. Without this handler, regs_[0x40] holds only the last
+    // explicit NR 0x40 write and masks autoinc state (G56-CR-40).
+    nextreg_.set_read_handler(0x40, [this]() -> uint8_t {
+        return palette_.get_index();
+    });
 
     // Register 0x41: Palette value 8-bit (RRRGGGBB)
     nextreg_.set_write_handler(0x41, [this](uint8_t v) {
@@ -440,6 +449,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.ula().set_active_layer2_palette((v & 0x04) != 0);
         renderer_.ula().set_active_sprite_palette((v & 0x08) != 0);
     });
+    // VHDL zxnext.vhd:6044-6045 — port_253b_dat <=
+    //   nr_43_palette_autoinc_disable & nr_43_palette_write_select &
+    //   nr_43_active_sprite_palette  & nr_43_active_layer2_palette &
+    //   nr_43_active_ula_palette     & nr_43_ulanext_en;
+    // Layout: [7]=autoinc_disable, [6:4]=palette_write_select (3b),
+    //         [3]=spr, [2]=l2, [1]=ula, [0]=ulanext_en (8 bits total).
+    // PaletteManager owns the authoritative store via write_control() which
+    // re-derives the bit fields from the byte. Without this handler the
+    // bare regs_[0x43] is also storing the same byte today, but pulling
+    // from PaletteManager makes the read source-of-truth aligned with the
+    // rest of the palette state and shields against future write-paths
+    // that mutate palette state without touching regs_[] (G56-CR-43).
+    nextreg_.set_read_handler(0x43, [this]() -> uint8_t {
+        return palette_.read_control();
+    });
 
     // Register 0x44: Palette value 9-bit (two consecutive writes)
     nextreg_.set_write_handler(0x44, [this](uint8_t v) {
@@ -469,6 +493,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x4C: Tilemap transparency index
     nextreg_.set_write_handler(0x4C, [this](uint8_t v) {
         palette_.set_tilemap_transparency(v);
+    });
+    // VHDL zxnext.vhd:6056 — port_253b_dat <= "0000" & nr_4c_tm_transparent_index;
+    // bits 7:4 are constant '0', bits 3:0 carry the 4-bit tilemap transparent
+    // palette index. PaletteManager already masks `& 0x0F` on the write side,
+    // so palette_.tilemap_transparency() returns the masked value directly
+    // (G56-CR-4C: previously regs_[0x4C] leaked the upper nibble back).
+    nextreg_.set_read_handler(0x4C, [this]() -> uint8_t {
+        return palette_.tilemap_transparency() & 0x0F;
     });
 
     // Register 0x16: Layer 2 X scroll LSB
@@ -884,6 +916,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return renderer_.ula().get_ulanext_format();
     });
 
+    // Register 0x6A: LoRes / Radastan control
+    // VHDL zxnext.vhd:6098-6099 — port_253b_dat <=
+    //   "00" & nr_6a_lores_radastan & nr_6a_lores_radastan_xor &
+    //   nr_6a_lores_palette_offset;
+    // Bits 7:6 are hard-wired '0', bit 5 = radastan, bit 4 = radastan_xor,
+    // bits 3:0 = palette offset. No dedicated LoRes subsystem exists yet;
+    // the byte is otherwise stored verbatim in regs_[0x6A] by the bare
+    // NextReg::write path. Mask bits 7:6 on read to match VHDL spec
+    // (G56-CR-6A).
+    nextreg_.set_read_handler(0x6A, [this]() -> uint8_t {
+        return static_cast<uint8_t>(nextreg_.cached(0x6A) & 0x3F);
+    });
+
     // Register 0x6B: Tilemap control
     nextreg_.set_write_handler(0x6B, [this](uint8_t v) {
         tilemap_.set_control(v);
@@ -895,9 +940,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // (independent latch from NR 0x43 — VHDL zxnext.vhd:5462, :6826).
         renderer_.ula().set_active_tilemap_palette((v & 0x10) != 0);
     });
+    // VHDL zxnext.vhd:6101-6102 — port_253b_dat <=
+    //   nr_6b_tm_en & nr_6b_tm_control;  (8 bits total: bit 7 = tm_en,
+    //   bits 6:0 = tm_control). Tilemap::set_control stores the raw byte
+    //   into control_raw_; bit 7 is also decoded into enabled_. Pull from
+    //   Tilemap to keep NR 0x6B read aligned with the live subsystem state
+    //   (G56-CR-6B).
+    nextreg_.set_read_handler(0x6B, [this]() -> uint8_t {
+        return tilemap_.get_control();
+    });
 
     // Register 0x6C: Tilemap default attribute
     nextreg_.set_write_handler(0x6C, [this](uint8_t v) { tilemap_.set_default_attr(v); });
+    // VHDL zxnext.vhd:6104-6105 — port_253b_dat <= nr_6c_tm_default_attr;
+    // Full 8 bits, single value. Pull from Tilemap subsystem to keep the
+    // read-source aligned with the live attribute byte (G56-CR-6C).
+    nextreg_.set_read_handler(0x6C, [this]() -> uint8_t {
+        return tilemap_.get_default_attr();
+    });
 
     // Register 0x6E: Tilemap base address
     nextreg_.set_write_handler(0x6E, [this](uint8_t v) { tilemap_.set_map_base(v); });
@@ -1287,6 +1347,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // and Timex programs that switch screen mode via NR 0x69 instead
         // of port 0xFF previously left the renderer in its old mode.
         renderer_.ula().set_screen_mode(port_ff_reg_);
+    });
+    // VHDL zxnext.vhd:6095-6096 — port_253b_dat <=
+    //   port_123b_layer2_en & port_7ffd_shadow & port_ff_reg(5 downto 0);
+    // Three independent live producers (Layer2 enable, MMU shadow flag from
+    // 7FFD bit 3, and the Timex screen-mode register). The bare regs_[0x69]
+    // would only echo the last NR 0x69 write and miss port 0x123B / 0x7FFD
+    // / 0xFF mid-stream changes. G56-CR-69.
+    nextreg_.set_read_handler(0x69, [this]() -> uint8_t {
+        uint8_t v = 0;
+        if (layer2_.enabled())              v |= 0x80;
+        if (mmu_.shadow_screen_en())        v |= 0x40;
+        v |= static_cast<uint8_t>(port_ff_reg_ & 0x3F);
+        return v;
     });
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---

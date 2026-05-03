@@ -2591,6 +2591,221 @@ static void test_nr_22_23_lineint_read(Emulator& emu) {
     }
 }
 
+// ── G56 Cluster D — composed-read divergence (NR 0x40/43/4C/69/6A/6B/6C) ──
+//
+// Closure for the G56 systemic shadow-store bug: NextReg::write at
+// src/port/nextreg.cpp:117-123 always stores the raw 8-bit value into
+// regs_[reg], so reads of NRs whose VHDL formula composes from live
+// subsystem state (or masks reserved bits) leak the last-written byte.
+// VHDL oracle (zxnext.vhd, port_253b_dat <= ... entries):
+//   NR 0x40 :6035-6036 — nr_palette_idx (live, autoincs after NR 0x44).
+//   NR 0x43 :6044-6045 — composed bit fields (8 b total).
+//   NR 0x4C :6056      — "0000" & nr_4c_tm_transparent_index (4-bit).
+//   NR 0x69 :6095-6096 — port_123b_layer2_en & port_7ffd_shadow & port_ff_reg(5:0).
+//   NR 0x6A :6098-6099 — "00" & lores fields (bits 7:6 masked).
+//   NR 0x6B :6101-6102 — nr_6b_tm_en & nr_6b_tm_control (full 8 b).
+//   NR 0x6C :6104-6105 — nr_6c_tm_default_attr (full 8 b).
+//
+// Each row writes through the port path, mutates state via a parallel
+// path where applicable (NR 0x44 autoinc, port 0xFF write, NR 0x12), and
+// reads back via the port path. Without the new read-handlers in
+// src/core/emulator.cpp the read returns the cached regs_[reg] byte and
+// the row fails.
+
+static void test_g56_cluster_d(Emulator& emu) {
+    set_group("G56-Cluster-D");
+
+    // ── NR 0x40 — palette index, with autoinc via NR 0x44 ────────────────
+
+    // G56-D-40a — Plain NR 0x40 round-trip (write 0xAA, read 0xAA).
+    {
+        nr_write(emu, 0x40, 0xAA);
+        const uint8_t got = nr_read(emu, 0x40);
+        check("G56-D-40a",
+              "NR 0x40 plain write/read round-trip "
+              "[zxnext.vhd:6035-6036 nr_palette_idx]",
+              got == 0xAA, detail_eq(got, uint8_t{0xAA}));
+    }
+
+    // G56-D-40b — NR 0x40 read tracks autoinc after NR 0x44 9-bit pair.
+    // VHDL: nr_palette_idx advances after the second NR 0x44 byte
+    // (write_entry → advance_index when auto-inc not gated by NR 0x43 b7).
+    // Pre-fix: read returns 0xAA (last NR 0x40 write); post-fix: 0xAB.
+    {
+        nr_write(emu, 0x43, 0x00);   // ULA-first target, autoinc enabled
+        nr_write(emu, 0x40, 0xAA);   // seed index
+        nr_write(emu, 0x44, 0x00);   // 9-bit byte 1 — does not advance
+        nr_write(emu, 0x44, 0x00);   // 9-bit byte 2 — advances to 0xAB
+        const uint8_t got = nr_read(emu, 0x40);
+        check("G56-D-40b",
+              "NR 0x40 read reflects post-NR-0x44 autoinc "
+              "(0xAA → 0xAB) [zxnext.vhd:6035 + advance_index]",
+              got == 0xAB, detail_eq(got, uint8_t{0xAB}));
+    }
+
+    // ── NR 0x43 — palette control round-trip ─────────────────────────────
+
+    // G56-D-43a — full byte round-trip via PaletteManager source-of-truth.
+    // VHDL :6044 composes the same 8 bits we wrote, so the byte must
+    // round-trip through palette_.read_control().
+    {
+        nr_write(emu, 0x43, 0xA5);   // 1010_0101 — autoinc=1, write_select=010,
+                                      // spr=0, l2=1, ula=0, ulanext=1
+        const uint8_t got = nr_read(emu, 0x43);
+        check("G56-D-43a",
+              "NR 0x43 round-trip via PaletteManager.read_control() "
+              "[zxnext.vhd:6044-6045]",
+              got == 0xA5, detail_eq(got, uint8_t{0xA5}));
+    }
+
+    // G56-D-43b — second pattern to detect any bit-order drift in the
+    // PaletteManager re-decode. VHDL bit order [7]autoinc [6:4]write_select
+    // [3]spr [2]l2 [1]ula [0]ulanext.
+    {
+        nr_write(emu, 0x43, 0x5A);   // 0101_1010
+        const uint8_t got = nr_read(emu, 0x43);
+        check("G56-D-43b",
+              "NR 0x43 second round-trip pattern "
+              "[zxnext.vhd:6044-6045]",
+              got == 0x5A, detail_eq(got, uint8_t{0x5A}));
+    }
+
+    // ── NR 0x4C — tilemap transparent index, bits 7:4 masked ─────────────
+
+    // G56-D-4Ca — write 0xFF expects 0x0F on read (high nibble masked).
+    // Pre-fix: bare regs_[0x4C] returns 0xFF.
+    {
+        nr_write(emu, 0x4C, 0xFF);
+        const uint8_t got = nr_read(emu, 0x4C);
+        check("G56-D-4Ca",
+              "NR 0x4C bits 7:4 masked on read (write 0xFF → read 0x0F) "
+              "[zxnext.vhd:6056 \"0000\" & nr_4c_tm_transparent_index]",
+              got == 0x0F, detail_eq(got, uint8_t{0x0F}));
+    }
+
+    // G56-D-4Cb — partial nibble retained (write 0x5A → read 0x0A).
+    {
+        nr_write(emu, 0x4C, 0x5A);
+        const uint8_t got = nr_read(emu, 0x4C);
+        check("G56-D-4Cb",
+              "NR 0x4C low nibble retained, high nibble forced 0 "
+              "[zxnext.vhd:6056]",
+              got == 0x0A, detail_eq(got, uint8_t{0x0A}));
+    }
+    // Restore reset default for downstream tests.
+    nr_write(emu, 0x4C, 0x0F);
+
+    // ── NR 0x69 — composed from L2 enable + 7FFD shadow + port_ff_reg ────
+
+    // G56-D-69a — write 0x00 then mutate live state without touching NR
+    // 0x69. Pre-fix: bare regs_[0x69] = 0x00 hides the live-state changes.
+    // Post-fix: read composes from layer2.enabled() | mmu.shadow | port_ff.
+    {
+        nr_write(emu, 0x69, 0x00);              // baseline: all bits 0
+        emu.port().out(0x123B, 0x02);           // bit 1 → layer2 enable
+        // Drive port_ff_reg(5:0) via direct port 0xFF write — VHDL :3624
+        // (and emulator.cpp:1688) latches the full byte into port_ff_reg.
+        emu.port().out(0x00FF, 0x15);           // bits 5:0 = 0x15
+        const uint8_t got = nr_read(emu, 0x69);
+        // Expected: bit 7=1 (L2 enable via 0x123B), bit 6=0 (no 7FFD shadow),
+        // bits 5:0 = 0x15 → 0x95.
+        check("G56-D-69a",
+              "NR 0x69 composes from port 0x123B L2 + 7FFD shadow + "
+              "port_ff_reg(5:0) [zxnext.vhd:6095-6096]",
+              got == 0x95, detail_eq(got, uint8_t{0x95}));
+    }
+
+    // G56-D-69b — set 7FFD shadow bit (port 0x7FFD bit 3) and re-read.
+    // bit 6 of NR 0x69 must follow the live shadow flag.
+    {
+        // port 0x7FFD: bit 3 = shadow screen select. Other bits zero.
+        emu.port().out(0x7FFD, 0x08);
+        const uint8_t got = nr_read(emu, 0x69);
+        // Expected: bit 7=1 (still L2-enabled), bit 6=1 (shadow), bits 5:0
+        // remain at the prior port_ff_reg value 0x15 → 0xD5.
+        check("G56-D-69b",
+              "NR 0x69 bit 6 reflects port 0x7FFD bit 3 shadow flag "
+              "[zxnext.vhd:6095 port_7ffd_shadow]",
+              got == 0xD5, detail_eq(got, uint8_t{0xD5}));
+    }
+    // Restore: clear L2 enable and shadow flag for downstream tests.
+    emu.port().out(0x123B, 0x00);
+    emu.port().out(0x7FFD, 0x00);
+    emu.port().out(0x00FF, 0x00);
+    nr_write(emu, 0x69, 0x00);
+
+    // ── NR 0x6A — bits 7:6 forced "00" on read ───────────────────────────
+
+    // G56-D-6Aa — write 0xFF expects 0x3F. Pre-fix: bare regs_[0x6A] = 0xFF.
+    {
+        nr_write(emu, 0x6A, 0xFF);
+        const uint8_t got = nr_read(emu, 0x6A);
+        check("G56-D-6Aa",
+              "NR 0x6A bits 7:6 forced '00' on read (write 0xFF → 0x3F) "
+              "[zxnext.vhd:6098-6099 \"00\" & lores fields]",
+              got == 0x3F, detail_eq(got, uint8_t{0x3F}));
+    }
+
+    // G56-D-6Ab — write 0xC0 (only the masked bits set) reads as 0x00.
+    {
+        nr_write(emu, 0x6A, 0xC0);
+        const uint8_t got = nr_read(emu, 0x6A);
+        check("G56-D-6Ab",
+              "NR 0x6A bits 7:6 read as 0 even when only those bits written "
+              "[zxnext.vhd:6098-6099]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    nr_write(emu, 0x6A, 0x00);   // restore
+
+    // ── NR 0x6B — full 8-bit round-trip via Tilemap source-of-truth ──────
+
+    // G56-D-6Ba — write 0x83 (en=1, control=0x03 with bits 1,0 set).
+    {
+        nr_write(emu, 0x6B, 0x83);
+        const uint8_t got = nr_read(emu, 0x6B);
+        check("G56-D-6Ba",
+              "NR 0x6B round-trip via Tilemap.get_control() "
+              "[zxnext.vhd:6101-6102]",
+              got == 0x83, detail_eq(got, uint8_t{0x83}));
+    }
+
+    // G56-D-6Bb — clear enable (bit 7) — Tilemap.enabled_ tracks bit 7
+    // and control_raw_ stores the full byte. Read must reflect the cleared
+    // enable bit.
+    {
+        nr_write(emu, 0x6B, 0x55);   // bit 7 = 0
+        const uint8_t got = nr_read(emu, 0x6B);
+        check("G56-D-6Bb",
+              "NR 0x6B read mirrors cleared tm_en (bit 7) "
+              "[zxnext.vhd:6101]",
+              got == 0x55, detail_eq(got, uint8_t{0x55}));
+    }
+    nr_write(emu, 0x6B, 0x00);   // restore
+
+    // ── NR 0x6C — full 8-bit round-trip via Tilemap.default_attr ─────────
+
+    // G56-D-6Ca — write 0xA5.
+    {
+        nr_write(emu, 0x6C, 0xA5);
+        const uint8_t got = nr_read(emu, 0x6C);
+        check("G56-D-6Ca",
+              "NR 0x6C round-trip via Tilemap.get_default_attr() "
+              "[zxnext.vhd:6104-6105 nr_6c_tm_default_attr]",
+              got == 0xA5, detail_eq(got, uint8_t{0xA5}));
+    }
+
+    // G56-D-6Cb — second value to ensure no bit-aliasing.
+    {
+        nr_write(emu, 0x6C, 0x5A);
+        const uint8_t got = nr_read(emu, 0x6C);
+        check("G56-D-6Cb",
+              "NR 0x6C second round-trip pattern "
+              "[zxnext.vhd:6104-6105]",
+              got == 0x5A, detail_eq(got, uint8_t{0x5A}));
+    }
+    nr_write(emu, 0x6C, 0x00);   // restore
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2663,6 +2878,9 @@ int main() {
 
     test_nr_22_23_lineint_read(emu);
     std::printf("  Group: LineINT-NR22-NR23 — done\n");
+
+    test_g56_cluster_d(emu);
+    std::printf("  Group: G56-Cluster-D — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

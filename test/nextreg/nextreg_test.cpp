@@ -817,14 +817,22 @@ static void test_composed_read_divergence() {
     skip("G56-CR-22", "NR 0x22 bit 7 dynamic pulse_int_n (see G56)");
     skip("G56-CR-23", "NR 0x23 line-int compare ladder (see G56)");
     skip("G56-CR-34", "→ G56-Cluster-B (integration test); landed");
-    skip("G56-CR-40", "NR 0x40 palette idx autoinc state (see G56)");
-    skip("G56-CR-43", "NR 0x43 palette ctrl composed-read (see G56)");
-    skip("G56-CR-4C", "NR 0x4C bits 7:4 mask not propagated (see G56)");
+    // G56 Cluster D — RE-HOMED to test/nextreg/nextreg_integration_test.cpp
+    // group "G56-Cluster-D" (rows G56-D-40a/b, G56-D-43a/b, G56-D-4Ca/b,
+    // G56-D-69a/b, G56-D-6Aa/b, G56-D-6Ba/b, G56-D-6Ca/b). The composed-
+    // read divergence requires the full Emulator read_handler wiring in
+    // src/core/emulator.cpp; it cannot be exercised on the bare NextReg
+    // surface (which has no PaletteManager / Layer2 / Mmu / Tilemap).
+    // The rows below remain to flag that the bare-API view is by design
+    // unable to verify the VHDL formula — coverage lives at integration.
+    skip("G56-CR-40", "RE-HOMED to integration G56-D-40a/b (palette idx autoinc)");
+    skip("G56-CR-43", "RE-HOMED to integration G56-D-43a/b (palette ctrl round-trip)");
+    skip("G56-CR-4C", "RE-HOMED to integration G56-D-4Ca/b (bits 7:4 mask)");
     skip("G56-CR-68", "NR 0x68 b3 from port_ff3b_ulap_en (see G56)");
-    skip("G56-CR-69", "NR 0x69 bits composed from port_ff (see G56)");
-    skip("G56-CR-6A", "NR 0x6A radastan/lores composed (see G56)");
-    skip("G56-CR-6B", "NR 0x6B b7 from nr_6b_tm_en (see G56)");
-    skip("G56-CR-6C", "NR 0x6C tilemap composed-read (see G56)");
+    skip("G56-CR-69", "RE-HOMED to integration G56-D-69a/b (composed from port_ff)");
+    skip("G56-CR-6A", "RE-HOMED to integration G56-D-6Aa/b (bits 7:6 mask)");
+    skip("G56-CR-6B", "RE-HOMED to integration G56-D-6Ba/b (tm_en + tm_control)");
+    skip("G56-CR-6C", "RE-HOMED to integration G56-D-6Ca/b (default_attr round-trip)");
     skip("G56-CR-6E", "NR 0x6E bit 6 always 0 (see G56)");
     skip("G56-CR-6F", "NR 0x6F bit 6 always 0 (see G56)");
     skip("G56-CR-70", "NR 0x70 bits 7:6 always 0 (see G56)");
