@@ -665,22 +665,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x0B: Joystick I/O-mode pin-7 mux — VHDL zxnext.vhd:5200-5203.
-    // Phase 1 scaffold: IoMode::set_nr_0b() is a stub; Agent E fills in.
-    nextreg_.set_write_handler(0x0B, [this](uint8_t v) -> uint8_t {
-        iomode_.set_nr_0b(v);
-        return v;
-    });
     // VHDL zxnext.vhd:5915 — NR 0x0B read composes:
     //   nr_0b_joy_iomode_en [7] & '0' [6] & nr_0b_joy_iomode [5:4]
     //     & "000" [3:1] & nr_0b_joy_iomode_0 [0]
-    // Bit 6 always 0; bits 3:1 always "000". All authoritative state lives
-    // in IoMode (input/iomode.h), populated by set_nr_0b(). G56.
-    nextreg_.set_read_handler(0x0B, [this]() -> uint8_t {
-        uint8_t v = 0;
-        if (iomode_.iomode_en()) v = static_cast<uint8_t>(v | 0x80);
-        v = static_cast<uint8_t>(v | ((iomode_.iomode_bits() & 0x03) << 4));
-        if (iomode_.iomode_0())  v = static_cast<uint8_t>(v | 0x01);
-        return v;
+    // Bit 6 always 0; bits 3:1 always "000". G56 Phase 2 (option b): the
+    // read mux is a pure static mask of the last-written byte (IoMode's
+    // `nr_0b_raw_` is `set_nr_0b(v)` verbatim — no other writers, no
+    // cross-subsystem composition). Returning `v & 0xB1` from the
+    // write_handler stores the canonical readback in regs_[0x0B], so no
+    // separate read_handler is needed.
+    nextreg_.set_write_handler(0x0B, [this](uint8_t v) -> uint8_t {
+        iomode_.set_nr_0b(v);
+        return static_cast<uint8_t>(v & 0xB1);
     });
 
     // Register 0x10: core/board ID + flashboot. VHDL zxnext.vhd:5677-5687
@@ -696,18 +692,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // path. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
     // on writes per VHDL Issue 2/3 path. Reset default 0x01 ("00001"),
     // VHDL zxnext.vhd:1133. G56.
+    // G56 Phase 2 (option b): write_handler returns the canonical readback
+    // byte (bit 7 = 0, bits 6:2 = coreid, bits 1:0 = SPKEY_BUTTONS = 0
+    // unmodelled). config_mode-gated coreid update applied first; the
+    // returned canonical byte stored in regs_[0x10] always matches what a
+    // synthesised read_handler would have returned. nr_10_flashboot
+    // (write bit 7) is not exposed on the read path. No separate
+    // read_handler is needed.
     nextreg_.set_write_handler(0x10, [this](uint8_t v) -> uint8_t {
         if (nextreg_.nr_03_config_mode()) {
             nr_10_coreid_ = static_cast<uint8_t>(v & 0x1F);
         }
-        // bit 7 = nr_10_flashboot (always written, but not exposed in the
-        // NR 0x10 read; would surface only in board-specific power-on flow
-        // which jnext does not model). G56 read-back is unaffected.
-        return v;
-    });
-    nextreg_.set_read_handler(0x10, [this]() -> uint8_t {
-        // Bit 7 always 0; bits 6:2 = coreid (5 bits, left-shifted into
-        // place); bits 1:0 = SPKEY_BUTTONS = 0 (idle, unmodelled).
+        // Canonical NR 0x10 readback — VHDL zxnext.vhd:5924.
         return static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
     });
 
