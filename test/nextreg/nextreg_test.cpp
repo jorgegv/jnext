@@ -567,24 +567,42 @@ static void test_cfg() {
               " from-0 stay=" + (stayed_0 ? "0" : "1"));
     }
 
-    // CFG-07 — power-on default is config_mode=1.
-    // VHDL zxnext.vhd:1102  signal nr_03_config_mode : std_logic := '1'.
-    // NextReg::reset() must leave the FSM in the set state.
+    // CFG-07 — G62: reset() PRESERVES nr_03_config_mode (VHDL-faithful).
+    //
+    // VHDL zxnext.vhd:1102 declares
+    //   signal nr_03_config_mode : std_logic := '1';
+    // The only mutator is the NR 0x03 write_handler at :5147-5151 (set on
+    // bits[2:0]=111, clear on bits[2:0] ∈ {001..110}). NO explicit reset
+    // clause anywhere in zxnext.vhd, so the latch survives both hard and
+    // soft reset — only the signal initialiser at :1102 (FPGA power-on)
+    // sets it to '1'. Pre-G62, NextReg::reset() unconditionally clobbered
+    // nr_03_config_mode_ to true on every reset — wrong per VHDL. Fixed
+    // by removing the assignment (member initialiser handles power-on).
+    // Same shape as G63 (nr_03_machine_type, commit 47f8739).
+    //
+    // Power-on default = 1 is asserted at construction (member initialiser
+    // in nextreg.h:88). This test pins the post-reset preservation: clear
+    // the latch via NR 0x03 write, call reset(), assert it's still cleared.
     {
         NextReg nr;
-        nr.apply_nr_03_config_mode_transition(0x01);  // clear first
-        nr.reset();                                    // re-reset
-        bool back_to_1 = nr.nr_03_config_mode();
+        nr.apply_nr_03_config_mode_transition(0x01);   // clear (bits 001 ≠ 000, ≠ 111)
+        bool cleared = !nr.nr_03_config_mode();
+        nr.reset();                                    // VHDL latch must survive reset
+        bool still_cleared = !nr.nr_03_config_mode();
         check("CFG-07",
-              "reset() restores config_mode=1 (power-on default) "
-              "[zxnext.vhd:1102]",
-              back_to_1, std::string("got=") + (back_to_1 ? "1" : "0"));
+              "reset() preserves config_mode (VHDL has no reset clause; "
+              "latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block]",
+              cleared && still_cleared,
+              std::string("after clear=") + (cleared ? "cleared" : "still-1") +
+              " after reset=" + (still_cleared ? "still-cleared" : "back-to-1"));
     }
 
-    // CFG-08 — G62: NR 0x03 config_mode preservation across soft-reset
-    // (NR 0x02 b0 / FSM-driven) is undefined. Only hard reset is tested.
-    skip("CFG-08",
-         "NR 0x03 config_mode preservation across soft-reset undefined (see G62)");
+    // CFG-08 — G62: NR 0x03 config_mode preservation across soft-reset.
+    // RE-HOMED to nextreg_integration_test.cpp CFG-08-INT (Machine-Cfg
+    // group). Soft reset is driven by NR 0x02 b0 = 1, which only flows
+    // through Emulator::soft_reset() — bare NextReg cannot reach it.
+    // The integration tier writes NR 0x02 = 0x01 via the port path and
+    // asserts emu.nextreg().nr_03_config_mode() preservation post-reset.
 }
 
 // ── FT — FDC IO-trap (NR 0xD8/D9/DA, G55) ────────────────────────────
