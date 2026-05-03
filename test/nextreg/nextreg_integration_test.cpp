@@ -17,6 +17,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -2407,6 +2408,50 @@ static void test_g56_cluster_b(Emulator& emu) {
               "[zxnext.vhd:6033]",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
+
+    // ── NR 0x10 — save/load round-trip ───────────────────────────────────
+    // Cluster B introduced Emulator::nr_10_coreid_ as the authoritative
+    // source for the read_handler. Without serialising it across save_state
+    // / load_state, a fresh Emulator restored from a snapshot would
+    // re-init() the field to 0x01 (VHDL reset default) and the post-load
+    // read of NR 0x10 would not match the pre-save read. This row pins
+    // that round-trip: write coreid = 0x1F (read = 0x7C), snapshot,
+    // restore into a fresh Emulator, read NR 0x10 — must still be 0x7C.
+    {
+        // Make sure config_mode = 1 so the NR 0x10 write commits coreid.
+        nr_write(emu, 0x03, 0x07);
+        nr_write(emu, 0x10, 0x1F);  // coreid <- 0x1F → read = 0x7C
+        uint8_t pre_save = nr_read(emu, 0x10);
+
+        // Measure snapshot, save into a buffer.
+        StateWriter measure;
+        emu.save_state(measure);
+        const size_t snap_size = measure.position();
+        std::vector<uint8_t> buf(snap_size, 0);
+        StateWriter w(buf.data(), snap_size);
+        emu.save_state(w);
+
+        // Restore into a FRESH Emulator (mirrors GUI load-state flow).
+        Emulator emu2;
+        if (!build_next_emulator(emu2)) {
+            check("G56-10-SAVE-LOAD",
+                  "NR 0x10 coreid round-trips save_state / load_state "
+                  "into fresh Emulator [Cluster-B regression guard]",
+                  false, "build_next_emulator(emu2) failed");
+        } else {
+            StateReader rdr(buf.data(), snap_size);
+            emu2.load_state(rdr);
+            uint8_t post_load = nr_read(emu2, 0x10);
+            check("G56-10-SAVE-LOAD",
+                  "NR 0x10 coreid round-trips save_state / load_state "
+                  "into fresh Emulator [Cluster-B regression guard]",
+                  pre_save == 0x7C && post_load == 0x7C,
+                  fmt("pre_save=0x%02X post_load=0x%02X expected=0x7C",
+                      pre_save, post_load));
+        }
+    }
+    // Restore reset coreid so downstream tests see VHDL default.
+    nr_write(emu, 0x10, 0x01);
 }
 
 // ── G56 cluster C — NR 0x22 / NR 0x23 line-interrupt read composition ─

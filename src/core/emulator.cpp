@@ -4541,6 +4541,14 @@ void Emulator::save_state(StateWriter& w) const
     // saves that predate the field deserialise cleanly (load_state
     // reads it last and tolerates EOF by leaving the reset default).
     w.write_u8(port_ff_reg_);
+
+    // G56-B — NR 0x10 coreid shadow. Cluster B's read_handler returns
+    // (nr_10_coreid_ << 2) instead of regs_[0x10], so without this slot
+    // the field would be re-init()ed to 0x01 on load_state and the
+    // post-load read of NR 0x10 would not match the pre-save read.
+    // Append-only at the very end (after port_ff_reg_) for backwards
+    // compatibility with prior saves; load_state tolerates EOF.
+    w.write_u8(nr_10_coreid_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -4632,6 +4640,14 @@ void Emulator::load_state(StateReader& r)
     // first; they keep the reset default (port_ff_reg_ = 0).
     if (!r.eof()) {
         port_ff_reg_ = r.read_u8();
+    }
+
+    // G56-B — NR 0x10 coreid shadow. Appended after port_ff_reg_; saves
+    // that predate this slot leave nr_10_coreid_ at its init() default
+    // of 0x01 (VHDL zxnext.vhd:1133), which is the correct power-on
+    // behaviour for a fresh boot.
+    if (!r.eof()) {
+        nr_10_coreid_ = r.read_u8();
     }
 }
 
