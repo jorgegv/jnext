@@ -1005,6 +1005,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: standalone fix; G73 broader runtime.
 - **Effort**: L.
+- **Status (2026-05-03f)**: CLOSED — landed in single commit with G73 (they collapse: VHDL gating happens upstream of audio_mixer at `pi_audio_L/R` derivation). I2s class now stores `nr_a2_ctl_` byte and exposes gated `pi_audio_L/R()` per `zxnext.vhd:2358-2359` (en/mute/ear/cross-channel mux). NR 0xA2 write/read handlers in `Emulator`; read mask `(c & 0xDD) | 0x02` (b5=0, b1=1 fixed). NR 0x2C/0x2E reads + Mixer now consume the gated value. Tests NR-40+NR-41+NR-42+NR-43 all closed (PASS). Branch `g113-g73-nra2-i2s-gate` (`043192a`).
 
 ### G114. NR 0x84 DAC-port-pair enables (5 of 7 bits) not enforced
 - **What**: VHDL `zxnext.vhd:2429-2435` 7-bit DAC-port-pair enable mask. jnext `emulator.cpp:1500-1567` honours bits 0/2/5 only; bits 1/3/4/6/7 ignored.
@@ -1677,6 +1678,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
   nil — no Z80 software uses it. Distinct from G29 (which is the
   source-side stub upgrade).
 - **Effort**: L.
+- **Status (2026-05-03f)**: CLOSED — landed jointly with G113 (single commit `043192a`, branch `g113-g73-nra2-i2s-gate`). Mixer's I2S contribution now reads `i2s_->pi_audio_L/R()` (gated by NR 0xA2 bits per VHDL `zxnext.vhd:2358-2359` upstream-of-mixer pattern), not raw `i2s_->left()/right()`. Test NR-43 (Mixer gates I2S contribution) closed (PASS) — set sample, toggle NR 0xA2 mute, observe pcm_L/R delta of 511 in 13-bit space (= 2044 in int16 after ×4 scaling). G29 (source-side stub) remains separate.
 
 ### G74. No CI pipeline; regression depends on dev discipline
 - **What**: No `.github/` directory; verified absent.
