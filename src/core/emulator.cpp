@@ -2576,7 +2576,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // window for jnext's per-instruction tick granularity.
         contention_.set_contention_disable_shadow(((v >> 6) & 1) != 0);
         turbosound_.set_stereo_mode((v >> 5) & 1);
+        // VHDL soundrive.vhd:69-78 + zxnext.vhd:6436:
+        //   soundrive.reset_i <= reset OR NOT nr_08_dac_en;
+        // While nr_08_dac_en='0' the four DAC channels are held at 0x80
+        // (DC-silence midpoint). On a 1->0 transition flip channels back
+        // to silence so residual non-silent levels do not persist.
+        const bool dac_was_enabled = dac_enabled_;
         dac_enabled_ = (v >> 3) & 1;
+        if (dac_was_enabled && !dac_enabled_) {
+            dac_.reset();
+        }
         turbosound_.set_enabled((v >> 1) & 1);
         // Mirror the stored bits (5/4/3/2/1/0) for NR 0x08 read-back per
         // VHDL zxnext.vhd:5906. Bit 7 is write-strobe-only (not stored),
