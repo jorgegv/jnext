@@ -1020,14 +1020,21 @@ static void test_group_expbus() {
     // is inert today; no expansion-bus aggregator exists in jnext.
     // VHDL zxnext.vhd:3468 (port_fe_bus AND-term), :3453 (port_io_bus
     // AND-term). Cartridge framework deferred to v1.2+ via --cartridge.
-    skip("EXPBUS-AND-01",
-         "NR 0x86 mask-AND with port_fe_bus inert; no aggregator (see G45)");
-    skip("EXPBUS-AND-02",
-         "NR 0x87 mask-AND with port_io_bus inert; no aggregator (see G45)");
-    skip("EXPBUS-AND-03",
-         "NR 0x88 mask-AND with port_io_bus inert; no aggregator (see G45)");
-    skip("EXPBUS-AND-04",
-         "NR 0x89 mask-AND with port_io_bus inert; no aggregator (see G45)");
+    //
+    // WONT EXPBUS-AND-01 — NR 0x86 mask-AND with port_fe_bus inert by
+    // design (G45): jnext has no expansion-bus aggregator and no
+    // cartridge model (Interface 1/2, Multiface, Currah, ZX Printer,
+    // Beta Disk all absent). Implement when --cartridge FILE.{rom,kit}
+    // feature is added (G45 v1.2+).
+    // WONT EXPBUS-AND-02 — NR 0x87 mask-AND with port_io_bus inert by
+    // design (G45). Implement when --cartridge FILE.{rom,kit} feature
+    // is added (G45 v1.2+).
+    // WONT EXPBUS-AND-03 — NR 0x88 mask-AND with port_io_bus inert by
+    // design (G45). Implement when --cartridge FILE.{rom,kit} feature
+    // is added (G45 v1.2+).
+    // WONT EXPBUS-AND-04 — NR 0x89 mask-AND with port_io_bus inert by
+    // design (G45). Implement when --cartridge FILE.{rom,kit} feature
+    // is added (G45 v1.2+).
 }
 
 // ── Group E. Precedence / collision / clear-reregister ─────────────────

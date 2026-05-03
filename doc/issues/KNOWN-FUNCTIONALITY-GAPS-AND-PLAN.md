@@ -878,6 +878,7 @@ where possible.
 - **Proposed**: defer; v1.2+ feature behind `--cartridge FILE.{rom,
   kit}`.
 - **Effort**: H.
+- **Status (2026-05-03f)**: WONT (out of scope until cartridge framework lands). NR 0x86–0x89 expansion-bus mask-AND terms are inert by design in jnext: no expansion-bus aggregator and no cartridge model (Interface 1/2, Multiface, Currah µSpeech, ZX Printer, Beta Disk all absent). Tier-6 closure: `test/port/port_test.cpp` rows EXPBUS-AND-01..04 converted from `skip()` to `// WONT` comments per `feedback_wont_taxonomy.md`. Revisit when `--cartridge FILE.{rom,kit}` feature is added (G45 v1.2+). Branch `tier6-port-wont`.
 
 ### G46. NextZXOS boot ladder (firmware-faithful + bypass) [merged]
 - **What**: **Single multi-blocker root entry.** NextZXOS boot via
