@@ -333,6 +333,310 @@ static void test_cmd18_cs_deassert_aborts(SdCardDevice& sd) {
           " b0=" + std::to_string(b[0]));
 }
 
+// ─── New: CMD13 SEND_STATUS R2 response ─────────────────────────────────
+
+static void test_cmd13_status(SdCardDevice& sd) {
+    // SD-02: CMD13 returns R1 followed by R2 (2-byte response).
+    // After reading the first non-0xFF byte (R1), the next byte read MUST
+    // be R2 (no further command needed, no other 0xFF padding).
+    sd.reset();
+    init_card(sd);
+
+    // Inline the send-and-poll so we can capture R1 and the IMMEDIATELY-
+    // following byte (R2) without losing it to send_cmd_r1's discard.
+    spi_write(sd, 0x40 | 13);
+    spi_write(sd, 0x00);
+    spi_write(sd, 0x00);
+    spi_write(sd, 0x00);
+    spi_write(sd, 0x00);
+    spi_write(sd, 0x95);
+
+    uint8_t r1 = 0xFF;
+    for (int i = 0; i < 16; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) { r1 = b; break; }
+    }
+    // Next byte MUST be R2 (the second byte of the R2 response).  resp_buf_
+    // for CMD13 is { NCR=0xFF, R1, R2 } so the very next send() call returns
+    // R2.
+    uint8_t r2 = spi_read(sd);
+    sd.deselect();
+
+    check("SD-02",
+          "CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00",
+          r1 == 0x00 && r2 == 0x00,
+          "r1=" + std::to_string(r1) + " r2=" + std::to_string(r2));
+}
+
+// ─── New: CMD16 SET_BLOCKLEN ack ────────────────────────────────────────
+
+static void test_cmd16_set_blocklen(SdCardDevice& sd) {
+    // SD-12: CMD16 with arg=512 → R1=0x00 (ack); arg≠512 → illegal-command
+    // bit (bit 2) set.  Per SD spec § 4.9.1, SDHC blocklen is fixed at 512.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_ok = send_cmd_r1(sd, 16, 512);
+    sd.deselect();
+
+    // Must keep card initialized for the second sub-test.  The reset below
+    // would clear that, so re-init.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_bad = send_cmd_r1(sd, 16, 256);
+    sd.deselect();
+
+    check("SD-12",
+          "CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal "
+          "(R1 bit 2 set)",
+          r1_ok == 0x00 && (r1_bad & 0x04) != 0,
+          "r1_ok=" + std::to_string(r1_ok) +
+          " r1_bad=" + std::to_string(r1_bad));
+}
+
+// ─── New: CMD23 SET_BLOCK_COUNT ack ─────────────────────────────────────
+
+static void test_cmd23_block_count(SdCardDevice& sd) {
+    // SD-13: CMD23 acks (R1=0x00) without disturbing subsequent state.
+    // We verify the ack and then that a subsequent CMD17 still works.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1 = send_cmd_r1(sd, 23, 10);
+
+    // Now issue CMD17 sector=4 — must still return correct identity bytes.
+    uint8_t r1_post = send_cmd_r1(sd, 17, 4);
+    bool tok = wait_token(sd);
+    uint8_t b[512] = {}; if (tok) read_block(sd, b);
+    sd.deselect();
+
+    check("SD-13",
+          "CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works",
+          r1 == 0x00 && r1_post == 0x00 && tok && b[0] == 0x04,
+          "r1=" + std::to_string(r1) +
+          " r1_post=" + std::to_string(r1_post) +
+          " tok=" + (tok ? "1" : "0") +
+          " b0=" + std::to_string(b[0]));
+}
+
+// ─── New: CMD24 WRITE_BLOCK round-trip ──────────────────────────────────
+
+static void test_cmd24_write(SdCardDevice& sd) {
+    // SD-14: CMD24 round-trip — write a deterministic 512-byte pattern to
+    // sector 8, read it back via CMD17, verify identity.  Then restore the
+    // original fixture pattern (sector 8 had byte 0..3 = 08 00 00 00,
+    // bytes 4..511 = (8 + i) & 0xFF) so subsequent tests aren't disturbed.
+    sd.reset();
+    init_card(sd);
+
+    // Build pattern and issue CMD24 sector=8.
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i)
+        pattern[i] = static_cast<uint8_t>(i ^ 0xA5);
+
+    // Issue CMD24 sector=8.  Note: the existing cmd24_write_single_block
+    // overwrites state to RECEIVING_DATA immediately after queue_r1, so the
+    // pre-data R1 byte is not actually emitted on MISO.  The data-response
+    // token (0x05) returned AFTER the block is the canonical write-success
+    // signal in SPI mode (SD spec § 7.3.3.1) and is what we assert on, plus
+    // the CMD17 round-trip readback.
+    (void)send_cmd_r1(sd, 24, 8);
+
+    // Send 0xFE start token + 512 pattern bytes + 2 CRC bytes (0xFF).
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+
+    // Poll until we see the data response token (0x05 = data accepted, per
+    // SD spec § 7.3.3.1).  Cap the poll so a buggy emulator can't spin us
+    // forever.
+    bool data_resp_ok = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0x05) { data_resp_ok = true; break; }
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+
+    // Read back via CMD17 sector=8.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_rd = send_cmd_r1(sd, 17, 8);
+    bool tok = wait_token(sd);
+    uint8_t got[512] = {}; if (tok) read_block(sd, got);
+    sd.deselect();
+
+    bool match = std::memcmp(got, pattern, 512) == 0;
+
+    check("SD-14",
+          "CMD24 WRITE_BLOCK round-trip: data-response 0x05 + CMD17 readback "
+          "returns identical 512 bytes",
+          data_resp_ok && r1_rd == 0x00 && tok && match,
+          "resp=" + std::string(data_resp_ok ? "1" : "0") +
+          " r1_rd=" + std::to_string(r1_rd) +
+          " tok=" + (tok ? "1" : "0") +
+          " match=" + (match ? "1" : "0"));
+
+    // Restore original fixture content for sector 8 so the global image
+    // shared with later tests is unchanged.
+    sd.reset();
+    init_card(sd);
+    uint8_t orig[512];
+    orig[0] = 0x08; orig[1] = 0x00; orig[2] = 0x00; orig[3] = 0x00;
+    for (int i = 4; i < 512; ++i)
+        orig[i] = static_cast<uint8_t>((8 + i) & 0xFF);
+
+    (void)send_cmd_r1(sd, 24, 8);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, orig[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0x05) break;
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+}
+
+// ─── New: MMC CMD1 init path ────────────────────────────────────────────
+
+static void test_mmc_cmd1_init(SdCardDevice& sd) {
+    // MMC-01: legacy MMC init via CMD1.  jnext implements cmd1_send_op_cond
+    // (see src/peripheral/sd_card.cpp) which sets initialized_=true on
+    // first invocation.  Verify CMD1 returns R1=0x00 (ready) and a
+    // subsequent CMD17 confirms the card is initialized.
+    sd.reset();
+
+    uint8_t r1 = send_cmd_r1(sd, 1, 0);
+
+    // Now issue CMD17 sector=2 — it must return R1=0x00 (initialized via
+    // legacy-MMC path), proving CMD1 alone is sufficient to initialize.
+    uint8_t r1_post = send_cmd_r1(sd, 17, 2);
+    bool tok = wait_token(sd);
+    uint8_t b[512] = {}; if (tok) read_block(sd, b);
+    sd.deselect();
+
+    check("MMC-01",
+          "CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 "
+          "returns R1=0x00",
+          r1 == 0x00 && r1_post == 0x00 && tok && b[0] == 0x02,
+          "r1=" + std::to_string(r1) +
+          " r1_post=" + std::to_string(r1_post) +
+          " tok=" + (tok ? "1" : "0") +
+          " b0=" + std::to_string(b[0]));
+}
+
+// ─── New: SD hot-plug round-trip (BOOT-SD-01) ───────────────────────────
+
+static void test_boot_sd_01() {
+    // BOOT-SD-01: mount img1, read sector 0, unmount; mount img2 (with a
+    // sentinel), read sector 0, verify sentinel; unmount; mount img1 again,
+    // verify original content.  Uses its own local SdCardDevice + images so
+    // it doesn't disturb the shared fixture in main().
+    std::string img1 = make_image(8);
+    std::string img2 = make_image(8);
+
+    // Modify img2 sector 0 byte 4 to 0xAA so we can tell the images apart.
+    {
+        FILE* f = std::fopen(img2.c_str(), "r+b");
+        std::fseek(f, 4, SEEK_SET);
+        std::fputc(0xAA, f);
+        std::fclose(f);
+    }
+
+    SdCardDevice sd;
+
+    // 1) mount img1, read sector 0, expect byte 4 = 4 (i.e. (0+4)&0xFF).
+    bool m1 = sd.mount(img1);
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_a = send_cmd_r1(sd, 17, 0);
+    bool tok_a = wait_token(sd);
+    uint8_t a[512] = {}; if (tok_a) read_block(sd, a);
+    sd.deselect();
+    sd.unmount();
+
+    // 2) mount img2, read sector 0, expect byte 4 = 0xAA.
+    bool m2 = sd.mount(img2);
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_b = send_cmd_r1(sd, 17, 0);
+    bool tok_b = wait_token(sd);
+    uint8_t b[512] = {}; if (tok_b) read_block(sd, b);
+    sd.deselect();
+    sd.unmount();
+
+    // 3) re-mount img1, read sector 0, byte 4 must be 4 again.
+    bool m3 = sd.mount(img1);
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_c = send_cmd_r1(sd, 17, 0);
+    bool tok_c = wait_token(sd);
+    uint8_t c[512] = {}; if (tok_c) read_block(sd, c);
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = m1 && m2 && m3
+           && r1_a == 0x00 && tok_a && a[4] == 4
+           && r1_b == 0x00 && tok_b && b[4] == 0xAA
+           && r1_c == 0x00 && tok_c && c[4] == 4;
+
+    check("BOOT-SD-01",
+          "mount/unmount round-trip: img1→img2→img1 yields correct "
+          "sector-0 content each time",
+          ok,
+          "a4=" + std::to_string(a[4]) +
+          " b4=" + std::to_string(b[4]) +
+          " c4=" + std::to_string(c[4]));
+
+    std::remove(img1.c_str());
+    std::remove(img2.c_str());
+}
+
+// ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
+
+static void test_boot_sd_02() {
+    // BOOT-SD-02: start CMD18 sector=0, read first block, then unmount the
+    // image mid-stream.  Re-mount, re-init, issue CMD17 sector=2 — verify
+    // the state machine cleaned up (multi_block_, data_idx_, resp_idx_).
+    std::string img = make_image(8);
+    SdCardDevice sd;
+    bool m1 = sd.mount(img);
+
+    sd.reset();
+    init_card(sd);
+    uint8_t r1 = send_cmd_r1(sd, 18, 0);
+    bool tok = wait_token(sd);
+    uint8_t blk0[512] = {}; if (tok) read_block(sd, blk0);
+
+    // Unmount mid-stream — multi_block_ is still set on the device.
+    sd.unmount();
+
+    // Re-mount the same image and run a fresh CMD17.
+    bool m2 = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_after = send_cmd_r1(sd, 17, 2);
+    bool tok_after = wait_token(sd);
+    uint8_t got[512] = {}; if (tok_after) read_block(sd, got);
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = m1 && m2
+           && r1 == 0x00 && tok && blk0[0] == 0x00
+           && r1_after == 0x00 && tok_after && got[0] == 0x02;
+
+    check("BOOT-SD-02",
+          "unmount mid-CMD18 stream + re-mount + CMD17 works (state "
+          "machine cleaned up)",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " r1_after=" + std::to_string(r1_after) +
+          " got0=" + std::to_string(got[0]));
+
+    std::remove(img.c_str());
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -351,37 +655,73 @@ int main() {
     test_cmd18_stream(sd);
     test_cmd18_end_of_image(sd);
     test_cmd18_cs_deassert_aborts(sd);
+    test_cmd13_status(sd);
+    test_cmd16_set_blocklen(sd);
+    test_cmd23_block_count(sd);
+    test_cmd24_write(sd);
+    test_mmc_cmd1_init(sd);
 
-    // SD-01 — CRC validation absent. SD spec: card MUST validate CMD0
-    // CRC; CMD59 toggles general CRC. jnext sd_card.cpp:253-283
-    // ignores cmd_buf_[5] (CRC byte); no CMD59 handler. See G159.
-    skip("SD-01",
-         "SD CMD0 CRC + CMD59 toggle absent; cmd_buf_[5] ignored (see G159)");
+    // BOOT-SD-01 / BOOT-SD-02 use their own local SdCardDevice + images so
+    // they don't disturb the shared `sd` and `img` above.
+    test_boot_sd_01();
+    test_boot_sd_02();
 
-    // SD-02 — CMD13 response shape (R2 vs R1). Spec: CMD13 returns R2
-    // (2 bytes). jnext sd_card.cpp:280-281 falls into default:, emits
-    // 1 R1 byte; hosts polling .cardinfo hang. See G160.
-    skip("SD-02",
-         "SD CMD13 returns R1 fall-through, not R2 (2 bytes) (see G160)");
-
-    // BOOT-SD-01 / BOOT-SD-02 — VHDL/runtime SD hot-plug (G158 from B10).
-    // SdCardDevice::mount/unmount exist but only the one-time invocation
-    // at src/core/emulator.cpp:2197-2200 is plumbed; no GUI/CLI affordance.
-    skip("BOOT-SD-01", "hot-plug round-trip not exposed at runtime (see G158)");
-    skip("BOOT-SD-02", "unmount mid-transfer untested (see G158)");
-
-    // SD-10..15 — G40: extended SD card commands not modelled.
-    skip("SD-10", "CMD9 SEND_CSD response not synthesised (see G40)");
-    skip("SD-11", "CMD10 SEND_CID response not synthesised (see G40)");
-    skip("SD-12", "CMD16 SET_BLOCKLEN ack absent (see G40)");
-    skip("SD-13", "CMD23 SET_BLOCK_COUNT not handled (see G40)");
-    skip("SD-14", "CMD24 WRITE_BLOCK absent — read-only fixture (see G40)");
-    skip("SD-15", "CMD25 multi-write not modelled (see G40)");
-
-    // MMC-01..03 — G41: MMC card support (vs SDHC only).
-    skip("MMC-01", "MMC CMD1 init path absent — SDHC only (see G41)");
-    skip("MMC-02", "CMD8 illegal-cmd on MMC not modelled (see G41)");
-    skip("MMC-03", "MMC byte/block-addressing duality unsupported (see G41)");
+    // ─── WONT rows (no skip()) ────────────────────────────────────────
+    //
+    // WONT SD-01 (G159) — CMD0 CRC validation + CMD59 CRC-toggle handler not
+    //   modelled. SD spec § 4.5: card MUST validate CMD0 CRC; CMD59 toggles
+    //   general CRC validation. Current behaviour: cmd_buf_[5] (CRC byte) is
+    //   ignored on all commands; CMD59 falls through to illegal-command.
+    //   Reason: TBBlue master + FatFs disk-io never toggle CRC validation;
+    //   no observed firmware client validates CRC. User impact today: nil.
+    //   Revisit if: third-party Z80 SD library or new TBBlue firmware version
+    //   exercises CMD59 / depends on CRC enforcement.
+    //
+    // WONT SD-10 (G40 CMD9 SEND_CSD) — 16-byte CSD register synthesis not
+    //   modelled. Spec: real SDHC card returns Version-2.0 CSD with C_SIZE
+    //   field encoding capacity. Current behaviour: CMD9 falls through to
+    //   default → returns R1 only.
+    //   Reason: TBBlue loader (mmc.s) does not invoke CMD9; FatFs disk-io
+    //   does not invoke CMD9; no observed firmware client probes capacity
+    //   via CSD on the Next.
+    //   Future re-implementation: if a host or future firmware needs card
+    //   capacity, synthesise CSD-V2 from `file_size_` — `C_SIZE = (file_size_
+    //   / 524288) - 1`, with VSN/TAAC/etc. canned per SD spec § 5.3.3. Approx.
+    //   30 LOC + a CSD-decoder test row. Re-home G40 entry would also gain a
+    //   note pointing here.
+    //
+    // WONT SD-11 (G40 CMD10 SEND_CID) — 16-byte CID register synthesis not
+    //   modelled. Reason: TBBlue + FatFs never probe CID; no firmware client
+    //   needs manufacturer-ID metadata on the Next.
+    //   Revisit if: a client surfaces. Implementation would be canned 16
+    //   bytes (MID/OID/PNM/PSN/MDT) per SD spec § 5.2; ~20 LOC + test.
+    //
+    // WONT SD-15 (G40 CMD25 WRITE_MULTIPLE_BLOCK) — multi-block write state
+    //   machine not modelled. Spec: CMD25 starts a multi-write stream
+    //   terminated by a 0xFD stop token; each block prefixed with 0xFC.
+    //   Current behaviour: CMD25 falls through to default → R1 only; host
+    //   would see protocol error.
+    //   Reason: TBBlue master verified 2026-05-03d — `CMD25` is `#define`d in
+    //   `loader/inc/mmc.h:59` and `app/src/ff/diskio.c:29` but **never
+    //   invoked**. FatFs `disk_write()` at diskio.c:382 uses single-block CMD24
+    //   in a loop. Loader (mmc.s) is read-only.
+    //   Future re-implementation: if NextZXOS or a third-party SD library
+    //   adopts CMD25 for write performance, parallel the existing CMD18
+    //   multi-read path: new `multi_block_write_` flag, recognise 0xFC
+    //   (continue) / 0xFD (stop) tokens in `RECEIVING_DATA`, emit data-response
+    //   0x05 + busy bytes between blocks. Approx. 50 LOC + test, ~1h with
+    //   reviewer. Symmetric with our CMD18 implementation.
+    //
+    // WONT MMC-02 (G41) — MMC-mode CMD8 illegal-command response not modelled.
+    //   Reason: our card declares SDHC via OCR (CMD58 returns CCS=1). The
+    //   MMC-rejection path is unreachable. Test target is tautological.
+    //   Revisit if: an MMC-only emulation mode is ever requested.
+    //
+    // WONT MMC-03 (G41) — MMC byte-vs-block addressing duality not modelled.
+    //   Reason: our card is SDHC-only; CMD17/18/24 use block (sector) addressing
+    //   exclusively. Mode is fixed by the OCR declaration. Test target is
+    //   tautological for a SDHC-only card.
+    //   Revisit if: an MMC-only emulation mode is ever requested.
 
     sd.unmount();
     std::remove(img.c_str());

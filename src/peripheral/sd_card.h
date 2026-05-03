@@ -122,8 +122,11 @@ private:
     void cmd1_send_op_cond();
     void cmd8_send_if_cond();
     void cmd12_stop_transmission();
+    void cmd13_send_status();
+    void cmd16_set_blocklen();
     void cmd17_read_single_block();
     void cmd18_read_multiple_block();
+    void cmd23_set_block_count();
     void cmd24_write_single_block();
     void cmd55_app_cmd();
     void cmd58_read_ocr();

@@ -270,8 +270,11 @@ void SdCardDevice::process_command() {
         case 1:  cmd1_send_op_cond(); break;
         case 8:  cmd8_send_if_cond(); break;
         case 12: cmd12_stop_transmission(); break;
+        case 13: cmd13_send_status(); break;
+        case 16: cmd16_set_blocklen(); break;
         case 17: cmd17_read_single_block(); break;
         case 18: cmd18_read_multiple_block(); break;
+        case 23: cmd23_set_block_count(); break;
         case 24: cmd24_write_single_block(); break;
         case 55: cmd55_app_cmd(); break;
         case 58: cmd58_read_ocr(); break;
@@ -320,6 +323,40 @@ void SdCardDevice::cmd12_stop_transmission() {
                   0xFF, r1 };  // NCR + R1
     resp_idx_ = 0;
     state_ = State::RESPONDING;
+}
+
+void SdCardDevice::cmd13_send_status() {
+    // CMD13 SEND_STATUS → R2 response (2 bytes: R1 + status byte).
+    // Idiom mirrors cmd58_read_ocr() — emit NCR + multi-byte response via
+    // resp_buf_.  R2=0x00 means "no errors / card OK".
+    sd_log()->debug("CMD13 SEND_STATUS → R2");
+    uint8_t r1 = initialized_ ? 0x00 : 0x01;
+    resp_buf_  = { 0xFF, r1, 0x00 };  // NCR + R1 + R2
+    resp_idx_  = 0;
+    state_     = State::RESPONDING;
+}
+
+void SdCardDevice::cmd16_set_blocklen() {
+    // CMD16 SET_BLOCKLEN: for SDHC the blocklen is fixed at 512.  Setting any
+    // other value is illegal (SD spec § 4.9.1: "In CCS=1 (SDHC) cards, the
+    // block length is fixed to 512 bytes").  We accept arg=512 silently and
+    // reject any other value with the illegal-command bit.
+    uint32_t arg = cmd_arg();
+    sd_log()->debug("CMD16 SET_BLOCKLEN arg={}", arg);
+    if (arg == 512) {
+        queue_r1(initialized_ ? 0x00 : 0x01);
+    } else {
+        // R1: idle (if not initialized) + illegal-command (bit 2).
+        queue_r1(0x05);
+    }
+}
+
+void SdCardDevice::cmd23_set_block_count() {
+    // CMD23 SET_BLOCK_COUNT: hint to the card about how many blocks the
+    // host plans to write/read (used as a pre-erase optimization).  We
+    // don't model the optimization; just ack it.
+    sd_log()->debug("CMD23 SET_BLOCK_COUNT count={}", cmd_arg());
+    queue_r1(initialized_ ? 0x00 : 0x01);
 }
 
 void SdCardDevice::cmd17_read_single_block() {
