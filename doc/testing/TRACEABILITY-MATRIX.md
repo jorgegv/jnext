@@ -1485,8 +1485,8 @@ Last-touch commit: `651ea41d76a30d6745a4a83c7fa79d859d61ae77` (`651ea41d76`)
 | 13.4    | Prescaler > 0 at 14MHz                 | —              | pass    | test/dma/dma_test.cpp:1671 |
 | 13.5    | Prescaler > 0 at 28MHz                 | —              | pass    | test/dma/dma_test.cpp:1682 |
 | 13.6    | Prescaler comparison                   | —              | pass    | test/dma/dma_test.cpp:1696 |
-| 13.7    | turbo=10 (14MHz): source byte latched on rising edge of dma_d_p_s (G122)    | dma.vhd:172-181         | skip    | test/dma/dma_test.cpp:1714 |
-| 13.8    | turbo=10 (14MHz): rd_n / wr_n strobes extended across READ_4/WRITE_4 (G122) | dma.vhd:158,160-161     | skip    | test/dma/dma_test.cpp:1715 |
+| 13.7    | turbo=10 (14MHz): source byte latched on rising edge of dma_d_p_s (G122, WONT 2026-05-03) | dma.vhd:172-181         | wont    | test/dma/dma_test.cpp:1702 |
+| 13.8    | turbo=10 (14MHz): rd_n / wr_n strobes extended across READ_4/WRITE_4 (G122, WONT 2026-05-03) | dma.vhd:158,160-161     | wont    | test/dma/dma_test.cpp:1721 |
 | 14.1    | ZXN mode: counter starts at 0          | —              | pass    | test/dma/dma_test.cpp:1732 |
 | 14.2    | Z80 mode: counter starts at 0xFFFF     | —              | pass    | test/dma/dma_test.cpp:1741 |
 | 14.3    | Counter increments per byte            | —              | pass    | test/dma/dma_test.cpp:1753 |

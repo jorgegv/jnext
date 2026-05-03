@@ -1699,20 +1699,42 @@ void group13_prescaler_timing() {
                   dma.dma_timer(), hi9));
     }
 
-    // 13.7 / 13.8 — VHDL dma.vhd:158 (dma_rw_extend) and :172-181
-    // (dma_d_p_s rising-edge latch) implement a 14MHz-only read-latch
-    // and strobe-extension. Today src/peripheral/dma.cpp:686-696 reads
-    // the source byte once via the read_memory/read_io callback with no
-    // notion of falling vs rising edge sampling, and execute_burst()
-    // exposes only byte-level granularity — the rd_n/wr_n strobe shape
-    // is not modelled at all.
+    // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
-    // F-SKIP: requires a per-master-cycle bus-strobe model (Dma::tick()
-    // exposing dma_rd_n_o / dma_wr_n_o per master cycle, plus a
-    // turbo-gated dma_d_p_s / dma_d_n_s split in the read path). Until
-    // that lands the rows are unobservable from the public Dma API.
-    skip("13.7", "rising-edge dma_d_p_s latch at 14MHz unmodelled (see G122)");
-    skip("13.8", "dma_rw_extend strobe extension at 14MHz unmodelled (see G122)");
+    // WONT 13.7 (G122) — turbo=10 (14MHz) source byte rising-edge latch
+    //   `dma_d_p_s` not modelled. VHDL `device/dma.vhd:172-181`: the read
+    //   datum is registered on `rising_edge(clk_i)` into `dma_d_p_s` and
+    //   selected via `dma_d_s <= dma_d_p_s when turbo_i = "10"` (else the
+    //   falling-edge `dma_d_n_s`). jnext `src/peripheral/dma.cpp:686-696`
+    //   reads the source byte once via the read_memory/read_io callback
+    //   with no falling-vs-rising edge sampling distinction, and
+    //   execute_burst() exposes only byte-level granularity.
+    //   Reason: per the G122 entry in
+    //   doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md — "edge-of-burst
+    //   sequencing differs; nil for simple memory-to-memory". No bundled
+    //   demo exercises 14 MHz DMA precision-burst sequencing where the
+    //   rising-vs-falling source latch would diverge. Closing the gap
+    //   requires a per-master-cycle bus-strobe model (Dma::tick() exposing
+    //   dma_rd_n_o / dma_wr_n_o per master cycle plus the turbo-gated
+    //   dma_d_p_s / dma_d_n_s split in the read path) — out of scope for
+    //   jnext's target use cases.
+    //   Revisit if: a specific demo or scheduling test depends on
+    //   14 MHz DMA edge-precision read latching.
+    //
+    // WONT 13.8 (G122) — turbo=10 (14MHz) `dma_rw_extend` strobe
+    //   extension not modelled. VHDL `device/dma.vhd:158, 160-161`:
+    //   `dma_rw_extend = '1' when turbo_i = "10" and (dma_seq_s =
+    //   TRANSFERING_READ_4 or TRANSFERING_WRITE_4)`, with
+    //   `dma_rd_n_s = not (dma_rd_s or (dma_rw_extend and dma_read_cycle))`
+    //   — the rd_n / wr_n strobe stays asserted for one extra master cycle
+    //   when the FSM is in READ_4 / WRITE_4. jnext's byte-granular
+    //   execute_burst() emits no rd_n/wr_n strobe shape at all.
+    //   Reason: same per-cycle bus-strobe prerequisite as 13.7. No
+    //   bundled demo observes the strobe duration on dma_rd_n_o /
+    //   dma_wr_n_o; impact is nil for memory-to-memory transfers (the
+    //   datum is identical regardless of strobe width).
+    //   Revisit if: a specific demo or scheduling test depends on
+    //   14 MHz DMA edge-precision strobe-extension timing.
 }
 
 // ══════════════════════════════════════════════════════════════════════
