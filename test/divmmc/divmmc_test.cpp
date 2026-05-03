@@ -37,6 +37,10 @@
 #include "memory/ram.h"
 #include "memory/rom.h"
 #include "port/nextreg.h"
+// G46(a) DM-RETN-PROPER-01/02: drive DivMmc::on_m1_retn_delay() through
+// the real Im2Controller FSM (im2_control.vhd:158-209) so the canonical
+// ED 45 vs alias-byte distinction is exercised end-to-end.
+#include "cpu/im2.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -1449,14 +1453,160 @@ void group_nm() {
               fmt("s00=%d s01=%d s10=%d s11=%d", s00, s01, s10, s11));
     }
 
-    // DM-RETN-PROPER-01/02 — G46(a): VHDL divmmc.vhd:131 delayed-off
-    // path is the proper model. Today src/core/emulator.cpp:251-264
-    // papers over with a RETN-alias band-aid; the proper invariant
-    // (RETN-alias hit must NOT clear automap_held) is unassertable.
-    skip("DM-RETN-PROPER-01",
-         "VHDL divmmc.vhd:131 delayed-off path missing (see G46)");
-    skip("DM-RETN-PROPER-02",
-         "RETN-alias must not clear automap_held in proper model (see G46)");
+    // DM-RETN-PROPER-01 — G46(a): canonical ED 45 RETN clears
+    // automap_held via the one-M1-cycle delay register inside DivMmc.
+    // The overlay survives RETN's own ED 45 fetch (held still 1 right
+    // after the ED 45 ext-byte M1) and drops on the FIRST M1 of the
+    // returned-to instruction, mirroring the VHDL register-shift shape
+    // (divmmc.vhd:126,131,139 + im2_control.vhd:236).
+    //
+    // Stimulus path: drive Im2Controller's FSM (the same FSM the
+    // Emulator's on_m1_cycle lambda uses in production) so the
+    // canonical ED 45 vs alias-byte distinction is exercised
+    // end-to-end, not faked via direct boolean injection.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);    // RST 0x00 enabled
+        d.set_entry_valid_0(0x01);     // main path valid
+        d.set_entry_timing_0(0x01);    // instant timing for RST 0x00
+
+        // Two-stage automap: first M1 sets hold, second M1 promotes
+        // hold→held (mirrors NM-07's setup pattern).
+        d.check_automap(0x0000, true);
+        d.check_automap(0x0100, true);
+        const bool held_pre = d.automap_held();
+
+        // Drive RETN through the real Im2 FSM. Z80 emulator delivers
+        // BOTH bytes of an ED-prefix opcode to on_m1_cycle (G87, see
+        // src/cpu/z80_cpu.cpp:480-481), so the FSM transitions
+        // S_0 → S_ED_T4 → S_ED45_T4. retn_seen_this_cycle() pulses on
+        // the second call (the ED 45 ext-byte M1).
+        Im2Controller im2; im2.reset();
+
+        // M1.A: ED prefix byte. FSM: S_0 → S_ED_T4. retn_seen=false.
+        im2.on_m1_cycle(0x1000, 0xED);
+        d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+        const bool held_after_ed = d.automap_held();
+
+        // M1.B: 0x45 ext byte. FSM: S_ED_T4 → S_ED45_T4. retn_seen=true.
+        // DivMmc latches retn_pending_clear_; held STAYS true on this
+        // M1 (the delayed clear fires on the NEXT M1, not this one).
+        im2.on_m1_cycle(0x1001, 0x45);
+        d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+        const bool held_after_retn = d.automap_held();
+
+        // M1.C: returned-to instruction's first byte (e.g. NOP at
+        // 0x2000 — the address popped from stack by RETN's own logic;
+        // doesn't matter for this test as DivMmc never sees the PC,
+        // only the boolean from Im2 plus any check_automap call). The
+        // pending clear fires here, dropping held → false.
+        // Note: also call check_automap() to mirror the production
+        // sequence (on_m1_prefetch fires before on_m1_cycle for every
+        // instruction). The PC is non-trigger so check_automap is a
+        // no-op for the held state — it just exercises the same
+        // call ordering the Emulator uses.
+        d.check_automap(0x2000, true);
+        im2.on_m1_cycle(0x2000, 0x00);
+        d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+        const bool held_after_next = d.automap_held();
+
+        check("DM-RETN-PROPER-01",
+              "ED 45 RETN clears automap_held one M1 after the RETN "
+              "fetch (VHDL divmmc.vhd:139 + im2_control.vhd:236, "
+              "modelled via DivMmc::on_m1_retn_delay one-M1 delay register)",
+              held_pre && held_after_ed && held_after_retn
+                  && !held_after_next,
+              fmt("pre=%d after_ed=%d after_retn=%d after_next_cleared=%d",
+                  held_pre, held_after_ed, held_after_retn,
+                  !held_after_next));
+    }
+
+    // DM-RETN-PROPER-02 — G46(a): negative test for the canonical
+    // RETN check. Im2Controller's FSM (im2_control.vhd:236) only
+    // pulses retn_seen on a CANONICAL ED 45. None of the legacy alias
+    // bytes (0x55/5D/65/6D/75/7D — LD r,L variants that some
+    // documentation calls RETN-equivalent), nor ED 4D (RETI), nor a
+    // standalone 0x45 (LD B,L without ED prefix) should clear
+    // automap_held via this path. This row retires the pre-G87
+    // RETN-alias band-aid in src/core/emulator.cpp.
+    {
+        // Build a per-byte fixture: each entry is (label, prefix_byte
+        // OR 0xFF for "no prefix", target_byte). For each, set up
+        // automap_held=true and feed the bytes through Im2 + DivMmc;
+        // assert held STAYS true after both M1s plus a third "next
+        // instruction" M1 (the same shape DM-RETN-PROPER-01 uses for
+        // the positive case).
+        struct Case { const char* label; uint8_t pre; uint8_t op; };
+        const Case cases[] = {
+            // ED-prefixed alias bytes (legacy RETN-equivalent encodings
+            // per Z80 lore but NOT canonical per im2_control.vhd:236).
+            {"ED 4D (RETI)",        0xED, 0x4D},
+            {"ED 55 (LD D,L)",      0xED, 0x55},
+            {"ED 5D (LD E,L)",      0xED, 0x5D},
+            {"ED 65 (LD H,L)",      0xED, 0x65},
+            {"ED 6D (LD L,L)",      0xED, 0x6D},
+            {"ED 75 (LD (HL),L)",   0xED, 0x75},
+            {"ED 7D (LD A,L)",      0xED, 0x7D},
+            // Standalone 0x45 = LD B,L. NO ED prefix → FSM stays in
+            // S_0; retn_seen_this_cycle() must NOT pulse.
+            {"0x45 (LD B,L, no ED)", 0xFF, 0x45},
+        };
+
+        bool all_held_preserved = true;
+        std::string detail;
+        for (const Case& c : cases) {
+            DivMmc d = make_divmmc();
+            d.set_entry_points_0(0x01);
+            d.set_entry_valid_0(0x01);
+            d.set_entry_timing_0(0x01);
+            d.check_automap(0x0000, true);
+            d.check_automap(0x0100, true);
+            const bool held_pre = d.automap_held();
+
+            Im2Controller im2; im2.reset();
+
+            // Optional ED prefix M1. 0xFF sentinel = no prefix.
+            if (c.pre != 0xFF) {
+                im2.on_m1_cycle(0x1000, c.pre);
+                d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+            }
+
+            // Target byte M1. For ED-prefixed alias bytes the FSM
+            // transitions S_ED_T4 → (some other state, NOT S_ED45_T4),
+            // so retn_seen pulse is FALSE. For standalone 0x45 the
+            // FSM stays in S_0 and retn_seen is also FALSE.
+            im2.on_m1_cycle(0x1001, c.op);
+            d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+            const bool held_after_op = d.automap_held();
+
+            // Step one more M1 to confirm no clear was queued. If a
+            // false-positive had latched retn_pending_clear_, held
+            // would drop here.
+            im2.on_m1_cycle(0x2000, 0x00);
+            d.on_m1_retn_delay(im2.retn_seen_this_cycle());
+            const bool held_after_next = d.automap_held();
+
+            const bool ok = held_pre && held_after_op && held_after_next;
+            if (!ok) {
+                all_held_preserved = false;
+                if (!detail.empty()) detail += "; ";
+                detail += c.label;
+                detail += "(pre=" + std::to_string(held_pre)
+                       +  " after_op=" + std::to_string(held_after_op)
+                       +  " after_next=" + std::to_string(held_after_next)
+                       +  ")";
+            }
+        }
+
+        check("DM-RETN-PROPER-02",
+              "RETN-alias bytes (ED 4D/55/5D/65/6D/75/7D, standalone "
+              "0x45) do NOT clear automap_held — only canonical ED 45 "
+              "matches Im2Controller::retn_seen_this_cycle() "
+              "(VHDL im2_control.vhd:236)",
+              all_held_preserved,
+              detail.empty() ? std::string("all 8 alias cases preserved held")
+                             : detail);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

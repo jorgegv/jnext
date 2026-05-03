@@ -161,7 +161,10 @@ add_executable(divmmc_test divmmc/divmmc_test.cpp)
 # commit 7be3deb), which pulls Mmu/Ram/Rom and DebugState transitively.
 # jnext_port added 2026-04-28 (Task 8 t1): NA-04..NA-08 wire NR 0x0A /
 # 0x83 / 0x06 verification through a NextReg fixture (G123/G124/G125/G131).
-target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_debug jnext_port)
+# jnext_cpu added 2026-05-03 (G46(a)): DM-RETN-PROPER-01/02 drive
+# DivMmc::on_m1_retn_delay() through a real Im2Controller FSM so the
+# canonical-ED-45 vs alias-byte distinction is verified end-to-end.
+target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_debug jnext_port jnext_cpu)
 target_include_directories(divmmc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME divmmc_tests COMMAND divmmc_test)
 

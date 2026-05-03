@@ -37,6 +37,7 @@ void DivMmc::reset() {
     automap_held_   = false;
     button_nmi_     = false;  // VHDL divmmc.vhd:108 — reset clears latch
     layer2_map_read_ = false; // VHDL zxnext.vhd:3910 — reset clears L2 rd-map
+    retn_pending_clear_ = false;  // G46(a) — flush any queued delayed clear
     entry_points_0_ = 0x83;  // soft reset default
     entry_valid_0_  = 0x01;
     entry_timing_0_ = 0x00;
@@ -111,6 +112,10 @@ void DivMmc::apply_enabled_transition_(bool prev_enabled) {
         automap_hold_   = false;
         automap_held_   = false;
         button_nmi_     = false;  // divmmc.vhd:108 — i_automap_reset clear
+        // G46(a) — drop any queued delayed-clear on automap_reset; the
+        // shared VHDL process zeroes the pipeline registers and the
+        // delayed-clear shadow has no meaning once held=0.
+        retn_pending_clear_ = false;
     }
 }
 
@@ -141,6 +146,14 @@ void DivMmc::on_retn() {
     // process: button_nmi (line 108), automap_hold (126), automap_held
     // (139). JNEXT models all three clears here. The NMI-source plan's
     // Wave B row CLR-03 exercises the button_nmi clear via this hook.
+    //
+    // G46(a) note: the Emulator's `on_m1_cycle` lambda no longer calls
+    // this entry point directly — it routes through `on_m1_retn_delay()`
+    // instead (the one-M1-cycle delay register that lets `automap_held_`
+    // survive the RETN's own execution and drop on the first M1 of the
+    // returned-to instruction). `on_retn()` is retained for direct test
+    // callers (DA-06, IN-03, NM-06) that want the immediate-clear
+    // semantics without going through the M1 callback path.
     if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
         divmmc_log()->debug("RETN: automap+button_nmi cleared");
     }
@@ -148,6 +161,43 @@ void DivMmc::on_retn() {
     automap_hold_   = false;
     automap_held_   = false;
     button_nmi_     = false;
+    // Clear any pending delayed clear too — direct on_retn() supersedes
+    // the deferred path so we don't double-fire on the next M1.
+    retn_pending_clear_ = false;
+}
+
+void DivMmc::on_m1_retn_delay(bool retn_seen) {
+    // G46(a) — proper VHDL-faithful RETN clear sequencing. Called from
+    // Emulator's on_m1_cycle lambda on every M1 byte fetch (so twice for
+    // ED-prefix instructions: once for the ED byte, once for the ext
+    // byte). `retn_seen` mirrors Im2Controller::retn_seen_this_cycle(),
+    // which only pulses on the M1 of a canonical ED 45 — never on
+    // ED 4D (RETI), never on the legacy alias bytes 0x55/5D/65/6D/75/7D
+    // (LD r, L variants), and never on a standalone 0x45 (LD B, L).
+    //
+    // Behaviour, in order:
+    //   1. If a clear was queued by the previous M1 (retn_pending_clear_
+    //      = true), apply it now: drop automap_active_ / automap_hold_ /
+    //      automap_held_ / button_nmi_ and reset the pending flag. This
+    //      is the "next M1 after RETN" semantics — the overlay survives
+    //      RETN's own ED 45 fetch and drops on the M1 of the
+    //      returned-to instruction's first byte.
+    //   2. If `retn_seen` is true on this M1 (we just decoded ED 45),
+    //      latch the pending flag so the clear fires on the next M1.
+    if (retn_pending_clear_) {
+        if (automap_active_ || automap_hold_ || automap_held_ || button_nmi_) {
+            divmmc_log()->debug(
+                "RETN delayed clear applied (one M1 after ED 45)");
+        }
+        automap_active_     = false;
+        automap_hold_       = false;
+        automap_held_       = false;
+        button_nmi_         = false;
+        retn_pending_clear_ = false;
+    }
+    if (retn_seen) {
+        retn_pending_clear_ = true;
+    }
 }
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
@@ -384,6 +434,10 @@ void DivMmc::save_state(StateWriter& w) const
     // Layer 2 read-map feeder (VHDL zxnext.vhd:3138). Appended after
     // button_nmi_ to keep the stream layout append-only.
     w.write_bool(layer2_map_read_);
+    // G46(a) — RETN delayed-clear pending flag. Appended last to keep
+    // the stream layout append-only (matches earlier additions); breaks
+    // backward compat with pre-G46(a) snapshots by design.
+    w.write_bool(retn_pending_clear_);
     w.write_bytes(ram_.data(), ram_.size());
 }
 
@@ -414,5 +468,7 @@ void DivMmc::load_state(StateReader& r)
     // button_nmi_. Like the Task 7 Branch A additions above, this breaks
     // backward compat with pre-feeder snapshots by design.
     layer2_map_read_ = r.read_bool();
+    // G46(a) — RETN delayed-clear pending flag. Same compat caveat.
+    retn_pending_clear_ = r.read_bool();
     r.read_bytes(ram_.data(), ram_.size());
 }

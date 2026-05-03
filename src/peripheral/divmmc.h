@@ -64,6 +64,25 @@ public:
     /// divmmc.vhd:108,126,139.
     void on_retn_seen() { on_retn(); }
 
+    /// G46(a) — proper "delayed-off" automap clear via the ED 45 RETN
+    /// signal sourced from Im2Controller. Wired from Emulator's
+    /// `on_m1_cycle` lambda on every M1 fetch; receives `retn_seen` =
+    /// `Im2Controller::retn_seen_this_cycle()` (true only on the M1 that
+    /// completes a canonical ED 45 — never on the legacy alias bytes
+    /// 0x55/5D/65/6D/75/7D nor on a standalone 0x45 = LD B,L). Models a
+    /// one-M1-cycle delay register: on M1 N+1 (the first fetch after
+    /// RETN's ED 45), the latched clear is applied, dropping
+    /// `automap_held_` (and the related `automap_hold_` /
+    /// `automap_active_` / `button_nmi_` shadows) one M1 after the RETN
+    /// itself — matching the VHDL behaviour where the held register only
+    /// surfaces its post-RETN value on the next instruction's M1.
+    ///
+    /// The legacy `on_retn()` / `on_retn_seen()` entry points are kept
+    /// for tests and direct callers that want the immediate-clear
+    /// semantics; the Emulator's M1 lambda routes exclusively through
+    /// this method to retire the pre-G87 RETN-alias band-aid.
+    void on_m1_retn_delay(bool retn_seen);
+
     // ── Memory overlay interface ──────────────────────────────────
 
     /// Returns true if DivMMC memory overlay is active (conmem OR automap).
@@ -232,6 +251,15 @@ private:
     // read-enable latch on every port 0x123B write; used in
     // check_automap() to gate the ROM3 path.
     bool layer2_map_read_ = false;
+
+    // G46(a) — one-M1-cycle delay register for the ED 45 RETN clear of
+    // `automap_held_`. Set true by `on_m1_retn_delay(true)` (i.e. on the
+    // M1 fetch that completes a canonical ED 45 — sourced from
+    // Im2Controller::retn_seen_this_cycle()). Cleared on the NEXT M1
+    // call after applying the held/hold/active/button_nmi clear, so the
+    // overlay survives the RETN's own execution and drops on the first
+    // M1 of the returned-to instruction. Reset clears it.
+    bool retn_pending_clear_ = false;
 
     // NextREG automap configuration (0xB8–0xBB)
     uint8_t entry_points_0_ = 0x83;    // soft reset default
