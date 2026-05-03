@@ -553,15 +553,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>(v & 0x01);
     });
 
-    // Register 0x09: Peripheral 4 setting
-    //   bit 4 = sprite_tie (NR 0x34 ↔ port 0x303B mirror tie, VHDL
-    //           zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612)
-    //   bit 3 = sprites over border
-    nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
-        sprites_.set_over_border((v & 0x08) != 0);
-        sprites_.set_mirror_tie((v & 0x10) != 0);
-        return v;
-    });
     // VHDL zxnext.vhd:5909 — NR 0x09 read composes:
     //   nr_09_psg_mono [7:5] & nr_09_sprite_tie [4] & '0' [3]
     //     & (NOT nr_09_hdmi_audio_en) [2] & eff_nr_09_scanlines [1:0]
