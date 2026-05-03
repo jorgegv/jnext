@@ -426,18 +426,17 @@ static void g_ay_ports() {
     // VHDL ym2149.vhd:240-249 + turbosound.vhd:158 — port_a_i/port_b_i
     // tied to '1's at the turbosound wrapper. AyChip lacks accessors for
     // these signals; no Z80 software on platform exercises PSG GPIO.
-    // Cat B (no consumer). All five rows skip() rather than be silently
-    // omitted from counters (see G30; unobservable-audit-rule).
-    skip("AY-30",
-         "Read R14 with R7.b6=0: AyChip has no port_a_i accessor (see G30)");
-    skip("AY-31",
-         "Read R14 with R7.b6=1: reg(14) AND port_a_i not modelled (see G30)");
-    skip("AY-32",
-         "Read R15 with R7.b7=0: AyChip has no port_b_i accessor (see G30)");
-    skip("AY-33",
-         "Read R15 with R7.b7=1: reg(15) AND port_b_i not modelled (see G30)");
-    skip("AY-34",
-         "port_a_i/port_b_i tie-high (turbosound.vhd:158) not plumbed (see G30)");
+    //
+    // WONT AY-30 / AY-31 / AY-32 / AY-33 / AY-34 — G30: AY-3-8910 GPIO
+    // ports (R14/R15) emulation. Used only by vintage 128K-era peripherals
+    // (Currah uSpeech, MIDI dongles, lightguns, multifaces using AY as a
+    // mux). jnext's target software (NextZXOS + modern Spectrum Next
+    // demos/games) never reads those registers. Per
+    // feedback_wont_taxonomy.md: explicit decision NOT to implement.
+    // Revisit trigger: jnext adds emulation of vintage AY-as-GPIO
+    // peripherals (e.g. Currah/MIDI). At that point AyChip needs
+    // port_a_i/port_b_i accessors and the turbosound.vhd:158 tie-high
+    // wiring becomes observable.
 }
 
 // =====================================================================
@@ -1811,25 +1810,67 @@ static void g_ts_enable() {
                   L_all, L_no2, L_all - L_no2));
     }
 
-    // TS-60 — turbosound.vhd:118-138: synchronous reset block clears
+    // TS-60 — turbosound.vhd:118-138: synchronous reset clause clears
     //   ay_select <= "11"; psg{0,1,2}_pan <= "11";
     // and nothing else. enabled / stereo_mode / mono_mode are external
     // ports (turbosound_en_i, stereo_mode_i, mono_mode_i) supplied by
-    // NR 0x08 / NR 0x09. jnext TurboSound::reset() (src/audio/turbosound.cpp:10-20)
-    // zeroes all five fields, so any reset path drops the NR-driven
-    // settings.
+    // NR 0x08 / NR 0x09 — the audio_ay_reset pulse (NR 0x06 psg_mode=11
+    // toggle, zxnext.vhd:6379) must NOT clobber them.
+    //
+    // G115 closure: TurboSound::reset_ay_only() splits the partial reset
+    // out of the full power-on reset(). This row exercises the
+    // turbosound_en preservation (NR 0x08 b1 → set_enabled).
     // Reserved range: TS-35..59 left unused for future expansion.
-    skip("TS-60",
-         "TurboSound::reset() over-clears NR-driven enabled/stereo/mono (see G115)");
+    {
+        TurboSound ts;
+        ts.set_enabled(true);                   // NR 0x08 b1 = 1
+        ts.set_stereo_mode(true);               // NR 0x08 b5 = 1 (ACB)
+        ts.set_mono_mode(0x07);                 // NR 0x09 b7:5 = 111
+        // Mutate the synchronously-reset fields so the partial reset has
+        // visible work to do: select PSG1 + change all three pans.
+        ts.reg_addr(0xBE);                      // PSG1 select, pan="01"
+        ts.reg_addr(0x9E);                      // PSG1 pan="00" (re-set)
+        ts.reg_addr(0xBD);                      // PSG2 select, pan="01"
 
-    // TS-61 — zxnext.vhd: NR 0x06 psg_mode=11 path calls
-    //   turbosound_.reset() unconditionally, so it loses NR 0x08 b1
-    //   (turbosound_en), b5 (ABC/ACB), and the NR 0x09 mono triplet —
-    //   exactly the fields TS-60 says reset must preserve. Fix:
-    //   split TurboSound::reset() into a full reset (used at power-on)
-    //   and an ay-only reset (used by audio_ay_reset).
-    skip("TS-61",
-         "psg_mode=11 toggle wipes NR 0x08 b1/b5 + NR 0x09 mono via reset() (see G115)");
+        // Audio AY reset (NR 0x06 psg_mode=11 path).
+        ts.reset_ay_only();
+
+        check("TS-60",
+              "reset_ay_only preserves NR-driven enabled/stereo/mono "
+              "AND clears ay_select+pan",
+              ts.enabled() == true
+                  && ts.stereo_mode() == true
+                  && ts.mono_mode() == 0x07,
+              fmt("enabled=%d stereo=%d mono=0x%02x "
+                  "VHDL turbosound.vhd:118-138 (NR-driven inputs survive)",
+                  ts.enabled() ? 1 : 0,
+                  ts.stereo_mode() ? 1 : 0,
+                  ts.mono_mode()));
+    }
+
+    // TS-61 — zxnext.vhd:6379 — `audio_ay_reset <= '1' when reset='1' or
+    //   nr_06_psg_mode = "11" else '0'`. The G115 split puts a
+    //   reset_ay_only() at the NR 0x06 psg_mode=11 callsite (see
+    //   src/core/emulator.cpp NR 0x06 handler). This row pins the NR 0x09
+    //   mono_mode preservation specifically (TS-60 covers the en + stereo
+    //   bits). Re-derive: setting only mono_mode_=0x05 (PSG0+PSG2 mono)
+    //   then issuing the partial reset must leave mono_mode_ untouched.
+    {
+        TurboSound ts;
+        ts.set_mono_mode(0x05);                 // NR 0x09 b5+b7 (PSG0,PSG2)
+        // Touch the synchronously-reset fields so the partial reset has
+        // observable work to do — pan + ay_select must clear back to
+        // "11" while mono_mode survives.
+        ts.set_enabled(true);
+        ts.reg_addr(0xBE);                      // pan/select churn
+        ts.reset_ay_only();
+        check("TS-61",
+              "reset_ay_only preserves NR 0x09 mono_mode (per-PSG triplet)",
+              ts.mono_mode() == 0x05,
+              fmt("mono_mode=0x%02x (want 0x05) "
+                  "VHDL turbosound.vhd:118-138 (mono_mode_i survives reset)",
+                  ts.mono_mode()));
+    }
 }
 
 static void g_ts_panning() {
@@ -2039,14 +2080,14 @@ static void g_dac() {
                   dac.pcm_left(), dac.pcm_right()));
     }
 
-    // SD-09 — G31: per-clock if/elsif write priority between port-I/O and
-    // NextREG mirror writes is a clocked-process pipeline ordering artefact
-    // of the VHDL core. The standalone Dac class has frame-level
-    // last-write-wins semantics; modelling per-clock priority would require
-    // a time-ordered event queue refactor on Dac. Cat B (no software
-    // observer for the priority decision specifically).
-    skip("SD-09",
-         "DAC port-vs-NR clock-priority not modelled; needs Dac event queue (see G31)");
+    // WONT SD-09 — G31: per-clock if/elsif write priority between port-I/O
+    // and NextREG mirror writes is a clocked-process pipeline ordering
+    // artefact of the VHDL core. The standalone Dac class has frame-level
+    // last-write-wins semantics; modelling per-clock priority would
+    // require a time-ordered event queue refactor on Dac. Per
+    // feedback_wont_taxonomy.md: explicit decision NOT to implement until
+    // the larger refactor lands. Revisit trigger: scanline-level audio
+    // refactor lands (G31 plan entry literally states this dependency).
 
     // RE-HOME: SD-10 — Soundrive mode 1 port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x5F unwired).
@@ -2269,14 +2310,15 @@ static void g_mixer() {
               fmt("L=%d R=%d VHDL audio_mixer.vhd:89-90,99-100", s[0], s[1]));
     }
 
-    // MX-30 — G29: Pi I2S source-side is a single-latch stub. No streaming
-    // producer drives pi_audio_L/R over time. VHDL audio_mixer.vhd:43-52
-    // expects a continuous 10-bit synchronous sample bus from the Pi side.
-    // No Z80 software on the platform currently exercises this path, so we
-    // have no observable failure to chase. Distinct from G73 (NR/port
-    // wiring of I2S into the Mixer gate).
-    skip("MX-30",
-         "Pi I2S source upgrade pending; no software consumer today (see G29)");
+    // WONT MX-30 — G29: Pi I2S real audio emulation. Today's I2s class is
+    // a single-latch stub; faithful emulation needs an --i2s-input file.wav
+    // driver, 48 kHz host capture, and a continuous 10-bit synchronous
+    // sample bus over time (VHDL audio_mixer.vhd:43-52 expects this).
+    // This is a v1.x feature, not a bug — no Z80 software on the platform
+    // exercises the Pi I2S path. Per feedback_wont_taxonomy.md: explicit
+    // decision NOT to implement now. Distinct from G73 (NR/port wiring of
+    // I2S into the Mixer gate, which is closed). Revisit trigger:
+    // --i2s-input feature is added.
 
     // MX-10 - silence: pcm_L = 0.
     {

@@ -18,7 +18,21 @@ class TurboSound {
 public:
     TurboSound();
 
+    /// Full reset (power-on / hard reset). Clears ALL state — register
+    /// files of every AY chip, ay_select, panning, NR-driven enable /
+    /// stereo / mono shadows, and the cached PCM outputs.
     void reset();
+
+    /// Audio AY reset (VHDL `audio_ay_reset` — turbosound.vhd:118-138).
+    /// The synchronous reset block in VHDL clears ONLY ay_select <= "11"
+    /// and psg{0,1,2}_pan <= "11"; enabled / stereo_mode / mono_mode are
+    /// external NR-driven inputs (turbosound_en_i / stereo_mode_i /
+    /// mono_mode_i, supplied by NR 0x08 b1/b5 and NR 0x09) and MUST NOT
+    /// be cleared by this path. Used by the NR 0x06 psg_mode=11 toggle
+    /// (zxnext.vhd:6379 — `audio_ay_reset <= ... or nr_06_psg_mode = "11"`).
+    /// Also clears each AyChip's register file and cached PCM outputs to
+    /// match the VHDL ym2149 reset that fires alongside audio_ay_reset.
+    void reset_ay_only();
 
     /// Enable/disable TurboSound (when disabled, only AY#0 is active).
     void set_enabled(bool en) { enabled_ = en; }
