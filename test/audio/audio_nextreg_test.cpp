@@ -793,13 +793,34 @@ static void test_nr_dac_gate(Emulator& emu) {
     // SD-19 — soundrive.vhd:69-78 + zxnext.vhd:6436:
     //   soundrive.reset_i <= reset OR NOT nr_08_dac_en;
     // While disabled, all four DAC channels stay latched at 0x80 (DC
-    // midpoint). jnext Emulator::write_nr_8 (src/core/emulator.cpp:1674)
-    // only flips `dac_enabled_`; pre-existing values in Dac::ch_[]
-    // persist, so a 1->0 transition leaves residual non-silent levels.
+    // midpoint). A 1->0 transition on nr_08_dac_en must therefore force
+    // every channel back to 0x80 so residual non-silent levels do not
+    // persist (Emulator::write_nr_8 calls Dac::reset() on the disable
+    // edge — see G111).
     // Reserved range: SD-10..18 left unused so the gap signals a future
     // group expansion.
-    skip("SD-19",
-         "DAC retains last value when nr_08_dac_en clears; should reset (see G111)");
+    {
+        fresh(emu);
+        nr_write(emu, 0x08, 0x08);              // gate open (dac_en=1)
+        emu.port().out(0x1F, 0xFF);             // chA = 0xFF
+        emu.port().out(0x0F, 0xFF);             // chB = 0xFF
+        emu.port().out(0x4F, 0xFF);             // chC = 0xFF
+        emu.port().out(0x5F, 0xFF);             // chD = 0xFF
+        const uint16_t L_on = emu.dac().pcm_left();    // expect 0x1FE
+        const uint16_t R_on = emu.dac().pcm_right();   // expect 0x1FE
+
+        nr_write(emu, 0x08, 0x00);              // gate closed (dac_en 1->0)
+        const uint16_t L_off = emu.dac().pcm_left();   // expect 0x100 (silence)
+        const uint16_t R_off = emu.dac().pcm_right();  // expect 0x100
+
+        check("SD-19",
+              "nr_08_dac_en 1->0 resets DAC channels to 0x80 silence "
+              "[soundrive.vhd:69-78, zxnext.vhd:6436]",
+              L_on == 0x1FE && R_on == 0x1FE && L_off == 0x100 && R_off == 0x100,
+              fmt("on L=0x%03X R=0x%03X; off L=0x%03X R=0x%03X "
+                  "(want 0x1FE/0x1FE/0x100/0x100)",
+                  L_on, R_on, L_off, R_off));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
