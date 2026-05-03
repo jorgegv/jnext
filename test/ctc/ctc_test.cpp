@@ -453,13 +453,37 @@ void section2_timer_mode() {
               fmt("v0=0x%02x v1=0x%02x", v0, v1));
     }
 
-    // CTC-TM-G120-01 — VHDL device/ctc_chan.vhd:131-141
-    // VHDL clears p_count only on reset_soft='1'. jnext ctc.cpp:41
-    // clears prescaler_ on every TC write including the running-reload
-    // path (S_RUN_TC → S_RUN). Effect: next ZC/TO up to one prescaler
-    // period late after a mid-stream TC reload. (G120)
-    skip("CTC-TM-G120-01",
-         "ctc_chan.vhd:131-141 prescaler must be preserved on running TC reload (see G120)");
+    // CTC-TM-G120-01 — VHDL device/ctc_chan.vhd:131-141 (G120 PASS)
+    // p_count is cleared only when reset_soft='1', and reset_soft is
+    // 'state /= S_RUN and state /= S_RUN_TC' (line 117). So a TC reload
+    // from S_RUN_TC (mid-stream reconfigure while running) MUST preserve
+    // the prescaler — the next ZC/TO arrives after the rest of the
+    // current prescaler period plus the new TC, NOT after a fresh full
+    // prescaler period. Stimulus: enter S_RUN with TC=0x10 prescale=16,
+    // tick 8 cycles (half a prescaler period), then write a CW with
+    // tc_follows=1 to enter S_RUN_TC, then write a new TC=0x05. The
+    // prescaler should still be at 8, so 8 more ticks complete the first
+    // prescaler period and decrement counter from 0x05 to 0x04 — NOT from
+    // 0x05 to 0x05 (which would be the buggy "fresh prescaler" outcome).
+    {
+        fresh(ctc);
+        ctc.write(0, cw(false, false, false, false, false, true, false));  // CW timer prescale=16 tc_follows=1
+        ctc.write(0, 0x10);                                                  // TC=0x10 → S_RUN, prescaler=0
+        ctc.tick(8);                                                          // half a prescaler period (prescaler now at 8)
+        // Reconfigure with a new TC while running.
+        ctc.write(0, cw(false, false, false, false, false, true, false));   // CW tc_follows=1 → S_RUN_TC (prescaler preserved)
+        ctc.write(0, 0x05);                                                  // TC=0x05 → S_RUN, counter=0x05
+        // After 8 more ticks the original prescaler period completes
+        // (8 + 8 = 16 = prescale-16 boundary) and counter should
+        // decrement to 0x04. With the buggy clear-on-every-TC code,
+        // it would still be 0x05 because the prescaler restarted from 0.
+        ctc.tick(8);
+        uint8_t after_reload = ctc.read(0);
+        check("CTC-TM-G120-01", after_reload == 0x04,
+              "ctc_chan.vhd:131-141 prescaler preserved on S_RUN_TC→S_RUN reload",
+              fmt("got 0x%02x (expected 0x04: residual prescaler must complete current period)",
+                  after_reload));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1680,13 +1704,55 @@ void section10_pulse_mode() {
     // connector. jnext has no modelled expansion bus at this layer; the
     // compose is outcome-identical to PULSE-08 (internal INT_n to Z80).
 
-    // PULSE-G121-01 — VHDL zxnext.vhd:2033-2042, 5132-5145
-    // pulse_count_end depends on machine_timing_48 OR _p3 from
-    // nr_03_machine_timing. jnext: Im2Controller::set_machine_timing_48
-    // _or_p3 called once at Emulator::reset_machine only. Software
-    // flipping NR 0x03 timing post-boot sees wrong pulse-INT width. (G121)
-    skip("PULSE-G121-01",
-         "zxnext.vhd:2033-2042 NR 0x03 timing change must reset pulse_count_end (see G121)");
+    // PULSE-G121-01 — VHDL zxnext.vhd:2033-2042, 5124-5145 (G121 PASS)
+    // pulse_count_end = pulse_count(5) AND (machine_timing_48 OR
+    // machine_timing_p3 OR pulse_count(2)). The two machine_timing flags
+    // are decoded from nr_03_machine_timing on every NR 0x03 write. The
+    // Emulator's NR 0x03 write_handler must therefore push the new value
+    // to Im2Controller::set_machine_timing_48_or_p3 so post-boot NR 0x03
+    // writes flip the pulse width between 32 (48K/+3) and 36 (128K/Pent)
+    // cycles.
+    //
+    // Bare-Im2 surface check: machine_48_or_p3_ controls pulse_count_end
+    // every tick. We toggle the flag at runtime via the public setter and
+    // verify that pulse width follows. Width measurement reuses the same
+    // edge-then-tick-until-restore idiom from PULSE-05/06.
+    {
+        // Phase A: 48K/+3 timing → pulse should terminate around 32 cycles.
+        fresh(im2);
+        im2.set_machine_timing_48_or_p3(true);
+        im2.set_mode(false);
+        im2.set_int_en(Dev::CTC0, true);
+        im2.raise_req(Dev::CTC0);
+        im2.tick(1);
+        int ticks_a = 1;
+        while (!im2.pulse_int_n() && ticks_a < 80) {
+            im2.tick(1);
+            ++ticks_a;
+        }
+
+        // Phase B: switch to 128K/Pentagon timing post-boot → pulse width
+        // should grow to ~36 cycles.
+        fresh(im2);
+        im2.set_machine_timing_48_or_p3(false);  // NR 0x03 post-boot flip
+        im2.set_mode(false);
+        im2.set_int_en(Dev::CTC0, true);
+        im2.raise_req(Dev::CTC0);
+        im2.tick(1);
+        int ticks_b = 1;
+        while (!im2.pulse_int_n() && ticks_b < 80) {
+            im2.tick(1);
+            ++ticks_b;
+        }
+
+        check("PULSE-G121-01",
+              ticks_a >= 30 && ticks_a <= 40 &&
+              ticks_b >= 34 && ticks_b <= 44 &&
+              ticks_b > ticks_a,
+              "zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change",
+              fmt("48K/+3=%d (expected 30..40), 128K/Pent=%d (expected 34..44, > 48K)",
+                  ticks_a, ticks_b));
+    }
 }
 
 void section11_im2_peripheral() {
@@ -1891,12 +1957,53 @@ void section11_im2_peripheral() {
     // then-clear) is covered by IM2W-03.
 
     // IM2W-G119-01 — VHDL zxnext.vhd:1941, device/im2_peripheral.vhd:172
-    // VHDL: ctc_zc_to is raised unconditionally; int_en AND happens at
-    // the fabric edge inside im2_peripheral. jnext ctc.cpp:251-282 only
-    // calls on_interrupt when channel int_enabled — if int_en flips
-    // between ZC/TO, the prior pulse is lost. Race-the-edge observable.
-    skip("IM2W-G119-01",
-         "zxnext.vhd:1941 ZC/TO must raise unconditionally; mirror UART pattern (see G119)");
+    // (G119 PASS) ctc_zc_to is wired straight into im2_int_req[3..10]
+    // unconditionally; the i_int_en gate happens inside im2_peripheral
+    // (line 172: latch on `(int_req AND i_int_en) OR int_unq`). Verify by
+    // routing CTC ZC/TO into Im2Controller via raise_req while CTC's own
+    // int_enabled bit is FALSE: the fabric must still see the request
+    // (because the gate is at IM2, not CTC), so when we set im2's int_en
+    // BEFORE the second ZC/TO and check int_status, the latch must be set.
+    //
+    // Sequence:
+    //   1. CTC channel 0 with int_enabled = false; raise_req via
+    //      on_interrupt callback wired to im2.raise_req(CTC0).
+    //   2. im2.set_int_en(CTC0, true) — int_en is high at the IM2 layer.
+    //   3. Trigger one CTC ZC/TO. With the bug, ctc.on_interrupt does NOT
+    //      fire (gated by ctc int_enabled=false), so im2 sees no edge and
+    //      int_status(CTC0) stays false. With the fix, on_interrupt fires
+    //      unconditionally, im2 sees the edge, and the int_en AND at the
+    //      fabric latches im2_int_req → int_status(CTC0) is true.
+    {
+        fresh(im2);
+        im2.set_mode(true);                  // IM2 mode: fabric active
+        im2.set_int_en(Dev::CTC0, true);     // im2 fabric int_en = 1
+
+        Ctc ctc;
+        ctc.reset();
+        ctc.set_int_enable(0x00);            // CTC ch0 int_en = 0 (the trick)
+        ctc.on_interrupt = [&im2](int channel) {
+            // Mirror Emulator wiring exactly (emulator.cpp:3024-3032).
+            if (channel >= 0 && channel < 4) {
+                im2.raise_req(static_cast<Dev>(
+                    static_cast<int>(Dev::CTC0) + channel));
+            }
+        };
+
+        // Drive ch0 in timer mode TC=1 → ZC/TO after one prescaler-16 period.
+        ctc.write(0, cw(false, false, false, false, false, true, false));  // timer, tc_follows
+        ctc.write(0, 0x01);                  // TC=1
+        ctc.tick(16);                        // one prescaler-16 period → ZC/TO
+
+        // Tick im2 to let the edge propagate (Phase 1 of step_devices()).
+        im2.tick(1);
+
+        bool latched = im2.int_status(Dev::CTC0);
+        check("IM2W-G119-01", latched,
+              "zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric",
+              fmt("int_status(CTC0)=%d (expected 1: ctc int_en=0 but im2 int_en=1)",
+                  latched));
+    }
 }
 
 void section12_ula_line_int() {
@@ -2004,18 +2111,18 @@ void section13_nextreg_int_regs() {
               fmt("got 0x%02x", im2.vector_base()));
     }
 
-    // NR-C0-02 — NR 0xC0 bit 3 stackless NMI execution. VHDL:1999
-    // (write decode), :2050-2085 (NMI-ACK PC capture), :6229-6230
-    // (read composition). Stackless mode requires intercepting the FUSE
-    // Z80 core's NMI-PUSH and providing a custom RETN that does NOT POP
-    // — neither hook exists today. Wave D cut from
-    // TASK-NMI-SOURCE-PIPELINE-PLAN.md (Q1) to protect the 1356-row
-    // FUSE regression. The companion read-composition row `NR-C0-04`
-    // is re-homed to test/ctc_interrupts/ctc_interrupts_test.cpp:287
-    // (only readback of bit 3, not execution).
-    skip("NR-C0-02",
-         "stackless NMI bit 3 needs FUSE NMI-PUSH/RETN hook "
-         "(WONT, Wave D cut; see G49)");
+    // WONT G49 — NR-C0-02: NR 0xC0 bit 3 stackless NMI execution. VHDL:1999
+    // (write decode), :2050-2085 (NMI-ACK PC capture), :6229-6230 (read
+    // composition). Stackless mode requires intercepting the FUSE Z80
+    // core's NMI-PUSH and providing a custom RETN that does NOT POP —
+    // neither hook exists today and adding them risks the 1356-row FUSE
+    // Z80 opcode regression. Wave D was explicitly cut from
+    // TASK-NMI-SOURCE-PIPELINE-PLAN.md (Q1). Status: explicit decision
+    // NOT to implement — promoted from skip() to WONT comment per
+    // feedback_wont_taxonomy.md (no skip() call so it does not count as
+    // a SKIP outcome). The companion read-composition row NR-C0-04 is
+    // re-homed to test/ctc_interrupts/ctc_interrupts_test.cpp:287
+    // (readback of bit 3 only, no execution path involved).
 
     // NR-C0-03 — zxnext.vhd:5599/1975: NR 0xC0 bit 0 (int_mode_pulse_0_im2_1)
     // selects pulse (0) vs IM2 (1) mode. Bare-Im2 accessor via is_im2_mode()

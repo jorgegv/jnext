@@ -1338,6 +1338,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 default:   new_timing = 0x03; break;  // VHDL :5131 others
             }
             nextreg_.set_nr_03_machine_timing(new_timing);
+
+            // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
+            // `machine_timing_48 OR machine_timing_p3`, both decoded from
+            // nr_03_machine_timing. When NR 0x03 changes the timing post-boot,
+            // the pulse-mode INT width must follow (32 cycles for 48K/+3, 36
+            // for 128K/Pentagon). Without this fan-out the Im2Controller's
+            // machine_48_or_p3_ flag stays stuck at the value set at
+            // reset_machine() and the pulse width is wrong after any runtime
+            // timing change.
+            const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
+            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
         }
 
         // dt_lock XOR-toggle (VHDL :5135) — unconditional XOR with bit 3.
