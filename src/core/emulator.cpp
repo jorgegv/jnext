@@ -306,8 +306,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
         if (im2_.retn_seen_this_cycle()) {
             im2_.on_retn();
-            divmmc_.on_retn();   // VHDL divmmc.vhd:108,126,139
         }
+        // G46(a) — proper "delayed-off" automap_held clear.
+        // Im2Controller::retn_seen_this_cycle() pulses ONLY on the M1
+        // that completes a canonical ED 45 (im2_control.vhd:236), so the
+        // pre-G87 RETN-alias band-aid (which fired on any post-ED byte
+        // matching 0x45/55/5D/65/6D/75/7D — e.g. a stray LD r,L after
+        // ED) is fully retired. DivMmc latches the pulse into a
+        // one-M1-cycle delay register: the held/hold/active/button_nmi
+        // shadows drop on the NEXT M1 fetch (the first byte of the
+        // returned-to instruction), letting the overlay survive RETN's
+        // own ED 45 fetch as the VHDL register-shift shape requires.
+        // This call fires on EVERY M1 (including ED + ext byte fetches
+        // and the next instruction's fetch), so the delay register
+        // sees its trigger on the ED 45 ext-byte M1 and applies the
+        // clear on the very next M1.
+        divmmc_.on_m1_retn_delay(im2_.retn_seen_this_cycle());
     };
 
     // G88: latch NR 0xC2 (PC LSB) / NR 0xC3 (PC MSB) from the NMI return
