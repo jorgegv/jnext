@@ -18,10 +18,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 Task 7r2: G42/G44 (JOY-WIRE-02..04 + FE-04A). |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 Tier 6: G119 fabric-edge int + G120 prescaler-preserve + G121 NR03-timing fan-out PASS; NR-C0-02 → WONT G49. |
 | CTC (integration)     |       21 |       21 |      0 |       0 |    100% | 🟢 Task 8 wave 2: G89 LDIRX/LDDRX/LDPIRX/LDIRSCALE per-iter INT sample (4 iter+rewind + 1 INT-sample PASS rows). |
-| Layer 2               |      134 |      133 |      0 |       1 |     99% | 🟡 Task 8: L2-G17-01 retired (G164v2); G9-G28-01 cycle-accurate deferred. |
+| Layer 2               |      133 |      133 |      0 |       0 |    100% | 🟢 Task 8: L2-G17-01 retired (G164v2); G9-G28-01 → WONT (pixel-granular L2 renderer out of scope; G117 Copper scheduler already closed separately). |
 | UART + I2C/RTC        |       94 |       94 |      0 |       0 |    100% | 🟢 Tier 6: G134 RX request-mask + G161 RTC 12h-mode PASS; G138 NR 0xA0 b3 PASS; G39 ESP-01..04 + G139 24LC256 → WONT. |
 | UART (integration)    |       16 |       16 |      0 |       0 |    100% | 🟢 Tier 6: G135 NR 0xA0 fan-out (NR_A0-01/02/03) + G134 INT-07 PASS rows added (re-homed from uart_test). |
-| DivMMC + SPI          |      110 |      107 |      0 |       3 |     97% | 🟡 Task 8 t1: G123/G124/G125/G131/G137 closed (-7). |
+| DivMMC + SPI          |      109 |      109 |      0 |       0 |    100% | 🟢 G46(a) DM-RETN-PROPER-01/02 PASS (delayed-off automap_held clear via 1-M1 register on Im2 retn_seen); G136 SS-08 → WONT (SPI Flash CS out of scope). |
 | SD Card               |       15 |       15 |      0 |       0 |    100% | 🟢 Task 8: 7 PASS (CMD13/16/23 handlers + stale CMD24/CMD1 + hot-plug) + 6 WONT (G40/G41/G159: no firmware client). |
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 Task 7r2: G06/G13/G15 OVF + NR70 stubs added. |
 | Compositor            |      143 |      143 |      0 |       0 |    100% | 🟢 Task 8: G26 closed (UB-G26-01 RE-HOME → UTB-40/41; UB-G26-02 mode-110 L2-priority real test). |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 G152: HK-06/07/08/09-INT PASS (F9 MF NMI / F10 DivMMC NMI / F4 soft-reset gated by nr_03_config_mode / F1 hard-reset). |
-| **Total**             | **3793** | **3734** |  **0** |  **59** | **98%** | 🟡  |
+| **Total**             | **3791** | **3736** |  **0** |  **55** | **98%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 
