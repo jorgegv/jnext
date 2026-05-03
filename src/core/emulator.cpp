@@ -173,6 +173,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[2] = 0;
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
+    // G135 — NR 0xA0 Pi peripheral enable byte resets to 0x00 per VHDL
+    // zxnext.vhd:5080 (nr_a0_pi_peripheral_en <= (others => '0')).
+    nr_a0_pi_peripheral_en_ = 0;
 
     // VHDL zxnext.vhd:3516 — joy_iomode_pin7 resets to '1'. The pin7
     // state lives inside `iomode_` now; iomode_.reset() above already
@@ -2797,6 +2800,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>((c & 0xDD) | 0x02);
     });
 
+    // G135 — NR 0xA0 Pi peripheral enable byte.
+    // VHDL zxnext.vhd:5560-5561: stores raw 8 bits in nr_a0_pi_peripheral_en
+    // on any NR 0xA0 write. zxnext.vhd:2278-2281 fans out:
+    //   bit 5 → pi_uart_rxtx, bit 4 → pi_uart_en,
+    //   bit 3 → pi_i2c1_en,   bit 0 → pi_spi0_en.
+    // Reset 0x00 (zxnext.vhd:5080).
+    nextreg_.set_write_handler(0xA0, [this](uint8_t v) -> uint8_t {
+        nr_a0_pi_peripheral_en_ = v;
+        // G138 — fan out bit 3 (pi_i2c1_en) into the I2C controller so
+        // its read_scl/read_sda gate the Pi-side wired-AND inputs per
+        // VHDL zxnext.vhd:2317-2318. Other bits (5/4 pi_uart, 0 pi_spi0)
+        // are stored only — UART1 / SPI0 GPIO mux is not yet modelled.
+        i2c_.set_pi_i2c1_en((v & 0x08) != 0);
+        return v;
+    });
+    // VHDL zxnext.vhd:6188-6189:
+    //   port_253b_dat <= "00" & nr_a0_pi_peripheral_en(5 downto 3) & "00"
+    //                    & nr_a0_pi_peripheral_en(0);
+    // Pass-through bits = 5,4,3,0 (mask 0x39); fixed zero bits = 7,6,2,1.
+    // Verify: c=0x00 → 0x00; c=0xFF → 0x39; c=0xA5 (1010 0101) →
+    //   (0xA5 & 0x39) = 0x21.
+    nextreg_.set_read_handler(0xA0, [this]() -> uint8_t {
+        return static_cast<uint8_t>(nr_a0_pi_peripheral_en_ & 0x39);
+    });
+
     // --- Phase 5 peripheral port handlers ---
 
     // CTC channels 0-3: VHDL zxnext.vhd:2690 — cpu_a(15:11)="00011"
@@ -3129,6 +3157,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     };
 
     uart_.on_rx_interrupt = [this](int channel) {
+        // G134 — VHDL zxnext.vhd:1941-1944 RX request shape:
+        //   uartN_rx_near_full OR (uartN_rx_avail AND NOT nr_c6_int_en_2_*(1))
+        // The "near-full" path is unconditional; the per-byte avail path
+        // must be masked off when NR 0xC6 bit 1 (UART0) or bit 5 (UART1)
+        // is set. Without this gate every RX byte raised an int_req, even
+        // when the int_en path was set up to fire only on near-full.
+        const auto& ch = uart_.channel(channel);
+        const bool near_full = ch.rx_near_full();
+        const uint8_t mask_bit = (channel == 0) ? 0x02 : 0x20;  // C6[1] / C6[5]
+        const bool avail_masked = (nr_c6_uart_int_en_ & mask_bit) != 0;
+        if (!near_full && avail_masked) {
+            return;  // request shape suppressed: avail blocked, near-full not yet
+        }
         im2_.raise_req(channel == 0 ? Im2Controller::DevIdx::UART0_RX
                                     : Im2Controller::DevIdx::UART1_RX);
     };
@@ -4857,6 +4898,12 @@ void Emulator::save_state(StateWriter& w) const
     // exactly 4 bytes (left+right) keep working without byte-shifting
     // the subsequent nmi_source_/prev_nmi_generate_n_ slots.
     w.write_u8(i2s_.nr_a2_ctl());
+
+    // G135 — NR 0xA0 Pi peripheral enable byte. End-of-snapshot append
+    // + eof()-tolerant load (same pattern as the surrounding G108 / G55 /
+    // G112 / G113 slots above). Older snapshots leave the field at its
+    // reset default of 0, matching VHDL zxnext.vhd:5080.
+    w.write_u8(nr_a0_pi_peripheral_en_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -4983,6 +5030,17 @@ void Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         i2s_.set_nr_a2_ctl(r.read_u8());
     }
+
+    // G135 — NR 0xA0 Pi peripheral enable byte. Saves predating this slot
+    // leave nr_a0_pi_peripheral_en_ at its reset() default of 0 (VHDL
+    // power-on, zxnext.vhd:5080 — no Pi peripherals enabled).
+    if (!r.eof()) {
+        nr_a0_pi_peripheral_en_ = r.read_u8();
+    }
+    // G138 — re-sync the I2cController gate from the loaded byte. Older
+    // snapshots fall through with nr_a0_pi_peripheral_en_ == 0, matching
+    // the i2c_.reset() default of pi_i2c1_en_ = false.
+    i2c_.set_pi_i2c1_en((nr_a0_pi_peripheral_en_ & 0x08) != 0);
 }
 
 // ---------------------------------------------------------------------------

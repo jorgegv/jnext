@@ -160,6 +160,15 @@ public:
     /// Current value of the pi_i2c1_sda input line (test-only readback).
     bool pi_i2c1_sda() const { return pi_i2c1_sda_; }
 
+    /// G138 — VHDL zxnext.vhd:2280, 2317-2318:
+    ///   pi_i2c1_sda <= i_GPIO(2) when pi_i2c1_en = '1' else '1';
+    ///   pi_i2c1_scl <= i_GPIO(3) when pi_i2c1_en = '1' else '1';
+    /// When `pi_i2c1_en = 0`, the Pi-side inputs are FORCED HIGH at the
+    /// wired-AND boundary — anything driven via `set_pi_i2c1_scl/sda` is
+    /// ignored. Default `false` matches the VHDL reset (NR 0xA0 = 0x00).
+    void set_pi_i2c1_en(bool v) { pi_i2c1_en_ = v; }
+    bool pi_i2c1_en() const     { return pi_i2c1_en_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -188,6 +197,12 @@ private:
     // the read path only (AND-gate).
     uint8_t pi_i2c1_scl_ = 1;
     uint8_t pi_i2c1_sda_ = 1;
+
+    // G138 — NR 0xA0 bit 3 (`pi_i2c1_en`) gates the Pi-side bridge. When
+    // false (reset default), pi_i2c1_scl_/sda_ are forced to '1' at the
+    // wired-AND boundary; when true the test-driven values land. Owned by
+    // Emulator::nr_a0_pi_peripheral_en_; mirrored here via set_pi_i2c1_en().
+    bool    pi_i2c1_en_ = false;
 
     // Protocol state
     State    state_ = State::IDLE;
