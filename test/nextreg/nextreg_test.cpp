@@ -715,26 +715,35 @@ static void test_port_enables() {
     // not seeded to VHDL default 0x8F per zxnext.vhd:6147-6150).
     // Not a skip here — re-homed to integration tier.
 
-    // PE-06 — VHDL zxnext.vhd:5508-5522 (NR 0x82-0x85 read packing).
-    // jnext src/port/nextreg.cpp stores NR 0x82-0x85 in regs_[] but only
-    // NR 0x85 has a read handler. (G154)
-    skip("PE-06",
-         "NR 0x82 returns raw shadow byte; VHDL packs more (see G154)");
-
-    // PE-07 — VHDL zxnext.vhd:5061-5067 (NR 0x86-0x89 expansion-bus).
-    // NR 0x86 has no read_handler today; raw regs_[] leak. (G154)
-    skip("PE-07",
-         "NR 0x86 has no read_handler; raw regs_[] leak (see G154)");
-
-    // PE-08 — VHDL zxnext.vhd:6138 (inversion on reset_type=0), :6150
-    // (inverted-default 0xFF). (G154)
-    skip("PE-08",
-         "NR 0x89 bit 7 inversion on reset_type=0 missing (see G154)");
-
-    // PE-09 — NR 0x80 / 0x88 not initialised at reset; jnext skips
-    // initialisation for NRs without explicit handlers. (G154)
-    skip("PE-09",
-         "NR 0x80 / 0x88 not initialised at reset (see G154)");
+    // PE-06 — NR 0x82 round-trip read. VHDL zxnext.vhd:5498-5499 (write
+    // stores all 8 bits) + :6128-6129 (read returns all 8 bits). No
+    // packing — the bare-tier round-trip is already covered by PE-01 /
+    // PE-02 above. RE-HOMED to nextreg_integration_test.cpp PE-INT-82
+    // for VHDL-faithful integration coverage (write 0xA5, read 0xA5).
+    // (G154 closure.)
+    //
+    // PE-07 — NR 0x86 round-trip + reset default. VHDL zxnext.vhd:1231
+    // (default 0xFF) + :5511-5512 (write 8 bits) + :6140-6141 (read 8
+    // bits). Bare NextReg unit tier cannot observe the post-init reset
+    // default because regs_.fill(0) ran before the previous reset-type-1
+    // seeding. RE-HOMED to nextreg_integration_test.cpp PE-INT-86.
+    // (G154 closure: NR 0x86 reset default seeded in nextreg.cpp reset().)
+    //
+    // PE-08 — NR 0x89 read packing (bits 6:4 always zero). VHDL
+    // zxnext.vhd:5520-5522 (write splits bit 7 → reset_type, bits 3:0 →
+    // enable, bits 6:4 discarded) + :6149-6150 (read mux re-composes
+    // reset_type & "000" & enable). The bare regs_[] stores the raw
+    // write value and cannot enforce the bits-6:4=0 invariant; the
+    // packing read_handler lives in src/core/emulator.cpp (mirroring NR
+    // 0x85). RE-HOMED to nextreg_integration_test.cpp PE-INT-89.
+    // (G154 closure: NR 0x89 read_handler returns cached & 0x8F.)
+    //
+    // PE-09 — NR 0x80 / NR 0x88 reset defaults. VHDL zxnext.vhd:360
+    // (nr_80_expbus default 0x00) + :1233 (nr_88_bus_port_enable default
+    // 0xFF). Bare-tier seeding for NR 0x88 was missing (regs_.fill(0)
+    // left it at 0x00). RE-HOMED to nextreg_integration_test.cpp
+    // PE-INT-80-88. (G154 closure: NR 0x88 = 0xFF seeded in
+    // nextreg.cpp reset().)
 }
 
 // ── 10. Copper Arbitration (COP-01..04) ──────────────────────────────

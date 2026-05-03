@@ -1469,6 +1469,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return nextreg_.cached(0x85) & 0x8F;
     });
 
+    // Register 0x89: Bus port-enable register 4 — read packing. (G154)
+    // VHDL zxnext.vhd:5520-5522 (write): bit 7 → nr_89_bus_port_reset_type,
+    // bits 3:0 → nr_89_bus_port_enable; bits 6:4 of the write are discarded.
+    // VHDL zxnext.vhd:6149-6150 (read): port_253b_dat <=
+    //   nr_89_bus_port_reset_type & "000" & nr_89_bus_port_enable.
+    // Bits 6:4 always read back as zero. Same pack-mask shape as NR 0x85.
+    nextreg_.set_read_handler(0x89, [this]() -> uint8_t {
+        return nextreg_.cached(0x89) & 0x8F;
+    });
+
     // Register 0x8C: Alternate ROM control
     //   bit 7 = nr_8c_altrom_en        (VHDL zxnext.vhd:2262)
     //   bit 6 = nr_8c_altrom_rw        (zxnext.vhd:2263)

@@ -63,6 +63,13 @@ void NextReg::reset() {
         regs_[0x84] = saved_84;
     }
     regs_[0x85] = 0x8F;  // bit7=reset_type(1), bits6:4=0, bits3:0=0xF (enables)
+    // NR 0x86 / NR 0x88 bus port enables: VHDL zxnext.vhd:1231 / 1233 —
+    // nr_86_bus_port_enable / nr_88_bus_port_enable power-on default =
+    // (others => '1') = 0xFF. Read mux at zxnext.vhd:6140-6147 returns
+    // the byte directly. (G154; NR 0x87 left untouched in this clusters
+    // scope.)
+    regs_[0x86] = 0xFF;
+    regs_[0x88] = 0xFF;
     // NR 0x89 bus port enables: VHDL zxnext.vhd:1234-1235 —
     // nr_89_bus_port_reset_type='1' and nr_89_bus_port_enable=(others=>'1').
     // Read mux at zxnext.vhd:6147-6150 composes
