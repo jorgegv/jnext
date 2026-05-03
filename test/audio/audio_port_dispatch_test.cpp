@@ -607,28 +607,151 @@ static void test_ay_port_dispatch(Emulator& emu) {
                   reg_before, reg_after, L));
     }
 
-    // IO-13 / IO-14 / IO-15 / IO-16 / IO-17 — zxnext.vhd:2429-2435 maps
-    // NR 0x84 bits 0..7 to seven port_dac_*_io_en signals (bits 0/2/5
-    // are honoured by jnext today via Emulator::write_nr_84; bits
-    // 1/3/4/6/7 are dropped).
-    //   b1 -> port_dac_sd2_ABCD_f1f3f9fb_io_en  (Soundrive Mode 2)
-    //   b3 -> port_dac_stereo_AD_3f5f_io_en     (Profi Covox AD)
-    //   b4 -> port_dac_stereo_BC_0f4f_io_en     (Covox BC)
-    //   b6 -> port_dac_mono_BC_b3_io_en         (GS Covox BC)
-    //   b7 -> port_dac_mono_AD_df_io_en         (SpecDrum AD)
-    // src/core/emulator.cpp:1500-1567 honours only b0/b2/b5; the other
-    // five bits are silently dropped, so DAC writes hit the channel
-    // even when NR 0x84 has masked the port-pair off.
-    skip("IO-13",
-         "NR 0x84 b1 gate of Mode-2 DAC ports (F1/F3/F9/FB) ignored (see G114)");
-    skip("IO-14",
-         "NR 0x84 b3 gate of Profi Covox ports (3F/5F) ignored (see G114)");
-    skip("IO-15",
-         "NR 0x84 b4 gate of Covox ports (0F/4F) ignored (see G114)");
-    skip("IO-16",
-         "NR 0x84 b6 gate of GS Covox port (B3) ignored (see G114)");
-    skip("IO-17",
-         "NR 0x84 b7 gate of SpecDrum port (DF) ignored (see G114)");
+    // IO-13 / IO-14 / IO-15 / IO-16 / IO-17 — G114 closure. zxnext.vhd:
+    //   2429: port_dac_sd1_ABCD_1f0f4f5f_io_en <= internal_port_enable(17)
+    //         (NR 0x84 b1 — Soundrive Mode 1: 1F/0F/4F/5F)
+    //   2430: port_dac_sd2_ABCD_f1f3f9fb_io_en <= internal_port_enable(18)
+    //         (NR 0x84 b2 — Soundrive Mode 2: F1/F3/F9/FB) — already gated
+    //   2431: port_dac_stereo_AD_3f5f_io_en    <= internal_port_enable(19)
+    //         (NR 0x84 b3 — Profi Covox AD: 3F/5F)
+    //   2432: port_dac_stereo_BC_0f4f_io_en    <= internal_port_enable(20)
+    //         (NR 0x84 b4 — Covox BC: 0F/4F)
+    //   2433: port_dac_mono_AD_fb_io_en        <= internal_port_enable(21)
+    //         (NR 0x84 b5 — Pentagon mono FB) — already gated
+    //   2434: port_dac_mono_BC_b3_io_en        <= internal_port_enable(22)
+    //         (NR 0x84 b6 — GS Covox BC: B3)
+    //   2435: port_dac_mono_AD_df_io_en        <= internal_port_enable(23)
+    //         (NR 0x84 b7 — SpecDrum AD: DF)
+    //
+    // Test pattern: drive each port with the gate clear (write must NOT
+    // land — DAC channel stays at reset 0x80) AND with the gate set
+    // (write lands). reset=0x80 → pcm_left/right = 0x100. Setting only
+    // the relevant gate isolates which bit is under test.
+    //
+    // Common helper: open NR 0x08 b3 (DAC enable) AND set NR 0x84 to a
+    // chosen mask. Then write the port, sample the DAC.
+    auto setup_gate = [&](uint8_t nr84) {
+        fresh(emu);
+        // NR 0x08 b3 = DAC enable.
+        emu.port().out(0x243B, 0x08);
+        emu.port().out(0x253B, 0x08);
+        // NR 0x84 mask.
+        emu.port().out(0x243B, 0x84);
+        emu.port().out(0x253B, nr84);
+    };
+
+    // IO-13 — NR 0x84 b1 gates Soundrive Mode 1 ports (1F/0F/4F/5F).
+    // Use port 0x1F (SD1-only — no other gate aliases it). Negative case:
+    // NR 0x84=0x00 (b1 cleared). Positive: NR 0x84=0x02 (b1 set).
+    {
+        // Gate clear: 0x1F write must be silently dropped.
+        setup_gate(0x00);
+        emu.port().out(0x001F, 0x55);
+        const uint16_t L_off = emu.dac().pcm_left();   // expect 0x100 (untouched)
+        // Gate open: 0x1F write must land on ch A.
+        setup_gate(0x02);
+        emu.port().out(0x001F, 0x55);
+        const uint16_t L_on  = emu.dac().pcm_left();   // expect 0x55 + 0x80 = 0xD5
+
+        check("IO-13",
+              "NR 0x84 b1 gates Soundrive Mode 1 port 0x1F → ch A "
+              "[zxnext.vhd:2429; emulator.cpp 0x00FF/0x001F b1 gate]",
+              L_off == 0x100 && L_on == (0x55 + 0x80),
+              fmt("L gate-off=0x%03x (want 0x100, ch A untouched) "
+                  "L gate-on=0x%03x (want 0x0D5)",
+                  L_off, L_on));
+    }
+
+    // IO-14 — NR 0x84 b3 gates Profi Covox ports (3F/5F). Use port 0x3F
+    // (Profi-only — 0x5F also reachable via SD1 b1). Negative:
+    // NR 0x84=0x00. Positive: NR 0x84=0x08 (b3 set).
+    {
+        setup_gate(0x00);
+        emu.port().out(0x003F, 0x44);
+        const uint16_t L_off = emu.dac().pcm_left();
+        setup_gate(0x08);
+        emu.port().out(0x003F, 0x44);
+        const uint16_t L_on  = emu.dac().pcm_left();
+
+        check("IO-14",
+              "NR 0x84 b3 gates Profi Covox port 0x3F → ch A "
+              "[zxnext.vhd:2431; emulator.cpp 0xFFFF/0x003F b3 gate]",
+              L_off == 0x100 && L_on == (0x44 + 0x80),
+              fmt("L gate-off=0x%03x (want 0x100) "
+                  "L gate-on=0x%03x (want 0x0C4)",
+                  L_off, L_on));
+    }
+
+    // IO-15 — NR 0x84 b4 gates Covox ports (0F/4F). Drive 0x0F and 0x4F
+    // and assert BOTH halves are silenced when neither b1 (SD1) nor b4
+    // (Covox) is set; both land when ONLY b4 is set. Negative:
+    // NR 0x84=0x00 (both b1 and b4 cleared). Positive: NR 0x84=0x10 (b4
+    // alone). 0x0F → ch B, 0x4F → ch C.
+    {
+        setup_gate(0x00);
+        emu.port().out(0x000F, 0x33);
+        emu.port().out(0x004F, 0x77);
+        const uint16_t L_off = emu.dac().pcm_left();   // ch A(0x80)+ch B(reset 0x80) = 0x100
+        const uint16_t R_off = emu.dac().pcm_right();  // ch C(reset 0x80)+ch D(0x80) = 0x100
+        setup_gate(0x10);
+        emu.port().out(0x000F, 0x33);
+        emu.port().out(0x004F, 0x77);
+        const uint16_t L_on  = emu.dac().pcm_left();   // 0x80 + 0x33 = 0xB3
+        const uint16_t R_on  = emu.dac().pcm_right();  // 0x77 + 0x80 = 0xF7
+
+        check("IO-15",
+              "NR 0x84 b4 gates Covox ports 0x0F/0x4F → ch B/ch C "
+              "[zxnext.vhd:2432; emulator.cpp 0x00FF/0x000F+0x004F b1|b4 gate]",
+              L_off == 0x100 && R_off == 0x100
+                  && L_on == (0x80 + 0x33) && R_on == (0x77 + 0x80),
+              fmt("gate-off L=0x%03x R=0x%03x (both want 0x100); "
+                  "gate-on L=0x%03x (want 0x0B3) R=0x%03x (want 0x0F7)",
+                  L_off, R_off, L_on, R_on));
+    }
+
+    // IO-16 — NR 0x84 b6 gates GS Covox port 0xB3 (mono fan-out → ch B+C).
+    // Negative: NR 0x84=0x00 (b6 cleared). Positive: NR 0x84=0x40 (b6 set).
+    {
+        setup_gate(0x00);
+        emu.port().out(0x00B3, 0x66);
+        const uint16_t L_off = emu.dac().pcm_left();   // expect 0x100
+        const uint16_t R_off = emu.dac().pcm_right();  // expect 0x100
+        setup_gate(0x40);
+        emu.port().out(0x00B3, 0x66);
+        const uint16_t L_on  = emu.dac().pcm_left();   // ch A(0x80)+ch B(0x66) = 0xE6
+        const uint16_t R_on  = emu.dac().pcm_right();  // ch C(0x66)+ch D(0x80) = 0xE6
+
+        check("IO-16",
+              "NR 0x84 b6 gates GS Covox port 0xB3 → ch B+C fan-out "
+              "[zxnext.vhd:2434; emulator.cpp 0xFFFF/0x00B3 b6 gate]",
+              L_off == 0x100 && R_off == 0x100
+                  && L_on == (0x80 + 0x66) && R_on == (0x66 + 0x80),
+              fmt("gate-off L=0x%03x R=0x%03x (both want 0x100); "
+                  "gate-on L=0x%03x (want 0x0E6) R=0x%03x (want 0x0E6)",
+                  L_off, R_off, L_on, R_on));
+    }
+
+    // IO-17 — NR 0x84 b7 gates SpecDrum port 0xDF (mono fan-out → ch A+D).
+    // Negative: NR 0x84=0x00 (b7 cleared). Positive: NR 0x84=0x80 (b7 set).
+    {
+        setup_gate(0x00);
+        emu.port().out(0x00DF, 0x99);
+        const uint16_t L_off = emu.dac().pcm_left();   // expect 0x100
+        const uint16_t R_off = emu.dac().pcm_right();  // expect 0x100
+        setup_gate(0x80);
+        emu.port().out(0x00DF, 0x99);
+        const uint16_t L_on  = emu.dac().pcm_left();   // ch A(0x99)+ch B(0x80) = 0x119
+        const uint16_t R_on  = emu.dac().pcm_right();  // ch C(0x80)+ch D(0x99) = 0x119
+
+        check("IO-17",
+              "NR 0x84 b7 gates SpecDrum port 0xDF → ch A+D fan-out "
+              "[zxnext.vhd:2435; emulator.cpp 0x00FF/0x00DF b7 write gate]",
+              L_off == 0x100 && R_off == 0x100
+                  && L_on == (0x99 + 0x80) && R_on == (0x80 + 0x99),
+              fmt("gate-off L=0x%03x R=0x%03x (both want 0x100); "
+                  "gate-on L=0x%03x R=0x%03x (both want 0x119)",
+                  L_off, R_off, L_on, R_on));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

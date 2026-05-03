@@ -9,12 +9,29 @@ TurboSound::TurboSound()
 
 void TurboSound::reset()
 {
-    for (auto& a : ay_) a.reset();
-    ay_select_ = 3;  // Default: AY#0 selected (VHDL: "11")
-    pan_.fill(0x03);  // Both L and R enabled for all chips
+    // Full reset (power-on / hard reset). Cleans the synchronously-reset
+    // selector + pan AND the NR-driven shadow fields. The latter are not
+    // owned by this module per VHDL turbosound.vhd:118-138, but at
+    // power-on the NR 0x08 / NR 0x09 registers are themselves reset to
+    // their VHDL defaults (zxnext.vhd reset clauses), so zeroing them
+    // here matches the system-wide reset behaviour.
+    reset_ay_only();
     enabled_ = false;
     stereo_mode_ = false;
     mono_mode_ = 0;
+}
+
+void TurboSound::reset_ay_only()
+{
+    // VHDL turbosound.vhd:118-138 — synchronous reset clause clears only
+    //   ay_select <= "11"; psg{0,1,2}_pan <= "11";
+    // The audio_ay_reset signal also feeds each ym2149's reset port, so
+    // we clear the per-chip register files + cached outputs to match.
+    // enabled / stereo_mode / mono_mode are external NR-driven inputs
+    // and intentionally LEFT UNTOUCHED here.
+    for (auto& a : ay_) a.reset();
+    ay_select_ = 3;  // Default: AY#0 selected (VHDL: "11")
+    pan_.fill(0x03);  // Both L and R enabled for all chips
     pcm_L_ = 0;
     pcm_R_ = 0;
 }
