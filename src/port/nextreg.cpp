@@ -72,11 +72,16 @@ void NextReg::reset() {
     // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
     selected_   = 0x24;
 
-    // VHDL zxnext.vhd:1102 — nr_03_config_mode defaults '1' at power-on (signal
-    // initialiser, re-asserted on hard reset). Soft resets don't clear it
-    // either, as there is no code path that resets the signal other than via
-    // NR 0x03 writes; safest and VHDL-faithful is to re-default on reset().
-    nr_03_config_mode_ = true;
+    // G62: VHDL zxnext.vhd:1102 declares
+    //   signal nr_03_config_mode : std_logic := '1';
+    // The only mutator is the NR 0x03 write_handler at :5147-5151 (set on
+    // bits[2:0]=111, clear on bits[2:0] ∈ {001..110}). NO explicit reset
+    // clause anywhere in zxnext.vhd, so the latch survives both hard and
+    // soft reset — only the signal initialiser at :1102 (FPGA power-on)
+    // sets it to '1'. The C++ member initialiser in nextreg.h handles
+    // power-on; reset() must NOT overwrite it. Same shape as G63
+    // (nr_03_machine_type) — see CFG-07 unit row and CFG-08-INT integration row.
+    // nr_03_config_mode_ NOT reset here — VHDL latch survives reset.
 
     // VHDL zxnext.vhd:1104 — nr_04_romram_bank defaults 0x00 at power-on.
     nr_04_romram_bank_ = 0;

@@ -1604,6 +1604,54 @@ static void test_cfg_integration(Emulator& emu) {
               "[zxnext.vhd:1103, :5137-5145, :5894 — no reset clause]",
               ok, detail);
     }
+
+    // CFG-08-INT — G62: NR 0x03 config_mode latch survives soft reset.
+    //
+    // VHDL zxnext.vhd:1102 — `nr_03_config_mode` has signal initialiser
+    // '1' (FPGA power-on default). The only mutator is the NR 0x03
+    // write_handler at :5147-5151 (set on bits[2:0]=111, clear on bits
+    // [2:0] ∈ {001..110}). NO explicit reset clause anywhere in zxnext.vhd
+    // — verified by `grep -n "nr_03_config_mode" zxnext.vhd`: no occurrence
+    // inside any `if reset = '1' then` block — so the latch survives both
+    // hard and soft reset.
+    //
+    // Pre-G62 jnext clobbered nr_03_config_mode_ to true in every
+    // NextReg::reset() call — wrong per VHDL. Fixed by removing the
+    // unconditional reset assignment; member initialiser handles
+    // power-on. (See src/port/nextreg.cpp `reset()` G62 comment.)
+    //
+    // RE-HOMED here from nextreg_test.cpp CFG-08 because soft reset
+    // (NR 0x02 b0 = 1) flows through Emulator::soft_reset(), not
+    // reachable from bare NextReg.
+    //
+    // Sequence:
+    //   1. Re-enter config_mode (NR 0x03 = 0x07 → bits[2:0]=111).
+    //   2. Clear config_mode via NR 0x03 = 0x01 (bits[2:0]=001).
+    //   3. Assert emu.nextreg().nr_03_config_mode() == false — pre-soft-reset baseline.
+    //   4. Soft reset (NR 0x02 = 0x01). Per VHDL the latch survives.
+    //   5. Assert emu.nextreg().nr_03_config_mode() == false — preserved.
+    {
+        // Re-enter config_mode first to guarantee a deterministic starting state
+        // (earlier subtests may have left config_mode in either polarity).
+        nr_write(emu, 0x03, 0x07);
+        // Clear config_mode (bits[2:0]=001 ≠ 000, ≠ 111).
+        nr_write(emu, 0x03, 0x01);
+        const bool pre_cleared = !emu.nextreg().nr_03_config_mode();
+
+        // Soft reset. Per VHDL nr_03_config_mode has no reset clause.
+        nr_write(emu, 0x02, 0x01);              // NR 0x02 b0 = RESET_SOFT
+        const bool post_cleared = !emu.nextreg().nr_03_config_mode();
+
+        const bool ok = pre_cleared && post_cleared;
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "pre-soft-reset config_mode=%d; post-soft-reset config_mode=%d",
+                      static_cast<int>(!pre_cleared), static_cast<int>(!post_cleared));
+        check("CFG-08-INT",
+              "NR 0x03 config_mode latch survives soft reset "
+              "[zxnext.vhd:1102, :5147-5151 — no reset clause]",
+              ok, detail);
+    }
 }
 
 // ── N8E RAM-gate: NR 0x8E bit 3 gates MMU6/7 rebuild ─────────────────
@@ -2085,8 +2133,13 @@ static void test_nr_06_composed_read(Emulator& emu) {
         emu.init(cfg);
     }
 
-    // After init, config_mode is '1' (VHDL :1102 power-on default; jnext
-    // NextReg::reset() reasserts it), so NR 0x06 bit-2 writes will latch.
+    // G62: nr_03_config_mode has NO reset clause in VHDL (zxnext.vhd:1102 +
+    // :5147-5151), so NextReg::reset() preserves whatever state earlier
+    // groups left it in. Explicitly re-enter config_mode here (NR 0x03 =
+    // 0x07 → bits[2:0]=111) so the gated NR 0x06 bit-2 writes below latch
+    // deterministically. Same pattern as CFG-09-INT and CFG-08-INT.
+    nr_write(emu, 0x03, 0x07);
+
     // Reset default read formula (VHDL :5900):
     //   bits 7=1, 6=0, 5=1, 4=0, 3=0, 2=0, 1:0=00 → 0xA0.
     {
