@@ -2382,6 +2382,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nr_06_button_drive_nmi_en_    = false;
     nr_06_internal_speaker_beep_  = false;
     nr_06_ps2_mode_               = false;  // VHDL :1111 default '0' (G56)
+    // G110 — refresh Mixer's exc_i now that the NR 0x06 b6 shadow has been
+    // cleared (and `nr_08_stored_low_ = 0x10` earlier in init() set the b4
+    // power-on default). beep_spkr_excl is the AND of the two; both bits
+    // must be in their reset state before the gate can be evaluated.
+    mixer_.set_exc_i(beep_spkr_excl());
     nextreg_.set_write_handler(0x06, [this](uint8_t v) -> uint8_t {
         // VHDL zxnext.vhd:6389 — `aymode_i <= nr_06_psg_mode(0)`. It's bit
         // 0 of the 2-bit psg_mode field, NOT equality with "01". That means
@@ -2434,6 +2439,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         emu_fnkeys_.set_nr_06_hotkey_enables(
             /* cpu_speed_en = */ (v & 0x80) != 0,
             /* _5060_en     = */ (v & 0x20) != 0);
+
+        // G110 — refresh Mixer's exc_i gate. NR 0x06 b6 is one of the two
+        // inputs to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:
+        // 80-81 silences EAR/MIC when exc_i='1'.
+        mixer_.set_exc_i(beep_spkr_excl());
             return v;
     });
 
@@ -2595,6 +2605,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // live subsystem state (internal speaker bit 4, port_ff_rd bit 2,
         // keyboard issue2 bit 0).
         nr_08_stored_low_ = v & 0x3F;
+
+        // G110 — refresh Mixer's exc_i gate. NR 0x08 b4 is the other input
+        // to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:80-81
+        // silences EAR/MIC when exc_i='1'.
+        mixer_.set_exc_i(beep_spkr_excl());
         return v;
     });
 
