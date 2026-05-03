@@ -1151,13 +1151,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
     // VHDL zxnext.vhd:5995 — NR 0x23 read returns nr_23_line_interrupt(7:0).
-    // Authoritative store is VideoTiming::line_interrupt_target() & 0xFF;
-    // bare regs_[0x23] echo passed accidentally (the write also stores raw)
-    // but is structurally wrong — pulls from the wrong source of truth.
-    nextreg_.set_read_handler(0x23, [this]() -> uint8_t {
-        return static_cast<uint8_t>(
-            video_timing_.line_interrupt_target() & 0xFF);
-    });
+    // G56 cluster C: read_handler dropped. The write_handler above stores
+    // `v` into both `regs_[0x23]` (via the new write contract) AND into
+    // VideoTiming::line_interrupt_target() LSB; the only path that mutates
+    // the LSB is this same write_handler (NR 0x22 only touches the MSB,
+    // and load_state reloads both regs_[0x23] and line_interrupt_target
+    // from independent slots that were equal at save time). So bare
+    // regs_[0x23] echo is byte-identical to the previous handler's
+    // VideoTiming-sourced read, with no divergence path.
 
     // Register 0x02: Reset control + software NMI strobes.
     //   bit 0 = RESET_SOFT (tbblue hardware.h) → preserve SRAM, drop FFs
