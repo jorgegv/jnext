@@ -562,16 +562,235 @@ static void test_im2_decoder_gaps(Emulator& emu) {
               "got NR 0xC3 = " + hex2(c3) + " expected 0xC0 (MSB of 0xC000)");
     }
 
-    // ── PULSE-G89-01..04 — LDIRX/LDDRX/LDPIRX/LDIRSCALE INT-sampling.
-    //    Deferred to a follow-up session per user (Wave 2 of 2).
-    skip("PULSE-G89-01",
-         "t80n_mcode.vhd:2098-2138 LDIRX no inter-iter INT sample (see G89)");
-    skip("PULSE-G89-02",
-         "t80n_mcode.vhd:1953-1991 LDDRX no inter-iter INT sample (see G89)");
-    skip("PULSE-G89-03",
-         "t80n_mcode.vhd:2188-2226 LDPIRX no inter-iter INT sample (see G89)");
-    skip("PULSE-G89-04",
-         "t80n_mcode.vhd LDIRSCALE no inter-iter INT sample (see G89)");
+    // ── PULSE-G89-01..04 — LDIRX/LDDRX/LDPIRX/LDIRSCALE per-iteration step
+    //    + PC-rewind shape. Pre-G89, the four Z80N repeating block-move ops
+    //    ran their entire BC loop atomically inside one Z80Cpu::execute()
+    //    call (up to 65536 iterations ≈ 244 ms wall time at 14 MHz),
+    //    silently dropping any frame INT that became pending mid-loop. Post-
+    //    G89 each call performs ONE iteration and rewinds PC by 2 if BC!=0
+    //    so the next execute() re-fetches the opcode — and gets a chance to
+    //    take any pending INT first (z80_cpu.cpp samples INT at the top of
+    //    execute()). Mirrors VHDL t80n_mcode.vhd MCycles="100" + standard
+    //    Z80 LDIR repeat shape.
+
+    // ── PULSE-G89-01 — LDIRX (ED B4) per-iter step + rewind.
+    //    BC=3, A=0xFF (no transparent skips), source 0xC100..0xC102 = 0x10,
+    //    0x20, 0x30 → dest 0xC200..0xC202.
+    {
+        fresh(emu);
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC100 + i, 0x10 * (i + 1));
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC200 + i, 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, 0xB4});  // LDIRX
+        auto regs = emu.cpu().get_registers();
+        regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x0003;
+        emu.cpu().set_registers(regs);
+
+        emu.cpu().execute();  // iteration 1
+        regs = emu.cpu().get_registers();
+        bool ok1 = (regs.BC == 0x0002) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC101) && (regs.DE == 0xC201);
+
+        emu.cpu().execute();  // iteration 2
+        regs = emu.cpu().get_registers();
+        bool ok2 = (regs.BC == 0x0001) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC102) && (regs.DE == 0xC202);
+
+        emu.cpu().execute();  // iteration 3 (final, no rewind)
+        regs = emu.cpu().get_registers();
+        bool ok3 = (regs.BC == 0x0000) && (regs.PC == 0xC002)
+                && (regs.HL == 0xC103) && (regs.DE == 0xC203);
+
+        bool mem_ok = (emu.mmu().read(0xC200) == 0x10)
+                   && (emu.mmu().read(0xC201) == 0x20)
+                   && (emu.mmu().read(0xC202) == 0x30);
+
+        check("PULSE-G89-01",
+              "LDIRX (ED B4) runs ONE iteration per execute() and rewinds "
+              "PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138]",
+              ok1 && ok2 && ok3 && mem_ok,
+              "iter1=" + std::to_string(ok1) + " iter2=" + std::to_string(ok2)
+              + " iter3=" + std::to_string(ok3) + " mem=" + std::to_string(mem_ok));
+    }
+
+    // ── PULSE-G89-02 — LDDRX (ED BC) per-iter step + rewind.
+    //    BC=3, A=0xFF, source 0xC100,0xC0FF,0xC0FE walked downward,
+    //    dest 0xC200..0xC202 walked upward (DE still increments per VHDL).
+    {
+        fresh(emu);
+        emu.mmu().write(0xC100, 0xAA);
+        emu.mmu().write(0xC0FF, 0xBB);
+        emu.mmu().write(0xC0FE, 0xCC);
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC200 + i, 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, 0xBC});  // LDDRX
+        auto regs = emu.cpu().get_registers();
+        regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x0003;
+        emu.cpu().set_registers(regs);
+
+        emu.cpu().execute();  // iteration 1
+        regs = emu.cpu().get_registers();
+        bool ok1 = (regs.BC == 0x0002) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC0FF) && (regs.DE == 0xC201);
+
+        emu.cpu().execute();  // iteration 2
+        regs = emu.cpu().get_registers();
+        bool ok2 = (regs.BC == 0x0001) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC0FE) && (regs.DE == 0xC202);
+
+        emu.cpu().execute();  // iteration 3
+        regs = emu.cpu().get_registers();
+        bool ok3 = (regs.BC == 0x0000) && (regs.PC == 0xC002)
+                && (regs.HL == 0xC0FD) && (regs.DE == 0xC203);
+
+        bool mem_ok = (emu.mmu().read(0xC200) == 0xAA)
+                   && (emu.mmu().read(0xC201) == 0xBB)
+                   && (emu.mmu().read(0xC202) == 0xCC);
+
+        check("PULSE-G89-02",
+              "LDDRX (ED BC) runs ONE iteration per execute() and rewinds "
+              "PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256]",
+              ok1 && ok2 && ok3 && mem_ok,
+              "iter1=" + std::to_string(ok1) + " iter2=" + std::to_string(ok2)
+              + " iter3=" + std::to_string(ok3) + " mem=" + std::to_string(mem_ok));
+    }
+
+    // ── PULSE-G89-03 — LDPIRX (ED B7) per-iter step + rewind.
+    //    BC=3, A=0xFF, HL=0xC100 (pattern base, stays fixed),
+    //    DE=0xC200..0xC202. Source addr each iter = (HL & 0xFFF8) | (E & 7).
+    //    With HL=0xC100 (already 8-aligned) and E starting at 0x00, the
+    //    three reads are from 0xC100, 0xC101, 0xC102.
+    {
+        fresh(emu);
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC100 + i, 0x40 + i);  // 0x40,0x41,0x42
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC200 + i, 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, 0xB7});  // LDPIRX
+        auto regs = emu.cpu().get_registers();
+        regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x0003;
+        emu.cpu().set_registers(regs);
+
+        emu.cpu().execute();  // iteration 1
+        regs = emu.cpu().get_registers();
+        bool ok1 = (regs.BC == 0x0002) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC100) && (regs.DE == 0xC201);
+
+        emu.cpu().execute();  // iteration 2
+        regs = emu.cpu().get_registers();
+        bool ok2 = (regs.BC == 0x0001) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC100) && (regs.DE == 0xC202);
+
+        emu.cpu().execute();  // iteration 3
+        regs = emu.cpu().get_registers();
+        bool ok3 = (regs.BC == 0x0000) && (regs.PC == 0xC002)
+                && (regs.HL == 0xC100) && (regs.DE == 0xC203);
+
+        bool mem_ok = (emu.mmu().read(0xC200) == 0x40)
+                   && (emu.mmu().read(0xC201) == 0x41)
+                   && (emu.mmu().read(0xC202) == 0x42);
+
+        check("PULSE-G89-03",
+              "LDPIRX (ED B7) runs ONE iteration per execute() and rewinds "
+              "PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991]",
+              ok1 && ok2 && ok3 && mem_ok,
+              "iter1=" + std::to_string(ok1) + " iter2=" + std::to_string(ok2)
+              + " iter3=" + std::to_string(ok3) + " mem=" + std::to_string(mem_ok));
+    }
+
+    // ── PULSE-G89-04 — LDIRSCALE (ED B6) per-iter step + rewind.
+    //    Same shape as LDIRX (HL++, DE++) — VHDL BC'/DE' alternate-register
+    //    additions are commented out in the FPGA source.
+    {
+        fresh(emu);
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC100 + i, 0x70 + i);  // 0x70,0x71,0x72
+        for (int i = 0; i < 3; ++i) emu.mmu().write(0xC200 + i, 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, 0xB6});  // LDIRSCALE
+        auto regs = emu.cpu().get_registers();
+        regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x0003;
+        emu.cpu().set_registers(regs);
+
+        emu.cpu().execute();  // iteration 1
+        regs = emu.cpu().get_registers();
+        bool ok1 = (regs.BC == 0x0002) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC101) && (regs.DE == 0xC201);
+
+        emu.cpu().execute();  // iteration 2
+        regs = emu.cpu().get_registers();
+        bool ok2 = (regs.BC == 0x0001) && (regs.PC == 0xC000)
+                && (regs.HL == 0xC102) && (regs.DE == 0xC202);
+
+        emu.cpu().execute();  // iteration 3
+        regs = emu.cpu().get_registers();
+        bool ok3 = (regs.BC == 0x0000) && (regs.PC == 0xC002)
+                && (regs.HL == 0xC103) && (regs.DE == 0xC203);
+
+        bool mem_ok = (emu.mmu().read(0xC200) == 0x70)
+                   && (emu.mmu().read(0xC201) == 0x71)
+                   && (emu.mmu().read(0xC202) == 0x72);
+
+        check("PULSE-G89-04",
+              "LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds "
+              "PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226]",
+              ok1 && ok2 && ok3 && mem_ok,
+              "iter1=" + std::to_string(ok1) + " iter2=" + std::to_string(ok2)
+              + " iter3=" + std::to_string(ok3) + " mem=" + std::to_string(mem_ok));
+    }
+
+    // ── PULSE-G89-INT — inter-iteration INT sampling: a frame INT raised
+    //    mid-LDIRX is taken at the very next execute() (between iterations)
+    //    instead of being silently dropped at the end of the loop. This is
+    //    the actual user-visible fix: long block transfers no longer block
+    //    IM2 music drivers / vblank schedulers.
+    //
+    //    Strategy: BC=10 LDIRX, IM=1, IFF1=1 — run one iteration (BC=9,
+    //    PC=0xC000), then request_interrupt(0xFF). Next execute() must
+    //    service the INT (push PC, jump to 0x0038, IFF1=0) and BC must
+    //    remain 9 (no further iteration ran inside the same call).
+    {
+        fresh(emu);
+        for (int i = 0; i < 10; ++i) emu.mmu().write(0xC100 + i, 0xA0 + i);
+        for (int i = 0; i < 10; ++i) emu.mmu().write(0xC200 + i, 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, 0xB4});  // LDIRX
+        auto regs = emu.cpu().get_registers();
+        regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x000A;
+        regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+
+        emu.cpu().execute();  // iteration 1: BC 10->9, PC rewound to 0xC000
+        regs = emu.cpu().get_registers();
+        const bool iter1_ok = (regs.BC == 0x0009) && (regs.PC == 0xC000)
+                           && (regs.IFF1 == 1);
+
+        // Request a frame INT. With IFF1=1 and pulse just started, the next
+        // execute() MUST service it before running another LDIRX iteration.
+        emu.cpu().request_interrupt(0xFF);
+
+        emu.cpu().execute();  // INT serviced first; LDIRX iteration NOT run
+        regs = emu.cpu().get_registers();
+
+        // INT serviced => IFF1=0, PC at IM 1 vector 0x0038, return PC pushed.
+        const bool int_taken = (regs.IFF1 == 0) && (regs.PC == 0x0038);
+        // Critical invariant: BC unchanged from iter1 — no further LDIRX
+        // iteration ran inside this execute() call. This is the inter-iter
+        // INT-sample property that pre-G89 violated by atomically running
+        // all 10 iterations.
+        const bool no_extra_iter = (regs.BC == 0x0009);
+        // Return-stack should hold 0xC000 (the rewound PC where LDIRX would
+        // resume after RETI).
+        const uint16_t pushed_lo = emu.mmu().read(0xFFFC);
+        const uint16_t pushed_hi = emu.mmu().read(0xFFFD);
+        const uint16_t return_pc = (pushed_hi << 8) | pushed_lo;
+        const bool return_pc_ok = (return_pc == 0xC000);
+
+        check("PULSE-G89-INT",
+              "LDIRX inter-iteration INT sampling: pending /INT serviced "
+              "between iterations (BC unchanged across the INT) "
+              "[VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path]",
+              iter1_ok && int_taken && no_extra_iter && return_pc_ok,
+              "iter1=" + std::to_string(iter1_ok)
+              + " int_taken=" + std::to_string(int_taken)
+              + " BC=0x" + hex2(regs.BC & 0xFF) + " (low) PC=0x"
+              + hex2((regs.PC >> 8) & 0xFF) + hex2(regs.PC & 0xFF)
+              + " return_pc_ok=" + std::to_string(return_pc_ok));
+    }
 
     // RE-HOME PULSE-G90-01 → contention plan (NEW-CONT-3): 28 MHz SRAM-read
     //   wait state (VHDL zxnext.vhd:3171-3181) is a contention/timing concern,
