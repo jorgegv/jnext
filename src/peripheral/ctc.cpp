@@ -38,7 +38,18 @@ void CtcChannel::write(uint8_t val) {
         // This write is a time constant
         time_constant_ = val;
         counter_ = val;
-        prescaler_ = 0;
+
+        // G120: prescaler clearing follows VHDL device/ctc_chan.vhd:131-141
+        // — p_count is cleared only when reset_soft='1', and reset_soft is
+        // 'state /= S_RUN and state /= S_RUN_TC' (line 117). So a TC write
+        // from S_RESET_TC clears the prescaler (state was RESET_TC at the
+        // tick of the write, reset_soft=1 → p_count=0); but a TC reload from
+        // S_RUN_TC (mid-stream reconfigure while running) leaves p_count
+        // alone. Clearing on every TC write makes the next ZC/TO up to one
+        // prescaler period late after a running reload.
+        if (state_ == State::RESET_TC) {
+            prescaler_ = 0;
+        }
 
         ctc_log()->debug("time constant = {:#04x} ({})", val, val == 0 ? 256 : val);
 
@@ -52,7 +63,8 @@ void CtcChannel::write(uint8_t val) {
                 ctc_log()->trace("state -> RUN (auto-start)");
             }
         } else {
-            // S_RUN_TC -> S_RUN: reload while running
+            // S_RUN_TC -> S_RUN: reload while running. Prescaler is preserved
+            // (see G120 comment above).
             state_ = State::RUN;
             ctc_log()->trace("state -> RUN (TC reload while running)");
         }
@@ -263,9 +275,18 @@ void Ctc::handle_zc_to(int channel, int depth) {
         on_zc_to(channel);
     }
 
-    // Fire interrupt if enabled
-    if (channels_[channel].int_enabled() && on_interrupt) {
-        ctc_log()->debug("ch{} ZC/TO -> interrupt", channel);
+    // G119: VHDL zxnext.vhd:1941 wires `ctc_zc_to` straight into `im2_int_req`
+    // unconditionally — the i_int_en gate happens inside im2_peripheral.vhd:172
+    // (im2_int_req latch is set on `(int_req AND i_int_en) OR int_unq`). The
+    // CTC channel's own o_int_en (control_reg(7-3)) is routed SEPARATELY into
+    // `ctc_int_en` (zxnext.vhd:1949 → im2_int_en) and is NOT used to gate
+    // ctc_zc_to inside the device. Mirror that here: fire on_interrupt on
+    // every ZC/TO regardless of channel int_enabled, so the IM2 fabric sees
+    // the edge and applies the int_en AND at the wrapper layer (matching the
+    // UART RX/TX pattern at uart.cpp:621-630). Without this, flipping int_en
+    // between two ZC/TO pulses loses the prior pulse race-the-edge.
+    if (on_interrupt) {
+        ctc_log()->debug("ch{} ZC/TO -> interrupt (unconditional, IM2 gates int_en)", channel);
         on_interrupt(channel);
     }
 
