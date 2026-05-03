@@ -79,6 +79,14 @@ public:
     uint8_t nr_03_machine_type() const { return nr_03_machine_type_; }
     void    set_nr_03_machine_type(uint8_t v) { nr_03_machine_type_ = v & 0x07; }
 
+    // G88: NMI return-address shadow latch (NR 0xC2 = LSB, NR 0xC3 = MSB).
+    // Called from Z80Cpu::on_nmi_servicing at the moment of NMI servicing —
+    // mirrors VHDL Z80N_command_s = NMIACK_LSB/MSB & cpu_wr_n='0' write
+    // path at zxnext.vhd:2050-2085 + 6232-6236. Bypasses write_handlers_
+    // because this is a hardware-internal capture, not a software write to
+    // NR 0xC2/0xC3 via the 0x243B/0x253B port path.
+    void set_nmi_return_address(uint16_t pc);
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

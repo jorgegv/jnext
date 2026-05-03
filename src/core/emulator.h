@@ -225,6 +225,7 @@ public:
     Uart&         uart()      { return uart_; }
     DivMmc&       divmmc()    { return divmmc_; }
     NmiSource&    nmi_source(){ return nmi_source_; }
+    Im2Controller& im2()       { return im2_; }
     Beeper&       beeper()    { return beeper_; }
     TurboSound&   turbosound(){ return turbosound_; }
     Dac&          dac()       { return dac_; }

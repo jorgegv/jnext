@@ -98,6 +98,14 @@ public:
     // If set and returns true, CPU should break to debugger.
     std::function<bool(uint16_t pc)> on_magic_breakpoint;
 
+    // Callback fired when an NMI is being serviced by the CPU. Receives the
+    // PC value that will be pushed to stack as the NMI return address (i.e.
+    // the post-HALT-fix PC, before fuse_z80_nmi() rewrites it to 0x0066).
+    // Models the VHDL NR 0xC2/0xC3 capture window at zxnext.vhd:2050-2085 +
+    // 6232-6236 (Z80N_command_s = NMIACK_LSB/MSB & cpu_wr_n='0'). Set by
+    // Emulator::init() to latch NR 0xC2/0xC3 shadow registers (G88).
+    std::function<void(uint16_t saved_pc)> on_nmi_servicing;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

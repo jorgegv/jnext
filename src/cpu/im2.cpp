@@ -31,6 +31,8 @@ void Im2Controller::reset() {
     reti_decode_     = false;
     dma_delay_ctrl_  = false;
     im_mode_         = 0;
+    reti_seen_count_ = 0;
+    retn_seen_count_ = 0;
 
     pulse_int_n_      = true;
     pulse_count_      = 0;
@@ -208,6 +210,23 @@ void Im2Controller::on_reti() {
             dev_[i].state = DevState::S_0;
         }
     }
+}
+
+// -----------------------------------------------------------------------------
+// G87 — RETN observer.
+//
+// VHDL i_retn_seen does NOT reach im2_device.vhd (only RETI clears S_ISR per
+// :123-128). The signal is consumed by divmmc.vhd:108,126,139, mmc.vhd, and
+// the reset/NMI shadow latches in zxnext.vhd. Im2Controller therefore has
+// nothing to clear here — the entry point exists purely as a parity hook so
+// that the Emulator's on_m1_cycle lambda can call im2_.on_retn() alongside
+// the existing im2_.on_reti() pattern.
+//
+// (If a future VHDL revision routes retn into the IM2 fabric, the body lands
+// here.)
+// -----------------------------------------------------------------------------
+void Im2Controller::on_retn() {
+    // intentionally empty — see header / comment above.
 }
 
 // -----------------------------------------------------------------------------
@@ -605,9 +624,11 @@ void Im2Controller::advance_decoder(uint8_t opcode) {
             if (opcode == 0x4D) {
                 dec_state_       = DecState::S_ED4D_T4;
                 reti_seen_pulse_ = true;     // vhdl:234
+                ++reti_seen_count_;          // G87 — test observability
             } else if (opcode == 0x45) {
                 dec_state_       = DecState::S_ED45_T4;
                 retn_seen_pulse_ = true;     // vhdl:236
+                ++retn_seen_count_;          // G87 — test observability
             } else {
                 // IM-mode decode (vhdl:223-224):
                 //   match opcode (7:6)="01" and (2:0)="110", i.e.

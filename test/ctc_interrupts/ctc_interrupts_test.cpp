@@ -23,6 +23,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -445,76 +446,137 @@ static void test_legacy_status_reads(Emulator& emu) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Section IM2-Decoder-Gaps — known-gap rows (G87 / G88 / G89 / G90)
-// All F-skips: real TODO blocked by emulator gap.
+// Section IM2-Decoder-Gaps — G87 / G88 closed; G89 deferred; G90 re-homed
 // ══════════════════════════════════════════════════════════════════════
 
-static void test_im2_decoder_gaps() {
+// Park the CPU at a deterministic address with a freshly written program
+// so single-instruction execution covers the bytes we care about. Returns
+// the chosen entry-point address.
+static uint16_t park_cpu_with_program(Emulator& emu, uint16_t addr,
+                                      std::initializer_list<uint8_t> bytes) {
+    uint16_t a = addr;
+    for (uint8_t b : bytes) {
+        emu.mmu().write(a++, b);
+    }
+    auto regs = emu.cpu().get_registers();
+    regs.PC   = addr;
+    regs.SP   = 0xFFFE;
+    regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    return addr;
+}
+
+static void test_im2_decoder_gaps(Emulator& emu) {
     set_group("IM2-Decoder-Gaps");
 
-    // IM2C-G87-01 — VHDL device/im2_control.vhd:158-209
-    // RETI = ED 4D. VHDL ifetch_fe_t3 fires per M1-fetched byte
-    // including the ED-prefix 2nd byte. jnext Z80Cpu::on_m1_cycle
-    // (z80_cpu.cpp:388,418) fires once per execute() with the FIRST
-    // byte; Im2Controller::advance_decoder (im2.cpp:531-595) thus
-    // never sees ED 4D and o_reti_seen never pulses.
-    skip("IM2C-G87-01",
-         "im2_control.vhd:158-209 ED-2nd-byte unseen by Z80Cpu::on_m1_cycle (see G87)");
+    // ── IM2C-G87-01 — RETI (ED 4D) advances the IM2 decoder FSM.
+    //    VHDL im2_control.vhd:158-209 + 234. Each fetched M1 byte
+    //    advances the FSM; RETI = ED 4D pulses o_reti_seen on the
+    //    transition into S_ED4D_T4. Pre-G87 jnext only delivered the
+    //    ED prefix to on_m1_cycle, starving the FSM.
+    {
+        fresh(emu);
+        // Place ED 4D NOP at 0xC000. NMI return-stack target = 0xFFFE so
+        // RETI's POP-from-stack pops "previous" PC. We only care that the
+        // M1 fetches deliver ED + 4D to on_m1_cycle.
+        // Pre-load stack with a benign target (0xC010 = NOP territory)
+        emu.mmu().write(0xFFFE, 0x10);
+        emu.mmu().write(0xFFFF, 0xC0);
+        // 0xC010..0xC01F: NOPs, in case execution flows there.
+        for (int i = 0; i < 0x10; ++i) emu.mmu().write(0xC010 + i, 0x00);
+        const uint32_t pre_reti = emu.im2().reti_seen_count();
+        const uint32_t pre_retn = emu.im2().retn_seen_count();
+        park_cpu_with_program(emu, 0xC000, {0xED, 0x4D});  // RETI
+        emu.cpu().execute();
+        const uint32_t post_reti = emu.im2().reti_seen_count();
+        const uint32_t post_retn = emu.im2().retn_seen_count();
+        const bool ok = (post_reti == pre_reti + 1)
+                     && (post_retn == pre_retn);
+        check("IM2C-G87-01",
+              "RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen "
+              "[VHDL im2_control.vhd:158-209,234]",
+              ok,
+              "reti_count " + std::to_string(pre_reti) + "->" + std::to_string(post_reti)
+              + " retn_count " + std::to_string(pre_retn) + "->" + std::to_string(post_retn));
+    }
 
-    // IM2C-G87-02 — VHDL device/im2_control.vhd:233-238
-    // RETN = ED 45. Same broken path — decoder enters S_ED_T4 on
-    // ED but the next on_m1_cycle carries the FIRST byte of the
-    // following instruction, not 0x45. o_retn_seen never pulses.
-    skip("IM2C-G87-02",
-         "im2_control.vhd:233-238 RETN follows same broken decoder path (see G87)");
+    // ── IM2C-G87-02 — RETN (ED 45) advances the IM2 decoder FSM.
+    //    VHDL im2_control.vhd:233-238. RETN pulses o_retn_seen on the
+    //    transition into S_ED45_T4. Same delivery path as G87-01.
+    {
+        fresh(emu);
+        emu.mmu().write(0xFFFE, 0x10);
+        emu.mmu().write(0xFFFF, 0xC0);
+        for (int i = 0; i < 0x10; ++i) emu.mmu().write(0xC010 + i, 0x00);
+        const uint32_t pre_reti = emu.im2().reti_seen_count();
+        const uint32_t pre_retn = emu.im2().retn_seen_count();
+        park_cpu_with_program(emu, 0xC000, {0xED, 0x45});  // RETN
+        emu.cpu().execute();
+        const uint32_t post_reti = emu.im2().reti_seen_count();
+        const uint32_t post_retn = emu.im2().retn_seen_count();
+        const bool ok = (post_retn == pre_retn + 1)
+                     && (post_reti == pre_reti);
+        check("IM2C-G87-02",
+              "RETN (ED 45) advances IM2 FSM and pulses o_retn_seen "
+              "[VHDL im2_control.vhd:233-238]",
+              ok,
+              "reti_count " + std::to_string(pre_reti) + "->" + std::to_string(post_reti)
+              + " retn_count " + std::to_string(pre_retn) + "->" + std::to_string(post_retn));
+    }
 
-    // NR-C2-01 — VHDL zxnext.vhd:2050-2085, 6232-6236
-    // VHDL latches nr_c2_retn_address_lsb on Z80N_command_s = NMIACK_LSB
-    // AND cpu_wr_n='0', regardless of stackless mode. jnext: no NR 0xC2
-    // read handler; NextReg::read falls back to regs_[0xC2] (raw byte
-    // last written, defaults 0xFF). fuse_z80_nmi() pushes PC but does
-    // not write the shadow.
-    skip("NR-C2-01",
-         "zxnext.vhd:2050-2085 NR 0xC2 PC-LSB capture not wired (see G88)");
+    // ── NR-C2-01 / NR-C3-01 — NMI return-address shadow latch.
+    //    VHDL zxnext.vhd:2050-2085, 6232-6236. At NMIACK_LSB/MSB the
+    //    pushed PC is mirrored into NR 0xC2/0xC3. jnext: Z80Cpu fires
+    //    on_nmi_servicing(saved_pc); Emulator forwards to
+    //    NextReg::set_nmi_return_address(pc).
+    {
+        fresh(emu);
+        // Park CPU at 0x1234 (a known PC value, lower 8K is overlaid by
+        // ROM but the NMI-time PC we capture is whatever PC is *before*
+        // fuse_z80_nmi() rewrites it to 0x0066). Place a NOP so the CPU
+        // has something to execute next; SP must point to writable RAM
+        // for the NMI push.
+        // Use 0xC000 as the parked-PC + NOP target so any post-NMI flow
+        // is benign.
+        emu.mmu().write(0xC000, 0x00);  // NOP
+        auto regs = emu.cpu().get_registers();
+        regs.PC   = 0xC000;
+        regs.SP   = 0xFFFE;
+        regs.IFF1 = 0; regs.IFF2 = 0;
+        regs.halted = false;
+        emu.cpu().set_registers(regs);
+        emu.cpu().request_nmi();
+        emu.cpu().execute();   // services the NMI: PC -> 0x0066, NR 0xC2/0xC3 latched
 
-    // NR-C3-01 — VHDL zxnext.vhd:2050-2085, 6232-6236
-    // Same path for NR 0xC3 (PC MSB). User impact: NMI inspector
-    // tooling reads 0xFF instead of last-NMI PC.
-    skip("NR-C3-01",
-         "zxnext.vhd:2050-2085 NR 0xC3 PC-MSB capture not wired (see G88)");
+        const uint8_t c2 = nr_read(emu, 0xC2);
+        const uint8_t c3 = nr_read(emu, 0xC3);
+        check("NR-C2-01",
+              "NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI "
+              "[VHDL zxnext.vhd:2050-2085,6232]",
+              c2 == 0x00,
+              "got NR 0xC2 = " + hex2(c2) + " expected 0x00 (LSB of 0xC000)");
+        check("NR-C3-01",
+              "NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI "
+              "[VHDL zxnext.vhd:2050-2085,6236]",
+              c3 == 0xC0,
+              "got NR 0xC3 = " + hex2(c3) + " expected 0xC0 (MSB of 0xC000)");
+    }
 
-    // PULSE-G89-01 — VHDL cpu/t80n_mcode.vhd:2098-2138 (LDIRX)
-    // VHDL re-decodes opcode each iteration via I_BT, sampling
-    // INT/NMI on the inter-iteration M1 boundary. jnext z80n_ext.cpp:
-    // 352-427 runs each repeat as a closed C for-loop with no
-    // INT/NMI sample between iterations. 65536-iteration LDIRX is
-    // ~244 ms — IM2-driven music drivers running LDIRX miss frame INT.
+    // ── PULSE-G89-01..04 — LDIRX/LDDRX/LDPIRX/LDIRSCALE INT-sampling.
+    //    Deferred to a follow-up session per user (Wave 2 of 2).
     skip("PULSE-G89-01",
          "t80n_mcode.vhd:2098-2138 LDIRX no inter-iter INT sample (see G89)");
-
-    // PULSE-G89-02 — VHDL cpu/t80n_mcode.vhd:1953-1991 (LDDRX)
-    // Same closed-loop body in z80n_ext.cpp.
     skip("PULSE-G89-02",
          "t80n_mcode.vhd:1953-1991 LDDRX no inter-iter INT sample (see G89)");
-
-    // PULSE-G89-03 — VHDL cpu/t80n_mcode.vhd:2188-2226 (LDPIRX)
-    // Same closed-loop body — distinct stride semantics, INT path
-    // remains uninstrumented.
     skip("PULSE-G89-03",
          "t80n_mcode.vhd:2188-2226 LDPIRX no inter-iter INT sample (see G89)");
-
-    // PULSE-G89-04 — VHDL cpu/t80n_mcode.vhd LDIRSCALE (mirrors LDIRX)
-    // Same closed-loop body in z80n_ext.cpp:409+.
     skip("PULSE-G89-04",
          "t80n_mcode.vhd LDIRSCALE no inter-iter INT sample (see G89)");
 
-    // PULSE-G90-01 — VHDL zxnext.vhd:3171-3181 cpu_speed="11" drives
-    // sram_wait_n<='0' on every SRAM read. jnext: no sram_wait
-    // references; ContentionModel gated off at 28 MHz per zxnext.vhd:
-    // 4481. Turbo timing 7% fast on read-heavy code; cross-bucket dup
-    // with NEW-CONT-3 (contention plan owns SRAM-cycle side).
-    skip("PULSE-G90-01",
-         "zxnext.vhd:3171-3181 28 MHz SRAM-read wait state unmodelled (see G90)");
+    // RE-HOME PULSE-G90-01 → contention plan (NEW-CONT-3): 28 MHz SRAM-read
+    //   wait state (VHDL zxnext.vhd:3171-3181) is a contention/timing concern,
+    //   not interrupt routing. ctc_interrupts_test scope ends at the IM2 +
+    //   NMI fabric; cpu_speed=11 SRAM stalls belong to ContentionModel.
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -539,7 +601,7 @@ int main() {
     test_legacy_status_reads(emu);
     std::printf("  Group: Legacy-Status — done\n");
 
-    test_im2_decoder_gaps();
+    test_im2_decoder_gaps(emu);
     std::printf("  Group: IM2-Decoder-Gaps — done\n");
 
     std::printf("\n===============================================\n");

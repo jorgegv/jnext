@@ -60,6 +60,13 @@ public:
     uint8_t get_vector() const;
     void set_mask(uint16_t mask);
     void on_reti();
+    // VHDL: i_retn_seen is consumed by divmmc/mmc/reset paths only; the
+    // im2_device.vhd state machine does NOT react to RETN (only RETI clears
+    // S_ISR per :123-128). This entry point is therefore a no-op for fabric
+    // state but is retained as a parallel hook to on_reti() for clarity at
+    // the emulator's M1 lambda call site (G87). Side effects on the divmmc
+    // are routed via DivMmc::on_retn() directly.
+    void on_retn();
 
     // ── DevIdx-based API (peripheral-facing) ───────────────────────────────
     void raise_req(DevIdx d);            // asserts i_int_req (rising edge captured)
@@ -131,6 +138,15 @@ public:
     bool reti_decode_active()   const { return reti_decode_;    }
     bool dma_delay_control()    const { return dma_delay_ctrl_; }
 
+    // G87 — cumulative pulse counters (test observability).
+    // advance_decoder() bumps these on every transition into S_ED4D_T4 /
+    // S_ED45_T4 (i.e. one increment per RETI/RETN actually decoded). Used
+    // by ctc_interrupts_test IM2C-G87-01/02 to confirm the FSM advanced
+    // through the ED + ext byte sequence; production behaviour is
+    // unchanged.
+    uint32_t reti_seen_count() const { return reti_seen_count_; }
+    uint32_t retn_seen_count() const { return retn_seen_count_; }
+
     // ── Pulse mode ─────────────────────────────────────────────────────────
     bool pulse_int_n() const;                  // vhdl:2020-2031
     void set_machine_timing_48_or_p3(bool v);  // pulse duration gate, vhdl:2033
@@ -170,6 +186,8 @@ private:
     bool     reti_decode_     = false;   // state == S_ED_T4
     bool     dma_delay_ctrl_  = false;   // S_ED_T4 | S_ED4D_T4 | S_ED45_T4 | S_SRL_*
     uint8_t  im_mode_         = 0;
+    uint32_t reti_seen_count_ = 0;       // G87 — test observability counter
+    uint32_t retn_seen_count_ = 0;       // G87 — test observability counter
 
     // Pulse fabric state (vhdl:2017-2044).
     bool    pulse_int_n_      = true;
