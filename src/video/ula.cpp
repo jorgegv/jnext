@@ -983,24 +983,59 @@ void Ula::render_display_line_hires(uint32_t* row, int screen_row, Mmu& mmu,
         | ((~paper_color & 0x07) << 3)          // PAPER bits = ~port_ff(5:3)
         |  (paper_color & 0x07));               // INK   bits =  port_ff(5:3)
 
-    // G102 — std-ULA encoder per VHDL zxula.vhd:543-553 emits an 8-bit
-    // ula_pixel that indexes the single 256-entry × 2-bank ULA palette
-    // (zxnext.vhd:6981).  ULAnext / ULA+ encoder paths are not yet wired
-    // into the HI_RES display route — they would need separate per-pixel
-    // encoder calls; G102/G103 keep the std-ULA path identity-mapped at
-    // boot.  For paper_color=N: ink = bright N (ula_pixel 0x08|N), paper =
-    // bright (~N&7) (ula_pixel 0x10|0x08|(~N&7) = 0x18|(~N&7)).
-    const uint32_t ink_argb   = lookup_colour(std_ula_ink_pixel(hires_attr));
-    const uint32_t paper_argb = lookup_colour(std_ula_paper_pixel(hires_attr));
-
-    // HI_RES strip-border (the left/right strips of a display row): VHDL
-    // zxula.vhd:426-427 routes border_clr_tmx through the SAME encoder
-    // with pixel_en=0 (forced by border_active_d), so the strip pixel is
-    // the paper cycle of the same `hires_attr` — i.e. exactly paper_argb
-    // computed above.  Routing through port_fe (`border_colour_`) here
-    // would contradict the VHDL: in HI_RES, port_fe does not reach the
-    // strip border.  See render_border_line for the full-row path.
-    const uint32_t border_argb = paper_argb;
+    // G167 — encoder dispatch: ULAnext (zxula.vhd:492-528), ULA+
+    // (:531-541), std-ULA (:543-553).  All three encoders run in HI_RES
+    // (sm2 = shift_screen_mode(2) = 1) against the same synthesized
+    // `hires_attr` (= border_clr_tmx).  Mirror of the dispatch already
+    // applied in render_display_line / render_display_line_hicolour /
+    // render_border_line.  Strip-border (left/right of a display row) is
+    // the encoder's border path (border_active_d=1, pixel_en=0).  Pre-
+    // G167 the HI_RES display path bypassed the dispatch and always used
+    // the std-ULA encoder — wrong under ULAnext/ULA+ palette modes.
+    //
+    // Note: hires_attr has bit 7 = 0 by construction, so the
+    // flash XOR (zxula.vhd:470) cannot fire; no flash gate needed.
+    uint32_t ink_argb;
+    uint32_t paper_argb;
+    uint32_t border_argb;
+    if (ulanext_en_ && palette_) {
+        // VHDL zxula.vhd:492-528 — ULAnext encoder, sm2 not consulted.
+        const auto ink_pix    = compute_ulanext_pixel(
+            /*pixel_en*/true,  /*border*/false, hires_attr);
+        const auto paper_pix  = compute_ulanext_pixel(
+            /*pixel_en*/false, /*border*/false, hires_attr);
+        const auto border_pix = compute_ulanext_pixel(
+            /*pixel_en*/false, /*border*/true,  hires_attr);
+        ink_argb    = palette_->ula_colour(active_ula_palette_, ink_pix.pixel);
+        paper_argb  = palette_->ula_colour(active_ula_palette_, paper_pix.pixel);
+        border_argb = palette_->ula_colour(active_ula_palette_, border_pix.pixel);
+    } else if (ulap_en_ && palette_) {
+        // VHDL zxula.vhd:535-540 — ULA+ encoder; in HI_RES sm2=1, so
+        // ula_pixel(3) = (sm2 OR not pixel_en) = 1 for both ink and paper
+        // and border (border_active_d=1 forces pixel_en=0).  Top 2 bits
+        // are dropped by ulap_colour() (low6 indexing per G103).  pg =
+        // attr(7:6) = "01" by construction (hires_attr bit 6 = 1).
+        const uint8_t pg = static_cast<uint8_t>((hires_attr >> 6) & 0x03);
+        const uint8_t ink_low6   = static_cast<uint8_t>(
+            (pg << 4) | (1u << 3) | (hires_attr & 0x07));
+        const uint8_t paper_low6 = static_cast<uint8_t>(
+            (pg << 4) | (1u << 3) | ((hires_attr >> 3) & 0x07));
+        // Border: pixel_en=0 → ula_pixel(2:0) = attr(5:3), same as paper.
+        const uint8_t border_low6 = paper_low6;
+        ink_argb    = palette_->ulap_colour(active_ula_palette_, ink_low6);
+        paper_argb  = palette_->ulap_colour(active_ula_palette_, paper_low6);
+        border_argb = palette_->ulap_colour(active_ula_palette_, border_low6);
+    } else {
+        // VHDL zxula.vhd:543-553 — std-ULA encoder.  In std-ULA the
+        // border path (pixel_en=0) and the display paper cycle yield the
+        // same ula_pixel = 0x10 | (attr(6)<<3) | attr(5:3); border_argb
+        // therefore equals paper_argb.  Pre-G167 baseline preserved:
+        // for paper_color=N, ink = bright N (ula_pixel 0x08|N), paper =
+        // bright(~N&7) (ula_pixel 0x18|(~N&7)).
+        ink_argb    = lookup_colour(std_ula_ink_pixel(hires_attr));
+        paper_argb  = lookup_colour(std_ula_paper_pixel(hires_attr));
+        border_argb = paper_argb;
+    }
 
     // The interleaved pixel row offset is the same for both screens.
     const uint16_t poff         = pixel_addr_offset(screen_row, 0);

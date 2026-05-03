@@ -100,7 +100,7 @@ where possible.
 | G164| set_screen_mode decoded mode from port_ff(5:3) not (2:0)   | ULA, NextREG                     | A   | Y       | Real Timex programs writing port_ff(2:0) couldn't reach HI_RES | L  | Low      |
 | G165| HI_RES display ink/paper used independent bits not border_clr_tmx | ULA, Palette              | A   | Y       | Timex hi-res monochrome rendered with wrong colours + no BRIGHT | L | Low      |
 | G166| Renderer::ula_border_[] per-pixel border-active never written | ULA, Renderer, Compositor   | A   | Y       | Latent: NR 0x68 stencil + ULA-disabled border_exc paths read false | L | Low |
-| G167| ULAnext / ULA+ encoder dispatch absent in HI_RES display path | ULA, Palette                | A   | Y       | HI_RES under ULAnext/ULA+ palette renders wrong inner colours | L   | Low      |
+| ~~G167~~| ~~ULAnext / ULA+ encoder dispatch absent in HI_RES display path~~ | ~~ULA, Palette~~                | ~~A~~   | ~~Y~~       | ~~HI_RES under ULAnext/ULA+ palette renders wrong inner colours~~ | ~~L~~   | ~~Low~~      |
 | G109| NR 0x64 cu_offset not applied to line-int compare          | Emulator, Copper, VideoTiming    | A   | Y       | NR 0x64 + line-IRQ raster split misaligned                 | L      | Low      |
 | G132| F-key state machine + 50-60/cpu-speed/scandouble hotkeys absent | Keyboard, GUI, NextREG, VideoTiming | A,B | Y  | Host F1/F2/F3/F4/F7/F8 keys do nothing emulator-side       | M      | Low      |
 | G144| port 0x123B map_shadow bit 3 — read/write-over wrong bank  | MMU, Layer2                      | A   | Y       | L2 double-buffering via 0x123B b3 writes wrong bank        | L      | Low      |
@@ -713,13 +713,14 @@ where possible.
 - **Test coverage**: S3.09 / S3.10 / S3.11 / S3.12 / S3.13 in `test/ula/ula_test.cpp` (display row border strips, top-border row, bottom-border row, nullptr default-arg back-compat, HI_COLOUR display row).
 - **Source ref**: surfaced during G104 Phase 2 reviewer pass; logged in `project_g104_closed_canonical_640.md` then promoted to G179.
 
-### G167. ULAnext / ULA+ encoder dispatch is NOT wired into HI_RES display path
-- **What**: VHDL `zxula.vhd:485-554` defines three encoder paths — std-ULA (`:543-553`), ULAnext (`:492-528`), ULA+ (`:531-541`). Per `zxula.vhd:426-427` the HI_RES display attr_reg is `border_clr_tmx & border_clr_tmx`, which then flows through whichever encoder is active per `ulanext_en` / `ulap_en`. The HI_RES border row goes through encoder dispatch correctly (closed by G105). But `Ula::render_display_line_hires` only calls the std-ULA encoder helpers (`std_ula_ink_pixel` / `std_ula_paper_pixel`) — it does NOT consult `ulanext_en_` / `ulap_en_` and route through `compute_ulanext_pixel` / `compute_ulap_pixel` like the other renderer paths do.
-- **User impact**: a HI_RES program running under ULAnext or ULA+ palette mode (firmware-poked palette entries at `ula_pixel` slots that the std-ULA encoder doesn't reach) will see wrong colours in the display area only — the border (closed by G105) renders correctly, but the inner 512-px display does not. Latent: no current demo exercises HI_RES with ULAnext/ULA+ enabled.
+### G167. ULAnext / ULA+ encoder dispatch is NOT wired into HI_RES display path [closed]
+- **Status: CLOSED 2026-05-03**.
+- **What was originally observed**: VHDL `zxula.vhd:485-554` defines three encoder paths — std-ULA (`:543-553`), ULAnext (`:492-528`), ULA+ (`:531-541`). Per `zxula.vhd:426-427` the HI_RES display attr_reg is `border_clr_tmx & border_clr_tmx`, which then flows through whichever encoder is active per `ulanext_en` / `ulap_en`. The HI_RES border row went through encoder dispatch correctly (closed by G105) but `Ula::render_display_line_hires` only called the std-ULA encoder helpers (`std_ula_ink_pixel` / `std_ula_paper_pixel`) — it did NOT consult `ulanext_en_` / `ulap_en_` and route through `compute_ulanext_pixel` / the ULA+ encoder formula like the other renderer paths do.
+- **User impact (was)**: a HI_RES program running under ULAnext or ULA+ palette mode (firmware-poked palette entries at `ula_pixel` slots that the std-ULA encoder doesn't reach) saw wrong colours in the display area only — the border (closed by G105) rendered correctly, but the inner 512-px display did not. Latent: no current demo exercises HI_RES with ULAnext/ULA+ enabled.
+- **Fix**: `render_display_line_hires` now folds the same encoder dispatch as `render_display_line` / `render_display_line_hicolour` / `render_border_line`: ULAnext via `compute_ulanext_pixel(pixel_en, border, hires_attr)` for ink/paper/strip-border slots; ULA+ via the `(pg<<4) | (1<<3) | low3` low6 formula (sm2=1 forces ula_pixel(3)=1 in both ink and paper cycles); std-ULA fall-through preserves pre-G167 behaviour. Strip-border (left/right of a HI_RES display row) now consumes the encoder's border path instead of unconditionally re-using the std-ULA paper colour. `hires_attr` bit 7 = 0 by construction so the flash XOR (`zxula.vhd:470`) cannot fire — no flash gate needed.
+- **VHDL ref**: `zxula.vhd:485-554` (encoder dispatch end-to-end), `zxula.vhd:419 + 426-427` (HI_RES `border_clr_tmx` synthesis), `zxula.vhd:531-541` (ULA+ encoder with sm2 forcing ula_pixel(3)=1 in HI_RES), `zxnext.vhd:6981` (palette read).
+- **Test coverage**: S5.12 (HI_RES + ULAnext: format=0x07; distinct palette pokes at ink_idx=0x06 / paper_idx=0x89 / border_idx=0x81; negative gate via std-ULA fall-through) and S5.13 (HI_RES + ULA+: pg=1, ink_low6=0x1E / paper_low6=0x19; negative gate via std-ULA fall-through) in `test/ula/ula_test.cpp`.
 - **Source ref**: surfaced during G179 Issue #2 reviewer pass (Reviewer B, 2026-05-03).
-- **Coverage today**: none.
-- **Dependencies**: cheap — fold the existing ULAnext/ULA+ encoder branches from `render_display_line` / `render_display_line_hicolour` into `render_display_line_hires`. Same pattern as G105's HI_RES border encoder dispatch fix.
-- **Effort**: L.
 
 ---
 

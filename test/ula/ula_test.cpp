@@ -1082,6 +1082,200 @@ static void test_section5_timex() {
                   got_legacy, exp_legacy));
     }
 
+    // S5.12 — G167: HI_RES *display* path dispatches through the ULAnext
+    // encoder when ulanext_en_=true.  Pre-G167 render_display_line_hires
+    // always called the std-ULA encoder helpers, so a HI_RES program with
+    // ULAnext active saw display ink/paper from the wrong palette region.
+    // VHDL zxula.vhd:485-528 — for non-FF format, ink (pixel_en=1) =
+    // attr_active AND format; paper (pixel_en=0) is dictated by the
+    // format table (zxula.vhd:516-527); strip border (border_active_d=1)
+    // = paper_base_index(7:3) & attr_active(5:3) = 0x80 | attr(5:3).
+    //
+    // Stimulus: paper_color=6 → hires_attr = 0x40|((~6&7)<<3)|6 = 0x4E.
+    // Pick format=0x07 (3-bit ink) so paper has a deterministic non-FF
+    // index: paper_pix = 0x80 | ((0x4E>>3)&0x1F) = 0x80 | 0x09 = 0x89.
+    // ink_pix = 0x4E & 0x07 = 0x06.  border_pix = 0x80 | (0x4E>>3)&7 =
+    // 0x81.  Plant 0x80 in s0 col 0 → cell 0 = ink, cells 1..7 = paper;
+    // 0x00 in s1 col 0 → cells 8..15 = paper.  Poke distinct RGB into
+    // each of the three encoder slots and assert the rendered cells
+    // match — confirms the dispatch routes through ula_colour() with
+    // ULAnext-encoded indices, not the std-ULA 0x00..0x1F slots.
+    {
+        UlaBed bed;
+        PaletteManager pal;
+        pal.reset();
+        bed.ula.set_palette(&pal);
+        bed.ula.init_border_per_line();
+
+        const uint8_t paper_color = 6;
+        const uint8_t hires_attr  = static_cast<uint8_t>(
+            0x40 | ((~paper_color & 0x07) << 3) | (paper_color & 0x07)); // 0x4E
+        const uint8_t format      = 0x07;
+        const uint8_t ink_idx     = static_cast<uint8_t>(hires_attr & format);            // 0x06
+        const uint8_t paper_idx   = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x1F)); // 0x89
+        const uint8_t border_idx  = static_cast<uint8_t>(0x80 | ((hires_attr >> 3) & 0x07)); // 0x81
+
+        bed.ula.set_screen_mode(static_cast<uint8_t>(0x06 | (paper_color << 3))); // HI_RES
+        bed.ula.set_ulanext_en(true);
+        bed.ula.set_ulanext_format(format);
+        bed.ula.set_active_ula_palette(false);
+
+        // Distinct RGB333 pokes via NR 0x40/0x41 path: bytes chosen so all
+        // three channels round-trip cleanly under the BB→BBB expansion
+        // (B0 = B1 OR B0; only BB=00 → B=0 and BB=11 → B=7 are pure).
+        //   0xE0 = 111_000_00 → (7,0,0) red
+        //   0x1C = 000_111_00 → (0,7,0) green
+        //   0x77 = 011_101_11 → (3,5,7)
+        pal.write_control(0x00); pal.set_index(ink_idx);    pal.write_8bit(0xE0);
+        pal.write_control(0x00); pal.set_index(paper_idx);  pal.write_8bit(0x1C);
+        pal.write_control(0x00); pal.set_index(border_idx); pal.write_8bit(0x77);
+        const uint32_t exp_ink    = rgb333_to_argb8888(7, 0, 0);
+        const uint32_t exp_paper  = rgb333_to_argb8888(0, 7, 0);
+        const uint32_t exp_border = rgb333_to_argb8888(3, 5, 7);
+
+        // Plant pixels: s0 col 0 = 0x80 (only MSB ink), s1 col 0 = 0x00.
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        bed.poke(0x4000 + poff, 0x80);
+        bed.poke(0x6000 + poff, 0x00);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);   // display row 0
+
+        const uint32_t got_ink    = line[Ula::DISP_X + 0];
+        const uint32_t got_paper  = line[Ula::DISP_X + 1];
+        const uint32_t got_border = line[0];
+
+        // Negative gate: turn ULAnext off, re-render — must drop back to
+        // std-ULA encoder (S5.10 / S5.10b semantics).  Use the std-ULA
+        // ink/paper helpers so this gate stays robust if the boot
+        // defaults of the 256-entry palette ever change.
+        bed.ula.set_ulanext_en(false);
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{};
+        bed.ula.render_scanline(line_off.data(), 32, bed.mmu);
+        // VHDL zxula.vhd:543-553 std-ULA encoder against hires_attr=0x4E:
+        //   ink   = ((attr&0x40)>>3) | (attr&0x07)        = 0x08 | 0x06 = 0x0E
+        //   paper = 0x10 | ((attr&0x40)>>3) | ((attr>>3)&7) = 0x10|0x08|1 = 0x19
+        const uint8_t legacy_ink_idx   = static_cast<uint8_t>(((hires_attr & 0x40) >> 3) | (hires_attr & 0x07));
+        const uint8_t legacy_paper_idx = static_cast<uint8_t>(0x10 | ((hires_attr & 0x40) >> 3) | ((hires_attr >> 3) & 0x07));
+        const uint32_t exp_legacy_ink   = pal.ula_colour(false, legacy_ink_idx);
+        const uint32_t exp_legacy_paper = pal.ula_colour(false, legacy_paper_idx);
+        const uint32_t got_legacy_ink   = line_off[Ula::DISP_X + 0];
+        const uint32_t got_legacy_paper = line_off[Ula::DISP_X + 1];
+
+        check("S5.12",
+              "G167 / zxula.vhd:485-528 — HI_RES display path dispatches "
+              "through the ULAnext encoder when ulanext_en_=true.  format=0x07: "
+              "ink=attr&format=0x06, paper=0x80|((attr>>3)&0x1F)=0x89, "
+              "border=0x80|(attr>>3)&7=0x81.  Distinct palette pokes "
+              "verify each slot.  Negative gate (ulanext_en_=false) routes "
+              "through std-ULA helpers (S5.10 baseline).",
+              got_ink == exp_ink
+              && got_paper == exp_paper
+              && got_border == exp_border
+              && got_legacy_ink == exp_legacy_ink
+              && got_legacy_paper == exp_legacy_paper,
+              fmt("ink=0x%08X (exp 0x%08X)  paper=0x%08X (exp 0x%08X)  "
+                  "border=0x%08X (exp 0x%08X)  legacy_ink=0x%08X (exp 0x%08X)  "
+                  "legacy_paper=0x%08X (exp 0x%08X)",
+                  got_ink, exp_ink, got_paper, exp_paper,
+                  got_border, exp_border,
+                  got_legacy_ink, exp_legacy_ink,
+                  got_legacy_paper, exp_legacy_paper));
+    }
+
+    // S5.13 — G167: HI_RES *display* path dispatches through the ULA+
+    // encoder when ulap_en_=true.  VHDL zxula.vhd:531-541 — ula_pixel(7:3)
+    // = "11" & attr(7:6) & (sm2 OR not pixel_en).  In HI_RES sm2=1, so
+    // (sm2 OR not pixel_en) = 1 for both ink (pixel_en=1) and paper
+    // (pixel_en=0) and border (border_active_d forces pixel_en=0); top 5
+    // bits are constant.  Low 3 bits = pixel_en ? attr(2:0) : attr(5:3),
+    // dropped to the 64-entry ulap_colour() index (low6).
+    //
+    // Stimulus: paper_color=6 → hires_attr=0x4E.  pg = (0x4E>>6)&3 = 1.
+    //   ink_low6   = (1<<4)|(1<<3)|(0x4E&7)       = 0x18|0x06 = 0x1E
+    //   paper_low6 = (1<<4)|(1<<3)|((0x4E>>3)&7)  = 0x18|0x01 = 0x19
+    //   border_low6 = paper_low6 (same VHDL formula: pixel_en=0 +
+    //                 border_active_d=1 give attr(5:3) in ula_pixel(2:0)).
+    // Poke distinct RGBs at 0x1E and 0x19 via NR 0x40/0x41 (write_control
+    // +ULA+ region indexes by full 8-bit ula_pixel; the encoder bits are
+    // 7:6 = "11", so the actual palette write index = 0xC0 | low6).
+    {
+        UlaBed bed;
+        PaletteManager pal;
+        pal.reset();
+        bed.ula.set_palette(&pal);
+        bed.ula.init_border_per_line();
+
+        const uint8_t paper_color = 6;
+        const uint8_t hires_attr  = static_cast<uint8_t>(
+            0x40 | ((~paper_color & 0x07) << 3) | (paper_color & 0x07)); // 0x4E
+        const uint8_t pg          = static_cast<uint8_t>((hires_attr >> 6) & 0x03); // 1
+        const uint8_t ink_low6    = static_cast<uint8_t>(
+            (pg << 4) | (1u << 3) | (hires_attr & 0x07));               // 0x1E
+        const uint8_t paper_low6  = static_cast<uint8_t>(
+            (pg << 4) | (1u << 3) | ((hires_attr >> 3) & 0x07));        // 0x19
+
+        bed.ula.set_screen_mode(static_cast<uint8_t>(0x06 | (paper_color << 3))); // HI_RES
+        bed.ula.set_ulap_en(true);
+        bed.ula.set_active_ula_palette(false);
+
+        // ULA+ palette poke side-channel — VHDL zxnext.vhd:6957-6958 +
+        // 4919.  nr_ff_poke takes 6-bit bf3b_index and an RRRGGGBB byte;
+        // the B0 expansion (B0 = B1 OR B0) produces the 9-bit RRRGGGBBB.
+        // Pure-7 / pure-0 channels round-trip to themselves, so 0xE0 →
+        // (7,0,0) red and 0x1C → (0,7,0) green via ulap_colour().
+        pal.nr_ff_poke(false, ink_low6,   0xE0); // red
+        pal.nr_ff_poke(false, paper_low6, 0x1C); // green
+        const uint32_t exp_ink    = rgb333_to_argb8888(7, 0, 0);
+        const uint32_t exp_paper  = rgb333_to_argb8888(0, 7, 0);
+        const uint32_t exp_border = exp_paper; // same encoder slot under HI_RES
+
+        // s0 col 0 = 0x80 → cell 0 ink, cells 1..7 paper.
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        bed.poke(0x4000 + poff, 0x80);
+        bed.poke(0x6000 + poff, 0x00);
+
+        std::array<uint32_t, Ula::FB_WIDTH> line{};
+        bed.ula.render_scanline(line.data(), 32, bed.mmu);
+
+        const uint32_t got_ink    = line[Ula::DISP_X + 0];
+        const uint32_t got_paper  = line[Ula::DISP_X + 1];
+        const uint32_t got_border = line[0];
+
+        // Negative gate: ulap_en_=false → std-ULA encoder.
+        bed.ula.set_ulap_en(false);
+        std::array<uint32_t, Ula::FB_WIDTH> line_off{};
+        bed.ula.render_scanline(line_off.data(), 32, bed.mmu);
+        // VHDL zxula.vhd:543-553 std-ULA encoder against hires_attr=0x4E
+        // (same derivation as S5.12 negative gate).
+        const uint8_t legacy_ink_idx   = static_cast<uint8_t>(((hires_attr & 0x40) >> 3) | (hires_attr & 0x07));
+        const uint8_t legacy_paper_idx = static_cast<uint8_t>(0x10 | ((hires_attr & 0x40) >> 3) | ((hires_attr >> 3) & 0x07));
+        const uint32_t exp_legacy_ink   = pal.ula_colour(false, legacy_ink_idx);
+        const uint32_t exp_legacy_paper = pal.ula_colour(false, legacy_paper_idx);
+        const uint32_t got_legacy_ink   = line_off[Ula::DISP_X + 0];
+        const uint32_t got_legacy_paper = line_off[Ula::DISP_X + 1];
+
+        check("S5.13",
+              "G167 / zxula.vhd:531-541 — HI_RES display path dispatches "
+              "through the ULA+ encoder when ulap_en_=true.  pg=1, "
+              "ink_low6=0x1E, paper_low6=0x19; border==paper under HI_RES "
+              "(sm2=1 forces ula_pixel(3)=1 in both cycles).  Distinct ULA+ "
+              "palette pokes verify each slot.  Negative gate (ulap_en_=false) "
+              "routes through std-ULA helpers.",
+              got_ink == exp_ink
+              && got_paper == exp_paper
+              && got_border == exp_border
+              && got_legacy_ink == exp_legacy_ink
+              && got_legacy_paper == exp_legacy_paper,
+              fmt("ink=0x%08X (exp 0x%08X)  paper=0x%08X (exp 0x%08X)  "
+                  "border=0x%08X (exp 0x%08X)  legacy_ink=0x%08X (exp 0x%08X)  "
+                  "legacy_paper=0x%08X (exp 0x%08X)",
+                  got_ink, exp_ink, got_paper, exp_paper,
+                  got_border, exp_border,
+                  got_legacy_ink, exp_legacy_ink,
+                  got_legacy_paper, exp_legacy_paper));
+    }
+
     // §5-PSL — Per-scanline port-0xFF Timex screen-mode replay (G07).
     // VHDL zxnext.vhd:3615-3616 (port_ff_reg <= cpu_do on port_ff_wr),
     // zxnext.vhd:3630 (port_ff_dat_tmx <= port_ff_reg per CPU-clk),
