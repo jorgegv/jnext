@@ -501,17 +501,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x4C: Tilemap transparency index
-    nextreg_.set_write_handler(0x4C, [this](uint8_t v) -> uint8_t {
-        palette_.set_tilemap_transparency(v);
-        return v;
-    });
     // VHDL zxnext.vhd:6056 — port_253b_dat <= "0000" & nr_4c_tm_transparent_index;
     // bits 7:4 are constant '0', bits 3:0 carry the 4-bit tilemap transparent
-    // palette index. PaletteManager already masks `& 0x0F` on the write side,
-    // so palette_.tilemap_transparency() returns the masked value directly
-    // (G56-CR-4C: previously regs_[0x4C] leaked the upper nibble back).
-    nextreg_.set_read_handler(0x4C, [this]() -> uint8_t {
-        return palette_.tilemap_transparency() & 0x0F;
+    // palette index. G56 cluster D, option (b): the canonical byte is the
+    // masked write value; PaletteManager has the only writer for
+    // tilemap_transparency_ outside reset/save-load, so storing `v & 0x0F` in
+    // regs_[0x4C] keeps NextReg::read aligned with the live subsystem state
+    // and the read_handler is no longer needed.
+    nextreg_.set_write_handler(0x4C, [this](uint8_t v) -> uint8_t {
+        palette_.set_tilemap_transparency(v);
+        return static_cast<uint8_t>(v & 0x0F);
     });
 
     // Register 0x16: Layer 2 X scroll LSB
@@ -974,11 +973,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   nr_6a_lores_palette_offset;
     // Bits 7:6 are hard-wired '0', bit 5 = radastan, bit 4 = radastan_xor,
     // bits 3:0 = palette offset. No dedicated LoRes subsystem exists yet;
-    // the byte is otherwise stored verbatim in regs_[0x6A] by the bare
-    // NextReg::write path. Mask bits 7:6 on read to match VHDL spec
-    // (G56-CR-6A).
-    nextreg_.set_read_handler(0x6A, [this]() -> uint8_t {
-        return static_cast<uint8_t>(nextreg_.cached(0x6A) & 0x3F);
+    // G56 cluster D, option (b): canonicalise the byte at write-time so
+    // regs_[0x6A] holds the masked value and NextReg::read returns the
+    // VHDL-spec form without a dedicated read_handler.
+    nextreg_.set_write_handler(0x6A, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x3F);
     });
 
     // Register 0x6B: Tilemap control
@@ -1004,13 +1003,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x6C: Tilemap default attribute
-    nextreg_.set_write_handler(0x6C, [this](uint8_t v) -> uint8_t { tilemap_.set_default_attr(v); return v; });
     // VHDL zxnext.vhd:6104-6105 — port_253b_dat <= nr_6c_tm_default_attr;
-    // Full 8 bits, single value. Pull from Tilemap subsystem to keep the
-    // read-source aligned with the live attribute byte (G56-CR-6C).
-    nextreg_.set_read_handler(0x6C, [this]() -> uint8_t {
-        return tilemap_.get_default_attr();
-    });
+    // Full 8 bits, single value. G56 cluster D, option (b): the NR-write
+    // handler is the only mutator of Tilemap::default_attr_ (outside reset
+    // and save/load), so storing the raw byte in regs_[0x6C] keeps the read
+    // source-of-truth aligned with the live attribute and the read_handler
+    // is no longer needed.
+    nextreg_.set_write_handler(0x6C, [this](uint8_t v) -> uint8_t { tilemap_.set_default_attr(v); return v; });
 
     // Register 0x6E: Tilemap base address
     nextreg_.set_write_handler(0x6E, [this](uint8_t v) -> uint8_t { tilemap_.set_map_base(v); return v; });
