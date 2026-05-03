@@ -2690,17 +2690,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Mutating nr_2d_i2s_sample_ from inside the read lambda is the
     // intended VHDL semantic — the latch updates ON read of NR 0x2C/0x2E.
     nextreg_.set_read_handler(0x2C, [this]() -> uint8_t {
-        const uint16_t L = i2s_.left() & 0x3FF;                     // 10-bit
+        // G113: read the GATED pi_audio_L (10-bit), not the raw I2s
+        // latch — VHDL zxnext.vhd:6007 reads `pi_audio_L`, which already
+        // applies the NR 0xA2 enable/mute/ear/cross-channel-mux gate at
+        // zxnext.vhd:2358. When NR 0xA2 disables I2S, pi_audio_L = 0x200
+        // (silence midpoint), so the high-8 bits = 0x80 and the latched
+        // low-2 bits = 0b00.
+        const uint16_t L = i2s_.pi_audio_L() & 0x3FF;
         nr_2d_i2s_sample_ = static_cast<uint8_t>((L & 0x03) << 6);  // bits [1:0] → byte [7:6]
         return static_cast<uint8_t>((L >> 2) & 0xFF);               // bits [9:2] → byte [7:0]
     });
     nextreg_.set_read_handler(0x2E, [this]() -> uint8_t {
-        const uint16_t R = i2s_.right() & 0x3FF;
+        // G113: read the GATED pi_audio_R per VHDL zxnext.vhd:6014.
+        const uint16_t R = i2s_.pi_audio_R() & 0x3FF;
         nr_2d_i2s_sample_ = static_cast<uint8_t>((R & 0x03) << 6);
         return static_cast<uint8_t>((R >> 2) & 0xFF);
     });
     nextreg_.set_read_handler(0x2D, [this]() -> uint8_t {
         return nr_2d_i2s_sample_;  // already in [7:6] form, low 6 bits = 0
+    });
+
+    // G113 — NR 0xA2 Pi I2S control byte.
+    // VHDL zxnext.vhd:5564 stores the raw 8 bits in nr_a2_pi_i2s_ctl;
+    // zxnext.vhd:2283-2290 fans them out to pi_i2s_en[L/R], inout,
+    // muteL/R, ear. The I2s class consumes those bits when computing
+    // pi_audio_L/R() per zxnext.vhd:2358-2359.
+    nextreg_.set_write_handler(0xA2, [this](uint8_t v) -> uint8_t {
+        i2s_.set_nr_a2_ctl(v);
+        return v;
+    });
+    // VHDL zxnext.vhd:6192:
+    //   port_253b_dat <= nr_a2_pi_i2s_ctl(7 downto 6) & '0'
+    //                    & nr_a2_pi_i2s_ctl(4 downto 2) & '1'
+    //                    & nr_a2_pi_i2s_ctl(0);
+    // Pass-through bits = b7,b6,b4,b3,b2,b0 (mask 0xDD); fixed b5=0,
+    // fixed b1=1 (constant 0x02). Verify: c=0x00 → 0x02; c=0xFF → 0xDF;
+    // c=0x55 (0101 0101) → (0x55 & 0xDD) | 0x02 = 0x55 | 0x02 = 0x57.
+    nextreg_.set_read_handler(0xA2, [this]() -> uint8_t {
+        const uint8_t c = i2s_.nr_a2_ctl();
+        return static_cast<uint8_t>((c & 0xDD) | 0x02);
     });
 
     // --- Phase 5 peripheral port handlers ---
@@ -4756,6 +4784,13 @@ void Emulator::save_state(StateWriter& w) const
     // Appended at the very end so older saves remain forwards-readable;
     // load_state tolerates EOF by leaving the reset default of 0.
     w.write_u8(nr_2d_i2s_sample_);
+
+    // G113 — NR 0xA2 Pi I2S control byte. Same end-of-snapshot append +
+    // eof()-tolerant load pattern as nr_2d_i2s_sample_ above. Stored
+    // outside I2s::save_state() so older snapshots whose I2s slot was
+    // exactly 4 bytes (left+right) keep working without byte-shifting
+    // the subsequent nmi_source_/prev_nmi_generate_n_ slots.
+    w.write_u8(i2s_.nr_a2_ctl());
 }
 
 void Emulator::load_state(StateReader& r)
@@ -4873,6 +4908,14 @@ void Emulator::load_state(StateReader& r)
     // the field at its init() default of 0.
     if (!r.eof()) {
         nr_2d_i2s_sample_ = r.read_u8();
+    }
+
+    // G113 — NR 0xA2 Pi I2S control byte. Saves predating this slot
+    // leave I2s.nr_a2_ctl_ at its reset() default of 0 — which is the
+    // VHDL power-on value (no Pi I2S enabled, so pi_audio_L/R are at
+    // the 10-bit DC midpoint 0x200, silence).
+    if (!r.eof()) {
+        i2s_.set_nr_a2_ctl(r.read_u8());
     }
 }
 

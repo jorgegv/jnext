@@ -53,8 +53,14 @@ void Mixer::generate_sample(const Beeper& beeper, const TurboSound& ts, const Da
     // Pi I2S term: mirrors audio_mixer.vhd:89-90 (10-bit zero-extended
     // to 13-bit). Mixer does not own the I2s; Emulator wires it via
     // set_i2s_source(). When unwired, the term is 0 (silence).
-    uint16_t i2s_L = i2s_ ? i2s_->left()  : 0u;   // 0..1023
-    uint16_t i2s_R = i2s_ ? i2s_->right() : 0u;
+    //
+    // G73: consume the GATED pi_audio_L/R per VHDL zxnext.vhd:2358-2359
+    // — the same signals that feed audio_mixer.vhd's pi_i2s_L_i/R_i
+    // ports (zxnext.vhd:6505-6506). With NR 0xA2 disabled or muted,
+    // pi_audio_L/R is the 10-bit DC midpoint 0x200 ("silence"). The raw
+    // sample latch (left()/right()) does NOT enter the mixer path.
+    uint16_t i2s_L = i2s_ ? i2s_->pi_audio_L() : 0u;   // 0..1023
+    uint16_t i2s_R = i2s_ ? i2s_->pi_audio_R() : 0u;
 
     // audio_mixer.vhd:99-100 13-bit sum — every term is in the 13-bit
     // domain; uint16_t is a superset of 13-bit-unsigned so no clamping

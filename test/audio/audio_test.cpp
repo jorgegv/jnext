@@ -2253,6 +2253,12 @@ static void g_mixer() {
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
         I2s i2s;
+        // NR 0xA2 enable required after G73 (Mixer reads gated
+        // pi_audio_L/R per VHDL zxnext.vhd:2358-2359). Without enL/enR
+        // the gate forces both channels to the 0x200 silence midpoint
+        // and the raw set_sample(1023,1023) latch is not observable.
+        // 0xC0 = enL=1 enR=1, muteL/R=0, ear=0.
+        i2s.set_nr_a2_ctl(0xC0);
         i2s.set_sample(1023, 1023);
         mx.set_i2s_source(&i2s);
         mx.generate_sample(bp, ts, dac);
