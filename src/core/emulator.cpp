@@ -340,7 +340,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:1300 nr_07_cpu_speed reset "00"; zxnext.vhd:5789-5791,5817
     // stores the 2-bit field; zxnext.vhd:4481 feeds it into i_contention_en
     // (any non-zero speed disables memory contention).
-    nextreg_.set_write_handler(0x07, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x07, [this](uint8_t v) -> uint8_t {
         CpuSpeed speed = static_cast<CpuSpeed>(v & 0x03);
         Log::emulator()->info("CPU speed changed to {} (NextREG 0x07={:#04x})", cpu_speed_str(speed), v);
         // VHDL zxnext.vhd:5788-5789 — NR 0x07 write updates the
@@ -354,6 +354,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // commit_pending_cpu_speed_on_bus_idle(). G142 closure.
         clock_.set_pending_cpu_speed(speed);
         contention_.set_pending_cpu_speed(v & 0x03);
+        return v;
     });
     // NR 0x07 read is a COMPOSED format, not a raw register round-trip.
     // VHDL zxnext.vhd:5902-5903:
@@ -371,8 +372,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x12: Layer 2 active RAM bank
-    nextreg_.set_write_handler(0x12, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
         layer2_.set_active_bank(v);
+        return v;
     });
     // VHDL zxnext.vhd:5930 — port_253b_dat <= '0' & nr_12_layer2_active_bank;
     // read returns the 7-bit authoritative state, bit 7 always 0. Bare
@@ -384,12 +386,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x13: Layer 2 shadow RAM bank
-    nextreg_.set_write_handler(0x13, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x13, [this](uint8_t v) -> uint8_t {
         layer2_.set_shadow_bank(v);
         // Mirror to Mmu so that port 0x123B bit-3 (map_shadow) routes the
         // CPU L2 read/write-over through this bank — VHDL zxnext.vhd:2968
         // selects nr_13_layer2_shadow_bank when port_123b_layer2_map_shadow='1'.
         mmu_.set_l2_shadow_bank(v);
+        return v;
     });
     // VHDL zxnext.vhd:5931 — port_253b_dat <= '0' & nr_13_layer2_shadow_bank;
     // same pattern as NR 0x12 read above — 7-bit masked read from Layer2.
@@ -400,14 +403,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x14: Global transparency colour (Layer2/ULA/LoRes)
     // VHDL zxnext.vhd:7100 — compared against palette RGB[8:1] for
     // ULA and Layer 2 transparency at the compositor stage.
-    nextreg_.set_write_handler(0x14, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x14, [this](uint8_t v) -> uint8_t {
         palette_.set_global_transparency(v);
         renderer_.set_transparent_rgb(v);
+        return v;
     });
 
     // Register 0x40: Palette index
-    nextreg_.set_write_handler(0x40, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x40, [this](uint8_t v) -> uint8_t {
         palette_.set_index(v);
+        return v;
     });
     // VHDL zxnext.vhd:6035-6036 — port_253b_dat <= nr_palette_idx;
     // Read returns the live 8-bit palette index. The index auto-increments
@@ -420,8 +425,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x41: Palette value 8-bit (RRRGGGBB)
-    nextreg_.set_write_handler(0x41, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x41, [this](uint8_t v) -> uint8_t {
         palette_.write_8bit(v);
+        return v;
     });
     // VHDL zxnext.vhd:6038-6039 — NR 0x41 read returns nr_palette_dat(8:1),
     // i.e. the upper 8 bits of the stored RGB333 at the currently selected
@@ -436,7 +442,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (7, 6:4, 3, 2, 1) stay owned by PaletteManager. Phase-1 scaffold wires
     // the narrow bit 0 → Ula::set_ulanext_en; the remaining bits are left to
     // palette_.write_control(v) unchanged.
-    nextreg_.set_write_handler(0x43, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x43, [this](uint8_t v) -> uint8_t {
         palette_.write_control(v);
         renderer_.ula().set_ulanext_en((v & 0x01) != 0);
         // G10: mirror NR 0x43 b1-3 selector bits into Ula's per-scanline
@@ -448,6 +454,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.ula().set_active_ula_palette((v & 0x02) != 0);
         renderer_.ula().set_active_layer2_palette((v & 0x04) != 0);
         renderer_.ula().set_active_sprite_palette((v & 0x08) != 0);
+        return v;
     });
     // VHDL zxnext.vhd:6044-6045 — port_253b_dat <=
     //   nr_43_palette_autoinc_disable & nr_43_palette_write_select &
@@ -466,8 +473,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x44: Palette value 9-bit (two consecutive writes)
-    nextreg_.set_write_handler(0x44, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x44, [this](uint8_t v) -> uint8_t {
         palette_.write_9bit(v);
+        return v;
     });
 
     // Register 0xFF: ULA+ palette poke side-channel — VHDL zxnext.vhd:6957-6958.
@@ -477,78 +485,75 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // path.  Value byte expansion follows zxnext.vhd:4919 (RRRGGGBB →
     // RRRGGGBBB with B0 = B1|B0); priority is "00" per zxnext.vhd:4920 since
     // nr_44_we does not fire.
-    nextreg_.set_write_handler(0xFF, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xFF, [this](uint8_t v) -> uint8_t {
         // nr_43_palette_write_select(2) = NR 0x43 bit 6 (zxnext.vhd:5390:
         // `nr_43_palette_write_select <= nr_wr_dat(6 downto 4)`).
         const bool bank_second = (palette_.read_control() & 0x40) != 0;
         const uint8_t bf3b_index = renderer_.ula().get_ulap_index();
         palette_.nr_ff_poke(bank_second, bf3b_index, v);
+        return v;
     });
 
     // Register 0x4B: Sprite transparency index
-    nextreg_.set_write_handler(0x4B, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x4B, [this](uint8_t v) -> uint8_t {
         palette_.set_sprite_transparency(v);
+        return v;
     });
 
     // Register 0x4C: Tilemap transparency index
-    nextreg_.set_write_handler(0x4C, [this](uint8_t v) {
-        palette_.set_tilemap_transparency(v);
-    });
     // VHDL zxnext.vhd:6056 — port_253b_dat <= "0000" & nr_4c_tm_transparent_index;
     // bits 7:4 are constant '0', bits 3:0 carry the 4-bit tilemap transparent
-    // palette index. PaletteManager already masks `& 0x0F` on the write side,
-    // so palette_.tilemap_transparency() returns the masked value directly
-    // (G56-CR-4C: previously regs_[0x4C] leaked the upper nibble back).
-    nextreg_.set_read_handler(0x4C, [this]() -> uint8_t {
-        return palette_.tilemap_transparency() & 0x0F;
+    // palette index. G56 cluster D, option (b): the canonical byte is the
+    // masked write value; PaletteManager has the only writer for
+    // tilemap_transparency_ outside reset/save-load, so storing `v & 0x0F` in
+    // regs_[0x4C] keeps NextReg::read aligned with the live subsystem state
+    // and the read_handler is no longer needed.
+    nextreg_.set_write_handler(0x4C, [this](uint8_t v) -> uint8_t {
+        palette_.set_tilemap_transparency(v);
+        return static_cast<uint8_t>(v & 0x0F);
     });
 
     // Register 0x16: Layer 2 X scroll LSB
-    nextreg_.set_write_handler(0x16, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x16, [this](uint8_t v) -> uint8_t {
         layer2_.set_scroll_x_lsb(v);
+        return v;
     });
 
     // Register 0x17: Layer 2 Y scroll
-    nextreg_.set_write_handler(0x17, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x17, [this](uint8_t v) -> uint8_t {
         layer2_.set_scroll_y(v);
+        return v;
     });
 
     // Register 0x70: Layer 2 control (resolution + palette offset)
-    nextreg_.set_write_handler(0x70, [this](uint8_t v) {
-        layer2_.set_control(v);
-    });
     // VHDL zxnext.vhd:6113 — port_253b_dat <= "00" & nr_70_layer2_resolution &
     // nr_70_layer2_palette_offset.  Bits 7:6 are constant "00"; bits 5:4 are
-    // the 2-bit resolution; bits 3:0 are the 4-bit palette offset.  G56:
-    // without this handler, NextReg::read() falls through regs_[0x70] which
-    // is the unmasked raw byte, so a write of 0xFF reads 0xFF instead of the
-    // VHDL-spec 0x3F.  Pulls from Layer2 where set_control() stored the
-    // masked fields.
-    nextreg_.set_read_handler(0x70, [this]() -> uint8_t {
-        return static_cast<uint8_t>(((layer2_.resolution() & 0x03) << 4) |
-                                    (layer2_.palette_offset() & 0x0F));
+    // the 2-bit resolution; bits 3:0 are the 4-bit palette offset — i.e. the
+    // read-back is `v & 0x3F`.  G56 Phase 2 (cluster E): canonicalise on the
+    // write side and let NextReg::read() fall through regs_[0x70].
+    nextreg_.set_write_handler(0x70, [this](uint8_t v) -> uint8_t {
+        layer2_.set_control(v);
+        return static_cast<uint8_t>(v & 0x3F);
     });
 
     // Register 0x71: Layer 2 X scroll MSB
-    nextreg_.set_write_handler(0x71, [this](uint8_t v) {
-        layer2_.set_scroll_x_msb(v);
-    });
     // VHDL zxnext.vhd:6116 — port_253b_dat <= "0000000" & nr_71_layer2_scrollx_msb.
-    // Only bit 0 carries information; bits 7:1 are constant zero.  G56: without
-    // this handler, regs_[0x71] retains the raw last-write byte and a write of
-    // 0xFF reads 0xFF instead of the VHDL-spec 0x01.  Pull bit 8 of Layer2's
-    // 9-bit scroll_x and emit it at bit 0.
-    nextreg_.set_read_handler(0x71, [this]() -> uint8_t {
-        return static_cast<uint8_t>((layer2_.scroll_x() >> 8) & 0x01);
+    // Only bit 0 carries information; bits 7:1 are constant zero.  G56 Phase 2
+    // (cluster E): canonicalise on the write side; NR 0x71 is the only writer
+    // of bit 8 of Layer2's 9-bit scroll_x, so `v & 0x01` is the read-back.
+    nextreg_.set_write_handler(0x71, [this](uint8_t v) -> uint8_t {
+        layer2_.set_scroll_x_msb(v);
+        return static_cast<uint8_t>(v & 0x01);
     });
 
     // Register 0x09: Peripheral 4 setting
     //   bit 4 = sprite_tie (NR 0x34 ↔ port 0x303B mirror tie, VHDL
     //           zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612)
     //   bit 3 = sprites over border
-    nextreg_.set_write_handler(0x09, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
         sprites_.set_over_border((v & 0x08) != 0);
         sprites_.set_mirror_tie((v & 0x10) != 0);
+        return v;
     });
     // VHDL zxnext.vhd:5909 — NR 0x09 read composes:
     //   nr_09_psg_mono [7:5] & nr_09_sprite_tie [4] & '0' [3]
@@ -578,7 +583,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
     // VHDL zxnext.vhd:5191-5198: bits 7:6 (mf_type) and bit 5 (sd_swap) only
     // commit when nr_03_config_mode='1'. Bits 4/3/1:0 commit unconditionally.
-    nextreg_.set_write_handler(0x0A, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x0A, [this](uint8_t v) -> uint8_t {
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
         if (nextreg_.nr_03_config_mode()) {
             spi_.set_sd_swap((v & 0x20) != 0);
@@ -590,6 +595,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.set_nr_0a_4_enable((v & 0x10) != 0);
         mouse_.set_button_reverse((v & 0x08) != 0);
         mouse_.set_dpi(v & 0x03);
+        return v;
     });
     // VHDL zxnext.vhd:5912 — NR 0x0A read composes:
     //   nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
@@ -612,8 +618,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
     // Phase 1 scaffold: Joystick::set_nr_05() is a stub that records the
     // raw byte; Agent A (Phase 2) implements the real bit-extraction.
-    nextreg_.set_write_handler(0x05, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x05, [this](uint8_t v) -> uint8_t {
         joystick_.set_nr_05(v);
+        return v;
     });
     // VHDL zxnext.vhd:5897 — read formula:
     //   port_253b_dat <= nr_05_joy0(1 downto 0)        (bits 7:6)
@@ -647,21 +654,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x0B: Joystick I/O-mode pin-7 mux — VHDL zxnext.vhd:5200-5203.
-    // Phase 1 scaffold: IoMode::set_nr_0b() is a stub; Agent E fills in.
-    nextreg_.set_write_handler(0x0B, [this](uint8_t v) {
-        iomode_.set_nr_0b(v);
-    });
     // VHDL zxnext.vhd:5915 — NR 0x0B read composes:
     //   nr_0b_joy_iomode_en [7] & '0' [6] & nr_0b_joy_iomode [5:4]
     //     & "000" [3:1] & nr_0b_joy_iomode_0 [0]
-    // Bit 6 always 0; bits 3:1 always "000". All authoritative state lives
-    // in IoMode (input/iomode.h), populated by set_nr_0b(). G56.
-    nextreg_.set_read_handler(0x0B, [this]() -> uint8_t {
-        uint8_t v = 0;
-        if (iomode_.iomode_en()) v = static_cast<uint8_t>(v | 0x80);
-        v = static_cast<uint8_t>(v | ((iomode_.iomode_bits() & 0x03) << 4));
-        if (iomode_.iomode_0())  v = static_cast<uint8_t>(v | 0x01);
-        return v;
+    // Bit 6 always 0; bits 3:1 always "000". G56 Phase 2 (option b): the
+    // read mux is a pure static mask of the last-written byte (IoMode's
+    // `nr_0b_raw_` is `set_nr_0b(v)` verbatim — no other writers, no
+    // cross-subsystem composition). Returning `v & 0xB1` from the
+    // write_handler stores the canonical readback in regs_[0x0B], so no
+    // separate read_handler is needed.
+    nextreg_.set_write_handler(0x0B, [this](uint8_t v) -> uint8_t {
+        iomode_.set_nr_0b(v);
+        return static_cast<uint8_t>(v & 0xB1);
     });
 
     // Register 0x10: core/board ID + flashboot. VHDL zxnext.vhd:5677-5687
@@ -677,17 +681,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // path. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
     // on writes per VHDL Issue 2/3 path. Reset default 0x01 ("00001"),
     // VHDL zxnext.vhd:1133. G56.
-    nextreg_.set_write_handler(0x10, [this](uint8_t v) {
+    // G56 Phase 2 (option b): write_handler returns the canonical readback
+    // byte (bit 7 = 0, bits 6:2 = coreid, bits 1:0 = SPKEY_BUTTONS = 0
+    // unmodelled). config_mode-gated coreid update applied first; the
+    // returned canonical byte stored in regs_[0x10] always matches what a
+    // synthesised read_handler would have returned. nr_10_flashboot
+    // (write bit 7) is not exposed on the read path. No separate
+    // read_handler is needed.
+    nextreg_.set_write_handler(0x10, [this](uint8_t v) -> uint8_t {
         if (nextreg_.nr_03_config_mode()) {
             nr_10_coreid_ = static_cast<uint8_t>(v & 0x1F);
         }
-        // bit 7 = nr_10_flashboot (always written, but not exposed in the
-        // NR 0x10 read; would surface only in board-specific power-on flow
-        // which jnext does not model). G56 read-back is unaffected.
-    });
-    nextreg_.set_read_handler(0x10, [this]() -> uint8_t {
-        // Bit 7 always 0; bits 6:2 = coreid (5 bits, left-shifted into
-        // place); bits 1:0 = SPKEY_BUTTONS = 0 (idle, unmodelled).
+        // Canonical NR 0x10 readback — VHDL zxnext.vhd:5924.
         return static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
     });
 
@@ -702,14 +707,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // byte (gated by keymap_sel: sel=1 → joystick UDK SDP-RAM; sel=0 →
     // PS/2 keymap, which jnext does not implement, so the data is just
     // dropped). The auto-increment of nr_keymap_addr fires regardless.
-    nextreg_.set_write_handler(0x28, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x28, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_28(v);
+        return v;
     });
-    nextreg_.set_write_handler(0x29, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x29, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_29(v);
+        return v;
     });
-    nextreg_.set_write_handler(0x2B, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x2B, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_2b(v);
+        return v;
     });
 
     // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.
@@ -727,13 +735,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 4:2 = layer priority (SLU/LSU/SUL/LUS/USL/ULS)
     //   bit 1 = sprites over border
     //   bit 0 = sprites visible
-    nextreg_.set_write_handler(0x15, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x15, [this](uint8_t v) -> uint8_t {
         sprites_.set_zero_on_top((v & 0x40) != 0);
         sprites_.set_border_clip_en((v & 0x20) != 0);  // bit 5 — VHDL sprites.vhd 1044
         sprites_.set_over_border((v & 0x02) != 0);
         sprites_.set_sprites_visible((v & 0x01) != 0);
         renderer_.set_sprite_en((v & 0x01) != 0);      // VHDL 6934/7118
         renderer_.set_layer_priority((v >> 2) & 0x07);
+        return v;
     });
     // VHDL zxnext.vhd:5939 — NR 0x15 read composes:
     //   nr_15_lores_en [7] & nr_15_sprite_priority [6]
@@ -757,7 +766,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Registers 0x18-0x1B: Clip windows (4-write rotating: X1, X2, Y1, Y2)
     // Register 0x18: Layer 2 clip window
-    nextreg_.set_write_handler(0x18, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x18, [this](uint8_t v) -> uint8_t {
         switch (clip_l2_idx_) {
             case 0: layer2_.set_clip_x1(v); break;
             case 1: layer2_.set_clip_x2(v); break;
@@ -765,6 +774,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case 3: layer2_.set_clip_y2(v); break;
         }
         clip_l2_idx_ = (clip_l2_idx_ + 1) & 0x03;
+        return v;
     });
     // NR 0x18 read: pure combinatorial 4-way mux over Layer 2 clip coords
     // selected by clip_l2_idx_ (zxnext.vhd:5947-5953). Reading does NOT
@@ -779,7 +789,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x19: Sprite clip window
-    nextreg_.set_write_handler(0x19, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x19, [this](uint8_t v) -> uint8_t {
         switch (clip_spr_idx_) {
             case 0: sprites_.set_clip_x1(v); break;
             case 1: sprites_.set_clip_x2(v); break;
@@ -787,6 +797,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case 3: sprites_.set_clip_y2(v); break;
         }
         clip_spr_idx_ = (clip_spr_idx_ + 1) & 0x03;
+        return v;
     });
     // NR 0x19 read: pure combinatorial 4-way mux over sprite clip coords
     // selected by clip_spr_idx_ (zxnext.vhd:5955-5961). Reading does NOT
@@ -801,7 +812,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x1A: ULA/LoRes clip window
-    nextreg_.set_write_handler(0x1A, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x1A, [this](uint8_t v) -> uint8_t {
         switch (clip_ula_idx_) {
             case 0: renderer_.ula().set_clip_x1(v); break;
             case 1: renderer_.ula().set_clip_x2(v); break;
@@ -809,6 +820,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case 3: renderer_.ula().set_clip_y2(v); break;
         }
         clip_ula_idx_ = (clip_ula_idx_ + 1) & 0x03;
+        return v;
     });
     // NR 0x1A read: pure combinatorial 4-way mux over ULA clip coords
     // selected by clip_ula_idx_ (zxnext.vhd:5963-5969). Reading does NOT
@@ -827,7 +839,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x1B: Tilemap clip window
-    nextreg_.set_write_handler(0x1B, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x1B, [this](uint8_t v) -> uint8_t {
         switch (clip_tm_idx_) {
             case 0: tilemap_.set_clip_x1(v); break;
             case 1: tilemap_.set_clip_x2(v); break;
@@ -835,6 +847,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case 3: tilemap_.set_clip_y2(v); break;
         }
         clip_tm_idx_ = (clip_tm_idx_ + 1) & 0x03;
+        return v;
     });
     // NR 0x1B read: pure combinatorial 4-way mux over tilemap clip coords
     // selected by clip_tm_idx_ (zxnext.vhd:5971-5977). Reading does NOT
@@ -857,11 +870,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             (clip_tm_idx_ << 6) | (clip_ula_idx_ << 4) |
             (clip_spr_idx_ << 2) | clip_l2_idx_);
     });
-    nextreg_.set_write_handler(0x1C, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x1C, [this](uint8_t v) -> uint8_t {
         if (v & 0x01) clip_l2_idx_  = 0;
         if (v & 0x02) clip_spr_idx_ = 0;
         if (v & 0x04) clip_ula_idx_ = 0;
         if (v & 0x08) clip_tm_idx_  = 0;
+        return v;
     });
 
     // Register 0x34: Sprite attribute slot select (alternative to port 0x303B)
@@ -876,7 +890,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // set_mirror_sprite_num models that synchronously by also updating
     // attr_slot_/attr_byte_/pattern_slot_msb_.
     nextreg_.set_write_handler(0x34,
-        [this](uint8_t v) { sprites_.set_mirror_sprite_num(v); });
+        [this](uint8_t v) -> uint8_t { sprites_.set_mirror_sprite_num(v); return v; });
     // VHDL zxnext.vhd:6033 — NR 0x34 read: '0' [7] & sprite_mirror_id [6:0].
     // sprite_mirror_id is the 7-bit mirror_sprite_q index (sprites.vhd:594-612).
     // jnext stores this in mirror_sprite_num_ (8 bits — the high bit is the
@@ -895,41 +909,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // pattern_index(7).
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x75 + i),
-            [this, i](uint8_t v) {
+            [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_per_byte_inc(
                     static_cast<uint8_t>(i), v);
+                    return v;
             });
     }
 
     // Register 0x2F: Tilemap X scroll MSB (bits 1:0)
-    nextreg_.set_write_handler(0x2F, [this](uint8_t v) { tilemap_.set_scroll_x_msb(v); });
+    nextreg_.set_write_handler(0x2F, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_msb(v); return v; });
 
     // Register 0x30: Tilemap X scroll LSB
-    nextreg_.set_write_handler(0x30, [this](uint8_t v) { tilemap_.set_scroll_x_lsb(v); });
+    nextreg_.set_write_handler(0x30, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_lsb(v); return v; });
 
     // Register 0x31: Tilemap Y scroll
-    nextreg_.set_write_handler(0x31, [this](uint8_t v) { tilemap_.set_scroll_y(v); });
+    nextreg_.set_write_handler(0x31, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_y(v); return v; });
 
     // --- Phase-1 scaffold: ULA scroll / ULAnext format ---------------------
     // Register 0x26 — ULA X-scroll coarse (VHDL zxnext.vhd:5304, zxula.vhd:199).
-    nextreg_.set_write_handler(0x26, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x26, [this](uint8_t v) -> uint8_t {
         renderer_.ula().set_ula_scroll_x_coarse(v);
+        return v;
     });
     nextreg_.set_read_handler(0x26, [this]() -> uint8_t {
         return renderer_.ula().get_ula_scroll_x_coarse();
     });
 
     // Register 0x27 — ULA Y-scroll (VHDL zxnext.vhd:5307, zxula.vhd:193-207).
-    nextreg_.set_write_handler(0x27, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x27, [this](uint8_t v) -> uint8_t {
         renderer_.ula().set_ula_scroll_y(v);
+        return v;
     });
     nextreg_.set_read_handler(0x27, [this]() -> uint8_t {
         return renderer_.ula().get_ula_scroll_y();
     });
 
     // Register 0x42 — ULAnext format byte (VHDL zxnext.vhd:5386, reset X"07").
-    nextreg_.set_write_handler(0x42, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x42, [this](uint8_t v) -> uint8_t {
         renderer_.ula().set_ulanext_format(v);
+        return v;
     });
     nextreg_.set_read_handler(0x42, [this]() -> uint8_t {
         return renderer_.ula().get_ulanext_format();
@@ -941,15 +959,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   nr_6a_lores_palette_offset;
     // Bits 7:6 are hard-wired '0', bit 5 = radastan, bit 4 = radastan_xor,
     // bits 3:0 = palette offset. No dedicated LoRes subsystem exists yet;
-    // the byte is otherwise stored verbatim in regs_[0x6A] by the bare
-    // NextReg::write path. Mask bits 7:6 on read to match VHDL spec
-    // (G56-CR-6A).
-    nextreg_.set_read_handler(0x6A, [this]() -> uint8_t {
-        return static_cast<uint8_t>(nextreg_.cached(0x6A) & 0x3F);
+    // G56 cluster D, option (b): canonicalise the byte at write-time so
+    // regs_[0x6A] holds the masked value and NextReg::read returns the
+    // VHDL-spec form without a dedicated read_handler.
+    nextreg_.set_write_handler(0x6A, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x3F);
     });
 
     // Register 0x6B: Tilemap control
-    nextreg_.set_write_handler(0x6B, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x6B, [this](uint8_t v) -> uint8_t {
         tilemap_.set_control(v);
         renderer_.set_tm_enabled((v & 0x80) != 0);  // VHDL 7130: stencil gate
         // VHDL nr_6b_tm_palette_select (bit 4) — drives the tilemap palette
@@ -958,6 +976,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // G10: mirror NR 0x6B b4 into Ula's per-scanline selector change-log
         // (independent latch from NR 0x43 — VHDL zxnext.vhd:5462, :6826).
         renderer_.ula().set_active_tilemap_palette((v & 0x10) != 0);
+        return v;
     });
     // VHDL zxnext.vhd:6101-6102 — port_253b_dat <=
     //   nr_6b_tm_en & nr_6b_tm_control;  (8 bits total: bit 7 = tm_en,
@@ -970,34 +989,39 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x6C: Tilemap default attribute
-    nextreg_.set_write_handler(0x6C, [this](uint8_t v) { tilemap_.set_default_attr(v); });
     // VHDL zxnext.vhd:6104-6105 — port_253b_dat <= nr_6c_tm_default_attr;
-    // Full 8 bits, single value. Pull from Tilemap subsystem to keep the
-    // read-source aligned with the live attribute byte (G56-CR-6C).
-    nextreg_.set_read_handler(0x6C, [this]() -> uint8_t {
-        return tilemap_.get_default_attr();
-    });
+    // Full 8 bits, single value. G56 cluster D, option (b): the NR-write
+    // handler is the only mutator of Tilemap::default_attr_ (outside reset
+    // and save/load), so storing the raw byte in regs_[0x6C] keeps the read
+    // source-of-truth aligned with the live attribute and the read_handler
+    // is no longer needed.
+    nextreg_.set_write_handler(0x6C, [this](uint8_t v) -> uint8_t { tilemap_.set_default_attr(v); return v; });
 
     // Register 0x6E: Tilemap base address
-    nextreg_.set_write_handler(0x6E, [this](uint8_t v) { tilemap_.set_map_base(v); });
+    nextreg_.set_write_handler(0x6E, [this](uint8_t v) -> uint8_t { tilemap_.set_map_base(v); return v; });
     // VHDL zxnext.vhd:6108 — read mux forces bit 6 to '0'
     // (`nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base`).  G56 + G99: the
     // bit-6 reserved-zero mask is applied here (Tilemap::get_map_base_read
     // returns map_base_raw_ & 0xBF), so a raw write of 0xFF reads back 0xBF
     // rather than the unmasked 0xFF that regs_[0x6E] would otherwise return.
+    // KEEP (G56 Phase 2 cluster E): VHDL reset default 0x2C lives in Tilemap
+    // (zxnext.vhd:5041-5042) — regs_[0x6E] cold-inits to 0, so the cached-
+    // fallback would regress the boot-time read.
     nextreg_.set_read_handler(0x6E, [this]() -> uint8_t { return tilemap_.get_map_base_read(); });
 
     // Register 0x6F: Tile definitions base address
-    nextreg_.set_write_handler(0x6F, [this](uint8_t v) { tilemap_.set_def_base(v); });
+    nextreg_.set_write_handler(0x6F, [this](uint8_t v) -> uint8_t { tilemap_.set_def_base(v); return v; });
     // VHDL zxnext.vhd:6111 — same pattern as NR 0x6E.  G56 + G99: bit 6 is
     // the reserved-zero in the read composition; def_base_raw_ & 0xBF.
+    // KEEP (G56 Phase 2 cluster E): VHDL reset default 0x0C lives in Tilemap
+    // (zxnext.vhd:5044-5045) — same cold-init regression risk as NR 0x6E.
     nextreg_.set_read_handler(0x6F, [this]() -> uint8_t { return tilemap_.get_def_base_read(); });
 
     // Registers 0x60-0x63: Copper co-processor
-    nextreg_.set_write_handler(0x60, [this](uint8_t v) { copper_.write_reg_0x60(v); });
-    nextreg_.set_write_handler(0x61, [this](uint8_t v) { copper_.write_reg_0x61(v); });
-    nextreg_.set_write_handler(0x62, [this](uint8_t v) { copper_.write_reg_0x62(v); });
-    nextreg_.set_write_handler(0x63, [this](uint8_t v) { copper_.write_reg_0x63(v); });
+    nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return v; });
+    nextreg_.set_write_handler(0x61, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x61(v); return v; });
+    nextreg_.set_write_handler(0x62, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x62(v); return v; });
+    nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return v; });
 
     // NR 0x61 / 0x62 read-back. VHDL zxnext.vhd:6083-6087 returns
     //   0x61 -> nr_copper_addr(7..0)
@@ -1014,9 +1038,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G109: i_cu_offset feeds cvc reload at zxula_timing.vhd:462; the
     // line-int comparator at :577 uses cvc, so VideoTiming must mirror
     // the offset for line-int scheduling to match VHDL semantics.
-    nextreg_.set_write_handler(0x64, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x64, [this](uint8_t v) -> uint8_t {
         copper_.write_reg_0x64(v);
         video_timing_.set_cu_offset(v);
+        return v;
     });
     nextreg_.set_read_handler (0x64, [this]() -> uint8_t { return copper_.read_reg_0x64(); });
 
@@ -1029,11 +1054,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Page 0xFF = map ROM into the slot (VHDL: mmu_A21_wr_en = '0' when page = xFF).
     for (int i = 0; i < 8; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
-            [this, i](uint8_t v) {
+            [this, i](uint8_t v) -> uint8_t {
                 if (v == 0xFF)
                     mmu_.map_rom(i, static_cast<uint8_t>(i < 2 ? i : 0));
                 else
                     mmu_.set_page(i, v);
+                return v;
             });
     }
 
@@ -1060,7 +1086,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G71/G106/G107: VideoTiming owns line-int + ULA-int gating state.
     // run_frame() consumes video_timing_.{line_interrupt_enable,
     // int_line_num, frame_int_master_cycle_offset, ...} for scheduling.
-    nextreg_.set_write_handler(0x22, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x22, [this](uint8_t v) -> uint8_t {
         ula_int_disabled_ = (v & 0x04) != 0;
         video_timing_.set_interrupt_enable(!ula_int_disabled_);
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
@@ -1083,6 +1109,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // line-int enable bit (bit 1) and the target MSB (bit 0); both
         // affect the firing line.
         reschedule_line_interrupt();
+        return v;
     });
 
     // VHDL zxnext.vhd:5992 — NR 0x22 read composes:
@@ -1107,7 +1134,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
 
     // Register 0x23: Line interrupt value LSB
-    nextreg_.set_write_handler(0x23, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x23, [this](uint8_t v) -> uint8_t {
         const uint16_t cur = video_timing_.line_interrupt_target();
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0x100) | v));
@@ -1115,15 +1142,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // the next firing line (parallax.nex pattern). VHDL fires every
         // cycle when match (zxula_timing.vhd:577), so we must reschedule.
         reschedule_line_interrupt();
+        return v;
     });
     // VHDL zxnext.vhd:5995 — NR 0x23 read returns nr_23_line_interrupt(7:0).
-    // Authoritative store is VideoTiming::line_interrupt_target() & 0xFF;
-    // bare regs_[0x23] echo passed accidentally (the write also stores raw)
-    // but is structurally wrong — pulls from the wrong source of truth.
-    nextreg_.set_read_handler(0x23, [this]() -> uint8_t {
-        return static_cast<uint8_t>(
-            video_timing_.line_interrupt_target() & 0xFF);
-    });
+    // G56 cluster C: read_handler dropped. The write_handler above stores
+    // `v` into both `regs_[0x23]` (via the new write contract) AND into
+    // VideoTiming::line_interrupt_target() LSB; the only path that mutates
+    // the LSB is this same write_handler (NR 0x22 only touches the MSB,
+    // and load_state reloads both regs_[0x23] and line_interrupt_target
+    // from independent slots that were equal at save time). So bare
+    // regs_[0x23] echo is byte-identical to the previous handler's
+    // VideoTiming-sourced read, with no divergence path.
 
     // Register 0x02: Reset control + software NMI strobes.
     //   bit 0 = RESET_SOFT (tbblue hardware.h) → preserve SRAM, drop FFs
@@ -1141,7 +1170,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (matches `nmi_gen_nr_*` at VHDL:3832-3833). Copper MOVE-to-NR 0x02
     // also routes through NextReg::write and therefore reaches here, so
     // no separate Copper hook is required (plan §"Copper NR-write path").
-    nextreg_.set_write_handler(0x02, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x02, [this](uint8_t v) -> uint8_t {
         // Always surface the software-NMI bits to NmiSource — its
         // decode is the VHDL-faithful one. The bits are one-shot
         // strobes so doing this unconditionally on every write is
@@ -1169,6 +1198,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             soft_reset();
         }
         // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.
+        return v;
     });
 
     // NR 0x02 readback — VHDL zxnext.vhd:5891 layout:
@@ -1196,8 +1226,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   (VHDL:3837), so when enabled a trap-port access fires the
     //   Multiface NMI path.
     // bits 7:1 are unused per VHDL:6266 readback ('0' & nr_d8_io_trap_fdc_en).
-    nextreg_.set_write_handler(0xD8, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xD8, [this](uint8_t v) -> uint8_t {
         nr_d8_io_trap_fdc_en_ = (v & 0x01) != 0;
+        return v;
     });
     nextreg_.set_read_handler(0xD8, [this]() -> uint8_t {
         return nr_d8_io_trap_fdc_en_ ? 0x01 : 0x00;
@@ -1220,7 +1251,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   (values 001..100) but ONLY when config_mode = 1 at write time — so
     //   this must happen BEFORE apply_nr_03_config_mode_transition() flips
     //   the mode bit.
-    nextreg_.set_write_handler(0x03, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x03, [this](uint8_t v) -> uint8_t {
         if (mmu_.boot_rom_enabled()) {
             mmu_.set_boot_rom_enabled(false);
             Log::emulator()->info("Boot ROM disabled by NextREG 0x03 write ({:#04x})", v);
@@ -1269,6 +1300,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
         Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
+        return v;
     });
 
     // Register 0x03 read: composed per VHDL zxnext.vhd:5894 —
@@ -1291,10 +1323,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // populate Spectrum/DivMMC/Multiface ROMs in SRAM while config_mode=1.
     // VHDL zxnext.vhd:1104,5716-5732 — we take all 8 bits (Issue-5 behaviour);
     // out-of-range banks fall back to 0xFF reads via Ram::page_ptr()==nullptr.
-    nextreg_.set_write_handler(0x04, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x04, [this](uint8_t v) -> uint8_t {
         nextreg_.set_nr_04_romram_bank(v);
         mmu_.set_nr_04_romram_bank(v);
         Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
+        return v;
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4, NO auto-increment
@@ -1305,15 +1338,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // sprite slot.
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x35 + i),
-            [this, i](uint8_t v) {
+            [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_no_inc(
                     static_cast<uint8_t>(i), v);
+                return v;
             });
     }
 
     // Register 0x4A: Fallback colour (used when all layers are transparent)
-    nextreg_.set_write_handler(0x4A, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x4A, [this](uint8_t v) -> uint8_t {
         renderer_.set_fallback_colour(v);
+        return v;
     });
 
     // Register 0x68: ULA control
@@ -1329,7 +1364,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //           2026-04-23 after ULA Phase 3 critic discovery).
     //   bit 2 = ULA fine X-scroll enable (VHDL zxnext.vhd:5449, zxula.vhd:199)
     //   bit 0 = stencil mode (VHDL 7112)
-    nextreg_.set_write_handler(0x68, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x68, [this](uint8_t v) -> uint8_t {
         renderer_.ula().set_ula_enabled((v & 0x80) == 0);
         // VHDL 7141-7178: ula_blend_mode (bits 6:5) selects mix_rgb/top/bot.
         renderer_.set_blend_mode((v >> 5) & 0x03);
@@ -1340,6 +1375,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // VHDL :4550-4551 — bit 3 unconditionally latches ulap_en (a second
         // writer to the same register the port-0xFF3B path drives).
         renderer_.ula().set_ulap_en((v & 0x08) != 0);
+        return v;
     });
     // VHDL zxnext.vhd:6093 reads NR 0x68 by composing bit 3 from the live
     // `port_ff3b_ulap_en` rather than from a stored copy. Port 0xFF3B writes
@@ -1356,7 +1392,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 6 = ULA shadow display (bank 7)
     //   bits 5:4 = Timex modes (deferred)
     //   bits 3:0 = reserved
-    nextreg_.set_write_handler(0x69, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x69, [this](uint8_t v) -> uint8_t {
         layer2_.set_enabled((v & 0x80) != 0);
         // VHDL zxnext.vhd:3617-3618 — `nr_69_we` fans bits 5:0 of the
         // new value into `port_ff_reg(5:0)` (the Timex screen-mode
@@ -1370,6 +1406,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // and Timex programs that switch screen mode via NR 0x69 instead
         // of port 0xFF previously left the renderer in its old mode.
         renderer_.ula().set_screen_mode(port_ff_reg_);
+        return v;
     });
     // VHDL zxnext.vhd:6095-6096 — port_253b_dat <=
     //   port_123b_layer2_en & port_7ffd_shadow & port_ff_reg(5 downto 0);
@@ -1387,10 +1424,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
 
-    nextreg_.set_write_handler(0xB8, [this](uint8_t v) { divmmc_.set_entry_points_0(v); });
-    nextreg_.set_write_handler(0xB9, [this](uint8_t v) { divmmc_.set_entry_valid_0(v); });
-    nextreg_.set_write_handler(0xBA, [this](uint8_t v) { divmmc_.set_entry_timing_0(v); });
-    nextreg_.set_write_handler(0xBB, [this](uint8_t v) { divmmc_.set_entry_points_1(v); });
+    nextreg_.set_write_handler(0xB8, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_0(v); return v; });
+    nextreg_.set_write_handler(0xB9, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_valid_0(v); return v; });
+    nextreg_.set_write_handler(0xBA, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_timing_0(v); return v; });
+    nextreg_.set_write_handler(0xBB, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_1(v); return v; });
 
     // Register 0x83: Internal port-enable register 2.
     // VHDL zxnext.vhd:1227, 2392, 2412 — bit 0 of NR 0x83 drives
@@ -1404,8 +1441,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // bit 5) are consulted at port-decode time via nextreg_.cached(0x83);
     // here we only need to forward bit 0 to DivMmc as a state setter.
     // G124.
-    nextreg_.set_write_handler(0x83, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x83, [this](uint8_t v) -> uint8_t {
         divmmc_.set_port_io_enable((v & 0x01) != 0);
+        return v;
     });
 
     // Register 0x85: Port-enable register 4 — read packing.
@@ -1425,9 +1463,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // SRAM arbiter override is a follow-up). Retain the Rom-side mirror
     // (rom_.set_alt_rom_config) so existing consumers of Rom::alt_rom_*
     // keep working until they migrate to Mmu.
-    nextreg_.set_write_handler(0x8C, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x8C, [this](uint8_t v) -> uint8_t {
         mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
+        return v;
     });
     nextreg_.set_read_handler(0x8C, [this]() -> uint8_t {
         return mmu_.get_nr_8c();
@@ -1438,8 +1477,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   Write: decomposes into 7FFD/DFFD/1FFD register updates; bit 3 =
     //          bank-select enable, bit 2 = special mode, bypasses 7FFD lock.
     //   Read:  re-composes from current 7FFD/DFFD/1FFD state; bit 3 = '1'.
-    nextreg_.set_write_handler(0x8E, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x8E, [this](uint8_t v) -> uint8_t {
         mmu_.write_nr_8e(v);
+        return v;
     });
     nextreg_.set_read_handler(0x8E, [this]() -> uint8_t {
         return mmu_.read_nr_8e();
@@ -1448,8 +1488,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x8F: Mapping Mode (VHDL zxnext.vhd:3787-3794 / 6162).
     //   bits 1:0 = mapping mode — 00 standard, 10 Pentagon-512, 11
     //              Pentagon-1024. Bits 7:2 always read as 0.
-    nextreg_.set_write_handler(0x8F, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x8F, [this](uint8_t v) -> uint8_t {
         mmu_.write_nr_8f(v);
+        return v;
     });
     nextreg_.set_read_handler(0x8F, [this]() -> uint8_t {
         return static_cast<uint8_t>(mmu_.nr_8f_mode() & 0x03);
@@ -1471,11 +1512,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     bit  0   = nr_c0_int_mode_pulse_0_im2_1  (0=pulse, 1=HW IM2)
     //   Read format: matches write, with bits 2:1 reflecting the current
     //   z80_im_mode latched by Agent A's RETI/RETN/IM decoder.
-    nextreg_.set_write_handler(0xC0, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC0, [this](uint8_t v) -> uint8_t {
         im2_.set_vector_base(static_cast<uint8_t>((v >> 5) & 0x07));
         im2_.set_stackless_nmi((v & 0x08) != 0);
         im2_.set_mode((v & 0x01) != 0);
         // bits 2:1 are read-only (im_mode) — VHDL does not write them.
+        return v;
     });
     nextreg_.set_read_handler(0xC0, [this]() -> uint8_t {
         uint8_t v = static_cast<uint8_t>((im2_.vector_base() & 0x07) << 5);
@@ -1499,7 +1541,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //           bit 0 = 1 ENABLES the ULA interrupt (clears bit 6); a
     //           write of bit 0 = 0 DISABLES it (sets bit 6).
     // Read format: E_00000_UU where UU = ula_int_en[1:0] = {line,ula}.
-    nextreg_.set_write_handler(0xC4, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC4, [this](uint8_t v) -> uint8_t {
         im2_.set_int_en_c4(v);
         // Mirror NR 0xC4 bit 1 → nr_22_line_interrupt_en (VHDL:5610).
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
@@ -1523,6 +1565,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         renderer_.ula().set_screen_mode(port_ff_reg_);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
+        return v;
     });
     nextreg_.set_read_handler(0xC4, [this]() -> uint8_t {
         // VHDL :6239 — nr_c4_int_en_0_expbus & "00000" & ula_int_en
@@ -1539,9 +1582,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // the CTC peripheral maintains its own int_enable state that drives
     // the on_interrupt callback. We update BOTH sides so the fabric
     // (im2_.set_int_en_c5) and the CTC's internal enable stay in sync.
-    nextreg_.set_write_handler(0xC5, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC5, [this](uint8_t v) -> uint8_t {
         ctc_.set_int_enable(v);
         im2_.set_int_en_c5(v);
+        return v;
     });
     nextreg_.set_read_handler(0xC5, [this]() -> uint8_t {
         // VHDL :6242 — port_253b_dat <= ctc_int_en
@@ -1552,9 +1596,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:5615-5617: splits into nr_c6_int_en_2_654 and
     // nr_c6_int_en_2_210 nibble fields; fabric ORs the low two bits of
     // each for the RX int_en (line 1950).
-    nextreg_.set_write_handler(0xC6, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC6, [this](uint8_t v) -> uint8_t {
         im2_.set_int_en_c6(v);
         nr_c6_uart_int_en_ = v & 0x77;   // mask out bits 7,3 (read as 0)
+        return v;
     });
     nextreg_.set_read_handler(0xC6, [this]() -> uint8_t {
         // VHDL :6245 — '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210
@@ -1565,9 +1610,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:1952-1955 (status-clear composition) + :6247-6254 (read).
     //
     // NR 0xC8 — LINE (bit 1) + ULA (bit 0).
-    nextreg_.set_write_handler(0xC8, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC8, [this](uint8_t v) -> uint8_t {
         if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::LINE);
         if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::ULA);
+        return v;
     });
     nextreg_.set_read_handler(0xC8, [this]() -> uint8_t {
         return im2_.int_status_mask_c8();
@@ -1578,7 +1624,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // AND nr_wr_dat bits 0..7 respectively. CTC4..CTC7 bits are still
     // honoured here (even though those devices are hardwired 0 upstream)
     // to match VHDL literal decode.
-    nextreg_.set_write_handler(0xC9, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xC9, [this](uint8_t v) -> uint8_t {
         if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::CTC0);
         if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::CTC1);
         if (v & 0x04) im2_.clear_status(Im2Controller::DevIdx::CTC2);
@@ -1587,6 +1633,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (v & 0x20) im2_.clear_status(Im2Controller::DevIdx::CTC5);
         if (v & 0x40) im2_.clear_status(Im2Controller::DevIdx::CTC6);
         if (v & 0x80) im2_.clear_status(Im2Controller::DevIdx::CTC7);
+        return v;
     });
     nextreg_.set_read_handler(0xC9, [this]() -> uint8_t {
         return im2_.int_status_mask_c9();
@@ -1597,11 +1644,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 5 | b4  = clear UART1 RX (OR, either bit clears)
     //   bit 2       = clear UART0 TX
     //   bit 1 | b0  = clear UART0 RX (OR, either bit clears)
-    nextreg_.set_write_handler(0xCA, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xCA, [this](uint8_t v) -> uint8_t {
         if (v & 0x40)          im2_.clear_status(Im2Controller::DevIdx::UART1_TX);
         if (v & 0x30)          im2_.clear_status(Im2Controller::DevIdx::UART1_RX);
         if (v & 0x04)          im2_.clear_status(Im2Controller::DevIdx::UART0_TX);
         if (v & 0x03)          im2_.clear_status(Im2Controller::DevIdx::UART0_RX);
+        return v;
     });
     nextreg_.set_read_handler(0xCA, [this]() -> uint8_t {
         return im2_.int_status_mask_ca();
@@ -1611,7 +1659,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:5629-5637 (write), :6257-6263 (read), :1957-1958 (compose).
     // Wave 3 Agent F: after any write, recompose the 14-bit mask and hand it
     // to Im2Controller so dma_int_pending() observes the new per-device enables.
-    nextreg_.set_write_handler(0xCC, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xCC, [this](uint8_t v) -> uint8_t {
         nr_cc_dma_delay_on_nmi_ = (v & 0x80) != 0;
         nr_cc_dma_delay_en_ula_ = v & 0x03;
         im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
@@ -1619,22 +1667,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NMI-activated DMA-delay term. Push the decoded value into the
         // Im2Controller so step_dma_delay() sees it live.
         im2_.set_nr_cc_dma_int_en_0_7(nr_cc_dma_delay_on_nmi_);
+        return v;
     });
     nextreg_.set_read_handler(0xCC, [this]() -> uint8_t {
         return static_cast<uint8_t>((nr_cc_dma_delay_on_nmi_ ? 0x80 : 0) |
                                     (nr_cc_dma_delay_en_ula_ & 0x03));
     });
-    nextreg_.set_write_handler(0xCD, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xCD, [this](uint8_t v) -> uint8_t {
         nr_cd_dma_delay_en_ctc_ = v;
         im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
+        return v;
     });
     nextreg_.set_read_handler(0xCD, [this]() -> uint8_t {
         return nr_cd_dma_delay_en_ctc_;
     });
-    nextreg_.set_write_handler(0xCE, [this](uint8_t v) {
+    nextreg_.set_write_handler(0xCE, [this](uint8_t v) -> uint8_t {
         nr_ce_dma_delay_en_uart1_ = (v >> 4) & 0x07;
         nr_ce_dma_delay_en_uart0_ = v & 0x07;
         im2_.set_dma_int_en_mask(compose_im2_dma_int_en());
+        return v;
     });
     nextreg_.set_read_handler(0xCE, [this]() -> uint8_t {
         return static_cast<uint8_t>(((nr_ce_dma_delay_en_uart1_ & 0x07) << 4) |
@@ -1659,7 +1710,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (im2_.int_status(Im2Controller::DevIdx::CTC3)) v |= 0x08;
         return v;
     });
-    nextreg_.set_write_handler(0x20, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x20, [this](uint8_t v) -> uint8_t {
         // Per VHDL: each set bit drives int_unq for the matching device.
         // raise_unq() is a one-shot: sets int_status + im2_int_req bypassing
         // int_en, exactly matching UNQ-04 / UNQ-05 invariants.
@@ -1669,6 +1720,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (v & 0x02) im2_.raise_unq(Im2Controller::DevIdx::CTC1);
         if (v & 0x04) im2_.raise_unq(Im2Controller::DevIdx::CTC2);
         if (v & 0x08) im2_.raise_unq(Im2Controller::DevIdx::CTC3);
+        return v;
     });
 
     // --- VHDL reset defaults (written through nextreg_.write so both
@@ -2241,7 +2293,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nr_06_button_drive_nmi_en_    = false;
     nr_06_internal_speaker_beep_  = false;
     nr_06_ps2_mode_               = false;  // VHDL :1111 default '0' (G56)
-    nextreg_.set_write_handler(0x06, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x06, [this](uint8_t v) -> uint8_t {
         // VHDL zxnext.vhd:6389 — `aymode_i <= nr_06_psg_mode(0)`. It's bit
         // 0 of the 2-bit psg_mode field, NOT equality with "01". That means
         //   00 (YM)       → bit 0=0 → YM
@@ -2293,6 +2345,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         emu_fnkeys_.set_nr_06_hotkey_enables(
             /* cpu_speed_en = */ (v & 0x80) != 0,
             /* _5060_en     = */ (v & 0x20) != 0);
+            return v;
     });
 
     // VHDL zxnext.vhd:5900 — read formula:
@@ -2378,11 +2431,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // The inert bits are captured in `nr_81_` for VHDL-faithful read-back
     // once an ExpBus emulation arrives; no consumers today.
-    nr_81_ = 0;
-    nextreg_.set_write_handler(0x81, [this](uint8_t v) {
-        nr_81_ = v;
-        nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
-    });
     // VHDL zxnext.vhd:6125 — port_253b_dat <= i_BUS_ROMCS_n &
     //   nr_81_expbus_ula_override & nr_81_expbus_nmi_debounce_disable &
     //   nr_81_expbus_clken & nr_81_expbus_fdc & '0' & nr_81_expbus_speed.
@@ -2390,9 +2438,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // expbus device wired in jnext today (G45 tracks expansion-bus emul),
     // ROMCS_n is hard-deasserted i.e. constant '1'.  Bit 2 is constant '0'.
     // Bits 6, 5, 4, 3, 1, 0 echo the corresponding stored fields from the
-    // last NR 0x81 write (cached in `nr_81_`).  G56: without this handler,
-    // regs_[0x81] retains the unmasked raw byte (e.g. 0xFF round-trips as
-    // 0xFF instead of VHDL-spec 0xFB = bit 2 cleared, bit 7 forced).
+    // last NR 0x81 write (cached in `nr_81_`).  G56 Phase 2 (cluster E):
+    // KEEP the read_handler — bit 7 is a runtime hardware-input signal
+    // (not a static mask of the cached byte) and the cold-init read must
+    // return 0x80 even with no prior write (regs_[0x81] starts at 0).
+    nr_81_ = 0;
+    nextreg_.set_write_handler(0x81, [this](uint8_t v) -> uint8_t {
+        nr_81_ = v;
+        nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
+        return v;
+    });
     nextreg_.set_read_handler(0x81, [this]() -> uint8_t {
         return static_cast<uint8_t>(0x80 | (nr_81_ & 0x7B));
     });
@@ -2401,14 +2456,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   port_253b_dat <= nr_80_expbus.  Full 8-bit field, no masking.
     // No expansion-bus device is wired in jnext today (G45 tracks expbus
     // emulation), so the byte is purely write-storage and round-trips
-    // unchanged.  G56: NextReg::write() already stores the raw byte in
-    // regs_[0x80], so this read_handler is functionally a documentation
-    // marker — it makes the VHDL traceability explicit and ensures a
-    // future cached-vs-live divergence (if expbus ever drives some bits
-    // dynamically) is caught here rather than silently falling through.
-    nextreg_.set_read_handler(0x80, [this]() -> uint8_t {
-        return nextreg_.cached(0x80);
-    });
+    // unchanged.  G56 Phase 2 (cluster E): no handler at all — NextReg
+    // falls through to the raw stored byte, which IS the VHDL formula.
 
     // Register 0x08: Peripheral 3
     //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
@@ -2421,7 +2470,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bit 7 is the write-strobe only; it is not stored (read-back at
     // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
     // just written). Bit 6 IS stored (read back via eff_nr_08_contention_disable).
-    nextreg_.set_write_handler(0x08, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x08, [this](uint8_t v) -> uint8_t {
         if (v & 0x80) mmu_.unlock_paging();
         mmu_.set_contention_disabled((v >> 6) & 1);
         // Mirror NR 0x08 bit 6 into the ContentionModel SHADOW only
@@ -2448,6 +2497,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // live subsystem state (internal speaker bit 4, port_ff_rd bit 2,
         // keyboard issue2 bit 0).
         nr_08_stored_low_ = v & 0x3F;
+        return v;
     });
 
     // Register 0x08 read-back composition per VHDL zxnext.vhd:5906:
@@ -2471,7 +2521,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 3 = sprites over border + DivMMC mapram-latch clear
     //           (VHDL zxnext.vhd:4184-4185 — writes bit 3=1 force
     //            port_e3_reg(6) := '0')
-    nextreg_.set_write_handler(0x09, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
         sprites_.set_over_border((v & 0x08) != 0);
         // G95: bit 4 wires nr_09_sprite_tie into the sprite mirror unit
         // (VHDL zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612).
@@ -2487,6 +2537,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         if (v & 0x40) mono |= 0x02;  // AY#1
         if (v & 0x80) mono |= 0x04;  // AY#2
         turbosound_.set_mono_mode(mono);
+        return v;
     });
 
     // Register 0x2C/0x2D/0x2E — Soundrive NextREG mirror writes.
@@ -2498,14 +2549,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Gated on the Soundrive reset which fires while `nr_08_dac_en='0'`
     // (VHDL zxnext.vhd:6436) — when the DAC is off the internal channel
     // registers are held at 0x80 (silence). Mirror that behaviour here.
-    nextreg_.set_write_handler(0x2C, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x2C, [this](uint8_t v) -> uint8_t {
         if (dac_enabled_) dac_.write_left(v);
+        return v;
     });
-    nextreg_.set_write_handler(0x2D, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x2D, [this](uint8_t v) -> uint8_t {
         if (dac_enabled_) dac_.write_mono(v);
+        return v;
     });
-    nextreg_.set_write_handler(0x2E, [this](uint8_t v) {
+    nextreg_.set_write_handler(0x2E, [this](uint8_t v) -> uint8_t {
         if (dac_enabled_) dac_.write_right(v);
+        return v;
     });
 
     // --- Phase 5 peripheral port handlers ---
