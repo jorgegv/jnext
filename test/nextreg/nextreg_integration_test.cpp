@@ -1433,6 +1433,25 @@ static void test_pe_integration(Emulator& emu) {
               "round-trip=" + hex2(got) + " (want 0x5A)");
     }
 
+    // PE-INT-87 — NR 0x87 round-trip + reset default observation.
+    // Same VHDL shape as NR 0x86 / NR 0x88: signal default `(others => '1')`
+    // at zxnext.vhd:1232; reset block at :5061-5067 reloads to 0xFF gated on
+    // nr_89_bus_port_reset_type='0'; write at :5514-5515 (full 8 bits);
+    // read mux at :6143-6144 (no pack). G154 follow-on.
+    {
+        uint8_t reset_default = nr_read(emu, 0x87);
+        nr_write(emu, 0x87, 0x3C);
+        uint8_t got = nr_read(emu, 0x87);
+        nr_write(emu, 0x87, 0xFF);  // restore reset default
+        const bool ok = (reset_default == 0xFF) && (got == 0x3C);
+        check("PE-INT-87",
+              "NR 0x87 reset=0xFF + write=0x3C read=0x3C "
+              "[zxnext.vhd:1232, 5514-5515, 6143-6144]",
+              ok,
+              "reset=" + hex2(reset_default) + " (want 0xFF), "
+              "round-trip=" + hex2(got) + " (want 0x3C)");
+    }
+
     // PE-INT-89 — NR 0x89 read packing (bits 6:4 always zero). Write
     // 0xF7 = 1111_0111: stored bit 7 → reset_type=1, bits 3:0 →
     // enable=0x7; bits 6:4 of write discarded. Read returns
