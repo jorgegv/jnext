@@ -1933,6 +1933,192 @@ static void test_g108_port_ff_fanout(Emulator& emu) {
     port_ff_write(0x00);
 }
 
+// ── G56 Cluster A — NR 0x05 / NR 0x06 composed-read divergence ────────
+//
+// VHDL `port_253b_dat` for NR 0x05 / NR 0x06 (zxnext.vhd:5897 / :5900)
+// composes the read byte from a mix of subsystem-owned signals and shadow
+// signals that have read-side bit-layouts that don't match write bit
+// positions (NR 0x05) or that have write-side gating (NR 0x06 bit 2 is
+// only latched while nr_03_config_mode = '1', VHDL :5167).
+//
+// Pre-fix bug (G56 audit): jnext NextReg::write stored the raw 8-bit
+// byte unconditionally (src/port/nextreg.cpp:117-123) and reads fell
+// through to that shadow store for any NR without a read_handler. So
+// NR 0x06 bit-2 writes outside config_mode would (incorrectly) read
+// back as the value last written instead of the VHDL-faithful "no
+// change". NR 0x05 happened to round-trip every bit through the shadow
+// store, but it had no source-of-truth-from-Joystick read path, so a
+// `set_mode_direct()` (test bypass) would diverge from the read.
+//
+// Post-fix: emulator.cpp installs read_handlers for 0x05 / 0x06 that
+// pull from the authoritative state per the VHDL formulas, and the
+// 0x06 write handler gates bit 2 on nr_03_config_mode. See:
+//   * src/core/emulator.cpp set_read_handler(0x05, ...)
+//   * src/core/emulator.cpp set_read_handler(0x06, ...)
+//   * src/core/emulator.cpp set_write_handler(0x06, ...) (config_mode gate)
+//   * src/core/emulator.h    nr_06_ps2_mode_
+
+static void test_nr_05_composed_read(Emulator& emu) {
+    set_group("G56-CR-NR05");
+
+    // Reset baseline — VHDL zxnext.vhd:1105-1106, :1302-1303:
+    //   nr_05_joy0          = "001"  (Kempston1)
+    //   nr_05_joy1          = "000"  (Sinclair2)
+    //   nr_05_5060          = '0'
+    //   nr_05_scandouble_en = '1'
+    // Read formula at :5897 → joy0[1:0]=01 << 6 | joy0[2]=0 << 3 |
+    // eff_5060=0 << 2 | joy1[2:0] all 0 | eff_scandouble=1 → 0x41.
+    {
+        // Force a fresh init to clear any state from prior groups.
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+    }
+    {
+        uint8_t got = nr_read(emu, 0x05);
+        check("G56-CR-NR05-01",
+              "Reset default read = 0x41 "
+              "[VHDL zxnext.vhd:5897, :1105-1106, :1302-1303]",
+              got == 0x41, detail_eq(got, uint8_t{0x41}));
+    }
+
+    // Round-trip: writing a canonical value should read back identical
+    // (VHDL :5897 read formula is permutation-invariant w.r.t. write
+    // bits — every write bit appears exactly once in the read formula).
+    // Write 0xA5 = 0b10100101.
+    //   joy0_bits = (v[3], v[7], v[6]) = (0, 1, 0) = "010" = Cursor
+    //   joy1_bits = (v[1], v[5], v[4]) = (0, 1, 0) = "010" = Cursor
+    //   nr_05_5060          = v[2] = 1
+    //   nr_05_scandouble_en = v[0] = 1
+    // Read = joy0[1:0] | joy1[1:0]<<4 | joy0[2]<<3 | eff_5060<<2 |
+    //        joy1[2]<<1 | eff_scandouble = 0b10 10 0 1 0 1 = 0xA5.
+    {
+        nr_write(emu, 0x05, 0xA5);
+        uint8_t got = nr_read(emu, 0x05);
+        check("G56-CR-NR05-02",
+              "write 0xA5 → read 0xA5 (round-trip; VHDL :5897 is permutation-id)",
+              got == 0xA5, detail_eq(got, uint8_t{0xA5}));
+    }
+
+    // Bit-mask discriminator: write 0xFF, every position should read
+    // back 1 because every write bit feeds exactly one read bit.
+    //   joy0_bits = (1, 1, 1) = "111" = IoMode
+    //   joy1_bits = (1, 1, 1) = "111" = IoMode
+    //   nr_05_5060=1, nr_05_scandouble_en=1
+    // Read = 0xFF.
+    {
+        nr_write(emu, 0x05, 0xFF);
+        uint8_t got = nr_read(emu, 0x05);
+        check("G56-CR-NR05-03",
+              "write 0xFF → read 0xFF (every bit feeds exactly one read bit)",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+
+    // Partial-clear: write 0x00 — every read bit should be zero,
+    // including the 0x40 reset default for the joy0[0]=1 bit (which
+    // moves to 0 on a 0x00 write).
+    {
+        nr_write(emu, 0x05, 0x00);
+        uint8_t got = nr_read(emu, 0x05);
+        check("G56-CR-NR05-04",
+              "write 0x00 → read 0x00 (reset-default joy0[0] cleared)",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // Restore reset state for downstream tests.
+    nr_write(emu, 0x05, 0x40);
+}
+
+static void test_nr_06_composed_read(Emulator& emu) {
+    set_group("G56-CR-NR06");
+
+    // Re-init to clear state; reset default for NR 0x06 = 0xA0 (VHDL
+    // :1107-1108 — hotkey_cpu_speed_en + hotkey_5060_en both '1', all
+    // other fields '0'). ps2_mode default '0' (VHDL :1111).
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.roms_directory = "/usr/share/fuse";
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+    }
+
+    // After init, config_mode is '1' (VHDL :1102 power-on default; jnext
+    // NextReg::reset() reasserts it), so NR 0x06 bit-2 writes will latch.
+    // Reset default read formula (VHDL :5900):
+    //   bits 7=1, 6=0, 5=1, 4=0, 3=0, 2=0, 1:0=00 → 0xA0.
+    {
+        uint8_t got = nr_read(emu, 0x06);
+        check("G56-CR-NR06-01",
+              "Reset default read = 0xA0 "
+              "[VHDL :5900, :1107-1108, :1111-1112]",
+              got == 0xA0, detail_eq(got, uint8_t{0xA0}));
+    }
+
+    // Round-trip with config_mode=1: every write bit lands in its read
+    // bit. Write 0xFF → expect 0xFF.
+    {
+        nr_write(emu, 0x06, 0xFF);
+        uint8_t got = nr_read(emu, 0x06);
+        check("G56-CR-NR06-02",
+              "config_mode=1: write 0xFF → read 0xFF (all bits land)",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+
+    // Write 0x00 with config_mode=1 to clear ps2_mode + every other bit.
+    {
+        nr_write(emu, 0x06, 0x00);
+        uint8_t got = nr_read(emu, 0x06);
+        check("G56-CR-NR06-03",
+              "config_mode=1: write 0x00 → read 0x00",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // Now: drop config_mode by writing NR 0x03 with bits[2:0] != 000/111
+    // (VHDL :5147-5151 transition rules). Use 0x03 (machine_type +3,
+    // gated commit honoured by emulator.cpp:1031-1039).
+    nr_write(emu, 0x03, 0x03);
+
+    // First seed ps2_mode = 1 (need to be in config_mode for that).
+    // We already exited; re-enter to seed, then exit again.
+    nr_write(emu, 0x03, 0x07);  // bits 111 → re-enter config_mode
+    nr_write(emu, 0x06, 0x04);  // ps2_mode = 1, all hotkey enables off
+    nr_write(emu, 0x03, 0x03);  // exit config_mode
+
+    // Now attempt to write NR 0x06 with bit 2 = 0 (other bits = 0). VHDL
+    // :5167-5169 gates bit 2 — outside config_mode, ps2_mode does NOT
+    // change. Read should still see bit 2 = 1 (sticky). All other bits
+    // ARE updated unconditionally (VHDL :5162-5166, :5170 are not gated).
+    nr_write(emu, 0x06, 0x00);
+    {
+        uint8_t got = nr_read(emu, 0x06);
+        // Expected: bit 2 still = 1 (sticky); all other bits = 0.
+        check("G56-CR-NR06-04",
+              "config_mode=0: write 0x00 keeps ps2_mode sticky "
+              "[VHDL :5167-5169 gate; pre-fix would read 0x00]",
+              got == 0x04, detail_eq(got, uint8_t{0x04}));
+    }
+
+    // Cross-check: with config_mode still = 0, write bit 2 = 1 — also a
+    // no-op for ps2_mode (already 1, but the gate should still apply).
+    // Then write all other bits to confirm they update.
+    nr_write(emu, 0x06, 0xFB);  // 0xFB = 0b11111011 — bit 2 = 0
+    {
+        uint8_t got = nr_read(emu, 0x06);
+        // ps2_mode stays 1 → bit 2 = 1; all others = 1 → 0xFF.
+        check("G56-CR-NR06-05",
+              "config_mode=0: write 0xFB still has ps2_mode=1 (sticky); "
+              "other bits track write [VHDL :5162-5166, :5170 ungated]",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+
+    // Restore config_mode + zero out for downstream cleanliness.
+    nr_write(emu, 0x03, 0x07);  // re-enter config_mode
+    nr_write(emu, 0x06, 0xA0);  // back to reset default
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1993,6 +2179,12 @@ int main() {
 
     test_g108_port_ff_fanout(emu);
     std::printf("  Group: G108-PortFF-Fanout — done\n");
+
+    test_nr_05_composed_read(emu);
+    std::printf("  Group: G56-CR-NR05 — done\n");
+
+    test_nr_06_composed_read(emu);
+    std::printf("  Group: G56-CR-NR06 — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

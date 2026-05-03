@@ -526,6 +526,36 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x05, [this](uint8_t v) {
         joystick_.set_nr_05(v);
     });
+    // VHDL zxnext.vhd:5897 — read formula:
+    //   port_253b_dat <= nr_05_joy0(1 downto 0)        (bits 7:6)
+    //                  & nr_05_joy1(1 downto 0)        (bits 5:4)
+    //                  & nr_05_joy0(2)                 (bit  3)
+    //                  & eff_nr_05_5060                (bit  2)
+    //                  & nr_05_joy1(2)                 (bit  1)
+    //                  & eff_nr_05_scandouble_en;      (bit  0)
+    // G56 cluster A — joy bits come from Joystick (the authoritative
+    // owner of the decoded `nr_05_joy0` / `nr_05_joy1` 3-bit fields,
+    // which can also be moved by `set_mode_direct()` in tests). The
+    // 5060 / scandouble bits live in the raw shadow store: there is no
+    // dedicated subsystem owner today, the F2/F3 hotkey toggles route
+    // through `nextreg_.write(0x05, ...)`, and `eff_nr_*` are simply
+    // frame-sync-latched copies (irrelevant at unit-test scope, where
+    // there is no video-frame edge between writes and reads).
+    nextreg_.set_read_handler(0x05, [this]() -> uint8_t {
+        const auto m0 = static_cast<uint8_t>(joystick_.mode_left());   // 3 bits
+        const auto m1 = static_cast<uint8_t>(joystick_.mode_right());  // 3 bits
+        const uint8_t cached = nextreg_.cached(0x05);
+        uint8_t v = 0;
+        v |= static_cast<uint8_t>(((m0 >> 1) & 1u) << 7);  // joy0[1] → bit 7
+        v |= static_cast<uint8_t>(((m0 >> 0) & 1u) << 6);  // joy0[0] → bit 6
+        v |= static_cast<uint8_t>(((m1 >> 1) & 1u) << 5);  // joy1[1] → bit 5
+        v |= static_cast<uint8_t>(((m1 >> 0) & 1u) << 4);  // joy1[0] → bit 4
+        v |= static_cast<uint8_t>(((m0 >> 2) & 1u) << 3);  // joy0[2] → bit 3
+        v |= static_cast<uint8_t>(cached & 0x04);          // eff_5060 (bit 2)
+        v |= static_cast<uint8_t>(((m1 >> 2) & 1u) << 1);  // joy1[2] → bit 1
+        v |= static_cast<uint8_t>(cached & 0x01);          // eff_scandouble (bit 0)
+        return v;
+    });
 
     // Register 0x0B: Joystick I/O-mode pin-7 mux — VHDL zxnext.vhd:5200-5203.
     // Phase 1 scaffold: IoMode::set_nr_0b() is a stub; Agent E fills in.
@@ -1982,6 +2012,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nr_06_button_m1_nmi_en_       = false;
     nr_06_button_drive_nmi_en_    = false;
     nr_06_internal_speaker_beep_  = false;
+    nr_06_ps2_mode_               = false;  // VHDL :1111 default '0' (G56)
     nextreg_.set_write_handler(0x06, [this](uint8_t v) {
         // VHDL zxnext.vhd:6389 — `aymode_i <= nr_06_psg_mode(0)`. It's bit
         // 0 of the 2-bit psg_mode field, NOT equality with "01". That means
@@ -2010,6 +2041,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nr_06_button_m1_nmi_en_    = ((v >> 3) & 1) != 0;
         nr_06_button_drive_nmi_en_ = ((v >> 4) & 1) != 0;
 
+        // VHDL zxnext.vhd:5167-5169 — `if nr_03_config_mode = '1' then
+        // nr_06_ps2_mode <= nr_wr_dat(2); end if;`. Bit 2 only latches
+        // while config_mode is asserted. Outside config_mode the previous
+        // ps2_mode is sticky. G56 cluster A — required so the NR 0x06
+        // read handler returns the VHDL-faithful value at line 5900.
+        if (nextreg_.nr_03_config_mode()) {
+            nr_06_ps2_mode_ = ((v >> 2) & 1) != 0;
+        }
+
         // NMI Source Pipeline — Wave C gate wiring. VHDL zxnext.vhd:1110
         // bit 3 = nr_06_button_m1_nmi_en (MF gate); zxnext.vhd:1109 bit 4
         // = nr_06_button_drive_nmi_en (DivMMC gate). Forward both to the
@@ -2025,6 +2065,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         emu_fnkeys_.set_nr_06_hotkey_enables(
             /* cpu_speed_en = */ (v & 0x80) != 0,
             /* _5060_en     = */ (v & 0x20) != 0);
+    });
+
+    // VHDL zxnext.vhd:5900 — read formula:
+    //   port_253b_dat <= nr_06_hotkey_cpu_speed_en   (bit 7)
+    //                  & nr_06_internal_speaker_beep (bit 6)
+    //                  & nr_06_hotkey_5060_en        (bit 5)
+    //                  & nr_06_button_drive_nmi_en   (bit 4)
+    //                  & nr_06_button_m1_nmi_en      (bit 3)
+    //                  & nr_06_ps2_mode              (bit 2)
+    //                  & nr_06_psg_mode;             (bits 1:0)
+    // G56 cluster A — without this handler, reads echo the raw shadow
+    // store, which leaks bit-2 writes attempted outside config_mode
+    // (VHDL :5167 gates them, but NextReg::write stores the raw byte).
+    // Compose from authoritative state for bit 2 (nr_06_ps2_mode_) and
+    // fall back to cached(0x06) for bits where the shadow store and the
+    // authoritative state are equivalent (every other bit is updated
+    // unconditionally on write, no read-side masking).
+    nextreg_.set_read_handler(0x06, [this]() -> uint8_t {
+        const uint8_t cached = nextreg_.cached(0x06);
+        // bits 7, 6, 5, 4, 3, 1, 0 from cached; bit 2 from ps2_mode_.
+        uint8_t v = cached & 0xFB;
+        if (nr_06_ps2_mode_) v |= 0x04;
+        return v;
     });
 
     // ── F-key FSM side-effect callbacks (G132) ─────────────────────────

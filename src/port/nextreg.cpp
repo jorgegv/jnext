@@ -27,7 +27,15 @@ void NextReg::reset() {
     regs_[0x00] = 0x08;
     regs_[0x01] = 0x32;  // core version 3.02 (VHDL g_version = X"32")
     regs_[0x03] = 0x00;  // machine type: ZXNext
-    regs_[0x05] = 0x40;  // joy config: VHDL zxnext.vhd:1105-1106 (nr_05 not cleared on soft reset)
+    // NR 0x05 power-on default: 0x41 per VHDL read formula at zxnext.vhd:5897.
+    // VHDL signal defaults: nr_05_joy0 = "001" (Kempston1, :1105),
+    // nr_05_joy1 = "000" (Sinclair2, :1106), nr_05_5060 = '0' (:1302),
+    // nr_05_scandouble_en = '1' (:1303). Read formula composes these as
+    //   joy0[1:0]<<6 | joy1[1:0]<<4 | joy0[2]<<3 | eff_5060<<2 |
+    //   joy1[2]<<1  | eff_scandouble = 0x40 | 0x01 = 0x41.
+    // NR 0x05 is not cleared on soft reset (no entry in the reset block).
+    // G56 cluster A: prior 0x40 missed the scandouble_en default bit.
+    regs_[0x05] = 0x41;
     // NR 0x06 power-on default: 0xA0. VHDL zxnext.vhd:1107-1108:
     //   nr_06_hotkey_cpu_speed_en := '1' (bit 7)
     //   nr_06_hotkey_5060_en      := '1' (bit 5)

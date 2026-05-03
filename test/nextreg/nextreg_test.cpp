@@ -797,8 +797,13 @@ static void test_write_only_read_default() {
 static void test_composed_read_divergence() {
     set_group("G56-CR");
 
-    skip("G56-CR-05", "NR 0x05 composed-read divergence (see G56)");
-    skip("G56-CR-06", "NR 0x06 psg_mode source-of-truth (see G56)");
+    // G56-CR-05/06 (cluster A) — RE-HOMED to nextreg_integration_test.cpp
+    // group "G56-CR-NR05" / "G56-CR-NR06". Those rows need full Emulator
+    // state (Joystick + nr_03_config_mode), so they cannot run on bare
+    // NextReg. The bare suite intentionally skips here to avoid testing
+    // the raw shadow store as if it were the oracle.
+    skip("G56-CR-05", "NR 0x05 composed-read — re-homed to integration (G56 cluster A landed)");
+    skip("G56-CR-06", "NR 0x06 composed-read — re-homed to integration (G56 cluster A landed)");
     skip("G56-CR-09", "NR 0x09 sprite_tie composed-read (see G56)");
     skip("G56-CR-0A", "NR 0x0A divmmc_automap_en mirror (see G56)");
     skip("G56-CR-0B", "NR 0x0B joystick composed-read (see G56)");

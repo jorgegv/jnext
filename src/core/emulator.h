@@ -727,6 +727,14 @@ private:
     // reset block does not re-clear it explicitly but it starts at '0').
     bool     nr_06_internal_speaker_beep_ = false;
 
+    // NR 0x06 bit 2 — `nr_06_ps2_mode` (VHDL zxnext.vhd:1111, :5167-5169).
+    // Power-on default '0'.  Authoritative storage so that the NR 0x06
+    // read handler (G56 cluster A — VHDL zxnext.vhd:5900 read formula)
+    // can compose bit 2 without going through the raw NextReg shadow
+    // store (which would echo every write blindly, including writes
+    // outside config_mode that VHDL gates out at line 5167).
+    bool     nr_06_ps2_mode_ = false;
+
     // NR 0x81 — Expansion bus control (VHDL zxnext.vhd:1222-1227).
     // Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN) stores the raw byte for
     // VHDL-faithful read-back; bit 5 (`expbus_nmi_debounce_disable`) is

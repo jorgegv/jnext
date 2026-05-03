@@ -795,22 +795,25 @@ static void test_jmode() {
                      static_cast<unsigned>(Joystick::Mode::Sinclair1)));
     }
 
-    // JMODE-08: cold-boot defaults for NR 0x05 — joy0="001", joy1="000".
-    // Packed back into NR 0x05 per zxnext.vhd:5157-5158 :
-    //   D3=joy0[2]=0, D7=joy0[1]=0, D6=joy0[0]=1
-    //   D1=joy1[2]=0, D5=joy1[1]=0, D4=joy1[0]=0
-    // → byte = 0b0100_0000 = 0x40.
-    // Cite: zxnext.vhd:1105 (nr_05_joy0 := "001"),
-    //       zxnext.vhd:1106 (nr_05_joy1 := "000"),
-    //       zxnext.vhd:4926-4942 (soft-reset block does NOT clear nr_05_joy*).
+    // JMODE-08: cold-boot read of NR 0x05 — VHDL :5897 read formula
+    // composes joy0/joy1/eff_5060/eff_scandouble:
+    //   joy0="001" (:1105) → D7=joy0[1]=0, D6=joy0[0]=1, D3=joy0[2]=0
+    //   joy1="000" (:1106) → D5=joy1[1]=0, D4=joy1[0]=0, D1=joy1[2]=0
+    //   nr_05_5060          (:1302) = '0' → D2 = 0
+    //   nr_05_scandouble_en (:1303) = '1' → D0 = 1   ← G56 cluster A
+    // → byte = 0b0100_0001 = 0x41 (NOT 0x40 — pre-G56 the scandouble
+    //   default bit was missing from NextReg::reset()).
+    // Cite: zxnext.vhd:5897 (read formula), :1105-1106 (joy defaults),
+    //       :1302-1303 (5060/scandouble defaults),
+    //       :4926-4942 (soft-reset block does NOT clear nr_05_*).
     {
         NextReg nr;
         nr.reset();
         uint8_t v = nr.read(0x05);
         check("JMODE-08",
-              "reset NR 0x05 = 0x40 (joy0=Kempston1, joy1=Sinclair2)",
-              v == 0x40,
-              DETAIL("got=0x%02X (Task3: nr_05_joy reset)", v));
+              "reset NR 0x05 = 0x41 (joy0=Kempston1, joy1=Sinclair2, scandouble=1)",
+              v == 0x41,
+              DETAIL("got=0x%02X (G56 cluster A: scandouble_en default '1')", v));
     }
 
     // JMODE-09 — NR 0x05 propagation to MembraneStick (G126 closure).
