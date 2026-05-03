@@ -1103,6 +1103,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: needs Flash device backend (even all-0xFF stub).
 - **Effort**: M.
+- **Status (2026-05-03h)**: WONT (out of scope until on-FPGA Flash emulation lands). Closing as PASS would require emulating the on-FPGA SPI Flash chip itself (FPGA core image storage + TBBLUE.FW firmware + tbblue config + Flash device backend with command/data state machine + persistence) — i.e. emulating Flash updates on the real Next, not running the FPGA core's behavior. Same principle as G45 (expansion bus) and G29 (Pi I2S host capture). Adjacent SS-09 row (already PASS) covers the safety case: write 0x7F outside `config_mode` → all-deselected (0xFF). `divmmc_test` row SS-08 converted from `skip()` to `// WONT SS-08` comment per `feedback_wont_taxonomy.md`. Revisit when jnext gains a `--flash-image FILE` mode for FPGA-Flash emulation (FPGA core update tooling, firmware-update programs, tbblue config persistence). Branch `divmmc-ss08-wont`.
 
 ### G137. SPI master o_spi_wait_n (DMA wait) not surfaced
 - **What**: VHDL `serial/spi_master.vhd:56,177` `o_spi_wait_n <= state_idle or state_last_d` consumed by DMA at `zxnext.vhd:3297` (16-cycle separation). jnext `spi.cpp:99-127` byte exchange instantaneous; no wait_n accessor.

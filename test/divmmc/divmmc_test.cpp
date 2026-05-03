@@ -1938,10 +1938,19 @@ void group_ss() {
     // SS-08 — SPI Flash CS gated by config_mode + reset_type(2).
     // VHDL zxnext.vhd:3315-3320: cpu_do=0x7F AND (config_mode='1' OR
     // reset_type(2)='1') → spi_ss_flash_n asserted. jnext spi.cpp:73-77
-    // documents the omission; no Flash backend. Promoted from
-    // will-not-implement to Cat-B on 2026-04-27. See G136.
-    skip("SS-08",
-         "SPI Flash CS (cpu_do=0x7F) under config_mode unmodelled (see G136)");
+    // documents the omission; no Flash backend.
+    // WONT SS-08 — G136 SPI Flash CS out of scope: closing as PASS
+    // would require emulating the on-FPGA SPI Flash chip itself
+    // (FPGA core image storage + TBBLUE.FW firmware + tbblue config +
+    // Flash device backend with command/data state machine +
+    // persistence). jnext runs the FPGA core's behavior, not the
+    // FPGA bitstream management tooling. Same principle as G45
+    // (expansion bus) and G29 (Pi I2S host capture). The safety
+    // case (write 0x7F outside config_mode → all-deselected 0xFF) is
+    // already covered as PASS by SS-09 below. Revisit when jnext
+    // gains a `--flash-image FILE` mode for FPGA-Flash emulation
+    // (FPGA core update tooling, firmware-update programs, tbblue
+    // config persistence).
 
     // SS-09: Write 0x7F outside config mode -> all deselected (0xFF).
     // VHDL: zxnext.vhd:3326 — flash select blocked. Emulator stores raw.
