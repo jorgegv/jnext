@@ -713,7 +713,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     });
     nextreg_.set_write_handler(0x29, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_29(v);
-        return v;
+        // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x29
+        // (write-only keymap address LSB; auto-incremented internally and
+        // not exposed). Fall-through is (others => '0'); return 0 so the
+        // canonical regs_[0x29] stores 0 and reads return 0.
+        return 0;
     });
     nextreg_.set_write_handler(0x2B, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_2b(v);
@@ -1018,7 +1022,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_read_handler(0x6F, [this]() -> uint8_t { return tilemap_.get_def_base_read(); });
 
     // Registers 0x60-0x63: Copper co-processor
-    nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return v; });
+    // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x60
+    // (Copper data is consumed by the Copper subsystem on write; not
+    // exposed on read). Fall-through is (others => '0'); return 0 so reads
+    // of NR 0x60 return 0 (NRs 0x61/0x62 keep their composed read handlers).
+    nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return 0; });
     nextreg_.set_write_handler(0x61, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x61(v); return v; });
     nextreg_.set_write_handler(0x62, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x62(v); return v; });
     nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return v; });
@@ -1327,7 +1335,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nextreg_.set_nr_04_romram_bank(v);
         mmu_.set_nr_04_romram_bank(v);
         Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
-        return v;
+        // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x04
+        // (write-only ROM/RAM bank latch; only consumed by the SRAM
+        // address-composition path). Fall-through is (others => '0'); return
+        // 0 so reads of NR 0x04 return 0 instead of leaking the latched bank.
+        return 0;
     });
 
     // Registers 0x35-0x39: Sprite attribute bytes 0-4, NO auto-increment
@@ -1336,12 +1348,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // = 0 here, so nr_sprite_mirror_inc stays at 0 and mirror_sprite_q
     // is NOT advanced. The write targets the current mirror_sprite_q
     // sprite slot.
+    // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x35-0x39
+    // (write-only sprite-attribute mirror commits). Fall-through is
+    // (others => '0'); the lambdas return 0 so reads return 0 instead of
+    // leaking the last attribute byte through regs_[].
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x35 + i),
             [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_no_inc(
                     static_cast<uint8_t>(i), v);
-                return v;
+                return 0;
             });
     }
 

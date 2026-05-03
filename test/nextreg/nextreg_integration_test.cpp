@@ -3110,6 +3110,79 @@ static void test_g56_cluster_e(Emulator& emu) {
     }
 }
 
+// ── Write-Only Register Read Behaviour (G149) ─────────────────────────
+//
+// VHDL zxnext.vhd:5878-6289 — the NR read mux falls through to
+// (others => '0') for any NR with no read entry. The historical jnext
+// behaviour returned regs_[reg] (last-written byte) for unhandled NRs,
+// leaking write-only state. Phase 1 of G149 retrofitted the Emulator
+// write_handlers for NR 0x04/0x29/0x35/0x60 to return 0 (instead of v),
+// so the canonicalised regs_[reg] stores 0 and reads return 0 — matching
+// VHDL exactly. The observable behaviour requires a fully-wired Emulator
+// (the write_handlers are registered in Emulator::init()), so this lives
+// at integration tier; the bare NextReg unit test rows WO-01..WO-04 were
+// re-homed here.
+static void test_write_only_read_zero(Emulator& emu) {
+    set_group("WO-Integration");
+
+    // WO-INT-04 — NR 0x04 (ROM/RAM bank latch).
+    // VHDL zxnext.vhd:1104,5716-5732 (write-only nr_04_romram_bank);
+    // no read-mux entry — read falls through to (others => '0').
+    {
+        nr_write(emu, 0x04, 0xAA);
+        const uint8_t got = nr_read(emu, 0x04);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-04",
+              "NR 0x04 write-only — read returns 0 (no leak of romram_bank) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-29 — NR 0x29 (keymap address LSB).
+    // VHDL zxnext.vhd:6304 (nr_29_we triggers internal nr_keymap_addr
+    // load + auto-increment); no read-mux entry.
+    {
+        nr_write(emu, 0x29, 0xAA);
+        const uint8_t got = nr_read(emu, 0x29);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-29",
+              "NR 0x29 write-only — read returns 0 (no leak of keymap LSB) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-35 — NR 0x35 (sprite attribute byte 0, no auto-increment).
+    // VHDL zxnext.vhd:4857-4875 dispatches mirror_we for the no-inc path;
+    // no read-mux entry (NR 0x34 IS readable but 0x35 is not).
+    {
+        nr_write(emu, 0x35, 0xAA);
+        const uint8_t got = nr_read(emu, 0x35);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-35",
+              "NR 0x35 write-only — read returns 0 (no leak of sprite attr) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // WO-INT-60 — NR 0x60 (Copper data write).
+    // VHDL routes the byte through the Copper subsystem; no read-mux
+    // entry (NR 0x61/0x62 ARE readable — Copper addr/mode — but 0x60 is
+    // not).
+    {
+        nr_write(emu, 0x60, 0xAA);
+        const uint8_t got = nr_read(emu, 0x60);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-60",
+              "NR 0x60 write-only — read returns 0 (no leak of copper data) "
+              "[zxnext.vhd:5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -3188,6 +3261,9 @@ int main() {
 
     test_g56_cluster_e(emu);
     std::printf("  Group: G56-CR-Cluster-E — done\n");
+
+    test_write_only_read_zero(emu);
+    std::printf("  Group: WO-Integration — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
