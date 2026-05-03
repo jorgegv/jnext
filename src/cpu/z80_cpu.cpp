@@ -391,6 +391,16 @@ int Z80Cpu::execute() {
     if (nmi_pending_) {
         nmi_pending_ = false;
         Log::cpu()->debug("NMI at PC={:#06x}", z80.pc.w);
+        // G88: capture the PC that will be pushed to stack as the NMI return
+        // address (NR 0xC2 LSB / NR 0xC3 MSB shadow). Mirrors VHDL
+        // zxnext.vhd:2050-2085, 6232-6236 (Z80N_command_s = NMIACK_LSB/MSB
+        // latch). fuse_z80_nmi() bumps PC by +1 if HALTed before pushing, so
+        // pre-compute the stacked value here.
+        if (on_nmi_servicing) {
+            uint16_t saved_pc = z80.halted ? static_cast<uint16_t>((z80.pc.w + 1) & 0xFFFF)
+                                            : z80.pc.w;
+            on_nmi_servicing(saved_pc);
+        }
         libspectrum_dword before = tstates;
         fuse_z80_nmi();
         sync_regs_from_fuse(regs_);
@@ -462,8 +472,13 @@ int Z80Cpu::execute() {
 
         if (kZ80NOpcodeTable[ext]) {
             Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
-            // Fire M1 callback on the ED prefix byte
+            // G87: fire M1 callback on BOTH bytes of the ED-prefix opcode so
+            // the IM2 RETI/RETN/IM-mode decoder FSM (im2_control.vhd:158-209)
+            // advances S_0 → S_ED_T4 → ... — the FSM models per-fetched-byte
+            // T4 events and was previously starved when only the ED byte was
+            // delivered.
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
+            if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
 
             // Advance PC past ED + ext byte; execute_z80n reads any operands
             z80.pc.w = (pc + 2) & 0xFFFF;
@@ -477,6 +492,23 @@ int Z80Cpu::execute() {
             sync_fuse_from_regs(regs_);
             return t;
         }
+
+        // G87: non-Z80N ED instruction (RETI = ED 4D, RETN = ED 45, IM 0/1/2,
+        // LDIR/CPIR/INI/OUTI/etc., MUL/SBC HL,rr, etc. — handled by FUSE).
+        // Fire BOTH M1 callbacks BEFORE fuse_z80_execute_one() so the IM2
+        // decoder FSM gets the ED + ext byte sequence it needs to detect
+        // RETI/RETN and surface reti_seen / retn_seen pulses.
+        //
+        // Out of scope for this wave: DD/FD prefix and CB prefix paths still
+        // deliver only the prefix byte to on_m1_cycle. The im2 FSM has
+        // S_DDFD_T4 and S_CB_T4 states that would benefit from per-byte
+        // delivery here too, but the SKIP rows targeted by G87 are RETI/RETN
+        // only — DD/FD/CB tracking remains a follow-up.
+        if (on_m1_cycle) on_m1_cycle(pc, opcode);
+        if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
+        int cycles_ed = fuse_z80_execute_one();
+        sync_regs_from_fuse(regs_);
+        return (cycles_ed > 0) ? cycles_ed : 4;
     }
 
     // Magic breakpoint: DD 01 (CSpect convention)

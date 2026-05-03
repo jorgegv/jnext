@@ -269,42 +269,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     That FSM only fires reti_seen_this_cycle() on canonical ED 4D,
     //     matching VHDL.
     //
-    //   - DivMmc (automap hold/held clear, divmmc.vhd:126,139): pulse is
-    //     fired on canonical ED 45 PLUS the 6 undocumented Z80 RETN
-    //     aliases (0x55/5D/65/6D/75/7D). This is a documented
-    //     divergence from VHDL — see TODO below.
+    //   - DivMmc (automap hold/held clear, divmmc.vhd:126,139): driven
+    //     from im2_'s retn_seen_pulse_ — fires only on canonical ED 45
+    //     (VHDL-faithful, im2_control.vhd:236).
     //
-    // KNOWN DIVERGENCE FROM VHDL — band-aid for NextZXOS boot regression.
-    //   VHDL im2_control.vhd:137 only fires o_retn_seen on canonical 0x45.
-    //   Our pre-99415ff code over-fired on aliases, and the alias firing
-    //   turns out to be load-bearing for tbblue.fw boot (bisected to
-    //   99415ff which restored VHDL-faithful behaviour and broke boot —
-    //   firmware uses ED 5D ×56 and ED 65 ×1 in coincidental code, never
-    //   canonical ED 45, so our DivMmc::on_retn never fires under the
-    //   strict rule).
+    // G87 (2026-05-03): Z80Cpu::execute() now delivers BOTH bytes of an
+    //   ED-prefix opcode to on_m1_cycle (Z80N + non-Z80N paths in
+    //   z80_cpu.cpp), so Im2Controller::advance_decoder() now correctly
+    //   transitions S_0 → S_ED_T4 → {S_ED4D_T4 | S_ED45_T4} and surfaces
+    //   reti_seen_pulse_ / retn_seen_pulse_. The old prev_ed band-aid
+    //   (which fired divmmc_.on_retn() whenever the byte AFTER any ED
+    //   instruction matched 0x45/55/5D/65/6D/75/7D — i.e. false-fired on
+    //   any LD r,L instruction following an ED block) has been retired.
     //
-    //   Most likely the *real* fix is to model the VHDL "delayed-off"
-    //   entry-point clear path (divmmc.vhd:131:
-    //   `automap_held and not (i_automap_active and i_automap_delayed_off)`)
-    //   which is how real Next firmware exits DivMMC ROM. Our DivMmc
-    //   does not yet honour that clear path completely, so we keep the
-    //   alias-firing band-aid until that lands.
-    //
-    //   Investigate + remove this divergence: see
-    //   doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md.
-    cpu_.on_m1_cycle = [this, prev_ed = false](uint16_t pc, uint8_t opcode) mutable {
+    //   Legacy alias bytes 0x55/5D/65/6D/75/7D are intentionally NOT
+    //   handled: VHDL im2_control.vhd:236 matches only canonical 0x45 for
+    //   o_retn_seen. The pre-G87 alias-firing was undocumented Z80 lore;
+    //   z80 hardware does treat these as RETN-equivalent in execution but
+    //   the ZX Next VHDL only reacts to the canonical encoding for the
+    //   divmmc/mmc/nmi-shadow signals. If a regression surfaces in
+    //   tbblue.fw boot or a divmmc test, revisit this decision (the
+    //   proper fix would be to widen im2_control.vhd:236 — see
+    //   doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md for context).
+    cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
         im2_.on_m1_cycle(pc, opcode);
         if (im2_.reti_seen_this_cycle()) {
             im2_.on_reti();
         }
-        const bool retn_or_alias = prev_ed && (
-               opcode == 0x45 || opcode == 0x55 || opcode == 0x5D
-            || opcode == 0x65 || opcode == 0x6D || opcode == 0x75
-            || opcode == 0x7D);
-        prev_ed = (opcode == 0xED);
-        if (retn_or_alias) {
-            divmmc_.on_retn();
+        if (im2_.retn_seen_this_cycle()) {
+            im2_.on_retn();
+            divmmc_.on_retn();   // VHDL divmmc.vhd:108,126,139
         }
+    };
+
+    // G88: latch NR 0xC2 (PC LSB) / NR 0xC3 (PC MSB) from the NMI return
+    // address at NMI service time. Mirrors VHDL zxnext.vhd:2050-2085 +
+    // 6232-6236 (Z80N_command_s = NMIACK_LSB/MSB & cpu_wr_n='0'). The CPU
+    // hands us the post-HALT-fix PC that will be pushed to stack.
+    cpu_.on_nmi_servicing = [this](uint16_t saved_pc) {
+        nextreg_.set_nmi_return_address(saved_pc);
     };
 
     // Z80 IntAck vector fetch callback — when the Z80 enters an interrupt

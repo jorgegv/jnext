@@ -168,6 +168,17 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     }
 }
 
+// G88: NMI return-address shadow latch.
+// VHDL zxnext.vhd:2050-2085, 6232-6236 — at the NMIACK_LSB cycle the CPU pushes
+// PCL to the stack and the same byte is latched into nr_c2_retn_address_lsb;
+// at NMIACK_MSB the same happens for PCH → nr_c3_retn_address_msb. Both regs
+// are read-only via the 0x243B/0x253B path (no software write handler), so we
+// write directly into regs_[] rather than going through NextReg::write().
+void NextReg::set_nmi_return_address(uint16_t pc) {
+    regs_[0xC2] = static_cast<uint8_t>(pc & 0xFF);
+    regs_[0xC3] = static_cast<uint8_t>((pc >> 8) & 0xFF);
+}
+
 void NextReg::set_write_handler(uint8_t reg, std::function<uint8_t(uint8_t)> fn) {
     write_handlers_[reg] = std::move(fn);
 }
