@@ -776,10 +776,17 @@ static void test_copper_arbitration() {
 static void test_write_only_read_default() {
     set_group("WO");
 
-    skip("WO-01", "NR 0x04 leaks last-written byte on read (see G149)");
-    skip("WO-02", "NR 0x29 leaks last-written byte on read (see G149)");
-    skip("WO-03", "NR 0x60 leaks last-written byte on read (see G149)");
-    skip("WO-04", "NR 0x35 leaks last-written byte on read (see G149)");
+    // RE-HOME WO-01 → nextreg_integration_test.cpp WO-Integration / WO-INT-04 (G149).
+    // RE-HOME WO-02 → nextreg_integration_test.cpp WO-Integration / WO-INT-29 (G149).
+    // RE-HOME WO-03 → nextreg_integration_test.cpp WO-Integration / WO-INT-60 (G149).
+    // RE-HOME WO-04 → nextreg_integration_test.cpp WO-Integration / WO-INT-35 (G149).
+    //
+    // Bare NextReg has no Emulator-registered write_handlers, so the
+    // "return 0 from write_handler → regs_[reg] stores 0 → read returns 0"
+    // canonicalisation is unreachable at unit tier. The G149 fix lives in
+    // src/core/emulator.cpp (NR 0x04/0x29/0x35/0x60 handlers return 0); the
+    // observable behaviour ("write 0xAA, read 0x00") is exercised at the
+    // integration tier where a fully-wired Emulator is constructed.
 }
 
 // ── Composed-Read Divergence (G56) — 24 NR superset ─────────────────
