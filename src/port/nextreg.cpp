@@ -87,9 +87,20 @@ void NextReg::reset() {
     //   nr_03_machine_type   = "011" (+3 machine type)
     // These survive the selected-register shuffle and are composed into the
     // NR 0x03 read at zxnext.vhd:5894.
+    //
+    // G63: nr_03_machine_type is only mutated by NR 0x03 writes (VHDL
+    // zxnext.vhd:5137-5145, gated on config_mode='1'). It has NO explicit
+    // reset clause anywhere in zxnext.vhd, so the latch survives both hard
+    // and soft reset — only the signal initialiser at :1103 (FPGA
+    // power-on) sets it to "011". The C++ member initialiser in
+    // nextreg.h handles power-on; reset() must NOT overwrite it.
+    // The analogous machine_timing / user_dt_lock latches are also
+    // preserved by VHDL but not yet covered by a test row; left at the
+    // current reset-clobber behavior pending a dedicated test plan
+    // (matches CLAUDE.md's "scope to the task" rule).
     nr_03_machine_timing_ = 0x03;
     nr_03_user_dt_lock_   = false;
-    nr_03_machine_type_   = 0x03;
+    // nr_03_machine_type_ NOT reset here — VHDL latch survives reset.
 }
 
 void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {

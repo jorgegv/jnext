@@ -1558,13 +1558,52 @@ static void test_cfg_integration(Emulator& emu) {
               std::string("config_mode after = ") + (cleared ? "0" : "1"));
     }
 
-    // CFG-09-INT — G63: NR 0x03 machine-type latch (zxnext.vhd:5137)
-    // separate from regs_[0x03]; jnext NextReg::reset() zeroes
-    // regs_[0x03], losing machine-type read-back. Subset of G56
-    // (per-NR shadow-store systemic). Sited at integration tier where
-    // the write_handler runs.
-    skip("CFG-09-INT",
-         "NR 0x03 machine-type latch read-back lost on reset (see G63)");
+    // CFG-09-INT — G63: NR 0x03 machine-type latch survives soft reset.
+    //
+    // VHDL zxnext.vhd:1103 — `nr_03_machine_type` has signal initialiser
+    // "011" (FPGA power-on default). Mutations only at :5137-5145 (NR 0x03
+    // write, gated on config_mode='1'). NO explicit reset clause anywhere
+    // in zxnext.vhd, so the latch survives both hard and soft reset. The
+    // NR 0x03 read at :5894 composes machine_type into bits[2:0].
+    //
+    // Pre-G63 jnext clobbered nr_03_machine_type_ to 0x03 in every
+    // NextReg::reset() call — wrong per VHDL. Fixed by removing the
+    // unconditional reset assignment; member initialiser handles
+    // power-on. (See src/port/nextreg.cpp `reset()` G63 comment.)
+    //
+    // Sequence:
+    //   1. Re-enter config_mode (NR 0x03 = 0x07 → bits[2:0]=111).
+    //   2. Write NR 0x03 = 0x02 → commits machine_type = 010 (ZX128) AND
+    //      clears config_mode (bits[2:0]=010 ≠ 000, ≠ 111).
+    //   3. Read NR 0x03; assert bits[2:0] = 010 — pre-soft-reset baseline.
+    //   4. Soft reset (NR 0x02 = 0x01). Per VHDL, nr_03_machine_type
+    //      latches.
+    //   5. Read NR 0x03; assert bits[2:0] still = 010 — preserved.
+    {
+        // Re-enter config_mode (idempotent — earlier subtests may have
+        // cleared it).
+        nr_write(emu, 0x03, 0x07);
+        // Commit machine_type = 010 (ZX128). Also clears config_mode.
+        nr_write(emu, 0x03, 0x02);
+        const uint8_t pre  = nr_read(emu, 0x03);
+        const uint8_t pre_mtype = pre & 0x07;
+
+        // Soft reset. Per VHDL nr_03_machine_type has no reset clause.
+        nr_write(emu, 0x02, 0x01);              // NR 0x02 b0 = RESET_SOFT
+        const uint8_t post = nr_read(emu, 0x03);
+        const uint8_t post_mtype = post & 0x07;
+
+        const bool ok = (pre_mtype == 0x02) && (post_mtype == 0x02);
+        char detail[128];
+        std::snprintf(detail, sizeof(detail),
+                      "pre-soft-reset NR03=0x%02X (machine_type=%u); "
+                      "post-soft-reset NR03=0x%02X (machine_type=%u)",
+                      pre, pre_mtype, post, post_mtype);
+        check("CFG-09-INT",
+              "NR 0x03 machine-type latch survives soft reset "
+              "[zxnext.vhd:1103, :5137-5145, :5894 — no reset clause]",
+              ok, detail);
+    }
 }
 
 // ── N8E RAM-gate: NR 0x8E bit 3 gates MMU6/7 rebuild ─────────────────
