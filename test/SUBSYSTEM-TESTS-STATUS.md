@@ -33,13 +33,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Contention            |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |       87 |       83 |      0 |       4 |     95% | 🟡 Task 7r2: G45 EXPBUS-AND-01..04 added. |
 | Audio (AY+DAC+Beeper) |      141 |      132 |      0 |       9 |     93% | 🟡 Task 7r2: G29/G30/G31 (MX-30 + AY-30..34 + SD-09). |
-| Audio (NextREG)       |       33 |       25 |      0 |       8 |     75% | 🟡 Task 7r2: G73 NR-43 mixer-gate added. |
+| Audio (NextREG)       |       33 |       29 |      0 |       4 |     87% | 🟡 Task 8 wave 1: G110 mixer exc_i + G111 DAC silence on disable + G112 NR 0x2C/0x2D/0x2E reads. G113+G73 wave 2 pending. |
 | Audio (port dispatch) |       21 |       16 |      0 |       5 |     76% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | DMA                   |      152 |      150 |      0 |       2 |     98% | 🟡 Unchanged (Task 7 round 1 baseline). |
 | Tilemap               |       69 |       69 |      0 |       0 |    100% | 🟢 Task 7r2: G06 TM-160..164 mode-flip rows added. |
 | NMI Source Pipeline   |       56 |       43 |      0 |      13 |     76% | 🟡 Task 8 W1+W2: G153/G162/G152 closed; Z80-04 RE-HOMED to CTC plan (G88). |
 | NMI (integration)     |        9 |        5 |      0 |       4 |     55% | 🟡 Unchanged (Task 7 round 1 baseline). |
-| **Total**             | **3812** | **3706** |  **0** | **106** | **97%** | 🟡  |
+| **Total**             | **3812** | **3710** |  **0** | **102** | **97%** | 🟡  |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
 

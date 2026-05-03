@@ -978,6 +978,7 @@ where possible.
 - **Coverage today**: BP-13 / MX-22 verify the signal at composite level only.
 - **Dependencies**: const-ref pattern matching `Mixer::set_i2s_source()`.
 - **Effort**: L.
+- **Status (2026-05-03f)**: CLOSED. `Mixer::set_exc_i(bool)` setter added; `generate_sample()` zeroes `ear`/`mic`/`tape_ear` when `exc_i_=true`. Wired from NR 0x06 + NR 0x08 write_handler tails AND post-reset in `Emulator::init()` (after the underlying state members are reset to false). Test MX-23 closed (PASS). Branch `g110-mixer-exci` (`938e0da`), merged as `dc7136c`.
 
 ### G111. DAC channels not held at 0x80 when nr_08_dac_en=0
 - **What**: VHDL `audio/soundrive.vhd:69-78`+`zxnext.vhd:6436` (`reset_i => reset or not nr_08_dac_en`) — DAC channels latch to 0x80 while disabled. jnext `emulator.cpp:1674` only sets `dac_enabled_` flag; per-port handlers gate writes but never reset existing values.
@@ -986,6 +987,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: literal `dac_.reset()` on 1→0 transition.
 - **Effort**: L.
+- **Status (2026-05-03f)**: CLOSED. NR 0x08 write_handler captures pre-assignment `dac_enabled_`, calls `dac_.reset()` on `was_enabled && !new_enabled` (the 1→0 edge only). `Dac::reset()` already sets all 4 channels to 0x80 per `dac.cpp:6-12`. Test SD-19 closed (PASS). Branch `g111-dac-reset` (`2f380d0`), merged as `d3ba51b`.
 
 ### G112. NR 0x2C/0x2D/0x2E read-back exposes Pi I2S input
 - **What**: VHDL `zxnext.vhd:6006-6015` — reads return `pi_audio_L/R(9 downto 2)` and latch the low 2 bits into nr_2d_i2s_sample. jnext `emulator.cpp:1722-1739` wires only write handlers (DAC mirrors); reads return regs_[] noise.
@@ -994,6 +996,7 @@ where possible.
 - **Coverage today**: none.
 - **Dependencies**: distinct from G29 (source-side stub).
 - **Effort**: L.
+- **Status (2026-05-03f)**: CLOSED. New `Emulator::nr_2d_i2s_sample_` shadow latch (uint8_t, save-state appended, EOF-tolerant for older saves). NR 0x2C / NR 0x2E read handlers return `i2s_.left()/right() >> 2` and latch low 2 bits pre-shifted into the byte's [7:6]. NR 0x2D read returns the latch raw (already pre-shifted). Tests NR-33 + NR-34 closed (PASS). Branch `g112-nr2c-2d-2e-reads` (`280d4ce`), merged as `f7e9be1`.
 
 ### G113. NR 0xA2 Pi I2S control register completely unwired
 - **What**: VHDL `zxnext.vhd:1242,2283-2290,5564,6192` — NR 0xA2 stores 8 bits with bit fan-out (enL/enR/inout/muteL/muteR/ear). `grep` over `src/` returns no NR 0xA2 wiring.
