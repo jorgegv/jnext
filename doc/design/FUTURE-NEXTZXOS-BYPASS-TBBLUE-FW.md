@@ -116,8 +116,8 @@ These are NEXT-Z80-side only and purely cosmetic for bypass mode:
 Given the SD image is already mounted (since Task 9 Stage C) and the Next machine is configured, the bypass sequence in `Emulator::init()` (or a new `bypass_tbblue_firmware()` method called just before returning) is:
 
 1. **Parse menu.def / menu.ini from SD** (host-side) to pick the default entry (`settings[eSettingMenuDefault]`=0 by default → first entry).
-   - For v1 (Branch 2 below), accept `--next-rom enNextZX.rom`, `--divmmc-rom enNxtmmc.rom`, `--mf-rom enNextMF.rom` from CLI — files supplied on the host FS, bypassing the SD parse entirely.
-   - For v2 (Branch 4 below), locate them on the SD image via a host-side FAT32 reader and `/machines/next/` path (NEXT_DIRECTORY hardware.h:57).
+   - **2026-05-04 update:** Wave 0.2 of Task 8 landed `extract_sd_rom()` and Wave 0.3 made `--sd-card` mandatory (DivMMC, machine, Multiface ROMs all loaded from SD). The v1 host-FS-supplied flags (`--next-rom`, `--divmmc-rom`, `--mf-rom`) are obsolete: this future bypass branch will use `extract_sd_rom()` from the start (the v2 design below).
+   - For v2 (Branch 4 below), locate the ROMs on the SD image via the existing host-side FAT32 reader (`src/core/sd_rom_extractor.{h,cpp}`) and `/MACHINES/NEXT/` path.
 2. **Read the three ROM files** into host buffers.
 3. **Populate SRAM pages directly** using `ram_.page_ptr()` (`src/memory/ram.cpp`) — NO config_mode write path, NO Z80 involvement:
    - SRAM pages 0x00..0x07 ← 64 KB Spectrum/Next ROM (for mode=2). For 128K mode (menu=1): pages 0x00..0x03 ← 32 KB. For 48K (menu=0): pages 0x00..0x01 ← 16 KB. We already use `ram_.page_ptr()` for the ROM-in-SRAM seed at `src/core/emulator.cpp:1187-1192`, which we'd skip in bypass mode (since our manual copy supersedes it).
@@ -182,7 +182,7 @@ Alternative: instead of calling `soft_reset()`, skip it and leave PC=0 from `ini
 - Placed AFTER SRAM population (Branch 2) in `init()`.
 - Tests: unit tests asserting post-init NextREG state (regs cached correctly) and post-`soft_reset()` MMU slot pointers (slot 0 → `ram_.page_ptr(0)`).
 - VHDL citations: zxnext.vhd:5137 (machine-type commit gate), :5147-5151 (config_mode transitions), :5052-5057 (NR 0x82-0x84 soft-reset semantics), :3052 (rom_in_sram), :3044-3050 (config_mode routing).
-- Acceptance: running `./build/jnext --machine next --boot-rom ... --divmmc-rom ... --sd-card ... --bypass-tbblue-fw --bypass-next-rom enNextZX.rom --bypass-divmmc-rom enNxtmmc.rom --bypass-mf-rom enNextMF.rom --bypass-mode plus3 --delayed-screenshot ... --delayed-automatic-exit 15` produces a NextZXOS boot screen screenshot matching reference — AND a regression test comparing the screenshot to a checked-in reference.
+- Acceptance: running `./build/jnext --machine next --sd-card ... --bypass-tbblue-fw --bypass-mode plus3 --delayed-screenshot ... --delayed-automatic-exit 15` produces a NextZXOS boot screen screenshot matching reference — AND a regression test comparing the screenshot to a checked-in reference. (Note: Wave 0.3, 2026-05-04, removed `--boot-rom` / `--divmmc-rom` and the bypass branch will use `extract_sd_rom()` for the three NextZXOS ROMs, replacing the old per-file CLI flags.)
 
 ### Branch 4 (optional) — Host-side FAT32 reader for TBBLUE.FW + menu.def
 

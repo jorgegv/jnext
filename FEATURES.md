@@ -63,9 +63,9 @@
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
 
 ## CLI
-- `--machine`, `--roms-directory`, `--load`, `--headless`
+- `--machine`, `--load`, `--headless`
+- `--sd-card` (required; canonical source for all ROMs — DivMMC, NextZXOS, 48K/128K/+3, Multiface — at TBBlue paths under /MACHINES/NEXT/)
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
-- `--boot-rom`, `--divmmc-rom`, `--sd-card`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--rzx-play`, `--rzx-record`
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--log-level` per subsystem (cpu, video, audio, etc.)

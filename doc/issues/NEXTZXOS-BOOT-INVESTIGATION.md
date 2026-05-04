@@ -15,13 +15,16 @@ first was rejected to keep the narrative readable).
   FAT32 per FatFs. The original `roms/nextzxos-1gb.img` has 32 KB clusters /
   32 758 data clusters, below the FAT spec minimum of 65 525 → rejected by
   tbblue.fw's FatFs. See 2026-04-18 Stage C.)
-- **Typical boot command:**
+- **Typical boot command** (Wave 0.3, 2026-05-04, current):
   ```
   ./build/jnext --machine next \
-      --boot-rom roms/nextboot.rom \
-      --divmmc-rom roms/enNxtmmc.rom \
       --sd-card   roms/nextzxos-1gb-fat32fix.img
   ```
+  `nextboot.rom` is silicon-baked into the jnext binary (Wave 0.1);
+  `enNxtmmc.rom` is extracted from `/MACHINES/NEXT/enNxtmmc.rom` on the SD
+  image at `Emulator::init` time (Wave 0.3). Older sessions on this doc
+  predate that and reference `--boot-rom` / `--divmmc-rom` flags that
+  no longer exist; the substantive boot flow described below is unchanged.
 
 Related documents:
 

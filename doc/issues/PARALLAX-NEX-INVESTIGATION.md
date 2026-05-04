@@ -10,8 +10,11 @@ interrupts per frame via mid-frame `NR 0x23` rewrites. Fix shape designed
 `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.nex`).
 **CSpect launch script**: `/home/jorgegv/src/spectrum/CSpect3_1_0_0/parallax.sh`
 (`mono ./CSpect.exe -fullscreen -sound -w5 -60 -vsync -zxnext -mmc=./ parallax.nex`).
-**Current jnext launch**: `./build/jnext --load ../CSpect3_1_0_0/parallax.nex`
-(do NOT pass `--boot-rom` / `--divmmc-rom` — they hang the demo).
+**Current jnext launch**: `./build/jnext --load ../CSpect3_1_0_0/parallax.nex --sd-card roms/nextzxos-1gb-fat32fix.img`
+(Wave 0.3, 2026-05-04: `--boot-rom` / `--divmmc-rom` removed; `--sd-card`
+is mandatory at the CLI but the boot-ROM overlay auto-load is skipped
+when `--load` is supplied — the demo's reset vector at 0x0000-0x1FFF
+stays intact.)
 
 ## Original symptom (2026-04-25)
 

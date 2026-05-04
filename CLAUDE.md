@@ -127,6 +127,7 @@ The `--headless` option runs without display/audio for automated testing:
 
 ```bash
 ./build/jnext --headless --machine 48k \
+    --sd-card roms/nextzxos-1gb-fat32fix.img \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```
@@ -134,7 +135,7 @@ The `--headless` option runs without display/audio for automated testing:
 Key options:
 - `--machine TYPE` — `48k`, `128k`, `plus3`, `pentagon`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
-- `--roms-directory DIR` — ROM files location (default: `/usr/share/fuse`)
+- `--sd-card FILE` — required; SD image with ROMs at `/MACHINES/NEXT/`
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in seconds (default 10)
 - `--delayed-automatic-exit N` — exit emulator after N seconds
@@ -157,20 +158,36 @@ make -C demo tap
 
 ### ROMs
 
-ROMs are loaded from `/usr/share/fuse/` by default (FUSE emulator package):
-- 48K: `48.rom`
-- 128K: `128-0.rom`, `128-1.rom`
-- +3: `plus3-0.rom` through `plus3-3.rom`
-- Pentagon: `128p-0.rom`, `128p-1.rom`
+Wave 0.3 (Task 8 Multiface plan, 2026-05-04) made the SD-card image the
+canonical source for **all** ROMs jnext needs at runtime, mirroring real
+ZX Spectrum Next hardware. There are two parts:
 
-Override with `--roms-directory DIR`.
+1. **FPGA boot ROM (`nextboot.rom`, 8 KB)** is silicon-baked: embedded
+   into the jnext binary at link time via `objcopy --input-target=binary`
+   in `src/core/CMakeLists.txt`. No CLI flag, no SD lookup. Mirrors the
+   on-FPGA flash IPL of real Next hardware.
+
+2. **All other ROMs** are extracted from the user-supplied SD image
+   (`--sd-card`, mandatory) at canonical TBBlue paths via the host-side
+   FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`:
+   - `/MACHINES/NEXT/48.rom` (16 KB) — 48K BASIC
+   - `/MACHINES/NEXT/128.rom` (32 KB combined) — 128K BASIC (split into 2 banks)
+   - `/MACHINES/NEXT/plus3.rom` (64 KB combined) — +3 BASIC (split into 4 banks)
+   - `/MACHINES/NEXT/enNxtmmc.rom` (8 KB) — DivMMC firmware
+   - `/MACHINES/NEXT/enNextMf.rom` (8 KB) — Multiface firmware (Wave 1)
+
+   Pentagon: TBBlue ships no distinct Pentagon ROMs, so jnext substitutes
+   `/MACHINES/NEXT/128.rom` (mirrors the previous `128p-0/-1` -> `128-0/-1`
+   disk-loader fallback).
+
+The runtime SPI/SD path (`src/peripheral/sd_card.cpp`) is independent
+from the host-side extractor — it serves Z80 software at runtime via
+block-level access. Wave 1 adds a Multiface ROM read of the same SD
+image at init time.
 
 ### ZX Spectrum Next boot assets
 
-For booting NextZXOS / tbblue firmware, three files are needed:
-- `roms/nextboot.rom` — 8 KB FPGA bootloader (overlays at 0x0000-0x1FFF).
-- `roms/enNxtmmc.rom` — 8 KB DivMMC ROM (esxdos-compat FS driver).
-- A NextZXOS SD-card image mounted via `--sd-card`.
+The only required asset is a NextZXOS SD image mounted via `--sd-card`.
 
 **Canonical NextZXOS test image: `roms/nextzxos-1gb-fat32fix.img`.**
 The original `roms/nextzxos-1gb.img` uses 32 KB clusters on a 1 GB
@@ -186,7 +203,5 @@ boot invocation:
 
 ```bash
 ./build/jnext --machine next \
-    --boot-rom roms/nextboot.rom \
-    --divmmc-rom roms/enNxtmmc.rom \
-    --sd-card  roms/nextzxos-1gb-fat32fix.img
+    --sd-card roms/nextzxos-1gb-fat32fix.img
 ```
