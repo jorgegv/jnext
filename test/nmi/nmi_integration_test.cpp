@@ -206,7 +206,8 @@ static void test_int_rows() {
     {
         Emulator emu;
         fresh_cpu_at_c000(emu);
-        emu.divmmc().set_enabled(true);                       // port_io+NR 0x0A
+        emu.divmmc().set_enabled(true);                       // VHDL port_divmmc_io_en := '1'
+        emu.divmmc().set_nr_0a_4_enable(true);                // simulate firmware NR 0x0A bit 4 set
         emu.divmmc().set_entry_points_1(0xCD | 0x02);         // NR BB bit 1 = 1
         emu.nmi_source().set_divmmc_enable(true);             // NR 06 bit 4 = 1
         emu.nmi_source().strobe_divmmc_button();
@@ -249,6 +250,7 @@ static void test_int_rows() {
         Emulator emu;
         fresh_cpu_at_c000(emu);
         emu.divmmc().set_enabled(true);
+        emu.divmmc().set_nr_0a_4_enable(true);                // simulate firmware NR 0x0A bit 4 set
         emu.divmmc().set_entry_points_1(0xCD | 0x02);
         emu.nmi_source().set_divmmc_enable(true);
         emu.nmi_source().strobe_divmmc_button();

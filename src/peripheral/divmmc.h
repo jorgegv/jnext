@@ -115,12 +115,14 @@ public:
 
     // ── Enable/disable ────────────────────────────────────────────
 
-    /// Enable or disable the entire DivMMC subsystem (legacy, single lever).
-    /// VHDL models enable as (port_divmmc_io_en AND nr_0a_divmmc_automap_en);
-    /// this convenience setter collapses both independent flags onto a single
-    /// boolean, preserving legacy callers.  Any enabled→disabled transition
-    /// also clears automap_active_ (mirrors VHDL i_automap_reset path,
-    /// divmmc.vhd:126).
+    /// Flip the VHDL `port_divmmc_io_en` lever (zxnext.vhd:2412 = bit 8 of
+    /// internal_port_enable). Production code uses this from
+    /// Emulator::init when --divmmc-rom is supplied, matching VHDL hardware
+    /// reset where port_io defaults '1' but `nr_0a_divmmc_automap_en` stays
+    /// '0' until firmware writes NR 0x0A bit 4. Tests that need automap
+    /// fully active must ALSO call set_nr_0a_4_enable(true) (the firmware
+    /// equivalent). Any enabled→disabled transition still clears
+    /// automap_active_ (VHDL i_automap_reset path, divmmc.vhd:126).
     void set_enabled(bool en);
     bool is_enabled() const { return enabled_; }
 

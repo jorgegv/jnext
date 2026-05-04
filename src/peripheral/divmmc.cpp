@@ -120,9 +120,23 @@ void DivMmc::apply_enabled_transition_(bool prev_enabled) {
 }
 
 void DivMmc::set_enabled(bool en) {
+    // VHDL-faithful: at hardware reset, port_divmmc_io_en defaults to '1'
+    // (internal_port_enable defaults to all-1s, zxnext.vhd:1226-1229) but
+    // nr_0a_divmmc_automap_en defaults to '0' (zxnext.vhd:1126). The
+    // combined enable
+    //   port_divmmc_io_en AND nr_0a_divmmc_automap_en
+    // is therefore 0 at reset — automap is OFF until firmware writes
+    // NR 0x0A bit 4 explicitly. This setter flips only the port-IO gate
+    // (the "DivMMC hardware present" lever); callers that also want the
+    // automap gate on (e.g. unit tests, restored save-states) must call
+    // set_nr_0a_4_enable(true) explicitly.
+    //
+    // Pre-2026-05-04 this used to flip both gates, which made cold-boot
+    // automap fire at PC=0x0000 (RST 0 entry per NR 0xB8 default 0x83)
+    // and overlay enNxtmmc.rom on slot 0 throughout the boot ROM phase
+    // — masking only by the now-retired G87 RETN-alias band-aid.
     bool prev = enabled_;
     port_io_enable_ = en;
-    nr_0a_4_enable_ = en;
     apply_enabled_transition_(prev);
 }
 
@@ -413,9 +427,14 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
 
 void DivMmc::save_state(StateWriter& w) const
 {
-    // Persist the composite enable flag.  The individual port_io_enable_
-    // and nr_0a_4_enable_ levers are reconstructed on load from enabled_
-    // (see load_state below) since pre-NA-03 snapshots do not carry them.
+    // Note: snapshot schema breaks back-compat with pre-2026-05-04 saves —
+    // the two split enable levers (port_io_enable_, nr_0a_4_enable_) are
+    // appended at the end of the stream (see below). This matches the
+    // existing pattern for prior schema additions (button_nmi_,
+    // layer2_map_read_, retn_pending_clear_) — see comments below. The
+    // composite enabled_ byte stays at the front so the field order is
+    // unchanged for the first half of the stream; the post-ram appendage
+    // is the new state.
     w.write_bool(enabled_);
     w.write_bool(conmem_);
     w.write_bool(mapram_);
@@ -439,6 +458,16 @@ void DivMmc::save_state(StateWriter& w) const
     // backward compat with pre-G46(a) snapshots by design.
     w.write_bool(retn_pending_clear_);
     w.write_bytes(ram_.data(), ram_.size());
+    // VHDL-split enable levers (port_divmmc_io_en, nr_0a_divmmc_automap_en).
+    // Saved independently so post-fix snapshots survive a load even when
+    // they hold port_io=1 / nr_0a_4=0 (the firmware-reset shape that yields
+    // composite enabled_=0). Same hard-versioned compat caveat as the
+    // earlier additions above: pre-2026-05-04 snapshots are NOT readable
+    // with this schema — `r.eof()` cannot subset the stream because
+    // load_state reads from a single shared StateReader (the rest of the
+    // Emulator follows immediately, see Emulator::load_state).
+    w.write_bool(port_io_enable_);
+    w.write_bool(nr_0a_4_enable_);
 }
 
 void DivMmc::load_state(StateReader& r)
@@ -471,4 +500,10 @@ void DivMmc::load_state(StateReader& r)
     // G46(a) — RETN delayed-clear pending flag. Same compat caveat.
     retn_pending_clear_ = r.read_bool();
     r.read_bytes(ram_.data(), ram_.size());
+    // VHDL-split enable levers (post-2026-05-04). Same hard-versioned compat
+    // caveat as the additions above — pre-fix snapshots cannot be loaded
+    // with this schema. The composite-derived defaults at lines 471-472 are
+    // overwritten unconditionally with the persisted values.
+    port_io_enable_ = r.read_bool();
+    nr_0a_4_enable_ = r.read_bool();
 }
