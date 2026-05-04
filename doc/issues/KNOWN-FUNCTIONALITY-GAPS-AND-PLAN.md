@@ -360,13 +360,18 @@ where possible.
   pattern cap. Niche.
 - **Effort**: M.
 
-### G16. Beast.nex residual: NEX-loader bank-5 collision
-- **What**: Beast main render RESOLVED via shadow-screen fix; small
-  attribute leak remains in some paths.
+### G16. Beast.nex residual: NEX-loader bank-5 collision [closed]
+- **Status: CLOSED 2026-05-04** (Tier B). `NexLoader::zero_bank5_screen_pages()`
+  helper inline-in-header pre-zeroes the full 16 KB of pages 10+11 at the
+  start of `apply()` before any SCREEN_LAYER2/ULA/LORES/HIRES ingest.
+  ULA-only NEX screens (6912 B) no longer leave the upper 9472 B of bank 5
+  with stale RAM contents. BOOT-NEX-07 in `mmu_test` flipped from skip → PASS
+  with a discriminative test (pre-pollute with 0xCC, write 0xAA payload over
+  6912 B, assert residual=0x00). beast-demo regression PASS at 0 pixel diff
+  (no reference regen). Aggregate +1 PASS / -1 SKIP.
+- **What was originally observed**: Beast main render RESOLVED via shadow-screen fix; small
+  attribute leak remained in some paths consuming bank 5 past offset 0x1AFF.
 - **Source ref**: `BEAST-NEX-INVESTIGATION.md` §"Verdict".
-- **Proposed**: NEX loader option to pre-zero pages 10/11 OR audit
-  ULA clean-transparency path under specific NR 0x68 / NR 0x4A.
-- **Effort**: L.
 
 ### G17. Parallax.nex "two-copies" mystery (post-LoRes)
 - **What**: After G01-G02 land, side-by-side duplication may persist
@@ -784,13 +789,18 @@ where possible.
   / uncompressed pages, full register restore + 128K paging.
 - **Effort**: M.
 
-### G35. Snapshot save (.sna out / .szx out / .nex out) wired
-- **What**: `SnaSaver` exists but not wired to GUI/CLI. `SzxSaver` /
-  `.nex` writer don't exist. Verified — no `SnaSaver` references in
-  `src/gui/`.
-- **Proposed**: File→Save Snapshot (Ctrl+Shift+S); add `SzxSaver`
-  mirroring `szx_loader.cpp`; optional `.nex` saver.
-- **Effort**: M.
+### G35. Snapshot save (.sna out / .szx out / .nex out) wired [partial]
+- **Status: PARTIAL 2026-05-04** (Tier B). `.sna` save WIRED to GUI:
+  File → Save S&napshot... (Ctrl+Shift+S) opens QFileDialog, calls
+  `SnaSaver::save(*emulator_)`, writes via QFile. Auto-appends `.sna` if
+  user omits it. Error dialogs on open-fail / short-write. BOOT-SNAPSAVE-01
+  + BOOT-SNAPSAVE-04 closed in `mmu_test` (closed via `// CLOSED 2026-05-04`
+  comment block per BOOT-FDC precedent — mmu_test intentionally avoids full
+  Emulator construction). **STILL OPEN**: `.szx` saver (BOOT-SNAPSAVE-02)
+  and `.nex` saver (BOOT-SNAPSAVE-03) — neither writer exists yet.
+- **Proposed (remainder)**: add `SzxSaver` mirroring `szx_loader.cpp`;
+  optional `.nex` saver. Both queued under Task 13b.
+- **Effort**: M (remainder).
 
 ### G36. TZX Direct-Recording (DeciLoad 0x15)
 - **What**: TZX 0x15 blocks with DeciLoad 12k8 (77 T-states/sample)
@@ -936,13 +946,26 @@ where possible.
   path lands.
 - **Effort**: L.
 
-### G48. Multiface peripheral (Task 8) + RETN-alias band-aid removal [merged]
-- **What**: Task 8 fully scoped, unstarted.
-  `src/peripheral/multiface.{h,cpp}` does not exist — verified.
+### G48. Multiface peripheral (Task 8) [closed]
+- **Status: CLOSED 2026-05-04** via Task 8 Wave 1 (5 mini-merges:
+  B1 core class + B2 port dispatch + B3 +3 readback mux + E MMU overlay
+  + F-gate DivMMC retn AND-NOT mf_is_active). All 7 MF-G48-* SKIPs in
+  `nmi_test` closed (-01 port table, -02/03/04 state machine, -05/07
+  +3 readback mux, -06 DivMMC retn gate). New `Multiface` class at
+  `src/peripheral/multiface.{h,cpp}` mirrors VHDL `multiface.vhd` 1-197
+  end-to-end: 4 internal flip-flops (nmi_active / invisible / mf_enable /
+  port_io_dly), mode dispatch (MF1/128/+3 from NR 0x0A b7:6), 8K ROM (loaded
+  from SD `/MACHINES/NEXT/enNextMf.rom`) + 8K RAM. NmiSource live MF feedback
+  replaces the always-false stubs. F9 hotkey + new "NMI" toolbar button drive
+  `multiface_.button_press()` alongside `nmi_source_.strobe_mf_button()`.
+  multiface_test 48/48/0/0 (MF-CORE 12 + MF-PORT 16 + MF-MUX 10 + MF-OVL 10).
+  Regression 33/0/0; firmware boot MD5 unchanged. Manual F9-press smoke test
+  (paging in MF menu during NextZXOS boot) deferred — unit-test live-wiring
+  coverage (MF-INT-01/02 + MF-OVL-09 priority test) compensates.
+- **What was originally observed**: Task 8 fully scoped, unstarted.
+  `src/peripheral/multiface.{h,cpp}` did not exist.
   `NmiSource::set_mf_is_active(false)` / `set_mf_nmi_hold(false)`
-  are stubs (`nmi_source.h:150-154`). The RETN-alias band-aid in
-  G46(a) co-depends on landing the proper DivMMC delayed-off path,
-  which is co-scheduled with Multiface.
+  were stubs.
 - **Blocks**: 8 DivMMC NM-class rows + Copper ARB-06 + Port-Dispatch
   NR82-02; `enNextMf.rom` is on SD but never paged in.
 - **User impact**: no NMI freeze/cheat menu via F5 or NR 0x02
