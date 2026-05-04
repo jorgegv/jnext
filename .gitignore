@@ -12,6 +12,6 @@ demo/*.sym
 demo/*.o
 demo/*.reloc
 
-test/img/*-diff.png
+test/**/*-diff.png
 
 .claude/*.lock
