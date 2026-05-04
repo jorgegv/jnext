@@ -112,6 +112,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
+    multiface_.reset(/*hard=*/true);
     nmi_source_.reset();
     // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
     nr_d8_io_trap_fdc_en_ = false;
@@ -269,6 +270,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.check_automap(pc, true);
         // m1 / mreq are both true during the M1 prefetch M-cycle.
         nmi_source_.observe_m1_fetch(pc, true, true);
+        // Wave 1 B1 — feed the Multiface FSM. VHDL `cpu_a_0066_i`
+        // (multiface.vhd:58) and `cpu_m1_n_i='0' AND cpu_mreq_n_i='0'`
+        // (lines 169, 176) are sampled during the same M1 fetch the
+        // DivMmc check_automap above observes. The FSM updates
+        // `mf_enable` on this edge and surfaces fetch_66 via
+        // mf_enable_eff for the same cycle.
+        multiface_.on_m1(pc, /*mreq_low=*/true);
     };
 
     // Install M1-cycle callback. RETI/RETN decoding splits along two
@@ -324,6 +332,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // sees its trigger on the ED 45 ext-byte M1 and applies the
         // clear on the very next M1.
         divmmc_.on_m1_retn_delay(im2_.retn_seen_this_cycle());
+
+        // Wave 1 B1 — Multiface RETN clear. VHDL multiface.vhd:144,178 —
+        // cpu_retn_seen_i='1' clears nmi_active and mf_enable in the same
+        // clocked process. We feed the same Im2Controller pulse the DivMmc
+        // delay-clear path uses; unlike DivMmc we apply the clear
+        // immediately (no one-cycle delay register, since multiface.vhd
+        // doesn't have a held/hold staging shadow).
+        if (im2_.retn_seen_this_cycle()) {
+            multiface_.on_retn_seen();
+        }
     };
 
     // G88: latch NR 0xC2 (PC LSB) / NR 0xC3 (PC MSB) from the NMI return
@@ -609,8 +627,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
         if (nextreg_.nr_03_config_mode()) {
             spi_.set_sd_swap((v & 0x20) != 0);
-            // bits 7:6 (mf_type) — Multiface model not wired here yet (G132);
-            // gating modeled so writes outside config_mode are inert as in VHDL.
+            // Wave 1 B1 — bits 7:6 forward as `mf_mode_i` to the Multiface
+            // (multiface.vhd:67-68, zxnext.vhd:5191). Set inside the
+            // config_mode gate to mirror VHDL: the FF that stores
+            // `nr_0a_mf_type` only commits when nr_03_config_mode='1'.
+            multiface_.set_mode(static_cast<uint8_t>((v >> 6) & 0x03));
         }
         // G123: bit 4 toggles DivMMC automap-enable (independent lever from
         // NR 0x83 bit 0). VHDL zxnext.vhd:1126,4112,5196.
@@ -1553,6 +1574,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // G124.
     nextreg_.set_write_handler(0x83, [this](uint8_t v) -> uint8_t {
         divmmc_.set_port_io_enable((v & 0x01) != 0);
+        // Wave 1 B1 — bit 1 = port_multiface_io_en (VHDL zxnext.vhd:2415-2416,
+        // `internal_port_enable(9)`), gating the Multiface (multiface.vhd:64
+        // `enable_i`). When low, all four FFs are held in reset.
+        multiface_.set_enabled((v & 0x02) != 0);
         return v;
     });
 
@@ -3391,6 +3416,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             Log::emulator()->warn("could not extract DivMMC ROM from SD image '{}' (path '{}') — DivMMC disabled",
                                   cfg.sd_card_image, divmmc_sd_path);
         }
+
+        // Wave 1 B1 (Task 8 Multiface plan, 2026-05-04): the Multiface ROM
+        // (`enNextMf.rom`, 8 KB) lives on the same SD image. Same pattern
+        // as DivMMC above — host-side FAT32 read at init, runtime SPI/SD
+        // path is independent. `set_enabled(true)` is NOT called here:
+        // the Multiface enable lever is `port_multiface_io_en` (NR 0x83
+        // bit 1, defaults '0' per VHDL zxnext.vhd:1226-1229 in TBBlue
+        // configurations), which firmware drives via NextReg writes once
+        // the user enables the Multiface from the on-screen menu.
+        std::vector<uint8_t> mf_rom_bytes;
+        const char* mf_sd_path = "/MACHINES/NEXT/enNextMf.rom";
+        if (extract_sd_rom(cfg.sd_card_image, mf_sd_path, mf_rom_bytes)) {
+            if (multiface_.load_rom_bytes(mf_rom_bytes.data(), mf_rom_bytes.size())) {
+                Log::emulator()->info("Multiface ROM loaded from SD '{}' ({} bytes)",
+                                      mf_sd_path, mf_rom_bytes.size());
+            } else {
+                Log::emulator()->warn("could not install Multiface ROM from SD '{}'", mf_sd_path);
+            }
+        } else {
+            Log::emulator()->info("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
+                                  cfg.sd_card_image, mf_sd_path);
+        }
     }
 
     // SD card image mounting
@@ -4462,6 +4509,14 @@ void Emulator::on_hotkey_f9_mf_nmi()
     // unconditionally; the gate is honoured downstream in
     // `nmi_assert_mf()`.
     nmi_source_.strobe_mf_button();
+
+    // Wave 1 B1 — also drive the Multiface FSM directly. VHDL
+    // zxnext.vhd:4274-4310 instantiates multiface_mod with `button_i`
+    // pulled from the same source. button_press() takes effect only
+    // when NMI_ACTIVE='0' (multiface.vhd:135 `button_pulse <= button_i
+    // AND NOT nmi_active`); subsequent presses while a Multiface NMI
+    // is in flight are no-ops, exactly as on real hardware.
+    multiface_.button_press();
 }
 
 void Emulator::on_hotkey_f10_divmmc_nmi()
@@ -4975,6 +5030,13 @@ void Emulator::save_state(StateWriter& w) const
     // G112 / G113 slots above). Older snapshots leave the field at its
     // reset default of 0, matching VHDL zxnext.vhd:5080.
     w.write_u8(nr_a0_pi_peripheral_en_);
+
+    // Wave 1 B1 — Multiface subsystem state (FFs + RAM, ~16 bytes header
+    // + 8 KB RAM). Append-only: writes a sentinel `1` byte first so the
+    // load path can detect presence. Older snapshots leave Multiface at
+    // its constructor-init defaults (reset() called from constructor).
+    w.write_u8(0x01);
+    multiface_.save_state(w);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -5112,6 +5174,16 @@ void Emulator::load_state(StateReader& r)
     // snapshots fall through with nr_a0_pi_peripheral_en_ == 0, matching
     // the i2c_.reset() default of pi_i2c1_en_ = false.
     i2c_.set_pi_i2c1_en((nr_a0_pi_peripheral_en_ & 0x08) != 0);
+
+    // Wave 1 B1 — Multiface subsystem state. Sentinel byte gates the
+    // block so older snapshots fall through cleanly with the constructor-
+    // init defaults preserved.
+    if (!r.eof()) {
+        const uint8_t sentinel = r.read_u8();
+        if (sentinel == 0x01) {
+            multiface_.load_state(r);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

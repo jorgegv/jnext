@@ -46,6 +46,7 @@ BEGIN {
     L["UART + I2C/RTC"]        = "uart_test"
     L["UART (integration)"]    = "uart_integration_test"
     L["DivMMC + SPI"]          = "divmmc_test"
+    L["Multiface (core)"]      = "multiface_test"
     L["SD Card"]               = "sdcard_test"
     L["Sprites"]               = "sprites_test"
     L["Compositor"]            = "compositor_test"

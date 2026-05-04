@@ -23,6 +23,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |       94 |       94 |      0 |       0 |    100% | 🟢 Tier 6: G134 RX request-mask + G161 RTC 12h-mode PASS; G138 NR 0xA0 b3 PASS; G39 ESP-01..04 + G139 24LC256 → WONT. |
 | UART (integration)    |       16 |       16 |      0 |       0 |    100% | 🟢 Tier 6: G135 NR 0xA0 fan-out (NR_A0-01/02/03) + G134 INT-07 PASS rows added (re-homed from uart_test). |
 | DivMMC + SPI          |      111 |      111 |      0 |       0 |    100% | 🟢 G46(a) DM-RETN-PROPER-01/02 PASS (delayed-off automap_held clear via 1-M1 register on Im2 retn_seen); G136 SS-08 → WONT (SPI Flash CS out of scope). |
+| Multiface (core)      |       12 |       12 |      0 |       0 |    100% | 🟢 Wave 1 B1 (Task 8): MF-CORE-01..12 PASS (FFs + mode dispatch + port_io_dly + RETN + save/load); MF-G48-02/03/04 closed in nmi_test. |
 | SD Card               |       15 |       15 |      0 |       0 |    100% | 🟢 Task 8: 7 PASS (CMD13/16/23 handlers + stale CMD24/CMD1 + hot-plug) + 6 WONT (G40/G41/G159: no firmware client). |
 | Sprites               |      197 |      197 |      0 |       0 |    100% | 🟢 Task 7r2: G06/G13/G15 OVF + NR70 stubs added. |
 | Compositor            |      143 |      143 |      0 |       0 |    100% | 🟢 Task 8: G26 closed (UB-G26-01 RE-HOME → UTB-40/41; UB-G26-02 mode-110 L2-priority real test). |
