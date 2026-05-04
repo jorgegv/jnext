@@ -547,6 +547,20 @@ public:
     // port_7ffd_reg is the sole producer of i_ula_shadow_en).
     bool shadow_screen_en() const { return (port_7ffd_ & 0x08) != 0; }
 
+    // Bit-3 alias setter for port_7ffd_reg, used by the NR 0x69 write
+    // handler. VHDL zxnext.vhd:3658-3660 — `nr_69_we = '1'` fans
+    // nr_wr_dat(6) into `port_7ffd_reg(3)` regardless of the
+    // port_7ffd_locked gate (which only guards the full-byte cpu_do
+    // branch at :3650). Bit 3 is consumed solely by `port_7ffd_shadow`
+    // at :3768 and `i_ula_shadow_en` at :4453 — bank composition
+    // (port_7ffd_bank, :3763-3766) uses bits (2:0)/(7:6) and DFFD-fed
+    // bits (4:3)/(5)/(6), but NOT bit 3 — so no apply_legacy_paging_()
+    // rebuild is required when only this bit changes.
+    void set_port_7ffd_bit3(bool on) {
+        if (on) port_7ffd_ |= 0x08;
+        else    port_7ffd_ &= ~0x08;
+    }
+
     // Last +3 paging register value (needed by NR 0x8E/0x8F tests + debugger)
     uint8_t port_1ffd() const { return port_1ffd_; }
 
