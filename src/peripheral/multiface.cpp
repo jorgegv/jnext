@@ -77,6 +77,7 @@ void Multiface::set_mode(uint8_t mf_type)
     //   "11" -> mode_48 (= MF1)
     //   others ("01", "10") -> mode_128
     const uint8_t bits = mf_type & 0x03;
+    mf_type_  = bits;
     mode_p3_  = (bits == 0x00);
     mode_48_  = (bits == 0x03);
     mode_128_ = !(mode_p3_ || mode_48_);
@@ -373,4 +374,13 @@ void Multiface::load_state(StateReader& r)
     r.read_bytes(ram_.data(), ram_.size());
     fetch_66_live_ = false;
     mf_port_en_    = false;
+    // mf_type_ is reconstructed from the mode booleans: we serialise the
+    // booleans (Wave 1 B1 schema) and recover the 2-bit raw value here.
+    // mode_128 maps to "01" by convention (the lower of the two
+    // mode_128 codes); save state from a session running mf_type=10
+    // will lose the bit. Wave 1 B2 added mf_type_ for port dispatch and
+    // accepts this lossy serialisation rather than bumping the schema.
+    if (mode_p3_)       mf_type_ = 0x00;
+    else if (mode_48_)  mf_type_ = 0x03;
+    else                mf_type_ = 0x01;
 }

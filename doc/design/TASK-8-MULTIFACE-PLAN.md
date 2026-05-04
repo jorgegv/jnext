@@ -168,11 +168,25 @@ into `Multiface::load_rom`.
 Per Section 5 Branch B below, but scoped to internal state machine ONLY (no
 MMU overlay, no port dispatch, no readback mux). Closes MF-G48-01..04.
 
-### Mini-branch B2 — Port dispatch (per-mode 1F/9F/3F/BF)
+### Mini-branch B2 — Port dispatch (per-mode 1F/9F/3F/BF) — LANDED 2026-05-04
 
-VHDL `zxnext.vhd:2612-2616` per-mode address table. Re-registration of
-handlers when NR 0x0A `mf_type` changes (or single 16-bit handler with
-internal mode-decode). Tests cover MF1/MF128/MF3 port protocols.
+VHDL `zxnext.vhd:2612-2616` per-mode address table.
+
+Implementation: `PortDispatch::add_io_observer` (new side-effect-only
+hook in `src/port/port_dispatch.{h,cpp}`) — observers run unconditionally
+on every IN/OUT BEFORE handler dispatch, parallel to the most-specific-
+wins handler match. The MF observer in `Emulator::init()` decodes the
+two-bit `nr_0a_mf_type` field straight from VHDL's ternary cascade and
+dispatches to `Multiface::on_port_{enable,disable}_{rd,wr}`. This avoids
+duplicate handlers at LSB collisions with Kempston (0x1F read), DAC SD1
+(0x1F write), Profi DAC (0x3F write).
+
+Doc-comment carry-over: NR 0x83 b1 default rationale corrected at
+`emulator.cpp:3420-3439` (VHDL actually defaults the byte to all-ones,
+so b1 is high after reset; behaviour was correct, prose was inverted).
+
+Coverage: 16 new MF-PORT-* rows in `test/multiface/multiface_test.cpp`
+plus MF-G48-01 closure in `test/nmi/nmi_test.cpp`. All passing.
 
 ### Mini-branch B3 — MF+3 readback mux
 

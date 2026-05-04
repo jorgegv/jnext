@@ -33,6 +33,11 @@ static int mask_specificity(uint16_t mask) {
 // like Pentagon 0xDFFD where reads go to the AY handler per VHDL 2771).
 
 uint8_t PortDispatch::read(uint16_t port) const {
+    // IO observers run unconditionally before dispatch (Wave 1 B2 — MF
+    // port-strobe). Observers are side-effect-only; their return values
+    // never affect the dispatched read value.
+    for (const auto& obs : io_observers_) obs(port, /*is_read=*/true);
+
     // Collect all matching handlers sorted by specificity (most bits first).
     // In practice there are at most 2-3 matches; a simple scan is fine.
     const PortHandler* best = nullptr;
@@ -62,6 +67,7 @@ uint8_t PortDispatch::read(uint16_t port) const {
 
 void PortDispatch::write(uint16_t port, uint8_t val) {
     Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
+    for (const auto& obs : io_observers_) obs(port, /*is_read=*/false);
     const PortHandler* best = nullptr;
     int best_bits = -1;
     for (const auto& h : handlers_) {

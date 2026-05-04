@@ -169,9 +169,14 @@ add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 # Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
 # Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
 # tests (FFs, mode dispatch, port_io_dly edge detector, save/load round
-# trip) — links jnext_peripheral only.
+# trip) plus Wave 1 B2 (2026-05-04) MF-PORT-* rows that drive the real
+# Emulator port dispatcher — the latter pulls in jnext_core transitively,
+# so we link the full subsystem set (mirrors nmi_test's recipe).
 add_executable(multiface_test multiface/multiface_test.cpp)
-target_link_libraries(multiface_test PRIVATE jnext_peripheral)
+target_link_libraries(multiface_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(multiface_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME multiface_tests COMMAND multiface_test)
 

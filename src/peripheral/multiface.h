@@ -76,6 +76,12 @@ public:
     /// 0x0A high-nibble shifted right or just the 2-bit field.
     void set_mode(uint8_t mf_type);
 
+    /// Raw 2-bit `nr_0a_mf_type` value last set via set_mode(). Wave 1 B2
+    /// port-dispatch needs the per-bit value (not just the mode_p3/_128/_48
+    /// triple) because `mode_128` covers both `01` and `10`, which select
+    /// DIFFERENT enable/disable port LSBs per VHDL zxnext.vhd:2612-2613.
+    uint8_t mf_type() const { return mf_type_; }
+
     // ── Producer/consumer hooks ──────────────────────────────────────────
 
     /// One-shot button press. VHDL `button_pulse <= button_i AND NOT
@@ -197,6 +203,10 @@ private:
     bool mode_p3_  = false;
     bool mode_128_ = false;
     bool mode_48_  = false;
+
+    // Raw 2-bit nr_0a_mf_type last latched (mode_128 covers both `01` and
+    // `10`; the per-bit value is needed to disambiguate the port LSB).
+    uint8_t mf_type_ = 0x00;
 
     // Four flip-flops (multiface.vhd:81-99).
     bool nmi_active_ = false;   // line 92

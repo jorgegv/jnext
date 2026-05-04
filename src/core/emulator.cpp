@@ -242,10 +242,61 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Without this, reset() → init() would duplicate every handler, causing
     // double-fired writes (breaking auto-increment ports like sprites/palette).
     port_.clear_handlers();
+    port_.clear_io_observers();
 
     // Floating bus: unmatched port reads return ULA bus value in 48K/128K modes.
     port_.set_default_read([this](uint16_t) -> uint8_t {
         return floating_bus_read();
+    });
+
+    // ── Multiface port dispatch (Wave 1 B2 — TASK-8-MULTIFACE-PLAN.md) ──
+    //
+    // VHDL `multiface` decode runs in PARALLEL with the rest of the port
+    // matrix (zxnext.vhd:2610-2616) — the LSBs 0x1F / 0x3F / 0x9F / 0xBF
+    // also feed Kempston joystick (0x1F read), Profi/SD1 DAC (0x1F write,
+    // 0x3F write), and the floating-bus default. Our most-specific-wins
+    // dispatcher only invokes ONE handler per port; we therefore register
+    // the MF strobe as a side-effect-only observer that fires before
+    // handler dispatch and never affects the returned read value.
+    //
+    // Per-mode decode (zxnext.vhd:2612-2613, exhaustive table):
+    //   nr_0a_mf_type  mode      enable_io   disable_io
+    //     "00"         mode_p3    0x3F        0xBF
+    //     "01"         mode_128   0xBF        0x3F
+    //     "10"         mode_128   0x9F        0x1F
+    //     "11"         mode_48    0x9F        0x1F
+    //
+    // Both bits of `mf_type` must be inspected (mode_128 covers both `01`
+    // and `10` but with different LSBs). We use `multiface_.mf_type()`
+    // and the per-bit decode straight from VHDL.
+    //
+    // The whole dispatch is gated on `port_multiface_io_en` (NR 0x83 b1)
+    // via `multiface_.is_enabled()` — when disabled, the observer is a
+    // no-op (same as the VHDL `port_multiface_io_en = '1'` AND in line 2615).
+    port_.add_io_observer([this](uint16_t port, bool is_read) {
+        if (!multiface_.is_enabled()) return;
+        const uint8_t lsb = static_cast<uint8_t>(port & 0xFF);
+        if (lsb != 0x1F && lsb != 0x3F &&
+            lsb != 0x9F && lsb != 0xBF) {
+            return;  // not an MF-relevant LSB
+        }
+        const uint8_t t = multiface_.mf_type();
+        const bool t1 = (t & 0x02) != 0;
+        const bool t0 = (t & 0x01) != 0;
+        // Compute enable_io / disable_io for the active mode (VHDL
+        // ternary cascade at 2612-2613).
+        uint8_t enable_io  = t1 ? 0x9F : (t0 ? 0xBF : 0x3F);
+        uint8_t disable_io = t1 ? 0x1F : (t0 ? 0x3F : 0xBF);
+        const bool is_enable  = (lsb == enable_io);
+        const bool is_disable = (lsb == disable_io);
+        if (!is_enable && !is_disable) return;  // LSB not active for this mode
+        if (is_enable) {
+            if (is_read) multiface_.on_port_enable_rd(true);
+            else         multiface_.on_port_enable_wr(true);
+        } else {
+            if (is_read) multiface_.on_port_disable_rd(true);
+            else         multiface_.on_port_disable_wr(true);
+        }
     });
 
     // Memory contention flows through ContentionModel::contention_tick()
@@ -3422,9 +3473,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // as DivMMC above — host-side FAT32 read at init, runtime SPI/SD
         // path is independent. `set_enabled(true)` is NOT called here:
         // the Multiface enable lever is `port_multiface_io_en` (NR 0x83
-        // bit 1, defaults '0' per VHDL zxnext.vhd:1226-1229 in TBBlue
-        // configurations), which firmware drives via NextReg writes once
-        // the user enables the Multiface from the on-screen menu.
+        // bit 1). VHDL zxnext.vhd:1227 declares `nr_83_internal_port_enable
+        // = (others => '1')` and the reset block (line 5055) restores the
+        // same all-ones pattern, so b1 is high after reset. We construct
+        // `multiface_.enabled_` as false so the FFs come up in held-reset;
+        // firmware drives bit 1 explicitly via NR 0x83 writes during boot,
+        // and the NR 0x83 write-handler above forwards that to
+        // `multiface_.set_enabled(...)`. (Behaviour matches VHDL — only
+        // the rationale was inverted in B1 prose.)
         std::vector<uint8_t> mf_rom_bytes;
         const char* mf_sd_path = "/MACHINES/NEXT/enNextMf.rom";
         if (extract_sd_rom(cfg.sd_card_image, mf_sd_path, mf_rom_bytes)) {
