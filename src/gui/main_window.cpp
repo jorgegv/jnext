@@ -4,6 +4,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/video_recorder.h"
+#include "core/sna_saver.h"
+#include "core/log.h"
 #include "platform/screenshot.h"
 #include "input/mouse_dispatcher.h"
 #ifdef ENABLE_DEBUGGER
@@ -18,7 +20,9 @@
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QFile>
 #include <QFileDialog>
+#include <QIODevice>
 #include <QMessageBox>
 #include <QLabel>
 #include <QAction>
@@ -357,6 +361,13 @@ void MainWindow::create_menus() {
                 tr("Failed to save screenshot to:\n%1").arg(path));
         }
     });
+
+    // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
+    // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Ctrl+Shift+S = standard
+    // "Save As" muscle memory; complements Ctrl+S for screenshot.
+    QAction* save_snapshot = file_menu->addAction(tr("Save S&napshot..."));
+    save_snapshot->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    connect(save_snapshot, &QAction::triggered, this, &MainWindow::on_save_snapshot);
 
     file_menu->addSeparator();
 
@@ -850,6 +861,45 @@ void MainWindow::on_record_stop() {
             tr("FFmpeg encoding failed. Check console output for details."));
         statusBar()->clearMessage();
     }
+}
+
+// G35: wires SnaSaver to File > Save Snapshot... — closes
+// BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04 in mmu_test. Only 48K SNA is
+// supported by SnaSaver (49179 bytes); .szx and .nex savers don't
+// exist yet (BOOT-SNAPSAVE-02/-03 stay as SKIPs).
+void MainWindow::on_save_snapshot() {
+    if (!emulator_) return;
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Save Snapshot"), QString(),
+        tr("Spectrum snapshot (*.sna);;All Files (*)"));
+    if (path.isEmpty()) return;
+    if (!path.endsWith(".sna", Qt::CaseInsensitive)) {
+        path += ".sna";
+    }
+    std::vector<uint8_t> bytes = SnaSaver::save(*emulator_);
+    if (bytes.empty()) {
+        QMessageBox::warning(this, tr("Save Snapshot"),
+            tr("SnaSaver returned an empty buffer; snapshot not written."));
+        return;
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, tr("Save Snapshot"),
+            tr("Failed to open '%1' for writing").arg(path));
+        return;
+    }
+    qint64 written = f.write(reinterpret_cast<const char*>(bytes.data()),
+                             static_cast<qint64>(bytes.size()));
+    f.close();
+    if (written != static_cast<qint64>(bytes.size())) {
+        QMessageBox::warning(this, tr("Save Snapshot"),
+            tr("Short write to '%1' (%2 of %3 bytes)")
+                .arg(path).arg(written).arg(bytes.size()));
+        return;
+    }
+    Log::emulator()->info("Snapshot saved to '{}' ({} bytes)",
+                          path.toStdString(), bytes.size());
+    statusBar()->showMessage(tr("Snapshot saved: %1").arg(path), 3000);
 }
 
 // ---------------------------------------------------------------------------
