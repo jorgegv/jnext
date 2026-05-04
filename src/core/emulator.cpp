@@ -1,5 +1,6 @@
 #include "core/emulator.h"
 
+#include "core/embedded_nextboot_rom.h"
 #include "core/log.h"
 #include "core/nex_loader.h"
 #include "core/sna_saver.h"
@@ -3278,18 +3279,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // domain — once nextboot.rom disables the overlay via NR 0x03, it stays
     // off across RESET_SOFT so the Z80 boots into the NewlZXOS ROM in SRAM.
     // The post-init block below explicitly clears boot_rom_en on soft reset.
-    if (!preserve_memory && !cfg.boot_rom_path.empty()) {
-        std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
-        if (bf.is_open()) {
-            auto sz = bf.tellg();
-            boot_rom_.resize(static_cast<size_t>(sz));
-            bf.seekg(0);
-            bf.read(reinterpret_cast<char*>(boot_rom_.data()), sz);
+    //
+    // Wave 0.1 (Task 8 Multiface plan, 2026-05-04): when --boot-rom is unset
+    // and the machine is Next, we load the embedded nextboot.rom blob (linked
+    // into the binary via objcopy in src/core/CMakeLists.txt). This mirrors
+    // the on-FPGA flash IPL of real hardware — silicon-baked, never on SD.
+    // The --boot-rom flag remains as an override for this branch; Wave 0.3
+    // removes it entirely.
+    if (!preserve_memory) {
+        if (!cfg.boot_rom_path.empty()) {
+            std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
+            if (bf.is_open()) {
+                auto sz = bf.tellg();
+                boot_rom_.resize(static_cast<size_t>(sz));
+                bf.seekg(0);
+                bf.read(reinterpret_cast<char*>(boot_rom_.data()), sz);
+                mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
+                Log::emulator()->info("Boot ROM loaded from '{}' ({} bytes, override), overlay active at 0x0000-0x{:04X}",
+                                      cfg.boot_rom_path, boot_rom_.size(), boot_rom_.size() - 1);
+            } else {
+                Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
+            }
+        } else if (cfg.type == MachineType::ZXN_ISSUE2) {
+            const uint8_t* embedded_data = embedded_nextboot_rom_data();
+            const size_t   embedded_size = embedded_nextboot_rom_size();
+            boot_rom_.assign(embedded_data, embedded_data + embedded_size);
             mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
-            Log::emulator()->info("Boot ROM loaded: '{}' ({} bytes), overlay active at 0x0000-0x{:04X}",
-                                  cfg.boot_rom_path, boot_rom_.size(), boot_rom_.size() - 1);
-        } else {
-            Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
+            Log::emulator()->info("Boot ROM loaded from embedded nextboot.rom ({} bytes), overlay active at 0x0000-0x{:04X}",
+                                  boot_rom_.size(), boot_rom_.size() - 1);
         }
     }
 
