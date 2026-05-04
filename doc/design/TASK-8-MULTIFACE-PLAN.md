@@ -1,12 +1,188 @@
 # Task 8 — Multiface Peripheral Emulation
 
-**Status:** Planned (not yet started).
-**Last updated:** 2026-04-20.
-**Predecessors:** Task 7 (DivMMC automap pipeline) must land first — Task 8
-consumes the `button_nmi_` latch infrastructure added by
-`fix(divmmc): gate PC=0x0066 instant-on automap on button_nmi` (commit
-`1a8e307`, 2026-04-19) and needs the DivMMC automap state machine to be
-behaviourally settled.
+**Status:** Active 2026-05-04. Wave 0 (SD ROM foundation) starting; Wave 1
+(Multiface core) gated on Wave 0.
+**Last updated:** 2026-05-04.
+**Predecessors:**
+- Task 7 (DivMMC automap pipeline) — DONE.
+- `TASK-NMI-SOURCE-PIPELINE-PLAN.md` — DONE; lands Branches A + D + DivMMC-half
+  of C; leaves `mf_is_active` / `mf_nmi_hold` as stubs for Task 8 to consume.
+- Today's G46(c) splash logo regression closure (2026-05-04) — DONE; clears
+  the splash regression that was a side-effect concern for any boot-path work.
+
+## 2026-05-04 status freshening
+
+The 2026-04-20 plan body below remains the authoritative spec for **Wave 1**
+(`Multiface` C++ module + MMU overlay + readback mux + DivMMC retn_seen gate
++ test plan). The major change since the plan was written:
+
+1. Branches A + D + DivMMC-half-of-C are LANDED via the NMI-source-pipeline
+   plan. F9 hotkey is wired in [main_window.cpp:929](../../src/gui/main_window.cpp#L929)
+   to `Emulator::on_hotkey_f9_mf_nmi()` which calls
+   `nmi_source_.strobe_mf_button()`. What remains for Branch C is the
+   *consumer* (the `Multiface` class itself) and the secondary
+   `multiface_.button_press()` call alongside the existing NMI strobe.
+2. Sibling G148 (`Mmu::port_dffd_reg_6_` storage) — CLOSED 2026-04-28; the
+   MF+3 readback mux at VHDL :4310-4327 can now consume it.
+3. **NEW Wave 0 — SD-resident ROM foundation** (this section, below) lands
+   BEFORE Wave 1. User decision 2026-05-04: jnext is a Next emulator, so the
+   SD image is the canonical source for all peripheral ROMs (just like real
+   hardware). `--boot-rom`, `--divmmc-rom`, and `--roms-directory` are
+   removed; `nextboot.rom` is silicon-baked (embedded in the jnext binary,
+   mirroring real-Next on-FPGA flash); `--sd-card` becomes mandatory always.
+4. Plan §9 question on `--multiface-rom` resolved: **NO** flag — load
+   `enNextMf.rom` from `/MACHINES/NEXT/enNextMf.rom` on the SD image, same
+   path real Next uses.
+
+### Branch status table
+
+| Plan branch | 2026-04-20 status | 2026-05-04 status | Closes |
+|---|---|---|---|
+| **A** NMI 4-state FSM | Planned | DONE (NMI source pipeline plan) | (infra) |
+| **C** MF-button source | Planned | HALF DONE — F9→strobe wired; consumer-side missing (folded into B1) | (infra) |
+| **D** NR 0x02 NMI | Planned | DONE (NMI source pipeline plan, Wave A) | (Copper ARB-06) |
+| **0.1** Embed `nextboot.rom` | n/a | NEW — Wave 0.1 | (Foundation) |
+| **0.2** SD ROM extractor module | n/a | NEW — Wave 0.2 | (Foundation) |
+| **0.3** Flag removal + mandatory SD | n/a | NEW — Wave 0.3 | (Foundation) |
+| **B1** `Multiface` core class | Planned | Not started — gated on 0.2 | MF-G48-01..04 |
+| **B2** Port dispatch | (folded into B) | NEW — explicit mini-branch | (infra) |
+| **B3** MF+3 readback mux | (folded into B) | NEW — explicit mini-branch | MF-G48-05, -07 |
+| **E** MMU overlay | Planned | Not started — gated on B1 + 0.2 | (closes loop) |
+| **F-gate** DivMMC retn_seen gate | Planned | Not started — needs `Multiface::is_active()` | MF-G48-06 |
+| **F-test** Test plan + un-skips | Planned | Folded across B1/B2/B3/E/F-gate | All MF-G48 |
+
+## Wave 0 — SD-resident ROM foundation (NEW, runs first)
+
+Wave 0 makes jnext load all peripheral ROMs from the user-supplied SD card
+image, the same way real ZX Spectrum Next hardware does. The FPGA IPL
+(`nextboot.rom` in jnext, on-FPGA flash on real hardware) is silicon-baked —
+embedded in the jnext binary at link time so it cannot be misplaced. All
+machine ROMs (`48.rom` / `128.rom` / `plus3.rom` / etc.) and peripheral
+firmware (`enNxtmmc.rom` / `enNextMf.rom` / `enNextZX.rom`) come from
+`/MACHINES/NEXT/` on the mounted SD image.
+
+### Wave 0.1 — Embed `nextboot.rom`
+
+- `roms/nextboot.rom` (8 KB) becomes a built-in resource via CMake
+  `add_custom_command` + `objcopy --input-target binary --output-target elf64-x86-64`
+  generating `nextboot_rom.o`. Linked into `jnext_core` as
+  `extern const uint8_t nextboot_rom_data[]; extern const size_t nextboot_rom_size;`.
+- Default load path: when `cfg.boot_rom_path` is empty AND machine type is
+  Next, `Emulator::init` loads the embedded blob via existing
+  `Mmu::set_boot_rom(data, size)`.
+- `--boot-rom FILE` flag stays as an *override* in this branch — additive
+  only, no breakage. Removed in Wave 0.3.
+- Acceptance: `./build/jnext --machine next --sd-card <img>` (no
+  `--boot-rom` flag) boots tbblue.fw to splash + spacebar prompt + ROM
+  loader log, identical to today's flagged invocation.
+- License posture: `nextboot.rom` is from the open ZX Spectrum Next FPGA
+  core project (GPLv3). Embedding into jnext is fine since jnext's source
+  tree consumes that GPLv3 VHDL as authoritative spec.
+- Effort: XS (~1 hour, single mini-branch + reviewer).
+
+### Wave 0.2 — SD ROM extractor module
+
+- New `src/core/sd_rom_extractor.{h,cpp}` (or similar location) exposing:
+  ```cpp
+  // Extract a named file from the FAT32 partition of a Next SD image.
+  // Returns true and fills `out` on success; false if file not found.
+  bool extract_sd_rom(const std::string& sd_image_path,
+                      const std::string& sd_path,   // e.g. "/MACHINES/NEXT/enNxtmmc.rom"
+                      std::vector<uint8_t>& out);
+  ```
+- Implementation: open the SD image, parse MBR partition table, locate
+  partition 1 (the FAT32 LBA), parse FAT32 BPB, walk the FAT chain for
+  the requested path, return file bytes. Uses ONLY the bytes already on
+  the image; no kernel mount, no superuser.
+- Reuses existing FAT32 understanding from `peripheral/sd_card.cpp`
+  (which exposes block-level access used by the in-emulator SPI driver) —
+  the new module is host-side only, runs at `Emulator::init` time, and
+  is independent of the in-emulator SPI/SD path. Do NOT entangle the two.
+- Tests: `test/sd_rom_extractor/` with the canonical `nextzxos-1gb-fat32fix.img`
+  fixture covering: success path for `enNxtmmc.rom`/`enNextMf.rom`/`enNextZX.rom`,
+  not-found path, FAT chain longer than 1 cluster, partition-1 detection.
+- Effort: M (~1 day, single mini-branch + reviewer).
+
+### Wave 0.3 — Flag removal + mandatory SD
+
+- Remove `--boot-rom`, `--divmmc-rom`, `--roms-directory` CLI flags + the
+  corresponding `EmulatorConfig` fields (`boot_rom_path`, `divmmc_rom_path`,
+  `roms_directory`).
+- Make `--sd-card` mandatory: error out cleanly with a clear diagnostic
+  when missing.
+- `Emulator::init` ROM-load sequence:
+  - Boot ROM: embedded blob (Wave 0.1).
+  - DivMMC ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNxtmmc.rom", ...)`.
+  - Multiface ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNextMf.rom", ...)`
+    (deferred until Wave 1 — Wave 0.3 doesn't need it yet, but the
+    extractor is ready).
+  - Machine ROMs: per `cfg.machine_type`, load from SD:
+    - 48K → `/MACHINES/NEXT/48.rom` (16 KB).
+    - 128K → `/MACHINES/NEXT/128.rom` (32 KB; jnext currently expects
+      `128-0.rom` + `128-1.rom` as separate 16 KB halves — split the
+      32 KB SD blob in the loader).
+    - +3 → `/MACHINES/NEXT/plus3.rom` (64 KB; jnext currently expects
+      `plus3-0..3.rom` as four 16 KB pieces — split the 64 KB blob).
+    - Pentagon: NOT on the TBBlue SD. **Decision:** drop Pentagon
+      machine support, OR re-add a Pentagon-only `--pentagon-roms-dir`
+      flag. RECOMMENDATION: drop, since Pentagon is not in the Next FPGA
+      core officially. Confirm before this branch lands.
+- Migrate test fixtures and regression scripts:
+  - `test/00regression/regression.sh` and helper scripts must use the
+    canonical SD image fixture; remove the `--boot-rom`/`--divmmc-rom`
+    explicit flags.
+  - Demo invocations in `demo/` (mostly 48K) — assess whether they need
+    SD or can be exempted via a future `--no-sd` headless escape hatch
+    (out of scope for 0.3; document if encountered).
+  - Update `CLAUDE.md` canonical incantation, `README.md`, all `FEATURES.md`
+    references.
+- Acceptance: full unit-test suite + full regression suite pass without
+  any of the removed flags.
+- Effort: M (~½–1 day, single mini-branch + reviewer + extensive grep).
+
+## Wave 1 — Multiface (after Wave 0)
+
+Wave 1 follows the original 2026-04-20 plan body (Sections 1-9 below)
+verbatim, with the Branch B scope split into B1/B2/B3 mini-branches. The
+2026-04-24 supersede note covers Branches A/D/C-DivMMC-half. The Wave 0.1/0.2
+foundation provides the embedded boot ROM and the
+`extract_sd_rom("/MACHINES/NEXT/enNextMf.rom", ...)` call site that B1 wires
+into `Multiface::load_rom`.
+
+### Mini-branch B1 — `Multiface` core class
+
+Per Section 5 Branch B below, but scoped to internal state machine ONLY (no
+MMU overlay, no port dispatch, no readback mux). Closes MF-G48-01..04.
+
+### Mini-branch B2 — Port dispatch (per-mode 1F/9F/3F/BF)
+
+VHDL `zxnext.vhd:2612-2616` per-mode address table. Re-registration of
+handlers when NR 0x0A `mf_type` changes (or single 16-bit handler with
+internal mode-decode). Tests cover MF1/MF128/MF3 port protocols.
+
+### Mini-branch B3 — MF+3 readback mux
+
+VHDL `zxnext.vhd:4310-4327` (`mf_port_en` + `cpu_a(15:12)` decode) returning
+`port_1ffd_reg`/`port_7ffd_reg`/`port_dffd_reg`+bit6/`port_eff7_reg_{2,3}`.
+Closes MF-G48-05 and MF-G48-07.
+
+### Mini-branch E — MMU overlay
+
+Per Section 5 Branch E below.
+
+### Mini-branch F-gate — DivMMC retn_seen AND-NOT mf_is_active
+
+VHDL `zxnext.vhd:4111`. One-line gate in `DivMmc::on_m1_retn_delay` (or
+wherever `Im2Controller::retn_seen_this_cycle` feeds DivMMC). Expose
+`Multiface::is_active()` accessor. Closes MF-G48-06. Also wire
+`nmi_source_.set_mf_is_active(multiface_.is_active())` and
+`nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold())` per tick (drops
+the stubs).
+
+---
+
+## ORIGINAL 2026-04-20 PLAN BODY (authoritative for Wave 1 specifics)
+
 
 ## 1. Purpose
 
