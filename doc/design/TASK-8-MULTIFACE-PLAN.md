@@ -119,13 +119,20 @@ DONE in three commits on `wave-0-3-rom-from-sd`:
 3. `docs: migrate canonical incantations to SD-only invocation` —
    CLAUDE.md / README.md / FEATURES.md / this plan.
 
-Pentagon **decision:** falls back to `/MACHINES/NEXT/128.rom` (TBBlue
-ships no distinct Pentagon ROMs, mirrors the previous `128p-0/-1` ->
-`128-0/-1` disk-loader fallback). Required regenerating the
-`boot-pentagon` regression reference (the FUSE distribution had separate
-Pentagon ROMs differing from 128K BASIC; the SD substitute is binary-
-identical to FUSE 128-0/-1 but differs from FUSE 128p-0/-1 — small
-copyright/version pixel diff in the boot screen).
+Pentagon **decision (final 2026-05-04):** standalone Pentagon machine
+support DROPPED entirely. `MachineType::PENTAGON` enum value, `--machine
+pentagon` CLI parsing, `parse_machine_type`/`machine_type_str`/
+`machine_timing` arms, Pentagon-specific code paths in
+`contention.cpp` / `timing.cpp` / `im2.cpp` / `gui/main_window.cpp`, the
+`boot-pentagon` regression test + reference image, and ~15 Pentagon-
+specific test fixture rows are all gone (4th commit on `wave-0-3-rom-
+from-sd`). User rationale: Pentagon was never in the Next FPGA core,
+TBBlue ships no Pentagon ROMs, and substituting 128.rom would be
+misleading (a `--machine pentagon` user reasonably expects Pentagon
+firmware, not ZX 128 BASIC). **PRESERVED:** `Mmu::pentagon_en()` /
+`pentagon_1024_en()` (NR 0x8F mapping-mode flags inside the Next FPGA
+per VHDL `nr_8f_mapping_mode_pentagon_*`) and the N8F-* test rows that
+exercise them — those are unrelated to the dropped standalone machine.
 
 `Emulator::init` ROM-load sequence after Wave 0.3:
 - Boot ROM: embedded blob (Wave 0.1), gated on Next + sd_card non-empty
@@ -137,7 +144,6 @@ copyright/version pixel diff in the boot screen).
   - 48K → `/MACHINES/NEXT/48.rom` (16 KB) → bank 0
   - 128K → `/MACHINES/NEXT/128.rom` (32 KB) → banks 0+1
   - +3 → `/MACHINES/NEXT/plus3.rom` (64 KB) → banks 0..3
-  - Pentagon → `/MACHINES/NEXT/128.rom` (substitute as above)
   - Next → `/MACHINES/NEXT/48.rom` (fallback for non-NextZXOS mode)
 
 Test fixtures: ~20 `*_test.cpp` files had `cfg.roms_directory =
