@@ -3399,6 +3399,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // --- Phase 5 DivMMC overlay + I2C RTC + SD card ---
 
     mmu_.set_divmmc(&divmmc_);
+    // Wave 1 E — wire MF memory overlay into the Mmu cascade. Per VHDL
+    // zxnext.vhd:2937, MF sits between bootrom and DivMMC. Mmu::read/write
+    // gate on multiface_->is_mem_active() (= mf_enable_eff) and the
+    // cpu_a(15:14)='00' window to honour the SRAM arbiter at :3028-3035.
+    mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
     spi_.attach_device(0, &sd_card_);  // SD card on CS0
