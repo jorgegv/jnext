@@ -125,6 +125,9 @@ private:
     void on_record_start();
     void on_record_stop();
 
+    // Snapshot save slot (G35: wires SnaSaver to File menu).
+    void on_save_snapshot();
+
     /// Recompute the window's fixed size from the widget + chrome.
     void apply_fixed_window_size();
 
