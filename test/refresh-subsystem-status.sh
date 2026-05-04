@@ -35,6 +35,7 @@ BEGIN {
     L["Copper"]                = "copper_test"
     L["Copper (integration)"]  = "copper_integration_test"
     L["Memory/MMU"]            = "mmu_test"
+    L["Memory/MMU (int)"]      = "mmu_integration_test"
     L["NextREG (bare)"]        = "nextreg_test"
     L["NextREG (integration)"] = "nextreg_integration_test"
     L["Input"]                 = "input_test"

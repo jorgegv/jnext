@@ -202,7 +202,7 @@ where possible.
 | G138| NR 0xA0 bit 3 — Pi I2C-1 routing onto GPIO 2/3 unmodelled  | I2C, NextREG, GPIO               | B   |         | I2C1 wired-AND active even when bit 3 clear                | L      | Low      |
 | G139| I2C 24LCxx EEPROM device unmodelled — only DS1307 attached | I2C                              | B   |         | tbblue config EEPROM reads/writes NACK                     | L      | Low      |
 | G140| Boot ROM overlay: 8 KB → 16 KB mirror at 0x0000-0x3FFF     | MMU, Boot                        | C   |         | Boot-ROM reads at 0x2000-0x3FFF fall through wrongly       | L      | Low      |
-| G143| port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate      | MMU, Port                        | C   |         | NR 0x84 b2 clear still lets EFF7 paging-mode flips land    | L      | Low      |
+| G143| port 0xEFF7 missing NR 0x85 b2 (port_eff7_io_en) gate      | MMU, Port                        | C   |         | NR 0x85 b2 clear still lets EFF7 paging-mode flips land    | L      | Low      |
 | G145| port 0x123B read-back surface absent (returns 0xFF)        | MMU, Layer2, Port                | C,D |         | Software probing L2 control regs reads 0xFF                | L      | Low      |
 | G148| port_dffd_reg_6 not stored — Multiface readback truncated  | MMU, Multiface                   | C   |         | DFFD bit 6 reads back 0; affects Multiface state inspection | L     | Low      |
 | G149| NR write-only registers leak last-written byte on read     | NextREG                          | D   |         | Reads of write-only NRs return last write, not 0x00        | L      | Low      |
@@ -1530,12 +1530,13 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Dependencies**: shadow/effective pair like NR 0x08 b6; reviewer notes Clock should defer too for symmetry.
 - **Effort**: M.
 
-### G143. port 0xEFF7 missing NR 0x84 b2 (port_eff7_io_en) gate [closed]
-- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — gate landed in `src/core/emulator.cpp:1426-1432`. Test row EF7-06 RE-HOMED from `mmu_test` to integration tier (port-level cross-NR observation; not a pure MMU API surface).
-- **What**: VHDL `zxnext.vhd:2604,2441` — `port_eff7_io_en <= internal_port_enable(26)` = NR 0x84 bit 2. jnext `emulator.cpp:1426-1428` registers handler with no `cached(0x84) & 0x04` gate (compare 0x7FFD / 0xDFFD which DO gate).
-- **User impact**: NR 0x84 b2 clear still lets EFF7 paging-mode flips land.
-- **Source ref**: Wave-2 memory (NEW-MMU-2); reviewer APPROVE.
-- **Coverage today**: integration tier (RE-HOME from mmu_test EF7-06).
+### G143. port 0xEFF7 missing port_eff7_io_en gate [closed; NR-mapping corrected 2026-05-04]
+- **Status: CLOSED 2026-04-28** (task8-t1-mmu) — gate landed in `src/core/emulator.cpp`. Test row EF7-06 RE-HOMED from `mmu_test` to integration tier (port-level cross-NR observation; not a pure MMU API surface).
+- **Correction 2026-05-04 (Tier A SKIP-reduction)**: original fix gated against NR 0x84 b2 (incorrect). VHDL `zxnext.vhd:2392` shows `internal_port_enable <= (nr_85 & nr_84 & nr_83 & nr_82)` so bit 26 sits in the nr_85 range — the correct gate is **NR 0x85 bit 2**, matching `doc/testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md:191` and the existing `port_test.cpp` NR85-02 row. Gate corrected in `src/core/emulator.cpp` (port 0xEFF7 handler) and integration test row added in `test/mmu/mmu_integration_test.cpp` (MMU-EF7-IO-EN-00..02).
+- **What**: VHDL `zxnext.vhd:2604,2441,2392` — `port_eff7_io_en <= internal_port_enable(26)` = NR 0x85 bit 2.
+- **User impact**: prior to the 2026-05-04 correction, NR 0x84 b2 was incorrectly used as the EFF7 gate; software clearing the actual NR 0x85 b2 still saw paging-mode flips land. Now VHDL-faithful.
+- **Source ref**: Wave-2 memory (NEW-MMU-2); reviewer APPROVE; mapping correction surfaced via Tier A SKIP-reduction follow-on review.
+- **Coverage today**: integration tier — `test/mmu/mmu_integration_test.cpp` MMU-EF7-IO-EN-01/02 (discriminative gate-closed/gate-open pair).
 - **Dependencies**: one-line gate.
 - **Effort**: L.
 

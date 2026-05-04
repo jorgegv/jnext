@@ -2211,13 +2211,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // bits 2,3 and re-runs the port_memory_change_dly MMU0/1 rebuild so the
     // RAM-at-0x0000 swap (bit 3) lands immediately per VHDL:4619-4644.
     //
-    // Gate (G143): VHDL zxnext.vhd:2604 ANDs port_eff7_lsb with
-    // port_eff7_io_en, which per zxnext.vhd:2441 is internal_port_enable(26)
-    // = NR 0x84 bit 2. With the gate clear, EFF7 writes are silently dropped.
+    // Gate (G143 — corrected 2026-05-04): VHDL zxnext.vhd:2604 ANDs
+    // port_eff7_lsb with port_eff7_io_en, which per zxnext.vhd:2441 is
+    // internal_port_enable(26).  internal_port_enable is the concatenation
+    // (nr_85 & nr_84 & nr_83 & nr_82) at zxnext.vhd:2392 — bit 26 sits in
+    // the nr_85 range (bits 24..27) and corresponds to NR 0x85 bit 2 (per
+    // doc/testing/IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md:191 + port_test.cpp
+    // NR85-02 row). The G143 fix originally checked NR 0x84 b2; that was
+    // incorrect — corrected here to NR 0x85 b2.
     port_.register_handler(0xF0FF, 0xE0F7,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;  // NR 0x84 b2 gate
+            if ((nextreg_.cached(0x85) & 0x04) == 0) return;  // NR 0x85 b2 gate
             mmu_.write_port_eff7(v);
         });
 

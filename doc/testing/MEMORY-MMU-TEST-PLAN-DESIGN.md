@@ -41,10 +41,13 @@ Task 8 Wave 1 (`task8-t1-mmu`, 2026-04-28) closed 5 skips and re-homed 1:
   `ram_required_fits` (header-resident so unit tests link without
   jnext_core). `NexLoader::apply` aborts with a clear error before any
   bank load when required > installed RAM.
-- **EF7-06 (G143) RE-HOME**: NR 0x84 b2 gate added on the EFF7 port
-  handler in `src/core/emulator.cpp` (mirrors the existing NR 0x82 b2
-  gate on DFFD). Skip remains in mmu_test as a re-home note — the
-  observable lives at the port-dispatch tier, not the Mmu surface.
+- **EF7-06 (G143) RE-HOME**: port_eff7_io_en gate added on the EFF7
+  port handler in `src/core/emulator.cpp` (mirrors the existing NR 0x82
+  b2 gate on DFFD). Original 2026-04-28 fix gated against NR 0x84 b2;
+  Tier A SKIP-reduction (2026-05-04) corrected this to NR 0x85 b2 per
+  VHDL `zxnext.vhd:2392,2441` — `internal_port_enable(26)` sits in the
+  nr_85 range. Re-homed live at `test/mmu/mmu_integration_test.cpp`
+  (MMU-EF7-IO-EN-00..02).
 - mmu_test counts: 41 → 36 skips (5 closures); 137 → 142 pass; 0 fails.
 
 Measured on main 2026-04-21 post-Task-3 MMU Wave 1 merges:
@@ -573,7 +576,7 @@ as `a1495ba`).
 | EF7-03  | Bit 2 = 1 disables Pent-1024     | NR 0x8F=0x03, EFF7 ← 0x04 | pentagon_1024_en = 0, lock is NOT overridden   |
 | EF7-04  | Reset state                       | After reset                | port_eff7_reg_2 = 0, port_eff7_reg_3 = 0     |
 | EF7-05  | Soft reset preserves EFF7 + RAM-at-0 | EFF7 ← 0x0C, reset(false) | port_eff7_reg_{2,3} preserved, slots 0/1 stay RAM (VHDL:3777) |
-| EF7-06  | NR 0x84 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x84 b2 ← 0; OUT 0xEFF7 ← 0x08 (RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_3` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441` ANDs port-decode with `internal_port_enable(26)` (= NR 0x84 bit 2). **G143 fix landed** in `emulator.cpp:1426-1432` (NR 0x84 b2 gate before `mmu_.write_port_eff7`). Skip remains in mmu_test as RE-HOME — observable lives at port-dispatch tier; pure-Mmu tests bypass the gate by design. Future integration suite should add the row. |
+| EF7-06  | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x85 b2 ← 0; OUT 0xEFF7 ← 0x0C (Pent-1024 disable + RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_{2,3}` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441, 2392` ANDs port-decode with `internal_port_enable(26)` which sits in the nr_85 byte (= NR 0x85 bit 2). **G143 fix landed** in `emulator.cpp` 2026-04-28; **NR mapping corrected to NR 0x85 b2 on 2026-05-04** during Tier A SKIP-reduction. RE-HOMED to `test/mmu/mmu_integration_test.cpp` (MMU-EF7-IO-EN-00..02). |
 
 ### Category 11: ROM Selection
 
