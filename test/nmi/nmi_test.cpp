@@ -760,12 +760,61 @@ static void g_mf_g162_skips()
     }
 
     // MF-G48-01..07 — Multiface peripheral expansion (G48). Wave 1 B1
-    // (TASK-8-MULTIFACE-PLAN.md, 2026-05-04) lands the core class; this
-    // closes G48-02/03/04 (mode dispatch, port_io_dly edge detector,
-    // INVISIBLE FF). 01/05/06/07 stay SKIP pending Wave B2/B3/F-gate.
-    skip("MF-G48-01",
-         "MF1/MF3/MF128 port-table dispatch deferred to Wave B2 "
-         "(see TASK-8-MULTIFACE-PLAN.md mini-branch B2)");
+    // (TASK-8-MULTIFACE-PLAN.md, 2026-05-04) landed the core class; Wave
+    // 1 B2 (2026-05-04) wires the per-mode port-LSB dispatch through
+    // PortDispatch::add_io_observer (src/core/emulator.cpp). This row
+    // closes MF-G48-01: end-to-end port dispatch via the real Emulator,
+    // exercising MF1 mode (mf_type=11) where button + OUT 0x9F should
+    // (a) leave nmi_active high (button armed it; the OUT is enable_wr
+    //     which clears nmi_active, but only when port_io_dly was 0
+    //     entering the OUT — so we re-arm AFTER the prep cycle quiesces
+    //     port_io_dly), and
+    // (b) port_io_dly should latch high after the OUT itself.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Configure MF for MF1 mode and enable it via the real NextReg
+        // port path. NR 0x0A b7:6 = 11 (mf_type=11 → mode_48 = MF1);
+        // NR 0x83 b1 = 1 (port_multiface_io_en).
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0xC0);  // b7:6 = 11
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xFF);  // b1=1 (and all other bits 1, VHDL reset value)
+
+        const bool mode_ok = emu.multiface().mode_48()
+                            && emu.multiface().is_enabled()
+                            && emu.multiface().mf_type() == 0x03;
+
+        // Quiesce port_io_dly. The two NR writes above set it high;
+        // toggling enable off/on holds the FFs in reset (port_io_dly := 0).
+        emu.multiface().set_enabled(false);
+        emu.multiface().set_enabled(true);
+
+        // Arm the NMI source via button (button_pulse fires because
+        // nmi_active is currently 0).
+        emu.multiface().button_press();
+        const bool armed_post_button = emu.multiface().is_nmi_hold();
+
+        // Now drive an OUT to MF1's enable_io (0x9F). VHDL line 144 third
+        // disjunct doesn't apply to enable_wr (that's first disjunct); the
+        // first disjunct fires when port_io_dly was 0 (just quiesced) AND
+        // the strobe is enable_wr. So nmi_active should clear; port_io_dly
+        // should latch to 1.
+        emu.port().out(0x009F, 0x00);
+        const bool port_strobed = emu.multiface().port_io_dly();
+        const bool nmi_cleared  = !emu.multiface().is_nmi_hold();
+
+        check("MF-G48-01",
+              "MF1 mode: NR 0x0A=11/NR 0x83 b1=1 → button arms NMI; "
+              "OUT 0x9F clears nmi_active and latches port_io_dly",
+              mode_ok && armed_post_button && port_strobed && nmi_cleared,
+              "VHDL zxnext.vhd:2612-2616 (decode), :2730-2733 (iord/iowr fan-out), "
+              "multiface.vhd:122-131 (port_io_dly), :137-148 (nmi_active clear)");
+    }
 
     // MF-G48-02 — NR 0x0A b7:6 mf_type forwarding. VHDL multiface.vhd:
     //   105-118 — combinational decode:

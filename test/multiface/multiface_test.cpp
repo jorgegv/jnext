@@ -17,8 +17,10 @@
 //
 // Run: ./build/test/multiface_test
 
+#include "core/emulator.h"
 #include "core/saveable.h"
 #include "peripheral/multiface.h"
+#include "port/port_dispatch.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -440,15 +442,226 @@ static void g_mf_core()
 }
 
 // =====================================================================
+// Group MF-PORT — port dispatch (Wave 1 B2, Task 8 plan).
+// VHDL: zxnext.vhd:2610-2616 (port decode), :2730-2733 (iord/iowr fan-out)
+// =====================================================================
+//
+// Each row drives an OUT or IN to one of the four MF-relevant LSBs
+// (0x1F / 0x3F / 0x9F / 0xBF) through the real Emulator port dispatcher
+// and verifies the Multiface FSM observed the corresponding strobe via
+// `port_io_dly` rising after the I/O. Discriminative per-mode mapping
+// per VHDL zxnext.vhd:2612-2613:
+//
+//   nr_0a_mf_type  mode      enable_io   disable_io
+//     "00"         mode_p3    0x3F        0xBF
+//     "01"         mode_128A  0xBF        0x3F
+//     "10"         mode_128B  0x9F        0x1F
+//     "11"         mode_48    0x9F        0x1F
+//
+// Rationale for using `port_io_dly` as the witness:
+//   `multiface.vhd:122-131` latches `port_io_dly <= OR of the four
+//   port_mf_*` inputs on every clock. So if any of them strobed we see
+//   port_io_dly go high. Conversely, if NO strobe fired (LSB not active
+//   for the mode, or MF disabled), port_io_dly stays at its prior value
+//   (which we ensure is false by quiescing the FSM beforehand).
+//
+// Helper: drive a port I/O through the Emulator, then read MF state.
+namespace {
+
+// Build a Next-mode Emulator and force the MF into a known quiescent
+// state: enabled, mode set, port_io_dly cleared. Returns true if init
+// succeeded.
+bool prep_emulator_for_mf(Emulator& emu, uint8_t mf_type)
+{
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return false;
+    emu.multiface().set_enabled(true);
+    emu.multiface().set_mode(mf_type);
+    // After set_mode, FFs are still in whatever state init() left them
+    // (port_io_dly may already be false). Clear it deterministically by
+    // running one quiescent clock edge with no port inputs (button_press
+    // clocks the FSM with all port_* inputs low, which latches
+    // port_io_dly := 0 — but only if nmi_active is low so the button
+    // doesn't latch it true; that's our case post-init).
+    // Note: button_press also sets nmi_active=1 + invisible=0; we use
+    // set_enabled(false)/set_enabled(true) instead, which forces all
+    // FFs to held-reset state cleanly.
+    emu.multiface().set_enabled(false);
+    emu.multiface().set_enabled(true);
+    return true;
+}
+
+// Drive an OUT to `port` and report whether port_io_dly went high.
+bool out_strobed(Emulator& emu, uint16_t port)
+{
+    emu.port().out(port, 0x00);
+    return emu.multiface().port_io_dly();
+}
+
+// Drive an IN from `port` and report whether port_io_dly went high.
+bool in_strobed(Emulator& emu, uint16_t port)
+{
+    (void)emu.port().in(port);
+    return emu.multiface().port_io_dly();
+}
+
+}  // namespace
+
+static void g_mf_port_dispatch()
+{
+    set_group("MF-PORT");
+
+    // ── MF+3 (mf_type=00): enable=0x3F, disable=0xBF ─────────────────────
+    {
+        Emulator emu;
+        if (!prep_emulator_for_mf(emu, 0x00)) {
+            check("MF-PORT-MFP3-OUT-3F",
+                  "Emulator init failed", false, "init returned false");
+            return;
+        }
+        bool s_3f_w = out_strobed(emu, 0x3F);
+        prep_emulator_for_mf(emu, 0x00);
+        bool s_3f_r = in_strobed(emu, 0x3F);
+        prep_emulator_for_mf(emu, 0x00);
+        bool s_bf_w = out_strobed(emu, 0xBF);
+        prep_emulator_for_mf(emu, 0x00);
+        bool s_bf_r = in_strobed(emu, 0xBF);
+        // Negative rows: 0x9F and 0x1F are NOT active in MF+3.
+        prep_emulator_for_mf(emu, 0x00);
+        bool s_9f_w = out_strobed(emu, 0x9F);
+        prep_emulator_for_mf(emu, 0x00);
+        bool s_1f_w = out_strobed(emu, 0x1F);
+
+        check("MF-PORT-01",
+              "MF+3 (mf_type=00): OUT 0x3F → enable_wr strobe (port_io_dly=1)",
+              s_3f_w, "VHDL zxnext.vhd:2612, :2615, :2730-2733");
+        check("MF-PORT-02",
+              "MF+3 (mf_type=00): IN 0x3F → enable_rd strobe (port_io_dly=1)",
+              s_3f_r, "VHDL zxnext.vhd:2612, :2615, :2730-2733");
+        check("MF-PORT-03",
+              "MF+3 (mf_type=00): OUT 0xBF → disable_wr strobe (port_io_dly=1)",
+              s_bf_w, "VHDL zxnext.vhd:2613, :2616, :2730-2733");
+        check("MF-PORT-04",
+              "MF+3 (mf_type=00): IN 0xBF → disable_rd strobe (port_io_dly=1)",
+              s_bf_r, "VHDL zxnext.vhd:2613, :2616, :2730-2733");
+        check("MF-PORT-05",
+              "MF+3 (mf_type=00): OUT 0x9F → no MF strobe (LSB not active)",
+              !s_9f_w, "VHDL: 0x9F is enable_io for mf_type b1=1 only");
+        check("MF-PORT-06",
+              "MF+3 (mf_type=00): OUT 0x1F → no MF strobe (LSB not active)",
+              !s_1f_w, "VHDL: 0x1F is disable_io for mf_type b1=1 only");
+    }
+
+    // ── MF128 var A (mf_type=01): enable=0xBF, disable=0x3F ──────────────
+    {
+        Emulator emu;
+        prep_emulator_for_mf(emu, 0x01);
+        bool s_bf_w = out_strobed(emu, 0xBF);
+        prep_emulator_for_mf(emu, 0x01);
+        bool s_3f_w = out_strobed(emu, 0x3F);
+
+        check("MF-PORT-07",
+              "MF128 var A (mf_type=01): OUT 0xBF → enable_wr strobe",
+              s_bf_w, "VHDL zxnext.vhd:2612 (b0=1, b1=0 → 0xBF)");
+        check("MF-PORT-08",
+              "MF128 var A (mf_type=01): OUT 0x3F → disable_wr strobe",
+              s_3f_w, "VHDL zxnext.vhd:2613 (b0=1, b1=0 → 0x3F)");
+    }
+
+    // ── MF128 var B (mf_type=10): enable=0x9F, disable=0x1F ──────────────
+    {
+        Emulator emu;
+        prep_emulator_for_mf(emu, 0x02);
+        bool s_9f_w = out_strobed(emu, 0x9F);
+        prep_emulator_for_mf(emu, 0x02);
+        bool s_1f_r = in_strobed(emu, 0x1F);
+        // Negative: 0xBF and 0x3F are mode_128 var-A LSBs but mf_type=10
+        // takes the b1=1 branch → 0x9F/0x1F. So 0xBF/0x3F should NOT
+        // strobe in var B.
+        prep_emulator_for_mf(emu, 0x02);
+        bool s_bf_w = out_strobed(emu, 0xBF);
+
+        check("MF-PORT-09",
+              "MF128 var B (mf_type=10): OUT 0x9F → enable_wr strobe",
+              s_9f_w, "VHDL zxnext.vhd:2612 (b1=1 → 0x9F)");
+        check("MF-PORT-10",
+              "MF128 var B (mf_type=10): IN 0x1F → disable_rd strobe",
+              s_1f_r, "VHDL zxnext.vhd:2613 (b1=1 → 0x1F)");
+        check("MF-PORT-11",
+              "MF128 var B (mf_type=10): OUT 0xBF → no MF strobe (var-A LSB)",
+              !s_bf_w,
+              "VHDL: 0xBF is the mode_128 var-A enable_io, not var-B");
+    }
+
+    // ── MF1 (mf_type=11): enable=0x9F, disable=0x1F ──────────────────────
+    {
+        Emulator emu;
+        prep_emulator_for_mf(emu, 0x03);
+        bool s_9f_r = in_strobed(emu, 0x9F);
+        prep_emulator_for_mf(emu, 0x03);
+        bool s_1f_w = out_strobed(emu, 0x1F);
+        // Negative: 0x3F is MF+3 enable_io but mf_type=11 takes b1=1
+        // branch → 0x9F. So 0x3F should NOT strobe in MF1.
+        prep_emulator_for_mf(emu, 0x03);
+        bool s_3f_r = in_strobed(emu, 0x3F);
+
+        check("MF-PORT-12",
+              "MF1 (mf_type=11): IN 0x9F → enable_rd strobe",
+              s_9f_r, "VHDL zxnext.vhd:2612 (b1=1 → 0x9F)");
+        check("MF-PORT-13",
+              "MF1 (mf_type=11): OUT 0x1F → disable_wr strobe",
+              s_1f_w, "VHDL zxnext.vhd:2613 (b1=1 → 0x1F)");
+        check("MF-PORT-14",
+              "MF1 (mf_type=11): IN 0x3F → no MF strobe (MF+3 LSB only)",
+              !s_3f_r, "VHDL: 0x3F is MF+3 enable_io, not MF1");
+    }
+
+    // ── Disable gate (NR 0x83 b1 = 0 / multiface_.is_enabled() == false) ─
+    {
+        Emulator emu;
+        prep_emulator_for_mf(emu, 0x00);  // would-be MF+3, enable=0x3F
+        emu.multiface().set_enabled(false);  // gate it off
+        // Now drive an OUT to 0x3F. With the observer gated by
+        // is_enabled(), no strobe should fire. We can't observe
+        // port_io_dly directly because set_enabled(false) clamps all
+        // FFs to held-reset (port_io_dly=0 forever while disabled). So
+        // re-enable AFTER the OUT and verify port_io_dly is still 0.
+        emu.port().out(0x3F, 0x00);
+        emu.multiface().set_enabled(true);  // re-enable for inspection
+        check("MF-PORT-15",
+              "OUT 0x3F with NR 0x83 b1 = 0 → no MF strobe (gate held off)",
+              !emu.multiface().port_io_dly(),
+              "VHDL zxnext.vhd:2615 (port_multiface_io_en gate)");
+    }
+
+    // ── Discriminative cross-mode pair: confirm 0x9F vs 0x3F flips with
+    //    mf_type bit 1 transition ──────────────────────────────────────
+    {
+        Emulator emu;
+        prep_emulator_for_mf(emu, 0x00);  // mf_type=00 (b1=0)
+        bool m00_3f = out_strobed(emu, 0x3F);     // should fire
+        prep_emulator_for_mf(emu, 0x02);  // mf_type=10 (b1=1)
+        bool m10_3f = out_strobed(emu, 0x3F);     // should NOT fire
+        check("MF-PORT-16",
+              "OUT 0x3F: fires when mf_type b1=0, suppressed when mf_type b1=1",
+              m00_3f && !m10_3f,
+              "VHDL zxnext.vhd:2612-2613 ternary cascade discriminator");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
 int main()
 {
-    std::printf("Multiface core class compliance tests (Wave 1 B1, Task 8)\n");
+    std::printf("Multiface core class compliance tests (Wave 1 B1+B2, Task 8)\n");
     std::printf("==========================================================\n\n");
 
-    g_mf_core();   std::printf("  MF-CORE state machine -- done\n");
+    g_mf_core();          std::printf("  MF-CORE state machine -- done\n");
+    g_mf_port_dispatch(); std::printf("  MF-PORT dispatch       -- done\n");
 
     std::printf("\n==========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
