@@ -34,7 +34,12 @@ static void print_usage(const char* prog) {
         "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav\n"
         "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
         "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
-        "  --sd-card FILE       Mount SD card image FILE (.img)\n"
+        "  --sd-card FILE       Mount SD card image FILE (.img) (REQUIRED)\n"
+        "                       jnext is a ZX Spectrum Next emulator and the SD card\n"
+        "                       image is the canonical source for all peripheral and\n"
+        "                       machine ROMs (DivMMC, NextZXOS, 48K/128K/+3) — same\n"
+        "                       as real hardware. The TBBlue distribution image is\n"
+        "                       the standard reference; see CLAUDE.md.\n"
         "  --machine TYPE       Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
         "  --roms-directory DIR Directory containing ROM files (default: /usr/share/fuse)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
@@ -198,6 +203,23 @@ int main(int argc, char* argv[]) {
 
     if (!inject_pc_set) inject_pc = inject_org;
 
+    // --sd-card is mandatory at the CLI level: jnext is a ZX Spectrum Next
+    // emulator and the SD-card image is the canonical source for all peripheral
+    // ROMs (DivMMC, Multiface, NextZXOS) and machine ROMs (48K, 128K, +3) —
+    // same as real Next hardware. Unit-test fixtures construct Emulator
+    // directly with their own EmulatorConfig and may legitimately leave
+    // sd_card_image empty for hermetic tests; that path remains intact (the
+    // check lives only here in main.cpp, not in Emulator::init).
+    if (sd_card_image.empty()) {
+        std::fprintf(stderr,
+            "error: --sd-card FILE is required.\n"
+            "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
+            "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
+            "ROMs (48K, 128K, +3) - same as real hardware. The TBBlue distribution image\n"
+            "is the standard reference; see CLAUDE.md for the canonical fixture path.\n");
+        return 1;
+    }
+
     // Helper lambda: configure and run any app object with the common interface.
     auto configure_and_run = [&](auto& app) -> int {
         // Configure emulator before init.
@@ -207,6 +229,14 @@ int main(int argc, char* argv[]) {
         cfg.boot_rom_path = boot_rom;
         cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;
+        // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
+        // gate (Emulator::init) can distinguish "firmware boot" from
+        // "direct NEX/TAP launch": when a --load is present, the embedded
+        // nextboot.rom default-load is skipped to avoid corrupting the
+        // demo's reset vector at 0x0000-0x1FFF (Wave 0.1 follow-up,
+        // 2026-05-04). Pure --sd-card boots leave load_file empty and
+        // get the firmware overlay.
+        cfg.load_file = load_file;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;

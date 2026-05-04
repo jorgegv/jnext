@@ -25,6 +25,14 @@ if [[ -z "${JNEXT:-}" ]]; then
     done
     JNEXT="${JNEXT:-$PROJECT_DIR/build/jnext}"
 fi
+# Wave 0.1 follow-up (2026-05-04): jnext now requires --sd-card at the CLI
+# level (mandatory for every invocation, like real Next hardware). All
+# regression invocations therefore include the canonical TBBlue/NextZXOS
+# image as a shared shell array. When the boot-ROM auto-load gate is
+# active (Next + sd_card non-empty + load_file empty), `BOOT` rows
+# exercise the firmware path; rows with --load NEX skip the boot ROM via
+# the cfg.load_file gate (Emulator::init).
+SD_CARD_ARGS=(--sd-card "$PROJECT_DIR/roms/nextzxos-1gb-fat32fix.img")
 # rewind_test is a unit-test binary (only built when ENABLE_TESTS=ON,
 # i.e. via `make unit-test-build`); the rewind functional test below
 # SKIPs gracefully if it is missing.
@@ -132,6 +140,7 @@ while IFS= read -r line; do
 
     cmd=("timeout" "--kill-after=5s" "${wall_timeout}s"
          "$JNEXT" "--headless"
+         "${SD_CARD_ARGS[@]}"
          "--machine" "$machine_type"
          "--delayed-screenshot" "$out_img"
          "--delayed-screenshot-frames" "$delay_frames"
@@ -216,6 +225,7 @@ echo ""
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-bp-func'; then
     printf "  %-25s " "[magic-bp-func]"
     bp_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless --magic-breakpoint \
+        "${SD_CARD_ARGS[@]}" \
         --load "$PROJECT_DIR/test/00regression/nex/magic_bp_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
     bp_count=$(echo "$bp_output" | grep -c "Magic breakpoint hit" || true)
@@ -232,6 +242,7 @@ fi
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'magic-port-func'; then
     printf "  %-25s " "[magic-port-func]"
     port_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" \
         --magic-port 0xCAFE --magic-port-mode line \
         --load "$PROJECT_DIR/test/00regression/nex/magic_port_demo.nex" \
         --delayed-automatic-exit 3 2>&1) || true
@@ -250,6 +261,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     rec_file="/tmp/jnext_test_recording.mp4"
     rm -f "$rec_file"
     timeout --foreground --kill-after=5s 20s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" \
         --record "$rec_file" \
         --delayed-automatic-exit 3 2>/dev/null || true
     if [[ -f "$rec_file" ]] && command -v ffprobe &>/dev/null; then
@@ -276,6 +288,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     printf "  %-25s " "[rzx-record-func]"
     rzx_file="$TMP_DIR/test_recording.rzx"
     rzx_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" \
         --rzx-record "$rzx_file" \
         --delayed-automatic-exit 3 2>&1) || true
     if [[ -f "$rzx_file" ]]; then
@@ -301,11 +314,13 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep 
     rzx_rt="$TMP_DIR/roundtrip.rzx"
     # Record 2 seconds
     timeout --foreground --kill-after=5s 8s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" \
         --rzx-record "$rzx_rt" \
         --delayed-automatic-exit 2 &>/dev/null || true
     if [[ -f "$rzx_rt" ]]; then
         # Play back and check for playback log message
         play_output=$(timeout --foreground --kill-after=5s 10s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" \
             --rzx-play "$rzx_rt" \
             --delayed-automatic-exit 3 2>&1) || true
         if echo "$play_output" | grep -qi "rzx.*play\|rzx.*load\|rzx.*snapshot"; then
