@@ -447,7 +447,6 @@ static void test_kbdhys() {
         Emulator emu;
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
 
@@ -1062,7 +1061,6 @@ static void test_kemp() {
         Emulator emu;
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
 
@@ -1968,7 +1966,6 @@ static void test_iomode() {
         Emulator emu;
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
 
@@ -2189,7 +2186,6 @@ static void test_mouse() {
         Emulator emu;
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
 
@@ -2416,7 +2412,6 @@ static void test_mouse() {
 static bool build_next_emulator_for_nmi(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
     return true;

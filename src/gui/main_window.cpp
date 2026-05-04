@@ -383,7 +383,6 @@ void MainWindow::create_menus() {
         {"ZX Spectrum &48K",  MachineType::ZX48K},
         {"ZX Spectrum &128K", MachineType::ZX128K},
         {"ZX Spectrum +&3",   MachineType::ZX_PLUS3},
-        {"&Pentagon",         MachineType::PENTAGON},
         {"ZX &Next",          MachineType::ZXN_ISSUE2},
     };
     for (auto& e : type_entries) {

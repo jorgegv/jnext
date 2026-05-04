@@ -170,14 +170,11 @@ windows:
 
 ## ROM files
 
-Place ROM files in a `roms/` subdirectory next to the executable, or pass `--roms-directory PATH`:
-
-| Machine  | ROM files                           |
-|----------|-------------------------------------|
-| 48K      | `48.rom`                            |
-| 128K     | `128-0.rom`, `128-1.rom`            |
-| +3       | `plus3-0.rom` through `plus3-3.rom` |
-| Pentagon | `128p-0.rom`, `128p-1.rom`          |
+Wave 0.3 (2026-05-04) made the SD-card image the canonical source for
+all ROMs. The Windows build needs the same `roms/nextzxos-1gb-fat32fix.img`
+(or any TBBlue-compatible NextZXOS distribution image) accessible to
+the binary; pass it via `--sd-card`. The FPGA boot ROM is silicon-baked
+into the jnext binary and needs no separate file.
 
 ## Portability notes
 

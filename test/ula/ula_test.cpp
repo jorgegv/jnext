@@ -2411,15 +2411,9 @@ static void test_section13_timing() {
               fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
     }
 
-    // Plan row #3 — Pentagon frame length: (447+1) * (319+1) / 2 = 71680 T-states.
-    t.init(MachineType::PENTAGON);
-    {
-        int ts = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
-        check("S13.03",
-              "zxula_timing.vhd — Pentagon c_max_hc=447, c_max_vc=319 → 448*320/2 = 71680 T-states",
-              t.hc_max() == 447 && t.vc_max() == 319 && ts == 71680,
-              fmt("hc_max=%d vc_max=%d ts=%d", t.hc_max(), t.vc_max(), ts));
-    }
+    // Plan row #3 — RETIRED 2026-05-04: standalone Pentagon machine type
+    // dropped (Wave 0.3 follow-up). VideoTiming no longer initialises any
+    // Pentagon-specific c_max_hc/c_max_vc constants; the row is unrunnable.
 
     // Plan row #4 — 48K active display origin (hc=128, vc=64).
     check("S13.04",

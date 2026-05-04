@@ -37,6 +37,13 @@ public:
     /// Load DivMMC ROM from file (8K).  Returns true on success.
     bool load_rom(const std::string& path);
 
+    /// Load DivMMC ROM (8K) from a byte buffer. Used by the Wave 0.3
+    /// SD-ROM path: extract_sd_rom() pulls /MACHINES/NEXT/enNxtmmc.rom
+    /// from the SD image and the bytes are passed straight in here.
+    /// Excess bytes are truncated; short buffers are padded with 0xFF.
+    /// Returns true if any bytes were loaded.
+    bool load_rom_bytes(const uint8_t* data, size_t size);
+
     // ── Port 0xE3 handlers ────────────────────────────────────────
 
     /// Write to port 0xE3 — DivMMC control register.
@@ -131,8 +138,9 @@ public:
 
     /// Flip the VHDL `port_divmmc_io_en` lever (zxnext.vhd:2412 = bit 8 of
     /// internal_port_enable). Production code uses this from
-    /// Emulator::init when --divmmc-rom is supplied, matching VHDL hardware
-    /// reset where port_io defaults '1' but `nr_0a_divmmc_automap_en` stays
+    /// Emulator::init when the DivMMC ROM is extracted from the SD image,
+    /// matching VHDL hardware reset where port_io defaults '1' but
+    /// `nr_0a_divmmc_automap_en` stays
     /// '0' until firmware writes NR 0x0A bit 4. Tests that need automap
     /// fully active must ALSO call set_nr_0a_4_enable(true) (the firmware
     /// equivalent). Any enabled→disabled transition still clears

@@ -28,7 +28,6 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 | ZX Spectrum 48K            | Original rubber-key Spectrum              |
 | ZX Spectrum 128K           | 128K with AY sound and memory paging      |
 | ZX Spectrum +3             | Amstrad +3 with extended paging           |
-| Pentagon 128               | Russian Pentagon clone                    |
 | ZX Spectrum Next (Issue 2) | Full Next hardware with all extended features |
 
 ## Emulated hardware
@@ -55,7 +54,7 @@ what has known gaps, and what is out of scope, see:
 ### Qt6 GUI
 
 - File loading — NEX, SNA, SZX, TAP, TZX, WAV via File menu or toolbar
-- Machine type selection — 48K, 128K, +3, Pentagon, Next
+- Machine type selection — 48K, 128K, +3, Next
 - CPU speed control — 0.5×, 1×, 2×, 4×, or custom percentage
 - Tape controls — Open, eject, rewind; fast load or real-time playback
 - SD card mounting — Mount `.img` disk images for DivMMC
@@ -113,15 +112,12 @@ Debugger keyboard shortcuts:
 
 | Option                        | Description                                                          |
 |-------------------------------|----------------------------------------------------------------------|
-| `--machine TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)                 |
+| `--machine TYPE`         | `48k`, `128k`, `plus3`, `next` (default)                             |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
-| `--roms-directory DIR`        | ROM directory (default: `/usr/share/fuse`)                           |
+| `--sd-card FILE`              | **Required.** Mount SD card image (.img); canonical source for all ROMs |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
 | `--headless`                  | Run without display or audio, at maximum speed                       |
 | `--tape-realtime`             | Real-time tape loading instead of fast load                          |
-| `--sd-card FILE`              | Mount an SD card image (.img)                                        |
-| `--boot-rom FILE`             | Load Next boot ROM (8K FPGA bootloader)                              |
-| `--divmmc-rom FILE`           | Load DivMMC ROM (enables DivMMC)                                     |
 | `--inject FILE`               | Load raw binary into RAM (see `--inject-org`, `--inject-pc`)         |
 | `--inject-org ADDR`           | Load address for `--inject` (hex, default: 8000)                     |
 | `--inject-pc ADDR`            | Entry point for `--inject` (hex, default: same as `--inject-org`)    |
@@ -190,45 +186,54 @@ Executables are placed in `build/gui-release/jnext` and `build/release/jnext` re
 
 ### ROM files
 
-JNEXT does not ship ROM files. By default it loads them from `/usr/share/fuse/` (installed by the FUSE emulator package):
+Wave 0.3 (2026-05-04) made the user-supplied SD-card image the canonical
+source for every ROM jnext needs at runtime, mirroring real ZX Spectrum
+Next hardware:
 
-| Machine  | ROM files                           |
-|----------|-------------------------------------|
-| 48K      | `48.rom`                            |
-| 128K     | `128-0.rom`, `128-1.rom`            |
-| +3       | `plus3-0.rom` through `plus3-3.rom` |
-| Pentagon | `128p-0.rom`, `128p-1.rom`          |
+- **FPGA boot ROM** (`nextboot.rom`, 8 KB) is silicon-baked: embedded into
+  the jnext binary at link time. No flag, no SD lookup.
+- **All other ROMs** (DivMMC, NextZXOS, 48K/128K/+3 BASIC, Multiface) are
+  read from the `--sd-card` image at canonical TBBlue paths
+  (`/MACHINES/NEXT/...`).
 
-Override the ROM directory with `--roms-directory DIR`.
+The TBBlue distribution image is the standard reference: see
+[CLAUDE.md](CLAUDE.md) for the canonical fixture path
+(`roms/nextzxos-1gb-fat32fix.img`).
 
 ---
 
 ## Quick start
 
+`--sd-card FILE` is required for every invocation (jnext is a ZX Spectrum
+Next emulator and the SD image is the canonical source for all
+peripheral and machine ROMs — same as real hardware).
+
 ```sh
-# Run with the default ZX Next machine type
-./build/gui-release/jnext
+# Boot NextZXOS / TBBlue firmware (default Next machine)
+./build/gui-release/jnext --sd-card roms/nextzxos-1gb-fat32fix.img
 
-# Run as ZX Spectrum 48K
-./build/gui-release/jnext --machine 48k
+# Run as ZX Spectrum 48K (uses /MACHINES/NEXT/48.rom from SD)
+./build/gui-release/jnext --machine 48k --sd-card roms/nextzxos-1gb-fat32fix.img
 
-# Load and run a NEX file
-./build/gui-release/jnext --load game.nex
+# Load and run a NEX file (boot-ROM overlay skipped automatically)
+./build/gui-release/jnext --load game.nex --sd-card roms/nextzxos-1gb-fat32fix.img
 
 # Load a TAP file (will auto-type LOAD "")
-./build/gui-release/jnext --load game.tap
+./build/gui-release/jnext --load game.tap --sd-card roms/nextzxos-1gb-fat32fix.img
 
 # Load a snapshot
-./build/gui-release/jnext --load game.sna
+./build/gui-release/jnext --load game.sna --sd-card roms/nextzxos-1gb-fat32fix.img
 
 # Run at double speed
-./build/gui-release/jnext --speed 200
+./build/gui-release/jnext --speed 200 --sd-card roms/nextzxos-1gb-fat32fix.img
 
 # Inject a raw binary at address 0x8000 and run
-./build/gui-release/jnext --inject program.bin --inject-org 8000
+./build/gui-release/jnext --inject program.bin --inject-org 8000 \
+    --sd-card roms/nextzxos-1gb-fat32fix.img
 
 # Headless screenshot for CI testing
 ./build/gui-release/jnext --headless --machine 48k \
+    --sd-card roms/nextzxos-1gb-fat32fix.img \
     --delayed-screenshot /tmp/test.png \
     --delayed-screenshot-time 3 --delayed-automatic-exit 5
 ```

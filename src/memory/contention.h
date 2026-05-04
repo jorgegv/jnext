@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <array>
 
-enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3, PENTAGON };
+enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
 
 class ContentionModel {
 public:
@@ -68,11 +68,6 @@ public:
         cpu_speed_ = pending_cpu_speed_;
     }
 
-    /// machine_timing_pentagon (zxnext.vhd:4481) — Pentagon never contends.
-    /// Normally set by build() from MachineType, but exposed so runtime
-    /// machine-type changes (if ever wired) can update it.
-    void set_pentagon_timing(bool pt) { pentagon_timing_ = pt; }
-
     /// NR 0x08 bit 6 — eff_nr_08_contention_disable (zxnext.vhd:4481).
     /// **Immediate** commit of the effective gate; both shadow and
     /// effective fields are updated. Used by Phase-A bare-class tests
@@ -113,7 +108,6 @@ public:
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
     uint8_t pending_cpu_speed()  const { return pending_cpu_speed_; }
-    bool    pentagon_timing()    const { return pentagon_timing_; }
     bool    contention_disable() const { return contention_disable_; }
     bool    contention_disable_shadow() const { return contention_disable_shadow_; }
 
@@ -134,7 +128,7 @@ public:
     /// Active-LOW VHDL signals are passed in the `*_n` form: pass
     /// `mreq_n=false` for an asserted MREQ, etc. (i.e. use the same
     /// polarity as the FUSE `cpu_mreq_n` line). The four gate inputs
-    /// (cpu_speed, contention_disable, pentagon_timing, mem_active_page)
+    /// (cpu_speed, contention_disable, mem_active_page)
     /// are consulted via the existing accessors — caller must update
     /// `mem_active_page` BEFORE calling for memory cycles.
     ///
@@ -199,7 +193,6 @@ private:
     // mreq_n & iorq_n & m1_n & not dma_holds_bus).
     uint8_t cpu_speed_         = 0;
     uint8_t pending_cpu_speed_ = 0;
-    bool    pentagon_timing_   = false;
     // contention_disable_ is the **effective** signal consulted by
     // is_contended_access(); contention_disable_shadow_ is the latch
     // updated by every NR 0x08 bit-6 write. The two values are equal

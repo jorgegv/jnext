@@ -168,25 +168,17 @@ static void test_gate_enable() {
               !cm.is_contended_access());
     }
 
-    // CT-GATE-06: pentagon_timing flag gates the enable line off — VHDL
-    // zxnext.vhd:4481 `not machine_timing_pentagon`. Discriminative
-    // (uses ZX48K type with the Pentagon flag flipped on) so a broken
-    // gate cannot pass via the Pentagon switch fall-through.
-    {
-        ContentionModel cm;
-        cm.build(MachineType::ZX48K);
-        cm.set_mem_active_page(0x0A);
-        cm.set_pentagon_timing(true);
-        check("CT-GATE-06",
-              "ZX48K, page=0x0A, set_pentagon_timing(true) → false "
-              "[zxnext.vhd:4481]",
-              !cm.is_contended_access());
-    }
+    // CT-GATE-06 RETIRED 2026-05-04: standalone Pentagon machine type
+    // dropped (Wave 0.3 follow-up); ContentionModel no longer exposes a
+    // pentagon_timing setter. The VHDL `machine_timing_pentagon` term
+    // (zxnext.vhd:4481) is gated by NR 0x03 b2 in the Next FPGA, but jnext
+    // does not currently wire that signal into the contention model — so
+    // the gate is effectively a no-op for every supported machine.
 
     // CT-GATE-07: all gate inputs at VHDL power-on defaults
-    // (contention_disable=0, cpu_speed=00, pentagon_timing=0) plus
-    // page=0x0A on ZX48K ⇒ contended. Sanity row that the gate is OPEN
-    // when nothing intervenes.
+    // (contention_disable=0, cpu_speed=00) plus page=0x0A on ZX48K
+    // ⇒ contended. Sanity row that the gate is OPEN when nothing
+    // intervenes.
     {
         ContentionModel cm;
         cm.build(MachineType::ZX48K);
@@ -950,80 +942,26 @@ static void test_stretch_plus3() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// §12. Pentagon and Next-turbo — never-contended paths (7 rows, mixed)
+// §12. Next-turbo — never-contended paths (rows reduced 2026-05-04 after
+// Wave 0.3 dropped the standalone Pentagon machine type; CT-PENT-01,
+// CT-PENT-04, CT-PENT-05 retired below).
 // VHDL: zxnext.vhd:4481, 4489-4493, 5801, 5817, 5822-5823, 5787-5790
 //
-// Phase A rows (bare-class): CT-PENT-01, CT-TURBO-01
-// Phase B rows (full Emulator): CT-PENT-04, CT-TURBO-04, -05, -06
-// Phase C row (integration):   CT-PENT-05
+// Phase A rows (bare-class): CT-TURBO-01
+// Phase B rows (full Emulator): CT-TURBO-04, -05, -06
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_pent_turbo() {
     set_group("CT-PENT-TURBO");
 
-    // CT-PENT-01: Pentagon machine type, page=0x0A. build(PENTAGON) sets
-    // pentagon_timing_=true so the VHDL:4481 enable gate fires; in
-    // addition, the PENTAGON case in is_contended_access() falls through
-    // to the default-false return at contention.cpp:87-90, exercising the
-    // switch fallthrough. Both belt and suspenders: not contended.
-    {
-        ContentionModel cm;
-        cm.build(MachineType::PENTAGON);
-        cm.set_mem_active_page(0x0A);
-        check("CT-PENT-01",
-              "Pentagon, page=0x0A (would contend on 48K): enable gate AND "
-              "mem_contend switch-fallthrough both suppress → not contended "
-              "[zxnext.vhd:4481,4489-4493; contention.cpp:87-90]",
-              !cm.is_contended_access());
-    }
-    // CT-PENT-04: Pentagon machine type with port 0xFE I/O. Pentagon
-    // sets pentagon_timing_=true; the enable gate at zxnext.vhd:4481
-    // blocks contention upstream of the port_contend decode. Bare-class
-    // observable: is_contended_access()==false AND delay()==0 (Pentagon
-    // LUT is left zero by build() — see contention.cpp:22 early-return).
-    {
-        ContentionModel cm;
-        cm.build(MachineType::PENTAGON);
-        cm.set_mem_active_page(0x0A);
-        const bool gate = cm.is_contended_access();
-        const uint8_t d = cm.delay(4, 100);
-        check("CT-PENT-04",
-              "Pentagon mem-cycle: gate=0 (pentagon_timing blocks) AND "
-              "LUT all-zero (build() early-return) → no added T-states "
-              "[zxnext.vhd:4481; src/memory/contention.cpp:22]",
-              !gate && d == 0,
-              std::string("gate=") + std::to_string(gate)
-              + " delay=" + std::to_string(d));
-    }
-    // CT-PENT-05: Pentagon — VHDL zxnext.vhd:4481 forces the contention
-    // gate OFF unconditionally (`not machine_timing_pentagon`). Run the
-    // standard integration-smoke program (100 contended-page reads via
-    // LD A,(HL)) on Pentagon and compare the delta cycles against the
-    // un-contended baseline (helpers.h IntSmokeProgram::kBaselineT).
-    // VHDL guarantees zero added T-states; any drift would indicate
-    // the Pentagon gate-off path is broken.
-    {
-        Emulator emu;
-        const bool ok = make_emu(emu, MachineType::PENTAGON);
-        if (!ok) {
-            check("CT-PENT-05",
-                  "Emulator::init failed (likely missing Pentagon ROMs) "
-                  "— would verify Pentagon adds zero contention "
-                  "[zxnext.vhd:4481]",
-                  false, "Emulator::init returned false");
-        } else {
-            install_int_smoke_program(emu);
-            const uint32_t total = run_int_smoke_program(emu);
-            const uint32_t expected = IntSmokeProgram::kBaselineT;
-            check("CT-PENT-05",
-                  "Pentagon, 100 LD A,(0x4000) iterations → total T-states "
-                  "match un-contended baseline (no contention added) "
-                  "[zxnext.vhd:4481; zxula_timing.vhd]",
-                  total == expected,
-                  std::string("total=") + std::to_string(total)
-                  + " expected=" + std::to_string(expected));
-        }
-    }
+    // CT-PENT-01 / CT-PENT-04 / CT-PENT-05 RETIRED 2026-05-04: standalone
+    // Pentagon machine type dropped (Wave 0.3 follow-up). The VHDL
+    // `machine_timing_pentagon` enable-gate term (zxnext.vhd:4481) is
+    // gated by NR 0x03 b2 inside the Next FPGA; jnext does not currently
+    // wire that signal into ContentionModel, and the standalone Pentagon
+    // build() path no longer exists. The remaining CT-TURBO rows still
+    // cover the cpu_speed leg of the same enable gate.
+
     // CT-TURBO-01: 48K + cpu_speed=1 (7 MHz). VHDL:4481 enable gate
     // requires cpu_speed(0)='0' AND cpu_speed(1)='0'; speed 1 trips
     // bit 0 ⇒ gate forced low.
@@ -1527,8 +1465,9 @@ static void test_integration_smoke() {
 // VHDL oracle: zxula.vhd:582-595 wait_s × per-phase pattern
 // {6,5,4,3,2,1,0,0}. Bound the per-frame drift induced by the runtime
 // `ContentionModel::contention_tick()` path against the hand-derivable
-// pattern envelope across all four contention-relevant machine types
-// (48K, 128K, +3 — drift > 0 and ≤ 6·N; Pentagon — drift == 0).
+// pattern envelope across all three contention-relevant machine types
+// (48K, 128K, +3 — drift > 0 and ≤ 6·N).
+// Pentagon row dropped 2026-05-04 (Wave 0.3 follow-up).
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_delay_drift_bound() {
@@ -1555,11 +1494,8 @@ static void test_delay_drift_bound() {
     // the display window, so at least some iterations land in stretched
     // hc phases.)
     //
-    // For Pentagon: zxnext.vhd:4481 forces the gate OFF
-    // (`not machine_timing_pentagon`) AND build()'s LUT is left
-    // all-zero (src/memory/contention.cpp:23 early-return), so drift
-    // must be EXACTLY 0. This row layers on top of CT-PENT-05 by
-    // pinning the drift bound for Pentagon to its single-point value.
+    // The Pentagon drift-bound row was retired 2026-05-04 alongside the
+    // standalone Pentagon machine-type drop (Wave 0.3 follow-up).
     //
     // Implementation note: the CT-DELAY suite is intentionally distinct
     // from CT-INT (§14 integration-smoke) — CT-INT-01 only asserts
@@ -1586,8 +1522,6 @@ static void test_delay_drift_bound() {
         // (+3 also has the hc_adj(3:1)=000 extra-phase clause, but the
         //  per-phase amplitude is still bounded by max(pattern)=6.)
         { "+3",       MachineType::ZX_PLUS3, 0, kDriftCap, /*nonzero*/ true  },
-        // Pent : zxnext.vhd:4481 gate forces zero — drift must be 0.
-        { "Pentagon", MachineType::PENTAGON, 0, 0,         /*nonzero*/ false },
     };
 
     bool all_bounded = true;
@@ -1620,16 +1554,15 @@ static void test_delay_drift_bound() {
     if (!all_init_ok) {
         check("CT-DELAY-01",
               "Emulator::init failed for one or more machines — would "
-              "verify per-frame contention drift bound across 48K/128K/+3/"
-              "Pentagon [zxula.vhd:582-595; zxnext.vhd:4481]",
+              "verify per-frame contention drift bound across 48K/128K/+3 "
+              "[zxula.vhd:582-595; zxnext.vhd:4481]",
               false, detail);
     } else {
         check("CT-DELAY-01",
               "Per-frame contention drift bounded across 48K/128K/+3 "
-              "(0 < drift ≤ 6·N) AND Pentagon (drift==0) for the §14 "
-              "IntSmokeProgram (100 LD A,(0x4000) reads): VHDL "
-              "wait_s × pattern envelope holds end-to-end "
-              "[zxula.vhd:582-595; zxnext.vhd:4481-4492]",
+              "(0 < drift ≤ 6·N) for the §14 IntSmokeProgram (100 "
+              "LD A,(0x4000) reads): VHDL wait_s × pattern envelope holds "
+              "end-to-end [zxula.vhd:582-595; zxnext.vhd:4481-4492]",
               all_bounded,
               detail);
     }

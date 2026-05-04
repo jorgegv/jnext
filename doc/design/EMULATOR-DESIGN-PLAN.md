@@ -839,7 +839,7 @@ endif()
 - [x] NextREG clip windows (0x18-0x1C) — rotating 4-write cycle for Layer2/Sprite/ULA/Tilemap clip windows; clip control register (read indices / reset); fixed incorrect sprite clip wiring
 - [x] NextREG file (remaining registers) — expansion bus (0x80-0x8F), Pi GPIO (0x90-0xA9), Multiface/joystick (0x0A-0x0B) — intentionally stubbed (cached only); no emulation effect, only relevant to physical hardware
 - [x] DivMMC — 8K ROM + 128K RAM overlay, auto-map triggers on M1, port 0xE3 control; configurable entry points via NextREG 0xB8-0xBB; VHDL-verified
-- [x] DivMMC SD card `.img` mounting — SdCardDevice SPI backend with CMD0/CMD8/CMD17/CMD24/CMD55+ACMD41/CMD58; SDHC byte addressing; `--sd-card` and `--divmmc-rom` CLI options
+- [x] DivMMC SD card `.img` mounting — SdCardDevice SPI backend with CMD0/CMD8/CMD17/CMD24/CMD55+ACMD41/CMD58; SDHC byte addressing; `--sd-card` CLI option (mandatory after Wave 0.3, 2026-05-04). DivMMC ROM is extracted from `/MACHINES/NEXT/enNxtmmc.rom` on the SD image.
 - [x] UART — dual-channel with 512/64-byte FIFOs, 17-bit prescaler, loopback mode; VHDL-verified
 - [x] SPI — byte-level master with SpiDevice virtual interface; VHDL-verified
 - [x] I2C — bit-bang protocol decoder + DS1307 RTC using host clock; VHDL-verified
@@ -960,7 +960,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 
 ### Phase 7.8 — Polish & Accuracy ✓ COMPLETE
 
-- [x] Machine-type selection: 48K / 128K / +3 / Pentagon / Next via `--machine` CLI + Qt menu; ROMs from `--roms-directory` (default `/usr/share/fuse`); fixed port 0x7FFD decode mask; +3 port 0x1FFD paging with 4-ROM selection
+- [x] Machine-type selection: 48K / 128K / +3 / Pentagon / Next via `--machine` CLI + Qt menu; ROMs extracted from the `--sd-card` image at `/MACHINES/NEXT/{48,128,plus3}.rom` (Wave 0.3, 2026-05-04 — Pentagon substitutes 128.rom per TBBlue convention); fixed port 0x7FFD decode mask; +3 port 0x1FFD paging with 4-ROM selection
 - [x] Add a Keyboard mapping from PC cursors -> ZX cursors (arrow keys → Caps Shift + 5/6/7/8 via compound key table)
 - [x] Run FUSE Z80 opcode test suite: 1340/1356 pass (98.8%); 16 failures are undocumented Z80 behaviors (BIT n,(HL) YF flag, SCF flags 3/5, DD/FD prefix chains, DJNZ loop test)
 - [x] Create test programs for Next features (Z88dk NEX): floating bus, L2 320x256, L2 640x256, sprite scaling — baseline verified matches ZesarUX

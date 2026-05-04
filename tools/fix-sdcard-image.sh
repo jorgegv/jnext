@@ -99,4 +99,4 @@ mdir x:/machines/next/config.ini
 echo ""
 echo "Done. Fixed image: $DST"
 echo "Run with:"
-echo "  ./build/jnext --boot-rom roms/nextboot.rom --divmmc-rom roms/enNxtmmc.rom --sd-card $DST"
+echo "  ./build/jnext --sd-card $DST"

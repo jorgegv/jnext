@@ -63,7 +63,6 @@
 inline bool make_emu(Emulator& emu, MachineType type) {
     EmulatorConfig cfg;
     cfg.type = type;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     return emu.init(cfg);
 }

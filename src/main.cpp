@@ -24,6 +24,15 @@ static void crash_handler(int sig) {
 static void print_usage(const char* prog) {
     fprintf(stderr,
         "Usage: %s [options]\n"
+        "\n"
+        "  jnext is a ZX Spectrum Next emulator. The FPGA boot ROM is silicon-baked\n"
+        "  (embedded in the jnext binary, mirroring real Next hardware on-FPGA flash).\n"
+        "  All other ROMs (DivMMC, NextZXOS, 48K/128K/+3 BASIC, Multiface) are loaded\n"
+        "  from the user-supplied SD-card image at canonical TBBlue paths\n"
+        "  (e.g. /MACHINES/NEXT/48.rom, /MACHINES/NEXT/enNxtmmc.rom). --sd-card is\n"
+        "  therefore required for every invocation, just like real Next hardware\n"
+        "  cannot boot without a populated SD card.\n"
+        "\n"
         "  --log-level SPEC     Set per-subsystem log levels (e.g. cpu=trace,video=warn)\n"
         "  --inject FILE        Load raw binary FILE into RAM (see --inject-org, --inject-pc)\n"
         "  --inject-org ADDR    Load address for --inject (hex, default 8000)\n"
@@ -32,16 +41,10 @@ static void print_usage(const char* prog) {
         "                       binary calls ROM routines that need system variable setup)\n"
         "  --load FILE          Load a program file (auto-detect format by extension)\n"
         "                       Supported: .nex, .sna, .szx, .tap, .tzx, .wav\n"
-        "  --boot-rom FILE      Load Next boot ROM from FILE (8K FPGA bootloader)\n"
-        "  --divmmc-rom FILE    Load DivMMC ROM from FILE (enables DivMMC)\n"
         "  --sd-card FILE       Mount SD card image FILE (.img) (REQUIRED)\n"
-        "                       jnext is a ZX Spectrum Next emulator and the SD card\n"
-        "                       image is the canonical source for all peripheral and\n"
-        "                       machine ROMs (DivMMC, NextZXOS, 48K/128K/+3) — same\n"
-        "                       as real hardware. The TBBlue distribution image is\n"
-        "                       the standard reference; see CLAUDE.md.\n"
-        "  --machine TYPE       Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
-        "  --roms-directory DIR Directory containing ROM files (default: /usr/share/fuse)\n"
+        "                       The TBBlue distribution image is the standard reference;\n"
+        "                       see CLAUDE.md for the canonical fixture path.\n"
+        "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-screenshot-frames N  Delay in frames (overrides --delayed-screenshot-time)\n"
@@ -82,8 +85,6 @@ int main(int argc, char* argv[]) {
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
     std::string load_file;
-    std::string boot_rom;
-    std::string divmmc_rom;
     std::string sd_card_image;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
@@ -91,7 +92,6 @@ int main(int argc, char* argv[]) {
     int         auto_exit_delay = -1;         // -1 = disabled
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
-    std::string roms_directory = "/usr/share/fuse";
     bool        headless = false;
     bool        tape_realtime = false;
     bool        magic_breakpoint = false;
@@ -126,10 +126,6 @@ int main(int argc, char* argv[]) {
             inject_delay = std::stoi(argv[++i]);
         } else if (arg == "--load" && i + 1 < argc) {
             load_file = argv[++i];
-        } else if (arg == "--boot-rom" && i + 1 < argc) {
-            boot_rom = argv[++i];
-        } else if (arg == "--divmmc-rom" && i + 1 < argc) {
-            divmmc_rom = argv[++i];
         } else if (arg == "--sd-card" && i + 1 < argc) {
             sd_card_image = argv[++i];
         } else if (arg == "--delayed-screenshot" && i + 1 < argc) {
@@ -142,12 +138,10 @@ int main(int argc, char* argv[]) {
             auto_exit_delay = std::stoi(argv[++i]);
         } else if (arg == "--machine" && i + 1 < argc) {
             if (!parse_machine_type(argv[++i], machine_type)) {
-                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", argv[i]);
+                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", argv[i]);
                 return 1;
             }
             machine_type_set = true;
-        } else if (arg == "--roms-directory" && i + 1 < argc) {
-            roms_directory = argv[++i];
         } else if (arg == "--headless") {
             headless = true;
         } else if (arg == "--tape-realtime") {
@@ -225,9 +219,6 @@ int main(int argc, char* argv[]) {
         // Configure emulator before init.
         EmulatorConfig cfg;
         cfg.type = machine_type;
-        cfg.roms_directory = roms_directory;
-        cfg.boot_rom_path = boot_rom;
-        cfg.divmmc_rom_path = divmmc_rom;
         cfg.sd_card_image = sd_card_image;
         // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
         // gate (Emulator::init) can distinguish "firmware boot" from

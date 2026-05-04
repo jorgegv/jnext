@@ -48,7 +48,6 @@ inline const char* machine_type_str(MachineType t) {
         case MachineType::ZX48K:      return "48K";
         case MachineType::ZX128K:     return "128K";
         case MachineType::ZX_PLUS3:   return "+3";
-        case MachineType::PENTAGON:   return "Pentagon";
     }
     return "unknown";
 }
@@ -60,7 +59,6 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
     if (lower == "48k" || lower == "48")         { out = MachineType::ZX48K;      return true; }
     if (lower == "128k" || lower == "128")       { out = MachineType::ZX128K;     return true; }
     if (lower == "+3" || lower == "plus3" || lower == "p3") { out = MachineType::ZX_PLUS3; return true; }
-    if (lower == "pentagon" || lower == "pent")   { out = MachineType::PENTAGON;   return true; }
     if (lower == "next" || lower == "zxn")        { out = MachineType::ZXN_ISSUE2; return true; }
     return false;
 }
@@ -70,9 +68,6 @@ struct EmulatorConfig {
     bool        turbo_sound = false;      // Enable TurboSound (3× AY chips)
     CpuSpeed    cpu_speed   = CpuSpeed::MHZ_3_5;
 
-    // ROM directory (default: /usr/share/fuse for standard FUSE ROMs)
-    std::string roms_directory = "/usr/share/fuse";
-
     // --inject: load a raw binary into RAM at a given address, then jump to it.
     std::string inject_file;              // path to raw binary (empty = disabled)
     uint16_t    inject_org  = 0x8000;     // load address (--inject-org)
@@ -81,11 +76,14 @@ struct EmulatorConfig {
     // --load: load a file (e.g. .nex) into the emulator.
     std::string load_file;                // path to .nex file (empty = disabled)
 
-    // Boot ROM (FPGA bootloader — highest priority overlay at 0x0000-0x1FFF)
-    std::string boot_rom_path;            // path to Next boot ROM (empty = disabled)
-
-    // DivMMC / SD card
-    std::string divmmc_rom_path;          // path to DivMMC ROM (empty = disabled)
+    // SD card image. Wave 0.3 (Task 8 Multiface plan, 2026-05-04) made this
+    // the canonical source for ALL non-embedded ROMs (DivMMC, NextZXOS,
+    // 48K/128K/+3 BASIC, Multiface). Loaded via host-side FAT32 reader at
+    // init time (src/core/sd_rom_extractor.{h,cpp}); the in-emulator SPI/SD
+    // path is independent and serves Z80 software at runtime. Empty leaves
+    // jnext with no peripheral or machine ROMs (legitimate for hermetic
+    // unit-test fixtures; not allowed at the CLI level — main.cpp errors
+    // out when --sd-card is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
 
     // Rewind buffer: number of frame snapshots to keep (0 = disabled)
@@ -140,9 +138,6 @@ inline constexpr MachineTiming machine_timing(MachineType type)
         case MachineType::ZX_PLUS3:
             // 128K/+3 PAL: c_max_hc=455 (456 pixels), c_max_vc=310 (311 lines)
             return {456, 311, 228, 228*311, 1824, 1824ULL*311};
-        case MachineType::PENTAGON:
-            // Pentagon: c_max_hc=447 (448 pixels), c_max_vc=319 (320 lines)
-            return {448, 320, 224, 224*320, 1792, 1792ULL*320};
         case MachineType::ZXN_ISSUE2:
         default:
             // ZX Next defaults to 128K timing

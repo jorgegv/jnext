@@ -37,15 +37,6 @@ void VideoTiming::init(MachineType type, bool refresh_60hz)
             int_h_        = 126;            // :189 (136+2-12)
             int_v_        = 1;              // :199
             break;
-        case MachineType::PENTAGON:
-            // Pentagon (VHDL :147-176). c_max_hc=447, c_max_vc=319.
-            hc_max_       = 447;            // :160
-            vc_max_       = 319;            // :168
-            min_hactive_  = 128;            // :159
-            min_vactive_  = 80;             // :167
-            int_h_        = 439;            // :155 (448+3-12)
-            int_v_        = 319;            // :163
-            break;
         case MachineType::ZXN_ISSUE2:
             // ZX Next defaults to 128K-style timing (256x192, 50 Hz).
             hc_max_       = 455;            // follows 128K
@@ -68,12 +59,11 @@ void VideoTiming::init(MachineType type, bool refresh_60hz)
     }
 
     // ── 60 Hz overrides (VHDL i_50_60='1' branch, zxula_timing.vhd:214-308).
-    // Pentagon has no 60 Hz VHDL branch — silently ignore the flag for it.
     // hc_max_ / min_hactive_ / int_h_ are unchanged between 50 Hz and 60 Hz
     // on the same machine (per VHDL — the 128K-vs-+3 c_int_h split is the
     // same at both refresh rates).
     refresh_60hz_ = false;
-    if (refresh_60hz && type != MachineType::PENTAGON) {
+    if (refresh_60hz) {
         refresh_60hz_ = true;
         vc_max_      = 263;     // VHDL c_max_vc :238/:298
         min_vactive_ = 40;      // VHDL c_min_vactive :237/:297

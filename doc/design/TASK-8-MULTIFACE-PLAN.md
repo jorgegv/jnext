@@ -41,9 +41,9 @@ The 2026-04-20 plan body below remains the authoritative spec for **Wave 1**
 | **A** NMI 4-state FSM | Planned | DONE (NMI source pipeline plan) | (infra) |
 | **C** MF-button source | Planned | HALF DONE — F9→strobe wired; consumer-side missing (folded into B1) | (infra) |
 | **D** NR 0x02 NMI | Planned | DONE (NMI source pipeline plan, Wave A) | (Copper ARB-06) |
-| **0.1** Embed `nextboot.rom` | n/a | NEW — Wave 0.1 | (Foundation) |
-| **0.2** SD ROM extractor module | n/a | NEW — Wave 0.2 | (Foundation) |
-| **0.3** Flag removal + mandatory SD | n/a | NEW — Wave 0.3 | (Foundation) |
+| **0.1** Embed `nextboot.rom` | n/a | DONE 2026-05-04 | (Foundation) |
+| **0.2** SD ROM extractor module | n/a | DONE 2026-05-04 | (Foundation) |
+| **0.3** Flag removal + mandatory SD | n/a | DONE 2026-05-04 | (Foundation) |
 | **B1** `Multiface` core class | Planned | Not started — gated on 0.2 | MF-G48-01..04 |
 | **B2** Port dispatch | (folded into B) | NEW — explicit mini-branch | (infra) |
 | **B3** MF+3 readback mux | (folded into B) | NEW — explicit mini-branch | MF-G48-05, -07 |
@@ -103,42 +103,50 @@ firmware (`enNxtmmc.rom` / `enNextMf.rom` / `enNextZX.rom`) come from
   not-found path, FAT chain longer than 1 cluster, partition-1 detection.
 - Effort: M (~1 day, single mini-branch + reviewer).
 
-### Wave 0.3 — Flag removal + mandatory SD
+### Wave 0.3 — Flag removal + mandatory SD — DONE 2026-05-04
 
-- Remove `--boot-rom`, `--divmmc-rom`, `--roms-directory` CLI flags + the
-  corresponding `EmulatorConfig` fields (`boot_rom_path`, `divmmc_rom_path`,
-  `roms_directory`).
-- Make `--sd-card` mandatory: error out cleanly with a clear diagnostic
-  when missing.
-- `Emulator::init` ROM-load sequence:
-  - Boot ROM: embedded blob (Wave 0.1).
-  - DivMMC ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNxtmmc.rom", ...)`.
-  - Multiface ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNextMf.rom", ...)`
-    (deferred until Wave 1 — Wave 0.3 doesn't need it yet, but the
-    extractor is ready).
-  - Machine ROMs: per `cfg.machine_type`, load from SD:
-    - 48K → `/MACHINES/NEXT/48.rom` (16 KB).
-    - 128K → `/MACHINES/NEXT/128.rom` (32 KB; jnext currently expects
-      `128-0.rom` + `128-1.rom` as separate 16 KB halves — split the
-      32 KB SD blob in the loader).
-    - +3 → `/MACHINES/NEXT/plus3.rom` (64 KB; jnext currently expects
-      `plus3-0..3.rom` as four 16 KB pieces — split the 64 KB blob).
-    - Pentagon: NOT on the TBBlue SD. **Decision:** drop Pentagon
-      machine support, OR re-add a Pentagon-only `--pentagon-roms-dir`
-      flag. RECOMMENDATION: drop, since Pentagon is not in the Next FPGA
-      core officially. Confirm before this branch lands.
-- Migrate test fixtures and regression scripts:
-  - `test/00regression/regression.sh` and helper scripts must use the
-    canonical SD image fixture; remove the `--boot-rom`/`--divmmc-rom`
-    explicit flags.
-  - Demo invocations in `demo/` (mostly 48K) — assess whether they need
-    SD or can be exempted via a future `--no-sd` headless escape hatch
-    (out of scope for 0.3; document if encountered).
-  - Update `CLAUDE.md` canonical incantation, `README.md`, all `FEATURES.md`
-    references.
-- Acceptance: full unit-test suite + full regression suite pass without
-  any of the removed flags.
-- Effort: M (~½–1 day, single mini-branch + reviewer + extensive grep).
+DONE in three commits on `wave-0-3-rom-from-sd`:
+
+1. `feat(emulator): wire sd_rom_extractor for DivMMC + machine ROM loading`
+   — replaces `cfg.divmmc_rom_path` / `cfg.roms_directory` disk-load paths
+   with `extract_sd_rom()` calls hitting `/MACHINES/NEXT/{48,128,plus3,
+   enNxtmmc}.rom`. New `Rom::load_bytes(slot, data, size)` and
+   `DivMmc::load_rom_bytes(data, size)` APIs avoid filesystem indirection.
+2. `feat(cli): remove --boot-rom, --divmmc-rom, --roms-directory; SD is
+   canonical` — drops the three flag parsers + `EmulatorConfig` fields +
+   ~20 test-fixture lines. nextboot.rom is silicon-baked (Wave 0.1); all
+   other ROMs are SD-resident.
+3. `docs: migrate canonical incantations to SD-only invocation` —
+   CLAUDE.md / README.md / FEATURES.md / this plan.
+
+Pentagon **decision:** falls back to `/MACHINES/NEXT/128.rom` (TBBlue
+ships no distinct Pentagon ROMs, mirrors the previous `128p-0/-1` ->
+`128-0/-1` disk-loader fallback). Required regenerating the
+`boot-pentagon` regression reference (the FUSE distribution had separate
+Pentagon ROMs differing from 128K BASIC; the SD substitute is binary-
+identical to FUSE 128-0/-1 but differs from FUSE 128p-0/-1 — small
+copyright/version pixel diff in the boot screen).
+
+`Emulator::init` ROM-load sequence after Wave 0.3:
+- Boot ROM: embedded blob (Wave 0.1), gated on Next + sd_card non-empty
+  + load_file empty (Wave 0.1-fix).
+- DivMMC ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNxtmmc.rom", ...)`.
+- Multiface ROM: `extract_sd_rom(sd, "/MACHINES/NEXT/enNextMf.rom", ...)`
+  — extractor is ready; consumer (Wave 1 `Multiface` class) outstanding.
+- Machine ROMs:
+  - 48K → `/MACHINES/NEXT/48.rom` (16 KB) → bank 0
+  - 128K → `/MACHINES/NEXT/128.rom` (32 KB) → banks 0+1
+  - +3 → `/MACHINES/NEXT/plus3.rom` (64 KB) → banks 0..3
+  - Pentagon → `/MACHINES/NEXT/128.rom` (substitute as above)
+  - Next → `/MACHINES/NEXT/48.rom` (fallback for non-NextZXOS mode)
+
+Test fixtures: ~20 `*_test.cpp` files had `cfg.roms_directory =
+"/usr/share/fuse"` (no-op since it matched the default). Stripped in
+commit 2.
+
+Acceptance: full unit-test suite (3816/3768/0/48 — 35 suites pass) and
+full regression suite (34/34 pass with the regenerated boot-pentagon
+reference) green. Wave 1 (Multiface core) unblocked.
 
 ## Wave 1 — Multiface (after Wave 0)
 
@@ -458,7 +466,14 @@ behaviour more VHDL-faithful, that's bonus, not goal.
 - Should the MF button be a single-press GUI shortcut, or should we
   expose a sticky toggle (press = latch on until cleared) for scripted
   tests?
-- Do we want a `--multiface-rom FILE` CLI flag (bypass SD load of
-  enNextMf.rom for repeatable tests)?
+- ~~Do we want a `--multiface-rom FILE` CLI flag (bypass SD load of
+  enNextMf.rom for repeatable tests)?~~
+  **RESOLVED 2026-05-04:** NO. Wave 0.3 made `--sd-card` mandatory and
+  removed all the `--*-rom` overrides. The Multiface ROM is loaded via
+  `extract_sd_rom(sd, "/MACHINES/NEXT/enNextMf.rom", ...)` at init time,
+  same path real Next hardware uses. Tests that need a deterministic
+  Multiface ROM bytestream use the canonical TBBlue fixture image
+  (`roms/nextzxos-1gb-fat32fix.img`) — same constraint that already
+  applies to DivMMC + machine ROMs after Wave 0.3.
 - Priority vs. Task 9+ (NextZXOS RAM-test RE, Sinclair logo rendering,
   etc.) — decide when Task 8 becomes active.

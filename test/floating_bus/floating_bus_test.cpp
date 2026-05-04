@@ -117,7 +117,6 @@ static bool fresh_emulator(Emulator& emu,
                            MachineType type = MachineType::ZXN_ISSUE2) {
     EmulatorConfig cfg;
     cfg.type = type;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     return emu.init(cfg);
 }
@@ -569,16 +568,9 @@ static void test_section3_p3_paths(void) {
               v == 0x00, fmt("v=0x%02X", v));
     }
 
-    // FB-3E — Pentagon port 0x0FFD → 0x00.
-    {
-        Emulator emu;
-        fresh_emulator(emu, MachineType::PENTAGON);
-        const uint8_t v = read_port_default(emu, 0x0FFD);
-        check("FB-3E",
-              "Pentagon port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
-    }
+    // FB-3E RETIRED 2026-05-04: standalone Pentagon machine type dropped
+    // (Wave 0.3 follow-up). FB-3D / FB-3F still cover the same gate path
+    // (port 0x0FFD → 0x00 on non-+3 timings) for 128K and Next-base.
 
     // FB-3F — Next-base port 0x0FFD → 0x00.
     {
@@ -639,22 +631,9 @@ static void test_section4_per_machine(void) {
               v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
     }
 
-    // FB-4B — Pentagon active → port 0xFF hard-forced 0xFF.
-    {
-        Emulator emu;
-        fresh_emulator(emu, MachineType::PENTAGON);
-        const int LINE = 100, TSTATE = 34;
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        // Seed VRAM with a distinctive byte; gate must drop it.
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x5A);
-        set_raster_position(emu, LINE, TSTATE);
-        const uint8_t v = read_port_default(emu, 0x00FF);
-        check("FB-4B",
-              "Pentagon active capture → port 0xFF hard-forced 0xFF "
-              "(zxnext.vhd:4513)",
-              v == 0xFF, fmt("v=0x%02X", v));
-    }
+    // FB-4B RETIRED 2026-05-04: standalone Pentagon machine type dropped
+    // (Wave 0.3 follow-up). FB-4C still covers the same gate path
+    // (non-48K/128K timing → port 0xFF hard-forced 0xFF) on Next-base.
 
     // FB-4C — Next active → port 0xFF hard-forced 0xFF.
     {

@@ -5,23 +5,20 @@ void ContentionModel::build(MachineType type) {
     for (auto& row : lut_) row.fill(0);
     for (int i = 0; i < 4; ++i) contended_slot_[i] = false;
 
-    // Reset VHDL-faithful gate inputs to their power-on defaults and then
-    // seed pentagon_timing_ from the committed machine type so callers
-    // don't have to remember to flip the flag after build().
+    // Reset VHDL-faithful gate inputs to their power-on defaults.
     //
-    // NOTE: this clears all four contention gate inputs (mem_active_page,
-    // cpu_speed, pentagon_timing, contention_disable) — safe today because
-    // build() is only called from Emulator::init(). If ever hot-called at
-    // runtime to switch machine types, re-seed cpu_speed from NR 0x07 and
-    // contention_disable from NR 0x08 after the build() call.
+    // NOTE: this clears all three contention gate inputs (mem_active_page,
+    // cpu_speed, contention_disable) — safe today because build() is only
+    // called from Emulator::init(). If ever hot-called at runtime to switch
+    // machine types, re-seed cpu_speed from NR 0x07 and contention_disable
+    // from NR 0x08 after the build() call.
     mem_active_page_           = 0;
     cpu_speed_                 = 0;
     pending_cpu_speed_         = 0;
     contention_disable_        = false;
     contention_disable_shadow_ = false;
-    pentagon_timing_           = (type == MachineType::PENTAGON);
 
-    if (type == MachineType::PENTAGON || type == MachineType::ZXN_ISSUE2) return;
+    if (type == MachineType::ZXN_ISSUE2) return;
 
     // VHDL zxula.vhd:582-583 — wait_s gating window:
     //   hc_adj <= i_hc(3 downto 0) + 1;            (4-bit, mod-16 wrap)
@@ -76,6 +73,15 @@ bool ContentionModel::is_contended_access() const {
     // AND (not cpu_speed(1)) AND (not cpu_speed(0)).
     // Any non-zero cpu_speed disables contention.
     //
+    // The `machine_timing_pentagon` term is gated by NR 0x03 timing-mode
+    // bit 2 inside the Next FPGA. jnext does not currently wire that
+    // signal into the contention model — the standalone Pentagon machine
+    // type was dropped (Wave 0.3 follow-up, 2026-05-04), and the NR 0x03
+    // Pentagon timing-mode commit path does not yet feed
+    // ContentionModel. Equivalent to treating the term as always-true
+    // (i.e. machine_timing_pentagon='0'), which is correct for every
+    // currently supported machine.
+    //
     // WONT — expansion-bus override (zxnext.vhd:5816-5820):
     //     if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
     //     else                    cpu_speed <= expbus_speed;
@@ -87,7 +93,6 @@ bool ContentionModel::is_contended_access() const {
     // feedback_wont_taxonomy.md; revisit only if NextBUS emulation is
     // ever added.
     if (contention_disable_) return false;
-    if (pentagon_timing_)    return false;
     if (cpu_speed_ != 0)     return false;
 
     // VHDL zxnext.vhd:4489 — mem_contend = '0' when mem_active_page(7:4) /= "0000".
@@ -104,9 +109,8 @@ bool ContentionModel::is_contended_access() const {
         case MachineType::ZX_PLUS3:
             // VHDL zxnext.vhd:4492 — +3: contend iff mem_active_page(3) = '1' (banks >= 4).
             return (low & 0x08) != 0;
-        case MachineType::PENTAGON:
         case MachineType::ZXN_ISSUE2:
-            // Pentagon gated off upstream; ZXN_ISSUE2 has no timing-mode line here.
+            // ZXN_ISSUE2 has no timing-mode line here.
             return false;
     }
     return false;
@@ -173,8 +177,10 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
     // i_contention_en = (not eff_nr_08_contention_disable)
     //               AND (not machine_timing_pentagon)
     //               AND (not cpu_speed(1)) AND (not cpu_speed(0))
+    // (`machine_timing_pentagon` always treated as '0' here — see
+    // is_contended_access() comment for the standalone-Pentagon-removal
+    // note.)
     if (contention_disable_) return 0;
-    if (pentagon_timing_)    return 0;
     if (cpu_speed_ != 0)     return 0;
 
     // --- Window gate (zxula.vhd:582-583) ------------------------------
@@ -213,7 +219,6 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
             case MachineType::ZX_PLUS3:
                 mem_c = (low & 0x08) != 0;
                 break;
-            case MachineType::PENTAGON:
             case MachineType::ZXN_ISSUE2:
                 mem_c = false;
                 break;

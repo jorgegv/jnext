@@ -22,6 +22,20 @@ bool Rom::load(int slot, const std::string& path) {
     return loaded_[slot];
 }
 
+bool Rom::load_bytes(int slot, const uint8_t* data, size_t size) {
+    if (slot < 0 || slot > 3) return false;
+    if (data == nullptr || size < 0x4000) {
+        Log::memory()->warn("ROM slot {}: load_bytes short buffer ({} bytes, expected >= 16384)",
+                            slot, size);
+        loaded_[slot] = false;
+        return false;
+    }
+    std::memcpy(data_.data() + slot * 0x4000, data, 0x4000);
+    loaded_[slot] = true;
+    Log::memory()->info("ROM slot {}: loaded from byte buffer (16384 bytes)", slot);
+    return true;
+}
+
 uint8_t Rom::read(uint32_t addr) const {
     if (addr >= ROM_SIZE) return 0xFF;
     return data_[addr];

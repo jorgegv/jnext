@@ -3,6 +3,7 @@
 #include "core/embedded_nextboot_rom.h"
 #include "core/log.h"
 #include "core/nex_loader.h"
+#include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
 #include "core/saveable.h"
 #include <algorithm>
@@ -186,12 +187,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
-    // build() also seeds pentagon_timing_ from MachineType (VHDL
-    // zxnext.vhd:4481 machine_timing_pentagon); seed cpu_speed from the
-    // boot-time config so i_contention_en matches the initial NR 0x07
-    // state (VHDL zxnext.vhd:1300 cpu_speed power-on "00"). NR 0x03 does
-    // not currently have a runtime machine-type commit path, so the
-    // pentagon_timing seeding from build() is sufficient for now.
+    // Seed cpu_speed from the boot-time config so i_contention_en matches
+    // the initial NR 0x07 state (VHDL zxnext.vhd:1300 cpu_speed power-on
+    // "00"). The standalone Pentagon machine type was dropped (Wave 0.3
+    // follow-up, 2026-05-04); the VHDL `machine_timing_pentagon` term
+    // (NR 0x03 b2) is not currently wired into ContentionModel — see
+    // contention.cpp::is_contended_access() comment for the rationale.
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
 
@@ -3212,64 +3213,74 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // --- ROM loading ---
 
-    // Load ROMs based on machine type. ROM files are expected in the
-    // roms directory with standard names:
-    //   48k:     48.rom (16K)
-    //   128k:    128-0.rom + 128-1.rom (16K each) or 128.rom (32K)
-    //   +3:      plus3-0.rom + plus3-1.rom + plus3-2.rom + plus3-3.rom (16K each) or plus3.rom (64K)
-    //   next:    48.rom (fallback for non-NextZXOS mode)
-    //   pentagon: 128-0.rom + 128-1.rom (same as 128K)
+    // Wave 0.3 (Task 8 Multiface plan, 2026-05-04): all machine ROMs come
+    // from the user-supplied SD-card image, the same way real ZX Spectrum
+    // Next hardware does. The TBBlue distribution image keeps every
+    // machine ROM under /MACHINES/NEXT/ at canonical names:
+    //
+    //   48K       /MACHINES/NEXT/48.rom     (16 KB)             -> bank 0
+    //   128K      /MACHINES/NEXT/128.rom    (32 KB, combined)   -> bank 0+1
+    //   +3        /MACHINES/NEXT/plus3.rom  (64 KB, combined)   -> banks 0..3
+    //   Next      /MACHINES/NEXT/48.rom     (fallback for non-NextZXOS mode)
     //
     // Skipped on soft reset (preserve_memory=true) — the rom_ buffer and
     // the Next ROM-in-SRAM window already hold whatever tbblue.fw just
-    // installed, and reloading from disk would overwrite NextZXOS with the
+    // installed, and reloading from SD would overwrite NextZXOS with the
     // default 48.rom.
-    if (!preserve_memory) {
-        std::string dir = cfg.roms_directory;
-        if (!dir.empty() && dir.back() != '/') dir += '/';
+    //
+    // Skipped also when cfg.sd_card_image is empty — unit-test fixtures
+    // that build an Emulator directly without an SD image legitimately
+    // run with no ROM contents (they exercise registers / paging and
+    // never execute ROM code). Aligns with the boot-ROM auto-load gate
+    // semantics one block down.
+    if (!preserve_memory && !cfg.sd_card_image.empty()) {
+        auto load_machine_rom = [&](const char* sd_path,
+                                    int total_banks,
+                                    size_t expected_size,
+                                    const char* desc) -> bool {
+            std::vector<uint8_t> bytes;
+            if (!extract_sd_rom(cfg.sd_card_image, sd_path, bytes)) {
+                Log::emulator()->warn("could not extract '{}' from SD image '{}' — {} will not boot",
+                                      sd_path, cfg.sd_card_image, desc);
+                return false;
+            }
+            if (bytes.size() < expected_size) {
+                Log::emulator()->warn("SD ROM '{}' short ({} bytes, expected {}) — {} will not boot",
+                                      sd_path, bytes.size(), expected_size, desc);
+                return false;
+            }
+            for (int b = 0; b < total_banks; ++b) {
+                if (!rom_.load_bytes(b, bytes.data() + b * 0x4000, 0x4000)) {
+                    Log::emulator()->warn("could not load bank {} from SD ROM '{}' — {} will not boot",
+                                          b, sd_path, desc);
+                    return false;
+                }
+            }
+            Log::emulator()->info("Machine ROM loaded from SD '{}' ({} bytes -> {} banks): {}",
+                                  sd_path, bytes.size(), total_banks, desc);
+            return true;
+        };
 
         switch (cfg.type) {
             case MachineType::ZX48K:
-                if (!rom_.load(0, dir + "48.rom"))
-                    Log::emulator()->warn("could not load {}48.rom — 48K BASIC will not boot", dir);
+                load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "48K BASIC");
                 break;
 
             case MachineType::ZX128K:
-                if (!rom_.load(0, dir + "128-0.rom")) {
-                    Log::emulator()->warn("could not load {}128-0.rom — 128K BASIC will not boot", dir);
-                } else {
-                    if (!rom_.load(1, dir + "128-1.rom"))
-                        Log::emulator()->warn("could not load {}128-1.rom — 128K ROM 1 missing", dir);
-                }
-                break;
-
-            case MachineType::PENTAGON:
-                // Pentagon uses its own ROMs (128p-0/1), falling back to 128K ROMs
-                if (!rom_.load(0, dir + "128p-0.rom")) {
-                    if (!rom_.load(0, dir + "128-0.rom"))
-                        Log::emulator()->warn("could not load {}128p-0.rom or {}128-0.rom — Pentagon will not boot", dir, dir);
-                }
-                if (!rom_.load(1, dir + "128p-1.rom")) {
-                    if (!rom_.load(1, dir + "128-1.rom"))
-                        Log::emulator()->warn("could not load {}128p-1.rom or {}128-1.rom — Pentagon ROM 1 missing", dir, dir);
-                }
+                load_machine_rom("/MACHINES/NEXT/128.rom", 2, 0x8000, "128K BASIC");
                 break;
 
             case MachineType::ZX_PLUS3:
-                for (int i = 0; i < 4; ++i) {
-                    std::string name = dir + "plus3-" + std::to_string(i) + ".rom";
-                    if (!rom_.load(i, name))
-                        Log::emulator()->warn("could not load {} — +3 ROM {} missing", name, i);
-                }
+                load_machine_rom("/MACHINES/NEXT/plus3.rom", 4, 0x10000, "+3 BASIC");
                 break;
 
             case MachineType::ZXN_ISSUE2:
             default:
-                if (!rom_.load(0, dir + "48.rom"))
-                    Log::emulator()->warn("could not load {}48.rom — BASIC will not boot", dir);
+                load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
                 break;
         }
-        Log::emulator()->info("Machine type: {} (ROMs from '{}')", machine_type_str(cfg.type), cfg.roms_directory);
+        Log::emulator()->info("Machine type: {} (ROMs from SD '{}')",
+                              machine_type_str(cfg.type), cfg.sd_card_image);
     }
 
     // Boot ROM loading (FPGA bootloader — highest priority overlay).
@@ -3280,46 +3291,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // off across RESET_SOFT so the Z80 boots into the NewlZXOS ROM in SRAM.
     // The post-init block below explicitly clears boot_rom_en on soft reset.
     //
-    // Wave 0.1 (Task 8 Multiface plan, 2026-05-04): when --boot-rom is unset
-    // and the machine is Next, we load the embedded nextboot.rom blob (linked
-    // into the binary via objcopy in src/core/CMakeLists.txt). This mirrors
-    // the on-FPGA flash IPL of real hardware — silicon-baked, never on SD.
-    // The --boot-rom flag remains as an override for this branch; Wave 0.3
-    // removes it entirely.
+    // Wave 0.1 + 0.3 (Task 8 Multiface plan, 2026-05-04): the FPGA
+    // bootloader (`nextboot.rom`, 8 KB) is silicon-baked into the jnext
+    // binary at link time (src/core/CMakeLists.txt + embedded_nextboot_rom.h)
+    // — same as the on-FPGA flash IPL of real Next hardware. There is no
+    // CLI override; this is the only path. Wave 0.3 removed --boot-rom.
     //
-    // Wave 0.1 follow-up (2026-05-04, regression fix): the embedded default
-    // is gated on `cfg.sd_card_image` being non-empty AND `cfg.load_file`
-    // being empty. NEX-only invocations (`--machine next --load foo.nex`)
-    // must NOT auto-load the boot ROM: its 0x0000-0x1FFF overlay would
-    // corrupt the demo's reset vector and break direct NEX execution. The
-    // original Wave 0.1 commit missed this and broke 14 demo regressions
-    // (palette, tilemap, beast, parallax, magic-bp/port, dapr-l2empty/
-    // sprite/tilemap_00..02/print/tilemapper_00..01) - caught only
-    // post-merge by full screenshot regression. The dual-gate is required
-    // now that `--sd-card` is mandatory at the CLI level (jnext is a ZX
-    // Spectrum Next emulator; SD is the canonical ROM source - same as
-    // real hardware): every invocation has --sd-card, so the only signal
-    // that the user wants a firmware boot vs a direct NEX launch is the
-    // absence of --load. Wave 0.3 will tidy this further (e.g. an
-    // explicit --boot/--launch mode) but the load_file gate is correct
-    // semantics today.
+    // Auto-load gate: Next machine + sd_card_image non-empty + load_file
+    // empty. The sd_card_image gate keeps unit-test fixtures (which
+    // construct Emulator with empty cfg) from overlaying the boot ROM
+    // when they don't expect it. The load_file gate skips the overlay
+    // for direct --load NEX/TAP invocations — the boot ROM at 0x0000-0x1FFF
+    // would corrupt the demo's reset vector and break direct NEX
+    // execution. (Pre-Wave-0.1 the Wave 0.1 follow-up commit added this
+    // dual-gate after a 14-demo regression; semantics retained verbatim.)
     if (!preserve_memory) {
-        if (!cfg.boot_rom_path.empty()) {
-            std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
-            if (bf.is_open()) {
-                auto sz = bf.tellg();
-                boot_rom_.resize(static_cast<size_t>(sz));
-                bf.seekg(0);
-                bf.read(reinterpret_cast<char*>(boot_rom_.data()), sz);
-                mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
-                Log::emulator()->info("Boot ROM loaded from '{}' ({} bytes, override), overlay active at 0x0000-0x{:04X}",
-                                      cfg.boot_rom_path, boot_rom_.size(), boot_rom_.size() - 1);
-            } else {
-                Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
-            }
-        } else if (cfg.type == MachineType::ZXN_ISSUE2 &&
-                   !cfg.sd_card_image.empty() &&
-                   cfg.load_file.empty()) {
+        if (cfg.type == MachineType::ZXN_ISSUE2 &&
+            !cfg.sd_card_image.empty() &&
+            cfg.load_file.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);
@@ -3376,13 +3365,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // writes will re-push. Kept here so DivMmc::rom3_active_ starts in sync.
     divmmc_.set_rom3_active(mmu_.rom3_selected());
 
-    // DivMMC ROM loading
-    if (!cfg.divmmc_rom_path.empty()) {
-        if (divmmc_.load_rom(cfg.divmmc_rom_path)) {
-            divmmc_.set_enabled(true);
-            Log::emulator()->info("DivMMC enabled, ROM loaded from '{}'", cfg.divmmc_rom_path);
+    // DivMMC ROM loading.
+    //
+    // Wave 0.3 (Task 8 Multiface plan, 2026-05-04): the DivMMC ROM
+    // (`enNxtmmc.rom`, 8 KB) lives on the SD image at the canonical
+    // TBBlue path. Like real Next hardware, jnext extracts it from the
+    // mounted SD image at init time (host-side FAT32 read; runtime
+    // SPI/SD path is independent and serves Z80 software).
+    //
+    // Skipped when cfg.sd_card_image is empty — unit-test fixtures that
+    // don't supply an SD image run with DivMMC disabled, exactly as the
+    // pre-Wave-0.3 default-empty divmmc_rom_path behaviour did.
+    if (!cfg.sd_card_image.empty()) {
+        std::vector<uint8_t> divmmc_rom_bytes;
+        const char* divmmc_sd_path = "/MACHINES/NEXT/enNxtmmc.rom";
+        if (extract_sd_rom(cfg.sd_card_image, divmmc_sd_path, divmmc_rom_bytes)) {
+            if (divmmc_.load_rom_bytes(divmmc_rom_bytes.data(), divmmc_rom_bytes.size())) {
+                divmmc_.set_enabled(true);
+                Log::emulator()->info("DivMMC enabled, ROM loaded from SD '{}' ({} bytes)",
+                                      divmmc_sd_path, divmmc_rom_bytes.size());
+            } else {
+                Log::emulator()->warn("could not install DivMMC ROM from SD '{}'", divmmc_sd_path);
+            }
         } else {
-            Log::emulator()->warn("could not load DivMMC ROM from '{}'", cfg.divmmc_rom_path);
+            Log::emulator()->warn("could not extract DivMMC ROM from SD image '{}' (path '{}') — DivMMC disabled",
+                                  cfg.sd_card_image, divmmc_sd_path);
         }
     }
 

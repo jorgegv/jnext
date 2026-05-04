@@ -1,5 +1,7 @@
 #include "peripheral/divmmc.h"
 #include "core/log.h"
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include "core/saveable.h"
 
@@ -68,6 +70,33 @@ bool DivMmc::load_rom(const std::string& path) {
     f.read(reinterpret_cast<char*>(rom_.data()), size);
 
     divmmc_log()->info("loaded ROM: {} ({} bytes)", path, static_cast<int>(size));
+    return true;
+}
+
+bool DivMmc::load_rom_bytes(const uint8_t* data, size_t size) {
+    if (data == nullptr || size == 0) {
+        divmmc_log()->error("load_rom_bytes: empty buffer");
+        return false;
+    }
+
+    // Reset to padded 0xFF before loading. Mirrors the file path's
+    // "short file padded with 0xFF" semantics.
+    std::fill(rom_.begin(), rom_.end(), 0xFF);
+
+    size_t to_copy = size;
+    if (size < static_cast<size_t>(kRomSize)) {
+        divmmc_log()->warn("ROM buffer too small ({} bytes, expected {}), padding with 0xFF",
+                           size, kRomSize);
+    }
+    if (size > static_cast<size_t>(kRomSize)) {
+        divmmc_log()->warn("ROM buffer too large ({} bytes, expected {}), truncating",
+                           size, kRomSize);
+        to_copy = kRomSize;
+    }
+
+    std::memcpy(rom_.data(), data, to_copy);
+
+    divmmc_log()->info("loaded ROM from byte buffer ({} bytes)", to_copy);
     return true;
 }
 

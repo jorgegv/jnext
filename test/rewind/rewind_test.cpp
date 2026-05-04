@@ -64,7 +64,6 @@ static bool build_emulator(Emulator& emu, int rewind_frames)
 {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZX48K;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = rewind_frames;
     // Don't require ROM to load for this test — we inject our own program.
     emu.init(cfg);
