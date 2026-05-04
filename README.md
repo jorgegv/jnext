@@ -28,7 +28,6 @@ JNEXT was fully developed by Claude (Anthropic's AI), with human guidance and su
 | ZX Spectrum 48K            | Original rubber-key Spectrum              |
 | ZX Spectrum 128K           | 128K with AY sound and memory paging      |
 | ZX Spectrum +3             | Amstrad +3 with extended paging           |
-| Pentagon 128               | Russian Pentagon clone                    |
 | ZX Spectrum Next (Issue 2) | Full Next hardware with all extended features |
 
 ## Emulated hardware
@@ -55,7 +54,7 @@ what has known gaps, and what is out of scope, see:
 ### Qt6 GUI
 
 - File loading — NEX, SNA, SZX, TAP, TZX, WAV via File menu or toolbar
-- Machine type selection — 48K, 128K, +3, Pentagon, Next
+- Machine type selection — 48K, 128K, +3, Next
 - CPU speed control — 0.5×, 1×, 2×, 4×, or custom percentage
 - Tape controls — Open, eject, rewind; fast load or real-time playback
 - SD card mounting — Mount `.img` disk images for DivMMC
@@ -113,7 +112,7 @@ Debugger keyboard shortcuts:
 
 | Option                        | Description                                                          |
 |-------------------------------|----------------------------------------------------------------------|
-| `--machine TYPE`         | `48k`, `128k`, `plus3`, `pentagon`, `next` (default)                 |
+| `--machine TYPE`         | `48k`, `128k`, `plus3`, `next` (default)                             |
 | `--load FILE`                 | Load NEX, SNA, SZX, TAP, TZX, or WAV (auto-detected by extension)   |
 | `--sd-card FILE`              | **Required.** Mount SD card image (.img); canonical source for all ROMs |
 | `--speed PERCENT`             | Emulator speed: 50=half, 100=normal, 200=2×, 400=4×                 |
@@ -199,8 +198,7 @@ Next hardware:
 
 The TBBlue distribution image is the standard reference: see
 [CLAUDE.md](CLAUDE.md) for the canonical fixture path
-(`roms/nextzxos-1gb-fat32fix.img`). Pentagon mode substitutes the 128K
-ROM (TBBlue ships no distinct Pentagon ROMs).
+(`roms/nextzxos-1gb-fat32fix.img`).
 
 ---
 

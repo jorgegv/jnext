@@ -570,9 +570,6 @@ uint8_t Im2Controller::im_mode() const { return im_mode_; }
 bool Im2Controller::pulse_int_n() const { return pulse_int_n_; }
 
 void Im2Controller::set_machine_timing_48_or_p3(bool v) { machine_48_or_p3_ = v; }
-void Im2Controller::set_machine_timing_pentagon(bool /*v*/) {
-    // VHDL documents this as no-op; retained for API completeness.
-}
 
 // -----------------------------------------------------------------------------
 // Debug accessors.

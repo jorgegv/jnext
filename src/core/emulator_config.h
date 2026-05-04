@@ -48,7 +48,6 @@ inline const char* machine_type_str(MachineType t) {
         case MachineType::ZX48K:      return "48K";
         case MachineType::ZX128K:     return "128K";
         case MachineType::ZX_PLUS3:   return "+3";
-        case MachineType::PENTAGON:   return "Pentagon";
     }
     return "unknown";
 }
@@ -60,7 +59,6 @@ inline bool parse_machine_type(const std::string& s, MachineType& out) {
     if (lower == "48k" || lower == "48")         { out = MachineType::ZX48K;      return true; }
     if (lower == "128k" || lower == "128")       { out = MachineType::ZX128K;     return true; }
     if (lower == "+3" || lower == "plus3" || lower == "p3") { out = MachineType::ZX_PLUS3; return true; }
-    if (lower == "pentagon" || lower == "pent")   { out = MachineType::PENTAGON;   return true; }
     if (lower == "next" || lower == "zxn")        { out = MachineType::ZXN_ISSUE2; return true; }
     return false;
 }
@@ -140,9 +138,6 @@ inline constexpr MachineTiming machine_timing(MachineType type)
         case MachineType::ZX_PLUS3:
             // 128K/+3 PAL: c_max_hc=455 (456 pixels), c_max_vc=310 (311 lines)
             return {456, 311, 228, 228*311, 1824, 1824ULL*311};
-        case MachineType::PENTAGON:
-            // Pentagon: c_max_hc=447 (448 pixels), c_max_vc=319 (320 lines)
-            return {448, 320, 224, 224*320, 1792, 1792ULL*320};
         case MachineType::ZXN_ISSUE2:
         default:
             // ZX Next defaults to 128K timing

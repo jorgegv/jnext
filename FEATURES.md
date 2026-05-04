@@ -1,15 +1,15 @@
 # JNEXT — Feature List
 
 ## Machine emulation
-- ZX Spectrum 48K, 128K, +2A/+3, Pentagon, and ZX Spectrum Next machine types
+- ZX Spectrum 48K, 128K, +2A/+3, and ZX Spectrum Next machine types
 - FUSE-based Z80 core with all standard opcodes (100% pass rate on FUSE test suite)
 - All 26 Z80N extended opcodes (NEXTREG, MUL, LDIRX, barrel shifts, etc.)
-- Accurate memory contention for 48K, 128K, +3, and Pentagon timing models
+- Accurate memory contention for 48K, 128K, and +3 timing models
 - IM1/IM2 interrupt controller with all 14 Next interrupt levels
 - Z80 CTC, UART, DMA, SPI, I2C/RTC peripherals (VHDL-verified)
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Floating bus emulation (48K/128K modes)
-- Pentagon timing mode (448 cycles/line, zero contention)
+- Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F (Next FPGA feature)
 
 ## Video
 - ULA: standard 48K pixel+attribute, Timex hi-colour (8×1 attributes), Timex hi-res (512×192)

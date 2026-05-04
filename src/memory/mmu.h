@@ -613,7 +613,7 @@ public:
     //   48K  → always 0 (altrom locks do not select a different ROM bank on
     //          the physical 48K machine; they only override sram_alt_128_n
     //          which the C++ model does not track yet).
-    //   128K / PENTAGON → port_7ffd(4) select between ROM 0 / 1.
+    //   128K → port_7ffd(4) select between ROM 0 / 1.
     //   +3   → 2-bit bank = (port_1ffd(2), port_7ffd(4)); altrom locks
     //          override to (lock_rom1, lock_rom0) when either lock bit is
     //          set per zxnext.vhd:2988-2991.
@@ -624,7 +624,6 @@ public:
             case MachineType::ZX48K:
                 return 0;
             case MachineType::ZX128K:
-            case MachineType::PENTAGON:
                 return static_cast<uint8_t>((port_7ffd_ >> 4) & 1);
             case MachineType::ZX_PLUS3:
                 if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
@@ -649,14 +648,13 @@ public:
     //   +3  with altrom lock (:2990) → lock_rom1 AND lock_rom0
     //   +3  no lock         (:2994)  → port_1ffd_rom(1) AND port_1ffd_rom(0)
     //                                  = port_1ffd(2) AND port_7ffd(4)
-    //   ZXN/128K/Pentagon  (the
-    //   non-48K, non-+3 branch
-    //   at :2997-3007)
+    //   ZXN/128K (the non-48K, non-+3 branch
+    //              at :2997-3007)
     //     with altrom lock (:3000)   → nr_8c_altrom_lock_rom1
     //     no lock          (:3004)   → port_1ffd_rom(0) = port_7ffd(4)
-    // The 128K/Pentagon legacy machines share the ZXN sram_rom3 branch
-    // because the VHDL else clause covers everything that isn't
-    // machine_type_48 or machine_type_p3.
+    // The 128K legacy machines share the ZXN sram_rom3 branch because the
+    // VHDL else clause covers everything that isn't machine_type_48 or
+    // machine_type_p3.
     //
     // Note: this accessor reports the VHDL-faithful sram_rom3 value
     // assuming the live port_1ffd / port_7ffd / NR 0x8C state. It does
@@ -676,7 +674,6 @@ public:
                 if (lk1 || lk0) return lk1 && lk0;       // VHDL :2990
                 return a13 && a14;                       // VHDL :2994
             case MachineType::ZX128K:
-            case MachineType::PENTAGON:
             case MachineType::ZXN_ISSUE2:
             default:
                 if (lk1 || lk0) return lk1;              // VHDL :3000
@@ -777,7 +774,6 @@ private:
     //   48K   : alt_128_n = NOT((NOT lock_rom1) AND lock_rom0)
     //   +3    : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
     //   ZXN/  : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
-    //   Pent.   (Pentagon follows the 128K legacy ROM path → port_7ffd(4))
     // port_1ffd_rom(0) is bit 0 of the 2-bit ROM bank, derived from
     // port_1ffd(2)<<1 | port_7ffd(4) → equivalently (port_7ffd_ >> 4) & 1.
     inline uint8_t altrom_sram_page_(uint16_t addr) const {
@@ -795,11 +791,10 @@ private:
                 else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
                 break;
             case MachineType::ZX128K:
-            case MachineType::PENTAGON:
             case MachineType::ZXN_ISSUE2:
             default:
-                // zxnext.vhd:2998-3005 (ZXN branch — Pentagon/128K share
-                // the same 1-bit port_1ffd_rom(0) selector via current_rom_bank).
+                // zxnext.vhd:2998-3005 (ZXN branch — 128K shares the
+                // same 1-bit port_1ffd_rom(0) selector via current_rom_bank).
                 if (lk1 || lk0) alt_128_n = lk1;
                 else            alt_128_n = ((port_7ffd_ >> 4) & 1) != 0;
                 break;

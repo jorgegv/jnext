@@ -187,12 +187,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Build contention LUT for the selected machine type.
     // MachineType is shared between emulator_config.h and contention.h
     // (emulator_config.h now includes contention.h for this definition).
-    // build() also seeds pentagon_timing_ from MachineType (VHDL
-    // zxnext.vhd:4481 machine_timing_pentagon); seed cpu_speed from the
-    // boot-time config so i_contention_en matches the initial NR 0x07
-    // state (VHDL zxnext.vhd:1300 cpu_speed power-on "00"). NR 0x03 does
-    // not currently have a runtime machine-type commit path, so the
-    // pentagon_timing seeding from build() is sufficient for now.
+    // Seed cpu_speed from the boot-time config so i_contention_en matches
+    // the initial NR 0x07 state (VHDL zxnext.vhd:1300 cpu_speed power-on
+    // "00"). The standalone Pentagon machine type was dropped (Wave 0.3
+    // follow-up, 2026-05-04); the VHDL `machine_timing_pentagon` term
+    // (NR 0x03 b2) is not currently wired into ContentionModel — see
+    // contention.cpp::is_contended_access() comment for the rationale.
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
 
@@ -3221,9 +3221,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   48K       /MACHINES/NEXT/48.rom     (16 KB)             -> bank 0
     //   128K      /MACHINES/NEXT/128.rom    (32 KB, combined)   -> bank 0+1
     //   +3        /MACHINES/NEXT/plus3.rom  (64 KB, combined)   -> banks 0..3
-    //   Pentagon  /MACHINES/NEXT/128.rom    (TBBlue ships no distinct
-    //                                        Pentagon ROMs; mirror the
-    //                                        previous 128p-* -> 128-* fallback)
     //   Next      /MACHINES/NEXT/48.rom     (fallback for non-NextZXOS mode)
     //
     // Skipped on soft reset (preserve_memory=true) — the rom_ buffer and
@@ -3271,14 +3268,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
             case MachineType::ZX128K:
                 load_machine_rom("/MACHINES/NEXT/128.rom", 2, 0x8000, "128K BASIC");
-                break;
-
-            case MachineType::PENTAGON:
-                // Pentagon: TBBlue ships no distinct Pentagon ROMs. We
-                // substitute the 128K ROM (mirrors the previous
-                // 128p-0/-1 -> 128-0/-1 fallback the disk-loader did).
-                load_machine_rom("/MACHINES/NEXT/128.rom", 2, 0x8000,
-                                 "Pentagon (using 128K ROM substitute)");
                 break;
 
             case MachineType::ZX_PLUS3:

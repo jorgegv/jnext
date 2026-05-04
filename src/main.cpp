@@ -44,7 +44,7 @@ static void print_usage(const char* prog) {
         "  --sd-card FILE       Mount SD card image FILE (.img) (REQUIRED)\n"
         "                       The TBBlue distribution image is the standard reference;\n"
         "                       see CLAUDE.md for the canonical fixture path.\n"
-        "  --machine TYPE       Machine type: 48k, 128k, plus3, pentagon, next (default)\n"
+        "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
         "  --delayed-screenshot-frames N  Delay in frames (overrides --delayed-screenshot-time)\n"
@@ -138,7 +138,7 @@ int main(int argc, char* argv[]) {
             auto_exit_delay = std::stoi(argv[++i]);
         } else if (arg == "--machine" && i + 1 < argc) {
             if (!parse_machine_type(argv[++i], machine_type)) {
-                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", argv[i]);
+                fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, next)\n", argv[i]);
                 return 1;
             }
             machine_type_set = true;

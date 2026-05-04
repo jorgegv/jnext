@@ -118,14 +118,8 @@ static void section1_frame_envelope() {
               "(zxula_timing.vhd:196,204)",
               vt.hc_max() == 455 && vt.vc_max() == 310);
     }
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        check("VT-03",
-              "Pentagon hc_max()=447, vc_max()=319 after init(PENTAGON) "
-              "(zxula_timing.vhd:160,168)",
-              vt.hc_max() == 447 && vt.vc_max() == 319);
-    }
+    // VT-03 RETIRED 2026-05-04: standalone Pentagon machine type dropped
+    // (Wave 0.3 follow-up). VideoTiming no longer has a Pentagon branch.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -145,14 +139,7 @@ static void section2_display_origin() {
               p.hc == 136 && p.vc == 64,
               "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
     }
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        auto p = vt.display_origin();
-        check("VT-05", "Pentagon display_origin() = {128, 80} (VHDL :159,:167)",
-              p.hc == 128 && p.vc == 80,
-              "got {" + std::to_string(p.hc) + "," + std::to_string(p.vc) + "}");
-    }
+    // VT-05 RETIRED 2026-05-04: standalone Pentagon machine type dropped.
     {
         VideoTiming vt;
         vt.init(MachineType::ZX48K);
@@ -186,13 +173,7 @@ static void section3_ula_prefetch_origin() {
         check("VT-08", "128K ula_prefetch_origin_hc() = 136 - 12 = 124 (VHDL :423)",
               hc == 124, "got " + std::to_string(hc));
     }
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        int hc = vt.ula_prefetch_origin_hc();
-        check("VT-09", "Pentagon ula_prefetch_origin_hc() = 128 - 12 = 116 (VHDL :423)",
-              hc == 116, "got " + std::to_string(hc));
-    }
+    // VT-09 RETIRED 2026-05-04: standalone Pentagon machine type dropped.
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -218,13 +199,7 @@ static void section4_int_position() {
         check("VT-11", "128K int_position = {128, 1} (zxula_timing.vhd:187,199)",
               p.hc == 128 && p.vc == 1);
     }
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        auto p = vt.int_position();
-        check("VT-12", "Pentagon int_position = {439, 319} (zxula_timing.vhd:155,163)",
-              p.hc == 439 && p.vc == 319);
-    }
+    // VT-12 RETIRED 2026-05-04: standalone Pentagon machine type dropped.
     {
         VideoTiming vt;
         vt.init(MachineType::ZX_PLUS3);
@@ -330,15 +305,7 @@ static void section6_line_int_target() {
               "(zxula_timing.vhd:566-570)",
               vt.int_line_num() == 310);
     }
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        vt.set_line_interrupt_target(0);
-        check("VT-20",
-              "Pentagon target=0 → int_line_num() == c_max_vc == 319 "
-              "(zxula_timing.vhd:566-570)",
-              vt.int_line_num() == 319);
-    }
+    // VT-20 RETIRED 2026-05-04: standalone Pentagon machine type dropped.
     {
         VideoTiming vt;
         vt.init(MachineType::ZX48K);
@@ -895,16 +862,10 @@ static void section9_vblank_top() {
               "128K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
               v == 32, "got " + std::to_string(v));
     }
-    // VT-VBT-04 — Pentagon: min_vactive=80, DISP_Y=32 → 48 (off-by-16
-    // from NEXT, the bug Task 13 fixes).
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON);
-        const int v = vt.vblank_top();
-        check("VT-VBT-04",
-              "Pentagon vblank_top() = min_vactive(80) - DISP_Y(32) = 48",
-              v == 48, "got " + std::to_string(v));
-    }
+    // VT-VBT-04 RETIRED 2026-05-04: standalone Pentagon machine type
+    // dropped (Wave 0.3 follow-up). VideoTiming no longer has a Pentagon
+    // branch, so min_vactive=80 is unreachable.
+
     // VT-VBT-05 — NEXT 60 Hz: min_vactive=40, DISP_Y=32 → 8 (off-by-24
     // from NEXT 50Hz).
     {
@@ -915,17 +876,7 @@ static void section9_vblank_top() {
               "NEXT 60Hz vblank_top() = min_vactive(40) - DISP_Y(32) = 8",
               v == 8, "got " + std::to_string(v));
     }
-    // VT-VBT-06 — Pentagon refresh_60hz silently ignored (no 60Hz VHDL
-    // branch for Pentagon, init() resets refresh_60hz_ to false).
-    {
-        VideoTiming vt;
-        vt.init(MachineType::PENTAGON, /*refresh_60hz=*/true);
-        const int v = vt.vblank_top();
-        check("VT-VBT-06",
-              "Pentagon vblank_top() ignores 60Hz flag (no Pentagon 60Hz "
-              "VHDL branch) → still 48",
-              v == 48, "got " + std::to_string(v));
-    }
+    // VT-VBT-06 RETIRED 2026-05-04 (paired with VT-VBT-04 retirement).
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -937,26 +888,27 @@ int main() {
     std::printf("  2026-04-28) + 4 Section-8 rows for G163 dynamic line-int\n");
     std::printf("  re-evaluation (2026-04-30; +1 NR 0xC4 mirror row) +\n");
     std::printf("  6 Section-9 rows for vblank_top() per-machine offset\n");
-    std::printf("  (Task 13, 2026-05-01). 37 live.\n");
+    std::printf("  (Task 13, 2026-05-01). 6 Pentagon rows retired 2026-05-04\n");
+    std::printf("  (Wave 0.3 follow-up: standalone Pentagon dropped). 31 live.\n");
     std::printf("  See doc/testing/VIDEOTIMING-TEST-PLAN-DESIGN.md.\n\n");
 
     section1_frame_envelope();
-    std::printf("  Section 1: VT-S1-FRAME-ENVELOPE     — done (3 live)\n");
+    std::printf("  Section 1: VT-S1-FRAME-ENVELOPE     — done (2 live)\n");
 
     section2_display_origin();
-    std::printf("  Section 2: VT-S2-DISPLAY-ORIGIN     — done (3 live)\n");
+    std::printf("  Section 2: VT-S2-DISPLAY-ORIGIN     — done (2 live)\n");
 
     section3_ula_prefetch_origin();
-    std::printf("  Section 3: VT-S3-ULA-PREFETCH       — done (3 live)\n");
+    std::printf("  Section 3: VT-S3-ULA-PREFETCH       — done (2 live)\n");
 
     section4_int_position();
-    std::printf("  Section 4: VT-S4-INT-POSITION       — done (4 live)\n");
+    std::printf("  Section 4: VT-S4-INT-POSITION       — done (3 live)\n");
 
     section5_60hz_variant();
     std::printf("  Section 5: VT-S5-60HZ-VARIANT       — done (5 live)\n");
 
     section6_line_int_target();
-    std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (4 live)\n");
+    std::printf("  Section 6: VT-S6-LINE-INT-TARGET    — done (3 live)\n");
 
     section7_scheduler_wiring();
     std::printf("  Section 7: VT-S7-SCHEDULER-WIRING   — done (5 live)\n");
@@ -965,7 +917,7 @@ int main() {
     std::printf("  Section 8: VT-S8-G163-DYNAMIC-RESCHEDULE — done (4 live)\n");
 
     section9_vblank_top();
-    std::printf("  Section 9: VT-S9-VBLANK-TOP         — done (6 live)\n");
+    std::printf("  Section 9: VT-S9-VBLANK-TOP         — done (4 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

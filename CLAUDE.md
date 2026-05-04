@@ -133,7 +133,7 @@ The `--headless` option runs without display/audio for automated testing:
 ```
 
 Key options:
-- `--machine TYPE` — `48k`, `128k`, `plus3`, `pentagon`, `next` (default)
+- `--machine TYPE` — `48k`, `128k`, `plus3`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
 - `--sd-card FILE` — required; SD image with ROMs at `/MACHINES/NEXT/`
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
@@ -175,10 +175,6 @@ ZX Spectrum Next hardware. There are two parts:
    - `/MACHINES/NEXT/plus3.rom` (64 KB combined) — +3 BASIC (split into 4 banks)
    - `/MACHINES/NEXT/enNxtmmc.rom` (8 KB) — DivMMC firmware
    - `/MACHINES/NEXT/enNextMf.rom` (8 KB) — Multiface firmware (Wave 1)
-
-   Pentagon: TBBlue ships no distinct Pentagon ROMs, so jnext substitutes
-   `/MACHINES/NEXT/128.rom` (mirrors the previous `128p-0/-1` -> `128-0/-1`
-   disk-loader fallback).
 
 The runtime SPI/SD path (`src/peripheral/sd_card.cpp`) is independent
 from the host-side extractor — it serves Z80 software at runtime via
