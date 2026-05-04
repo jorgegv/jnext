@@ -149,7 +149,12 @@ public:
 DivMmc make_divmmc() {
     DivMmc d;
     d.reset();
-    d.set_enabled(true);
+    d.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+    d.set_nr_0a_4_enable(true);   // VHDL nr_0a_divmmc_automap_en := '1'
+                                  // — defaults '0' at hw reset (zxnext.vhd:1126);
+                                  //   tests that need automap active must flip
+                                  //   it explicitly (firmware does so via
+                                  //   NR 0x0A bit 4).
     d.set_entry_timing_0(0xFF);   // all-instant for test convenience
     return d;
 }
@@ -177,7 +182,10 @@ struct MmuDivFixture {
     MmuDivFixture() : ram(), rom(), mmu(ram, rom), dm() {
         mmu.reset();
         dm.reset();
-        dm.set_enabled(true);          // port_io + nr_0a_4 both ON
+        dm.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+        dm.set_nr_0a_4_enable(true);   // VHDL nr_0a_divmmc_automap_en := '1'
+                                       // (default '0'; flip explicitly for
+                                       //  tests that need automap active)
         mmu.set_divmmc(&dm);           // wire the overlay pointer
     }
 
@@ -1195,6 +1203,7 @@ void group_r3() {
         DivMmc d;
         d.reset();
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);   // VHDL automap-en default '0', flip on
         d.write_control(0x80);  // conmem=1
         check("R3-04",
               "DivMMC enabled + conmem: non-ROM3 automap path active "
@@ -1353,6 +1362,7 @@ void group_nm() {
     {
         DivMmc d;
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);   // VHDL automap-en default '0', flip on
         d.set_button_nmi(true);
         const bool pre = d.button_nmi();
         d.set_enabled(false);
@@ -1370,6 +1380,7 @@ void group_nm() {
     {
         DivMmc d;
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);   // VHDL automap-en default '0', flip on
         d.set_button_nmi(true);
         const bool pre = d.button_nmi();
         d.on_retn_seen();
@@ -1633,6 +1644,28 @@ void group_na() {
               fmt("act=%d", d.is_active()));
     }
 
+    // NA-01b: cold-boot equivalent — set_enabled(true) ALONE (i.e.
+    // port_divmmc_io_en='1', nr_0a_divmmc_automap_en still '0' as per
+    // VHDL zxnext.vhd:1126 default) MUST NOT activate automap on the
+    // RST 0 entry-point match at PC=0x0000 even with NR 0xB8 default
+    // 0x83 (which has bit 0 = RST 0 enabled). Discriminative regression
+    // row for the cold-boot tbblue.fw splash bug fixed 2026-05-04: a
+    // future change that re-collapses both gates inside set_enabled
+    // would brick the splash logo and this row would catch it.
+    {
+        DivMmc d;
+        d.reset();
+        d.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+                                      // — nr_0a_4_enable_ stays false
+        d.set_entry_timing_0(0xFF);   // even with all-instant timing...
+        d.check_automap(0x0000, true);
+        check("NA-01b",
+              "set_enabled(true) alone (nr_0a_4_enable_=false) keeps "
+              "automap reset (VHDL zxnext.vhd:1126,4112)",
+              !d.is_active() && !d.is_rom_mapped(),
+              fmt("act=%d rom=%d", d.is_active(), d.is_rom_mapped()));
+    }
+
     // NA-02: NR 0x0A[4]=1 releases automap_reset -> automap can function.
     // Uses explicit all-instant timing to observe single-fetch activation
     // (default reset state is timing=0 = all delayed).
@@ -1640,6 +1673,7 @@ void group_na() {
         DivMmc d;
         d.reset();
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);   // simulates the firmware NR 0x0A bit 4 set
         d.set_entry_timing_0(0xFF);
         d.check_automap(0x0000, true);
         check("NA-02",
@@ -1680,12 +1714,19 @@ void group_na() {
     // setter exists; emulator.cpp NR 0x0A handler now wires it (G123 — fixed).
     //
     // Mirror the production NR 0x0A handler (emulator.cpp:447-466) to
-    // verify the wiring through NextReg::write at unit-test scope.
+    // verify the wiring through NextReg::write at unit-test scope. Test
+    // assumes firmware has already written NR 0x0A bit 4=1 (so both
+    // gates are on at fixture entry); subsequent NR 0x0A writes flip
+    // bit 4 around to observe the toggle.
     {
         NextReg nr;
         DivMmc d; d.reset();
         SpiMaster s;
-        d.set_enabled(true);          // both levers true at boot
+        d.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+        d.set_nr_0a_4_enable(true);   // assume firmware NR 0x0A bit 4=1
+                                      //   already (the only state where the
+                                      //   bit-4 toggle below has observable
+                                      //   effect on is_enabled()).
         // Emulator-side NR 0x0A handler (mirror — keep in sync with
         // the production handler at src/core/emulator.cpp).
         nr.set_write_handler(0x0A, [&](uint8_t v) -> uint8_t {
@@ -1712,10 +1753,13 @@ void group_na() {
     // NA-05 — VHDL zxnext.vhd:2412,4112 — NR 0x83 bit 0 clear asserts
     // divmmc_automap_reset (port_io_en path). emulator.cpp NR 0x83 handler
     // now propagates bit 0 to DivMmc::set_port_io_enable (G124 — fixed).
+    // Test assumes firmware has already written NR 0x0A bit 4=1 (so
+    // toggling NR 0x83 bit 0 has observable effect on is_enabled()).
     {
         NextReg nr;
         DivMmc d; d.reset();
-        d.set_enabled(true);          // both levers true at boot
+        d.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+        d.set_nr_0a_4_enable(true);   // assume firmware NR 0x0A bit 4=1 already
         // Mirror production NR 0x83 handler.
         nr.set_write_handler(0x83, [&](uint8_t v) -> uint8_t {
             d.set_port_io_enable((v & 0x01) != 0);
@@ -1784,6 +1828,7 @@ void group_na() {
         DivMmc d; d.reset();
         SpiMaster s;
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);   // VHDL automap-en default '0', flip on
         nr.set_write_handler(0x0A, [&](uint8_t v) -> uint8_t {
             if (nr.nr_03_config_mode()) {
                 s.set_sd_swap((v & 0x20) != 0);
