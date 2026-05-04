@@ -1287,6 +1287,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     mmu_.set_page(i, v);
                 return v;
             });
+        // G46(b) — VHDL zxnext.vhd:6075-6082 — `port_253b_dat <= MMU<i>` for
+        // reads of NR 0x50..0x57. MMU<i> is the LIVE register updated by:
+        //   * NR 0x50..0x57 writes (line 4690-4699: nr_mmu_we → MMU<i> <= nr_wr_dat)
+        //   * NR 0x8E with bit 3=1 (port_memory_ram_change_dly path,
+        //     line 4683-4684: MMU6/7 <= port_7ffd_bank & '0'/'1')
+        //   * port 7FFD writes (same path via port_memory_ram_change_dly)
+        //   * reset paths (lines 4611-4663)
+        // jnext keeps the canonical MMU<i> mirror in `Mmu::nr_mmu_[i]`,
+        // updated by ALL of the above via `Mmu::set_page` / the legacy
+        // paging recompute. Without this read handler the NR-port read
+        // would return `NextReg::regs_[0x50+i]` — stale whenever the live
+        // MMU value diverged from the last explicit NR 0x50..0x57 write.
+        // Concrete G46(b) symptom: NEXTREG $8E,$08 at firmware $01D7 set
+        // `nr_mmu_[7]` to 0x01 (port_7ffd_bank=0 ⇒ bank<<1 | 1) but left
+        // `regs_[0x57] = 0xDF` (the last RAM-test pass-2 NR_57 write).
+        // The post-RAM-test wrapper at $2730-$274a then read NR_57 via
+        // IN A,($253B), saved 0xDF at $5B8A's H byte, and at exit ($279a)
+        // restored NR_57 = 0xDF — mapping slot 7 to the wrong physical
+        // bank, causing the user-stack RET at $27ab to pop zeros from
+        // unused RAM and JP $0000 → $00EF → boot loop.
+        nextreg_.set_read_handler(static_cast<uint8_t>(0x50 + i),
+            [this, i]() -> uint8_t {
+                return mmu_.get_page(i);
+            });
     }
 
     // --- NextREG read handlers (dynamic registers) ---
