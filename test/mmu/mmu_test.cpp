@@ -1740,11 +1740,114 @@ void test_cat21_nirvana_multiplex() {
 void test_cat3bis_shadow_screen() {
     set_group("SHA");
 
-    // SHA-01..03 — G58: broader NR-driven shadow-screen routing rows
-    // beyond the already-LIVE P7F-16/17.
-    skip("SHA-01", "NR 0x69 b6 alias to shadow-screen unwired (see G58)");
-    skip("SHA-02", "shadow read-side bank 7 routing untested (see G58)");
-    skip("SHA-03", "shadow + Timex cross-state discriminative (see G58)");
+    // SHA-01..03 — G58: NR 0x69 bit 6 → port_7ffd_reg(3) shadow alias
+    // (zxnext.vhd:3658-3660), the sole producer of port_7ffd_shadow
+    // (:3768) and i_ula_shadow_en (:4453). The end-to-end NR-side wiring
+    // (NR 0x69 write handler → Mmu::set_port_7ffd_bit3 →
+    // Ula::set_shadow_screen_en) lives in emulator.cpp and is exercised
+    // at the integration tier (G56-D-69b in nextreg_integration_test).
+    // The SHA-* rows below pin the Mmu-side primitive that the handler
+    // depends on, isolated from the rest of port_7ffd_ semantics.
+
+    // SHA-01 — Mmu::set_port_7ffd_bit3 round-trip via shadow_screen_en().
+    // VHDL zxnext.vhd:3658 — nr_69_we drives port_7ffd_reg(3) <=
+    // nr_wr_dat(6). VHDL :4453 — port_7ffd_reg(3) (after :3768
+    // port_7ffd_shadow rename) is i_ula_shadow_en.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_port_7ffd_bit3(true);
+        const bool on_after_set = f.mmu.shadow_screen_en();
+        f.mmu.set_port_7ffd_bit3(false);
+        const bool off_after_clear = f.mmu.shadow_screen_en();
+        check("SHA-01",
+              "Mmu::set_port_7ffd_bit3 toggles shadow_screen_en() — "
+              "VHDL zxnext.vhd:3658,4453",
+              on_after_set && !off_after_clear,
+              fmt("on_after_set=%d (exp 1) off_after_clear=%d (exp 0)",
+                  static_cast<int>(on_after_set),
+                  static_cast<int>(off_after_clear)));
+    }
+
+    // SHA-02 — discriminative: bit-3 alias setter shares storage with
+    // port_7ffd_, NOT a parallel field. A subsequent full-byte port-7FFD
+    // write (map_128k_bank with bit 3 = 0) must clear shadow; a write
+    // with bit 3 = 1 must keep it set. VHDL zxnext.vhd:3653 — the
+    // full-byte branch latches cpu_do into port_7ffd_reg, overwriting
+    // bit 3 along with everything else. A buggy implementation that
+    // stored shadow in a parallel flag would FAIL step (b).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_port_7ffd_bit3(true);              // (a) shadow on
+        const bool a = f.mmu.shadow_screen_en();
+        f.mmu.map_128k_bank(0x10);                   // (b) full byte, bit3=0
+        const bool b = f.mmu.shadow_screen_en();
+        f.mmu.set_port_7ffd_bit3(true);              // re-set
+        f.mmu.map_128k_bank(0x18);                   // (c) full byte, bit3=1
+        const bool c = f.mmu.shadow_screen_en();
+        check("SHA-02",
+              "Bit-3 alias and full-byte port-7FFD write share "
+              "port_7ffd_reg storage — VHDL zxnext.vhd:3653,3658",
+              a && !b && c,
+              fmt("after-set=%d (exp 1) after-fullbyte-bit3=0=%d (exp 0) "
+                  "after-fullbyte-bit3=1=%d (exp 1)",
+                  static_cast<int>(a), static_cast<int>(b),
+                  static_cast<int>(c)));
+    }
+
+    // SHA-03 — cross-state isolation: toggling bit 3 must not mutate any
+    // other observable port_7ffd_-derived state. VHDL zxnext.vhd:3763-3766
+    // shows port_7ffd_bank composition uses bits (2:0)/(7:6) (Pentagon),
+    // and bit (5) for the lock; bit 3 is consumed solely by
+    // i_ula_shadow_en (:4453). Likewise current_rom_bank uses bit (4),
+    // not bit (3). Snapshot then-flip-then-compare: bit 3 mutates ONLY
+    // shadow_screen_en, leaving the rest of port_7ffd() and rom-bank
+    // selection untouched.
+    {
+        Fixture f;
+        f.fresh();
+        // Set a non-trivial baseline so multiple bits are observable.
+        // 0x55 = 0101 0101 — bits 0,2,4,6 set, bits 1,3,5,7 clear. Bit 3
+        // clear baseline so set_port_7ffd_bit3(true) truly flips it.
+        f.mmu.map_128k_bank(0x55);
+        const uint8_t  pre_p7ffd_no_bit3 = static_cast<uint8_t>(
+            f.mmu.port_7ffd() & 0xF7);
+        const uint8_t  pre_rom_bank      = f.mmu.current_rom_bank();
+        const bool     pre_shadow        = f.mmu.shadow_screen_en();
+
+        f.mmu.set_port_7ffd_bit3(true);
+        const uint8_t  post_p7ffd_no_bit3 = static_cast<uint8_t>(
+            f.mmu.port_7ffd() & 0xF7);
+        const uint8_t  post_rom_bank      = f.mmu.current_rom_bank();
+        const bool     post_shadow        = f.mmu.shadow_screen_en();
+
+        f.mmu.set_port_7ffd_bit3(false);
+        const uint8_t  cleared_p7ffd_no_bit3 = static_cast<uint8_t>(
+            f.mmu.port_7ffd() & 0xF7);
+        const uint8_t  cleared_rom_bank      = f.mmu.current_rom_bank();
+        const bool     cleared_shadow        = f.mmu.shadow_screen_en();
+
+        check("SHA-03",
+              "Bit-3 toggle isolated to shadow_screen_en; port_7ffd "
+              "bits 7:4|2:0 and current_rom_bank unchanged — "
+              "VHDL zxnext.vhd:3763-3766,4453",
+              !pre_shadow && post_shadow && !cleared_shadow &&
+              pre_p7ffd_no_bit3 == post_p7ffd_no_bit3 &&
+              pre_p7ffd_no_bit3 == cleared_p7ffd_no_bit3 &&
+              pre_rom_bank == post_rom_bank &&
+              pre_rom_bank == cleared_rom_bank,
+              fmt("shadow pre=%d post=%d cleared=%d (exp 0,1,0); "
+                  "p7ffd&~0x08 pre=0x%02X post=0x%02X cleared=0x%02X "
+                  "(must match); rom_bank pre=%u post=%u cleared=%u "
+                  "(must match)",
+                  static_cast<int>(pre_shadow),
+                  static_cast<int>(post_shadow),
+                  static_cast<int>(cleared_shadow),
+                  pre_p7ffd_no_bit3, post_p7ffd_no_bit3,
+                  cleared_p7ffd_no_bit3,
+                  pre_rom_bank, post_rom_bank, cleared_rom_bank));
+    }
 }
 } // namespace
 

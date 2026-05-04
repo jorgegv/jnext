@@ -1493,6 +1493,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = reserved
     nextreg_.set_write_handler(0x69, [this](uint8_t v) -> uint8_t {
         layer2_.set_enabled((v & 0x80) != 0);
+        // VHDL zxnext.vhd:3658-3660 — `nr_69_we` drives
+        // `port_7ffd_reg(3) <= nr_wr_dat(6)` regardless of port_7ffd_locked
+        // (the lock gates only the full-byte branch at :3650). Bit 3 is
+        // the sole producer of port_7ffd_shadow (:3768) and i_ula_shadow_en
+        // (:4453); push through Mmu's bit-3 alias setter, then forward
+        // the live shadow flag into the ULA — same propagation pattern
+        // used by the port-0x7FFD handler at emulator.cpp:1922.
+        mmu_.set_port_7ffd_bit3((v & 0x40) != 0);
+        renderer_.ula().set_shadow_screen_en(mmu_.shadow_screen_en());
         // VHDL zxnext.vhd:3617-3618 — `nr_69_we` fans bits 5:0 of the
         // new value into `port_ff_reg(5:0)` (the Timex screen-mode
         // surface). port_ff_reg_ is the canonical store; the
