@@ -60,6 +60,18 @@ target_link_libraries(mmu_test PRIVATE jnext_memory jnext_peripheral jnext_debug
 target_include_directories(mmu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME mmu_tests COMMAND mmu_test)
 
+# MMU integration test (G143 re-home: port 0xEFF7 / NR 0x85 b2 gate).
+# Hosts plan rows whose observable lives at the port-dispatch tier above
+# the bare Mmu class (gates that VHDL applies before forwarding to the
+# Mmu module). Mirrors the nextreg_integration_test linkage.
+add_executable(mmu_integration_test mmu/mmu_integration_test.cpp)
+target_link_libraries(mmu_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(mmu_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME mmu_integration_tests COMMAND mmu_integration_test)
+
 # NextREG register file compliance test (bare NextReg class)
 add_executable(nextreg_test nextreg/nextreg_test.cpp)
 target_link_libraries(nextreg_test PRIVATE jnext_port)

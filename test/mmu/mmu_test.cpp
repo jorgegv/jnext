@@ -1452,15 +1452,7 @@ void test_cat10_port_eff7() {
                   post_ram0000, post_disp1024, post_rom0, post_rom1));
     }
 
-    // EF7-06 — VHDL zxnext.vhd:2604 (port_eff7 = port_eff7_lsb AND
-    // port_eff7_io_en), :2441 (port_eff7_io_en = NR 0x84 b2). The gate
-    // now lives in src/core/emulator.cpp:1426-1432 (NR 0x84 b2 check
-    // before mmu_.write_port_eff7). The observable is at the port-
-    // dispatch tier — direct calls to write_port_eff7 from mmu_test
-    // bypass the port handler (correct VHDL semantics: the gate sits
-    // above the Mmu register). RE-HOME to integration tier.
-    skip("EF7-06",
-         "RE-HOME: gate now in emulator.cpp; observable at integration tier (G143 fixed in src/, test row owned by integration suite)");
+    // EF7-06 — re-homed to test/mmu/mmu_integration_test.cpp (G143 src/ gate at emulator.cpp:2222 — NR 0x85 b2)
 }
 
 // ── Category 11: ROM selection ────────────────────────────────────────
@@ -2785,10 +2777,15 @@ void test_boot_format_loaders() {
     skip("BOOT-DECI-03", "WAV real-time path unverified (see G37)");
     skip("BOOT-DECI-04", "WAV real-time path unverified (see G37)");
 
-    // Cat 26 — `.dsk` / +3 FDC (G38). uPD765 unmodelled; P1F-07 = WONT.
-    skip("BOOT-FDC-01", "no uPD765 / no `.dsk` loader; P1F-07=WONT (see G38)");
-    skip("BOOT-FDC-02", "uPD765 unmodelled; P1F-07=WONT (see G38)");
-    skip("BOOT-FDC-03", "FDC unmodelled; P1F-07=WONT (see G38)");
+    // WONT BOOT-FDC-01 / BOOT-FDC-02 / BOOT-FDC-03 — G38: +3 FDC `.dsk`
+    // loader. uPD765 chip unmodelled; jnext does not emulate the +3
+    // floppy controller at all. Already coupled to P1F-07=WONT (port
+    // 0x1FFD bit 3 motor strobe — same plan entry, same precedent). No
+    // current software target on the platform exercises +3 FDC; modern
+    // Spectrum Next demos and NextZXOS use SD card / NEX loaders. Per
+    // feedback_wont_taxonomy.md: explicit decision NOT to implement.
+    // Revisit trigger: someone adds uPD765 + `.dsk` parser to jnext, at
+    // which point these three rows become meaningful (boot/stage/motor).
 }
 
 } // namespace
