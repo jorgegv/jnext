@@ -24,6 +24,7 @@
 #include "memory/mmu.h"
 
 #include <cstdint>
+#include <cstdlib>
 
 // ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
@@ -456,6 +457,121 @@ int Z80Cpu::execute() {
     if (on_m1_prefetch) on_m1_prefetch(pc);
 
     uint8_t  opcode = mem_.read(pc);
+    // G46(b) DIAGNOSTIC ($5b8a / $5b8e watchpoint): track changes to the
+    // wrapper-saved sysvars across CPU steps. The previous instruction caused
+    // the change, so attribute it to prev_pc. Gate behind JNEXT_G46B_WATCH so
+    // the per-step memory reads only happen when actively investigating.
+    {
+        static const bool g46b_watch = std::getenv("JNEXT_G46B_WATCH") != nullptr;
+        if (g46b_watch) {
+            static uint16_t prev_5b8a = 0;
+            static uint8_t  prev_5b8e = 0;
+            static uint16_t prev_pc   = 0xFFFF;
+            static int      watch_logs = 0;
+            uint16_t cur_5b8a = static_cast<uint16_t>(
+                mem_.read(0x5b8a) | (mem_.read(0x5b8b) << 8));
+            uint8_t  cur_5b8e = mem_.read(0x5b8e);
+            if (cur_5b8a != prev_5b8a && watch_logs < 60) {
+                Log::cpu()->info(
+                    "G46B WATCH $5b8a {:#06x}->{:#06x} after PC={:#06x}",
+                    prev_5b8a, cur_5b8a, prev_pc);
+                ++watch_logs;
+            }
+            if (cur_5b8e != prev_5b8e && watch_logs < 60) {
+                Log::cpu()->info(
+                    "G46B WATCH $5b8e {:#04x}->{:#04x} after PC={:#06x}",
+                    prev_5b8e, cur_5b8e, prev_pc);
+                ++watch_logs;
+            }
+            prev_5b8a = cur_5b8a;
+            prev_5b8e = cur_5b8e;
+            prev_pc = pc;
+        }
+    }
+    // Per-instruction trace via Log::cpu_inst() (see log.h). Off by default.
+    // Enable with `--log-level cpu_inst=trace` for diagnostic investigations.
+    // The PC gate below excludes two NextZXOS firmware RAM-test inner-loops
+    // ($0130-$016E pass 1 + $018E-$01CB pass 2) that dominate the trace
+    // volume during NextZXOS boot but are not informative. Adjust the gate
+    // as needed for other investigations; remove it entirely for un-filtered
+    // tracing (very high volume — ~1M lines/sec at 28 MHz).
+    if (!((pc >= 0x0130 && pc < 0x016F) || (pc >= 0x018E && pc < 0x01CC))) {
+        Log::cpu_inst()->trace("PC={:#06x} op={:#04x}", pc, opcode);
+    }
+    // G46(b) DIAGNOSTIC: when JNEXT_G46B_PATCH is set, force mem[$5b8e] = 0
+    // every time PC reaches the exit predicate at enNextZX.rom $279d
+    // (LD A,($5b8e) / CP $5c / RET C). With A < $5c the firmware should
+    // take the "return-on-current-stack" branch and progress past the
+    // stack-switch-back-to-$0000 loop. If boot then advances to BASIC, the
+    // divergence point is confirmed and we can hunt the writer that should
+    // have computed a lower value. Same patch also hits $2734 (entry
+    // stack-switch test) so the entry side also takes the no-switch branch.
+    if (pc == 0x279d || pc == 0x2734) {
+        static const bool g46b_patch  = std::getenv("JNEXT_G46B_PATCH")  != nullptr;
+        static const bool g46b_inject = std::getenv("JNEXT_G46B_INJECT") != nullptr;
+        static int patch_hits = 0;
+        if (g46b_patch || g46b_inject) {
+            uint8_t before = mem_.read(0x5b8e);
+            uint16_t sp  = z80.sp.w;
+            uint8_t sp0 = mem_.read(sp);
+            uint8_t sp1 = mem_.read(static_cast<uint16_t>(sp + 1));
+            uint8_t sp2 = mem_.read(static_cast<uint16_t>(sp + 2));
+            uint8_t sp3 = mem_.read(static_cast<uint16_t>(sp + 3));
+            uint16_t saved_sp_lo = mem_.read(0x5b6a);
+            uint16_t saved_sp_hi = mem_.read(0x5b6b);
+            uint16_t saved_sp = static_cast<uint16_t>(saved_sp_lo | (saved_sp_hi << 8));
+            uint8_t ssp0 = mem_.read(saved_sp);
+            uint8_t ssp1 = mem_.read(static_cast<uint16_t>(saved_sp + 1));
+            uint8_t ssp2 = mem_.read(static_cast<uint16_t>(saved_sp + 2));
+            uint8_t ssp3 = mem_.read(static_cast<uint16_t>(saved_sp + 3));
+            // Brute-force test (ONE-SHOT): at the FIRST hit #2 (PC=$279d), inject
+            // the real user-stack return chain (`aa 23 74 02` = $23aa then $0274)
+            // into the user stack so that the natural stack-switch-back / RET
+            // path will pop $23aa instead of the zeros currently present. After
+            // the first injection, leave the user stack alone — subsequent
+            // iterations should reveal whether the firmware progresses past the
+            // loop or comes right back. Re-firing every iteration corrupts
+            // newer return chains.
+            static bool injected_once = false;
+            if (g46b_inject && pc == 0x279d && !injected_once) {
+                mem_.write(saved_sp,                                    0xaa);
+                mem_.write(static_cast<uint16_t>(saved_sp + 1),         0x23);
+                mem_.write(static_cast<uint16_t>(saved_sp + 2),         0x74);
+                mem_.write(static_cast<uint16_t>(saved_sp + 3),         0x02);
+                injected_once = true;
+            }
+            // $5b8e patch only when JNEXT_G46B_PATCH is set; without it, firmware
+            // takes the natural stack-switch-back path and the inject above
+            // determines what gets popped.
+            if (g46b_patch) {
+                mem_.write(0x5b8e, 0x00);
+            }
+            if (++patch_hits <= 12) {
+                // Step 1 add-on: also dump the slot 6/7 bank mapping at the
+                // hit moment, so we can tell if slot 7's mapping is the SAME
+                // at hit #1 ($2734) and hit #2 ($279d). If yes, the divergence
+                // is content-corruption (someone wrote 0 to slot-7 RAM during
+                // the iteration body). If no, the firmware itself is paging
+                // differently. Since `mem_` is MemoryInterface, downcast to
+                // Mmu* (the only real implementation) to access slot state.
+                int slot7_nr = -1, slot7_eff = -1;
+                if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                    slot7_nr  = mmu->get_page(7);            // NR 0x57 cached value
+                    slot7_eff = mmu->get_effective_page(7);  // resolves through legacy paging
+                }
+                Log::cpu()->info(
+                    "G46B HOOK #{} PC={:#06x} mem[$5b8e]={:#04x}{} | "
+                    "SP={:#06x} stack=[{:02x} {:02x} {:02x} {:02x}] | "
+                    "saved_SP@5b6a={:#06x} stack=[{:02x} {:02x} {:02x} {:02x}] | "
+                    "slot7 NR_57={:#04x} effective={:#04x}{}",
+                    patch_hits, pc, before, (g46b_patch ? "->0x00" : ""),
+                    sp, sp0, sp1, sp2, sp3,
+                    saved_sp, ssp0, ssp1, ssp2, ssp3,
+                    slot7_nr, slot7_eff,
+                    (g46b_inject && pc == 0x279d) ? " [INJECT aa 23 74 02 @ saved_SP]" : "");
+            }
+        }
+    }
 
     if (opcode == 0xED) {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));

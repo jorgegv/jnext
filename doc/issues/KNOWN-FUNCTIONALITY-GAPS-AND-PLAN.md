@@ -1439,7 +1439,8 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Status (2026-05-03d)**: ED-prefix path closed. `Z80Cpu::execute()` now fires `on_m1_cycle` on BOTH bytes of the ED-prefix sequence (`z80_cpu.cpp:480-481, 507-508`), the im2 decoder FSM advances S_ED_T4 → S_ED4D_T4 / S_ED45_T4 correctly, and the legacy `prev_ed`+RETN-alias band-aid in `emulator.cpp` was retired.
 - **Follow-up — DD/FD/CB prefix per-byte M1 delivery**: still missing for the non-ED prefix paths in `z80_cpu.cpp:514-525, 527-528`. The im2 decoder FSM has `S_DDFD_T4` and `S_CB_T4` states (`im2_control.vhd:158-209`) that would benefit from per-byte delivery the same way the ED path now does. The SKIP rows targeted by G87 were RETI/RETN only, so these prefixes were left alone — but any future SKIP/audit rows that depend on FSM advancement through DD/FD/CB will need this same per-byte fix. Effort: S (mirror the ED-path two-byte `on_m1_cycle` calls into the DD/FD/CB branches, then verify against `im2_control.vhd:158-209`).
 
-### G88. NMI does not capture PC into NR 0xC2 / NR 0xC3
+### G88. NMI does not capture PC into NR 0xC2 / NR 0xC3 [closed]
+- **Status: CLOSED** (verified 2026-05-04 late-session) — `src/core/emulator.cpp:522` latches NR 0xC2 (PC LSB) / NR 0xC3 (PC MSB) from the NMI return address.
 - **What**: VHDL `zxnext.vhd:2050-2085` latches `nr_c2/c3_retn_address_lsb/msb` on `Z80N_command_s = NMIACK_LSB/MSB AND cpu_wr_n='0'` regardless of stackless mode. Read at `:6232-6236`. jnext: no NR 0xC2/0xC3 handlers; `fuse_z80_nmi()` pushes PC but does not propagate. Cross-bucket dup: NEW-CPU-2 = NEW-IM2-1 — kept once.
 - **User impact**: software polling NR 0xC2/0xC3 to inspect last-NMI PC reads 0xFF; Multiface-style cheat menus and DivMMC NMI handlers can't display "broken at PC=…".
 - **Source ref**: Wave-1 cpu (NEW-CPU-2) + Wave-1 copper (NEW-IM2-1); reviewer APPROVE both.
@@ -1499,20 +1500,18 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Dependencies**: per-cycle rd/wr_n strobe shape.
 - **Effort**: M.
 
-### G123. NR 0x0A bit 4 (divmmc_automap_en) not wired
-- **What**: VHDL `zxnext.vhd:1126,5196,4112` — `divmmc_automap_reset <= '1' when port_divmmc_io_en='0' or nr_0a_divmmc_automap_en='0'`. jnext `emulator.cpp:447-451` decodes bits 5/3/1:0 only; setter `DivMmc::set_nr_0a_4_enable()` exists at `divmmc.h:113` but never called.
+### G123. NR 0x0A bit 4 (divmmc_automap_en) not wired [closed]
+- **Status: CLOSED** (verified 2026-05-04 late-session) — `src/core/emulator.cpp:813` calls `divmmc_.set_nr_0a_4_enable((v & 0x10) != 0)` inside the NR 0x0A write_handler. NR 0x0A read_handler at :829 also reflects the bit.
+- **What**: VHDL `zxnext.vhd:1126,5196,4112` — `divmmc_automap_reset <= '1' when port_divmmc_io_en='0' or nr_0a_divmmc_automap_en='0'`.
 - **User impact**: NR 0x0A toggle of automap silently dropped; demos disabling automap via 0x0A still trap on RST.
 - **Source ref**: Wave-2 divmmc (NEW-DM-1); reviewer APPROVE.
-- **Coverage today**: in-source comment at `:446` flags it.
-- **Dependencies**: one-line plumbing.
 - **Effort**: L.
 
-### G124. NR 0x83 b0 not propagated to DivMmc::set_port_io_enable
-- **What**: VHDL `zxnext.vhd:2412,4112,4147` — `port_divmmc_io_en` feeds both `divmmc_mod.i_en` (gates ROM/RAM overlay) and `divmmc_automap_reset`. jnext `emulator.cpp:1850/1854` consults the bit at port-0xE3 dispatch only; `DivMmc::set_port_io_enable` has zero callers; `set_enabled(true)` from boot is the only setter — so port_io_enable_ stays true forever after boot.
+### G124. NR 0x83 b0 not propagated to DivMmc::set_port_io_enable [closed]
+- **Status: CLOSED** (verified 2026-05-04 late-session) — `src/core/emulator.cpp:1751` calls `divmmc_.set_port_io_enable((v & 0x01) != 0)` inside the NR 0x83 write_handler. Same handler also forwards bit 1 to Multiface (Wave 1 B1).
+- **What**: VHDL `zxnext.vhd:2412,4112,4147` — `port_divmmc_io_en` feeds both `divmmc_mod.i_en` (gates ROM/RAM overlay) and `divmmc_automap_reset`.
 - **User impact**: NR 0x83 b0 clear leaves DivMMC ROM mapped (when conmem set) and automap firing.
 - **Source ref**: Wave-2 divmmc (NEW-DM-2); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: NR 0x82-0x85 write handler suite.
 - **Effort**: L.
 
 ### G125. NR 0x06 bits 7/5 (hotkey enables) not stored / acted on
@@ -1523,12 +1522,11 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Dependencies**: pairs with G132 (F-key FSM) + G147 (host F-key dispatch).
 - **Effort**: L.
 
-### G131. NR 0x0A bits 7:6/bit 5 not gated on nr_03_config_mode
-- **What**: VHDL `zxnext.vhd:5191-5198`: bits 7:6 (mf_type) and bit 5 (sd_swap) only update under `nr_03_config_mode='1'`. jnext `emulator.cpp:447-451` writes bit 5 unconditionally to `spi_.set_sd_swap`.
+### G131. NR 0x0A bits 7:6/bit 5 not gated on nr_03_config_mode [closed]
+- **Status: CLOSED** (verified 2026-05-04 late-session) — `src/core/emulator.cpp:803` gates the bit-5 (sd_swap) and bits 7:6 (mf_mode) commits inside `if (nextreg_.nr_03_config_mode())`. Mirrors VHDL `zxnext.vhd:5191-5198`.
+- **What**: VHDL `zxnext.vhd:5191-5198`: bits 7:6 (mf_type) and bit 5 (sd_swap) only update under `nr_03_config_mode='1'`.
 - **User impact**: stray bit-5 outside config_mode flips SD-card mapping.
 - **Source ref**: Wave-2 input (NEW-MS-2); reviewer APPROVE.
-- **Coverage today**: none.
-- **Dependencies**: distinct from G48 / G56.
 - **Effort**: L.
 
 ### G140. Boot ROM overlay 8 KB → 16 KB mirror at 0x0000-0x3FFF [closed]

@@ -19,6 +19,14 @@ class Log {
 public:
     // Per-subsystem loggers.
     static std::shared_ptr<spdlog::logger>& cpu()        { static auto l = make("cpu");        return l; }
+    /// Per-instruction trace channel — one log line per fetched opcode.
+    /// Disabled by default; enable selectively with `--log-level cpu_inst=trace`.
+    /// VERY high volume (~1M lines/sec at 28 MHz). The fetch site in
+    /// `src/cpu/z80_cpu.cpp` may gate the trace by PC range to keep volumes
+    /// manageable for diagnostic investigations (e.g. G46(b) trace work
+    /// 2026-05-04 skipped the two RAM-test inner loops). When using this
+    /// channel for new diagnostics, review/adjust that gate.
+    static std::shared_ptr<spdlog::logger>& cpu_inst()   { static auto l = make("cpu_inst");   return l; }
     static std::shared_ptr<spdlog::logger>& memory()     { static auto l = make("memory");     return l; }
     static std::shared_ptr<spdlog::logger>& ula()        { static auto l = make("ula");        return l; }
     static std::shared_ptr<spdlog::logger>& video()      { static auto l = make("video");      return l; }
@@ -69,7 +77,7 @@ public:
 
     /// Force-create all loggers (call once at startup before parse_levels).
     static void init() {
-        cpu(); memory(); ula(); video(); audio(); port(); nextreg();
+        cpu(); cpu_inst(); memory(); ula(); video(); audio(); port(); nextreg();
         dma(); copper(); uart(); input(); platform(); emulator();
         sdcard(); divmmc(); spi();
     }
