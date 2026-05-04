@@ -567,6 +567,17 @@ void MainWindow::create_toolbar() {
             QIcon::fromTheme("camera-photo"), tr("Screenshot"));
         connect(screenshot_btn, &QAction::triggered, screenshot_action_, &QAction::trigger);
     }
+
+    toolbar->addSeparator();
+
+    // Multiface NMI toolbar button — text-only, mirrors F9 hotkey path.
+    QAction* nmi_btn = toolbar->addAction(tr("NMI"));
+    nmi_btn->setToolTip(tr("Multiface NMI (F9)"));
+    connect(nmi_btn, &QAction::triggered, this, [this]() {
+        if (emulator_) {
+            emulator_->on_hotkey_f9_mf_nmi();
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
