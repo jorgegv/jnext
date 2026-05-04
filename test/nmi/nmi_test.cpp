@@ -859,6 +859,7 @@ static void g_divmmc_consumer()
         NmiSource nmi;
         DivMmc    div;
         div.set_enabled(true);
+        div.set_nr_0a_4_enable(true);  // simulate firmware NR 0x0A bit 4 set
         div.set_entry_points_0(0x01);  // RST 0x00 enabled
         div.set_entry_valid_0(0x01);   // main path valid
         div.set_entry_timing_0(0x01);  // instant
@@ -891,6 +892,7 @@ static void g_divmmc_consumer()
 
         DivMmc d3;
         d3.set_enabled(true);
+        d3.set_nr_0a_4_enable(true);   // simulate firmware NR 0x0A bit 4 set
         d3.set_entry_points_0(0x01);
         d3.set_entry_valid_0(0x01);
         d3.set_entry_timing_0(0x01);
@@ -900,6 +902,7 @@ static void g_divmmc_consumer()
 
         DivMmc d4;
         d4.set_enabled(true);
+        d4.set_nr_0a_4_enable(true);   // simulate firmware NR 0x0A bit 4 set
         d4.set_entry_points_0(0x01);
         d4.set_entry_valid_0(0x01);
         d4.set_entry_timing_0(0x01);
@@ -983,7 +986,8 @@ static void g_divmmc_clears()
     // clears.
     {
         DivMmc d;
-        d.set_enabled(true);                  // port_io + nr_0a_4 both on
+        d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);           // simulate firmware NR 0x0A bit 4 set
         d.set_button_nmi(true);
         const bool pre = d.button_nmi();
 
@@ -1001,6 +1005,7 @@ static void g_divmmc_clears()
     {
         DivMmc d;
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);           // simulate firmware NR 0x0A bit 4 set
         d.set_button_nmi(true);
         const bool pre = d.button_nmi();
 
@@ -1020,6 +1025,7 @@ static void g_divmmc_clears()
     {
         DivMmc d;
         d.set_enabled(true);
+        d.set_nr_0a_4_enable(true);            // simulate firmware NR 0x0A bit 4 set
         d.set_entry_points_0(0x01);
         d.set_entry_valid_0(0x01);
         d.set_entry_timing_0(0x01);
