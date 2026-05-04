@@ -37,6 +37,13 @@ public:
     /// Load DivMMC ROM from file (8K).  Returns true on success.
     bool load_rom(const std::string& path);
 
+    /// Load DivMMC ROM (8K) from a byte buffer. Used by the Wave 0.3
+    /// SD-ROM path: extract_sd_rom() pulls /MACHINES/NEXT/enNxtmmc.rom
+    /// from the SD image and the bytes are passed straight in here.
+    /// Excess bytes are truncated; short buffers are padded with 0xFF.
+    /// Returns true if any bytes were loaded.
+    bool load_rom_bytes(const uint8_t* data, size_t size);
+
     // ── Port 0xE3 handlers ────────────────────────────────────────
 
     /// Write to port 0xE3 — DivMMC control register.
