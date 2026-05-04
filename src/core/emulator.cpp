@@ -3286,6 +3286,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // the on-FPGA flash IPL of real hardware — silicon-baked, never on SD.
     // The --boot-rom flag remains as an override for this branch; Wave 0.3
     // removes it entirely.
+    //
+    // Wave 0.1 follow-up (2026-05-04, regression fix): the embedded default
+    // is gated on `cfg.sd_card_image` being non-empty. NEX-only invocations
+    // (`--machine next --load foo.nex` with no `--sd-card`) must NOT auto-load
+    // the boot ROM: its 0x0000-0x1FFF overlay would corrupt the demo's reset
+    // vector and break direct NEX execution. The original Wave 0.1 commit
+    // missed this, broke 14 demo regressions (palette, tilemap, beast,
+    // parallax, magic-bp/port, dapr-l2empty/sprite/tilemap_00..02/print/
+    // tilemapper_00..01) and was caught only post-merge by full screenshot
+    // regression. The SD-mount check is a proxy for "user actually intends
+    // a firmware boot"; Wave 0.3 will make `--sd-card` mandatory for Next
+    // mode and remove this conditional layer.
     if (!preserve_memory) {
         if (!cfg.boot_rom_path.empty()) {
             std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
@@ -3300,7 +3312,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             } else {
                 Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
             }
-        } else if (cfg.type == MachineType::ZXN_ISSUE2) {
+        } else if (cfg.type == MachineType::ZXN_ISSUE2 && !cfg.sd_card_image.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);
