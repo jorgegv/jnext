@@ -1196,6 +1196,234 @@ clears.
 
 ---
 
+### 2026-05-04 — splash logo regression closed; G46(b) RAM-test loop unmasked
+
+User reported on session-start: TBBlue logo no longer renders on boot;
+loader log lines visible at frames 240-320; post-boot lands on a
+"Sinclair Research Ltd" copyright screen that's NOT quite the 48K ROM
+banner (no black rectangle).
+
+#### Phase 0 — baseline screenshots at HEAD (`ad0e083`)
+
+Captured frames 50/100/150/200/240/250/260/280/400 with the canonical
+boot command (`./build/jnext --machine next --boot-rom roms/nextboot.rom
+--divmmc-rom roms/enNxtmmc.rom --sd-card roms/nextzxos-1gb-fat32fix.img
+--delayed-screenshot ... --delayed-screenshot-frames N`). Confirmed:
+
+- f100: TBBlue splash with multicolor 8×8 attribute-cell mosaic where
+  the logo bytes should be. Chrome text + version legend render
+  correctly.
+- f200: same splash + "Press SPACEBAR for menu / Press C for extra
+  cores" overlay.
+- f250: 3-line ROM loader log starting to appear.
+- f260: full 4-line ROM loader log: "Loading keymap: keymap.bin...OK!
+  / Loading ESXMMC: enNxtmmc.rom...OK! / Loading Multiface ROM:
+  enNextMF.rom...OK! / Loading ROM: enNextZX.rom...OK!".
+- f280-f400: gray paper + only "© 1982 Sinclair Research Ltd" at
+  bottom (no black banner = NOT real 48K ROM banner; suggests the
+  emulator falls through to a different ROM after RESET_SOFT).
+
+#### Phase 1 — autonomous bisect
+
+Wrote a discriminator script that did clean configure + build + boot
++ ImageMagick `%k` unique-color count on f100 (≤8 = clean, ≥10 =
+mosaic, in between = SKIP). Ran `git bisect run` over the 397-commit
+range `6ceb812..ad0e083` (good = `6ceb812` band-aid commit verified
+clean by manual inspection; bad = HEAD). 8 bisect steps, ~25 min wall.
+
+**First bad commit: `31e2720`** (yesterday's `ctc_interrupts:
+G87+G88+G90 — close 4 PASS rows + 1 RE-HOME`). G87 retired the
+RETN-alias band-aid in `Emulator::init`'s `on_m1_cycle` lambda. The
+G46(a) follow-up at `94d4d0a` (proper VHDL `divmmc.vhd:131`
+delayed-off path) DID land — verified by clean rebuild + capture —
+but the splash mosaic persisted, so G46(a) was not the actual cure
+the band-aid had been masking.
+
+#### Phase 2 — root-cause: cold-boot DivMMC automap leak
+
+Initial false-trail: `Initializing emulator: machine_type=0` log line
+post-soft-reset → I hypothesised G62/G63 (machine-type latch not
+preserved across soft reset). Wrong: `0` is just
+`MachineType::ZXN_ISSUE2` (the enum value for "Next") in the log
+formatter; G62/G63 are correctly handled in
+[src/port/nextreg.cpp:84-117](../../src/port/nextreg.cpp#L84-L117).
+
+Real root cause found via DivMMC trace at `--log-level divmmc=debug`:
+
+```
+automap @PC=0x0000: hold=false→true held=false ... (instant=false delayed=true off=false)
+automap @PC=0x0001: hold=true→true  held=true  active=false→true ...
+```
+
+Two events, then NOTHING for the rest of the splash window. **DivMMC
+automapped at the very first M1 of the boot ROM** (PC=0x0000 = RST 0
+entry-point per `nr_b8_divmmc_ep_0` default `0x83` at `zxnext.vhd:5087`)
+and never cleared. So `enNxtmmc.rom` was overlaying slot 0 throughout
+the boot ROM phase. The G87 alias-firing band-aid had been
+"clearing" `automap_held` whenever tbblue.fw normal code happened to
+execute an undocumented RETN-alias byte (~57 times during boot per
+the 2026-04-25 entry).
+
+Why did automap fire? `Emulator::init` line 3332 called
+`divmmc_.set_enabled(true)` which set BOTH `port_io_enable_=true`
+AND `nr_0a_4_enable_=true`. But VHDL `zxnext.vhd:1126` defaults
+`nr_0a_divmmc_automap_en` to **'0'** at hardware reset; only firmware
+writing NR 0x0A bit 4 should set it. Combined enable
+`port_divmmc_io_en AND nr_0a_divmmc_automap_en` is therefore **0**
+at cold boot — automap_reset asserted, no automap, boot ROM phase
+runs cleanly.
+
+#### Fix 1 — cold-boot automap gate (commit `cb1db53`, merged `e9cbfd2`)
+
+Split `DivMmc::set_enabled(bool)` so it flips ONLY `port_io_enable_`
+(the VHDL-faithful "DivMMC hardware present" lever). `nr_0a_4_enable_`
+stays at its `false` reset default; firmware writes NR 0x0A bit 4 via
+the existing `set_nr_0a_4_enable()` lever. 41 divmmc_test rows updated
+to call both setters explicitly when their fixture wanted automap on.
+
+Iteration 1 of the fix (commit 235c708) returned REWORK from the
+reviewer:
+- Missed `set_nr_0a_4_enable(true)` at 2 fixture sites in
+  `nmi_integration_test.cpp` (INT-02 regressed).
+- Save-state EOF-tolerance was unsound — `StateReader::eof()` checks
+  the WHOLE snapshot stream end, not the divmmc subsection (Beeper
+  bytes follow divmmc immediately).
+- Missing discriminative regression test row (NA-01b: `set_enabled(true)`
+  alone with `nr_0a_4=0` must NOT activate automap at PC=0x0000).
+- Stale public-API doc comment on `set_enabled()`.
+- Misleading "[2026-05-04 emulator boot equivalent]" framing at
+  NA-04/NA-05.
+
+Iteration 2 (`cb1db53`) addressed all five and got APPROVE. Discriminative
+test NA-01b added; save-state schema appendix changed to "schema
+additions break compat by design" (pre-fix snapshots no longer load,
+matching the existing pattern for `button_nmi_`/`layer2_map_read_`/
+`retn_pending_clear_`).
+
+Post-merge, full-suite unit-test surfaced ANOTHER 4 fails in
+`nmi_test.cpp` (DIS-02, DIS-03, CLR-02, CLR-04) at 6 missed
+`set_enabled(true)` sites. Follow-up commit `a4ef5eb` fixed those.
+Lesson: when a public setter's semantics change, grep the ENTIRE
+`test/` tree, not just the `_test.cpp` for the changed module.
+
+Boot state post-Fix 1:
+- f100: clean blue TBBlue logo (3 colors).
+- f200: clean spacebar prompt.
+- f250-f275: clean 4-line ROM loader log.
+- f280+: gray border + black paper. Boot has progressed past splash
+  and ROM-loading; CPU is now in the post-soft-reset enNextZX.rom code.
+
+#### Fix 2 — CONMEM gating per VHDL `i_en` (commit `da5b002`, merged `dab29b4`)
+
+After Fix 1, boot reaches the post-soft-reset code path but stalls
+there. Trace + disassembly of `enNextZX.rom`:
+
+The IM1 handler at `enNextZX.rom:0x0038` is the standard ESXDOS
+trampoline: push AF/HL, set A=0x80, JP 0x0046, OUT (0xE3), A —
+which writes 0x80 to the DivMMC control register (CONMEM=1) to
+overlay DivMMC ROM. The esxdos handler in `enNxtmmc.rom` runs from
+the now-overlaid 0x0048+, eventually drops CONMEM, returns via the
+NMI-vector RETN at 0x0066.
+
+But Fix 1 left `is_active() = enabled_ && (conmem_ ||
+automap_active_)` where `enabled_ = port_io_enable_ AND
+nr_0a_4_enable_`. So with `nr_0a_4=0` (still 0 — firmware writes NR
+0x0A bit 4 only at `enNextZX.rom:0x0245` in post-RAM-test init,
+which is reached AFTER the IM1 handler can fire), the CONMEM path
+was blocked: `is_active()=false` even with `conmem_=true`. CPU got
+stuck in a degenerate `OUT (0xE3), A` loop at PC=0x0046 because
+DivMMC ROM never overlaid.
+
+VHDL split is more nuanced than Fix 1 captured:
+- `divmmc.vhd:94-95,98`: `o_divmmc_rom_en <= ((conmem OR automap)
+  AND ...) AND i_en`.
+- `zxnext.vhd:4147`: `i_en => port_divmmc_io_en` — port_io ONLY.
+- `zxnext.vhd:4112`: combined `port_io AND nr_0a_4` only feeds
+  `divmmc_automap_reset`, gating AUTOMAP only.
+
+So **CONMEM uses port_io alone; AUTOMAP requires both gates**. Fix:
+`is_active() = port_io_enable_ && (conmem_ || automap_active_)`.
+Discriminative regression test NA-01c added (CONMEM with `nr_0a_4=0`
+must yield `is_active()=true`).
+
+#### G46(b) RAM-test outer loop — UNMASKED
+
+Both fixes landed; full unit suite 33 pass / 0 fail / 0 skip
+(3793/3738/0/55), regression 34/0/0. Boot screenshots at f400, f600,
+f1000, f3000 all show the same gray-border + black-paper state.
+Firmware is genuinely stuck.
+
+CPU trace post-Fix 2 (~18 s wall = 119 outer-loop passes) shows the
+firmware reaches:
+- Pass 1 RAM-test loop body: PC `0x0139`-`0x013D` (NEXTREG 0x56,A;
+  INC A; NEXTREG 0x57,A) — 13333 hits = 119 passes × 112 banks per
+  pass.
+- Pass 2 RAM-test body: PC `0x0196`-`0x019A` — 13328 hits.
+- Post-RAM-test init: PC `0x01D7`, `0x0207`-`0x0217` (NR 0xB8=0x82,
+  NR 0xB9=0x00, NR 0xBA=0x00, NR 0xBB=0xF2, NR 0xD8=0x01) —
+  119 hits each.
+- Slot-1 LDIR'd code: PC `0x3E0A`-`0x3E13` (238/476 hits per pass —
+  the second half of a `LD ($5B54), BC; EX (SP), HL; ...; PUSH operand;
+  PUSH BC; LD BC, ($5B54); NEXTREG 0x8E, 0x02; RET` trampoline pattern
+  also seen at `0x3E80`).
+- Slot-2 RAM trampoline: PC `0x5B48`-`0x5B4D` (`NEXTREG 0x8E, 0x03;
+  RET / NEXTREG 0x8E, 0x00; RET`) — 238 hits each.
+- Boot init re-entry: PC `0x00EF`-`0x0113` — 120 hits (1 from initial
+  soft-reset + 119 from outer-loop wraps).
+
+The outer-loop dispatch is a FORTH-style `RST $28` macro. Caller does
+`RST $28; DEFW <target>`; the trampoline at 0x0028 does `LD ($5B54),
+BC; EX (SP), HL; JP $0080`, then 0x0080 reads the operand into BC and
+chains through 0x0085 (`PUSH 0x5B4D; PUSH BC; LD BC, ($5B54); JP
+$5B48`) and the slot-2 NEXTREG-paging wrapper at 0x5B48/0x5B4D, then
+RETs to the operand-pushed BC = the actual call target.
+
+`mem[$5B54]` is **shared scratch for save-BC across the RST $28
+trampoline**, NOT a "next op pointer". Initial diagnosis was wrong on
+this. The actual reason the firmware ends up back at 0x00EF is that
+something in the call chain (somewhere in the slot-1 LDIR'd code,
+the post-RAM-test init, or the IM1 path through `enNxtmmc.rom`) is
+calling 0x00EF as a function — possibly via a `CALL 0x00E3` (which
+LDIRs init data, returns) or similar pattern.
+
+#### G46(b) PARKED — open work for a future session
+
+User direction: park G46(b) (genuinely deep RE work, several hours
+minimum), continue with Task 8 SKIP-reduction.
+
+**Open investigation steps for G46(b):**
+1. Add a debug log of writes to address `$5B54` in `src/memory/mmu.cpp`
+   to see what BC value is being saved during the loop.
+2. Disassemble `enNxtmmc.rom` (`/home/jorgegv/src/spectrum/jnext/roms/enNxtmmc.rom`)
+   IM1 handler path 0x0038 → 0x00E5 → ... to trace the full ESXDOS
+   IM1 sequence and see what BC it leaves before returning to
+   `enNextZX.rom:0x0068`.
+3. Verify whether IM1 should actually be firing this early. Firmware
+   boots with `DI; JP 0x00EF` at `enNextZX.rom:0x0000`; there's no
+   visible `EI` before the RAM test. If the IM1 handler is firing,
+   either (a) firmware enables interrupts somewhere unexpected, or
+   (b) NMI is firing instead. Check `enNextZX.rom:0x0066` (the NMI
+   vector — `RETN`) trace count.
+4. Compare the dispatch flow against the same firmware on real Next
+   or CSpect.
+
+A 64 KB extracted copy of `enNextZX.rom` is at
+`/tmp/loop-dis/enNextZX.rom` (extracted via `mtype` from the SD image
+sector 63 offset). Disassembles cleanly with
+`z88dk-dis -mz80n -o 0x0000`.
+
+#### Memory + reference notes added
+
+- `feedback_vhdl_faithful_only.md` — STRICT: when a fix could be a
+  band-aid OR a VHDL-faithful proper fix, always pick the latter.
+- `feedback_audit_test_fixtures_across_files.md` — STRICT: when
+  changing a public setter's semantics, grep the entire `test/`
+  tree for callers.
+- `reference_divmmc_dual_gate.md` — DivMMC has two independent enable
+  gates (CONMEM uses port_io only; AUTOMAP requires both).
+
+---
+
 ## Commit index (all dates)
 
 | Hash | Date | Description |
@@ -1236,3 +1464,8 @@ clears.
 | 1a8e307 | 2026-04-19 | fix(divmmc): gate PC=0x0066 instant-on automap on button_nmi (VHDL:120) |
 | 3ac6d50 | 2026-04-19 | test(divmmc): pin DM-NMI-BTN-OFF / DM-NMI-BTN-ON at PC=0x0066 gating |
 | b57bb85 | 2026-04-19 | Merge branch 'fix/divmmc-0066-button-nmi-gate' — Task (c) Fix 2 landed |
+| 31e2720 | 2026-05-03 | ctc_interrupts(G87+G88+G90): retire pre-G87 RETN-alias band-aid in `Emulator::init` `on_m1_cycle` lambda — INTRODUCED splash-logo regression (only canonical ED 45 fires `divmmc_.on_retn()`) |
+| 94d4d0a | 2026-05-03 | divmmc(G46a): proper VHDL `divmmc.vhd:131` delayed-off `automap_held` clear via 1-M1-cycle delay register driven from `Im2Controller::retn_seen_this_cycle()` |
+| cb1db53 | 2026-05-04 | divmmc: VHDL-faithful default for nr_0a_4_enable_ on `--divmmc-rom` — `set_enabled` now flips only `port_io_enable_`, fixing cold-boot DivMMC automap leak that was masking splash regression |
+| a4ef5eb | 2026-05-04 | test(nmi): post-merge fixture restore — 6 missed `set_nr_0a_4_enable(true)` sites in nmi_test (DIS-02, DIS-03 ×2, CLR-02, CLR-03, CLR-04) |
+| da5b002 | 2026-05-04 | divmmc: `is_active()` gates on `port_io_enable_` only per `zxnext.vhd:4147` — CONMEM path sails through `nr_0a_4=0`, fixing IM1 handler stall after Fix 1 landed |
