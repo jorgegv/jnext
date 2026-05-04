@@ -103,7 +103,6 @@ std::string hex2(uint8_t v) {
 static bool build_next_emulator(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
     return true;

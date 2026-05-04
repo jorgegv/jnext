@@ -108,7 +108,6 @@ static std::string fmt(const char* f, ...) {
 static bool build_next_emulator(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
     return true;
@@ -2172,7 +2171,6 @@ static void test_nr_05_composed_read(Emulator& emu) {
         // Force a fresh init to clear any state from prior groups.
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
     }
@@ -2240,7 +2238,6 @@ static void test_nr_06_composed_read(Emulator& emu) {
     {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
-        cfg.roms_directory = "/usr/share/fuse";
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
     }

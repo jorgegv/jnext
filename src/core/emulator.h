@@ -591,7 +591,8 @@ private:
     /// When true, suppresses audio/video output during fast-forward replay.
     bool replay_mode_ = false;
 
-    /// Boot ROM (8K FPGA bootloader, loaded from --boot-rom).
+    /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
+    /// link time — see core/embedded_nextboot_rom.h).
     std::vector<uint8_t> boot_rom_;
 
     /// ARGB8888 framebuffer (canonical 640 × 256 pixels post-G104).

@@ -116,7 +116,6 @@ std::string hex4(uint16_t v) {
 static bool build_next_emulator(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
     return true;
@@ -510,7 +509,6 @@ static void test_ay_port_dispatch(Emulator& emu) {
         Emulator p3;
         EmulatorConfig p3_cfg;
         p3_cfg.type = MachineType::ZX_PLUS3;
-        p3_cfg.roms_directory = "/usr/share/fuse";
         p3_cfg.rewind_buffer_frames = 0;
         p3.init(p3_cfg);
         p3.port().out(0xFFFD, 0x00);    // select AY reg 0 on +3

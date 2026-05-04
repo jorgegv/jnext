@@ -101,7 +101,6 @@ std::string fmt(const char* fmt_str, ...) {
 static bool build_next_emulator(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     return emu.init(cfg);
 }

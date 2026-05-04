@@ -117,7 +117,6 @@ static bool fresh_emulator(Emulator& emu,
                            MachineType type = MachineType::ZXN_ISSUE2) {
     EmulatorConfig cfg;
     cfg.type = type;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     return emu.init(cfg);
 }

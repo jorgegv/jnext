@@ -3302,46 +3302,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // off across RESET_SOFT so the Z80 boots into the NewlZXOS ROM in SRAM.
     // The post-init block below explicitly clears boot_rom_en on soft reset.
     //
-    // Wave 0.1 (Task 8 Multiface plan, 2026-05-04): when --boot-rom is unset
-    // and the machine is Next, we load the embedded nextboot.rom blob (linked
-    // into the binary via objcopy in src/core/CMakeLists.txt). This mirrors
-    // the on-FPGA flash IPL of real hardware — silicon-baked, never on SD.
-    // The --boot-rom flag remains as an override for this branch; Wave 0.3
-    // removes it entirely.
+    // Wave 0.1 + 0.3 (Task 8 Multiface plan, 2026-05-04): the FPGA
+    // bootloader (`nextboot.rom`, 8 KB) is silicon-baked into the jnext
+    // binary at link time (src/core/CMakeLists.txt + embedded_nextboot_rom.h)
+    // — same as the on-FPGA flash IPL of real Next hardware. There is no
+    // CLI override; this is the only path. Wave 0.3 removed --boot-rom.
     //
-    // Wave 0.1 follow-up (2026-05-04, regression fix): the embedded default
-    // is gated on `cfg.sd_card_image` being non-empty AND `cfg.load_file`
-    // being empty. NEX-only invocations (`--machine next --load foo.nex`)
-    // must NOT auto-load the boot ROM: its 0x0000-0x1FFF overlay would
-    // corrupt the demo's reset vector and break direct NEX execution. The
-    // original Wave 0.1 commit missed this and broke 14 demo regressions
-    // (palette, tilemap, beast, parallax, magic-bp/port, dapr-l2empty/
-    // sprite/tilemap_00..02/print/tilemapper_00..01) - caught only
-    // post-merge by full screenshot regression. The dual-gate is required
-    // now that `--sd-card` is mandatory at the CLI level (jnext is a ZX
-    // Spectrum Next emulator; SD is the canonical ROM source - same as
-    // real hardware): every invocation has --sd-card, so the only signal
-    // that the user wants a firmware boot vs a direct NEX launch is the
-    // absence of --load. Wave 0.3 will tidy this further (e.g. an
-    // explicit --boot/--launch mode) but the load_file gate is correct
-    // semantics today.
+    // Auto-load gate: Next machine + sd_card_image non-empty + load_file
+    // empty. The sd_card_image gate keeps unit-test fixtures (which
+    // construct Emulator with empty cfg) from overlaying the boot ROM
+    // when they don't expect it. The load_file gate skips the overlay
+    // for direct --load NEX/TAP invocations — the boot ROM at 0x0000-0x1FFF
+    // would corrupt the demo's reset vector and break direct NEX
+    // execution. (Pre-Wave-0.1 the Wave 0.1 follow-up commit added this
+    // dual-gate after a 14-demo regression; semantics retained verbatim.)
     if (!preserve_memory) {
-        if (!cfg.boot_rom_path.empty()) {
-            std::ifstream bf(cfg.boot_rom_path, std::ios::binary | std::ios::ate);
-            if (bf.is_open()) {
-                auto sz = bf.tellg();
-                boot_rom_.resize(static_cast<size_t>(sz));
-                bf.seekg(0);
-                bf.read(reinterpret_cast<char*>(boot_rom_.data()), sz);
-                mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
-                Log::emulator()->info("Boot ROM loaded from '{}' ({} bytes, override), overlay active at 0x0000-0x{:04X}",
-                                      cfg.boot_rom_path, boot_rom_.size(), boot_rom_.size() - 1);
-            } else {
-                Log::emulator()->warn("could not load boot ROM from '{}'", cfg.boot_rom_path);
-            }
-        } else if (cfg.type == MachineType::ZXN_ISSUE2 &&
-                   !cfg.sd_card_image.empty() &&
-                   cfg.load_file.empty()) {
+        if (cfg.type == MachineType::ZXN_ISSUE2 &&
+            !cfg.sd_card_image.empty() &&
+            cfg.load_file.empty()) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);

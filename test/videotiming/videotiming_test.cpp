@@ -523,7 +523,6 @@ namespace g163 {
 static bool build_emulator(Emulator& emu) {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
-    cfg.roms_directory = "/usr/share/fuse";
     cfg.rewind_buffer_frames = 0;
     return emu.init(cfg);
 }
