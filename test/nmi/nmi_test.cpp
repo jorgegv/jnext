@@ -968,8 +968,69 @@ static void g_mf_g162_skips()
               "VHDL zxnext.vhd:4312-4313 (case 0001 / 0111), :2816 (mf_port_en gate)");
     }
 
-    skip("MF-G48-06",
-         "DivMMC retn_seen AND-NOT mf_is_active gate missing (see G48 — Wave 1 F-gate)");
+    // MF-G48-06 — Wave 1 F-gate: DivMMC retn_seen AND-NOT mf_is_active.
+    // VHDL zxnext.vhd:4111:
+    //   `divmmc_retn_seen <= z80_retn_seen_28 AND NOT mf_is_active;`
+    // mf_is_active = mf_mem_en OR mf_nmi_hold (zxnext.vhd:2099).
+    //
+    // When MF is active, the RETN pulse is suppressed for DivMMC's
+    // automap_held delay-clear path; DivMMC state is preserved until
+    // MF deactivates. Discriminative: same RETN pulse sequence with MF
+    // INACTIVE clears automap_held; with MF ACTIVE preserves it. Both
+    // arms are exercised here at the same wiring point the Emulator
+    // uses (`divmmc_.on_m1_retn_delay(retn_pulse && !mf.is_active())`
+    // — see emulator.cpp on_m1_cycle lambda).
+    {
+        // Helper to bring a fresh DivMmc into automap_held=1 state.
+        // Mirrors the DIS-02 setup pattern.
+        auto make_held_divmmc = []() -> DivMmc {
+            DivMmc d;
+            d.set_enabled(true);
+            d.set_nr_0a_4_enable(true);
+            d.set_entry_points_0(0x01);
+            d.set_entry_valid_0(0x01);
+            d.set_entry_timing_0(0x01);
+            d.check_automap(0x0000, true);  // instant_match → hold=1
+            d.check_automap(0x0100, true);  // step: held <- hold (=1)
+            return d;
+        };
+
+        // Arm A: MF INACTIVE, RETN seen → DivMmc automap_held clears.
+        // The clear is delayed one M1 (post-G87 register-shift shape).
+        DivMmc d_inactive = make_held_divmmc();
+        Multiface mf_inactive;  // default state: mf_enable=0, nmi_active=0
+        const bool mf_a_inactive = !mf_inactive.is_active();
+        const bool d_a_held_pre  = d_inactive.automap_held();
+        // Drive the gate exactly as emulator.cpp does at on_m1_cycle.
+        const bool retn_pulse_a = true;
+        d_inactive.on_m1_retn_delay(retn_pulse_a && !mf_inactive.is_active());
+        // The shift register applies the clear on the NEXT M1; pulse a
+        // post-RETN M1 (no further retn this cycle).
+        d_inactive.on_m1_retn_delay(false);
+        const bool d_a_held_post = d_inactive.automap_held();
+
+        // Arm B: MF ACTIVE, RETN seen → DivMmc automap_held PRESERVED.
+        DivMmc d_active = make_held_divmmc();
+        Multiface mf_active;
+        // VHDL multiface.vhd:103 — `reset = reset_i OR NOT enable_i`,
+        // so nmi_active can only set while enable_i='1'. Enable first,
+        // then drive button_press: latches nmi_active=1 (line 137-138)
+        // ⇒ is_nmi_hold()=1 ⇒ is_active()=true.
+        mf_active.set_enabled(true);
+        mf_active.button_press();
+        const bool mf_b_active = mf_active.is_active();
+        const bool d_b_held_pre = d_active.automap_held();
+        const bool retn_pulse_b = true;
+        d_active.on_m1_retn_delay(retn_pulse_b && !mf_active.is_active());
+        d_active.on_m1_retn_delay(false);
+        const bool d_b_held_post = d_active.automap_held();
+
+        check("MF-G48-06",
+              "DivMMC retn_seen gated by NOT mf_is_active: clears with MF inactive, preserved with MF active",
+              mf_a_inactive && d_a_held_pre && !d_a_held_post   // arm A: clear path
+              && mf_b_active && d_b_held_pre && d_b_held_post, // arm B: gate suppresses
+              "VHDL zxnext.vhd:4111 (divmmc_retn_seen AND-NOT mf_is_active) / :2099 (mf_is_active)");
+    }
 
     // MF-G48-07 — port 0xDFFD bit 6 storage for MF readback (G148 sibling).
     // VHDL zxnext.vhd:3694 stores cpu_do(6) into the separate
@@ -1011,6 +1072,96 @@ static void g_mf_g162_skips()
               "port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback",
               got_b6_only == 0x40 && got_b6_plus_b5 == 0x40,
               "VHDL zxnext.vhd:3694 (reg_6 storage), :4314 (mux layout 0|reg_6|0|reg(4:0))");
+    }
+}
+
+// =====================================================================
+// Group MF-INT — Wave 1 F-gate live wiring (Multiface ↔ NmiSource)
+// VHDL zxnext.vhd:2099/:2105/:2118 + :4111. Verifies that
+// `nmi_source_.set_mf_is_active()` / `set_mf_nmi_hold()` are driven
+// from the live `Multiface::is_active()` / `is_nmi_hold()` accessors
+// per cycle, replacing the always-false stubs from the
+// TASK-NMI-SOURCE-PIPELINE-PLAN.md scaffolding.
+// =====================================================================
+
+static void g_mf_int_wiring()
+{
+    set_group("MF-INT");
+
+    // MF-INT-01 — NmiSource sees mf_is_active=true when Multiface is
+    // in the NMI-hold state (nmi_active=1 latched via button press).
+    // VHDL :2099 — mf_is_active = mf_mem_en OR mf_nmi_hold.
+    //
+    // Discriminative: pre-button-press, NmiSource::mf_is_active() is
+    // false; post-button-press + execute_single_instruction (which
+    // drives the per-tick wiring), NmiSource::mf_is_active() is true.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Configure MF MF1 mode + enable via NextReg (mirrors MF-G48-01).
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0xC0);  // mf_type=11 (MF1)
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xFF);  // NR 0x83 b1=1 enables MF
+
+        const bool pre_inactive  = !emu.multiface().is_active();
+        emu.execute_single_instruction();
+        const bool ns_pre_clear  = !emu.nmi_source().mf_is_active();
+
+        // Press MF button — latches multiface nmi_active=1 ⇒
+        // is_nmi_hold()=true ⇒ is_active()=true.
+        emu.multiface().button_press();
+        const bool mf_active_now = emu.multiface().is_active();
+
+        // One instruction: tick path now propagates is_active() to
+        // NmiSource::set_mf_is_active(true).
+        emu.execute_single_instruction();
+        const bool ns_post_active = emu.nmi_source().mf_is_active();
+
+        check("MF-INT-01",
+              "NmiSource::mf_is_active() reflects Multiface::is_active() per tick (live wiring)",
+              pre_inactive && ns_pre_clear && mf_active_now && ns_post_active,
+              "VHDL zxnext.vhd:2099 (mf_is_active = mf_mem_en OR mf_nmi_hold) — Wave 1 F-gate live wiring");
+    }
+
+    // MF-INT-02 — NmiSource sees mf_nmi_hold=true when Multiface
+    // nmi_active=1.
+    // VHDL :2118 — `nmi_hold <= mf_nmi_hold WHEN nmi_mf='1' ELSE
+    //              divmmc_nmi_hold WHEN nmi_divmmc='1' ELSE
+    //              nmi_assert_expbus;`
+    // We pin the wiring (set_mf_nmi_hold ↔ Multiface::is_nmi_hold)
+    // here; the priority-arbiter selector itself is covered by the
+    // GATE-* rows.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0xC0);
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xFF);
+
+        emu.execute_single_instruction();
+        const bool ns_pre = !emu.nmi_source().mf_nmi_hold();
+        const bool mf_pre = !emu.multiface().is_nmi_hold();
+
+        emu.multiface().button_press();
+        const bool mf_post = emu.multiface().is_nmi_hold();
+
+        emu.execute_single_instruction();
+        const bool ns_post = emu.nmi_source().mf_nmi_hold();
+
+        check("MF-INT-02",
+              "NmiSource::mf_nmi_hold() reflects Multiface::is_nmi_hold() per tick (live wiring)",
+              ns_pre && mf_pre && mf_post && ns_post,
+              "VHDL zxnext.vhd:2118 (nmi_hold selector) — Wave 1 F-gate live wiring");
     }
 }
 
@@ -1583,6 +1734,7 @@ int main() {
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
     g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- RE-HOMED to CTC plan (G88)\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
+    g_mf_int_wiring();     std::printf("  MF-INT F-gate live wiring -- done\n");
     g_boot_skips();        std::printf("  BOOT NextZXOS+bypass   -- done\n");
 
     std::printf("\n=========================================================\n");
