@@ -186,6 +186,18 @@ target_link_libraries(sdcard_test PRIVATE jnext_peripheral)
 target_include_directories(sdcard_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_tests COMMAND sdcard_test)
 
+# SD ROM extractor compliance test (Task 8 Wave 0.2, 2026-05-04)
+# Host-side FAT32 reader for ROM-from-SD extraction at Emulator::init time.
+# Pure host code (no Z80 / no peripherals) — links jnext_core only.
+# Test fixture is roms/nextzxos-1gb-fat32fix.img (canonical NextZXOS image);
+# the test runs from the source-tree root so the relative path resolves.
+add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp)
+target_link_libraries(sd_rom_extractor_test PRIVATE jnext_core)
+target_include_directories(sd_rom_extractor_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sd_rom_extractor_tests
+         COMMAND sd_rom_extractor_test
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
