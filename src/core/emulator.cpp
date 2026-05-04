@@ -299,38 +299,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     });
 
-    // ── Multiface +3 readback mux (Wave 1 B3 — TASK-8-MULTIFACE-PLAN.md) ──
+    // ── Multiface +3 / MF128 readback mux (Wave 1 B3 — TASK-8-MULTIFACE-PLAN.md) ──
     //
-    // VHDL zxnext.vhd:4310-4327 — when `mf_port_en = '1'` AND `nr_0a_mf_type
-    // = "00"` (MF+3 mode), reading port `xx3F` returns a 4-way mux on
-    // `cpu_a(15:12)`:
-    //   "0001" → "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg(2:0)
-    //              ≡ port_1ffd_ & 0x0F  (jnext stores cpu_do verbatim)
-    //   "0111" → port_7ffd_reg                 (full 8-bit register)
-    //   "1101" → '0' & port_dffd_reg_6 & '0' & port_dffd_reg(4:0)
-    //              ≡ (reg_6 ? 0x40 : 0) | (port_dffd_reg & 0x1F)
-    //   "1110" → "0000" & port_eff7_reg_3 & port_eff7_reg_2 & "00"
-    //              ≡ (reg_3 ? 0x08 : 0) | (reg_2 ? 0x04 : 0)
-    //   others → 0x00  (VHDL "when others => mf_port_dat <= (others => '0')")
+    // VHDL zxnext.vhd:4310-4322 — when `mf_port_en = '1'`, the byte returned
+    // from a Multiface readback IO depends on `nr_0a_mf_type`:
+    //
+    //   if nr_0a_mf_type = "00" (MF+3, mode_p3) — case mux on cpu_a(15:12):
+    //     "0001" → "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg(2:0)
+    //                ≡ port_1ffd_ & 0x0F  (jnext stores cpu_do verbatim)
+    //     "0111" → port_7ffd_reg                 (full 8-bit register)
+    //     "1101" → '0' & port_dffd_reg_6 & '0' & port_dffd_reg(4:0)
+    //                ≡ (reg_6 ? 0x40 : 0) | (port_dffd_reg & 0x1F)
+    //     "1110" → "0000" & port_eff7_reg_3 & port_eff7_reg_2 & "00"
+    //                ≡ (reg_3 ? 0x08 : 0) | (reg_2 ? 0x04 : 0)
+    //     others → "00000" & port_fe_reg(2 downto 0)        (VHDL :4316)
+    //                ≡ Ula::get_border() (lower 3 border bits of port 0xFE)
+    //
+    //   else (mf_type ≠ "00" — MF128 var A "01", var B "10"; MF1 "11"
+    //   excluded by mf_port_en gate at multiface.vhd:195):
+    //     mf_port_dat <= port_7ffd_reg(3) & "1111111"          (VHDL :4319)
+    //                ≡ (port_7ffd_reg & 0x08 ? 0x80 : 0) | 0x7F
+    //   The case mux is BYPASSED in MF128 mode — cpu_a(15:12) is irrelevant.
     //
     // The combinational `mf_port_en` (multiface.vhd:195) is asserted iff
     //   port_mf_enable_rd_i = '1'
     //   AND invisible_eff = '0' (= invisible AND NOT mode_48)
     //   AND (mode_128 = '1' OR mode_p3 = '1')
-    // Since `port_mf_enable_rd` only fires for the per-mode enable_io read
-    // LSB (here 0x3F under mf_type="00"), we register the read handler at
-    // mask=0x00FF, value=0x003F and re-evaluate the gate from cached state.
-    // We additionally require mode_p3 (mf_type=00) because the case-mux at
-    // VHDL:4311 explicitly gates on `nr_0a_mf_type = "00"`; in MF128 the
-    // `else` branch returns 0x00 unconditionally so we don't need a 0xBF
-    // read handler — the floating-bus default already contributes 0
-    // identically (the global OR at zxnext.vhd:2837 makes 0 transparent).
+    // `port_mf_enable_rd` only fires for the per-mode enable_io_a LSB
+    // (zxnext.vhd:2612):
+    //     mf_type=00 (MF+3)         → enable_io_a = 0x3F
+    //     mf_type=01 (MF128 var A)  → enable_io_a = 0xBF
+    //     mf_type=10 (MF128 var B)  → enable_io_a = 0x9F
+    //     mf_type=11 (MF1 / 48K)    → enable_io_a = 0x9F   (gated off by :195)
+    // Each LSB therefore needs its own read handler. We register all three
+    // active LSBs (0x3F, 0xBF, 0x9F) and gate per-LSB on the matching
+    // mf_type plus the cached `mf_port_en` (which the dispatch observer
+    // updates BEFORE the read handler runs — see PortDispatch::read).
     //
     // When the gate is closed (MF disabled / wrong mode / invisible_eff=1)
     // the handler falls back to the floating-bus default, mirroring VHDL's
     // `port_mf_rd_dat <= ... else X"00"` OR'd into `port_rd_dat` (the bus
     // is otherwise driven by Profi-DAC-WRITE-only at this LSB, so reads
     // see floating bus on real hardware).
+
+    // ── MF+3 readback at LSB 0x3F (mf_type=00) — case mux on cpu_a(15:12) ──
     port_.register_handler(0x00FF, 0x003F,
         [this](uint16_t cpu_a) -> uint8_t {
             if (!multiface_.is_enabled() ||
@@ -354,11 +366,54 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return static_cast<uint8_t>(b3 | b2);
                 }
                 default:
-                    return 0x00;  // VHDL "when others => (others => '0')"
+                    // VHDL zxnext.vhd:4316: "when others => mf_port_dat <=
+                    // "00000" & port_fe_reg(2 downto 0)" — return the lower
+                    // 3 bits of port_FE (the border colour latch).
+                    return static_cast<uint8_t>(renderer_.ula().get_border() & 0x07);
             }
         },
         nullptr);  // No write side: Profi DAC owns the WRITE half at 0x003F
                    // via a more-specific 0xFFFF mask handler below.
+
+    // ── MF128 readback at LSB 0xBF (mf_type=01 — MF128 var A) ─────────────
+    // VHDL zxnext.vhd:4319 else-branch:
+    //   mf_port_dat <= port_7ffd_reg(3) & "1111111"
+    // Gated by mf_port_en (multiface.vhd:195) — which the dispatch observer
+    // pulses for this LSB only when mf_type=01.
+    port_.register_handler(0x00FF, 0x00BF,
+        [this](uint16_t /*cpu_a*/) -> uint8_t {
+            if (!multiface_.is_enabled() ||
+                multiface_.invisible_eff() ||
+                multiface_.mf_type() != 0x01) {  // MF128 var A only
+                return floating_bus_read();
+            }
+            // MF128 readback (VHDL :4319): port_7ffd_reg(3) & 0x7F.
+            const uint8_t shadow_bit =
+                (mmu_.port_7ffd() & 0x08) ? 0x80 : 0x00;
+            return static_cast<uint8_t>(shadow_bit | 0x7F);
+        },
+        nullptr);  // No write side at LSB 0xBF.
+
+    // ── MF128 readback at LSB 0x9F (mf_type=10 — MF128 var B) ─────────────
+    // VHDL :2612 routes mf_type=10 to enable_io_a=0x9F; the mf_port_en gate
+    // at multiface.vhd:195 still requires (mode_128 OR mode_p3), and mf_type=10
+    // → mode_128=1, so this LSB also fires the else-branch readback.
+    // mf_type=11 (MF1 / 48K) ALSO uses enable_io_a=0x9F (VHDL :2612), but
+    // mode_48=1 fails the (mode_128 OR mode_p3) gate, so mf_port_en=0 and
+    // the handler falls through to floating bus — identical to VHDL.
+    port_.register_handler(0x00FF, 0x009F,
+        [this](uint16_t /*cpu_a*/) -> uint8_t {
+            if (!multiface_.is_enabled() ||
+                multiface_.invisible_eff() ||
+                multiface_.mf_type() != 0x02) {  // MF128 var B only
+                return floating_bus_read();
+            }
+            // MF128 readback (VHDL :4319): port_7ffd_reg(3) & 0x7F.
+            const uint8_t shadow_bit =
+                (mmu_.port_7ffd() & 0x08) ? 0x80 : 0x00;
+            return static_cast<uint8_t>(shadow_bit | 0x7F);
+        },
+        nullptr);  // No write side at LSB 0x9F.
 
     // Memory contention flows through ContentionModel::contention_tick()
     // (Phase-2 wiring 2026-04-26 + G141 in-opcode 2026-05-01) — the FUSE

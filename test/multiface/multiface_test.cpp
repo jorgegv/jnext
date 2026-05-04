@@ -785,12 +785,15 @@ static void g_mf_mux()
               "VHDL zxnext.vhd:4315 (mux), :3781-3782 (port_eff7_reg_3/_2 storage)");
     }
 
-    // ── MF-MUX-05 — cpu_a(15:12) "others" arm → 0x00 ───────────────────
+    // ── MF-MUX-05 — cpu_a(15:12) "others" arm → port_fe_reg(2:0) ───────
     // VHDL zxnext.vhd:4316:
-    //   when others => mf_port_dat <= (others => '0')
-    // We pick cpu_a(15:12)=0x0 (e.g. 0x023F), which is one of the "others"
-    // values (the case explicitly enumerates 0x1/0x7/0xD/0xE only).
-    // Even with port_7ffd != 0 etc., this read must return 0x00.
+    //   when others => mf_port_dat <= "00000" & port_fe_reg(2 downto 0)
+    // The "others" arm returns the lower 3 bits of port_FE — i.e. the
+    // border-colour latch. We pick cpu_a(15:12)=0x0 (e.g. 0x023F), which
+    // is one of the "others" values (the case explicitly enumerates
+    // 0x1/0x7/0xD/0xE only). With port_FE = 0xC2 (border bits = 010),
+    // the read must return 0x02. Sentinel writes to port_7ffd / port_1ffd
+    // confirm those registers are NOT surfaced on the others arm.
     {
         Emulator emu;
         if (!prep_mf_mux(emu)) {
@@ -799,11 +802,14 @@ static void g_mf_mux()
         }
         emu.port().out(0x7FFD, 0xFF);  // sentinel — not reflected in others arm
         emu.port().out(0x1FFD, 0x0F);  // sentinel
+        // Set border to 010 (0x02) via port 0xFE (lower 3 bits = border).
+        emu.port().out(0x00FE, 0xC2);  // border bits = 010 = 0x02
         const uint8_t got = emu.port().in(0x023F);  // cpu_a(15:12) = 0x0
         check("MF-MUX-05",
-              "MF+3 read 0x0xxx LSB 0x3F: 'others' arm → 0x00",
-              got == 0x00,
-              "VHDL zxnext.vhd:4316 (when others => 0x00)");
+              "MF+3 read 0x0xxx LSB 0x3F: 'others' arm → port_fe_reg(2:0) "
+              "(border bits, 0x02)",
+              got == 0x02,
+              "VHDL zxnext.vhd:4316 (when others => \"00000\" & port_fe_reg(2:0))");
     }
 
     // ── MF-MUX-06 — invisible_eff = 1 closes mf_port_en ────────────────
@@ -862,25 +868,34 @@ static void g_mf_mux()
               "VHDL multiface.vhd:64, :103 (enable_i gate), zxnext.vhd:2816");
     }
 
-    // ── MF-MUX-08 — mf_type ≠ 00 (MF128 / MF1) suppresses the +3 mux ──
-    // VHDL zxnext.vhd:4311 — the case-mux is gated on `nr_0a_mf_type =
-    // "00"`; in MF128 / MF1 the entire mux falls through to the else
-    // branch (mf_port_dat <= 0). We pick mf_type=10 (MF128 var B) which
-    // also reads at LSB 0x1F per VHDL:2613, so 0x3F is NOT even the
-    // enable_io path. Our handler short-circuits on `mf_type != 0x00`.
+    // ── MF-MUX-08 — mf_type=01 (MF128 var A) else-branch readback ──────
+    // VHDL zxnext.vhd:4319 (else of nr_0a_mf_type="00"):
+    //   mf_port_dat <= port_7ffd_reg(3) & "1111111"
+    // Under MF128 var A, the enable_io_a is LSB 0xBF (VHDL :2612). With
+    // port_7ffd_reg bit 3 = 1 (shadow screen on), the readback equals
+    //   '1' & "1111111" = 0x80 | 0x7F = 0xFF.
+    // Discriminative pair: clear port_7ffd_reg bit 3, repeat IN, expect 0x7F.
     {
         Emulator emu;
         if (!prep_mf_mux(emu)) {
             check("MF-MUX-08", "Emulator init failed", false, "init returned false");
             return;
         }
-        emu.port().out(0x7FFD, 0x55);
-        emu.multiface().set_mode(0x02);  // MF128 var B
-        const uint8_t got = emu.port().in(0x713F);
+        emu.multiface().set_mode(0x01);  // MF128 var A → enable_io_a = 0xBF
+        // Clear invisible: at reset invisible=1 in MF128 too. Drop it via
+        // a button-press pulse (multiface.vhd:158 — invisible <= 0).
+        emu.multiface().button_press();
+        // Path A — shadow on (port_7ffd_reg bit 3 = 1): expect 0xFF.
+        emu.port().out(0x7FFD, 0x08);  // bit 3 set → shadow_screen = 1
+        const uint8_t got_shadow = emu.port().in(0x00BF);
+        // Path B — shadow off (port_7ffd_reg bit 3 = 0): expect 0x7F.
+        emu.port().out(0x7FFD, 0x00);
+        const uint8_t got_no_shadow = emu.port().in(0x00BF);
         check("MF-MUX-08",
-              "mf_type=10 (MF128) suppresses MF+3 mux (else branch returns 0)",
-              got != 0x55,
-              "VHDL zxnext.vhd:4311 (case-mux gate on nr_0a_mf_type=00)");
+              "MF128 var A read LSB 0xBF: returns port_7ffd_reg(3) & 0x7F "
+              "(shadow on→0xFF, off→0x7F)",
+              got_shadow == 0xFF && got_no_shadow == 0x7F,
+              "VHDL zxnext.vhd:4319 (else-branch = port_7ffd_reg(3) & \"1111111\")");
     }
 
     // ── MF-MUX-09 — discriminative cpu_a(15:12) cross-check ────────────
@@ -902,6 +917,34 @@ static void g_mf_mux()
               "cpu_a(15:12) decode: 0x1xxx→port_1ffd (0x05), 0x7xxx→port_7ffd (0x42)",
               got_1 == 0x05 && got_7 == 0x42,
               "VHDL zxnext.vhd:4312-4313 (case 0001 vs 0111)");
+    }
+
+    // ── MF-MUX-10 — case-mux is BYPASSED in MF128 mode ─────────────────
+    // VHDL zxnext.vhd:4310-4322 — under nr_0a_mf_type ≠ "00", the case
+    // mux on cpu_a(15:12) is replaced by the unconditional else-branch
+    //   mf_port_dat <= port_7ffd_reg(3) & "1111111"
+    // We pin this by reading at LSB 0xBF (MF128 var A enable_io_a) with
+    // cpu_a(15:12)=0x1 (would trigger the +3 case-mux 0x1xxx arm IF mode
+    // were +3, returning port_1ffd & 0x0F). Under MF128, we expect the
+    // ELSE branch byte regardless of the high nibble.
+    {
+        Emulator emu;
+        if (!prep_mf_mux(emu)) {
+            check("MF-MUX-10", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        emu.multiface().set_mode(0x01);  // MF128 var A
+        emu.multiface().button_press();  // drop invisible to 0
+        // Set port_7ffd bit 3 = 0 (shadow off) and port_1ffd to a value
+        // that, IF the +3 case-mux fired at 0x1xxx, would give 0x0F.
+        emu.port().out(0x1FFD, 0x0F);  // would yield 0x0F under MF+3 mux
+        emu.port().out(0x7FFD, 0x00);  // shadow off → else-branch = 0x7F
+        const uint8_t got = emu.port().in(0x1FBF);  // cpu_a(15:12)=0x1
+        check("MF-MUX-10",
+              "MF128 read at 0x1FBF: case-mux bypassed (else-branch = 0x7F, "
+              "NOT port_1ffd & 0x0F)",
+              got == 0x7F,
+              "VHDL zxnext.vhd:4318-4320 (mf_type ≠ \"00\" else-branch ignores cpu_a)");
     }
 }
 
