@@ -1,5 +1,7 @@
 #pragma once
 
+#include "memory/mmu.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -85,6 +87,42 @@ public:
         size_t required_kb = ram_required_kb(ram_required);
         if (required_kb == 0) return true;  // unknown → don't block load
         return required_kb <= (installed_bytes / 1024);
+    }
+
+    /// G16 fix: pre-zero bank 5 (pages 10+11 = 16 KB) before screen-data
+    /// ingest. The four optional NEX screen formats (ULA / LoRes / HiRes /
+    /// HiColour) all write into bank 5 starting at page 10 offset 0 with
+    /// payload sizes 6912 / 12288 / 12288 / 12288 respectively. Bank 5 is
+    /// 16384 bytes, so the ULA path leaves the upper 9472 bytes (and the
+    /// LoRes/HiRes/HiCol paths leave the upper 4096 bytes) holding stale
+    /// RAM contents from before the load. That residue is observable as
+    /// attribute / pixel leak in shadow-screen / Layer 2 / certain ULA
+    /// modes that consume past the ULA classic 0x1AFF boundary. See
+    /// `doc/issues/BEAST-NEX-INVESTIGATION.md` § Verdict and
+    /// `doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md` G16. The Layer 2
+    /// screen ingest writes pages 16-21 (banks 8/9/10) — bank 5 / pages
+    /// 10-11 are not in that range, so Layer 2 stays clean.
+    ///
+    /// Routed through the same temp-slot-7 MMU mapping that the screen
+    /// ingest's write_to_ram() helper uses, so the zeroing passes through
+    /// the identical machinery and exercises the same to_sram_page()
+    /// shift / dual-port-bypass logic. Inline so unit tests can link
+    /// without pulling in the full jnext_core (Emulator).
+    static inline void zero_bank5_screen_pages(Mmu& mmu) {
+        constexpr int      TEMP_SLOT  = 7;
+        constexpr uint16_t SLOT_BASE  = 0xE000;
+        constexpr uint16_t PAGE_SIZE  = 0x2000;  // 8 KB per MMU page
+        const uint8_t saved = mmu.get_page(TEMP_SLOT);
+        // Pages 10 and 11 are bank 5 (VHDL zxnext.vhd:2961-2962 mark them
+        // as dual-port pages; to_sram_page() bypasses +0x20 shift for
+        // these in Next mode, so logical page 10/11 → physical 10/11).
+        for (uint8_t page = 10; page <= 11; ++page) {
+            mmu.set_page(TEMP_SLOT, page);
+            for (uint16_t off = 0; off < PAGE_SIZE; ++off) {
+                mmu.write(static_cast<uint16_t>(SLOT_BASE + off), 0x00);
+            }
+        }
+        mmu.set_page(TEMP_SLOT, saved);
     }
 
 private:

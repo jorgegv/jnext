@@ -2842,12 +2842,95 @@ void test_nex_loader() {
     skip("BOOT-NEX-06",
          "loading_bar_colour ignored (see G156)");
 
-    // BOOT-NEX-07 — nex_loader.cpp:177-223 (4 screen-ingest paths
-    // ULA/LoRes/HiRes/HiCol each call write_to_ram(mmu, 10, 0, ...)
-    // for raw bank-5 fill). No bank-5 attribute-leak audit gate.
-    // Cosmetic; documented in BEAST-NEX-INVESTIGATION.md §Verdict.
-    skip("BOOT-NEX-07",
-         "NEX loader bank-5 writes may leak ULA attribute area (see G16)");
+    // BOOT-NEX-07 — G16 fix verification: NexLoader::zero_bank5_screen_pages()
+    // must zero the full 16 KB of bank 5 (pages 10+11) so that subsequent
+    // ULA / LoRes / HiRes / HiColour ingest paths land in a clean canvas
+    // and never expose stale RAM as attribute / pixel leak. apply() calls
+    // this helper before the SCREEN_* blocks; here we exercise the helper
+    // directly because mmu_test does not link Emulator.
+    //
+    // Discriminative shape: pre-poke a non-zero junk pattern (0xCC) into
+    // both bank-5 pages, plus a ULA-screen-style payload (0xAA) over the
+    // first 6912 bytes of page 10 to model the post-load state. The fix
+    // (when invoked BEFORE the payload write — i.e. as apply() does it)
+    // produces a canvas where the residual is 0x00. We model that here by
+    // calling the helper FIRST, then writing the 6912-byte ULA payload,
+    // then asserting:
+    //   * page 10 [0..0x1AFF]              = 0xAA  (ULA payload survived)
+    //   * page 10 [0x1B00..0x1FFF]         = 0x00  (residual zeroed)
+    //   * page 11 [0..0x1FFF]              = 0x00  (residual zeroed)
+    // Without the fix, those residual ranges would still hold the 0xCC
+    // junk. Citation: doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md G16,
+    // doc/issues/BEAST-NEX-INVESTIGATION.md § Verdict.
+    {
+        Fixture f;
+        f.fresh();
+
+        // Seed bank 5 (physical SRAM pages 0x0A and 0x0B) with junk to
+        // simulate stale pre-load contents.
+        std::memset(f.ram.page_ptr(0x0A), 0xCC, 0x2000);
+        std::memset(f.ram.page_ptr(0x0B), 0xCC, 0x2000);
+
+        // Apply the G16 fix — same helper apply() invokes before any
+        // screen-format ingest path runs.
+        NexLoader::zero_bank5_screen_pages(f.mmu);
+
+        // Simulate the SCREEN_ULA payload: 6912 bytes of 0xAA over page 10
+        // offset 0. This mirrors apply()'s write_to_ram(mmu, 10, 0, …, 6912)
+        // call for SCREEN_ULA. Use direct ram.page_ptr() writes — bank 5
+        // SRAM-page 0x0A is the same physical location whether reached via
+        // slot mapping or directly (BNK-05 establishes round-trip identity).
+        std::memset(f.ram.page_ptr(0x0A), 0xAA, 6912);
+
+        // Verify the three regions.
+        const uint8_t* p10 = f.ram.page_ptr(0x0A);
+        const uint8_t* p11 = f.ram.page_ptr(0x0B);
+
+        bool ula_payload_ok    = true;
+        bool p10_residual_zero = true;
+        bool p11_all_zero      = true;
+        size_t first_payload_bad   = 0;
+        size_t first_p10_resid_bad = 0;
+        size_t first_p11_bad       = 0;
+        for (size_t i = 0; i < 6912; ++i) {
+            if (p10[i] != 0xAA) {
+                ula_payload_ok = false;
+                first_payload_bad = i;
+                break;
+            }
+        }
+        for (size_t i = 6912; i < 0x2000; ++i) {
+            if (p10[i] != 0x00) {
+                p10_residual_zero = false;
+                first_p10_resid_bad = i;
+                break;
+            }
+        }
+        for (size_t i = 0; i < 0x2000; ++i) {
+            if (p11[i] != 0x00) {
+                p11_all_zero = false;
+                first_p11_bad = i;
+                break;
+            }
+        }
+
+        check("BOOT-NEX-07",
+              "G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) "
+              "before screen-format ingest, eliminating attribute-area leak "
+              "from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict)",
+              ula_payload_ok && p10_residual_zero && p11_all_zero,
+              fmt("ula_payload_ok=%d (first_bad@%zu=0x%02X) "
+                  "p10_residual_zero=%d (first_bad@%zu=0x%02X) "
+                  "p11_all_zero=%d (first_bad@%zu=0x%02X)",
+                  static_cast<int>(ula_payload_ok),
+                  first_payload_bad, p10[first_payload_bad],
+                  static_cast<int>(p10_residual_zero),
+                  first_p10_resid_bad,
+                  first_p10_resid_bad < 0x2000 ? p10[first_p10_resid_bad] : 0,
+                  static_cast<int>(p11_all_zero),
+                  first_p11_bad,
+                  first_p11_bad < 0x2000 ? p11[first_p11_bad] : 0));
+    }
 }
 
 // ── Cat 22-26: Tape SAVE / .z80 loader / Snapshot save / DeciLoad / FDC ──

@@ -153,6 +153,17 @@ bool NexLoader::apply(Emulator& emu) const
 
     const uint8_t sf = header_.screen_flags;
 
+    // G16: pre-zero bank 5 (pages 10+11, 16 KB) before any of the optional
+    // ULA / LoRes / HiRes / HiColour screen-format ingest paths runs. They
+    // each write to page 10 offset 0 with 6912 / 12288 / 12288 / 12288
+    // bytes respectively, leaving the residual upper portion of bank 5 with
+    // stale RAM contents from before the load — observable as attribute /
+    // pixel leak in shadow-screen and certain ULA modes. The Layer 2
+    // screen ingest writes pages 16-21 (banks 8/9/10), so bank 5 is not
+    // in that range and Layer 2 remains untouched. See header doc-comment
+    // for full rationale (BEAST-NEX-INVESTIGATION.md § Verdict).
+    zero_bank5_screen_pages(mmu);
+
     // Layer 2 palette (512 bytes, only if Layer2 screen AND palette present)
     if ((sf & NexHeader::SCREEN_LAYER2) && !(sf & NexHeader::SCREEN_NO_PAL)) {
         if (offset + 512 > file_data_.size()) {
