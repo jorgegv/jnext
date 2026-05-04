@@ -498,7 +498,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // and the next instruction's fetch), so the delay register
         // sees its trigger on the ED 45 ext-byte M1 and applies the
         // clear on the very next M1.
-        divmmc_.on_m1_retn_delay(im2_.retn_seen_this_cycle());
+        //
+        // Wave 1 F-gate — VHDL zxnext.vhd:4111:
+        //   `divmmc_retn_seen <= z80_retn_seen_28 AND NOT mf_is_active;`
+        // When MF is active (mf_mem_en OR mf_nmi_hold per :2099), the
+        // RETN pulse is suppressed for DivMMC's automap-clear path.
+        // DivMMC stays in its current state until MF deactivates; MF's
+        // own retn-clear path (multiface.vhd:144,178) is direct and
+        // remains wired below.
+        divmmc_.on_m1_retn_delay(im2_.retn_seen_this_cycle() && !multiface_.is_active());
 
         // Wave 1 B1 — Multiface RETN clear. VHDL multiface.vhd:144,178 —
         // cpu_retn_seen_i='1' clears nmi_active and mf_enable in the same
@@ -4327,6 +4335,18 @@ void Emulator::run_frame()
         nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
         nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
 
+        // Wave 1 F-gate — Multiface consumer-feedback (replaces always-
+        // false stubs from TASK-NMI-SOURCE-PIPELINE-PLAN). VHDL refs:
+        //   zxnext.vhd:2099 — mf_is_active = mf_mem_en OR mf_nmi_hold.
+        //   zxnext.vhd:2105 — mf_is_active gates the DivMMC NMI latch
+        //                     in the priority arbiter (when MF is
+        //                     active, nmi_assert_divmmc cannot win).
+        //   zxnext.vhd:2118 — mf_nmi_hold drives nmi_hold when nmi_mf=1.
+        //   zxnext.vhd:4111 — divmmc_retn_seen AND-NOT mf_is_active
+        //                     (handled at the M1 retn-delay site above).
+        nmi_source_.set_mf_is_active(multiface_.is_active());
+        nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
+
         nmi_source_.tick(static_cast<uint32_t>(master_cycles));
 
         // Wave B — VHDL:2170 `nmi_divmmc_button` arbitration-strobe
@@ -4532,10 +4552,14 @@ int Emulator::execute_single_instruction()
 
     // NMI source pipeline — mirrors the primary tick cluster above.
     // Wave B: DivMMC consumer-feedback (hold + conmem) + button_nmi strobe.
-    // Wave C: config_mode gate. See primary cluster for VHDL citations.
+    // Wave C: config_mode gate. Wave 1 F-gate: MF consumer-feedback
+    // (mf_is_active + mf_nmi_hold per VHDL :2099/:2105/:2118).
+    // See primary cluster for full VHDL citations.
     nmi_source_.set_divmmc_nmi_hold(divmmc_.is_nmi_hold());
     nmi_source_.set_divmmc_conmem(divmmc_.is_conmem());
     nmi_source_.set_config_mode(nextreg_.nr_03_config_mode());
+    nmi_source_.set_mf_is_active(multiface_.is_active());
+    nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
     if (nmi_source_.divmmc_button_strobe()) {
         divmmc_.set_button_nmi(true);
