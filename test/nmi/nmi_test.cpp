@@ -922,12 +922,96 @@ static void g_mf_g162_skips()
               "multiface.vhd:152-163 (process), :156 reset, :158 button, :159 set");
     }
 
-    skip("MF-G48-05",
-         "MF +3 port 0x1FFD/0x7FFD readback mux on cpu_a(15:12) missing (see G48 — Wave 1 B3)");
+    // MF-G48-05 — MF +3 port 0x1FFD / 0x7FFD readback mux on cpu_a(15:12).
+    // VHDL zxnext.vhd:4310-4327 — when mf_port_en='1' AND nr_0a_mf_type="00",
+    // reading port `xx3F` returns:
+    //   cpu_a(15:12)="0001" → port_1ffd reconstructed (motor + reg(2:0))
+    //   cpu_a(15:12)="0111" → port_7ffd_reg (full 8-bit)
+    // Wave 1 B3 (2026-05-04) wires the read handler in src/core/emulator.cpp
+    // gating on Multiface::is_enabled() && mf_type==0 && !invisible_eff().
+    // Discriminative integration: same low byte 0x3F, different high
+    // nibbles → DIFFERENT bytes (port_1ffd vs port_7ffd) when both
+    // registers are loaded with distinguishable values.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Configure MF for MF+3 mode and enable via the real NextReg path.
+        // NR 0x0A b7:6 = 00 (mf_type=00 → mode_p3); NR 0x83 b1 = 1 (enable).
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0x00);  // b7:6 = 00
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xFF);  // b1=1 (and other bits per VHDL reset)
+
+        // Clear invisible (button_press flips invisible 1→0 per
+        // multiface.vhd:158 since nmi_active was 0 entering it).
+        emu.multiface().button_press();
+
+        // Load 0x1FFD with 0x07 (motor=0, bank-bits 7) and 0x7FFD with
+        // 0xC2 (a high-bit-set sentinel that 0x1FFD's narrow path
+        // cannot reproduce, so a wrong cpu_a(15:12) dispatch shows up).
+        emu.port().out(0x1FFD, 0x07);
+        emu.port().out(0x7FFD, 0xC2);
+
+        // Z80 IN at port 0x_3F with cpu_a(15:12) = 0x1 / 0x7.
+        const uint8_t got_1 = emu.port().in(0x113F);  // port_1ffd readback
+        const uint8_t got_7 = emu.port().in(0x713F);  // port_7ffd readback
+
+        // Expected: 0x07 = port_1ffd & 0x0F (verbatim cpu_do bits 3:0);
+        //           0xC2 = port_7ffd_reg (full 8-bit).
+        check("MF-G48-05",
+              "MF +3 readback mux: cpu_a(15:12)=0x1 → port_1ffd, 0x7 → port_7ffd",
+              got_1 == 0x07 && got_7 == 0xC2,
+              "VHDL zxnext.vhd:4312-4313 (case 0001 / 0111), :2816 (mf_port_en gate)");
+    }
+
     skip("MF-G48-06",
          "DivMMC retn_seen AND-NOT mf_is_active gate missing (see G48 — Wave 1 F-gate)");
-    skip("MF-G48-07",
-         "port 0xDFFD bit 6 storage for MF readback (G148 sibling, see G48 — Wave 1 B3)");
+
+    // MF-G48-07 — port 0xDFFD bit 6 storage for MF readback (G148 sibling).
+    // VHDL zxnext.vhd:3694 stores cpu_do(6) into the separate
+    // `port_dffd_reg_6` flip-flop (declared at :877 outside the 5-bit
+    // port_dffd_reg vector). VHDL :4314 composes the MF +3 DFFD readback
+    // as `'0' & port_dffd_reg_6 & '0' & port_dffd_reg`. Wave 1 B3
+    // exposes the storage end-to-end via the read handler at LSB 0x3F.
+    //
+    // Discriminative: write 0x40 to 0xDFFD (bit 6 only) and verify the
+    // MF readback at cpu_a(15:12)=0xD shows bit 6 set (0x40), bit 5
+    // forced to 0, bits 4:0 = 0 (since cpu_do(4:0)=0). Then write 0x60
+    // (bits 6 + 5) and verify bit 5 STILL reads 0 in the readback —
+    // pinning the layout `0_reg_6_0_reg(4:0)` rather than `0_reg_6_reg_5_reg(4:0)`.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // Set up MF +3 + enable + clear invisible (same prep as MF-G48-05).
+        emu.port().out(0x243B, 0x0A);
+        emu.port().out(0x253B, 0x00);  // mf_type = 00
+        emu.port().out(0x243B, 0x83);
+        emu.port().out(0x253B, 0xFF);  // NR 0x83 b1 = 1
+        emu.multiface().button_press();
+
+        // Write 0x40 to 0xDFFD: cpu_do(6)=1, cpu_do(4:0)=0, cpu_do(5)=0.
+        emu.port().out(0xDFFD, 0x40);
+        const uint8_t got_b6_only = emu.port().in(0xD13F);  // expect 0x40
+
+        // Write 0x60 to 0xDFFD: cpu_do(6)=1, cpu_do(5)=1, cpu_do(4:0)=0.
+        // bit 5 of the readback is HARDWIRED to '0' per VHDL :4314, so
+        // the readback must STILL be 0x40 (not 0x60).
+        emu.port().out(0xDFFD, 0x60);
+        const uint8_t got_b6_plus_b5 = emu.port().in(0xD13F);  // expect 0x40
+
+        check("MF-G48-07",
+              "port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback",
+              got_b6_only == 0x40 && got_b6_plus_b5 == 0x40,
+              "VHDL zxnext.vhd:3694 (reg_6 storage), :4314 (mux layout 0|reg_6|0|reg(4:0))");
+    }
 }
 
 // =====================================================================

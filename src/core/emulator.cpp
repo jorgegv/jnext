@@ -299,6 +299,67 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     });
 
+    // ── Multiface +3 readback mux (Wave 1 B3 — TASK-8-MULTIFACE-PLAN.md) ──
+    //
+    // VHDL zxnext.vhd:4310-4327 — when `mf_port_en = '1'` AND `nr_0a_mf_type
+    // = "00"` (MF+3 mode), reading port `xx3F` returns a 4-way mux on
+    // `cpu_a(15:12)`:
+    //   "0001" → "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg(2:0)
+    //              ≡ port_1ffd_ & 0x0F  (jnext stores cpu_do verbatim)
+    //   "0111" → port_7ffd_reg                 (full 8-bit register)
+    //   "1101" → '0' & port_dffd_reg_6 & '0' & port_dffd_reg(4:0)
+    //              ≡ (reg_6 ? 0x40 : 0) | (port_dffd_reg & 0x1F)
+    //   "1110" → "0000" & port_eff7_reg_3 & port_eff7_reg_2 & "00"
+    //              ≡ (reg_3 ? 0x08 : 0) | (reg_2 ? 0x04 : 0)
+    //   others → 0x00  (VHDL "when others => mf_port_dat <= (others => '0')")
+    //
+    // The combinational `mf_port_en` (multiface.vhd:195) is asserted iff
+    //   port_mf_enable_rd_i = '1'
+    //   AND invisible_eff = '0' (= invisible AND NOT mode_48)
+    //   AND (mode_128 = '1' OR mode_p3 = '1')
+    // Since `port_mf_enable_rd` only fires for the per-mode enable_io read
+    // LSB (here 0x3F under mf_type="00"), we register the read handler at
+    // mask=0x00FF, value=0x003F and re-evaluate the gate from cached state.
+    // We additionally require mode_p3 (mf_type=00) because the case-mux at
+    // VHDL:4311 explicitly gates on `nr_0a_mf_type = "00"`; in MF128 the
+    // `else` branch returns 0x00 unconditionally so we don't need a 0xBF
+    // read handler — the floating-bus default already contributes 0
+    // identically (the global OR at zxnext.vhd:2837 makes 0 transparent).
+    //
+    // When the gate is closed (MF disabled / wrong mode / invisible_eff=1)
+    // the handler falls back to the floating-bus default, mirroring VHDL's
+    // `port_mf_rd_dat <= ... else X"00"` OR'd into `port_rd_dat` (the bus
+    // is otherwise driven by Profi-DAC-WRITE-only at this LSB, so reads
+    // see floating bus on real hardware).
+    port_.register_handler(0x00FF, 0x003F,
+        [this](uint16_t cpu_a) -> uint8_t {
+            if (!multiface_.is_enabled() ||
+                multiface_.mf_type() != 0x00 ||  // MF+3 only (case "00")
+                multiface_.invisible_eff()) {
+                return floating_bus_read();
+            }
+            const uint8_t a_high = static_cast<uint8_t>((cpu_a >> 12) & 0x0F);
+            switch (a_high) {
+                case 0x1:  // 0x1xxx — port_1ffd readback (motor + reg(2:0))
+                    return static_cast<uint8_t>(mmu_.port_1ffd() & 0x0F);
+                case 0x7:  // 0x7xxx — port_7ffd readback (full 8-bit reg)
+                    return mmu_.port_7ffd();
+                case 0xD: { // 0xDxxx — port_dffd readback (with bit 6)
+                    const uint8_t b6 = mmu_.port_dffd_reg_6() ? 0x40 : 0x00;
+                    return static_cast<uint8_t>(b6 | (mmu_.port_dffd_reg() & 0x1F));
+                }
+                case 0xE: { // 0xExxx — port_eff7 readback (bits 3 + 2)
+                    const uint8_t b3 = mmu_.port_eff7_ram_at_0000()  ? 0x08 : 0x00;
+                    const uint8_t b2 = mmu_.port_eff7_disable_p1024() ? 0x04 : 0x00;
+                    return static_cast<uint8_t>(b3 | b2);
+                }
+                default:
+                    return 0x00;  // VHDL "when others => (others => '0')"
+            }
+        },
+        nullptr);  // No write side: Profi DAC owns the WRITE half at 0x003F
+                   // via a more-specific 0xFFFF mask handler below.
+
     // Memory contention flows through ContentionModel::contention_tick()
     // (Phase-2 wiring 2026-04-26 + G141 in-opcode 2026-05-01) — the FUSE
     // memory/IO callbacks and the contend_read[_no_mreq]/_write_no_mreq
