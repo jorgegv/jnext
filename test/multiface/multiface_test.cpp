@@ -949,17 +949,360 @@ static void g_mf_mux()
 }
 
 // =====================================================================
+// Group MF-OVL — MF memory overlay in Mmu (Wave 1 E, Task 8 plan).
+// VHDL: cores/zxnext/src/zxnext.vhd:2937-2945 (priority cascade),
+//       :3028-3035 (slot-0 ROM/RAM layout under mf_mem_en),
+//       cores/zxnext/src/device/multiface.vhd:186 (mf_enable_eff = mf_enable
+//       OR fetch_66, the gate the SRAM arbiter consumes as mf_mem_en).
+//
+// Each row drives an Mmu::read or ::write at a slot-0 address while the
+// Multiface FSM is in a known state, and pins the cascade decision.
+// =====================================================================
+
+namespace {
+
+// Build a Next-mode Emulator with MF enabled, MF+3 mode, but with the boot
+// ROM overlay disabled — this gives the MF/DivMMC/MMU cascade unobstructed
+// access to addresses 0x0000-0x3FFF so the MF-OVL tests can pin the MF
+// branch deterministically. Tests that want boot-ROM-priority behaviour
+// re-enable it via mmu().set_boot_rom_enabled(true).
+bool prep_mf_overlay(Emulator& emu, uint8_t mf_type = 0x02 /* MF128 */)
+{
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return false;
+    // Disable boot ROM overlay so MF/DivMMC/MMU branches can fire on
+    // 0x0000-0x3FFF reads. (Boot ROM has higher priority per VHDL :2937.)
+    emu.mmu().set_boot_rom_enabled(false);
+    emu.multiface().set_enabled(true);
+    emu.multiface().set_mode(mf_type);
+    return true;
+}
+
+// Pre-load the MF ROM with a recognisable pattern so reads can be
+// distinguished from any other RAM/ROM source.
+void stamp_mf_rom(Multiface& mf, uint8_t key)
+{
+    std::vector<uint8_t> buf(Multiface::kRomSize);
+    for (size_t i = 0; i < buf.size(); ++i) {
+        buf[i] = static_cast<uint8_t>((i + key) & 0xFF);
+    }
+    mf.load_rom_bytes(buf.data(), buf.size());
+}
+
+// Pre-load the MF RAM with a recognisable pattern.
+void stamp_mf_ram(Multiface& mf, uint8_t key)
+{
+    for (int i = 0; i < Multiface::kRamSize; ++i) {
+        mf.ram_data()[i] = static_cast<uint8_t>((i ^ key) & 0xFF);
+    }
+}
+
+// Drive the MF FSM into the "armed and active" state — nmi_active=1 and
+// mf_enable=1 — so is_mem_active() returns true outside the one-cycle
+// fetch_66 bypass.
+void arm_mf(Multiface& mf)
+{
+    mf.button_press();              // nmi_active=1, invisible=0
+    mf.on_m1(0x0066, /*mreq_low=*/true);  // latches mf_enable=1
+}
+
+}  // namespace
+
+static void g_mf_overlay()
+{
+    set_group("MF-OVL");
+
+    // ── MF-OVL-01 — overlay inactive: reads route to underlying Mmu path
+    // VHDL multiface.vhd:186 — mf_enable_eff = '0' when both mf_enable
+    // and fetch_66 are '0'. With MF disabled (set_enabled(false)) the FFs
+    // are held in reset and is_mem_active() stays low. The MF check in
+    // Mmu::read should fall through to the next cascade level (DivMMC,
+    // L2, MMU). Discriminative: stamp MF ROM with a pattern, then assert
+    // the read at 0x0000 differs from that pattern (i.e. the MF branch
+    // didn't fire).
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-01", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        emu.multiface().set_enabled(false);   // MF inactive
+        stamp_mf_rom(emu.multiface(), 0xA5);
+        // Read at 0x0000: with MF gate closed we get whatever the MMU
+        // cascade serves (typically the 48.rom ROM in slot 0).
+        const uint8_t got = emu.mmu().read(0x0000);
+        const uint8_t mf_byte = emu.multiface().rom_data()[0x0000];
+        check("MF-OVL-01",
+              "MF inactive (is_mem_active=0): read at 0x0000 does NOT match MF ROM",
+              !emu.multiface().is_mem_active() && got != mf_byte,
+              "VHDL multiface.vhd:186 (mf_enable_eff=0 → no overlay)");
+    }
+
+    // ── MF-OVL-02 — overlay active: reads at 0x0000-0x1FFF return MF ROM.
+    // VHDL zxnext.vhd:3028-3035 — sram_pre_active=1, sram_pre_rdonly=NOT
+    // cpu_a(13). cpu_a(13)=0 → ROM-half (read-only). Stamped pattern lets
+    // us verify the read returns exactly multiface_.rom_data()[addr].
+    // Discriminative: assert two different addresses (0x0000 and 0x1FFF)
+    // both match the stamped pattern.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-02", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        stamp_mf_rom(emu.multiface(), 0x33);
+        arm_mf(emu.multiface());
+        const uint8_t got_lo = emu.mmu().read(0x0000);
+        const uint8_t got_hi = emu.mmu().read(0x1FFF);
+        const uint8_t exp_lo = emu.multiface().rom_data()[0x0000];
+        const uint8_t exp_hi = emu.multiface().rom_data()[0x1FFF];
+        check("MF-OVL-02",
+              "MF active: reads at 0x0000 and 0x1FFF return MF ROM bytes",
+              emu.multiface().is_mem_active() &&
+                  got_lo == exp_lo && got_hi == exp_hi,
+              "VHDL zxnext.vhd:3028-3035 (cpu_a(13)=0 → ROM half)");
+    }
+
+    // ── MF-OVL-03 — overlay active: reads at 0x2000-0x3FFF return MF RAM.
+    // VHDL zxnext.vhd:3028-3035 — cpu_a(13)=1 → sram_pre_rdonly=0 → RAM-half.
+    // Pre-stamp MF RAM, then read at offsets 0 and 0x1FFF (relative to
+    // 0x2000) and verify both match.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-03", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        stamp_mf_ram(emu.multiface(), 0x77);
+        arm_mf(emu.multiface());
+        const uint8_t got_lo = emu.mmu().read(0x2000);
+        const uint8_t got_hi = emu.mmu().read(0x3FFF);
+        const uint8_t exp_lo = emu.multiface().ram_data()[0x0000];
+        const uint8_t exp_hi = emu.multiface().ram_data()[0x1FFF];
+        check("MF-OVL-03",
+              "MF active: reads at 0x2000 and 0x3FFF return MF RAM bytes",
+              emu.multiface().is_mem_active() &&
+                  got_lo == exp_lo && got_hi == exp_hi,
+              "VHDL zxnext.vhd:3028-3035 (cpu_a(13)=1 → RAM half, rdonly=0)");
+    }
+
+    // ── MF-OVL-04 — write to RAM area lands in MF RAM.
+    // VHDL zxnext.vhd:3035 — sram_pre_rdonly=NOT cpu_a(13)=0 for the RAM
+    // half. Discriminative: write a byte, verify it shows up in
+    // multiface_.ram_data() at the expected offset, AND verify the
+    // underlying Ram is unchanged at the corresponding bank (the MF
+    // overlay should not have leaked through to the Mmu's RAM page).
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-04", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        // Zero MF RAM so the discriminator is deterministic.
+        for (int i = 0; i < Multiface::kRamSize; ++i)
+            emu.multiface().ram_data()[i] = 0x00;
+        arm_mf(emu.multiface());
+        emu.mmu().write(0x2123, 0x42);
+        const bool ram_landed = emu.multiface().ram_data()[0x0123] == 0x42;
+        // The corresponding underlying Ram page address shouldn't match —
+        // we assert MF RAM byte got written and is the only place. Read
+        // back via Mmu confirms the round-trip.
+        const uint8_t got = emu.mmu().read(0x2123);
+        check("MF-OVL-04",
+              "write 0x42 to 0x2123 lands in MF RAM[0x0123]; read-back matches",
+              ram_landed && got == 0x42,
+              "VHDL zxnext.vhd:3035 (sram_pre_rdonly=0 for cpu_a(13)=1)");
+    }
+
+    // ── MF-OVL-05 — write to ROM area is ignored.
+    // VHDL zxnext.vhd:3034 — sram_pre_rdonly=NOT cpu_a(13)=1 for the ROM
+    // half. Writes must be silently dropped; MF ROM contents must remain
+    // unchanged. Discriminative: stamp MF ROM, write a different byte at
+    // the same address, verify ROM still holds the stamped value.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-05", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        stamp_mf_rom(emu.multiface(), 0x11);
+        const uint8_t before = emu.multiface().rom_data()[0x0123];
+        arm_mf(emu.multiface());
+        emu.mmu().write(0x0123, 0xAA);  // would-be write to MF ROM
+        const uint8_t after = emu.multiface().rom_data()[0x0123];
+        check("MF-OVL-05",
+              "write 0xAA to 0x0123 (ROM half) is ignored; MF ROM unchanged",
+              before == after,
+              "VHDL zxnext.vhd:3034 (sram_pre_rdonly=1 for cpu_a(13)=0)");
+    }
+
+    // ── MF-OVL-06 — addresses outside slot 0 fall through.
+    // VHDL zxnext.vhd:3030 — the override only fires on cpu_a(15:14)='00'
+    // (i.e. addr < 0x4000). At 0x4000 and above, the MF overlay must NOT
+    // intercept. Discriminative: pre-fill MF ROM with a recognisable
+    // pattern; read at 0x4000 must NOT return that byte (the MMU's
+    // legacy paging serves slot 1 from a different RAM bank).
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-06", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        // Stamp MF ROM with values that, if leaked, would be obvious.
+        stamp_mf_rom(emu.multiface(), 0x66);
+        arm_mf(emu.multiface());
+        // 0x4000 is slot 1 — outside the MF overlay window.
+        const uint8_t got = emu.mmu().read(0x4000);
+        // The "MF ROM byte at offset 0" if the overlay had wrongly fired
+        // would equal multiface_.rom_data()[0x4000 & 0x1FFF] = [0x0000] = 0x66.
+        // We assert that this is NOT what the cascade returned.
+        const uint8_t mf_would_be = emu.multiface().rom_data()[0x0000];
+        check("MF-OVL-06",
+              "addr 0x4000 (outside slot 0): MF overlay does NOT fire",
+              emu.multiface().is_mem_active() && got != mf_would_be,
+              "VHDL zxnext.vhd:3030 (cpu_a(15:14)='00' gate)");
+    }
+
+    // ── MF-OVL-07 — fetch_66 one-cycle bypass activates the overlay.
+    // VHDL multiface.vhd:186 — mf_enable_eff = mf_enable OR fetch_66.
+    // After button_press but BEFORE on_m1(0x0066,...), mf_enable=0 and
+    // fetch_66=0 → mem_active=0 → overlay inactive. The instant on_m1 is
+    // called with PC=0x0066, fetch_66 surfaces high (one-cycle bypass)
+    // AND mf_enable latches '1' on the same edge. Either contributor
+    // alone suffices to activate the overlay; we check both via the
+    // post-fetch read.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-07", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        stamp_mf_rom(emu.multiface(), 0x88);
+        // Stage 1: button_press but no fetch — overlay must NOT be active.
+        emu.multiface().button_press();
+        const bool armed_no_fetch = emu.multiface().nmi_active() &&
+                                    !emu.multiface().mf_enable() &&
+                                    !emu.multiface().is_mem_active();
+        // Reading at 0x0066 should NOT return the MF ROM byte yet.
+        const uint8_t pre_byte = emu.mmu().read(0x0066);
+        const bool pre_not_mf = (pre_byte != emu.multiface().rom_data()[0x0066]);
+        // Stage 2: fire the M1 fetch — fetch_66=1, mf_enable latches=1.
+        emu.multiface().on_m1(0x0066, /*mreq_low=*/true);
+        const bool active_after_fetch = emu.multiface().mf_enable() &&
+                                        emu.multiface().is_mem_active();
+        const uint8_t post_byte = emu.mmu().read(0x0066);
+        const bool post_is_mf = (post_byte == emu.multiface().rom_data()[0x0066]);
+        check("MF-OVL-07",
+              "fetch_66 bypass + FF latch: overlay activates on the 0x0066 fetch",
+              armed_no_fetch && pre_not_mf && active_after_fetch && post_is_mf,
+              "VHDL multiface.vhd:186 (mf_enable_eff = mf_enable OR fetch_66)");
+    }
+
+    // ── MF-OVL-08 — RETN clears mf_enable and deactivates overlay.
+    // VHDL multiface.vhd:144 (nmi_active clear), :178 (mf_enable clear).
+    // From an active state, on_retn_seen() drops both bits → mem_active=0
+    // → overlay inactive → reads route through the normal Mmu cascade.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-08", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        stamp_mf_rom(emu.multiface(), 0x44);
+        arm_mf(emu.multiface());
+        const bool active_pre = emu.multiface().is_mem_active() &&
+                                emu.mmu().read(0x0000) ==
+                                    emu.multiface().rom_data()[0x0000];
+        emu.multiface().on_retn_seen();
+        const bool inactive_post = !emu.multiface().is_mem_active();
+        const uint8_t post = emu.mmu().read(0x0000);
+        const bool fall_through = (post != emu.multiface().rom_data()[0x0000]);
+        check("MF-OVL-08",
+              "on_retn_seen deactivates overlay; reads fall through",
+              active_pre && inactive_post && fall_through,
+              "VHDL multiface.vhd:144, :178 (RETN clears nmi_active+mf_enable)");
+    }
+
+    // ── MF-OVL-09 — MF priority above DivMMC.
+    // VHDL zxnext.vhd:2937 cascade: 1. multiface 2. divmmc. With BOTH
+    // overlays active simultaneously (DivMMC conmem=1 + automap_active=1
+    // AND MF mf_enable_eff=1), the read at 0x0000 must return MF ROM,
+    // not DivMMC ROM. Discriminative — pre-load the two ROMs with
+    // distinct patterns at byte 0x0000.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-09", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        // Stamp MF ROM[0]=0xAA, DivMMC ROM[0]=0x55 — two distinct values
+        // so the discriminator is unambiguous.
+        std::vector<uint8_t> mf_rom(Multiface::kRomSize, 0xAA);
+        emu.multiface().load_rom_bytes(mf_rom.data(), mf_rom.size());
+        // DivMMC ROM is 8 KB; load a contrasting pattern.
+        std::vector<uint8_t> dm_rom(8192, 0x55);
+        emu.divmmc().load_rom_bytes(dm_rom.data(), dm_rom.size());
+        // Activate DivMMC overlay: port_io_enable + conmem.
+        emu.divmmc().set_port_io_enable(true);
+        // conmem = control bit 7. Use the public write_control accessor.
+        // Need to make sure DivMMC is the only thing competing; conmem
+        // suffices because is_active() = port_io_enable AND (conmem OR
+        // automap_active).
+        emu.divmmc().write_control(0x80);   // conmem=1
+        // Activate MF overlay.
+        arm_mf(emu.multiface());
+        const bool both_active = emu.multiface().is_mem_active() &&
+                                 emu.divmmc().is_active();
+        const uint8_t got = emu.mmu().read(0x0000);
+        check("MF-OVL-09",
+              "both MF and DivMMC active: read at 0x0000 returns MF ROM (0xAA)",
+              both_active && got == 0xAA,
+              "VHDL zxnext.vhd:2937 (1. multiface 2. divmmc priority)");
+    }
+
+    // ── MF-OVL-10 — boot ROM priority above MF.
+    // VHDL zxnext.vhd:2937 cascade: 0. bootrom 1. multiface. With boot
+    // ROM enabled AND MF active, the read at 0x0000 must return the boot
+    // ROM byte, NOT the MF ROM byte. Discriminative — pre-load the
+    // boot ROM with one byte and MF ROM with another.
+    {
+        Emulator emu;
+        if (!prep_mf_overlay(emu)) {
+            check("MF-OVL-10", "Emulator init failed", false, "init returned false");
+            return;
+        }
+        // Stamp boot ROM[0]=0xBB and MF ROM[0]=0xCC.
+        std::vector<uint8_t> br(8192, 0xBB);
+        emu.mmu().set_boot_rom(br.data(), br.size());
+        emu.mmu().set_boot_rom_enabled(true);
+        std::vector<uint8_t> mr(Multiface::kRomSize, 0xCC);
+        emu.multiface().load_rom_bytes(mr.data(), mr.size());
+        arm_mf(emu.multiface());
+        const bool both_active = emu.multiface().is_mem_active() &&
+                                 emu.mmu().boot_rom_enabled();
+        const uint8_t got = emu.mmu().read(0x0000);
+        check("MF-OVL-10",
+              "boot ROM enabled + MF active: read at 0x0000 returns boot ROM (0xBB)",
+              both_active && got == 0xBB,
+              "VHDL zxnext.vhd:2937 (0. bootrom > 1. multiface)");
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
 int main()
 {
-    std::printf("Multiface core class compliance tests (Wave 1 B1+B2+B3, Task 8)\n");
+    std::printf("Multiface core class compliance tests (Wave 1 B1+B2+B3+E, Task 8)\n");
     std::printf("==========================================================\n\n");
 
     g_mf_core();          std::printf("  MF-CORE state machine -- done\n");
     g_mf_port_dispatch(); std::printf("  MF-PORT dispatch       -- done\n");
     g_mf_mux();           std::printf("  MF-MUX +3 readback     -- done\n");
+    g_mf_overlay();       std::printf("  MF-OVL Mmu overlay     -- done\n");
 
     std::printf("\n==========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

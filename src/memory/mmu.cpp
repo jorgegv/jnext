@@ -1,5 +1,6 @@
 #include "mmu.h"
 #include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
 #include "core/log.h"
 #include "core/saveable.h"
 #include <cstring>
@@ -675,4 +676,37 @@ bool Mmu::divmmc_write(uint16_t addr, uint8_t val) {
     if (!divmmc_->is_active()) return false;
     divmmc_->write(addr, val);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Multiface overlay helpers (Wave 1 E)
+// ---------------------------------------------------------------------------
+// VHDL authority:
+//   * multiface.vhd:186 — `mf_enabled_o = mf_enable_eff = mf_enable OR fetch_66`.
+//     This is the gate the SRAM arbiter consumes as `mf_mem_en` at
+//     zxnext.vhd:3028.
+//   * zxnext.vhd:2937-2945 — priority cascade
+//       0. bootrom 1. multiface 2. divmmc 3. layer 2 4. mmu 5. config 6. romcs 7. rom
+//   * zxnext.vhd:3028-3035 — when `mf_mem_en='1'` AND `cpu_a(15:14)="00"`:
+//       sram_pre_A21_A13  := "00000101" & cpu_a(13);
+//       sram_pre_active   := '1';
+//       sram_pre_rdonly   := NOT cpu_a(13);    -- ROM-half write-locked
+//       sram_pre_override := "000";            -- divmmc + L2 + romcs all gone
+
+bool Mmu::mf_overlay_active_() const {
+    return multiface_->is_mem_active();
+}
+
+uint8_t Mmu::mf_rom_byte_(uint16_t addr) const {
+    // 8 KB MF ROM at 0x0000-0x1FFF.
+    return multiface_->rom_data()[addr];
+}
+
+uint8_t Mmu::mf_ram_byte_(uint16_t addr) const {
+    // 8 KB MF RAM at 0x2000-0x3FFF.
+    return multiface_->ram_data()[addr - 0x2000];
+}
+
+void Mmu::mf_ram_write_(uint16_t addr, uint8_t val) {
+    multiface_->ram_data()[addr - 0x2000] = val;
 }

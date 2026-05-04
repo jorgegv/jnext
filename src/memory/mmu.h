@@ -7,7 +7,8 @@
 #include "debug/debug_state.h"
 #include "memory/contention.h"   // for MachineType
 
-class DivMmc;  // forward declaration for overlay
+class DivMmc;     // forward declaration for overlay
+class Multiface;  // forward declaration for MF memory overlay (Wave 1 E)
 
 class Mmu : public MemoryInterface {
 public:
@@ -114,6 +115,15 @@ public:
     // Kept as raw pointer for zero-overhead hot path.
     void set_divmmc(DivMmc* d) { divmmc_ = d; }
 
+    // Multiface memory overlay (Wave 1 E) — non-owning pointer wired by
+    // Emulator after constructing the Multiface peripheral. The overlay
+    // sits between the boot-ROM check and the DivMMC check in the read/
+    // write cascade, matching VHDL zxnext.vhd:2937-2945 priority cascade
+    // (0. bootrom 1. multiface 2. divmmc ...). Activation is gated on
+    // multiface_->is_mem_active() (= mf_enable_eff = mf_enable OR fetch_66
+    // per multiface.vhd:186) and the cpu_a(15:14)="00" window.
+    void set_multiface(Multiface* m) { multiface_ = m; }
+
     // Debugger state — set by Emulator for data breakpoint checking.
     void set_debug_state(DebugState* ds) { debug_state_ = ds; }
 
@@ -125,6 +135,23 @@ public:
         // span); upper 8 KB mirrors lower 8 KB. Mask with 0x1FFF accordingly.
         if (boot_rom_en_ && addr < 0x4000 && boot_rom_) {
             return boot_rom_[addr & 0x1FFF];
+        }
+        // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
+        // VHDL :3028-3035: when mf_mem_en=1 AND cpu_a(15:14)='00', SRAM
+        // region 0x14000-0x17FFF maps to slot 0; cpu_a(13)=0 → 8K MF ROM
+        // (read-only), cpu_a(13)=1 → 8K MF RAM (read-write). mf_enabled_o
+        // (multiface.vhd:186) = mf_enable_eff = mf_enable OR fetch_66 —
+        // handles the one-cycle bypass during the actual M1 fetch at 0x0066.
+        if (multiface_ && addr < 0x4000 && mf_overlay_active_()) {
+            uint8_t val = (addr < 0x2000) ? mf_rom_byte_(addr)
+                                          : mf_ram_byte_(addr);
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
+            }
+            return val;
         }
         // DivMMC overlay: intercept reads from 0x0000-0x3FFF when active.
         // VHDL arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode
@@ -236,6 +263,19 @@ public:
             debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
             debug_state_->set_data_bp_hit(true);
             debug_state_->set_data_bp_addr(addr);
+        }
+        // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
+        // VHDL :3028-3035: writes to cpu_a(15:14)='00' under mf_mem_en=1
+        // honour sram_pre_rdonly = NOT cpu_a(13). cpu_a(13)=0 (0x0000-0x1FFF)
+        // is read-only (write ignored); cpu_a(13)=1 (0x2000-0x3FFF) lands in
+        // MF RAM. The MF overlay sits above DivMMC in the SRAM arbiter, so
+        // we test it first.
+        if (multiface_ && addr < 0x4000 && mf_overlay_active_()) {
+            if (addr >= 0x2000) {
+                mf_ram_write_(addr, val);
+            }
+            // else: ROM area — VHDL sram_pre_rdonly=1 → write ignored.
+            return;
         }
         // DivMMC overlay: intercept writes to 0x0000-0x3FFF when active.
         // Arbiter (zxnext.vhd:3084) puts DivMMC above the config_mode SRAM
@@ -936,10 +976,22 @@ private:
     // DivMMC overlay (non-owning pointer, set by Emulator)
     DivMmc* divmmc_ = nullptr;
 
+    // Multiface overlay (Wave 1 E, non-owning pointer, set by Emulator).
+    // Sits above DivMMC in the SRAM arbiter per VHDL zxnext.vhd:2937.
+    Multiface* multiface_ = nullptr;
+
     // Debugger state (non-owning pointer, set by Emulator)
     DebugState* debug_state_ = nullptr;
 
     // Out-of-line DivMMC helpers (defined in mmu.cpp to avoid circular include)
     bool divmmc_read(uint16_t addr, uint8_t& val) const;
     bool divmmc_write(uint16_t addr, uint8_t val);
+
+    // Out-of-line Multiface overlay helpers — defined in mmu.cpp so
+    // multiface.h does not need to be pulled into mmu.h's transitive
+    // include set (the hot-path read/write inlines stay branch-light).
+    bool    mf_overlay_active_() const;
+    uint8_t mf_rom_byte_(uint16_t addr) const;
+    uint8_t mf_ram_byte_(uint16_t addr) const;
+    void    mf_ram_write_(uint16_t addr, uint8_t val);
 };
