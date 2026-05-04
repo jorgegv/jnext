@@ -166,6 +166,15 @@ target_link_libraries(uart_integration_test PRIVATE
 target_include_directories(uart_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME uart_integration_tests COMMAND uart_integration_test)
 
+# Multiface core class compliance test (Wave 1 B1, Task 8 plan, 2026-05-04)
+# Pins src/peripheral/multiface.{h,cpp} against multiface.vhd. Bare-class
+# tests (FFs, mode dispatch, port_io_dly edge detector, save/load round
+# trip) — links jnext_peripheral only.
+add_executable(multiface_test multiface/multiface_test.cpp)
+target_link_libraries(multiface_test PRIVATE jnext_peripheral)
+target_include_directories(multiface_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME multiface_tests COMMAND multiface_test)
+
 # DivMMC + SPI compliance test
 add_executable(divmmc_test divmmc/divmmc_test.cpp)
 # jnext_memory + jnext_debug added 2026-04-21: PRI-01/02/04 need a

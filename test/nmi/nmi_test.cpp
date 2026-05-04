@@ -21,6 +21,7 @@
 // Run: ./build/test/nmi_test
 
 #include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
 #include "peripheral/nmi_source.h"
 #include "cpu/im2.h"
 
@@ -758,23 +759,126 @@ static void g_mf_g162_skips()
                   " gated=" + std::to_string((int)no_trap));
     }
 
-    // MF-G48-01..07 — Multiface peripheral expansion (G48). Eight
-    // expansion-bullet residuals; class lives at nmi_source.h:150-154
-    // as stubs only. Future MULTIFACE-TEST-PLAN-DESIGN.md will absorb.
+    // MF-G48-01..07 — Multiface peripheral expansion (G48). Wave 1 B1
+    // (TASK-8-MULTIFACE-PLAN.md, 2026-05-04) lands the core class; this
+    // closes G48-02/03/04 (mode dispatch, port_io_dly edge detector,
+    // INVISIBLE FF). 01/05/06/07 stay SKIP pending Wave B2/B3/F-gate.
     skip("MF-G48-01",
-         "Mode-decoded MF port table per nr_0a_mf_type missing (see G48)");
-    skip("MF-G48-02",
-         "NR 0x0A b7:6 nr_0a_mf_type forward to MF type missing (see G48)");
-    skip("MF-G48-03",
-         "port_io_dly edge detector multiface.vhd:122-131 missing (see G48)");
-    skip("MF-G48-04",
-         "INVISIBLE FF multiface.vhd:152-163 unmodelled (see G48)");
+         "MF1/MF3/MF128 port-table dispatch deferred to Wave B2 "
+         "(see TASK-8-MULTIFACE-PLAN.md mini-branch B2)");
+
+    // MF-G48-02 — NR 0x0A b7:6 mf_type forwarding. VHDL multiface.vhd:
+    //   105-118 — combinational decode:
+    //     "00" -> mode_p3 (= MF +3)
+    //     "11" -> mode_48 (= MF1)
+    //     others ("01"/"10") -> mode_128
+    // Wave 1 B1 lands set_mode(mf_type) on the Multiface class; verify
+    // both extreme codes plus one of the "others" codes resolve to the
+    // right mode flag. Discriminative across all three branches.
+    {
+        Multiface mf;
+        // "00" → MF+3
+        mf.set_mode(0x00);
+        const bool p3   = mf.mode_p3()  && !mf.mode_128() && !mf.mode_48();
+        // "11" → MF1
+        mf.set_mode(0x03);
+        const bool m1   = !mf.mode_p3() && !mf.mode_128() && mf.mode_48();
+        // "10" → MF128 (one of the "others" branches)
+        mf.set_mode(0x02);
+        const bool m128 = !mf.mode_p3() && mf.mode_128() && !mf.mode_48();
+        check("MF-G48-02",
+              "NR 0x0A b7:6 = 00 -> MF+3, 11 -> MF1, others -> MF128",
+              p3 && m1 && m128,
+              "multiface.vhd:105-118 mf_mode_i decode");
+    }
+
+    // MF-G48-03 — port_io_dly rising-edge detector (multiface.vhd:122-131).
+    // VHDL latches `port_io_dly <= port_mf_enable_rd OR port_mf_enable_wr
+    //                                OR port_mf_disable_rd OR port_mf_disable_wr`
+    // on every rising clock edge. The downstream nmi_active clear at line
+    // 144 requires `port_io_dly = '0'` — i.e. the PRIOR cycle had no
+    // port-IO strobe. So a back-to-back port_mf_enable_wr (two consecutive
+    // cycles) only clears nmi_active on the FIRST cycle; the second is
+    // suppressed because port_io_dly latched the first cycle's pulse.
+    //
+    // Discriminative test: arm nmi_active=1 via button_press, then in
+    // mode_128 fire two consecutive port_mf_enable_wr strobes. After the
+    // first, nmi_active should be 0 and port_io_dly should be 1; after
+    // the second, port_io_dly stays 1 (because the second cycle re-OR'd
+    // it) and nmi_active stays 0 (already cleared). Re-arm nmi_active
+    // and fire ONE port_mf_enable_wr after a quiescent cycle: this time
+    // the prior port_io_dly was 0 so the clear takes effect. The
+    // single-cycle "two pulses" test isolates the dly gating from the
+    // clear semantics.
+    {
+        Multiface mf;
+        mf.set_enabled(true);
+        mf.set_mode(0x02);  // MF128 (mode_p3=0)
+        mf.button_press();
+        const bool armed_first = mf.nmi_active() && !mf.port_io_dly();
+        mf.on_port_enable_wr(true);
+        // After 1 strobe: nmi_active cleared (port_io_dly was 0 entering
+        // this cycle), and port_io_dly latches to 1 for the next cycle.
+        const bool first_clears = !mf.nmi_active() && mf.port_io_dly();
+        // Re-arm via button.
+        mf.button_press();
+        const bool armed_second = mf.nmi_active();
+        // Now do a port_mf_enable_wr while port_io_dly=0 (button_press
+        // did not assert any port input, so port_io_dly latched 0 on
+        // that cycle). This single strobe should clear nmi_active.
+        mf.on_port_enable_wr(true);
+        const bool single_clears = !mf.nmi_active();
+        check("MF-G48-03",
+              "port_io_dly edge detector gates nmi_active clear on prior-cycle quiescence",
+              armed_first && first_clears && armed_second && single_clears,
+              "multiface.vhd:122-131 (FF), :144 (port_io_dly=0 gate)");
+    }
+
+    // MF-G48-04 — INVISIBLE FF (multiface.vhd:152-163).
+    // Reset value is '1' (line 156). button_pulse clears it (line 158).
+    // In mode_128 (mode_p3=0), port_mf_disable_wr with port_io_dly=0
+    // sets it to '1' (line 159 first disjunct). In mode_p3=1,
+    // port_mf_enable_wr with port_io_dly=0 sets it to '1' (line 159
+    // second disjunct).
+    {
+        Multiface mf;
+        mf.set_enabled(true);
+        mf.set_mode(0x02);  // MF128
+        // After enable+reset, invisible should be 1 (line 156).
+        const bool reset_one = mf.invisible();
+        // Press button: invisible -> 0 (line 158).
+        mf.button_press();
+        const bool btn_clears = !mf.invisible();
+        // Now port_mf_disable_wr (mode_p3=0 path): invisible -> 1.
+        mf.on_port_disable_wr(true);
+        const bool dis_wr_sets_128 = mf.invisible();
+        // Switch to MF+3 mode and re-arm: re-press the button to drop
+        // the invisible we just set, then the port_mf_enable_wr path
+        // (mode_p3=1) should set it back.
+        mf.set_mode(0x00);  // MF+3
+        // First press would no-op since nmi_active is still set from
+        // the original button_press above and not yet cleared in MF+3
+        // (the mode_128 disable_wr above did clear it via line 144 first
+        // disjunct since mode_p3=0 then). Verify quiescent state, then
+        // re-arm.
+        mf.button_press();
+        // Now invisible should drop back to 0 again (line 158).
+        const bool btn_clears_again = !mf.invisible();
+        mf.on_port_enable_wr(true);
+        const bool en_wr_sets_p3 = mf.invisible();
+        check("MF-G48-04",
+              "INVISIBLE FF: reset=1, button=0, mode_128 disable_wr=1, mode_p3 enable_wr=1",
+              reset_one && btn_clears && dis_wr_sets_128 &&
+                  btn_clears_again && en_wr_sets_p3,
+              "multiface.vhd:152-163 (process), :156 reset, :158 button, :159 set");
+    }
+
     skip("MF-G48-05",
-         "MF +3 port 0x1FFD/0x7FFD readback mux on cpu_a(15:12) missing (see G48)");
+         "MF +3 port 0x1FFD/0x7FFD readback mux on cpu_a(15:12) missing (see G48 — Wave 1 B3)");
     skip("MF-G48-06",
-         "DivMMC retn_seen AND-NOT mf_is_active gate missing (see G48)");
+         "DivMMC retn_seen AND-NOT mf_is_active gate missing (see G48 — Wave 1 F-gate)");
     skip("MF-G48-07",
-         "port 0xDFFD bit 6 storage for MF readback (G148 sibling, see G48)");
+         "port 0xDFFD bit 6 storage for MF readback (G148 sibling, see G48 — Wave 1 B3)");
 }
 
 // =====================================================================

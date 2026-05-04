@@ -28,6 +28,7 @@
 #include "peripheral/i2c.h"
 #include "peripheral/uart.h"
 #include "peripheral/divmmc.h"
+#include "peripheral/multiface.h"
 #include "peripheral/nmi_source.h"
 #include "peripheral/sd_card.h"
 #include "input/keyboard.h"
@@ -224,6 +225,7 @@ public:
     I2cController& i2c()     { return i2c_; }
     Uart&         uart()      { return uart_; }
     DivMmc&       divmmc()    { return divmmc_; }
+    Multiface&    multiface() { return multiface_; }
     NmiSource&    nmi_source(){ return nmi_source_; }
     Im2Controller& im2()       { return im2_; }
     Beeper&       beeper()    { return beeper_; }
@@ -522,6 +524,7 @@ private:
     I2cRtc          rtc_;
     Uart            uart_;
     DivMmc          divmmc_;
+    Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
     NmiSource       nmi_source_;  // Phase 1 scaffold (TASK-NMI-SOURCE-PIPELINE-PLAN).
 
     // NR 0xD8 bit 0 — `nr_d8_io_trap_fdc_en` (VHDL zxnext.vhd:1263).
