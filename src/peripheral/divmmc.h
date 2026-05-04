@@ -86,7 +86,21 @@ public:
     // ── Memory overlay interface ──────────────────────────────────
 
     /// Returns true if DivMMC memory overlay is active (conmem OR automap).
-    bool is_active() const { return enabled_ && (conmem_ || automap_active_); }
+    ///
+    /// VHDL `divmmc.vhd:94-95` derives `rom_en`/`ram_en` from `(conmem OR
+    /// automap)` (no enable gate at this stage). The output gate is
+    /// `o_divmmc_rom_en <= rom_en and i_en` at `divmmc.vhd:98`, with
+    /// `i_en => port_divmmc_io_en` per `zxnext.vhd:4147`. The combined
+    /// `port_divmmc_io_en AND nr_0a_divmmc_automap_en` only gates `automap`
+    /// itself (via `divmmc_automap_reset` at `zxnext.vhd:4112`); CONMEM
+    /// sails through `nr_0a_divmmc_automap_en=0`. So `is_active()` must
+    /// check `port_io_enable_` only — gating both via `enabled_` would
+    /// (and historically did) block CONMEM-based DivMMC entry through the
+    /// ESXDOS IM1 handler at enNextZX.rom:0x0038 (which writes 0x80 to
+    /// port 0xE3 to overlay DivMMC ROM, then RETN at 0x0066 to drop it),
+    /// causing the firmware to infinite-loop on the `OUT (0xE3), A`
+    /// instruction at 0x0046 because DivMMC ROM never overlays.
+    bool is_active() const { return port_io_enable_ && (conmem_ || automap_active_); }
 
     /// Returns true if DivMMC ROM should be mapped at slot 0.
     /// (active AND page0 AND NOT mapram)

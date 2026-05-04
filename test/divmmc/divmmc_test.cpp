@@ -1666,6 +1666,31 @@ void group_na() {
               fmt("act=%d rom=%d", d.is_active(), d.is_rom_mapped()));
     }
 
+    // NA-01c: CONMEM path is gated by port_divmmc_io_en ONLY, NOT by the
+    // combined (port_io AND nr_0a_4). VHDL `divmmc.vhd:94-95,98` derives
+    // `rom_en/ram_en` from `(conmem OR automap)` with no enable gate;
+    // the output gate is `o_divmmc_rom_en <= rom_en AND i_en` where
+    // `i_en => port_divmmc_io_en` per `zxnext.vhd:4147`. The combined
+    // enable only gates `automap` itself (via `divmmc_automap_reset`
+    // at `zxnext.vhd:4112`); CONMEM sails through nr_0a_4=0. This is
+    // load-bearing for the ESXDOS IM1 handler in enNextZX.rom (writes
+    // 0x80 to port 0xE3 to overlay DivMMC ROM, RETN at 0x0066 to drop)
+    // which fires BEFORE firmware writes NR 0x0A bit 4=1 in init at
+    // PC=0x0245. Pairs with NA-01b: NA-01b pins automap-off direction,
+    // NA-01c pins CONMEM-on direction.
+    {
+        DivMmc d;
+        d.reset();
+        d.set_enabled(true);          // VHDL port_divmmc_io_en := '1'
+                                      // — nr_0a_4_enable_ stays false
+        d.write_control(0x80);        // OUT (0xE3), 0x80 — CONMEM ON
+        check("NA-01c",
+              "CONMEM with set_enabled(true) alone (nr_0a_4=0): "
+              "is_active() true (VHDL divmmc.vhd:94 + zxnext.vhd:4147)",
+              d.is_active() && d.is_rom_mapped(),
+              fmt("act=%d rom=%d", d.is_active(), d.is_rom_mapped()));
+    }
+
     // NA-02: NR 0x0A[4]=1 releases automap_reset -> automap can function.
     // Uses explicit all-instant timing to observe single-fetch activation
     // (default reset state is timing=0 = all delayed).
