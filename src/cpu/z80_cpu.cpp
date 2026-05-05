@@ -585,6 +585,129 @@ int Z80Cpu::execute() {
     }
     g46b_p22_prev_pc = pc;
 
+    // G46(b) Probe 23 (TEMP — remove on G46(b) closure): SP-tracer for
+    // CALL/RET/RST/RETI/RETN. Logs SP_before/SP_after/PC_target/landed_PC
+    // for each control-flow event and tracks a running call-depth counter.
+    //
+    // Mechanism: per-step hook fires BEFORE fuse_z80_execute_one(). On each
+    // entry we (1) flush the PREVIOUS step's pending event with the now-known
+    // SP_after / landed_PC, then (2) classify the CURRENT instruction and
+    // arm a new pending event if it is a CF op.
+    //
+    // Output: /tmp/g46b-sp-trace.log, capped at 8000 events (configurable).
+    // Untaken conditional CALL/RET produce a delta=0 entry tagged ".nt"
+    // (not taken) so we can see them.
+    {
+        constexpr int G46B_SP_TRACE_MAX = 8000;
+        static FILE* g46b_sp_fp = nullptr;
+        static int   g46b_sp_count = 0;
+        static int   g46b_sp_depth = 0;        // running CALL/RET depth
+        static int   g46b_sp_min_depth = 0;
+        static int   g46b_sp_max_depth = 0;
+        static bool  g46b_sp_pending = false;
+        static uint16_t    g46b_sp_pre_pc = 0;
+        static uint16_t    g46b_sp_pre_sp = 0;
+        static uint8_t     g46b_sp_pre_op = 0;
+        static uint8_t     g46b_sp_pre_op2 = 0;
+        static uint16_t    g46b_sp_pre_target = 0;
+        static const char* g46b_sp_pre_kind = "";
+
+        if (!g46b_sp_fp && g46b_sp_count == 0) {
+            g46b_sp_fp = std::fopen("/tmp/g46b-sp-trace.log", "w");
+            if (g46b_sp_fp) {
+                std::fprintf(g46b_sp_fp,
+                    "# idx kind pc op sp_before sp_after delta landed_pc"
+                    " target depth\n");
+            }
+        }
+
+        // (1) Flush pending event from PREVIOUS step.
+        if (g46b_sp_fp && g46b_sp_pending && g46b_sp_count < G46B_SP_TRACE_MAX) {
+            int delta = static_cast<int>(static_cast<int16_t>(
+                z80.sp.w - g46b_sp_pre_sp));
+            // Update depth from delta (stack grows DOWN: -2 = push, +2 = pop)
+            if (delta == -2) {
+                ++g46b_sp_depth;
+                if (g46b_sp_depth > g46b_sp_max_depth) g46b_sp_max_depth = g46b_sp_depth;
+            } else if (delta == +2) {
+                --g46b_sp_depth;
+                if (g46b_sp_depth < g46b_sp_min_depth) g46b_sp_min_depth = g46b_sp_depth;
+            }
+            const char* kind = g46b_sp_pre_kind;
+            char tag_buf[16];
+            if (delta == 0 && (kind[0] == 'C' || kind[0] == 'R')) {
+                std::snprintf(tag_buf, sizeof(tag_buf), "%s.nt", kind);
+                kind = tag_buf;
+            }
+            std::fprintf(g46b_sp_fp,
+                "%6d %-9s pc=$%04x op=$%02x%02x sp_b=$%04x sp_a=$%04x"
+                " d=%+d landed=$%04x tgt=$%04x depth=%d\n",
+                g46b_sp_count, kind, g46b_sp_pre_pc,
+                g46b_sp_pre_op, g46b_sp_pre_op2,
+                g46b_sp_pre_sp, z80.sp.w, delta, pc, g46b_sp_pre_target,
+                g46b_sp_depth);
+            ++g46b_sp_count;
+            if (g46b_sp_count == G46B_SP_TRACE_MAX) {
+                std::fprintf(g46b_sp_fp,
+                    "# CAP REACHED. min_depth=%d max_depth=%d\n",
+                    g46b_sp_min_depth, g46b_sp_max_depth);
+                std::fflush(g46b_sp_fp);
+                std::fclose(g46b_sp_fp);
+                g46b_sp_fp = nullptr;
+            }
+            g46b_sp_pending = false;
+        }
+
+        // (2) Classify CURRENT instruction. Arm pending event if CF op.
+        if (g46b_sp_fp && g46b_sp_count < G46B_SP_TRACE_MAX) {
+            uint8_t op  = mem_.read(pc);
+            uint8_t op2 = mem_.read(static_cast<uint16_t>(pc + 1));
+            const char* kind = nullptr;
+            uint16_t target = 0;
+            if (op == 0xCD) {
+                kind = "CALL";
+                target = static_cast<uint16_t>(
+                    op2 | (mem_.read(static_cast<uint16_t>(pc + 2)) << 8));
+            } else if ((op & 0xC7) == 0xC4) {
+                kind = "CALLcc";
+                target = static_cast<uint16_t>(
+                    op2 | (mem_.read(static_cast<uint16_t>(pc + 2)) << 8));
+            } else if (op == 0xC9) {
+                kind = "RET";
+            } else if ((op & 0xC7) == 0xC0) {
+                kind = "RETcc";
+            } else if ((op & 0xC7) == 0xC7) {
+                kind = "RST";
+                target = static_cast<uint16_t>(op & 0x38);
+            } else if (op == 0xED) {
+                // RETN family: ED 45/55/5D/65/6D/75/7D
+                // RETI       : ED 4D
+                if (op2 == 0x4D) {
+                    kind = "RETI";
+                } else if (op2 == 0x45 || op2 == 0x55 || op2 == 0x5D
+                           || op2 == 0x65 || op2 == 0x6D || op2 == 0x75
+                           || op2 == 0x7D) {
+                    kind = "RETN";
+                } else if (op2 == 0x8A) {
+                    // Z80N PUSH nn (Z80NOpcode::PUSH_NN)
+                    kind = "Z80N_PUSH";
+                    target = static_cast<uint16_t>(
+                        (mem_.read(static_cast<uint16_t>(pc + 2)) << 8) |
+                        mem_.read(static_cast<uint16_t>(pc + 3)));
+                }
+            }
+            if (kind) {
+                g46b_sp_pre_pc     = pc;
+                g46b_sp_pre_sp     = z80.sp.w;
+                g46b_sp_pre_op     = op;
+                g46b_sp_pre_op2    = op2;
+                g46b_sp_pre_target = target;
+                g46b_sp_pre_kind   = kind;
+                g46b_sp_pending    = true;
+            }
+        }
+    }
+
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
     // that makes RET pop $0082 (vs CSpect's $0448).

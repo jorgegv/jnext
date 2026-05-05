@@ -2829,3 +2829,184 @@ The stack-depth divergence is the real issue. To find it:
 
 Probably the divergence is in early boot — different RAM-test
 results, different conditional branches, different sysvar values.
+
+---
+
+## 2026-05-07 22:38 CEST — Probe 23 SP-tracer landed; SD-helper busy-loop confirmed
+
+### Setup
+
+Added Probe 23 (SP-tracer) at `src/cpu/z80_cpu.cpp:587-694`. Hooks
+the per-step path BEFORE `fuse_z80_execute_one()`. On entry:
+
+1. Flushes the PREVIOUS step's pending CF event (now we know
+   `sp_after` and `landed_pc` because the prior instruction
+   has executed and registers are synced).
+2. Classifies the CURRENT instruction (CALL / CALLcc / RET /
+   RETcc / RST / RETI / RETN / Z80N PUSH).
+3. Captures pre-state (PC, SP, opcode bytes, target) and arms
+   the pending event.
+
+Output: `/tmp/g46b-sp-trace.log`, capped at 8000 events.
+Maintains a running `depth` counter (++ on push, -- on pop).
+Untaken conditional CF ops are tagged `.nt` with `delta=0`.
+
+Smoke run: `--bypass-tbblue-fw`, 30 s timeout.
+
+### Headline findings (smoking gun)
+
+**The boot is stuck in the DivMMC SD-card SPI wait-for-response
+busy loop at `enNxtmmc.rom $1F40-$1F48`** — the supervisor never
+exits this loop.
+
+The captured trace shows 7881 of 8000 events (98 %) are the loop:
+
+```
+RETcc.nt pc=$1f44 op=$c010 sp_b=$5c01 sp_a=$5c01 d=+0 landed=$1f45 depth=-6
+```
+
+Disassembly of `enNxtmmc.rom` $1F40-$1F4A (verified by xxd):
+
+```
+$1F3D: 01 32 00      ld bc,$0032        ; outer counter = 50
+$1F40: db eb         in a,($eb)         ; read SD-SPI byte
+$1F42: fe ff         cp $ff             ; idle / no-data?
+$1F44: c0            ret nz             ; got non-$FF → return
+$1F45: 10 f9         djnz $1f40         ; b--
+$1F47: 0d            dec c              ; c--
+$1F48: 20 f6         jr nz,$1f40        ; outer retry
+$1F4A: c9            ret                ; gave up
+```
+
+Helper at `$1F22-$1F3C` is the SD-SPI command sender:
+
+```
+$1F22: 79            ld a,c             ; A = command byte
+$1F23: 0e eb         ld c,$eb           ; SPI port
+$1F25: ed 79         out (c),a          ; cmd
+$1F27: 7c ed 79      ld a,h; out (c),a  ; arg-3
+$1F2A: 7d ed 79      ld a,l; out (c),a  ; arg-2
+$1F2D: 7a ed 79      ld a,d; out (c),a  ; arg-1
+$1F30: 7b ed 79      ld a,e; out (c),a  ; arg-0
+$1F33: 78 ed 79      ld a,b; out (c),a  ; CRC
+$1F36: cd 3d 1f      call $1f3d         ; ★ wait-for-response (loops!)
+$1F39: a7            and a
+$1F3A: c0            ret nz
+$1F3B: 37            scf
+$1F3C: c9            ret
+```
+
+This perfectly matches the bytes Probe 20 saw on port $EB earlier
+(`3B 00 00 FF BF 24`):
+
+| Helper register at entry | Sent byte |
+|---|---|
+| C = `$3B` | command (NOT a valid SD command — bit 6 = 0) |
+| H = `$00` | arg-3 |
+| L = `$00` | arg-2 |
+| D = `$FF` | arg-1 |
+| E = `$BF` | arg-0 |
+| B = `$24` | CRC |
+
+`$24/$3B` = NextREG select port low/high bytes. **The supervisor
+intended to write to NextREG `(BC)=$243B`, but the AUTOMAP-sled
+$3D00 RET dispatched it into the SD-SPI helper instead.** This
+is the same divergence Probe 20 caught — now we have the *exact*
+loop spot.
+
+### Final 12 events before the loop
+
+```
+ 109 RET       pc=$5b20 op=$c9cd sp_b=$5bff sp_a=$5c01 d=+2 landed=$0000 depth=-6
+ 110 RET       pc=$3d00 op=$c900 sp_b=$5c01 sp_a=$5c03 d=+2 landed=$1f22 depth=-7
+ 111 CALL      pc=$1f36 op=$cd3d sp_b=$5c03 sp_a=$5c01 d=-2 landed=$1f3d depth=-6
+ …loop at $1f44 begins, 7881 events…
+2617 CALL      pc=$00e7 op=$cd45 sp_b=$5bfb sp_a=$5bf9 d=-2 landed=$0045 depth=-4
+2618 CALL      pc=$0056 op=$cd09 sp_b=$26eb sp_a=$26e9 d=-2 landed=$2009 depth=-3
+2619 RET       pc=$2009 op=$c900 sp_b=$26e9 sp_a=$26eb d=+2 landed=$0059 depth=-4
+2620 RET       pc=$0060 op=$c9dd sp_b=$5bf9 sp_a=$5bfb d=+2 landed=$00ea depth=-5
+2621 RET       pc=$00f1 op=$c901 sp_b=$5bff sp_a=$5c01 d=+2 landed=$1f45 depth=-6
+```
+
+The loop is CONTINGENTLY exited at event 2616 (eventually B and C
+both reach 0 → `RET` at $1F4A → returns to $1F39 → `AND A; RET NZ`
+→ returns to $1F3C/wider caller). Then a new tower of CALL/RET
+runs starting at PC=$00E7 (event 2617), which RETurns to $1F45
+(event 2621) — re-entering the same SD-helper loop on the *next*
+DJNZ iteration. The supervisor is in a meta-loop of "drain inner
+loop, do some setup, re-enter inner loop" forever.
+
+### Stack-depth statistics (7881 SP events)
+
+- `min_depth = -7` (7 RETs without matching CALL we saw)
+- `max_depth = +1` (only one moment where supervisor was 1 net
+  CALL deep)
+
+The supervisor's recorded CF events are massively pop-heavy.
+Every 1F44 RETcc.nt is delta=0 (untaken), so doesn't affect
+depth. The big drift came from the 7 RETs in events 0-12 with
+no preceding logged CALL — those POPs ate stack contents that
+were placed there by NON-CF instructions (LD (HL),...; or
+direct RAM writes during sysvar init).
+
+### Critical sub-finding: event 109 — `RET pc=$5B20 lands=$0000`
+
+- `$5B20` is in **RAM** (NextZXOS sysvar area), NOT ROM.
+- Per handover memo §6.2 + §6.6, the supervisor LDIRs a code
+  template from ROM `$0091` to RAM `$5B00` at PC=$01DD
+  (`CALL $00E3`). $5B00-onwards is the runtime sysvar code.
+- The `RET` at $5B20 with bytes `c9 cd` (note: `cd` is the next
+  instruction byte → `CALL nn`) pops $0000 from `[$5BFF,$5C00]`.
+- $0000 is the **RESET vector**. So the supervisor JPed to its
+  own boot vector mid-execution.
+- After re-entering at $0000, control flows through the AUTOMAP-
+  NOP-sled mechanism to $3D00 (event 110), which pops *the next*
+  stack word `[$5C01,$5C02]` = `$1F22`, landing in the SD-SPI
+  helper.
+
+### Critical sub-finding: $1F22 at `mem[$5C01,$5C02]`
+
+The bytes `$22, $1F` at RAM `$5C01-$5C02` are what the AUTOMAP-
+sled $3D00 RET pops. These bytes were written by some earlier
+operation. Per handover memo §4 search results, NO ROM contains
+a `Z80N PUSH $1F22` or `LD HL/DE/BC,$1F22` instruction. So the
+bytes weren't written by a code-controlled PUSH.
+
+Likely sources:
+- Direct memory write `LD ($5C01),HL` with HL=$1F22.
+- Indirect via a multi-byte LDIR/LDDR (template copy with $1F22
+  embedded as data).
+- Stack PUSH from a DIFFERENT SP context (before `LD SP,$5BFF`
+  at $01D1) — but PUSHes from SP=$FFFF wouldn't reach $5C01.
+
+### Concrete next-session questions
+
+1. **What's at RAM `$5B20` mid-loop?** It needs to be a `RET`
+   instruction (op `$C9`). The prior probe (event 109) confirmed
+   bytes there are `c9 cd`. Need to disassemble the LDIR'd
+   template at ROM `$0091` to understand what $5B20 means in the
+   template. Specifically: is this `RET; CALL nn` a valid
+   exit-to-caller pattern, or evidence of mis-located bytes?
+
+2. **Who writes `$1F22` to `[$5C01,$5C02]`?** Add a write-watch
+   probe at `$5C01` to log the writer PC.
+
+3. **CSpect comparison.** The user has CSpect available — capturing
+   a CSpect SP-trace at the same boot phase would let us diff the
+   supervisor's CF history. The first divergent SP/PC pinpoints
+   the imbalance.
+
+4. **Is the $0000 RE-ENTRY normal?** In real hardware boot, does
+   the supervisor's `$5B20` RET actually go to `$0000`? Or is the
+   $0000 a wrong target due to stack corruption?
+
+### Probes added on this branch
+
+- `src/cpu/z80_cpu.cpp:587-694` — **Probe 23** (SP-tracer)
+- All previously-listed probes still active.
+
+### Files generated
+
+- `/tmp/g46b-sp-trace.log` — 8000-event SP trace.
+- `/tmp/g46b-sp-prelude.txt` — 119 non-loop events (the pre-loop
+  call chain + post-loop re-entry chain).
