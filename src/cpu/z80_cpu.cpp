@@ -515,7 +515,11 @@ int Z80Cpu::execute() {
                     for (int i = 0; i < 8; ++i) n += std::snprintf(b2f + n, sizeof(b2f) - n, "%02x ", p2f[0x1B + i]);
                     n = 0;
                     for (int i = 0; i < 8; ++i) n += std::snprintf(b0f + n, sizeof(b0f) - n, "%02x ", p0f[0x1B + i]);
-                    Log::cpu()->info("PAGES PC={:#06x} p2f[1B:23]={} p0f[1B:23]={}", pc, b2f, b0f);
+                    // G46(b) Probe 5: also log live NR 0x50..0x57 mapping at this hit
+                    char nr5x[80];
+                    int an = 0;
+                    for (int i = 0; i < 8; ++i) an += std::snprintf(nr5x + an, sizeof(nr5x) - an, "%02x ", mmu->get_page(i));
+                    Log::cpu()->info("PAGES PC={:#06x} mmu[0..7]={} p2f[1B:23]={} p0f[1B:23]={}", pc, nr5x, b2f, b0f);
                     ++cnt;
                 }
             }
@@ -550,6 +554,22 @@ int Z80Cpu::execute() {
             if (cnt < 16) {
                 Log::cpu()->info("WRAPPER PC={:#06x} sp={:#06x} ($5B6A)={:#06x} ($5B8A)={:#06x} ($5B8E)={:#04x}",
                                  pc, z80.sp.w, v5b6a, v5b8a, v5b8e);
+                ++cnt;
+            }
+        }
+    }
+    // G46(b) Probe 5 (TEMP — remove on G46(b) closure): log NR_56 + NR_57 live
+    // value at every wrapper IN A,($253B) read site ($27e8 reads NR_56,
+    // $27f2 reads NR_57). Captures what `Mmu::get_page(i)` returns at the
+    // exact moment the wrapper saves the OLD bank pair to $5B8A. Detects
+    // whether the live MMU register diverges from what the supervisor expects
+    // (= what CSpect would return).
+    if (pc == 0x27E8 || pc == 0x27F2) {
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            static int cnt = 0;
+            if (cnt < 32) {
+                Log::cpu()->info("WRAPPER_IN PC={:#06x} mmu[6]={:#04x} mmu[7]={:#04x}",
+                                 pc, mmu->get_page(6), mmu->get_page(7));
                 ++cnt;
             }
         }

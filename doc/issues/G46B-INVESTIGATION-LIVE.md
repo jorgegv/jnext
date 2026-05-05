@@ -1513,3 +1513,119 @@ correct, but downstream divergences remain.
    entry). See whether tbblue.fw's NR_55/NR_56/NR_57 writes happen in jnext
    non-bypass mode. If they don't, that's the firmware-side stall.
 
+---
+
+## 2026-05-05 evening — Probe 5: NR_57 lifecycle + wrapper IN reads
+
+### Probe 5a — full NR-write trace (non-bypass, 10s)
+
+`/tmp/g46b-probe5-nb-nr.log` (11 MB, 169 K lines). 21 K NR_55/56/57 writes.
+
+**Firmware DOES write NR_55/56/57 in non-bypass.** Initial values:
+`NR_55=0x05, NR_56=0x00, NR_57=0x01` (twice — once during firmware setup,
+once at supervisor re-init).
+
+After supervisor takes over (~t=26s wall), a sequential **bank pair sweep**
+runs: `(NR_56, NR_57)` cycles `(0x00,0x01) → (0x02,0x03) → … → (0xDE,0xDF)`.
+Sweep is the supervisor RAM-test (PASS 1+2 per the existing live doc).
+
+After sweep ends at NR_57=0xDF, supervisor writes:
+```
+0x10, 0x01           ← wrapper rotation (set 0x10 → run body → restore 0x01)
+0x10, 0x01           ← second wrapper rotation
+0x11, 0x1f           ← brief transient
+0x01, 0x01, 0x01     ← three resets
+0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f   ← !!! six writes of 0x0F
+0x01, 0x03, 0x05, 0x07, …            ← second sweep starts
+```
+
+**The supervisor enters a re-entrant outer loop** that re-runs the RAM-test
+sweep periodically, with NR_57=0x0F as the operating value between sweeps.
+
+### Probe 5b — mmu state at first `$00EF` (supervisor handoff)
+
+Augmented PAGES diagnostic to also log live `mmu[0..7]`. First `$00EF` hit:
+
+```
+PAGES PC=0x00ef mmu[0..7]=ff ff 0a 0b 04 05 00 01  ...
+```
+
+That is RESET_PAGES exactly (per VHDL `zxnext.vhd:4611-4618`). **tbblue.fw
+hands off to the supervisor with NR_5x at default reset state — it does
+NOT pre-set anything special.**
+
+This confirms: the bypass-init synthesis is correct in leaving NR_5x at
+RESET_PAGES (matching real-firmware handoff). The divergence vs CSpect
+must be elsewhere.
+
+### Probe 5c — bypass-mode NR_57 trace tail (parallel-structure check)
+
+`/tmp/g46b-probe5-bypass-nr.log`. **Bit-identical** NR_57 sequence to
+non-bypass: same sweep, same wrapper rotation, same drift to 0x0F, same
+second sweep restart. Confirms (yet again) bypass and non-bypass produce
+identical supervisor execution.
+
+### Probe 5d — mmu[6]/mmu[7] at wrapper IN A,($253B) ($27e8 / $27f2)
+
+Added `WRAPPER_IN` diagnostic. Per loop iteration the wrapper is called 4
+times:
+
+```
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 1: NR_56 read
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x01   ← call 1: NR_57 read (live=0x01)
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 2 (repeats)
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x01
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 3 (this is the
+WRAPPER_IN PC=0x27f2 mmu[6]=0x0b mmu[7]=0x01   ←   one that sets 0x10)
+WRAPPER_IN PC=0x27e8 mmu[6]=0x0b mmu[7]=0x10   ← call 4: live NR_57=0x10
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x10
+```
+
+Fix #1 path is working: `Mmu::get_page(7)` returns the LIVE NR_57 (`0x01`
+or `0x10`), not the stale `regs_[0x57]`. The wrapper saves the correct
+old value to $5B8A and restores it on exit.
+
+**But the `$20E6` stall has mmu[7]=0x0F**, NOT 0x10. So `$20E6` is being
+run in a DIFFERENT code path (outside the bank-switched wrapper body)
+where NR_57 has been written to 0x0F. Per Probe 5a's NR_57 tail, six
+writes of `0x57=0x0F` happen between the wrapper rotations and the second
+sweep. **Identifying the supervisor PC that writes NR_57=0x0F (vs CSpect,
+which presumably writes 0x10 here) is the next concrete instrument.**
+
+### Probe 5 synthesis
+
+1. **Bypass-init NR-handoff state is correct** (matches real-firmware
+   handoff = RESET_PAGES). No fix needed there.
+2. **Fix #1 (NR 0x50–0x57 read handlers) is working correctly**. Wrapper
+   IN reads return live MMU values.
+3. **The wrapper bank-switch logic is correct**. Saves+restores NR_56/NR_57
+   pair faithfully.
+4. **The divergence is in WHICH supervisor code path runs at `$20E6`.**
+   On jnext, `$20E6` runs in the "between wrapper rotations" context with
+   NR_57=0x0F. On CSpect, `$20E6` runs in the wrapper-body context with
+   NR_57=0x10 — i.e., the supervisor's branch decision is different.
+5. **Six explicit writes of NR_57=0x0F** happen in the trace between the
+   wrapper rotations and the next sweep. These are the divergence-vs-CSpect
+   point. Likely PC range: somewhere in the supervisor's "operating mode"
+   code that runs after RAM-test settle and before re-entry.
+
+### Concrete next-session instrument
+
+Add a one-shot diagnostic that logs **PC + previous-PC** at every
+`NR_57=0x0F` write. That gives the supervisor instruction(s) that decide
+"map NR_57 to 0x0F" instead of "map to 0x10". Cross-reference with
+disassembly of `enNextZX.rom` to identify the conditional that branches
+differently between jnext and CSpect.
+
+Suspected root cause class: a peripheral or NR read that returns different
+values under different hardware states — the supervisor reads it, branches
+on it, and ends up at NR_57=0x0F instead of 0x10. Candidates:
+- NR 0x06 (peripheral 2) read paths
+- NR 0x83/0x85 (DECODE_INT1/3, DivMMC enable bits)
+- NR 0x8C (AltROM control)
+- Sysvar at $5B69 ($5B69=0x6F vs CSpect-unknown — but Probe 5b confirmed
+  jnext's value is plausible)
+- Memory read at some specific page that diverges (= what was originally
+  populated by tbblue.fw in CSpect but not by our bypass synthesis)
+
+
