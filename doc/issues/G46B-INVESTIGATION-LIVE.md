@@ -2089,4 +2089,130 @@ g46b-investigation HEAD is `b8e2059` after Probe 8. Subsequent probes
 9-11 are observational only (no code commits beyond Probe 8 + Probe 9
 diagnostic for all 16 banks dump + automap-state dump).
 
+---
+
+## 2026-05-05 evening — Probe 11 CSpect comparison (USER-PROVIDED DUMP)
+
+User provided CSpect screenshot at first hit of `bp 3d00`:
+
+### CSpect state at first $3D00 hit
+
+- **PC = $3D00** (BP fired here as planned)
+- **AF = $0144** (A=$01)
+- **IX = $E01B** (same as jnext at the equivalent supervisor stall)
+- **SP = $5BEF** (supervisor stack — DEEPER pushes than jnext)
+- **Stack top (TOS) = $0448** ← **the divergence vs jnext's $0082**
+- **NR_57 = $0F**, NR_56 = $0E (already set by previous helper)
+- **NR_04 = $00** (default ROM bank)
+- **Banks (live mmu): FF FF 0A 0B 04 05 0E 0F**
+- **DivMMC: E3:00** (port E3=0, no CONMEM)
+- **DivRAM: 00** (= bank 0 default)
+- **+3ROM: 3** ← supervisor has selected ROM bank 3 via port 7FFD bit 4 + port 1FFD bit 2
+- **NR_B8=$82, NR_B9=$00, NR_BA=$00, NR_BB=$F2** (configured trap PCs)
+- **Slot 1 at `$3CE8` = bank 3 upper of enNextZX.rom** (= file 0xFCCE-FCFF):
+  ```
+  21 5E 5B   LD HL, $5B5E
+  71         LD (HL), C
+  7A         LD A, D
+  CD 13 00   CALL $0013
+  57         LD D, A
+  70         LD (HL), B
+  7B         LD A, E
+  CD 13 00   CALL $0013
+  5F         LD E, A
+  E1         POP HL
+  C3 7C 30   JP $307C
+  A6 C9      AND (HL); RET
+  B6 C9      OR  (HL); RET
+  AE C9      XOR (HL); RET
+  FF         RST $38
+  00 00 00 ... NOPs
+  ```
+  This is REAL SUPERVISOR CODE — bank 3 upper at file `$FCCE`.
+
+### jnext state at first $3D00 hit (from Probe 8)
+
+- **PC = $3D00**
+- **SP = $FF4F-area** (USER stack, not supervisor stack)
+- **Stack top = $0082** ← **DIFFERENT from CSpect's $0448**
+- **NR_57 = $01** (still default — has NOT been set to $0F yet)
+- **NR_56 = $00** (default)
+- **mmu[0..7] = `FF FF 0A 0B 04 05 00 01`** — default RESET_PAGES
+- **DivMMC: active=1 rom_mapped=1 conmem=0 automap=1 mapram=0 bank=0**
+  ← **AUTOMAP IS ON** (mid-cycle in the activation/deactivation pattern)
+- **+3ROM: ?** (not captured but presumably default 0)
+- Slot 1 at `$3CE8` = empty DivMMC RAM bank 0 (all zeros except c9 sentinel at $3D00)
+
+### Verified: jnext DOES write NR_B8=$82, NR_BB=$F2 (18× each)
+
+Earlier conclusion that "jnext never writes NR_B8/BB" was wrong. Re-checked
+the NR-trace and confirmed both NR_B8=$82 and NR_BB=$F2 ARE written 18
+times each (= 18 boot loop iterations). The set-difference logic in
+Probe 5a was misread.
+
+The supervisor reaches `$01F0-$0217` init code 18 times in jnext, runs
+the writes, then eventually loops back to `$00EF`. So the trap config IS
+set in jnext.
+
+### The ACTUAL divergence
+
+CSpect's first `$3D00` hit is in a **LATER boot phase**:
+- supervisor has already configured NR_56/NR_57 to $0E/$0F
+- supervisor has selected +3ROM bank 3 (via port 7FFD/port 1FFD writes)
+- AUTOMAP has been CLEARED via off-trap path through `$1FF8-$1FFF`
+- supervisor is on its supervisor stack at `$5BEF`
+- supervisor is running real supervisor code from bank 3 upper
+
+jnext's first `$3D00` hit is in an EARLIER phase:
+- supervisor has NOT yet configured NR_56/NR_57 (still default $00/$01)
+- supervisor has NOT switched +3ROM (still default)
+- AUTOMAP IS ON (mid-cycle)
+- supervisor is on USER stack at `$FF4F`
+- supervisor is in DivMMC firmware bank-flip path (= the wrong path)
+
+**jnext is stuck in an early boot loop and never reaches the
+post-init phase where bank-3 ROM operations would happen.**
+
+CSpect successfully:
+1. Boots → RAM-test → init → NR_B8/BB writes
+2. Configures port 7FFD + port 1FFD to select +3ROM=3
+3. Switches to supervisor-stack
+4. Sets NR_56/57 = $0E/$0F via the helper trampoline
+5. Reaches normal operation
+
+jnext gets stuck in step 1 (RAM-test then loop) and never proceeds to 2-5.
+
+### Root-cause hypothesis (REFINED)
+
+The supervisor's boot path REQUIRES some state that jnext doesn't
+provide. Candidates:
+
+1. **Specific DivMMC AUTOMAP timing** — CSpect's AUTOMAP cycle happens
+   to clear at a different point in the supervisor's boot path,
+   allowing certain code to execute. jnext's clear timing is different
+   (off by some clocks), causing supervisor to enter the wrong branch.
+2. **Port 7FFD / port 1FFD writes** — the supervisor's init code at
+   `$0207+` or later writes these ports to select ROM bank 3. If jnext
+   doesn't propagate the write correctly (e.g. `+3ROM` doesn't update),
+   slot 0/1 stays on bank 0 even after the writes. The supervisor then
+   tries to call code in bank 3 upper but reads the wrong bytes.
+3. **A peripheral read** — at some boot step the supervisor reads NR or
+   port and branches based on the value. jnext returns a different
+   value than CSpect, leading to the wrong branch.
+
+### Concrete next-session probe
+
+1. **Add port 7FFD + port 1FFD trace** to jnext. Capture every write +
+   the resulting +3ROM bank state. Compare with the CSpect screenshot
+   (which shows +3ROM=3).
+2. **Trace when jnext reaches $0207 init the FIRST time** vs when CSpect
+   does. The first iteration's NR writes are critical.
+3. **Find what conditional in the supervisor selects ROM bank 3 vs
+   ROM bank 0** at boot. Search enNextZX.rom for port 7FFD writes
+   (= `D3 7F` immediate or `OUT (C),r` with BC=$7FFD).
+4. **Capture jnext's port_7ffd state at first AUTOMAP off-trap**
+   (= when PC reaches $1FF8-$1FFF). If jnext clears AUTOMAP in the
+   "wrong" port_7ffd state, supervisor may take divergent path
+   afterward.
+
 
