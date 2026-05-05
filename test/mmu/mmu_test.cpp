@@ -2988,6 +2988,187 @@ void test_boot_format_loaders() {
     // which point these three rows become meaningful (boot/stage/motor).
 }
 
+// ── Category 26: G46(b) sram_pre_override priority arbiter ───────────
+// VHDL: zxnext.vhd:3029-3066, 3137-3138.
+//
+// The two priority-arbiter helpers feed DivMmc::check_automap; tests
+// here pin the truth-table for each gate in isolation.
+
+void test_cat26_sram_pre_override() {
+    set_group("Cat26 sram_pre_override (G46(b))");
+
+    Fixture f;
+
+    // PR-01: slot_in_rom_area is true iff effective page >= 0xE0 (=
+    // VHDL `mmu_A21_A13(8)=1` per zxnext.vhd:2964 formula). Slot 0 at
+    // reset has nr_mmu_=0xFF (sentinel) which the helper resolves via
+    // get_effective_page; the legacy fallthrough here is also 0xFF for
+    // a reset Mmu. NR 0x50/51=0xFF → effective page 0xFF → ROM area.
+    f.fresh();
+    {
+        const bool ok =
+            f.mmu.slot_in_rom_area(0) &&
+            f.mmu.slot_in_rom_area(1);
+        check("PR-01",
+              "slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true "
+              "for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when "
+              "effective page >= 0xE0)",
+              ok,
+              fmt("s0=%d s1=%d",
+                  f.mmu.slot_in_rom_area(0),
+                  f.mmu.slot_in_rom_area(1)));
+    }
+
+    // PR-02: NR 0x50 ← 0x0A (RAM page bank 5) → slot 0 NOT in ROM area.
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0x0A);
+        check("PR-02",
+              "slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5)",
+              !f.mmu.slot_in_rom_area(0),
+              fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
+    }
+
+    // PR-03: NR 0x50 ← 0xE0 (boundary) → slot 0 IS in ROM area.
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0xE0);
+        check("PR-03",
+              "slot_in_rom_area true at boundary NR 0x50 = 0xE0 "
+              "(VHDL :2964 boundary)",
+              f.mmu.slot_in_rom_area(0),
+              fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
+    }
+
+    // PR-04: NR 0x50 ← 0xDF (one below boundary) → slot 0 NOT in ROM
+    // area.
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0xDF);
+        check("PR-04",
+              "slot_in_rom_area false at NR 0x50 = 0xDF (just below "
+              "VHDL :2964 boundary)",
+              !f.mmu.slot_in_rom_area(0),
+              fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
+    }
+
+    // PR-05: sram_pre_override(2) requires PC in slot 0/1. PC=0x4000 → 0.
+    f.fresh();
+    {
+        check("PR-05",
+              "pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00)",
+              !f.mmu.sram_pre_override_divmmc_eligible(0x4000, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_divmmc_eligible(0x4000, false)));
+    }
+
+    // PR-06: sram_pre_override(2) blocked when MF active.
+    {
+        check("PR-06",
+              "pre_override(2)=0 when mf_active=1 (VHDL :3030 — MF "
+              "wins, override='000')",
+              !f.mmu.sram_pre_override_divmmc_eligible(0x0000, true),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_divmmc_eligible(0x0000, true)));
+    }
+
+    // PR-07: sram_pre_override(2) high in slot 0 with no MF.
+    {
+        check("PR-07",
+              "pre_override(2)=1 for PC<0x4000 with mf_active=0",
+              f.mmu.sram_pre_override_divmmc_eligible(0x0000, false) &&
+              f.mmu.sram_pre_override_divmmc_eligible(0x3FFF, false),
+              fmt("PC=0x0000 got=%d, PC=0x3FFF got=%d",
+                  (int)f.mmu.sram_pre_override_divmmc_eligible(0x0000, false),
+                  (int)f.mmu.sram_pre_override_divmmc_eligible(0x3FFF, false)));
+    }
+
+    // PR-08: sram_pre_override(0) high only in normal-ROM-mode branch.
+    // Reset state (NR 0x50/51 = 0xFF, no MF, config_mode=0) → bit 0 high.
+    {
+        f.fresh();
+        check("PR-08",
+              "pre_override(0)=1 in normal ROM mode (VHDL :3057 → '111')",
+              f.mmu.sram_pre_override_romcs_priority(0x0000, false, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, false)));
+    }
+
+    // PR-09: sram_pre_override(0) blocked by config_mode=1.
+    // VHDL :3044 → "110".
+    {
+        f.fresh();
+        check("PR-09",
+              "pre_override(0)=0 when config_mode=1 (VHDL :3044)",
+              !f.mmu.sram_pre_override_romcs_priority(0x0000, false, true),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, true)));
+    }
+
+    // PR-10: sram_pre_override(0) blocked when slot is RAM-mapped
+    // (effective page < 0xE0). VHDL :3037 → "110".
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0x0A);             // RAM
+        check("PR-10",
+              "pre_override(0)=0 for slot 0 RAM-mapped (VHDL :3037)",
+              !f.mmu.sram_pre_override_romcs_priority(0x0000, false, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, false)));
+    }
+
+    // PR-11: sram_pre_override(0) blocked by MF (composite gate).
+    {
+        f.fresh();
+        check("PR-11",
+              "pre_override(0)=0 when mf_active=1 (VHDL :3030 → '000')",
+              !f.mmu.sram_pre_override_romcs_priority(0x0000, true, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x0000, true, false)));
+    }
+
+    // PR-12: sram_pre_override(0) blocked by PC>=0x4000.
+    {
+        f.fresh();
+        check("PR-12",
+              "pre_override(0)=0 for PC>=0x4000",
+              !f.mmu.sram_pre_override_romcs_priority(0x4000, false, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x4000, false, false)));
+    }
+
+    // PR-13: PC=0x2000 lands in slot 1 (cpu_a(15:13)="001"). pre_override(0)
+    // depends on slot 1 (NR 0x51), not slot 0. With NR 0x51 reset to 0xFF
+    // and no MF / no config_mode → bit 0 high.
+    {
+        f.fresh();
+        check("PR-13",
+              "pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF",
+              f.mmu.sram_pre_override_romcs_priority(0x2000, false, false),
+              fmt("got=%d",
+                  (int)f.mmu.sram_pre_override_romcs_priority(0x2000, false, false)));
+    }
+
+    // PR-14: split slots — NR 0x50 ROM, NR 0x51 RAM. PC=0x0000 → bit 0
+    // high (slot 0 is ROM-mapped). PC=0x2000 → bit 0 low (slot 1 is
+    // RAM-mapped).
+    {
+        f.fresh();
+        f.mmu.set_page(0, 0xFF);     // slot 0 ROM
+        f.mmu.set_page(1, 0x0A);     // slot 1 RAM
+        const bool s0 =
+            f.mmu.sram_pre_override_romcs_priority(0x0000, false, false);
+        const bool s1 =
+            f.mmu.sram_pre_override_romcs_priority(0x2000, false, false);
+        check("PR-14",
+              "pre_override(0) tracks per-slot ROM/RAM mode (VHDL :2952 "
+              "mem_active_page selects MMU0..MMU7 by cpu_a(15:13))",
+              s0 && !s1,
+              fmt("PC=0x0000 got=%d (exp=1), PC=0x2000 got=%d (exp=0)",
+                  (int)s0, (int)s1));
+    }
+}
+
 } // namespace
 
 // ── main ─────────────────────────────────────────────────────────────
@@ -3021,6 +3202,7 @@ int main() {
     test_boot_format_loaders();
     test_cat21_nirvana_multiplex();
     test_cat3bis_shadow_screen();
+    test_cat26_sram_pre_override();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

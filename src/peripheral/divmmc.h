@@ -56,7 +56,20 @@ public:
 
     /// Check whether the current PC triggers auto-map or auto-unmap.
     /// Must be called on every M1 (instruction fetch) cycle.
-    void check_automap(uint16_t pc, bool is_m1);
+    ///
+    /// G46(b) — `sram_pre_override_2` and `sram_pre_override_0` are the
+    /// VHDL `sram_pre_override(2)` / `sram_pre_override(0)` priority-arbiter
+    /// bits (zxnext.vhd:3029-3066). Production callers (Emulator) compute
+    /// them per-M1 from `Mmu::sram_pre_override_*` helpers + Multiface
+    /// state + NR 0x03 config_mode, and pass them in. They feed
+    /// `i_automap_active` (= `sram_divmmc_automap_en`, zxnext.vhd:3137)
+    /// for the main path, and the full `sram_divmmc_automap_rom3_en`
+    /// composite (zxnext.vhd:3138) for the ROM3-conditional path. Both
+    /// default to true so unit tests that construct a bare DivMmc keep
+    /// their pre-G46(b) behaviour without needing to thread the gates.
+    void check_automap(uint16_t pc, bool is_m1,
+                       bool sram_pre_override_2 = true,
+                       bool sram_pre_override_0 = true);
 
     /// RETN hook — VHDL divmmc.vhd:108,126,139 clear
     /// `button_nmi`/`automap_hold`/`automap_held` on `i_retn_seen`. Must

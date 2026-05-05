@@ -2321,3 +2321,121 @@ This is a **non-trivial fix** — needs to model the VHDL priority
 arbiter accurately. But it's now the concrete path forward.
 
 
+
+---
+
+## 2026-05-06 morning — sram_pre_override fix LANDED, NOT root cause
+
+### Implementation
+
+Per the implementation handover, the VHDL `sram_pre_override(2)` /
+`sram_pre_override(0)` priority-arbiter bits are now modelled in jnext.
+Three small surface changes:
+
+1. **`Mmu` helpers** (`src/memory/mmu.h`):
+   - `slot_in_rom_area(slot)` — true iff `nr_mmu_[slot] >= 0xE0`
+     (= VHDL `mmu_A21_A13(8)=1`). Uses raw `get_page(slot)`, NOT
+     `get_effective_page` — VHDL `mem_active_page` is the LOGICAL
+     MMU register value (preserves the 0xFF sentinel), not the
+     physical SRAM page.
+   - `sram_pre_override_divmmc_eligible(pc, mf_active)` — bit 2 of
+     `sram_pre_override`. VHDL :3029-3066.
+   - `sram_pre_override_romcs_priority(pc, mf_active, config_mode)`
+     — bit 0 of `sram_pre_override`. VHDL :3057.
+
+2. **`DivMmc::check_automap`** (`src/peripheral/divmmc.cpp`): added
+   two pass-through args `sram_pre_override_2` and
+   `sram_pre_override_0` (default `true` for back-compat). Splits
+   entry-point matching into:
+   - `main_path_eligible = sram_pre_override_2`
+   - `rom3_path_eligible = sram_pre_override_2 AND
+     sram_pre_override_0 AND !layer2_map_read_ AND rom3_active_`
+
+   Off-trigger (NR_BB bit 6, PC=0x1FF8-0x1FFF) is intentionally NOT
+   gated — VHDL divmmc.vhd:131 does not factor `i_automap_active` /
+   `i_automap_rom3_active` into `automap_delayed_off`.
+
+3. **Emulator wiring** (`src/core/emulator.cpp`): the `on_m1_prefetch`
+   lambda computes both gates per M1 fetch from
+   `Multiface::is_mem_active()`, `NextReg::nr_03_config_mode()`, and
+   the new Mmu helpers, then passes them to `DivMmc::check_automap`.
+
+### Verification
+
+- **Unit tests**: 14 new MMU tests (`test_cat26_sram_pre_override`,
+  PR-01..14) pin the truth-table for the helpers; 6 new DivMmc tests
+  (`group_po`, PO-01..06) pin the gate behaviour in `check_automap`.
+  All pass. mmu_test 164/0/22, divmmc_test 117/0/0.
+- **Full regression**: 32/0/0 PASS — no regressions.
+- **Boot smoke test**: NextZXOS still does not reach welcome screen.
+
+### What the fix actually does
+
+Compared to baseline (pre-fix), the runtime trace shape is essentially
+identical: same number of $008e helper invocations, same final stuck
+state at the sprite-descriptor stall (PC=0x20E6, ix=0xE01B, mmu[0..7]=
+ff ff 0a 0b 04 05 0e 0f). The fix is a no-op in this specific boot
+trace because:
+
+1. The supervisor's RST traps fire with `nr_mmu_[0]=0xFF` (sentinel,
+   ROM area) → `slot_in_rom_area=true` → `pre_override(0)=1`.
+2. config_mode=0 throughout the boot loop.
+3. No Multiface activation in this path.
+4. PC is in slot 0/1 → `pre_override(2)=1`.
+
+So both gates evaluate to true at the AUTOMAP-trigger PCs, and the
+behaviour matches the pre-fix path. The fix is correct VHDL-faithfully
+but does not address the boot loop.
+
+### Hypothesis from handover memo was incomplete
+
+The handover memo (`project_g46b_2026_05_06_implementation_handover.md`)
+posited that `sram_pre_override` was the missing gate causing the boot
+loop. After landing the fix, this is **disproven for the bypass path**.
+The boot stall is downstream — at the sprite-descriptor stall first
+diagnosed by the FORCE_IX experiment (CSpect reaches PC=0x20E6 with
+IX=0xF700; jnext reaches with IX=0xE01B).
+
+The fix is still the correct VHDL-faithful behaviour and should land
+regardless. It also unblocks any future investigation that needs the
+arbiter modelled (e.g., AltROM-aware AUTOMAP gating, future MF
+interaction paths).
+
+### Next investigative step
+
+The CSpect-vs-jnext IX divergence at PC=0x1800 (= the print-routine
+entry, where IX gets loaded) is the actual divergence point. The
+PRECEDING conditional that drives IX selection is what needs hunting
+next. Suggested approach:
+
+1. Trace IX writes upstream of PC=0x1800 (= where does IX get its
+   value before it's used as a sprite-descriptor pointer?).
+2. Identify the conditional that branches to IX=0xF700 vs IX=0xE01B.
+3. Check what input drives that conditional — peripheral read,
+   memory read, NR read?
+
+### 2026-05-06 review correction — off-trigger gating
+
+Independent reviewer flagged a bug in the off-trigger handling. VHDL
+divmmc.vhd:131:
+
+```
+automap_hold <= ... OR (automap_held AND NOT
+                       (i_automap_active AND i_automap_delayed_off))
+```
+
+The off-fire term IS gated by `i_automap_active` (=
+`sram_divmmc_automap_en` = `sram_pre_override(2)`). Pre-fix C++ left
+the off match un-gated; review caught this and the gate was added
+(`&& main_path_eligible`). Coverage:
+
+- Realistic case where this matters: Multiface owns slot 0/1
+  (mf_mem_en=1) at the moment CPU happens to fetch from
+  0x1FF8-0x1FFF. VHDL keeps DivMMC AUTOMAP held; pre-fix jnext would
+  have dropped it incorrectly.
+- PO-06 was reworked from a single-fire test to a two-stimulus
+  discriminative test (sub-case A: gates open → drop; sub-case B:
+  pre_override(2)=0 → held propagates).
+
+This is a real (if narrow) divergence from VHDL that the fix now
+closes. Independent review verdict: APPROVE.
