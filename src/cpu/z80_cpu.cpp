@@ -558,6 +558,27 @@ int Z80Cpu::execute() {
             }
         }
     }
+    // G46(b) v6 ISOLATION TEST: when JNEXT_G46B_FORCE_IX is set, force
+    // IX=\$F700 at the first ~16 hits of PC=\$1800 (print routine entry).
+    // CSpect reaches \$20E6 with IX=\$F700 (sprite descriptor table base).
+    // Our jnext reaches with IX=\$E01B. If forcing IX=\$F700 here makes
+    // the welcome screen render, IX is the only divergence. If still
+    // stalls, there are downstream divergences too.
+    if (pc == 0x1800) {
+        static const bool force_ix = std::getenv("JNEXT_G46B_FORCE_IX") != nullptr;
+        static int force_count = 0;
+        if (force_ix && force_count < 16) {
+            ++force_count;
+            // Also force NR_57 = $10 (= map slot 7 to page 0x30 where the
+            // pre-loaded CSpect sprite descriptor lives at offset $1700).
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                mmu->set_page(7, 0x10);
+            }
+            Log::cpu()->info("G46B FORCE_IX hit #{} at PC=0x1800: IX was 0x{:04x} -> 0xF700, NR_57 -> 0x10",
+                             force_count, z80.ix.w);
+            z80.ix.w = 0xF700;
+        }
+    }
     if (pc == 0x20E6 || pc == 0x2043 || pc == 0x1DF3) {
         uint16_t ix = z80.ix.w;
         char buf[80];

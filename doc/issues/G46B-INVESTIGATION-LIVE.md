@@ -1348,3 +1348,51 @@ My earlier hypothesis "PASS 2 exits early because $BB write hits read-only slot 
 
 The `$2341 → $2383 RST 20 → bank-2 $01BD JP $0E9F` route is taken on our jnext but evidently NOT on CSpect. Need to trace what conditional branch chooses dispatcher-mode vs sprite-mode print path. Most likely culprit: a NR or sysvar read whose value diverges.
 
+
+### 2026-05-05 14:30 — Force-IX experiment + ZEsarUX agent + investigation conclusion
+
+#### Experiment: force IX=$F700 + NR_57=$10 at first $1800 hit
+
+Added `JNEXT_G46B_FORCE_IX` env var that, when set, patches IX=$F700 + NR_57=$10 at the first ~16 hits of PC=$1800 (print routine entry). Combined with the `--bypass-tbblue-fw` page 0x30 pre-load (CSpect-captured data).
+
+**Result: BREAKTHROUGH but partial.** Bypass mode escapes the dispatcher loop on the first $1800 hit (vs ~119 hits per loop iteration before). Only **1 FORCE_IX** event fires in 8 seconds — supervisor advances and goes idle. Partial UI render visible: "RED" text + sprite-icons in top-left of screen. But full welcome screen does NOT render.
+
+Conclusion: IX divergence is the proximate cause of the loop, BUT downstream divergences (likely more bad page references, possibly with NR_57 ≠ $10 paths) prevent full render. Force-IX alone isn't sufficient.
+
+#### ZEsarUX vs jnext compare agent — final findings
+
+Agent report at `doc/issues/G46B-AGENT-ZESARUX.md`. Cross-referenced ZEsarUX's NextZXOS support against jnext.
+
+Key conclusions:
+
+1. **No analogous bypass mode exists** in ZEsarUX. Its `--tbblue-fast-boot-mode` is "boot 48K BASIC fallback", NOT a NextZXOS supervisor bypass. **CSpect, ZEsarUX, and real Next hardware ALL run the actual `tbblue.fw` firmware**. There is no upstream template for our `--bypass-tbblue-fw` approach.
+
+2. **MMU semantics are functionally equivalent.** ZEsarUX's compact form vs jnext's `to_sram_page` produce the same effective mappings. The +0x20 shift is implemented (in different ways).
+
+3. **`to_sram_page` exception for pages 0x0A/0x0B/0x0E IS CORRECT but was under-documented.** These pages co-locate jnext's physical SRAM with the dual-port VRAM area accessed by the ULA. Without the exception, CPU writes to slot 6/7 with NR_56/NR_57 = 0x0A/0x0B/0x0E would land in pages 0x2A/0x2B/0x2E while the ULA still fetches 0x0A/0x0B/0x0E — breaking screen updates. ZEsarUX uses a different design (separate Spectrum-bank memory + always-shift), but ours is VHDL-equivalent for observable CPU+ULA behaviour. **Documentation strengthened** in commit (mmu.h:786-820 now cites zxnext.vhd:2961-2962, 3060-3061 + ula.cpp:68).
+
+4. **Soft-reset FSM**: jnext is MORE VHDL-faithful than ZEsarUX (jnext models the `nr_02_reset_type` shift FSM, ZEsarUX returns the last-written byte). Our reset-tree audit (Agent 2) was correct.
+
+5. **AltROM, slot 0/1 writability, NR 0x8E**: all functionally equivalent.
+
+#### Final conclusion: bypass mode is fundamentally limited
+
+Per the agent's analysis, the only viable paths for NextZXOS welcome-screen rendering are:
+
+A. **Run the real `tbblue.fw`** (= what CSpect/ZEsarUX/real-Next do). Our current normal-boot mode reaches the TBBlue boot screen but doesn't render the welcome (per EOD memo). The fix is to debug the firmware-side execution to see what makes it stall during NextZXOS handoff.
+
+B. **Replicate ALL firmware-side SRAM state** in `--bypass-tbblue-fw`. The CSpect-captured `page30.raw` is one part. There are likely more pages + more state we'd need to capture and pre-load. Each piece is a fragile manual replication.
+
+**Recommended path forward**: pivot back to debugging the **firmware boot path** (non-bypass mode). The bypass-mode investigation has produced significant value (Fix #1 cherry-picked to main, supervisor's bank-flip wrapper RE'd, page 0x30 captured) but has hit a fundamental limitation. The architectural sweet spot is what real hardware does.
+
+#### State of g46b-investigation branch
+
+HEAD = current (after this commit). Includes:
+- `--bypass-tbblue-fw` CLI option + post-handoff init (12 NR writes + FSM strobe)
+- Page 0x30 pre-load (CSpect data)
+- `JNEXT_G46B_FORCE_IX` env-gated diagnostic (proves IX divergence is central)
+- 6 agent reports under `doc/issues/G46B-AGENT-*.md` (PATHCOMPARE, RESETSOFT, RESETSOFT-REVIEW, NRAUDIT, NRAUDIT-REVIEW, ZESARUX)
+- CSpect captures under `doc/issues/cspect-captures/`
+- Strengthened mmu.h:786-820 documentation citing VHDL line numbers
+
+Main is unchanged at `2d90ea1` (Fix #1 only). Cleanup of TEMP instrumentation deferred until G46(b) full closure.

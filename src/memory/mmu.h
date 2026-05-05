@@ -783,11 +783,36 @@ public:
     // writes use logical pages; port_7FFD bank 0 yields logical 0 which
     // maps to SRAM 0x20 (RAMPAGE_RAMSPECCY), not page 0 (ROM-in-SRAM).
     //
-    // Exceptions per VHDL zxnext.vhd:2961-2962: bank 5 (pages 0x0A/0x0B)
-    // and bank 7 lower (page 0x0E) bypass the shift — they live in
-    // dedicated dual-port VRAM. Our emulator and the ULA VRAM fetch use
-    // physical pages 0x0A/0x0B/0x0E for the dual-port banks; matching
-    // VHDL exactly means keeping those logical values un-shifted.
+    // Exceptions per VHDL zxnext.vhd:2961-2962 + 3060-3061: when the
+    // logical page is 0x0A or 0x0B (`mem_active_bank5='1'`) or 0x0E
+    // (`mem_active_bank7='1'`), `sram_pre_active` is forced to '0' at
+    // VHDL:3061 — the SRAM controller is bypassed and the access is
+    // routed to the FPGA's dedicated dual-port BRAM blocks for the
+    // ZX Spectrum bank 5 / bank 7 screen RAM. jnext models this dual-
+    // port behaviour by physically COLOCATING the dual-port banks at
+    // the unshifted SRAM page numbers (0x0A/0x0B for bank 5,
+    // 0x0E/0x0F for bank 7 — see Ula::vram_read at video/ula.cpp:68
+    // which reads ram_.page_ptr(10) / page_ptr(14) directly bypassing
+    // the MMU, mirroring VHDL's vram_bank5_do / vram_bank7_do paths).
+    //
+    // Returning the unshifted logical page for these specific values
+    // therefore makes CPU writes to slot 6/7 with NR_56/NR_57 = 0x0A/
+    // 0x0B/0x0E land in the same physical jnext page that the ULA's
+    // VRAM fetch reads — behaviourally equivalent to the FPGA dual-
+    // port BRAM. ZEsarUX (`tbblue.c:2972-2974, 2994-3019`) takes the
+    // opposite design: NR_5x always shifts +0x20 there, and bank 5/7
+    // VRAM lives in a SEPARATE Spectrum-bank memory area accessed by
+    // the ULA via dedicated bank5_screen / bank7_screen pointers.
+    // Both designs are VHDL-equivalent for CPU + ULA observability;
+    // jnext's compact form keeps a single physical SRAM array and
+    // co-locates the VRAM by remapping the logical page indices.
+    //
+    // NOTE: this exception means CPU writes via slot 6/7 with these
+    // specific NR values land in jnext's VRAM SRAM pages — exactly
+    // the desired dual-port semantics. Without the exception, CPU
+    // writes would land in pages 0x2A/0x2B/0x2E and the ULA would
+    // still fetch the (now stale) pages 0x0A/0x0B/0x0E, breaking
+    // screen updates from CPU.
     //
     // Public so Layer 2 / tilemap / sprite renderers can match their SRAM
     // fetches to the MMU-shifted layout (otherwise firmware MMU writes go
