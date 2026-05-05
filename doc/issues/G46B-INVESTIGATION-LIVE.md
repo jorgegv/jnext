@@ -1252,3 +1252,99 @@ But slot 0 is ROM. The $BB write is discarded.
 
 **This suggests a fundamental hardware behaviour we're not modelling**: maybe ROM-in-SRAM writes ARE allowed in this configuration, populating SRAM that doubles as the RAM-test marker. Need to research VHDL behaviour.
 
+
+### 2026-05-05 14:00 — VHDL ROM-in-SRAM write semantics VERIFIED + RAM-test hypothesis REFUTED
+
+**Verification done per user request.**
+
+#### VHDL writeback semantics (zxnext.vhd:3010-3132)
+
+`sram_pre_rdonly` is the read-only flag for the early-decode SRAM controller. For slot 0 (`cpu_a(15:14) = "00"`), the rule is:
+
+```vhdl
+if mf_mem_en = '1' then
+   sram_pre_rdonly <= not cpu_a(13);          -- MF: $0000-$1FFF read-only
+elsif mmu_A21_A13(8) = '0' then
+   sram_pre_rdonly <= '0';                     -- regular MMU mapping → WRITES OK
+elsif nr_03_config_mode = '1' then
+   sram_pre_rdonly <= '0';                     -- config mode → WRITES OK
+else
+   sram_pre_rdonly <= not (nr_8c_altrom_en
+                           and nr_8c_altrom_rw); -- ROM-in-SRAM: rdonly
+                                                  -- unless AltROM-rw mode
+end if;
+```
+
+For slots 2..7 (`cpu_a(15:14) ≠ "00"`), at line 3060:
+```vhdl
+sram_pre_rdonly <= '0';   -- ALL slots 2..7 always writable
+                          -- (subject to mmu_A21_A13(8) gate)
+```
+
+`mmu_A21_A13` formula (zxnext.vhd:2964):
+```vhdl
+mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7:5))) & mem_active_page(4:0)
+```
+
+So `mmu_A21_A13(8) = '1'` iff `mem_active_page(7:5) = "111"` i.e. logical page ≥ 0xE0. With NR_50=0xFF default → mmu_A21_A13(8)=1 → goes to `sram_pre_rdonly = NOT (altrom_en AND altrom_rw)` clause → rdonly=1 (with default AltROM off) → writes to slot 0 dropped.
+
+For slot 7 with NR_57 ≤ 0xDF (any RAM page), `mmu_A21_A13(8)=0` → `sram_pre_active = '1'` AND `sram_pre_rdonly = '0'` → **writes to slot 7 always succeed** (modulo bank5/bank7 special cases).
+
+#### Re-reading the supervisor RAM-test PASS 1 inner loop
+
+```asm
+$0136 ld a, c       ; main bank, A = c
+$0137 exx           ; → alt bank
+$0138 add a         ; alt A = c*2
+$0139 nextreg $56, a
+$013c inc a
+$013d nextreg $57, a (= c*2 + 1)
+$0140 srl a
+$0142 ld hl, $ffff   ; alt HL = $ffff
+$0145 ex af, af'
+$0146 ld a, (hl)     ; read slot 7 $ffff (alt bank)
+$0147 exx            ; → main bank
+$0148 ld (hl), a     ; main HL = $4000 (set at $0133), write A to $4000
+$0149 ld a, c        ; main A = c
+$014a cp $0c
+$014c jr nc, $0150
+$014e ld (hl), $00   ; main HL = $4000 still, write 0 to $4000
+$0150 inc hl         ; main HL = $4001
+$0151 exx            ; → alt bank, alt HL = $ffff (from $0142)
+$0152 ex af, af'
+$0153 ld (hl), $bb   ; *** writes $BB to alt-HL = $ffff (slot 7!) ***
+                     ; NOT slot 0 as I earlier mis-read.
+$0155 dec hl         ; alt HL = $fffe
+... LDDR continues filling slot 6+7 with 0 ...
+```
+
+So `$0153` writes `$BB` to **slot 7 `$FFFF`** (alt-bank HL=$ffff, NR_57 = c*2+1). The page mapped is regular RAM (per `mmu_A21_A13(8)='0'` for NR_57 < 0xE0). **The write succeeds.**
+
+#### Empirical verification: instrumented `($5B69)` reads
+
+Added a diagnostic at PC=$01CE/$2341/$20E6 that logs the byte at sysvar $5B69 (the canonical "last RAM-test bank tested" stash):
+
+```
+[cpu] [info] RAMTEST PC=0x01ce ($5B69)=0x00  (last RAM-test bank stored)
+[cpu] [info] RAMTEST PC=0x2341 ($5B69)=0x6f  (last RAM-test bank stored)
+[cpu] [info] RAMTEST PC=0x20e6 ($5B69)=0x6f  (last RAM-test bank stored)
+```
+
+`($5B69) = 0x6F` after RAM-test = 111 banks tested = **full PASS 2 completion**. The PC=$01CE log shows 0x00 because that's the value BEFORE the store at $01CE itself — the supervisor's pre-store read.
+
+So:
+- The RAM-test `$BB` marker IS placed (in slot 7, at PC=$0153)
+- PASS 2 completes all 111 banks
+- $5B69 has the same value our jnext + CSpect would both produce (= ROM-side state)
+
+#### Therefore the divergence is NOT in $5B69
+
+My earlier hypothesis "PASS 2 exits early because $BB write hits read-only slot 0" was a misreading of the disasm. The write hits slot 7 (which is writable in normal NR_57 mapping). The RAM-test runs to completion. CSpect would compute the same $5B69 = $6F.
+
+**The ACTUAL upstream divergence remains to be identified.** Most plausible remaining candidates from Agent 1's analysis:
+1. `($5C7F)` 4-bit machine cfg — set by ?
+2. NR 0x06 read returning different value (early)
+3. Some other sysvar set by specific code path
+
+The `$2341 → $2383 RST 20 → bank-2 $01BD JP $0E9F` route is taken on our jnext but evidently NOT on CSpect. Need to trace what conditional branch chooses dispatcher-mode vs sprite-mode print path. Most likely culprit: a NR or sysvar read whose value diverges.
+

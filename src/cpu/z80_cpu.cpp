@@ -521,6 +521,20 @@ int Z80Cpu::execute() {
             }
         }
     }
+    // G46(b) RAM-test verification: log the value of $5B69 (last RAM-test bank)
+    // at the start of supervisor self-init at $00EF and again at $20E6. If the
+    // RAM-test PASS 2 completed all 0x70 banks, ($5B69) ≈ 0x6F. If it exited
+    // early (bypass-mode pages 0x21..0x27 read 0 instead of $BB), ($5B69) ≈ 0.
+    if (pc == 0x01CE || pc == 0x20E6 || pc == 0x2341) {
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            const uint8_t v = mmu->read(0x5B69);
+            static int cnt = 0;
+            if (cnt < 20) {
+                Log::cpu()->info("RAMTEST PC={:#06x} ($5B69)={:#04x}  (last RAM-test bank stored)", pc, v);
+                ++cnt;
+            }
+        }
+    }
     // G46(b) v4 ISOLATION TEST: when JNEXT_G46B_PATCH_IX11 is set, restore
     // page 0x2F bytes at the IX position by copying from page 0x0F (= the
     // pre-loaded AltROM-1 upper). Verified empirically that this advances
