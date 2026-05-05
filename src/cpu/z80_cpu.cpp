@@ -498,6 +498,76 @@ int Z80Cpu::execute() {
     if (!((pc >= 0x0130 && pc < 0x016F) || (pc >= 0x018E && pc < 0x01CC))) {
         Log::cpu_inst()->trace("PC={:#06x} op={:#04x}", pc, opcode);
     }
+    // G46(b) v2 DIAG: log register + IX + memory state at the sprite-descriptor
+    // read site $20E6 so we can see what (IX+$11) maps to. TEMP — remove on
+    // G46(b) full closure.
+    if (pc == 0x00EF || pc == 0x2043 || pc == 0x20E6) {
+        // Log page 0x2F contents (offset 0x18..0x28) — bank 7 high half via NR_57=0x0F
+        // helps detect when something wipes our mirror-load.
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            const uint8_t* p2f = mmu->ram().page_ptr(0x2F);
+            const uint8_t* p0f = mmu->ram().page_ptr(0x0F);
+            if (p2f && p0f) {
+                static int cnt = 0;
+                if (cnt < 20) {
+                    char b2f[80], b0f[80];
+                    int n = 0;
+                    for (int i = 0; i < 8; ++i) n += std::snprintf(b2f + n, sizeof(b2f) - n, "%02x ", p2f[0x1B + i]);
+                    n = 0;
+                    for (int i = 0; i < 8; ++i) n += std::snprintf(b0f + n, sizeof(b0f) - n, "%02x ", p0f[0x1B + i]);
+                    Log::cpu()->info("PAGES PC={:#06x} p2f[1B:23]={} p0f[1B:23]={}", pc, b2f, b0f);
+                    ++cnt;
+                }
+            }
+        }
+    }
+    if (pc == 0x20E6 || pc == 0x2043 || pc == 0x1DF3) {
+        uint16_t ix = z80.ix.w;
+        char buf[80];
+        int n = 0;
+        for (int i = 0; i < 16 && n < 70; ++i) {
+            n += std::snprintf(buf + n, sizeof(buf) - n, "%02x ", mem_.read(ix + i));
+        }
+        char mmu_buf[80] = "n/a";
+        char raw_buf[80] = "n/a";
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            int mn = 0;
+            for (int s = 0; s < 8 && mn < 70; ++s) {
+                mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn, "%02x ", mmu->get_page(s));
+            }
+            // Direct RAM read of physical SRAM page 0x0F at offset 0x1B onwards
+            // (= what the descriptor SHOULD return if MMU correctly mapped slot 7
+            // → page 0x0F, OR what it actually contains).
+            const uint8_t* p0f = mmu->ram().page_ptr(0x0F);
+            const uint8_t* p2f = mmu->ram().page_ptr(0x2F);
+            if (p0f) {
+                int rn = 0;
+                for (int i = 0; i < 8 && rn < 70; ++i) {
+                    rn += std::snprintf(raw_buf + rn, sizeof(raw_buf) - rn, "%02x ", p0f[0x1B + i]);
+                }
+                if (p2f) {
+                    rn += std::snprintf(raw_buf + rn, sizeof(raw_buf) - rn, " | p2f: ");
+                    for (int i = 0; i < 8 && rn < 70; ++i) {
+                        rn += std::snprintf(raw_buf + rn, sizeof(raw_buf) - rn, "%02x ", p2f[0x1B + i]);
+                    }
+                }
+            }
+        }
+        // Also log NR 0x8C (AltROM control) state.
+        uint8_t nr8c = 0;
+        bool rom_in_sram = false;
+        bool config_mode = false;
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            nr8c = mmu->get_nr_8c();
+            rom_in_sram = mmu->rom_in_sram();
+            // No public config_mode() getter — read via the cached field via friend or skip
+            (void)mmu;
+        }
+        Log::cpu()->info("G46B SPRITE PC={:#06x} ix={:#06x} sp={:#06x} mmu[0..7]={} nr_8c={:#04x} rom_in_sram={} cfg_mode={}",
+                         pc, ix, z80.sp.w, mmu_buf, nr8c, rom_in_sram, config_mode);
+        Log::cpu()->info("  via_mem ix[0..15]={}", buf);
+        Log::cpu()->info("  raw_p0f[0x1B..0x2A]={}", raw_buf);
+    }
     // G46(b) DIAGNOSTIC: when JNEXT_G46B_PATCH is set, force mem[$5b8e] = 0
     // every time PC reaches the exit predicate at enNextZX.rom $279d
     // (LD A,($5b8e) / CP $5c / RET C). With A < $5c the firmware should

@@ -872,6 +872,10 @@ private:
     uint8_t compose_bank_() const;
 
     Ram& ram_;
+public:
+    // G46(b) v3 diag: temp accessor for direct SRAM page inspection.
+    Ram& ram() { return ram_; }
+private:
     Rom& rom_;
     uint8_t slots_[8];      // physical page used by rebuild_ptr
     uint8_t nr_mmu_[8];     // NR 0x50–0x57 register-visible value (may be 0xFF sentinel)

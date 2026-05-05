@@ -433,3 +433,101 @@ Possible specific causes (TBD — needs Round 3 investigation):
 
 **Unit tests after Agent B's pre-load patch**: 3850/3812/0/38 (no regressions vs Fix #1 baseline).
 
+
+### 2026-05-05 09:15 — Verification Agent C (post-Fix-#2 loop diagnosis) result
+
+Agent ran cpu_inst trace post Fix #1+#2 boot. Found LOOP body executes ~200K instructions per ~656ms iteration ending at $21B8 RET → $0000 → JP $00EF.
+
+Verified call chain:
+```
+$1F40-area (sprite/render dispatcher, INs $FE keyboard)
+ → $1D47 → $1D93 → $1D96 → $1DA0 LDIR (small, OK)
+ → $1DE6 → $1DF3 (call c,$2043)
+ → $2043 (set up IX as a sprite descriptor)
+ → $2057 → $2058 → $205B → $2061 cp (ix+$22) → $2064 call c,$2069
+ → $2069 → $20A6: ld hl,$2199; call $2178  (copies "JP $21AB / JP $21D3 / JP $2237" to $5B91)
+ → $20AC ld e,$01; call $20E6
+ → $20E6 ld c,(ix+$11)   ← C = sprite-width field
+ → $20E9 ld a,(ix+$12); $20EC sub e (E=$01); $20ED ld b,a; $20EE ret z
+ → $20EF push bc; ... $20F9 call $271D; $20FC jr c,...; $20FF call $22C8
+ → $2102 pop bc; $2103 push bc; $2104 push bc; $2105 ld b,$00 (B=0)
+ → $2107 bit 3,(iy+$45); $210B call z,$5B91 (correctly pushes $210E)
+ → $5B91 jp $21AB
+ → $21AB push de; $21AC ex de,hl; $21AD ld hl,$0020; $21B0 add hl,de
+ → $21B1 push hl; $21B2 push bc; $21B3 LDIR  ← BC=$00xx with C=(ix+$11)
+```
+
+**Root cause**: (IX+$11) = $00 in the sprite descriptor being processed. With B=0 (set at $2105) and C=(ix+$11)=0, LDIR runs 65,536 iterations (BC=$0000 wraps to $FFFF and counts down). The 64 KB LDIR overwrites the entire address space — including the stack — so the eventual RET at $21B8 pops a corrupted return address ($0000) instead of the legitimate $210E pushed at $210B.
+
+This is **NOT** a Fix-#1-shape bug (no NR-port-read divergence on the hot path). The (IX+$11)=0 condition is reproducible and stable across iterations, suggesting a stable mis-mapping or uninitialized descriptor — most likely:
+
+(a) Sprite descriptor lives in a memory region that is mis-banked at the moment of read (NR_56/NR_57 wrong bank). Fix #1 only patched NR 0x50-0x57 reads; the descriptor read might happen via different MMU state or via a different NR port that still has stale-cache divergence.
+(b) The descriptor is in AltROM region but our pre-loaded enAltZX.rom doesn't have what NextZXOS expects (file content mismatch, or supervisor mutates AltROM at runtime and we don't carry that mutation across).
+(c) Some upstream LDIR (e.g., the small one at $1DA0) wrote to wrong destination (DE) due to bank misregistration, corrupting the descriptor.
+
+**Suggested next probe**: log MMU state (NR_56/NR_57 + sram_active_bank) at PC=$20E6 and dump byte at (IX+$11) via the MMU; compare with what slot/bank should hold the descriptor table.
+
+
+### 2026-05-05 09:40 — Diagnostic: post-Fix-#2 (IX+$11)=0 root cause identified
+
+Added register+memory diagnostic logging at `src/cpu/z80_cpu.cpp:498-535` (TEMP, gated by PC=$00EF/$2043/$20E6) to capture: IX value, MMU state, NR_8C, raw page 0x0F bytes, raw page 0x2F bytes, and `mem_.read(IX+i)` for i=0..15.
+
+**Key empirical observations**:
+
+```
+G46B SPRITE PC=0x20e6 ix=0xe01b sp=0xff7f mmu[0..7]=ff ff 0a 0b 04 05 0e 0f  nr_8c=0x00 rom_in_sram=true cfg_mode=false
+  via_mem ix[0..15]=00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  raw_p0f[0x1B..0x22]=00 f7 21 90 e0 3e 08 df  | p2f: 00 00 00 00 00 00 00 00
+```
+
+Order of state transitions during one supervisor iteration:
+- T0 (PC=$00EF, supervisor entry post-soft-reset): page 0x2F **INTACT** (= AltROM-1 upper, populated by Fix #2 mirror experiment that pre-loaded into pages 0x2C-0x2F).
+- T0+~339 ms (next PC=$00EF): page 0x2F **WIPED** to all zeros (with 0xBB at offset 0x1FFF).
+
+**Wipe mechanism**: NextZXOS RAM-test PASS 1 at file offset $0130-$016E wipes 16 KB ($C000-$FFFE) per bank when iterator C < 0x0C. For C=7: NR_56=0x0E (dual-port VRAM page 0x0E) + NR_57=0x0F (regular SRAM page 0x2F via VHDL `mmu_A21_A13` shift). PASS 1:
+1. `ld (hl),$bb` writes 0xBB to $FFFF (= page 0x2F offset 0x1FFF).
+2. `ld (hl),$00` writes 0 to $FFFE.
+3. `lddr` BC=$3FFE copies $3FFE bytes downward from $FFFE → $FFFD, propagating zeros through $C000-$FFFE.
+
+Per-page effect:
+- Slot 6 ($C000-$DFFF) = page 0x0E: wiped to zeros (dual-port VRAM, fine).
+- Slot 7 ($E000-$FFFE) = page 0x2F: wiped to zeros (regular SRAM, **destroys our mirror-load**).
+- $FFFF (= page 0x2F[$1FFF]): 0xBB.
+
+**Why this matters**: the supervisor at PC=$20E6 (`ld c,(ix+$11)` with IX=$E01B) reads page 0x2F offset 0x2C = 0x00 (wiped). The expected value was 0x1F (sprite-width from AltROM-1 upper at file offset 0x602C). With C=$00 and B=$00 (set at $2105), BC=$0000 at the LDIR at $21B3 → 64 KB runaway → stack corruption → RET pops $0000 → JP $00EF → loop.
+
+**Per VHDL `zxnext.vhd:2961-2964`** (`mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7 downto 5))) & mem_active_page(4 downto 0)`):
+
+| logical NR_57 | physical SRAM page |
+|---|---|
+| 0x0A, 0x0B | 0x0A, 0x0B (exception — bank 5 dual-port VRAM) |
+| 0x0E | 0x0E (exception — bank 7 lower dual-port VRAM) |
+| 0x0F | **0x2F** (shifted, regular SRAM) |
+| 0x0C, 0x0D | 0x2C, 0x2D (shifted, regular SRAM) |
+
+Pre-loading enAltZX.rom into pages 0x0C-0x0F populates the AltROM-when-enabled region (slot 0/1 reads with NR_8C bit 7=1 use the AltROM SRAM redirect via `altrom_sram_page_(addr)` = pages 0x0C..0x0F). But supervisor reads via NR_57=0x0F slot 7 go to physical page 0x2F (different physical region).
+
+Mirror-loading enAltZX.rom into pages 0x2C-0x2F also (experimental) does NOT help: NextZXOS RAM-test wipes those pages 200 ms after supervisor entry.
+
+**Verified hypothesis**: chicken-and-egg AT TWO LEVELS:
+1. AltROM (slot 0/1 with NR_8C bit 7=1) needs pre-loaded enAltZX.rom — Fix #2 handles this; verified working (TBBlue boot screen renders).
+2. Bank 7 high half (slot 7 with NR_57=0x0F → physical page 0x2F) needs sprite descriptor data — **how real Next hardware populates this region post-RAM-test is unclear**. Not loaded by tbblue.fw (verified). Not loaded by supervisor itself in any obvious way (we don't see corresponding LDIR with destination $E000+ in the boot path before $20E6).
+
+**Next-session options**:
+1. **Investigate further**: trace the supervisor's full boot sequence from $00EF to $20E6 looking for any LDIR writing to slot 7 ($E000+); if none, search for LDIR sources that copy from supervisor ROM (pages 0..7) to bank 7 (pages 0x2C-0x2F) via slot-6/7 mappings.
+2. **User's suggestion — `--bypass-tbblue-fw` mode**: replicate CSpect's approach. Skip nextboot.rom + tbblue.fw entirely; pre-populate ALL needed SRAM regions (supervisor banks 0-7, DivMMC, MF, AltROM, sprite descriptor bank 7, etc.); set up MMU + NR registers to look like "post-supervisor-init"; start Z80 directly at supervisor's "ready" state. Requires understanding what state CSpect sets up (could reverse-engineer from CSpect runtime, or from NextZXOS supervisor's own initialization).
+3. **Wait for a NextZXOS supervisor source code reference** to understand what's expected in bank 7 high half.
+
+**Status of the user-visible symptom**:
+- Original G46(b) (boot loop without any visible progress) — **SOLVED** via Fix #1.
+- TBBlue boot screen rendering — **SOLVED** via Fix #1 + Fix #2 (commit `0b7c3c2`).
+- NextZXOS welcome screen — **NOT YET RENDERED** (post-soft-reset sprite-descriptor wipe issue).
+
+**Files modified on `g46b-investigation` branch (committed)**:
+- `0b7c3c2 fix(g46b#2-v2)`: Pre-load enAltZX.rom into SRAM pages 0x0C-0x0F at hard-reset init.
+
+**Uncommitted experimental changes still on the branch**:
+- `src/core/emulator.cpp`: mirror-load to pages 0x2C-0x2F (proven futile per RAM-test wipe).
+- `src/cpu/z80_cpu.cpp`: PC-conditional G46B SPRITE diagnostic logging.
+- `src/memory/mmu.h`: TEMP `Mmu::ram()` accessor for diagnostic access.
+

@@ -3702,6 +3702,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 }
                 Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes -> SRAM pages 0x0C..0x0F)",
                                       alt_sd_path, off);
+                // G46(b) v3 EXPERIMENT: also pre-populate pages 0x2C-0x2F (the
+                // +0x20 shifted versions per to_sram_page) so NR_57=0x0F slot 7
+                // reads see the AltROM data. TEMP — verifying hypothesis that
+                // supervisor reads bank 7 from this region.
+                size_t off2 = 0;
+                for (uint16_t p = 0x2C; p <= 0x2F && off2 < to_copy; ++p) {
+                    uint8_t* dst = ram_.page_ptr(p);
+                    if (!dst) break;
+                    const size_t chunk = std::min<size_t>(0x2000, to_copy - off2);
+                    std::memcpy(dst, alt_rom_bytes.data() + off2, chunk);
+                    off2 += chunk;
+                }
+                Log::emulator()->info("AltROM ALSO mirror-loaded into SRAM pages 0x2C..0x2F (experimental, {} bytes)", off2);
             } else {
                 Log::emulator()->info("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
                                       cfg.sd_card_image, alt_sd_path);
