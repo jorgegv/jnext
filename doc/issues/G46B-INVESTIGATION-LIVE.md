@@ -531,3 +531,66 @@ Mirror-loading enAltZX.rom into pages 0x2C-0x2F also (experimental) does NOT hel
 - `src/cpu/z80_cpu.cpp`: PC-conditional G46B SPRITE diagnostic logging.
 - `src/memory/mmu.h`: TEMP `Mmu::ram()` accessor for diagnostic access.
 
+
+### 2026-05-05 09:55 — Final isolation test + status
+
+**Test**: added env-var-gated patch at `src/cpu/z80_cpu.cpp` near PC=$20E6: when
+`JNEXT_G46B_PATCH_IX11=1`, copy bytes from physical SRAM page 0x0F (where
+Fix #2 pre-loaded AltROM-1 upper) into the corresponding offsets of physical
+SRAM page 0x2F (= what the supervisor reads via NR_57=$0F slot 7). This
+"undoes" the RAM-test wipe on the descriptor area at the moment of read.
+
+**Result with patch enabled**: boot advances PAST the sprite-descriptor
+stall. At t=14s a NEW screen state appears — black background with **white
+menu chrome at top, a small sprite/icon in the top-left corner, and the
+boot-progress color bars at the bottom**. This is unmistakably partial
+NextZXOS UI rendering (menu borders for the welcome page).
+
+**Result at t=18+, t=25, t=35**: same partial UI, no further progress.
+
+**Conclusion**: the (IX+$11)=0 wipe is a REAL blocker for sprite-descriptor
+rendering, but it's not the SOLE blocker. There are downstream sprite/UI
+reads from other memory locations (other descriptors, UI state data, etc.)
+that ALSO read from regions wiped by NextZXOS's RAM-test or never populated
+in jnext. Patching one isn't enough.
+
+**Ram-init experiment**: changed `Ram::Ram` and `Ram::reset` to fill with
+0xFF instead of 0 (test of "real Next has random/non-zero garbage RAM at
+power-on" hypothesis). Result: boot stalls EARLIER (no TBBlue boot screen
+at t=14). 0xFF in supervisor work areas / screen / AltROM regions breaks
+other things. Reverted.
+
+### Final status of G46(b) and downstream
+
+- **G46(b) original RAM-test/wrapper loop**: SOLVED via Fix #1 (`04fe5bd` on
+  `g46b-investigation`, cherry-picked to `main` as `2d90ea1`).
+- **TBBlue boot screen rendering**: SOLVED via Fix #1 + Fix #2-v2 (commit
+  `0b7c3c2` on `g46b-investigation`). Visible on screen: TBBlue logo +
+  "Press SPACEBAR for menu / Press C for extra cores" + firmware/core
+  version strings.
+- **NextZXOS welcome screen**: NOT REACHED. Blocked by the supervisor reading
+  zeros from bank 7 high half (page 0x2F) where it expects sprite descriptors.
+  Source of the expected data on real Next hardware is unknown — not in
+  tbblue.fw, not in any LDIR we traced from the supervisor's $00EF entry to
+  the descriptor read at $20E6, and the supervisor's own RAM-test wipes
+  page 0x2F to all zeros so it can't be from a previous boot state.
+- **Tested workaround**: env-var `JNEXT_G46B_PATCH_IX11=1` copies AltROM-1
+  upper bytes (page 0x0F) into the sprite-descriptor read range of page 0x2F.
+  Advances boot past one stall to partial UI rendering (white menu chrome +
+  sprite icon visible) but other downstream stalls remain.
+
+### Recommended next-session paths
+1. **`--bypass-tbblue-fw` mode (user's suggestion)** — replicate CSpect's
+   approach. Skip the entire firmware boot. Pre-populate everything CSpect
+   pre-populates. Don't run NextZXOS's RAM-test (it would wipe the
+   pre-loaded data). This requires either patching enNextZX.rom (copyright
+   issue) or hooking the supervisor to skip the test.
+2. **Reverse-engineer CSpect's runtime memory state** at the moment of
+   NextZXOS welcome screen rendering, to see what data CSpect puts in
+   bank 7 high half + AltROM + everywhere else.
+3. **Continue deep RE of NextZXOS supervisor** to find what populates bank 7
+   high half (and other UI data regions) on real hardware. Possibly the
+   answer is in code we haven't traced yet — e.g., a routine called from
+   the AltROM trampoline that DOES populate the descriptor table from a
+   source we haven't identified.
+

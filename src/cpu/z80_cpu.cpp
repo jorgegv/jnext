@@ -521,6 +521,29 @@ int Z80Cpu::execute() {
             }
         }
     }
+    // G46(b) v4 ISOLATION TEST: when JNEXT_G46B_PATCH_IX11 is set, restore
+    // page 0x2F bytes at the IX position by copying from page 0x0F (= the
+    // pre-loaded AltROM-1 upper). Verified empirically that this advances
+    // boot past the sprite-descriptor stall to UI rendering (white menu
+    // chrome + sprite icon top-left visible at t=14s) but boot still doesn't
+    // reach the welcome screen — there are downstream descriptor reads from
+    // other locations that this patch doesn't cover. TEMP — diagnostic only,
+    // remove on G46(b) full closure.
+    if (pc == 0x20E6) {
+        static const bool patch_ix11 = std::getenv("JNEXT_G46B_PATCH_IX11") != nullptr;
+        if (patch_ix11) {
+            uint16_t ix = z80.ix.w;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                const uint8_t* p0f = mmu->ram().page_ptr(0x0F);
+                uint8_t* p2f = mmu->ram().page_ptr(0x2F);
+                if (p0f && p2f) {
+                    for (int i = 0; i < 32; ++i) {
+                        p2f[(ix - 0xE000) + i] = p0f[(ix - 0xE000) + i];
+                    }
+                }
+            }
+        }
+    }
     if (pc == 0x20E6 || pc == 0x2043 || pc == 0x1DF3) {
         uint16_t ix = z80.ix.w;
         char buf[80];
