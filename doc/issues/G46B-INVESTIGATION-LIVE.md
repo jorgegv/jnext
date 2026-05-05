@@ -3010,3 +3010,146 @@ Likely sources:
 - `/tmp/g46b-sp-trace.log` — 8000-event SP trace.
 - `/tmp/g46b-sp-prelude.txt` — 119 non-loop events (the pre-loop
   call chain + post-loop re-entry chain).
+
+---
+
+## 2026-05-07 23:12 CEST — Probe 23 augmented; **PUSH AF \$1F22 at PC=\$000C identified**
+
+### Summary
+
+Two augmentations to Probe 23, both inside the existing CF-event
+hot path so they don't perturb non-CF timing:
+
+1. **Per-event mem dump**: every SP-trace event now also logs
+   `mem[\$5BFC..\$5C03]` (the 8 bytes around the AUTOMAP-sled
+   pop target). This reveals when each byte changes.
+2. **Regular PUSH/POP classification**: `PUSH_BC` (\$C5),
+   `PUSH_DE` (\$D5), `PUSH_HL` (\$E5), `PUSH_AF` (\$F5),
+   `POP_BC/DE/HL/AF`, `PUSH_IX/IY` (\$DD/FD \$E5), `POP_IX/IY`
+   are now logged. The `target` field for PUSH events shows
+   the register value being pushed.
+
+### The exact event sequence that writes \$22 \$1F to \$5C01-\$5C02
+
+```
+RET       pc=\$5b20 sp_b=\$5bff sp_a=\$5c01 landed=\$0000  ★ wrapper exit
+        mem[5bfc..5c03]=25 08 1f 00 00 00 00 00         ← \$5C01,\$5C02 still 00
+POP_HL    pc=\$000b sp_b=\$5c01 sp_a=\$5c03 landed=\$000c
+        mem[5bfc..5c03]=25 08 1f 00 00 00 00 00
+PUSH_AF   pc=\$000c sp_b=\$5c03 sp_a=\$5c01 landed=\$000d  AF=\$1f22  ★★
+        mem[5bfc..5c03]=25 08 1f 00 00 22 1f 00         ← NOW \$5C01=\$22, \$5C02=\$1F
+RET       pc=\$3d00 sp_b=\$5c01 sp_a=\$5c03 landed=\$1f22
+        mem[5bfc..5c03]=25 08 1f 00 00 22 1f 00
+```
+
+PUSH AF at PC=\$000C with AF=\$1F22 writes \$22 (F flags) at
+\$5C01 and \$1F (A reg) at \$5C02. SP \$5C03 → \$5C01.
+
+Then JP \$3364 (after PUSH AF) enters the NOP sled, which runs
+to \$3D00 RET. The RET pops \$5C01,\$5C02 = \$1F22 → JPs to
+\$1F22 (DivMMC SD-SPI command-send helper).
+
+### What's at DivMMC ROM \$000B-\$000D?
+
+```
+[000b] e1            POP HL
+[000c] f5            PUSH AF
+[000d] c3 64 33      JP \$3364
+```
+
+This is a **generic AUTOMAP-NOP-sled wrapper** with AF as the
+target parameter. The supervisor calls this wrapper with AF
+set to whatever JP-target it wants. The wrapper:
+1. POP HL — restores HL from caller's saved state.
+2. PUSH AF — pushes target onto stack (will be popped by sled
+   sentinel).
+3. JP \$3364 — jumps into NOP sled, which runs to \$3D00 RET.
+
+Note: \$3364 is NOT in slot 1 (\$2000-\$3FFF) directly. \$3364
+is in slot 1 mapped via current bank. \$3D00 sentinel RET is
+the well-documented sled exit.
+
+### Conclusion
+
+This is **NOT a stack-corruption bug**. The supervisor
+**intentionally** sets AF=\$1F22 and uses the wrapper to JP to
+\$1F22 (the DivMMC SD-SPI command-send helper). Both jnext and
+CSpect should follow this exact path.
+
+The remaining divergence is **upstream**: at \$1F22 entry, the
+SD-command parameter registers contain values that look like
+NextREG-port setup, not an SD command:
+
+| Reg | Value | Meaning |
+|-----|-------|---------|
+| C   | \$3B  | low byte of NextREG select port (\$243B) — NOT a valid SD cmd (bit 6 = 0) |
+| H   | \$00  |   |
+| L   | \$00  |   |
+| D   | \$FF  |   |
+| E   | \$BF  |   |
+| B   | \$24  | high byte of NextREG select port (\$243B) |
+
+So the supervisor seems to be doing **two things at once**:
+- Calling SD-SPI command-send helper (via AF=\$1F22 + wrapper).
+- With registers prepared for `LD BC,\$243B; OUT (C),B`
+  (NextREG select).
+
+That's a weird mix. Likely interpretations:
+- (a) The supervisor was setting up NextREG, but a stale
+  AF=\$1F22 carried over from an earlier code path → wrong
+  wrapper target.
+- (b) The supervisor is calling SD-SPI helper with arbitrary
+  register state (it doesn't care), and the SD helper just
+  loops because no SD response. The bug is that
+  jnext's SD emulation never returns non-\$FF for this
+  command sequence.
+
+Probe 20 (port \$EB tracer, earlier session) showed jnext sends
+bytes \$3B \$00 \$00 \$FF \$BF \$24 over SPI. Byte 0 (\$3B) has
+bit 6 = 0 → not a valid SD CMD. So it's plausible the SD card
+emulation correctly returns \$FF for every byte (no command to
+respond to). The supervisor's wait-loop times out, returns to
+caller, which then... what?
+
+### Critical next-session question
+
+**Where is AF=\$1F22 set in the supervisor flow that led to
+\$5B00 wrapper?** Need to trace AF backwards from PC=\$5B00
+entry. The wrapper saved AF at \$5B00 PUSH AF; restored at
+\$5B1F POP AF. So AF at wrapper EXIT (PC=\$5B20) = AF at wrapper
+ENTRY (PC=\$5B00).
+
+But trace shows POP_AF at \$5B1F popped value where mem[\$5BFD,
+\$5BFE] was \$08 \$1F — i.e., A=\$1F, F=\$08. Then between
+\$5B20 RET and PC=\$000C PUSH_AF, **F changed from \$08 to \$22**
+while A stayed at \$1F. Some instruction(s) between PC=\$0000
+and PC=\$000B affected F flags. Need trace of PCs in that range
+to identify what.
+
+Or alternatively: scan the trace for all PUSH_AF events with
+target=\$1F22 to find any earlier setting of AF=\$1F22.
+
+### Probes added on this branch
+
+- `src/cpu/z80_cpu.cpp:587-712` — **Probe 23** (SP-tracer, full
+  classification including PUSH/POP/IX/IY).
+- All previously-listed probes still active.
+
+### Files generated
+
+- `/tmp/g46b-sp-trace.log` — 8000 SP events + per-event
+  mem[\$5BFC..\$5C03] dump (~3400 lines for first \$5B20 RET
+  area).
+
+### Important note: boot timing sensitivity
+
+Adding ANY per-step polling code (Probe 24 polling 5
+mem_.read() per step) — even when GATED OFF behind an env
+var — broke the boot path. With Probe 24 present (gated off),
+boot reached only 7 SP events in 30s. With Probe 24 fully
+removed, boot reaches 8000 SP events (cap) in 30s.
+
+This means NextZXOS boot has timing-sensitive code paths
+(likely interrupt timing or contention). Future probes must
+sit inside existing hot paths, not add new ones. Mmu::write
+hooks would be ideal but also need careful gating.
