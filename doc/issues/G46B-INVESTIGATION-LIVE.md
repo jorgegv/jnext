@@ -263,3 +263,340 @@ Instrumentation in commit `5f8cca0` (parent of fixes) is:
 
 Cleanup commit needed: revert/remove the env-var-gated instrumentation in `src/cpu/z80_cpu.cpp`. Keep `cpu_inst` channel.
 
+
+---
+
+## 2026-05-05 08:30 — Session resume: Fix #1 cherry-picked to main; Fix #2 reverted; downstream investigation continues
+
+### Decisions taken before deeper investigation
+- **Cherry-picked Fix #1 (`04fe5bd`) to main** as commit `2d90ea1`.
+  Verified: build OK, unit tests 3850/3812/0/38 (no regressions),
+  full regression 32/0/0 (no failures).
+- **Reverted Fix #2 (`4c8a761`) on `g46b-investigation` branch** as commit
+  `a210b37`. User flagged Fix #2 as a band-aid; investigating proper path.
+- Investigation rules now applied: ultrathink + parallel agents in
+  worktrees + verify findings independently + log to this doc.
+
+### Trace of post-Fix-#1 boot behaviour
+Captured a 14-second headless run with `sdcard=debug,nextreg=debug,emulator=debug`
+log levels (full log at `/tmp/g46b-postfix1.log`).
+
+Observed sequence:
+1. `nextboot.rom` IPL boots (silicon-baked 8 KB).
+2. nextboot.rom does CMD0/CMD8/ACMD41/CMD58 SD init.
+3. Reads MBR (sect 0), VBR (sect 63), FAT (sects 187, 4191, 4192),
+   then loads `/TBBLUE.FW` (sects 192927-192981 = first 27 KB,
+   plus sects 193377-193397 = next 10 KB) into RAM.
+4. nextboot.rom hands off → TBBLUE.FW now running.
+5. TBBLUE.FW writes NR 0x07 ← 0x03 (28 MHz turbo).
+6. TBBLUE.FW writes NR 0x03 ← 0xB0 (disable boot ROM, machine_type)
+   then NR 0x03 ← 0x00.
+7. TBBLUE.FW does FATFS f_mount → second CMD0/CMD8/ACMD41/CMD58.
+8. TBBLUE.FW reads MACHINES/NEXT directory cluster, then files
+   in order: CONFIG.INI (sect 168847), MENU.DEF (sect 169119+),
+   ENNEXTZX.ROM (sects 169311-169438 — the OS supervisor),
+   plus more TBBLUE.FW module loading.
+9. **Crucially: NEVER reads ENALTZX.ROM (sects 169583-169646).**
+10. TBBLUE.FW writes NR 0x03 ← 0xB3 (config_mode=0).
+11. TBBLUE.FW writes NR 0x02 ← 0x01 (RESET_SOFT) at t=10.5s.
+12. Soft reset: jnext reinitialises, `[preserve_memory=1 soft-reset]`.
+13. NextZXOS supervisor takes over.
+14. **From this point: ZERO SD reads for the remaining 38 seconds**
+    (until automatic exit). CPU is doing something but not talking
+    to SD.
+
+### TBBlue source verification (`../tbblue/src/firmware/`)
+Read the TBBlue 1.05 firmware source (cloned at `../tbblue/`).
+
+`app/src/boot.c` `main()` flow before soft reset:
+  - `load_config()` — reads `config.ini` + `menu.def`
+  - `load_keymap()` — `loadFile(RAMPAGE_ROMSPECCY=0x00, 1, 1024)` for keymap
+  - `load_keyjoys(...)`
+  - `load_roms()` (line 86-176) — only loads:
+    * DivMMC ROM (8 KB) → `RAMPAGE_ROMDIVMMC=0x04` (= SRAM pages 8-9)
+    * Multiface ROM (8 KB) → `RAMPAGE_ROMMF=0x05` (= SRAM pages 10-11)
+    * Speccy ROM (16/32/64 KB) → `RAMPAGE_ROMSPECCY=0x00..0x03` (= SRAM 0-7)
+  - `init_registers()` — peripheral configs
+  - `REG_MACHTYPE` write
+  - 65535-cycle pause
+  - `REG_RESET = RESET_SOFT` → soft reset
+  - infinite loop
+
+`load_roms()` does NOT load enAltZX.rom anywhere. Confirmed via grep:
+neither `TBBLUE.FW` (compiled, 297 KB) nor `TBBLUE.TBU` (10 MB) contains
+the string "enAltZX.rom" or any case variation. The string ONLY exists
+in `enNextZX.rom` (at file offset 0x9FFE) — but the supervisor never
+references it as a `f_open` filename.
+
+`hardware.h:170-171`:
+```
+#define RAMPAGE_ALTROM0  0x06   // = SRAM pages 12, 13
+#define RAMPAGE_ALTROM1  0x07   // = SRAM pages 14, 15
+```
+RAMPAGE_ALTROM0/1 are referenced ONLY by `getCoreBoot()` in `misc.c`
+which READS from the area to check for a "coreboot" magic marker —
+never WRITES (= never loads) data into AltROM.
+
+### Verdict from independent agent investigation (2026-05-05 08:55)
+- First `call $0068` AltROM trampoline reached after $00EF entry is at
+  enNextZX.rom file offset **$0C52** (line 1876 of `/tmp/enNextZX.dis`):
+  `[0c52] cd 68 00` followed by inline `d9 20` (target = AltROM $20D9).
+- Reachability: `$00ef → $0271 (call $2341) → … → $0303 (call $0360)
+  → $0357 (jp $0c49) → $0c52`. ~750 instructions of NEXTREG/RAM/sysvar/IM2
+  setup before this call.
+- enNextZX.rom DOES contain its own raw DivMMC SPI driver (port $E7 SPI-CS,
+  port $EB SPI-data) at file offset $98E7+. NextZXOS file system does not
+  depend on enNxtmmc.rom for SD access — uses its own driver.
+- BUT: enNextZX.rom contains NO `f_open` site that uses the "enAltZX.rom"
+  string. The string is in the binary but never used as a filename. The
+  only NR $8C writes are spot patches at $41B3/$41BD/$41C5/$41CF/$8E37 —
+  not a 32 KB bulk SD load.
+- **Verdict: chicken-and-egg.** Supervisor needs AltROM loaded BEFORE
+  the first `call $0068` at $0C52 (early — 750 instructions in). It
+  cannot load AltROM itself because (a) it never opens enAltZX.rom, and
+  (b) by the time it would have a chance to, it has crashed in the
+  empty $0000-$3FFF window after `nextreg $8c, $80`.
+
+### Conclusion (pending verification)
+On real hardware, AltROM (`enAltZX.rom` content) MUST be loaded by
+some stage that runs BEFORE the supervisor enters. tbblue.fw doesn't
+do it. nextboot.rom (the IPL) doesn't do it (it just loads TBBLUE.FW
+into RAM). The only candidate is the FPGA flash itself — i.e., real
+Next FPGA's flash storage contains pre-baked AltROM data that's
+loaded into the AltROM SRAM region as part of FPGA bitstream init.
+
+If this is correct, then **loading enAltZX.rom from SD into SRAM
+pages 0x0C-0x0F at jnext init time IS the proper VHDL-faithful
+equivalent** — modeling the FPGA flash's pre-baked AltROM. The
+"band-aid" criticism of Fix #2 may have been based on the prior
+agent's wrong hypothesis (that NextZXOS itself reloads AltROM
+from SD post-RAM-test).
+
+NEXT STEPS:
+1. Verify chicken-and-egg hypothesis with two independent parallel
+   agents: (a) trace the first $0068 call site execution in jnext to
+   confirm it's reached early; (b) test pre-loading AltROM and
+   confirming welcome screen renders.
+2. If both verify → re-apply Fix #2 (or equivalent), confirm
+   welcome screen, document as the proper fix.
+3. If chicken-and-egg fails → continue investigation.
+
+
+### 2026-05-05 09:00 — Verification Agent A (independent live trace) result
+
+Worktree: `agent-a5fccbf698534576a`. Built the branch + widened cpu_inst PC-range gate to capture $0060-$008F + $00EE-$011F + $0C00-$0C7F + $20D0-$21FF + $2730-$27AF. Captured 14-sec headless trace (2.77 M instructions across 658 unique PCs) at `/tmp/verif1-trace.log`.
+
+Empirical results:
+- PC=$007B IS reached, at t=50.421s wall, ~244 ms after supervisor enters $00EF.
+- Sequence:
+  1. Lines 105-156: real code at $00EF…$011E + wrapper at $0080-$008E execute from RAM (real opcodes).
+  2. Lines 157-182: wrapper at $279D-$27AB → $2732-$274A executes (real opcodes — Fix #1 makes the wrapper exit cleanly).
+  3. **Line 183 (t=50.421): PC=$007B reads op=0xed** — last instruction with non-zero opcodes. This is the AltROM-enable trampoline `nextreg $8C, $80; ret` getting executed because the wrapper RET'd to $007B (that addr was on the user stack).
+  4. Line 184 onwards: PC NOP-slides through the entire AltROM-overlaid $0000-$3FFF window (all opcodes = 0x00).
+  5. PC linearly advances: $007F → $008F → wraps via $00EE→$011F → $0C00 → $0C7F → $20D0 → $20D9, all NOPs.
+- End state at 14s emulated / 88s wall: still NOP-sliding (PC=$27AF op=0x00 sp=$7A0F). SP drifted from $5BFD to $7A0F (+0x1E12 bytes popped via implicit RETs from $0038 IM1 vector that's also NOP).
+
+**Key insight**: the supervisor exits the wrapper at $27AB. The user stack contains $007B as the return address. RET pops $007B → PC=$007B (which is in the AltROM-mapped slot 0/1) → `nextreg $8C, $80; ret` → enables AltROM → RET pops next addr (the AltROM function ptr) → jumps into AltROM → AltROM is empty → NOP slide.
+
+This is the canonical "call into AltROM" pattern: caller pushes $007B + altrom_addr onto stack, then calls supervisor wrapper. Wrapper exit RET pops $007B → enable AltROM → RET to altrom_addr.
+
+**Verification verdict**: chicken-and-egg confirmed. The supervisor's first AltROM call happens VERY EARLY (within 250 ms of supervisor entry), via a wrapper-mediated call. AltROM SRAM pages 0x0C-0x0F are empty (0x00) → entire 16K window NOP-slides → boot wedges.
+
+
+### 2026-05-05 09:25 — Verification Agent B (independent AltROM pre-load + welcome-screen test) result
+
+Worktree: `agent-a22e3197032d547cc`. Agent re-applied Fix #2-equivalent code (61-line block in `Emulator::init` after Multiface ROM load), gated on `cfg.type == ZXN_ISSUE2 && !preserve_memory && !cfg.sd_card_image.empty()`. enAltZX.rom (32 KB) extracted from SD and split into 4 × 8 KB chunks → `ram_.page_ptr(0x0C..0x0F)`. Built and ran headless test; captured screenshots at multiple time points.
+
+**Boot timeline observed (Fix #1 + Fix #2 applied)**:
+| Time | State |
+|------|-------|
+| t=3s | Clean TBBlue logo + "For video mode selection press: A=All, D=Digital, V=VGA, R=RGB" + "Firmware v1.44.db / Core v3.02.03" |
+| t=4s | TBBlue logo + "Press SPACEBAR for menu / Press C for extra cores" — full TBBlue boot menu rendered |
+| t=5s | Garbled (blue/white noise upper, TBBlue text lingering bottom) |
+| t=6s+ | Black with intermittent color bars at frame 600, 1200 |
+
+This is **dramatic progress vs Fix #1 alone** (black screen forever). With Fix #2:
+- TBBlue.fw boots cleanly and renders its boot menu UI.
+- Implies TBBlue.fw can now read the AltROM area without crashing.
+- Boot makes it ALL THE WAY to the SPACEBAR-menu countdown.
+- Times out → load_keymap → load_roms → init_registers → REG_RESET (soft reset).
+- Soft reset hands off to NextZXOS supervisor — AND THIS is where the regression happens.
+
+**Verdict**: Fix #2 IS the correct architectural fix for the AltROM-empty problem (modeling FPGA-flash-pre-baked AltROM). It's NOT a band-aid. But it's INSUFFICIENT — a downstream issue manifests post-soft-reset.
+
+**Hypothesis (preliminary, needs verification)**: After TBBlue soft-resets to hand off to NextZXOS supervisor, jnext re-inits with `preserve_memory=true`. The Fix #2 AltROM-load is gated on `!preserve_memory`, so it's NOT repeated. SRAM pages 12-15 should survive (preserve_memory keeps SRAM), but something is going wrong that prevents the NextZXOS supervisor from reaching the welcome screen.
+
+Possible specific causes (TBD — needs Round 3 investigation):
+1. Some memory-corrupting operation between AltROM load and soft-reset destroys AltROM contents.
+2. NextZXOS supervisor takes a different code path post-soft-reset that fails for a different reason.
+3. The `preserve_memory=true` path in `Emulator::init` does something subtle that corrupts AltROM (e.g., the ROM-in-SRAM seed or DivMMC ROM reload uses overlapping pages).
+
+**Unit tests after Agent B's pre-load patch**: 3850/3812/0/38 (no regressions vs Fix #1 baseline).
+
+
+### 2026-05-05 09:15 — Verification Agent C (post-Fix-#2 loop diagnosis) result
+
+Agent ran cpu_inst trace post Fix #1+#2 boot. Found LOOP body executes ~200K instructions per ~656ms iteration ending at $21B8 RET → $0000 → JP $00EF.
+
+Verified call chain:
+```
+$1F40-area (sprite/render dispatcher, INs $FE keyboard)
+ → $1D47 → $1D93 → $1D96 → $1DA0 LDIR (small, OK)
+ → $1DE6 → $1DF3 (call c,$2043)
+ → $2043 (set up IX as a sprite descriptor)
+ → $2057 → $2058 → $205B → $2061 cp (ix+$22) → $2064 call c,$2069
+ → $2069 → $20A6: ld hl,$2199; call $2178  (copies "JP $21AB / JP $21D3 / JP $2237" to $5B91)
+ → $20AC ld e,$01; call $20E6
+ → $20E6 ld c,(ix+$11)   ← C = sprite-width field
+ → $20E9 ld a,(ix+$12); $20EC sub e (E=$01); $20ED ld b,a; $20EE ret z
+ → $20EF push bc; ... $20F9 call $271D; $20FC jr c,...; $20FF call $22C8
+ → $2102 pop bc; $2103 push bc; $2104 push bc; $2105 ld b,$00 (B=0)
+ → $2107 bit 3,(iy+$45); $210B call z,$5B91 (correctly pushes $210E)
+ → $5B91 jp $21AB
+ → $21AB push de; $21AC ex de,hl; $21AD ld hl,$0020; $21B0 add hl,de
+ → $21B1 push hl; $21B2 push bc; $21B3 LDIR  ← BC=$00xx with C=(ix+$11)
+```
+
+**Root cause**: (IX+$11) = $00 in the sprite descriptor being processed. With B=0 (set at $2105) and C=(ix+$11)=0, LDIR runs 65,536 iterations (BC=$0000 wraps to $FFFF and counts down). The 64 KB LDIR overwrites the entire address space — including the stack — so the eventual RET at $21B8 pops a corrupted return address ($0000) instead of the legitimate $210E pushed at $210B.
+
+This is **NOT** a Fix-#1-shape bug (no NR-port-read divergence on the hot path). The (IX+$11)=0 condition is reproducible and stable across iterations, suggesting a stable mis-mapping or uninitialized descriptor — most likely:
+
+(a) Sprite descriptor lives in a memory region that is mis-banked at the moment of read (NR_56/NR_57 wrong bank). Fix #1 only patched NR 0x50-0x57 reads; the descriptor read might happen via different MMU state or via a different NR port that still has stale-cache divergence.
+(b) The descriptor is in AltROM region but our pre-loaded enAltZX.rom doesn't have what NextZXOS expects (file content mismatch, or supervisor mutates AltROM at runtime and we don't carry that mutation across).
+(c) Some upstream LDIR (e.g., the small one at $1DA0) wrote to wrong destination (DE) due to bank misregistration, corrupting the descriptor.
+
+**Suggested next probe**: log MMU state (NR_56/NR_57 + sram_active_bank) at PC=$20E6 and dump byte at (IX+$11) via the MMU; compare with what slot/bank should hold the descriptor table.
+
+
+### 2026-05-05 09:40 — Diagnostic: post-Fix-#2 (IX+$11)=0 root cause identified
+
+Added register+memory diagnostic logging at `src/cpu/z80_cpu.cpp:498-535` (TEMP, gated by PC=$00EF/$2043/$20E6) to capture: IX value, MMU state, NR_8C, raw page 0x0F bytes, raw page 0x2F bytes, and `mem_.read(IX+i)` for i=0..15.
+
+**Key empirical observations**:
+
+```
+G46B SPRITE PC=0x20e6 ix=0xe01b sp=0xff7f mmu[0..7]=ff ff 0a 0b 04 05 0e 0f  nr_8c=0x00 rom_in_sram=true cfg_mode=false
+  via_mem ix[0..15]=00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  raw_p0f[0x1B..0x22]=00 f7 21 90 e0 3e 08 df  | p2f: 00 00 00 00 00 00 00 00
+```
+
+Order of state transitions during one supervisor iteration:
+- T0 (PC=$00EF, supervisor entry post-soft-reset): page 0x2F **INTACT** (= AltROM-1 upper, populated by Fix #2 mirror experiment that pre-loaded into pages 0x2C-0x2F).
+- T0+~339 ms (next PC=$00EF): page 0x2F **WIPED** to all zeros (with 0xBB at offset 0x1FFF).
+
+**Wipe mechanism**: NextZXOS RAM-test PASS 1 at file offset $0130-$016E wipes 16 KB ($C000-$FFFE) per bank when iterator C < 0x0C. For C=7: NR_56=0x0E (dual-port VRAM page 0x0E) + NR_57=0x0F (regular SRAM page 0x2F via VHDL `mmu_A21_A13` shift). PASS 1:
+1. `ld (hl),$bb` writes 0xBB to $FFFF (= page 0x2F offset 0x1FFF).
+2. `ld (hl),$00` writes 0 to $FFFE.
+3. `lddr` BC=$3FFE copies $3FFE bytes downward from $FFFE → $FFFD, propagating zeros through $C000-$FFFE.
+
+Per-page effect:
+- Slot 6 ($C000-$DFFF) = page 0x0E: wiped to zeros (dual-port VRAM, fine).
+- Slot 7 ($E000-$FFFE) = page 0x2F: wiped to zeros (regular SRAM, **destroys our mirror-load**).
+- $FFFF (= page 0x2F[$1FFF]): 0xBB.
+
+**Why this matters**: the supervisor at PC=$20E6 (`ld c,(ix+$11)` with IX=$E01B) reads page 0x2F offset 0x2C = 0x00 (wiped). The expected value was 0x1F (sprite-width from AltROM-1 upper at file offset 0x602C). With C=$00 and B=$00 (set at $2105), BC=$0000 at the LDIR at $21B3 → 64 KB runaway → stack corruption → RET pops $0000 → JP $00EF → loop.
+
+**Per VHDL `zxnext.vhd:2961-2964`** (`mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7 downto 5))) & mem_active_page(4 downto 0)`):
+
+| logical NR_57 | physical SRAM page |
+|---|---|
+| 0x0A, 0x0B | 0x0A, 0x0B (exception — bank 5 dual-port VRAM) |
+| 0x0E | 0x0E (exception — bank 7 lower dual-port VRAM) |
+| 0x0F | **0x2F** (shifted, regular SRAM) |
+| 0x0C, 0x0D | 0x2C, 0x2D (shifted, regular SRAM) |
+
+Pre-loading enAltZX.rom into pages 0x0C-0x0F populates the AltROM-when-enabled region (slot 0/1 reads with NR_8C bit 7=1 use the AltROM SRAM redirect via `altrom_sram_page_(addr)` = pages 0x0C..0x0F). But supervisor reads via NR_57=0x0F slot 7 go to physical page 0x2F (different physical region).
+
+Mirror-loading enAltZX.rom into pages 0x2C-0x2F also (experimental) does NOT help: NextZXOS RAM-test wipes those pages 200 ms after supervisor entry.
+
+**Verified hypothesis**: chicken-and-egg AT TWO LEVELS:
+1. AltROM (slot 0/1 with NR_8C bit 7=1) needs pre-loaded enAltZX.rom — Fix #2 handles this; verified working (TBBlue boot screen renders).
+2. Bank 7 high half (slot 7 with NR_57=0x0F → physical page 0x2F) needs sprite descriptor data — **how real Next hardware populates this region post-RAM-test is unclear**. Not loaded by tbblue.fw (verified). Not loaded by supervisor itself in any obvious way (we don't see corresponding LDIR with destination $E000+ in the boot path before $20E6).
+
+**Next-session options**:
+1. **Investigate further**: trace the supervisor's full boot sequence from $00EF to $20E6 looking for any LDIR writing to slot 7 ($E000+); if none, search for LDIR sources that copy from supervisor ROM (pages 0..7) to bank 7 (pages 0x2C-0x2F) via slot-6/7 mappings.
+2. **User's suggestion — `--bypass-tbblue-fw` mode**: replicate CSpect's approach. Skip nextboot.rom + tbblue.fw entirely; pre-populate ALL needed SRAM regions (supervisor banks 0-7, DivMMC, MF, AltROM, sprite descriptor bank 7, etc.); set up MMU + NR registers to look like "post-supervisor-init"; start Z80 directly at supervisor's "ready" state. Requires understanding what state CSpect sets up (could reverse-engineer from CSpect runtime, or from NextZXOS supervisor's own initialization).
+3. **Wait for a NextZXOS supervisor source code reference** to understand what's expected in bank 7 high half.
+
+**Status of the user-visible symptom**:
+- Original G46(b) (boot loop without any visible progress) — **SOLVED** via Fix #1.
+- TBBlue boot screen rendering — **SOLVED** via Fix #1 + Fix #2 (commit `0b7c3c2`).
+- NextZXOS welcome screen — **NOT YET RENDERED** (post-soft-reset sprite-descriptor wipe issue).
+
+**Files modified on `g46b-investigation` branch (committed)**:
+- `0b7c3c2 fix(g46b#2-v2)`: Pre-load enAltZX.rom into SRAM pages 0x0C-0x0F at hard-reset init.
+
+**Uncommitted experimental changes still on the branch**:
+- `src/core/emulator.cpp`: mirror-load to pages 0x2C-0x2F (proven futile per RAM-test wipe).
+- `src/cpu/z80_cpu.cpp`: PC-conditional G46B SPRITE diagnostic logging.
+- `src/memory/mmu.h`: TEMP `Mmu::ram()` accessor for diagnostic access.
+
+
+### 2026-05-05 09:55 — Final isolation test + status
+
+**Test**: added env-var-gated patch at `src/cpu/z80_cpu.cpp` near PC=$20E6: when
+`JNEXT_G46B_PATCH_IX11=1`, copy bytes from physical SRAM page 0x0F (where
+Fix #2 pre-loaded AltROM-1 upper) into the corresponding offsets of physical
+SRAM page 0x2F (= what the supervisor reads via NR_57=$0F slot 7). This
+"undoes" the RAM-test wipe on the descriptor area at the moment of read.
+
+**Result with patch enabled**: boot reaches a slightly different code path —
+the screen at t=14s shows the boot-progress color bars at the bottom plus
+some scattered white bars near the top and an isolated dithered glyph in the
+top-left corner. **CORRECTION (2026-05-05 10:00)**: my initial interpretation
+of these top-area marks as "partial NextZXOS UI rendering (menu chrome +
+sprite icon)" was an over-claim — the user pointed out they're just screen
+RAM corruption from supervisor writes that aren't drawing anything intentional.
+No actual welcome-screen text or recognisable UI elements are visible. The
+patch only proves the supervisor takes a different (likely deeper) path
+before stalling.
+
+**Result at t=18+, t=25, t=35**: same screen state — supervisor has reached
+some other stall point, with no further visible progress.
+
+**Conclusion**: the (IX+$11)=0 wipe is a REAL blocker — patching it changes
+the supervisor's runtime behaviour and execution path measurably (different
+screen RAM writes). But the patch alone does NOT make the supervisor render
+the welcome screen, so the bank 7 high half data requirement extends to
+multiple read sites (or there are other unrelated stall points downstream).
+
+**Ram-init experiment**: changed `Ram::Ram` and `Ram::reset` to fill with
+0xFF instead of 0 (test of "real Next has random/non-zero garbage RAM at
+power-on" hypothesis). Result: boot stalls EARLIER (no TBBlue boot screen
+at t=14). 0xFF in supervisor work areas / screen / AltROM regions breaks
+other things. Reverted.
+
+### Final status of G46(b) and downstream
+
+- **G46(b) original RAM-test/wrapper loop**: SOLVED via Fix #1 (`04fe5bd` on
+  `g46b-investigation`, cherry-picked to `main` as `2d90ea1`).
+- **TBBlue boot screen rendering**: SOLVED via Fix #1 + Fix #2-v2 (commit
+  `0b7c3c2` on `g46b-investigation`). Visible on screen: TBBlue logo +
+  "Press SPACEBAR for menu / Press C for extra cores" + firmware/core
+  version strings.
+- **NextZXOS welcome screen**: NOT REACHED. Blocked by the supervisor reading
+  zeros from bank 7 high half (page 0x2F) where it expects sprite descriptors.
+  Source of the expected data on real Next hardware is unknown — not in
+  tbblue.fw, not in any LDIR we traced from the supervisor's $00EF entry to
+  the descriptor read at $20E6, and the supervisor's own RAM-test wipes
+  page 0x2F to all zeros so it can't be from a previous boot state.
+- **Tested workaround**: env-var `JNEXT_G46B_PATCH_IX11=1` copies AltROM-1
+  upper bytes (page 0x0F) into the sprite-descriptor read range of page 0x2F.
+  Changes the supervisor's runtime behaviour (different screen RAM writes,
+  visible as scattered corruption) but does NOT render the welcome screen.
+
+### Recommended next-session paths
+1. **`--bypass-tbblue-fw` mode (user's suggestion)** — replicate CSpect's
+   approach. Skip the entire firmware boot. Pre-populate everything CSpect
+   pre-populates. Don't run NextZXOS's RAM-test (it would wipe the
+   pre-loaded data). This requires either patching enNextZX.rom (copyright
+   issue) or hooking the supervisor to skip the test.
+2. **Reverse-engineer CSpect's runtime memory state** at the moment of
+   NextZXOS welcome screen rendering, to see what data CSpect puts in
+   bank 7 high half + AltROM + everywhere else.
+3. **Continue deep RE of NextZXOS supervisor** to find what populates bank 7
+   high half (and other UI data regions) on real hardware. Possibly the
+   answer is in code we haven't traced yet — e.g., a routine called from
+   the AltROM trampoline that DOES populate the descriptor table from a
+   source we haven't identified.
+
