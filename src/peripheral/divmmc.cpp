@@ -245,7 +245,9 @@ void DivMmc::on_m1_retn_delay(bool retn_seen) {
 
 // ── Auto-mapping ──────────────────────────────────────────────────────
 
-void DivMmc::check_automap(uint16_t pc, bool is_m1) {
+void DivMmc::check_automap(uint16_t pc, bool is_m1,
+                           bool sram_pre_override_2,
+                           bool sram_pre_override_0) {
     if (!is_m1 || !enabled_) return;
 
     // VHDL divmmc.vhd:123-148 two-stage automap pipeline.
@@ -298,6 +300,32 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     bool delayed_match = false;
     bool off_match     = false;
 
+    // G46(b) — VHDL gate decomposition (zxnext.vhd:3137-3138 + divmmc.vhd:130,148).
+    //
+    //   i_automap_active      = sram_divmmc_automap_en
+    //                         = sram_pre_override(2)
+    //   i_automap_rom3_active = sram_divmmc_automap_rom3_en
+    //                         = sram_pre_override(2) AND sram_pre_override(0)
+    //                           AND (NOT sram_layer2_map_en)
+    //                           AND (NOT sram_romcs)                  -- false in jnext
+    //                           AND ((sram_altrom_en AND sram_pre_alt_128_n) OR
+    //                                (sram_pre_rom3 AND NOT sram_altrom_en))
+    //
+    // The two gates control which entry-point bucket fires. Without them,
+    // jnext was firing the ROM3 path during NextZXOS supervisor's
+    // config_mode window (where VHDL would force pre_override(0)=0 →
+    // ROM3-path blocked), causing the periodic boot loop tracked as G46(b).
+    //
+    // Note: jnext currently models the altrom branch as `rom3_active_`
+    // alone (the boot path keeps NR 0x8C bit 7 clear, so altrom_en=0 and
+    // the second clause `(rom3_sel AND !altrom_en) = rom3_sel` holds —
+    // matching the VHDL at zxnext.vhd:3138 for that path). Full altrom
+    // modelling can be added when an altrom-locked test case demands it.
+    const bool main_path_eligible = sram_pre_override_2;
+    const bool rom3_path_eligible =
+        sram_pre_override_2 && sram_pre_override_0 &&
+        !layer2_map_read_ && rom3_active_;
+
     static constexpr uint16_t rst_addrs[8] = {
         0x0000, 0x0008, 0x0010, 0x0018, 0x0020, 0x0028, 0x0030, 0x0038
     };
@@ -305,14 +333,16 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
         if ((entry_points_0_ & (1 << i)) && pc == rst_addrs[i]) {
             const bool valid = (entry_valid_0_ & (1 << i)) != 0;
             const bool instant = (entry_timing_0_ & (1 << i)) != 0;
-            // Main path fires unconditionally when valid=1; ROM3 path fires
-            // only when ROM3 is the selected ROM (VHDL divmmc.vhd:130,148
-            // gates i_automap_rom3_* on i_automap_rom3_active) AND when
-            // Layer 2 is NOT read-mapped at 0x0000-0x3FFF (VHDL zxnext.vhd:
-            // 3138 — sram_divmmc_automap_rom3_en factors in
-            // NOT sram_layer2_map_en; the L2 read overlay owns that region
-            // when active). The main path is unaffected by L2 read-map.
-            if (valid || (rom3_active_ && !layer2_map_read_)) {
+            // VHDL zxnext.vhd:2898-2902 splits each RST trap onto either
+            // the main path (`divmmc_automap_*_on`) when its valid bit is
+            // set, or the ROM3-conditional path
+            // (`divmmc_automap_rom3_*_on`) when valid=0. Each path has its
+            // own input gate in the divmmc entity (divmmc.vhd:130,148):
+            //   main : i_automap_active      = sram_pre_override(2)
+            //   rom3 : i_automap_rom3_active = full rom3_en composite
+            const bool path_eligible = valid ? main_path_eligible
+                                             : rom3_path_eligible;
+            if (path_eligible) {
                 if (instant) instant_match = true;
                 else         delayed_match = true;
             }
@@ -324,7 +354,7 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
     // documented in zxnext.vhd around :2892-2905. NMI@0x0066 uses
     // automap_nmi_instant_on (Task 8 scope, main path). Tape traps at
     // 0x04C6/0x0562/0x04D7/0x056A use rom3_delayed_on (ROM3 only).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066 && button_nmi_) {
+    if ((entry_points_1_ & 0x02) && pc == 0x0066 && button_nmi_ && main_path_eligible) {
         // NMI instant-on. VHDL divmmc.vhd:120 gates automap_nmi_instant_on
         // on the latched `button_nmi` signal — the automap only fires on
         // a PC=0x0066 fetch when the NMI-button has actually been pressed.
@@ -335,17 +365,29 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1) {
         // spurious automap activation on any ordinary control-flow path
         // that happens to reach 0x0066 (e.g. enNextZX.rom subroutines).
         instant_match = true;
-    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_active_ && !layer2_map_read_) {
-        // ROM3-only tape trap — VHDL zxnext.vhd:3138 gates on NOT sram_layer2_map_en.
+    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_path_eligible) {
+        // ROM3-only tape trap — VHDL zxnext.vhd:3138 gates on the full
+        // sram_divmmc_automap_rom3_en composite (pre_override(2)+(0) +
+        // !layer2_map + ROM3 selector).
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_active_ && !layer2_map_read_) {
+    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_path_eligible) {
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_active_ && !layer2_map_read_) {
+    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_path_eligible) {
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_active_ && !layer2_map_read_) {
+    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_path_eligible) {
         delayed_match = true;
-    } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF) {
+    } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
+               && main_path_eligible) {
         // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
+        // VHDL line 131:
+        //   automap_hold <= ... OR (automap_held AND NOT
+        //                           (i_automap_active AND i_automap_delayed_off))
+        // — the off-fire term IS gated by `i_automap_active`
+        // (= sram_divmmc_automap_en = sram_pre_override(2)). When
+        // pre_override(2)=0 (the only realistic case is mf_mem_en=1,
+        // since the DivMMC overlay itself does NOT zero pre_override(2)
+        // — overlay arbitration happens later at VHDL :3081), the held
+        // latch propagates rather than dropping. Gate match accordingly.
         off_match = true;
     }
 

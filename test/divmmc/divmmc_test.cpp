@@ -2664,6 +2664,150 @@ void group_in() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// §18. G46(b) — sram_pre_override priority arbiter gates
+// VHDL: zxnext.vhd:3029-3066, 3137-3138 + divmmc.vhd:130,148
+// ══════════════════════════════════════════════════════════════════════
+//
+// The DivMmc::check_automap pass-through args sram_pre_override_2 and
+// sram_pre_override_0 model the VHDL priority-arbiter bits that gate
+// `i_automap_active` and `i_automap_rom3_active`. Production callers
+// (Emulator) compute them per-M1 from Mmu::sram_pre_override_*; tests
+// here exercise the gates directly.
+
+void group_po() {
+    set_group("18. PriOverride G46(b)");
+
+    // PO-01: main path requires sram_pre_override(2). NR_B9 valid=1 RST
+    // entry must NOT fire when pre_override(2)=0 (= CPU access outside
+    // slot 0/1, OR Multiface owns the window). VHDL zxnext.vhd:3137 +
+    // divmmc.vhd:148.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);          // RST 0x00
+        d.set_entry_valid_0(0x01);           // main path
+        d.set_entry_timing_0(0xFF);
+        d.check_automap(0x0000, true,
+                        /*pre_override_2=*/false,
+                        /*pre_override_0=*/false);
+        check("PO-01",
+              "Main path blocked when sram_pre_override(2)=0 "
+              "(VHDL zxnext.vhd:3137)",
+              !d.automap_active(),
+              fmt("active=%d", d.automap_active()));
+    }
+
+    // PO-02: ROM3 path requires sram_pre_override(0). NR_B9 valid=0 RST
+    // entry with rom3_active=1 must NOT fire when pre_override(0)=0
+    // (= config_mode active OR effective page < 0xE0 OR MF active).
+    // VHDL zxnext.vhd:3138.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x02);          // RST 0x08
+        d.set_entry_valid_0(0x00);           // ROM3 path
+        d.set_entry_timing_0(0xFF);
+        d.set_rom3_active(true);
+        d.check_automap(0x0008, true,
+                        /*pre_override_2=*/true,
+                        /*pre_override_0=*/false);
+        check("PO-02",
+              "ROM3 path blocked when sram_pre_override(0)=0 "
+              "(VHDL zxnext.vhd:3138)",
+              !d.automap_active(),
+              fmt("active=%d", d.automap_active()));
+    }
+
+    // PO-03: both gates open + valid=1 → main path fires. Sanity check
+    // the new gates don't break the happy path.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);          // RST 0x00
+        d.set_entry_valid_0(0x01);           // main path
+        d.set_entry_timing_0(0xFF);
+        d.check_automap(0x0000, true,
+                        /*pre_override_2=*/true,
+                        /*pre_override_0=*/true);
+        check("PO-03",
+              "Main path fires when sram_pre_override(2)=1 "
+              "(VHDL zxnext.vhd:3137)",
+              d.automap_active(),
+              fmt("active=%d", d.automap_active()));
+    }
+
+    // PO-04: both gates open + valid=0 + rom3_active=1 → ROM3 path fires.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x02);          // RST 0x08
+        d.set_entry_valid_0(0x00);           // ROM3 path
+        d.set_entry_timing_0(0xFF);
+        d.set_rom3_active(true);
+        d.check_automap(0x0008, true,
+                        /*pre_override_2=*/true,
+                        /*pre_override_0=*/true);
+        check("PO-04",
+              "ROM3 path fires when full sram_divmmc_automap_rom3_en "
+              "composite is high (VHDL zxnext.vhd:3138)",
+              d.automap_active(),
+              fmt("active=%d", d.automap_active()));
+    }
+
+    // PO-05: defaults preserve back-compat — calling check_automap(pc,
+    // is_m1) without the new args fires the same as before (= both gates
+    // implicitly true). Guards against silent regression in tests that
+    // construct a bare DivMmc.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);
+        d.set_entry_valid_0(0x01);
+        d.set_entry_timing_0(0xFF);
+        d.check_automap(0x0000, true);       // no override args
+        check("PO-05",
+              "check_automap default args fire main path (back-compat)",
+              d.automap_active(),
+              fmt("active=%d", d.automap_active()));
+    }
+
+    // PO-06: off trigger (NR_BB bit 6, PC in 0x1FF8-0x1FFF) IS gated by
+    // sram_pre_override(2). VHDL divmmc.vhd:131:
+    //   automap_hold <= ... OR (automap_held AND NOT
+    //                           (i_automap_active AND i_automap_delayed_off))
+    // The off-fire term ANDs `i_automap_active` (= pre_override(2)) with
+    // `i_automap_delayed_off`. So when pre_override(2)=0, the held latch
+    // PROPAGATES instead of dropping. Realistic case: Multiface owns
+    // slot 0/1 (mf_mem_en=1) at the moment the CPU happens to fetch from
+    // 0x1FF8-0x1FFF — VHDL keeps DivMMC AUTOMAP held; jnext must too.
+    //
+    // Two-stimulus discriminative test: identical setup, only differing
+    // in pre_override(2) at the off-trigger fetch.
+    {
+        // Sub-case A: pre_override(2)=1 at off trigger → AUTOMAP drops.
+        DivMmc dA = make_divmmc();
+        dA.set_entry_points_0(0x01);
+        dA.set_entry_valid_0(0x01);
+        dA.set_entry_timing_0(0xFF);
+        dA.check_automap(0x0000, true, /*po2=*/true, /*po0=*/true);
+        dA.check_automap(0x1FF8, true, /*po2=*/true, /*po0=*/true);
+        dA.check_automap(0x0003, true, /*po2=*/true, /*po0=*/true);
+
+        // Sub-case B: pre_override(2)=0 at off trigger → AUTOMAP held.
+        DivMmc dB = make_divmmc();
+        dB.set_entry_points_0(0x01);
+        dB.set_entry_valid_0(0x01);
+        dB.set_entry_timing_0(0xFF);
+        dB.check_automap(0x0000, true, /*po2=*/true, /*po0=*/true);
+        dB.check_automap(0x1FF8, true, /*po2=*/false, /*po0=*/false);
+        dB.check_automap(0x0003, true, /*po2=*/true, /*po0=*/true);
+
+        const bool ok = !dA.automap_active() && dB.automap_active();
+        check("PO-06",
+              "Off trigger gated by pre_override(2) — held propagates "
+              "when MF owns slot 0/1 (VHDL divmmc.vhd:131)",
+              ok,
+              fmt("po2=1 active=%d po2=0 active=%d",
+                  dA.automap_active(), dB.automap_active()));
+    }
+}
+
 }  // namespace
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -2689,6 +2833,7 @@ int main() {
     group_ml();  std::printf("  §15 MISO latch           done\n");
     group_mx();  std::printf("  §16 MISO mux             done\n");
     group_in();  std::printf("  §17 Integration          done\n");
+    group_po();  std::printf("  §18 PriOverride G46(b)   done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

@@ -57,6 +57,74 @@ public:
     }
     bool is_slot_rom(int slot) const { return read_only_[slot]; }
 
+    // ── G46(b) — VHDL `sram_pre_override` priority arbiter ─────────────
+    //
+    // Models the per-MREQ priority arbiter at zxnext.vhd:3029-3066. The
+    // 3-bit `sram_pre_override` value is bit-encoded `divmmc & layer2 &
+    // romcs`; it gates which overlay wins for the current CPU access.
+    //
+    // jnext only needs the two bits consumed by the DivMMC AUTOMAP path:
+    //   bit 2 → fed into `sram_divmmc_automap_en` (zxnext.vhd:3137); the
+    //           sole gate on the main automap path (`i_automap_active`).
+    //   bit 0 → factor in `sram_divmmc_automap_rom3_en` (zxnext.vhd:3138);
+    //           required for the ROM3-conditional automap path (the path
+    //           taken by RST traps when NR_B9=$00, which is the standard
+    //           NextZXOS supervisor configuration).
+    //
+    // Returns `mmu_A21_A13(8)`-like "page is in the ROM range" gate —
+    // VHDL formula `("0001" + page(7:5))(3)` is true iff the logical
+    // MMU page (0..255) is >= 0xE0.
+    //
+    // Uses `get_page()` (= `nr_mmu_[slot]`) directly rather than
+    // `get_effective_page()` because VHDL's `mem_active_page` is the
+    // logical MMU register value, NOT the physical SRAM page that
+    // `slots_[]` tracks. After legacy port_7FFD/1FFD writes that don't
+    // hit the special-paging cases, VHDL leaves MMU0/1 at the 0xFF
+    // sentinel (see zxnext.vhd:4641-4646) — exactly what
+    // `nr_mmu_[slot]` holds in jnext. Only the NR 0x50-0x57 path and
+    // the port_1ffd_special / port_eff7 / profi-mode cases write a
+    // non-sentinel value into the MMU register.
+    //
+    // The arbiter at zxnext.vhd:3037 / :3061 uses `mmu_A21_A13(8)` to
+    // decide whether the slot is RAM-routed (bit=0) or ROM/floating-bus
+    // (bit=1); this helper returns the bit=1 condition.
+    bool slot_in_rom_area(int slot) const {
+        if (slot < 0 || slot > 7) return false;
+        return get_page(slot) >= 0xE0;
+    }
+
+    // VHDL `sram_pre_override(2)` — DivMMC overlay priority bit. Per
+    // zxnext.vhd:3029-3066, this is high whenever the CPU access is in
+    // slot 0 or 1 (cpu_a(15:14)="00") AND no Multiface override owns the
+    // window (mf_mem_en=0). All four sub-branches of the slot-0/1 case
+    // (MF=1 → "000"; mmu_A21_A13(8)=0 → "110"; config_mode → "110";
+    // else → "111") set bit 2 according to that single rule.
+    bool sram_pre_override_divmmc_eligible(uint16_t pc, bool mf_active) const {
+        if (pc >= 0x4000) return false;   // VHDL :3029 — must be slot 0/1
+        if (mf_active)   return false;    // VHDL :3030 — MF wins, override="000"
+        return true;                      // VHDL :3037,3044,3051 — bit 2 high
+    }
+
+    // VHDL `sram_pre_override(0)` — ROMCS priority bit. Per
+    // zxnext.vhd:3057, only the "normal ROM mode" final-else branch sets
+    // bit 0 high. That branch is taken iff:
+    //   * cpu_a(15:14)="00"        (slot 0/1)
+    //   * mf_mem_en=0              (no MF)
+    //   * mmu_A21_A13(8)=1         (effective page >= 0xE0 → ROM area)
+    //   * nr_03_config_mode=0      (config_mode is OFF)
+    // Used in the ROM3-conditional AUTOMAP gate (zxnext.vhd:3138) to
+    // suppress the AUTOMAP fire when the supervisor is in config_mode
+    // (i.e. routing slot 0/1 to RAM via NR 0x04) — which was the missing
+    // gate in jnext that caused the G46(b) NextZXOS boot loop.
+    bool sram_pre_override_romcs_priority(uint16_t pc, bool mf_active,
+                                          bool nr_03_config_mode_v) const {
+        if (!sram_pre_override_divmmc_eligible(pc, mf_active)) return false;
+        const int slot = pc >> 13;
+        if (!slot_in_rom_area(slot)) return false;   // VHDL :3037 → "110"
+        if (nr_03_config_mode_v)     return false;   // VHDL :3044 → "110"
+        return true;                                 // VHDL :3057 → "111"
+    }
+
     // Boot ROM overlay — highest priority at 0x0000-0x3FFF when enabled.
     // Matches VHDL bootrom_en signal: enabled at power-on, disabled by NextREG 0x03.
     //
