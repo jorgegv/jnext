@@ -1,0 +1,260 @@
+; ============================================================================
+; CSpect debug script — G46(b) NextZXOS supervisor entry state dump
+;
+; HOW TO USE:
+;   1. Boot NextZXOS in CSpect normally (TBBlue splash → press SPACEBAR or wait)
+;   2. Open the CSpect debugger (F1 by default)
+;   3. Either:
+;      a) Paste the commands below one block at a time, OR
+;      b) Load this file via the debugger's script-load command if available
+;   4. Save the debugger output (right-click → "Save log" or copy/paste to file)
+;   5. Send the output back so I can seed --bypass-tbblue-fw post-handoff init
+;
+; CSpect debugger commands used here (v2.x reference):
+;   bp <addr>     — set breakpoint
+;   bp on <addr>  — alternate syntax
+;   g             — go (continue execution)
+;   r             — show all Z80 registers + flags
+;   m <addr> <n>  — memory dump, n bytes from <addr>
+;   nr            — dump current NextReg state (or `nr <reg>` for one)
+;   ?             — help
+;
+; If your version uses different commands, the equivalents are usually:
+;   "bp 00EF"  →  breakpoint at PC=0x00EF
+;   "m 5B00 256"  →  dump 256 bytes from $5B00
+;   register dump and NR dump are usually visible in dedicated windows you
+;   can screenshot.
+; ============================================================================
+
+
+; ----------------------------------------------------------------------------
+; STEP 1 — set breakpoint at supervisor entry $00EF
+; ----------------------------------------------------------------------------
+bp 00EF
+
+
+; ----------------------------------------------------------------------------
+; STEP 2 — restart the machine and let it run until BP fires
+; (do this manually in CSpect: hard reset / restart, then "g" to continue)
+; ----------------------------------------------------------------------------
+g
+
+
+; ============================================================================
+; STEP 3 — when BP fires at PC=$00EF (FIRST HIT), run the commands below.
+; Save the entire debugger output buffer / scrollback before continuing.
+; ============================================================================
+
+
+; --- 3a. Z80 register file ---
+; Shows AF, BC, DE, HL, IX, IY, SP, AF', BC', DE', HL', PC, I, R, IM, IFF1/2
+r
+
+
+; --- 3b. Full NextReg dump ---
+; CSpect has a NextReg window — screenshot it OR list each register:
+nr 00
+nr 01
+nr 02
+nr 03
+nr 04
+nr 05
+nr 06
+nr 07
+nr 08
+nr 09
+nr 0A
+nr 0B
+nr 10
+nr 12
+nr 13
+nr 14
+nr 15
+nr 16
+nr 17
+nr 18
+nr 19
+nr 1A
+nr 1B
+nr 1C
+nr 1E
+nr 1F
+nr 22
+nr 23
+nr 26
+nr 27
+nr 30
+nr 31
+nr 32
+nr 33
+nr 35
+nr 36
+nr 37
+nr 38
+nr 39
+nr 40
+nr 41
+nr 42
+nr 43
+nr 44
+nr 4A
+nr 4B
+nr 4C
+nr 50
+nr 51
+nr 52
+nr 53
+nr 54
+nr 55
+nr 56
+nr 57
+nr 5A
+nr 5B
+nr 5C
+nr 60
+nr 61
+nr 62
+nr 63
+nr 64
+nr 68
+nr 69
+nr 6A
+nr 6B
+nr 6C
+nr 6E
+nr 6F
+nr 70
+nr 71
+nr 75
+nr 76
+nr 77
+nr 78
+nr 79
+nr 7F
+nr 80
+nr 81
+nr 82
+nr 83
+nr 84
+nr 85
+nr 86
+nr 87
+nr 88
+nr 89
+nr 8A
+nr 8C
+nr 8E
+nr 8F
+nr 90
+nr 91
+nr 92
+nr 93
+nr 98
+nr 99
+nr 9A
+nr 9B
+nr A0
+nr A2
+nr A8
+nr A9
+nr B8
+nr B9
+nr BA
+nr BB
+nr C0
+nr C2
+nr C3
+nr C4
+nr C5
+nr C6
+nr C8
+nr C9
+nr CA
+nr CC
+nr CD
+nr CE
+nr D8
+nr D9
+nr DA
+
+
+; --- 3c. NextZXOS sysvar block at $5B00..$5BFF (256 bytes) ---
+; Critical: $5B69 (last RAM-test bank), $5B8A/$5B8E (wrapper save area)
+m 5B00 256
+
+
+; --- 3d. Canonical ZX-system sysvar block at $5C00..$5CFF (256 bytes) ---
+; Critical: $5C36 (CURCHL), $5C38, $5C3A (= IY base), $5C4F, $5C51 (CHANS),
+; $5C7B (STKBOT), $5C7F (machine cfg), $5CB2 (E_LINE), $5CB4
+m 5C00 256
+
+
+; --- 3e. Stack snapshot — 64 bytes around SP ---
+; Hard-coded for typical post-init SP=$5BFF; if your SP differs, adjust.
+; If your CSpect supports register-relative dumps:
+;     m sp-16 64
+; otherwise use the literal address from `r` output above.
+m 5BE0 64
+
+
+; --- 3f. Slot 7 high half ($E000..$FFFF, 8 KB) ---
+; This depends on which bank NR_57 maps at this moment. Captures whatever's
+; visible to the supervisor right now.
+m E000 2048
+m E800 2048
+m F000 2048
+m F800 2048
+
+
+; --- 3g. (OPTIONAL) Slot 5 area $A000..$A150 ---
+; The supervisor's sprite buffer build site. Captures what's there at
+; supervisor entry (likely zero / random pre-init state).
+m A000 336
+
+
+; --- 3h. (OPTIONAL) Page 0x30 contents at $E000-$E100 if NR_57=$10 ---
+; This is the page our jnext reads as zeros and that drives the bank-2
+; sprite-iterator at $0EAD to compute IX. If CSpect has non-zero data
+; here, this is the smoking gun.
+; Already captured by 3f above unless NR_57 changes.
+
+
+; ============================================================================
+; STEP 4 — (OPTIONAL) capture the SECOND $00EF hit
+; ----------------------------------------------------------------------------
+; Our jnext trace shows 657 $00EF hits — supervisor re-enters $00EF
+; periodically. The SECOND hit's state (compared to the FIRST) tells us
+; what changed during the first iteration. If you have time:
+;   1. After saving the FIRST-hit dump, type:  g
+;   2. When the BP fires AGAIN, repeat ALL of step 3 (r + nr + m blocks).
+;   3. Save the second dump separately.
+;
+; ============================================================================
+
+
+; ============================================================================
+; STEP 5 — disable BP and resume normal boot (welcome screen should render)
+; ============================================================================
+bp off 00EF
+g
+
+
+; ============================================================================
+; FORMAT NOTES
+; ----------------------------------------------------------------------------
+; If your CSpect doesn't accept this exact syntax, the commands you need are
+; semantically:
+;   - "set breakpoint at 0x00EF, fire on first hit"
+;   - "show all Z80 registers including alt set + IX + IY + SP + I + R + IM"
+;   - "dump 256 bytes from 0x5B00"
+;   - "dump 256 bytes from 0x5C00"
+;   - "dump 64 bytes from SP-16"  (or from address shown in `r`)
+;   - "dump 8192 bytes from 0xE000"
+;   - "dump all 256 NextReg values" (NR 0x00..0xFF)
+;
+; If a wholesale "dump all NR" command is available (e.g. nrdump, nx, allnr),
+; replace the long `nr 00 ... nr DA` list with that single command.
+;
+; If memory-dump is interactive and shows hex+ASCII like CSpect's default,
+; that's perfect — just copy the scrollback and send.
+; ============================================================================
