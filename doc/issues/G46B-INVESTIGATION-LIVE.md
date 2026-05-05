@@ -1252,3 +1252,967 @@ But slot 0 is ROM. The $BB write is discarded.
 
 **This suggests a fundamental hardware behaviour we're not modelling**: maybe ROM-in-SRAM writes ARE allowed in this configuration, populating SRAM that doubles as the RAM-test marker. Need to research VHDL behaviour.
 
+
+### 2026-05-05 14:00 — VHDL ROM-in-SRAM write semantics VERIFIED + RAM-test hypothesis REFUTED
+
+**Verification done per user request.**
+
+#### VHDL writeback semantics (zxnext.vhd:3010-3132)
+
+`sram_pre_rdonly` is the read-only flag for the early-decode SRAM controller. For slot 0 (`cpu_a(15:14) = "00"`), the rule is:
+
+```vhdl
+if mf_mem_en = '1' then
+   sram_pre_rdonly <= not cpu_a(13);          -- MF: $0000-$1FFF read-only
+elsif mmu_A21_A13(8) = '0' then
+   sram_pre_rdonly <= '0';                     -- regular MMU mapping → WRITES OK
+elsif nr_03_config_mode = '1' then
+   sram_pre_rdonly <= '0';                     -- config mode → WRITES OK
+else
+   sram_pre_rdonly <= not (nr_8c_altrom_en
+                           and nr_8c_altrom_rw); -- ROM-in-SRAM: rdonly
+                                                  -- unless AltROM-rw mode
+end if;
+```
+
+For slots 2..7 (`cpu_a(15:14) ≠ "00"`), at line 3060:
+```vhdl
+sram_pre_rdonly <= '0';   -- ALL slots 2..7 always writable
+                          -- (subject to mmu_A21_A13(8) gate)
+```
+
+`mmu_A21_A13` formula (zxnext.vhd:2964):
+```vhdl
+mmu_A21_A13 <= ("0001" + ('0' & mem_active_page(7:5))) & mem_active_page(4:0)
+```
+
+So `mmu_A21_A13(8) = '1'` iff `mem_active_page(7:5) = "111"` i.e. logical page ≥ 0xE0. With NR_50=0xFF default → mmu_A21_A13(8)=1 → goes to `sram_pre_rdonly = NOT (altrom_en AND altrom_rw)` clause → rdonly=1 (with default AltROM off) → writes to slot 0 dropped.
+
+For slot 7 with NR_57 ≤ 0xDF (any RAM page), `mmu_A21_A13(8)=0` → `sram_pre_active = '1'` AND `sram_pre_rdonly = '0'` → **writes to slot 7 always succeed** (modulo bank5/bank7 special cases).
+
+#### Re-reading the supervisor RAM-test PASS 1 inner loop
+
+```asm
+$0136 ld a, c       ; main bank, A = c
+$0137 exx           ; → alt bank
+$0138 add a         ; alt A = c*2
+$0139 nextreg $56, a
+$013c inc a
+$013d nextreg $57, a (= c*2 + 1)
+$0140 srl a
+$0142 ld hl, $ffff   ; alt HL = $ffff
+$0145 ex af, af'
+$0146 ld a, (hl)     ; read slot 7 $ffff (alt bank)
+$0147 exx            ; → main bank
+$0148 ld (hl), a     ; main HL = $4000 (set at $0133), write A to $4000
+$0149 ld a, c        ; main A = c
+$014a cp $0c
+$014c jr nc, $0150
+$014e ld (hl), $00   ; main HL = $4000 still, write 0 to $4000
+$0150 inc hl         ; main HL = $4001
+$0151 exx            ; → alt bank, alt HL = $ffff (from $0142)
+$0152 ex af, af'
+$0153 ld (hl), $bb   ; *** writes $BB to alt-HL = $ffff (slot 7!) ***
+                     ; NOT slot 0 as I earlier mis-read.
+$0155 dec hl         ; alt HL = $fffe
+... LDDR continues filling slot 6+7 with 0 ...
+```
+
+So `$0153` writes `$BB` to **slot 7 `$FFFF`** (alt-bank HL=$ffff, NR_57 = c*2+1). The page mapped is regular RAM (per `mmu_A21_A13(8)='0'` for NR_57 < 0xE0). **The write succeeds.**
+
+#### Empirical verification: instrumented `($5B69)` reads
+
+Added a diagnostic at PC=$01CE/$2341/$20E6 that logs the byte at sysvar $5B69 (the canonical "last RAM-test bank tested" stash):
+
+```
+[cpu] [info] RAMTEST PC=0x01ce ($5B69)=0x00  (last RAM-test bank stored)
+[cpu] [info] RAMTEST PC=0x2341 ($5B69)=0x6f  (last RAM-test bank stored)
+[cpu] [info] RAMTEST PC=0x20e6 ($5B69)=0x6f  (last RAM-test bank stored)
+```
+
+`($5B69) = 0x6F` after RAM-test = 111 banks tested = **full PASS 2 completion**. The PC=$01CE log shows 0x00 because that's the value BEFORE the store at $01CE itself — the supervisor's pre-store read.
+
+So:
+- The RAM-test `$BB` marker IS placed (in slot 7, at PC=$0153)
+- PASS 2 completes all 111 banks
+- $5B69 has the same value our jnext + CSpect would both produce (= ROM-side state)
+
+#### Therefore the divergence is NOT in $5B69
+
+My earlier hypothesis "PASS 2 exits early because $BB write hits read-only slot 0" was a misreading of the disasm. The write hits slot 7 (which is writable in normal NR_57 mapping). The RAM-test runs to completion. CSpect would compute the same $5B69 = $6F.
+
+**The ACTUAL upstream divergence remains to be identified.** Most plausible remaining candidates from Agent 1's analysis:
+1. `($5C7F)` 4-bit machine cfg — set by ?
+2. NR 0x06 read returning different value (early)
+3. Some other sysvar set by specific code path
+
+The `$2341 → $2383 RST 20 → bank-2 $01BD JP $0E9F` route is taken on our jnext but evidently NOT on CSpect. Need to trace what conditional branch chooses dispatcher-mode vs sprite-mode print path. Most likely culprit: a NR or sysvar read whose value diverges.
+
+
+### 2026-05-05 14:30 — Force-IX experiment + ZEsarUX agent + investigation conclusion
+
+#### Experiment: force IX=$F700 + NR_57=$10 at first $1800 hit
+
+Added `JNEXT_G46B_FORCE_IX` env var that, when set, patches IX=$F700 + NR_57=$10 at the first ~16 hits of PC=$1800 (print routine entry). Combined with the `--bypass-tbblue-fw` page 0x30 pre-load (CSpect-captured data).
+
+**Result: BREAKTHROUGH but partial.** Bypass mode escapes the dispatcher loop on the first $1800 hit (vs ~119 hits per loop iteration before). Only **1 FORCE_IX** event fires in 8 seconds — supervisor advances and goes idle. Partial UI render visible: "RED" text + sprite-icons in top-left of screen. But full welcome screen does NOT render.
+
+Conclusion: IX divergence is the proximate cause of the loop, BUT downstream divergences (likely more bad page references, possibly with NR_57 ≠ $10 paths) prevent full render. Force-IX alone isn't sufficient.
+
+#### ZEsarUX vs jnext compare agent — final findings
+
+Agent report at `doc/issues/G46B-AGENT-ZESARUX.md`. Cross-referenced ZEsarUX's NextZXOS support against jnext.
+
+Key conclusions:
+
+1. **No analogous bypass mode exists** in ZEsarUX. Its `--tbblue-fast-boot-mode` is "boot 48K BASIC fallback", NOT a NextZXOS supervisor bypass. **CSpect, ZEsarUX, and real Next hardware ALL run the actual `tbblue.fw` firmware**. There is no upstream template for our `--bypass-tbblue-fw` approach.
+
+2. **MMU semantics are functionally equivalent.** ZEsarUX's compact form vs jnext's `to_sram_page` produce the same effective mappings. The +0x20 shift is implemented (in different ways).
+
+3. **`to_sram_page` exception for pages 0x0A/0x0B/0x0E IS CORRECT but was under-documented.** These pages co-locate jnext's physical SRAM with the dual-port VRAM area accessed by the ULA. Without the exception, CPU writes to slot 6/7 with NR_56/NR_57 = 0x0A/0x0B/0x0E would land in pages 0x2A/0x2B/0x2E while the ULA still fetches 0x0A/0x0B/0x0E — breaking screen updates. ZEsarUX uses a different design (separate Spectrum-bank memory + always-shift), but ours is VHDL-equivalent for observable CPU+ULA behaviour. **Documentation strengthened** in commit (mmu.h:786-820 now cites zxnext.vhd:2961-2962, 3060-3061 + ula.cpp:68).
+
+4. **Soft-reset FSM**: jnext is MORE VHDL-faithful than ZEsarUX (jnext models the `nr_02_reset_type` shift FSM, ZEsarUX returns the last-written byte). Our reset-tree audit (Agent 2) was correct.
+
+5. **AltROM, slot 0/1 writability, NR 0x8E**: all functionally equivalent.
+
+#### Final conclusion: bypass mode is fundamentally limited
+
+Per the agent's analysis, the only viable paths for NextZXOS welcome-screen rendering are:
+
+A. **Run the real `tbblue.fw`** (= what CSpect/ZEsarUX/real-Next do). Our current normal-boot mode reaches the TBBlue boot screen but doesn't render the welcome (per EOD memo). The fix is to debug the firmware-side execution to see what makes it stall during NextZXOS handoff.
+
+B. **Replicate ALL firmware-side SRAM state** in `--bypass-tbblue-fw`. The CSpect-captured `page30.raw` is one part. There are likely more pages + more state we'd need to capture and pre-load. Each piece is a fragile manual replication.
+
+**Recommended path forward**: pivot back to debugging the **firmware boot path** (non-bypass mode). The bypass-mode investigation has produced significant value (Fix #1 cherry-picked to main, supervisor's bank-flip wrapper RE'd, page 0x30 captured) but has hit a fundamental limitation. The architectural sweet spot is what real hardware does.
+
+#### State of g46b-investigation branch
+
+HEAD = current (after this commit). Includes:
+- `--bypass-tbblue-fw` CLI option + post-handoff init (12 NR writes + FSM strobe)
+- Page 0x30 pre-load (CSpect data)
+- `JNEXT_G46B_FORCE_IX` env-gated diagnostic (proves IX divergence is central)
+- 6 agent reports under `doc/issues/G46B-AGENT-*.md` (PATHCOMPARE, RESETSOFT, RESETSOFT-REVIEW, NRAUDIT, NRAUDIT-REVIEW, ZESARUX)
+- CSpect captures under `doc/issues/cspect-captures/`
+- Strengthened mmu.h:786-820 documentation citing VHDL line numbers
+
+Main is unchanged at `2d90ea1` (Fix #1 only). Cleanup of TEMP instrumentation deferred until G46(b) full closure.
+
+---
+
+## 2026-05-05 evening — Probes 1–4 (firmware-path internal-diff)
+
+Following yesterday's pivot recommendation, ran four probes to confirm whether
+the divergence vs CSpect originates internally (something jnext does that
+differs between bypass and firmware paths) or from external state (firmware-
+populated SRAM that CSpect/ZEsarUX have but jnext lacks).
+
+### Probe 1 — `cpu_inst` trace, bypass vs non-bypass at supervisor PCs
+
+8-second runs of both modes, full per-instruction trace, filtered to supervisor
+PCs `$00ef|$2043|$20e6|$2341|$1df3|$1800|$2730|$279d`. Logs at
+`/tmp/g46b-probe1-{bypass,nonbypass}-full.log`.
+
+**Result: bit-identical supervisor entry sequences in both modes.**
+
+| field at first `$20E6` hit | non-bypass | bypass |
+| --- | --- | --- |
+| `IX`               | `0xe01b` | `0xe01b` |
+| `SP`               | `0xff7f` | `0xff7f` |
+| `mmu[0..7]`        | `ff ff 0a 0b 04 05 0e 0f` | `ff ff 0a 0b 04 05 0e 0f` |
+| `nr_8c`            | `0x00` | `0x00` |
+| `rom_in_sram`      | `true` | `true` |
+| `cfg_mode`         | `false` | `false` |
+| `($5B69)` (RAMTEST)| `0x6f` | `0x6f` |
+
+Both paths converge to the SAME stall location with the SAME state.
+
+### Probe 2 — NR-write log diff (`nextreg=trace`)
+
+8-second runs both modes, captured every `NextREG write reg=… val=…`. Logs at
+`/tmp/g46b-probe2-{bypass,nonbypass}-nr.log` (147 K vs 80 K writes; 642 vs 554
+unique reg-val pairs).
+
+NRs written ONLY in non-bypass: `0x02 0x04 0x11 0x28 0x29 0x2a 0x2b 0x88` —
+all firmware-side init (RESET, ROM-bank load, video timing, keymap address +
+data, joy keymap + data, palette index 0). Bypass skips these because it skips
+firmware. None affect supervisor execution post-handoff.
+
+NRs written in BOTH but with diverging value sets: `0x03 0x05 0x06 0x08 0x0a
+0x40 0x80 0x83`. Inspection: all are firmware-init transients (machine type
+clear-then-set, peripheral 0xa0→0x80→0xa0, palette setup). Final values match.
+
+**No NR-write divergence post-supervisor-handoff.** Both paths leave the
+supervisor with equivalent NR state.
+
+### Probe 3 — `$5B6A` / `$5B8A` / `$5B8E` wrapper sysvars
+
+Added TEMP diagnostic (z80_cpu.cpp around line 539): on PC `$2738` and `$27A3`,
+log `SP`, `($5B6A)`, `($5B8A)`, `($5B8E)`. Captures the supervisor↔user-mode
+context-switch state. Logs at `/tmp/g46b-probe3-{bypass,nonbypass}.log`.
+
+**Result: bit-identical wrapper rotation in both modes.**
+
+```
+WRAPPER PC=0x2738 sp=0xff4f ($5B6A)=0x5bff ($5B8A)=0x0000 ($5B8E)=0x00
+WRAPPER PC=0x27a3 sp=0x5bff ($5B6A)=0xff4f ($5B8A)=0x0504 ($5B8E)=0xff
+WRAPPER PC=0x2738 sp=0xff51 ($5B6A)=0x5bff ($5B8A)=0x0504 ($5B8E)=0xff
+WRAPPER PC=0x27a3 sp=0x5bff ($5B6A)=0xff51 ($5B8A)=0x0100 ($5B8E)=0xff
+```
+
+Identical across modes. Same wrapper depth, same SP rotation, same NR-pair
+saves. Confirms the wrapper itself works correctly and `$5B6A`-based stack
+context-switching is functioning.
+
+### Probe 4 — jnext vs ZEsarUX side-by-side
+
+The static-source ZEsarUX comparison agent already covered this question
+yesterday (`doc/issues/G46B-AGENT-ZESARUX.md`). Live ZRCP-trace side-by-side
+deferred — high setup cost, low marginal info given Probes 1–3 conclusions.
+
+ZEsarUX runs the real `tbblue.fw` (no bypass mode). MMU/AltROM/NR-handler
+semantics are functionally equivalent to jnext. The only structural divergence
+flagged was the `to_sram_page` exception at mmu.h:798 — already audited as
+correct + documentation strengthened (commit `cb8fd2d`).
+
+### Synthesis
+
+Probes 1–3 confirm: **bypass and non-bypass modes produce bit-identical
+supervisor state at the loop entry.** This means:
+
+1. The supervisor's loop-trigger state (`IX=$e01b`, `SP=$ff7f`, `mmu=ff ff 0a
+   0b 04 05 0e 0f`) is determined by the supervisor itself, not by which boot
+   path led to it.
+2. Whatever fix unblocks one path will unblock the other simultaneously.
+3. The divergence vs CSpect therefore **cannot** come from anything visible in
+   internal jnext-only tracing — both paths are symmetric and both wrong.
+4. This points (still) at a peripheral / SRAM-state divergence that real
+   `tbblue.fw` writes during boot but jnext's bypass-init synthesis misses,
+   AND that the non-bypass firmware execution doesn't reach (because something
+   else stalls firmware before it gets there).
+
+### Concrete actionable next step
+
+Per the bypass-init in `emulator.cpp:3791-3814`, NRs `0x50–0x57` are NOT pre-set
+— they stay at `RESET_PAGES = {0xff, 0xff, 0x0a, 0x0b, 0x04, 0x05, 0x00, 0x01}`.
+But CSpect at `$20E6` has `NR_57=0x10` (page 0x30 mapped); jnext arrives with
+`NR_57=0x0F` (page 0x2F). The force-IX experiment confirmed forcing `NR_57=$10`
++ `IX=$F700` at first `$1800` produces partial UI render — proximate cause
+correct, but downstream divergences remain.
+
+**Highest-ROI follow-up for next session:**
+1. Trace what makes the firmware path (non-bypass) stall before NextZXOS
+   handoff. Both paths converge on the same stall, but firmware-path stall
+   happens at the same supervisor location *despite* having had real
+   `tbblue.fw` populate SRAM. Either:
+   - tbblue.fw never reaches the SRAM-population stage in jnext (a peripheral
+     or DivMMC bug stops it earlier), OR
+   - tbblue.fw does run, but jnext's bypass-init synthesis is missing the
+     post-firmware NR_55–NR_57 settings.
+2. Run a `cpu_inst` trace of non-bypass mode for the first ~5 seconds (= the
+   pre-`$00EF` window: bootloader → tbblue.fw → RESET_SOFT → supervisor
+   entry). See whether tbblue.fw's NR_55/NR_56/NR_57 writes happen in jnext
+   non-bypass mode. If they don't, that's the firmware-side stall.
+
+---
+
+## 2026-05-05 evening — Probe 5: NR_57 lifecycle + wrapper IN reads
+
+### Probe 5a — full NR-write trace (non-bypass, 10s)
+
+`/tmp/g46b-probe5-nb-nr.log` (11 MB, 169 K lines). 21 K NR_55/56/57 writes.
+
+**Firmware DOES write NR_55/56/57 in non-bypass.** Initial values:
+`NR_55=0x05, NR_56=0x00, NR_57=0x01` (twice — once during firmware setup,
+once at supervisor re-init).
+
+After supervisor takes over (~t=26s wall), a sequential **bank pair sweep**
+runs: `(NR_56, NR_57)` cycles `(0x00,0x01) → (0x02,0x03) → … → (0xDE,0xDF)`.
+Sweep is the supervisor RAM-test (PASS 1+2 per the existing live doc).
+
+After sweep ends at NR_57=0xDF, supervisor writes:
+```
+0x10, 0x01           ← wrapper rotation (set 0x10 → run body → restore 0x01)
+0x10, 0x01           ← second wrapper rotation
+0x11, 0x1f           ← brief transient
+0x01, 0x01, 0x01     ← three resets
+0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f   ← !!! six writes of 0x0F
+0x01, 0x03, 0x05, 0x07, …            ← second sweep starts
+```
+
+**The supervisor enters a re-entrant outer loop** that re-runs the RAM-test
+sweep periodically, with NR_57=0x0F as the operating value between sweeps.
+
+### Probe 5b — mmu state at first `$00EF` (supervisor handoff)
+
+Augmented PAGES diagnostic to also log live `mmu[0..7]`. First `$00EF` hit:
+
+```
+PAGES PC=0x00ef mmu[0..7]=ff ff 0a 0b 04 05 00 01  ...
+```
+
+That is RESET_PAGES exactly (per VHDL `zxnext.vhd:4611-4618`). **tbblue.fw
+hands off to the supervisor with NR_5x at default reset state — it does
+NOT pre-set anything special.**
+
+This confirms: the bypass-init synthesis is correct in leaving NR_5x at
+RESET_PAGES (matching real-firmware handoff). The divergence vs CSpect
+must be elsewhere.
+
+### Probe 5c — bypass-mode NR_57 trace tail (parallel-structure check)
+
+`/tmp/g46b-probe5-bypass-nr.log`. **Bit-identical** NR_57 sequence to
+non-bypass: same sweep, same wrapper rotation, same drift to 0x0F, same
+second sweep restart. Confirms (yet again) bypass and non-bypass produce
+identical supervisor execution.
+
+### Probe 5d — mmu[6]/mmu[7] at wrapper IN A,($253B) ($27e8 / $27f2)
+
+Added `WRAPPER_IN` diagnostic. Per loop iteration the wrapper is called 4
+times:
+
+```
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 1: NR_56 read
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x01   ← call 1: NR_57 read (live=0x01)
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 2 (repeats)
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x01
+WRAPPER_IN PC=0x27e8 mmu[6]=0x00 mmu[7]=0x01   ← call 3 (this is the
+WRAPPER_IN PC=0x27f2 mmu[6]=0x0b mmu[7]=0x01   ←   one that sets 0x10)
+WRAPPER_IN PC=0x27e8 mmu[6]=0x0b mmu[7]=0x10   ← call 4: live NR_57=0x10
+WRAPPER_IN PC=0x27f2 mmu[6]=0x00 mmu[7]=0x10
+```
+
+Fix #1 path is working: `Mmu::get_page(7)` returns the LIVE NR_57 (`0x01`
+or `0x10`), not the stale `regs_[0x57]`. The wrapper saves the correct
+old value to $5B8A and restores it on exit.
+
+**But the `$20E6` stall has mmu[7]=0x0F**, NOT 0x10. So `$20E6` is being
+run in a DIFFERENT code path (outside the bank-switched wrapper body)
+where NR_57 has been written to 0x0F. Per Probe 5a's NR_57 tail, six
+writes of `0x57=0x0F` happen between the wrapper rotations and the second
+sweep. **Identifying the supervisor PC that writes NR_57=0x0F (vs CSpect,
+which presumably writes 0x10 here) is the next concrete instrument.**
+
+### Probe 5 synthesis
+
+1. **Bypass-init NR-handoff state is correct** (matches real-firmware
+   handoff = RESET_PAGES). No fix needed there.
+2. **Fix #1 (NR 0x50–0x57 read handlers) is working correctly**. Wrapper
+   IN reads return live MMU values.
+3. **The wrapper bank-switch logic is correct**. Saves+restores NR_56/NR_57
+   pair faithfully.
+4. **The divergence is in WHICH supervisor code path runs at `$20E6`.**
+   On jnext, `$20E6` runs in the "between wrapper rotations" context with
+   NR_57=0x0F. On CSpect, `$20E6` runs in the wrapper-body context with
+   NR_57=0x10 — i.e., the supervisor's branch decision is different.
+5. **Six explicit writes of NR_57=0x0F** happen in the trace between the
+   wrapper rotations and the next sweep. These are the divergence-vs-CSpect
+   point. Likely PC range: somewhere in the supervisor's "operating mode"
+   code that runs after RAM-test settle and before re-entry.
+
+### Concrete next-session instrument
+
+Add a one-shot diagnostic that logs **PC + previous-PC** at every
+`NR_57=0x0F` write. That gives the supervisor instruction(s) that decide
+"map NR_57 to 0x0F" instead of "map to 0x10". Cross-reference with
+disassembly of `enNextZX.rom` to identify the conditional that branches
+differently between jnext and CSpect.
+
+Suspected root cause class: a peripheral or NR read that returns different
+values under different hardware states — the supervisor reads it, branches
+on it, and ends up at NR_57=0x0F instead of 0x10. Candidates:
+- NR 0x06 (peripheral 2) read paths
+- NR 0x83/0x85 (DECODE_INT1/3, DivMMC enable bits)
+- NR 0x8C (AltROM control)
+- Sysvar at $5B69 ($5B69=0x6F vs CSpect-unknown — but Probe 5b confirmed
+  jnext's value is plausible)
+- Memory read at some specific page that diverges (= what was originally
+  populated by tbblue.fw in CSpect but not by our bypass synthesis)
+
+---
+
+## 2026-05-05 evening — Probe 6: identify supervisor PC writing NR_57=0x0F
+
+Added `selected_nr` sniffer (tracks last NR selected via OUT $243B,N or
+NEXTREG opcodes) + pattern-match for NR_57=0x0F writes via NEXTREG-imm,
+NEXTREG-A, OUT(C),A/B/C/D/E/H/L, and OUT($253B),A.
+
+### Probe 6 findings
+
+Three distinct supervisor PCs write NR_57=0x0F via NEXTREG-A (`ED 92 57`,
+value from A register):
+
+```
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x013d  mmu[0..7]=ff ff 0a 0b 04 05 0e 0d
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x019a  mmu[0..7]=ff ff 0a 0b 04 05 0e 0d
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x008e  mmu[0..7]=ff ff 0a 0b 04 05 0e 0?  ×6
+```
+
+**`$013D` and `$019A` are RAM-test sweep iteration #7** (= bank 7, where
+`A = bank*2 = 0x0E`, `INC A` → `0x0F`, then `NEXTREG NR_57,A`):
+- bank 0 file `$0139-$0140`: `ED 92 56  3C  ED 92 57  CB 3F` =
+  `NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; SRL A` (PASS 1)
+- bank 0 file `$0197-$019D`: `87 ED 92 56 3C ED 92 57 CB 3F 08` =
+  `ADD A,A; NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; SRL A; EX AF,AF'` (PASS 2)
+
+Both are normal — once per RAM-test pass, A passes through 0x0F.
+
+**`$008E` is a RUNTIME-INSTALLED TRAMPOLINE** (5 bytes:
+`ED 92 57  F1  C9` = `NEXTREG NR_57,A; POP AF; RET`). The
+bytes at slot 0 `$008E` in physical RAM page 0 differ from the static
+enNextZX.rom file (file at `$008E` has `C3 48 5B` = `JP $5B48`) — the
+supervisor copies/synthesises this trampoline at boot.
+
+The trampoline is invoked via the self-paging push-continuation-then-call
+trick:
+```asm
+LD A, $0F           ; value to write
+PUSH $0082          ; continuation address
+CALL $008E          ; or JP via self-paging
+; helper:
+;   NEXTREG NR_57, A      ← writes NR_57 = 0x0F
+;   POP AF                ← discards retaddr-after-CALL
+;   RET                   ← jumps to $0082 (= continuation)
+```
+
+Probe 6e confirms: at every `$008E` hit, `tos0 = $0082` (constant
+continuation address). 6 sequential calls per supervisor iteration with
+ascending SP ($5C21 → $5C25 → ... → $5C35 = each call consumes 4 bytes).
+
+### What this means for the divergence vs CSpect
+
+PC=$008E is invoked **by design** by some supervisor sequence that wants
+slot 7 mapped to physical RAM page `to_sram_page(0x0F) = 0x0F` (passthrough
+exception — AltROM 1 upper). After 6 calls, NR_57 is `0x0F`. Then `$20E6`
+sprite-descriptor read fires while NR_57=0x0F, reading from AltROM 1
+upper instead of page 0x30 (sprite-descriptor area).
+
+**Two hypotheses for the divergence vs CSpect:**
+
+1. **CSpect's supervisor takes a DIFFERENT branch and never enters the
+   "NR_57=0x0F + jump to $0082" path.** Instead, it ends with NR_57=0x10
+   and jumps to a different continuation. The jnext path is incorrect
+   because some upstream condition diverges.
+2. **CSpect runs the same `$008E` trampoline + same continuation $0082**
+   but `$0082` itself produces different behaviour because slot 1 ($4000-
+   $5FFF) maps to a different physical page in CSpect than in jnext.
+
+Hypothesis 1 (different branch) is supported by yesterday's force-IX
+experiment: forcing IX=$F700 + NR_57=0x10 at first $1800 produces partial
+UI render. The supervisor can run the "correct" path with NR_57=0x10 and
+gets further.
+
+### Concrete next-session instrument
+
+Find the **CALLER** that pushes $0082 and CALLs $008E with A=$0F. With
+the cpu_inst PC-range gate currently excluding the RAM-test loops, the
+caller may be in the gated range — adjust the gate to include the
+relevant slot 0 / slot 1 PC ranges and re-run.
+
+Suggested approach:
+1. Adjust cpu_inst gate to also LOG `$0070-$00FF` and `$2700-$27FF`
+   (wrapper area).
+2. Re-run with cpu_inst trace + Probe 6e WRAPPER_IN — capture the 6-cycle
+   sequence:
+   `<caller_pc> → PUSH $0082 → CALL $008E → trampoline body → JP $0082 → <next_pc>`.
+3. Disassemble `<caller_pc>` to find the conditional that selected
+   "NR_57=0x0F + cont=$0082" instead of "NR_57=0x10 + cont=other".
+
+### Probe 6 status
+
+Instrumentation committed on `g46b-investigation` (TEMP — remove on full
+G46(b) closure).
+
+---
+
+## 2026-05-05 evening — Probe 7: caller of $008E + slot 0 runtime dump
+
+### Probe 7a — ring buffer of last N PCs
+
+Captures the 32-PC history before each `$008E` hit. Result is identical
+across all 6 hits per iteration:
+
+```
+ring (oldest→newest):
+3ce8 3ce9 3cea 3ceb 3cec 3ced 3cee 3cef 3cf0 3cf1 3cf2 3cf3
+3cf4 3cf5 3cf6 3cf7 3cf8 3cf9 3cfa 3cfb 3cfc 3cfd 3cfe 3cff
+3d00 0082 0083 0085 0089 008a 008d 008e
+```
+
+The supervisor runs 25 sequential PCs `$3CE8..$3D00` in slot 1, then
+"falls through" into slot 0 at `$0082`. The path `$0082→$0083→$0085→
+$0089→$008A→$008D→$008E` matches the runtime trampoline exactly:
+`PUSH AF (1) → LD A,$07 (2) → JR +2 (2) → ADD A,A (1) → NEXTREG NR_56,A
+(3) → INC A (1) → NEXTREG NR_57,A`.
+
+### Probe 7b — runtime bytes at $0080-$0095
+
+```
+$0080: 78 c9 f5 3e 07 18 02 f5 79 87 ed 92 56 3c ed 92
+$0090: 57 f1 c9 06 ff 4e ...
+```
+
+Decoded:
+- `$0080: LD A,B; RET` — short helper
+- `$0082: PUSH AF` ← entry to NR-pair-set helper
+- `$0083: LD A,$07` ← hardcoded constant!
+- `$0085: JR +2 → $0089`
+- `$0087: PUSH AF; LD A,C` (skipped via JR)
+- `$0089: ADD A,A → A=$0E`
+- `$008A: NEXTREG NR_56, A` (NR_56 = $0E)
+- `$008D: INC A → A=$0F`
+- `$008E: NEXTREG NR_57, A` (NR_57 = $0F)
+- `$0091: POP AF; RET`
+
+So `$0082` is a fixed-constant helper that always sets NR_56=$0E,
+NR_57=$0F. It is NOT a generic NR-pair setter — the constant `$07` is
+inlined.
+
+### Probe 7c — slot 0 $0000-$00FF runtime dump
+
+Slot 0 RAM at trigger time is **completely different** from the static
+`enNextZX.rom` bank 0 lower:
+
+| addr | static rom (bank 0 lower)              | runtime slot 0                          |
+|------|-----------------------------------------|------------------------------------------|
+| $0000 | `f3 c3 ef 00 45 44 09 02`             | `f3 c3 6a 00 44 56 09 02`               |
+| $0008 | `c3 3b 10 2a 2e 2a ff 00`             | `c3 12 05 e1 f5 c3 64 33`               |
+| $0010 | `ef 10 00 c9 c3 ef 00 00`             | `df 10 00 c9 3e 3a a7 c9`               |
+| $0020 | `c3 00 3e 14 00 04 98 00`             | `33 33 cd ce 00 c3 71 00`               |
+| $0030 | `c3 24 10 cd d7 04 77 c9`             | `d9 e3 d5 57 e5 c3 8d 01`               |
+| $0080 | `4e 23 46 23 e3 ed 8a 5b`             | `78 c9 f5 3e 07 18 02 f5`               |
+| $0090 | `5b f5 c5 01 fd 7f 3a 5c`             | `57 f1 c9 06 ff 4e 23 e5`               |
+
+Almost every byte is different. **The supervisor REWRITES the entire boot
+vector area at runtime** — building dispatch tables, RST handlers,
+trampolines, and the `$0082` NR-pair helper.
+
+### What this means
+
+The investigation can no longer rely on static disassembly of
+`enNextZX.rom`. The supervisor's actual code path at slot 0 is
+runtime-constructed and only visible by introspecting jnext's RAM at the
+moment of execution.
+
+### Hypothesis update
+
+The earlier hypothesis "CSpect calls a different trampoline with A=0x10"
+is too specific. A better framing: **the supervisor at slot 1 `$3CE8`
+runs through 25 sequential instructions then falls into a CONSTANT
+helper at `$0082` that ALWAYS sets NR_57=$0F**. This is hardcoded
+behaviour, not branch-dependent.
+
+So the divergence vs CSpect can NOT be "supervisor takes a different
+branch and chooses NR_57=$10". Instead it must be one of:
+
+1. **Slot 1 `$3CE8` contents differ between jnext and CSpect** — the 25
+   sequential instructions in slot 1 do something different (e.g., they
+   modify A or fall into a different continuation). Slot 1 contents are
+   themselves runtime-built; CSpect may build different bytes there.
+2. **The supervisor reaches `$0082` from a DIFFERENT slot 1 region in
+   CSpect** — e.g., CSpect's supervisor uses `$3DE8` or `$3CE8` with
+   different bytes that fall into a different helper.
+3. **The 6× call-pattern is intentional supervisor housekeeping with
+   NR_57=$0F as the correct operating state**, and the divergence is
+   PURELY in the bytes/state at SOME OTHER PC where CSpect would have
+   set NR_57=$10. The `$0082` helper is a red herring.
+
+### Recommended next-session probe
+
+Capture the runtime contents of slot 1 area `$3CE0-$3D10` AT the moment
+the supervisor enters that range (= dump on PC=$3CE8 first hit, before
+any subsequent bank-flip overwrites the visible bytes). The current
+Probe 7c dumps slot 1 AT `$008E`, which is too late — slot 1 has been
+re-mapped/cleared by then.
+
+Plan:
+1. Add diagnostic at PC == $3CE8 first hit: dump slot 1 `$2000-$3FFF`
+   contents into a `/tmp/g46b-slot1-at-3ce8.bin` file (8 KB).
+2. Run, capture, then disassemble offline with z88dk-dis using the
+   captured page as input.
+3. Cross-reference the disassembled `$3CE8` code with what should have
+   ended up there during boot. Compare against bank 0/1/2/3 upper
+   contents to identify which bank was last mapped before this point.
+
+This should reveal the actual code path leading into the `$0082` helper,
+and from there we can inspect the conditionals.
+
+---
+
+## 2026-05-05 evening — Probe 8: BREAKTHROUGH — slot 0 IS DivMMC firmware
+
+### Probe 8a — capture slot 0 + slot 1 + DivMMC state at PC=$3CE8 first hit
+
+Added diagnostic in `z80_cpu.cpp` that, on first hit of `pc==$3CE8`:
+- Dumps slot 0 (`$0000-$1FFF`) to `/tmp/g46b-slot0-at-3ce8.bin`
+- Dumps slot 1 (`$2000-$3FFF`) to `/tmp/g46b-slot1-at-3ce8.bin`
+- Dumps physical SRAM page 0 + page 1 (the seeded supervisor pages)
+- Logs DivMmc state, mmu[0..7], and the 32-PC ring buffer
+
+### Findings
+
+**Slot 0 at PC=$3CE8 first hit is 100% identical to `enNxtmmc.rom`** (the
+DivMMC firmware, 8 KB):
+
+```
+$ cmp /tmp/g46b-slot0-at-3ce8.bin /tmp/enNxtmmc.rom
+(no output — files are byte-for-byte identical)
+```
+
+**Slot 1 at PC=$3CE8 first hit is ALL ZEROS** except a single `c9` (RET)
+byte at offset `$1D00` (= PC `$3D00`):
+
+```
+slot1 ${0..1CFF}: 0x00 (8192 bytes minus 1 byte)
+slot1 $1D00: 0xC9
+slot1 ${1D01..1FFF}: 0x00
+```
+
+**Physical SRAM page 0 + page 1 ARE seeded with the supervisor binary**
+(bypass-init at `emulator.cpp:3580-3584` correctly memcpy's `rom_.page_ptr(p)
+→ ram_.page_ptr(p)` for p=0..7). The CPU just isn't reading from them.
+
+**DivMmc state at trigger:**
+```
+divmmc=[active=1 rom_mapped=1 conmem=0 automap=1 mapram=0]
+```
+
+→ DivMMC is **ACTIVE via AUTOMAP** (not CONMEM). Slot 0 reads from DivMMC
+ROM (enNxtmmc.rom), slot 1 reads from DivMMC RAM bank 0 (uninitialized
+= zeros).
+
+**mmu[0..7] = `ff ff 0a 0b 04 05 00 01`** → `RESET_PAGES` exactly. The
+nominal MMU register state is correct, but DivMMC overlay overrides it.
+
+### What this means
+
+The `$008E` trampoline that writes `NR_57=$0F` is **DivMMC firmware code**,
+NOT supervisor code. The trampoline at `$0082` (`PUSH AF; LD A,$07; JR +2;
+ADD A,A; NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; POP AF; RET`) lives in
+`enNxtmmc.rom` at file offset `$0082`. Same binary is used by CSpect, so
+this code is identical between emulators.
+
+The execution path:
+1. Supervisor code triggered DivMMC AUTOMAP (some trap PC).
+2. AUTOMAP active → slot 0 = DivMMC ROM, slot 1 = DivMMC RAM (= bank 0 by
+   default = empty).
+3. Code somewhere jumped to `$3CC9` in slot 1 (= empty DivMMC RAM).
+4. CPU NOPped through `$3CC9 → $3CFF` (49 NOPs).
+5. At `$3D00` byte = `c9` → RET. Stack pop returns to `$0082`.
+6. DivMMC firmware `$0082` sets `NR_57=$0F`.
+
+**Step 3 is the bug.** The supervisor jumped to slot 1 expecting code at
+`$3CE8` (or thereabouts). Slot 1 is DivMMC RAM bank 0, which is empty in
+jnext. CSpect must have populated it OR the supervisor in CSpect doesn't
+take this jump (= different upstream conditional based on hardware state).
+
+### Why DivMMC RAM is empty in jnext
+
+DivMmc class (`peripheral/divmmc.h`) allocates 128 KB of RAM (16 × 8K
+banks), all zero-initialised in the constructor. **Nobody populates it
+during boot**:
+
+- Static-rom seeding only loads `enNxtmmc.rom` (8 KB) into DivMMC ROM
+  (`emulator.cpp:3625-3637`).
+- No code path writes to DivMMC RAM at boot.
+- Bypass-init synthesis only writes NRs (`emulator.cpp:3791-3814`).
+
+CSpect must populate DivMMC RAM somehow. Two candidate mechanisms:
+1. **`tbblue.fw` populates DivMMC RAM during boot** — by enabling DivMMC,
+   writing helper code via slot 1 writes, then disabling. jnext
+   non-bypass mode runs the same `tbblue.fw` but apparently doesn't
+   reach the populate stage.
+2. **The supervisor populates DivMMC RAM at boot** — but this is the
+   same supervisor in both emulators, so jnext should populate too.
+
+### Concrete next-session probe
+
+Need to find what populates DivMMC RAM. Two angles:
+
+1. **In jnext non-bypass**: capture supervisor-side writes to slot 1
+   while DivMMC AUTOMAP is active. Add a memory-write watch on writes
+   to DivMMC RAM (= writes to `$2000-$3FFF` when DivMMC active). If
+   there are no such writes, DivMMC RAM in CSpect must be populated by
+   `tbblue.fw` or by a different mechanism we're missing.
+
+2. **Disassemble `enNxtmmc.rom` $0066-$1FF8**: the DivMMC firmware
+   itself may have an init routine that populates its RAM. Look for
+   LDIR or write loops to slot 1 ($2000-$3FFF).
+
+3. **Check if the supervisor or tbblue.fw triggers DivMMC CONMEM mode**
+   to write helper code to DivMMC RAM, then turn it off. Search
+   enNextZX.rom + tbblue/firmware sources for `port $E3` writes.
+
+### Pre-cursor: where does PC=$3CC9 come from?
+
+The 32-PC ring shows ONLY `$3CC9..$3CE8` — sequential — already
+truncated. To find the upstream jumper that landed in `$3CC9`, extend
+the ring to >100 entries OR snapshot just before AUTOMAP fires.
+
+DivMMC AUTOMAP fires on these trap PCs (per VHDL): `$0000`, `$0008`,
+`$0038`, `$0066`, `$04C6`, `$04D7`, `$0562`, `$056A`. Capture the PC
+sequence between the LAST trap PC and `$3CC9`.
+
+### Status
+
+Probe 8 done. Major finding committed. Investigation now has a clear
+fix-direction: **populate DivMMC RAM with whatever CSpect has there**,
+or **avoid the supervisor falling into empty DivMMC RAM** by ensuring
+correct upstream conditionals.
+
+---
+
+## 2026-05-05 evening — Probes 9-11: deeper picture
+
+### Probe 9 — non-bypass mode also has empty DivMMC RAM
+
+Re-ran Probe 8 in non-bypass mode (= full firmware). Same result:
+slot 1 at PC=$3CE8 = empty (1 non-zero byte). DivMMC RAM is NEVER
+populated, even when running real `tbblue.fw`.
+
+### Probe 10 — disasm of enNxtmmc.rom + sentinel-installer
+
+Static analysis revealed the enNextZX.rom routine at `bank 2 lower
+$1F01-$1F28` that installs the **2 sentinel `c9` (RET) bytes** into
+DivMMC RAM banks 0 and 1:
+
+```asm
+$1F01: NEXTREG $8E, $7A
+$1F05: LD HL, $1F13            ; src
+$1F08: LD DE, $ED27             ; dst (in supervisor RAM)
+$1F0B: LD BC, $0016             ; 22 bytes
+$1F0E: LDIR                      ; copy template to $ED27
+$1F10: JP $ED27                  ; execute relocated copy
+
+$1F13:  ; the 22-byte template that runs at $ED27:
+$1F13: LD A, $81                ; CONMEM=1 + bank=1
+$1F15: OUT ($E3), A             ; activate DivMMC, slot 1 = bank 1
+$1F17: LD A, $C9                ; opcode = RET
+$1F19: LD ($2009), A            ; ★ install sentinel in bank 1 @ slot1+$0009
+$1F1C: LD A, $80                ; CONMEM=1 + bank=0
+$1F1E: OUT ($E3), A             ; switch to bank 0
+$1F20: LD A, $C9                ; RET
+$1F22: LD ($3D00), A            ; ★ install sentinel in bank 0 @ slot1+$1D00
+$1F25: XOR A
+$1F26: OUT ($E3), A             ; deactivate CONMEM
+$1F28: RET
+```
+
+So the supervisor INTENTIONALLY:
+- Activates DivMMC CONMEM mode (which makes slot 1 a writable DivMMC RAM)
+- Writes single `c9` RET sentinel bytes at specific offsets in banks 0
+  and 1
+- Deactivates CONMEM
+
+**This is a working safety-net mechanism.** When the supervisor uses
+DivMMC AUTOMAP for a bank-flip-via-NOP-sled, it can RET out of the sled
+via this sentinel.
+
+### Probe 11 — supervisor uses AUTOMAP for INTENTIONAL bank flipping
+
+Trace showed at first AUTOMAP activation:
+1. Supervisor runs at `$5B0A-$5B20` (in slot 2 sysvar area).
+2. RETs to `$0000`.
+3. **Slot 0 at `$0000` = `$00` (NOT `$F3` as initial)**. Some prior
+   operation remapped slot 0 to a zero page.
+4. CPU NOPs through `$0000-$0008` (9 NOPs).
+5. At `$0008`, RST $08 trap fires (delayed AUTOMAP per `entry_points_0_=0x83`).
+6. At `$0009`, AUTOMAP active. Slot 0 = enNxtmmc.rom (DivMMC ROM).
+7. CPU continues into DivMMC ROM bytes:
+   ```
+   $0009: 12       LD (DE), A
+   $000A: 05       DEC B
+   $000B: e1       POP HL
+   $000C: f5       PUSH AF
+   $000D: c3 64 33 JP $3364
+   ```
+8. Lands in `$3364` (slot 1 = DivMMC RAM bank 0, all zeros except `c9`
+   at `$3D00` sentinel).
+9. NOPs through `$3364-$3CFF` (= ~2400 NOPs = a deliberate timing
+   delay).
+10. RET at `$3D00` pops `$0082` from stack.
+11. Lands at DivMMC firmware `$0082`: `PUSH AF; LD A,$07; JR +2; ADD A,A;
+    NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; POP AF; RET`.
+12. Sets `NR_56=$0E, NR_57=$0F`.
+
+This is an INTENTIONAL bank-flip mechanism. The supervisor uses:
+- AUTOMAP delayed activation timing to switch banks mid-instruction
+- DivMMC RAM as a NOP-sled timer
+- Sentinel `c9` to exit the sled cleanly
+- Pre-pushed continuation address (`$0082`) on the stack for RET-jump
+
+### What this means for divergence vs CSpect
+
+**The mechanism itself works** — same enNxtmmc.rom code in both
+emulators, same supervisor binary, same NR-pair-set helper at `$0082`
+that hardcodes A=$07 → NR_57=$0F.
+
+**The divergence is in WHAT VALUE IS ON THE STACK** when the RET at
+`$3D00` fires. In jnext, `$0082` is on the stack → land in the NR_57=$0F
+helper. In CSpect, presumably **a DIFFERENT value** is on the stack
+(e.g., `$0080` = `LD A,B; RET` — no NR write, or `$008E` = direct
+NEXTREG NR_57 with whatever A is = could be $10).
+
+So the bug propagates BACKWARDS: jnext's call chain pushed `$0082`
+because some upstream conditional took the "NR_57=$0F path" instead of
+the "NR_57=$10 path".
+
+### Concrete next-session probe
+
+1. Extend the PC ring buffer to 512+ entries to capture more upstream
+   history. Identify the supervisor PC that PUSH'd `$0082`.
+2. Track NR_50/NR_04 changes between initial boot ($0000=$F3) and
+   first AUTOMAP trap ($0000=$00). Something remaps slot 0 to a
+   zero-page just before the trap; what is it?
+3. Examine what happens at the SECOND boot iteration. The supervisor
+   does work in slot 2 (sysvars `$5B0A`), RETs to a "next-iteration"
+   target, but slot 0 is now zero-mapped.
+4. Search supervisor binary for the call sequence that pushes `$0082`
+   and chains into the AUTOMAP/sled path.
+
+### Status — Probes 1-11 fully documented
+
+Net deltas this session:
+- Probes 1-3: bypass + non-bypass converge bit-identical
+- Probe 5: Fix #1 verified working
+- Probe 6: NR_57=0x0F writers identified
+- Probe 7: trampoline path is sequential not CALL
+- Probe 8: slot 0 IS DivMMC firmware
+- Probe 9: non-bypass also has empty DivMMC RAM
+- Probe 10: 2 sentinel bytes are intentional installs from supervisor
+  $1F01 (bank 2 lower)
+- Probe 11: bank-flip mechanism uses AUTOMAP + NOP-sled + sentinel-RET
+- The divergence vs CSpect is **what value is PUSHed onto the stack**
+  before the AUTOMAP/sled invocation, which determines the
+  NR_57 outcome via different DivMMC-firmware entry points
+
+g46b-investigation HEAD is `b8e2059` after Probe 8. Subsequent probes
+9-11 are observational only (no code commits beyond Probe 8 + Probe 9
+diagnostic for all 16 banks dump + automap-state dump).
+
+---
+
+## 2026-05-05 evening — Probe 11 CSpect comparison (USER-PROVIDED DUMP)
+
+User provided CSpect screenshot at first hit of `bp 3d00`:
+
+### CSpect state at first $3D00 hit
+
+- **PC = $3D00** (BP fired here as planned)
+- **AF = $0144** (A=$01)
+- **IX = $E01B** (same as jnext at the equivalent supervisor stall)
+- **SP = $5BEF** (supervisor stack — DEEPER pushes than jnext)
+- **Stack top (TOS) = $0448** ← **the divergence vs jnext's $0082**
+- **NR_57 = $0F**, NR_56 = $0E (already set by previous helper)
+- **NR_04 = $00** (default ROM bank)
+- **Banks (live mmu): FF FF 0A 0B 04 05 0E 0F**
+- **DivMMC: E3:00** (port E3=0, no CONMEM)
+- **DivRAM: 00** (= bank 0 default)
+- **+3ROM: 3** ← supervisor has selected ROM bank 3 via port 7FFD bit 4 + port 1FFD bit 2
+- **NR_B8=$82, NR_B9=$00, NR_BA=$00, NR_BB=$F2** (configured trap PCs)
+- **Slot 1 at `$3CE8` = bank 3 upper of enNextZX.rom** (= file 0xFCCE-FCFF):
+  ```
+  21 5E 5B   LD HL, $5B5E
+  71         LD (HL), C
+  7A         LD A, D
+  CD 13 00   CALL $0013
+  57         LD D, A
+  70         LD (HL), B
+  7B         LD A, E
+  CD 13 00   CALL $0013
+  5F         LD E, A
+  E1         POP HL
+  C3 7C 30   JP $307C
+  A6 C9      AND (HL); RET
+  B6 C9      OR  (HL); RET
+  AE C9      XOR (HL); RET
+  FF         RST $38
+  00 00 00 ... NOPs
+  ```
+  This is REAL SUPERVISOR CODE — bank 3 upper at file `$FCCE`.
+
+### jnext state at first $3D00 hit (from Probe 8)
+
+- **PC = $3D00**
+- **SP = $FF4F-area** (USER stack, not supervisor stack)
+- **Stack top = $0082** ← **DIFFERENT from CSpect's $0448**
+- **NR_57 = $01** (still default — has NOT been set to $0F yet)
+- **NR_56 = $00** (default)
+- **mmu[0..7] = `FF FF 0A 0B 04 05 00 01`** — default RESET_PAGES
+- **DivMMC: active=1 rom_mapped=1 conmem=0 automap=1 mapram=0 bank=0**
+  ← **AUTOMAP IS ON** (mid-cycle in the activation/deactivation pattern)
+- **+3ROM: ?** (not captured but presumably default 0)
+- Slot 1 at `$3CE8` = empty DivMMC RAM bank 0 (all zeros except c9 sentinel at $3D00)
+
+### Verified: jnext DOES write NR_B8=$82, NR_BB=$F2 (18× each)
+
+Earlier conclusion that "jnext never writes NR_B8/BB" was wrong. Re-checked
+the NR-trace and confirmed both NR_B8=$82 and NR_BB=$F2 ARE written 18
+times each (= 18 boot loop iterations). The set-difference logic in
+Probe 5a was misread.
+
+The supervisor reaches `$01F0-$0217` init code 18 times in jnext, runs
+the writes, then eventually loops back to `$00EF`. So the trap config IS
+set in jnext.
+
+### The ACTUAL divergence
+
+CSpect's first `$3D00` hit is in a **LATER boot phase**:
+- supervisor has already configured NR_56/NR_57 to $0E/$0F
+- supervisor has selected +3ROM bank 3 (via port 7FFD/port 1FFD writes)
+- AUTOMAP has been CLEARED via off-trap path through `$1FF8-$1FFF`
+- supervisor is on its supervisor stack at `$5BEF`
+- supervisor is running real supervisor code from bank 3 upper
+
+jnext's first `$3D00` hit is in an EARLIER phase:
+- supervisor has NOT yet configured NR_56/NR_57 (still default $00/$01)
+- supervisor has NOT switched +3ROM (still default)
+- AUTOMAP IS ON (mid-cycle)
+- supervisor is on USER stack at `$FF4F`
+- supervisor is in DivMMC firmware bank-flip path (= the wrong path)
+
+**jnext is stuck in an early boot loop and never reaches the
+post-init phase where bank-3 ROM operations would happen.**
+
+CSpect successfully:
+1. Boots → RAM-test → init → NR_B8/BB writes
+2. Configures port 7FFD + port 1FFD to select +3ROM=3
+3. Switches to supervisor-stack
+4. Sets NR_56/57 = $0E/$0F via the helper trampoline
+5. Reaches normal operation
+
+jnext gets stuck in step 1 (RAM-test then loop) and never proceeds to 2-5.
+
+### Root-cause hypothesis (REFINED)
+
+The supervisor's boot path REQUIRES some state that jnext doesn't
+provide. Candidates:
+
+1. **Specific DivMMC AUTOMAP timing** — CSpect's AUTOMAP cycle happens
+   to clear at a different point in the supervisor's boot path,
+   allowing certain code to execute. jnext's clear timing is different
+   (off by some clocks), causing supervisor to enter the wrong branch.
+2. **Port 7FFD / port 1FFD writes** — the supervisor's init code at
+   `$0207+` or later writes these ports to select ROM bank 3. If jnext
+   doesn't propagate the write correctly (e.g. `+3ROM` doesn't update),
+   slot 0/1 stays on bank 0 even after the writes. The supervisor then
+   tries to call code in bank 3 upper but reads the wrong bytes.
+3. **A peripheral read** — at some boot step the supervisor reads NR or
+   port and branches based on the value. jnext returns a different
+   value than CSpect, leading to the wrong branch.
+
+### Concrete next-session probe
+
+1. **Add port 7FFD + port 1FFD trace** to jnext. Capture every write +
+   the resulting +3ROM bank state. Compare with the CSpect screenshot
+   (which shows +3ROM=3).
+2. **Trace when jnext reaches $0207 init the FIRST time** vs when CSpect
+   does. The first iteration's NR writes are critical.
+3. **Find what conditional in the supervisor selects ROM bank 3 vs
+   ROM bank 0** at boot. Search enNextZX.rom for port 7FFD writes
+   (= `D3 7F` immediate or `OUT (C),r` with BC=$7FFD).
+4. **Capture jnext's port_7ffd state at first AUTOMAP off-trap**
+   (= when PC reaches $1FF8-$1FFF). If jnext clears AUTOMAP in the
+   "wrong" port_7ffd state, supervisor may take divergent path
+   afterward.
+
+
