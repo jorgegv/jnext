@@ -540,19 +540,25 @@ Fix #2 pre-loaded AltROM-1 upper) into the corresponding offsets of physical
 SRAM page 0x2F (= what the supervisor reads via NR_57=$0F slot 7). This
 "undoes" the RAM-test wipe on the descriptor area at the moment of read.
 
-**Result with patch enabled**: boot advances PAST the sprite-descriptor
-stall. At t=14s a NEW screen state appears — black background with **white
-menu chrome at top, a small sprite/icon in the top-left corner, and the
-boot-progress color bars at the bottom**. This is unmistakably partial
-NextZXOS UI rendering (menu borders for the welcome page).
+**Result with patch enabled**: boot reaches a slightly different code path —
+the screen at t=14s shows the boot-progress color bars at the bottom plus
+some scattered white bars near the top and an isolated dithered glyph in the
+top-left corner. **CORRECTION (2026-05-05 10:00)**: my initial interpretation
+of these top-area marks as "partial NextZXOS UI rendering (menu chrome +
+sprite icon)" was an over-claim — the user pointed out they're just screen
+RAM corruption from supervisor writes that aren't drawing anything intentional.
+No actual welcome-screen text or recognisable UI elements are visible. The
+patch only proves the supervisor takes a different (likely deeper) path
+before stalling.
 
-**Result at t=18+, t=25, t=35**: same partial UI, no further progress.
+**Result at t=18+, t=25, t=35**: same screen state — supervisor has reached
+some other stall point, with no further visible progress.
 
-**Conclusion**: the (IX+$11)=0 wipe is a REAL blocker for sprite-descriptor
-rendering, but it's not the SOLE blocker. There are downstream sprite/UI
-reads from other memory locations (other descriptors, UI state data, etc.)
-that ALSO read from regions wiped by NextZXOS's RAM-test or never populated
-in jnext. Patching one isn't enough.
+**Conclusion**: the (IX+$11)=0 wipe is a REAL blocker — patching it changes
+the supervisor's runtime behaviour and execution path measurably (different
+screen RAM writes). But the patch alone does NOT make the supervisor render
+the welcome screen, so the bank 7 high half data requirement extends to
+multiple read sites (or there are other unrelated stall points downstream).
 
 **Ram-init experiment**: changed `Ram::Ram` and `Ram::reset` to fill with
 0xFF instead of 0 (test of "real Next has random/non-zero garbage RAM at
@@ -576,8 +582,8 @@ other things. Reverted.
   page 0x2F to all zeros so it can't be from a previous boot state.
 - **Tested workaround**: env-var `JNEXT_G46B_PATCH_IX11=1` copies AltROM-1
   upper bytes (page 0x0F) into the sprite-descriptor read range of page 0x2F.
-  Advances boot past one stall to partial UI rendering (white menu chrome +
-  sprite icon visible) but other downstream stalls remain.
+  Changes the supervisor's runtime behaviour (different screen RAM writes,
+  visible as scattered corruption) but does NOT render the welcome screen.
 
 ### Recommended next-session paths
 1. **`--bypass-tbblue-fw` mode (user's suggestion)** — replicate CSpect's
