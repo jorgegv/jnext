@@ -3153,3 +3153,65 @@ This means NextZXOS boot has timing-sensitive code paths
 (likely interrupt timing or contention). Future probes must
 sit inside existing hot paths, not add new ones. Mmu::write
 hooks would be ideal but also need careful gating.
+
+### The meta-loop confirmation
+
+Counting PUSH_AF events at PC=\$000C with AF=\$1F22 in the
+8000-event trace: **66 occurrences**, evenly spread (every
+~120 events). The supervisor is in a meta-loop:
+
+1. \$5B00 bank-flip wrapper enters with AF=\$1F22 in caller's regs.
+2. Wrapper saves+restores AF, RETs to \$0000.
+3. Some path at \$0000-\$000B (DivMMC ROM, slot 0).
+4. PC=\$000B POP HL ; PC=\$000C PUSH AF (target=\$1F22) ; JP \$3364.
+5. NOP sled to \$3D00 RET → JPs to \$1F22.
+6. \$1F22 SD-SPI helper sends 6 bytes (\$3B \$00 \$00 \$FF \$BF \$24)
+   on port \$EB.
+7. \$1F36 CALL \$1F3D → wait-for-non-\$FF loop at \$1F40-\$1F48.
+8. Loop times out (12,800 iterations × 256 = 3.3M cycles).
+9. \$1F4A RET → \$1F39 → \$1F3C RET → some caller of \$1F36.
+10. Caller eventually returns through wrapper machinery to a
+    point that re-enters \$5B00 wrapper with AF=\$1F22 again.
+
+So jnext reaches a deterministic stuck-loop where it
+ENDLESSLY tries to send the same (invalid) SD command and
+times out. CSpect's flow either:
+- (a) Doesn't call \$1F22 with this exact register state, OR
+- (b) Calls it but its SD emulation responds non-\$FF so the
+  loop exits successfully and supervisor moves on.
+
+The handover memo earlier disproved option (b): CS pre-assert
++ SD initialized in bypass don't change behaviour. So the
+divergence is option (a) — different register / control-flow
+state upstream.
+
+### Status of investigation tonight
+
+- **Confirmed**: SD-helper busy loop at \$1F40-\$1F48.
+- **Confirmed**: AUTOMAP-NOP-sled at PC=\$000B-\$000D uses AF
+  as target. AF=\$1F22 at PUSH AF time → \$5C01 \$5C02 = \$22 \$1F.
+- **Confirmed**: 66 round-trips through this loop in 8000 events.
+- **Open**: Where AF=\$1F22 is set in the supervisor flow.
+- **Open**: Why C=\$3B (NextREG-related) appears in SD command
+  parameter slot.
+- **Open**: CSpect comparison (would need CSpect SP-trace at the
+  same boot phase).
+
+Branch HEAD: `1c50e0c` (this doc commit + 822d852 + 7c03527 +
+6c4f17d + 1c50e0c).
+
+### End-of-session 2026-05-07 23:15 CEST
+
+Stopping here. Six sub-commits this session on the
+g46b-investigation branch. SP-tracer fully classifies all
+stack-affecting opcodes (CALL, RET, RST, RETI/RETN,
+Z80N PUSH, regular PUSH/POP, IX/IY PUSH/POP). Per-event mem
+dump shows exact stack contents around \$5C00 area.
+
+Next session priorities:
+1. Find what sets AF=\$1F22 upstream (manual disasm of $5B00
+   callers + tracking AF flow).
+2. Find what sets BC=\$243B / register state at \$1F22 entry.
+3. Get CSpect SP-trace for cross-comparison.
+4. Either find a non-perturbing memory write hook, OR rely
+   on careful manual disasm.
