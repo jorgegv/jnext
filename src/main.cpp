@@ -44,6 +44,9 @@ static void print_usage(const char* prog) {
         "  --sd-card FILE       Mount SD card image FILE (.img) (REQUIRED)\n"
         "                       The TBBlue distribution image is the standard reference;\n"
         "                       see CLAUDE.md for the canonical fixture path.\n"
+        "  --bypass-tbblue-fw   Skip nextboot.rom + tbblue.fw and start NextZXOS\n"
+        "                       directly (loads enNextZX.rom into ROM-in-SRAM at boot).\n"
+        "                       Diagnostic / debug hatch; not for general use.\n"
         "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
         "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
         "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
@@ -86,6 +89,7 @@ int main(int argc, char* argv[]) {
     int      inject_delay = 0;
     std::string load_file;
     std::string sd_card_image;
+    bool        bypass_tbblue_fw = false;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
     int         screenshot_delay_frames = -1; // -1 = unset; if set, overrides screenshot_delay
@@ -128,6 +132,8 @@ int main(int argc, char* argv[]) {
             load_file = argv[++i];
         } else if (arg == "--sd-card" && i + 1 < argc) {
             sd_card_image = argv[++i];
+        } else if (arg == "--bypass-tbblue-fw") {
+            bypass_tbblue_fw = true;
         } else if (arg == "--delayed-screenshot" && i + 1 < argc) {
             screenshot_file = argv[++i];
         } else if (arg == "--delayed-screenshot-time" && i + 1 < argc) {
@@ -228,6 +234,7 @@ int main(int argc, char* argv[]) {
         // 2026-05-04). Pure --sd-card boots leave load_file empty and
         // get the firmware overlay.
         cfg.load_file = load_file;
+        cfg.bypass_tbblue_fw = bypass_tbblue_fw;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;

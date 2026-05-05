@@ -855,3 +855,61 @@ Risk: time-consuming. We already know the IX, MMU, and SP all differ at PC=$20E6
 
 Per user direction: **Option A (`--bypass-tbblue-fw`)** in the next session.
 
+
+---
+
+## 2026-05-05 (afternoon) — `--bypass-tbblue-fw` LANDED
+
+### Implementation
+
+Per user directive, added `--bypass-tbblue-fw` CLI option (`g46b-investigation`).
+
+Changes:
+- `src/core/emulator_config.h` — new `bool bypass_tbblue_fw = false;`
+- `src/main.cpp` — CLI flag parsing + propagation into `EmulatorConfig`
+- `src/core/emulator.cpp::Emulator::init()`:
+  - Machine ROM block: load `/MACHINES/NEXT/enNextZX.rom` (4 banks, 64 KB) into `rom_` instead of `48.rom` when bypass is on (the existing ROM-in-SRAM seed at lines 3560+ then copies pages 0..7 into `ram_` automatically).
+  - Boot ROM block: skip `nextboot.rom` overlay when bypass is on; log explicit message.
+  - Post-handoff init: synthesise a `nextreg_.write(0x03, 0x04)` to commit `machine_type = Next (0x04)` and transition `config_mode → 0` (mimicking what tbblue.fw normally does before jumping to the supervisor). Without this the supervisor's first NR 0x03 write of `0xB0` (low3=000 = no change) leaves `config_mode` stuck at the power-on default of 1, which routes ROM reads through `nr_04_romram_bank` instead of `sram_rom`.
+
+DivMMC / Multiface / AltROM remain extracted from the SD as in normal mode — the AltROM seed at pages 0x0C..0x0F (Fix #2-v2) is unchanged.
+
+### Smoke-test (4-second window, headless)
+
+Bypass mode now reaches the **same supervisor loop** as normal mode:
+
+- Boot-ROM overlay: skipped (per init log)
+- enNextZX.rom: 65 536 bytes loaded into rom_ banks 0..3 (per init log)
+- AltROM, DivMMC, Multiface: loaded as in normal mode (per init log)
+- After post-handoff write: `NextREG 0x03 ← 0x04 (config_mode=0)` ✓
+- Z80 starts at $0000 → JP $00EF → supervisor entry
+- Supervisor reaches the documented loop:
+  ```
+  G46B SPRITE PC=0x1df3 ix=0xe01b sp=0xff87 mmu[0..7]=ff ff 0a 0b 04 05 0e 0f
+  G46B SPRITE PC=0x2043 ix=0xe01b sp=0xff85 mmu[0..7]=ff ff 0a 0b 04 05 0e 0f
+  G46B SPRITE PC=0x20e6 ix=0xe01b sp=0xff7f mmu[0..7]=ff ff 0a 0b 04 05 0e 0f
+  ```
+  (identical IX, SP, MMU mapping to non-bypass mode at these PCs — confirming bypass is not introducing any new divergence.)
+- Periodic `NextREG 0x03 ← 0xb0  (config_mode=0)` writes ~every 500 ms (= the 270 ms periodic re-init loop pattern from the previous trace), interleaved with `CPU speed changed to 28 MHz`.
+- Screen: black (welcome screen NOT rendered — same as we'd expect given the divergence is upstream of the bypass).
+
+### Verification — non-bypass path unchanged
+
+`./build/jnext --headless --machine next --sd-card roms/nextzxos-1gb-fat32fix.img` (no `--bypass-tbblue-fw`):
+- TBBlue boot screen visible at t=4s (logo + "Press SPACEBAR for menu" + Firmware/Core version) ✓
+- `make unit-test` → 3850 / 3812 / 0 / 38 (matches prior baseline)
+- `bash test/00regression/regression.sh` → 33 PASS / 0 FAIL / 0 SKIP
+
+### Why this matters
+
+`--bypass-tbblue-fw` gives us a clean, isolated reproducer: the supervisor reaches the same loop without any tbblue.fw intermediation. From here, the next-step debugging plan from the EOD memo applies directly:
+
+1. Capture CSpect runtime state at the moment the supervisor enters $00EF (NR registers, key SRAM pages, sysvars at $5B00-$5C00).
+2. Pre-populate the same state in jnext's bypass mode.
+3. Iterate until the welcome screen renders.
+
+This isolates the divergence to "what state CSpect sets up before $00EF" vs "what jnext's bypass sets up", removing all firmware-side variables.
+
+### TEMP instrumentation — still on g46b-investigation branch
+
+Unchanged from EOD. Removed only on full G46(b) closure (= welcome screen renders).

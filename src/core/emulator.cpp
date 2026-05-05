@@ -3505,7 +3505,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
             case MachineType::ZXN_ISSUE2:
             default:
-                load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
+                if (cfg.bypass_tbblue_fw) {
+                    // --bypass-tbblue-fw: load the full NextZXOS system ROM
+                    // (enNextZX.rom, 64 KB = 4 banks of 16 KB = 8 pages of
+                    // 8 KB) directly into rom_ banks 0..3. The ROM-in-SRAM
+                    // seed below copies pages 0..7 into ram_, so the Z80
+                    // starts at $0000 inside the supervisor — exactly where
+                    // tbblue.fw would have handed control off, minus the
+                    // intervening firmware. AltROM / DivMMC / Multiface ROMs
+                    // are still loaded from the SD by the blocks below.
+                    load_machine_rom("/MACHINES/NEXT/enNextZX.rom", 4, 0x10000,
+                                     "NextZXOS supervisor (--bypass-tbblue-fw)");
+                } else {
+                    load_machine_rom("/MACHINES/NEXT/48.rom", 1, 0x4000, "Next 48K fallback");
+                }
                 break;
         }
         Log::emulator()->info("Machine type: {} (ROMs from SD '{}')",
@@ -3537,13 +3550,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     if (!preserve_memory) {
         if (cfg.type == MachineType::ZXN_ISSUE2 &&
             !cfg.sd_card_image.empty() &&
-            cfg.load_file.empty()) {
+            cfg.load_file.empty() &&
+            !cfg.bypass_tbblue_fw) {
             const uint8_t* embedded_data = embedded_nextboot_rom_data();
             const size_t   embedded_size = embedded_nextboot_rom_size();
             boot_rom_.assign(embedded_data, embedded_data + embedded_size);
             mmu_.set_boot_rom(boot_rom_.data(), boot_rom_.size());
             Log::emulator()->info("Boot ROM loaded from embedded nextboot.rom ({} bytes), overlay active at 0x0000-0x{:04X}",
                                   boot_rom_.size(), boot_rom_.size() - 1);
+        } else if (cfg.bypass_tbblue_fw) {
+            Log::emulator()->info("--bypass-tbblue-fw: nextboot.rom overlay skipped, "
+                                  "Z80 will start at $0000 inside NextZXOS supervisor");
         }
     }
 
@@ -3729,6 +3746,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         } else {
             Log::emulator()->warn("could not mount SD card image: '{}'", cfg.sd_card_image);
         }
+    }
+
+    // --bypass-tbblue-fw post-handoff NR state. tbblue.fw normally writes NR
+    // 0x03 with bits[2:0]=001..110 to commit the machine_type and exit
+    // config_mode before jumping to the supervisor — without this, the
+    // power-on defaults (config_mode=1, machine_type=+3) cause the
+    // supervisor's first NR 0x03 writes (e.g. the canonical 0xB0 timing-
+    // only update with low3=000 = no change) to leave config_mode stuck at
+    // 1, which routes ROM reads through nr_04_romram_bank instead of
+    // sram_rom and the supervisor effectively loses its own ROM. We
+    // synthesise the handoff write here: NR 0x03 = 0x04 commits
+    // machine_type=Next + transitions config_mode to 0 (and skips the
+    // timing change, leaving the +3 power-on default that the supervisor
+    // overwrites moments later). Mmu's config_mode mirror is updated by the
+    // NR 0x03 write handler.
+    if (cfg.bypass_tbblue_fw && cfg.type == MachineType::ZXN_ISSUE2) {
+        nextreg_.write(0x03, 0x04);
+        Log::emulator()->info("--bypass-tbblue-fw: synthesised post-tbblue.fw NR 0x03 handoff "
+                              "(machine_type=Next, config_mode=0)");
     }
 
     // Wire palette manager and RAM into ULA for enhanced palette and

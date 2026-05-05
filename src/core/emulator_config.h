@@ -86,6 +86,16 @@ struct EmulatorConfig {
     // out when --sd-card is missing).
     std::string sd_card_image;            // path to SD card .img file (empty = no SD)
 
+    // --bypass-tbblue-fw: skip the nextboot.rom + tbblue.fw boot path entirely
+    // and start NextZXOS directly. When true, hard-reset init pre-loads
+    // `/MACHINES/NEXT/enNextZX.rom` (64 KB) into ROM-in-SRAM pages 0..7,
+    // skips the embedded nextboot.rom overlay, and lets the CPU run from
+    // $0000 straight into the NextZXOS supervisor entry. AltROM / DivMMC /
+    // Multiface ROMs are still extracted from the SD as in the normal path.
+    // Diagnostic hatch for G46(b) — isolates supervisor execution from any
+    // firmware-side divergence so we can A/B against CSpect's runtime.
+    bool bypass_tbblue_fw = false;
+
     // Rewind buffer: number of frame snapshots to keep (0 = disabled)
     int rewind_buffer_frames = 500;
 
