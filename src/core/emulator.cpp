@@ -3748,23 +3748,50 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     }
 
-    // --bypass-tbblue-fw post-handoff NR state. tbblue.fw normally writes NR
-    // 0x03 with bits[2:0]=001..110 to commit the machine_type and exit
-    // config_mode before jumping to the supervisor — without this, the
-    // power-on defaults (config_mode=1, machine_type=+3) cause the
-    // supervisor's first NR 0x03 writes (e.g. the canonical 0xB0 timing-
-    // only update with low3=000 = no change) to leave config_mode stuck at
-    // 1, which routes ROM reads through nr_04_romram_bank instead of
-    // sram_rom and the supervisor effectively loses its own ROM. We
-    // synthesise the handoff write here: NR 0x03 = 0x04 commits
-    // machine_type=Next + transitions config_mode to 0 (and skips the
-    // timing change, leaving the +3 power-on default that the supervisor
-    // overwrites moments later). Mmu's config_mode mirror is updated by the
-    // NR 0x03 write handler.
+    // --bypass-tbblue-fw post-handoff NR state. Mimics what tbblue.fw
+    // (boot.c::main) writes BEFORE its trailing RESET_SOFT hands off to the
+    // NextZXOS supervisor. Sources: tbblue/src/firmware/app/src/boot.c
+    // (`main` + `init_registers`) cross-checked against the SD `config.ini`
+    // / `menu.def` (default menu line 0 = ZX Spectrum Next (standard),
+    // mode=2 = +3).
+    //
+    // Order matches the firmware exactly so any side-effect in our NR write
+    // handlers (e.g. NR 0x03 config_mode FSM, NR 0x07 CPU speed propagate,
+    // NR 0x82 DECODE_INT0 hardware enables) fires in the same sequence.
+    //
+    // NR 0x03 (machine config) is written LAST, with the firmware's
+    // `0x80 | ((mode+1)<<4) | (mode+1)` = 0xB3 (timing=+3, dt_lock=0,
+    // machine_type=+3, low3=011 transitions config_mode to 0). Without
+    // this, the power-on default config_mode=1 + the supervisor's later
+    // NR 0x03 ← 0xB0 (low3=000 = no change) leaves config_mode stuck at
+    // 1, routing ROM reads through nr_04_romram_bank instead of sram_rom.
     if (cfg.bypass_tbblue_fw && cfg.type == MachineType::ZXN_ISSUE2) {
-        nextreg_.write(0x03, 0x04);
-        Log::emulator()->info("--bypass-tbblue-fw: synthesised post-tbblue.fw NR 0x03 handoff "
-                              "(machine_type=Next, config_mode=0)");
+        // tbblue.fw `main` first writes (very early, before vdp_init):
+        nextreg_.write(0x07, 0x03);  // REG_TURBO = 3 → 28 MHz
+        nextreg_.write(0x06, 0xa0);  // REG_PERIPH2 = PS/2 keyboard transient
+
+        // tbblue.fw `init_registers()` (called from main after load_roms,
+        // values computed from SD `config.ini` + menu mode=2):
+        nextreg_.write(0x05, 0x81);  // PERIPH1: joystick1=2 → bits7-6=10, scandoubler=1 → bit 0
+        nextreg_.write(0x06, 0x80);  // PERIPH2: turbokey=1 → bit 7 (overwrites 0xa0 transient)
+        nextreg_.write(0x08, 0x3e);  // PERIPH3: stereo+speaker+DAC+Timex+TurboSound
+        nextreg_.write(0x09, 0x00);  // PERIPH4: scanlines=0, hdmisound=1 (= bit 2 NOT set)
+        nextreg_.write(0x0a, 0x01);  // PERIPH5: mousedpi=1
+        nextreg_.write(0x82, 0xda);  // DECODE_INT0 hwenables[0] for +3 mode: disable ff/dffd/6b
+        nextreg_.write(0x83, 0x3d);  // DECODE_INT1 hwenables[1]: divports + uart + i2c + kmouse
+        nextreg_.write(0x84, 0xff);  // DECODE_INT2 hwenables[2]: AY + all DACs (DAC=1)
+        nextreg_.write(0x85, 0x01);  // DECODE_INT3 hwenables[3]: ULAplus=1, DMA=0
+
+        // Final MACHTYPE write — the firmware's "boot the OS" command:
+        //   REG_MACHTYPE = 0x80 | ((mode+1) << 4) | (mode+1)
+        //   mode=2 → 0x80 | 0x30 | 0x03 = 0xB3
+        // bits: 7=1 (timing change), 6:4=011 (+3 timing), 3=0 (no dt_lock
+        // toggle), 2:0=011 (+3 machine_type, low3 in 001..110 → exits
+        // config_mode + commits machine_type).
+        nextreg_.write(0x03, 0xB3);
+
+        Log::emulator()->info("--bypass-tbblue-fw: synthesised tbblue.fw post-handoff NR state "
+                              "(turbo=28MHz, periph1-5, decode_int0-3, machine_type=+3, config_mode=0)");
     }
 
     // Wire palette manager and RAM into ULA for enhanced palette and
