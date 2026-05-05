@@ -3132,11 +3132,44 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // SPI chip select (0xE7) and data (0xEB)
     port_.register_handler(0x00FF, 0x00E7,
-        [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
-        [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
+        [this](uint16_t) -> uint8_t {
+            uint8_t v = spi_.read_cs();
+            static int g46b_p20_cs_rd = 0;
+            if (g46b_p20_cs_rd < 100) {
+                Log::cpu()->info("G46B P20 IN  $E7 -> {:#04x} (cs#{})",
+                                 v, ++g46b_p20_cs_rd);
+            }
+            return v;
+        },
+        [this](uint16_t, uint8_t val) {
+            spi_.write_cs(val);
+            static int g46b_p20_cs_wr = 0;
+            if (g46b_p20_cs_wr < 100) {
+                Log::cpu()->info("G46B P20 OUT $E7 <- {:#04x} (cs#{})",
+                                 val, ++g46b_p20_cs_wr);
+            }
+        });
     port_.register_handler(0x00FF, 0x00EB,
-        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
-        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
+        [this](uint16_t) -> uint8_t {
+            uint8_t v = spi_.read_data();
+            // G46(b) Probe 20 (TEMP — remove on G46(b) closure):
+            // trace SPI data port reads. Cap at 800 entries to avoid spam.
+            static int g46b_p20_rd = 0;
+            if (g46b_p20_rd < 800) {
+                Log::cpu()->info("G46B P20 IN  $EB -> {:#04x} (#{})",
+                                 v, ++g46b_p20_rd);
+            }
+            return v;
+        },
+        [this](uint16_t, uint8_t val) {
+            spi_.write_data(val);
+            // G46(b) Probe 20 (TEMP): trace SPI data port writes.
+            static int g46b_p20_wr = 0;
+            if (g46b_p20_wr < 800) {
+                Log::cpu()->info("G46B P20 OUT $EB <- {:#04x} (#{})",
+                                 val, ++g46b_p20_wr);
+            }
+        });
 
     // I2C SCL (0x103B) and SDA (0x113B)
     // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).
@@ -3843,6 +3876,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // boot/dispatcher path instead of the post-soft-reset/wrapper path.
         // Pure FSM bookkeeping — does NOT trigger an actual reset.
         nmi_source_.strobe_soft_reset();
+
 
         Log::emulator()->info("--bypass-tbblue-fw: synthesised tbblue.fw post-handoff NR state "
                               "(turbo=28MHz, periph1-5, decode_int0-3, machine_type=+3, config_mode=0, "

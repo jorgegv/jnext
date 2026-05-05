@@ -55,6 +55,15 @@ public:
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
 
+    /// G46(b) bypass-mode pre-init: tbblue.fw normally runs the
+    /// CMD0/CMD8/CMD55+ACMD41 init sequence before handoff. With
+    /// `--bypass-tbblue-fw` we skip that, so the card stays at
+    /// `initialized_=false` and the supervisor's CMD17 reads return
+    /// R1=0x01 (idle) forever. This setter lets the bypass init
+    /// pretend the card is already initialised.
+    void set_initialized(bool v) { initialized_ = v; }
+    bool is_initialized() const { return initialized_; }
+
     /// SpiDevice interface — exchange one byte (legacy, used by base class defaults).
     uint8_t exchange(uint8_t tx) override;
 

@@ -2731,3 +2731,101 @@ SOMETHING blocking progress through the SD-init phase.
 Stack-snapshot probe in `src/cpu/z80_cpu.cpp:554-590`. Dumps SP,
 top 16 stack words, key sysvars, and the 32-PC ring at first
 PC=$3D00. Easy to extend.
+
+---
+
+## 2026-05-06 22:00 — Probes 20+22: $1F22 on stack is STALE garbage, not deliberate push
+
+### Probe 20: port $EB / $E7 trace
+
+Tested two configurations:
+1. Default bypass: 950+ events captured. First 6 OUT $EB bytes:
+   `3B 00 00 FF BF 24` then 0xFF responses repeat infinitely.
+2. With `sd_card_.set_initialized(true)` + `spi_.write_cs(0xFE)`:
+   Same byte pattern, same 0xFF responses. **Behaviour unchanged.**
+
+Critical finding: **byte 0 = $3B has top bits 00, NOT 01** — so it's
+NOT a valid SD command byte (SPI CMD format requires bit 6=1). The
+SD card's `receive()` correctly ignores it (sd_card.cpp:108 requires
+`(tx & 0xC0) == 0x40`). So the supervisor isn't actually trying to
+send a SD CMD here — `$1F22` invocation is sending random bytes.
+
+**Zero writes to port $E7 (CS) during the entire boot-stall window.**
+The supervisor never asserts CS for the SD card.
+
+### Probe 22: pre-sled stack snapshot
+
+At first entry to slot-1 PC>=$3000:
+```
+PC=$3E00 SP=$5BFD stack=[01D5 0000 ...]
+```
+That's the FIRST RST $20 wrapper entry. TOS=$01D5 is the correct
+return-PC (= byte after `RST $20` at $01D4 in the supervisor's
+init code). Normal.
+
+But Probe 19 (at first $3D00 sentinel RET) showed:
+```
+PC=$3D00 SP=$5C01 stack=[1F22 0000 ...]
+```
+
+**SP=$5C01 in jnext vs CSpect's SP=$5BEF — 18-byte (9-word)
+difference!** jnext has popped 9 more entries than CSpect. This
+means by the time the AUTOMAP-sled fires in jnext, the stack
+underflows past `LD SP,$5BFF` initial baseline into uninitialised
+data territory at $5C00+.
+
+### What the bytes at $5C01-$5C02 actually mean
+
+The bytes `22 1F` (= $1F22 little-endian) sitting at $5C01-$5C02
+weren't deliberately PUSHed there. They are **stale stack data**
+from earlier PUSH operations, before the supervisor reset SP via
+`LD SP,$5BFF` at PC=$01D1. The AUTOMAP-sled RET at $3D00 pops these
+stale bytes and JPs to $1F22 — which happens to be a real entry
+(SD SPI helper in DivMMC ROM).
+
+Searched ALL ROMs (enNextZX.rom 64KB, enNxtmmc.rom 8KB,
+enAltZX.rom 32KB, enNextMf.rom 8KB) for `Z80N PUSH $1F22` /
+`LD HL,$1F22` / `LD DE,$1F22` / `LD BC,$1F22`: **zero matches**.
+No code anywhere produces $1F22 as a deliberate push value.
+
+### The actual root cause (refined)
+
+jnext's supervisor stack is in a different state than CSpect's. By
+the time the AUTOMAP-sled fires at first $3D00, jnext's SP is
+9 words higher than CSpect's. That means CSpect has 9 more PUSHes
+that haven't been POPed yet (or jnext has 9 more POPs that
+shouldn't have happened).
+
+The "$1F22 vs $0448" difference is just a SYMPTOM of the deeper
+stack-state divergence. CSpect's deep stack happens to have $0448
+at TOS (because the supervisor pushed it via the BANK 2 wrapper at
+PC=$3F39); jnext's shallower stack has stale $1F22 at TOS.
+
+### Probes 20+22 added
+
+- `src/cpu/z80_cpu.cpp:592-616` — Probe 18 (ROM-bank tracer)
+- `src/cpu/z80_cpu.cpp:~570` — Probe 19 (stack snapshot at $3D00)
+- `src/cpu/z80_cpu.cpp:~600` — Probe 22 (pre-sled stack snapshot)
+- `src/cpu/z80_cpu.cpp:G46B_PC_RING_SIZE` — extended to 256 entries
+- `src/core/emulator.cpp:3137-3159` — Probe 20 (port $EB/$E7 tracer)
+- `src/peripheral/sd_card.h` — added `set_initialized(bool)` (TEMP API)
+
+### Next-session direction
+
+The stack-depth divergence is the real issue. To find it:
+
+1. **Trace SP across boot.** Log every CALL/RET pair with SP before
+   and after. Find the FIRST imbalance: a CALL without matching
+   RET (or vice versa) that puts jnext's stack in a different
+   state than CSpect's.
+2. **Compare with CSpect's path.** Probably need a CSpect-side
+   stack-trace at different boot phases.
+3. **The SD pre-init experiment + CS pre-assert NEITHER changed
+   behaviour.** This means the SD-card emulation isn't the gating
+   issue at this layer. The bug is upstream in supervisor flow.
+4. **Zero $E7 writes** is consistent with "supervisor never reaches
+   the SD-init phase that would assert CS" rather than "supervisor
+   did SD init but $E7 went elsewhere".
+
+Probably the divergence is in early boot — different RAM-test
+results, different conditional branches, different sysvar values.

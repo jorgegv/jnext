@@ -457,7 +457,7 @@ int Z80Cpu::execute() {
 
     // G46(b) Probe 7 (TEMP — remove on G46(b) closure): ring buffer of last
     // N PCs for caller-trace dumps. Updated every CPU step.
-    static constexpr int G46B_PC_RING_SIZE = 32;
+    static constexpr int G46B_PC_RING_SIZE = 256;
     static uint16_t g46b_pc_ring[G46B_PC_RING_SIZE] = {};
     static int g46b_pc_ring_head = 0;
     g46b_pc_ring[g46b_pc_ring_head] = pc;
@@ -550,6 +550,40 @@ int Z80Cpu::execute() {
             "G46B IX-WRITE TRACE STOP at first PC=0x20E6 (ix={:#06x})",
             z80.ix.w);
     }
+
+    // G46(b) Probe 22 (TEMP): fire on FIRST entry to PC range $3C00-$3CFF
+    // (= the entry into the NOP sled before AUTOMAP fires). This lands
+    // us at the JP/CALL/RET that ENTERED the sled territory, just BEFORE
+    // the NOP run-up. Stack TOS at this point is the AUTOMAP-sled return
+    // target.
+    static bool g46b_p22_done = false;
+    static uint16_t g46b_p22_prev_pc = 0;
+    if (!g46b_p22_done && pc >= 0x3000 && pc <= 0x3FFF
+        && (g46b_p22_prev_pc < 0x3000 || g46b_p22_prev_pc > 0x3FFF)) {
+        g46b_p22_done = true;
+        char stack_buf[256] = "";
+        int sn = 0;
+        for (int i = 0; i < 16 && sn < 240; ++i) {
+            uint16_t word = static_cast<uint16_t>(
+                mem_.read(z80.sp.w + i*2) |
+                (mem_.read(z80.sp.w + i*2 + 1) << 8));
+            sn += std::snprintf(stack_buf + sn, sizeof(stack_buf) - sn,
+                                "%04x ", word);
+        }
+        Log::cpu()->info(
+            "G46B P22 EARLY PC={:#06x} SP={:#06x} stack=[{}]",
+            pc, z80.sp.w, stack_buf);
+        char ring_buf[400];
+        int rn = 0;
+        for (int i = 0; i < G46B_PC_RING_SIZE && rn < 380; ++i) {
+            int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+            rn += std::snprintf(ring_buf + rn,
+                                sizeof(ring_buf) - rn,
+                                "%04x ", g46b_pc_ring[idx]);
+        }
+        Log::cpu()->info("G46B P22 ring: {}", ring_buf);
+    }
+    g46b_p22_prev_pc = pc;
 
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
