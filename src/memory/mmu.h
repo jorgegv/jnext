@@ -329,6 +329,49 @@ public:
         return val;
     }
 
+    // Side-effect-free observer: same dispatch as read() but skips the
+    // p3_floating_bus_dat_ latch update and the data-breakpoint hit
+    // recording. Use from probes / debugger tooling that must observe
+    // memory without perturbing emulator state.
+    inline uint8_t peek(uint16_t addr) const {
+        if (boot_rom_en_ && addr < 0x4000 && boot_rom_) {
+            return boot_rom_[addr & 0x1FFF];
+        }
+        if (multiface_ && addr < 0x4000 && mf_overlay_active_()) {
+            return (addr < 0x2000) ? mf_rom_byte_(addr)
+                                   : mf_ram_byte_(addr);
+        }
+        if (divmmc_ && addr < 0x4000) {
+            uint8_t val;
+            if (divmmc_read(addr, val)) return val;
+        }
+        if (l2_read_enable_ && addr < 0xC000) {
+            int segment = addr / 0x4000;
+            if (l2_segment_mask_ & (1 << segment)) {
+                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
+                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+                uint16_t offset = addr % 0x4000;
+                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
+                const uint8_t* p = ram_.page_ptr(phys_page);
+                return p ? p[offset & 0x1FFF] : 0xFF;
+            }
+        }
+        int slot = addr >> 13;
+        if (nr_8c_altrom_en() && !nr_8c_altrom_rw() &&
+            !config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
+            return p ? p[addr & 0x1FFF] : 0xFF;
+        }
+        if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
+            const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            return p ? p[addr & 0x1FFF] : 0xFF;
+        }
+        const uint8_t* ptr = read_ptr_[slot];
+        if (!ptr) return 0xFF;
+        return ptr[addr & 0x1FFF];
+    }
+
     inline void write(uint16_t addr, uint8_t val) override {
         // Check data breakpoints (only when debugger is active with watchpoints)
         if (debug_state_ && debug_state_->active() &&

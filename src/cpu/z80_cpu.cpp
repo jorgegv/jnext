@@ -618,7 +618,14 @@ int Z80Cpu::execute() {
                 std::fprintf(g46b_sp_fp,
                     "# idx kind pc op sp_before sp_after delta landed_pc"
                     " target depth\n");
+                std::fflush(g46b_sp_fp);  // header survives SIGKILL
             }
+        }
+        // Flush every 256 events so partial trace survives SIGKILL.
+        if (g46b_sp_fp && g46b_sp_count > 0
+            && (g46b_sp_count & 0xFF) == 0
+            && !g46b_sp_pending) {
+            std::fflush(g46b_sp_fp);
         }
 
         // (1) Flush pending event from PREVIOUS step.
@@ -648,15 +655,17 @@ int Z80Cpu::execute() {
                 g46b_sp_depth);
             // G46(b) Probe 24-lite: at every event log mem[$5BFC..$5C03]
             // (the 8 bytes of stack near the AUTOMAP-sled $3D00 RET pops).
-            // Any change will be visible by diffing adjacent events.
-            // This sits inside the CF-event hot path (low frequency) so
-            // it does NOT perturb non-CF code-path timing — unlike the
-            // earlier per-step Probe 24 polling, which broke boot.
-            std::fprintf(g46b_sp_fp,
-                "        mem[5bfc..5c03]=%02x %02x %02x %02x %02x %02x %02x %02x\n",
-                mem_.read(0x5BFC), mem_.read(0x5BFD), mem_.read(0x5BFE),
-                mem_.read(0x5BFF), mem_.read(0x5C00), mem_.read(0x5C01),
-                mem_.read(0x5C02), mem_.read(0x5C03));
+            // Uses Mmu::peek() (NOT mem_.read()) to skip the p3_floating_
+            // bus_dat_ latch side effect — mem_.read() at contended slots
+            // perturbs emulator state and changed boot path in earlier
+            // attempts. peek() bypasses that latch.
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                std::fprintf(g46b_sp_fp,
+                    "        mem[5bfc..5c03]=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    mmu->peek(0x5BFC), mmu->peek(0x5BFD), mmu->peek(0x5BFE),
+                    mmu->peek(0x5BFF), mmu->peek(0x5C00), mmu->peek(0x5C01),
+                    mmu->peek(0x5C02), mmu->peek(0x5C03));
+            }
             if (g46b_sp_count == G46B_SP_TRACE_MAX) {
                 std::fprintf(g46b_sp_fp,
                     "# CAP REACHED. min_depth=%d max_depth=%d\n",
@@ -669,19 +678,34 @@ int Z80Cpu::execute() {
         }
 
         // (2) Classify CURRENT instruction. Arm pending event if CF op.
+        // Uses Mmu::peek() (NOT mem_.read()) so opcode-byte inspection
+        // here doesn't perturb p3_floating_bus_dat_ on contended slots.
         if (g46b_sp_fp && g46b_sp_count < G46B_SP_TRACE_MAX) {
-            uint8_t op  = mem_.read(pc);
-            uint8_t op2 = mem_.read(static_cast<uint16_t>(pc + 1));
+            static Mmu* mmu_for_peek = dynamic_cast<Mmu*>(&mem_);
+            static bool g46b_cast_logged = false;
+            if (!g46b_cast_logged) {
+                uint8_t b0 = mmu_for_peek ? mmu_for_peek->peek(pc) : 0xAA;
+                uint8_t b1 = mmu_for_peek ? mmu_for_peek->peek(static_cast<uint16_t>(pc + 1)) : 0xAA;
+                Log::cpu()->info(
+                    "G46B SP-tracer: dynamic_cast Mmu* = {} pc={:#06x} peek={:#04x},{:#04x}",
+                    (void*)mmu_for_peek, pc, b0, b1);
+                g46b_cast_logged = true;
+            }
+            auto rd = [&](uint16_t a) -> uint8_t {
+                return mmu_for_peek ? mmu_for_peek->peek(a) : 0;
+            };
+            uint8_t op  = rd(pc);
+            uint8_t op2 = rd(static_cast<uint16_t>(pc + 1));
             const char* kind = nullptr;
             uint16_t target = 0;
             if (op == 0xCD) {
                 kind = "CALL";
                 target = static_cast<uint16_t>(
-                    op2 | (mem_.read(static_cast<uint16_t>(pc + 2)) << 8));
+                    op2 | (rd(static_cast<uint16_t>(pc + 2)) << 8));
             } else if ((op & 0xC7) == 0xC4) {
                 kind = "CALLcc";
                 target = static_cast<uint16_t>(
-                    op2 | (mem_.read(static_cast<uint16_t>(pc + 2)) << 8));
+                    op2 | (rd(static_cast<uint16_t>(pc + 2)) << 8));
             } else if (op == 0xC9) {
                 kind = "RET";
             } else if ((op & 0xC7) == 0xC0) {
@@ -702,8 +726,8 @@ int Z80Cpu::execute() {
                     // Z80N PUSH nn (Z80NOpcode::PUSH_NN)
                     kind = "Z80N_PUSH";
                     target = static_cast<uint16_t>(
-                        (mem_.read(static_cast<uint16_t>(pc + 2)) << 8) |
-                        mem_.read(static_cast<uint16_t>(pc + 3)));
+                        (rd(static_cast<uint16_t>(pc + 2)) << 8) |
+                        rd(static_cast<uint16_t>(pc + 3)));
                 }
             } else if (op == 0xC5) {
                 kind = "PUSH_BC";
@@ -739,6 +763,63 @@ int Z80Cpu::execute() {
                 g46b_sp_pre_target = target;
                 g46b_sp_pre_kind   = kind;
                 g46b_sp_pending    = true;
+            }
+        }
+    }
+
+    // G46(b) Probe 24 (TEMP — remove on G46(b) closure): write-watch on
+    // RAM addresses $5BFE-$5C02. On each step, peek() the watched bytes
+    // (side-effect-free — does NOT clobber p3_floating_bus_dat_) and
+    // log any change with the writer PC (= ring buffer entry [head-2],
+    // i.e. the PC of the instruction that just executed).
+    //
+    // Gated behind JNEXT_G46B_P24 env var: per-step peek loop adds
+    // wall-clock overhead but does NOT perturb emulator state, since
+    // peek() bypasses the contended-read floating-bus latch update.
+    {
+        static const bool g46b_p24_enabled =
+            std::getenv("JNEXT_G46B_P24") != nullptr;
+        if (g46b_p24_enabled) {
+            constexpr uint16_t WATCH_LO = 0x5BFE;
+            constexpr uint16_t WATCH_HI = 0x5C03;  // exclusive
+            static uint8_t  g46b_p24_prev[WATCH_HI - WATCH_LO] = {};
+            static bool     g46b_p24_initialized = false;
+            static int      g46b_p24_count = 0;
+            constexpr int   G46B_P24_MAX = 200;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                if (!g46b_p24_initialized) {
+                    char init_buf[80] = "";
+                    int n = 0;
+                    for (uint16_t a = WATCH_LO; a < WATCH_HI; ++a) {
+                        uint8_t v = mmu->peek(a);
+                        g46b_p24_prev[a - WATCH_LO] = v;
+                        n += std::snprintf(init_buf + n,
+                                           sizeof(init_buf) - n,
+                                           "%04x=%02x ", a, v);
+                    }
+                    Log::cpu()->info(
+                        "G46B P24 INIT (peek) {} pc={:#06x} sp={:#06x}",
+                        init_buf, pc, z80.sp.w);
+                    g46b_p24_initialized = true;
+                }
+                if (g46b_p24_count < G46B_P24_MAX) {
+                    for (uint16_t a = WATCH_LO; a < WATCH_HI; ++a) {
+                        uint8_t cur = mmu->peek(a);
+                        uint8_t prev = g46b_p24_prev[a - WATCH_LO];
+                        if (cur != prev) {
+                            int prev_idx = (g46b_pc_ring_head - 2
+                                            + G46B_PC_RING_SIZE)
+                                           % G46B_PC_RING_SIZE;
+                            uint16_t writer_pc = g46b_pc_ring[prev_idx];
+                            Log::cpu()->info(
+                                "G46B P24 WRITE addr={:#06x} {:#04x}->{:#04x} "
+                                "writer_pc={:#06x} cur_pc={:#06x} sp={:#06x}",
+                                a, prev, cur, writer_pc, pc, z80.sp.w);
+                            g46b_p24_prev[a - WATCH_LO] = cur;
+                            ++g46b_p24_count;
+                        }
+                    }
+                }
             }
         }
     }
