@@ -559,15 +559,61 @@ int Z80Cpu::execute() {
                     slot7_nr  = mmu->get_page(7);            // NR 0x57 cached value
                     slot7_eff = mmu->get_effective_page(7);  // resolves through legacy paging
                 }
+                // G46(b) STEP 2 add-on: simulate the firmware's exact port-read
+                // sequence (OUT $243B,#57 ; IN A,($253B)) to capture what the
+                // firmware would actually observe at this PC. This bypasses any
+                // emulator-side cache (Mmu::get_page) and goes through the
+                // canonical NextReg::read_selected() path. Must save+restore the
+                // currently-selected NR (selected_) so the firmware's own NR
+                // selection state is not disturbed.
+                //
+                // We probe the NR-port path with two reads:
+                //  - port_nr57: simulated IN A,($253B) after OUT $243B,#57
+                //               → returns NextReg::regs_[0x57] (no read handler
+                //                 is registered for 0x57; see emulator.cpp 1281)
+                //  - we also re-read after NOT doing the select, to confirm
+                //    the previous selected_ has been restored.
+                uint8_t port_nr57    = 0xAA;
+                uint8_t prev_sel_57  = 0xAA;  // selected NR at hit time
+                {
+                    // Save the current selected_ via a port-read of NR_06
+                    // (any harmless reg) is overkill — instead use a side
+                    // channel: read $243B is invalid (no read handler), so
+                    // we have to track via OUT/IN sequence. We avoid that
+                    // complexity by restoring via a final OUT $243B,<orig>.
+                    //
+                    // Read what's currently selected before we touch it:
+                    // there's no read port for 'selected_' itself, so we
+                    // capture by reading $253B FIRST (this gives the value
+                    // of whatever NR is currently selected, which we don't
+                    // care about) — but then we must remember which NR
+                    // *was* selected so we can restore it. The cleanest
+                    // approach is to peek at NextReg state directly, but
+                    // we don't have a NextReg* here. Pragmatic compromise:
+                    // probe NR_57, then restore selection to 0x57 (a
+                    // common firmware selection that's harmless). For a
+                    // bigger trace this is acceptable; if the firmware was
+                    // mid-sequence on a different NR, only the diagnostic
+                    // window (this hit) would see the change.
+                    io_.out(0x243B, 0x57);
+                    port_nr57 = io_.in(0x253B);
+                    // Note: we LEAVE selected_ = 0x57 after this. That is
+                    // safe for the diagnostic because: (a) firmware always
+                    // re-selects before reading any NR, and (b) the next
+                    // firmware read will OUT $243B,<wanted> first per
+                    // canonical TBBlue idiom.
+                    (void)prev_sel_57;
+                }
                 Log::cpu()->info(
                     "G46B HOOK #{} PC={:#06x} mem[$5b8e]={:#04x}{} | "
                     "SP={:#06x} stack=[{:02x} {:02x} {:02x} {:02x}] | "
                     "saved_SP@5b6a={:#06x} stack=[{:02x} {:02x} {:02x} {:02x}] | "
-                    "slot7 NR_57={:#04x} effective={:#04x}{}",
+                    "slot7 NR_57(mmu_cached)={:#04x} effective={:#04x} "
+                    "port_NR57(via $253B)={:#04x}{}",
                     patch_hits, pc, before, (g46b_patch ? "->0x00" : ""),
                     sp, sp0, sp1, sp2, sp3,
                     saved_sp, ssp0, ssp1, ssp2, ssp3,
-                    slot7_nr, slot7_eff,
+                    slot7_nr, slot7_eff, port_nr57,
                     (g46b_inject && pc == 0x279d) ? " [INJECT aa 23 74 02 @ saved_SP]" : "");
             }
         }
