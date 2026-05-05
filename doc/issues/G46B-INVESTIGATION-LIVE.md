@@ -737,3 +737,121 @@ Concrete tooling: add a comparator that logs ALL `nextreg $XX, A` writes (= ed 9
 
 OR: bypass the firmware boot entirely (per the user's earlier suggestion) — pre-populate the supervisor state directly. Skip the divergent boot path.
 
+
+---
+
+## 2026-05-05 12:30 — SESSION HANDOVER (next session: FW bypass approach)
+
+### Final state of g46b-investigation branch
+
+```
+6d57367 doc(g46b): NR_8E propagation experiment failed; document multiple concurrent divergences
+460c054 doc(g46b): CSpect runtime inspection — IX=$5CCA, NR_56=$0B, NR_57=$10 + descriptor template at $949A
+004fed7 doc(g46b): wrapper-vs-dispatcher path divergence analysis
+3cbb3bc doc(g46b): correct overclaim about JNEXT_G46B_PATCH_IX11 patch outcome
+81d00e8 diag(g46b#2-v4): JNEXT_G46B_PATCH_IX11 isolation test for sprite-descriptor stall
+a2c3d1c diag(g46b#2-v3): page 0x2F mirror-load + PC-conditional sprite-descriptor diag
+0b7c3c2 fix(g46b#2-v2): pre-load enAltZX.rom into AltROM SRAM pages 0x0C-0x0F at hard-reset init
+a210b37 Revert "fix(g46b#2): load enAltZX.rom from SD into SRAM pages 0x0C-0x0F"
+04fe5bd fix(g46b): NR 0x50-0x57 read handlers delegate to Mmu — single MMU register source of truth
+5f8cca0 diag(g46b): add cpu_inst log channel + temp G46(b) instrumentation
+89e18de  ← branch base (= main)
+```
+
+`main` HEAD = `2d90ea1` (= Fix #1 cherry-picked from g46b-investigation `04fe5bd`).
+
+### Reference data captured in CSpect (preserve for next session)
+
+Three screenshots saved at repo root (untracked, please commit if needed):
+- `cspect-nextzxos-boot.png` — what NextZXOS welcome screen should look like
+- `cspect-boot-debugger-1.png` — CSpect debugger at PC=$20E6 SECOND hit (welcome screen rendered)
+- `cspect-boot-debugger-2.png` — CSpect debugger at PC=$20E6 FIRST hit
+- `mmu-nextregs-1.png` — CSpect NextReg window showing NR_50..NR_5F + others
+
+**CSpect data summary**:
+
+| | FIRST hit ($F700) | SECOND hit ($5CCA) | Our jnext ($E01B) |
+|---|---|---|---|
+| PC | $20E6 | $20E6 | $20E6 |
+| IX | $F700 | $5CCA | $E01B |
+| BC | $0000 | $0000 | $0000 |
+| DE | $5B00 | (n/a) | (n/a) |
+| HL | $218A | (n/a) | (n/a) |
+| SP | $5BF9 (sup-stk) | $5BF9 | $FF7F (user-stk) |
+| NR_50 | FF | FF | FF |
+| NR_51 | FF | FF | FF |
+| NR_52 | 0A | **00** | 0A |
+| NR_53 | **11** | 11 | 0B (default) |
+| NR_54 | 04 | 04 | 04 |
+| NR_55 | 05 | 05 | 05 |
+| NR_56 | **0B** | 0B | 0E (port-derived) |
+| NR_57 | **10** | 10 | 0F (port-derived) |
+| State | INSIDE wrapper | INSIDE wrapper | OUTSIDE wrapper |
+
+**Bytes at IX in CSpect**:
+
+FIRST hit ($F700, slot 7 with NR_57=$10 → physical SRAM page 0x30 offset 0x1700):
+```
+$F700: EB D7 08 FA 01 93 E9 3F AA 46 F1 59 0E 00 FB 08 FF 20 18 00 00 1F 17 00 C0 10 18 01 20 08
+                                                              ^^
+                                              (IX+$11) = 0x20 = sprite-width
+```
+
+SECOND hit ($5CCA, slot 2 with NR_52=$00 → physical SRAM page 0x20 offset 0x1CCA):
+```
+$5CCA: 4D 5B 4D 5B 57 7F 27 6D 0C BE 2B 2F 01 00 EF 05 F8 20 15 00 00 1F 14 00 A8 A0 00 01 33 08
+                                                              ^^
+                                              (IX+$11) = 0x20 = sprite-width
+```
+
+Both CSpect descriptors have sprite-width=$20 (= 32 dec) at IX+$11. Our jnext reads 0 from IX+$11 (page 0x2F is wiped, and our IX points to a different region anyway).
+
+### What remains to be tried (next session)
+
+#### Option A — `--bypass-tbblue-fw` (USER'S PREFERRED PATH)
+
+Replicate CSpect's approach. Skip nextboot.rom + tbblue.fw entirely. Set up the MMU, NR registers, and SRAM contents to look like "post-supervisor-init" state, then start Z80 directly at the supervisor's "ready" state.
+
+Concrete steps:
+1. Add `--bypass-tbblue-fw` CLI option (off by default).
+2. When enabled, on hard reset:
+   - DON'T overlay nextboot.rom at $0000-$1FFF (skip the boot ROM enable)
+   - Pre-populate SRAM pages 0..7 with enNextZX.rom (= what tbblue.fw `load_roms()` does)
+   - Pre-populate SRAM page 0x08 with enNxtmmc.rom (DivMMC)
+   - Pre-populate SRAM page 0x0A with enNextMf.rom (Multiface)
+   - Pre-populate SRAM pages 0x0C-0x0F with enAltZX.rom (AltROM, this Fix #2-v2 already does)
+   - Set NR registers to expected post-tbblue.fw values (need to figure out what these are):
+     * NR_03 = machine type for Next
+     * NR_07 = 0x03 (28 MHz)
+     * NR_8E = appropriate value
+     * Others as needed
+   - Set Z80 PC = $0000 (which JP $00EF → supervisor entry)
+   - Or PC = $00EF directly (= just after the JP)
+3. Start the supervisor and see what happens.
+
+Key unknowns:
+- What exact NR register values does CSpect set up before handing off to NextZXOS?
+- What sysvar memory state does NextZXOS expect post-init?
+
+For the unknowns, can either:
+- Empirically experiment (try common values, see if welcome screen renders)
+- Inspect CSpect's runtime memory state at the START of NextZXOS execution (set BP at $00EF in CSpect, dump all NR registers + key SRAM pages)
+
+#### Option B — supervisor RAM-test bypass / patch
+
+Patch enNextZX.rom at file offset $0130 (RAM-test PASS 1 entry) to JP straight to $01CC (post-RAM-test). This skips the RAM-test entirely. With Fix #2-v2 (pre-loaded AltROM), the supervisor would have valid AltROM + valid sprite descriptors (assuming we also pre-populate bank 7 / pages 0x2C-0x2F with appropriate data).
+
+Risk: not VHDL-faithful, modifies copyrighted ROM.
+
+#### Option C — Continue divergence-tracing in firmware path
+
+Add NR-write logging to our jnext and run from supervisor entry $00EF. Capture every `nextreg` write. Compare with CSpect's writes (would need CSpect to produce the same log — could potentially use CSpect's plugin API).
+
+The first divergence point in the NR-write log = where supervisor branches differently. Fix that root cause.
+
+Risk: time-consuming. We already know the IX, MMU, and SP all differ at PC=$20E6 — finding the SINGLE upstream cause may be hard.
+
+### Recommendation
+
+Per user direction: **Option A (`--bypass-tbblue-fw`)** in the next session.
+
