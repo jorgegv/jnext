@@ -647,3 +647,38 @@ Multiple layers of state divergence stem from upstream supervisor behaviour we h
 
 **Conclusion**: the firmware-driven boot path requires fixing the supervisor's data-flow divergence — which requires either (a) finding the upstream root divergence (a specific NR-port-read or memory-read returning a different value), or (b) bypassing the supervisor's full init by pre-populating expected state (the user's suggestion).
 
+
+### 2026-05-05 11:50 — Wrapper analysis: our supervisor reaches $20E6 via dispatcher, not via wrapper
+
+Counted hits in our 12-second cpu_inst trace:
+- PC=$2734 (wrapper entry test): 106 hits
+- PC=$27DE (NR-swap routine): 318 hits
+- PC=$20E6 (sprite read): ~119 hits per loop iteration × ~3700 iterations
+
+So our supervisor DOES enter the wrapper (106 times) and DOES execute the NR-swap (318 times — not 1:1 because each wrapper invocation may call $27DE multiple times for entry+exit). But the path that reaches PC=$20E6 doesn't go through the wrapper-mediated route.
+
+**First $20E6 hit** in our trace traces back via:
+```
+$1D96 → $1DA0 (small LDIR, copies 8 bytes to $F350)
+      → $1DE6 (read ix+$24)
+      → $1DF3 call c, $2043 (sprite descriptor setup)
+      → $2057 → $2058 call $1A88 → $205B → $2069
+      → $20A6 ld hl,$2199; call $2178 (copies JP trampolines to $5B91)
+      → $20AC ld e,$01; call $20E6   ← we hit here
+```
+
+This is the **sprite/render dispatcher path** (entered from $1F40-area which reads port $FE keyboard). NO wrapper $2730 in this call chain.
+
+**On real CSpect** (per the BP capture), $20E6 is reached with NR_56=$0B, NR_57=$10 (the values written by wrapper's NR-swap at $27DE). So CSpect's $20E6 hit happened from inside a wrapper-mediated call chain.
+
+**Hypothesis** (needs verification): on real Next, the supervisor enters wrapper FIRST, then the wrapper invokes the rendering chain that reaches $20E6. On our jnext, the supervisor reaches the rendering chain BEFORE wrapper-mediated calls happen, so $20E6 is hit with the pre-wrapper MMU state and pre-wrapper IX.
+
+**To verify**: get the user to set BP at $2734 (wrapper entry) in CSpect. Compare with our jnext's first $2734 hit timing (line 12462281 = ~190ms after supervisor entry). If CSpect's $2734 is before $20E6 first hit, but ours is after, that's the divergence.
+
+**Or simpler**: the real divergence may be in the supervisor's internal state machine — our jnext takes a wrong branch early, leading to dispatcher-first instead of wrapper-first. Likely culprits:
+- Some NR or port read returning a stale value (similar to Fix #1 but for a different register)
+- Some memory state we didn't initialize correctly
+- A keyboard/joystick state that influences the supervisor's mode selection
+
+Without further runtime data from CSpect (especially comparison of pre-$20E6 execution paths), we can't pinpoint the upstream divergence.
+
