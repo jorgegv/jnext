@@ -2215,4 +2215,109 @@ provide. Candidates:
    "wrong" port_7ffd state, supervisor may take divergent path
    afterward.
 
+---
+
+## 2026-05-05 evening — Probe 13: port 7FFD/1FFD writes confirmed working in jnext
+
+Ran jnext bypass with `--log-level port=trace`. Per loop iteration:
+
+```
+OUT $253B ← $80      (NEXTREG NR_X = $80 — pre-write)
+OUT $7FFD ← $10      (port 7FFD bit 4 set → +3ROM bit 0 = 1)
+OUT $1FFD ← $04      (port 1FFD bit 2 set → +3ROM bit 1 = 1)
+... bank-3 work ...
+OUT $7FFD ← $00      (clear)
+OUT $1FFD ← $00      (clear)
+```
+
+18 iterations × 4 writes each. **Port writes ARE being honored by jnext**
+— +3ROM transitions to bank 3 then back. So the `+3ROM=3` behavior
+matches CSpect.
+
+So +3ROM/port-handling is NOT the bug.
+
+## 2026-05-05 evening — Probe 14: VHDL deep-dive on AUTOMAP gating
+
+Re-read VHDL `divmmc.vhd` and `zxnext.vhd:2892-2905, 3137-3138`:
+
+### Per VHDL the AUTOMAP firing conditions are:
+
+```
+divmmc_automap_instant_on <= rst_ep AND rst_ep_valid AND rst_ep_timing;
+divmmc_automap_delayed_on <= rst_ep AND rst_ep_valid AND NOT rst_ep_timing;
+
+divmmc_automap_rom3_instant_on <= (rst_ep AND NOT rst_ep_valid AND rst_ep_timing) OR
+                                   (port_3dxx_msb AND nr_bb(7));
+divmmc_automap_rom3_delayed_on <= (rst_ep AND NOT rst_ep_valid AND NOT rst_ep_timing) OR
+                                   (port_04xx_msb AND port_c6_lsb AND nr_bb(2)) OR
+                                   ... (other tape traps)
+```
+
+Then `automap_hold` activates when EITHER:
+- `i_automap_active AND (instant_on OR delayed_on OR ...)`  — main path
+- `i_automap_rom3_active AND (rom3_instant_on OR rom3_delayed_on)`  — ROM3 path
+
+With **NR_B9=$00 (all valid bits clear)**, `rst_ep_valid=0` → main path
+condition false → only ROM3 path can fire.
+
+ROM3 path fires only when `i_automap_rom3_active = sram_divmmc_automap_rom3_en`
+is high. Per line 3138:
+
+```
+sram_divmmc_automap_rom3_en <= sram_pre_override(2) AND sram_pre_override(0) AND 
+   (NOT sram_layer2_map_en) AND (NOT sram_romcs) AND 
+   ((sram_altrom_en AND sram_pre_alt_128_n) OR (sram_pre_rom3 AND NOT sram_altrom_en));
+```
+
+So ROM3 AUTOMAP needs:
+- `sram_pre_override(2)` = DivMMC priority bit
+- `sram_pre_override(0)` = some other priority bit
+- `NOT sram_layer2_map_en` = L2 not read-mapping the area
+- `NOT sram_romcs` = ROMCS pin not asserting
+- `(AltROM with 128n) OR (ROM3 selected without AltROM)`
+
+### jnext's check_automap is missing gates
+
+`src/peripheral/divmmc.cpp:315` checks `valid || (rom3_active_ && !layer2_map_read_)`.
+
+This is INCOMPLETE compared to VHDL:
+- Doesn't check `sram_pre_override(2)` (the DivMMC overlay priority)
+- Doesn't check `sram_pre_override(0)` (other priority bit)
+- Doesn't check `sram_romcs`
+- Doesn't check the AltROM-vs-ROM3 selector logic
+
+In CSpect, with bank 3 selected, the full priority arbiter probably
+results in `sram_pre_override(2)=0` for some reason — preventing the
+ROM3 AUTOMAP from firing. jnext skips this check and fires anyway.
+
+### Hypothesis: jnext is missing `sram_pre_override` gating
+
+The VHDL `sram_pre_override` is a 3-bit signal computed by a priority
+arbiter that decides which memory overlay is active (DivMMC, Layer 2,
+ROMCS, etc.). Bit 2 is set when DivMMC is the winning overlay.
+
+jnext's DivMmc class doesn't track this — it just fires AUTOMAP when
+any of: NR_B8 bit set + PC matches RST + (NR_B9 bit set OR ROM3+!L2).
+
+This means jnext fires AUTOMAP in cases where VHDL would NOT
+(specifically when `sram_pre_override(2)` is low).
+
+### Concrete next-session fix
+
+1. **Implement `sram_pre_override` priority arbiter in jnext's DivMmc** —
+   gate AUTOMAP firing on the same combination of conditions VHDL has:
+   - DivMMC priority (`sram_pre_override(2)`)
+   - Other priority (`sram_pre_override(0)`)
+   - Not L2 read-mapping
+   - Not ROMCS
+   - AltROM/ROM3 selection logic
+2. Verify against CSpect's behavior (re-run with the fix and check
+   first $3D00 hit AUTOMAP state matches CSpect's).
+3. If all gating is implemented correctly, supervisor should run
+   normally without spurious AUTOMAP triggers, and welcome screen
+   should render.
+
+This is a **non-trivial fix** — needs to model the VHDL priority
+arbiter accurately. But it's now the concrete path forward.
+
 
