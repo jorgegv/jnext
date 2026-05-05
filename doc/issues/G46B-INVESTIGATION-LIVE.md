@@ -200,3 +200,66 @@ nextreg_.set_read_handler(static_cast<uint8_t>(0x50 + i),
 ```
 
 **Expected outcome**: at wrapper entry, `IN A,($253B)` for NR_57 will return `mmu_.get_page(7) = 0x01` (the live MMU7). Saved at $5b8a H = 0x01. Wrapper exit restores NR_57 = 0x01. Slot 7 stays at bank 0x01. RET pops mem[$ff4f] from bank 0x01 = `aa 23` → $23aa. Boot progresses past the loop. **G46(b) closes.**
+
+---
+
+## 2026-05-05 00:30 — Fix #1 verified, Fix #2 partial, downstream bug remains
+
+### Fix #1 (commit `04fe5bd`) — VERIFIED and SUFFICIENT for G46(b) closure
+
+`src/core/emulator.cpp:1290-1314` — added NR 0x50-0x57 read_handlers delegating to `Mmu::get_page(i)`. Makes `IN A,($253B)` for NR 0x50-0x57 return the LIVE MMU register (matching VHDL).
+
+**Verification**:
+- Original loop iteration count: **65/run → 2/run** (= same as the manual JNEXT_G46B_INJECT bypass test).
+- Per the diagnostic agent's verification: "the wrapper at `enNextZX.rom $2730-$27ab` now exits cleanly (158/158 wrapper invocations RET to valid firmware addresses `$23aa`/`$0274`, never to `$0000`)".
+- Unit tests: **3850/3812/0/38** (no regressions).
+- Full regression: **33/0/0** (no regressions).
+- Firmware boot makes substantial progress past the wrapper — config-mode work, soft reset, post-reset re-init.
+
+This is the canonical G46(b) closure.
+
+### Fix #2 (commit `4c8a761`) — partial mitigation, exposed a downstream issue
+
+`src/core/emulator.cpp:3651-3712` — load `/MACHINES/NEXT/enAltZX.rom` (32 KB) from SD into SRAM pages 0x0C-0x0F at init.
+
+**Why needed**: post-Fix-#1, the firmware advances to `nextreg $8C,$80; ret` at $007B (enable AltROM, then return into the `nextreg $8C,$00; ret` mirror trampoline at the same address INSIDE the AltROM image). Without enAltZX.rom loaded, pages 0x0C-0x0F are all-zero → RET pops 0x0000 → NOP slide → crash.
+
+**Verification**:
+- Pre-fix: post-AltROM-trampoline screenshots all blank (3 colors).
+- Post-fix: frame 600 shows boot progress indicator (color bars at bottom of screen, 11 colors). Visible firmware progress.
+- Unit tests: 3850/3812/0/38 (no regressions).
+
+### Remaining downstream issue (post Fix #1 + Fix #2)
+
+Screenshots oscillate between "boot progress indicator" (frames 600, 1200) and blank (frames 800, 1000). Welcome screen never appears.
+
+Investigation agent finding (worktree `agent-a106d7be4aa2d1d03`):
+- The firmware enters a NEW loop AFTER Fix #1 + Fix #2.
+- Loop body: NextZXOS RAM-test sweeps NR_57 = 0x01, 0x03, ..., 0xDF and writes patterns to $C000-$FFFF in each bank. **For C=6 (NR_56=0x0C, NR_57=0x0D) and C=7 (NR_56=0x0E, NR_57=0x0F), the RAM-test writes WIPE the AltROM pages we just pre-loaded.**
+- After RAM-test, firmware does `nextreg $8C,$80; ret` at $007B expecting valid AltROM. Pages now zero → NOP slide → eventually pops 0x0000 → DI → JP $00EF → 5578 iterations / 18 sec.
+- **Per agent**: "We see ZERO SD reads post-soft-reset — confirming NextZXOS never reaches the AltROM-reload step". On real hardware NextZXOS reloads enAltZX.rom from SD after the RAM-test (via FatFs/DivMMC). In jnext, the firmware loops before reaching this reload step.
+
+### Options for the remaining issue (NOT fixed in this session)
+
+1. **VHDL-faithful (recommended)**: find why NextZXOS doesn't reach the AltROM-from-SD reload step. Add tracing for the NextZXOS code path that calls `f_open` on `enAltZX.rom`. Some downstream emulation bug derails the firmware before it gets there.
+
+2. **Pragmatic band-aid (NOT recommended per `feedback_vhdl_faithful_only.md`)**: re-load AltROM AFTER the RAM-test, e.g., on every NR 0x8C bit-7 set, OR by hooking RST $08 / RST $00 entry, OR by making `Mmu::altrom_sram_page_()` always return ROM data instead of routing through SRAM. All are band-aids.
+
+3. **Defer**: wait for `--bypass-tbblue-fw` (G59) to land. With bypass, jnext could load NextZXOS directly without going through tbblue.fw's full boot, potentially side-stepping the issue.
+
+### Status of session goal
+
+**G46(b) — the original RAM-test/wrapper loop — is SOLVED via Fix #1.** 
+
+The remaining "no welcome screen" symptom is a NEW, downstream bug (the AltROM-corruption-by-RAM-test path), not the original G46(b). Recommend tracking it as a separate ticket (e.g., G46(d) "AltROM reload from SD").
+
+### TEMPORARY instrumentation status
+
+Instrumentation in commit `5f8cca0` (parent of fixes) is:
+- `cpu_inst` log channel — **PERMANENT** (per user direction 2026-05-04). Generic per-instruction trace, useful for any future investigation. Documented in `src/core/log.h:21-29`.
+- `JNEXT_G46B_PATCH` env-var — **TEMP**, remove on G46(b) closure (now achieved).
+- `JNEXT_G46B_INJECT` env-var — **TEMP**, remove on G46(b) closure.
+- `JNEXT_G46B_WATCH` env-var — **TEMP**, remove on G46(b) closure.
+
+Cleanup commit needed: revert/remove the env-var-gated instrumentation in `src/cpu/z80_cpu.cpp`. Keep `cpu_inst` channel.
+
