@@ -3647,67 +3647,6 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             Log::emulator()->info("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
                                   cfg.sd_card_image, mf_sd_path);
         }
-
-        // AltROM (Alternate ROM) — `enAltZX.rom` (32 KB) on SD at the
-        // canonical TBBlue path. The AltROM is a parallel set of system
-        // ROM images that NextZXOS firmware switches in via NR 0x8C bit 7
-        // (`nr_8c_altrom_en`) for short trampoline calls (e.g. enable-
-        // AltROM-then-RET-into-AltROM-resident-code, mirrored by a
-        // disable-AltROM-then-RET trampoline at the same address inside
-        // the AltROM image — the canonical NextZXOS round-trip).
-        //
-        // VHDL zxnext.vhd:2981-3001/3021 routes ROM-slot reads (when
-        // `nr_8c_altrom_en=1` AND `nr_8c_altrom_rw=0`) through SRAM
-        // pages 0x0C..0x0F (= 12..15) per `Mmu::altrom_sram_page_()`:
-        //   - alt_128_n=0, addr in $0000-$1FFF → page 0x0C
-        //   - alt_128_n=0, addr in $2000-$3FFF → page 0x0D
-        //   - alt_128_n=1, addr in $0000-$1FFF → page 0x0E
-        //   - alt_128_n=1, addr in $2000-$3FFF → page 0x0F
-        // i.e. pages 12-13 hold the alt-ROM-0 image (16 KB), pages 14-15
-        // hold the alt-ROM-1 image (16 KB) — together the full 32 KB of
-        // enAltZX.rom.
-        //
-        // Pre-fix symptom (G46(b) downstream): NextZXOS firmware
-        // executes `nextreg $8C,$80; ret` at \$007B, expecting to return
-        // into the symmetric `nextreg $8C,$00; ret` trampoline inside
-        // the AltROM image (= byte 0xC9 at offset 0x7F). With pages
-        // 12-15 zero-filled, the RET pops 0x0000 and the CPU walks off
-        // into a NOP slide — never reaching the BASIC welcome screen.
-        //
-        // Skipped on soft reset (preserve_memory=1) so the populated
-        // SRAM pages survive — same pattern as the ROM-in-SRAM seed at
-        // line 3560-3568. Skipped silently if the AltROM image is
-        // absent on the SD (firmware boots through with restricted
-        // feature set, which is the documented TBBlue fallback).
-        if (cfg.type == MachineType::ZXN_ISSUE2 && !preserve_memory) {
-            std::vector<uint8_t> alt_rom_bytes;
-            const char* alt_sd_path = "/MACHINES/NEXT/enAltZX.rom";
-            if (extract_sd_rom(cfg.sd_card_image, alt_sd_path, alt_rom_bytes)) {
-                // Expected size: 32 KB = 4 × 8 KB pages → 12, 13, 14, 15.
-                // If the on-SD image is shorter, copy what we have and
-                // leave the remaining pages as-is (zero-init from RAM
-                // construction, or whatever soft-reset preservation left).
-                static constexpr size_t kPageSize  = 0x2000;     // 8 KB
-                static constexpr int    kFirstPage = 0x0C;       // page 12
-                static constexpr size_t kAltRomTotal = 4 * kPageSize; // 32 KB
-                const size_t bytes = std::min(alt_rom_bytes.size(), kAltRomTotal);
-                size_t copied = 0;
-                for (int p = 0; p < 4; ++p) {
-                    const size_t off = static_cast<size_t>(p) * kPageSize;
-                    if (off >= bytes) break;
-                    uint8_t* dst = ram_.page_ptr(static_cast<uint16_t>(kFirstPage + p));
-                    if (!dst) break;
-                    const size_t this_chunk = std::min(kPageSize, bytes - off);
-                    std::memcpy(dst, alt_rom_bytes.data() + off, this_chunk);
-                    copied += this_chunk;
-                }
-                Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes → SRAM pages 0x0C..0x0F)",
-                                      alt_sd_path, copied);
-            } else {
-                Log::emulator()->info("AltROM not found on SD image '{}' (path '{}') — AltROM-resident code paths will be unavailable",
-                                      cfg.sd_card_image, alt_sd_path);
-            }
-        }
     }
 
     // SD card image mounting
