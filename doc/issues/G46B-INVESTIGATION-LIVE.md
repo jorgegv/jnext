@@ -1959,4 +1959,134 @@ fix-direction: **populate DivMMC RAM with whatever CSpect has there**,
 or **avoid the supervisor falling into empty DivMMC RAM** by ensuring
 correct upstream conditionals.
 
+---
+
+## 2026-05-05 evening — Probes 9-11: deeper picture
+
+### Probe 9 — non-bypass mode also has empty DivMMC RAM
+
+Re-ran Probe 8 in non-bypass mode (= full firmware). Same result:
+slot 1 at PC=$3CE8 = empty (1 non-zero byte). DivMMC RAM is NEVER
+populated, even when running real `tbblue.fw`.
+
+### Probe 10 — disasm of enNxtmmc.rom + sentinel-installer
+
+Static analysis revealed the enNextZX.rom routine at `bank 2 lower
+$1F01-$1F28` that installs the **2 sentinel `c9` (RET) bytes** into
+DivMMC RAM banks 0 and 1:
+
+```asm
+$1F01: NEXTREG $8E, $7A
+$1F05: LD HL, $1F13            ; src
+$1F08: LD DE, $ED27             ; dst (in supervisor RAM)
+$1F0B: LD BC, $0016             ; 22 bytes
+$1F0E: LDIR                      ; copy template to $ED27
+$1F10: JP $ED27                  ; execute relocated copy
+
+$1F13:  ; the 22-byte template that runs at $ED27:
+$1F13: LD A, $81                ; CONMEM=1 + bank=1
+$1F15: OUT ($E3), A             ; activate DivMMC, slot 1 = bank 1
+$1F17: LD A, $C9                ; opcode = RET
+$1F19: LD ($2009), A            ; ★ install sentinel in bank 1 @ slot1+$0009
+$1F1C: LD A, $80                ; CONMEM=1 + bank=0
+$1F1E: OUT ($E3), A             ; switch to bank 0
+$1F20: LD A, $C9                ; RET
+$1F22: LD ($3D00), A            ; ★ install sentinel in bank 0 @ slot1+$1D00
+$1F25: XOR A
+$1F26: OUT ($E3), A             ; deactivate CONMEM
+$1F28: RET
+```
+
+So the supervisor INTENTIONALLY:
+- Activates DivMMC CONMEM mode (which makes slot 1 a writable DivMMC RAM)
+- Writes single `c9` RET sentinel bytes at specific offsets in banks 0
+  and 1
+- Deactivates CONMEM
+
+**This is a working safety-net mechanism.** When the supervisor uses
+DivMMC AUTOMAP for a bank-flip-via-NOP-sled, it can RET out of the sled
+via this sentinel.
+
+### Probe 11 — supervisor uses AUTOMAP for INTENTIONAL bank flipping
+
+Trace showed at first AUTOMAP activation:
+1. Supervisor runs at `$5B0A-$5B20` (in slot 2 sysvar area).
+2. RETs to `$0000`.
+3. **Slot 0 at `$0000` = `$00` (NOT `$F3` as initial)**. Some prior
+   operation remapped slot 0 to a zero page.
+4. CPU NOPs through `$0000-$0008` (9 NOPs).
+5. At `$0008`, RST $08 trap fires (delayed AUTOMAP per `entry_points_0_=0x83`).
+6. At `$0009`, AUTOMAP active. Slot 0 = enNxtmmc.rom (DivMMC ROM).
+7. CPU continues into DivMMC ROM bytes:
+   ```
+   $0009: 12       LD (DE), A
+   $000A: 05       DEC B
+   $000B: e1       POP HL
+   $000C: f5       PUSH AF
+   $000D: c3 64 33 JP $3364
+   ```
+8. Lands in `$3364` (slot 1 = DivMMC RAM bank 0, all zeros except `c9`
+   at `$3D00` sentinel).
+9. NOPs through `$3364-$3CFF` (= ~2400 NOPs = a deliberate timing
+   delay).
+10. RET at `$3D00` pops `$0082` from stack.
+11. Lands at DivMMC firmware `$0082`: `PUSH AF; LD A,$07; JR +2; ADD A,A;
+    NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; POP AF; RET`.
+12. Sets `NR_56=$0E, NR_57=$0F`.
+
+This is an INTENTIONAL bank-flip mechanism. The supervisor uses:
+- AUTOMAP delayed activation timing to switch banks mid-instruction
+- DivMMC RAM as a NOP-sled timer
+- Sentinel `c9` to exit the sled cleanly
+- Pre-pushed continuation address (`$0082`) on the stack for RET-jump
+
+### What this means for divergence vs CSpect
+
+**The mechanism itself works** — same enNxtmmc.rom code in both
+emulators, same supervisor binary, same NR-pair-set helper at `$0082`
+that hardcodes A=$07 → NR_57=$0F.
+
+**The divergence is in WHAT VALUE IS ON THE STACK** when the RET at
+`$3D00` fires. In jnext, `$0082` is on the stack → land in the NR_57=$0F
+helper. In CSpect, presumably **a DIFFERENT value** is on the stack
+(e.g., `$0080` = `LD A,B; RET` — no NR write, or `$008E` = direct
+NEXTREG NR_57 with whatever A is = could be $10).
+
+So the bug propagates BACKWARDS: jnext's call chain pushed `$0082`
+because some upstream conditional took the "NR_57=$0F path" instead of
+the "NR_57=$10 path".
+
+### Concrete next-session probe
+
+1. Extend the PC ring buffer to 512+ entries to capture more upstream
+   history. Identify the supervisor PC that PUSH'd `$0082`.
+2. Track NR_50/NR_04 changes between initial boot ($0000=$F3) and
+   first AUTOMAP trap ($0000=$00). Something remaps slot 0 to a
+   zero-page just before the trap; what is it?
+3. Examine what happens at the SECOND boot iteration. The supervisor
+   does work in slot 2 (sysvars `$5B0A`), RETs to a "next-iteration"
+   target, but slot 0 is now zero-mapped.
+4. Search supervisor binary for the call sequence that pushes `$0082`
+   and chains into the AUTOMAP/sled path.
+
+### Status — Probes 1-11 fully documented
+
+Net deltas this session:
+- Probes 1-3: bypass + non-bypass converge bit-identical
+- Probe 5: Fix #1 verified working
+- Probe 6: NR_57=0x0F writers identified
+- Probe 7: trampoline path is sequential not CALL
+- Probe 8: slot 0 IS DivMMC firmware
+- Probe 9: non-bypass also has empty DivMMC RAM
+- Probe 10: 2 sentinel bytes are intentional installs from supervisor
+  $1F01 (bank 2 lower)
+- Probe 11: bank-flip mechanism uses AUTOMAP + NOP-sled + sentinel-RET
+- The divergence vs CSpect is **what value is PUSHed onto the stack**
+  before the AUTOMAP/sled invocation, which determines the
+  NR_57 outcome via different DivMMC-firmware entry points
+
+g46b-investigation HEAD is `b8e2059` after Probe 8. Subsequent probes
+9-11 are observational only (no code commits beyond Probe 8 + Probe 9
+diagnostic for all 16 banks dump + automap-state dump).
+
 

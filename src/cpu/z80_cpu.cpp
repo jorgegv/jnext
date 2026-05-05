@@ -523,15 +523,38 @@ int Z80Cpu::execute() {
             }
             // Probe 8b: capture DivMmc state at the trigger.
             const char* dm_state = "n/a";
-            char dm_buf[120];
+            char dm_buf[160];
             if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
                 if (DivMmc* dm = mmu->divmmc_for_diag()) {
                     std::snprintf(dm_buf, sizeof(dm_buf),
-                                  "active=%d rom_mapped=%d conmem=%d automap=%d mapram=%d",
+                                  "active=%d rom_mapped=%d conmem=%d automap=%d mapram=%d bank=%d",
                                   (int)dm->is_active(), (int)dm->is_rom_mapped(),
                                   (int)dm->conmem(), (int)dm->automap_active(),
-                                  (int)dm->mapram());
+                                  (int)dm->mapram(), (int)dm->bank());
                     dm_state = dm_buf;
+                    // Probe 9: dump non-zero count for each of 16 DivMMC RAM
+                    // banks. Reveals whether any bank has been populated.
+                    char banks_buf[256];
+                    int bn = 0;
+                    for (int bk = 0; bk < 16; ++bk) {
+                        const uint8_t* p = dm->ram_page(bk);
+                        int nz = 0;
+                        if (p) for (int i = 0; i < 0x2000; ++i) if (p[i]) ++nz;
+                        bn += std::snprintf(banks_buf + bn,
+                                            sizeof(banks_buf) - bn,
+                                            "%d:%d ", bk, nz);
+                    }
+                    Log::cpu()->info("  divmmc-ram-nonzero-per-bank: {}", banks_buf);
+                    // Also dump each bank to a file for offline inspection
+                    for (int bk = 0; bk < 16; ++bk) {
+                        const uint8_t* p = dm->ram_page(bk);
+                        if (!p) continue;
+                        char path[64];
+                        std::snprintf(path, sizeof(path),
+                                      "/tmp/g46b-divmmc-bank%02d.bin", bk);
+                        FILE* fp = std::fopen(path, "wb");
+                        if (fp) { std::fwrite(p, 1, 0x2000, fp); std::fclose(fp); }
+                    }
                 }
             }
             Log::cpu()->info(
