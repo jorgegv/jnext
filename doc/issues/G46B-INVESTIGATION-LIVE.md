@@ -1628,4 +1628,98 @@ on it, and ends up at NR_57=0x0F instead of 0x10. Candidates:
 - Memory read at some specific page that diverges (= what was originally
   populated by tbblue.fw in CSpect but not by our bypass synthesis)
 
+---
+
+## 2026-05-05 evening — Probe 6: identify supervisor PC writing NR_57=0x0F
+
+Added `selected_nr` sniffer (tracks last NR selected via OUT $243B,N or
+NEXTREG opcodes) + pattern-match for NR_57=0x0F writes via NEXTREG-imm,
+NEXTREG-A, OUT(C),A/B/C/D/E/H/L, and OUT($253B),A.
+
+### Probe 6 findings
+
+Three distinct supervisor PCs write NR_57=0x0F via NEXTREG-A (`ED 92 57`,
+value from A register):
+
+```
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x013d  mmu[0..7]=ff ff 0a 0b 04 05 0e 0d
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x019a  mmu[0..7]=ff ff 0a 0b 04 05 0e 0d
+G46B NEXTREG_57=0x0F via NEXTREG-A PC=0x008e  mmu[0..7]=ff ff 0a 0b 04 05 0e 0?  ×6
+```
+
+**`$013D` and `$019A` are RAM-test sweep iteration #7** (= bank 7, where
+`A = bank*2 = 0x0E`, `INC A` → `0x0F`, then `NEXTREG NR_57,A`):
+- bank 0 file `$0139-$0140`: `ED 92 56  3C  ED 92 57  CB 3F` =
+  `NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; SRL A` (PASS 1)
+- bank 0 file `$0197-$019D`: `87 ED 92 56 3C ED 92 57 CB 3F 08` =
+  `ADD A,A; NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; SRL A; EX AF,AF'` (PASS 2)
+
+Both are normal — once per RAM-test pass, A passes through 0x0F.
+
+**`$008E` is a RUNTIME-INSTALLED TRAMPOLINE** (5 bytes:
+`ED 92 57  F1  C9` = `NEXTREG NR_57,A; POP AF; RET`). The
+bytes at slot 0 `$008E` in physical RAM page 0 differ from the static
+enNextZX.rom file (file at `$008E` has `C3 48 5B` = `JP $5B48`) — the
+supervisor copies/synthesises this trampoline at boot.
+
+The trampoline is invoked via the self-paging push-continuation-then-call
+trick:
+```asm
+LD A, $0F           ; value to write
+PUSH $0082          ; continuation address
+CALL $008E          ; or JP via self-paging
+; helper:
+;   NEXTREG NR_57, A      ← writes NR_57 = 0x0F
+;   POP AF                ← discards retaddr-after-CALL
+;   RET                   ← jumps to $0082 (= continuation)
+```
+
+Probe 6e confirms: at every `$008E` hit, `tos0 = $0082` (constant
+continuation address). 6 sequential calls per supervisor iteration with
+ascending SP ($5C21 → $5C25 → ... → $5C35 = each call consumes 4 bytes).
+
+### What this means for the divergence vs CSpect
+
+PC=$008E is invoked **by design** by some supervisor sequence that wants
+slot 7 mapped to physical RAM page `to_sram_page(0x0F) = 0x0F` (passthrough
+exception — AltROM 1 upper). After 6 calls, NR_57 is `0x0F`. Then `$20E6`
+sprite-descriptor read fires while NR_57=0x0F, reading from AltROM 1
+upper instead of page 0x30 (sprite-descriptor area).
+
+**Two hypotheses for the divergence vs CSpect:**
+
+1. **CSpect's supervisor takes a DIFFERENT branch and never enters the
+   "NR_57=0x0F + jump to $0082" path.** Instead, it ends with NR_57=0x10
+   and jumps to a different continuation. The jnext path is incorrect
+   because some upstream condition diverges.
+2. **CSpect runs the same `$008E` trampoline + same continuation $0082**
+   but `$0082` itself produces different behaviour because slot 1 ($4000-
+   $5FFF) maps to a different physical page in CSpect than in jnext.
+
+Hypothesis 1 (different branch) is supported by yesterday's force-IX
+experiment: forcing IX=$F700 + NR_57=0x10 at first $1800 produces partial
+UI render. The supervisor can run the "correct" path with NR_57=0x10 and
+gets further.
+
+### Concrete next-session instrument
+
+Find the **CALLER** that pushes $0082 and CALLs $008E with A=$0F. With
+the cpu_inst PC-range gate currently excluding the RAM-test loops, the
+caller may be in the gated range — adjust the gate to include the
+relevant slot 0 / slot 1 PC ranges and re-run.
+
+Suggested approach:
+1. Adjust cpu_inst gate to also LOG `$0070-$00FF` and `$2700-$27FF`
+   (wrapper area).
+2. Re-run with cpu_inst trace + Probe 6e WRAPPER_IN — capture the 6-cycle
+   sequence:
+   `<caller_pc> → PUSH $0082 → CALL $008E → trampoline body → JP $0082 → <next_pc>`.
+3. Disassemble `<caller_pc>` to find the conditional that selected
+   "NR_57=0x0F + cont=$0082" instead of "NR_57=0x10 + cont=other".
+
+### Probe 6 status
+
+Instrumentation committed on `g46b-investigation` (TEMP — remove on full
+G46(b) closure).
+
 

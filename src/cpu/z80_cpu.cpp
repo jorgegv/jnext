@@ -574,6 +574,117 @@ int Z80Cpu::execute() {
             }
         }
     }
+    // G46(b) Probe 6 (TEMP — remove on G46(b) closure): identify which
+    // supervisor PC writes NR_57 = 0x0F. We track the currently-selected NR
+    // by sniffing OUT $243B,N writes (any byte form: OUT (C),A/B/C/D/E/H/L
+    // with BC=$243B, plus the immediate "ld a,N; out ($243b),a" form).
+    // Then at any OUT to $253B with the data byte = 0x0F, log if the
+    // selected reg is 0x57.
+    {
+        static uint8_t g46b_selected_nr = 0xFF;  // last selected NR
+        uint8_t op0 = opcode;
+        uint8_t op1 = mem_.read(pc + 1);
+        // Sniff selects: OUT (C),r with BC=$243B
+        if (op0 == 0xED && z80.bc.w == 0x243B) {
+            switch (op1) {
+                case 0x79: g46b_selected_nr = z80.af.b.h; break;  // OUT (C),A
+                case 0x41: g46b_selected_nr = z80.bc.b.h; break;  // OUT (C),B
+                case 0x49: g46b_selected_nr = z80.bc.b.l; break;  // OUT (C),C
+                case 0x51: g46b_selected_nr = z80.de.b.h; break;  // OUT (C),D
+                case 0x59: g46b_selected_nr = z80.de.b.l; break;  // OUT (C),E
+                case 0x61: g46b_selected_nr = z80.hl.b.h; break;  // OUT (C),H
+                case 0x69: g46b_selected_nr = z80.hl.b.l; break;  // OUT (C),L
+                default: break;
+            }
+        }
+        // Sniff "OUT ($243B),A" (D3 3B) — port-immediate form
+        if (op0 == 0xD3 && op1 == 0x3B) {
+            g46b_selected_nr = z80.af.b.h;
+        }
+        // Detect NR_57 = 0x0F via NEXTREG immediate (ED 91 57 0F)
+        if (op0 == 0xED && op1 == 0x91) {
+            uint8_t op2 = mem_.read(pc + 2);
+            uint8_t op3 = mem_.read(pc + 3);
+            if (op2 == 0x57 && op3 == 0x0F) {
+                static int cnt = 0;
+                if (cnt < 32) {
+                    Log::cpu()->info(
+                        "G46B NEXTREG_57=0x0F via NEXTREG-imm PC={:#06x}", pc);
+                    ++cnt;
+                }
+            }
+        }
+        // Detect NR_57 = 0x0F via NEXTREG-REG (ED 92 57) — value comes from A
+        if (op0 == 0xED && op1 == 0x92) {
+            uint8_t op2 = mem_.read(pc + 2);
+            if (op2 == 0x57 && z80.af.b.h == 0x0F) {
+                static int cnt = 0;
+                if (cnt < 32) {
+                    char mmu_buf[80];
+                    int mn = 0;
+                    if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                        for (int s = 0; s < 8 && mn < 70; ++s) {
+                            mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                                "%02x ", mmu->get_page(s));
+                        }
+                    } else {
+                        std::snprintf(mmu_buf, sizeof(mmu_buf), "n/a");
+                    }
+                    // Dump bytes at PC..PC+7 so we can confirm slot mapping
+                    char bytes_buf[40];
+                    int bn = 0;
+                    for (int i = 0; i < 8 && bn < 35; ++i) {
+                        bn += std::snprintf(bytes_buf + bn, sizeof(bytes_buf) - bn,
+                                            "%02x ", mem_.read(pc + i));
+                    }
+                    uint16_t sp = z80.sp.w;
+                    uint16_t tos0 = static_cast<uint16_t>(
+                        mem_.read(sp) | (mem_.read(sp + 1) << 8));
+                    uint16_t tos1 = static_cast<uint16_t>(
+                        mem_.read(sp + 2) | (mem_.read(sp + 3) << 8));
+                    Log::cpu()->info(
+                        "G46B NEXTREG_57=0x0F via NEXTREG-A PC={:#06x} sp={:#06x} tos0={:#06x} tos1={:#06x} mmu[0..7]={}",
+                        pc, sp, tos0, tos1, mmu_buf);
+                    ++cnt;
+                }
+            }
+        }
+        // Detect NR_57 = 0x0F via OUT (C),r to $253B
+        if (op0 == 0xED && z80.bc.w == 0x253B && g46b_selected_nr == 0x57) {
+            uint8_t v = 0xFF;
+            const char* src = nullptr;
+            switch (op1) {
+                case 0x79: v = z80.af.b.h; src = "A"; break;
+                case 0x41: v = z80.bc.b.h; src = "B"; break;
+                case 0x49: v = z80.bc.b.l; src = "C"; break;
+                case 0x51: v = z80.de.b.h; src = "D"; break;
+                case 0x59: v = z80.de.b.l; src = "E"; break;
+                case 0x61: v = z80.hl.b.h; src = "H"; break;
+                case 0x69: v = z80.hl.b.l; src = "L"; break;
+                default: break;
+            }
+            if (src && v == 0x0F) {
+                static int cnt = 0;
+                if (cnt < 32) {
+                    uint16_t caller = static_cast<uint16_t>(
+                        mem_.read(z80.sp.w) | (mem_.read(z80.sp.w + 1) << 8));
+                    Log::cpu()->info(
+                        "G46B NEXTREG_57=0x0F via OUT (C),{} PC={:#06x} retaddr={:#06x}",
+                        src, pc, caller);
+                    ++cnt;
+                }
+            }
+        }
+        // Also detect via OUT ($253B),A
+        if (op0 == 0xD3 && op1 == 0x3B && z80.af.b.h == 0x0F && g46b_selected_nr == 0x57) {
+            static int cnt = 0;
+            if (cnt < 32) {
+                Log::cpu()->info(
+                    "G46B NEXTREG_57=0x0F via OUT ($253B),A PC={:#06x}", pc);
+                ++cnt;
+            }
+        }
+    }
     // G46(b) v4 ISOLATION TEST: when JNEXT_G46B_PATCH_IX11 is set, restore
     // page 0x2F bytes at the IX position by copying from page 0x0F (= the
     // pre-loaded AltROM-1 upper). Verified empirically that this advances
