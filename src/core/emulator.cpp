@@ -3790,8 +3790,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // config_mode + commits machine_type).
         nextreg_.write(0x03, 0xB3);
 
+        // Emulate the side-effect of tbblue.fw's trailing `REG_RESET = RESET_SOFT`
+        // (NR 0x02 = 0x01) on the `nr_02_reset_type` history FSM (VHDL
+        // zxnext.vhd:1306,1735-1736). Power-on default = "100" (HARD); each
+        // soft reset shifts: 100 → 010 → 001 (saturates at 001). NextZXOS
+        // reads bits[1:0] via NR 0x02 read (VHDL:5891) to distinguish "first
+        // cold boot" (bits=00) from "post-soft-reset boot" (bits=10/01) and
+        // selects different boot paths accordingly. Without this strobe, our
+        // bypass leaves the FSM at HARD and the supervisor takes the cold-
+        // boot/dispatcher path instead of the post-soft-reset/wrapper path.
+        // Pure FSM bookkeeping — does NOT trigger an actual reset.
+        nmi_source_.strobe_soft_reset();
+
         Log::emulator()->info("--bypass-tbblue-fw: synthesised tbblue.fw post-handoff NR state "
-                              "(turbo=28MHz, periph1-5, decode_int0-3, machine_type=+3, config_mode=0)");
+                              "(turbo=28MHz, periph1-5, decode_int0-3, machine_type=+3, config_mode=0, "
+                              "nr_02_reset_type FSM advanced to soft)");
     }
 
     // Wire palette manager and RAM into ULA for enhanced palette and
