@@ -7,6 +7,7 @@
 #include "core/sna_saver.h"
 #include "core/saveable.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 
@@ -3735,6 +3736,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             } else {
                 Log::emulator()->info("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
                                       cfg.sd_card_image, alt_sd_path);
+            }
+
+            // G46(b) v5 EXPERIMENT: pre-load CSpect's page 0x30 capture into our
+            // physical SRAM page 0x30 (= NR_57=$10 slot-7 mapping). This is the
+            // sprite-descriptor area the supervisor's bank-2 routine at $0E9F
+            // expects to read after writing NR_57=$10 at $0EAB. CSpect-captured
+            // data placed in doc/issues/cspect-captures/page30.raw via the
+            // dump2.bas tool. Read at runtime so we can swap captures easily.
+            // TEMP — bypass-mode only experiment.
+            if (cfg.bypass_tbblue_fw) {
+                FILE* fp = std::fopen("doc/issues/cspect-captures/page30.raw", "rb");
+                if (fp) {
+                    uint8_t* dst = ram_.page_ptr(0x30);
+                    if (dst) {
+                        size_t got = std::fread(dst, 1, 0x2000, fp);
+                        Log::emulator()->info("--bypass-tbblue-fw: pre-loaded CSpect page 0x30 capture ({} bytes) into physical SRAM page 0x30",
+                                              got);
+                    }
+                    std::fclose(fp);
+                } else {
+                    Log::emulator()->info("--bypass-tbblue-fw: doc/issues/cspect-captures/page30.raw not found — page 0x30 stays uninitialised");
+                }
             }
         }
     }
