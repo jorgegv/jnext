@@ -682,3 +682,58 @@ This is the **sprite/render dispatcher path** (entered from $1F40-area which rea
 
 Without further runtime data from CSpect (especially comparison of pre-$20E6 execution paths), we can't pinpoint the upstream divergence.
 
+
+### 2026-05-05 12:15 — User provided 2nd CSpect screenshot (FIRST $20E6 hit)
+
+User captured CSpect debugger with PC=$20E6 BP firing for the **first time** during boot (welcome screen was already rendered when user broke; second screenshot is from a fresh boot with fresh BP).
+
+**FIRST $20E6 hit in CSpect**:
+- IX = **$F700** (vs SECOND hit IX = $5CCA, vs ours $E01B)
+- BC = 0000
+- DE = 5B00
+- HL = 218A
+- SP = 5BF9 (supervisor stack — INSIDE wrapper)
+- IR = 09FB
+- MMU = FF FF 0A 11 04 05 0B 10 (vs SECOND hit FF FF 00 11 04 05 0B 10, vs ours FF FF 0A 0B 04 05 0E 0F)
+
+Differences between FIRST and SECOND CSpect hits: only NR_52 changed ($0A → $00) and IX changed ($F700 → $5CCA). Both have NR_53=$11, NR_56=$0B, NR_57=$10 (all = the wrapper-explicit writes).
+
+**Our jnext FIRST $20E6 hit MMU vs CSpect FIRST**:
+- NR_52: SAME ($0A)
+- NR_53: ours $0B (default), CSpect $11 (explicit write to bank 8 upper)
+- NR_56: ours $0E (port_7ffd_bank=7 derived), CSpect $0B (explicit wrapper write)
+- NR_57: ours $0F (port_7ffd_bank=7 derived), CSpect $10 (explicit wrapper write)
+- IX: ours $E01B, CSpect $F700
+
+NR_56=$0B and NR_57=$10 are NOT a port-7FFD-derived consecutive pair — they came from explicit individual NR_56/NR_57 writes (= what wrapper $27DE does per disasm `ld hl,$100b; out`). NR_53=$11 is also explicit.
+
+### 2026-05-05 12:20 — Tested NR_8E propagation skip (failed)
+
+VHDL zxnext.vhd:4670+ says NR_8E with bit 3=1 propagates `port_7ffd_bank * 2 / +1` to MMU6/MMU7, overriding any explicit NR_56/NR_57 writes. The AltROM wrapper at altzx file offset $00FC writes NR_8E=$78 (bit 3=1) — and our trace shows 3711 such writes in a 12-sec run, each propagating port_7ffd_bank=7 to MMU6=$0E, MMU7=$0F.
+
+**Hypothesis tested**: comment out the apply_legacy_ram_slots_ call in our `Mmu::write_nr_8e()` so the propagation doesn't fire. This would let explicit NR_56/57 writes survive.
+
+**Result**: same boot stall. TBBlue boot screen at t=4s, then black at t=14/18/30. Skipping the propagation didn't help reach welcome screen. Reverted (kept VHDL-faithful behaviour).
+
+### Multiple concurrent divergences
+
+Our supervisor's MMU state at PC=$20E6 differs from CSpect in MULTIPLE registers (NR_53, NR_56, NR_57). IX value differs ($E01B vs $F700). SP differs ($FF7F user-stack vs $5BF9 supervisor-stack — confirms our jnext is OUTSIDE wrapper while CSpect is INSIDE).
+
+The NR_8E propagation is ONE source of divergence (overrides explicit NR_56/57 writes). But fixing just that doesn't bring welcome screen — there are other concurrent divergences:
+- Why does our supervisor reach $20E6 OUTSIDE wrapper while CSpect reaches it INSIDE?
+- Why is NR_53 default ($0B) in our jnext but explicitly $11 in CSpect?
+
+These suggest our supervisor takes a fundamentally different early code path. Some upstream condition (NR-port read, port read, sysvar value, memory state) returns differently in our jnext, leading to a different control-flow branch.
+
+### Next-session recommended path
+
+Per user's preference for the firmware-driven boot path: the next concrete step is to identify what UPSTREAM divergence puts our supervisor on the wrong code branch. Candidates:
+- A NR-port read (NR_03, NR_06, NR_07, NR_08, NR_8E, NR_8F) returning different value
+- A port read (FE keyboard, FF border, etc.) returning different value
+- A sysvar at $5C00+ or $5B00+ being uninitialized differently
+- An IY+offset read returning wrong value (supervisor uses IY heavily)
+
+Concrete tooling: add a comparator that logs ALL `nextreg $XX, A` writes (= ed 92 XX) along with the A value, on both branches of a path. Compare CSpect's NextReg writes (would need CSpect's NextReg-write log if CSpect can produce one) vs ours.
+
+OR: bypass the firmware boot entirely (per the user's earlier suggestion) — pre-populate the supervisor state directly. Skip the divergent boot path.
+
