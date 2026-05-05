@@ -543,14 +543,50 @@ int Z80Cpu::execute() {
 
     // Stop at first PC=0x20E6 (the sprite stall — final divergence point)
     // so we capture the supervisor's full path from IX=$E01B set up to
-    // the consumer that fails. PC=0x1800 was a false stop — the trace
-    // continues through the print routine into deeper code that may
-    // contain the LD IX,$F700 site CSpect would execute.
+    // the consumer that fails.
     if (!g46b_ix_done && pc == 0x20E6) {
         g46b_ix_done = true;
         Log::cpu()->info(
             "G46B IX-WRITE TRACE STOP at first PC=0x20E6 (ix={:#06x})",
             z80.ix.w);
+    }
+
+    // G46(b) Probe 17 (TEMP): log each visit to a LD IX,$F700 site OR a
+    // PC immediately preceding one (the gating instruction). Goal:
+    // confirm whether any of the 5 sites is REACHED but skipped via
+    // condition, vs never visited at all.
+    static int g46b_p17_count = 0;
+    if (g46b_p17_count < 60) {
+        bool interesting = false;
+        const char* tag = nullptr;
+        switch (pc) {
+            case 0x3290: tag = "RET-NC-gate-329A"; interesting = true; break;
+            case 0x329A: tag = "LD-IX-F700@329A"; interesting = true; break;
+            case 0x2CB0: tag = "BIT5-IY30-gate-2CB5"; interesting = true; break;
+            case 0x2CB5: tag = "LD-IX-F700@2CB5"; interesting = true; break;
+            case 0x3409: tag = "LD-IX-F700@3409"; interesting = true; break;
+            case 0x359C: tag = "LD-IX-F700@359C"; interesting = true; break;
+            case 0x2333: tag = "RET-NC-gate-2338"; interesting = true; break;
+            case 0x2338: tag = "LD-IX-F700@2338"; interesting = true; break;
+            default: break;
+        }
+        if (interesting) {
+            char mmu_buf[80] = "";
+            uint8_t cf = z80.af.b.l & 0x01;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                int mn = 0;
+                for (int s = 0; s < 8 && mn < 70; ++s) {
+                    mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                        "%02x ", mmu->get_page(s));
+                }
+            }
+            uint8_t b0 = mem_.read(pc);
+            uint8_t b1 = mem_.read(pc + 1);
+            Log::cpu()->info(
+                "G46B P17 PC={:#06x} ({}) cf={} bytes={:#04x} {:#04x} ix={:#06x} mmu={}",
+                pc, tag, cf, b0, b1, z80.ix.w, mmu_buf);
+            ++g46b_p17_count;
+        }
     }
 
     // G46(b) Probe 8 (TEMP — remove on G46(b) closure): on first hit of

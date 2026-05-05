@@ -2526,3 +2526,53 @@ returns with carry CLEAR in jnext but SET in CSpect, the
 4. Alternative: trace ALL CALL/JP into the BANK 0 slot 1 PC range
    $32xx-$36xx area, see what the supervisor does there in
    jnext vs what it should do.
+
+### Probe 17: BANK is the divergence axis
+
+Probe 17 logs each visit to one of the 5 LD IX,$F700 sites (or the
+gating instruction immediately preceding). Result:
+
+```
+G46B P17 PC=0x3409 (LD-IX-F700@3409) cf=0 bytes=0x00 0x00 mmu=...
+G46B P17 PC=0x359c (LD-IX-F700@359C) cf=0 bytes=0x00 0x00 mmu=...
+```
+
+**The supervisor DOES "visit" PC=$3409 and PC=$359C**, but the bytes
+there are **`0x00 0x00`** (NOP) — NOT `dd 21 00 f7` (LD IX,$F700).
+This corresponds to **BANK 2** in slot 1 (file 0xB409 / 0xB59C —
+both zeros), NOT BANK 0 (file 0x3409 / 0x359C — where the actual
+LD IX,$F700 lives).
+
+This is the supervisor's **AUTOMAP-NOP-sled mechanism**: it PUSHes a
+helper return address (e.g., $0082 for the NR_56/57 set helper),
+triggers AUTOMAP via an RST trap, the DivMMC firmware JPs into
+slot 1 (= BANK 2 NOP-padding region), the CPU NOPs through until
+hitting the sentinel RET at $3D00, then RETs to the PUSHed helper.
+
+So the supervisor is **never running with BANK 0 in slot 1** during
+the boot path that leads to PC=$20E6 in jnext. CSpect must, at
+some point, switch port_7FFD bit 4 / port_1FFD bit 2 to select
+ROM bank 0 (or 3) and execute the menu code that contains
+`LD IX,$F700` at PCs $2CB5, $329A, $3409, $359C.
+
+### Refined hypothesis
+
+The G46(b) bug is **a missing ROM-bank switch**: the supervisor in
+jnext never switches to BANK 0 (the menu/UI bank) before reaching
+the consumer at PC=$20E6. CSpect does. The conditional that drives
+this switch is somewhere upstream in the boot/initialization chain.
+
+Investigation focus:
+1. Find where the supervisor writes port_7FFD bit 4 + port_1FFD
+   bit 2 to select ROM banks.
+2. Compare jnext's port write trace with the expected sequence.
+3. Probe 13 already showed `OUT $7FFD ← $10` then `OUT $1FFD ← $04`
+   in jnext (= +3ROM bank 3) — but only inside a transient window
+   (the wrapper). This switch evidently doesn't persist into the
+   menu code path.
+
+Combined with the Probe 11 / Probe 13 findings: the BANK-flip
+mechanism via AUTOMAP+sled IS WORKING in jnext, but the supervisor's
+INTENDED PERSISTENT bank state at the menu-render stage is not what
+jnext arrives at. The bypass-mode init may be skipping some init
+step that real tbblue.fw would have done.
