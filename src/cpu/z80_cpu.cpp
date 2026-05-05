@@ -646,7 +646,17 @@ int Z80Cpu::execute() {
                 g46b_sp_pre_op, g46b_sp_pre_op2,
                 g46b_sp_pre_sp, z80.sp.w, delta, pc, g46b_sp_pre_target,
                 g46b_sp_depth);
-            ++g46b_sp_count;
+            // G46(b) Probe 24-lite: at every event log mem[$5BFC..$5C03]
+            // (the 8 bytes of stack near the AUTOMAP-sled $3D00 RET pops).
+            // Any change will be visible by diffing adjacent events.
+            // This sits inside the CF-event hot path (low frequency) so
+            // it does NOT perturb non-CF code-path timing — unlike the
+            // earlier per-step Probe 24 polling, which broke boot.
+            std::fprintf(g46b_sp_fp,
+                "        mem[5bfc..5c03]=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                mem_.read(0x5BFC), mem_.read(0x5BFD), mem_.read(0x5BFE),
+                mem_.read(0x5BFF), mem_.read(0x5C00), mem_.read(0x5C01),
+                mem_.read(0x5C02), mem_.read(0x5C03));
             if (g46b_sp_count == G46B_SP_TRACE_MAX) {
                 std::fprintf(g46b_sp_fp,
                     "# CAP REACHED. min_depth=%d max_depth=%d\n",
