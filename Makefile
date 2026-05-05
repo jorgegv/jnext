@@ -273,3 +273,30 @@ bump-major:
 
 # Alias: bump → bump-minor
 bump: bump-minor
+
+# ----------------------------------------------------------------------------
+# G46(b) state-dump tooling
+# ----------------------------------------------------------------------------
+
+# Build the tokenized BAS file from the text source.
+g46b-dump.bas: cspect-g46b-dump.bas tools/make-bas.py
+	python3 tools/make-bas.py cspect-g46b-dump.bas g46b-dump.bas --autostart 60
+
+# Copy the tokenized BAS into the SD image's FAT32 root.
+# Override SD_IMAGE on the command line if you use a different image.
+SD_IMAGE ?= roms/nextzxos-1gb-fat32fix.img
+
+g46b-install: g46b-dump.bas
+	mcopy -o -i $(SD_IMAGE)@@32256 g46b-dump.bas ::/dump.bas
+	@echo "Installed dump.bas into $(SD_IMAGE)"
+	@echo "Boot CSpect, at BASIC prompt type:  LOAD \"/dump.bas\"  then  RUN"
+	@echo "After CSpect exits, run:  make g46b-extract"
+
+# Extract output files from the SD image after CSpect has run dump.bas.
+g46b-extract:
+	@mkdir -p /tmp/g46b-cspect
+	-mcopy -o -i $(SD_IMAGE)@@32256 ::/nrdump.bin /tmp/g46b-cspect/nrdump.bin
+	-mcopy -o -i $(SD_IMAGE)@@32256 ::/sysvars.bin /tmp/g46b-cspect/sysvars.bin
+	-mcopy -o -i $(SD_IMAGE)@@32256 ::/slot7.bin /tmp/g46b-cspect/slot7.bin
+	-mcopy -o -i $(SD_IMAGE)@@32256 ::/screen.bin /tmp/g46b-cspect/screen.bin
+	@ls -la /tmp/g46b-cspect/
