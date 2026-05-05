@@ -705,6 +705,31 @@ int Z80Cpu::execute() {
                         (mem_.read(static_cast<uint16_t>(pc + 2)) << 8) |
                         mem_.read(static_cast<uint16_t>(pc + 3)));
                 }
+            } else if (op == 0xC5) {
+                kind = "PUSH_BC";
+                target = z80.bc.w;
+            } else if (op == 0xD5) {
+                kind = "PUSH_DE";
+                target = z80.de.w;
+            } else if (op == 0xE5) {
+                kind = "PUSH_HL";
+                target = z80.hl.w;
+            } else if (op == 0xF5) {
+                kind = "PUSH_AF";
+                target = z80.af.w;
+            } else if (op == 0xC1) {
+                kind = "POP_BC";
+            } else if (op == 0xD1) {
+                kind = "POP_DE";
+            } else if (op == 0xE1) {
+                kind = "POP_HL";
+            } else if (op == 0xF1) {
+                kind = "POP_AF";
+            } else if ((op == 0xDD || op == 0xFD) && op2 == 0xE5) {
+                kind = (op == 0xDD) ? "PUSH_IX" : "PUSH_IY";
+                target = (op == 0xDD) ? z80.ix.w : z80.iy.w;
+            } else if ((op == 0xDD || op == 0xFD) && op2 == 0xE1) {
+                kind = (op == 0xDD) ? "POP_IX" : "POP_IY";
             }
             if (kind) {
                 g46b_sp_pre_pc     = pc;
