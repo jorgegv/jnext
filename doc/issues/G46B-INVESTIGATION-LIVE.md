@@ -2669,3 +2669,65 @@ Alternatively: add a write-watch on sysvar $5B5A — log every
 write to that address with the PC that wrote it. If $5B5A
 controls the dispatch target, the writer PC tells us which
 supervisor routine made the choice.
+
+### Probe 19: Stack snapshot at first $3D00 hit
+
+```
+G46B P19 PC=$3D00 first hit:
+  SP=0x5C01
+  stack=[1f22 0000 0000 0000 0000 0000 0000 0000 ...]  (top → bottom)
+  sysvars: ($5B5A)=0x0000  ($5B6A)=0xFF51  ($5B8A)=0x0100  ($5B8E)=0x00FF
+            ($5B5C)=0x10    ($5B67)=0x04
+  ring (oldest→newest): 3CE1 → 3CE2 → ... → 3D00 (NOP-sled run-up)
+```
+
+**Stack TOS = $1F22** — NOT $0082 as the earlier memory `project_g46b_2026_05_05_evening_probes.md` claimed. The $0082 in prior probes was at PC=$008E (the helper destination AFTER stack TOS=$1F22 was popped and consumed). At PC=$3D00 the actual TOS is $1F22.
+
+`$1F22` in DivMMC ROM = SD card SPI transfer helper (`LD A,C; LD C,$EB; OUT (C),A; ...` — repeated `OUT ($EB),X` writes for SPI byte exchange).
+
+So at first $3D00 hit, jnext is invoking the **SD card SPI helper** via the AUTOMAP-sled. CSpect's stack TOS=$0448 invokes the **NR $8E + AUTOMAP-off bank-switch** entry.
+
+These are TWO COMPLETELY DIFFERENT operations:
+- jnext: read/write SD card data via SPI
+- CSpect: deactivate AUTOMAP and switch ROM mapping
+
+CSpect has already finished SD-card init and moved to bank-switching for menu UI. jnext is still in SD-card I/O phase — earlier in boot.
+
+Sysvars at first $3D00 in jnext:
+- `($5B5C) = 0x10` and `($5B67) = 0x04` — port_7FFD shadow + port_1FFD shadow, encoding ROM bank 3. **Same as CSpect's +3ROM=3**.
+- `($5B6A) = 0xFF51` — saved user stack pointer (wrapper pattern)
+- `($5B8A) = 0x0100` and `($5B8E) = 0x00FF` — wrapper-saved bank-pair / control values.
+- `($5B5A) = 0x0000` — not yet set (presumably set later when supervisor reaches the bank-switch wrapper).
+
+### Refined hypothesis (final for tonight)
+
+The G46(b) bug is **NOT** an early-boot loop. It's that **jnext's
+supervisor reaches the FIRST $3D00 sentinel during SD-card I/O phase,
+while CSpect's supervisor reaches it during MENU bank-switch phase**.
+This means jnext is GENUINELY EARLIER in the boot sequence at the
+first $3D00 hit — and never progresses past the SD-card init phase
+to the menu-render phase.
+
+The supervisor in jnext does many AUTOMAP-sled invocations of SD
+helpers ($1F22, etc.) but never advances to the menu code. There's
+SOMETHING blocking progress through the SD-init phase.
+
+### Most-promising next angles
+
+1. **SD card emulation correctness**: jnext's SD card emulation may
+   be returning slightly different responses than CSpect's, causing
+   the supervisor to retry SD operations forever. Check
+   `src/peripheral/sd_card.cpp` for response semantics.
+2. **DivMMC SPI register reads ($EB) returning wrong values**:
+   the supervisor reads SD response bytes via IN A,($EB). If jnext
+   returns 0xFF or wrong values, the SD operations fail silently.
+3. **FAT32 file-read operations**: enNextZX.rom is loaded but
+   maybe NextZXOS expects to read additional files from SD (e.g.,
+   menu config, fonts). If those reads fail in jnext bypass, the
+   supervisor stalls.
+
+### Probe 19 (committed)
+
+Stack-snapshot probe in `src/cpu/z80_cpu.cpp:554-590`. Dumps SP,
+top 16 stack words, key sysvars, and the 32-PC ring at first
+PC=$3D00. Easy to extend.

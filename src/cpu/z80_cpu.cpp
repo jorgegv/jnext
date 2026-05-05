@@ -551,6 +551,45 @@ int Z80Cpu::execute() {
             z80.ix.w);
     }
 
+    // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
+    // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
+    // that makes RET pop $0082 (vs CSpect's $0448).
+    static bool g46b_p19_done = false;
+    if (!g46b_p19_done && pc == 0x3D00) {
+        g46b_p19_done = true;
+        char stack_buf[256] = "";
+        int sn = 0;
+        for (int i = 0; i < 16 && sn < 240; ++i) {
+            uint16_t word = static_cast<uint16_t>(
+                mem_.read(z80.sp.w + i*2) |
+                (mem_.read(z80.sp.w + i*2 + 1) << 8));
+            sn += std::snprintf(stack_buf + sn, sizeof(stack_buf) - sn,
+                                "%04x ", word);
+        }
+        auto rd16 = [&](uint16_t a) -> uint16_t {
+            return static_cast<uint16_t>(
+                mem_.read(a) | (mem_.read(a + 1) << 8));
+        };
+        Log::cpu()->info(
+            "G46B P19 PC=$3D00 first hit: SP={:#06x} stack=[{}]",
+            z80.sp.w, stack_buf);
+        Log::cpu()->info(
+            "G46B P19 sysvars: ($5B5A)={:#06x} ($5B6A)={:#06x} "
+            "($5B8A)={:#06x} ($5B8E)={:#06x} ($5B5C)={:#04x} "
+            "($5B67)={:#04x}",
+            rd16(0x5B5A), rd16(0x5B6A), rd16(0x5B8A), rd16(0x5B8E),
+            mem_.read(0x5B5C), mem_.read(0x5B67));
+        char ring_buf[256];
+        int rn = 0;
+        for (int i = 0; i < G46B_PC_RING_SIZE && rn < 240; ++i) {
+            int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+            rn += std::snprintf(ring_buf + rn,
+                                sizeof(ring_buf) - rn,
+                                "%04x ", g46b_pc_ring[idx]);
+        }
+        Log::cpu()->info("G46B P19 ring (oldest→newest): {}", ring_buf);
+    }
+
     // G46(b) Probe 17 (TEMP): log each visit to a LD IX,$F700 site OR a
     // PC immediately preceding one (the gating instruction). Goal:
     // confirm whether any of the 5 sites is REACHED but skipped via
