@@ -1722,4 +1722,118 @@ Suggested approach:
 Instrumentation committed on `g46b-investigation` (TEMP — remove on full
 G46(b) closure).
 
+---
+
+## 2026-05-05 evening — Probe 7: caller of $008E + slot 0 runtime dump
+
+### Probe 7a — ring buffer of last N PCs
+
+Captures the 32-PC history before each `$008E` hit. Result is identical
+across all 6 hits per iteration:
+
+```
+ring (oldest→newest):
+3ce8 3ce9 3cea 3ceb 3cec 3ced 3cee 3cef 3cf0 3cf1 3cf2 3cf3
+3cf4 3cf5 3cf6 3cf7 3cf8 3cf9 3cfa 3cfb 3cfc 3cfd 3cfe 3cff
+3d00 0082 0083 0085 0089 008a 008d 008e
+```
+
+The supervisor runs 25 sequential PCs `$3CE8..$3D00` in slot 1, then
+"falls through" into slot 0 at `$0082`. The path `$0082→$0083→$0085→
+$0089→$008A→$008D→$008E` matches the runtime trampoline exactly:
+`PUSH AF (1) → LD A,$07 (2) → JR +2 (2) → ADD A,A (1) → NEXTREG NR_56,A
+(3) → INC A (1) → NEXTREG NR_57,A`.
+
+### Probe 7b — runtime bytes at $0080-$0095
+
+```
+$0080: 78 c9 f5 3e 07 18 02 f5 79 87 ed 92 56 3c ed 92
+$0090: 57 f1 c9 06 ff 4e ...
+```
+
+Decoded:
+- `$0080: LD A,B; RET` — short helper
+- `$0082: PUSH AF` ← entry to NR-pair-set helper
+- `$0083: LD A,$07` ← hardcoded constant!
+- `$0085: JR +2 → $0089`
+- `$0087: PUSH AF; LD A,C` (skipped via JR)
+- `$0089: ADD A,A → A=$0E`
+- `$008A: NEXTREG NR_56, A` (NR_56 = $0E)
+- `$008D: INC A → A=$0F`
+- `$008E: NEXTREG NR_57, A` (NR_57 = $0F)
+- `$0091: POP AF; RET`
+
+So `$0082` is a fixed-constant helper that always sets NR_56=$0E,
+NR_57=$0F. It is NOT a generic NR-pair setter — the constant `$07` is
+inlined.
+
+### Probe 7c — slot 0 $0000-$00FF runtime dump
+
+Slot 0 RAM at trigger time is **completely different** from the static
+`enNextZX.rom` bank 0 lower:
+
+| addr | static rom (bank 0 lower)              | runtime slot 0                          |
+|------|-----------------------------------------|------------------------------------------|
+| $0000 | `f3 c3 ef 00 45 44 09 02`             | `f3 c3 6a 00 44 56 09 02`               |
+| $0008 | `c3 3b 10 2a 2e 2a ff 00`             | `c3 12 05 e1 f5 c3 64 33`               |
+| $0010 | `ef 10 00 c9 c3 ef 00 00`             | `df 10 00 c9 3e 3a a7 c9`               |
+| $0020 | `c3 00 3e 14 00 04 98 00`             | `33 33 cd ce 00 c3 71 00`               |
+| $0030 | `c3 24 10 cd d7 04 77 c9`             | `d9 e3 d5 57 e5 c3 8d 01`               |
+| $0080 | `4e 23 46 23 e3 ed 8a 5b`             | `78 c9 f5 3e 07 18 02 f5`               |
+| $0090 | `5b f5 c5 01 fd 7f 3a 5c`             | `57 f1 c9 06 ff 4e 23 e5`               |
+
+Almost every byte is different. **The supervisor REWRITES the entire boot
+vector area at runtime** — building dispatch tables, RST handlers,
+trampolines, and the `$0082` NR-pair helper.
+
+### What this means
+
+The investigation can no longer rely on static disassembly of
+`enNextZX.rom`. The supervisor's actual code path at slot 0 is
+runtime-constructed and only visible by introspecting jnext's RAM at the
+moment of execution.
+
+### Hypothesis update
+
+The earlier hypothesis "CSpect calls a different trampoline with A=0x10"
+is too specific. A better framing: **the supervisor at slot 1 `$3CE8`
+runs through 25 sequential instructions then falls into a CONSTANT
+helper at `$0082` that ALWAYS sets NR_57=$0F**. This is hardcoded
+behaviour, not branch-dependent.
+
+So the divergence vs CSpect can NOT be "supervisor takes a different
+branch and chooses NR_57=$10". Instead it must be one of:
+
+1. **Slot 1 `$3CE8` contents differ between jnext and CSpect** — the 25
+   sequential instructions in slot 1 do something different (e.g., they
+   modify A or fall into a different continuation). Slot 1 contents are
+   themselves runtime-built; CSpect may build different bytes there.
+2. **The supervisor reaches `$0082` from a DIFFERENT slot 1 region in
+   CSpect** — e.g., CSpect's supervisor uses `$3DE8` or `$3CE8` with
+   different bytes that fall into a different helper.
+3. **The 6× call-pattern is intentional supervisor housekeeping with
+   NR_57=$0F as the correct operating state**, and the divergence is
+   PURELY in the bytes/state at SOME OTHER PC where CSpect would have
+   set NR_57=$10. The `$0082` helper is a red herring.
+
+### Recommended next-session probe
+
+Capture the runtime contents of slot 1 area `$3CE0-$3D10` AT the moment
+the supervisor enters that range (= dump on PC=$3CE8 first hit, before
+any subsequent bank-flip overwrites the visible bytes). The current
+Probe 7c dumps slot 1 AT `$008E`, which is too late — slot 1 has been
+re-mapped/cleared by then.
+
+Plan:
+1. Add diagnostic at PC == $3CE8 first hit: dump slot 1 `$2000-$3FFF`
+   contents into a `/tmp/g46b-slot1-at-3ce8.bin` file (8 KB).
+2. Run, capture, then disassemble offline with z88dk-dis using the
+   captured page as input.
+3. Cross-reference the disassembled `$3CE8` code with what should have
+   ended up there during boot. Compare against bank 0/1/2/3 upper
+   contents to identify which bank was last mapped before this point.
+
+This should reveal the actual code path leading into the `$0082` helper,
+and from there we can inspect the conditionals.
+
 

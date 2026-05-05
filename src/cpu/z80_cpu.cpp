@@ -452,6 +452,14 @@ int Z80Cpu::execute() {
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
 
+    // G46(b) Probe 7 (TEMP — remove on G46(b) closure): ring buffer of last
+    // N PCs for caller-trace dumps. Updated every CPU step.
+    static constexpr int G46B_PC_RING_SIZE = 32;
+    static uint16_t g46b_pc_ring[G46B_PC_RING_SIZE] = {};
+    static int g46b_pc_ring_head = 0;
+    g46b_pc_ring[g46b_pc_ring_head] = pc;
+    g46b_pc_ring_head = (g46b_pc_ring_head + 1) % G46B_PC_RING_SIZE;
+
     // DivMMC automap (and any other memory overlay) must activate BEFORE
     // the opcode read, matching real hardware combinatorial decode.
     if (on_m1_prefetch) on_m1_prefetch(pc);
@@ -645,6 +653,37 @@ int Z80Cpu::execute() {
                     Log::cpu()->info(
                         "G46B NEXTREG_57=0x0F via NEXTREG-A PC={:#06x} sp={:#06x} tos0={:#06x} tos1={:#06x} mmu[0..7]={}",
                         pc, sp, tos0, tos1, mmu_buf);
+                    // Probe 7: at $008E (the runtime trampoline) only, dump
+                    // the ring buffer of last N PCs so we can see the caller
+                    // path leading into the trampoline.
+                    if (pc == 0x008E) {
+                        char ring_buf[256];
+                        int rn = 0;
+                        for (int i = 0; i < G46B_PC_RING_SIZE; ++i) {
+                            int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                            rn += std::snprintf(ring_buf + rn,
+                                                sizeof(ring_buf) - rn,
+                                                "%04x ", g46b_pc_ring[idx]);
+                        }
+                        Log::cpu()->info("  ring (oldest→newest): {}", ring_buf);
+                        // Dump runtime slot 0 boot/dispatch area at trigger
+                        // time. Dedicated counter for $008E (the outer cnt
+                        // is consumed by $013D / $019A hits which fire first).
+                        static int slot0_dump_cnt = 0;
+                        if (slot0_dump_cnt++ < 1) {
+                            for (uint16_t row = 0x0000; row < 0x0100; row += 16) {
+                                char rb[80];
+                                int rbn = 0;
+                                for (int i = 0; i < 16 && rbn < 70; ++i) {
+                                    rbn += std::snprintf(rb + rbn,
+                                                         sizeof(rb) - rbn,
+                                                         "%02x ",
+                                                         mem_.read(row + i));
+                                }
+                                Log::cpu()->info("  slot0 ${:04x}: {}", row, rb);
+                            }
+                        }
+                    }
                     ++cnt;
                 }
             }
