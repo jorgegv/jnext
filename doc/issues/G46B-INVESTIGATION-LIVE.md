@@ -913,3 +913,232 @@ This isolates the divergence to "what state CSpect sets up before $00EF" vs "wha
 ### TEMP instrumentation — still on g46b-investigation branch
 
 Unchanged from EOD. Removed only on full G46(b) closure (= welcome screen renders).
+
+---
+
+## 2026-05-05 13:00 — `--bypass-tbblue-fw` post-handoff init expanded; ULTRATHINK investigation begins
+
+### tbblue.fw boot.c::main() complete sequence (RE'd from `/home/jorgegv/src/spectrum/tbblue/src/firmware/app/src/boot.c`)
+
+The tbblue firmware's `main()` does the following before its trailing `RESET_SOFT`:
+
+```c
+// Top of main:
+REG_TURBO  = 0x03;        // NR 0x07 = 3  → 28 MHz
+REG_PERIPH2 = 0xa0;       // NR 0x06 = 0xa0 → PS/2 keyboard transient
+
+vdp_init();
+disable_bootrom();        // This writes NR 0x03 to disable boot ROM overlay
+load_config();            // Reads SD config.ini
+
+// Boot scrolls + key polling for ~5 sec (Press SPACEBAR menu loop)
+
+// MF/DivMMC ROM-file overrides from menu line, etc.
+load_keymap();            // Loads /MACHINES/NEXT/keymap.bin into RAMPAGE_ROMSPECCY
+load_keyjoys(...);        // Configures keyjoy defaults
+load_roms();              // Loads enNxtmmc.rom, enNextMf.rom, enNextZX.rom into SRAM
+init_registers();         // Writes PERIPH1..5 + DECODE_INT0..3
+
+// FINALLY:
+REG_MACHTYPE = 0x80 | ((mode+1) << 4) | (mode+1);   // NR 0x03 — for mode=2 (+3): 0xB3
+for (cont = 0; cont < 0xffff; cont++);              // Pause
+REG_RESET = RESET_SOFT;                              // NR 0x02 = 0x01 → soft reset
+for (;;);                                            // wait for reset
+```
+
+**Computed values for the NextZXOS canonical boot** (SD config.ini + menu.def line 0 = "ZX Spectrum Next (standard)" mode=2 = +3):
+
+| NR | Value | Source / Meaning |
+|---|---|---|
+| 0x07 | 0x03 | TURBO = 28 MHz |
+| 0x06 | 0xa0 | PERIPH2 transient (PS/2 keyboard) |
+| 0x05 | 0x81 | PERIPH1: joystick1=2 (bits 7-6=10) + scandoubler=1 (bit 0) |
+| 0x06 | 0x80 | PERIPH2: turbokey=1 (bit 7), psgmode=0 |
+| 0x08 | 0x3e | PERIPH3: stereo + speaker + DAC + Timex + turbosound |
+| 0x09 | 0x00 | PERIPH4: scanlines=0, hdmisound=1 (= bit 2 NOT set) |
+| 0x0a | 0x01 | PERIPH5: mousedpi=1 |
+| 0x82 | 0xda | DECODE_INT0 hwenables[0] for +3 mode: disable ff/dffd/6b |
+| 0x83 | 0x3d | DECODE_INT1 hwenables[1]: divports + uart + i2c + kmouse |
+| 0x84 | 0xff | DECODE_INT2 hwenables[2]: AY + all DACs (DAC=1) |
+| 0x85 | 0x01 | DECODE_INT3 hwenables[3]: ULAplus=1, DMA=0 |
+| 0x03 | 0xB3 | MACHTYPE: timing=+3 + machine_type=+3 + low3=011 → exits config_mode |
+
+### Bypass-handoff init committed (`150075e`)
+
+`src/core/emulator.cpp` `Emulator::init()` now contains, when `--bypass-tbblue-fw` is on:
+
+```cpp
+nextreg_.write(0x07, 0x03);
+nextreg_.write(0x06, 0xa0);
+nextreg_.write(0x05, 0x81);
+nextreg_.write(0x06, 0x80);
+nextreg_.write(0x08, 0x3e);
+nextreg_.write(0x09, 0x00);
+nextreg_.write(0x0a, 0x01);
+nextreg_.write(0x82, 0xda);
+nextreg_.write(0x83, 0x3d);
+nextreg_.write(0x84, 0xff);
+nextreg_.write(0x85, 0x01);
+nextreg_.write(0x03, 0xB3);   // = the firmware's REG_MACHTYPE write for mode=2
+```
+
+### Empirical result — bypass STILL stalls at same loop
+
+Test: `./build/jnext --headless --machine next --sd-card roms/nextzxos-1gb-fat32fix.img --bypass-tbblue-fw --delayed-screenshot /tmp/t6.png --delayed-screenshot-time 6 --delayed-automatic-exit 7`
+
+Result: **identical** PC=$1DF3/$2043/$20E6 loop, IX=$E01B, MMU=`ff ff 0a 0b 04 05 0e 0f`. Black screen. So the supervisor's path divergence is NOT explained by the firmware-time peripheral writes — it's something deeper.
+
+### What's NOT replicated in our `--bypass-tbblue-fw` path
+
+The firmware's last action before handoff is **`REG_RESET = RESET_SOFT`** (= NR 0x02 with value 0x01), which triggers a SOFT RESET in the FPGA. This resets various FPGA state machines and re-enters the Z80 at $0000. Our bypass mode does NOT trigger a soft reset — it just lets the Z80 start at $0000 from the cold-boot init state.
+
+**Hypothesis**: there is FPGA state (peripheral state machines, interrupt latches, NMI state, port_7FFD, etc.) that gets reset by `RESET_SOFT` but is NOT in the same state in our cold-boot init. This residual difference might cause the supervisor to take a different early branch.
+
+### ULTRATHINK investigation phase started — 3 parallel agents launched
+
+**Agent 1 (path comparison)** [worktree-isolated]: trace from supervisor entry $00EF to first $20E6 hit, identify the FIRST conditional branch where our jnext takes a different path from CSpect (which goes via wrapper-mediated chain). Report → `doc/issues/G46B-AGENT-PATHCOMPARE.md`.
+
+**Agent 2 (RESET_SOFT VHDL audit)** [worktree-isolated]: enumerate every FPGA signal reset by `RESET_SOFT` in zxnext.vhd, compare with our jnext's cold-boot init. List items missing from cold boot. Report → `doc/issues/G46B-AGENT-RESETSOFT.md`.
+
+**Agent 3 (NR handler vs VHDL audit)** [worktree-isolated]: per-register audit of NR write/read handlers vs VHDL, looking for any subtle divergence (similar to Fix #1 for NR 0x50-0x57). Report → `doc/issues/G46B-AGENT-NRAUDIT.md`.
+
+After all three complete, an independent reviewer agent will verify each finding before any code change.
+
+### 2026-05-05 13:15 — Direct RE of supervisor self-init at $00EF
+
+Disassembled `enNextZX.rom` ($00EF onwards) — the **supervisor's own self-init** independent of tbblue.fw. Critical finding: **the supervisor at $00EF aggressively rewrites NR registers**, mostly OVERWRITING any pre-handoff state we set.
+
+```asm
+[00ef] nextreg $07, $03      ; turbo = 28 MHz
+[00f3] nextreg $03, $b0      ; timing=+3, low3=000 → preserves config_mode + machine_type
+[00f7] nextreg $c0, $08      ; im2_vector=0, stackless_nmi=1, pulse mode (not IM2)
+[00fb] ld a, $ff
+[00fd] nextreg $82, a        ; DECODE_INT0 = $FF (all enabled — overwrites tbblue's $da)
+[0100] nextreg $83, a        ; DECODE_INT1 = $FF (overwrites tbblue's $3d)
+[0103] nextreg $84, a        ; DECODE_INT2 = $FF (matches tbblue's $ff)
+[0106] nextreg $85, a        ; DECODE_INT3 = $FF (overwrites tbblue's $01)
+[0109] xor a
+[010a] nextreg $80, a        ; expansion-bus-1 disable
+[010d] nextreg $81, a        ; expansion-bus-2 disable
+[0110] nextreg $8a, a        ; mapping/paging mode reset
+[0113] nextreg $8f, a        ; mapping mode reset
+[0116] ld bc, $243b
+[0119] ld d, $06
+[011b] out (c), d            ; select NR_06
+[011d] inc b                 ; bc = $253b
+[011e] in a, (c)             ; A = NR_06 (= 0x80 from tbblue or our bypass)
+[0120] and $44               ; mask bits 6,2 (turbokey, ps2)
+[0122] out (c), a            ; NR_06 = 0 (since 0x80 & 0x44 = 0)
+```
+
+This means **all our pre-handoff DECODE_INT and PERIPH writes get clobbered**. The supervisor self-resets to a known state.
+
+**What survives**:
+- NR_03 machine_type (supervisor's $B0 has low3=000 = no change)
+- NR_03 config_mode (supervisor's $B0 has low3=000 = no change). Without our handoff write, power-on default = 1 → ROM reads route through NR_04. With our 0xB3 handoff: config_mode=0. ← **Critical**
+- The 4 NR pages set by supervisor at $0139+: NR_56/57 are written per RAM-test loop iteration
+
+**RAM-test entry** (`$0130-$018C`):
+```asm
+[0130] ld bc, $7000          ; B=$70 (banks?), C=0
+[0133] ld hl, $4000
+[0136] ld a, c
+[0137] exx
+[0138] add a                 ; A = 2 * bank
+[0139] nextreg $56, a        ; NR_56 = 2 * bank
+[013c] inc a
+[013d] nextreg $57, a        ; NR_57 = 2 * bank + 1
+[0140] srl a                 ; restore bank index
+...
+```
+
+**RAM-test inner loop** (`$018E-$01C0`):
+```asm
+[018e] xor a
+[018f] ld bc, $4000
+[0192] ld de, $0108
+[0195] add a
+[0196] nextreg $56, a        ; NR_56 = 2 * sub-bank
+[0199] inc a
+[019a] nextreg $57, a        ; NR_57 = 2 * sub-bank + 1
+[019d] srl a
+[019f] ex af, af'
+[01a0] ld hl, $ffff
+[01a3] ld a, (hl)             ; READ byte at $FFFF in current slot 7 bank
+[01a4] cp $bb                ; compare with $BB
+[01a6] jr nz, $01cc          ; if NOT $BB → exit to post-RAM-test
+```
+
+**Critical observation**: the RAM-test only continues testing a bank IF the byte at the top of slot 7 ($FFFF) equals **$BB**. If anything else, it jumps to $01CC (post-RAM-test exit).
+
+**Question**: where does $BB come from? It's not written by the supervisor's earlier code we've seen. So either:
+- It's a marker the FPGA hardware writes to mark "available" banks
+- Or it's a marker tbblue.fw's `load_roms()` writes
+- Or it's a side-effect of the bank-clearing code we haven't seen yet
+
+This $BB marker might be a key piece of state we're missing. If our jnext's banks have 0x00 at $FFFF (uninitialized), then RAM-test exits IMMEDIATELY for bank 0, skipping the wipe entirely. If they have $BB, RAM-test wipes them sequentially.
+
+**Need to check**:
+1. Where does $BB get written into upper-bank $FFFF positions? (need search of enNextZX.rom for ld (hl),$bb or similar)
+2. Empirically: does our jnext's RAM at $FFFF in slot 7 (page 0x2F) contain $BB or $00 at the moment of RAM-test entry?
+
+This may be the key to understanding the divergence.
+
+---
+
+### 2026-05-05 13:30 — Self-paging trampoline pattern + CRITICAL trace findings
+
+**Discovery via direct disassembly + cpu_inst trace**: NextZXOS uses a clever **self-paging RST 20 trampoline** that flips ROM banks during execution.
+
+The wrapper at `$3E00-$3E17` (in slot 1) does:
+1. Read 2 operand bytes after RST 20 (= target address into BC)
+2. Push `$3E13` (post-target trampoline) onto stack
+3. Push BC (target) on top
+4. **Execute `nextreg $8e, $02` AT `$3E13`** (this is the "switch to bank 2" point)
+5. RET pops target → run target
+
+When target completes (rets), it pops `$3E13` → executes the trampoline. **But $3E13 in bank 2 is `nextreg $8e, $00`** (different bytes than bank 0's `$3E13`):
+
+| Address | Bank 0 bytes | Bank 0 disasm | Bank 2 bytes | Bank 2 disasm |
+|---|---|---|---|---|
+| `$3E13` | `ed 91 8e 02` | `nextreg $8e, $02` | `ed 91 8e 00` | `nextreg $8e, $00` |
+
+So:
+- Wrapper from bank 0: switches to bank 2 (NR_8E=$02 → 1FFD(2)=1)
+- Trampoline in bank 2: switches back to bank 0 (NR_8E=$00 → 1FFD(2)=0)
+
+This is how the supervisor multiplexes 2 ROM banks through one wrapper.
+
+### 2026-05-05 13:35 — Supervisor's path is identical pre-loop (cpu_inst trace verified)
+
+Captured a full cpu_inst trace from `--bypass-tbblue-fw` (with ScheduleWakeup-allowed PC-gate that excludes RAM-test pass1+2). Supervisor reaches:
+
+- **$00EF self-init**: NR_07/03/C0/82..85/80/81/8A/8F (overwrites bypass init).
+- **RAM-test passes at $0130-$01CB** (filtered from log).
+- **$01CC post-RAM-test exit**: writes $5B69, sets SP=$5BFF.
+- **$01D4 RST 20 → $3E00 wrapper**: flips to bank 2.
+- **$1F01 (in bank 2) target**: writes NR_8E=$7a (port_7ffd_bank=7), copies 22 bytes to $ED27 (slot 7 = page 0x2F), JP $ED27.
+- **$ED27-$ED3C in slot 7 (page 0x2F)**: executes copied code, returns.
+- **$3E13 (in bank 2) trampoline**: writes NR_8E=$00 → switches back to bank 0.
+- **$01D7 (in bank 0) continuation**: `nextreg $8e, $08`, then `im 1`, `call $00E3`.
+- **$01E0+ further init**: sets sysvars $5CB4, $5C7B, $5CB2; calls RST 28 calculator at $01ED.
+- **$01FB**: sets `IY = $5C3A` (canonical 48K BASIC sysvar pointer).
+- **$0202+**: calls $0D6B (NR-read function) multiple times (reads NR_05, NR_08, NR_06, NR_0A — checks peripheral config).
+- **$024A onwards**: clears RAM, calls $2341, etc.
+
+The supervisor IS executing complex init successfully. It eventually reaches the dispatcher loop at $1DF3/$2043/$20E6, but there's a long initialisation chain we need to follow further to find the upstream divergence.
+
+### Preliminary root-cause hypothesis (refined)
+
+The supervisor reaches the dispatcher loop because somewhere during init, BASIC/NextZXOS reaches a state where the keyboard scan path ($1F40 area) fires before the wrapper-mediated rendering chain. Possibilities:
+1. A specific **memory read** returns a value our jnext's read path computes differently from CSpect's
+2. A specific **port read** ($FE keyboard, $7FFD, $1FFD, $E3 DivMMC, etc.) returns a different value
+3. An **NR read** of NR 0x06 / 0x13 / 0x41 returns a different value (these are the only NRs the supervisor reads in boot, per Agent 2 reviewer)
+4. The SD card path (CMD reads via SPI) returns different timing/data
+
+### Next steps
+
+- **Agent 1 (pathcompare) still running** — will identify the exact branch divergence point.
+- **CSpect debugger dump still pending** from user (saved as memory reminder).
+- **Reviewers complete**: RESET_SOFT review (REWORK — FSM strobe correct but not boot-relevant; supervisor never reads NR 0x02). NR audit review (APPROVE WITH ADDITIONS — no HIGH-severity bugs; NR 0x57 triple-source already fixed by Fix #1).
+
