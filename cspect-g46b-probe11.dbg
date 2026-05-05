@@ -1,0 +1,150 @@
+; ============================================================================
+; CSpect debug script — G46(b) Probe 11 — capture state at the bank-flip
+; sentinel RET ($3D00) and at the NR-pair-set helper entry ($0082).
+;
+; Why this BP:
+;   In jnext (both bypass and non-bypass) the supervisor RETs to $0000,
+;   NOPs through to $0008, hits a delayed-AUTOMAP RST 8 trap, runs DivMMC
+;   ROM bytes that JP into DivMMC RAM bank 0, NOPs through ~2400 zero
+;   bytes, hits a sentinel RET at $3D00 and pops $0082 as the
+;   continuation. $0082 is a DivMMC firmware helper that hard-codes
+;   NR_56=$0E, NR_57=$0F.
+;
+;   In jnext the supervisor stalls at $20E6 with NR_57=$0F. CSpect at
+;   $20E6 has NR_57=$10. Same enNxtmmc.rom in both. Same supervisor.
+;   So the divergence MUST be in WHAT VALUE IS PUSHED before this chain.
+;   $3D00 is exactly where that pushed value gets popped — capturing
+;   state there directly reveals the divergence.
+;
+; HOW TO USE:
+;   1. Boot NextZXOS in CSpect normally (TBBlue splash → SPACEBAR / wait)
+;   2. Stop boot EARLY — as soon as TBBlue splash appears or right after,
+;      open the debugger (F1) BEFORE NextZXOS welcome screen renders.
+;      We want the FIRST time supervisor reaches $3D00.
+;      Alternative: set the BPs first then hard-reset CSpect.
+;   3. Set the breakpoints below, then `g` to continue.
+;   4. When BP fires, run all the dump commands. Save the scrollback.
+;   5. `g` again to let it run, capture next hit if useful.
+;
+; CSpect debugger commands (v2.x reference):
+;   bp <addr>     — set breakpoint
+;   bp off <addr> — clear breakpoint
+;   g             — go (continue execution)
+;   r             — show all Z80 registers
+;   m <addr> <n>  — memory dump n bytes from <addr>
+;   nr <reg>      — read NextReg <reg>
+; ============================================================================
+
+
+; ----------------------------------------------------------------------------
+; STEP 1 — set the two breakpoints
+; ----------------------------------------------------------------------------
+; Primary: sentinel RET in DivMMC RAM bank 0
+bp 3d00
+
+; Fallback: NR-pair-set helper entry in DivMMC firmware
+bp 0082
+
+; ----------------------------------------------------------------------------
+; STEP 2 — hard-reset CSpect (Ctrl+F5 or restart) and let it run
+; (the BPs were set before reset; they should persist)
+; ----------------------------------------------------------------------------
+g
+
+
+; ============================================================================
+; STEP 3 — when BP fires (FIRST HIT), run the commands below.
+; Save the entire debugger output buffer / scrollback.
+;
+; IMPORTANT: note WHICH BP fired (PC=$3D00 or PC=$0082) and at what time
+; relative to boot (= before TBBlue splash, after splash, after NextZXOS
+; logo, after welcome screen, etc.). The relative timing matters.
+; ============================================================================
+
+
+; --- 3a. Z80 register file ---
+; Critical: AF, SP. AF tells us what was POPed earlier (= the pushed
+; continuation that determines NR_57 outcome). SP tells us how deep
+; the call chain is.
+r
+
+
+; --- 3b. Stack contents — 32 bytes from SP ---
+; If BP fired at $3D00: top of stack is the value about to be POPed by RET.
+;   - In jnext this is $0082 → NR_57=$0F path.
+;   - In CSpect we expect this to be DIFFERENT (e.g. $0080 → no NR write,
+;     or some other DivMMC firmware entry that produces NR_57=$10).
+; If BP fired at $0082: top of stack is the return address from CALL/RST.
+m sp 32
+
+
+; --- 3c. NextReg state — focus on the bank-mapping registers ---
+nr 04
+nr 50
+nr 51
+nr 52
+nr 53
+nr 54
+nr 55
+nr 56
+nr 57
+nr 8c
+nr 8e
+nr B8
+nr B9
+nr BA
+nr BB
+
+
+; --- 3d. Slot 0 first 256 bytes — what's currently mapped there? ---
+; If BP at $3D00: slot 0 should be enNxtmmc.rom (DivMMC AUTOMAP active).
+; In jnext we get a 100% match with enNxtmmc.rom. Verify CSpect matches.
+m 0000 256
+
+
+; --- 3e. Slot 1 around the NOP sled ---
+; In jnext slot 1 = empty DivMMC RAM bank 0 (zeros + sentinel c9 at $3D00).
+; If CSpect has non-zero data at $3CC9-$3CFF, the supervisor's sled would
+; behave differently → different path → different stack push.
+m 3CE0 64
+m 3D00 32
+
+
+; --- 3f. NextZXOS sysvar block at $5B00..$5BFF ---
+; Should match jnext's (already known). Sanity check.
+m 5B00 256
+
+
+; --- 3g. Stack-area snapshot near $5BFF (= NextZXOS supervisor stack top) ---
+; Lower addresses reveal pushed return frames. Top is at SP — see 3b.
+m 5B80 128
+
+
+; --- 3h. DivMMC RAM banks: requires CSpect-specific syntax ---
+; If CSpect supports direct DivMMC RAM access:
+;   - DivMMC RAM banks 0..15 (each 8K)
+; If unavailable, dump just bank 0 by activating CONMEM via port $E3:
+;   This is RISKY mid-execution; skip unless you know what you're doing.
+
+
+; ============================================================================
+; STEP 4 — continue and capture next hit (OPTIONAL)
+; ----------------------------------------------------------------------------
+; After saving the FIRST-hit dump:
+;   g            ; continue
+; If BP fires again repeat step 3, save separately.
+;
+; If the welcome screen renders without further BP fires: the FIRST hit
+; was the only relevant one and we have the data.
+;
+; If BP fires many times: capture 2-3 hits and note which produced
+; NR_57 transitions.
+; ============================================================================
+
+
+; ============================================================================
+; STEP 5 — disable BPs and let it boot
+; ============================================================================
+bp off 3d00
+bp off 0082
+g
