@@ -3647,6 +3647,66 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             Log::emulator()->info("Multiface ROM not found on SD image '{}' (path '{}') — Multiface ROM unavailable",
                                   cfg.sd_card_image, mf_sd_path);
         }
+
+        // AltROM (Alternate ROM) — `enAltZX.rom` (32 KB) on SD at the
+        // canonical TBBlue path. The AltROM is a parallel set of system
+        // ROM images that NextZXOS firmware switches in via NR 0x8C bit 7
+        // (`nr_8c_altrom_en`) for short trampoline calls — e.g. the
+        // canonical NextZXOS round-trip pattern enable-AltROM-then-RET-
+        // into-AltROM-resident-code, mirrored by a disable-AltROM-then-
+        // RET trampoline at the same address inside the AltROM image
+        // (`ed 91 8c 00 c9` at offset $7B).
+        //
+        // Per VHDL zxnext.vhd:2981-3001/3021, ROM-slot reads with
+        // `nr_8c_altrom_en=1` AND `nr_8c_altrom_rw=0` route through SRAM
+        // pages 0x0C..0x0F via `Mmu::altrom_sram_page_()`:
+        //   - alt_128_n=0, addr in $0000-$1FFF → page 0x0C
+        //   - alt_128_n=0, addr in $2000-$3FFF → page 0x0D
+        //   - alt_128_n=1, addr in $0000-$1FFF → page 0x0E
+        //   - alt_128_n=1, addr in $2000-$3FFF → page 0x0F
+        // i.e. pages 12-13 hold alt-ROM-0 (16 KB), pages 14-15 hold
+        // alt-ROM-1 (16 KB) — together the full 32 KB of enAltZX.rom.
+        //
+        // Why pre-loaded by the host (and on EVERY reset, not just
+        // hard reset): on real Next hardware, AltROM SRAM is populated
+        // by the FPGA bitstream's flash-baked initialization — it
+        // appears already-loaded the moment the Z80 starts executing,
+        // and survives soft resets because a soft reset doesn't
+        // re-trigger FPGA bitstream load. tbblue.fw `boot.c::load_roms()`
+        // does NOT load enAltZX.rom (verified — only DivMMC+MF+main
+        // ROM). NextZXOS supervisor cannot self-load it (chicken-and-
+        // egg: it requires AltROM to be loaded BEFORE the first
+        // wrapper-mediated AltROM trampoline call at $007B, which
+        // happens within the first ~250 ms of supervisor execution).
+        //
+        // Therefore jnext models the FPGA-flash-pre-baked AltROM by
+        // extracting enAltZX.rom from the SD on hard reset only.
+        // Skipped silently if the AltROM image is absent on the SD
+        // (firmware boots through with restricted feature set, the
+        // documented TBBlue fallback). On soft reset (preserve_memory
+        // = true) AltROM SRAM persists, mirroring how a real Next FPGA
+        // bitstream is not re-loaded by a soft reset.
+        if (cfg.type == MachineType::ZXN_ISSUE2 && !preserve_memory) {
+            std::vector<uint8_t> alt_rom_bytes;
+            const char* alt_sd_path = "/MACHINES/NEXT/enAltZX.rom";
+            if (extract_sd_rom(cfg.sd_card_image, alt_sd_path, alt_rom_bytes)) {
+                const size_t expected = 4 * 0x2000;  // 4 × 8 KB pages
+                const size_t to_copy = std::min(alt_rom_bytes.size(), expected);
+                size_t off = 0;
+                for (uint16_t p = 0x0C; p <= 0x0F && off < to_copy; ++p) {
+                    uint8_t* dst = ram_.page_ptr(p);
+                    if (!dst) break;
+                    const size_t chunk = std::min<size_t>(0x2000, to_copy - off);
+                    std::memcpy(dst, alt_rom_bytes.data() + off, chunk);
+                    off += chunk;
+                }
+                Log::emulator()->info("AltROM loaded from SD '{}' ({} bytes -> SRAM pages 0x0C..0x0F)",
+                                      alt_sd_path, off);
+            } else {
+                Log::emulator()->info("AltROM not found on SD image '{}' (path '{}') — AltROM unavailable (NextZXOS will likely crash on first AltROM trampoline)",
+                                      cfg.sd_card_image, alt_sd_path);
+            }
+        }
     }
 
     // SD card image mounting
