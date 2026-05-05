@@ -600,3 +600,50 @@ other things. Reverted.
    the AltROM trampoline that DOES populate the descriptor table from a
    source we haven't identified.
 
+
+### 2026-05-05 11:30 — CSpect runtime inspection
+
+User ran NextZXOS in CSpect, broke at PC=$20E6 with the welcome screen rendered. Key data captured:
+
+**Z80 register**: IX = **$5CCA** (vs our jnext IX = $E01B — completely different address, different slot).
+
+**MMU state** (from CSpect's NextRegisters window):
+
+| Slot | NR | Real CSpect value | Phys page (via to_sram_page) | Our jnext value |
+|---|---|---|---|---|
+| 0 | NR_50 | 0xFF (ROM sentinel) | ROM | 0xFF |
+| 1 | NR_51 | 0xFF (ROM sentinel) | ROM | 0xFF |
+| 2 | NR_52 | **0x00** | 0x20 (shifted, regular RAM) | **0x0A** (page 0x0A bank 5 dual-port) |
+| 3 | NR_53 | **0x11** | 0x31 (shifted) | **0x0B** (bank 5 upper) |
+| 4 | NR_54 | 0x04 | 0x24 | 0x04 |
+| 5 | NR_55 | 0x05 | 0x25 | 0x05 |
+| 6 | NR_56 | **0x0B** | 0x0B (exception) | **0x0E** |
+| 7 | NR_57 | **0x10** | 0x30 (shifted, regular RAM) | **0x0F** |
+
+So CSpect maps slots 2/3 to bank 0/8 (regular work RAM at +0x20 shift), and slots 6/7 to bank 5 upper + bank 8 lower. Our jnext maps slots 2/3 to bank 5 (dual-port VRAM) and slots 6/7 to bank 7 (sprite VRAM + bank 7 high).
+
+**Memory dump at IX=$5CCA in CSpect** (30 bytes):
+```
+$5CCA: 4D 5B 4D 5B 57 7F 27 6D 0C BE 2B 2F 01 00 EF 05 F8 20 15 00 00 1F 14 00 A8 A0 00 01 33 08
+```
+
+So sprite-width (= byte at IX+$11 = $5CDB) on real hw = **$20** (= 32 decimal). With C=$20 and B=$00, BC=$0020 → LDIR copies 32 bytes (bounded), no runaway.
+
+**Source of the descriptor template**: enNextZX.rom file offset **$949A** contains the SAME first 11 bytes (`4d 5b 4d 5b 57 7f 27 6d 0c be 2b`). After byte 11 the ROM has code (`30 00 e5 d5 c5 2a 53 5c 2b e5 d9 cd 00 3e 76 05 d1 e1 c1 a7 ed`) while CSpect's runtime descriptor has dynamic data (`2f 01 00 ef 05 f8 20 15 00 00 1f 14 00 a8 a0 00 01 33 08`). 5 similar templates exist at file offsets $9266, $92A1, $92E9, $9344, $949B — all with the `4D 5B 4D 5B` header (= two pointers to $5B4D).
+
+So the supervisor:
+1. Copies static template (first ~11 bytes) from one of these ROM locations to RAM.
+2. Computes/fills dynamic fields (offsets 0x0B+ including sprite-width at 0x11) at runtime.
+3. Iterates through the descriptor list rendering sprites.
+
+**The cascading divergence in our jnext**:
+- Our supervisor's MMU layout at PC=$20E6 differs (slots 2/3 + 6/7 point to different physical pages).
+- Our IX value differs ($E01B vs $5CCA) — supervisor reads descriptor from a different address.
+- The descriptor at our IX address is uninitialized (all zeros) because:
+  - The supervisor's "build descriptor" code path either doesn't run or writes to a different location.
+  - Or our IX iterates wrong descriptors (off-by-N from real hw).
+
+Multiple layers of state divergence stem from upstream supervisor behaviour we haven't identified. Likely a supervisor branch decision early in the boot is taking a different path on jnext.
+
+**Conclusion**: the firmware-driven boot path requires fixing the supervisor's data-flow divergence — which requires either (a) finding the upstream root divergence (a specific NR-port-read or memory-read returning a different value), or (b) bypassing the supervisor's full init by pre-populating expected state (the user's suggestion).
+
