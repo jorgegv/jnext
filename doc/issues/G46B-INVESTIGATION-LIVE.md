@@ -2576,3 +2576,96 @@ mechanism via AUTOMAP+sled IS WORKING in jnext, but the supervisor's
 INTENDED PERSISTENT bank state at the menu-render stage is not what
 jnext arrives at. The bypass-mode init may be skipping some init
 step that real tbblue.fw would have done.
+
+---
+
+## 2026-05-06 21:30 — Three-agent investigation: bank hypothesis FALSIFIED, real divergence identified
+
+### Three parallel agents launched
+
+- **Agent A**: bypass-init audit vs CSpect NR dump.
+- **Agent B**: static analysis of $329A callers + wrapper IN/OUT.
+- **Agent C**: ROM-bank trace (Probe 18 added).
+
+### Findings
+
+**Agent C — bank hypothesis FALSIFIED.** BANK 0 IS the resting state in
+slot 1 throughout the boot. The 60-event Probe 18 trace shows transient
+0/2/0/3/0/1/0 cycles at the wrapper-sled PCs `$3E17 / $3E97 / $5B10 /
+$5B1D / $5B4C / $5B51` only — sustained execution sits in BANK 0. The
+PC=$20E6 stall fetches from BANK 0 ROM. So Probe 17's "PC=$3409 visited
+with bytes 0x00" was the brief BANK 2 wrapper-sled iteration, NOT real
+LD IX,$F700 attempt. The hypothesis of a missing sustained bank switch
+is **disproven**.
+
+**Agent A — NR mask divergence.** jnext bypass init writes NR 0x82=0xDA,
+0x83=0x3D, 0x85=0x01 (matching tbblue.fw's `init_registers()` for +3
+mode); CSpect's `nrdump.raw` shows all 0xFF. **However**: the supervisor
+itself overwrites these to 0xFF at PC=$00FB (verified by static disasm:
+`LD A,$FF; NEXTREG $82,A; ...`). Tested writing 0xFF in bypass —
+**zero behavioural change**. Agent A's recommendation is moot; the
+discrepancy is just a snapshot timing difference.
+
+**Agent B — wrapper IN/OUT NR_56/57 lead.** Agent B suggested jnext's
+NR_56/57 reads via port $253B might return wrong values. Verified:
+jnext's read handler at `emulator.cpp:1330` returns `mmu_.get_page(i)`
+which is the live `nr_mmu_[i]` value. Probe 13 already confirmed
+wrapper port writes are working (jnext writes `OUT $7FFD ← $10` and
+`OUT $1FFD ← $04` correctly). So this lead is **also disproven**.
+
+### The real divergence (refined)
+
+Re-reading the CSpect screenshot data carefully:
+
+- **CSpect at first $3D00 hit**: stack TOS = `$0448`, NR_57=$0F,
+  NR_56=$0E, +3ROM=3, AUTOMAP=OFF, on supervisor stack (SP=$5BEF).
+- **jnext at first $3D00 hit**: stack TOS = `$0082`, NR_57=$01 (default),
+  NR_56=$00 (default), AUTOMAP=ON, on user stack.
+
+Both have IX=$E01B (same). The divergence is in WHERE the AUTOMAP-sled
+RETurns:
+
+- **CSpect path**: RET pops `$0448` → DivMMC ROM at $0448 has
+  `OUT ($E3),A; CALL $045D; XOR A; OUT ($E3),A; NEXTREG $8E,$02;
+  PUSH $3F40; JP $1FF9`. This is the **AUTOMAP-off + bank-switch via
+  NR $8E** entry — sets NR $8E = $02 (bank-mapping reg), pushes
+  $3F40 (next return), JPs into AUTOMAP-off range to deactivate
+  AUTOMAP. Then RETs to $3F40 in the now-active supervisor bank.
+
+- **jnext path**: RET pops `$0082` → DivMMC ROM at $0082 has
+  `PUSH AF; LD A,$07; JR +2; ... NEXTREG $56,$0E; INC A;
+  NEXTREG $57,$0F; POP AF; RET`. This is the **NR_56/$0E + NR_57/$0F
+  set helper**. Sets the slot 6/7 mapping and returns.
+
+The CSpect supervisor has invoked the BANK-SWITCH wrapper (BANK 2
+PC=$3F30+: `DI; PUSH AF; PUSH IY; OUT ($E3),A; PUSH $0448; JP $3CFC`).
+The supervisor must be in BANK 2 to execute this wrapper. The PUSH
+$0448 + JP $3CFC sequence triggers the sled with $0448 as return.
+
+### What we still don't know
+
+- **Why jnext pushes $0082 instead.** No `PUSH $0082` (Z80N or
+  LD+PUSH) exists anywhere in the 64KB supervisor binary. So $0082
+  must be PUSHed via a different mechanism — likely a `RET to
+  ($5B5A)` style indirect dispatch, where some sysvar holds $0082
+  in jnext but $0448 in CSpect.
+- **Where in the supervisor flow** the divergence first occurs that
+  causes one path or the other.
+
+### Probe 18 (committed)
+
+ROM-bank-switch tracer in `src/cpu/z80_cpu.cpp:592-616`. Logs every
+ROM-bank change with PC. Cap = 60 events.
+
+### Next investigation step
+
+Add a probe that captures the FULL stack contents (~32 bytes) at
+the moment of the FIRST AUTOMAP-sled hit (PC=$3D00 sentinel RET).
+Compare with CSpect's stack dump. The TOS divergence is known
+($0082 vs $0448); the deeper stack might reveal what supervisor
+routines were active.
+
+Alternatively: add a write-watch on sysvar $5B5A — log every
+write to that address with the PC that wrote it. If $5B5A
+controls the dispatch target, the writer PC tells us which
+supervisor routine made the choice.

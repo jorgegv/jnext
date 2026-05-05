@@ -589,6 +589,33 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 18 (TEMP — remove on G46(b) closure): ROM-bank-switch
+    // tracer. Logs every CHANGE in current_rom_bank() (bit 4 of port_7FFD
+    // composed with bit 2 of port_1FFD per VHDL :3691-3699). Caps at 60
+    // entries to avoid log spam.
+    static uint8_t g46b_rom_bank_prev = 0xFF;
+    static int g46b_p18_count = 0;
+    if (g46b_p18_count < 60) {
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            uint8_t bank = mmu->current_rom_bank();
+            if (bank != g46b_rom_bank_prev) {
+                char ring_buf[256];
+                int rn = 0;
+                for (int i = 0; i < G46B_PC_RING_SIZE; ++i) {
+                    int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                    rn += std::snprintf(ring_buf + rn,
+                                        sizeof(ring_buf) - rn,
+                                        "%04x ", g46b_pc_ring[idx]);
+                }
+                Log::cpu()->info(
+                    "G46B P18 ROM-BANK={} (was {}) at PC={:#06x} ring={}",
+                    bank, g46b_rom_bank_prev, pc, ring_buf);
+                g46b_rom_bank_prev = bank;
+                ++g46b_p18_count;
+            }
+        }
+    }
+
     // G46(b) Probe 8 (TEMP — remove on G46(b) closure): on first hit of
     // PC=$3CE8, dump slot 0 ($0000-$1FFF) and slot 1 ($2000-$3FFF) to
     // /tmp/g46b-slot{0,1}-at-3ce8.bin so we can disassemble the runtime
