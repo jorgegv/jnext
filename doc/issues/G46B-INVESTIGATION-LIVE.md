@@ -1142,3 +1142,113 @@ The supervisor reaches the dispatcher loop because somewhere during init, BASIC/
 - **CSpect debugger dump still pending** from user (saved as memory reminder).
 - **Reviewers complete**: RESET_SOFT review (REWORK — FSM strobe correct but not boot-relevant; supervisor never reads NR 0x02). NR audit review (APPROVE WITH ADDITIONS — no HIGH-severity bugs; NR 0x57 triple-source already fixed by Fix #1).
 
+
+### 2026-05-05 13:50 — Agent 1 (pathcompare) report + 5-minute follow-up
+
+Agent 1's full report at `doc/issues/G46B-AGENT-PATHCOMPARE.md` (486 lines).
+
+**Definitive finding**: Our jnext and CSpect run **two different code paths** that both terminate at $20E6 — they're NOT the same routine taking different inputs.
+
+#### Our path to first $20E6 (verified via cpu_inst trace + disasm)
+
+```
+$00EF self-init → ... → $01CC post-RAM-test exit → $01D4 RST 20 →
+... [many init steps] ...
+→ $2341 (sprite buffer init at slot 5 $A000-$A150)
+   $2348 call $272e (wrapper) — returns with state in E
+   $234C dec e; jr z, $238a    ← *** FIRST CRITICAL BRANCH ***
+   $234E ld hl,$a000; ld de,$a001; ld bc,$0151; ld (hl),l; ldir
+                                      ; clears $A000-$A150 (slot 5)
+   $235A ld a, ($5b69)            ; reads RAM-test result
+   $235D inc a; add a; ld ($a050), a   ; stores 2*(last_bank+1) at $A050
+   $2362 ld a, $10; ld ($a051), a      ; stores $10 at $A051
+   $2367..$237D more sysvar setup
+   $2380 ld hl, $0001
+   $2383 RST 20 with operand $01BD
+        → wrapper at $3E00 switches to bank 2
+        → $01BD in bank 2 = JP $0E9F
+   $0E9F (in bank 2):
+       ld bc, $243B
+       ld a, $57; out (c), a
+       inc b
+       in d, (c)              ; D = current NR_57
+       ld a, $10; out (c), a  ; *** WRITE NR_57 = $10 ***
+                              ; (= map slot 7 to physical page 0x30)
+   $0EAD ld ix, $E000
+   $0EB1 ld a, ($E050)        ; reads byte at $E050 in slot 7 (page 0x30)
+   $0EB4 bit 0, h
+   $0EB6 jr z, $0EBF
+   $0EB8 ld ix, $E020
+   $0EBC ld a, ($E051)
+   $0EBF ld b, a              ; B = read byte
+   ... eventual IXL adjustment via add ixl + ld ixl, a → IXL = $1B
+   ... IX = $E01B
+   ... eventually reaches $20E6 with IX=$E01B
+```
+
+#### CSpect's path (per Agent 1 + multiple `LD IX, $F700` sites)
+
+CSpect reaches $20E6 with **IX=$F700** loaded directly via:
+- bank 0 PC=$2CB5: `ld ix, $F700`
+- bank 0 PC=$329A: `ld ix, $F700`
+- bank 0 PC=$3409: `ld ix, $F700`
+
+**None of these PCs ever fire `op=DD` in our entire 1.77M-instruction trace.** Our supervisor never executes the bank-0 path that sets IX=$F700.
+
+#### Why the path divergence
+
+The supervisor's `$2341+` code path is reached via $1FE0+ rendering chain. CSpect's equivalent path goes through `$2CB5/$329A/$3409` (in bank 0) which is a DIFFERENT entry point for the same sprite-rendering subsystem.
+
+**Hypothesised candidates for the upstream divergence**:
+1. **Sysvar `$5B69`** (= last successful RAM-test bank). Our jnext's RAM-test exits early at PASS 2 first iteration (per `cp $bb; jr nz, $01cc` at $01A4-$01A6 — the byte at slot 7 $FFFF is NOT $BB on our jnext). So `$5B69` = low value. CSpect likely has a higher value (RAM test goes further). When supervisor reads `($5B69)` at $235A, it computes a different `$A050` byte, leading to different IX in `$0EAD`.
+
+2. **Sysvar `$5C7F`** (4-bit machine cfg, per Agent 1's pathcompare).
+
+3. **Memory contents at slot 7 / slot 5** at the moment of writes — since slot 5 (NR_55=$05 default → page $25) and slot 7 (NR_57=$10 → page $30) point to DIFFERENT physical pages, the supervisor's writes to `$A050` (slot 5 → page $25) don't reach the byte read at `$E050` (slot 7 → page $30). **This is suspicious** — it implies the supervisor expects NR_55 to also be $10, OR there's some aliasing we don't model.
+
+#### Critical observation about RAM-test PASS 2
+
+Our supervisor's PASS 2 inner loop at $018E-$01A6:
+```
+$01A0 ld hl, $ffff
+$01A3 ld a, (hl)
+$01A4 cp $bb
+$01A6 jr nz, $01cc      ← exits if byte at $FFFF is not $BB
+```
+
+For bank 0 (NR_56=0, NR_57=1): reads $FFFF in slot 7 with NR_57=1 → physical page... hmm wait, NR_57=1 with to_sram_page(1) = 0x21. Page 0x21 in our jnext = ROM-in-SRAM page 1 (= file offset 0x2000-0x3FFF in enNextZX.rom). Byte at $1FFF in that page = enNextZX.rom file byte 0x3FFF = `$FF` (per xxd).
+
+So our jnext at PASS 2 bank 0 reads $FF, not $BB → exits to $01CC. **Sysvar `$5B69` = bank 0 (lowest possible).**
+
+CSpect must have $BB at $FFFF in some banks → PASS 2 progresses → `$5B69` = higher value.
+
+**Where does $BB at $FFFF come from?** Per supervisor PASS 1:
+```
+$0153 ld (hl), $bb     ; HL=$0000 here (after wraparound)
+                        ; Writes $BB to $0000 in slot 0
+```
+
+This writes $BB to **slot 0** ($0000) — but slot 0 maps to ROM-in-SRAM. With AltROM disabled (default), slot 0 ROM-write is **discarded** (read-only). So $BB never gets written.
+
+Wait — let me re-read. After $014E `ld (hl), $00` with HL=$FFFF (write 0 to slot 7 $FFFF), then $0150 `inc hl` (wraps HL to $0000), then $0153 `ld (hl), $bb` (writes $BB to slot 0 $0000).
+
+If slot 0 is read-only ROM, this $BB write is discarded. If slot 0 is AltROM-rw mode (`nr_8c_altrom_en=1` AND `nr_8c_altrom_rw=1`), it goes to AltROM SRAM. But supervisor at $00EF didn't enable AltROM.
+
+Hmm so PASS 1's $BB write doesn't actually take effect. Therefore $5B69 = bank 0 in BOTH our jnext AND on real hardware.
+
+UNLESS — real hardware has different ROM-in-SRAM write semantics. Or — real hardware has $BB pre-loaded at SRAM offsets corresponding to slot 7 $FFFF for some banks.
+
+This needs verification via VHDL. **The PASS 1 wipe-and-mark loop assumes $BB writes succeed**, so either the hardware allows ROM-in-SRAM writes in some mode the bypass init doesn't trigger, OR there's a separate mechanism that puts $BB at slot 7 $FFFF.
+
+#### Concrete next step
+
+If `$5B69` ends up at the wrong value because PASS 2's `cp $bb` always fails on jnext, then **we need to understand how real hardware passes $BB at $FFFF**. This is the immediate next investigation thread.
+
+**Possibility**: maybe `$0153 ld (hl), $bb` is supposed to take effect at slot 7's offset $0000 (= some other physical page), not slot 0. Let me re-check the disasm.
+
+Actually looking again at PASS 1 ($0148-$0153): after `ld (hl), a` at $0148 (writes original $FFFF byte back), $014C `cp $0c`, `jr nc, $0150` (skip wipe if c >= $0C). For c < $0C: $014E `ld (hl), $00` (writes 0 to $FFFF — different from `$BB`!). Then $0150 `inc hl` (wraps $FFFF → $0000). Then $0153 `ld (hl), $bb` writes $BB to slot 0 $0000.
+
+But slot 0 is ROM. The $BB write is discarded.
+
+**This suggests a fundamental hardware behaviour we're not modelling**: maybe ROM-in-SRAM writes ARE allowed in this configuration, populating SRAM that doubles as the RAM-test marker. Need to research VHDL behaviour.
+
