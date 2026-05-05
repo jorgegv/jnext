@@ -535,6 +535,25 @@ int Z80Cpu::execute() {
             }
         }
     }
+    // G46(b) Probe 3 (TEMP — remove on G46(b) closure): log SP + ($5B6A) at the
+    // wrapper entry $2738 ("ld hl,($5b6a)") and exit $27A3. Captures the saved
+    // opposite-stack SP that the supervisor uses to context-switch. Compare
+    // bypass vs non-bypass vs CSpect.
+    if (pc == 0x2738 || pc == 0x27A3) {
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            uint16_t v5b6a = static_cast<uint16_t>(
+                mmu->read(0x5B6A) | (mmu->read(0x5B6B) << 8));
+            uint8_t v5b8e = mmu->read(0x5B8E);
+            uint16_t v5b8a = static_cast<uint16_t>(
+                mmu->read(0x5B8A) | (mmu->read(0x5B8B) << 8));
+            static int cnt = 0;
+            if (cnt < 16) {
+                Log::cpu()->info("WRAPPER PC={:#06x} sp={:#06x} ($5B6A)={:#06x} ($5B8A)={:#06x} ($5B8E)={:#04x}",
+                                 pc, z80.sp.w, v5b6a, v5b8a, v5b8e);
+                ++cnt;
+            }
+        }
+    }
     // G46(b) v4 ISOLATION TEST: when JNEXT_G46B_PATCH_IX11 is set, restore
     // page 0x2F bytes at the IX position by copying from page 0x0F (= the
     // pre-loaded AltROM-1 upper). Verified empirically that this advances

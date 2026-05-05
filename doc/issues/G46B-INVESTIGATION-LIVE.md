@@ -1396,3 +1396,120 @@ HEAD = current (after this commit). Includes:
 - Strengthened mmu.h:786-820 documentation citing VHDL line numbers
 
 Main is unchanged at `2d90ea1` (Fix #1 only). Cleanup of TEMP instrumentation deferred until G46(b) full closure.
+
+---
+
+## 2026-05-05 evening — Probes 1–4 (firmware-path internal-diff)
+
+Following yesterday's pivot recommendation, ran four probes to confirm whether
+the divergence vs CSpect originates internally (something jnext does that
+differs between bypass and firmware paths) or from external state (firmware-
+populated SRAM that CSpect/ZEsarUX have but jnext lacks).
+
+### Probe 1 — `cpu_inst` trace, bypass vs non-bypass at supervisor PCs
+
+8-second runs of both modes, full per-instruction trace, filtered to supervisor
+PCs `$00ef|$2043|$20e6|$2341|$1df3|$1800|$2730|$279d`. Logs at
+`/tmp/g46b-probe1-{bypass,nonbypass}-full.log`.
+
+**Result: bit-identical supervisor entry sequences in both modes.**
+
+| field at first `$20E6` hit | non-bypass | bypass |
+| --- | --- | --- |
+| `IX`               | `0xe01b` | `0xe01b` |
+| `SP`               | `0xff7f` | `0xff7f` |
+| `mmu[0..7]`        | `ff ff 0a 0b 04 05 0e 0f` | `ff ff 0a 0b 04 05 0e 0f` |
+| `nr_8c`            | `0x00` | `0x00` |
+| `rom_in_sram`      | `true` | `true` |
+| `cfg_mode`         | `false` | `false` |
+| `($5B69)` (RAMTEST)| `0x6f` | `0x6f` |
+
+Both paths converge to the SAME stall location with the SAME state.
+
+### Probe 2 — NR-write log diff (`nextreg=trace`)
+
+8-second runs both modes, captured every `NextREG write reg=… val=…`. Logs at
+`/tmp/g46b-probe2-{bypass,nonbypass}-nr.log` (147 K vs 80 K writes; 642 vs 554
+unique reg-val pairs).
+
+NRs written ONLY in non-bypass: `0x02 0x04 0x11 0x28 0x29 0x2a 0x2b 0x88` —
+all firmware-side init (RESET, ROM-bank load, video timing, keymap address +
+data, joy keymap + data, palette index 0). Bypass skips these because it skips
+firmware. None affect supervisor execution post-handoff.
+
+NRs written in BOTH but with diverging value sets: `0x03 0x05 0x06 0x08 0x0a
+0x40 0x80 0x83`. Inspection: all are firmware-init transients (machine type
+clear-then-set, peripheral 0xa0→0x80→0xa0, palette setup). Final values match.
+
+**No NR-write divergence post-supervisor-handoff.** Both paths leave the
+supervisor with equivalent NR state.
+
+### Probe 3 — `$5B6A` / `$5B8A` / `$5B8E` wrapper sysvars
+
+Added TEMP diagnostic (z80_cpu.cpp around line 539): on PC `$2738` and `$27A3`,
+log `SP`, `($5B6A)`, `($5B8A)`, `($5B8E)`. Captures the supervisor↔user-mode
+context-switch state. Logs at `/tmp/g46b-probe3-{bypass,nonbypass}.log`.
+
+**Result: bit-identical wrapper rotation in both modes.**
+
+```
+WRAPPER PC=0x2738 sp=0xff4f ($5B6A)=0x5bff ($5B8A)=0x0000 ($5B8E)=0x00
+WRAPPER PC=0x27a3 sp=0x5bff ($5B6A)=0xff4f ($5B8A)=0x0504 ($5B8E)=0xff
+WRAPPER PC=0x2738 sp=0xff51 ($5B6A)=0x5bff ($5B8A)=0x0504 ($5B8E)=0xff
+WRAPPER PC=0x27a3 sp=0x5bff ($5B6A)=0xff51 ($5B8A)=0x0100 ($5B8E)=0xff
+```
+
+Identical across modes. Same wrapper depth, same SP rotation, same NR-pair
+saves. Confirms the wrapper itself works correctly and `$5B6A`-based stack
+context-switching is functioning.
+
+### Probe 4 — jnext vs ZEsarUX side-by-side
+
+The static-source ZEsarUX comparison agent already covered this question
+yesterday (`doc/issues/G46B-AGENT-ZESARUX.md`). Live ZRCP-trace side-by-side
+deferred — high setup cost, low marginal info given Probes 1–3 conclusions.
+
+ZEsarUX runs the real `tbblue.fw` (no bypass mode). MMU/AltROM/NR-handler
+semantics are functionally equivalent to jnext. The only structural divergence
+flagged was the `to_sram_page` exception at mmu.h:798 — already audited as
+correct + documentation strengthened (commit `cb8fd2d`).
+
+### Synthesis
+
+Probes 1–3 confirm: **bypass and non-bypass modes produce bit-identical
+supervisor state at the loop entry.** This means:
+
+1. The supervisor's loop-trigger state (`IX=$e01b`, `SP=$ff7f`, `mmu=ff ff 0a
+   0b 04 05 0e 0f`) is determined by the supervisor itself, not by which boot
+   path led to it.
+2. Whatever fix unblocks one path will unblock the other simultaneously.
+3. The divergence vs CSpect therefore **cannot** come from anything visible in
+   internal jnext-only tracing — both paths are symmetric and both wrong.
+4. This points (still) at a peripheral / SRAM-state divergence that real
+   `tbblue.fw` writes during boot but jnext's bypass-init synthesis misses,
+   AND that the non-bypass firmware execution doesn't reach (because something
+   else stalls firmware before it gets there).
+
+### Concrete actionable next step
+
+Per the bypass-init in `emulator.cpp:3791-3814`, NRs `0x50–0x57` are NOT pre-set
+— they stay at `RESET_PAGES = {0xff, 0xff, 0x0a, 0x0b, 0x04, 0x05, 0x00, 0x01}`.
+But CSpect at `$20E6` has `NR_57=0x10` (page 0x30 mapped); jnext arrives with
+`NR_57=0x0F` (page 0x2F). The force-IX experiment confirmed forcing `NR_57=$10`
++ `IX=$F700` at first `$1800` produces partial UI render — proximate cause
+correct, but downstream divergences remain.
+
+**Highest-ROI follow-up for next session:**
+1. Trace what makes the firmware path (non-bypass) stall before NextZXOS
+   handoff. Both paths converge on the same stall, but firmware-path stall
+   happens at the same supervisor location *despite* having had real
+   `tbblue.fw` populate SRAM. Either:
+   - tbblue.fw never reaches the SRAM-population stage in jnext (a peripheral
+     or DivMMC bug stops it earlier), OR
+   - tbblue.fw does run, but jnext's bypass-init synthesis is missing the
+     post-firmware NR_55–NR_57 settings.
+2. Run a `cpu_inst` trace of non-bypass mode for the first ~5 seconds (= the
+   pre-`$00EF` window: bootloader → tbblue.fw → RESET_SOFT → supervisor
+   entry). See whether tbblue.fw's NR_55/NR_56/NR_57 writes happen in jnext
+   non-bypass mode. If they don't, that's the firmware-side stall.
+
