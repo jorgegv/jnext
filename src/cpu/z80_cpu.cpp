@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 
 // ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
@@ -461,6 +462,96 @@ int Z80Cpu::execute() {
     static int g46b_pc_ring_head = 0;
     g46b_pc_ring[g46b_pc_ring_head] = pc;
     g46b_pc_ring_head = (g46b_pc_ring_head + 1) % G46B_PC_RING_SIZE;
+
+    // G46(b) Probe 15 (TEMP — remove on G46(b) closure): IX-write tracer.
+    // Log every PC where IX changes between consecutive M1 fetches, with
+    // the new IX value. Stops after FIRST PC=0x1800 hit so we can see the
+    // upstream IX-loading chain in finite output.
+    static uint16_t g46b_ix_prev = 0xDEAD;
+    static int g46b_ix_log_count = 0;
+    static bool g46b_ix_done = false;
+    if (!g46b_ix_done && z80.ix.w != g46b_ix_prev) {
+        if (g46b_ix_log_count < 200) {
+            char mmu_buf[80] = "";
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                int mn = 0;
+                for (int s = 0; s < 8 && mn < 70; ++s) {
+                    mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                        "%02x ", mmu->get_page(s));
+                }
+            }
+            int prev_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                           % G46B_PC_RING_SIZE;
+            uint16_t writer_pc = g46b_pc_ring[prev_idx];
+            char wb[24];
+            std::snprintf(wb, sizeof(wb), "%02x %02x %02x %02x",
+                          mem_.read(writer_pc),
+                          mem_.read(writer_pc + 1),
+                          mem_.read(writer_pc + 2),
+                          mem_.read(writer_pc + 3));
+            Log::cpu()->info(
+                "G46B IX-WRITE writer_pc={:#06x} bytes='{}' new_ix={:#06x} "
+                "(prev={:#06x}) cur_pc={:#06x} mmu={}",
+                writer_pc, wb, z80.ix.w, g46b_ix_prev, pc, mmu_buf);
+            ++g46b_ix_log_count;
+        }
+        g46b_ix_prev = z80.ix.w;
+    }
+
+    // G46(b) Probe 16 (TEMP): control-flow tracer between IX=$E01B set
+    // and first PC=0x1800. Log only PCs that are the target of CALL/JP/
+    // JR/RET AND have not been visited before. Goal: get the unique
+    // code path between the bank-2 sprite-prep routine and PC=0x1800.
+    static bool g46b_cf_active = false;
+    static int g46b_cf_count = 0;
+    static uint8_t g46b_pc_seen[0x10000 / 8] = {};  // bitmap, 1 bit per PC
+    if (!g46b_ix_done && z80.ix.w == 0xE01B && !g46b_cf_active) {
+        g46b_cf_active = true;
+        std::memset(g46b_pc_seen, 0, sizeof(g46b_pc_seen));
+        Log::cpu()->info(
+            "G46B CF-TRACE START at PC={:#06x}", pc);
+    }
+    if (g46b_cf_active && !g46b_ix_done && g46b_cf_count < 600) {
+        int prev_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                       % G46B_PC_RING_SIZE;
+        uint16_t prev_pc = g46b_pc_ring[prev_idx];
+        uint8_t prev_b0 = mem_.read(prev_pc);
+        bool is_cf = false;
+        if (prev_b0 == 0xC3 || prev_b0 == 0xCD || prev_b0 == 0xC9 ||
+            (prev_b0 >= 0xC0 && prev_b0 <= 0xF8 && (prev_b0 & 7) == 0) ||
+            (prev_b0 >= 0xC2 && prev_b0 <= 0xFA && (prev_b0 & 7) == 2) ||
+            (prev_b0 >= 0xC4 && prev_b0 <= 0xFC && (prev_b0 & 7) == 4) ||
+            prev_b0 == 0x18 || prev_b0 == 0x10 ||
+            prev_b0 == 0x20 || prev_b0 == 0x28 ||
+            prev_b0 == 0x30 || prev_b0 == 0x38 ||
+            prev_b0 == 0xE9) {
+            is_cf = true;
+        }
+        if (is_cf) {
+            uint16_t pc16 = pc;
+            uint8_t bit = 1u << (pc16 & 7);
+            uint16_t byte_idx = pc16 >> 3;
+            if (!(g46b_pc_seen[byte_idx] & bit)) {
+                g46b_pc_seen[byte_idx] |= bit;
+                Log::cpu()->info(
+                    "G46B CF dst={:#06x} from {:#06x} op={:#04x} ix={:#06x}",
+                    pc, prev_pc, prev_b0, z80.ix.w);
+                ++g46b_cf_count;
+            }
+        }
+    }
+
+    // Stop at first PC=0x20E6 (the sprite stall — final divergence point)
+    // so we capture the supervisor's full path from IX=$E01B set up to
+    // the consumer that fails. PC=0x1800 was a false stop — the trace
+    // continues through the print routine into deeper code that may
+    // contain the LD IX,$F700 site CSpect would execute.
+    if (!g46b_ix_done && pc == 0x20E6) {
+        g46b_ix_done = true;
+        Log::cpu()->info(
+            "G46B IX-WRITE TRACE STOP at first PC=0x20E6 (ix={:#06x})",
+            z80.ix.w);
+    }
 
     // G46(b) Probe 8 (TEMP — remove on G46(b) closure): on first hit of
     // PC=$3CE8, dump slot 0 ($0000-$1FFF) and slot 1 ($2000-$3FFF) to

@@ -2439,3 +2439,90 @@ the off match un-gated; review caught this and the gate was added
 
 This is a real (if narrow) divergence from VHDL that the fix now
 closes. Independent review verdict: APPROVE.
+
+---
+
+## 2026-05-06 — Probe 15+16: IX is STALE — control-flow divergence
+
+### Key findings
+
+1. **`LD IX,$E01B` does NOT exist anywhere in `enNextZX.rom`** (verified
+   by static byte search).
+2. **5 `LD IX,$F700` sites** exist in the supervisor:
+   - file `0x2CB5` (bank 0 slot 1, PC=$2CB5)
+   - file `0x329A` (bank 0 slot 1, PC=$329A) — gated by `RET NC` at PC=$3290
+   - file `0x3409` (bank 0 slot 1, PC=$3409) — fall-through after `LD HL,$0F49`
+   - file `0x359C` (bank 0 slot 1, PC=$359C) — after `LD A,($D633)`
+   - file `0x2338` (bank 2 slot 1, PC=$2338) — gated by `RET NC` at PC=$2333
+3. **jnext NEVER visits ANY of these 5 sites** before reaching the
+   sprite-descriptor stall at PC=$20E6. Confirmed by the unique-PC
+   control-flow tracer (Probe 16) capturing 166 unique CF
+   destinations between the IX=$E01B set and PC=$20E6.
+4. **IX=$E01B is computed at PC=$0ECF** in BANK 2 slot 0 via:
+   ```
+   [0EAD] LD IX,$E000             ; IX = $E000
+   [0EB1] LD A,($E050)            ; A = mem[$E050]
+   ...
+   [0EC7] DEC A                   ; A = mem[$E050] - 1
+   [0EC8-CA] RRCA × 3             ; rotate right 3
+   [0ECB] AND $1F                 ; mask low 5 bits
+   [0ECD] ADD IXL                 ; A += IXL
+   [0ECF] LD IXL,A                ; IXL = A → IX = $E01B
+   ```
+   Reverse-computed: `mem[$E050] = $E0` produces `IXL = $1B` →
+   `IX = $E000 + $1B = $E01B`.
+5. The `$E000-$E060` data is in slot 7 = `mmu[7]=0x10` =
+   physical SRAM page `to_sram_page(0x10) = 0x30` (the AltROM region).
+   Pre-loaded from `doc/issues/cspect-captures/page30.raw` in bypass
+   mode. CSpect at runtime would have different live data here.
+6. **IX=$E01B is then PUSHed and survives across the sprite-prep
+   routine** at PC=$23D2-$2415. After `POP IX` at PC=$2413, IX is
+   back to $E01B (= the persistent value the consumer at PC=$20E6
+   eventually uses).
+
+### The divergence
+
+The supervisor's path to PC=$20E6 in jnext:
+```
+$2738 (wrapper) → $26B6 → CALL $32CC (BANK 1 slot 1 — supervisor wrapper
+                                       at $32CC, NOT the bank-0 LD IX,$F700
+                                       routine)
+... → $1800 (RST 16 print) → ... → $2043 → $2057 → $1A88 → $205B
+... → $2069 → $20A6 → $2178 → $20AC → CALL $20E6
+```
+
+Bank 0 slot 1 is loaded at SOME points (the sprite-prep loop at
+$23D2-$2415), but the supervisor executes only the small loop body —
+not the surrounding code that contains `LD IX,$F700` at $329A or
+$2CB5.
+
+### Hypothesis
+
+The supervisor's sprite-descriptor table at memory address $F700 is
+**never initialized** in jnext. The consumer at PC=$20E6 reads via
+IX (which has stale $E01B from the earlier bank-2 routine) and gets
+zeros / garbage.
+
+In CSpect, somewhere in the supervisor's boot path, one of the 5
+`LD IX,$F700` sites IS executed, populating $F700 with valid sprite
+descriptors AND leaving IX=$F700 for the consumer.
+
+The exact upstream conditional that diverts jnext away from the
+table-init routine is **not yet pinpointed**. Most promising lead:
+the gating `RET NC` at PC=$3290 (BANK 0 slot 1) — if `RST $20`
+returns with carry CLEAR in jnext but SET in CSpect, the
+`LD IX,$F700` at $329A is skipped.
+
+### Next-session investigation
+
+1. Extend the trace to cover PC=$3290 specifically when the
+   supervisor visits BANK 0 slot 1 — log carry flag at that
+   instruction.
+2. RST $20 routes through slot 0 PC=$0020 — capture what's there
+   at the time (DivMMC firmware? or supervisor code?). Check
+   carry-flag setting.
+3. Or — look for SD-card / FAT32 reads that may differ between
+   jnext and CSpect (the "RST $20" might be a file-read call).
+4. Alternative: trace ALL CALL/JP into the BANK 0 slot 1 PC range
+   $32xx-$36xx area, see what the supervisor does there in
+   jnext vs what it should do.
