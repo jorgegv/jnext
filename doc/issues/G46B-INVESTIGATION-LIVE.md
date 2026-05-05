@@ -3141,18 +3141,78 @@ target=\$1F22 to find any earlier setting of AF=\$1F22.
   mem[\$5BFC..\$5C03] dump (~3400 lines for first \$5B20 RET
   area).
 
-### Important note: boot timing sensitivity
+### Important note: Mmu::read has a SIDE EFFECT (NOT a timing issue)
 
-Adding ANY per-step polling code (Probe 24 polling 5
-mem_.read() per step) — even when GATED OFF behind an env
-var — broke the boot path. With Probe 24 present (gated off),
-boot reached only 7 SP events in 30s. With Probe 24 fully
-removed, boot reaches 8000 SP events (cap) in 30s.
+Initial diagnosis was "boot is timing-sensitive". User pointed
+out this can't be true — the emulator runs in virtual time,
+so a slow probe just slows wall-clock, not virtual time.
 
-This means NextZXOS boot has timing-sensitive code paths
-(likely interrupt timing or contention). Future probes must
-sit inside existing hot paths, not add new ones. Mmu::write
-hooks would be ideal but also need careful gating.
+Real cause: `Mmu::read()` line 319-321 (mmu.h):
+
+```cpp
+if (slot_contended_[addr >> 14]) {
+    p3_floating_bus_dat_ = val;
+}
+```
+
+This is a faithful model of VHDL zxnext.vhd:4498-4509 — the +3
+floating-bus latch captures the byte on every contended memory
+read. Address \$5C01 sits in slot 1 (16K segment 1, \$4000-\$7FFF),
+which IS contended.
+
+Probe 24 polled `mem_.read(\$5C01)` and 4 nearby addresses on
+EVERY step. Each call clobbered `p3_floating_bus_dat_` with the
+RAM byte at that address, instead of leaving it as whatever the
+supervisor's last read had set. When the supervisor later read
+port \$0FFD (or any port that surfaces the floating bus), it
+saw an unintended value → branched onto a different code path.
+
+This is a real emulator-state mutation through the read API,
+not a wall-clock timing artefact. The earlier 7-events-vs-8000-
+events behaviour is deterministic for the same code; "remove
+Probe 24" → revert the clobber → recover the original path.
+
+`Mmu::write()` line 413-415 has the analogous `p3_floating_bus_dat_
+= val` write-side mirror, so naive write-side instrumentation has
+the same risk.
+
+### Fix landed: `Mmu::peek(addr)` side-effect-free observer
+
+Commit `251ceb6` adds `Mmu::peek(addr)` — same arbiter dispatch
+as `Mmu::read()` (boot ROM, MF, DivMMC, Layer 2, alt-ROM, config-
+mode, normal slots) but skips the `p3_floating_bus_dat_` latch
+update and the data-breakpoint hit-record.
+
+All Probe 23 reads (per-event mem-dump and opcode-byte classification)
+now go through `peek()`. Probe 24 re-added with peek-based polling.
+
+Smoke test (commit `251ceb6`):
+
+```
+$ JNEXT_G46B_P24=1 timeout 35 ./build/jnext --machine next --headless \
+    --sd-card roms/nextzxos-1gb-fat32fix.img --bypass-tbblue-fw \
+    --delayed-screenshot-time 25 --delayed-automatic-exit 30
+G46B P24 WRITE addr=0x5c01 0x00->0x22 writer_pc=0x000c sp=0x5c01
+```
+
+Both probes (SP-tracer + write-watch) agree: PC=$000C PUSH AF
+writes the $22 $1F bytes that the AUTOMAP-sled $3D00 RET pops.
+
+### Bonus finding: wrapper is generic
+
+With the side-effect-free trace, the supervisor's AUTOMAP-sled
+wrapper at DivMMC $000B-$000D is used for **multiple targets**
+across the boot:
+
+- AF=$1F22 → SD-SPI helper
+- AF=$00BA → continuation-restore (PUSH HL ; LD HL,($5B5A) ; EX (SP),HL ; RET)
+- AF=$00AA → another routine
+- ... and others
+
+So this wrapper is a **generic JP-via-AUTOMAP** dispatch with AF
+as the target parameter. The bug is therefore: which AF target
+jnext picks vs CSpect for a given wrapper call, OR what register
+state is set up before each invocation.
 
 ### The meta-loop confirmation
 
