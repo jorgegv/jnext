@@ -1836,4 +1836,127 @@ Plan:
 This should reveal the actual code path leading into the `$0082` helper,
 and from there we can inspect the conditionals.
 
+---
+
+## 2026-05-05 evening — Probe 8: BREAKTHROUGH — slot 0 IS DivMMC firmware
+
+### Probe 8a — capture slot 0 + slot 1 + DivMMC state at PC=$3CE8 first hit
+
+Added diagnostic in `z80_cpu.cpp` that, on first hit of `pc==$3CE8`:
+- Dumps slot 0 (`$0000-$1FFF`) to `/tmp/g46b-slot0-at-3ce8.bin`
+- Dumps slot 1 (`$2000-$3FFF`) to `/tmp/g46b-slot1-at-3ce8.bin`
+- Dumps physical SRAM page 0 + page 1 (the seeded supervisor pages)
+- Logs DivMmc state, mmu[0..7], and the 32-PC ring buffer
+
+### Findings
+
+**Slot 0 at PC=$3CE8 first hit is 100% identical to `enNxtmmc.rom`** (the
+DivMMC firmware, 8 KB):
+
+```
+$ cmp /tmp/g46b-slot0-at-3ce8.bin /tmp/enNxtmmc.rom
+(no output — files are byte-for-byte identical)
+```
+
+**Slot 1 at PC=$3CE8 first hit is ALL ZEROS** except a single `c9` (RET)
+byte at offset `$1D00` (= PC `$3D00`):
+
+```
+slot1 ${0..1CFF}: 0x00 (8192 bytes minus 1 byte)
+slot1 $1D00: 0xC9
+slot1 ${1D01..1FFF}: 0x00
+```
+
+**Physical SRAM page 0 + page 1 ARE seeded with the supervisor binary**
+(bypass-init at `emulator.cpp:3580-3584` correctly memcpy's `rom_.page_ptr(p)
+→ ram_.page_ptr(p)` for p=0..7). The CPU just isn't reading from them.
+
+**DivMmc state at trigger:**
+```
+divmmc=[active=1 rom_mapped=1 conmem=0 automap=1 mapram=0]
+```
+
+→ DivMMC is **ACTIVE via AUTOMAP** (not CONMEM). Slot 0 reads from DivMMC
+ROM (enNxtmmc.rom), slot 1 reads from DivMMC RAM bank 0 (uninitialized
+= zeros).
+
+**mmu[0..7] = `ff ff 0a 0b 04 05 00 01`** → `RESET_PAGES` exactly. The
+nominal MMU register state is correct, but DivMMC overlay overrides it.
+
+### What this means
+
+The `$008E` trampoline that writes `NR_57=$0F` is **DivMMC firmware code**,
+NOT supervisor code. The trampoline at `$0082` (`PUSH AF; LD A,$07; JR +2;
+ADD A,A; NEXTREG NR_56,A; INC A; NEXTREG NR_57,A; POP AF; RET`) lives in
+`enNxtmmc.rom` at file offset `$0082`. Same binary is used by CSpect, so
+this code is identical between emulators.
+
+The execution path:
+1. Supervisor code triggered DivMMC AUTOMAP (some trap PC).
+2. AUTOMAP active → slot 0 = DivMMC ROM, slot 1 = DivMMC RAM (= bank 0 by
+   default = empty).
+3. Code somewhere jumped to `$3CC9` in slot 1 (= empty DivMMC RAM).
+4. CPU NOPped through `$3CC9 → $3CFF` (49 NOPs).
+5. At `$3D00` byte = `c9` → RET. Stack pop returns to `$0082`.
+6. DivMMC firmware `$0082` sets `NR_57=$0F`.
+
+**Step 3 is the bug.** The supervisor jumped to slot 1 expecting code at
+`$3CE8` (or thereabouts). Slot 1 is DivMMC RAM bank 0, which is empty in
+jnext. CSpect must have populated it OR the supervisor in CSpect doesn't
+take this jump (= different upstream conditional based on hardware state).
+
+### Why DivMMC RAM is empty in jnext
+
+DivMmc class (`peripheral/divmmc.h`) allocates 128 KB of RAM (16 × 8K
+banks), all zero-initialised in the constructor. **Nobody populates it
+during boot**:
+
+- Static-rom seeding only loads `enNxtmmc.rom` (8 KB) into DivMMC ROM
+  (`emulator.cpp:3625-3637`).
+- No code path writes to DivMMC RAM at boot.
+- Bypass-init synthesis only writes NRs (`emulator.cpp:3791-3814`).
+
+CSpect must populate DivMMC RAM somehow. Two candidate mechanisms:
+1. **`tbblue.fw` populates DivMMC RAM during boot** — by enabling DivMMC,
+   writing helper code via slot 1 writes, then disabling. jnext
+   non-bypass mode runs the same `tbblue.fw` but apparently doesn't
+   reach the populate stage.
+2. **The supervisor populates DivMMC RAM at boot** — but this is the
+   same supervisor in both emulators, so jnext should populate too.
+
+### Concrete next-session probe
+
+Need to find what populates DivMMC RAM. Two angles:
+
+1. **In jnext non-bypass**: capture supervisor-side writes to slot 1
+   while DivMMC AUTOMAP is active. Add a memory-write watch on writes
+   to DivMMC RAM (= writes to `$2000-$3FFF` when DivMMC active). If
+   there are no such writes, DivMMC RAM in CSpect must be populated by
+   `tbblue.fw` or by a different mechanism we're missing.
+
+2. **Disassemble `enNxtmmc.rom` $0066-$1FF8**: the DivMMC firmware
+   itself may have an init routine that populates its RAM. Look for
+   LDIR or write loops to slot 1 ($2000-$3FFF).
+
+3. **Check if the supervisor or tbblue.fw triggers DivMMC CONMEM mode**
+   to write helper code to DivMMC RAM, then turn it off. Search
+   enNextZX.rom + tbblue/firmware sources for `port $E3` writes.
+
+### Pre-cursor: where does PC=$3CC9 come from?
+
+The 32-PC ring shows ONLY `$3CC9..$3CE8` — sequential — already
+truncated. To find the upstream jumper that landed in `$3CC9`, extend
+the ring to >100 entries OR snapshot just before AUTOMAP fires.
+
+DivMMC AUTOMAP fires on these trap PCs (per VHDL): `$0000`, `$0008`,
+`$0038`, `$0066`, `$04C6`, `$04D7`, `$0562`, `$056A`. Capture the PC
+sequence between the LAST trap PC and `$3CC9`.
+
+### Status
+
+Probe 8 done. Major finding committed. Investigation now has a clear
+fix-direction: **populate DivMMC RAM with whatever CSpect has there**,
+or **avoid the supervisor falling into empty DivMMC RAM** by ensuring
+correct upstream conditionals.
+
 

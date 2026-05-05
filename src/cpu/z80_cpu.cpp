@@ -22,9 +22,11 @@
 #include "core/saveable.h"
 #include "memory/contention.h"
 #include "memory/mmu.h"
+#include "peripheral/divmmc.h"
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 
 // ── FUSE Z80 core (C linkage) ───────────────────────────────────────────
 
@@ -459,6 +461,84 @@ int Z80Cpu::execute() {
     static int g46b_pc_ring_head = 0;
     g46b_pc_ring[g46b_pc_ring_head] = pc;
     g46b_pc_ring_head = (g46b_pc_ring_head + 1) % G46B_PC_RING_SIZE;
+
+    // G46(b) Probe 8 (TEMP — remove on G46(b) closure): on first hit of
+    // PC=$3CE8, dump slot 0 ($0000-$1FFF) and slot 1 ($2000-$3FFF) to
+    // /tmp/g46b-slot{0,1}-at-3ce8.bin so we can disassemble the runtime
+    // bytes offline. Also dump the PC ring at that moment so we can see
+    // the upstream caller chain that led INTO $3CE8.
+    if (pc == 0x3CE8) {
+        static int p8_dump_cnt = 0;
+        if (p8_dump_cnt++ == 0) {
+            FILE* f0 = std::fopen("/tmp/g46b-slot0-at-3ce8.bin", "wb");
+            if (f0) {
+                for (uint32_t a = 0x0000; a < 0x2000; ++a) {
+                    uint8_t b = mem_.read(static_cast<uint16_t>(a));
+                    std::fputc(b, f0);
+                }
+                std::fclose(f0);
+            }
+            FILE* f1 = std::fopen("/tmp/g46b-slot1-at-3ce8.bin", "wb");
+            if (f1) {
+                for (uint32_t a = 0x2000; a < 0x4000; ++a) {
+                    uint8_t b = mem_.read(static_cast<uint16_t>(a));
+                    std::fputc(b, f1);
+                }
+                std::fclose(f1);
+            }
+            // Also dump physical SRAM page 1 (the page the supervisor SHOULD
+            // be reading from given NR_51=0xFF + ROM-in-SRAM + NR_04=0).
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                FILE* fp1 = std::fopen("/tmp/g46b-physpage01-at-3ce8.bin", "wb");
+                if (fp1) {
+                    const uint8_t* p1 = mmu->ram().page_ptr(0x01);
+                    if (p1) std::fwrite(p1, 1, 0x2000, fp1);
+                    std::fclose(fp1);
+                }
+                // Also page 0 for sanity
+                FILE* fp0 = std::fopen("/tmp/g46b-physpage00-at-3ce8.bin", "wb");
+                if (fp0) {
+                    const uint8_t* p0 = mmu->ram().page_ptr(0x00);
+                    if (p0) std::fwrite(p0, 1, 0x2000, fp0);
+                    std::fclose(fp0);
+                }
+            }
+            char ring_buf[256];
+            int rn = 0;
+            for (int i = 0; i < G46B_PC_RING_SIZE; ++i) {
+                int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                rn += std::snprintf(ring_buf + rn,
+                                    sizeof(ring_buf) - rn,
+                                    "%04x ", g46b_pc_ring[idx]);
+            }
+            char mmu_buf[80];
+            int mn = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (int s = 0; s < 8 && mn < 70; ++s) {
+                    mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                        "%02x ", mmu->get_page(s));
+                }
+            } else {
+                std::snprintf(mmu_buf, sizeof(mmu_buf), "n/a");
+            }
+            // Probe 8b: capture DivMmc state at the trigger.
+            const char* dm_state = "n/a";
+            char dm_buf[120];
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                if (DivMmc* dm = mmu->divmmc_for_diag()) {
+                    std::snprintf(dm_buf, sizeof(dm_buf),
+                                  "active=%d rom_mapped=%d conmem=%d automap=%d mapram=%d",
+                                  (int)dm->is_active(), (int)dm->is_rom_mapped(),
+                                  (int)dm->conmem(), (int)dm->automap_active(),
+                                  (int)dm->mapram());
+                    dm_state = dm_buf;
+                }
+            }
+            Log::cpu()->info(
+                "G46B P8: dumped slot0+slot1 at PC=$3CE8 first hit. mmu[0..7]={} divmmc=[{}] ring={}",
+                mmu_buf, dm_state, ring_buf);
+        }
+    }
 
     // DivMMC automap (and any other memory overlay) must activate BEFORE
     // the opcode read, matching real hardware combinatorial decode.

@@ -115,6 +115,11 @@ public:
     // Kept as raw pointer for zero-overhead hot path.
     void set_divmmc(DivMmc* d) { divmmc_ = d; }
 
+    // G46(b) Probe 8 (TEMP — remove on G46(b) closure): expose divmmc
+    // pointer for diagnostic introspection. Only callers in TEMP probes
+    // should use this.
+    DivMmc* divmmc_for_diag() const { return divmmc_; }
+
     // Multiface memory overlay (Wave 1 E) — non-owning pointer wired by
     // Emulator after constructing the Multiface peripheral. The overlay
     // sits between the boot-ROM check and the DivMMC check in the read/
