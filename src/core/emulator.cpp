@@ -1473,10 +1473,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
 
         if (v & 0x02) {
-            Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x})", v);
+            const auto regs = cpu_.get_registers();
+            Log::emulator()->info("Hard reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
+                                  v, regs.PC, mmu_.current_rom_bank(), mmu_.get_page(7));
             reset();
         } else if (v & 0x01) {
-            Log::emulator()->info("Soft reset triggered via NextREG 0x02 ({:#04x})", v);
+            const auto regs = cpu_.get_registers();
+            Log::emulator()->info("Soft reset triggered via NextREG 0x02 ({:#04x}) PC={:#06x} rom_bank={:#04x} mmu7={:#04x}",
+                                  v, regs.PC, mmu_.current_rom_bank(), mmu_.get_page(7));
             soft_reset();
         }
         // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.

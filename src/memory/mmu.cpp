@@ -50,46 +50,56 @@ void Mmu::set_boot_rom(const uint8_t* data, size_t size) {
 }
 
 void Mmu::reset(bool hard) {
-    // paging_locked_ mirrors port_7ffd_reg(5) → port_7ffd_locked
-    // (zxnext.vhd:3769 derives the latter from the former). The VHDL
-    // reset at zxnext.vhd:3646-3648 gates the `port_7ffd_reg <= (others
-    // => '0')` assignment on `reset='1'` (hard only). Soft resets leave
-    // the lock state — and thus bit 5 — untouched.
-    if (hard) {
-        paging_locked_ = false;
-    }
-    // VHDL zxnext.vhd:4930-4935 — nr_08_contention_disable <= '0' is
-    // gated on `reset='1'` (hard only). Soft reset preserves the flag.
-    if (hard) {
-        contention_disabled_ = false;
-    }
-    // VHDL zxnext.vhd:3686-3690 — port_dffd_reg <= (others => '0') is
-    // gated on `reset='1'`. The existing Branch C architectural decision
-    // treats the whole `reset='1'` family as hard-only (port_7ffd_reg,
-    // nr_08_contention_disable, nr_8c_altrom) so port_dffd_reg + the
-    // port_eff7_reg pair follow the same pattern. Soft reset preserves
-    // them; this matches the firmware invariant that a RESET_SOFT does
-    // not re-bind the extended-paging configuration the bootloader set.
-    if (hard) {
-        port_dffd_reg_ = 0;
-        // VHDL zxnext.vhd:3686-3689 — the same `if reset='1'` branch
-        // that clears port_dffd_reg also clears port_dffd_reg_6. Same
-        // hard-only domain. (G148)
-        port_dffd_reg_6_ = false;
-        port_eff7_reg_2_ = false;
-        port_eff7_reg_3_ = false;
-    }
+    // VHDL reset semantics — corrected G46(b) 2026-05-08.
+    //
+    // Inside zxnext.vhd, the `reset` signal is `i_RESET` (line 1730).
+    // i_RESET is wired from the top-level wrapper at
+    // zxnext_top_issue5.vhd:2384 to the signal `reset`, which is
+    // `reset_hard or reset_soft` (zxnext_top_issue5.vhd:880). So every
+    // `if reset='1'` clause inside zxnext.vhd fires on BOTH hard AND
+    // soft resets — there is no separation inside the core.
+    //
+    // The earlier "Branch C" architectural decision in this file (which
+    // treated port_7ffd_reg / port_1ffd_reg / port_dffd_reg / paging_locked
+    // / nr_08_contention_disable / nr_8c lo→hi copy as hard-only) was a
+    // misreading of the VHDL. It caused a NextZXOS-boot regression: the
+    // supervisor expects post-NR_02-soft-reset rom_bank to be 0 so that
+    // PC=$0000 lands in enNextZX.rom bank 0's `DI; JP $00EF` cold-start.
+    // jnext preserved port_7ffd/port_1ffd, leaving the CPU in bank 2's
+    // `NOP; JR $0000` infinite-loop sentinel. Three independent VHDL
+    // audits + ROM disassembly confirmed the supervisor's design.
+    //
+    // VHDL line refs for each register cleared on `reset='1'`:
+    //   * port_7ffd_reg     — zxnext.vhd:3646-3648
+    //   * port_1ffd_reg     — zxnext.vhd:3713-3715
+    //   * port_dffd_reg + _6 — zxnext.vhd:3686-3690
+    //   * port_eff7 latches  — zxnext.vhd:3777-3779
+    //   * paging_locked (port_7ffd_reg(5)) — implicit in 3648
+    //   * nr_08_contention_disable — zxnext.vhd:4930-4935
+    //   * nr_8c lo→hi copy — zxnext.vhd:2253-2256
+    //
+    // (`hard` parameter is now unused but kept for ABI parity; if a
+    // future register turns out to genuinely be hard-only per VHDL, it
+    // would re-introduce the gate.)
+    (void)hard;
+
+    paging_locked_ = false;
+    contention_disabled_ = false;
+    port_dffd_reg_ = 0;
+    port_dffd_reg_6_ = false;
+    port_eff7_reg_2_ = false;
+    port_eff7_reg_3_ = false;
+    port_7ffd_ = 0;
+    port_1ffd_ = 0;
+
     // VHDL zxnext.vhd:3787-3794 — nr_8f_mapping_mode has NO reset process;
     // the value persists across hard and soft reset alike. The signal
     // declaration default `:= (others => '0')` at VHDL:888 is only the
     // FPGA-configuration-time power-on value, already mirrored by the
     // default member initializer on nr_8f_mode_. Do NOT reset it here.
-    // VHDL zxnext.vhd:2253-2256 — the lo→hi nibble copy on nr_8c_altrom
-    // is gated on `reset='1'` (hard only). Soft reset preserves the full
-    // 8-bit register. Bits 3:0 themselves are not cleared by the VHDL
-    // process; they persist as "altrom bits to reload on reset" defaults,
-    // and the copy re-derives bits 7:4 on each hard reset.
-    if (hard) {
+
+    // VHDL zxnext.vhd:2253-2256 — nr_8c lo→hi nibble copy on `reset='1'`.
+    {
         const uint8_t lo = nr_8c_reg_ & 0x0F;
         nr_8c_reg_ = static_cast<uint8_t>((lo << 4) | lo);
     }
@@ -129,26 +139,11 @@ void Mmu::reset(bool hard) {
     map_rom_physical(0, 0);
     map_rom_physical(1, 1);
 
-    // Soft reset only: the VHDL paging registers (port_7ffd_reg / port_dffd_reg
-    // / port_eff7_reg_*) are preserved across a soft reset (the reset tree at
-    // zxnext.vhd:1730 gates the register clears on `reset='1'`, hard-only).
-    // On real hardware MMU0..MMU7 are composed combinationally every cycle
-    // from those registers (zxnext.vhd:4619-4682), so the preserved register
-    // state immediately re-asserts its page mapping. Our imperative model
-    // must re-apply that composition manually — otherwise the register
-    // accessors still report the preserved values but the seeded
-    // RESET_PAGES + ROM mapping above silently overrides the effect.
-    //
-    // apply_legacy_paging_() covers both halves: MMU6/7 from
-    // port_7ffd_ + port_dffd_reg_ (VHDL:3763-3766, 4677-4680), and the
-    // MMU0/1 RAM-at-0x0000 override when port_eff7_reg_3_=1
-    // (VHDL:4636-4644). On hard reset all three source registers are
-    // already 0 above, so re-applying would be a no-op — but skipping it
-    // keeps the hard-reset path byte-for-byte identical to the prior
-    // RESET_PAGES + map_rom_physical(0/1) sequence.
-    if (!hard) {
-        apply_legacy_paging_();
-    }
+    // With port_7ffd_ / port_1ffd_ / port_dffd_reg_ / port_eff7_* all
+    // zeroed above, apply_legacy_paging_() would re-assert the same
+    // mapping the RESET_PAGES seed + map_rom_physical(0/1) calls already
+    // produced (slot 6 = page 0, slot 7 = page 1, MMU0/1 = ROM). Skip
+    // it: there's no preserved state for it to re-compose.
 }
 
 void Mmu::rebuild_ptr(int slot) {
