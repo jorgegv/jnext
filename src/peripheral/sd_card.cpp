@@ -627,8 +627,18 @@ void SdCardDevice::cmd10_send_cid() {
 
 void SdCardDevice::cmd58_read_ocr() {
     sd_log()->debug("CMD58 READ_OCR → initialized={} SDHC=1", initialized_);
-    // OCR: bit 31=power up complete (if initialized), bit 30=SDHC
-    uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // CCS=1 (SDHC), power up status
+    // OCR: bit 31=power up complete (if initialized), bit 30=SDHC.
+    //
+    // 2026-05-07: reverted from earlier ZEsarUX-style {$FF, $05, $00*4}
+    // experiment. TBBLUE.FW's MMC_Init at SD_SEND_CMD_2_ARGS_TEST_BUSY
+    // checks R1 with `and #0xFE` and rejects any non-zero result (treats
+    // it as an error). $05 has bit 2 set → init aborts → "Error
+    // initializing SD card!" displayed.
+    //
+    // Standard SDHC R3 response: NCR + R1=$00 (ready) + 4 OCR bytes with
+    // CCS=1 (bit 30 of OCR = bit 6 of byte 0). TBBLUE.FW MMC_Init line
+    // 113 (mmc.s): `and #0x40` selects CCS bit. If set → SDHC, skip CMD16.
+    uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // bit 31 = power-up done, bit 30 = CCS
     resp_buf_ = { 0xFF, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
                   ocr0, 0xFF, 0x80, 0x00 };  // NCR + R3
     resp_idx_ = 0;
