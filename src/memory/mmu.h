@@ -391,9 +391,12 @@ public:
             debug_state_->set_data_bp_addr(addr);
         }
         // G46(b) Probe 30 (TEMP, 2026-05-09): log writes into the divergent
-        // stack region $5BFC..$5C07. The body lives in mmu.cpp to avoid
-        // pulling spdlog into this hot inline header.
-        if (addr >= 0x5BFC && addr <= 0x5C07) {
+        // stack region $5BFC..$5C3F. Range widened 2026-05-06b to cover
+        // $5C39/$5C3A (the second-stack RET target — jnext writes $00,
+        // CSpect's value is $FF) so we can find the offending writer.
+        // Body lives in mmu.cpp to avoid pulling spdlog into this hot
+        // inline header.
+        if (addr >= 0x5BFC && addr <= 0x5C3F) {
             g46b_p30_log_write(addr, peek(addr), val);
         }
         // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
@@ -433,6 +436,16 @@ public:
                 uint16_t offset = addr % 0x4000;
                 uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
                 uint8_t* p = ram_.page_ptr(phys_page);
+                // G46(b) P34: log when an L2 write-over physically reaches
+                // bank-5 page 0x0A in the divergent stack range.
+                if (phys_page == 0x0A) {
+                    uint16_t inner = static_cast<uint16_t>(offset & 0x1FFF);
+                    if (inner >= 0x1BFC && inner <= 0x1C3F) {
+                        uint8_t old = p ? p[inner] : 0xFF;
+                        g46b_p30_log_write(static_cast<uint16_t>(0x4000 + inner),
+                                           old, val);
+                    }
+                }
                 if (p) p[offset & 0x1FFF] = val;
                 return;
             }
@@ -449,7 +462,16 @@ public:
         // CPU patches alt-ROM without disturbing the visible ROM.
         if (nr_8c_altrom_en() && nr_8c_altrom_rw() &&
             !config_mode_ && addr < 0x4000 && read_only_[slot]) {
-            uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
+            uint8_t alt_phys = altrom_sram_page_(addr);
+            uint8_t* p = ram_.page_ptr(alt_phys);
+            if (alt_phys == 0x0A) {
+                uint16_t inner = static_cast<uint16_t>(addr & 0x1FFF);
+                if (inner >= 0x1BFC && inner <= 0x1C3F) {
+                    uint8_t old = p ? p[inner] : 0xFF;
+                    g46b_p30_log_write(static_cast<uint16_t>(0x4000 + inner),
+                                       old, val);
+                }
+            }
             if (p) p[addr & 0x1FFF] = val;
             return;
         }
@@ -458,13 +480,37 @@ public:
         // nr_04_romram_bank instead of being silently dropped. This is how
         // tbblue.fw's load_roms() populates ROM content in SRAM.
         if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
-            uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            uint16_t cfg_phys = static_cast<uint16_t>(
+                (static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
+            uint8_t* p = ram_.page_ptr(cfg_phys);
+            if (cfg_phys == 0x0A) {
+                uint16_t inner = static_cast<uint16_t>(addr & 0x1FFF);
+                if (inner >= 0x1BFC && inner <= 0x1C3F) {
+                    uint8_t old = p ? p[inner] : 0xFF;
+                    g46b_p30_log_write(static_cast<uint16_t>(0x4000 + inner),
+                                       old, val);
+                }
+            }
             if (p) p[addr & 0x1FFF] = val;
             return;
         }
         if (read_only_[slot]) return;
         uint8_t* ptr = write_ptr_[slot];
         if (!ptr) return;
+        // G46(b) P34 (TEMP, 2026-05-09): log when the default slot-write
+        // path lands physically on bank-5 page 0x0A within our divergent
+        // stack range. This catches writes via slot 2 ($4000-$5FFF) AND
+        // any slot whose write_ptr_ happens to point at page 0x0A.
+        {
+            uint8_t* page0a = ram_.page_ptr(0x0A);
+            if (page0a && ptr == page0a) {
+                uint16_t inner = static_cast<uint16_t>(addr & 0x1FFF);
+                if (inner >= 0x1BFC && inner <= 0x1C3F) {
+                    g46b_p30_log_write(static_cast<uint16_t>(0x4000 + inner),
+                                       ptr[inner], val);
+                }
+            }
+        }
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
         // on every contended memory write. Approximated via per-16K-slot
@@ -873,6 +919,10 @@ public:
     // verify the latch independently of driving the read or write paths.
     bool l2_read_enable()  const { return l2_read_enable_; }
     bool l2_write_enable() const { return l2_write_enable_; }
+    // G46(b) Probe 32 helpers (TEMP, 2026-05-09): expose private L2 state
+    // for diagnostics.
+    uint8_t l2_bank_pub() const { return l2_bank_; }
+    uint8_t l2_segment_mask_pub() const { return l2_segment_mask_; }
 
     // VHDL zxnext.vhd:3914-3923 — port 0x123B bit 4 = 1 latches a 3-bit
     // offset (cpu_do(2:0)) into port_123b_layer2_offset. Added to segment

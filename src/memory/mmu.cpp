@@ -11,7 +11,7 @@ uint16_t g46b_current_pc = 0xFFFF;
 
 void g46b_p30_log_write(uint16_t addr, uint8_t old_val, uint8_t new_val) {
     static int g46b_p30_logged = 0;
-    if (g46b_p30_logged >= 200) return;
+    if (g46b_p30_logged >= 2000) return;
     if (old_val == new_val) return;
     Log::cpu()->info(
         "G46B P30 WRITE pc={:#06x} addr={:#06x} old={:#04x} new={:#04x}",

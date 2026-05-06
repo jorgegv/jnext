@@ -460,6 +460,43 @@ int Z80Cpu::execute() {
     // executing instruction. Single store, negligible overhead.
     g46b_current_pc = pc;
 
+    // G46(b) Probe 32 (TEMP, 2026-05-09): one-shot dump of mem[$5C30..$5C3F]
+    // at the very FIRST CPU step. Confirms whether the bypass-mode pre-load
+    // of sysvars.raw is intact when the CPU begins executing. CSpect's
+    // sysvars.raw at $5C39..$5C3A = $00 $FF (RET target $FF00 for the
+    // bank-flip wrapper); jnext sees $00 $00 by the time PC reaches $5B20.
+    {
+        static bool g46b_p32_done = false;
+        if (!g46b_p32_done) {
+            g46b_p32_done = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                char b1[64] = "";
+                int n = 0;
+                for (uint16_t a = 0x5C30; a <= 0x5C3F; ++a) {
+                    n += std::snprintf(b1 + n, sizeof(b1) - n,
+                                       "%02x ", mmu->peek(a));
+                }
+                char b2[80] = "";
+                int m = 0;
+                for (uint16_t a = 0x5BFC; a <= 0x5C0F; ++a) {
+                    m += std::snprintf(b2 + m, sizeof(b2) - m,
+                                       "%02x ", mmu->peek(a));
+                }
+                Log::cpu()->info(
+                    "G46B P32 first-step pc={:#06x} "
+                    "L2: re={} we={} bank=0x{:02x} offset={} "
+                    "segment_mask=0x{:02x} map_shadow={} shadow_bank=0x{:02x} "
+                    "mem[$5C30..$5C3F]={} mem[$5BFC..$5C0F]={}",
+                    pc,
+                    mmu->l2_read_enable(), mmu->l2_write_enable(),
+                    mmu->l2_bank_pub(), mmu->l2_offset(),
+                    mmu->l2_segment_mask_pub(),
+                    mmu->l2_map_shadow(), mmu->l2_shadow_bank(),
+                    b1, b2);
+            }
+        }
+    }
+
     // G46(b) Probe 7 (TEMP — remove on G46(b) closure): ring buffer of last
     // N PCs for caller-trace dumps. Updated every CPU step.
     static constexpr int G46B_PC_RING_SIZE = 256;
@@ -467,6 +504,37 @@ int Z80Cpu::execute() {
     static int g46b_pc_ring_head = 0;
     g46b_pc_ring[g46b_pc_ring_head] = pc;
     g46b_pc_ring_head = (g46b_pc_ring_head + 1) % G46B_PC_RING_SIZE;
+
+    // G46(b) Probe 35 (TEMP, 2026-05-09): capture EACH new LDDR-call
+    // entry at PC=$0168 (the wiper at boot ROM init). LDDR keeps PC at
+    // its own address while iterating, so we only log when prev_pc is
+    // not $0168 (i.e., a fresh call). Up to 20 distinct entries.
+    {
+        static int g46b_p35_count = 0;
+        int p35_pr_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                         % G46B_PC_RING_SIZE;
+        uint16_t p35_prev_pc = g46b_pc_ring[p35_pr_idx];
+        if (g46b_p35_count < 20 && pc == 0x0168 && p35_prev_pc != 0x0168) {
+            ++g46b_p35_count;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                char mmu_buf[80] = "";
+                int xn = 0;
+                for (int s = 0; s < 8 && xn < 70; ++s) {
+                    xn += std::snprintf(mmu_buf + xn,
+                                        sizeof(mmu_buf) - xn,
+                                        "%02x ", mmu->get_page(s));
+                }
+                Log::cpu()->info(
+                    "G46B P35 hit#{} PC=$0168 prev_pc={:#06x} "
+                    "AF={:#06x} BC={:#06x} DE={:#06x} HL={:#06x} "
+                    "IX={:#06x} IY={:#06x} SP={:#06x} L2_we={} mmu={}",
+                    g46b_p35_count, p35_prev_pc,
+                    z80.af.w, z80.bc.w, z80.de.w, z80.hl.w,
+                    z80.ix.w, z80.iy.w, z80.sp.w,
+                    mmu->l2_write_enable(), mmu_buf);
+            }
+        }
+    }
 
     // G46(b) Probe 15 (TEMP — remove on G46(b) closure): IX-write tracer.
     // Log every PC where IX changes between consecutive M1 fetches, with
@@ -1012,18 +1080,164 @@ int Z80Cpu::execute() {
                                         sizeof(code_buf) - cn,
                                         "%02x ", mmu->peek(pc + j));
                 }
+                // Bytes BEFORE pc — needed to identify the dispatcher
+                // instruction that landed us at pc=$5B00 (etc.).
+                char prebytes_buf[80] = "";
+                int pn = 0;
+                for (int j = 16; j > 0; --j) {
+                    uint16_t a = static_cast<uint16_t>(pc - j);
+                    pn += std::snprintf(prebytes_buf + pn,
+                                        sizeof(prebytes_buf) - pn,
+                                        "%02x ", mmu->peek(a));
+                }
+                // Full PC ring (256 entries, oldest→newest) — caller
+                // chain context. Long enough to see past the NOP sled
+                // into whatever JPed into it.
+                char ring_buf[1400];
+                int rn = 0;
+                for (int i = 0;
+                     i < G46B_PC_RING_SIZE && rn < 1390; ++i) {
+                    int rix = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                    rn += std::snprintf(ring_buf + rn,
+                                        sizeof(ring_buf) - rn,
+                                        "%04x ", g46b_pc_ring[rix]);
+                }
                 Log::cpu()->info(
                     "G46B P29 hit#{} PC={:#06x} prev_pc={:#06x} "
-                    "SP={:#06x} stk=[{}] mem[$5BFC..$5C07]={} mmu={} "
-                    "bytes={}",
-                    g46b_p29_hits[idx], pc, prev_pc, z80.sp.w,
-                    stk, mem_buf, mmu_buf, code_buf);
+                    "AF={:#06x} BC={:#06x} DE={:#06x} HL={:#06x} "
+                    "IX={:#06x} IY={:#06x} SP={:#06x} stk=[{}] "
+                    "mem[$5BFC..$5C07]={} mmu={} bytes={}prebytes={}"
+                    "ring={}",
+                    g46b_p29_hits[idx], pc, prev_pc,
+                    z80.af.w, z80.bc.w, z80.de.w, z80.hl.w,
+                    z80.ix.w, z80.iy.w, z80.sp.w,
+                    stk, mem_buf, mmu_buf, code_buf, prebytes_buf,
+                    ring_buf);
             }
         }
     }
 
     // G46(b) Probe 30: implemented in src/memory/mmu.h::write (hooks into
     // the actual memory write path, fires only on writes to $5BFC..$5C07).
+
+    // G46(b) Probe 31 (TEMP, 2026-05-09): log entries into the screen
+    // memory area ($4000..$5AFF, 6912 bytes). 2026-05-09 P31 first run
+    // showed entries at PC=$5800 with prev=$57FF — i.e., we were ALREADY
+    // executing in the pixel area ($4000..$57FF). Widening the range
+    // catches the FIRST JP target into the screen RAM. Prev_pc is the
+    // source. Cap at 10 events; re-fires when PC leaves and re-enters.
+    {
+        static int g46b_p31_count = 0;
+        static bool g46b_p31_in_attr = false;
+        bool in_attr = (pc >= 0x4000 && pc <= 0x5AFF);
+        if (in_attr && !g46b_p31_in_attr && g46b_p31_count < 10) {
+            ++g46b_p31_count;
+            int pr_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                         % G46B_PC_RING_SIZE;
+            uint16_t prev_pc = g46b_pc_ring[pr_idx];
+            char ring_buf[400];
+            int rn = 0;
+            for (int i = G46B_PC_RING_SIZE - 64;
+                 i < G46B_PC_RING_SIZE && rn < 390; ++i) {
+                int rix = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                rn += std::snprintf(ring_buf + rn,
+                                    sizeof(ring_buf) - rn,
+                                    "%04x ", g46b_pc_ring[rix]);
+            }
+            char prebytes_buf[60] = "";
+            int pn = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (int j = 8; j > 0; --j) {
+                    uint16_t a = static_cast<uint16_t>(prev_pc - j);
+                    pn += std::snprintf(prebytes_buf + pn,
+                                        sizeof(prebytes_buf) - pn,
+                                        "%02x ", mmu->peek(a));
+                }
+                for (int j = 0; j < 4; ++j) {
+                    uint16_t a = static_cast<uint16_t>(prev_pc + j);
+                    pn += std::snprintf(prebytes_buf + pn,
+                                        sizeof(prebytes_buf) - pn,
+                                        "%02x ", mmu->peek(a));
+                }
+            }
+            // Routine $0080..$0093 decode: this is the slot-6/7 reset
+            // routine reached via $3D00 RET; trailing POP AF; RET pops
+            // a stale $4000 from the stack. Captured here so we don't
+            // need to re-run.
+            char r0082_buf[64] = "";
+            int rb = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (uint16_t a = 0x0080; a <= 0x0095; ++a) {
+                    rb += std::snprintf(r0082_buf + rb,
+                                        sizeof(r0082_buf) - rb,
+                                        "%02x ", mmu->peek(a));
+                }
+            }
+            // Stack content above SP — find what was pushed onto it.
+            // Capture 8 stack words (16 bytes) starting from SP.
+            char stack_buf[96] = "";
+            int sk = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (int i = 0; i < 8; ++i) {
+                    uint16_t w = static_cast<uint16_t>(
+                        mmu->peek(z80.sp.w + i*2) |
+                        (mmu->peek(z80.sp.w + i*2 + 1) << 8));
+                    sk += std::snprintf(stack_buf + sk,
+                                        sizeof(stack_buf) - sk,
+                                        "%04x ", w);
+                }
+            }
+            char mmu_buf[80] = "";
+            int xn = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (int s = 0; s < 8 && xn < 70; ++s) {
+                    xn += std::snprintf(mmu_buf + xn,
+                                        sizeof(mmu_buf) - xn,
+                                        "%02x ", mmu->get_page(s));
+                }
+            }
+            // Compare peek (overlay-respecting) vs direct page-0x0A
+            // (bank 5) read for the divergent stack region. If they
+            // differ, an overlay (L2 RAM / DivMMC / multiface) is hiding
+            // bank 5's content.
+            char peek_53x[64] = "";
+            char raw_53x[64] = "";
+            int pkn = 0, rwn = 0;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                for (uint16_t a = 0x5C30; a <= 0x5C3F; ++a) {
+                    pkn += std::snprintf(peek_53x + pkn,
+                                         sizeof(peek_53x) - pkn,
+                                         "%02x ", mmu->peek(a));
+                }
+            }
+            uint8_t* page0a = nullptr;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                page0a = mmu->ram().page_ptr(0x0A);
+            }
+            if (page0a) {
+                for (uint16_t a = 0x5C30; a <= 0x5C3F; ++a) {
+                    uint16_t off = (a - 0x4000);
+                    rwn += std::snprintf(raw_53x + rwn,
+                                         sizeof(raw_53x) - rwn,
+                                         "%02x ", page0a[off]);
+                }
+            }
+            Log::cpu()->info(
+                "G46B P31 hit#{} ATTR-ENTER pc={:#06x} prev_pc={:#06x} "
+                "AF={:#06x} BC={:#06x} DE={:#06x} HL={:#06x} "
+                "IX={:#06x} IY={:#06x} SP={:#06x} mmu={} "
+                "peek[$5C30..$5C3F]={} raw_p0A[$5C30..$5C3F]={}"
+                "stk[8]={}r0082($0080..$0095)={}"
+                "prev_bytes(prev_pc-8..+3)={}ring64={}",
+                g46b_p31_count, pc, prev_pc,
+                z80.af.w, z80.bc.w, z80.de.w, z80.hl.w,
+                z80.ix.w, z80.iy.w, z80.sp.w, mmu_buf,
+                peek_53x, raw_53x,
+                stack_buf, r0082_buf,
+                prebytes_buf, ring_buf);
+        }
+        g46b_p31_in_attr = in_attr;
+    }
 
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
