@@ -1148,6 +1148,36 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 41 (TEMP, 2026-05-09): one-shot detect PC entering
+    // slot-7 area $FF00..$FFFF (post-band-aid wrapper RET destination).
+    // Logs prev_pc + slot-7 mapping + 16 bytes at PC.
+    {
+        static int g46b_p41_count = 0;
+        if (g46b_p41_count < 10 && pc >= 0xFF00 && pc <= 0xFFFF) {
+            // check if this is a NEW entry (prev_pc outside slot 7)
+            int pr_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                         % G46B_PC_RING_SIZE;
+            uint16_t prev_pc = g46b_pc_ring[pr_idx];
+            if (prev_pc < 0xFF00 || prev_pc > 0xFFFF) {
+                ++g46b_p41_count;
+                if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                    char b[80] = "";
+                    int n = 0;
+                    for (int j = 0; j < 16 && n < 70; ++j) {
+                        n += std::snprintf(b + n, sizeof(b) - n,
+                                           "%02x ", mmu->peek(pc + j));
+                    }
+                    Log::cpu()->info(
+                        "G46B P41 hit#{} SLOT7-ENTER pc={:#06x} "
+                        "prev_pc={:#06x} AF={:#06x} BC={:#06x} HL={:#06x} "
+                        "SP={:#06x} mmu_slot7={:#04x} bytes={}",
+                        g46b_p41_count, pc, prev_pc, z80.af.w, z80.bc.w,
+                        z80.hl.w, z80.sp.w, mmu->get_page(7), b);
+                }
+            }
+        }
+    }
+
     // G46(b) Probe 40 (TEMP, 2026-05-09): DIAGNOSTIC BAND-AID — at first
     // PC=$5B20 entry (bank-flip wrapper RET), reload CSpect's sysvars
     // captured into jnext's bank-5 page 0x0A (offset $1B00..$1CFF). This
