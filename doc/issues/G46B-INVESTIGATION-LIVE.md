@@ -3940,3 +3940,118 @@ the SD emulation responses themselves.
 
 ### End of 2026-05-09 EOD-7 entry
 
+
+## 2026-05-07 EOD-8 — TBBlue logo reached; bypass-mode parked
+
+### TL;DR
+
+**Major progress**: real TBBLUE.FW now boots through `MMC_Init()`
+successfully with our SD emulation. Screen shows TBBlue logo +
+Firmware v1.44.db + Core v3.02.03 + "For video mode selection
+press: A=All, D=Digital, V=VGA, R=RGB". Same state the user has
+been observing in their own runs — we are at parity, not regressed.
+
+Branch HEAD `c4a72b4`, 27 commits off `89e18de`. Rollback marker
+tag `g46b-pre-zesarux-rewrite` at `c19cd9b`.
+
+### STRICT user directives (2026-05-07)
+
+1. **No `--bypass-tbblue-fw`** until NextZXOS welcome menu renders.
+   Bypass-mode is parked. All G46(b) testing now exercises the real
+   TBBLUE.FW boot path.
+2. **No `--delayed-keypress`** for the video-mode-selection screen —
+   TBBLUE.FW auto-advances on its own timeout.
+
+### What landed
+
+#### Commit `f0a7a35` — `persistent_response_byte` infra (KEEPER)
+
+Added `persistent_response_byte_` field to `SdCardDevice`. After a
+CMD's transient response queue drains, IDLE state's read returns
+this byte instead of $FF. CMD handlers set it post-response:
+- CMD0 → $01 (sustained while last_command=0x40)
+- CMD12 → $01 (sustained while last_command=0x4C)
+
+Reset to $FF on: new CMD start byte, deselect(), reset()/mount().
+
+Mirrors ZEsarUX `storage/mmc.c:846` switch behavior (per-command
+sustained response while `mmc_last_command` is unchanged).
+
+In bypass mode this dropped SD CMD count from 644-801 in 5s to 10
+(single clean init, no retries). The supervisor in bypass mode
+reached bank-2 main entry for the first time. In non-bypass mode it
+doesn't significantly change MMC_Init (which only sees CMD12/CMD0
+once each), but it does no harm.
+
+#### Commit `c4a72b4` — CMD58 reverted to standard SD spec
+
+Earlier today I had also changed `cmd58_read_ocr` to ZEsarUX-style
+`{$FF, $05, $00, $00, $00, $00}` per the agent's recommendation.
+That broke TBBLUE.FW's `MMC_Init`. The firmware checks R1 with
+`and #0xFE` at `SD_SEND_CMD_2_ARGS_TEST_BUSY` and rejects any
+non-zero result — R1=$05 has bit 2 (illegal-command) set → init
+aborts with "Error initializing SD card!" displayed on screen.
+
+Reverted to standard SDHC R3 response: `{$FF, R1=$00 (when
+initialized), $C0, $FF, $80, $00}` — CCS bit set so TBBLUE.FW
+treats card as SDHC.
+
+### TBBLUE.FW MMC_Init source decoded
+
+Extracted via mtools from the SD image at
+`src/firmware/loader/src/mmc.s` → `/tmp/loader-mmc-unix.s`.
+
+Init flow:
+1. CS=$FF, 80 clocks of $FF
+2. CS=$FE, CMD12 (cancel multi-sector), 9 dummy reads
+3. CMD0 with up to 16 retries
+4. CMD8 with arg=$1AA + check pattern $AA
+   - Carry set → SDv1 path (CMD1)
+   - Carry clear → SDv2 path (ACMD41)
+5. ACMD41 / CMD1 with 120 × 256 retries
+6. CMD58: read OCR, test bit 6 (CCS) of byte 0
+   - CCS=0 → CMD16 to set block size 512
+   - CCS=1 → SDHC, no CMD16
+7. Return 3 (SDHC) or 2 (SDSC)
+
+R1 check at `SD_SEND_CMD_2_ARGS_TEST_BUSY`:
+```
+ld b, a       ; save R1
+and #0xFE     ; mask out idle bit
+ld a, b
+jr nz, setaErro  ; ANY non-idle bit set → ERROR
+```
+
+Our CMD58 must return R1 with only bit 0 (idle) potentially set, no
+other bits. R1=$00 (when initialized) satisfies this.
+
+### ZEsarUX deep-dive — 10 insights extracted
+
+(See EOD-7 entry for the full breakdown. Summary: ZEsarUX's
+`storage/mmc.c` is pragmatic-but-not-spec-compliant. Some patterns
+we adopted; some don't apply to TBBLUE.FW v1.44.db's flow.)
+
+1. mmc_r1 gate (return mmc_r1 when not idle).
+2. CMD8 deliberately broken (returns $00) — for OLDER firmware.
+3. CSD dynamically computed from image size.
+4. OCR is 9-byte response, sustained R1 across reads.
+5. CMD12 = single $01.
+6. CMD17 has only 1 CRC byte.
+7. CMD18 first-byte=$FE quirk for SDHC.
+8. CS deassert sets mmc_r1=1 (idle).
+9. CMD55+ACMD41 NOT implemented.
+10. Port wiring matches ours.
+
+### Next session priorities
+
+1. **Run with longer timeout, no keypress** — TBBLUE.FW should
+   auto-advance past video-mode prompt. See where it stalls next.
+2. **If it stalls at video-mode prompt indefinitely**, check
+   CTC/RTC/timer emulation — maybe our timer doesn't tick fast
+   enough for TBBLUE.FW's auto-advance.
+3. **Trace CMD17/CMD18 reads** once boot moves past video-mode.
+   These should fire when TBBLUE.FW reads MBR/BPB and loads
+   modules.
+
+### End of 2026-05-07 EOD-8
+
