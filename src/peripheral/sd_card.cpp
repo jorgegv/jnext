@@ -518,33 +518,45 @@ void SdCardDevice::cmd9_send_csd() {
     const uint8_t c_size_15_8  = static_cast<uint8_t>((c_size >> 8) & 0xFF);
     const uint8_t c_size_7_0   = static_cast<uint8_t>(c_size & 0xFF);
 
-    // CSD v2.0 register (16 bytes). Layout per SD spec § 5.3.3:
-    //   [0]  CSD_STRUCTURE=01 + reserved=000000   = 0x40
-    //   [1]  TAAC=0x0E (1ms; ignored in SDHC)
-    //   [2]  NSAC=0x00
-    //   [3]  TRAN_SPEED=0x32 (25 MHz)
-    //   [4]  CCC[11:4]=0x5B
-    //   [5]  CCC[3:0]=0xB | READ_BL_LEN=0x9 (=512)  → 0xBB? Actually CCC=0x5B5,
-    //        so CCC[3:0]=0x5 and READ_BL_LEN=0x9 → 0x59? Use standard 0x5B5
-    //        layout: byte 4 = CCC[11:4] = 0x5B, byte 5 = (CCC[3:0]<<4) | READ_BL_LEN = 0x59.
-    //   [6]  flags=0x00 (READ_BL_PARTIAL=0, WRITE_BLK_MISALIGN=0, READ_BLK_MISALIGN=0,
-    //        DSR_IMP=0, reserved=0)
-    //   [7]  reserved=00 + C_SIZE[21:16]
-    //   [8]  C_SIZE[15:8]
-    //   [9]  C_SIZE[7:0]
-    //   [10] reserved + ERASE_BLK_EN=1 + SECTOR_SIZE[6:1]   = 0x7F (ERASE_BLK_EN=1, SECTOR_SIZE=0x7F)
-    //   [11] SECTOR_SIZE[0]=1 + WP_GRP_SIZE=0x00            = 0x80
-    //   [12] WP_GRP_ENABLE=0 + reserved + R2W_FACTOR=2 + WRITE_BL_LEN[3:2]
-    //        = 0x0A (R2W_FACTOR=010, WRITE_BL_LEN[3:2]=10)
-    //   [13] WRITE_BL_LEN[1:0]=01 + WRITE_BL_PARTIAL=0 + reserved=00000 = 0x40
-    //   [14] FILE_FORMAT_GRP=0 + COPY=0 + PERM_WRITE_PROTECT=0 +
-    //        TMP_WRITE_PROTECT=0 + FILE_FORMAT=00 + reserved=00 = 0x00
-    //   [15] CRC7[6:0]<<1 | end_bit=1 — most readers ignore CRC; use 0x01.
+    // CSD v1.0 (SDSC) layout — chosen because the NextZXOS supervisor at bank-2
+    // $180A-$182D parses CSD as v1.0 (extracts C_SIZE from bits 73:62 and
+    // C_SIZE_MULT from bits 49:47). With CSD v2.0 (SDHC) layout, those bits
+    // are reserved and parsing yields garbage capacity → firmware loops init.
+    //
+    // SDSC capacity = (C_SIZE+1) * 2^(C_SIZE_MULT+2) * BLOCK_LEN. For our
+    // ~1GB image: pick C_SIZE=0xFFF (max 12-bit) and C_SIZE_MULT=7 →
+    // 4096 * 2^9 * 512 = 1 GiB. (For larger SD images we cap at SDSC max
+    // since the firmware path doesn't accept SDHC.)
+    (void)c_size_22_16; (void)c_size_15_8; (void)c_size_7_0;
+    //
+    // Bit layout (CSD v1.0):
+    //   byte 0 [127:120] = CSD_STRUCTURE(00) | reserved(000000)         = 0x00
+    //   byte 1 [119:112] = TAAC                                         = 0x0E
+    //   byte 2 [111:104] = NSAC                                         = 0x00
+    //   byte 3 [103: 96] = TRAN_SPEED                                   = 0x32
+    //   byte 4 [ 95: 88] = CCC[11:4]                                    = 0x5B
+    //   byte 5 [ 87: 80] = CCC[3:0]<<4 | READ_BL_LEN(9)                 = 0x59
+    //   byte 6 [ 79: 72] = read flags + reserved + C_SIZE[11:10]
+    //                    = 0x83  (READ_BL_PARTIAL=1 in bit 79, then 0,0,0,0, C_SIZE[11:10]=11)
+    //   byte 7 [ 71: 64] = C_SIZE[9:2]                                  = 0xFF
+    //   byte 8 [ 63: 56] = C_SIZE[1:0]<<6 | VDD_R_CURR_MIN(0) | VDD_R_CURR_MAX(0) | VDD_W_CURR_MIN[2:1]
+    //                    = 0xC0  (C_SIZE bits 1:0 = 11 → C_SIZE = 0xFFF)
+    //   byte 9 [ 55: 48] = VDD_W_CURR_MIN[0]<<7 | VDD_W_CURR_MAX(0) | C_SIZE_MULT[2:0]<<2 | reserved
+    //                    = 0x9C  (C_SIZE_MULT=111=7 → factor = 2^9 = 512)
+    //   byte 10 [47:40]  = ERASE_BLK_EN(1) | SECTOR_SIZE(0x7F)          = 0xFF
+    //   byte 11 [39:32]  = SECTOR_SIZE[0] | WP_GRP_SIZE(0)              = 0x80
+    //   byte 12 [31:24]  = WP_GRP_ENABLE(0) | reserved(00) | R2W_FACTOR(010) | WRITE_BL_LEN[3:2]
+    //                    = 0x16  (R2W=2, WRITE_BL_LEN=9, bits[3:2]=10)
+    //   byte 13 [23:16]  = WRITE_BL_LEN[1:0]<<6 | WRITE_BL_PARTIAL(0) | reserved + FILE_FORMAT_GRP
+    //                    = 0x40
+    //   byte 14 [15: 8]  = COPY(0) | PERM_WP(0) | TMP_WP(0) | FILE_FORMAT(00) | reserved | end_bit
+    //                    = 0x00
+    //   byte 15 [ 7: 0]  = CRC7<<1 | end_bit(1)                         = 0x01
     const uint8_t csd[16] = {
-        0x40, 0x0E, 0x00, 0x32,
-        0x5B, 0x59, 0x00, c_size_22_16,
-        c_size_15_8, c_size_7_0, 0x7F, 0x80,
-        0x0A, 0x40, 0x00, 0x01
+        0x00, 0x0E, 0x00, 0x32,
+        0x5B, 0x59, 0x83, 0xFF,
+        0xC0, 0x9C, 0xFF, 0x80,
+        0x16, 0x40, 0x00, 0x01
     };
 
     // Response: NCR(0xFF) + R1(0x00) + token(0xFE) + 16 CSD bytes + 2 CRC bytes.
@@ -595,11 +607,16 @@ void SdCardDevice::cmd10_send_cid() {
 }
 
 void SdCardDevice::cmd58_read_ocr() {
-    sd_log()->debug("CMD58 READ_OCR → initialized={} SDHC=1", initialized_);
-    // OCR: bit 31=power up complete (if initialized), bit 30=SDHC
-    uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // CCS=1 (SDHC), power up status
-    resp_buf_ = { 0xFF, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
-                  ocr0, 0xFF, 0x80, 0x00 };  // NCR + R3
+    sd_log()->debug("CMD58 READ_OCR → initialized={} (ZEsarUX-style OCR)",
+                    initialized_);
+    // ZEsarUX-style OCR (storage/mmc.c lines 47, 1148-1185): CCS bit
+    // intentionally OFF, bypassing SDHC-mode init checks. R1=0x05 (ready+
+    // illegal-cmd flags). OCR bytes all 0x00. NextZXOS firmware has a
+    // known-working code path for non-SDHC cards via this.
+    //
+    // Was: { 0xFF, R1, 0xC0, 0xFF, 0x80, 0x00 } with CCS=1 (SDHC). Caused
+    // the firmware to loop init 100x without ever issuing CMD17 reads.
+    resp_buf_ = { 0xFF, 0x05, 0x00, 0x00, 0x00, 0x00 };
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
