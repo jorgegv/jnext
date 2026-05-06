@@ -83,6 +83,10 @@ void SdCardDevice::deselect() {
     // queued but before the data phase started) must not leave the card
     // primed to flip to RECEIVING_DATA on the next host activation.
     pending_write_after_r1_ = false;
+    // ZEsarUX-style: clear persistent-response byte on CS deassert. ZEsarUX
+    // mmc_cs() at storage/mmc.c:711-714 sets mmc_last_command=0 +
+    // mmc_index_command=0 (so case 0x00 fires next, returning $FF on TBBlue).
+    persistent_response_byte_ = 0xFF;
     // Note: initialized_ is NOT reset — the card stays initialized
     sd_log()->debug("CS deasserted — protocol state reset to IDLE");
 }
@@ -109,6 +113,10 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 cmd_buf_[0] = tx;
                 cmd_idx_ = 1;
                 state_ = State::RECEIVING_CMD;
+                // ZEsarUX-style: a new CMD invalidates any prior CMD's
+                // persistent response byte. Reset to $FF (the dispatch
+                // default in IDLE state).
+                persistent_response_byte_ = 0xFF;
             }
             break;
 
@@ -159,6 +167,7 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 resp_idx_ = 0;
                 data_idx_ = 0;
                 data_crc_count_ = 0;
+                persistent_response_byte_ = 0xFF;
                 // Defensive: any new command in-flight during a CMD18
                 // stream also terminates the multi-block state, even
                 // if it isn't CMD12.  The SD spec only legalises
@@ -186,7 +195,13 @@ uint8_t SdCardDevice::send() {
 
     switch (state_) {
         case State::IDLE:
-            return 0xFF;
+            // ZEsarUX-style sustained response: after a CMD's transient
+            // response queue has drained (state RESPONDING → IDLE), some
+            // commands continue to return a fixed byte on every read until
+            // a new CMD or CS deassert. CMD0 → $01, CMD8 → $00, CMD12 →
+            // $01, others → $FF (the historical default). Set by CMD
+            // handlers via persistent_response_byte_.
+            return persistent_response_byte_;
 
         case State::RECEIVING_CMD:
             // Command not fully received yet
@@ -328,13 +343,25 @@ void SdCardDevice::cmd0_go_idle() {
     sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
     initialized_ = false;
     queue_r1(0x01);  // R1: in idle state
+    // ZEsarUX-style: every subsequent read while last_command=0x40 returns
+    // $01 (idle). storage/mmc.c:854-857.
+    persistent_response_byte_ = 0x01;
 }
 
 void SdCardDevice::cmd8_send_if_cond() {
-    // CMD8: arg has voltage range + check pattern
+    // CMD8 SEND_IF_COND: respond with proper R7 (R1 idle + voltage echo +
+    // check pattern echo). Without proper R7, NextZXOS firmware retries
+    // CMD8 forever (verified 2026-05-07 — sustained CMD8=$00 caused 279
+    // retries in 5s without progressing).
+    //
+    // Note: ZEsarUX's `storage/mmc.c:864-879` returns sustained $00 for
+    // CMD8 deliberately, with the comment "eventually times out and runs
+    // the ROM". On TBBlue/NextZXOS, "runs the ROM" means the boot falls
+    // through to BASIC ROM (not MMC fallback) — which is NOT what we want
+    // for booting to the NextZXOS welcome menu. So keep proper R7 here.
     uint8_t check = cmd_buf_[4];  // echo back check pattern
     sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} → voltage accepted", check);
-    resp_buf_ = { 0xFF, 0x01, 0x00, 0x00, 0x01, check };  // NCR + R7: idle, voltage accepted
+    resp_buf_ = { 0xFF, 0x01, 0x00, 0x00, 0x01, check };  // NCR + R7
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -356,6 +383,10 @@ void SdCardDevice::cmd12_stop_transmission() {
                   0xFF, r1 };  // NCR + R1
     resp_idx_ = 0;
     state_ = State::RESPONDING;
+    // ZEsarUX-style: while last_command=0x4C subsequent reads return $01
+    // (storage/mmc.c:975-981). Note ZEsarUX returns 1 unconditionally
+    // ignoring initialized state — the firmware tolerates this.
+    persistent_response_byte_ = r1;
 }
 
 void SdCardDevice::cmd13_send_status() {

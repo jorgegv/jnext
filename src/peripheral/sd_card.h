@@ -50,6 +50,7 @@ public:
         multi_block_ = false;
         multi_block_sector_ = 0;
         pending_write_after_r1_ = false;
+        persistent_response_byte_ = 0xFF;
     }
 
     /// Returns true if an image is mounted.
@@ -113,6 +114,25 @@ private:
     // RECEIVING_DATA before send() ran, hanging FatFs's send_cmd which
     // polls for the first non-0xFF byte.
     bool pending_write_after_r1_ = false;
+
+    // ZEsarUX-style persistent response byte (G46(b) 2026-05-07).
+    // ZEsarUX's mmc_read() switch (storage/mmc.c:846) returns a fixed value
+    // for SOME commands on EVERY read while last_command stays unchanged —
+    // notably CMD0 returns $01 forever, CMD8 returns $00 forever, CMD12
+    // returns $01 forever. Our previous implementation queued only NCR+R1
+    // (= 2 bytes) and then transitioned to IDLE returning $FF on subsequent
+    // reads. This caused the NextZXOS firmware to read garbage R7 bytes
+    // for CMD8 (firmware reads R1 + 4 voltage bytes; bytes 2-5 came back
+    // as $FF from our IDLE state — voltage echo mismatch → CMD8 retried
+    // forever).
+    //
+    // `persistent_response_byte_` is the fallback byte for IDLE state.
+    // CMD handlers set it post-response so subsequent reads produce the
+    // correct ZEsarUX-faithful sustained byte. Reset to $FF on:
+    //  - receive() of a new command start byte
+    //  - deselect()
+    //  - mount() / reset()
+    uint8_t persistent_response_byte_ = 0xFF;
 
     // Backing store
     std::fstream file_;
