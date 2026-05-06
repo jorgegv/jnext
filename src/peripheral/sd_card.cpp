@@ -385,10 +385,15 @@ void SdCardDevice::cmd12_stop_transmission() {
                   0xFF, r1 };  // NCR + R1
     resp_idx_ = 0;
     state_ = State::RESPONDING;
-    // ZEsarUX-style: while last_command=0x4C subsequent reads return $01
-    // (storage/mmc.c:975-981). Note ZEsarUX returns 1 unconditionally
-    // ignoring initialized state — the firmware tolerates this.
-    persistent_response_byte_ = r1;
+    // After R1, real SD asserts BUSY (MISO low = $00) for some time then
+    // releases the line back to IDLE ($FF). The NextZXOS supervisor at
+    // bank-2 $196D-$1978 (G46(b) decode) sends CMD12, reads $EB with
+    // `IN A,($EB); AND A; JR Z,$1972` — i.e. polls until a NON-ZERO byte
+    // arrives, treating $00 as "still busy". So our persistent post-R1
+    // state must be $FF (idle), NOT R1=$00 which would look like infinite
+    // busy. ZEsarUX returns $01 unconditionally; we use $FF (= no command
+    // active, line idle) which is more spec-faithful and also non-zero.
+    persistent_response_byte_ = 0xFF;
 }
 
 void SdCardDevice::cmd13_send_status() {

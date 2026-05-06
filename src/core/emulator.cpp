@@ -3162,7 +3162,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // to identify the polling loop's home.
             static int g46b_p20_rd = 0;
             ++g46b_p20_rd;
-            if (g46b_p20_rd <= 5000) {
+            if (g46b_p20_rd <= 50000) {
                 Log::cpu()->info("G46B P20 IN  $EB -> {:#04x} (#{})",
                                  v, g46b_p20_rd);
             }
@@ -3178,7 +3178,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             spi_.write_data(val);
             // G46(b) Probe 20 (TEMP): trace SPI data port writes.
             static int g46b_p20_wr = 0;
-            if (g46b_p20_wr < 5000) {
+            if (g46b_p20_wr < 50000) {
                 Log::cpu()->info("G46B P20 OUT $EB <- {:#04x} (#{})",
                                  val, ++g46b_p20_wr);
             }
