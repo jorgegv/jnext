@@ -3214,6 +3214,154 @@ as the target parameter. The bug is therefore: which AF target
 jnext picks vs CSpect for a given wrapper call, OR what register
 state is set up before each invocation.
 
+---
+
+## 2026-05-06 08:46 CEST — DEFINITIVE BREAKTHROUGHS (parallel-agent confirmed)
+
+### Architecture fully decoded
+
+The supervisor's bank-transition machinery has **four parallel wrapper
+families**, all at the SAME PCs but different bytes per ROM bank:
+
+#### 1. RST $20 / RST $28 / wrapper-PC bank-transition table (verified by agent 3)
+
+| PC      | bank 0 → sets | bank 1 → sets | bank 2 → sets |
+|---------|---------------|---------------|---------------|
+| $3E00   | rom_bank **2** | (regular code) | rom_bank **0** |
+| $3E80   | rom_bank **1** | rom_bank **0** | NOPs |
+| $3F00   | (regular code) | rom_bank **2** | rom_bank **1** |
+| $3F30   | local helper | regular routine | **BANK SWITCH wrapper (sets rom_bank 3)** |
+
+Each wrapper at $3E00 / $3E80 / $3F00 in different banks reads inline
+target data after RST $XY, then sets a specific rom_bank, RETs
+to inline target. Target's RET pops the wrapper's continuation,
+the wrapper's "exit half" (in the OTHER bank — same PC, different
+bytes) sets the original rom_bank back, RETs to caller.
+
+So the supervisor uses RST $20 to call bank 2 routines from bank 0,
+RST $28 to call bank 1 from bank 0, etc.
+
+#### 2. Alt-ROM trampoline at $007B (verified)
+
+- Main ROM (banks 0+1) $007B: `ED 91 8C 80` (alt-ROM ENABLE)
+- Alt-ROM (enAltZX) $007B: `ED 91 8C 00` (alt-ROM DISABLE)
+
+Same PC, different code by ROM context — **clever protocol**.
+Supervisor calls $007B (in main ROM) to enable alt-ROM, then later
+$007B (now in alt-ROM) to disable it.
+
+#### 3. NR_8E semantics (verified by agent 2 against VHDL)
+
+NR_8E,N for N=$00..$03 directly sets rom_bank=N via simultaneous
+update of port_7FFD bit 4 and port_1FFD bit 2:
+- $8E,$00 → rom_bank = 0
+- $8E,$01 → rom_bank = 1
+- $8E,$02 → rom_bank = 2 ★ (used by RST $20 wrapper at $3E00)
+- $8E,$03 → rom_bank = 3 ★ (used by BANK SWITCH wrapper at $3CFC)
+- $8E,$7A → rom_bank = 2 + bank 7 in slot 7 (used by $1F01 setup)
+
+jnext's `Mmu::write_nr_8e()` is VHDL-faithful (zxnext.vhd:3662-3734).
+
+#### 4. AUTOMAP-NOP-sled wrapper at DivMMC $0009-$000D (decoded)
+
+```
+$0009: LD (DE),A  ; sysvar update (DE = some addr, A = data)
+$000A: DEC B      ; B--, sets F based on result (★ encodes target low byte)
+$000B: POP HL     ; restore HL from saved state
+$000C: PUSH AF    ; pushes A:F onto stack as target
+$000D: JP $3364   ; into NOP sled to $3D00 RET → JP A:F
+```
+
+The AUTOMAP-NOP-sled SENTINEL ($C9 RET at $3D00) is **installed at
+boot** by bank 2 PC=$1F01-$1F28:
+
+```
+$1F01: NEXTREG $8E,$7A     ; rom_bank=2, bank 7 in slot 7
+$1F05: LD HL,$1F13         
+$1F08: LD DE,$ED27         
+$1F0B: LD BC,$0016         
+$1F0E: LDIR                ; copy 22 bytes to slot 7 RAM
+$1F10: JP $ED27            ; jump into RAM-resident copy
+;; (the copied code:)
+$ED27: LD A,$81; OUT ($E3),A    ; DivMMC MAPRAM=1
+       LD A,$C9; LD ($2009),A   ; install RET at $2009
+       LD A,$80; OUT ($E3),A    ; MAPRAM=0, CONMEM still on
+       LD A,$C9; LD ($3D00),A   ; ★ install RET at $3D00 (the SENTINEL!)
+       XOR A; OUT ($E3),A       ; deactivate DivMMC
+       RET
+```
+
+Both jnext and CSpect run this setup; jnext's slot 1 dump confirms
+$C9 at $3D00. So sentinel install is correct.
+
+### Real divergence — supervisor's path forks at NR_8C trampoline
+
+When the supervisor at $3E97 RETs (after NR_8E,$01 set rom_bank=1)
+and lands at $007B (alt-ROM enable), alt-ROM gets enabled. Then RET
+at $007F lands at $3E93.
+
+In jnext, $3E93 in alt-ROM page $0E (= enAltZX bank 1 low half) is
+`$00` (NOP, all-zeros). enAltZX file $3E80-$3EFF and $7E80-$7EFF
+are entirely zeros. So PC falls through 7000+ NOPs from $3E93 →
+slot 1 → slot 2 RAM → reaches $5B00 (LDIR'd bank-flip wrapper).
+
+The wrapper at $5B00 RETs to popped value $0000 (mem[$5BFF,$5C00]
+were uninitialized = 0). Slot 0 with alt-ROM enabled = enAltZX page
+$0E (NOPs). PC=$0000-$0008 NOPs. AUTOMAP fires at M1 fetch $0008.
+Slot 0 = DivMMC. PC=$0009-$000D wrapper executes with A=$1F, B=$25.
+DEC B → F=$22. PUSH AF target=$1F22. JP $3D00 → JP $1F22 (SD-SPI
+command-send helper). Helper sends `3B 00 00 FF BF 24` on port $EB
+— invalid SD command (bit 6 = 0) — busy-loop forever.
+
+### Why jnext diverges from CSpect — NR state at boot start
+
+CSpect's `nrdump.raw` shows:
+- NR_03 = $33 (jnext bypass writes $B3) ★
+- NR_07 = $07 (jnext bypass writes $03) ★
+- NR_82 = $82 (jnext bypass writes $DA) ★ — DECODE_INT0
+- NR_85 = $48 (jnext bypass writes $01) ★ — DECODE_INT3
+
+**Significant divergence in 4 NextREG values.** These control:
+- NR_03: machine type + config_mode FSM
+- NR_07: turbo CPU speed (jnext sets 28MHz, CSpect 14MHz)
+- NR_82-$85: peripheral hardware-enable masks (port-decode gates)
+
+The bypass synthesizes these "post-tbblue.fw handoff" values from
+documentation, but the documentation might be wrong, OR CSpect's
+dump is from a later moment than handoff and includes supervisor's
+own NR writes. Either way, jnext's starting NR state isn't
+equivalent to what tbblue.fw + supervisor produce in CSpect.
+
+### Concrete next-session experiments
+
+1. **Align bypass init NR values with CSpect dump**: write NR_03=$33,
+   NR_07=$07, NR_82=$82, NR_85=$48 in bypass init. See if boot path
+   changes.
+2. **Trace jnext NR state at the same observable point** (e.g., first
+   $3E93 hit) and compare against CSpect dump byte-by-byte. Probe 26
+   already shows mmu state matches; add NR_82/$83/$84/$85/$8C state
+   to probe.
+3. **Check if NR_82/$85 differences gate port behavior** that
+   matters during boot. NR_82 bit 1 = port DFFD enable; NR_82 bit 6
+   = ?. Search VHDL for the exact bit semantics.
+4. **Disassemble enNextZX bank 0 PC=$01D4-$01F0 area** to understand
+   what the supervisor does AFTER the first RST $20 ; DW $1F01 (= the
+   SENTINEL install routine). The next instructions might explain
+   why subsequent flow takes wrong path.
+
+### Probes added in this final round
+
+- Probe 25: one-shot register snapshot at PC=$000C (the AUTOMAP-sled PUSH AF).
+- Probe 26: 5-shot mmu+peek snapshot at PC=$3E93 (slot 1 mapping check).
+- Probe 27: NEXTREG $8C tracer (alt-ROM toggle log).
+
+### Branch HEAD: 977a56a (9 commits this session)
+
+Files generated:
+- `/tmp/g46b-sp-trace.log` — 1.95M-line SP trace.
+- `/tmp/g46b-cpuinst.log` — 158M-line cpu_inst trace.
+- `/tmp/g46b-p27.log` — alt-ROM toggle log.
+
 ### The meta-loop confirmation
 
 Counting PUSH_AF events at PC=\$000C with AF=\$1F22 in the

@@ -3841,6 +3841,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // NR 0x03 ← 0xB0 (low3=000 = no change) leaves config_mode stuck at
     // 1, routing ROM reads through nr_04_romram_bank instead of sram_rom.
     if (cfg.bypass_tbblue_fw && cfg.type == MachineType::ZXN_ISSUE2) {
+        // 2026-05-08 G46(b) experiment: align bypass NR values with CSpect's
+        // nrdump.raw (taken at first $3D00 hit moment in CSpect) to test
+        // whether divergence arises from initial NR state mismatch.
+        //
+        // CSpect nrdump.raw byte values (post-tbblue.fw + early supervisor):
+        //   NR_00=$08 NR_01=$40 NR_02=$00 NR_03=$33 NR_04=$00 NR_05=$59
+        //   NR_06=$AC NR_07=$00 NR_08=$DE NR_09=$03 NR_0A=$11 NR_0B=$00
+        //   ...
+        //   NR_82=$82 NR_83=$00 NR_84=$00 NR_85=$48 NR_8C=$0C
+        //
+        // Original jnext bypass values commented out below for comparison.
+        // The JNEXT_G46B_NR_CSPECT env var enables this alignment.
+        static const bool g46b_nr_cspect =
+            std::getenv("JNEXT_G46B_NR_CSPECT") != nullptr;
+        if (g46b_nr_cspect) {
+            Log::emulator()->info("--bypass-tbblue-fw: G46(b) experiment — aligning NR values to CSpect nrdump.raw");
+            nextreg_.write(0x07, 0x00);  // CSpect: 0x00 (turbo bits handled differently)
+            nextreg_.write(0x06, 0xAC);  // CSpect: 0xAC
+            nextreg_.write(0x05, 0x59);  // CSpect: 0x59
+            nextreg_.write(0x08, 0xDE);  // CSpect: 0xDE
+            nextreg_.write(0x09, 0x03);  // CSpect: 0x03
+            nextreg_.write(0x0a, 0x11);  // CSpect: 0x11
+            nextreg_.write(0x82, 0x82);  // CSpect: 0x82
+            nextreg_.write(0x83, 0x00);  // CSpect: 0x00
+            nextreg_.write(0x84, 0x00);  // CSpect: 0x00
+            nextreg_.write(0x85, 0x48);  // CSpect: 0x48
+            nextreg_.write(0x03, 0x33);  // CSpect: 0x33 (NOT 0xB3)
+        } else {
         // tbblue.fw `main` first writes (very early, before vdp_init):
         nextreg_.write(0x07, 0x03);  // REG_TURBO = 3 → 28 MHz
         nextreg_.write(0x06, 0xa0);  // REG_PERIPH2 = PS/2 keyboard transient
@@ -3864,6 +3892,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // toggle), 2:0=011 (+3 machine_type, low3 in 001..110 → exits
         // config_mode + commits machine_type).
         nextreg_.write(0x03, 0xB3);
+        }
 
         // Emulate the side-effect of tbblue.fw's trailing `REG_RESET = RESET_SOFT`
         // (NR 0x02 = 0x01) on the `nr_02_reset_type` history FSM (VHDL
