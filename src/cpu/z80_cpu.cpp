@@ -460,6 +460,54 @@ int Z80Cpu::execute() {
     // executing instruction. Single store, negligible overhead.
     g46b_current_pc = pc;
 
+    // G46(b) Probe 36 (TEMP, 2026-05-09): one-shot detect PC reaching key
+    // supervisor entry/init points (all live in bank 1 of enNextZX.rom):
+    //   $3F00 = supervisor bank-1 entry (boot-ROM JP target)
+    //   $0902 = utility routine called 38× from bank 1; body contains the
+    //           $5C3A=$FF write at $0917
+    //   $0917 = LD ($5C3A),A with A=$FF  (unconditional)
+    //   $2C7F = LD ($5C3A),A             (conditional)
+    {
+        static bool g46b_p36_3f00 = false;
+        static bool g46b_p36_0902 = false;
+        static bool g46b_p36_0917 = false;
+        static bool g46b_p36_2c7f = false;
+        auto log_p36 = [&](const char* tag) {
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                char mmu_buf[80] = "";
+                int xn = 0;
+                for (int s = 0; s < 8 && xn < 70; ++s) {
+                    xn += std::snprintf(mmu_buf + xn,
+                                        sizeof(mmu_buf) - xn,
+                                        "%02x ", mmu->get_page(s));
+                }
+                Log::cpu()->info(
+                    "G46B P36 PC={} REACHED ({}): AF={:#06x} "
+                    "BC={:#06x} HL={:#06x} IX={:#06x} IY={:#06x} "
+                    "rom_bank={:#04x} mmu={}",
+                    pc, tag,
+                    z80.af.w, z80.bc.w, z80.hl.w, z80.ix.w, z80.iy.w,
+                    mmu->current_rom_bank(), mmu_buf);
+            }
+        };
+        if (!g46b_p36_3f00 && pc == 0x3F00) {
+            g46b_p36_3f00 = true;
+            log_p36("supervisor bank-1 entry");
+        }
+        if (!g46b_p36_0902 && pc == 0x0902) {
+            g46b_p36_0902 = true;
+            log_p36("CALL $0902 utility (contains $0917)");
+        }
+        if (!g46b_p36_0917 && pc == 0x0917) {
+            g46b_p36_0917 = true;
+            log_p36("$5C3A=$FF writer (unconditional)");
+        }
+        if (!g46b_p36_2c7f && pc == 0x2C7F) {
+            g46b_p36_2c7f = true;
+            log_p36("$5C3A=A writer (conditional)");
+        }
+    }
+
     // G46(b) Probe 32 (TEMP, 2026-05-09): one-shot dump of mem[$5C30..$5C3F]
     // at the very FIRST CPU step. Confirms whether the bypass-mode pre-load
     // of sysvars.raw is intact when the CPU begins executing. CSpect's
