@@ -930,6 +930,29 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 28 (TEMP, 2026-05-08): verify RAM pre-load is effective
+    // at runtime. Captures mem[$5BFE..$5C03] every time PC hits $5B20 (the
+    // bank-flip wrapper RET) for the first 5 hits. Expected with sysvars.raw
+    // pre-loaded: mem[$5BFF,$5C00] = $00,$FF (popped → PC=$FF00).
+    static int g46b_p28_count = 0;
+    if (g46b_p28_count < 5 && pc == 0x5B20) {
+        ++g46b_p28_count;
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            char buf[64] = "";
+            int n = 0;
+            for (uint16_t a = 0x5BFC; a <= 0x5C07; ++a) {
+                n += std::snprintf(buf + n, sizeof(buf) - n,
+                                   "%02x ", mmu->peek(a));
+            }
+            uint16_t popped = static_cast<uint16_t>(mmu->peek(z80.sp.w) |
+                              (mmu->peek(z80.sp.w + 1) << 8));
+            Log::cpu()->info(
+                "G46B P28 hit#{} PC=$5B20 RET: SP={:#06x} popped={:#06x} "
+                "mem[$5BFC..$5C07]={}",
+                g46b_p28_count, z80.sp.w, popped, buf);
+        }
+    }
+
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
     // that makes RET pop $0082 (vs CSpect's $0448).

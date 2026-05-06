@@ -3609,3 +3609,89 @@ NOT a valid SD command frame. The helper either aborted or sent
 About to add 12th commit with the pre-load addition.
 
 ### End of 2026-05-08 09:30 CEST entry
+
+## 2026-05-08 09:35 CEST — Probe 28: pre-load is OVERWRITTEN; divergence is in flow, not RAM init
+
+Added Probe 28 at PC=$5B20 (the bank-flip wrapper RET) to verify
+whether the sysvars.raw pre-load actually persists to runtime.
+
+### Result — pre-loaded bytes are OVERWRITTEN
+
+P28 hit#1 (SP=$5BFF):
+```
+mem[$5BFC..$5C07] = 25 08 1F 00 00 00 00 00 00 00 00 00
+                                ^^ ^^
+                                $5BFF=$00, $5C00=$00 → pops $0000
+```
+
+CSpect's `sysvars.raw` at the same offsets:
+```
+sysvars[$5BFC..$5C07] = 00 57 0C 00 FF 00 00 00 FF 00 22 0D
+                                    ^^
+                                    $5C00=$FF → pops $FF00
+```
+
+So **jnext's supervisor writes $00 to mem[$5C00] BEFORE reaching
+$5B20 RET**, overwriting our pre-loaded $FF. The pre-load doesn't
+persist.
+
+Comparing the wider stack region:
+| Addr | jnext runtime | CSpect sysvars |
+|------|---------------|----------------|
+| $5BFC | $25 | $00 |
+| $5BFD | $08 | $57 |
+| $5BFE | $1F | $0C |
+| $5BFF | $00 | $00 |
+| $5C00 | $00 | $FF |
+| $5C01 | $00 | $00 |
+| $5C02 | $00 | $00 |
+| $5C03 | $00 | $00 |
+| $5C04 | $00 | $FF |
+| $5C06 | $00 | $22 |
+| $5C07 | $00 | $0D |
+
+The bytes $5BFC-$5BFE in jnext look like a stack PUSH pattern
+($25 $08 = word $0825, $1F $00 = word $001F). The supervisor's
+PUSH/POP sequence leading up to $5B20 in jnext is COMPLETELY
+DIFFERENT from CSpect.
+
+### Conclusion — initial RAM state is NOT the root cause
+
+The pre-load helped (supervisor reaches NR_56/57=$1E/$1F never
+seen before, AUTOMAP-NOP-sled fires only once), but the deeper
+divergence is in the supervisor's CODE EXECUTION FLOW. Different
+PUSH/POP patterns produce different stack content.
+
+Possible causes of execution-flow divergence:
+1. **Port reads return different values** (jnext vs CSpect SD-SPI,
+   keyboard, mouse, etc.).
+2. **NR reads return different values** (bypass init NRs we set
+   may produce different read-back than CSpect's natural
+   tbblue.fw init).
+3. **CPU INT/IM2/HALT timing differs** — supervisor may be
+   waiting in EI;HALT and missing interrupts.
+4. **Z80 instruction emulation bug** producing different register
+   state at some specific opcode.
+5. **Pre-init hardware state** (port_7FFD, port_1FFD, port_$E3
+   DivMMC, etc.) differs from CSpect.
+
+### Next-session experiments
+
+1. Add probes at multiple checkpoints (PC=$26BE entry, $3E80
+   entry, $5B00 entry) to dump SP and a few stack words. Identify
+   the FIRST checkpoint where stacks diverge from CSpect.
+2. Get a CSpect SP-trace using equivalent instrumentation
+   (would need CSpect-side debugger / lua hook).
+3. Check whether jnext's vsync IM2 interrupt fires at the
+   expected rate during boot — supervisor's loops may depend on
+   regular ISR firing.
+4. Trace ALL port reads during the first 1 ms of boot, compare
+   value distribution (e.g., port $FE keyboard, port $EB
+   DivMMC SD).
+
+### Probe 28 added
+
+`src/cpu/z80_cpu.cpp:933-953`. Captures first 5 hits of
+PC=$5B20 with SP, popped-value, mem[$5BFC..$5C07] dump.
+
+### End of 2026-05-08 09:35 CEST entry
