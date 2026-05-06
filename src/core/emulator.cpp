@@ -3810,6 +3810,49 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 } else {
                     Log::emulator()->info("--bypass-tbblue-fw: doc/issues/cspect-captures/page30.raw not found — page 0x30 stays uninitialised");
                 }
+
+                // 2026-05-08 G46(b) HYPOTHESIS TEST: the supervisor reads
+                // mem[$5BFF,$5C00] as a stack-pop at $5B20 RET. In jnext bank 5
+                // RAM is zero-init → pops $0000 → AUTOMAP-NOP-sled at $0008.
+                // CSpect's sysvars.raw shows mem[$5BFF,$5C00] = $00 $FF, popping
+                // $FF00 instead. Pre-load CSpect's bank-5 capture (screen.raw +
+                // sysvars.raw) and slot-7 capture so the supervisor sees the
+                // expected RAM state, mirroring the working CSpect run.
+                //
+                // Bank 5 (logical pages 0x0A=$4000-$5FFF, 0x0B=$6000-$7FFF) is
+                // VRAM dual-port; jnext's to_sram_page() exempts 0x0A/0x0B/0x0E
+                // from the +0x20 shift so they map to physical SRAM pages
+                // 0x0A/0x0B (mmu.h:937-941). Slot 7 at the first $3D00 hit in
+                // CSpect (NR_57=$0F) maps to physical page 0x2F (logical $0F +
+                // $20). We pre-load:
+                //   screen.raw   → page 0x0A offset $0000 (6912 bytes, $4000-$5AFF)
+                //   sysvars.raw  → page 0x0A offset $1B00 (512 bytes, $5B00-$5CFF)
+                //   slot7.raw    → page 0x2F (8 KB, $E000-$FFFF capture moment)
+                // TEMP — bypass-mode only experiment.
+                struct PreLoad {
+                    const char* path;
+                    uint16_t page;
+                    size_t offset;
+                    size_t size;
+                };
+                const PreLoad cspect_pre_loads[] = {
+                    { "doc/issues/cspect-captures/screen.raw",  0x0A, 0x0000, 6912 },
+                    { "doc/issues/cspect-captures/sysvars.raw", 0x0A, 0x1B00,  512 },
+                    { "doc/issues/cspect-captures/slot7.raw",   0x2F, 0x0000, 8192 },
+                };
+                for (const auto& pl : cspect_pre_loads) {
+                    FILE* pf = std::fopen(pl.path, "rb");
+                    if (!pf) {
+                        Log::emulator()->info("--bypass-tbblue-fw: {} not found — skipping pre-load", pl.path);
+                        continue;
+                    }
+                    uint8_t* dst = ram_.page_ptr(pl.page);
+                    if (!dst) { std::fclose(pf); continue; }
+                    size_t got = std::fread(dst + pl.offset, 1, pl.size, pf);
+                    Log::emulator()->info("--bypass-tbblue-fw: pre-loaded {} ({} bytes) into SRAM page 0x{:02X} offset 0x{:04X}",
+                                          pl.path, got, pl.page, pl.offset);
+                    std::fclose(pf);
+                }
             }
         }
     }

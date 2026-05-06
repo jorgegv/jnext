@@ -3423,3 +3423,189 @@ Next session priorities:
 3. Get CSpect SP-trace for cross-comparison.
 4. Either find a non-perturbing memory write hook, OR rely
    on careful manual disasm.
+
+## 2026-05-08 09:30 CEST — RAM pre-load BREAKTHROUGH (sysvars + screen + slot7)
+
+### Re-verification of CSpect nrdump.raw
+
+Yesterday's EOD memo claimed CSpect dump showed `NR_82=$82, NR_83=$00,
+NR_84=$00, NR_85=$48, NR_8C=$0C`. Re-reading the actual file
+`doc/issues/cspect-captures/nrdump.raw` byte-by-byte today
+contradicts those values:
+
+```
+NR_82 = $FF (default)    NR_83 = $FF (default)
+NR_84 = $FF (default)    NR_85 = $FF (default)
+NR_8C = $00 (default)    NR_8E = $00 (default)
+```
+
+So `NR_82..$85` are all `$FF` — power-on default (all peripheral
+hardware-decode bits enabled). Confirms 2026-05-06 Agent A finding
+that the supervisor itself overwrites these to `$FF` at PC=$00FB.
+
+The `JNEXT_G46B_NR_CSPECT=1` env-gated test in
+`emulator.cpp:3860-3870` was therefore writing WRONG values
+(`$82/$00/$00/$48` instead of `$FF/$FF/$FF/$FF`). And the prior
+test log `/tmp/g46b-cspect-nr.log` actually shows P25 still firing
+with target=$1F22 (not $0082 as the memo claimed) — the memo
+conflated the 2026-05-06 first-$3D00-hit-TOS finding ($0082) with
+the 2026-05-08 test result.
+
+### Three parallel agents this session
+
+1. **Agent A (enAltZX bytes)**: confirmed enAltZX.rom bank 1
+   $7E80-$7FFF is **all zeros** — PC fall-through from $3E93 in
+   alt-ROM bank 1 IS what jnext does.
+2. **Agent B (tbblue.fw `init_registers`)**: canonical NR write
+   sequence for mode=2 is approximately matched by jnext bypass init,
+   but several values diverge (NR_05=$41 vs jnext $81, NR_08=$1e vs
+   $3e, NR_0A=$00 vs $01, NR_84=$01 vs $ff, NR_85=$00 vs $01). None
+   of these matter for boot path (verified by Agent A on 2026-05-06
+   with NR_82..$85=$FF test → no behavioural change).
+3. **Agent C (VHDL alt-ROM mapping)**: jnext's `altrom_sram_page_()`
+   in `mmu.h:960` matches VHDL `zxnext.vhd:3116-3117` exactly. No
+   divergence in alt-ROM physical mapping.
+
+### Critical insight — uninitialised stack RAM
+
+Re-reading the 2026-05-08 EOD memo step 8:
+> $5B20 RET pops mem[$5BFF,$5C00] = $0000 (uninitialized stack bytes)
+
+In **CSpect's `sysvars.raw` capture** (which covers $5B00-$5CFF):
+```
+mem[$5BFF] = $00, mem[$5C00] = $FF  →  pops $FF00
+```
+
+So in CSpect, the wrapper at $5B20 RET pops `$FF00`, not `$0000`.
+PC=$FF00 lands in slot 7 RAM (different code path entirely from
+the AUTOMAP-NOP-sled).
+
+**ROOT CAUSE candidate**: jnext's bank 5 RAM is zero-initialised
+(`Ram::reset()` at `ram.cpp:28`), so unwritten bytes default to
+`$00`. CSpect's RAM has different init — bytes the supervisor never
+explicitly wrote retain pre-existing values that lead to a
+DIFFERENT control flow. The `sysvars.raw` capture preserves
+exactly these "natural" RAM contents.
+
+### The fix — pre-load CSpect RAM captures
+
+Added to `src/core/emulator.cpp:3815-3858` (extending the existing
+page30.raw pre-load for bypass-mode):
+
+```cpp
+const PreLoad cspect_pre_loads[] = {
+    { "doc/issues/cspect-captures/screen.raw",  0x0A, 0x0000, 6912 },
+    { "doc/issues/cspect-captures/sysvars.raw", 0x0A, 0x1B00,  512 },
+    { "doc/issues/cspect-captures/slot7.raw",   0x2F, 0x0000, 8192 },
+};
+```
+
+- `page 0x0A` = SRAM bank 5 low half ($4000-$5FFF); per `mmu.h:937`
+  `to_sram_page` exception, logical 0x0A maps to physical 0x0A
+  unchanged (dual-port VRAM bank).
+- `page 0x2F` = slot 7 mapping at the moment CSpect's first $3D00
+  hit was captured (NR_57=$0F → physical 0x0F + 0x20 = 0x2F).
+
+### Result — supervisor reaches NEW STATE never seen before
+
+**Before pre-load (default bypass)**:
+```
+P26 hit#1..#5: eff_mmu = ..04 05 00 01  (slot 6/7 = $00,$01 default)
+P25 first PC=$000C: target $1F22, mmu = ..04 05 00 01
+```
+
+**With pre-load**:
+```
+P26 hit#5 NEW: eff_mmu = ..04 05 1e 1f  ← slot 6/7 = $1E/$1F!
+P25 first PC=$000C: target $1F22, mmu = ..04 05 00 01  (still ONCE)
+```
+
+The supervisor now reaches the point of setting `NR_56=$1E,
+NR_57=$1F` — a state that was never reached without the pre-load.
+This confirms the pre-load makes the supervisor follow a more
+accurate boot path.
+
+### Remaining loop — alt-ROM toggle at $007B (different cadence)
+
+```
+P27 alt-ROM enable @ PC=$007B  prev5=26be 26c2 3e93 3e97 007b
+P27 alt-ROM disable @ PC=$007B prev5=0071 0072 0076 0077 007b
+```
+
+The supervisor enters a periodic loop at ~270 ms wall-clock period
+(200 toggle pairs over 60 s). Loop body:
+
+1. Caller @ $26BE (main bank 0) computes a slot-6 mapping based on
+   `H` register + NR_$13 (Layer 2 active page) read via port $243B/
+   $253B.
+2. Calls `$3E80` wrapper which is "CALL_BANK1_INLINE" template:
+   - reads inline `DW` after caller's CALL
+   - pushes $3E93 (NEXTREG $8E,$01 / RET) + target BC
+   - falls into $3E93 → rom_bank=1 → RET to target
+3. Target is `$007B` (main bank 1) = `ED 91 8C 80` = NEXTREG $8C,$80
+   (alt-ROM ENABLE).
+4. RET pops next stack value → eventually $0071 in alt-ROM bank 0
+   = a "alt-ROM disable trampoline" at $0071-$007F:
+   ```
+   $0070: 23 INC HL
+   $0071: E3 EX (SP),HL
+   $0072: ED 8A 00 7B PUSH $007B (Z80N PUSH16)
+   $0076: C5 PUSH BC
+   $0077: ED 4B 54 5B LD BC,($5B54)
+   $007B: ED 91 8C 00 NEXTREG $8C,$00 (alt-ROM DISABLE)
+   $007F: C9 RET
+   ```
+5. Eventually loop returns to `$26BE` and repeats.
+
+The AUTOMAP-NOP-sled at PC=$000C is hit **exactly once** (P25 is
+one-shot-first), then the loop continues without re-hitting AUTOMAP.
+
+### Test run with `JNEXT_G46B_NR_CSPECT=1` + pre-load
+
+No additional progress over pre-load alone. The loop persists at
+the same cadence. NR alignment doesn't help once RAM state is
+correct.
+
+### Hypothesis for the remaining loop
+
+Two possibilities:
+- **(a)** Loop is the supervisor's normal vsync ISR / video-buffer
+  juggling routine, called every frame. CSpect reaches the same
+  loop but EXITS it because some condition is met. jnext blocks
+  progress because some additional state (more RAM, more
+  peripheral IO response, a different NR value) is missing.
+- **(b)** Loop is a busy-wait for a hardware event that jnext
+  doesn't generate (e.g., a specific NR strobe, a port read
+  returning a specific value, a CTC/IM2 interrupt).
+
+The bytes sent to port $EB at the now-once-only $1F22 SD-helper
+hit are `3B 00 00 FF BF 24` — first byte $3B has bit 6=0, so it's
+NOT a valid SD command frame. The helper either aborted or sent
+"dummy" clocks to initialise the SD card.
+
+### Concrete next-session experiments
+
+1. **Capture full bank-5/bank-7 RAM dump from CSpect** at multiple
+   moments in boot (we have only one snapshot). With more snapshots
+   we can pre-load successively closer states.
+2. **Add probe at PC=$26BE** to trace the loop's input/output
+   state: H register, NR_$13 read value, NR_$56 written value.
+   Compare across iterations to see if anything is changing.
+3. **Run the same SD image in CSpect with debugger** and verify
+   whether CSpect ALSO enters the alt-ROM toggle loop at boot —
+   if yes, the loop is normal and we should look at what BREAKS
+   CSpect out of it.
+4. **Check vsync interrupt delivery**: is jnext generating IM2
+   vsync interrupts at the expected rate? If supervisor's loop is
+   waiting for `EI ; HALT` to advance, missed interrupts would
+   block forever.
+5. **Force more aggressive RAM pre-load**: dump and pre-load
+   ALL CSpect RAM banks (1 MiB) at the first $3D00 hit moment,
+   not just bank 5 + slot 7.
+
+### Branch state
+
+11 commits at HEAD `b4bbd20`. Pre-load fix not yet committed.
+About to add 12th commit with the pre-load addition.
+
+### End of 2026-05-08 09:30 CEST entry
