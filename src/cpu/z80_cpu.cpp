@@ -509,27 +509,23 @@ int Z80Cpu::execute() {
         }
     }
 
-    // G46(b) Probe 37 (TEMP, 2026-05-09): one-shot detect signature-check
-    // outcome at boot ROM $01A4. Branch SUCCESS → continues at $01A8.
-    // Branch FAILURE → JR NZ to $01CC. Distinguishes whether the boot ROM
-    // signature byte ($BB at mem[$FFFF] after the LDDR cascade) is
-    // present.
+    // G46(b) Probe 37 (TEMP, 2026-05-09): per-iteration log of signature-
+    // check at PC=$01A4. Captures A (the byte read from mem[$FFFF]) plus
+    // current slot 6 / slot 7 mapping. Boot ROM iterates A from 0 upward
+    // testing each bank pair; we want to find which page first fails.
+    // Up to 32 iterations.
     {
-        static bool g46b_p37_01a8 = false;
-        static bool g46b_p37_01cc = false;
-        if (!g46b_p37_01a8 && pc == 0x01A8) {
-            g46b_p37_01a8 = true;
-            Log::cpu()->info(
-                "G46B P37 PC=$01A8 SIGNATURE-CHECK PASSED (continuing at "
-                "$01A8): AF={:#06x} BC={:#06x} HL={:#06x}",
-                z80.af.w, z80.bc.w, z80.hl.w);
-        }
-        if (!g46b_p37_01cc && pc == 0x01CC) {
-            g46b_p37_01cc = true;
-            Log::cpu()->info(
-                "G46B P37 PC=$01CC SIGNATURE-CHECK FAILED (taking JR NZ "
-                "branch): AF={:#06x} BC={:#06x} HL={:#06x}",
-                z80.af.w, z80.bc.w, z80.hl.w);
+        static int g46b_p37_count = 0;
+        if (g46b_p37_count < 32 && pc == 0x01A4) {
+            ++g46b_p37_count;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P37 #{} PC=$01A4 sig-test: A={:#04x} slot6={:#04x} "
+                    "slot7={:#04x} AF'_alt={:#06x}",
+                    g46b_p37_count, z80.af.b.h,
+                    mmu->get_page(6), mmu->get_page(7),
+                    z80.af_.w);
+            }
         }
     }
 
