@@ -5,6 +5,20 @@
 #include "core/saveable.h"
 #include <cstring>
 
+// G46(b) Probe 30 (TEMP, 2026-05-09): definition of the global declared
+// in mmu.h. Updated by Z80Cpu::execute each step.
+uint16_t g46b_current_pc = 0xFFFF;
+
+void g46b_p30_log_write(uint16_t addr, uint8_t old_val, uint8_t new_val) {
+    static int g46b_p30_logged = 0;
+    if (g46b_p30_logged >= 200) return;
+    if (old_val == new_val) return;
+    Log::cpu()->info(
+        "G46B P30 WRITE pc={:#06x} addr={:#06x} old={:#04x} new={:#04x}",
+        g46b_current_pc, addr, old_val, new_val);
+    ++g46b_p30_logged;
+}
+
 // Reset MMU register view from VHDL zxnext.vhd lines 4611-4618:
 // MMU0=0xFF(ROM), MMU1=0xFF(ROM), MMU2=0x0A(bank5 lo), MMU3=0x0B(bank5 hi),
 // MMU4=0x04(bank2 lo), MMU5=0x05(bank2 hi), MMU6=0x00(bank0 lo), MMU7=0x01(bank0 hi).

@@ -455,6 +455,11 @@ int Z80Cpu::execute() {
     // ── Z80N interception ──────────────────────────────────────────────
     uint16_t pc = z80.pc.w;
 
+    // G46(b) Probe 30 (TEMP): expose current PC to Mmu::write so that the
+    // memory-write watcher on $5BFC..$5C07 can attribute writes to the
+    // executing instruction. Single store, negligible overhead.
+    g46b_current_pc = pc;
+
     // G46(b) Probe 7 (TEMP — remove on G46(b) closure): ring buffer of last
     // N PCs for caller-trace dumps. Updated every CPU step.
     static constexpr int G46B_PC_RING_SIZE = 256;
@@ -952,6 +957,73 @@ int Z80Cpu::execute() {
                 g46b_p28_count, z80.sp.w, popped, buf);
         }
     }
+
+    // G46(b) Probe 29: SP/stack snapshots at multiple
+    // upstream checkpoints to find the FIRST point where stack diverges
+    // from CSpect. Each PC limited to 5 hits to bound output. Watch points:
+    //   $26BE — NR_$13 read trampoline (per P27 prev5)
+    //   $3E00 / $3E80 / $3F00 — bank-transition wrapper family
+    //   $5B00 — bank-flip wrapper entry (paired with $5B20 RET)
+    //   $0008 — AUTOMAP-NOP-sled fallthrough (already known divergent)
+    //   $5B20 — wrapper RET (paired with P28; redundant on hit#1 only)
+    // Format: PC, SP, then 8 stack words from SP upward, mem[$5BFC..$5C07].
+    {
+        static int g46b_p29_hits[7] = {0};
+        const uint16_t watch_pcs[7] = {
+            0x26BE, 0x3E00, 0x3E80, 0x3F00, 0x5B00, 0x0008, 0x5B20
+        };
+        int idx = -1;
+        for (int i = 0; i < 7; ++i) {
+            if (pc == watch_pcs[i]) { idx = i; break; }
+        }
+        if (idx >= 0 && g46b_p29_hits[idx] < 5) {
+            ++g46b_p29_hits[idx];
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                char stk[96] = "";
+                int sn = 0;
+                for (int i = 0; i < 8 && sn < 90; ++i) {
+                    uint16_t w = static_cast<uint16_t>(
+                        mmu->peek(z80.sp.w + i*2) |
+                        (mmu->peek(z80.sp.w + i*2 + 1) << 8));
+                    sn += std::snprintf(stk + sn, sizeof(stk) - sn,
+                                        "%04x ", w);
+                }
+                char mem_buf[64] = "";
+                int mn = 0;
+                for (uint16_t a = 0x5BFC; a <= 0x5C07; ++a) {
+                    mn += std::snprintf(mem_buf + mn,
+                                        sizeof(mem_buf) - mn,
+                                        "%02x ", mmu->peek(a));
+                }
+                char mmu_buf[80] = "";
+                int xn = 0;
+                for (int s = 0; s < 8 && xn < 70; ++s) {
+                    xn += std::snprintf(mmu_buf + xn,
+                                        sizeof(mmu_buf) - xn,
+                                        "%02x ", mmu->get_page(s));
+                }
+                int pr_idx = (g46b_pc_ring_head - 2 + G46B_PC_RING_SIZE)
+                             % G46B_PC_RING_SIZE;
+                uint16_t prev_pc = g46b_pc_ring[pr_idx];
+                char code_buf[80] = "";
+                int cn = 0;
+                for (int j = 0; j < 16 && cn < 70; ++j) {
+                    cn += std::snprintf(code_buf + cn,
+                                        sizeof(code_buf) - cn,
+                                        "%02x ", mmu->peek(pc + j));
+                }
+                Log::cpu()->info(
+                    "G46B P29 hit#{} PC={:#06x} prev_pc={:#06x} "
+                    "SP={:#06x} stk=[{}] mem[$5BFC..$5C07]={} mmu={} "
+                    "bytes={}",
+                    g46b_p29_hits[idx], pc, prev_pc, z80.sp.w,
+                    stk, mem_buf, mmu_buf, code_buf);
+            }
+        }
+    }
+
+    // G46(b) Probe 30: implemented in src/memory/mmu.h::write (hooks into
+    // the actual memory write path, fires only on writes to $5BFC..$5C07).
 
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack

@@ -10,6 +10,16 @@
 class DivMmc;     // forward declaration for overlay
 class Multiface;  // forward declaration for MF memory overlay (Wave 1 E)
 
+// G46(b) Probe 30 (TEMP, 2026-05-09): the Z80 emulator updates this each
+// CPU step with the PC of the instruction about to execute. Mmu::write
+// reads it to log writes into the divergent stack region $5BFC..$5C07.
+// Defined in src/memory/mmu.cpp; updated in src/cpu/z80_cpu.cpp.
+extern uint16_t g46b_current_pc;
+
+// G46(b) Probe 30 helper: defined in mmu.cpp. Logs the write event using
+// Log::cpu() so we don't have to include spdlog in this inline-heavy header.
+void g46b_p30_log_write(uint16_t addr, uint8_t old_val, uint8_t new_val);
+
 class Mmu : public MemoryInterface {
 public:
     Mmu(Ram& ram, Rom& rom);
@@ -379,6 +389,12 @@ public:
             debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
             debug_state_->set_data_bp_hit(true);
             debug_state_->set_data_bp_addr(addr);
+        }
+        // G46(b) Probe 30 (TEMP, 2026-05-09): log writes into the divergent
+        // stack region $5BFC..$5C07. The body lives in mmu.cpp to avoid
+        // pulling spdlog into this hot inline header.
+        if (addr >= 0x5BFC && addr <= 0x5C07) {
+            g46b_p30_log_write(addr, peek(addr), val);
         }
         // MF memory overlay (priority above DivMMC per VHDL zxnext.vhd:2937).
         // VHDL :3028-3035: writes to cpu_a(15:14)='00' under mf_mem_en=1
