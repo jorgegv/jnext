@@ -605,6 +605,80 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 44 (TEMP, 2026-05-09): track $3E80 wrapper entries.
+    // $3E80 is the long-call wrapper used to enter another rom_bank with
+    // inline param. Bank 0 mem $3E80 → NEXTREG $8E,$01 (enter bank 1).
+    // Bank 1 mem $3E80 → NEXTREG $8E,$00 (back to bank 0). Probe captures
+    // rom_bank+inline param (from mem[SP],mem[SP+1]) at first 6 hits.
+    // Also probe $3F00 (bank 1 main entry) at every hit (cap 8) with
+    // rom_bank to disambiguate bank-0 dead-loop vs bank-1 main flow.
+    {
+        static int g46b_p44_3e80 = 0;
+        static int g46b_p44_3f00 = 0;
+        if (pc == 0x3E80 && g46b_p44_3e80 < 6) {
+            ++g46b_p44_3e80;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                uint16_t inline_param = static_cast<uint16_t>(
+                    mmu->peek(z80.sp.w) | (mmu->peek(z80.sp.w + 1) << 8));
+                Log::cpu()->info(
+                    "G46B P44 $3E80 hit#{}: rom_bank={:#04x} SP={:#06x} "
+                    "[SP]={:#06x} (inline_param target) AF={:#06x} HL={:#06x}",
+                    g46b_p44_3e80, mmu->current_rom_bank(), z80.sp.w,
+                    inline_param, z80.af.w, z80.hl.w);
+            }
+        }
+        if (pc == 0x3F00 && g46b_p44_3f00 < 8) {
+            ++g46b_p44_3f00;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P44 $3F00 hit#{}: rom_bank={:#04x} (bank-1 main "
+                    "entry IFF rom_bank=$01)",
+                    g46b_p44_3f00, mmu->current_rom_bank());
+            }
+        }
+    }
+
+    // G46(b) Probe 43 (TEMP, 2026-05-09): RST-08 → bank 7 trampoline.
+    // Bank 0 of enNextZX.rom $0008 = JP $103B; $103B routine ends with
+    // NEXTREG $8E,$78 (RAM bank 7) + RET, swapping to supervisor stack
+    // first. This is the boot's "long-call to slot-7 code" mechanism.
+    // Probe captures (1) per-PC one-shot first hit, plus (2) hit count
+    // for $0008/$103B/$1040/$104D.
+    {
+        static bool g46b_p43_seen[5] = {false};
+        static int g46b_p43_hits[5] = {0};
+        const uint16_t pcs[5] = { 0x0008, 0x103B, 0x1040, 0x104D, 0x1051 };
+        const char* tags[5] = {
+            "RST $08 vector (JP $103B)",
+            "$103B EX AF,AF'/POP AF/save HL",
+            "$1040 stack-swap entry",
+            "$104D NEXTREG $8E,$78 (RAM bank 7)",
+            "$1051 RET (post-bank-7-set)"
+        };
+        for (int i = 0; i < 5; ++i) {
+            if (pc == pcs[i]) {
+                ++g46b_p43_hits[i];
+                if (!g46b_p43_seen[i] && g46b_p43_hits[i] == 1) {
+                    g46b_p43_seen[i] = true;
+                    if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                        char mb[80] = ""; int xn = 0;
+                        for (int s = 0; s < 8 && xn < 70; ++s) {
+                            xn += std::snprintf(mb + xn, sizeof(mb) - xn,
+                                                "%02x ", mmu->get_page(s));
+                        }
+                        Log::cpu()->info(
+                            "G46B P43 first-hit pc={:#06x} ({}): "
+                            "AF={:#06x} BC={:#06x} HL={:#06x} SP={:#06x} "
+                            "rom_bank={:#04x} mmu={}",
+                            pc, tags[i],
+                            z80.af.w, z80.bc.w, z80.hl.w, z80.sp.w,
+                            mmu->current_rom_bank(), mb);
+                    }
+                }
+            }
+        }
+    }
+
     // G46(b) Probe 32 (TEMP, 2026-05-09): one-shot dump of mem[$5C30..$5C3F]
     // at the very FIRST CPU step. Confirms whether the bypass-mode pre-load
     // of sysvars.raw is intact when the CPU begins executing. CSpect's
@@ -1178,18 +1252,25 @@ int Z80Cpu::execute() {
         }
     }
 
-    // G46(b) Probe 40 (TEMP, 2026-05-09): DIAGNOSTIC BAND-AID — at first
-    // PC=$5B20 entry (bank-flip wrapper RET), reload CSpect's sysvars
-    // captured into jnext's bank-5 page 0x0A (offset $1B00..$1CFF). This
-    // simulates "the supervisor's sysvars-init has already run". If the
-    // boot then progresses, we've confirmed the divergence is JUST the
-    // missing sysvars-init. NOT a real fix — VHDL-faithful root cause
-    // must still be found.
+    // G46(b) Probe 42 (TEMP, 2026-05-09): COMPREHENSIVE DIAGNOSTIC BAND-AID
+    // — at EVERY PC=$5B20 entry (bank-flip wrapper RET), reload CSpect's
+    // sysvars + screen + slot7 captures. Hypothesis (EOD-5 priority 4):
+    // sysvars get re-zeroed throughout the boot, so a one-shot reload only
+    // helps the first RET. If reloading at every wrapper-RET makes boot
+    // progress to welcome screen, divergence is purely missing supervisor
+    // RAM-init state. Capped at 200 hits to bound runtime work.
+    //
+    // Slot-7 reload is keyed off the CURRENT mmu_slot7 page → write to
+    // whichever physical page slot 7 maps to (bank 0 RAM upper half = $21
+    // in current jnext boot vs $2F in CSpect). Try BOTH targets so the
+    // reload is visible regardless of which page is mapped.
     {
-        static bool g46b_p40_done = false;
-        if (!g46b_p40_done && pc == 0x5B20) {
-            g46b_p40_done = true;
+        static int g46b_p42_count = 0;
+        if (g46b_p42_count < 200 && pc == 0x5B20) {
+            ++g46b_p42_count;
             if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                // 1. sysvars.raw → bank-5 page 0x0A offset $1B00 (512 bytes,
+                //    covers $5B00..$5CFF).
                 uint8_t* p0a = mmu->ram().page_ptr(0x0A);
                 if (p0a) {
                     FILE* sf = std::fopen(
@@ -1197,11 +1278,36 @@ int Z80Cpu::execute() {
                     if (sf) {
                         size_t got = std::fread(p0a + 0x1B00, 1, 512, sf);
                         std::fclose(sf);
-                        Log::cpu()->info(
-                            "G46B P40 BAND-AID: at first $5B20 entry, "
-                            "re-loaded sysvars.raw ({} bytes) over bank 5 "
-                            "page 0x0A offset $1B00 (mem $5B00..$5CFF)",
-                            got);
+                        if (g46b_p42_count <= 5 || g46b_p42_count == 200) {
+                            Log::cpu()->info(
+                                "G46B P42 BAND-AID hit#{}: re-loaded "
+                                "sysvars.raw ({} bytes) at bank 5 page 0x0A "
+                                "offset $1B00", g46b_p42_count, got);
+                        }
+                    }
+                }
+                // 2. screen.raw → bank-5 page 0x0A offset $0000 (6912 bytes,
+                //    covers screen pixels at $4000..$5AFF).
+                if (p0a) {
+                    FILE* sf = std::fopen(
+                        "doc/issues/cspect-captures/screen.raw", "rb");
+                    if (sf) {
+                        std::fread(p0a + 0x0000, 1, 6912, sf);
+                        std::fclose(sf);
+                    }
+                }
+                // 3. slot7.raw → into BOTH bank 0 RAM upper half (page $21,
+                //    where jnext currently maps slot 7) AND bank 7 RAM upper
+                //    half (page $2F, where CSpect maps slot 7). 8K = 8192 bytes.
+                for (uint8_t logical_page : { uint8_t(0x21), uint8_t(0x2F) }) {
+                    uint8_t* p = mmu->ram().page_ptr(logical_page);
+                    if (p) {
+                        FILE* sf = std::fopen(
+                            "doc/issues/cspect-captures/slot7.raw", "rb");
+                        if (sf) {
+                            std::fread(p, 1, 8192, sf);
+                            std::fclose(sf);
+                        }
                     }
                 }
             }
