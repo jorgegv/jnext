@@ -1148,6 +1148,36 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 40 (TEMP, 2026-05-09): DIAGNOSTIC BAND-AID — at first
+    // PC=$5B20 entry (bank-flip wrapper RET), reload CSpect's sysvars
+    // captured into jnext's bank-5 page 0x0A (offset $1B00..$1CFF). This
+    // simulates "the supervisor's sysvars-init has already run". If the
+    // boot then progresses, we've confirmed the divergence is JUST the
+    // missing sysvars-init. NOT a real fix — VHDL-faithful root cause
+    // must still be found.
+    {
+        static bool g46b_p40_done = false;
+        if (!g46b_p40_done && pc == 0x5B20) {
+            g46b_p40_done = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                uint8_t* p0a = mmu->ram().page_ptr(0x0A);
+                if (p0a) {
+                    FILE* sf = std::fopen(
+                        "doc/issues/cspect-captures/sysvars.raw", "rb");
+                    if (sf) {
+                        size_t got = std::fread(p0a + 0x1B00, 1, 512, sf);
+                        std::fclose(sf);
+                        Log::cpu()->info(
+                            "G46B P40 BAND-AID: at first $5B20 entry, "
+                            "re-loaded sysvars.raw ({} bytes) over bank 5 "
+                            "page 0x0A offset $1B00 (mem $5B00..$5CFF)",
+                            got);
+                    }
+                }
+            }
+        }
+    }
+
     // G46(b) Probe 28 (TEMP, 2026-05-08): verify RAM pre-load is effective
     // at runtime. Captures mem[$5BFE..$5C03] every time PC hits $5B20 (the
     // bank-flip wrapper RET) for the first 5 hits. Expected with sysvars.raw
