@@ -605,6 +605,37 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 45 (TEMP, 2026-05-09): test AUTOMAP/DivMMC hypothesis.
+    // After bank-2 $1F01 sentinel install, AUTOMAP-trapped reads (at $3D00,
+    // $0008, $0066, $04C6, etc.) should page in DivMMC firmware and run
+    // SD-load chain that populates bank-7 RAM with supervisor MAIN. Probe
+    // captures (1) AUTOMAP active-state changes, (2) PC at each transition.
+    // If AUTOMAP rarely activates / never paging in DivMMC code, hypothesis
+    // is confirmed (broken SD-load chain).
+    {
+        static bool last_automap_active = false;
+        static int g46b_p45_count = 0;
+        if (g46b_p45_count < 30) {
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                if (DivMmc* dm = mmu->divmmc_for_diag()) {
+                    bool now_automap = dm->automap_active();
+                    if (now_automap != last_automap_active) {
+                        ++g46b_p45_count;
+                        Log::cpu()->info(
+                            "G46B P45 AUTOMAP {} pc={:#06x} slot0={:#04x} "
+                            "slot1={:#04x} slot7={:#04x} rom_bank={:#04x}",
+                            now_automap ? "ON " : "OFF",
+                            pc,
+                            mmu->get_page(0), mmu->get_page(1),
+                            mmu->get_page(7),
+                            mmu->current_rom_bank());
+                        last_automap_active = now_automap;
+                    }
+                }
+            }
+        }
+    }
+
     // G46(b) Probe 44 (TEMP, 2026-05-09): track $3E80 wrapper entries.
     // $3E80 is the long-call wrapper used to enter another rom_bank with
     // inline param. Bank 0 mem $3E80 → NEXTREG $8E,$01 (enter bank 1).
