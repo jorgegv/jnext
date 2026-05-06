@@ -159,6 +159,8 @@ private:
     void cmd24_write_single_block();
     void cmd55_app_cmd();
     void cmd58_read_ocr();
+    void cmd9_send_csd();
+    void cmd10_send_cid();
     void acmd41_sd_send_op_cond();
 
     // Helper: compute 32-bit block address from command argument bytes

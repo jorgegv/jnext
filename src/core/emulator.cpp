@@ -3154,8 +3154,35 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
         [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
     port_.register_handler(0x00FF, 0x00EB,
-        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
-        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
+        [this](uint16_t) -> uint8_t {
+            uint8_t v = spi_.read_data();
+            // G46(b) Probe 20 (TEMP — remove on G46(b) closure):
+            // trace SPI data port reads. Cap at 5000 entries to avoid spam.
+            // P46 (TEMP, 2026-05-09): every 1000th read, log PC + rom_bank
+            // to identify the polling loop's home.
+            static int g46b_p20_rd = 0;
+            ++g46b_p20_rd;
+            if (g46b_p20_rd <= 5000) {
+                Log::cpu()->info("G46B P20 IN  $EB -> {:#04x} (#{})",
+                                 v, g46b_p20_rd);
+            }
+            if (g46b_p20_rd == 1 || g46b_p20_rd % 1000 == 0) {
+                uint16_t pc = cpu_.get_registers().PC;
+                uint8_t rb = mmu_.current_rom_bank();
+                Log::cpu()->info("G46B P46 SPI-poll-PC sample #{}: pc={:#06x} "
+                                 "rom_bank={:#04x}", g46b_p20_rd, pc, rb);
+            }
+            return v;
+        },
+        [this](uint16_t, uint8_t val) {
+            spi_.write_data(val);
+            // G46(b) Probe 20 (TEMP): trace SPI data port writes.
+            static int g46b_p20_wr = 0;
+            if (g46b_p20_wr < 5000) {
+                Log::cpu()->info("G46B P20 OUT $EB <- {:#04x} (#{})",
+                                 val, ++g46b_p20_wr);
+            }
+        });
 
     // I2C SCL (0x103B) and SDA (0x113B)
     // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).

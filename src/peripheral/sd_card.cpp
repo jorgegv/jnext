@@ -317,6 +317,8 @@ void SdCardDevice::process_command() {
         case 0:  cmd0_go_idle(); break;
         case 1:  cmd1_send_op_cond(); break;
         case 8:  cmd8_send_if_cond(); break;
+        case 9:  cmd9_send_csd(); break;
+        case 10: cmd10_send_cid(); break;
         case 12: cmd12_stop_transmission(); break;
         case 13: cmd13_send_status(); break;
         case 16: cmd16_set_blocklen(); break;
@@ -524,6 +526,103 @@ void SdCardDevice::cmd55_app_cmd() {
     sd_log()->debug("CMD55 APP_CMD (next command is ACMD)");
     app_cmd_ = true;
     queue_r1(initialized_ ? 0x00 : 0x01);
+}
+
+// CMD9 SEND_CSD — return 16-byte CSD register inside a data block.
+// Response shape (SPI mode): R1 + 0xFE data token + 16 CSD bytes + 2 CRC bytes.
+// We use the SDHC CSD v2.0 layout (CSD_STRUCTURE=01) where C_SIZE encodes
+// capacity in 512 KB units: capacity = (C_SIZE + 1) * 512 KB. Required by
+// enNxtmmc.rom / supervisor SD-init flow at $1925/$1F3D — without it the
+// firmware reads $FF for all 16 CSD bytes and aborts the boot.
+// See SD Physical Layer Simplified Spec v6.00, section 5.3.3 for layout.
+void SdCardDevice::cmd9_send_csd() {
+    sd_log()->debug("CMD9 SEND_CSD initialized={}", initialized_);
+    if (!initialized_) {
+        queue_r1(0x01);
+        return;
+    }
+
+    // Compute C_SIZE for the actual SD-image size: capacity = (C_SIZE + 1) * 512 KB.
+    uint64_t c_size = (file_size_ / (512ULL * 1024ULL));
+    if (c_size > 0) c_size -= 1;
+    const uint8_t c_size_22_16 = static_cast<uint8_t>((c_size >> 16) & 0x3F);
+    const uint8_t c_size_15_8  = static_cast<uint8_t>((c_size >> 8) & 0xFF);
+    const uint8_t c_size_7_0   = static_cast<uint8_t>(c_size & 0xFF);
+
+    // CSD v2.0 register (16 bytes). Layout per SD spec § 5.3.3:
+    //   [0]  CSD_STRUCTURE=01 + reserved=000000   = 0x40
+    //   [1]  TAAC=0x0E (1ms; ignored in SDHC)
+    //   [2]  NSAC=0x00
+    //   [3]  TRAN_SPEED=0x32 (25 MHz)
+    //   [4]  CCC[11:4]=0x5B
+    //   [5]  CCC[3:0]=0xB | READ_BL_LEN=0x9 (=512)  → 0xBB? Actually CCC=0x5B5,
+    //        so CCC[3:0]=0x5 and READ_BL_LEN=0x9 → 0x59? Use standard 0x5B5
+    //        layout: byte 4 = CCC[11:4] = 0x5B, byte 5 = (CCC[3:0]<<4) | READ_BL_LEN = 0x59.
+    //   [6]  flags=0x00 (READ_BL_PARTIAL=0, WRITE_BLK_MISALIGN=0, READ_BLK_MISALIGN=0,
+    //        DSR_IMP=0, reserved=0)
+    //   [7]  reserved=00 + C_SIZE[21:16]
+    //   [8]  C_SIZE[15:8]
+    //   [9]  C_SIZE[7:0]
+    //   [10] reserved + ERASE_BLK_EN=1 + SECTOR_SIZE[6:1]   = 0x7F (ERASE_BLK_EN=1, SECTOR_SIZE=0x7F)
+    //   [11] SECTOR_SIZE[0]=1 + WP_GRP_SIZE=0x00            = 0x80
+    //   [12] WP_GRP_ENABLE=0 + reserved + R2W_FACTOR=2 + WRITE_BL_LEN[3:2]
+    //        = 0x0A (R2W_FACTOR=010, WRITE_BL_LEN[3:2]=10)
+    //   [13] WRITE_BL_LEN[1:0]=01 + WRITE_BL_PARTIAL=0 + reserved=00000 = 0x40
+    //   [14] FILE_FORMAT_GRP=0 + COPY=0 + PERM_WRITE_PROTECT=0 +
+    //        TMP_WRITE_PROTECT=0 + FILE_FORMAT=00 + reserved=00 = 0x00
+    //   [15] CRC7[6:0]<<1 | end_bit=1 — most readers ignore CRC; use 0x01.
+    const uint8_t csd[16] = {
+        0x40, 0x0E, 0x00, 0x32,
+        0x5B, 0x59, 0x00, c_size_22_16,
+        c_size_15_8, c_size_7_0, 0x7F, 0x80,
+        0x0A, 0x40, 0x00, 0x01
+    };
+
+    // Response: NCR(0xFF) + R1(0x00) + token(0xFE) + 16 CSD bytes + 2 CRC bytes.
+    resp_buf_.clear();
+    resp_buf_.push_back(0xFF);  // NCR
+    resp_buf_.push_back(0x00);  // R1: ready
+    resp_buf_.push_back(0xFE);  // start-of-data token
+    for (auto b : csd) resp_buf_.push_back(b);
+    resp_buf_.push_back(0x00);  // CRC16 high (firmware typically ignores)
+    resp_buf_.push_back(0x00);  // CRC16 low
+    resp_idx_ = 0;
+    state_ = State::RESPONDING;
+}
+
+// CMD10 SEND_CID — return 16-byte CID register. Same shape as CMD9.
+// Required by some firmware paths after CMD9 succeeds.
+void SdCardDevice::cmd10_send_cid() {
+    sd_log()->debug("CMD10 SEND_CID initialized={}", initialized_);
+    if (!initialized_) {
+        queue_r1(0x01);
+        return;
+    }
+
+    // CID register (16 bytes). Generic-but-valid SDHC CID per SD spec § 5.2:
+    //   [0]    Manufacturer ID = 0x03 (SanDisk-equivalent)
+    //   [1-2]  OEM/App ID = "SD"
+    //   [3-7]  Product Name = "JNEXT"
+    //   [8]    Product Revision = 0x10 (1.0)
+    //   [9-12] Product Serial Number = 0x12345678
+    //   [13-14] Reserved + Manufacturing Date (year=2026, month=05) = 0x01 0x65
+    //   [15]   CRC7<<1 | 1 = 0x01
+    const uint8_t cid[16] = {
+        0x03, 'S', 'D', 'J',
+        'N', 'E', 'X', 'T',
+        0x10, 0x12, 0x34, 0x56,
+        0x78, 0x01, 0x65, 0x01
+    };
+
+    resp_buf_.clear();
+    resp_buf_.push_back(0xFF);
+    resp_buf_.push_back(0x00);
+    resp_buf_.push_back(0xFE);
+    for (auto b : cid) resp_buf_.push_back(b);
+    resp_buf_.push_back(0x00);
+    resp_buf_.push_back(0x00);
+    resp_idx_ = 0;
+    state_ = State::RESPONDING;
 }
 
 void SdCardDevice::cmd58_read_ocr() {
