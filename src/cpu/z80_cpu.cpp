@@ -460,6 +460,34 @@ int Z80Cpu::execute() {
     // executing instruction. Single store, negligible overhead.
     g46b_current_pc = pc;
 
+    // G46(b) Probe 39 (TEMP, 2026-05-09): one-shot detect progression
+    // through boot ROM (bank 0) post-init. We know $00E3, $01D7 reach;
+    // probe further along to see how far execution gets before stuck.
+    // Watch: $01ED (RST $28 site), $01F2, $01F8, $0200, $0210, $0220,
+    // $0240, $0260, $0280, $02A0, $02C0, $02E0, $0300, $0340, $0380.
+    {
+        static const uint16_t p39_pcs[] = {
+            0x0274, 0x0275, 0x0276, 0x0277, 0x0018, 0x0038, 0x2B0C,
+            0x0080, 0x008E, 0x0091, 0x0098, 0x00A8, 0x00B0, 0x00B8,
+            0x00C7, 0x10A8, 0x1024, 0x4646, 0x3E80, 0x3E97, 0x5B00
+        };
+        constexpr int N = sizeof(p39_pcs) / sizeof(p39_pcs[0]);
+        static bool g46b_p39_seen[N] = {false};
+        for (int i = 0; i < N; ++i) {
+            if (!g46b_p39_seen[i] && pc == p39_pcs[i]) {
+                g46b_p39_seen[i] = true;
+                if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                    Log::cpu()->info(
+                        "G46B P39 PC={:#06x} REACHED: AF={:#06x} "
+                        "BC={:#06x} HL={:#06x} SP={:#06x} rom_bank={:#04x}",
+                        p39_pcs[i], z80.af.w, z80.bc.w, z80.hl.w, z80.sp.w,
+                        mmu->current_rom_bank());
+                }
+                break;
+            }
+        }
+    }
+
     // G46(b) Probe 38 (TEMP, 2026-05-09): one-shot detect PC reaching key
     // post-boot supervisor handoff points:
     //   $1F01 = bank-2 alt-entry (RST $20 with inline $1F01 target)
