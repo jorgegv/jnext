@@ -824,6 +824,92 @@ int Z80Cpu::execute() {
         }
     }
 
+    // G46(b) Probe 26 (TEMP — remove on G46(b) closure): one-shot
+    // snapshot at first PC=$3E93. Goal: confirm slot 1 mapping. In
+    // CSpect this PC has NEXTREG $8E,$01; RET (4 bytes), making the
+    // RST $28 wrapper return cleanly. In jnext, cpu_inst trace shows
+    // op=$00 (NOP) at this PC, so slot 1 is mapped to a NOP-filled
+    // bank. Capture peek bytes around $3E93 + mmu state.
+    static bool g46b_p26_done = false;
+    if (!g46b_p26_done && pc == 0x3E93) {
+        g46b_p26_done = true;
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            char mmu_buf[64] = "";
+            int mn = 0;
+            for (int s = 0; s < 8; ++s) {
+                mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                    "%02x ", mmu->get_page(s));
+            }
+            char eff_buf[64] = "";
+            int en = 0;
+            for (int s = 0; s < 8; ++s) {
+                en += std::snprintf(eff_buf + en, sizeof(eff_buf) - en,
+                                    "%02x ", mmu->get_effective_page(s));
+            }
+            char bytes_buf[80] = "";
+            int bn = 0;
+            for (uint16_t a = 0x3E80; a < 0x3EA0; ++a) {
+                bn += std::snprintf(bytes_buf + bn,
+                                    sizeof(bytes_buf) - bn,
+                                    "%02x ", mmu->peek(a));
+            }
+            char bytes_3f30[80] = "";
+            int b3n = 0;
+            for (uint16_t a = 0x3F30; a < 0x3F50; ++a) {
+                b3n += std::snprintf(bytes_3f30 + b3n,
+                                     sizeof(bytes_3f30) - b3n,
+                                     "%02x ", mmu->peek(a));
+            }
+            Log::cpu()->info(
+                "G46B P26 first PC=$3E93: AF={:#06x} BC={:#06x} DE={:#06x} "
+                "HL={:#06x} SP={:#06x} mmu={} eff_mmu={}",
+                z80.af.w, z80.bc.w, z80.de.w, z80.hl.w, z80.sp.w,
+                mmu_buf, eff_buf);
+            Log::cpu()->info(
+                "G46B P26 peek $3E80-$3E9F: {}", bytes_buf);
+            Log::cpu()->info(
+                "G46B P26 peek $3F30-$3F4F: {}", bytes_3f30);
+        }
+    }
+
+    // G46(b) Probe 25 (TEMP — remove on G46(b) closure): one-shot
+    // snapshot at first PC=$000C (the DivMMC PUSH AF that writes the
+    // AUTOMAP-sled target). Captures A, F, mmu[0..7], and the 16-byte
+    // window of slot-0 ROM around PC so we can see which bank is
+    // mapped + verify the bytes at $000B-$000D match the expected
+    // POP HL ; PUSH AF ; JP $3364 wrapper.
+    static bool g46b_p25_done = false;
+    if (!g46b_p25_done && pc == 0x000C) {
+        g46b_p25_done = true;
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+            char mmu_buf[64] = "";
+            int mn = 0;
+            for (int s = 0; s < 8; ++s) {
+                mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
+                                    "%02x ", mmu->get_page(s));
+            }
+            char bytes_buf[64] = "";
+            int bn = 0;
+            for (uint16_t a = 0x0000; a < 0x0010; ++a) {
+                bn += std::snprintf(bytes_buf + bn,
+                                    sizeof(bytes_buf) - bn,
+                                    "%02x ", mmu->peek(a));
+            }
+            Log::cpu()->info(
+                "G46B P25 first PC=$000C: A={:#04x} F={:#04x} "
+                "B={:#04x} C={:#04x} D={:#04x} E={:#04x} "
+                "H={:#04x} L={:#04x} "
+                "IX={:#06x} IY={:#06x} SP={:#06x} mmu={}",
+                z80.af.b.h, z80.af.b.l,
+                z80.bc.b.h, z80.bc.b.l,
+                z80.de.b.h, z80.de.b.l,
+                z80.hl.b.h, z80.hl.b.l,
+                z80.ix.w, z80.iy.w, z80.sp.w, mmu_buf);
+            Log::cpu()->info(
+                "G46B P25 slot0 bytes $0000-$000F: {}", bytes_buf);
+        }
+    }
+
     // G46(b) Probe 19 (TEMP): stack snapshot at first PC=$3D00 (the
     // AUTOMAP-sled sentinel RET). Goal: identify what's on the stack
     // that makes RET pop $0082 (vs CSpect's $0448).
