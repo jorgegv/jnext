@@ -460,6 +460,79 @@ int Z80Cpu::execute() {
     // executing instruction. Single store, negligible overhead.
     g46b_current_pc = pc;
 
+    // G46(b) Probe 38 (TEMP, 2026-05-09): one-shot detect PC reaching key
+    // post-boot supervisor handoff points:
+    //   $1F01 = bank-2 alt-entry (RST $20 with inline $1F01 target)
+    //   $0DD4 = bank-1 RST 8 handler target (entry: NOP; JP $0DD4 at bank-1 $0008)
+    //   $01D7 = post-$1F01 return (continues after the RST chain)
+    //   $00E3 = CALL target from $01DD
+    {
+        static bool g46b_p38_1f01 = false;
+        static bool g46b_p38_0dd4 = false;
+        static bool g46b_p38_01d7 = false;
+        static bool g46b_p38_00e3 = false;
+        if (!g46b_p38_01d7 && pc == 0x01D7) {
+            g46b_p38_01d7 = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P38 PC=$01D7 REACHED (post-$1F01 chain return): "
+                    "AF={:#06x} rom_bank={:#04x}",
+                    z80.af.w, mmu->current_rom_bank());
+            }
+        }
+        if (!g46b_p38_00e3 && pc == 0x00E3) {
+            g46b_p38_00e3 = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P38 PC=$00E3 REACHED (CALL target from $01DD): "
+                    "AF={:#06x} rom_bank={:#04x}",
+                    z80.af.w, mmu->current_rom_bank());
+            }
+        }
+        if (!g46b_p38_1f01 && pc == 0x1F01) {
+            g46b_p38_1f01 = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P38 PC=$1F01 REACHED (bank-2 alt-entry): "
+                    "AF={:#06x} BC={:#06x} HL={:#06x} rom_bank={:#04x}",
+                    z80.af.w, z80.bc.w, z80.hl.w, mmu->current_rom_bank());
+            }
+        }
+        if (!g46b_p38_0dd4 && pc == 0x0DD4) {
+            g46b_p38_0dd4 = true;
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                Log::cpu()->info(
+                    "G46B P38 PC=$0DD4 REACHED (bank-1 RST 8 target): "
+                    "AF={:#06x} rom_bank={:#04x}",
+                    z80.af.w, mmu->current_rom_bank());
+            }
+        }
+    }
+
+    // G46(b) Probe 37 (TEMP, 2026-05-09): one-shot detect signature-check
+    // outcome at boot ROM $01A4. Branch SUCCESS → continues at $01A8.
+    // Branch FAILURE → JR NZ to $01CC. Distinguishes whether the boot ROM
+    // signature byte ($BB at mem[$FFFF] after the LDDR cascade) is
+    // present.
+    {
+        static bool g46b_p37_01a8 = false;
+        static bool g46b_p37_01cc = false;
+        if (!g46b_p37_01a8 && pc == 0x01A8) {
+            g46b_p37_01a8 = true;
+            Log::cpu()->info(
+                "G46B P37 PC=$01A8 SIGNATURE-CHECK PASSED (continuing at "
+                "$01A8): AF={:#06x} BC={:#06x} HL={:#06x}",
+                z80.af.w, z80.bc.w, z80.hl.w);
+        }
+        if (!g46b_p37_01cc && pc == 0x01CC) {
+            g46b_p37_01cc = true;
+            Log::cpu()->info(
+                "G46B P37 PC=$01CC SIGNATURE-CHECK FAILED (taking JR NZ "
+                "branch): AF={:#06x} BC={:#06x} HL={:#06x}",
+                z80.af.w, z80.bc.w, z80.hl.w);
+        }
+    }
+
     // G46(b) Probe 36 (TEMP, 2026-05-09): one-shot detect PC reaching key
     // supervisor entry/init points (all live in bank 1 of enNextZX.rom):
     //   $3F00 = supervisor bank-1 entry (boot-ROM JP target)
