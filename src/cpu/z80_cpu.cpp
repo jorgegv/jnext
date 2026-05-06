@@ -824,22 +824,54 @@ int Z80Cpu::execute() {
         }
     }
 
-    // G46(b) Probe 26 (TEMP — remove on G46(b) closure): one-shot
-    // snapshot at first PC=$3E93. Goal: confirm slot 1 mapping. In
-    // CSpect this PC has NEXTREG $8E,$01; RET (4 bytes), making the
-    // RST $28 wrapper return cleanly. In jnext, cpu_inst trace shows
-    // op=$00 (NOP) at this PC, so slot 1 is mapped to a NOP-filled
-    // bank. Capture peek bytes around $3E93 + mmu state.
-    static bool g46b_p26_done = false;
-    if (!g46b_p26_done && pc == 0x3E93) {
-        g46b_p26_done = true;
-        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
-            char mmu_buf[64] = "";
-            int mn = 0;
-            for (int s = 0; s < 8; ++s) {
-                mn += std::snprintf(mmu_buf + mn, sizeof(mmu_buf) - mn,
-                                    "%02x ", mmu->get_page(s));
+    // G46(b) Probe 27 (TEMP — remove on G46(b) closure): trace every
+    // NEXTREG $8C write (alt-ROM control). Goal: identify which write
+    // disables alt-ROM (bit 7 = 0), because that flips slot 1 from
+    // alt-ROM to legacy ROM mid-flight, breaking the supervisor's
+    // RST $28 wrapper at PC=$3E93 (which expects NEXTREG $8E,$01;
+    // RET to be there).
+    //
+    // Detect: opcode bytes ED 91 8C <val> (Z80N NEXTREG immediate).
+    // Cap at 200 events to bound log spam.
+    {
+        static int g46b_p27_count = 0;
+        constexpr int G46B_P27_MAX = 200;
+        if (g46b_p27_count < G46B_P27_MAX) {
+            if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
+                uint8_t b0 = mmu->peek(pc);
+                uint8_t b1 = mmu->peek(static_cast<uint16_t>(pc + 1));
+                uint8_t b2 = mmu->peek(static_cast<uint16_t>(pc + 2));
+                if (b0 == 0xED && b1 == 0x91 && b2 == 0x8C) {
+                    uint8_t v  = mmu->peek(static_cast<uint16_t>(pc + 3));
+                    char ring[64] = "";
+                    int rn = 0;
+                    for (int i = G46B_PC_RING_SIZE - 5; i < G46B_PC_RING_SIZE; ++i) {
+                        int idx = (g46b_pc_ring_head + i) % G46B_PC_RING_SIZE;
+                        rn += std::snprintf(ring + rn,
+                                            sizeof(ring) - rn,
+                                            "%04x ",
+                                            g46b_pc_ring[idx]);
+                    }
+                    Log::cpu()->info(
+                        "G46B P27 NEXTREG $8C,${:#04x} at PC={:#06x} "
+                        "(prev5={}) altrom_en={} altrom_rw={}",
+                        v, pc, ring,
+                        (v & 0x80) ? 1 : 0, (v & 0x40) ? 1 : 0);
+                    ++g46b_p27_count;
+                }
             }
+        }
+    }
+
+    // G46(b) Probe 26 (TEMP — remove on G46(b) closure): now fires up
+    // to 5 times at PC=$3E93 to track slot 1 mapping changes across
+    // visits. First hit should have correct NEXTREG bytes; later hits
+    // start returning NOPs. Captures mmu + peek of $3E93-$3EA3.
+    static int g46b_p26_count = 0;
+    constexpr int G46B_P26_MAX = 5;
+    if (g46b_p26_count < G46B_P26_MAX && pc == 0x3E93) {
+        ++g46b_p26_count;
+        if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
             char eff_buf[64] = "";
             int en = 0;
             for (int s = 0; s < 8; ++s) {
@@ -848,27 +880,15 @@ int Z80Cpu::execute() {
             }
             char bytes_buf[80] = "";
             int bn = 0;
-            for (uint16_t a = 0x3E80; a < 0x3EA0; ++a) {
+            for (uint16_t a = 0x3E93; a < 0x3E9D; ++a) {
                 bn += std::snprintf(bytes_buf + bn,
                                     sizeof(bytes_buf) - bn,
                                     "%02x ", mmu->peek(a));
             }
-            char bytes_3f30[80] = "";
-            int b3n = 0;
-            for (uint16_t a = 0x3F30; a < 0x3F50; ++a) {
-                b3n += std::snprintf(bytes_3f30 + b3n,
-                                     sizeof(bytes_3f30) - b3n,
-                                     "%02x ", mmu->peek(a));
-            }
             Log::cpu()->info(
-                "G46B P26 first PC=$3E93: AF={:#06x} BC={:#06x} DE={:#06x} "
-                "HL={:#06x} SP={:#06x} mmu={} eff_mmu={}",
-                z80.af.w, z80.bc.w, z80.de.w, z80.hl.w, z80.sp.w,
-                mmu_buf, eff_buf);
-            Log::cpu()->info(
-                "G46B P26 peek $3E80-$3E9F: {}", bytes_buf);
-            Log::cpu()->info(
-                "G46B P26 peek $3F30-$3F4F: {}", bytes_3f30);
+                "G46B P26 hit#{} PC=$3E93: AF={:#06x} eff_mmu={} "
+                "peek $3E93-$3E9C: {}",
+                g46b_p26_count, z80.af.w, eff_buf, bytes_buf);
         }
     }
 
