@@ -3153,11 +3153,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t) -> uint8_t {
             uint8_t v = spi_.read_data();
             // G46(b) Probe 20 (TEMP — remove on G46(b) closure):
-            // trace SPI data port reads. Cap at 800 entries to avoid spam.
+            // trace SPI data port reads. Cap at 5000 entries to avoid spam.
+            // P46 (TEMP, 2026-05-09): every 1000th read, log PC + rom_bank
+            // to identify the polling loop's home.
             static int g46b_p20_rd = 0;
-            if (g46b_p20_rd < 800) {
+            ++g46b_p20_rd;
+            if (g46b_p20_rd <= 5000) {
                 Log::cpu()->info("G46B P20 IN  $EB -> {:#04x} (#{})",
-                                 v, ++g46b_p20_rd);
+                                 v, g46b_p20_rd);
+            }
+            if (g46b_p20_rd == 1 || g46b_p20_rd % 1000 == 0) {
+                uint16_t pc = cpu_.get_registers().PC;
+                uint8_t rb = mmu_.current_rom_bank();
+                Log::cpu()->info("G46B P46 SPI-poll-PC sample #{}: pc={:#06x} "
+                                 "rom_bank={:#04x}", g46b_p20_rd, pc, rb);
             }
             return v;
         },
@@ -3165,7 +3174,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             spi_.write_data(val);
             // G46(b) Probe 20 (TEMP): trace SPI data port writes.
             static int g46b_p20_wr = 0;
-            if (g46b_p20_wr < 800) {
+            if (g46b_p20_wr < 5000) {
                 Log::cpu()->info("G46B P20 OUT $EB <- {:#04x} (#{})",
                                  val, ++g46b_p20_wr);
             }
