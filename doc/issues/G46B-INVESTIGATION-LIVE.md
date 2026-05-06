@@ -3914,3 +3914,177 @@ off `89e18de`.
 
 ### End of 2026-05-09 EOD-6 entry
 
+
+## 2026-05-09 EOD-7 — SD CMD-by-CMD trace identifies the failure point
+
+### TL;DR
+
+Today's session deeply traced the boot's SD card protocol activity and
+identified the EXACT divergence point. The boot does NOT use DivMMC
+firmware to load supervisor MAIN — instead, the supervisor's bank-2
+ROM (and DivMMC firmware) BOTH do SD I/O directly via SPI ports
+\$E7/\$EB. We traced the full CMD sequence and identified that the
+firmware abort happens at or just after CMD9.
+
+Branch HEAD `e6e9f62`, 24 commits off `89e18de`.
+
+### P20/P46 probes — SPI activity full picture
+
+P20 (port-write trace) + P46 (PC sample on every 1000th IN \$EB read)
+revealed the boot's SD activity:
+
+**Pre-init phase** (\~40ms):
+- 6 OUT \$EB bytes (initial junk: \$3B \$FF \$00 \$FF \$BF \$24)
+- 5000+ IN \$EB reads (all returning \$FF) — busy-wait poll for
+  non-\$FF response that never comes (state IDLE = always \$FF).
+
+**Init CMD sequence per iteration**:
+```
+CMD12 (recovery) → CMD12 (recovery again) → CMD0 (reset) →
+CMD8 (send_if_cond) → CMD55 (app_cmd) → ACMD41 (send_op_cond) →
+CMD58 (read_ocr) → CMD9 (send_csd) → [FIRMWARE RESTARTS]
+```
+
+**Without CMD9 implemented (pre-fix)**: 1 iteration, then no SD activity.
+**With CMD9 returning NCR+R1+token+CSD+CRC**: 100 iterations in 5s,
+firmware loops the entire init.
+
+### P46 SPI poll-PC samples
+
+```
+sample #1 .. #12000:  pc=$1F40 rom_bank=$03  (DivMMC firmware @ $1F40)
+sample #13000..#15000+: pc=$1928 rom_bank=$02 (supervisor bank-2 @ $1928)
+```
+
+Both sites contain the IDENTICAL SD-poll routine:
+
+```
+LD BC,$0032        ; B=0, C=$32 (50*256 = 12800 retries max)
+loop:
+  IN A,($EB)
+  CP $FF           ; non-$FF = response received
+  RET NZ
+  DJNZ loop
+  DEC C
+  JR NZ,loop
+  RET              ; timeout (A=$FF)
+```
+
+The firmware does NOT issue full-duplex reads — `OUT $EB` doesn't
+clock in response. Instead, response polling uses dedicated `IN $EB`
+loops AFTER the CMD frame is sent. State machine in our SD emulation
+correctly transitions IDLE→RECEIVING_CMD (6 bytes)→process_command()
+→RESPONDING (response queued).
+
+### SPI activity is NOT under AUTOMAP — boot ROM does direct SPI
+
+Critical: P20+P45 cross-reference shows ALL SPI commands fire with
+AUTOMAP=OFF. The boot ROM (enNextZX.rom) does SD I/O DIRECTLY via
+ports $E7/$EB, NOT through the DivMMC firmware. AUTOMAP fires
+elsewhere (possibly for unrelated paging tricks) but not for SD reads.
+
+This rules out the earlier hypothesis "DivMMC SD-load chain is
+broken". The SD-load is in supervisor bank-2 code itself.
+
+### Decoded supervisor SD CMD9 path (bank-2 $1802 onward)
+
+```
+$17FF: LD HL,$F700           ; CSD destination buffer in slot-7 RAM
+$1802: CALL $1904            ; CMD9 wrapper:
+                             ;   sends CMD frame, reads NCR+R1
+                             ;   waits for $FE token via $1933
+                             ;   INI 18 bytes (16 CSD + 2 CRC) into ($F700)
+$1805: JR NC,$1840           ; CMD9 failed → error path
+$1807: AND A
+$1808: JR Z,$1843            ; A=0 → alternative path
+$180A: LD HL,($F706)         ; capacity calc using CSD bytes 6,7
+$180D: LD A,L; AND $03       ; mask C_SIZE high bits (CSD v1.0 layout!)
+$1810-$185A: complex C_SIZE arithmetic ...
+$185D: JR NC,$183C
+$1840: LD A,$00; RET         ; error → return $00
+$1843: LD HL,($F708)         ; alternative path uses bytes 8,9
+$1846-$1862: more capacity calc ...
+```
+
+The firmware extracts C_SIZE from CSD bytes 6/7/8/9 assuming **CSD
+v1.0 (SDSC)** format. CSD v2.0 (SDHC) has those bytes in different
+positions, so SDHC-format CSD yields wrong capacity → firmware aborts.
+
+### Three CSD/OCR experiments — none unblocked the boot
+
+| Experiment | Result |
+|------------|--------|
+| Original SDHC v2.0 CSD + OCR CCS=1 | 100 iterations, abort at CMD9 |
+| CSD = all $0B (ZEsarUX-style)      | 100 iterations |
+| OCR = $05/$00/$00/$00/$00 (no CCS) | 80 iterations |
+| CSD v1.0 SDSC (proper format)      | 80 iterations |
+
+So the firmware's failure is NOT triggered by CSD content. Even with
+proper CSD v1.0 layout, the firmware loops.
+
+### ZEsarUX research findings (parallel agent, 6 recommendations)
+
+ZEsarUX (`/home/jorgegv/src/spectrum/zesarux/src/storage/mmc.c`) has
+a known-working SD emulation that boots NextZXOS:
+
+1. **Does NOT implement CMD55+ACMD41** — ZEsarUX returns illegal
+   command for unknown CMDs, NextZXOS firmware works around it.
+   Our firmware DOES use ACMD41, so this isn't the same path.
+
+2. **CMD9/CMD10 response shape**: NCR ($FF) + R1 + $FE token +
+   16 register bytes + 2 CRC ($FF $FF). MATCHES ours.
+
+3. **CSD = all $0B** (line 44). Tried — no change.
+
+4. **OCR = $05 + $00 $00 $00 $00** (line 47). Tried — no change.
+
+5. **State machine is index-based**, not named states. Cosmetic.
+
+6. **Pre-init: returns $FF on $00 case for TBBlue**. We return $FF
+   in IDLE state too — matches.
+
+So ZEsarUX-style values don't unblock our boot. The bug isn't in
+the SD emulation responses themselves.
+
+### Probes added this session (cumulative on g46b-investigation)
+
+- P42 (replaces P40): comprehensive band-aid (sysvars+screen+slot7
+  reload at every $5B20 hit, cap 200).
+- P43: first-hit watch on $0008 / $103B / $1040 / $104D / $1051
+  (RST $08 → bank-7 trampoline path).
+- P44: track $3E80 wrapper hits + $3F00 hits with rom_bank.
+- P45: track AUTOMAP active-state transitions with PC + slot/rom.
+- P46: sample PC + rom_bank every 1000th IN $EB read (cap raised
+  to 5000).
+
+### Concrete next-session experiments
+
+1. **PROBE THE FIRMWARE'S DECISION POINT POST-CMD9**: Add an SD-emul
+   trace log of all read response bytes returned to the firmware
+   for the FIRST init iteration. Identify exactly which response
+   byte the firmware sees that triggers the abort. Trace bank-2
+   PC for the period RIGHT AFTER $185A or $1843 to find the
+   abort-decision branch.
+
+2. **TRY ACMD41 POLLING**: Maybe ACMD41 needs multiple iterations
+   returning IDLE before READY (real cards take 20-100ms). Currently
+   ACMD41 returns READY ($00) on first call. Make first 3 calls
+   return $01 (idle), then $00 (ready). Test if firmware loops
+   ACMD41 properly.
+
+3. **PROBE CMD58 OCR RESPONSE BYTES**: Maybe the issue is in CMD58
+   not CMD9. The firmware might check CCS bit AFTER ACMD41 and
+   route differently. Trace exactly what bytes the firmware reads
+   from CMD58 response.
+
+4. **STUDY ZEsarUX'S HOST-SIDE BEHAVIOR**: launch ZEsarUX with
+   --debug, capture exact sequence of SPI activity, compare with
+   jnext's. Difference will reveal the divergent CMD or response.
+
+5. **AUDIT SPI HARDWARE EMULATION**: Check `src/peripheral/spi.cpp`
+   for any timing/state quirks. Maybe write_data/read_data
+   semantics are off (real SPI is full-duplex; our model is
+   half-duplex).
+
+### End of 2026-05-09 EOD-7 entry
+
