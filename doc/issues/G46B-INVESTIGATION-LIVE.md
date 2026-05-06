@@ -4055,3 +4055,199 @@ we adopted; some don't apply to TBBLUE.FW v1.44.db's flow.)
 
 ### End of 2026-05-07 EOD-8
 
+
+## 2026-05-08 01:15 CEST — BREAKTHROUGH: NextZXOS supervisor handoff working
+
+### TL;DR
+
+**Major progress**. After running the no-bypass smoke (per EOD-8 next-step
+plan), three independent agents identified that jnext's `Mmu::reset` was
+preserving `port_7ffd_reg`, `port_1ffd_reg`, `port_dffd_reg`, and related
+paging state across soft reset — but per VHDL `zxnext_top_issue5.vhd:880`
+(`reset <= reset_hard or reset_soft`) those registers MUST clear on both
+reset types. The supervisor's deliberate NR 0x02 ← 0x01 soft reset relied
+on hardware to clear rom_bank to 0 so that PC=$0000 lands in
+`enNextZX.rom` bank 0's `DI; JP $00EF` cold-start. With the bug, the CPU
+landed in bank 2's `NOP; JR $0000` infinite-loop sentinel.
+
+**Fix landed (uncommitted)**. After the fix, post-soft-reset:
+- rom_bank cleared 3 → 0 ✓
+- AUTOMAP runs at $006a → exits at $00ef ✓
+- NextREG $07,$03 (28 MHz) executed ✓
+- NextREG $03,$b0 executed ✓
+- LDDR cascade (P35) iterates through bank pairs 00..0B ✓
+- Sysvars zeroing at $5C00-$5C3F ✓
+- Supervisor running through bank-flip wrappers, AUTOMAP $003A, ATTR-ENTER hits, slot-7 entries
+
+`mmu_test` 164/186 PASS / 0 FAIL / 22 SKIP after the test fixture updates.
+
+### Diagnosis chain
+
+#### Step 1 — first smoke after EOD-8
+
+Re-ran the no-bypass / no-keypress smoke at 60s. Output: EXIT=124 (timeout)
+with no screenshot. Log showed:
+- 1st soft reset at ~14s (TBBLUE.FW handoff — expected).
+- Supervisor ran ~21s polling SD at PC=$1972 (rom_bank=0x02).
+- 2nd soft reset triggered at ~36s — followed by tight `$006a ↔ $0000`
+  AUTOMAP-toggle loop with rom_bank=0x02.
+
+#### Step 2 — added PC + rom_bank to NR 0x02 reset log
+
+Modified `emulator.cpp:1476-1485` to dump CPU PC + rom_bank + mmu7 in the
+soft/hard reset log lines. Re-ran:
+- 1st reset PC=$6D31, rom_bank=0x00 (TBBLUE.FW post-MMC_Init handoff)
+- 2nd reset PC=$3BF5, rom_bank=0x03 (supervisor in bank 3)
+
+#### Step 3 — disassemble bank 3 around $3BE8
+
+Extracted `enNextZX.rom` from SD via mtools, disassembled bank 3:
+
+```
+[3be8] 3e 02         ld   a,$02
+[3bea] ed 79         out  (c),a    ; assumes BC=$243B (NR select)
+[3bec] 04            inc  b        ; BC=$253B
+[3bed] ed 78         in   a,(c)    ; A = current NR 0x02
+[3bef] e6 80         and  $80      ; preserve only bit 7
+[3bf1] f6 01         or   $01      ; force soft-reset
+[3bf3] ed 79         out  (c),a    ; ← NR 0x02 ← bit7|0x01 = SOFT RESET
+[3bf5] ff            (next byte)
+```
+
+Bank 3 at $0000 = `f3 af 01 3b 24 c3 e8 3b` = `DI; XOR A; LD BC,$243B; JP $3BE8`
+— bank 3 cold-entry IS the soft-reset routine. Bank 2 at $0000 =
+`00 18 fd` = `NOP; JR $0000` — INFINITE LOOP TRAP. Bank 0 at $0000 =
+`f3 c3 ef 00` = `DI; JP $00EF` — proper boot entry to NextZXOS init.
+
+#### Step 4 — three parallel agents (per Task 1 rules)
+
+Launched three agents in parallel (auto mode, isolated read-only contexts):
+
+- **Agent A (RE supervisor caller chain)**: confirmed bank-3 cold-entry
+  $0000 IS the soft-reset issuer. NO state setup before the call — supervisor
+  relies on hardware to clear rom_bank.
+- **Agent B (RE bank entries)**: confirmed bank 0 = NextZXOS cold-start
+  + browser; bank 1 = +3DOS / DOTcommand; bank 2 = supervisor + FAT32 +
+  trap sentinel at $0000; bank 3 = 48K BASIC ROM with $0000 repurposed as
+  soft-reset entry.
+- **Agent C (VHDL audit)**: the smoking gun.
+
+Agent C's findings (verbatim verbatim VHDL excerpts):
+
+```
+zxnext_top_issue5.vhd:880  reset <= reset_hard or reset_soft;
+zxnext_top_issue5.vhd:2384 i_RESET => reset
+zxnext.vhd:1730            reset <= i_RESET;
+
+zxnext.vhd:3646-3648  if reset = '1' then port_7ffd_reg <= (others => '0');
+zxnext.vhd:3713-3715  if reset = '1' then port_1ffd_reg <= (others => '0');
+zxnext.vhd:3686-3690  if reset = '1' then port_dffd_reg <= (others => '0');
+                                          port_dffd_reg_6 <= '0';
+```
+
+**Inside zxnext.vhd, `reset='1'` is the OR'd hard|soft signal — every
+`if reset='1'` clause fires on BOTH reset types.** The previous "Branch C
+architectural decision" comments in `mmu.cpp:67-86` claimed otherwise; that
+was a misreading.
+
+### Fix
+
+`/home/jorgegv/src/spectrum/jnext/src/memory/mmu.cpp` `Mmu::reset(bool hard)`:
+dropped `if (hard)` guards on `paging_locked_`, `contention_disabled_`,
+`port_dffd_reg_`, `port_dffd_reg_6_`, `port_eff7_reg_2_`, `port_eff7_reg_3_`,
+and the `nr_8c_reg_` lo→hi nibble copy. Also added unconditional clears of
+`port_7ffd_ = 0` and `port_1ffd_ = 0` (these were never in the prior reset
+at all). Removed the now-redundant `apply_legacy_paging_()` call at the
+end of reset (with all port state zeroed it's a no-op).
+
+`/home/jorgegv/src/spectrum/jnext/test/mmu/mmu_test.cpp`:
+- DFF-08 inverted: now asserts `port_dffd_reg` clears + MMU6/7 reset to seed.
+- EF7-05 inverted: now asserts `port_eff7_reg_{2,3}` clear + slots 0/1 → ROM.
+
+`/home/jorgegv/src/spectrum/jnext/src/core/emulator.cpp` reset log lines
+now include PC + rom_bank + mmu7 (permanent diagnostic).
+
+### Post-fix smoke (longer 90s timeout)
+
+Boot now progresses past the trap. After 2nd soft reset:
+- ROM-BANK changes 53× (bank-flip wrappers running)
+- 10 SLOT7-ENTER hits (supervisor dispatching through slot 7 mapped code)
+- Multiple AUTOMAP cycles
+- PC reaches $053D in rom_bank=3 (deep NextZXOS code)
+- Last log timestamp ~71 wall-seconds after start
+
+But still no welcome screen, no writes to $4000-$57FF (bitmap) or
+$5800-$5AFF (attr) — supervisor is running but hasn't reached the screen
+paint phase. Likely still doing FAT32 mount, file finding, etc.
+
+### Branch state
+
+Branch `g46b-investigation` HEAD `bc27887` (EOD-8 doc commit). Files
+modified, not yet committed:
+- `src/core/emulator.cpp` (reset-log diagnostic enhancement)
+- `src/memory/mmu.cpp` (the fix)
+- `test/mmu/mmu_test.cpp` (DFF-08, EF7-05 inversion)
+
+Independent reviewer agent launched (agent ID a177a71ae2e352f6a).
+
+### Next steps after this commit
+
+1. After reviewer approval → commit fix to branch.
+2. Investigate why supervisor doesn't reach screen paint:
+   - Add P30-style watcher on $5800-$5AFF + $4000-$57FF.
+   - Trace the supervisor call graph after 2nd reset (what's it doing
+     at $053D, $1805, $1808, $19C2 etc?).
+3. The boot might still be making real progress — try even longer
+   timeouts (180s+) before concluding it's stuck.
+
+
+## 2026-05-08 02:30 CEST — SD-preserve-on-soft-reset experiment (reverted)
+
+After the Mmu::reset fix landed (commit `1bdc7d5`), boot still stalls
+post-2nd-reset in heavy SPI polling at PC=$1972 in rom_bank=0x02. Tested
+hypothesis: real Next hardware soft reset (NR 0x02 ← 0x01) does NOT
+power-cycle the physical SD card. Tried gating `sd_card_.reset()` and
+the SD remount on `!preserve_memory` (= hard reset only), with a
+`sd_card_.deselect()` on soft reset to model the FPGA SPI controller's
+CS-deassert edge.
+
+**Result: regression**. With the SD preservation change, the supervisor
+stalls in SPI poll BEFORE issuing the 2nd soft reset (NEVER issues it,
+even after 75 wall seconds and 16 million SPI poll samples). Total OUT
+$EB byte count post-1st-reset was identical (#845-#850 = the same 6
+CMD12 bytes), but the supervisor never advances to its `boot.c`
+final-handoff path that triggers NR 0x02 ← 0x01.
+
+**Conclusion**: the supervisor's pre-handoff state machine DEPENDS on
+sd_card_.reset() (full re-init) firing on the 1st soft reset (TBBLUE.FW
+handoff). The SD card "looks like" it just got powered up to the
+supervisor's eyes, and the supervisor walks through its full SD init
+again before reaching the final NR 0x02 ← 0x01.
+
+This is NOT VHDL-faithful from a hardware-architecture standpoint, but
+it matches what the supervisor expects, so leave the full SD reset on
+all reset types. The change was reverted.
+
+The TRUE next-layer issue is somewhere in the post-2nd-reset path
+(after the rom_bank fix unblocked the trap):
+- Supervisor at PC=$0AC0 wrote NEXTREG_57=$0F (slot-7 page)
+- Bank-flip wrappers run through banks 0/1/2/3
+- AUTOMAP cycles at $003a / $054c (rom_bank=3)
+- 10 SLOT7-ENTER hits (PC=$FF00 with mmu_slot7=$01, but bytes are
+  all $00 — the slot-7 mapping is empty)
+- No screen writes to $4000-$57FF or $5800-$5AFF after 75 wall seconds
+- Boot timestamps at end of log show emulated time advancing slowly
+
+**Next-session priorities**:
+
+1. Add P30 watcher for $4000-$5AFF (screen + attr) to confirm whether
+   ANY screen-area writes happen post-2nd-reset.
+2. The SLOT7-ENTER probe shows mmu_slot7=$01 but all bytes 0 — that
+   physical RAM page is empty/unmapped. Investigate what should be at
+   page $01 after 2nd reset (FAT32 helper code? sector buffer?).
+3. Trace the supervisor's call graph at PC=$1805/$1808/$19C2 — these
+   were the most active post-2nd-reset PCs. Decode what they're doing.
+4. **ZEsarUX side-by-side comparison** would be the cleanest way
+   forward — if their boot succeeds with the same SD image, capture
+   their NR-write trace + SD-CMD trace and diff against ours.
+
