@@ -4251,3 +4251,299 @@ The TRUE next-layer issue is somewhere in the post-2nd-reset path
    forward — if their boot succeeds with the same SD image, capture
    their NR-write trace + SD-CMD trace and diff against ours.
 
+
+## 2026-05-08 03:00 CEST — CMD12 persistent_response fix → boot reaches NextZXOS init
+
+After the Mmu::reset fix landed (commit `1bdc7d5`), the supervisor's
+NR 0x02 ← 0x01 soft reset works correctly post-`bank-3 $3BE8`, but boot
+stalled in a tight SPI-poll loop at PC=$1972 in `enNextZX.rom` bank 2.
+
+### Diagnosis (per CSpect-as-reference user directive)
+
+Disassembled bank 2 `$196D-$1978`:
+```
+[196d] LD A,$4C            ; CMD12 STOP_TRANSMISSION
+[196f] CALL $18D6          ; send CMD
+[1972] IN A,($EB)          ; read SPI byte ← stuck here
+[1974] AND A               ; test for zero
+[1975] SCF
+[1976] JR Z,$1972          ; if A == 0, loop back (still busy)
+[1978] JR $1961            ; if non-zero, exit (busy phase ended)
+```
+
+Standard SD R1b post-busy poll: real SD pulls MISO low ($00) during the
+BUSY phase after CMD12's R1 response, then releases the line back to
+IDLE ($FF). Supervisor loops while reading $00 (busy) and exits when it
+sees non-zero.
+
+Bug found at `src/peripheral/sd_card.cpp:391` `cmd12_stop_transmission()`:
+after queuing the response (8 stuff bytes + NCR + R1), the code set
+`persistent_response_byte_ = r1` where `r1 = initialized_ ? 0x00 : 0x01`.
+Post-MMC_Init, `initialized_=true` → R1=$00 → persistent=$00. Supervisor's
+loop interpreted $00 as "still busy" forever.
+
+### Fix
+
+Changed `persistent_response_byte_ = r1` to `persistent_response_byte_ = 0xFF`
+(idle, line released, no command active). Matches real SD spec: post-busy
+MISO returns to idle ($FF). More correct than ZEsarUX's $01 (also non-zero
+but technically wrong post-busy semantics).
+
+`sdcard_test`: 15/15 PASS post-fix.
+
+### Smoke results
+
+After the CMD12 fix, with `--delayed-screenshot-frames 3000` (60 emulated
+seconds):
+- Supervisor reaches PC=$00EF (NextZXOS cold-start) ✓
+- Reaches PC range $0100-$05F1 in bank 0 (deep into NextZXOS init) ✓
+- 5056 OUT $EB bytes including 100× CMD17 (READ_SINGLE_BLOCK) reads — supervisor reading sectors from SD ✓
+- Eventually reaches wait-for-key loop at PC=$1F40 in bank 3 (48K BASIC ROM area)
+- 2nd soft reset (bank-3 $3BE8) is NO LONGER triggered (proper init flow doesn't fall into the soft-reset fallback) ✓
+
+### Remaining issue
+
+Screen still solid gray (no welcome menu rendered). Supervisor is at the
+wait-for-key loop in bank 3 at PC=$1F3D HALT / $1F40 OR C / JR Z, but the
+welcome menu hasn't been painted to ULA screen.
+
+### CSpect comparison
+
+CSpect "boot success" reference at
+`/home/jorgegv/src/spectrum/jnext/doc/issues/cspect-captures/cspect-boot-success-nowelcome.png`
+shows the rendered NextZXOS welcome menu (Browser / Command Line /
+NextBASIC / Calculator / Guide / More... / 1792K) on light gray border.
+
+Our jnext at the equivalent boot phase shows just the gray border with no
+center menu rectangle. The RAM dumps in that directory (sysvars.raw,
+screen.raw, slot7.raw, page30.raw) were captured at the boot-success
+state and could be used as an oracle for what RAM should look like.
+
+### Next-session priorities
+
+1. **Trace welcome-menu drawing code** — find what writes to $4000-$5AFF
+   in the NextZXOS supervisor. Add a wider P30 watcher covering screen +
+   attr area to find when (and which PC) writes happen.
+2. **Decode `$1F40` wait context** — the supervisor calls into bank 3
+   (48K BASIC) for the wait-for-key. Trace what was on the stack pre-call,
+   which bank-2 supervisor PC made the call, and what happens after the
+   wait ends (timeout vs key press).
+3. **CSpect dump comparison** — load `screen.raw` / `sysvars.raw` and
+   compare against jnext's RAM at the equivalent boot phase. If divergent,
+   identify which writes are missing.
+4. **Maybe HALT timing issue** — supervisor uses HALT to wait for vblank.
+   If our IM 1 INT isn't firing at 50Hz reliably, the supervisor stalls.
+   Add IM 1 fire trace.
+
+### Branch state
+
+```
+3659f74 doc(g46b): SD-preserve experiment reverted; next-session plan
+1bdc7d5 fix(mmu): VHDL-faithful soft reset clears paging registers ← KEEPER
+bc27887 doc(g46b): EOD-8 handover — TBBlue logo reached
+```
+
+Pending uncommitted (this session):
+- src/peripheral/sd_card.cpp — CMD12 persistent_response fix (~6 lines)
+- src/core/emulator.cpp — P20 log cap bump 5000→50000 (diagnostic only)
+
+
+## 2026-05-08 08:30 CEST — IFF1=0 root cause confirmed via force-IFF1 hack
+
+After commits `1bdc7d5` (Mmu::reset) + `779ef51` (CMD12 persistent) the
+boot reached the NextZXOS supervisor's BASIC WAIT-KEY at bank-3 $1F40
+but the welcome menu never rendered (screen solid gray = single color
+RGB(182,182,182)).
+
+### Switched to gui-release build (per user directive 2026-05-08)
+
+The standard debug build was running ~1 frame per wall second when
+supervisor was busy. gui-release runs at near-1:1 emulated:wall ratio,
+making 7500-frame screenshot tests practical.
+
+### CSpect captures used as oracle
+
+Per user directive, switched from ZEsarUX to CSpect as the reference
+emulator. The CSpect dumps in `doc/issues/cspect-captures/` were used:
+- `nrdump.raw` — 256-byte NextRegs dump at boot success.
+  - NR 0x69 = $00 → Layer 2 OFF, Tilemap OFF (welcome menu is ULA-based)
+  - NR 0xC0 = $08 → IM 2 mode = 0 (legacy IM 1 mode), stackless_nmi = 1
+  - NR 0x12/$13 = $09/$09 → Layer 2 page 9 (set even though L2 off)
+  - NR 0x52..$57 = $0A,$0B,$04,$05,$00,$01 → standard MMU layout
+- `screen.raw` — all-zero bitmap, attribute uniform $38 (white paper /
+  black ink). Confirms welcome menu uses ULA, but capture moment is
+  pre-text.
+- `slot7.raw` — last 96 bytes contain font glyphs (8x8 chars L-U).
+
+Screen color in jnext = RGB(182,182,182) = expanded RGB333 (5,5,5).
+This isn't the default ULA white (6,6,6) → (219,219,219), suggesting
+a specific palette write happens during boot. The user's CSpect
+screenshot has matching gray border, so this is correct behaviour.
+
+### Diagnostic chain (probes P47-P53)
+
+1. **P47** (`Emulator::run_frame` ULA INT scheduler): logs
+   `iff1` at every scheduled INT firing. Result: **iff1 = 0 across
+   2200+ samples** spanning 60 emulated seconds.
+
+2. **P48** (CPU `on_m1_cycle` hook for opcodes $FB / $F3): logs every
+   EI / DI execution with PC + IFF1 before-execution. Result:
+   - 200 entries in first ~2 wall seconds — supervisor's bank-flip
+     wrapper at $5B00 is the hot path: `DI at $5B0A; ... ; EI at $5B1D`
+     with IFF1 alternating 0 → 1 → 0 across each wrapper invocation.
+   - Then **wrapper invocations stop**; supervisor enters RAM-resident
+     code at PCs $6000-$BFFF (NextZXOS overlay loaded from SD via
+     CMD17). That code has NO EI/DI of its own. IFF1 stays at last
+     value (=0 after final DI).
+
+3. **P49** (NMI vector $0066): 0 hits — NMI never fires.
+
+4. **P50** (every 100k T-states with `int_pending=true`, log iff1):
+   100% of 30+ samples showed iff1=0. The supervisor RAM-resident
+   code spends all its time with IFF1=0.
+
+5. **P51** (post-EI iff1 dump): confirms FUSE Z80 sets iff1=1 + iff2=1
+   correctly after EI executes. So EI emulation is fine.
+
+6. **P53** (track `fuse_z80_interrupt` accept attempts): **0 attempts
+   in entire run**. The `if (z80.iff1)` branch in z80_cpu.cpp:435 is
+   never entered because at every execute() entry where int_pending=
+   true, iff1=0.
+
+### IFF1 force-hack proof
+
+Added `JNEXT_G46B_FORCE_IFF1` env-var: when set, forces `z80.iff1=1`
+at every INT-pending check. Result:
+- **PC=$0038 (IM 1 vector) IS REACHED** ✓
+- **Screen renders COLORFUL CONTENT** (vs solid gray without hack) ✓
+- iff1=1 throughout (per P47 with hack)
+
+The rendered content is GARBLED (tile-like blocks of magenta/yellow/
+cyan/black/red — looks like attribute or sprite data interpreted as
+bitmap). This suggests there's a SECOND issue (font/page mapping)
+beyond IFF1, but IFF1 was the primary blocker.
+
+The env-var is kept guarded for future diagnosis. With it set, the
+boot DOES progress past the wait-for-key — making the next layer of
+issues debuggable.
+
+### Diagnosis summary
+
+The NextZXOS supervisor's RAM-resident overlay code (loaded from SD
+via 100 CMD17 reads to mid-memory $6000-$BFFF) **doesn't execute EI**.
+It expects to enter with IFF1=1 inherited from the bank-flip wrapper
+caller. But by the time supervisor exits the wrapper-burst phase and
+enters the overlay, the last wrapper invocation's caller may have
+landed on a DI (within the wrapper's $5B0A path) → IFF1=0 → overlay
+runs forever with IM 1 disabled.
+
+This is timing-sensitive. CSpect somehow has the supervisor entering
+the overlay with IFF1=1. Possible CSpect mechanisms:
+- INT pulse held longer than jnext's 32 T-states → INT acks during
+  EI'd window, IM 1 ISR at $0038 sets iff1=1 via EI before RET (per
+  bank 3 $0038 IM 1 handler at $0051).
+- Different scheduling that aligns vblank INT with EI'd window.
+
+### Boot progression metrics with hack
+
+- Frame 100: TBBlue logo only
+- Frame 200: TBBlue logo + "Press SPACEBAR for menu" + "Press C for
+  extra cores"
+- Frame 300+: blank gray (without hack); colorful tiled content (with
+  hack)
+- Frame 7500 (= 150 emulated sec): same garbled tiles (with hack)
+
+### Next-session priorities
+
+1. **Investigate proper INT acknowledgment timing**. The current
+   32-T-state pulse cutoff might be too tight for the wrapper hot
+   path. Try widening (256, 1M) — but my early test with 1M didn't
+   help, which suggests the issue is NOT pulse expiry but something
+   else (maybe FUSE's `interrupts_enabled_at` always being in the
+   future when iff1=1). Need deeper FUSE Z80 audit.
+
+2. **Compare INT timing with FUSE / ZEsarUX / CSpect** Z80 emulators.
+   Maybe our integration with FUSE has a bug where INT acknowledgment
+   conditions are stricter than the rest of the world expects.
+
+3. **With force-IFF1 hack enabled, debug the garbled rendering**.
+   Possible causes:
+   - Slot 7 page $0F font data not loaded (per P41 SLOT7-ENTER showing
+     all-zero bytes at $FF00).
+   - Wrong screen-area mapping (supervisor may write to RAM page that
+     isn't displayed by ULA renderer).
+   - Layer 2 enabled by hack-induced IM 1 ISR even though CSpect has
+     L2 off.
+
+
+## 2026-05-08 09:55 CEST — INT pulse extension experiment: NOT the cause
+
+Confirmed via experiment: extending `INT_PULSE_TSTATES` to 100,000,000
+(effectively never expires) does NOT fix the boot. Boot still:
+- Solid gray screen
+- P39 PC=$0038: 0 hits — IM 1 vector never reached
+- P47 iff1=0 iff2=0 across 2200+ samples
+
+So the issue is NOT that the INT pulse is too short for the wrapper
+hot path. The fundamental problem is that **iff1 is 0 at every
+execute() entry** when int_pending is true. The supervisor's RAM-
+resident overlay code (loaded from SD into $6000-$BFFF) appears to
+not have any DI/EI to keep iff1 toggling.
+
+Reverted INT_PULSE_TSTATES back to 32 (original).
+
+### What we know about iff1=0 source
+
+Per P48 detailed tracking:
+- DI/EI counts are LOW: ~200 total over 30+ wall seconds (vs hundreds
+  per frame expected if wrapper hot loop were running constantly).
+- Most P48 entries are in early boot wrapper bursts at $5B0A/$5B1D.
+- After wrapper burst, supervisor runs ~5 wall seconds of code at
+  $1BCB/$1BCD (BASIC tokenizer) with NO DI/EI executed.
+
+Per P54 (RETI/RETN tracking): 0 hits — those don't clear iff1 either.
+
+### Mystery: how does iff1 stay 0?
+
+Per Z80 spec, iff1 only changes via:
+- DI ($F3): iff1=0
+- EI ($FB): iff1=1 (delayed)
+- INT ack: iff1=0 (and FUSE saves iff2)
+- NMI: iff2=iff1, iff1=0
+- RETN ($ED $45): iff1=iff2
+- RETI ($ED $4D): same as RETN per FUSE
+- Reset: iff1=0
+
+We see no DI in the post-wrapper phase, no INT acks (P39=0), no NMI
+(P49=0), no RETI/RETN (P54=0), no resets. Yet iff1=0 in P47 and the
+hack proved iff1=0 at every check.
+
+Per P51 (post-EI iff1 dump): immediately after EI, iff1=1, iff2=1.
+So FUSE's EI logic works correctly.
+
+**Hypothesis**: maybe a CPU instruction we're not catching clears
+iff1. Or maybe there's a reset-like event that clears it without
+triggering our log probes.
+
+### Workaround in place
+
+`JNEXT_G46B_FORCE_IFF1=1` env-var lets boot progress past this
+obstruction (proves IFF1=0 is the blocker). Garbled tile-pattern
+rendering with hack indicates SECOND issue (likely slot-7 font /
+page mapping).
+
+### Next-session priorities (revised)
+
+1. **Find what actually clears iff1**. Add a probe that fires
+   whenever `z80.iff1` transitions from 1 to 0 (without going through
+   our DI/RETI/RETN tracking). Maybe there's an undocumented FUSE Z80
+   path or an interaction with NMI that doesn't show up in M1 hook.
+
+2. **CSpect side-by-side**. Run CSpect (if available locally) on the
+   same SD image. Capture its RAM at the moment of stall and compare
+   memory state against jnext.
+
+3. **Fix garbled rendering** (with hack enabled). The tile pattern
+   suggests bitmap data is wrong. Slot-7 page $0F has all-zero bytes
+   per P41 SLOT7-ENTER probe — needs to contain font data.
+
