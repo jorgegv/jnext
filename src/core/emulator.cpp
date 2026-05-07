@@ -112,7 +112,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     i2c_.reset();
     uart_.reset();
     divmmc_.reset();
-    multiface_.reset(/*hard=*/true);
+    // G46(b) 2026-05-09 — Multiface RAM is not in the soft-reset domain
+    // per VHDL multiface.vhd:103 (only the FFs reset on reset_i).
+    // Pass hard=!preserve_memory so soft reset preserves MF RAM contents,
+    // matching real hardware where the FPGA's flash-baked SRAM is not
+    // wiped by NR 0x02 ← 0x01.
+    multiface_.reset(/*hard=*/!preserve_memory);
     nmi_source_.reset();
     // VHDL zxnext.vhd:5107 — `nr_d8_io_trap_fdc_en <= '0'` on i_reset.
     nr_d8_io_trap_fdc_en_ = false;
@@ -126,7 +131,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // would let a stale `false` from a previous run mask the next NMI.
     prev_nmi_generate_n_ = true;
     rtc_.reset();
-    sd_card_.reset();
+    // G46(b) 2026-05-09 — The SD card is an external SPI peripheral, NOT
+    // in the FPGA reset domain. A soft reset (NR 0x02 ← 0x01) pulls CS
+    // high momentarily but does NOT reset the card's internal state —
+    // the `initialized_` flag (post-CMD0/ACMD41/CMD58 handshake state)
+    // must survive soft reset. Pre-fix, NextZXOS supervisor's deliberate
+    // soft reset (after "Loading ROM: enNextZX.rom...OK!") wiped this
+    // flag, so subsequent CMD17/CMD18 reads returned R1=$01 (idle) and
+    // the supervisor fell into a permanent CMD0/CMD8/ACMD41 re-init
+    // storm at PC=$18FB (102 CMD0 cycles in 4 s).
+    if (!preserve_memory) {
+        sd_card_.reset();
+    }
 
     renderer_.reset();
 
@@ -3628,7 +3644,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Skipped when cfg.sd_card_image is empty — unit-test fixtures that
     // don't supply an SD image run with DivMMC disabled, exactly as the
     // pre-Wave-0.3 default-empty divmmc_rom_path behaviour did.
-    if (!cfg.sd_card_image.empty()) {
+    //
+    // G46(b) 2026-05-09 — also skipped on soft reset. DivMMC + Multiface
+    // ROMs live in flash on real hardware; FPGA bitstream init populates
+    // them once at power-on, and they survive RESET_SOFT. DivMmc::reset()
+    // and Multiface::reset() preserve the rom_ buffer, so re-extracting
+    // is harmless but redundant — and the SD-image FAT32 walk costs
+    // 50-100 ms per soft reset, slowing the supervisor handoff path.
+    if (!preserve_memory && !cfg.sd_card_image.empty()) {
         std::vector<uint8_t> divmmc_rom_bytes;
         const char* divmmc_sd_path = "/MACHINES/NEXT/enNxtmmc.rom";
         if (extract_sd_rom(cfg.sd_card_image, divmmc_sd_path, divmmc_rom_bytes)) {
@@ -3732,8 +3755,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     }
 
-    // SD card image mounting
-    if (!cfg.sd_card_image.empty()) {
+    // SD card image mounting.
+    //
+    // G46(b) 2026-05-09 — skipped on soft reset. Re-mounting calls
+    // SdCardDevice::mount() which clears `initialized_=false` (via the
+    // ctor-style reset of state at line 46-48). The supervisor's
+    // deliberate NR 0x02 ← 0x01 after "Loading ROM: enNextZX.rom...OK!"
+    // would then strand the next CMD17/CMD18 at "card not initialized"
+    // R1=$01, sending the supervisor into a 102-cycle CMD0/8/55/41/58/9
+    // re-init storm that never recovers. Per VHDL the SD card is an
+    // external SPI peripheral, not in the reset domain — its mounted
+    // file and initialised state survive soft reset.
+    if (!preserve_memory && !cfg.sd_card_image.empty()) {
         if (sd_card_.mount(cfg.sd_card_image)) {
             Log::emulator()->info("SD card image mounted: '{}'", cfg.sd_card_image);
         } else {
