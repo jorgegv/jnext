@@ -54,17 +54,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                           preserve_memory ? "  [preserve_memory=1 soft-reset]" : "");
 
     // Apply CPU speed to the clock.
-    clock_.reset();
+    //
+    // G46(b) 2026-05-08 — clock_/scheduler_/frame_cycle_ are NOT reset on
+    // soft reset (preserve_memory=true). Per VHDL, the master PLL clock
+    // is free-running and not in any reset domain; soft reset only resets
+    // the FF-based subsystems. Resetting clock_ mid-frame caused the
+    // run_frame() inner loop's local `frame_end` to become unreachable
+    // (clock_ went from ~113M back to 0, but frame_end stayed at 113M),
+    // turning every supervisor soft reset into a ~28M-iteration spin
+    // that lost all scheduled INT events and stalled iff1=0 forever.
+    if (!preserve_memory) {
+        clock_.reset();
+    }
     clock_.set_cpu_speed(cfg.cpu_speed);
 
     // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
     framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
 
-    // Clear any stale scheduler events from a previous session.
-    scheduler_.reset();
-
-    frame_cycle_ = 0;
-    frame_num_   = 0;
+    // Clear any stale scheduler events. Preserved across soft reset so
+    // events scheduled before the reset (e.g. the current frame's ULA
+    // CPU_INT) continue to fire — VHDL-faithful: the PLL keeps running
+    // and ULA timing counters are not in the reset domain. See clock_
+    // comment above.
+    if (!preserve_memory) {
+        scheduler_.reset();
+        frame_cycle_ = 0;
+        frame_num_   = 0;
+    }
     replay_mode_ = false;
 
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
@@ -4109,6 +4125,24 @@ void Emulator::run_frame()
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
+    // G46(b) Probe 57 (TEMP, 2026-05-08): trace run_frame entry + tstates
+    // reset every Nth frame. Diagnose why fuse_z80_tstates appears to
+    // accumulate across frames in P55/P56.
+    {
+        static const bool g46b_p57 = std::getenv("JNEXT_G46B_P57") != nullptr;
+        static int g46b_p57_count = 0;
+        if (g46b_p57) {
+            ++g46b_p57_count;
+            if (g46b_p57_count <= 5 || (g46b_p57_count % 100) == 0) {
+                Log::emulator()->info(
+                    "G46B P57 run_frame entry #{} pre_reset_tstates={} frame_cycle={} clock={}",
+                    g46b_p57_count,
+                    static_cast<uint64_t>(*fuse_z80_tstates_ptr()),
+                    frame_cycle_, clock_.get());
+            }
+        }
+    }
+
     *fuse_z80_tstates_ptr() = 0;
     frame_ts_start_ = 0;
     video_timing_.reset();
@@ -4237,7 +4271,44 @@ void Emulator::run_frame()
     // Use Bresenham-style accumulator: generate sample every time accum >= MASTER_CLOCK_HZ.
     static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
+    // G46(b) Probe 58 (TEMP, 2026-05-08): log frame loop entry/exit + max
+    // tstates seen within the frame. Helps diagnose whether the inner loop
+    // is running unbounded.
+    {
+        static const bool g46b_p58 = std::getenv("JNEXT_G46B_P58") != nullptr;
+        static int g46b_p58_count = 0;
+        if (g46b_p58) {
+            ++g46b_p58_count;
+            if (g46b_p58_count <= 3 || (g46b_p58_count % 200) == 0) {
+                Log::emulator()->info(
+                    "G46B P58 frame_loop entry #{} clock={} frame_end={} fuse_tstates={}",
+                    g46b_p58_count, clock_.get(), frame_end,
+                    static_cast<uint64_t>(*fuse_z80_tstates_ptr()));
+            }
+        }
+    }
+    uint64_t g46b_p58_max_tstates = 0;
+    uint64_t g46b_p58_iter_count = 0;
+    uint64_t g46b_p58_dma_active_count = 0;
     while (clock_.get() < frame_end) {
+        // G46(b) P58 inner-loop trace
+        {
+            static const bool g46b_p58_inner = std::getenv("JNEXT_G46B_P58") != nullptr;
+            if (g46b_p58_inner) {
+                ++g46b_p58_iter_count;
+                if (dma_.is_active()) ++g46b_p58_dma_active_count;
+                uint64_t cur_t = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
+                if (cur_t > g46b_p58_max_tstates) g46b_p58_max_tstates = cur_t;
+                if (g46b_p58_iter_count == 1 || (g46b_p58_iter_count % 200000) == 0) {
+                    Log::emulator()->info(
+                        "G46B P58-inner iter#{} clock={} frame_end={} tstates={} dma_active={} dma_active_count={} pc={:#06x}",
+                        g46b_p58_iter_count, clock_.get(), frame_end,
+                        cur_t, dma_.is_active(),
+                        g46b_p58_dma_active_count,
+                        cpu_.get_registers().PC);
+                }
+            }
+        }
         // Debugger breakpoint check — before executing the next instruction.
         if (debug_state_.active()) {
             // Check if an external trigger (e.g. magic breakpoint) already
