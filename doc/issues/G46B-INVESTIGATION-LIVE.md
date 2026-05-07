@@ -4942,4 +4942,193 @@ Worktrees at session end:
 - `.claude/worktrees/sd-baseline` — detached HEAD on the EOD-12
   state, no commits made there. Can be removed.
 
+## 2026-05-07 22:40 CEST — BREAKTHROUGH: supervisor running user's leftover dump.bas; BASIC sysvars corrupted
+
+Two parallel agents (P62 attribute dumper + bank-1 parser RE) +
+inline P62 extension to dump BASIC sysvars + CH_ADD-pointed memory.
+Three CONFIRMED findings overturn the EOD-14 hypothesis:
+
+### Finding 1 — Welcome menu was NEVER drawn (P62 attribute dump REFUTES "drawn but invisible")
+
+P62 attribute histogram at frames 305, 1000, 2000 — IDENTICAL output:
+```
+G46B P62 frame#1000 attr_hist (top20): $38:768
+```
+Every single one of the 768 ULA attribute cells is `$38` — the
+**standard BASIC default** (paper=7 white, ink=0 black). NOT a
+"paper=ink invisible" pattern; black-on-white text would render
+PERFECTLY visibly if any pixel data existed.
+
+Pixel data: 5 / 6144 non-zero bytes (0.08%). Border = `$07` (white,
+non-bright = mid-gray rendered).
+
+**The "menu" is simply not drawn.** The 22000+ writes from frames
+290-307 went to non-screen RAM (BASIC PROG/sysvars/workspace area
+above $5C00, NOT the screen at $4000-$5AFF).
+
+### Finding 2 — Bank-1 parser is BASIC's INPUT statement (Agent B RE)
+
+`$1FF0-$2003` is the canonical 48K BASIC INPUT-statement parameter
+parser. Single caller in entire 64K ROM: bank-1 `$1AC4`. Parser
+reads chars via `RST $20` which is bank-1 `$0020` = standard
+NEXT-CHAR routine reading from `CH_ADD ($5C5D)`. `$0E2D` is a
+long-call wrapper to bank-2 `$24FB` (expression evaluator).
+`$1F9B` is the variable-name / binary-literal classifier.
+
+The supervisor enters this parser via the canonical 48K BASIC
+INPUT/LET runtime in bank 1 — same code structure as the
+real BASIC ROM, just with bank-flip wrappers on RSTs.
+
+### Finding 3 — PROG contains user's leftover /dump.bas (BYTE-FOR-BYTE)
+
+Extended P62 dumps PROG ($5CCB, 128 bytes):
+```
+00 0A 30 00 EA 20 47 34 36 28 62 29 20 2D 20 4E 52 20
+72 65 67 69 73 74 65 72 73 20 2B 20 73 79 73 76 61 72
+73 20 2B 20 73 6C 6F 74 20 37 20 64 75 6D 70 0D ...
+```
+Decoded: line 10, length 48, REM `G46(b) - NR registers + sysvars
++ slot 7 dump`.
+
+`mtools` extract of `roms/nextzxos-1gb-fat32fix.img`:
+```
+mcopy -i ...@@32256 -n ::/dump.bas /tmp/dump.bas
+xxd -s 0x80 -l 80 /tmp/dump.bas
+00000080: 000a 3000 ea20 4734 3628 6229 202d 204e
+00000090: 5220 7265 6769 7374 6572 7320 2b20 7379
+000000a0: 7376 6172 7320 2b20 736c 6f74 2037 2064
+000000b0: 756d 700d ...
+```
+
+**EXACT byte-for-byte match** with PROG=$5CCB content (after the 128-
+byte PLUS3DOS header is stripped). The supervisor loaded the user's
+diagnostic dump program, originally created during the EOD-3..EOD-6
+CSpect-capture sessions. The file is at `/dump.bas` on the SD card
+root with mtime 2026-05-05 14:58.
+
+### Finding 4 — BASIC sysvars are partially corrupt (STKEND<STKBOT)
+
+P62 sysvars at frame 1000:
+```
+FLAGS=$DC PROG=$5CCB E_LINE=$6055 K_CUR=$6055 CH_ADD=$5F42
+WORKSP=$607A STKBOT=$608B STKEND=$5E06
+```
+
+`FLAGS=$DC` (1101 1100): bit 7=1 → BASIC is in **running mode** (vs
+syntax-check), bit 6=1, bit 4=1, bit 3=1, bit 2=1.
+
+**`STKEND=$5E06 < STKBOT=$608B` is INVALID** — the calculator stack
+must grow upward from STKBOT, so STKEND >= STKBOT in any consistent
+BASIC state. This is partial sysvar corruption.
+
+CH_ADD=$5F42 reads ALL ZEROS for 64 bytes (and 16 bytes before).
+Parser is consuming `$00` characters which fail `CP $2C` (comma)
+and fail `CP $0D` (end-of-line) and fail every other token test —
+the parser loops forever without a terminator.
+
+PROG=$5CCB has only 4.4% non-zero bytes in the first 4096 — the user's
+1-line REM program (~52 bytes) plus a few stragglers, then mostly
+zero. The "tokenised program" the parser SHOULD be parsing was
+probably stored briefly in CH_ADD's vicinity but is now cleared.
+
+### Synthesis — what the supervisor is doing
+
+1. **Boot path** (after our SD/MF preserve fix): supervisor handles
+   TBBLUE.FW handoff → 1st soft reset (PC=$6D31) → resumes in bank 0
+   → 2nd soft reset (PC=$3BF5, bank-3 NextZXOS clean-reboot
+   trampoline at $3BE8) → resumes in `rom_bank=$01` (bank 1).
+2. **Bank-1 entry**: supervisor jumps into BASIC startup. Standard
+   BASIC clears bank-5 RAM ($4000-$7FFF, 16384-byte LDIR observed at
+   frame 290), initialises sysvars (partially — STKEND/STKBOT
+   inversion suggests bug here), and probably loads a default startup
+   BASIC program.
+3. **Loads `/dump.bas`** — **mechanism unclear**. NextZXOS doesn't
+   have a documented root-level autoexec. `/nextzxos/booter.bas`
+   exists but contains different bytes. Possibilities:
+   - NextZXOS has an undocumented "load-last-saved-program" feature
+     that reads a sysvar pointer from the SD into RAM.
+   - The user's dump.bas is being picked up because of a coincidental
+     filename match (e.g. NextZXOS searches for `BOOT.BAS` and finds
+     `dump.bas` via some glob matcher). Unlikely.
+   - The dump.bas content is NOT loaded by NextZXOS at all — instead
+     it's a residual ARTIFACT of a CSpect-saved RAM image somehow
+     replayed by jnext. (Test: temporarily move `/dump.bas` aside
+     and re-run — does BASIC PROG end up empty?)
+4. **BASIC `RUN` invoked** — sets FLAGS bit 7, calls into bank-1
+   INPUT statement runtime at $1A0E (or via long-call from bank 2).
+5. **INPUT parser hangs** at $1FFE/$1FFF reading $00 from CH_ADD —
+   never finds a comma, never finds end-of-line, infinite loop.
+
+### Root-cause hypothesis (for next session)
+
+The most likely chain:
+
+(a) **NextZXOS' standard BASIC startup** (whether or not it loads
+dump.bas) initialises sysvars to a state we don't fully replicate —
+specifically the STKBOT/STKEND fields. In jnext the inversion
+STKEND<STKBOT means our memory layout / Mmu paging puts the BASIC
+workspace in a different physical bank than CSpect's, OR the
+supervisor's sysvar-init code skips a step that depends on a register
+value we haven't matched.
+
+(b) **CH_ADD pointing to zero RAM** is a SYMPTOM: with the corrupt
+STKEND/STKBOT bracket, BASIC's "next-char-pointer" calculation went
+wrong and points into unused memory.
+
+(c) The fix is most likely upstream — find the supervisor code that
+sets STKEND/STKBOT and figure out why our state diverges.
+
+### Frames where supervisor wrote BASIC PROG content
+
+P61 caught 22000+ writes to bank-5 RAM (pages 0x0A + 0x0B) at frames
+290-307. Most of those went to PROG/sysvars/E_LINE — not to the
+screen. The supervisor IS doing significant memory work, just not
+painting glyphs.
+
+### Next-session priorities (ordered)
+
+1. **Test load-of-dump.bas hypothesis (5 min)**: rename
+   `roms/nextzxos-1gb-fat32fix.img` aside, mount via mtools, rename
+   `/dump.bas` to `/dump.bak` in a copy, mount the copy as SD,
+   re-run with P62, observe whether PROG=$5CCB is now empty. If yes:
+   confirms NextZXOS deliberately loads dump.bas. If no: PROG=
+   $5CCB content has a different origin and we need to find it.
+
+2. **Find STKEND/STKBOT init code (M)**: search bank 0/1/2 of
+   enNextZX.rom for `LD ($5C65),HL` (STKEND init = `22 65 5C`) and
+   `LD ($5C63),HL` (STKBOT init). Decode the routine that sets these.
+   Compare with what CSpect runs (if a trace is available).
+
+3. **Decode bank-2 $24FB (long-call target from $0E2D) (S)**: this
+   is the expression evaluator the parser invokes. If it's stuck
+   in an infinite recursion or expression-stack underflow, that's
+   another angle.
+
+4. **CSpect side-by-side trace (L)**: compare CSpect's PC trajectory
+   in the same SD-image boot. If CSpect ALSO ends up in bank-1
+   $1FFE/$1FFF, the loop is normal idle behaviour and the welcome
+   menu is drawn LATER (and we have a different bug). If CSpect
+   doesn't, jnext has a stuck loop.
+
+5. **Cleanup TEMP env-var probes once G46(b) closes** (P55..P62,
+   FORCE_IFF1, NR_CSPECT, INJECT, PATCH, WATCH).
+
+### Branch state
+
+`g46b-investigation` HEAD = `e4ad286` (P62 extension committed
+2026-05-07 22:40). Commits this session beyond EOD-14:
+
+```
+e4ad286 diag(g46b): extend JNEXT_G46B_P62 probe — dump BASIC sysvars + PROG/CH_ADD/E_LINE/WORKSP
+a0f15fb diag(g46b): JNEXT_G46B_P62 probe — dump ULA attribute + pixel state at key frames
+3ab98a2 doc(g46b): post-2nd-reset 3-PC loop decoded
+18e2a1c diag(g46b): JNEXT_G46B_P61 probe — count screen-bank writes per frame
+4508cf8 diag(g46b): JNEXT_G46B_P60 probe — sample CPU PC every 200k instructions
+2b3a9e9 diag(g46b): JNEXT_G46B_P59 probe — log CPU PC at SD CMD0/12/17/18 entry
+aa53107 fix(g46b): preserve SD/Multiface state across soft reset
+```
+
+Tests baseline (post-fix, post-probes): mmu_test 186/164/0/22,
+sdcard_test 15/15/0/0 — both unchanged from EOD-12.
+
 
