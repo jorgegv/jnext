@@ -4547,3 +4547,399 @@ page mapping).
    suggests bitmap data is wrong. Slot-7 page $0F has all-zero bytes
    per P41 SLOT7-ENTER probe — needs to contain font data.
 
+
+
+## 2026-05-08 18:15 CEST — ROOT CAUSE FOUND: clock_ reset mid-frame loop
+
+**THE ACTUAL BUG.** P55 transition probe + P56/P57 statistics traced
+the stuck IFF1=0 to a much deeper bug: `Emulator::soft_reset()` →
+`init(preserve_memory=true)` was unconditionally calling
+`clock_.reset()`, `scheduler_.reset()`, and `frame_cycle_=0` —
+**including when called mid-frame from the supervisor's NR 0x02 = 0x01
+soft-reset NextReg write handler**.
+
+### Evidence chain
+
+P55 (iff1 1→0 transition probe): only 200 hits in entire run, all at
+the supervisor's bank-flip wrapper $5B0A (DI). After ~10M tstates,
+hit#202/#203 at PC=$0000 (DI; JP $006A — BASIC reset vector). No
+post-wrapper transitions. iff1 stayed 0 forever.
+
+P56 (int-pending stats): `pend=1248` and `pulse_exp=271` FROZEN,
+`request_at=2346` FROZEN, despite tstates climbing past 150M.
+Translation: 271 INT pulses fired in the first ~2M tstates (28 frames),
+then NEVER AGAIN. INT scheduler stopped firing.
+
+P57 (run_frame entry probe): `pre_reset_tstates ≈ 567264` per frame
+entry — **frames are progressing normally and tstates IS being reset
+each frame**. Contradicting P55's tstates=10M values.
+
+P58 (frame loop inner): caught the smoking gun — at iter#10000000 of
+ONE run_frame call, `clock=124M frame_end=153M tstates=124M`. **A
+single run_frame() call ran for 124M tstates without exiting.** The
+loop's `while (clock_.get() < frame_end)` was running with clock_
+freshly reset to 0 but `frame_end` still set to the pre-reset value
+(~113M). Loop spun for ~28M iterations (rate-limited by clock advance
+per instruction) before clock_ caught up to the stale frame_end.
+
+### Root cause
+
+`Emulator::init(config, preserve_memory)` at `src/core/emulator.cpp:58`
+was calling `clock_.reset()` unconditionally. Per VHDL, the master PLL
+clock is free-running and is NOT in any reset domain — `i_RESET` /
+`reset_soft` only reset FF-based subsystems. Resetting `cycle_=0`
+mid-frame (while run_frame()'s local `frame_end` was already set)
+caused:
+
+1. The current run_frame() to spin for ~28M iterations.
+2. The scheduler queue to be cleared, dropping the supervisor's
+   pending ULA INT.
+3. No new INTs scheduled until the (extremely long) current frame
+   exited.
+4. iff1=0 remained because EI never fired in ISRs that never ran.
+
+### Fix (commit pending)
+
+`src/core/emulator.cpp:58-83` — gate `clock_.reset()`,
+`scheduler_.reset()`, `frame_cycle_=0`, `frame_num_=0` on
+`!preserve_memory`. Preserves PLL clock continuity across soft reset.
+
+### Verification
+
+After the fix:
+- mmu_test 164/186 PASS / 0 FAIL (unchanged baseline).
+- sdcard_test 15/15 PASS (unchanged baseline).
+- TBBlue logo + "Press SPACEBAR" still renders correctly (frame 100/200).
+- P55 now shows actual INT acceptances at PC=$0038 (IM 1 vector) post-supervisor:
+  e.g. hit#0 prev_pc=$1F44 → now_pc=$0038 (INT acked from BASIC wait loop)
+  hit#199 prev_pc=$5693 → now_pc=$0038 (INT acked from supervisor).
+- Multiple wrapper bursts (200+ DI/EI cycles) followed by INT acks →
+  followed by another wrapper burst → INT ack — supervisor is now
+  cycling through its normal IM 1 service path.
+- Post-fix, the screen still shows solid gray at frame 1500, indicating
+  there's a SECOND issue past this (welcome menu drawing). But IFF1=0
+  / INT scheduler stall is RESOLVED.
+
+## 2026-05-07 22:00 CEST — SD re-init storm FIXED: soft-reset preserves SD/Multiface state
+
+**Follow-up to EOD-12.** EOD-12 gated `clock_/scheduler_/frame_cycle_`
+on `!preserve_memory`, but the same audit missed three sibling resets
+that fire on every NR 0x02 ← 0x01 soft reset and were the actual cause
+of the post-EOD-12 SD re-init storm:
+
+1. `sd_card_.reset()` (`src/core/emulator.cpp:146`) — clears
+   `initialized_=false`, dropping the SD card's post-CMD0/ACMD41/CMD58
+   handshake state.
+2. `sd_card_.mount(...)` (`src/core/emulator.cpp:3889-3896`) — re-opens
+   the SD image, which itself runs the `mount()`-side reset and zaps
+   `initialized_` again.
+3. `multiface_.reset(/*hard=*/true)` (`src/core/emulator.cpp:132`) —
+   passes `hard=true` unconditionally, wiping MF SRAM on every soft
+   reset. Should be `hard=!preserve_memory`.
+
+Bonus VHDL-faithfulness fix: the DivMMC + Multiface SD-extraction block
+(`src/core/emulator.cpp:3707-3748`) was also unguarded; flash-baked ROMs
+survive soft reset on real hardware.
+
+### Diagnostic chain (three parallel agents)
+
+- **Agent A (baseline)** built gui-release on the EOD-12 worktree, ran
+  the canonical 30 s headless smoke test with `--log-level sdcard=trace`,
+  confirmed the 102×CMD0 / 116×CMD12 / 181×CMD18 EOD-12 numbers, then
+  noticed the smoking gun in the log:
+
+  ```
+  [emulator] Soft reset triggered via NextREG 0x02 (0x01) PC=0x6d31 ...
+  [sdcard]  SD image unmounted
+  [sdcard]  mounted SD image: …
+  [divmmc]  loaded ROM from byte buffer (8192 bytes)
+  [multiface] loaded Multiface ROM from byte buffer (8192 bytes)
+  ```
+
+  i.e. the soft reset was tearing down and rebuilding all the
+  flash-equivalent state. Pinpointed `emulator.cpp:3890-3896` as the
+  unguarded mount call.
+
+- **Agent B (bank-2 RE)** disassembled enNextZX.rom bank 2 at
+  `$1700-$1FFF` with `z88dk-dis -mz80n`. Mapped:
+  - `$19DD-$1A66` = full SD-init sequence (CMD0, CMD8, ACMD41, CMD58,
+    CMD16) — invoked from any time the supervisor's IDE driver decides
+    the card needs re-init.
+  - `$1925-$1932` = `spi_wait_idle_FF` busy poll.
+  - `$196D-$1979` = CMD12 STOP_TRANSMISSION emitter.
+  - `$1A8E-$1AEF` = `ide_init_drive` — the high-level entry that calls
+    init then enumerates 16 partition probes × 2 passes via
+    hookcode `RST 8 / .DB $00 $8A` (= IDE_BANK system call).
+  - Magic constants: CMD8 R7 echo expects `$01 $AA`; data-block
+    start token expects `$FE`; init result returned in `A`.
+
+- **Agent C (PC probe)** added `JNEXT_G46B_P59` env-gated probe (callback
+  pattern) that logs Z80 PC at every CMD0/CMD12/CMD17/CMD18 entry.
+  Branch `g46b-sd-probe` (commit `c1dcaa7`, not yet merged into
+  `g46b-investigation`). Probe identified:
+  - `$059B` = DivMMC firmware (boot-time, one-shot).
+  - `$7876` = NextZXOS bank-loaded code (initial reads, gives up).
+  - `$18FB` = **the loop driver**, exclusively issuing CMD12→CMD0
+    pairs in the post-handoff storm. Sits 42 bytes before the known
+    bank-2 SD-init cluster `$1925`/`$196D`/`$1972`.
+
+  All three agents converged on the same root cause without coordination.
+
+### Fix (commit pending on g46b-investigation)
+
+```cpp
+// src/core/emulator.cpp:131-138
+divmmc_.reset();
+multiface_.reset(/*hard=*/!preserve_memory);   // was: /*hard=*/true
+
+// src/core/emulator.cpp:146-156
+if (!preserve_memory) {
+    sd_card_.reset();
+}
+
+// src/core/emulator.cpp:3707
+if (!preserve_memory && !cfg.sd_card_image.empty()) {  // gate DivMMC/MF SD-extract
+
+// src/core/emulator.cpp:3889-3896
+if (!preserve_memory && !cfg.sd_card_image.empty()) {  // gate sd_card_.mount
+    if (sd_card_.mount(...)) { ... }
+}
+```
+
+### Verification (post-fix, 75 s wall headless smoke @ frame 3000)
+
+| counter | EOD-12 baseline | post-fix | delta |
+|---|---|---|---|
+| CMD0 GO_IDLE | 102 | 66 | -36 (-35%) |
+| CMD8 SEND_IF_COND | 102 | 66 | -36 |
+| CMD55 + ACMD41 | 102 | 65 | -37 |
+| CMD58 READ_OCR | 102 | 65 | -37 |
+| CMD9 SEND_CSD | 100 | 63 | -37 |
+| CMD12 STOP_TRANSMISSION | 116 | 80 | -36 |
+| CMD17 READ_SINGLE_BLOCK | 100 | 100 | 0 |
+| CMD18 READ_MULTIPLE_BLOCK | 13 | 13 | 0 |
+| **SD unmount events** | (≥1) | **0** | **eliminated** |
+| **SD remount events** | (≥1) | **0** | **eliminated** |
+| Soft resets seen | 1 | 2 | +1 (NEW) |
+
+The supervisor now triggers a **second** soft reset at PC=$3BF5 with
+rom_bank=$03 (BASIC ROM region) — visible only after the fix because
+the 1st-reset SD storm previously prevented the supervisor from getting
+that far. After the 2nd reset the SD activity stops entirely, suggesting
+the supervisor has handed off (or attempted to hand off) to BASIC.
+
+### Tests baseline (post-fix)
+
+- `mmu_test`: 186 total / 164 PASS / 0 FAIL / 22 SKIP — unchanged.
+- `sdcard_test`: 15 / 15 / 0 / 0 — unchanged.
+
+### Visible state at frame 3000 (≈ 60 s emulated)
+
+Screen still solid gray with a few stray pixels (3-4 single-pixel
+black marks, 1 short horizontal line). Same as frame 1500 — supervisor
+is no longer painting the screen. NOT a stuck SD loop, but NOT a
+welcome menu either. **Third blocker is now in scope:** what stops the
+supervisor from drawing the welcome menu after the 2nd soft reset.
+
+### Next-session priorities
+
+1. **3rd blocker investigation**: trace what happens between the 2nd
+   soft reset (PC=$3BF5 rom_bank=$03) and the silent gray screen at
+   f3000. Specifically:
+   - Is the supervisor in an HALT loop? IM 1 ack loop? infinite tight
+     loop? PC-trace gating on rom_bank and post-2nd-reset cycle range.
+   - Is the screen-paint code (which writes to physical pages 0x0A/0x0B
+     for ULA + 0x?? for L2) being called at all? Add a write-watcher
+     on screen RAM ($4000-$5AFF in classic ULA mode) and log per-frame
+     write counts.
+   - Why does the supervisor issue a SECOND soft reset at PC=$3BF5?
+     What is the bank-3 code at that PC? (Bank 3 of enNextZX.rom = 48K
+     BASIC ROM, so this might be the supervisor jumping to a BASIC
+     subroutine that itself trips a soft reset trap.)
+
+2. **Verify the 33% CMD count reduction is acceptable**: the remaining
+   65 CMD0 cycles aren't a loop — they're spread across the supervisor's
+   normal IDE-driver re-init flow (each soft reset triggers one full
+   re-init via `$19DD`, plus partition-table enumeration via
+   `$1A8E::ide_init_drive`'s 16 × 2 partition scan). This is supervisor
+   software behaviour, not emulator misbehaviour.
+
+3. **Optional cleanup**: merge the JNEXT_G46B_P59 PC-probe from
+   `g46b-sd-probe` into the investigation branch as a long-lived
+   diagnostic.
+
+## 2026-05-07 22:15 CEST — Post-2nd-reset 3-PC loop decoded; supervisor in bank 1 parser/wait-for-INT
+
+After the SD/MF preserve-on-soft-reset fix lands at `aa53107` (and the
+P59 / P60 / P61 probes at `2b3a9e9` / `4508cf8` / `18e2a1c`), the
+supervisor's post-2nd-reset behaviour becomes traceable.
+
+### P60 sampler results (2nd soft reset → frame 3000)
+
+800 samples collected (P60 every 200 000 instructions ≈ every 6 ms
+emulated). Distribution dominated by 3 PCs:
+
+| pc | rom_bank | mmu7 | iff1 | im | halted | samples | % |
+|---|---|---|---|---|---|---|---|
+| `$0060` | 0x01 | 0x01 | 1 | 1 | 0 | 268 | 33.5 % |
+| `$1FFE` | 0x01 | 0x01 | 1 | 1 | 0 | 267 | 33.4 % |
+| `$1FFF` | 0x01 | 0x01 | 1 | 1 | 0 | 258 | 32.3 % |
+| (other) | (transient) | — | — | — | — | 7 | 0.9 % |
+
+NOT halted, IM 1 enabled, INTs being acked. **rom_bank=$01 sustained
+— bank 1 of enNextZX.rom is paged in for the entire post-2nd-reset
+window.** Per memory `project_g46b_2026_05_06_eod6_bank_topology_decoded.md`
+the supervisor previously NEVER reached rom_bank=$01 sustained execution.
+**The fix unlocks bank-1 supervisor execution for the first time.**
+
+### Decode of the 3 stuck PCs (bank 1 of enNextZX.rom)
+
+PC=`$0060` — file offset `0x4060`:
+
+```
+$0060: E1   POP HL          ; standard IM 1 ISR exit
+$0061: F1   POP AF
+$0062: FB   EI
+$0063: C9   RET              ; return from ISR
+```
+
+The IM 1 ISR entry chain (PC=$0038 → $0046):
+
+```
+$0038: F5            PUSH AF
+$0039: E5            PUSH HL
+$003A: 26 00         LD H,$00
+$003C: 3E 80         LD A,$80
+$003E: C3 46 00      JP $0046    ; trampoline to ISR body
+$0046: D3 E3         OUT ($E3),A ; A=$80 → DivMMC config: MAPRAM=1,
+                                  ; CONMEM=0, bank=0
+... (ISR body, eventually falls through to $0060 exit)
+```
+
+PC=`$1FFE`/`$1FFF` — file offset `0x5FFE`/`0x5FFF`. Surrounding
+disassembly:
+
+```
+$1FF0: 2C            INC L
+$1FF1: 28 0B         JR Z,$1FFE          ; if L wraps to 0
+$1FF3: CD 9B 1F      CALL $1F9B
+$1FF6: 30 03         JR NC,$1FFB         ; if NC, skip RST
+$1FF8: E7            RST $20
+$1FF9: 18 03         JR  $1FFE           ; unconditional fall-through
+$1FFB: CD 2D 0E      CALL $0E2D
+$1FFE: D1            POP DE              ; ← P60 hit (267×)
+$1FFF: FE 2C         CP  $2C             ; ← P60 hit (258×); $2C = ',' ASCII
+$2001: C0            RET NZ              ; not a comma → return to caller
+$2002: E7            RST $20             ; comma path → RST $20
+```
+
+**This is a parser routine.** `CP $2C` (compare with `,` ASCII) +
+`RET NZ` is the canonical "is the current char a comma?" check used
+in argument-list / config-file parsers. The supervisor is iterating
+over some text input — likely the loaded config / menu definition —
+and dispatching on commas via RST $20 (which is bank 0's hookcode
+sub-dispatch per EOD-9).
+
+### P61 screen-write results
+
+Frame-by-frame writes to physical SRAM pages 0x0A/0x0B (classic ULA
+RAM = `$4000-$5AFF` + bank-5 high half) and 0x2A/0x2B (alt views):
+
+| frame | classic ULA writes | alt-view writes | comment |
+|---|---|---|---|
+| 287 | … | … | 2nd soft reset |
+| 290 | **16388** | 0 | Full bank-5 wipe — supervisor LDIR-clears |
+| 294 | 312 | 19 | Attribute work begins |
+| 295 | 1430 | 0 |  |
+| 296 | 1509 | 0 |  |
+| 297 | 1509 | 0 | Heavy attribute writes (~5500 over 5 frames) |
+| 298 | 1146 | 0 |  |
+| 305 | 14215 | 0 | Second clear / re-paint |
+| 306 | 78 | 0 |  |
+| 307 | 2 | 0 |  |
+| **308 onwards** | **0** | **0** | **Silent for 2664+ frames** |
+
+**Translation**: the supervisor cleared all of bank 5 ($4000-$7FFF =
+16384 bytes + a 4-byte tail), then wrote ~5500 attribute / pixel
+bytes across frames 294-298, then did another large-clear at frame
+305, and then went silent. It IS drawing — just to attributes that
+turn out invisible (probably paper=ink or paper=7 ink=7 → no contrast)
+in the rendered output. The frame 1500 / 3000 screenshots show solid
+mid-gray with 4-5 isolated stray pixels: consistent with a screen
+paint that uses paper=7 ink=7 (or similar uniform attributes) for
+99 % of cells, with only a handful of cells diverging — likely
+position cursors / borders.
+
+### Synthesis — what the supervisor is doing
+
+1. **Frame 287**: 2nd soft reset (PC=$3BF5, rom_bank=$03 BASIC clean-
+   reboot trampoline) — supervisor's deliberate path to re-enter
+   the firmware-handoff state. The trampoline is at bank-3 $0000:
+   `DI; XOR A; LD BC,$243B; JP $3BE8` → `LD A,$02; OUT (C),A; INC B;
+   IN A,(C); AND $80; OR $01; OUT (C),A` (NR 0x02 ← bit-7-preserved |
+   $01 = soft reset, bit 7 = block hard-reset).
+2. **Frame 290**: post-reset, rom_bank flips to $01 (= bank 1, the
+   supervisor's "main" code per old EOD-6 hypothesis). Supervisor
+   issues a 16384-byte LDIR clear of bank-5 RAM ($4000-$7FFF).
+3. **Frames 294-307**: supervisor draws something — ~5500 attribute
+   writes + a 14215-write second clear. Probably the welcome menu
+   layout. With wrong attributes the result renders as featureless
+   gray.
+4. **Frame 308+**: supervisor enters its idle wait-for-input loop
+   at parser tail $1FFE/$1FFF. Each ULA INT (50 Hz) is acked through
+   the IM 1 ISR ($0038 → $0046 → … → $0060 exit). Between INTs the
+   loop runs through the parser body. **No further screen writes,
+   no further SD activity.**
+
+### Open questions for next session
+
+1. **What is `RST $20` in bank 1?** `$0020` is conventionally the
+   `KEY_INT` test address in 48K BASIC, but bank 1 ≠ bank 3 here.
+   Bank-1 `RST $20` (`$0020`) decode is needed to understand the
+   parser's branch behaviour (commas dispatch via this RST).
+2. **What is at `$0E2D` and `$1F9B`?** Both are CALLed in the
+   parser. `$0E2D` is presumably a per-token handler; `$1F9B` is
+   the parser core or string-equality test. Decoding either should
+   reveal the parser's data source — config.ini? menu.def? hard-coded
+   string?
+3. **Is the menu actually being drawn but invisible?** Quick test:
+   dump physical SRAM page 0x0A bytes `$1800-$1AFF` (= attribute area
+   `$5800-$5AFF`) at frame 1000. If most attributes are `$77` (bright
+   white on white) or similar, that confirms the "drawn but invisible"
+   theory and the bug is in attribute selection. Sample with a
+   per-frame snapshot via ram_.page_ptr(0x0A) + std::memcpy + a probe
+   that dumps every Nth frame.
+4. **Why does the parser loop look idle?** If the supervisor is
+   waiting for keyboard input, our headless mode never delivers any.
+   Per `feedback_g46b_no_keypress.md` the user has never needed a
+   keypress historically; either the loop is genuinely stuck OR
+   it's polling something other than keyboard (e.g. a real-time
+   clock, or a queue populated by another routine).
+5. **Compare with CSpect**: dump CSpect's PC at the equivalent point
+   in its boot. If CSpect spends time at the same PCs $1FFE/$1FFF,
+   the loop is normal NextZXOS behaviour; if not, jnext has a stuck
+   loop CSpect doesn't.
+
+### Branch state at session end
+
+`g46b-investigation` HEAD = `18e2a1c`. Commits added this session:
+
+```
+18e2a1c diag(g46b): JNEXT_G46B_P61 probe — count screen-bank writes per frame
+4508cf8 diag(g46b): JNEXT_G46B_P60 probe — sample CPU PC every 200k instructions
+2b3a9e9 diag(g46b): JNEXT_G46B_P59 probe — log CPU PC at SD CMD0/12/17/18 entry
+aa53107 fix(g46b): preserve SD/Multiface state across soft reset
+463cd0e fix(g46b): preserve clock_/scheduler_/frame_cycle_ on soft reset (EOD-12, prior)
+```
+
+Tests baseline (post-fix, post-probes):
+- `mmu_test`: 186 / 164 PASS / 0 FAIL / 22 SKIP — unchanged.
+- `sdcard_test`: 15 / 15 PASS / 0 FAIL / 0 SKIP — unchanged.
+
+Worktrees at session end:
+- `.claude/worktrees/sd-probe` — branch `g46b-sd-probe`, has same
+  commits as `g46b-investigation`. Can be removed.
+- `.claude/worktrees/sd-baseline` — detached HEAD on the EOD-12
+  state, no commits made there. Can be removed.
+
+
