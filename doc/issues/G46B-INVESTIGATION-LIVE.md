@@ -5131,4 +5131,156 @@ aa53107 fix(g46b): preserve SD/Multiface state across soft reset
 Tests baseline (post-fix, post-probes): mmu_test 186/164/0/22,
 sdcard_test 15/15/0/0 — both unchanged from EOD-12.
 
+## 2026-05-07 22:55 CEST — EOD-14c: P42 band-aid REMOVED, real bug exposed
+
+### Root cause of the EOD-14b "running user's leftover dump.bas" finding
+
+The PROG=$5CCB content was NOT loaded by NextZXOS from /dump.bas
+(verified by renaming /dump.bas to /DUMP.BAK on a copy of the SD
+image — the bytes still appeared in PROG identically). Instead, it
+came from a leftover **TEMP DIAGNOSTIC BAND-AID** at
+`src/cpu/z80_cpu.cpp:1417-1477`:
+
+```cpp
+// G46(b) Probe 42 (TEMP, 2026-05-09): COMPREHENSIVE DIAGNOSTIC BAND-AID
+// — at EVERY PC=$5B20 entry (bank-flip wrapper RET), reload CSpect's
+// sysvars + screen + slot7 captures. ... Capped at 200 hits to bound
+// runtime work.
+```
+
+This was introduced in EOD-5 (2026-05-09) as a hypothesis test and
+**never removed**. It was NOT gated on `--bypass-tbblue-fw` — fired
+unconditionally on every `pc == 0x5B20` until 200 hits.
+
+The band-aid's `sysvars.raw` byte 0x1CB onward contains the tokenised
+"G46(b) - NR registers..." REM line — captured from CSpect at a moment
+when the user had `dump.bas` loaded as the BASIC program. Every time
+jnext hit $5B20 (bank-flip wrapper RET in slot-7 RAM at $5B00..$5B20),
+the band-aid pasted those bytes into RAM at $5B00..$5CFF. The
+supervisor then "ran" the captured BASIC state.
+
+Per `[feedback_vhdl_faithful_only.md]` STRICT 2026-05-04 — band-aids
+must be removed in favour of VHDL-faithful fixes. **Removed in commit
+`8c198fe` (2026-05-07 22:55).**
+
+### Post-removal behaviour
+
+P62 dump at frame 305 (post-band-aid-removal, fresh boot, no bypass):
+
+```
+attr_hist (top20): $00:736 $5B:4 $01:2 $67:2 $32:2 $5C:2 ...
+attr_row[00]: 00 00 00 00 ... (all rows 0-22 = $00)
+attr_row[23]: F5 C5 01 FD 7F 3A 5C 5B EE 10 F3 32 5C 5B ED 79
+              01 FD 1F 3A 67 5B EE 04 32 67 5B ED 79 FB C1 F1
+pixel_nonzero=0/6144 (0.00%)
+border=$07
+sysvars: FLAGS=$00 PROG=$0000 E_LINE=$0000 K_CUR=$0000 CH_ADD=$0000
+         WORKSP=$0000 STKBOT=$0000 STKEND=$0000
+PROG[$0000..+4095] nonzero=3891/4096 (95.0%)
+```
+
+Critical observations:
+
+- **Screen is BLACK** (attribute=$00 = black paper, black ink, no
+  bright = pure black). Border $07 (white) renders as mid-gray. So
+  the screenshot has BLACK SCREEN AREA + GRAY BORDER — distinct from
+  the previous all-gray-with-stray-pixels.
+- **Sysvars are all zeros** (FLAGS=$00, PROG=$0000, etc.) — supervisor
+  never initialised BASIC sysvars. Without the band-aid forcing them,
+  no sysvar init code path is reached.
+- **Attribute row 23 (last row, $5AE0..$5AFF) contains executable
+  Z80 code** — decodes as the bank-flip wrapper:
+  ```
+  PUSH AF; PUSH BC; LD BC,$7FFD; LD A,($5B5C); XOR $10; DI;
+  LD ($5B5C),A; OUT (C),A; LD BC,$1FFD; LD A,($5B67); XOR $04;
+  LD ($5B67),A; OUT (C),A; EI; POP BC; POP AF
+  ```
+  This is canonically at $5B00 (per memory `project_g46b_2026_05_06_p29_p30_breakthrough.md`).
+  Why is it appearing 32 bytes earlier at $5AE0? Possible
+  off-by-one in the LDIR target the supervisor uses, or the bytes
+  are at $5B00 in a different physical bank we're not viewing.
+- **Boot stuck in NR-init loop**: last 20 log lines show repeated
+  ```
+  CPU speed changed to 28 MHz (NextREG 0x07=0x03)
+  NextREG 0x03 ← 0xb0  (config_mode=0)
+  ```
+  every ~120 ms. Supervisor is re-running the early NR-init code
+  in a tight loop.
+- **1 soft reset** (PC=$6D31, rom_bank=$00) — was 2 with the band-aid.
+  The supervisor doesn't reach the bank-3 clean-reboot trampoline
+  without the captured RAM state to drive it there.
+
+### What the band-aid was hiding
+
+With the band-aid:
+- CSpect-captured BASIC state present → supervisor entered BASIC
+  → ran "REM dump.bas" line → ended in INPUT-statement parser hang.
+  THIS LOOKED LIKE FORWARD PROGRESS but was running on FAKE STATE.
+
+Without the band-aid (true behaviour):
+- Supervisor never properly sets up BASIC sysvars.
+- Loops in early NR-init.
+- Stuck SOON AFTER the 1st soft reset.
+
+This means:
+- **All previous "boot reaches X" claims since EOD-5** that didn't
+  explicitly note the band-aid are SUSPECT.
+- The supervisor's NextZXOS RAM-init code path is BROKEN somewhere
+  between the 1st soft reset (PC=$6D31) and the BASIC sysvar setup.
+
+### Branch state
+
+`g46b-investigation` HEAD = `8c198fe` (P42 band-aid removed).
+
+Commits since EOD-12:
+```
+8c198fe fix(g46b): REMOVE P42 band-aid — was loading CSpect captures every \$5B20 hit
+7cf13ba doc(g46b): EOD-14b — supervisor reaches BASIC interpreter, runs user's leftover dump.bas
+e4ad286 diag(g46b): extend JNEXT_G46B_P62 probe — dump BASIC sysvars + PROG/CH_ADD/E_LINE/WORKSP
+a0f15fb diag(g46b): JNEXT_G46B_P62 probe — dump ULA attribute + pixel state at key frames
+3ab98a2 doc(g46b): post-2nd-reset 3-PC loop decoded
+18e2a1c diag(g46b): JNEXT_G46B_P61 probe — count screen-bank writes per frame
+4508cf8 diag(g46b): JNEXT_G46B_P60 probe — sample CPU PC every 200k instructions
+2b3a9e9 diag(g46b): JNEXT_G46B_P59 probe — log CPU PC at SD CMD0/12/17/18 entry
+aa53107 fix(g46b): preserve SD/Multiface state across soft reset
+463cd0e fix(g46b): preserve clock_/scheduler_/frame_cycle_ on soft reset (EOD-12)
+```
+
+Tests: mmu_test 186/164/0/22, sdcard_test 15/15/0/0 — unchanged.
+
+### Next-session priorities (revised post-EOD-14c)
+
+1. **Audit for OTHER unconditional band-aids**. Grep for similar
+   patterns: `fopen.*cspect-captures`, `BAND-AID`, `pre-load.*at every`
+   in src/. Specifically check for:
+   - z80_cpu.cpp Probes P29/P30/P40/P41 — any of those reloading state?
+   - emulator.cpp pre-load blocks not gated on bypass.
+   The EOD-12 / EOD-14a fixes are GENUINE VHDL-faithful fixes (gated
+   on `!preserve_memory`). They stand. But anything firing at runtime
+   based on PC value is suspicious.
+
+2. **Trace the NR-init loop**. Set `JNEXT_G46B_P60=1` and capture
+   the PC trajectory after the 1st soft reset. Identify the loop
+   body (the code that keeps re-writing NR_07 / NR_03). Decode it.
+
+3. **Find the supervisor's BASIC sysvar init code**. On real hardware
+   NextZXOS supervisor must initialise BASIC sysvars at some point.
+   Search bank 0/1/2 of enNextZX.rom for `LD HL,$5C3B` (FLAGS init),
+   `LD HL,$5CCB` (PROG init), or large LDIRs writing to the $5C00
+   area. Identify what triggers the init — is it called from
+   tbblue.fw post-handoff, or from the supervisor's bank-3
+   trampoline path?
+
+4. **Compare with CSpect** (still recommended). Run the same SD
+   image in CSpect with PC trace from boot to welcome menu. If
+   CSpect doesn't have the NR-init loop, jnext has a bug in NR_07 /
+   NR_03 / clock that traps execution. If CSpect ALSO loops here
+   briefly, the loop is a legitimate "wait" and the bug is downstream.
+
+5. **Consider re-introducing the SD-preserve assertion test**. EOD-9
+   tried "SD-preserve on soft reset" and it caused stalls — that was
+   PRE-EOD-12 fix. With clock + SD/MF now preserved, the SD-preserve
+   experiment may now succeed. Worth retesting once NR-init loop is
+   resolved.
+
 
