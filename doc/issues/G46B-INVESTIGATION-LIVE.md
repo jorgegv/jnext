@@ -6064,3 +6064,105 @@ sustained state during alt-rom dispatch (as VHDL intends).
 4. **Cleanup probes after G46(b) closure**: P55..P65 + FORCE_IFF1
    etc. should all go.
 
+## 2026-05-08 11:25 CEST — EOD-15 wave-3 reviewer report
+
+Independent reviewer agent (per `feedback_never_self_review.md`)
+audited Divergence A fix on branch `g46b-divergence-a-fix`
+HEAD `9b9fb2c`.
+
+### VHDL faithfulness
+
+Cross-checked `zxnext.vhd:2981-3008` (sram_rom selector),
+`zxnext.vhd:3772` (port_1ffd_rom composition), and
+`zxnext.vhd:5741-5757` (machine-type decoder) against jnext
+`current_sram_rom()` at `mmu.h:859-878`.
+
+**Bit-by-bit table for the four wrapper pivot scenarios in Next mode:**
+
+| port_7FFD | port_1FFD | VHDL Next "else" branch | jnext ZXN_ISSUE2 | Match |
+|-----------|-----------|--------------------------|------------------|-------|
+| $00 | $00 | 0 | 0 | YES |
+| $10 | $00 | 1 | 1 | YES |
+| $00 | $04 | 0 | 0 | YES |
+| $10 | $04 | 1 | 1 | YES |
+
+48K mode + +3 mode + altrom-lock overrides all match. **VHDL-faithful
+for the scenarios this fix addresses.**
+
+Critical structural confirmation: VHDL has only THREE branches
+(`machine_type_48`, `machine_type_p3`, "else") — `machine_type_128`
+falls through to "else", same as Next/Pentagon. jnext's
+`current_sram_rom()` correctly groups ZX128K and ZXN_ISSUE2 in the
+same `default` arm.
+
+### Caller analysis
+
+All callers of `apply_legacy_rom_slots_` and `map_plus3_bank` verified:
+- `apply_legacy_paging_` — unchanged, calls both halves.
+- `write_nr_8e` — modifies port_7ffd_/port_1ffd_ before call;
+  `current_sram_rom()` reads post-update state. Correct.
+- `map_128k_bank` / `write_port_dffd` / `write_port_eff7` /
+  `write_nr_8f` — all unchanged, invoke `apply_legacy_paging_`.
+- $1FFD port-out handler — invokes `map_plus3_bank` (now delegating).
+
+**No caller broken.**
+
+### Tests + reproducibility
+
+Independent rerun:
+- mmu_test 186/164/0/22 — matches baseline.
+- sdcard_test 15/15 — matches baseline.
+- Headless smoke (4th run): 1 soft reset, 2 NR_07 writes, 5 NR_03
+  writes, screenshot md5 `dea737c7e5587d07f6cf4f5cd1f210d3` —
+  REPRODUCIBLE across all 4 runs (3 implementor + 1 reviewer).
+
+### Issues found by reviewer
+
+**CRITICAL:** none.
+
+**MAJOR — coverage gap (per CLAUDE.md project rule):** No regression
+test for the fixed bug. Should add Cat5/Cat11 mmu_test cases asserting
+`get_effective_page(0)` post-`map_plus3_bank` for all 4 MachineType
+values × 4 port pivots (16 scenarios).
+
+**MAJOR — Divergence C (pre-existing, untouched by fix):** `map_plus3_bank`
+non-special branch (now delegating to `apply_legacy_rom_slots_`)
+still doesn't refresh slots 6/7 RAM, while VHDL `:4677-4680` would
+clobber any NR-mmu-set values back to legacy. Practical impact
+limited (port_7ffd_bank doesn't change on $1FFD writes), but a real
+divergence in the NR-mmu-clobber scenario. **Not a regression** —
+preserves pre-existing behavior.
+
+**MINOR — `current_sram_rom()` ZX128K branch:** Returns raw
+`(port_7ffd_>>4)&1` without altrom-lock check; `sram_rom3()` at
+mmu.h:901-918 correctly applies the lock. Inconsistent. Pre-existing,
+no functional impact today (boot path runs ZXN_ISSUE2).
+
+**MINOR — incidental EFF7(3) repair not surfaced:** The
+`map_plus3_bank` delegation incidentally fixes a latent bug where
+the EFF7(3)=1 RAM-at-$0000 mode wasn't honored on $1FFD writes
+pre-fix. Worth calling out in commit message / doc.
+
+**NIT:** Comment at line 348 cosmetic only.
+
+### Reviewer verdict
+
+**APPROVE-WITH-NITS.** Reviewer recommends:
+
+> "CHERRY-PICK / FAST-FORWARD-MERGE INTO `g46b-investigation`
+> IMMEDIATELY, with the following follow-up tasks queued:
+> 1. Add Cat5 / Cat11 regression tests (16 scenarios).
+> 2. Investigate Divergence C (slot 6/7 on $1FFD writes).
+> 3. Fix `current_sram_rom()` ZX128K altrom-lock grouping.
+> 4. Update commit message / EOD doc to surface EFF7(3) repair.
+> The fix is ready for merge. Wave-4 investigation (red-screen /
+> Divergence B / sram_rom3 alt-rom gating) can proceed after merge."
+
+### Manager note
+
+User directed "stop before starting wave 4" at this checkpoint.
+**Merge of `g46b-divergence-a-fix` into `g46b-investigation` is
+NOT yet performed.** Awaiting explicit go/no-go from the user.
+Reviewer recommends merge; bug fix is VHDL-faithful and zero
+regressions verified.
+
