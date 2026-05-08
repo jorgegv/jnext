@@ -5625,3 +5625,236 @@ Based on these findings, the wave-2 actions are:
 7. **CSpect side-by-side trace** if/when CSpect-side instrumentation
    becomes available.
 
+## 2026-05-08 10:21 CEST — EOD-15 wave-2: AltROM mirror removed; wrapper bytes correct; bank-3 $3BE8 confirmed as loop driver
+
+Three parallel agents executed wave-2:
+- **Agent A** removed the AltROM mirror band-aid found in wave-1.
+- **Agent B** added `JNEXT_G46B_P64` probes (wrapper bytes / shadows /
+  trampoline / CALL $2341 reach).
+- **Agent C** audited NEXTREG $8E semantics jnext vs VHDL.
+
+### Agent A — AltROM mirror band-aid removed
+
+Branch `g46b-altrom-mirror-removal`, commit `8d96dc1`, **fast-forwarded
+into g46b-investigation**. 13 lines code removed (the experimental
+`for (p=0x2C..0x2F)` mirror loop), replaced with explanatory comment.
+
+**Pre/post comparison (30 s headless boots):**
+
+| Metric | With mirror | Without mirror | Delta |
+|--------|-------------|----------------|-------|
+| Soft resets | 1 | 1 | 0 |
+| NR_07 writes (28 MHz) | 110 | 110 | 0 |
+| NR_03 writes | 113 | 113 | 0 |
+| P60 hits | 282 | 282 | 0 |
+| Top P60 PCs | $0168×102, $21B3×35, ... | $0168×102, $21B3×35, ... | identical |
+| Screenshot md5 | `d6d5c6d55705954baee13cde8156ddc9` | `d6d5c6d55705954baee13cde8156ddc9` | bit-identical |
+
+**Verdict: the mirror was truly INERT.** The supervisor never read
+pages 0x2C-0x2F during the 30-second observation window. The "v3
+hypothesis" (supervisor reads AltROM via NR_57=$0F slot 7 → physical
+page 0x2F) is decisively WRONG. Removal is a clean code-hygiene win,
+nothing more.
+
+mmu_test 164/186/0/22, sdcard_test 15/15 — unchanged. fuse_z80_test
++ z80n_test pre-existing link failures (DivMmc/BreakpointSet symbol
+issues, predates this work).
+
+### Agent C — NEXTREG $8E audit: STRONG NO
+
+Three independent audits (today + 2026-04-19 + 2026-05-06) agree:
+**NR_$8E is bit-for-bit VHDL-faithful.** Cross-checked:
+
+- `zxnext.vhd:3662-3670, 3696-3704, 3726-3734` (NR_$8E decomposition
+  into port shadows) vs `mmu.cpp:444-502` (Mmu::write_nr_8e).
+- `zxnext.vhd:3772` (`port_1ffd_rom = 1FFD(2) & 7FFD(4)`) vs
+  `mmu.cpp:347` (rom_bank computation).
+- `zxnext.vhd:3813-3814` (port_memory_change_dly) vs the rebuild gate
+  at `mmu.cpp:497`.
+- `zxnext.vhd:6158-6159` (read-back) vs `mmu.cpp:509-523`.
+
+For all four wrapper-pivot values ($00/$01/$02/$03), jnext slot-0 ROM
+page selection matches VHDL exactly (banks 0/1/2/3 = SRAM pages
+0/2/4/6).
+
+**Critical clarification of an ambiguity in the wave-1 hypothesis:**
+The bank-flip wrapper at `$5B00..$5B20` does NOT use NEXTREG $8E. It
+uses raw `OUT ($7FFD)` / `OUT ($1FFD)` toggles. The NEXTREG $8E pivots
+at `$5B3A`/`$5B43`/`$5B48`/`$5B4D` are SEPARATE auxiliary trampolines
+used by RST $20/$28 long-call dispatch, not by the wrapper itself.
+So even a hypothetical NR_$8E bug couldn't explain the wrapper RET
+popping $0000.
+
+NR_$8E definitively eliminated as a candidate. Bug must be in:
+- port `$7FFD` / `$1FFD` direct-write semantics (wrapper-relevant),
+- soft-reset stack / RAM preservation,
+- supervisor stack-frame setup before wrapper entry,
+- NR_$03 config_mode transition (corner case, less likely),
+- port_eff7(3) RAM-at-$0000 mode (corner case, less likely).
+
+### Agent B — wrapper / shadow / $3BE8 / CALL $2341 probes (THE BIG ONE)
+
+Branch `g46b-wrapper-shadow-probe`, commit `0442a71`. Adds
+`JNEXT_G46B_P64` env-gated probe (4 sub-probes).
+
+#### Probe 1 — wrapper bytes at $5B00..$5B51
+
+**81 of 82 bytes MATCH** byte-for-byte against canonical ROM
+$0091..$00E2. ONE deliberate divergence at $5B33: RAM=$DF, ROM=$00.
+This is by-design — bank-0 file offset $2387 contains
+`LD ($5B33),A` in the `M_GETSETDRV` sequence, deliberately reusing
+the dead $00 NOP filler byte after the JR-displacement at $5B32 as
+a 1-byte sysvar slot (likely current-drive). Downstream of an
+unconditional `JR $-35` at $5B31..$5B32, so cannot affect wrapper
+execution.
+
+**Wrapper LDIR install is BYTE-CORRECT.** No code corruption.
+
+#### Probe 2 — wrapper shadows on every $5B00 entry (50 hits)
+
+| Pattern | $5B5C | $5B67 | AF | BC | SP | rom_bank | Hit indices |
+|---------|-------|-------|------|-------|-------|----------|-------------|
+| Even | $00 | $00 | $1F08 | $253B | $5BFF | 0 | 0,2,4,...,48 |
+| Odd | $10 | $04 | $0082 | $D2FF | $5C39 | 3 | 1,3,5,...,49 |
+
+**Two-state oscillation**, deterministic.
+
+**Hit #0 shadows are exactly $00, $00.** Wrapper XORs them with
+$10/$04 → outputs ($10, $04) → port $7FFD bit 4 set + port $1FFD
+bit 2 set → rom_bank flips 0→3. Next entry sees ($10, $04), XOR
+toggles back to (0,0) → rom_bank flips 3→0. Cycle repeats forever.
+
+**The supervisor never wrote sane initial values to $5B5C/$5B67.**
+The captured `sysvars.raw` (formerly loaded by the P42 band-aid)
+contained mid-boot CSpect values that gave the supervisor a
+"correct" starting state. Without it, both shadows are zero and the
+toggle ping-pong has nothing to anchor.
+
+**SP=$5BFF at every even-state wrapper entry** (= the value set by
+`LD SP,$5BFF` at $01D1). This is BEFORE the wrapper's PUSH AF, so
+SP=$5BFF means the supervisor entered $5B00 via **JP, not CALL**
+(no preceding push). Therefore the wrapper RET at $5B20 will pop
+from $5BFF/$5C00 — bytes that are uninitialized (sysvar area zeros)
+→ RET pops $0000.
+
+**Even-state context** (rom_bank=0, AF=$1F08, BC=$253B, SP=$5BFF):
+the supervisor JPs to $5B00 from somewhere in bank 0 with SP at the
+top of stack and BC=$253B (NextREG select port). This is post-init
+state.
+
+**Odd-state context** (rom_bank=3, AF=$0082, BC=$D2FF, SP=$5C39):
+the supervisor enters $5B00 from inside BANK 3 with SP at $5C39
+(deeper stack with values pushed). BC=$D2FF is unusual.
+
+#### Probe 3 — bank-3 $3BE8 hits
+
+**1275 hits in ~28 emulated seconds** (~45 hits/sec). Clusters of
+5-10 nested hits per loop iteration, separated by ~700K-step pauses.
+SP at hit-time drifts $5C01 → $5C39 across cluster, then resets.
+
+**The bank-3 $3BE8 trampoline IS the soft-reset driver.** Loop period
+~120 ms matches the user-reported 130 ms. The "1 soft reset" log
+count is likely jnext only logging the FIRST one, not coalescing
+the trampoline-driven re-entries into the counter.
+
+#### Probe 4 — CALL $2341 reach
+
+**30 hits at PC=$0271, 30 hits at PC=$2341, lock-step.**
+Every hit: rom_bank=$00, AF=$6F00, BC=$006F, HL=$FF58, SP=$FF53/51.
+
+CALL $2341 from $0271 lands correctly in bank 0. **No bank-routing
+bug at this site.** Same machine state every iteration → deterministic
+hot path. The supervisor reaches the "MAJOR INIT" code at $2341.
+
+The discriminating fact: SP at $0271/$2341 hits is $FF53/$FF51, NOT
+$5BFF. So $0271/$2341 are reached AFTER significant stack activity
+(SP grew to $FF5x — way above the initial $5BFF). The supervisor
+must have done `LD SP,$FFXX` somewhere between $01D1 and $0271.
+
+### Synthesis — convergent picture (wave-2)
+
+**Confirmed:**
+- Wrapper code at $5B00..$5B51 is byte-correct.
+- NR_$8E is VHDL-faithful.
+- Shadows $5B5C/$5B67 enter the wrapper as (0,0).
+- Wrapper RET at $5B20 pops from uninitialized stack → $0000.
+- Bank-3 $3BE8 is the soft-reset trampoline driving the loop.
+- CALL $2341 reaches with correct bank state and registers.
+- AltROM mirror to pages 0x2C-0x2F was inert.
+
+**Unresolved:**
+- WHY does the supervisor enter $5B00 with SP=$5BFF (= no PUSH/CALL
+  preceded the entry)? What is the entry mechanism?
+- WHO/WHAT was supposed to populate the bytes at $5BFF/$5C00 (the
+  RET pop target)?
+- WHY does the supervisor enter $5B00 a SECOND time with rom_bank=3
+  and SP=$5C39? What chain leads bank 3 → wrapper → bank 0 → ...?
+
+**Likely shape of the bug:** The supervisor, somewhere between
+$01D1 (LD SP,$5BFF) and the first $5B00 entry, was supposed to:
+- Push a target address onto the stack (CALL $5B00 or PUSH;JP $5B00),
+  OR
+- Initialize $5B5C/$5B67 (port shadows) to known values, OR
+- Initialize bytes at $5BFE/$5BFF/$5C00 (the RET pop area), OR
+- Some combination of the above.
+
+In jnext, that initialization either doesn't run at all, or runs with
+zero/wrong values. The *mechanism* by which it should run on real
+hardware (presumably via a CALL to a NextZXOS init helper, or via a
+RST/syscall trampoline that returns with state set) is what's broken.
+
+### Branch state
+
+`g46b-investigation` HEAD `8d96dc1` (post-merge of AltROM mirror
+removal). 5 commits ahead of EOD-14c HEAD `3180d38`:
+```
+8d96dc1 fix(g46b): REMOVE AltROM mirror to pages 0x2C-0x2F band-aid
+f1ca628 doc(g46b): EOD-15 wave-1 — 3-agent parallel investigation post-band-aid
+3180d38 doc(g46b): EOD-14c — P42 band-aid removed, real bug exposed
+8c198fe fix(g46b): REMOVE P42 band-aid
+7cf13ba doc(g46b): EOD-14b — supervisor reaches BASIC interpreter
+```
+
+Worktrees alive:
+- `.claude/worktrees/altrom-mirror-removal` (merged, can be removed).
+- `.claude/worktrees/wrapper-shadow-probe` (P64 probe, useful for
+  follow-up).
+- `.claude/worktrees/nr-init-loop-trace` (P63 probe from wave-1,
+  still useful).
+
+mmu_test 164/186/0/22, sdcard_test 15/15 — unchanged across all
+wave-1 + wave-2 changes.
+
+### Wave-3 plan (next moves)
+
+1. **Stack-write watcher + RET-pop logger** (`JNEXT_G46B_P65`):
+   - Watch every memory write to addresses $5BFC..$5C03 (the wrapper
+     RET pop area + slack). Log PC + value + addr.
+   - Log peek($5BFE), peek($5BFF), peek($5C00), peek($5C01) at PC=$5B00
+     entry.
+   - Log the bytes RET will pop at PC=$5B20.
+   - This will reveal whether anything ever populates the stack
+     target bytes, and confirm RET always pops $0000.
+
+2. **Static analysis — find all entry sites to $5B00** in
+   enNextZX.rom (any bank). Search for:
+   - `JP $5B00` byte pattern (`C3 00 5B`).
+   - `CALL $5B00` (`CD 00 5B`).
+   - `JR ... $5B00` (relative jump). 
+   - Indirect via stack push: `PUSH HL` where HL=$5B00, then `RET`.
+   Identify which sites match the runtime data (bank-0 vs bank-3 entry
+   paths).
+
+3. **port $7FFD / $1FFD direct-write semantics audit** vs VHDL
+   (per Agent C's recommendation): especially `paging_locked`,
+   `port_1ffd_special_old`, RAM-bank routing under different
+   port_eff7 / NR_8C / NR_57 conditions.
+
+4. **Decode the bank-3 $3BE8 cluster pattern**: 5-10 nested hits per
+   loop iteration suggests RST $38 at $3BF5 doesn't actually halt or
+   the soft reset doesn't fire on every NR_$02 ← $01 write. Either
+   NR_$02 handler has an edge-detect guard, or RST $38 returns. Worth
+   decoding bank-3 $0038 (RST $38 vector) to understand.
+
+5. **CSpect side-by-side trace** if instrumentation becomes available.
+
