@@ -250,7 +250,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:2981-3008 sram_rom selection (48K always 0, +3 uses
     // 2-bit rom bank, Next/128K/Pentagon use 1-bit). Altrom lock bits
     // override per VHDL for +3 and Next variants.
-    mmu_.set_machine_type(cfg.type);
+    //
+    // G46(b): Only push the CLI machine_type on HARD reset. On soft reset
+    // (preserve_memory=true), nr_03_machine_type is NextReg state owned by
+    // the NR $03 write handler — overwriting it here would unwind a
+    // supervisor-committed type (e.g., NextZXOS sets +3 mode mid-boot)
+    // back to the boot-time CLI default. Real Next preserves the type
+    // across NR $02 soft reset; we follow.
+    if (!preserve_memory) {
+        mmu_.set_machine_type(cfg.type);
+    }
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
@@ -1649,14 +1658,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nextreg_.set_nr_03_user_dt_lock(nextreg_.nr_03_user_dt_lock() ^ bit3);
 
         // Machine-type commit (VHDL :5137-5145) — gated on CURRENT config_mode.
+        // G46(b): VHDL :2981-3008 derives machine_type_48 / machine_type_p3
+        // signals from nr_03_machine_type and feeds them into the sram_rom
+        // selection logic. Without mirroring the new type into Mmu, our
+        // current_sram_rom() stayed on the boot-time CLI value (typically
+        // ZXN_ISSUE2 = 1-bit rom_bank) even after the supervisor wrote
+        // NR $03,$B3 to enter +3 mode. NextZXOS's RST $28; DW $1661 chain
+        // expects 4-way bank routing in +3 mode — without it, slot 0/1
+        // mapped to bank 1 (BASIC string-scan loop) instead of bank 3
+        // (LDDR;RET memory move), so font-blit copies never executed.
+        // Verified against CSpect via DZRP at 2026-05-08: real Next runs
+        // in +3 mode at this boot phase.
         if (nextreg_.nr_03_config_mode()) {
             const uint8_t typ_sel = static_cast<uint8_t>(v & 0x07);
+            MachineType new_mt = mmu_.machine_type();
+            bool commit = false;
             switch (typ_sel) {
-                case 0x01: nextreg_.set_nr_03_machine_type(0x01); break;
-                case 0x02: nextreg_.set_nr_03_machine_type(0x02); break;
-                case 0x03: nextreg_.set_nr_03_machine_type(0x03); break;
-                case 0x04: nextreg_.set_nr_03_machine_type(0x04); break;
+                case 0x01: nextreg_.set_nr_03_machine_type(0x01);
+                           new_mt = MachineType::ZX48K;       commit = true; break;
+                case 0x02: nextreg_.set_nr_03_machine_type(0x02);
+                           new_mt = MachineType::ZX128K;      commit = true; break;
+                case 0x03: nextreg_.set_nr_03_machine_type(0x03);
+                           new_mt = MachineType::ZX_PLUS3;    commit = true; break;
+                case 0x04: nextreg_.set_nr_03_machine_type(0x04);
+                           new_mt = MachineType::ZXN_ISSUE2;  commit = true; break;
                 default: /* VHDL :5143 others => null (no change) */ break;
+            }
+            if (commit && new_mt != mmu_.machine_type()) {
+                Log::emulator()->info(
+                    "machine_type committed via NR 0x03: {} -> {} (typ_sel={:#04x})",
+                    static_cast<int>(mmu_.machine_type()),
+                    static_cast<int>(new_mt), typ_sel);
+                mmu_.set_machine_type(new_mt);
             }
         }
 
