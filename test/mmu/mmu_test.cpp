@@ -1727,6 +1727,87 @@ void test_cat11_rom_selection() {
     }
 }
 
+// ── Category 11b: effective ROM page post-port-write (G46(b) regression) ──
+// VHDL: zxnext.vhd:2981-3008. Asserts that apply_legacy_rom_slots_ and
+// map_plus3_bank correctly USE current_sram_rom() (which encodes the
+// per-machine-type sram_rom selection) when composing the slot-0/1
+// physical SRAM page after a $7FFD / $1FFD port write.
+//
+// Pre-fix bug (G46(b) Divergence A): both call sites computed the bank
+// as a 2-bit composite of port_1ffd(2):port_7ffd(4) UNCONDITIONALLY,
+// ignoring nr_03_machine_type. For ZXN_ISSUE2 + ($7FFD=$10, $1FFD=$04)
+// this produced rom_bank=3 (= enNextZX.rom bank 3 = soft-reset
+// trampoline at $0000) instead of VHDL's correct rom_bank=1
+// (= enNextZX.rom bank 1 = normal continuation), driving a ~120 ms
+// boot loop. The fix delegates both call sites to current_sram_rom().
+//
+// 16 scenarios: 4 MachineType × 4 (port_7FFD, port_1FFD) pivot pairs
+// matching the supervisor's bank-flip wrapper toggle states.
+void test_cat11b_effective_rom_page_post_port_write() {
+    set_group("Cat11b effective ROM page post-port-write (G46(b) regression)");
+
+    struct Row {
+        MachineType machine;
+        const char* machine_name;
+        uint8_t     port_7ffd;
+        uint8_t     port_1ffd;
+        uint8_t     expected_page0;
+    };
+
+    // Expected per VHDL zxnext.vhd:2981-3008:
+    //   48K: hardwired ROM 0 → page 0/1 always
+    //   128K, ZXN: 1-bit (port_7ffd(4)) → page 0/1 or 2/3
+    //   +3:   2-bit (1ffd(2):7ffd(4)) → page 0/1, 2/3, 4/5, or 6/7
+    const Row rows[] = {
+        // ── 48K: always sram_rom = 0 ───────────────────────────────
+        { MachineType::ZX48K,      "48K",    0x00, 0x00, 0 },
+        { MachineType::ZX48K,      "48K",    0x10, 0x00, 0 },
+        { MachineType::ZX48K,      "48K",    0x00, 0x04, 0 },
+        { MachineType::ZX48K,      "48K",    0x10, 0x04, 0 },
+        // ── 128K: 1-bit, only port_7ffd(4) ─────────────────────────
+        { MachineType::ZX128K,     "128K",   0x00, 0x00, 0 },
+        { MachineType::ZX128K,     "128K",   0x10, 0x00, 2 },
+        { MachineType::ZX128K,     "128K",   0x00, 0x04, 0 },
+        { MachineType::ZX128K,     "128K",   0x10, 0x04, 2 },
+        // ── +3: 2-bit (1ffd(2):7ffd(4)) ────────────────────────────
+        { MachineType::ZX_PLUS3,   "+3",     0x00, 0x00, 0 },
+        { MachineType::ZX_PLUS3,   "+3",     0x10, 0x00, 2 },
+        { MachineType::ZX_PLUS3,   "+3",     0x00, 0x04, 4 },
+        { MachineType::ZX_PLUS3,   "+3",     0x10, 0x04, 6 },
+        // ── ZXN_ISSUE2 (Next): 1-bit, only port_7ffd(4) ────────────
+        // The pivotal case for G46(b): default machine_type, $7FFD←$10
+        // and $1FFD←$04 must produce page 2 (bank 1), NOT page 6
+        // (bank 3 = soft-reset trampoline).
+        { MachineType::ZXN_ISSUE2, "Next",   0x00, 0x00, 0 },
+        { MachineType::ZXN_ISSUE2, "Next",   0x10, 0x00, 2 },
+        { MachineType::ZXN_ISSUE2, "Next",   0x00, 0x04, 0 },
+        { MachineType::ZXN_ISSUE2, "Next",   0x10, 0x04, 2 },
+    };
+
+    int idx = 0;
+    for (const auto& r : rows) {
+        ++idx;
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(r.machine);
+        f.mmu.map_128k_bank(r.port_7ffd);
+        f.mmu.map_plus3_bank(r.port_1ffd);
+        const uint8_t page0 = f.mmu.get_effective_page(0);
+        const uint8_t page1 = f.mmu.get_effective_page(1);
+        const bool ok = (page0 == r.expected_page0) &&
+                        (page1 == static_cast<uint8_t>(r.expected_page0 + 1));
+        const std::string id = fmt("EFP-%02d", idx);
+        check(id.c_str(),
+              fmt("%s machine 7FFD=$%02X 1FFD=$%02X → slot0=page %u, slot1=page %u "
+                  "(VHDL zxnext.vhd:2981-3008)",
+                  r.machine_name, r.port_7ffd, r.port_1ffd,
+                  r.expected_page0, r.expected_page0 + 1).c_str(),
+              ok,
+              fmt("got slot0=%u slot1=%u (expected %u/%u)",
+                  page0, page1, r.expected_page0, r.expected_page0 + 1));
+    }
+}
+
 // ── Cat 21: Nirvana / per-write mux (G12) + Shadow-screen NR (G58) ───
 namespace {
 void test_cat21_nirvana_multiplex() {
@@ -3191,6 +3272,7 @@ int main() {
     test_cat9_nr_8f();
     test_cat10_port_eff7();
     test_cat11_rom_selection();
+    test_cat11b_effective_rom_page_post_port_write();
     test_cat12_altrom();
     test_cat13_config_mode();
     test_cat14_addr_translation();
