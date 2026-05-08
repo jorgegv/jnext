@@ -321,9 +321,17 @@ void Mmu::apply_legacy_rom_slots_() {
         set_page(0, 0x00);
         set_page(1, 0x01);
     } else {
-        int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
-        map_rom_physical(0, rom_bank * 2);
-        map_rom_physical(1, rom_bank * 2 + 1);
+        // VHDL-faithful sram_rom selection per machine type
+        // (zxnext.vhd:2981-3008): 48K → ROM 0; 128K/Next → 1-bit
+        // (port_7ffd(4) only); +3 → 2-bit (port_1ffd(2):port_7ffd(4)).
+        // Also handles NR 0x8C altrom-lock overrides. The previous
+        // unconditional 2-bit composition was the +3-only formula, and
+        // it caused the supervisor's bank-flip wrapper at slot-2 RAM
+        // $5B00 to map slot 0 to bank 3 (soft-reset trampoline) on
+        // toggles of $7FFD bit 4 / $1FFD bit 2 in Next mode.
+        const uint8_t sram_rom = current_sram_rom();
+        map_rom_physical(0, sram_rom * 2);
+        map_rom_physical(1, sram_rom * 2 + 1);
         // VHDL zxnext.vhd:4611-4612,4619-4644 — MMU0/MMU1 hold 0xFF whenever
         // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
         // derived dynamically from port_7ffd / port_1ffd / NR 0x8C / NR 0x8E.
@@ -529,16 +537,15 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
             set_page(seg * 2 + 1, bank * 2 + 1);
         }
     } else {
-        // Normal paging: bit 2 selects ROM high bit (combined with 0x7FFD bit 4)
-        // ROM number = (port_1ffd bit 2) << 1 | (port_7ffd bit 4)
-        int rom_bank = ((port_1ffd >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
-        map_rom_physical(0, rom_bank * 2);
-        map_rom_physical(1, rom_bank * 2 + 1);
-        // VHDL zxnext.vhd:4611-4612,4619-4644 — MMU0/MMU1 hold 0xFF whenever
-        // slots 0/1 are in legacy ROM paging mode; the physical ROM page is
-        // derived dynamically. Use get_effective_page(slot) to observe it.
-        nr_mmu_[0] = 0xFF;
-        nr_mmu_[1] = 0xFF;
+        // Normal paging: VHDL zxnext.vhd:2981-3008 selects sram_rom per
+        // machine type. Delegate to the canonical legacy-ROM-slot helper
+        // (which uses current_sram_rom()) so the per-machine-type rules
+        // are honoured consistently with apply_legacy_paging_() callers
+        // (write_nr_8e, write_nr_8f, write_port_dffd, soft reset, etc.).
+        // The previous direct 2-bit formula was the +3-only composition;
+        // applying it unconditionally broke Next-mode bank-flip wrappers
+        // on $1FFD writes (G46(b) Divergence A).
+        apply_legacy_rom_slots_();
     }
 }
 
