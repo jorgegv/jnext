@@ -387,64 +387,6 @@ int Z80Cpu::execute() {
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);
 
-    // G46(b) Probe 55 (TEMP, 2026-05-08): detect iff1 1→0 transitions
-    // between any two consecutive Z80 instructions. Captures the
-    // *previous* instruction's PC + bytes so we can identify the cause:
-    // any FUSE iff1 path (DI/EI/RETN/RETI/INT-ack/NMI/reset) is detected
-    // automatically, regardless of opcode-specific hooks. Gated behind
-    // JNEXT_G46B_P55 env var to avoid overhead in non-debug runs.
-    {
-        static const bool g46b_p55 = std::getenv("JNEXT_G46B_P55") != nullptr;
-        if (g46b_p55) {
-            static uint8_t  p55_prev_iff1 = 0;
-            static uint16_t p55_prev_pc   = 0xFFFF;
-            static int      p55_count     = 0;
-            constexpr int   P55_MAX       = 250;
-
-            // Compare PRE-iff1 of previous instr (saved last call) to
-            // current z80.iff1 (= POST-iff1 of previous instr, since
-            // fuse_z80_execute_one + sync_regs_from_fuse + the next call's
-            // sync_fuse_from_regs has already run between then and now).
-            if (p55_prev_iff1 == 1 && z80.iff1 == 0 && p55_count < P55_MAX) {
-                uint16_t cp = p55_prev_pc;
-                uint8_t b0 = mem_.read(cp);
-                uint8_t b1 = mem_.read(static_cast<uint16_t>((cp + 1) & 0xFFFF));
-                uint8_t b2 = mem_.read(static_cast<uint16_t>((cp + 2) & 0xFFFF));
-                uint8_t b3 = mem_.read(static_cast<uint16_t>((cp + 3) & 0xFFFF));
-                const char* op_kind = "??";
-                if (b0 == 0xF3) op_kind = "DI";
-                else if (b0 == 0xFB) op_kind = "EI";
-                else if (b0 == 0xED) {
-                    if (b1 == 0x4D) op_kind = "RETI";
-                    else if (b1 == 0x45 || b1 == 0x55 || b1 == 0x5D ||
-                             b1 == 0x65 || b1 == 0x6D || b1 == 0x75 ||
-                             b1 == 0x7D) op_kind = "RETN";
-                    else op_kind = "ED?";
-                } else if (b0 == 0xDD || b0 == 0xFD) {
-                    op_kind = "DD/FD?";
-                }
-                const char* int_kind = "";
-                if (z80.pc.w == 0x0066) int_kind = " [now@$0066=NMI]";
-                else if (z80.pc.w == 0x0038) int_kind = " [now@$0038=IM1]";
-                int rom_bank = -1;
-                if (auto* mmu = dynamic_cast<Mmu*>(&mem_)) {
-                    rom_bank = static_cast<int>(mmu->current_rom_bank());
-                }
-                Log::cpu()->info(
-                    "G46B P55 IFF1 1->0 hit#{} prev_pc={:#06x} ({}{}) "
-                    "bytes={:02x} {:02x} {:02x} {:02x} now_pc={:#06x} "
-                    "iff2={} im={} rom_bank={:#04x} tstates={}",
-                    p55_count, cp, op_kind, int_kind, b0, b1, b2, b3,
-                    z80.pc.w, z80.iff2, z80.im, rom_bank,
-                    static_cast<uint64_t>(tstates));
-                p55_count++;
-            }
-            // Capture PRE state for next call's transition detection.
-            p55_prev_iff1 = z80.iff1;
-            p55_prev_pc   = z80.pc.w;
-        }
-    }
-
     // ── NMI ────────────────────────────────────────────────────────────
     if (nmi_pending_) {
         nmi_pending_ = false;
@@ -474,52 +416,11 @@ int Z80Cpu::execute() {
     // interrupts — even frames later — breaking programs that call
     // waitForScanline() inside their ISR.
     static constexpr uint32_t INT_PULSE_TSTATES = 32;
-    // G46(b) 2026-05-08 — JNEXT_G46B_FORCE_IFF1 diagnostic env var.
-    // When set, force IFF1=1 at every INT-pending check to bypass the
-    // NextZXOS supervisor's permanently-DI'd state. Diagnosis only.
-    // Proven 2026-05-08: with this env var set, supervisor reaches $0038
-    // IM 1 vector and screen renders garbled content (vs solid gray
-    // without). Confirms IFF1=0 is the blocker. Real fix (TBD) likely
-    // involves correcting INT acknowledgment timing wrt the bank-flip
-    // wrapper hot path's DI/EI sequence.
-    if (std::getenv("JNEXT_G46B_FORCE_IFF1")) {
-        z80.iff1 = 1;
-    }
-    // G46(b) Probe 56 (TEMP, 2026-05-08): track int-pending stats per
-    // 2M-tstate window. Helps determine whether iff1=1 windows actually
-    // coincide with int_pending=true.
-    static const bool g46b_p56 = std::getenv("JNEXT_G46B_P56") != nullptr;
-    static int      p56_pend          = 0;
-    static int      p56_pend_iff1_set = 0;
-    static int      p56_ack_attempts  = 0;
-    static int      p56_ack_rejected  = 0;
-    static int      p56_ack_accepted  = 0;
-    static int      p56_pulse_expired = 0;
-    static uint64_t p56_last_log      = 0;
-    if (g46b_p56) {
-        if (int_pending_) {
-            p56_pend++;
-            if (z80.iff1) p56_pend_iff1_set++;
-        }
-        if (tstates - p56_last_log > 2'000'000) {
-            Log::cpu()->info(
-                "G46B P56 pend={} pend_iff1={} ack_attempts={} ack_rej={} ack_acc={} pulse_exp={} pc={:#06x} iff1={} int_pending={} request_at={} tstates={} ptr_tstates={}",
-                p56_pend, p56_pend_iff1_set, p56_ack_attempts,
-                p56_ack_rejected, p56_ack_accepted, p56_pulse_expired,
-                z80.pc.w, z80.iff1, int_pending_,
-                static_cast<uint64_t>(int_requested_at_),
-                static_cast<uint64_t>(tstates),
-                static_cast<uint64_t>(*fuse_z80_tstates_ptr()));
-            p56_last_log = tstates;
-        }
-    }
     if (int_pending_) {
         if (tstates - int_requested_at_ > INT_PULSE_TSTATES && !z80.iff1) {
             // Pulse expired while interrupts were disabled — missed.
-            if (g46b_p56) p56_pulse_expired++;
             int_pending_ = false;
         } else if (z80.iff1) {
-            if (g46b_p56) p56_ack_attempts++;
             // Resolve the vector byte for this IntAck cycle.
             //
             // Opt-in IM2 daisy-chain path: when on_int_ack is installed
@@ -538,11 +439,9 @@ int Z80Cpu::execute() {
             int accepted = fuse_z80_interrupt(vector);
             sync_regs_from_fuse(regs_);
             if (accepted) {
-                if (g46b_p56) p56_ack_accepted++;
                 int_pending_ = false;
                 return (int)(tstates - before);
             }
-            if (g46b_p56) p56_ack_rejected++;
             // If not accepted (e.g. interrupts_enabled_at == tstates), keep
             // int_pending_ true so the interrupt is retried next cycle.
             // Fall through to execute one instruction first.

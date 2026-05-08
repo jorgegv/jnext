@@ -3170,35 +3170,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
         [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
     port_.register_handler(0x00FF, 0x00EB,
-        [this](uint16_t) -> uint8_t {
-            uint8_t v = spi_.read_data();
-            // G46(b) Probe 20 (TEMP — remove on G46(b) closure):
-            // trace SPI data port reads. Cap at 5000 entries to avoid spam.
-            // P46 (TEMP, 2026-05-09): every 1000th read, log PC + rom_bank
-            // to identify the polling loop's home.
-            static int g46b_p20_rd = 0;
-            ++g46b_p20_rd;
-            if (g46b_p20_rd <= 50000) {
-                Log::cpu()->info("G46B P20 IN  $EB -> {:#04x} (#{})",
-                                 v, g46b_p20_rd);
-            }
-            if (g46b_p20_rd == 1 || g46b_p20_rd % 1000 == 0) {
-                uint16_t pc = cpu_.get_registers().PC;
-                uint8_t rb = mmu_.current_rom_bank();
-                Log::cpu()->info("G46B P46 SPI-poll-PC sample #{}: pc={:#06x} "
-                                 "rom_bank={:#04x}", g46b_p20_rd, pc, rb);
-            }
-            return v;
-        },
-        [this](uint16_t, uint8_t val) {
-            spi_.write_data(val);
-            // G46(b) Probe 20 (TEMP): trace SPI data port writes.
-            static int g46b_p20_wr = 0;
-            if (g46b_p20_wr < 50000) {
-                Log::cpu()->info("G46B P20 OUT $EB <- {:#04x} (#{})",
-                                 val, ++g46b_p20_wr);
-            }
-        });
+        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
+        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
 
     // I2C SCL (0x103B) and SDA (0x113B)
     // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).
@@ -4125,24 +4098,6 @@ void Emulator::run_frame()
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
-    // G46(b) Probe 57 (TEMP, 2026-05-08): trace run_frame entry + tstates
-    // reset every Nth frame. Diagnose why fuse_z80_tstates appears to
-    // accumulate across frames in P55/P56.
-    {
-        static const bool g46b_p57 = std::getenv("JNEXT_G46B_P57") != nullptr;
-        static int g46b_p57_count = 0;
-        if (g46b_p57) {
-            ++g46b_p57_count;
-            if (g46b_p57_count <= 5 || (g46b_p57_count % 100) == 0) {
-                Log::emulator()->info(
-                    "G46B P57 run_frame entry #{} pre_reset_tstates={} frame_cycle={} clock={}",
-                    g46b_p57_count,
-                    static_cast<uint64_t>(*fuse_z80_tstates_ptr()),
-                    frame_cycle_, clock_.get());
-            }
-        }
-    }
-
     *fuse_z80_tstates_ptr() = 0;
     frame_ts_start_ = 0;
     video_timing_.reset();
@@ -4271,44 +4226,7 @@ void Emulator::run_frame()
     // Use Bresenham-style accumulator: generate sample every time accum >= MASTER_CLOCK_HZ.
     static constexpr uint64_t SAMPLE_THRESHOLD = MASTER_CLOCK_HZ;
 
-    // G46(b) Probe 58 (TEMP, 2026-05-08): log frame loop entry/exit + max
-    // tstates seen within the frame. Helps diagnose whether the inner loop
-    // is running unbounded.
-    {
-        static const bool g46b_p58 = std::getenv("JNEXT_G46B_P58") != nullptr;
-        static int g46b_p58_count = 0;
-        if (g46b_p58) {
-            ++g46b_p58_count;
-            if (g46b_p58_count <= 3 || (g46b_p58_count % 200) == 0) {
-                Log::emulator()->info(
-                    "G46B P58 frame_loop entry #{} clock={} frame_end={} fuse_tstates={}",
-                    g46b_p58_count, clock_.get(), frame_end,
-                    static_cast<uint64_t>(*fuse_z80_tstates_ptr()));
-            }
-        }
-    }
-    uint64_t g46b_p58_max_tstates = 0;
-    uint64_t g46b_p58_iter_count = 0;
-    uint64_t g46b_p58_dma_active_count = 0;
     while (clock_.get() < frame_end) {
-        // G46(b) P58 inner-loop trace
-        {
-            static const bool g46b_p58_inner = std::getenv("JNEXT_G46B_P58") != nullptr;
-            if (g46b_p58_inner) {
-                ++g46b_p58_iter_count;
-                if (dma_.is_active()) ++g46b_p58_dma_active_count;
-                uint64_t cur_t = static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-                if (cur_t > g46b_p58_max_tstates) g46b_p58_max_tstates = cur_t;
-                if (g46b_p58_iter_count == 1 || (g46b_p58_iter_count % 200000) == 0) {
-                    Log::emulator()->info(
-                        "G46B P58-inner iter#{} clock={} frame_end={} tstates={} dma_active={} dma_active_count={} pc={:#06x}",
-                        g46b_p58_iter_count, clock_.get(), frame_end,
-                        cur_t, dma_.is_active(),
-                        g46b_p58_dma_active_count,
-                        cpu_.get_registers().PC);
-                }
-            }
-        }
         // Debugger breakpoint check — before executing the next instruction.
         if (debug_state_.active()) {
             // Check if an external trigger (e.g. magic breakpoint) already
