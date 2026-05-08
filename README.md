@@ -13,6 +13,8 @@ See the [JNEXT full development plan](doc/design/EMULATOR-DESIGN-PLAN.md) for th
 
 ![JNEXT screenshot](doc/SCREENSHOT.png)
 
+Current status of the screenshot-based regression tests: [CURRENT-REGRESSION-STATE](doc/CURRENT-REGRESSION-STATE.md)
+
 ---
 
 ## About this project

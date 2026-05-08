@@ -1,0 +1,201 @@
+# Current Regression State
+
+Visual reference for every screenshot regression test in `test/00regression/`. Each entry shows the canonical reference screenshot the test runs are compared against. The full test suite is defined in [test/00regression/regression_tests.conf](../test/00regression/regression_tests.conf) and run by [test/00regression/regression.sh](../test/00regression/regression.sh); see [doc/testing/REGRESSION-TEST-SUITE.md](testing/REGRESSION-TEST-SUITE.md) for execution details.
+
+**26 screenshot tests** + `rewind-func` functional test + `fuse_z80_test` (1356 opcode cases) + `z80n_test`. To regenerate references after intentional rendering changes: `bash test/00regression/generate-references.sh [test_name…]`.
+
+---
+
+## Boot-screen tests
+
+### `boot-48k`
+48K Spectrum power-on screen — `© 1982 Sinclair Research Ltd` banner.
+
+<img src="../test/00regression/img/boot-48k-reference.png" width="384" alt="boot-48k reference"/>
+
+### `boot-128k`
+128K Spectrum boot menu — Tape Loader / 128 BASIC / Calculator / 48 BASIC / Tape Tester.
+
+<img src="../test/00regression/img/boot-128k-reference.png" width="384" alt="boot-128k reference"/>
+
+### `boot-plus3`
++3 Spectrum boot screen — `+3 BASIC / Loader / Calculator / 48 BASIC` menu.
+
+<img src="../test/00regression/img/boot-plus3-reference.png" width="384" alt="boot-plus3 reference"/>
+
+---
+
+## ULA / palette / video-feature demos
+
+### `palette-demo`
+ULANext 256-colour palette demo (8 banks × 32 colours).
+
+<img src="../test/00regression/img/palette-demo-reference.png" width="384" alt="palette-demo reference"/>
+
+### `copper-demo`
+Copper per-scanline colour-modulation demo (timing-sensitive).
+
+<img src="../test/00regression/img/copper-demo-reference.png" width="384" alt="copper-demo reference"/>
+
+### `floating-bus`
+48K floating-bus pattern test (port reads while ULA is fetching).
+
+<img src="../test/00regression/img/floating-bus-reference.png" width="384" alt="floating-bus reference"/>
+
+### `tilemap-demo`
+Next tilemap layer display demo.
+
+<img src="../test/00regression/img/tilemap-demo-reference.png" width="384" alt="tilemap-demo reference"/>
+
+### `contention-test`
+48K memory-contention timing test (cycles-vs-T-states observable).
+
+<img src="../test/00regression/img/contention-test-reference.png" width="384" alt="contention-test reference"/>
+
+---
+
+## Layer 2
+
+### `layer2-320x256`
+Layer 2 mid-resolution (320×256) bitmap mode.
+
+<img src="../test/00regression/img/layer2-320x256-reference.png" width="384" alt="layer2-320x256 reference"/>
+
+### `layer2-640x256`
+Layer 2 hi-resolution (640×256) bitmap mode (HI_RES byte-interleaved).
+
+<img src="../test/00regression/img/layer2-640x256-reference.png" width="384" alt="layer2-640x256 reference"/>
+
+---
+
+## Hardware sprites
+
+### `sprite-scaling`
+Hardware sprite 1×/2×/4× horizontal+vertical scaling.
+
+<img src="../test/00regression/img/sprite-scaling-reference.png" width="384" alt="sprite-scaling reference"/>
+
+### `sprite-anchor`
+Sprite anchor + relative-positioning chains.
+
+<img src="../test/00regression/img/sprite-anchor-reference.png" width="384" alt="sprite-anchor reference"/>
+
+---
+
+## Per-scanline / animation end-to-end demos
+
+### `beast-demo`
+"Beast" demo (steady-state animation past init phase, ~2 s in).
+
+<img src="../test/00regression/img/beast-demo-reference.png" width="384" alt="beast-demo reference"/>
+
+### `parallax-demo`
+Parallax scrolling demo (steady-state animation).
+
+<img src="../test/00regression/img/parallax-demo-reference.png" width="384" alt="parallax-demo reference"/>
+
+---
+
+## Tape loading
+
+### `tap-demo`
+TAP loader exercise — 48K BASIC auto-load + beeper-driven demo.
+
+<img src="../test/00regression/img/tap-demo-reference.png" width="384" alt="tap-demo reference"/>
+
+---
+
+## Magic features (Multiface-style instrumentation)
+
+### `magic-bp-demo`
+Magic-breakpoint feature: visual trigger when an MMU page hit fires.
+
+<img src="../test/00regression/img/magic-bp-demo-reference.png" width="384" alt="magic-bp-demo reference"/>
+
+### `magic-port-demo`
+Magic-port feature: visual trigger when a watched I/O port is read/written.
+
+<img src="../test/00regression/img/magic-port-demo-reference.png" width="384" alt="magic-port-demo reference"/>
+
+---
+
+## David Crespo's nexlib regression suite (`dapr-*`)
+
+Pre-built NEX files exercising the public Next library APIs.
+
+### `dapr-l2empty`
+nexlib test01 — empty Layer 2 surface (cleared bitmap).
+
+<img src="../test/00regression/img/dapr-l2empty-reference.png" width="384" alt="dapr-l2empty reference"/>
+
+### `dapr-layer2`
+nexlib test02 — Layer 2 surface with content.
+
+<img src="../test/00regression/img/dapr-layer2-reference.png" width="384" alt="dapr-layer2 reference"/>
+
+### `dapr-sprite`
+nexlib test03 — hardware sprites placement.
+
+<img src="../test/00regression/img/dapr-sprite-reference.png" width="384" alt="dapr-sprite reference"/>
+
+### `dapr-tilemap_00`
+nexlib test04 — tilemap mode 0 (40 × 32, 8×8 tiles).
+
+<img src="../test/00regression/img/dapr-tilemap_00-reference.png" width="384" alt="dapr-tilemap_00 reference"/>
+
+### `dapr-tilemap_01`
+nexlib test04 — tilemap mode 1 (variant 1).
+
+<img src="../test/00regression/img/dapr-tilemap_01-reference.png" width="384" alt="dapr-tilemap_01 reference"/>
+
+### `dapr-tilemap_02`
+nexlib test04 — tilemap mode 2 (variant 2).
+
+<img src="../test/00regression/img/dapr-tilemap_02-reference.png" width="384" alt="dapr-tilemap_02 reference"/>
+
+### `dapr-print`
+nexlib test05 — text print routine output.
+
+<img src="../test/00regression/img/dapr-print-reference.png" width="384" alt="dapr-print reference"/>
+
+### `dapr-tilemapper_00`
+nexlib test10 — tilemapper editor mode 0.
+
+<img src="../test/00regression/img/dapr-tilemapper_00-reference.png" width="384" alt="dapr-tilemapper_00 reference"/>
+
+### `dapr-tilemapper_01`
+nexlib test10 — tilemapper editor mode 1.
+
+<img src="../test/00regression/img/dapr-tilemapper_01-reference.png" width="384" alt="dapr-tilemapper_01 reference"/>
+
+---
+
+## Non-screenshot tests bundled into `regression.sh`
+
+### `rewind-func`
+Functional rewind-buffer test (no screenshot — `build/test/rewind_test` binary). Verifies frame-snapshot capture + restore round-trip.
+
+### `fuse_z80_test`
+1356 Z80 opcode test cases from the FUSE emulator suite — register / flag / timing exhaustive coverage. Currently 1356/1356 PASS.
+
+### `z80n_test`
+Z80N (Spectrum Next-extended) opcode test suite.
+
+---
+
+## Updating references
+
+After an intentional rendering change, regenerate the affected reference(s):
+
+```bash
+# Single test
+bash test/00regression/generate-references.sh layer2-640x256
+
+# Multiple tests
+bash test/00regression/generate-references.sh palette-demo copper-demo
+
+# Full suite (use sparingly; review every diff before committing)
+bash test/00regression/generate-references.sh
+```
+
+Then commit the regenerated `*-reference.png` files alongside the source change that motivated them, with a clear "regenerate refs after X" line in the commit message.
