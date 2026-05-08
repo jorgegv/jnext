@@ -6166,3 +6166,217 @@ NOT yet performed.** Awaiting explicit go/no-go from the user.
 Reviewer recommends merge; bug fix is VHDL-faithful and zero
 regressions verified.
 
+
+## 2026-05-08 EOD-19/20/21 — DZRP CONNECTOR + NR $03 ROOT CAUSE FIXED
+
+### TL;DR — single-session breakthrough
+
+DZRP connector to CSpect built from scratch, live-fire validated, used to
+ground-truth jnext at the supervisor's bank-call site. Captured CSpect's
+register/slot/memory state at PC=$1661 mid-bank-flip → identified the
+exact bug location: jnext's NR $03 write handler updated NextReg's
+internal `nr_03_machine_type` field but never propagated to
+`Mmu::set_machine_type()`, so when NextZXOS supervisor wrote `NR $03,$B3`
+mid-boot to enter +3 mode, jnext's `current_sram_rom()` stayed on
+`ZXN_ISSUE2` (1-bit rom_bank) and routed slot 0/1 to bank 1 instead of
+bank 3. Supervisor's `RST $28; DW $1661` chain landed on bank-1's BASIC
+string-scan loop instead of bank-3's `LDDR; RET` memory-move; fonts never
+copied; welcome screen never rendered.
+
+Fix landed (`144af1f`), reviewed (`APPROVE-WITH-NITS`), nits applied
+(`d376791`). Tests: 33 regression PASS / 0 FAIL.
+
+Post-fix supervisor reaches bank-2 init, font blits to bank-7 RAM, byte-
+doubling routines, RST $18 → $3E80 cross-bank wrappers — substantial
+forward progress past the pre-fix bank-1 dead end.
+
+### What I built today
+
+#### 1. DZRP connector (`tools/cspect_dzrp/`)
+
+Pure-stdlib Python 3 client speaking DeZogPlugin's wire protocol
+(DZRP v2.0.0, default TCP 11000). Connects to CSpect+DezogPlugin and
+exposes:
+
+- INIT / CLOSE
+- GET_REGISTERS (12 LE u16 + R/I/IM + slot count + 8 slot bytes = 37 bytes)
+- SET_REGISTER
+- READ_MEM / WRITE_MEM (with mandatory reserved byte before addr/size)
+- GET_TBBLUE_REG (NextReg read by index)
+- SET_SLOT
+- READ_PORT / WRITE_PORT
+- INTERRUPT_ON_OFF
+- ADD_BREAKPOINT / REMOVE_BREAKPOINT (long-address: addr_lo/addr_hi/bank)
+- CONTINUE (with up to 2 temp BPs) — async response via NTF_PAUSE
+- PAUSE
+- NTF_PAUSE async notification handler
+
+**Key wire-format quirk discovered live:** asymmetric framing.
+- Request: `[Length:u32-LE][seqno:u8][cmd:u8][payload]` with `Length` =
+  payload bytes ONLY.
+- Response: `[Length:u32-LE][seqno:u8][payload]` (no cmd echo) with
+  `Length` = seqno + payload.
+
+Initial implementation got this symmetric, leading to "CSpect shows
+'Connected' then 'Disconnected'" mystery. Source-checked against
+`Server.cs` line 270 (`totalLength = 4 + 2 + state.MsgLength`) and
+`SendResponse` (line 551 `length += 1; // for seqno`); wire-format
+audit verified against upstream `Commands.cs` byte-for-byte for all
+17 implemented commands.
+
+Files:
+- `cspect_dzrp.py` — main client (~430 lines)
+- `test_cspect_dzrp.py` — 14 unit tests (parser + in-process fake server)
+- `dzrp_check.py` — minimal liveness check
+- `example_g46b_diff.py` — BP-driven snapshot tool
+- `g46b_at_1661.py` — single-experiment script for the bank-3 routing question
+- `README.md` — protocol notes + boot-with-jnext-SD recipe
+- `REVIEW.md` — independent reviewer audit (verdict APPROVE-WITH-NITS,
+  byte-by-byte audit clean across all 17 commands)
+
+CSpect launch from repo root:
+```
+mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img [-debug]
+```
+
+#### 2. Boot-chain disassembly reference (committed `9b9827a`, `92eae99`)
+
+Static-analysis ground truth at `doc/issues/g46b-boot-chain-disassembly.md`
+(46 KB / 78 sections / 1102 lines) plus 21 raw `.asm` files in
+`doc/issues/dasm/` (16 MB total). Covers enNextZX banks 0-3, TBBLUE.FW
+modules (boot/cores/editor/reset/updater), enNextMf, enNxtmmc, nextboot,
+48/128/plus3 ROMs.
+
+Key surprising finding: **bank 3 byte $1661 = `LDDR; RET`** (canonical
+48K-BASIC RECLAIM-1 memory move), while bank 1 byte $1661 = string-scan
+loop (`LD A,(HL); CP $22; CP $0D; JR NZ`). The supervisor's bank-call
+target is the same logical PC, different physical code per bank.
+
+### How DZRP cracked the bank-routing question
+
+Three short experiments resolved a 19-EOD investigation:
+
+1. `dzrp_check.py` against fresh-boot CSpect (`-debug`): confirmed
+   PC=$0000, slots = default `RESET_PAGES`, machine ID = $08, bytes at
+   $0000 = `f3 c3 ef 00 ...` = `DI; JP $00EF`. Same as jnext's bank 0.
+
+2. `example_g46b_diff.py --pc 0x01ED`: ran CSpect to the supervisor's
+   `RST $28; DW $1661` site. Captured registers (HL=$3EAF, BC=$00A8,
+   DE=$FFFF), slot mapping, and 64 bytes at $3EAF. Same registers as
+   jnext, but **completely different memory bytes** at $3EAF
+   (CSpect: `00 EF BB 28 D9 E1 D1 C1 D9 D1 ED 53 5D 5C DA 95...`
+    jnext:  `D4 26 CD 68 00 97 25 C9 16 00 CD C5 26 4C 28 C9...`).
+   That hinted at different bank routing.
+
+3. `g46b_at_1661.py`: BP at $1661 (the bank-call target). When BP fired
+   on CSpect: PC=$1661, eff_mmu = `FF FF 0A 0B 04 05 00 01`,
+   memory at PC = `ED B8 C9 ...` = **LDDR;RET (bank 3 routing!)**,
+   memory at HL=$3EAF = font glyph bitmap (`00 00 42 42 42 42 24 18...`).
+   NR $03 = $33 (= +3 mode, bits 2:0 = 011).
+
+So real Next runs in +3 mode at this boot phase; +3 mode uses 2-bit
+`port_1ffd_rom` for `sram_rom` (VHDL `:2993`), enabling 4-way bank
+routing. jnext was stuck on the boot-time `ZXN_ISSUE2` (1-bit, VHDL
+`:3003`).
+
+### The bug
+
+In `Emulator::set_write_handler(0x03, ...)` at `emulator.cpp:1620`+:
+
+```cpp
+if (nextreg_.nr_03_config_mode()) {
+    const uint8_t typ_sel = static_cast<uint8_t>(v & 0x07);
+    switch (typ_sel) {
+        case 0x01: nextreg_.set_nr_03_machine_type(0x01); break;
+        case 0x02: nextreg_.set_nr_03_machine_type(0x02); break;
+        case 0x03: nextreg_.set_nr_03_machine_type(0x03); break;
+        case 0x04: nextreg_.set_nr_03_machine_type(0x04); break;
+        ...
+```
+
+**Set NextReg's field, never propagated to `Mmu::set_machine_type()`.**
+
+Plus `Emulator::init` always called `mmu_.set_machine_type(cfg.type)`
+unconditionally — meaning even if the NR $03 handler had been correct,
+soft reset would have overwritten the supervisor-committed type back to
+the CLI default.
+
+### The fix (`144af1f` + `d376791`)
+
+1. **Commit machine_type to Mmu** in the NR $03 handler when valid
+   typ_sel ($01..$04) is committed under `config_mode=1`. Mapping:
+   - $01 → `MachineType::ZX48K`
+   - $02 → `MachineType::ZX128K`
+   - $03 → `MachineType::ZX_PLUS3`
+   - $04 → `MachineType::ZXN_ISSUE2` (Pentagon, but C++ enum models
+     1-bit-rom_bank family as ZXN_ISSUE2 per VHDL :2997-3007)
+
+2. **Gate `init`'s `mmu_.set_machine_type(cfg.type)` on `!preserve_memory`**
+   — soft reset preserves supervisor-committed type per VHDL :1103.
+
+3. **Hard-reset NextReg/Mmu sync (review-finding-3)**: on hard reset
+   also push the matching typ_sel into `NextReg::set_nr_03_machine_type()`,
+   so NR $03 read-back agrees with actual routing.
+
+4. **Stale slot cache rebuild (review-finding-2)**: extended
+   `Mmu::set_machine_type` to call `apply_legacy_rom_slots_()` on
+   actual transition (VHDL `sram_rom` is combinational; cached
+   `slots_[0/1]` should follow instantly).
+
+### Verification
+
+- POSTRESET PC trace post-fix: supervisor escapes cascade + RAM test,
+  bank-flips correctly to bank 3 at $5B48 (`eff_mmu[0,1]=06,07`), runs
+  168-iteration LDDR copying font glyphs to RAM (`prev_stalled=167`),
+  returns to caller, continues bank-2 supervisor MAIN work
+  ($ED27-$ED3C in slot 7 RAM, bit-rotation loops $0ED8-$0EDB in bank 2,
+  byte-doubling at $23C8-$23CD copying to $B800).
+- Regression: 33 PASS / 0 FAIL.
+- Reviewer audit: `APPROVE-WITH-NITS`. Three nits applied at `d376791`.
+
+### New blocker discovered (next-session target)
+
+In a 6-min wall-clock long-run post-fix, supervisor's PC lands at
+**$0000** approximately 640 times (~once per 500ms wall) without
+triggering `NR $02` hardware reset. Each landing re-runs the post-reset
+init sequence (`$00EF NEXTREG $07,$03; $00F3 NEXTREG $03,$B0`).
+
+Source of the periodic re-entry to be determined. Hypotheses:
+- Stack underflow / corruption popping `$0000` off the stack (RET to 0)
+- An untraced `JP $0000` from corrupt code path
+- IM 1 ISR returning to wrong PC
+
+NR $03=$B0 isn't bank 2's $0DBE writer (that writes $A0/$90); only bank
+0's $00F3 writes $B0. So PC genuinely lands at $0001 (=`JP $00EF`) that
+often.
+
+**POSTRESET=20000 trace caught only the FIRST $00EF entry (event #9)** —
+need a probe variant that fires on the Nth or all $0000 entries to
+capture the call chain leading to each re-entry.
+
+DZRP-side: with CSpect (post-boot, in BASIC main loop at $0BC8), set BP
+at $0000 in CSpect to verify whether real Next ever hits it post-init.
+If not, the periodic re-entry is jnext-specific.
+
+### Commits this session (g46b-investigation, 14 ahead of main)
+
+| Commit | Summary |
+|---|---|
+| `d376791` | Apply EOD-19 review nits + commit review doc |
+| `83c366e` | DZRP review artifacts (REVIEW.md + g46b_at_1661.py) |
+| `144af1f` | **THE FIX** — NR $03 machine_type → Mmu propagation |
+| `4f0c9b2` | DZRP client (Python, ~430 lines) |
+| `973452f` | POST_RESET probe rewrite (PC-change-only logging) |
+| `92eae99` | Raw boot-chain disassemblies (16 MB / 21 .asm) |
+| `9b9827a` | Boot-chain disassembly reference doc (1102 lines) |
+| `4b20b5b` | POST_RESET probe (initial) |
+
+### Strategic conclusion
+
+**The DZRP connector is now the most-leveraged investigation tool
+available** for any future bank-routing / boot-state divergence. Three
+short DZRP experiments resolved a question that 19 EODs of static
+analysis and instrumentation could not pin down. Future investigations
+should default to "compare with CSpect via DZRP" before committing to
+a hypothesis.
+
