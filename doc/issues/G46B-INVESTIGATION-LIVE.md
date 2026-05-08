@@ -5284,3 +5284,344 @@ Tests: mmu_test 186/164/0/22, sdcard_test 15/15/0/0 — unchanged.
    resolved.
 
 
+## 2026-05-08 09:59 CEST — EOD-15 wave-1: 3-agent parallel investigation post-band-aid
+
+After P42 band-aid removal (commit `8c198fe`), three parallel agents
+were tasked with EOD-14c next-session priorities #1, #2, #3:
+band-aid audit, NR-init loop trace, BASIC sysvar init RE.
+
+All three returned consistent findings. **The "NR-init loop" is NOT
+a polling wait — it is a soft-reset loop driven by wrapper-toggle
+corruption.** Plus one new band-aid found that the EOD-14c memo
+missed.
+
+### Agent 1 — `src/` band-aid audit (post-P42)
+
+**Verdict:** P42 stub at `src/cpu/z80_cpu.cpp:1417-1427` is genuinely
+dead code (comment-only). All ~41 G46(b) probes in src/ are properly
+gated (env-var or `cfg.bypass_tbblue_fw` or `!preserve_memory`)
+EXCEPT one previously-overlooked band-aid:
+
+**NEW BAND-AID-SUSPECT — `src/core/emulator.cpp:3827-3839`**
+```c++
+// G46(b) v3 EXPERIMENT: also pre-populate pages 0x2C-0x2F (the
+// +0x20 shifted versions per to_sram_page) so NR_57=0x0F slot 7
+// reads see the AltROM data. TEMP — verifying hypothesis that
+// supervisor reads bank 7 from this region.
+size_t off2 = 0;
+for (uint16_t p = 0x2C; p <= 0x2F && off2 < to_copy; ++p) {
+    uint8_t* dst = ram_.page_ptr(p);
+    if (!dst) break;
+    const size_t chunk = std::min<size_t>(0x2000, to_copy - off2);
+    std::memcpy(dst, alt_rom_bytes.data() + off2, chunk);
+    off2 += chunk;
+}
+```
+
+- Fires on every NextZXOS hard reset whenever `enAltZX.rom` extracts.
+- Outer gate: `cfg.type == ZXN_ISSUE2 && !preserve_memory` — but
+  **NOT gated on `cfg.bypass_tbblue_fw`**.
+- Diverges from real Next: pages 0x2C-0x2F are SRAM bank 6 high half
+  on real hardware, NOT an AltROM landing zone. The legitimate
+  AltROM landing is pages 0x0C-0x0F (verified
+  `Mmu::altrom_sram_page_` at `mmu.h:1045-1070` returning
+  `0x0C | (alt_128_n<<1) | a13`).
+- Same family as P42: places ROM bytes in RAM pages the supervisor
+  may read via NR_57=$0F slot-7 mapping → physical page 0x2F.
+- Self-comments as "v3 EXPERIMENT" / "TEMP — verifying hypothesis".
+
+**Other diagnostic-mutating env-gated hooks** (all inert by default,
+should be deleted at G46(b) closure):
+- `JNEXT_G46B_FORCE_IFF1` (z80_cpu.cpp:511-521)
+- `JNEXT_G46B_FORCE_IX` (z80_cpu.cpp:2157-2177; mutates IX + slot7)
+- `JNEXT_G46B_PATCH_IX11` (z80_cpu.cpp:2134-2156)
+- `JNEXT_G46B_PATCH` / `JNEXT_G46B_INJECT` (z80_cpu.cpp:2225-2272)
+- `JNEXT_G46B_NR_CSPECT` (emulator.cpp:3955-4007; double-gated on
+  bypass + env)
+
+### Agent 2 — NR-init loop body decoded
+
+Worktree `.claude/worktrees/nr-init-loop-trace`, branch
+`g46b-nr-init-loop-trace`, new commit `e5a893c` adds
+`JNEXT_G46B_P63` (32-PC ring-buffer trail decoder).
+
+**P60 sample summary** (top 10 PC frequencies post-1st-reset):
+
+| Hits | PC | rom_bank | Notes |
+|------|-----|----------|-------|
+| 102 | $0168 | $00 | LDDR cascade in enNextZX.rom |
+| 35  | $21B3 | $00 | LDIR helper utility |
+| 9   | $1F40 | $03 | DivMMC bank-3 SPI poll loop tail |
+| 8   | $1F42 | $03 | same |
+| 6   | $1F45 | $03 | same |
+| 5   | $1F44 | $03 | same |
+| 2   | $240D | $00 | |
+| 2   | $23FD | $00 | |
+| 2   | $15AE | $01 | bank 1, briefly visited |
+| 2   | $01BF | $00 | RAM-test verify pass |
+
+**Loop period**: 110 NR_07←$03 events between t=09:32:53.724 and
+t=09:33:07.462, **~7.7 Hz, ~130 ms per iteration** — matches the
+~120 ms reported in EOD-14c.
+
+**Inner-loop trail (P63)** — 14 distinct PCs cycling:
+
+```
+$00EF (enNextZX.rom bank 0)        ; supervisor entry after reset
+  ED 91 07 03   NEXTREG $07,$03    ; CPU = 28 MHz
+$00F3
+  ED 91 03 B0   NEXTREG $03,$B0    ; boot ROM disabled, machine = Next 128
+$00F7
+  ED 91 C0 08   NEXTREG $C0,$08    ; INT mode (IM2 vector reset)
+... continues to bank-flip wrapper at slot-2 RAM $5B00 ...
+
+$5B00 (slot-2 RAM)                 ; bank-flip wrapper
+  F5 C5 01 FD 7F 3A 5C 5B EE 10 F3 32 5C 5B ED 79
+  01 FD 1F 3A 67 5B EE 04 32 67 5B ED 79 FB C1 F1 C9
+  ; PUSH AF; PUSH BC; LD BC,$7FFD; LD A,($5B5C); XOR $10;
+  ; DI; LD ($5B5C),A; OUT (C),A;     ← rom_bank 3→2 here
+  ; LD BC,$1FFD; LD A,($5B67); XOR $04; LD ($5B67),A; OUT (C),A;
+  ;                                    ← rom_bank 2→0 here
+  ; EI; POP BC; POP AF; RET
+$5B20
+  C9            RET                 ; ← POPS $0000 OFF STACK
+                                    ;   (supervisor's caller didn't
+                                    ;    push a valid return)
+
+$0000 (after bank ping-pong: now in DivMMC overlay via automap)
+  F3            DI                  ; (would be enNextZX.rom byte
+                                    ;  but DivMMC automap intercepts)
+$0001
+  C3 6A 00      JP $006A
+$006A (enNxtmmc.rom)
+  ED 8A 00 01   PUSH $0001          ; Z80N PUSH IMMEDIATE
+$006E
+  C3 A0 1E      JP $1EA0
+$1EA0
+  AF            XOR A
+$1EA1
+  D3 E3         OUT ($E3),A         ; clear DivMMC control port
+$1EA3
+  C3 F9 1F      JP $1FF9
+$1FF9
+  C9            RET                 ; M1 fetch in $1FF8/$1FF9 →
+                                    ;   automap-OFF delayed match
+                                    ; pops $0001
+$0001 (now back in enNextZX.rom; DivMMC unmapped)
+  C3 EF 00      JP $00EF            ; ← LOOP CLOSURE
+```
+
+**This is NOT a polling-wait loop. There is no JR cc / JP cc / RET cc
+in the steady-state body.** Every instruction executes
+unconditionally. The loop is closed by the wrapper RET at $5B20
+popping $0000, which lands in the DivMMC trampoline, which RETs to
+$0001, which JPs to $00EF — restarting the entire init sequence.
+
+**Verification:**
+- Re-extracted enNextZX.rom and enNxtmmc.rom from the SD image via
+  `mcopy` with MBR offset 32256. MD5 of enNextZX.rom:
+  `8c34d957fb2cbbd0be423cea3b370fd5`.
+- Disassembled $0000-$0220 of enNextZX.rom and $0000-$0080 +
+  $1E90-$2000 of enNxtmmc.rom with `z88dk-dis -mz80n`.
+- DivMMC automap entry-point logic at `src/peripheral/divmmc.cpp:329-415`
+  matches the trail: `entry_points_0_` defaults to $83 (RST $00, $08,
+  $38) with delayed timing; PC=$0000 fetch → automap_hold=true → next
+  M1 sees automap_active=true → DivMMC ROM overlays slot 0; PC=$1FF8
+  match off range → automap_hold=false → next M1 unmaps.
+- Re-ran with P60-only and P63 separately — frequencies and trail
+  consistent across runs (no probe artifact).
+
+### Agent 3 — BASIC sysvar init code located in enNextZX.rom
+
+**Located at bank-0 $02AB-$02E5** in enNextZX.rom. Canonical Sinclair
+"NEW" pattern (bit-for-bit):
+
+```
+$02B0  22 53 5C   LD ($5C53),HL    ; PROG
+$02B6  36 80      LD (HL),$80      ; terminator
+$02B9  22 59 5C   LD ($5C59),HL    ; E_LINE
+$02BC  36 0D      LD (HL),$0D      ; CR
+$02C2  22 61 5C   LD ($5C61),HL    ; WORKSP
+$02C5  22 63 5C   LD ($5C63),HL    ; STKBOT
+$02C8  22 65 5C   LD ($5C65),HL    ; STKEND
+$02CD  32 8D 5C   LD ($5C8D),A     ; ATTR_P (A=$38 paper-7-ink-0)
+$02D0  32 8F 5C   LD ($5C8F),A     ; MASK_P
+$02D9  32 48 5C   LD ($5C48),A     ; BORDCR
+$02DC  3E 07      LD A,$07
+$02DE  D3 FE      OUT ($FE),A      ; border = WHITE
+$02E3  22 09 5C   LD ($5C09),HL    ; REPDEL/REPPER
+```
+
+**Boot-path chain to reach this init:**
+
+```
+$00EF  NEXTREG $07,$03 ; $03,$B0 ; $C0,$08 ; ports $82..$85=$FF ; ...
+$0124  LD HL,$5800 ; LDIR clear ULA attr area ($5800-$5AFF)
+$0130  RAM-test pass 1 (B=$70 banks via NR_56,A / NR_57,A+1)
+$018E  RAM-test pass 2 ($DCBA pattern)
+$01CE  LD ($5B69),A                ; save RAM bank count
+$01D1  LD SP,$5BFF                 ; setup stack
+$01D4  RST $20 / 1F ED 91 8E 08    ; bank-2 syscall
+$01DB  IM 1                        ; enable IM 1 INTs
+$01DD  CALL $00E3                  ; copy 82-byte bank-flip wrapper
+                                   ; ($0091..$00E2 → $5B00..$5B51)
+$01E0..$0252  setup, RST $28 (bank-3 LDIR), populate slots
+$025A  RST $18 / 85 34             ; bank-1 long-call → $3485 (SP setup)
+$0271  CALL $2341                  ; MAJOR INIT (slot-2 RAM, RST $28)
+$0274  RST $18 / 00 15             ; bank-1 long-call → $1500
+                                   ; ($1500 = palette + L2/Tilemap setup)
+$02A0  RST $28 / 33 EB             ; bank-3 LDIR-style call
+                                   ; (copies 21-byte template
+                                   ;  bank-3 $15AF → RAM $5CB6,
+                                   ;  HL emerges in $5CCB area)
+$02AB+ *** BASIC SYSVAR INIT BLOCK ***
+$02E6+ welcome-menu drawing
+```
+
+**Bank-flip wrapper at $5B00 (82 bytes from ROM $0091..$00E2):**
+- `$5B00..$5B20`: port_7FFD bit-4 + port_1FFD bit-2 toggle helper
+- `$5B3A..$5B42`: PUSH $0A9E; NEXTREG $8E,$01; RET — bank-1 pivot
+- `$5B43..$5B47`: NEXTREG $8E,$02; RET — bank-2 pivot
+- `$5B48..$5B4C`: NEXTREG $8E,$03; RET — bank-3 pivot (RST $28)
+- `$5B4D..$5B51`: NEXTREG $8E,$00; RET — bank-0 return-pivot
+
+**Bank-3 SOFT-RESET trampoline at $3BE8** (the smoking gun):
+
+```
+$3BE8  LD A,$02 ; OUT (C),A     ; select NEXTREG $02 (BC=$243B/$253B)
+$3BEC  INC B ; IN A,(C)         ; read NR $02 current value
+$3BEF  AND $80 ; OR $01         ; preserve bit 7, set bit 0 (soft reset)
+$3BF3  OUT (C),A                ; trigger soft reset
+$3BF5  RST $38                  ; halt-loop until reset fires
+```
+
+Bank-3 entry at $C000 (= bank-3 file offset $0000):
+```
+$C000  DI ; XOR A ; LD BC,$243B ; JP $3BE8
+```
+
+**So whenever execution lands at PC=$0000 with bank 3 paged into
+slot 0, it triggers a soft reset.**
+
+**Verification:**
+- Pattern `LD HL,X; LD ($5C53),HL; ...; LD ($5C65),HL` is bit-for-bit
+  the canonical Sinclair "NEW" routine; only one match in the entire
+  64KB ROM.
+- Bank-3 $3BE8 byte pattern (`3E 02 ED 79 04 ED 78 E6 80 F6 01 ED 79`)
+  is unique in the ROM (1 match).
+- No `JP $0000`, no `JP $00EF` (other than the $0001 reset-entry
+  trampoline) anywhere in the ROM — re-entry to NR_03/NR_07 init MUST
+  come via reset.
+
+### Synthesis — convergent root cause
+
+Agents 2 and 3 independently identified the same picture:
+
+1. The "NR-init loop" is a SOFT-RESET LOOP, not a polling wait.
+2. The wrapper RET at $5B20 pops $0000.
+3. $0000 + DivMMC automap → trampoline → JP $00EF restarts init.
+4. Each iteration is one full cycle through the supervisor's early
+   init code.
+
+**Why does the wrapper RET pop $0000?** Two complementary reasons:
+
+(a) **Caller-side**: the supervisor's CALL to the wrapper had its
+return address overwritten by the LDDR cascade at $0166-$0168 of
+boot init, which zeros all of slot-2 RAM ($4000-$5AFF) including
+the supervisor's saved frames. (Hits=102 at PC=$0168 confirm this
+runs ~once per loop iteration.)
+
+(b) **Wrapper-side**: when the wrapper at $5B00 reads
+`LD A,($5B5C); XOR $10; LD ($5B5C),A; OUT (C),A` — with $5B5C
+initialised to ZERO (no band-aid pre-load), the toggle writes
+$10 → $00 → $10 → $00 alternately to port $7FFD. This ping-pongs
+slot 1 between ROM and RAM in a way the supervisor doesn't expect.
+
+The captured `sysvars.raw` that the P42 band-aid had been pre-loading
+contained the CORRECT mid-boot values of `$5B5C` and `$5B67` from a
+real CSpect session. Without it, those shadows are zero, the
+ping-pong toggles wrong, bank state diverges from supervisor's
+expectation, CALL/RET targets land in wrong banks, the wrapper RET
+pops $0000, and the supervisor falls into the DivMMC trampoline
+back to $00EF.
+
+**This is consistent with the EOD-14a observation that the supervisor
+"reaches a SECOND soft reset at PC=$3BF5 rom_bank=$03"** — that's the
+bank-3 trampoline at $3BE8 firing. EOD-15 now establishes that the
+trampoline keeps firing every ~120 ms forever.
+
+**The real bug is not in supervisor logic — it is in jnext's
+emulation of one of the boot-time bank-paging primitives.** The
+supervisor's CALL/RET chain works on real hardware; on jnext, by
+the time RET at $5B20 fires, the stack has $0000 instead of the
+correct return-pivot. Candidates for the misemulated primitive:
+
+1. **NEXTREG $8E semantics** for values $00..$03. The wrapper pivots
+   at $5B3A/$5B43/$5B48/$5B4D do `PUSH <pivot>; NEXTREG $8E,N; RET`,
+   so the RET fetches the new bank's first byte at $0000. If
+   NEXTREG $8E semantics differ between jnext and FPGA VHDL for any
+   N, the next instruction comes from the wrong bank.
+
+2. **port $7FFD / $1FFD bank-paging** behaviour. The wrapper toggles
+   bit 4 of $7FFD and bit 2 of $1FFD. If jnext models the resulting
+   bank/RAM layout differently from VHDL (especially under NextZXOS
+   `port_decoding` register settings), the rest of the supervisor
+   reads wrong bytes.
+
+3. **DivMMC automap timing.** PC=$0000 fetch happens AFTER bank
+   ping-pong; if automap should NOT be active (because the
+   supervisor expects to land in a real ROM, not the DivMMC
+   overlay), but jnext fires it, that's a bug. Conversely, if it
+   SHOULD be active and jnext's timing is right, this is just a
+   symptom and the real bug is upstream.
+
+4. **NEXTREG $03 (machine config) side-effects.** The supervisor
+   writes $03 ← $B0 at $00F3, which on real hardware sets
+   machine = Next 128 + boot ROM disabled. If jnext's handling of
+   the boot-ROM-disable transition leaves slot 0 in a different
+   state than VHDL (for example, leaving boot ROM mapped when
+   VHDL would unmap it), every fetch at $0000 onward reads wrong
+   bytes.
+
+### Branch state
+
+`g46b-investigation` HEAD `3180d38` — UNCHANGED.
+
+Worktree `.claude/worktrees/nr-init-loop-trace` (branch
+`g46b-nr-init-loop-trace`) HEAD `e5a893c` — adds `JNEXT_G46B_P63`
+probe. Will be useful for next-wave follow-on probes.
+
+mmu_test 186/164/0/22 unchanged. sdcard_test 15/15 unchanged.
+
+### Next-wave plan (EOD-15 wave-2)
+
+Based on these findings, the wave-2 actions are:
+
+1. **Remove the AltROM mirror band-aid** at emulator.cpp:3827-3839
+   (per VHDL-faithful directive). Re-baseline boot to see whether
+   removal changes the loop or supervisor depth.
+
+2. **Probe wrapper installation**: dump bytes at $5B00..$5B51 on
+   first hit of PC=$01E0 (after `CALL $00E3`) to verify wrapper
+   was installed correctly. Compare to the canonical 82 bytes from
+   ROM $0091..$00E2.
+
+3. **Probe wrapper-toggle shadows**: log $5B5C and $5B67 values
+   on every $5B00 wrapper entry. Compare jnext trajectory vs the
+   captured CSpect values (which we know unblocked the supervisor).
+
+4. **Probe bank-3 $3BE8 trampoline hits**: count hits at PC=$3BE8
+   with rom_bank=$03 and confirm trampoline fires once per loop
+   iteration.
+
+5. **Probe `CALL $2341` at PC=$0271**: does the supervisor reach
+   this call? If yes, does it return successfully, or does the
+   bank-3 trampoline fire mid-call?
+
+6. **Audit NEXTREG $8E semantics** against VHDL `nextreg.vhd`.
+   Specifically the bit semantics of $8E for values $00..$03 vs
+   port $7FFD / $1FFD interaction.
+
+7. **CSpect side-by-side trace** if/when CSpect-side instrumentation
+   becomes available.
+
