@@ -16,3 +16,6 @@ test/**/*-diff.png
 
 .claude/*.lock
 zesarux_*.idx
+
+# Python cache for tools/
+tools/cspect_dzrp/__pycache__/
