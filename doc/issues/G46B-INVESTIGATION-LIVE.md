@@ -5858,3 +5858,209 @@ wave-1 + wave-2 changes.
 
 5. **CSpect side-by-side trace** if instrumentation becomes available.
 
+## 2026-05-08 11:04 CEST — EOD-15 wave-3: ROOT CAUSE FOUND — Divergence A in legacy ROM-bank composition
+
+Three parallel agents (X, Y, Z) plus a fix-implementor agent
+identified and remediated the root cause of the ~120ms NR-init
+soft-reset loop.
+
+### Wave-3 agent summary
+
+#### Agent X — `JNEXT_G46B_P65` stack-write watcher + RET-pop logger + 16K PC trail
+
+Branch `g46b-stack-write-watcher` HEAD `1a2c29a`. Captured:
+- 200 stack writes to $5BFC..$5C0F.
+- 50 P65E entries at PC=$5B00.
+- 50 P65R RET-pop logs at PC=$5B20.
+- 16,384-entry PC ring buffer dumped at first $5B00 hit.
+
+**P65R confirms: RET pops $0000 in BOTH even and odd context.**
+
+**P65T trail revealed the supervisor's full chain to $5B00:**
+
+```
+bank-1 $26B9: PUSH HL ; LD HL,($5B54) ; EX (SP),HL ;
+              PUSH $007B ; JP $3E93
+bank-1 $3E93: ED 91 8E 00 C9   = NEXTREG $8E,0; RET (flip to bank 0)
+              RET pops $007B
+bank-0 $007B: ED 91 8C 80 C9   = NEXTREG $8C,$80; RET (enable alt-rom)
+              RET pops $5B54_value (= $3E93)
+              ↓
+PC=$3E93, rom_bank=0, alt-rom enabled
+              ↓
+              7,278 SEQUENTIAL +1 INSTRUCTION FETCHES (NOP sled)
+              all the way to $5B00
+              ↓
+$5B00: bank-flip wrapper executes
+$5B20: RET pops $0000 → DivMMC trampoline → JP $00EF → loop
+```
+
+**Diagnosis:** `enAltZX.rom` from the user's SD image is sparse —
+contains valid code at $0000-$2730 + $4000-$5180 + $6800-$7B20 but
+ZEROS at $3E93+ and $7E93+. When the supervisor JPs to $3E93 with
+alt-rom enabled, jnext routes slot-0 reads through `altrom_sram_page_`
+to alt-rom pages (0x0C-0x0F) which contain those zeros.
+
+**However**: VHDL `zxnext.vhd:3138` (referenced in `mmu.h:728-730`)
+gates alt-rom routing on `sram_rom3='1'` — alt-rom only replaces
+ROM 3, not ROM 0/1/2. jnext's `Mmu::read` at `mmu.h:310` does NOT
+check `sram_rom3()` — it only checks `nr_8c_altrom_en()`. **This
+is a SECOND divergence (Divergence B) potentially distinct from
+Divergence A** — to be investigated in wave-4.
+
+#### Agent Y — Static analysis of $5B00 entry sites in enNextZX.rom
+
+Found:
+- **ONE** external JP/CALL to $5B00 in entire ROM: bank-1 `JP $5B00`
+  at file offset $41A6 (= bank-1 $01A6, runtime $5BD1 after LDIR).
+- Bank-3 $0000 entry decoded: `DI; XOR A; LD BC,$243B; JP $3BE8`
+  — confirmed soft-reset trampoline.
+- Bank-3 $0038 RST $38 vector: **canonical IM 1 ISR** (NOT a
+  halt/spin). PUSH AF/HL; INC FRAMES; CALL $386E; POP; EI; RET.
+  Explains why 1275 hits at $3BE8 produce only 1 logged soft reset
+  in the runtime — RST $38 returns rather than halting.
+- Bank-1 $0000: `NOP; JP $3F00` — normal continuation.
+- Shadow init helpers found:
+  - bank-2 $25A8 sets $5B5C=$03 / $5B67=$04 (alt-rom path).
+  - bank-3 $1FA8 sets $5B5C=$10 / $5B67=$04 (long-call path).
+- **No code in any bank statically primes $5BFE/$5BFF/$5C00/$5C01**
+  — those bytes are only stack-residue from CALL pushes.
+
+#### Agent Z — port $7FFD/$1FFD direct-write semantics audit jnext vs VHDL
+
+VHDL line-by-line cross-check (`zxnext.vhd:2593, 2599` decode;
+`:3640-3815` registers; `:4607-4700` MMU rebuild). Substantially
+VHDL-faithful EXCEPT one major divergence:
+
+**Divergence A — `apply_legacy_rom_slots_` and `map_plus3_bank`
+non-special branch use 2-bit ROM composition unconditionally:**
+
+```cpp
+int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
+```
+
+Per VHDL `zxnext.vhd:2981-3008`:
+- 48K mode: always ROM 0 (1-bit hardwired).
+- 128K and Next modes: 1-bit composition (only $7FFD bit 4).
+- +3 mode: 2-bit composition.
+
+For default `MachineType::ZXN_ISSUE2` + the supervisor's bank-flip
+wrapper writes `OUT ($7FFD), $10` then `OUT ($1FFD), $04`:
+- **jnext**: rom_bank = `(1<<1)|1 = 3` → slot 0 maps to SRAM page 6
+  = enNextZX.rom **bank 3 = SOFT-RESET TRAMPOLINE** at $0000.
+- **VHDL Next mode**: sram_rom = `'0' & port_7ffd(4) = '01' = 1`
+  → slot 0 maps to SRAM page 2 = enNextZX.rom **bank 1** = `NOP; JP
+  $3F00` (normal continuation).
+
+When the wrapper RET pops $0000:
+- jnext: lands in bank-3 $0000 = `DI; XOR A; LD BC,$243B; JP $3BE8`
+  → soft-reset trampoline → loop.
+- VHDL: lands in bank-1 $0000 = `NOP; JP $3F00` → continues normally.
+
+The accessor `Mmu::current_sram_rom()` at `mmu.h:859-878` already
+encodes the per-machine-type semantics correctly (handles 48K /
+128K / Next / +3 + altrom-lock overrides). The bug was that
+`apply_legacy_rom_slots_` and `map_plus3_bank` did not delegate to
+it.
+
+### Fix landed — commit `9b9fb2c` on branch `g46b-divergence-a-fix`
+
+```cpp
+// Was (mmu.cpp:347):
+int rom_bank = ((port_1ffd_ >> 2) & 1) << 1 | ((port_7ffd_ >> 4) & 1);
+map_rom_physical(0, rom_bank * 2);
+map_rom_physical(1, rom_bank * 2 + 1);
+
+// Now:
+const uint8_t sram_rom = current_sram_rom();
+map_rom_physical(0, sram_rom * 2);
+map_rom_physical(1, sram_rom * 2 + 1);
+```
+
+Plus `map_plus3_bank` non-special branch now delegates to
+`apply_legacy_rom_slots_()` — single source of truth.
+
+20 insertions, 13 deletions. 1 file changed.
+
+### Post-fix smoke test results (BREAKTHROUGH)
+
+Pre-fix vs post-fix 30s headless baseline:
+
+| Metric | Pre-fix (Divergence A) | Post-fix | Delta |
+|--------|------------------------|----------|-------|
+| Soft resets | 1 (logged) but 1275 $3BE8 hits | 1 | ~ |
+| NR_07 writes | **110** (CPU=28MHz loop) | **2** (boot + post-soft-reset) | **-108** |
+| NR_03 writes | 113 | 5 | -108 |
+| Top P60 PCs | $0168×102, $21B3×35 (loop) | scattered $6c00/$7800/$b7xx/$b9xx/$e900/$f37x/$fa28 | NEW CODE PATHS |
+| Screenshot md5 | `d6d5c6d5...` (black/grey) | `dea737c7...` (RED/light-grey) | CHANGED |
+
+**The supervisor is now executing real code in slot-2 RAM ($4000-$7FFF)
+and slot-7 RAM ($E000-$FFFF) — NextZXOS supervisor's main code
+regions.** The ~120 ms NR-init soft-reset loop is GONE.
+
+Screen now shows light-grey border + red interior. Likely
+INK=PAPER=red attribute bug (welcome menu not yet rendered to
+legibility) — separate issue, not a paging concern.
+
+### Test results (post-fix)
+
+- mmu_test: **186 / 164 PASS / 0 FAIL / 22 SKIP** — IDENTICAL to
+  baseline.
+- sdcard_test: **15 / 15 / 0 / 0** — IDENTICAL.
+- Regression: **32 PASS / 1 FAIL** (rewind-func — pre-existing per
+  EOD-12 memory). **Zero regressions introduced.**
+
+### Branch state
+
+`g46b-investigation` HEAD `3f539eb` — UNCHANGED (fix awaits
+independent reviewer per project rules).
+
+`g46b-divergence-a-fix` HEAD `9b9fb2c` — fix ready for review.
+
+Worktrees alive:
+- `.claude/worktrees/divergence-a-fix` — fix candidate (await reviewer).
+- `.claude/worktrees/wrapper-shadow-probe` — P64 probes (useful for
+  follow-up).
+- `.claude/worktrees/nr-init-loop-trace` — P63 probes.
+- `.claude/worktrees/stack-write-watcher` — P65 probes.
+
+### Implications for prior memos
+
+EOD-14a's "supervisor reaches a SECOND soft reset at PC=$3BF5
+rom_bank=$03" claim is now explained: that was the bank-3 $3BE8
+trampoline being entered via wrapper-RET-to-$0000-in-bank-3 due to
+Divergence A.
+
+EOD-14a's "supervisor settles into rom_bank=$01 sustained — first
+time bank 1 reached" is also explained: with Divergence A active,
+rom_bank composition oscillated between $00 and $03; "rom_bank=$01"
+appearances were rare/transient. Post-fix, rom_bank=$01 is now the
+sustained state during alt-rom dispatch (as VHDL intends).
+
+### Wave-4 plan
+
+1. **Independent reviewer for Divergence A fix** (mandatory per
+   project rules). Cross-check:
+   - VHDL `zxnext.vhd:2981-3008` line-by-line.
+   - `current_sram_rom()` semantics for all 4 machine types.
+   - `apply_legacy_rom_slots_` callers don't break under the new
+     delegation.
+   - mmu_test scenarios for non-default machine_type.
+   - `map_plus3_bank` non-special branch delegation correctness.
+
+2. **Investigate red-screen / next blocker.** The supervisor now
+   reaches PCs in $b7xx-$b9xx and $e900/$f37x/$fa28 — these are
+   sysvars init / screen attr fill / welcome-menu draw routines.
+   Probe what the supervisor is doing there. The red screen
+   suggests INK=PAPER attribute issue.
+
+3. **Investigate Divergence B (sram_rom3 gating in alt-rom routing).**
+   `Mmu::read` at `mmu.h:310` routes to alt-rom whenever
+   `nr_8c_altrom_en()` is set, but VHDL `zxnext.vhd:3138` gates
+   alt-rom routing on `sram_rom3='1'`. May be benign or may be
+   another root cause depending on supervisor's sram_rom3 trajectory.
+   Confirm with a probe.
+
+4. **Cleanup probes after G46(b) closure**: P55..P65 + FORCE_IFF1
+   etc. should all go.
+
