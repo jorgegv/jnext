@@ -6,10 +6,9 @@ JNEXT is a real-time software emulator of the ZX Spectrum Next computer, written
 
 Specifically, _extremely faithful emulation_ of the ZX Next is **not the main goal** of this emulator. But indeed having the VHDL sources available makes it easier to know the expected behaviour.
 
-**Current Status: ALPHA** — features still being actively developed. Issues and pull requests are welcome.
+**Current Status: ALPHA** — features still being actively developed. Issues and pull requests will be welcome once the repo is in a somewhat stable state. For now, I recommend to just wait until a mostly working emulator is published.
 
 See the [JNEXT full development plan](doc/design/EMULATOR-DESIGN-PLAN.md) for the real status of the project, the features that have already been implemented, upcoming features and others that are further in the roadmap.
-
 
 ![JNEXT screenshot](doc/SCREENSHOT.png)
 
