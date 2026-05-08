@@ -709,7 +709,17 @@ public:
     // without Next-specific altrom semantics).
     //
     // Default ZXN_ISSUE2 — call set_machine_type from Emulator::init.
-    void set_machine_type(MachineType t) { machine_type_ = t; }
+    // G46(b) review-finding-2: VHDL `sram_rom` is combinational, so a
+    // type change updates slot 0/1 routing instantly. Our cached
+    // `slots_[0/1]` lags until the next paging-port write — rebuild
+    // immediately on actual transition so the cache stays in sync.
+    void set_machine_type(MachineType t) {
+        if (t == machine_type_) {
+            return;
+        }
+        machine_type_ = t;
+        apply_legacy_rom_slots_();
+    }
     MachineType machine_type() const { return machine_type_; }
 
     // Compute the VHDL sram_rom value (0..3) that the SRAM arbiter would

@@ -257,8 +257,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // supervisor-committed type (e.g., NextZXOS sets +3 mode mid-boot)
     // back to the boot-time CLI default. Real Next preserves the type
     // across NR $02 soft reset; we follow.
+    //
+    // Review-finding-3: also push the matching typ_sel into NextReg's
+    // nr_03_machine_type field. Otherwise on hard reset Mmu starts at
+    // cfg.type but NextReg's field is preserved (per VHDL :1103) — a
+    // divergence where NR $03 read-back disagrees with actual routing.
+    // ZXN_ISSUE2 maps to typ_sel=$04 (Pentagon/128K-class else branch
+    // per VHDL :2997-3007); semantically Pentagon, functionally
+    // identical to ZXN under current_sram_rom().
     if (!preserve_memory) {
         mmu_.set_machine_type(cfg.type);
+        uint8_t typ_sel = 0x04;  // ZXN_ISSUE2 default → Pentagon/Next
+        switch (cfg.type) {
+            case MachineType::ZX48K:      typ_sel = 0x01; break;
+            case MachineType::ZX128K:     typ_sel = 0x02; break;
+            case MachineType::ZX_PLUS3:   typ_sel = 0x03; break;
+            case MachineType::ZXN_ISSUE2: typ_sel = 0x04; break;
+        }
+        nextreg_.set_nr_03_machine_type(typ_sel);
     }
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
@@ -1681,6 +1697,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 case 0x03: nextreg_.set_nr_03_machine_type(0x03);
                            new_mt = MachineType::ZX_PLUS3;    commit = true; break;
                 case 0x04: nextreg_.set_nr_03_machine_type(0x04);
+                           // Pentagon: VHDL :5751 maps typ_sel=$04 to
+                           // machine_type_128, which falls into the same
+                           // sram_rom 1-bit "else" branch as ZXN
+                           // (VHDL :2997-3007). Our MachineType enum
+                           // models that family as ZXN_ISSUE2 — Pentagon
+                           // and Next share current_sram_rom() behavior.
                            new_mt = MachineType::ZXN_ISSUE2;  commit = true; break;
                 default: /* VHDL :5143 others => null (no change) */ break;
             }
