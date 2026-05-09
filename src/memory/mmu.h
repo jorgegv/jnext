@@ -563,11 +563,19 @@ public:
     // Clear the 128K paging lock. VHDL zxnext.vhd:3654-3656 — a write to
     // NR 0x08 with bit 7 set clears port_7ffd_reg(5), which in turn drops
     // port_7ffd_locked (derived at zxnext.vhd:3769) to '0'. Our emulator
-    // mirrors this by clearing paging_locked_ directly; the gate inside
-    // map_128k_bank / map_plus3_bank then allows subsequent port_7FFD /
-    // port_1FFD writes to take effect again. Driven by the NR 0x08 write
-    // handler in Emulator::install_port_handlers (src/core/emulator.cpp).
-    void unlock_paging() { paging_locked_ = false; }
+    // mirrors this by clearing paging_locked_ directly AND clearing bit 5
+    // of port_7ffd_ so the readback (e.g. MF+3 0x7xxx mux at zxnext.vhd:
+    // 4318) and Pentagon-1024 bank composition (zxnext.vhd:3765) both
+    // reflect the cleared bit. Driven by the NR 0x08 write handler in
+    // Emulator::install_port_handlers (src/core/emulator.cpp).
+    //
+    // Verify3-memory class-(a) fix: previously only paging_locked_ was
+    // cleared; port_7ffd_ retained bit 5, so subsequent MF+3 readbacks at
+    // 0x7xxx and Pentagon-1024 bank-5 composition saw the stale bit.
+    void unlock_paging() {
+        paging_locked_ = false;
+        port_7ffd_ = static_cast<uint8_t>(port_7ffd_ & ~0x20);
+    }
     // Observable on the 7FFD lock state (used by NR 0x08 read to compose
     // bit 7 = NOT port_7ffd_locked per zxnext.vhd:5906).
     bool paging_locked() const { return paging_locked_; }
