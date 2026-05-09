@@ -9,24 +9,27 @@
 
 | Pass | Method | Class-(a) bugs found | Notes |
 |---|---|---|---|
-| 1 | 4 analysis + 4 independent reviewers | 11 + 1 follow-up | All reviewers APPROVE-WITH-NITS |
-| 2 | 4 fresh blind (forbidden from P1) | 6 | Two high-leverage G46(b) candidates |
-| 3 | 4 fresh blind (forbidden from P1+2) | 11 | Refinements of P2 + class-(b) promotions |
-| 4 | 4 fresh blind (forbidden from P1+2+3) — sharper methodology | 17 | NMI 80% sweep + CPU duals |
-| 5 | 4 fresh blind (forbidden from P1+2+3+4) — final-convergence angles | **11** | NR $09/$15 cross-fix landed; LDPIRX confirmed-correct; Z80N M1 contention promoted |
-| **Total (5 passes)** | | **57 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged** |
+| 1 | 4 analysis + 4 reviewers | 11 + 1 follow-up | All reviewers APPROVE-WITH-NITS |
+| 2 | 4 fresh blind | 6 | Two high-leverage G46(b) candidates |
+| 3 | 4 fresh blind | 11 | Refinements + class-(b) promotions |
+| 4 | 4 fresh blind — sharper methodology | 17 | NMI 80% sweep + CPU duals |
+| 5 | 4 fresh blind — final-convergence angles | 11 | NR $09/$15 cross-fix; LDPIRX confirmed; Z80N M1 contention |
+| 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | **4** | One per subsystem; agents recommend declaring converged after a clean P7 |
+| **Total (6 passes)** | | **61 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged** |
 
 **Pass-by-pass count by subsystem:**
 
-| Subsystem | P1 | P2 | P3 | P4 | P5 | Trend |
-|-----------|----|----|----|----|----|-------|
-| Memory | 2 | 2 | 3 | 3 | 2 | descending |
-| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | 2 | bouncing low |
-| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | 9 | 6 | greenfield-driven |
-| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | 1 | **descending** |
-| **Pass total** | **11+1** | **6** | **11** | **17** | **11** | |
+| Subsystem | P1 | P2 | P3 | P4 | P5 | P6 | Trend |
+|-----------|----|----|----|----|----|----|-------|
+| Memory | 2 | 2 | 3 | 3 | 2 | **1** | descending |
+| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | 2 | **1** | bouncing low |
+| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | 9 | 6 | **1** | **major descent** |
+| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | 1 | **1** | **descending** |
+| **Pass total** | **11+1** | **6** | **11** | **17** | **11** | **4** | |
 
-**Total fixes on integration branch: 58** (12 P1 + 6 P2 + 11 P3 + 17 P4 + 11 P5).
+**Total fixes on integration branch: 62** (12 P1 + 6 P2 + 11 P3 + 17 P4 + 11 P5 + 4 P6).
+
+**Strong convergence signal**: pass 6 found exactly 1 bug per subsystem, all in their final-edge areas. Three subsystem agents recommended declaring their subsystem converged conditional on a clean pass 7.
 
 **Test status (post all-merge, integration branch):**
 - `ctest`: **37/37 PASS**
