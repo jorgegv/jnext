@@ -815,6 +815,20 @@ public:
     void engage_legacy_rom_paging() { apply_legacy_rom_slots_(); }
     void engage_legacy_ram_paging() { apply_legacy_ram_slots_(); }
 
+    // Per-slot legacy ROM re-engagement for slot 0 OR slot 1 only —
+    // matches VHDL zxnext.vhd:4686-4696 explicit `nr_mmu_we` semantics:
+    // an NR 0x50/0x51 write touches ONLY MMU<i>, NOT both slots. The
+    // slot's cached read_ptr_ is repointed to the current sram_rom-derived
+    // ROM page so subsequent CPU accesses match VHDL :3052 routing
+    // (`"000000" & sram_rom & cpu_a(13)`); the SRAM arbiter's dynamic
+    // config_mode override at :3044-3050 is honored on the read fast path
+    // (mmu.h ::read), so this initialisation is safe regardless of
+    // config_mode state. Use this for `NR $50,$FF` / `NR $51,$FF`
+    // dispatch instead of `engage_legacy_rom_paging()`, which clobbers
+    // both halves and breaks the case where the *other* slot was
+    // explicitly mapped to RAM via a prior NR 0x50/0x51 write.
+    void engage_legacy_rom_paging_slot(int slot);
+
     // ---------------------------------------------------------------
     // Layer 2 read/write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------

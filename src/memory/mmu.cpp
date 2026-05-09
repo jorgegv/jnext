@@ -353,6 +353,32 @@ void Mmu::apply_legacy_paging_() {
     apply_legacy_rom_slots_();
 }
 
+// Per-slot legacy-ROM re-engage helper — see header comment for full
+// rationale. Mirrors the half of `apply_legacy_rom_slots_` that touches
+// the requested slot only, so explicit NR $50,$FF / NR $51,$FF writes
+// preserve the other slot's NR-driven mapping. Matches VHDL
+// zxnext.vhd:4686-4696 nr_mmu_we semantics for value 0xFF.
+void Mmu::engage_legacy_rom_paging_slot(int slot) {
+    if (slot != 0 && slot != 1) return;
+    if (port_eff7_reg_3_) {
+        // VHDL zxnext.vhd:4636-4644 — RAM-at-0x0000 mode: even though
+        // the eff7 override only fires through port_memory_change_dly
+        // (which an explicit NR 0x50/0x51 write does NOT trigger), we
+        // still need to deliver consistent behaviour for slots driven
+        // by the SAME effective sram_rom-derived view. The eff7 flag's
+        // explicit `set_page` call here matches the VHDL behaviour an
+        // immediately following paging-port write would produce.
+        set_page(slot, static_cast<uint8_t>(slot == 0 ? 0x00 : 0x01));
+        return;
+    }
+    const uint8_t sram_rom = current_sram_rom();
+    map_rom_physical(slot, static_cast<uint8_t>(sram_rom * 2 + slot));
+    // VHDL zxnext.vhd:4611-4612 — MMU<i> holds the 0xFF sentinel after
+    // an explicit `NR 0x50/0x51 = 0xFF` write (`nr_mmu_we` path stores
+    // nr_wr_dat verbatim). Mirror that into the NR-visible register.
+    nr_mmu_[slot] = 0xFF;
+}
+
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
     // VHDL zxnext.vhd:3650 gates the port_7ffd_reg write on
     // `port_7ffd_locked = '0'`. port_7ffd_locked itself (VHDL:3769) is

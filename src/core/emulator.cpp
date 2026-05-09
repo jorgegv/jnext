@@ -1374,15 +1374,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             [this, i](uint8_t v) -> uint8_t {
                 if (v == 0xFF) {
                     if (i == 0 || i == 1) {
-                        // Slots 0/1: legacy ROM auto-paging
-                        mmu_.engage_legacy_rom_paging();
-                    } else if (i == 6 || i == 7) {
-                        // Slots 6/7: legacy RAM auto-paging
-                        mmu_.engage_legacy_ram_paging();
+                        // VHDL zxnext.vhd:4611-4612, :3052 — value 0xFF on
+                        // slots 0/1 re-engages legacy ROM auto-paging
+                        // (sram_rom-derived ROM page). Use the per-slot
+                        // helper so the OTHER slot's prior NR 0x50/0x51
+                        // mapping is preserved (VHDL nr_mmu_we writes only
+                        // MMU<i>, NOT both slots).
+                        mmu_.engage_legacy_rom_paging_slot(i);
                     } else {
-                        // Slots 2-5: keep prior fallback behavior
-                        // (no legacy auto-paging for these in 128K).
-                        mmu_.map_rom(i, 0);
+                        // Slots 2-7 with v=0xFF: VHDL zxnext.vhd:4686-4696
+                        // stores 0xFF in MMU<i>; the SRAM arbiter at :3061
+                        // then sees mmu_A21_A13(8)='1' and emits
+                        // sram_pre_active='0' — slot becomes inactive
+                        // (reads return floating-bus 0xFF, writes dropped).
+                        // set_page(i, 0xFF) achieves that: nr_mmu_=0xFF,
+                        // slots_=0xFF, read_only_=false → rebuild_ptr
+                        // nullifies read/write pointers. The prior
+                        // engage_legacy_ram_paging() (slots 6/7) and
+                        // map_rom(i,0) (slots 2-5) both diverged from VHDL
+                        // by forcing a non-0xFF mapping. Inert in current
+                        // boot but VHDL-faithful.
+                        mmu_.set_page(i, 0xFF);
                     }
                 } else {
                     mmu_.set_page(i, v);
