@@ -346,17 +346,27 @@ void SdCardDevice::process_command() {
             acmd41_sd_send_op_cond();
             return;
         }
-        // Unknown ACMD — treat as illegal per SD spec § 7.3.2.1 R1 bit 2.
-        // Pass-8 verify-audit fix (2026-05-09): pre-fix hard-coded 0x05 (= idle
-        // + illegal), which mis-asserted the idle bit on a card that has
-        // already completed ACMD41 init. The idle bit (bit 0) must reflect the
-        // card's actual idle state; only bit 2 (illegal command) is set on
-        // unknown ACMD. Boot path doesn't issue unknown ACMDs, so the prior
-        // bug was latent — class-(b) → corrected for spec faithfulness.
-        sd_log()->warn("unknown ACMD{} arg={:#010x}", cmd, cmd_arg());
-        const uint8_t idle_bit = initialized_ ? 0x00 : 0x01;
-        queue_r1(static_cast<uint8_t>(idle_bit | 0x04));  // (idle?) + illegal
-        return;
+        // Pass-9 verify-audit fix (2026-05-09): per SD Physical Layer
+        // Simplified Spec § 4.3.9.1 / § 7.3.2.1 / § 4.3.9.5, "If the next
+        // command following CMD55 is not an application-specific (ACMD)
+        // command, the application-specific flag is cleared and the
+        // command is treated as a regular command." Pre-fix returned R1
+        // illegal-command for any non-ACMD41 sequence, which violated the
+        // spec for the regular CMD bridge case (e.g. CMD55 → CMD17). The
+        // ACMD set in TBBlue/NextZXOS-relevant firmware is just ACMD41
+        // (init) and ACMD13/22/23/42/51 (extended status / pre-erase). For
+        // anything else, fall through to the regular CMD switch below so
+        // that recognized regular CMDs (CMD0/CMD8/CMD13/CMD17/etc.) get
+        // their normal response, and unrecognized regular CMDs hit the
+        // default-illegal branch. The boot path does CMD55 → ACMD41 only,
+        // so the prior bug was latent — class-(b) → corrected for spec
+        // faithfulness. (CMD13 SEND_STATUS shares its index with ACMD13
+        // SD_STATUS; the regular branch handles the SEND_STATUS shape,
+        // which TBBlue's MMC layer expects post-CMD55 only when issued in
+        // the SD-status flow — currently unused.)
+        sd_log()->debug("CMD55 not followed by recognized ACMD{} → "
+                        "falling through to regular CMD switch", cmd);
+        // Fall through.
     }
 
     switch (cmd) {
@@ -401,8 +411,23 @@ void SdCardDevice::cmd0_go_idle() {
     sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
     initialized_ = false;
     queue_r1(0x01);  // R1: in idle state
-    // ZEsarUX-style: every subsequent read while last_command=0x40 returns
-    // $01 (idle). storage/mmc.c:854-857.
+    // Pass-9 verify-audit (2026-05-09): keep persistent_response_byte_ at
+    // ZEsarUX-style $01 to match the upstream boot trace. SD Physical Layer
+    // Simplified Spec § 7.3.2 says the card returns 0xFF (line idle) after
+    // R1 and before the next command, BUT the TBBlue MMC_Init path polls
+    // for the first non-0xFF byte expecting it to be the R1 (= 0x01). With
+    // a strictly spec-faithful 0xFF tail, the firmware would consume the
+    // queued NCR/R1 once and then sample 0xFF forever — failing its
+    // (R1 & 0xFE)==0 check because $FF & $FE = $FE, which the firmware
+    // treats as a CRC error. ZEsarUX's mmc_read() at storage/mmc.c:854-857
+    // returns sustained $01 deliberately to keep `last_command=0x40` valid
+    // until a new CMD or CS deassert. We retain that behaviour because it
+    // (a) reflects real cards observed by the firmware author, (b) keeps
+    // TBBlue's boot trace working, and (c) is bounded by the deselect()/
+    // new-CMD reset paths — once the host issues another command, the
+    // sustained byte is replaced. Mark as a deliberate ZEsarUX-compat
+    // model rather than divergence from VHDL (the VHDL has no SD card —
+    // i_SPI_SD_MISO is external).
     persistent_response_byte_ = 0x01;
 }
 
