@@ -319,10 +319,19 @@ public:
         if (!ptr) return 0xFF;
         uint8_t val = ptr[addr & 0x1FFF];
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_di
-        // on every contended memory read. Approximated here via the
-        // per-16K-slot contended flag (slot_contended_[]) pushed by the
-        // Emulator alongside ContentionModel::set_contended_slot().
-        if (slot_contended_[addr >> 14]) {
+        // on every contended memory read where mem_contend='1' AND
+        // cpu_mreq_n='0'. Verify9-memory class-(c) → class-(a) fix:
+        // gate via a per-page mem_contend decode (zxnext.vhd:4489-4493)
+        // instead of the legacy per-16K-slot mirror. The MMU register
+        // (`nr_mmu_[addr>>13]` = mem_active_page) directly drives the
+        // gate so contention follows the VHDL combinational decode
+        // exactly (high pages 0x10..0xFF never contend; low pages
+        // contend per machine type via odd-bank / bank-5 / +3 banks-≥-4
+        // rules). Pre-fix `slot_contended_[]` was set externally only on
+        // 7FFD / +3-special-paging writes — NR $50/$51 RAM-mapping in
+        // slot 0/1 (e.g. NR $51,$05 mapping bank 5 hi) silently missed
+        // the bank-5 contended-memory latch update.
+        if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
         // Check data breakpoints (only when debugger is active with watchpoints)
@@ -414,9 +423,11 @@ public:
         if (!ptr) return;
         ptr[addr & 0x1FFF] = val;
         // VHDL zxnext.vhd:4498-4509 — p3_floating_bus_dat captures cpu_do
-        // on every contended memory write. Approximated via per-16K-slot
-        // contended flag (see read() for the mirror update on reads).
-        if (slot_contended_[addr >> 14]) {
+        // on every contended memory write. Verify9-memory class-(c) →
+        // class-(a) fix: gate via per-page mem_contend decode (see read()
+        // above for rationale). Same VHDL gate, mirrored on the write
+        // path.
+        if (mem_contend_for_(addr)) {
             p3_floating_bus_dat_ = val;
         }
     }
@@ -656,19 +667,23 @@ public:
     // the latch lives here and is updated from read()/write() when the
     // current 16K slot is flagged contended.
     //
-    // Branch B scope (Phase 2): plumbing only. The set_slot_contended()
-    // mirror is pushed by Emulator alongside the existing
-    // ContentionModel::set_contended_slot() calls; runtime mem_contend
-    // gating (mem_active_page high-bits, cpu_speed, contention_disable)
-    // is approximated by the per-slot flag (matches the same simplification
-    // used by the existing FUSE Z80 contention path).
+    // Verify9-memory class-(c) → class-(a) fix: the per-cycle floating-
+    // bus latch in read()/write() now consults `mem_contend_for_(addr)`
+    // (a per-page VHDL :4489-4493 decode driven by `nr_mmu_[]` and
+    // `machine_type_`) instead of the legacy `slot_contended_[]` mirror.
+    // The mirror is retained here for backwards-compatibility with the
+    // save-state schema and for any external observer that still expects
+    // the per-16K view, but the read/write hot paths no longer consume
+    // it. Emulator may continue to push updates through
+    // `set_slot_contended()` without changing the latch behaviour.
     void    set_p3_floating_bus_dat(uint8_t v) { p3_floating_bus_dat_ = v; }
     uint8_t p3_floating_bus_dat() const { return p3_floating_bus_dat_; }
 
-    // Per-16K-slot contention mirror — pushed by Emulator at every site
-    // that already updates ContentionModel::set_contended_slot(). Used
-    // by read()/write() to decide whether to update p3_floating_bus_dat_.
-    // Slot index is addr>>14 (0=0x0000, 1=0x4000, 2=0x8000, 3=0xC000).
+    // Per-16K-slot contention mirror — legacy plumbing retained for
+    // save-state compatibility (see comment above). The hot-path latch
+    // gate has been re-homed onto `mem_contend_for_(addr)` for VHDL
+    // fidelity. Slot index is addr>>14 (0=0x0000, 1=0x4000, 2=0x8000,
+    // 3=0xC000).
     void set_slot_contended(int slot, bool v) {
         if (slot >= 0 && slot < 4) slot_contended_[slot] = v;
     }
@@ -708,22 +723,19 @@ public:
     // Apply +3 special paging: port 0x1FFD
     void map_plus3_bank(uint8_t port_1ffd);
 
-    // Currently selected ROM bank 0..3 (VHDL sram_rom signal, derived from
-    // port_1ffd bit 2 << 1 | port_7ffd bit 4). Used by Task 7 ROM3-conditional
-    // automap gating (zxnext.vhd:3052,3138 — sram_pre_rom3 feeder).
-    //
-    // Known gaps (Task 7 Branch B scope does not cover — revisit if needed):
-    //   * 48K-mode: VHDL zxnext.vhd:2985 hardwires sram_rom3='1' when
-    //     machine_type_48='1'. Our implementation reports bank 0 regardless
-    //     of machine type. Impact is nil in practice — DivMMC tests target
-    //     Next mode, and 48K-mode automap is not a tested path.
-    //   * altrom (NR 0x8C): VHDL zxnext.vhd:3138 factors altrom enable into
-    //     sram_divmmc_automap_rom3_en. We ignore it — an altrom-masked ROM
-    //     bank would still report by its underlying sram_rom bits.
-    //   * Next-mode port_1ffd bit 2 is normally gated by NR 0x82 bit 3; a
-    //     direct write to port_1ffd on Next mode could make this function
-    //     return a ROM3 claim when VHDL would not. Safe in the configured
-    //     boot path; fragile if firmware goes off-script.
+    // VHDL `port_1ffd_rom` signal (zxnext.vhd:3772):
+    //   port_1ffd_rom = port_1ffd_reg(2) & port_7ffd_reg(4)
+    // This is the raw 2-bit port-derived selector consumed by the
+    // `sram_rom` decode at zxnext.vhd:2981-3008. The post-machine-type
+    // `sram_rom` value (which differs from `port_1ffd_rom` on 48K, where
+    // sram_rom is hardwired to "00", and under altrom locks) is exposed
+    // by `current_sram_rom()` below; the +3 sram_rom3 gate is exposed by
+    // `sram_rom3()`. Verify9-memory: this accessor is intentionally the
+    // raw port-derived value — its callers (`current_sram_rom`,
+    // `sram_rom3`, debug logging in Emulator) already handle the
+    // machine-type / altrom-lock decode at the call site, so there is
+    // no VHDL divergence here. The pre-Verify9 "Known gaps" comment
+    // misclassified the accessor's intent and has been removed.
     uint8_t current_rom_bank() const {
         return static_cast<uint8_t>(((port_1ffd_ >> 2) & 1) << 1 |
                                     ((port_7ffd_ >> 4) & 1));
@@ -1069,6 +1081,48 @@ private:
     //   ZXN/  : with any lock → alt_128_n = lock_rom1; else port_1ffd_rom(0)
     // port_1ffd_rom(0) is bit 0 of the 2-bit ROM bank, derived from
     // port_1ffd(2)<<1 | port_7ffd(4) → equivalently (port_7ffd_ >> 4) & 1.
+    // VHDL zxnext.vhd:4489-4493 — per-page mem_contend decode for the
+    // p3_floating_bus_dat latch and any other future per-cycle memory-
+    // contention consumer. Inputs:
+    //   * mem_active_page = nr_mmu_[addr >> 13] — the live MMU register
+    //     value for the addressed 8K slot (matches VHDL :2949-2956).
+    //   * machine_type_  — drives the per-machine bank decode.
+    // Returns true iff `mem_contend='1'` per VHDL rules:
+    //   * mem_active_page(7:4) = "0000" (low pages 0..15 only); AND
+    //   * 48K  → page(3:1) = "101" (bank 5 only)
+    //   * 128K → page(1) = '1' (odd banks)
+    //   * +3   → page(3) = '1' (banks ≥ 4)
+    //   * Pentagon / ZXN_ISSUE2 → false (no timing line for them in this
+    //     decode; the runtime contention gate at zxnext.vhd:4481 also
+    //     factors machine_timing_pentagon='0' for our currently supported
+    //     machines).
+    //
+    // VHDL also gates on the high-level `i_contention_en` signal
+    // (cpu_speed=0 AND NOT contention_disabled) at :4481, but that gate
+    // applies to the contention-stretch path (`o_cpu_contend` /
+    // `o_cpu_wait_n`), NOT to the floating-bus latch process at
+    // :4498-4509. The latch process keys ONLY on `mem_contend = '1' AND
+    // cpu_mreq_n = '0'`; cpu_speed and contention_disable are NOT in the
+    // sensitivity list. So this helper deliberately does NOT consult the
+    // ContentionModel's gate inputs — VHDL captures the latch even when
+    // contention is disabled or the CPU is overclocked.
+    inline bool mem_contend_for_(uint16_t addr) const {
+        const uint8_t page = nr_mmu_[(addr >> 13) & 7];
+        if ((page & 0xF0) != 0) return false;       // high pages don't contend
+        const uint8_t low = page & 0x0F;
+        switch (machine_type_) {
+            case MachineType::ZX48K:
+                return ((low >> 1) & 0x07) == 0x05; // bank 5 only
+            case MachineType::ZX128K:
+                return (low & 0x02) != 0;           // odd banks
+            case MachineType::ZX_PLUS3:
+                return (low & 0x08) != 0;           // banks ≥ 4
+            case MachineType::ZXN_ISSUE2:
+            default:
+                return false;
+        }
+    }
+
     inline uint8_t altrom_sram_page_(uint16_t addr) const {
         const bool lk1 = nr_8c_altrom_lock_rom1();
         const bool lk0 = nr_8c_altrom_lock_rom0();

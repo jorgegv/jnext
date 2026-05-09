@@ -461,25 +461,33 @@ static void test_section3_p3_paths(void) {
               v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-03a — +3 port 0x0FFD active-display bit-0 force. Branch B
-    // simplification: handler returns p3_floating_bus_dat | 0x01 in all
-    // raster phases on +3 with port_7ffd_locked=0. Seed the latch with a
-    // bit-0=0 byte (0xA4); expect 0xA5 = 0xA4 | 0x01.
+    // FB-03a — +3 port 0x0FFD active-display VRAM-byte arm + bit-0 force.
+    // Verify9-memory class-(c) → class-(a) fix: pre-fix the handler
+    // unconditionally returned `p3_floating_bus_dat | 0x01` (border arm)
+    // in all raster phases. VHDL zxula.vhd:573 active arm fires when
+    // `border_active_ula='0' AND floating_bus_en='1'`, returning
+    // `floating_bus_r | i_timing_p3` (= VRAM pixel byte | 0x01 on +3).
+    // Seed both the latch (0xA4 → would yield 0xA5 under old behaviour)
+    // AND the VRAM pixel byte (0x42 → expected 0x43 under VHDL): the
+    // handler must now return 0x43, proving the active arm wins.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
-        // Slot 1 (0x4000-0x7FFF) is contended on +3 — Mmu::write into
-        // that slot updates p3_floating_bus_dat_ (mmu.h:278-280).
+        // Seed the contended-CPU latch (Mmu::write to slot 1 updates
+        // p3_floating_bus_dat_ on contended pages).
         emu.mmu().write(0x4000, 0xA4);
-        // Active display + T%8=2 (matches the "capture" arm semantics);
-        // Branch B handler is raster-phase agnostic so position only
-        // documents intent.
-        set_raster_position(emu, 100, 34);
+        // Active display + T%8=2 (pixel byte 0). At LINE=100, TSTATE=34 →
+        // pixel_line=36, char_col=4 → pixel_addr per VHDL display layout.
+        const int LINE = 100, TSTATE = 34;
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
+        set_raster_position(emu, LINE, TSTATE);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-03a",
-              "+3 port 0x0FFD bit-0 force (latch=0xA4 → 0xA5) "
-              "(zxula.vhd:573 + zxnext.vhd:4517)",
-              v == 0xA5, fmt("v=0x%02X", v));
+              "+3 port 0x0FFD active-display VRAM byte | 0x01 → 0x43 "
+              "(zxula.vhd:573 active arm + zxnext.vhd:4517)",
+              v == 0x43, fmt("v=0x%02X (latch=0xA4, pixel=0x42)", v));
     }
 
     // FB-04 — re-home of S10.06, re-scoped. +3 port 0xFF at border → 0xFF.

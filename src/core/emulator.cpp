@@ -249,6 +249,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // contention.cpp::is_contended_access() comment for the rationale.
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
+    // Verify9-memory class-(c) → class-(a) fix: seed
+    // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
+    // (VHDL zxnext.vhd:2399). Power-on default is 0xFF (all bits set,
+    // see nextreg.cpp:40 + VHDL :1226), so port_7ffd_io_en starts
+    // enabled. The NR 0x82 write handler at install_port_handlers()
+    // refreshes this on every subsequent write. ContentionModel::build()
+    // resets the gate to false; we re-seed it here to match the VHDL
+    // power-on default after build().
+    contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
 
     // VideoTiming — production-wired raster counter used by the
     // contention tick path (Phase-2 wiring 2026-04-26). Mirrors VHDL
@@ -698,7 +707,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>((act << 4) | req);
     });
 
-    // Register 0x12: Layer 2 active RAM bank
+    // NR 0x82 — Internal port enable (low 8 bits of the 32-bit
+    // internal_port_enable signal at zxnext.vhd:2392). VHDL :2399 ties
+    // bit 1 to `port_7ffd_io_en`, which feeds the `port_7ffd_active` OR-
+    // term in `port_contend` (zxnext.vhd:4496 + 2594). Verify9-memory
+    // class-(c) → class-(a) fix: pre-fix the contention model dropped
+    // this term (port 0x7FFD writes on 128K/+3 missed contention).
+    // Push the new bit-1 state into ContentionModel on every NR 0x82
+    // write so the runtime contention gate stays in sync. NextReg's
+    // bare `write()` already stores the byte into regs_[0x82] before
+    // calling the handler, so other consumers reading via
+    // `nextreg_.cached(0x82)` are unaffected.
+    nextreg_.set_write_handler(0x82, [this](uint8_t v) -> uint8_t {
+        contention_.set_port_7ffd_io_en((v & 0x02) != 0);
+        return v;
+    });
     nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
         layer2_.set_active_bank(v);
         // Verify4-memory class-(a) fix: VHDL zxnext.vhd:2968 makes
@@ -1941,6 +1964,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 // DivMmc so the ROM3-conditional auto-map gate
                 // (zxnext.vhd:3138) tracks the machine-type change.
                 divmmc_.set_rom3_active(mmu_.sram_rom3());
+                // Verify9-memory class-(c) → class-(a) fix: VHDL
+                // mem_contend (:4490-4492) and the wait_s window
+                // (zxula.vhd:582-583, +3-only `hc_adj[3:1]=000` corner)
+                // are per-machine-type — a NR 0x03 commit must rebuild
+                // ContentionModel's LUT + per-machine bank decode.
+                // Pre-fix the LUT stayed pinned to the boot-time CLI
+                // type; a Next-mode firmware that committed +3 via
+                // typ_sel=$03 would miss the +3-specific corner of
+                // wait_s, and Next→48K/128K transitions would miss the
+                // bank-decode change. `rebuild_for_type` preserves
+                // dynamic gate state (cpu_speed / contention_disable /
+                // mem_active_page / shadows) so this commit doesn't
+                // unwind paging.
+                contention_.rebuild_for_type(new_mt);
             }
         }
 
@@ -2828,20 +2865,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // → 0x0001. The 0x7FFD handler (mask 0x8003) overlaps but is less
     // specific; most-specific-match-wins dispatch routes 0x0FFD here.
     //
-    // Read mux:
+    // Read mux (zxnext.vhd:4517 + zxula.vhd:573):
+    //   port_p3_floating_bus_dat <= ula_floating_bus when port_7ffd_locked='0'
+    //                          else X"FF";
+    //   o_ula_floating_bus       <= (floating_bus_r(7:1) & (floating_bus_r(0) or i_timing_p3))
+    //                                 when (border_active_ula='0' and floating_bus_en='1')
+    //                          else i_p3_floating_bus when i_timing_p3='1'
+    //                          else X"FF";
+    //
+    // Cases consumed by this handler:
     //   - Non-+3 machines: decode blocked (p3_timing_hw_en='0') →
     //     port_p3_float_rd_dat = X"00" (zxnext.vhd:2814).
     //   - port_p3_floating_bus_io_en=0 (NR 0x82 bit 4 cleared,
     //     zxnext.vhd:2403): decode blocked → 0x00.
-    //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517
-    //     port_p3_floating_bus_dat <= ... else X"FF").
-    //   - +3 + io_en=1 + port_7ffd_locked='0': p3_floating_bus_dat with
-    //     bit 0 forced high (zxula.vhd:573 OR i_timing_p3 in the active
-    //     arm; the border arm passes the latch through unchanged but
-    //     the bit-0 force is also applied combinationally on +3).
-    //     Branch B simplification: returns the latched byte | 0x01;
-    //     the per-raster-phase distinction (active VRAM byte vs border
-    //     latch fallback) is Branch C's fixture work.
+    //   - +3 + io_en=1 + port_7ffd_locked='1': X"FF" (zxnext.vhd:4517).
+    //   - +3 + io_en=1 + port_7ffd_locked='0': ula_floating_bus, with
+    //     two sub-arms:
+    //       * Active display (border_active_ula='0' AND floating_bus_en='1'):
+    //         floating_bus_r (last VRAM byte the ULA fetched) with bit 0
+    //         OR'd with i_timing_p3 — i.e. bit 0 forced high on +3.
+    //       * Border / non-active: i_p3_floating_bus = the contended-CPU
+    //         latch (Mmu::p3_floating_bus_dat()) — bit 0 also OR'd with
+    //         i_timing_p3 on +3 by the same expression.
+    //
+    // Verify9-memory class-(c) → class-(a) fix: pre-fix the handler
+    // unconditionally returned the contended-CPU latch (border arm).
+    // The active-display arm is now wired via
+    // `Emulator::ula_floating_bus_active_arm()`, which mirrors the
+    // 48K/128K port 0xFF VRAM-byte computation. The +3 latch is only
+    // returned when the active arm is silent (border / outside the
+    // ULA's 8-T-state fetch slots).
+    //
     // Write-only on real hardware in this slot — we intentionally drop
     // writes (no decoded write semantic per VHDL).
     port_.register_handler(0xF003, 0x0001,
@@ -2859,7 +2913,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // use `effective_paging_locked()` which composes the full
             // VHDL :3769 expression.
             if (mmu_.effective_paging_locked()) return 0xFF;
-            // VHDL zxula.vhd:573 — bit 0 OR i_timing_p3 (always 1 on +3).
+            // VHDL zxula.vhd:573 active arm — return the VRAM byte the
+            // ULA is currently fetching during display, with bit 0 forced
+            // high (i_timing_p3='1' on +3).
+            uint8_t active_byte;
+            if (ula_floating_bus_active_arm(active_byte)) {
+                return static_cast<uint8_t>(active_byte | 0x01);
+            }
+            // Border / non-active: i_p3_floating_bus arm (the contended
+            // CPU r/w latch, Mmu::p3_floating_bus_dat()), bit 0 forced.
             return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
         },
         nullptr);
@@ -5623,6 +5685,23 @@ uint8_t Emulator::floating_bus_read() const
     }
 
     // ---- 3. ULA floating-bus content (48K/128K only) ----
+    uint8_t b;
+    if (ula_floating_bus_active_arm(b)) {
+        return b;
+    }
+    return 0xFF;
+}
+
+bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
+{
+    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus` fires
+    // when `border_active_ula='0' AND floating_bus_en='1'`. Inside the
+    // active display the ULA is reading pixel + attribute bytes from
+    // bank 5 (legacy 128K bank 5 / Next page 0x0A-0x0B = SRAM 0x14000+).
+    // This helper returns true and writes the byte the ULA would have
+    // latched at the current T-state position; otherwise returns false
+    // (caller selects the appropriate fallback — i_p3_floating_bus on
+    // +3, X"FF" elsewhere).
     //
     // Compute current position within the frame. Master clock is 28 MHz;
     // T-states at 3.5 MHz = master_cycles / 8.
@@ -5639,7 +5718,7 @@ uint8_t Emulator::floating_bus_read() const
 
     // Outside active display area: border, bus is idle
     if (line < 64 || line >= 256 || tstate_in_line >= 128)
-        return 0xFF;
+        return false;
 
     // Within active display: ULA fetches in 8-T-state cycles.
     // Each 8T cycle: T+0=bitmap, T+1=attr, T+2=bitmap+1, T+3=attr+1, T+4..7=idle
@@ -5661,11 +5740,11 @@ uint8_t Emulator::floating_bus_read() const
     uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
 
     switch (tstate_in_line % 8) {
-        case 2: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);       // pixel byte
-        case 3: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);       // attribute byte
-        case 4: return ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1);   // pixel byte +1
-        case 5: return ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1);   // attribute byte +1
-        default: return 0xFF;  // idle T-states within the 8T cycle
+        case 2: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000);     return true;
+        case 3: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000);     return true;
+        case 4: out_byte = ram_.read(pixel_addr - 0x4000 + 10 * 0x2000 + 1); return true;
+        case 5: out_byte = ram_.read(attr_addr  - 0x4000 + 10 * 0x2000 + 1); return true;
+        default: return false;  // idle T-states within the 8T cycle
     }
 }
 

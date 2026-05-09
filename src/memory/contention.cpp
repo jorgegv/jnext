@@ -1,22 +1,32 @@
 #include "contention.h"
 
 void ContentionModel::build(MachineType type) {
+    // Full reset (init-time only): clear LUT + gate state + slot mirror.
     type_ = type;
     for (auto& row : lut_) row.fill(0);
     for (int i = 0; i < 4; ++i) contended_slot_[i] = false;
 
     // Reset VHDL-faithful gate inputs to their power-on defaults.
-    //
-    // NOTE: this clears all three contention gate inputs (mem_active_page,
-    // cpu_speed, contention_disable) — safe today because build() is only
-    // called from Emulator::init(). If ever hot-called at runtime to switch
-    // machine types, re-seed cpu_speed from NR 0x07 and contention_disable
-    // from NR 0x08 after the build() call.
     mem_active_page_           = 0;
     cpu_speed_                 = 0;
     pending_cpu_speed_         = 0;
     contention_disable_        = false;
     contention_disable_shadow_ = false;
+    port_7ffd_io_en_           = false;
+
+    rebuild_for_type(type);
+}
+
+void ContentionModel::rebuild_for_type(MachineType type) {
+    // Hot-rebuild path: update `type_` + recompute LUT. Slot mirror
+    // (contended_slot_[]) is also re-seeded with the per-machine default
+    // (slot 1 = bank 5 contended on 48K/128K/+3). Dynamic gate state
+    // (mem_active_page / cpu_speed / pending / contention_disable / shadow)
+    // is preserved so a runtime NR 0x03 commit doesn't unwind paging or
+    // contention-disable state.
+    type_ = type;
+    for (auto& row : lut_) row.fill(0);
+    for (int i = 0; i < 4; ++i) contended_slot_[i] = false;
 
     if (type == MachineType::ZXN_ISSUE2) return;
 
@@ -143,14 +153,26 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     //                              and (s128_timing_hw_en = '1'
     //                                or p3_timing_hw_en = '1')
     //                         else '0';
-    // PHASE-B: not driven by the bare class. The full Emulator owns the
-    // 128K/+3 machine-timing select AND the `port_7ffd_io_en`
-    // (NR 0x82 bit 1) gate AND the `port_7ffd` address-decode rules
-    // (cpu_a(15)='0' AND (cpu_a(14)='1' OR not p3_timing) AND port_fd
-    // AND not port_1ffd). Phase B rows CT-IO-05/06 will exercise this
-    // term via a full-Emulator harness; the bare-class accessor
-    // intentionally drops it. See doc/testing/CONTENTION-TEST-PLAN-DESIGN.md
-    // §8 row notes.
+    // port_7ffd address decode (zxnext.vhd:2593):
+    //     port_7ffd <= cpu_a(15)='0' AND (cpu_a(14)='1' OR NOT p3_timing)
+    //                  AND port_fd (cpu_a(1:0)="01")
+    //                  AND NOT port_1ffd (cpu_a(13:12) /= "01")
+    //                  AND port_7ffd_io_en (NR 0x82 bit 1).
+    //
+    // Verify9-memory class-(c) → class-(a) fix: pre-fix the bare-class
+    // accessor dropped this term, so port 0x7FFD writes on 128K/+3
+    // missed contention. The gate inputs (`port_7ffd_io_en_` shadow +
+    // `type_`) are now state on the ContentionModel, pushed by the
+    // runtime caller (Emulator) on every NR 0x82 write.
+    if (port_7ffd_io_en_ &&
+        (type_ == MachineType::ZX128K || type_ == MachineType::ZX_PLUS3) &&
+        (cpu_a & 0x8000) == 0 &&                        // cpu_a(15)='0'
+        (cpu_a & 0x0003) == 0x0001 &&                   // port_fd: A1:0="01"
+        (cpu_a & 0x3000) != 0x1000 &&                   // NOT port_1ffd: A13:12 != "01"
+        (type_ != MachineType::ZX_PLUS3 ||
+         (cpu_a & 0x4000) != 0)) {                      // +3: also require A14='1'
+        return true;
+    }
 
     return false;
 }
