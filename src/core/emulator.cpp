@@ -4651,6 +4651,17 @@ void Emulator::run_frame()
             divmmc_.set_button_nmi(true);
         }
 
+        // Verify-audit fix — VHDL:2169 `nmi_mf_button` arbitration-strobe
+        // producer (companion to :2170). VHDL line 4290 wires the
+        // Multiface entity's `button_i` to `nmi_mf_button` (= `nmi_mf AND
+        // nmi_state=S_NMI_IDLE`), so the Multiface only sees the press
+        // AFTER NmiSource has arbitrated the request through NR 0x06 bit
+        // 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold, and
+        // nr_03_config_mode. We mirror that contract here.
+        if (nmi_source_.mf_button_strobe()) {
+            multiface_.button_press();
+        }
+
         // Edge-driven Z80 /NMI assertion. The NmiSource FSM drives
         // `nmi_generate_n()` low when it wants the Z80 to take an NMI
         // (VHDL:2164-2170). FUSE's Z80 core takes the NMI on the next
@@ -4855,6 +4866,11 @@ int Emulator::execute_single_instruction()
     if (nmi_source_.divmmc_button_strobe()) {
         divmmc_.set_button_nmi(true);
     }
+    // Verify-audit fix — VHDL:2169 `nmi_mf_button` consumer; mirrors the
+    // primary tick cluster above. See full rationale there.
+    if (nmi_source_.mf_button_strobe()) {
+        multiface_.button_press();
+    }
     {
         const bool nmi_n = nmi_source_.nmi_generate_n();
         if (!nmi_n && prev_nmi_generate_n_) {
@@ -5002,13 +5018,20 @@ void Emulator::on_hotkey_f9_mf_nmi()
     // `nmi_assert_mf()`.
     nmi_source_.strobe_mf_button();
 
-    // Wave 1 B1 — also drive the Multiface FSM directly. VHDL
-    // zxnext.vhd:4274-4310 instantiates multiface_mod with `button_i`
-    // pulled from the same source. button_press() takes effect only
-    // when NMI_ACTIVE='0' (multiface.vhd:135 `button_pulse <= button_i
-    // AND NOT nmi_active`); subsequent presses while a Multiface NMI
-    // is in flight are no-ops, exactly as on real hardware.
-    multiface_.button_press();
+    // Verify-audit fix (Task 2 verify-nmi-mf-port): the Multiface FSM
+    // does NOT receive `hotkey_m1` directly. Per zxnext.vhd:4290 the
+    // Multiface entity's `button_i` port is wired to `nmi_mf_button`
+    // (= `nmi_mf AND nmi_state=S_NMI_IDLE`, line 2169) — i.e. the
+    // arbiter-elected MF strobe, not the raw F9 edge. That signal is
+    // gated by NR 0x06 bit 3, port_e3_reg(7) (CONMEM), divmmc_nmi_hold,
+    // nr_03_config_mode (line 2107 + line 2102) before reaching the
+    // Multiface. The previous direct call to `multiface_.button_press()`
+    // here bypassed all four gates, so a CONMEM-blocked or
+    // config-mode-blocked F9 press would still arm the Multiface FSM.
+    // The corresponding consumer code in `tick_peripheral_subsystems()`
+    // / `simulate_master_cycles()` now drives `multiface_.button_press()`
+    // off `NmiSource::mf_button_strobe()` once the arbiter latches the
+    // MF priority bit — matching VHDL exactly.
 }
 
 void Emulator::on_hotkey_f10_divmmc_nmi()

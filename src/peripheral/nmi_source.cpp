@@ -257,23 +257,24 @@ NmiSource::Src NmiSource::latched() const
 
 bool NmiSource::nmi_generate_n() const
 {
-    // VHDL:2164-2170 — /NMI asserted ('0') while the FSM holds the
-    // request. S_NMI_FETCH drives the line low until the Z80 takes
-    // the NMI; S_NMI_HOLD keeps it low while the consumer is still
-    // claiming ownership. S_NMI_END releases the line; S_NMI_IDLE is
-    // the resting state.
+    // VHDL zxnext.vhd:2168 — verbatim formula:
+    //   nmi_generate_n <= '0' when (nmi_state = S_NMI_IDLE and
+    //                               nmi_activated = '1')
+    //                          or nmi_state = S_NMI_FETCH
+    //                          or (nr_81_expbus_nmi_debounce_disable = '1'
+    //                              and nmi_assert_expbus = '1')
+    //                     else '1';
     //
-    // In IDLE with a pending request, VHDL asserts /NMI for one cycle
-    // as the FSM advances to FETCH. We model that by driving '0' in
-    // IDLE when `is_activated()` is true AND the FSM will advance
-    // this cycle (i.e. any latch is set).
-    if (state_ == State::Fetch || state_ == State::Hold) return false;
+    // Verify-audit fix (Task 2 verify-nmi-mf-port): earlier code asserted
+    // /NMI in HOLD as well as FETCH ("the FSM holds the request"), which
+    // mis-citation. VHDL releases /NMI ('1') on the FETCH→HOLD edge so the
+    // Z80 sees a clean edge for any subsequent NMI; HOLD only blocks the
+    // FSM from advancing while the consumer is still latched. Functionally
+    // identical for the falling-edge consumer in jnext (the Z80 latches
+    // NMI on the edge, not the level), but spec-faithful matters.
+    if (state_ == State::Fetch)                          return false;
     if (state_ == State::Idle  && is_activated())        return false;
-    // VHDL zxnext.vhd:2168 — expbus debounce-disable fast path (FSM bypass).
-    if (expbus_debounce_disable_ && nmi_assert_expbus()) {
-        return false;
-    }
-    // S_NMI_END releases /NMI; VHDL reports `nmi_generate_n = 1` there.
+    if (expbus_debounce_disable_ && nmi_assert_expbus()) return false;
     return true;
 }
 
@@ -317,14 +318,22 @@ void NmiSource::observe_retn()
 
 void NmiSource::recompute_()
 {
-    // 1) config_mode force-clear (VHDL:2102-2105) — takes effect every
-    //    cycle while the flag is held.
+    // 1) config_mode force-clear (VHDL:2102-2105) — clears the three
+    //    priority latches `nmi_mf` / `nmi_divmmc` / `nmi_expbus` and
+    //    holds the FSM in IDLE while the flag is held.
+    //
+    //    Verify-audit fix (Task 2 verify-nmi-mf-port): the NR 0x02
+    //    readback latches `nr_02_generate_mf_nmi` / `nr_02_generate_divmmc_nmi`
+    //    (zxnext.vhd:3840-3864) live in DIFFERENT clocked processes
+    //    that are clear ONLY by reset OR by an explicit NR 0x02 write
+    //    with the corresponding bit cleared (lines 3847-3848, 3860-3861).
+    //    Config mode does NOT appear in either process's clear cascade,
+    //    so the readback bits MUST survive a config_mode entry. Earlier
+    //    code wrongly cleared `nr_02_pending_{mf,divmmc}_` here.
     if (config_mode_) {
         nmi_mf_     = false;
         nmi_divmmc_ = false;
         nmi_expbus_ = false;
-        nr_02_pending_mf_     = false;
-        nr_02_pending_divmmc_ = false;
         state_ = State::Idle;
         return;
     }
