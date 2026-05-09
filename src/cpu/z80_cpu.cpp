@@ -488,6 +488,43 @@ int Z80Cpu::execute() {
             if (on_m1_cycle) on_m1_cycle(pc, opcode);
             if (on_m1_cycle) on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), ext);
 
+            // Pass-5 fix: VHDL-faithful M1 contention for Z80N opcodes.
+            // Mirrors FUSE's `contend_read(PC, 4)` per M1 fetch (see
+            // opcodes_base.c:1075 for ED prefix; the inner 0xed switch then
+            // does the same for the ext byte). Each contend_read() adds the
+            // VHDL contention stretch keyed on (hc, vc) at the current
+            // tstates position, then advances tstates by 4 (the M1 length).
+            // Without this, every Z80N opcode bypassed the M1 contention
+            // window — the supervisor uses NEXTREG/MUL/ADD HL/DE/BC,A
+            // constantly, so contended pages running during the active raster
+            // window would skip 6/5/4/3/2/1 T-states per Z80N instruction.
+            // Class-(a) per pass-5 quantification (boot supervisor cycles
+            // ~2.4M Z80N opcodes per second; even 1 missed cycle on 10 % of
+            // those is 240 K T-states/s, ≈3.4 % timing drift).
+            //
+            // The two contend_read() calls also bake the M1 contention into
+            // the FUSE `tstates` clock so subsequent fuse_z80_readbyte() /
+            // contend_read() calls (post-Z80N) derive (hc, vc) from a
+            // contention-correct frame position.
+            //
+            // Note: the per-call 4 T-states subsume what was previously
+            // supplied by `tstates += t` (where t already included the 8 T
+            // baseline). We therefore subtract 8 from the post-instruction
+            // tstates increment below. For Z80N opcodes that read operand
+            // bytes (TEST_N, ADD_*_NN, NEXTREG_NN, NEXTREG_A, PUSH_NN), the
+            // operand read contention is still NOT modelled — flagged
+            // class-(b) for a future pass that routes operand accesses
+            // through fuse_z80_readbyte (which would also push the +3 T per
+            // operand into tstates and require further T-state arithmetic).
+            //
+            // Snapshot tstates BEFORE the contend_read pair so we can return
+            // the FULL elapsed delta (including any contention stretch) at
+            // the bottom of the branch — matching FUSE's
+            // fuse_z80_execute_one() return shape (line 213).
+            libspectrum_dword start_ts = tstates;
+            contend_read(pc, 4);
+            contend_read(static_cast<uint16_t>((pc + 1) & 0xFFFF), 4);
+
             // Advance PC past ED + ext byte; execute_z80n reads any operands
             z80.pc.w = (pc + 2) & 0xFFFF;
             // Increment R by 2: one for ED prefix M1, one for ext byte M1
@@ -535,12 +572,30 @@ int Z80Cpu::execute() {
             // (`tstates - int_requested_at_`) is also affected: a pending
             // ULA INT can outlive its 32/36-cycle pulse without the window
             // expiring, because Z80N execution time isn't being counted.
-            // Add `t` here so the FUSE tstates clock stays aligned with
-            // the value Emulator advances `video_timing_` by.
-            tstates += static_cast<libspectrum_dword>(t);
+            //
+            // Pass-5: the two contend_read(pc, 4) / contend_read(pc+1, 4)
+            // calls above already added 8 T-states for the M1 fetches AND
+            // any contention stretch the (hc, vc) window emitted; the `t`
+            // returned by execute_z80n is the FULL instruction time
+            // (including the 8 T baseline), so we add (t - 8) here to avoid
+            // double-counting the M1 baseline. All Z80N opcodes return at
+            // least 8 T (the pure-fetch ones), so (t - 8) >= 0 is always
+            // safe.
+            //
+            // Return value: the FUSE convention (fuse_z80_execute_one()
+            // line 213) is to return (tstates_delta) — the FULL elapsed
+            // T-state count INCLUDING any contention stretch. The Emulator
+            // (run_frame() line 4639) feeds this directly into
+            // video_timing_.advance(), so contention stretches must be
+            // visible in the return value too. We compute the delta from
+            // start_ts (snapshotted before the contend_read pair above) so
+            // the Z80N path returns the same shape as the FUSE path.
+            int post_m1 = t - 8;
+            if (post_m1 < 0) post_m1 = 0;
+            tstates += static_cast<libspectrum_dword>(post_m1);
 
             sync_fuse_from_regs(regs_);
-            return t;
+            return static_cast<int>(tstates - start_ts);
         }
 
         // G87: non-Z80N ED instruction (RETI = ED 4D, RETN = ED 45, IM 0/1/2,
