@@ -75,6 +75,25 @@ void NextReg::reset() {
     const uint8_t saved_8c_lo = static_cast<uint8_t>(regs_[0x8C] & 0x0F);
     const uint8_t computed_8c = static_cast<uint8_t>((saved_8c_lo << 4) | saved_8c_lo);
 
+    // PASS-6 NR 0x06 reset preservation. VHDL zxnext.vhd:1107-1113 declares
+    // NR 0x06 as a per-bit signal split, with ONLY two bits in the reset
+    // clause at zxnext.vhd:4932-4933:
+    //   nr_06_hotkey_cpu_speed_en (bit 7) <= '1'
+    //   nr_06_hotkey_5060_en      (bit 5) <= '1'
+    // The remaining fields (bit 6 internal_speaker_beep, bit 4
+    // button_drive_nmi_en, bit 3 button_m1_nmi_en, bit 2 ps2_mode, bits 1:0
+    // psg_mode) have ONLY initial-value declarations (= power-on '0'); they
+    // are NOT in the reset block, so they survive both hard and soft reset.
+    // Pre-pass-6 jnext unconditionally re-applied 0xA0 here, clobbering any
+    // user-set value of bits 4/3 (the Multiface / DivMMC NMI button enables)
+    // on every soft reset — software that wrote NR 0x06 to enable an NMI
+    // source and then issued NR 0x02 ← 0x01 (soft reset) would silently lose
+    // the gate. Mirror the same save/restore pattern used for 0x82-0x85.
+    const uint8_t saved_06 = regs_[0x06];
+    // Bits 7 and 5 are re-asserted to '1' by the VHDL reset block; the other
+    // bits are inherited verbatim from the pre-reset value.
+    const uint8_t computed_06 = static_cast<uint8_t>((saved_06 & ~0xA0) | 0xA0);
+
     regs_.fill(0);
     regs_[0x80] = computed_80;
     regs_[0x7F] = saved_7f;
@@ -101,11 +120,12 @@ void NextReg::reset() {
     // NR 0x05 is not cleared on soft reset (no entry in the reset block).
     // G56 cluster A: prior 0x40 missed the scandouble_en default bit.
     regs_[0x05] = 0x41;
-    // NR 0x06 power-on default: 0xA0. VHDL zxnext.vhd:1107-1108:
-    //   nr_06_hotkey_cpu_speed_en := '1' (bit 7)
-    //   nr_06_hotkey_5060_en      := '1' (bit 5)
-    // All other NR 0x06 bits default '0' (zxnext.vhd:1109-1113). G125.
-    regs_[0x06] = 0xA0;
+    // NR 0x06 — write the preserved-with-bits-7,5-forced-to-'1' value. See
+    // PASS-6 comment above for the VHDL rationale. On power-on the
+    // constructor-time `regs_{}` value-init means saved_06 == 0, so
+    // computed_06 == 0xA0 — matching the pre-pass-6 G125 power-on behaviour.
+    // Subsequent resets preserve bits 6/4/3/2/1/0 of NR 0x06 verbatim.
+    regs_[0x06] = computed_06;
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
     // NR 0x10 power-on default. VHDL zxnext.vhd:1133:

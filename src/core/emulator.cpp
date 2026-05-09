@@ -3040,13 +3040,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (declared in emulator.h). Single-fanout pattern preserved — this
     // is still the only NR 0x06 write handler.
     //
-    // VHDL signal default '0' (zxnext.vhd:1109-1110) — re-clear on every
-    // init() so reset() (and soft_reset(), which both reach init()) puts
-    // them back to power-on state. Tests rely on this explicit clear.
-    nr_06_button_m1_nmi_en_       = false;
-    nr_06_button_drive_nmi_en_    = false;
-    nr_06_internal_speaker_beep_  = false;
-    nr_06_ps2_mode_               = false;  // VHDL :1111 default '0' (G56)
+    // PASS-6 NR 0x06 reset preservation (VHDL zxnext.vhd:1109-1113 are
+    // initial-value-only signals — NOT in the reset block at zxnext.vhd:4932-
+    // 4933, which only re-asserts bits 7 and 5). NextReg::reset() now
+    // preserves bits 6/4/3/2/1/0 of NR 0x06 across reset; derive the
+    // Emulator-side state shadows from the preserved cached value rather
+    // than unconditionally clearing them. On power-on (constructor's
+    // value-init of regs_[]), cached(0x06) post-reset is 0xA0, so all four
+    // shadows start at false — matching the pre-pass-6 power-on behaviour.
+    // After any subsequent NR 0x06 write + soft reset, the user-written
+    // bits 6/4/3/2/1/0 survive per VHDL.
+    {
+        const uint8_t cached_06 = nextreg_.cached(0x06);
+        nr_06_button_m1_nmi_en_      = (cached_06 & 0x08) != 0;
+        nr_06_button_drive_nmi_en_   = (cached_06 & 0x10) != 0;
+        nr_06_internal_speaker_beep_ = (cached_06 & 0x40) != 0;
+        nr_06_ps2_mode_              = (cached_06 & 0x04) != 0;
+        // Forward the preserved NMI-button enables to NmiSource so the
+        // gate at NmiSource::nmi_assert_mf / _divmmc reflects the live
+        // VHDL state immediately after reset, before any subsequent
+        // NR 0x06 write would otherwise re-arm them.
+        nmi_source_.set_mf_enable(nr_06_button_m1_nmi_en_);
+        nmi_source_.set_divmmc_enable(nr_06_button_drive_nmi_en_);
+    }
     // G110 — refresh Mixer's exc_i now that the NR 0x06 b6 shadow has been
     // cleared (and `nr_08_stored_low_ = 0x10` earlier in init() set the b4
     // power-on default). beep_spkr_excl is the AND of the two; both bits
