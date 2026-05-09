@@ -1042,3 +1042,67 @@ DZRP CSpect at the $5B0E OUT (7FFD) site (= where jnext's slot 6/7
 revert event fires). Compare port_7ffd / port_1ffd values BEFORE
 and AFTER the OUT. If CSpect's 1FFD is different, that's the bug.
 
+
+## EOD-23 BREAKTHROUGH — CSpect doesn't invoke the toggle wrapper
+
+DZRP probe at bank 0 $5B0E (toggle wrapper OUT 7FFD) and $5B20
+(toggle wrapper RET) showed:
+
+**jnext**: `$5B0E` fires every cycle (~3s) via the RAM_REBUILD
+trace pattern. Supervisor invokes the toggle wrapper repeatedly.
+
+**CSpect**: 0 hits at `$5B0E` or `$5B20` during 10s of execution
+after boot. **CSpect's supervisor does NOT invoke the toggle
+wrapper.**
+
+Memory at `$5B00..$5B52` in CSpect contains the SAME bytes as jnext
+(verified — toggle wrapper code is identical at byte level). So the
+divergence isn't in WHAT'S IN MEMORY — it's in the SUPERVISOR'S
+EXECUTION PATH.
+
+### The two static callers of $5B00
+
+```
+bank 0 $00B2: CALL $5B00 (= bank 0 native call)
+bank 1 $01A6: JP $5B00   (= bank 1 jump)
+```
+
+No static `CALL $00B2` sites found. So bank 0 $00B2 is reached via
+JP (HL) / RST / fall-through.
+
+Bank 1 $01A6 is at offset $01A6 in slot 0 (=$0000-$1FFF area when
+slot 0 = bank 1 lo = sram_rom=1). But our jnext trace at PC=$01A6
+shows slot 0 = bank 0 (= sram_rom=0), so bank 0's `JR NZ,$24` runs
+instead of bank 1's JP $5B00.
+
+### How does jnext's supervisor reach $5B00 then?
+
+Per RAM_REBUILD trace, $5B0E fires at PC=$5B0E (= EXECUTING the
+toggle wrapper code in slot 2). Supervisor enters $5B00 via some
+mechanism — probably bank 0 $00B2 CALL $5B00 via indirect jump.
+
+To pinpoint: trace where supervisor's PC is just BEFORE $5B00.
+Add probe at PC=$5B00 (toggle wrapper entry).
+
+### Hypothesis
+
+CSpect's supervisor goes through a different boot path that:
+- Uses NEXTREG $8E,XX directly (bypassing the toggle wrapper)
+- Or uses the bank-flip stubs at $5B43/$5B48/$5B4D (= NEXTREG $8E,X
+  + RET stubs)
+- Avoids the $5B00 toggle entirely
+
+The toggle wrapper's behavior (XOR both 7FFD bit 4 + 1FFD bit 2)
+ends in bank 0 or bank 3 — NEITHER has a wrapper at $3F00. So the
+supervisor that invokes the toggle inevitably reaches a state where
+CALL $3F00 fails.
+
+### Concrete fix path
+
+Find what code in jnext leads to $5B00 invocation but NOT in
+CSpect. That's the code-path divergence. Likely a conditional
+branch where one path takes the toggle and another doesn't.
+
+Probe candidate: trace PC sequence around $5B00 entry in jnext.
+The CALLER's PC tells us the upstream decision point.
+
