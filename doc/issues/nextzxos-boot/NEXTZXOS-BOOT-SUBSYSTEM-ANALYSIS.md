@@ -51,7 +51,7 @@ The expanded list (`memory + divmmc/sd/spi + nmi/multiface/port + cpu/z80n/im2`)
 ### Memory (mmu/ram/rom/contention)
 
 Branch: `task2/memory-review` (analysis), `task2/memory-reviewer` (review)
-Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-MEMORY.md`, `…-MEMORY-REVIEW.md`
+Reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-MEMORY.md`, `…-MEMORY-REVIEW.md`
 
 **Fixes:**
 
@@ -66,7 +66,7 @@ Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-MEMORY.md`, `…-MEMORY-REVIEW.md
 ### DivMMC + SD-card + SPI
 
 Branch: `task2/divmmc-sd-spi-review` (analysis), `task2/divmmc-sd-spi-reviewer` (review)
-Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-DIVMMC-SD-SPI.md`, `…-DIVMMC-SD-SPI-REVIEW.md`
+Reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-DIVMMC-SD-SPI.md`, `…-DIVMMC-SD-SPI-REVIEW.md`
 
 **Fixes (all in commit `399c9ae`):**
 
@@ -81,7 +81,7 @@ Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-DIVMMC-SD-SPI.md`, `…-DIVMMC-SD
 ### NMI + Multiface + Port + NextREG
 
 Branch: `task2/nmi-mf-port-review` (analysis), `task2/nmi-mf-port-reviewer` (review)
-Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-NMI-MF-PORT.md`, `…-NMI-MF-PORT-REVIEW.md`
+Reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-NMI-MF-PORT.md`, `…-NMI-MF-PORT-REVIEW.md`
 
 **Fixes (commit `c1d7998`):**
 
@@ -100,7 +100,7 @@ Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-NMI-MF-PORT.md`, `…-NMI-MF-PORT
 ### CPU (Z80 + Z80N + IM2)
 
 Branch: `task2/cpu-z80n-im2-review` (analysis), `task2/cpu-z80n-im2-reviewer` (review), `task2/cpu-int-pulse-fix` (follow-up fix)
-Reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`, `…-CPU-REVIEW.md`
+Reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`, `…-CPU-REVIEW.md`
 
 **Primary fix (commit `65b5918`) — Z80N T-state systematic undercount.** `Z80Cpu::execute()` raw-reads ED + Z80N opcode bytes, bypassing FUSE timing callbacks. `execute_z80n()` was returning the inner-opcode T-state count without including the ED-prefix M1 fetch. Most Z80N opcodes were 4 T-states short; block-ops 8 short on non-terminal iterations. Fixed every opcode to match the published Spectrum Next timing table:
 
@@ -160,7 +160,7 @@ The verification pass added two more high-leverage candidates (see below).
 
 # Verification re-audit (second pass, blind)
 
-After the first-pass merge closed, four fresh agents (one per subsystem) were launched off integration-branch HEAD `e6bd9ce`, all in ultrathink mode, **forbidden from reading any first-pass `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-*.md` file**. Each was told to audit the post-fix state against VHDL from scratch and to actively hunt for what the first pass missed. Per-subsystem verification reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
+After the first-pass merge closed, four fresh agents (one per subsystem) were launched off integration-branch HEAD `e6bd9ce`, all in ultrathink mode, **forbidden from reading any first-pass `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-*.md` file**. Each was told to audit the post-fix state against VHDL from scratch and to actively hunt for what the first pass missed. Per-subsystem verification reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
 
 The verification agents found **6 additional class-(a) bugs** the first-pass missed:
 
@@ -218,7 +218,7 @@ The two branches conflicted at merge (both edited `src/core/emulator.cpp:1372-14
 
 After the second-pass merge closed (HEAD `7747202`), four fresh agents were launched off integration-branch HEAD with the same blind constraint extended to BOTH prior passes' reports. Pass-3 prompts emphasized **methodology shifts**: edge-case / boundary inputs, differential audit direction (VHDL→C++), cold/warm/soft reset interactions, power-on defaults sweep, multi-state interaction edges, and CPU-specific R-register / MEMPTR / Q register / save-load coverage.
 
-Per-subsystem pass-3 reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY3-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
+Per-subsystem pass-3 reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY3-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
 
 **Pass-3 found 11 additional class-(a) bugs.** Pattern observation: many pass-3 findings are either **refinements of pass-2 fixes** that were too aggressive (memory) or **previously-class-(b) findings promoted to class-(a) and finally fixed** (NMI/MF/Port).
 
@@ -295,7 +295,7 @@ After pass-3 merge closed, pass-4 launched with explicit methodology shifts per 
 - **NMI + MF + Port**: **the 80% sweep** — palette $40-$44, copper $60-$63, sprite $34-$3F, line int $22-$23, audio $26-$2E + $84-$89, DMA int $C8-$CF, UART $98-$9C+$E0-$EF, general I/O $A0-$A1, general config $05-$0A
 - **CPU**: Z80N + DD/FD/CB prefix composition, R/MEMPTR/Q semantics, contention-stress, FUSE-internal state inventory, IM2 stress cases, NMI/INT race, HALT corners
 
-Per-subsystem pass-4 reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY4-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
+Per-subsystem pass-4 reports: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY4-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
 
 ## Memory pass-4 (branch `task2/verify4-memory`)
 

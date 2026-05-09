@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-05
 **Reviewer**: independent read-only review agent
-**Reviewing**: `doc/issues/G46B-AGENT-NRAUDIT.md`
+**Reviewing**: `doc/issues/nextzxos-boot/G46B-AGENT-NRAUDIT.md`
 **Verdict**: **APPROVE WITH ADDITIONS / CORRECTIONS**
 
 The original audit is broadly accurate and methodologically sound. Cross-checked

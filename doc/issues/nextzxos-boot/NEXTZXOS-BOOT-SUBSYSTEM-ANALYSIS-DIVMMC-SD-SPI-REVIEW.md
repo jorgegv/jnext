@@ -7,7 +7,7 @@
 - `zxnext.vhd` (top level)
 - `device/divmmc.vhd` (DivMMC entity, 153 lines)
 - `serial/spi_master.vhd` (SPI master, 179 lines)
-**Author report**: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-DIVMMC-SD-SPI.md`
+**Author report**: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-DIVMMC-SD-SPI.md`
 
 ## Verdict
 

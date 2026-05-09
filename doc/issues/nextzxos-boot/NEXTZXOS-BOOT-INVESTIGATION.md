@@ -1029,7 +1029,7 @@ reads complete within ~1 s of emulated time (verified with sdcard=debug
 trace). The missing logo and earlier log lines are an **upstream rendering
 gap** (attribute-byte memory stale), not a peripheral gap.
 
-Reference screenshots saved in `doc/issues/nextzxos-boot-screens/`:
+Reference screenshots saved in `doc/issues/nextzxos-boot/nextzxos-boot-screens/`:
 - `00-tbblue-splash-100frames.png` — TBBlue logo + video-mode prompt
 - `00b-tbblue-splash-spacebar-prompt-200frames.png` — "Press SPACEBAR for menu" overlay
 - `01a-splash-clearing-250frames.png` — splash clearing transition

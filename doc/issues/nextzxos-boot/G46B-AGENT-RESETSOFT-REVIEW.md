@@ -1,7 +1,7 @@
 # G46(b) — RESET_SOFT audit reviewer report (read-only)
 
 **Date:** 2026-05-05  
-**Reviewer scope:** verify the read-only audit at `doc/issues/G46B-AGENT-RESETSOFT.md` and the post-fix observation that the supervisor still stalls in the same loop after applying the recommended `nmi_source_.strobe_soft_reset()` (commit `75d11fb`).  
+**Reviewer scope:** verify the read-only audit at `doc/issues/nextzxos-boot/G46B-AGENT-RESETSOFT.md` and the post-fix observation that the supervisor still stalls in the same loop after applying the recommended `nmi_source_.strobe_soft_reset()` (commit `75d11fb`).  
 **Verdict: REWORK.** The agent's VHDL inventory is correct, but the recommendation is rooted in an unverified assumption (that the supervisor reads NR 0x02 to branch). I disassembled enNextZX.rom and the supervisor **NEVER** reads or writes NR 0x02. The FSM strobe is VHDL-faithful but **not boot-relevant** — exactly hypothesis #3 from the user's framing.
 
 ---
@@ -90,8 +90,8 @@ Concretely, set `--log-level cpu_inst=trace --log-pc-range 0x00ef-0x0500 --log-l
 
 ## Files referenced
 
-- `/home/jorgegv/src/spectrum/jnext/doc/issues/G46B-AGENT-RESETSOFT.md` (audited)
-- `/home/jorgegv/src/spectrum/jnext/doc/issues/G46B-INVESTIGATION-LIVE.md` (live data, lines 597-700 contain the actual root cause framing)
+- `/home/jorgegv/src/spectrum/jnext/doc/issues/nextzxos-boot/G46B-AGENT-RESETSOFT.md` (audited)
+- `/home/jorgegv/src/spectrum/jnext/doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md` (live data, lines 597-700 contain the actual root cause framing)
 - `/home/jorgegv/src/spectrum/jnext/src/core/emulator.cpp:47-220` (init), `:3768-3808` (bypass block + the reviewed strobe call), `:4815-4858` (soft_reset)
 - `/home/jorgegv/src/spectrum/jnext/src/peripheral/nmi_source.cpp:145-156` (FSM strobe)
 - `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/zxnext.vhd:1730-1739` (FSM definition), `:5890-5891` (NR 0x02 read)

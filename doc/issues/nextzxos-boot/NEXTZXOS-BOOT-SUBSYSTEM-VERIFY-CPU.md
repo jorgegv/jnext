@@ -5,7 +5,7 @@ documented.**
 
 This is the second-pass independent verification audit of the CPU subsystem
 post the first-pass fixes (Z80N T-state under-count, machine-aware INT pulse
-window). The audit is fully blind to all prior `doc/NEXTZXOS-BOOT-SUBSYSTEM-
+window). The audit is fully blind to all prior `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-
 ANALYSIS-*` reports.
 
 ## Verdict

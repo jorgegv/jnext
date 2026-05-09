@@ -161,7 +161,7 @@ sd_rom_extractor_tests ...........   Passed
 ## Files modified
 
 - `src/peripheral/sd_card.cpp`: bug-1 fix (0xFF gap byte handling in RECEIVING_DATA).
-- `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY4-DIVMMC-SD-SPI.md`: this report (NEW).
+- `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY4-DIVMMC-SD-SPI.md`: this report (NEW).
 
 ## Branch HEAD
 

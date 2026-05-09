@@ -92,7 +92,7 @@ For each class-(a) candidate, three orthogonal angles:
 
 ### Out-of-scope guardrail
 
-Did NOT read `doc/NEXTZXOS-BOOT-SUBSYSTEM-{ANALYSIS,VERIFY}-*.md` per
+Did NOT read `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-{ANALYSIS,VERIFY}-*.md` per
 the blind-audit constraint. All findings derived independently from VHDL.
 
 ---

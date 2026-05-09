@@ -4,7 +4,7 @@
 **Reviewer branch**: `task2/nmi-mf-port-reviewer`
 **Reviewing commit**: `c1d7998` (single fix commit on top of base `ac56cff`)
 **VHDL oracle**: `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/zxnext.vhd`
-**Original report**: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-NMI-MF-PORT.md`
+**Original report**: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-NMI-MF-PORT.md`
 
 ---
 

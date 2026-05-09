@@ -427,7 +427,7 @@ ZX128K-with-altrom-lock VHDL behavior (`:2998-3001`).
 
 ---
 
-**Confirmed REVIEW path**: `/home/jorgegv/src/spectrum/jnext/doc/issues/g46b-eod19-fix-review.md`
+**Confirmed REVIEW path**: `/home/jorgegv/src/spectrum/jnext/doc/issues/nextzxos-boot/g46b-eod19-fix-review.md`
 
 **Could not verify**: I did not run jnext or any tests (per task
 "Don'ts"). The author's claim "Tests: 33 regression PASS / 0 FAIL" is

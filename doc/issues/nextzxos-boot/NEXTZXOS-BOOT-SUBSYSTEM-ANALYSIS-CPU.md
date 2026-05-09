@@ -337,7 +337,7 @@ the bank-flip wrapper paths).
 - VHDL: `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/cpu/t80n_mcode.vhd`
 - VHDL: `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/cpu/t80n.vhd`
 - Spectrum Next opcode timing: <https://wiki.specnext.dev/Extended_Z80_instruction_set>
-- G46(b) investigation: `doc/issues/G46B-INVESTIGATION-LIVE.md`
-- G46(b) EOD-23: `doc/issues/g46b-eod23-slide-entry-rambank0-empty.md`
+- G46(b) investigation: `doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md`
+- G46(b) EOD-23: `doc/issues/nextzxos-boot/g46b-eod23-slide-entry-rambank0-empty.md`
 - FUSE Z80 test suite: `test/fuse/`
 - Z80N test fixture: `test/z80n/tests.{in,expected}`

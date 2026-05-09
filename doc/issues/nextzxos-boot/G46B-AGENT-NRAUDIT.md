@@ -28,7 +28,7 @@ For each priority register I:
    composed byte; flag stale-shadow risks where a peripheral mutates state
    without touching `regs_[reg]`.
 6. Cross-reference live-investigation notes from
-   `doc/issues/G46B-INVESTIGATION-LIVE.md` for known divergences.
+   `doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md` for known divergences.
 
 Severity scale: HIGH = plausible boot-branch divergence; MED = visible to the
 supervisor but no observed branch in the live-instrumentation logs; LOW =

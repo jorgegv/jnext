@@ -5,7 +5,7 @@
 **Worktree**: `.claude/worktrees/task2-cpu-z80n-im2-reviewer/`
 **Branch**: `task2/cpu-z80n-im2-reviewer`
 **Commit reviewed**: `65b5918` (`fix(z80n): include ED-prefix M1 fetch in Z80N T-state returns`)
-**Original report**: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`
+**Original report**: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`
 
 ---
 
@@ -495,7 +495,7 @@ Follows project style perfectly. **Approve.**
 - **PUSH imm byte order verdict**: **CORRECT**. Verified independently
   via VHDL trace, wiki encoding rule ("the only operand encoded as
   big-endian"), and test fixture. **NOT** the source of G46(b).
-- **Report path**: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU-REVIEW.md`
+- **Report path**: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU-REVIEW.md`
 
 The agent's fix is correct and merge-ready. The remaining INT-pulse-
 window gap is recommended as an immediate follow-up commit on this
@@ -515,4 +515,4 @@ can see in the CPU subsystem at boot-critical scope).
 - Spectrum Next wiki: `https://wiki.specnext.dev/Extended_Z80_instruction_set`
 - Test fixture: `test/z80n/tests.{in,expected}`
 - FUSE Z80 suite: `test/fuse/tests.{in,expected}`
-- Original report: `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`
+- Original report: `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS-CPU.md`

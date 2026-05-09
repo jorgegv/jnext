@@ -3,7 +3,7 @@
 **Generated:** 2026-05-08
 **Branch:** `g46b-investigation` HEAD `8b31225`
 **Working dir:** `/home/jorgegv/src/spectrum/jnext`
-**Raw dasm files:** `doc/issues/dasm/<rom>-bank<N>.asm` (z88dk-dis -mz80n output)
+**Raw dasm files:** `doc/issues/nextzxos-boot/dasm/<rom>-bank<N>.asm` (z88dk-dis -mz80n output)
 
 This document is a **static-analysis** complement to the dynamic instrumentation
 work in `project_g46b_2026_05_08_eod17_*.md`. The goal is ground truth on what
@@ -1058,7 +1058,7 @@ After the black-clear at PC=$089B, the supervisor should:
 
 | Asset | Location |
 |---|---|
-| Raw disassemblies | `/home/jorgegv/src/spectrum/jnext/doc/issues/dasm/<rom>-bank<N>.asm` |
+| Raw disassemblies | `/home/jorgegv/src/spectrum/jnext/doc/issues/nextzxos-boot/dasm/<rom>-bank<N>.asm` |
 | Extracted ROMs | `/tmp/g46b-dasm/extracted/` |
 | Bank-split binaries | `/tmp/g46b-dasm/banks/` |
 | TBBLUE.FW modules | `/tmp/g46b-dasm/tbblue/` |

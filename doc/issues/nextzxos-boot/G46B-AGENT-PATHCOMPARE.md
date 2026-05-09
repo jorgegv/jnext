@@ -3,7 +3,7 @@
 **Date**: 2026-05-05 13:30 (read-only RE pass on `g46b-investigation` HEAD = `c771dc8`).
 **Working set**: `/tmp/enNextZX.rom` (extracted from `roms/nextzxos-1gb-fat32fix.img`),
 `/tmp/cpu-inst.log` (12-second `cpu_inst=trace` capture, ~1.77M instructions, 92 MB),
-live investigation doc `doc/issues/G46B-INVESTIGATION-LIVE.md`.
+live investigation doc `doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md`.
 
 This report is read-only RE — no code or test changes. The intent is to identify the
 upstream divergence that puts jnext on the dispatcher path (IX=$E01B, SP=$FF7F user stack)
@@ -445,7 +445,7 @@ This 4-step analysis will identify the IX divergence root in ≤ 1 hour.
 ## Files of relevance (absolute paths)
 
 - Supervisor ROM (extracted): `/tmp/enNextZX.rom`
-- Supervisor RE doc (prior session): `/home/jorgegv/src/spectrum/jnext/doc/issues/G46B-INVESTIGATION-LIVE.md`
+- Supervisor RE doc (prior session): `/home/jorgegv/src/spectrum/jnext/doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md`
 - ROM-slot mapping logic: `/home/jorgegv/src/spectrum/jnext/src/memory/mmu.cpp:319-339` (apply_legacy_rom_slots_)
 - NR-write-handler registration (Fix #1 site): `/home/jorgegv/src/spectrum/jnext/src/core/emulator.cpp:~1281`
 - Bypass-fw setup: `/home/jorgegv/src/spectrum/jnext/src/core/emulator.cpp:3506-3534, 3706-3739`

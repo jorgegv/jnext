@@ -445,9 +445,9 @@ including:
 
 ## Cross-check against G46(b)
 
-Reviewed `doc/issues/G46B-INVESTIGATION-LIVE.md` (line counts only —
-no full read), `doc/issues/g46b-eod23-slide-entry-rambank0-empty.md`,
-`doc/issues/g46b-eod22-cspect-26b9-hl-capture.md`.
+Reviewed `doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md` (line counts only —
+no full read), `doc/issues/nextzxos-boot/g46b-eod23-slide-entry-rambank0-empty.md`,
+`doc/issues/nextzxos-boot/g46b-eod22-cspect-26b9-hl-capture.md`.
 
 **Could the discrepancies fixed in this audit cause the supervisor stack
 divergence?** No — none of them are plausible root-causes:
@@ -502,7 +502,7 @@ behaviour is not the upstream bug.
 - `src/core/emulator.cpp` — Multiface F9 button arbitration fix.
 - `src/peripheral/nmi_source.cpp` — NR 0x02 readback config_mode
   preservation; `/NMI` HOLD-state release.
-- `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-NMI-MF-PORT.md` — this report.
+- `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-NMI-MF-PORT.md` — this report.
 
 ---
 

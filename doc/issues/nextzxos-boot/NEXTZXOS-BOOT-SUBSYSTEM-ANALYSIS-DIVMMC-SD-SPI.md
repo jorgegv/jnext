@@ -22,7 +22,7 @@ After fixes, all 36 unit tests pass and all 33 regression tests pass.
 2. Cross-referenced the VHDL `spi_master.vhd` (179 lines, complete) against `SpiMaster` byte-level behaviour.
 3. Walked `divmmc.cpp` / `sd_card.cpp` / `spi.cpp` line-by-line against the cited VHDL.
 4. Verified port dispatch in `emulator.cpp` (gates, mask/match patterns).
-5. Cross-checked findings against the G46(b) investigation log (`doc/issues/G46B-INVESTIGATION-LIVE.md` etc.).
+5. Cross-checked findings against the G46(b) investigation log (`doc/issues/nextzxos-boot/G46B-INVESTIGATION-LIVE.md` etc.).
 
 ## Findings (classified)
 

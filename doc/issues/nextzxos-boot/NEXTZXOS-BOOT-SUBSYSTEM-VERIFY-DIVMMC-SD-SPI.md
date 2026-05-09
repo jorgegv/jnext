@@ -4,7 +4,7 @@
 Date: 2026-05-09
 Branch: `task2/verify-divmmc-sd-spi`
 Auditor scope: blind re-audit of the post-fix codebase against the VHDL
-oracle. **Did not read** any prior `doc/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS*.md`
+oracle. **Did not read** any prior `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-ANALYSIS*.md`
 files — all findings here are derived independently from VHDL + C++.
 
 ---

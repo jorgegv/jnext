@@ -996,11 +996,11 @@ The firmware's last action before handoff is **`REG_RESET = RESET_SOFT`** (= NR 
 
 ### ULTRATHINK investigation phase started — 3 parallel agents launched
 
-**Agent 1 (path comparison)** [worktree-isolated]: trace from supervisor entry $00EF to first $20E6 hit, identify the FIRST conditional branch where our jnext takes a different path from CSpect (which goes via wrapper-mediated chain). Report → `doc/issues/G46B-AGENT-PATHCOMPARE.md`.
+**Agent 1 (path comparison)** [worktree-isolated]: trace from supervisor entry $00EF to first $20E6 hit, identify the FIRST conditional branch where our jnext takes a different path from CSpect (which goes via wrapper-mediated chain). Report → `doc/issues/nextzxos-boot/G46B-AGENT-PATHCOMPARE.md`.
 
-**Agent 2 (RESET_SOFT VHDL audit)** [worktree-isolated]: enumerate every FPGA signal reset by `RESET_SOFT` in zxnext.vhd, compare with our jnext's cold-boot init. List items missing from cold boot. Report → `doc/issues/G46B-AGENT-RESETSOFT.md`.
+**Agent 2 (RESET_SOFT VHDL audit)** [worktree-isolated]: enumerate every FPGA signal reset by `RESET_SOFT` in zxnext.vhd, compare with our jnext's cold-boot init. List items missing from cold boot. Report → `doc/issues/nextzxos-boot/G46B-AGENT-RESETSOFT.md`.
 
-**Agent 3 (NR handler vs VHDL audit)** [worktree-isolated]: per-register audit of NR write/read handlers vs VHDL, looking for any subtle divergence (similar to Fix #1 for NR 0x50-0x57). Report → `doc/issues/G46B-AGENT-NRAUDIT.md`.
+**Agent 3 (NR handler vs VHDL audit)** [worktree-isolated]: per-register audit of NR write/read handlers vs VHDL, looking for any subtle divergence (similar to Fix #1 for NR 0x50-0x57). Report → `doc/issues/nextzxos-boot/G46B-AGENT-NRAUDIT.md`.
 
 After all three complete, an independent reviewer agent will verify each finding before any code change.
 
@@ -1145,7 +1145,7 @@ The supervisor reaches the dispatcher loop because somewhere during init, BASIC/
 
 ### 2026-05-05 13:50 — Agent 1 (pathcompare) report + 5-minute follow-up
 
-Agent 1's full report at `doc/issues/G46B-AGENT-PATHCOMPARE.md` (486 lines).
+Agent 1's full report at `doc/issues/nextzxos-boot/G46B-AGENT-PATHCOMPARE.md` (486 lines).
 
 **Definitive finding**: Our jnext and CSpect run **two different code paths** that both terminate at $20E6 — they're NOT the same routine taking different inputs.
 
@@ -1361,7 +1361,7 @@ Conclusion: IX divergence is the proximate cause of the loop, BUT downstream div
 
 #### ZEsarUX vs jnext compare agent — final findings
 
-Agent report at `doc/issues/G46B-AGENT-ZESARUX.md`. Cross-referenced ZEsarUX's NextZXOS support against jnext.
+Agent report at `doc/issues/nextzxos-boot/G46B-AGENT-ZESARUX.md`. Cross-referenced ZEsarUX's NextZXOS support against jnext.
 
 Key conclusions:
 
@@ -1391,7 +1391,7 @@ HEAD = current (after this commit). Includes:
 - `--bypass-tbblue-fw` CLI option + post-handoff init (12 NR writes + FSM strobe)
 - Page 0x30 pre-load (CSpect data)
 - `JNEXT_G46B_FORCE_IX` env-gated diagnostic (proves IX divergence is central)
-- 6 agent reports under `doc/issues/G46B-AGENT-*.md` (PATHCOMPARE, RESETSOFT, RESETSOFT-REVIEW, NRAUDIT, NRAUDIT-REVIEW, ZESARUX)
+- 6 agent reports under `doc/issues/nextzxos-boot/G46B-AGENT-*.md` (PATHCOMPARE, RESETSOFT, RESETSOFT-REVIEW, NRAUDIT, NRAUDIT-REVIEW, ZESARUX)
 - CSpect captures under `doc/issues/cspect-captures/`
 - Strengthened mmu.h:786-820 documentation citing VHDL line numbers
 
@@ -1466,7 +1466,7 @@ context-switching is functioning.
 ### Probe 4 — jnext vs ZEsarUX side-by-side
 
 The static-source ZEsarUX comparison agent already covered this question
-yesterday (`doc/issues/G46B-AGENT-ZESARUX.md`). Live ZRCP-trace side-by-side
+yesterday (`doc/issues/nextzxos-boot/G46B-AGENT-ZESARUX.md`). Live ZRCP-trace side-by-side
 deferred — high setup cost, low marginal info given Probes 1–3 conclusions.
 
 ZEsarUX runs the real `tbblue.fw` (no bypass mode). MMU/AltROM/NR-handler
@@ -6241,9 +6241,9 @@ mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img [-debug]
 
 #### 2. Boot-chain disassembly reference (committed `9b9827a`, `92eae99`)
 
-Static-analysis ground truth at `doc/issues/g46b-boot-chain-disassembly.md`
+Static-analysis ground truth at `doc/issues/nextzxos-boot/g46b-boot-chain-disassembly.md`
 (46 KB / 78 sections / 1102 lines) plus 21 raw `.asm` files in
-`doc/issues/dasm/` (16 MB total). Covers enNextZX banks 0-3, TBBLUE.FW
+`doc/issues/nextzxos-boot/dasm/` (16 MB total). Covers enNextZX banks 0-3, TBBLUE.FW
 modules (boot/cores/editor/reset/updater), enNextMf, enNxtmmc, nextboot,
 48/128/plus3 ROMs.
 
@@ -6404,7 +6404,7 @@ a hypothesis.
    PC=$0C90 (BASIC editor / KEY-INPUT loop), NR $03=$33 (+3 mode),
    IM=1, slots `[FF FF 0A 11 04 05 00 01]`. **CONFIRMS: jnext's PC=
    $0000 periodicity is a bug, not normal real-Next behavior.**
-   Deliverable: `doc/issues/g46b-eod22-cspect-pc0-baseline.md`.
+   Deliverable: `doc/issues/nextzxos-boot/g46b-eod22-cspect-pc0-baseline.md`.
 2. **Bank-flip wrapper static decode** (`g46b-eod22-bank-flip-wrapper-decode.md`):
    wrapper at `$5B00..$5B20` is two-state alternation (XOR $10 on 7FFD
    shadow, XOR $04 on 1FFD shadow). Wrapper RET pops caller-stacked
@@ -6465,7 +6465,7 @@ supervisor firmware breaks because it expects to be in bank 1.
 
 **Ground-truth verification IN PROGRESS** via DZRP agent (write NR $8E,
 $03 to CSpect, re-read 1FFD via NR $8E read-back bit 1; see
-agent's `doc/issues/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md` when
+agent's `doc/issues/nextzxos-boot/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md` when
 complete).
 
 ### PC=$0000 event analysis (top 16 events)
@@ -6518,7 +6518,7 @@ End of EOD-22 Wave 1.
 
 ## 2026-05-09 00:10 CEST — EOD-22 Wave 2: deeper trace + DZRP NR $8E audit
 
-### DZRP NR $8E audit agent results (deliverable: doc/issues/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md)
+### DZRP NR $8E audit agent results (deliverable: doc/issues/nextzxos-boot/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md)
 
 **Key findings**:
 1. **CSpect's bank routing IS VHDL-faithful in steady state.** Slot-0 ROM
@@ -6802,7 +6802,7 @@ extension to RING_AT (uncommitted). Will commit at end of session.
 
 Captured supervisor state at 7 init checkpoints on CSpect. **All 7 checkpoints match jnext byte-for-byte.** $5B00 toggle wrapper NEVER fired on CSpect (15s silence). At $5B48: NR $8C=$00 (altrom NOT yet enabled). **Verdict: divergence is downstream of $5B48.**
 
-Deliverable: `doc/issues/g46b-eod22-cspect-checkpoint-trace.md`.
+Deliverable: `doc/issues/nextzxos-boot/g46b-eod22-cspect-checkpoint-trace.md`.
 
 ### Big POSTRESET=50000 trace analysis
 
@@ -7558,7 +7558,7 @@ that depends on RAM bank 0 being populated. Hits this slide.
 
 ### Deliverable
 
-`doc/issues/g46b-eod23-slide-entry-rambank0-empty.md` — full decode
+`doc/issues/nextzxos-boot/g46b-eod23-slide-entry-rambank0-empty.md` — full decode
 + data + hypotheses.
 
 End of EOD-23 — slide entry isolated; the missing-load hypothesis

@@ -1,7 +1,7 @@
 # G46(b) EOD-22 — Bank-flip wrapper at $5B00..$5B52 — static decode
 
 **Date:** 2026-05-08 (EOD-22 follow-up to EOD-21 PC=$0000 blocker)
-**Source:** static analysis only (`doc/issues/dasm/enNextZX-bank0.asm` lines
+**Source:** static analysis only (`doc/issues/nextzxos-boot/dasm/enNextZX-bank0.asm` lines
 94–153; `g46b-boot-chain-disassembly.md` §3.3.3 / §9.9). No code modified, no
 emulator run.
 
