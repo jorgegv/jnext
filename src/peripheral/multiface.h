@@ -150,7 +150,7 @@ public:
 
     /// VHDL `nmi_disable_o = nmi_active` (multiface.vhd:191). High while
     /// the Multiface is holding /NMI; consumed by NmiSource as
-    /// `mf_nmi_hold` (the F-gate Wave will replace the existing stub).
+    /// `mf_nmi_hold` via Emulator::run_frame pre-tick fan-out (Task 8).
     bool is_nmi_hold() const { return nmi_active_; }
 
     /// VHDL `mf_is_active = mf_mem_en OR mf_nmi_hold` (zxnext.vhd:2099).

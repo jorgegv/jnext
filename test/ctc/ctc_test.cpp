@@ -2601,6 +2601,10 @@ void section15_dma_int() {
     // every tick, and NR 0xCC bit 7 into set_nr_cc_dma_int_en_0_7(). Drive
     // NmiSource to is_activated()=1 via the ExpBus pin (no consumer-feedback
     // dependency) and assert the NMI contribution to im2_dma_delay.
+    //
+    // Pass-9 verify-audit: `nmi_assert_expbus` is now gated on
+    // `expbus_eff_en` (= NR 0x80 bit 7) per VHDL zxnext.vhd:2089. Set the
+    // gate first so the pin assertion still latches.
     {
         NmiSource nmi;
         nmi.reset();
@@ -2611,6 +2615,7 @@ void section15_dma_int() {
         im2.set_nr_cc_dma_int_en_0_7(true);            // NR 0xCC bit 7 = 1
         const bool before = im2.dma_delay();
 
+        nmi.set_expbus_eff_en(true);                   // NR 0x80 bit 7 = 1
         nmi.set_expbus_nmi_n(false);                   // i_BUS_NMI_n='0'
         nmi.tick(1);                                   // latch nmi_expbus,
                                                        // is_activated()=1

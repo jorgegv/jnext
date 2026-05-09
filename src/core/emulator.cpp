@@ -3437,6 +3437,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // emulation), so the byte is purely write-storage and round-trips
     // unchanged.  G56 Phase 2 (cluster E): no handler at all — NextReg
     // falls through to the raw stored byte, which IS the VHDL formula.
+    //
+    // Pass-9 verify-audit fix (Task 2 verify9-nmi-mf-port): even though
+    // jnext has no expbus device, NR 0x80 bit 7 (`expbus_en`, VHDL:2197)
+    // and bit 4 (`expbus_disable_mem`, VHDL:2200) are part of the VHDL
+    // `nmi_assert_expbus` gate at zxnext.vhd:2089. Fan them out to
+    // NmiSource so a future setter call to `set_expbus_nmi_n(false)`
+    // properly respects the enable/disable_mem mask. The VHDL latches
+    // (`expbus_eff_en` / `expbus_eff_disable_mem`) commit on bus-idle
+    // (zxnext.vhd:5800-5813); jnext collapses that to "commit
+    // immediately on the NR 0x80 write" — same shape as the existing
+    // `eff_nr_08_contention_disable` handling, which is also gated on
+    // `hc(8)='1'` in VHDL but committed synchronously in jnext.
+    nmi_source_.set_expbus_eff_en(((nextreg_.cached(0x80) >> 7) & 1) != 0);
+    nmi_source_.set_expbus_eff_disable_mem(((nextreg_.cached(0x80) >> 4) & 1) != 0);
+    nextreg_.set_write_handler(0x80, [this](uint8_t v) -> uint8_t {
+        nmi_source_.set_expbus_eff_en((v & 0x80) != 0);
+        nmi_source_.set_expbus_eff_disable_mem((v & 0x10) != 0);
+        return v;
+    });
 
     // Register 0x08: Peripheral 3
     //   bit 7 = unlock 128K paging (one-shot: write 1 clears port_7ffd_reg(5))
