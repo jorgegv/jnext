@@ -497,6 +497,24 @@ int Z80Cpu::execute() {
             int t = execute_z80n(ext, *this);
             if (t < 0) t = 8;
 
+            // VHDL-faithful timekeeping: Z80N opcodes bypass FUSE's
+            // fuse_z80_execute_one() entirely (FUSE doesn't decode them).
+            // The mem_.read()/io operations inside execute_z80n() use the
+            // raw MemoryInterface/IoInterface — they do NOT add to FUSE's
+            // global `tstates` counter. Without this fix, a sustained burst
+            // of Z80N opcodes (NEXTREG, MUL, ADD HL/DE/BC,A — used heavily
+            // by the NextZXOS supervisor) leaves `tstates` stuck while
+            // wall-clock time advances. Subsequent fuse_z80_readbyte() and
+            // contend_read() calls then derive (hc, vc) from a stale frame
+            // position, applying contention from the wrong raster window.
+            // The /INT pulse-window check at the top of execute()
+            // (`tstates - int_requested_at_`) is also affected: a pending
+            // ULA INT can outlive its 32/36-cycle pulse without the window
+            // expiring, because Z80N execution time isn't being counted.
+            // Add `t` here so the FUSE tstates clock stays aligned with
+            // the value Emulator advances `video_timing_` by.
+            tstates += static_cast<libspectrum_dword>(t);
+
             sync_fuse_from_regs(regs_);
             return t;
         }
