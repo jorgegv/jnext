@@ -600,62 +600,106 @@ static void test_sd_15_mount_full_reset() {
     // cleared only state_/initialized_/app_cmd_/cmd_idx_, leaving
     // resp_buf_/resp_idx_/data_idx_/data_crc_count_/multi_block_/
     // multi_block_sector_/persistent_response_byte_/data_block_/cmd_buf_
-    // untouched. A runtime mount swap mid-CMD18 stream would let send()
-    // continue emitting stale data from the previous image's data_block_
-    // or re-prime multi_block_sector_ as if streaming the old card.
+    // untouched. A runtime mount swap (e.g. user changes --sd-card while
+    // a CMD17 SENDING_DATA is mid-transfer) leaves these fields stale.
     //
-    // Test shape: mount img1, start CMD18 stream (sets multi_block_=true,
-    // populates data_block_), THEN call mount(img2) without an explicit
-    // reset() in between. Verify a fresh CMD17 on img2 returns the
-    // correct sector content from img2 — pre-fix would surface img1
-    // stream state instead.
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §3 / §4.1): the original SD-15 design called init_card()
+    // between mount(img2) and CMD17. The init_card sequence inevitably
+    // hits receive()'s default-state abort branch (sd_card.cpp:201-218 —
+    // "new CMD start byte while state_!=IDLE") because CMD8's resp_buf_
+    // is left partially-drained after send_cmd_r1's "stop on first non-FF"
+    // poll. That abort branch DOES clear multi_block_/multi_block_sector_/
+    // pending_write_after_r1_, masking the leak — and CMD17 then re-reads
+    // data_block_ from the new file. Net: original test passed both pre-
+    // fix and post-fix.
+    //
+    // Discriminative redesign: the cleanest leaked field that survives
+    // the IDLE-state path through receive()/send() is
+    // persistent_response_byte_. Post-CMD0 on img1, the field is set to
+    // 0x01 (ZEsarUX-style sustained response per cmd0_go_idle at line
+    // 410). After mount(img2), state_=IDLE in both pre/post fix; a bare
+    // send() in IDLE state returns persistent_response_byte_ verbatim
+    // (sd_card.cpp:236-243). No abort branch fires, no command is issued,
+    // no write touches data_block_. The IDLE-branch send() is the
+    // shortest path that still surfaces the leak.
+    //
+    //   - Pre-fix: persistent_response_byte_=0x01 (LEAKED across mount).
+    //   - Post-fix: mount() calls reset() which sets it to 0xFF.
+    //
+    // CRITICAL: do NOT call deselect() or reset() between issuing CMD0
+    // and the post-mount probe — both would clear persistent_response_
+    // byte_=0xFF and mask the leak. The probe is one bare send() call
+    // in IDLE state. We also test multi-block leak indirectly by
+    // confirming subsequent CMD17 returns the correct img2 content
+    // (round-trip integrity preserved across remount).
     std::string img1 = make_image(8);
     std::string img2 = make_image(8);
 
-    // Customise img2 sector 4 byte 4 to 0xCC so pre/post is unambiguous.
+    // Customise img2 sector 2 byte 4 to 0xCC so pre/post is unambiguous.
     {
         FILE* f = std::fopen(img2.c_str(), "r+b");
-        std::fseek(f, 4 * 512 + 4, SEEK_SET);
+        std::fseek(f, 2 * 512 + 4, SEEK_SET);
         std::fputc(0xCC, f);
         std::fclose(f);
     }
 
     SdCardDevice sd;
 
-    // Mount img1 and partially advance a CMD18 multi-block stream.
+    // (1) Mount img1 and issue a single CMD0. cmd0_go_idle() sets
+    //     persistent_response_byte_=0x01 (sd_card.cpp:431). state_ ends
+    //     in IDLE (RESPONDING drains eagerly when resp_buf_ is fully
+    //     read by send_cmd_r1).
     bool m1 = sd.mount(img1);
-    sd.reset();
-    init_card(sd);
-    uint8_t r1_18 = send_cmd_r1(sd, 18, 0);
-    bool tok18 = wait_token(sd);
-    uint8_t blk0[512] = {}; if (tok18) read_block(sd, blk0);
-    // Mid-stream, multi_block_=true and multi_block_sector_=1.
+    sd.reset();          // start from a known clean state
+    uint8_t r1_cmd0 = send_cmd_r1(sd, 0, 0);  // R1=0x01 expected
 
-    // Critical: re-mount img2 WITHOUT an explicit reset() or deselect()
-    // in between. Pre-fix this would leak multi_block_sector_=1, etc.
+    // (2) Critical: mount(img2) WITHOUT deselect()/reset() between.
+    //     Pre-fix: state_=IDLE, but persistent_response_byte_=0x01
+    //     leaks through. Post-fix: full reset() restores it to 0xFF.
     bool m2 = sd.mount(img2);
 
-    // Now exercise img2 with a fresh CMD17 sector=4 — content must
-    // match img2 (byte 4 = 0xCC), not img1 (byte 4 = (4+4) & 0xFF = 8).
+    // (3) Probe: a single bare send() in state_=IDLE returns
+    //     persistent_response_byte_ verbatim (sd_card.cpp:243). This
+    //     bypasses the abort branch entirely and is the most direct
+    //     observation of the leaked field.
+    //
+    //     Pre-fix: 0x01.  Post-fix: 0xFF.
+    uint8_t leaked_persistent = spi_read(sd);
+
+    // (4) Round-trip integrity check: with proper init on img2, CMD17
+    //     sector=2 must return img2's content (byte 4 = 0xCC). This
+    //     is the original sanity-check intent of SD-15. Pass-fix and
+    //     post-fix should both succeed here, but it pins the broader
+    //     contract that mount(img2) leaves the card usable.
     init_card(sd);
-    uint8_t r1_17 = send_cmd_r1(sd, 17, 4);
+    uint8_t r1_17 = send_cmd_r1(sd, 17, 2);
     bool tok17 = wait_token(sd);
     uint8_t got[512] = {}; if (tok17) read_block(sd, got);
     sd.deselect();
     sd.unmount();
 
+    // The PRIMARY discriminator is `leaked_persistent==0xFF`. Pre-fix
+    // it equals 0x01 (leaked from CMD0 on img1); post-fix it equals
+    // 0xFF (reset by mount()'s reset() call).
     bool ok = m1 && m2
-           && r1_18 == 0x00 && tok18 && blk0[0] == 0x00
-           && r1_17 == 0x00 && tok17 && got[4] == 0xCC && got[0] == 0x04;
+           && r1_cmd0 == 0x01
+           && leaked_persistent == 0xFF
+           && r1_17 == 0x00 && tok17 && got[4] == 0xCC && got[0] == 0x02;
 
     check("SD-15",
-          "mount() does full reset() — re-mount mid-CMD18 stream cleans "
-          "up multi_block_/data_block_/resp_buf_; subsequent CMD17 on the "
-          "new image returns new image content (TASK2-VERIFY5 fix replaced "
-          "partial reset duplication with reset() call)",
+          "mount() does full reset() — persistent_response_byte_ MUST "
+          "NOT leak across a runtime mount swap. Probe: after CMD0 on "
+          "img1 (which sets persistent_response_byte_=0x01), mount(img2) "
+          "must clear it back to 0xFF. A bare send() in IDLE state then "
+          "returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). "
+          "Round-trip integrity also pinned via subsequent CMD17 on img2. "
+          "Pre-fix mount() cleared only state_/initialized_/app_cmd_/"
+          "cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 "
+          "commit 24a1bc4)",
           ok,
-          "r1_18=" + std::to_string(r1_18) +
-          " tok18=" + (tok18 ? "1" : "0") +
+          "r1_cmd0=" + std::to_string(r1_cmd0) +
+          " leaked=" + std::to_string(leaked_persistent) +
           " r1_17=" + std::to_string(r1_17) +
           " tok17=" + (tok17 ? "1" : "0") +
           " got4=" + std::to_string(got[4]) +

@@ -40,30 +40,42 @@ granularity.
 
 | #  | Commit / Fix                                       | Pre-audit coverage                | Post-audit row(s) added                                                  |
 |----|----------------------------------------------------|-----------------------------------|--------------------------------------------------------------------------|
-| 1a | 399c9ae — NR \$BB bit 0 same-cycle delayed-on      | NR-12a/NR-12b/NR-13 (in commit)   | already covered                                                          |
-| 1b | 399c9ae — \$3Dxx wildcard rom3_active=1            | NR-09/NR-10/NR-11 (in commit)     | added **NR-14** (negative case: rom3=0 must not fire)                    |
-| 1c | 399c9ae — SPI \$E7/\$EB gate on NR \$83 b3         | none                              | (Emulator-tier; covered downstream by integration) — see §3 caveat       |
-| 2a | d54a053 — button_nmi gated on `divmmc.is_enabled`  | NM-05 (i_automap_reset clears)    | (Emulator-call-site gate; equivalent VHDL invariant covered by NM-05)    |
-| 2b | d54a053 — SPI no-slave forces rx_data=0xFF (write) | none                              | added **SX-11**                                                          |
-| 2c | d54a053 — SPI no-slave forces rx_data=0xFF (read)  | MX-04 (reset-time only)           | added **SX-12** (post-deselect stale-byte leak path)                     |
-| 3  | c7acf9e — CMD24 0xFF gap-byte tolerance            | none                              | added **SD-17**                                                          |
-| 4a | 24a1bc4 — mount() full reset                       | none                              | added **SD-15**                                                          |
+| 1a | 399c9ae — NR \$BB bit 0 same-cycle delayed-on      | NR-12a/NR-12b/NR-13 (in commit)   | already covered (discriminative)                                         |
+| 1b | 399c9ae — \$3Dxx wildcard rom3_active=1            | NR-09/NR-10/NR-11 (in commit)     | added **NR-14** (CONTRACT-PIN: negative case, future-regression sentinel)|
+| 1c | 399c9ae — SPI \$E7/\$EB gate on NR \$83 b3         | none                              | INTEGRATION-TIER DEFERRAL — see §3.1                                     |
+| 2a | d54a053 — button_nmi gated on `divmmc.is_enabled`  | NM-05 (DivMmc-internal only)      | INTEGRATION-TIER DEFERRAL — see §3.2 (NM-05 doesn't cover Emulator gate) |
+| 2b | d54a053 — SPI no-slave forces rx_data=0xFF (write) | none                              | added **SX-11** (discriminative)                                         |
+| 2c | d54a053 — SPI no-slave forces rx_data=0xFF (read)  | MX-04 (reset-time only)           | added **SX-12** (discriminative; post-deselect stale-byte leak)          |
+| 3  | c7acf9e — CMD24 0xFF gap-byte tolerance            | none                              | added **SD-17** (discriminative)                                         |
+| 4a | 24a1bc4 — mount() full reset                       | none                              | added **SD-15** (discriminative — redesigned 2026-05-10)                 |
 | 4b | 24a1bc4 — cmd16 idle bit derives from initialized_ | SD-12 (only checks bit 2 set)     | added **SD-16** (discriminative init/uninit pair)                        |
-| 5  | c54192d — NR 0x83 reset propagation sync           | none                              | added **NA-09**                                                          |
-| 6  | ce29402 — SpiMaster::reset preserves devices_      | SS-12 (in commit)                 | already covered                                                          |
-| 7a | 6ebfd2b — SPI Flash-CS gate on \$7F decode         | SS-09 (gate-CLOSED only)          | added **SS-13** (gate-OPEN + gate-CLOSED discriminative pair)            |
-| 7b | 6ebfd2b — button_nmi continuous-while-held         | NM-07 (rising-edge case)          | added **NM-09** (set-after-held-already case)                            |
-| 7c | 6ebfd2b — R1 illegal-cmd bit on CMD default        | none                              | added **SD-18**                                                          |
-| 7d | 6ebfd2b — R1 illegal-cmd bit on ACMD default       | none                              | added **SD-19**                                                          |
-| 8a | ff84d3e — SD on both CS0 and CS1                   | none                              | added **SS-14**                                                          |
-| 8b | ff84d3e — CMD55 + non-ACMD fall-through            | none                              | added **SD-20**                                                          |
-| 9  | 770f78d — DivMmc::rom3_active_ load_state re-sync  | none                              | added **DA-09** (save_state must NOT persist rom3_active_)               |
+| 5  | c54192d — NR 0x83 reset propagation sync           | none                              | added **NA-09** (CONTRACT-PIN; Emulator-tier fix integration-tier)       |
+| 6  | ce29402 — SpiMaster::reset preserves devices_      | SS-12 (in commit)                 | already covered (discriminative)                                         |
+| 7a | 6ebfd2b — SPI Flash-CS gate on \$7F decode         | SS-09 (gate-CLOSED only)          | added **SS-13** (discriminative; gate-OPEN + gate-CLOSED pair)           |
+| 7b | 6ebfd2b — button_nmi continuous-while-held         | NM-07 (rising-edge case)          | added **NM-09** (discriminative; set-after-held-already case)            |
+| 7c | 6ebfd2b — R1 illegal-cmd bit on CMD default        | none                              | added **SD-18** (discriminative)                                         |
+| 7d | 6ebfd2b — R1 illegal-cmd bit on ACMD default       | none                              | added **SD-19** (discriminative)                                         |
+| 8a | ff84d3e — SD on both CS0 and CS1                   | none                              | added **SS-14** (CONTRACT-PIN; Emulator-tier fix integration-tier)       |
+| 8b | ff84d3e — CMD55 + non-ACMD fall-through            | none                              | added **SD-20** (discriminative)                                         |
+| 9  | 770f78d — DivMmc::rom3_active_ load_state re-sync  | none                              | added **DA-09** (CONTRACT-PIN; Emulator-tier fix integration-tier)       |
 
 Pre-audit coverage: **5/14 fixes** had at least one dedicated regression
 test row directly covering the fix path.
 
-Post-audit coverage: **14/14 fixes** have at least one dedicated row
-(8 of those rows were retroactively added in this pass).
+Post-audit coverage (after FIX-FOLLOWUP 2026-05-10 reviewer cleanup):
+- **9 fully-discriminative regression sentinels** (SD-15 redesigned;
+  SD-16/SD-17/SD-18/SD-19/SD-20/NM-09/SS-13/SX-11/SX-12).
+- **4 contract-pins** for Emulator-tier integration deferrals (NR-14,
+  DA-09, NA-09, SS-14) — these pin the unit-tier preconditions but the
+  actual fix lives in `Emulator` and requires integration-tier coverage.
+- **3 already-covered** by tests in the same commit (NR-12a/NR-12b/NR-13;
+  NR-09/NR-10/NR-11; SS-12).
+- **2 integration-tier deferrals** (399c9ae fix #3 NR \$83 b3 gate;
+  d54a053 fix #1 button_nmi-on-disabled gate). Both call out for an
+  integration test plan entry — see §3.1 and §3.2.
+
+Discriminative tally: 12/14 fixes have a dedicated unit test, 9 of
+which are fully discriminative against their original fix.
 
 ---
 
@@ -94,16 +106,34 @@ integration coverage rather than fabricated as a fake unit test.
 
 ### 3.2 — DivMMC button_nmi gated on `divmmc.is_enabled` (d54a053 fix #1)
 
-Same pattern as 3.1: the gate is at the `Emulator::run_frame` /
-`Emulator::execute_single_instruction` call sites where
-`nmi_source_.divmmc_button_strobe()` is forwarded to
-`divmmc_.set_button_nmi()`. The DivMmc-level invariant the gate
-protects (button_nmi cleared while `divmmc_automap_reset='1'`) is
-already exercised by **NM-05** (`enabled(true→false) clears
-button_nmi_`) — the same VHDL gate (`i_automap_reset`,
-divmmc.vhd:108-114) under a different stimulus. The Emulator-tier
-gate is a defensive duplicate of that VHDL clause; no additional unit
-row is needed.
+**INTEGRATION-TIER DEFERRAL** — superseded by FIX-FOLLOWUP review
+(2026-05-10). The original audit claimed NM-05 covered this, but
+NM-05 only tests the DivMmc-internal invariant (`enabled(true→false)
+clears button_nmi_`, VHDL divmmc.vhd:108-114). It does NOT exercise
+the Emulator call-site gate that strobe-forwards
+`nmi_source_.divmmc_button_strobe()` to
+`divmmc_.set_button_nmi()` only when `divmmc_.is_enabled()` is true.
+
+A regression where someone removes the Emulator-side `is_enabled()`
+guard would NOT fail any current unit test — NM-05 doesn't run
+NmiSource. The two are logically distinct:
+
+- **DivMmc-internal**: when DivMmc transitions enabled→disabled, its
+  `button_nmi_` is cleared (NM-05 covers this).
+- **Emulator-tier gate**: when DivMmc is already disabled, the
+  Emulator MUST NOT forward a button strobe (this is what d54a053
+  fix #1 added).
+
+The Emulator-tier gate genuinely requires an integration test (full
+Emulator + NmiSource + DivMmc disabled state). Mark as integration-
+tier deferral, alongside §3.1.
+
+**Recommended integration test plan entry**: with `divmmc_.set_enabled
+(false)`, simulate an NmiSource button strobe via the public emulator
+hook, run one frame of execution, and assert
+`divmmc_.button_nmi_active() == false` AND no NMI was dispatched to
+the Z80. Pre-fix would fail because the Emulator forwards the strobe
+unconditionally.
 
 ---
 

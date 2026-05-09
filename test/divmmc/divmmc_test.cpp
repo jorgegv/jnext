@@ -948,23 +948,40 @@ void group_nr() {
               fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-14 (TASK2-VERIFY9 commit ff84d3e): the $3Dxx wildcard is
-    // ROM3-conditional. With NR $BB bit 7 set BUT rom3_active=0, an M1 at
-    // $3D00..$3DFF must NOT fire instant_on. VHDL zxnext.vhd:2898-2899
-    // requires rom3_active=1 (= sram_pre_override(2)+(0) AND !layer2_map
-    // composite, divmmc.vhd:130) for the rom3_*_on path to match. This
-    // pins the negative companion to NR-09/NR-10 (which already cover
-    // the positive rom3=1 cases) — guards against regressing the rom3
-    // gate while leaving the bit-7 decode intact.
+    // NR-14 (CONTRACT-PIN; TASK2-VERIFY1/2 commit 399c9ae): the $3Dxx
+    // wildcard is ROM3-conditional. With NR $BB bit 7 set BUT
+    // rom3_active=0, an M1 at $3D00..$3DFF must NOT fire instant_on. VHDL
+    // zxnext.vhd:2898-2899 requires rom3_active=1 (= sram_pre_override(2)+
+    // (0) AND !layer2_map composite, divmmc.vhd:130) for the rom3_*_on
+    // path to match.
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.3 / §4.2): pre-fix the wildcard branch did not exist
+    // at all, so rom3=0 also yielded automap=false (trivially). This
+    // test cannot fail pre-fix — it is a CONTRACT-PIN guarding a future
+    // regression where the && rom3_path_eligible gate is removed,
+    // re-enabling the wildcard for rom3=0 (which would be a new bug).
+    // Useful as a negative-companion to NR-09/NR-10 (which cover the
+    // positive rom3=1 case) and as a guard against future churn that
+    // touches the rom3 gating in zxnext.vhd:2898-2899 / divmmc.vhd:130.
+    //
+    // Commit attribution corrected (was: ff84d3e — that commit only
+    // touched emulator.cpp and sd_card.cpp; the actual fix that
+    // introduced the $3Dxx wildcard branch is 399c9ae per the report's
+    // table row 1b).
     {
         DivMmc d = make_divmmc();
         d.set_entry_points_1(0x80);    // BB[7]=1, all others 0
         d.set_rom3_active(false);      // ROM3 NOT active
         d.check_automap(0x3D42, true); // mid-wildcard, M1
         check("NR-14",
-              "M1 at $3D42 with BB[7]=1 + rom3_active=0: rom3_instant_on "
-              "stays gated; automap not active "
-              "(VHDL zxnext.vhd:2898-2899, divmmc.vhd:130)",
+              "CONTRACT-PIN: M1 at $3D42 with BB[7]=1 + rom3_active=0: "
+              "rom3_instant_on stays gated; automap not active "
+              "(VHDL zxnext.vhd:2898-2899, divmmc.vhd:130). NOT a "
+              "discriminative regression sentinel for 399c9ae — pre-fix "
+              "the wildcard branch did not exist; this row guards against "
+              "future regressions that remove the && rom3_path_eligible "
+              "gate.",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
@@ -1092,18 +1109,28 @@ void group_da() {
               fmt("before=%d after=%d", before, d.automap_active()));
     }
 
-    // DA-09 (TASK2-PASS10 commit 770f78d): DivMmc::save_state must NOT
-    // persist `rom3_active_`. The flag is a feeder shadow of VHDL
+    // DA-09 (CONTRACT-PIN; TASK2-PASS10 commit 770f78d): DivMmc::save_state
+    // must NOT persist `rom3_active_`. The flag is a feeder shadow of VHDL
     // sram_pre_rom3 (zxnext.vhd:2981-3008,:3138) refreshed by the
     // Emulator at port-write / NR-commit / machine-type-change sites. A
     // snapshot taken with sram_rom=3 selected (e.g. during a CMD18 boot
     // stream) MUST come back with rom3_active_=false (constructor
     // default), forcing the load-time external sync that the pass-10
     // fix added at Emulator::load_state (`divmmc_.set_rom3_active(
-    // mmu_.sram_rom3())`). If a future change ever persists this field
-    // inside DivMmc::save/load_state, that external sync must be
-    // re-evaluated for double-write hazards — this row pins the
-    // contract so the regression is impossible to land silently.
+    // mmu_.sram_rom3())`).
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row DA-09): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the 770f78d fix itself.
+    // Reverting Emulator::load_state's set_rom3_active() does NOT make
+    // this test fail — the test only verifies the pre-condition that the
+    // external re-sync is necessary (i.e., that DivMmc::save_state does
+    // not persist the field). The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator + Mmu + StateReader)
+    // to exercise. This row pins the contract so a future change that
+    // starts persisting rom3_active_ inside DivMmc::save/load_state
+    // can't silently land without re-evaluating the external sync's
+    // double-write hazards.
     {
         DivMmc d_src = make_divmmc();
         d_src.set_rom3_active(true);            // simulate ROM3 selected
@@ -1124,11 +1151,14 @@ void group_da() {
         const bool dst_rom3 = d_dst.rom3_active();
 
         check("DA-09",
-              "DivMmc::save_state does NOT persist rom3_active_; load_state "
-              "yields constructor default (false), forcing the external "
-              "Emulator::load_state set_rom3_active(mmu_.sram_rom3()) "
-              "re-sync (VHDL feeder shadow of sram_pre_rom3, "
-              "zxnext.vhd:2981-3008,:3138)",
+              "CONTRACT-PIN: DivMmc::save_state does NOT persist "
+              "rom3_active_; load_state yields constructor default (false). "
+              "Pre-condition for the external Emulator::load_state "
+              "set_rom3_active(mmu_.sram_rom3()) re-sync (VHDL feeder "
+              "shadow of sram_pre_rom3, zxnext.vhd:2981-3008,:3138). NOT "
+              "a discriminative sentinel for 770f78d — reverting the "
+              "Emulator-tier fix does not fail this test (integration-"
+              "tier coverage required for the actual fix path).",
               src_rom3 && !dst_rom3,
               fmt("src_rom3=%d dst_rom3=%d (expected 1, 0)",
                   src_rom3, dst_rom3));
@@ -2077,9 +2107,9 @@ void group_na() {
                   unblocked_after_cm));
     }
 
-    // NA-09 (TASK2-VERIFY6 commit c54192d): NR 0x83 reset propagation
-    // gap. NextReg::reset() reloads regs_[0x83] to 0xFF on the
-    // reset_type_1=true path (VHDL zxnext.vhd:5052-5057), but the
+    // NA-09 (CONTRACT-PIN; TASK2-VERIFY6 commit c54192d): NR 0x83 reset
+    // propagation gap. NextReg::reset() reloads regs_[0x83] to 0xFF on
+    // the reset_type_1=true path (VHDL zxnext.vhd:5052-5057), but the
     // registered NR 0x83 write_handler is NOT fired by the reset path —
     // so consumer shadows DivMmc::port_io_enable_ and Multiface::enabled_
     // keep their stale pre-reset values until the next explicit
@@ -2094,10 +2124,19 @@ void group_na() {
     //   (3) Applying the explicit `cached(0x83)` sync brings DivMmc and
     //       Multiface back into agreement (bits 0:1 → enables).
     //
-    // Without the fix, an emulator that wrote NR 0x83 ← 0xFE before a
-    // soft reset would still observe the divmmc disabled / multiface
-    // enabled afterward (handler never re-runs), even though VHDL's
-    // reset_type_1=true reload restores the default 0xFF (both bits set).
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row NA-09): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the c54192d fix itself.
+    // Reverting Emulator::init's explicit cached(0x83) sync does NOT
+    // make this test fail — the test only verifies the gap pattern
+    // (NextReg::reset doesn't fire write_handlers; explicit cached-sync
+    // recovers the consumer). The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator::init path) to
+    // exercise. Without the fix, an emulator that wrote NR 0x83 ← 0xFE
+    // before a soft reset would still observe the divmmc disabled /
+    // multiface enabled afterward (handler never re-runs), even though
+    // VHDL's reset_type_1=true reload restores the default 0xFF — but
+    // that observation requires the full Emulator instance.
     {
         NextReg nr;
         DivMmc d; d.reset();
@@ -2130,11 +2169,14 @@ void group_na() {
         const bool divmmc_after_sync = d.port_io_enable();
 
         check("NA-09",
-              "NR 0x83 reset reloads cache to 0xFF without firing the "
-              "registered write_handler; explicit Emulator::init sync "
-              "from cached(0x83) bit 0 brings DivMmc::port_io_enable_ "
-              "back into agreement (VHDL zxnext.vhd:5052-5057 reload; "
-              "handler not on reset path)",
+              "CONTRACT-PIN: NR 0x83 reset reloads cache to 0xFF without "
+              "firing the registered write_handler; explicit Emulator::"
+              "init sync from cached(0x83) bit 0 brings DivMmc::"
+              "port_io_enable_ back into agreement (VHDL zxnext.vhd:5052-"
+              "5057 reload; handler not on reset path). NOT a "
+              "discriminative sentinel for c54192d — reverting the "
+              "Emulator-tier fix does not fail this test (integration-"
+              "tier coverage required for the actual fix path).",
               after_first_write == 1
                   && divmmc_after_clear
                   && cached_after_reset == 0xFF
@@ -2550,8 +2592,8 @@ void group_ss() {
                   open_v, closed_v));
     }
 
-    // SS-14 (TASK2-VERIFY9 commit ff84d3e): the same physical SD card is
-    // reachable on BOTH CS0 and CS1, mirroring the VHDL net at
+    // SS-14 (CONTRACT-PIN; TASK2-VERIFY9 commit ff84d3e): the same physical
+    // SD card is reachable on BOTH CS0 and CS1, mirroring the VHDL net at
     // zxnext.vhd:3280:
     //   spi_miso <= i_SPI_SD_MISO when spi_ss_sd1_n='0' or spi_ss_sd0_n='0'
     // (single i_SPI_SD_MISO source for both selects). The TBBlue board has
@@ -2564,6 +2606,18 @@ void group_ss() {
     // production wiring at emulator.cpp:4007-4023 after the pass-9 fix),
     // toggles sd_swap, and verifies a round-trip exchange surfaces the
     // device's response in both swap orientations.
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §4.2 / §2 row SS-14): this is a CONTRACT-PIN, not a
+    // discriminative regression sentinel for the ff84d3e fix itself.
+    // The test directly attaches dev to BOTH CS0 and CS1, bypassing
+    // Emulator::init (where the actual fix lives). Reverting the
+    // Emulator-tier change does NOT make this test fail. What this row
+    // verifies is the SpiMaster-tier contract: when the same device is
+    // bound to both CS lines, the CS-decode + sd_swap routing both
+    // surface the device. The actual fix is in Emulator-tier and
+    // requires an integration test (full Emulator + SD attach) to
+    // exercise the regression.
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
@@ -2589,10 +2643,14 @@ void group_ss() {
         const int     cnt_swap1 = dev.exchange_count;
 
         check("SS-14",
-              "SD card attached to BOTH CS0 (sd_swap=0) and CS1 "
-              "(sd_swap=1): round-trip surfaces device byte in either "
-              "orientation (VHDL zxnext.vhd:3280 single i_SPI_SD_MISO "
-              "MUX; pass-9 emulator wires same backend on both CS)",
+              "CONTRACT-PIN: SD card attached to BOTH CS0 (sd_swap=0) "
+              "and CS1 (sd_swap=1): round-trip surfaces device byte in "
+              "either orientation (VHDL zxnext.vhd:3280 single "
+              "i_SPI_SD_MISO MUX; pass-9 emulator wires same backend on "
+              "both CS). NOT a discriminative sentinel for ff84d3e — "
+              "test attaches dev directly to both CS lines, bypassing "
+              "Emulator::init. Reverting the Emulator-tier fix does not "
+              "fail this test (integration-tier coverage required).",
               rx_swap0 == 0x99 && cnt_swap0 >= 1
                   && rx_swap1 == 0x99 && cnt_swap1 >= 1,
               fmt("swap0 rx=%02x cnt=%d  swap1 rx=%02x cnt=%d",
