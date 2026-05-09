@@ -128,8 +128,25 @@ void Mmu::reset(bool hard) {
     // 0x03 handler on first write (matches tbblue.fw's boot flow), and via
     // Emulator::init() directly after nextreg_.reset() for power-on parity.
     nr_04_romram_bank_ = 0;
-    // Re-enable boot ROM on reset (if loaded) — matches VHDL bootrom_en init.
-    if (boot_rom_) boot_rom_en_ = true;
+    // Re-enable boot ROM on reset only when nr_03_config_mode='1' at reset
+    // time — VHDL zxnext.vhd:5109-5111 gates the bootrom_en re-assertion on
+    // `if nr_03_config_mode = '1' then bootrom_en <= '1'` inside the
+    // `if reset='1'` block (process at :4926). When config_mode='0' the
+    // signal is NOT written and retains its pre-reset value (bootrom_en
+    // is a flip-flop with FPGA-config-time default '1' per :1101). The
+    // pre-pass-5 unconditional re-enable diverged from VHDL whenever
+    // firmware had already written NR 0x03 with bits[2:0]∈{001..110} to
+    // clear config_mode (so bootrom_en was previously cleared by the
+    // VHDL :5122 NR 0x03 handler) — a subsequent NR 0x02 bit 1 / bit 0
+    // reset would re-arm the boot ROM in jnext but leave it cleared in
+    // VHDL. Verify5-memory class-(a) fix.
+    //
+    // Note: Mmu::config_mode_ is NOT cleared by reset() (the comment
+    // above documents that config_mode is preserved across resets to
+    // match VHDL :1102 — nr_03_config_mode has no reset clause). So we
+    // read it here BEFORE any reset-time mutation, and the value is the
+    // pre-reset config_mode the VHDL gate would consult.
+    if (boot_rom_ && config_mode_) boot_rom_en_ = true;
     for (int i = 0; i < 8; ++i) {
         slots_[i] = RESET_PAGES[i];
         nr_mmu_[i] = RESET_PAGES[i];
