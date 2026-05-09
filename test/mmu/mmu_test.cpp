@@ -3587,10 +3587,27 @@ void test_cat27_nr8c_cache_and_high_page() {
                   "ROM page 4 — sram_rom=2 via lock_rom1)", pre, post));
     }
 
-    // FIX-NR8C-CACHE-02: a NR 0x8C write that does NOT change sram_rom
-    // (e.g. only altrom_en/rw bits) must not corrupt slot mappings —
-    // gentle smoke test that the rebuild path does not introduce
-    // regressions for the no-op transition.
+    // FIX-NR8C-CACHE-02: strengthened — pin TWO independent discriminative
+    // observables on a NR 0x8C write that does NOT change sram_rom (only
+    // altrom_en/rw bits flip). VHDL :3813 (`port_memory_change_dly` only
+    // pulses on a paging-port write that changes the relevant signal),
+    // so an altrom-en-only write must NOT clobber the cached slot
+    // pointers. Pre-fix `set_nr_8c` was a header inline (no rebuild) so
+    // both observables passed trivially. Post-fix `set_nr_8c` calls
+    // `apply_legacy_rom_slots_()` which is gated on `read_only_=true`
+    // (verify3 fix) so an explicit-RAM slot stays put. The strengthened
+    // row pins:
+    //   (a) The slot 0 nr_mmu / read_only state is preserved.
+    //   (b) A subsequent CPU read at 0x0000 still serves the RAM-page
+    //       byte (= the pre-write data round-trip survives the NR 0x8C
+    //       write — verifies the cached read_ptr_ was not wiped).
+    //
+    // Reviewer note (#9): the original row was flagged as "weak /
+    // companion" because pre-fix set_nr_8c was a no-op so it would
+    // also pass. The strengthening keeps the same discriminative target
+    // (intermediate-state regression where set_nr_8c forgets the
+    // read_only_ gate) but adds a CPU-read observable that pins the
+    // cached pointer specifically.
     {
         Fixture f;
         f.fresh();
@@ -3598,41 +3615,75 @@ void test_cat27_nr8c_cache_and_high_page() {
         f.mmu.map_128k_bank(0x00);
         f.mmu.map_plus3_bank(0x00);
         f.mmu.set_page(0, 0x05);                   // explicit RAM map
+        // Seed the RAM page with a sentinel — the CPU read at 0x0000
+        // must continue to serve this byte after the NR 0x8C write.
+        // RAM page 0x05 (= bank 2 hi on +3 default) — under +3 with
+        // map_128k_bank(0)/map_plus3_bank(0) we are NOT in special
+        // paging, so set_page(0, 0x05) lands the slot at the explicit
+        // physical page directly via to_sram_page (no shift in non-Next
+        // mode for this fixture).
+        if (f.ram.page_ptr(0x05)) f.ram.page_ptr(0x05)[0] = 0xA9;
         const uint8_t pre = f.mmu.get_page(0);
         const bool pre_ro = f.mmu.is_slot_rom(0);
+        const uint8_t pre_read = f.mmu.read(0x0000);
         // NR 0x8C write that sets altrom_en/rw only (no lock change).
         f.mmu.set_nr_8c(0xC0);
         const uint8_t post = f.mmu.get_page(0);
         const bool post_ro = f.mmu.is_slot_rom(0);
+        const uint8_t post_read = f.mmu.read(0x0000);
         check("FIX-NR8C-CACHE-02",
-              "NR 0x8C write with no lock change preserves explicit slot 0 "
-              "RAM mapping — VHDL :3813 (no port_memory_change_dly pulse)",
-              pre == 0x05 && !pre_ro && post == 0x05 && !post_ro,
-              fmt("pre=0x%02X ro=%d / post=0x%02X ro=%d (exp 0x05/0/0x05/0)",
-                  pre, (int)pre_ro, post, (int)post_ro));
+              "NR 0x8C write with no lock change preserves slot 0 "
+              "RAM mapping AND cached read pointer — VHDL :3813",
+              pre == 0x05 && !pre_ro && pre_read == 0xA9 &&
+              post == 0x05 && !post_ro && post_read == 0xA9,
+              fmt("pre: page=0x%02X ro=%d read=0x%02X / post: page=0x%02X "
+                  "ro=%d read=0x%02X (exp 0x05/0/0xA9 both)",
+                  pre, (int)pre_ro, pre_read,
+                  post, (int)post_ro, post_read));
     }
 
     // FIX-SLOT01-HIPAGE-01: NR $50 with v=$E5 must route slot 0 to legacy
     // ROM (sram_rom-derived), NOT to wrap-aliased SRAM page (0xE5 + 0x20)
     // mod 256 = 0x05. Slot 0 nr_mmu_ keeps verbatim 0xE5 (NR-port readback
     // contract); slot routing is legacy ROM via :3052.
+    //
+    // Discriminative-fix (review TESTCOV-MEMORY-REVIEW finding #9): the
+    // wrap-aliasing bug only fires in Next mode where `to_sram_page(0xE5)`
+    // applies the +0x20 shift (= page 0x05). Fixture default has
+    // `rom_in_sram_=false`, where `to_sram_page` is the identity (= 0xE5)
+    // — both pre-fix and post-fix would resolve to ROM-page-0-byte-0 = 0
+    // (Fixture ROM tag for page 0 offset 0 = (0<<4)|0 = 0). Enabling
+    // `rom_in_sram_=true` activates the wrap-aliasing path AND routes the
+    // post-fix legacy ROM to RAM page `sram_rom*2+0=0` (Next mode serves
+    // ROM from RAM in pages 0..7 per Mmu::set_rom_in_sram). Seed both the
+    // wrap-target SRAM page (0x05) and the post-fix ROM-in-SRAM page
+    // (0x00) with distinct sentinels so pre-fix and post-fix yield
+    // observably different results.
     {
         Fixture f;
         f.fresh();
         f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
-        // Tag SRAM page 0x05 with a sentinel — pre-fix the slot would
-        // route here.
+        f.mmu.set_rom_in_sram(true);  // Next mode — `to_sram_page(0xE5)` = 0x05
+        // Wrap-target sentinel (pre-fix would read this).
         if (f.ram.page_ptr(0x05)) f.ram.page_ptr(0x05)[0] = 0x77;
+        // ROM-in-SRAM page 0 sentinel (post-fix legacy-ROM path serves
+        // from `ram.page_ptr(sram_rom*2+slot=0)`). Distinct from 0x77 and
+        // from 0xFF (the unmapped value) so pre-fix vs post-fix is
+        // observable.
+        if (f.ram.page_ptr(0x00)) f.ram.page_ptr(0x00)[0] = 0x33;
         f.mmu.set_page(0, 0xE5);
-        // Read at 0x0000 must NOT return 0x77; it must serve legacy ROM
-        // page 0 (sram_rom=0 default). Fixture ROM page 0 byte 0 = 0x00.
+        // Pre-fix: rebuild_ptr → `ram.page_ptr(to_sram_page(0xE5)=0x05)[0]`
+        //          = 0x77 (wrap-aliased into RAM page 0x05).
+        // Post-fix: legacy-ROM branch in rebuild_ptr → `ram.page_ptr(0)[0]`
+        //           = 0x33 (sram_rom*2+0=0; Next mode serves ROM from RAM).
         const uint8_t v = f.mmu.read(0x0000);
         const uint8_t nr_rb = f.mmu.get_page(0);  // verbatim per VHDL :4611-4612
         check("FIX-SLOT01-HIPAGE-01",
               "NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — "
               "VHDL :2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73",
-              v == 0x00 && nr_rb == 0xE5,
-              fmt("read(0x0000)=0x%02X (exp 0x00 ROM page 0; NOT 0x77 wrap) "
+              v == 0x33 && nr_rb == 0xE5,
+              fmt("read(0x0000)=0x%02X (exp 0x33 ROM-in-SRAM page 0; "
+                  "pre-fix would alias 0x77 from wrap RAM page 0x05) "
                   "NR readback=0x%02X (exp 0xE5 verbatim)", v, nr_rb));
     }
 }
@@ -4012,12 +4063,24 @@ void test_cat27_l2_rom_area_gate() {
               fmt("read(0x0000)=0x%02X (exp 0xFF; pre-fix would alias 0x55)", v));
     }
 
-    // FIX-L2-ROM-AREA-02: write must be silently dropped. Seed RAM page 0x00
-    // with a sentinel; after L2 write to 0x0000 with the inactive bank,
-    // the sentinel must be unchanged.
+    // FIX-L2-ROM-AREA-02: write must be silently dropped. The pre-fix bug
+    // wrote to `to_sram_page(bank+bofs)`. With bank=0x70 + bofs=0x00,
+    // `to_sram_page(0xE0)` = 0x00 in Next mode (rom_in_sram_=true; +0x20
+    // wraps to 0x00) — i.e. the write would land in ROM-in-SRAM page 0,
+    // corrupting ROM. Post-fix: write is silently dropped per VHDL.
+    //
+    // Discriminative-fix (review TESTCOV-MEMORY-REVIEW finding #23):
+    // Fixture default has `rom_in_sram_=false`, where `to_sram_page` is
+    // the identity. Pre-fix would write to `ram.page_ptr(0xE0)[0]`, NOT
+    // page 0x00, so the seeded sentinel at page 0x00 is unchanged in
+    // BOTH pre-fix and post-fix paths — the test passes either way and
+    // the bug is masked. Enable `rom_in_sram_=true` so the wrap-aliasing
+    // path fires (Next-mode behaviour matches the bug).
     {
         Fixture f;
         f.fresh();
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        f.mmu.set_rom_in_sram(true);  // Next mode — `to_sram_page(0xE0)` = 0x00
         if (f.ram.page_ptr(0x00)) f.ram.page_ptr(0x00)[0] = 0x55;
         f.mmu.set_l2_port(0x01, 0x70);  // bit 0=write, seg=00, bank=0x70
         f.mmu.write(0x0000, 0xAB);
@@ -4027,7 +4090,8 @@ void test_cat27_l2_rom_area_gate() {
               "(NOT corrupting ROM area) — VHDL :2971 + :3101-3102; commit 9d252b6",
               after == 0x55,
               fmt("ram[0][0] post-write=0x%02X (exp 0x55 — write dropped; "
-                  "pre-fix would have stored 0xAB at ROM page 0)", after));
+                  "pre-fix would have stored 0xAB at ROM-in-SRAM page 0 "
+                  "via to_sram_page(0xE0)=0x00 wrap)", after));
     }
 }
 

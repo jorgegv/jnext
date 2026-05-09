@@ -1627,6 +1627,180 @@ static void test_cat27_verify8_nr08_effective(Emulator& emu) {
     }
 }
 
+// Cat27 testcov-memory follow-up — emulator-handler integration rows.
+//
+// The base testcov-memory pass (af29460) verified the per-API contract for
+// these fixes via direct Mmu/ContentionModel calls. The reviewer flagged
+// (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-MEMORY-REVIEW.md, "Coverage gaps") that
+// a regression in the **emulator NR-write dispatcher** itself (the seam
+// between the NR-port write and the Mmu API) would not be caught: a
+// future refactor that reverts the dispatcher to a buggy call would slip
+// silently through the API-only tests. These rows close the gap by
+// driving every fix through the production NR-write path
+// (`nr_write(emu, reg, val)` → port 0x253B → NextReg::write → fix
+// callback → Mmu API) and observing the public side-effect.
+static void test_cat27_emu_handler_integration() {
+    set_group("Cat27-Emu-Handler-Integration");
+
+    // ── FIX-NR5xFF-INT-01 — emulator NR $51,$FF dispatcher routes to the
+    //    per-slot helper (slot 1 only), preserving the explicit slot-0
+    //    mapping. Pre-fix dispatcher path called the both-slot
+    //    engage_legacy_rom_paging() helper which clobbered slot 0.
+    //    Reviewer finding: bypass risk for FIX-NR5xFF-01 unit row. VHDL
+    //    zxnext.vhd:4686-4696 nr_mmu_we per-slot.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Step 1: explicitly map slot 0 to a RAM page via NR $50,RAM.
+            nr_write(emu, 0x50, 0x05);
+            const uint8_t pre_slot0 = nr_read(emu, 0x50);
+            // Step 2: NR $51,$FF — must affect ONLY slot 1 (per-slot helper).
+            nr_write(emu, 0x51, 0xFF);
+            const uint8_t post_slot0 = nr_read(emu, 0x50);
+            const uint8_t post_slot1 = nr_read(emu, 0x51);
+            check("FIX-NR5xFF-INT-01",
+                  "NR $51,$FF dispatcher uses per-slot helper — slot 0 "
+                  "explicit RAM mapping preserved (VHDL :4686-4696; "
+                  "commit f832f38)",
+                  pre_slot0 == 0x05 && post_slot0 == 0x05 && post_slot1 == 0xFF,
+                  "pre_s0=" + hex2(pre_slot0) + " post_s0=" + hex2(post_slot0) +
+                  " post_s1=" + hex2(post_slot1) + " (exp 0x05/0x05/0xFF)");
+        }
+    }
+
+    // ── FIX-NR5xFF-INT-02 — emulator NR $52,$FF dispatcher leaves slot 2
+    //    inactive (read 0xFF), NOT mapped to ROM page 0. Pre-fix called
+    //    `mmu_.map_rom(2, 0)` which served ROM-page-0 bytes from the slot.
+    //    Discriminative observation: the NR-port readback returns 0xFF
+    //    only when nr_mmu_[2]=0xFF (= the post-fix sentinel-stored path).
+    //    Pre-fix dispatcher set the slot to a non-0xFF value via map_rom,
+    //    which would NOT update nr_mmu_ but would change the read pointer.
+    //    Combined check: NR readback = 0xFF AND a CPU read from 0x4000
+    //    returns 0xFF (= floating-bus / inactive slot per VHDL :3061).
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-02",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            nr_write(emu, 0x52, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x52);
+            const uint8_t cpu_rd = emu.mmu().read(0x4000);
+            check("FIX-NR5xFF-INT-02",
+                  "NR $52,$FF dispatcher → slot 2 inactive (CPU read 0xFF) "
+                  "AND nr_mmu_[2]=0xFF (VHDL :3061 sram_pre_active=0; "
+                  "commit f832f38)",
+                  nr_rb == 0xFF && cpu_rd == 0xFF,
+                  "nr_rb=" + hex2(nr_rb) + " cpu_rd=" + hex2(cpu_rd) +
+                  " (exp 0xFF/0xFF)");
+        }
+    }
+
+    // ── FIX-NR5xFF-INT-03 — emulator NR $56,$FF dispatcher leaves slot 6
+    //    inactive (NOT legacy RAM auto-paged). Pre-fix called
+    //    `mmu_.engage_legacy_ram_paging()` which forced bank-0 mapping.
+    //    Discriminative: read 0xC000 returns 0xFF (inactive) AND NR $56
+    //    readback = 0xFF (verbatim sentinel).
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR5xFF-INT-03",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            nr_write(emu, 0x56, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x56);
+            const uint8_t cpu_rd = emu.mmu().read(0xC000);
+            check("FIX-NR5xFF-INT-03",
+                  "NR $56,$FF dispatcher → slot 6 inactive (NOT legacy RAM "
+                  "auto-paged; CPU read 0xFF, NR readback 0xFF) — VHDL "
+                  ":3061; commit f832f38",
+                  nr_rb == 0xFF && cpu_rd == 0xFF,
+                  "nr_rb=" + hex2(nr_rb) + " cpu_rd=" + hex2(cpu_rd) +
+                  " (exp 0xFF/0xFF)");
+        }
+    }
+
+    // ── FIX-EFF7-FF-INT-01 — emulator NR $50,$FF dispatcher under EFF7(3)=1
+    //    must (a) leave nr_mmu_[0] at 0xFF (verbatim) and (b) NOT mirror
+    //    EFF7's RAM-at-0x0000 override on the NR-write cycle. Pre-fix
+    //    dispatcher called engage_legacy_rom_paging() (both slots) instead
+    //    of the per-slot helper, and (per the original EFF7-FF-01 fix)
+    //    the per-slot helper must not honour the eff7 override on the
+    //    NR-write cycle.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-EFF7-FF-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Activate eff7(3) RAM-at-0x0000.
+            emu.mmu().write_port_eff7(0x08);
+            const bool baseline_ro0 = emu.mmu().is_slot_rom(0);
+            // Now NR $50,$FF via the dispatcher.
+            nr_write(emu, 0x50, 0xFF);
+            const uint8_t nr_rb = nr_read(emu, 0x50);  // verbatim sentinel
+            const bool   rom0  = emu.mmu().is_slot_rom(0);
+            check("FIX-EFF7-FF-INT-01",
+                  "Emulator NR $50,$FF dispatcher under EFF7(3)=1: nr_mmu_[0]="
+                  "0xFF verbatim, slot 0 → legacy ROM (NOT eff7 RAM override) "
+                  "— VHDL :4686-4696; commits 31d1786 + 560cb18",
+                  !baseline_ro0 && nr_rb == 0xFF && rom0,
+                  "baseline_ro0=" + std::to_string(baseline_ro0) +
+                  " nr_rb=" + hex2(nr_rb) +
+                  " rom0=" + std::to_string(rom0) +
+                  " (exp 0/0xFF/1)");
+        }
+    }
+
+    // ── FIX-NR12-PROP-INT-01 — emulator NR 0x12 dispatcher propagates
+    //    the new bank to Mmu::l2_bank_ via mmu_.set_l2_active_bank().
+    //    Pre-fix the dispatcher only called layer2_.set_active_bank()
+    //    and the Mmu's cached `l2_bank_` stayed stale until the next
+    //    port 0x123B write. VHDL zxnext.vhd:2968 makes layer2_active_bank
+    //    combinational. Discriminative observable: Mmu::l2_bank()
+    //    accessor returns the Mmu's cached bank (verify4 fix wires NR 0x12
+    //    → mmu_.set_l2_active_bank, so post-fix Mmu::l2_bank() tracks
+    //    NR 0x12 writes immediately).
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("FIX-NR12-PROP-INT-01",
+                  "Emulator construction failed",
+                  false, "build_next_emulator returned false");
+        } else {
+            emu.mmu().reset(true);
+            // Mmu reset re-zeros l2_bank_ to its default 8 (matching
+            // Layer2's reset pattern via the NR 0x12 reset value 0x08
+            // pushed at NR-init).
+            const uint8_t pre_mmu_l2_bank = emu.mmu().l2_bank();
+            // Drive NR 0x12 = 16 via the production NR-write port path.
+            nr_write(emu, 0x12, 16);
+            const uint8_t post_mmu_l2_bank = emu.mmu().l2_bank();
+            const uint8_t post_nr12_rb    = nr_read(emu, 0x12);
+            check("FIX-NR12-PROP-INT-01",
+                  "Emulator NR 0x12 dispatcher propagates new bank to "
+                  "Mmu::l2_bank_ via mmu_.set_l2_active_bank() — VHDL :2968; "
+                  "commit 560cb18",
+                  post_mmu_l2_bank == 16 && post_nr12_rb == 16,
+                  "pre_mmu_l2_bank=" + std::to_string(pre_mmu_l2_bank) +
+                  " post_mmu_l2_bank=" + std::to_string(post_mmu_l2_bank) +
+                  " (exp post=16) post_nr12_rb=" +
+                  std::to_string(post_nr12_rb) + " (exp 16)");
+        }
+    }
+}
+
 // ── CFG-01, CFG-02, CFG-05: machine-config state ─────────────────────
 //
 // Plan row group 7 in NEXTREG-TEST-PLAN-DESIGN.md. NR 0x03 bits 6:4 set
@@ -3610,6 +3784,12 @@ int main() {
 
     test_cat27_verify8_nr08_effective(emu);
     std::printf("  Group: Cat27-NR08-Effective — done\n");
+
+    // Emulator-handler integration rows (no shared `emu` — each row
+    // builds a fresh emulator to avoid cross-row state pollution; the
+    // partial-tier review finding requested per-row hermeticity).
+    test_cat27_emu_handler_integration();
+    std::printf("  Group: Cat27-Emu-Handler-Integration — done\n");
 
     test_cfg_integration(emu);
     std::printf("  Group: Machine-Cfg — done\n");
