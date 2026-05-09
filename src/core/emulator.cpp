@@ -1353,14 +1353,40 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     copper_.set_c_max_vc(timing_.lines_per_frame - 1);
 
     // Registers 0x50–0x57: MMU slot→page mapping (one register per slot)
-    // Page 0xFF = map ROM into the slot (VHDL: mmu_A21_wr_en = '0' when page = xFF).
+    // Page 0xFF = re-engage legacy auto-paging for the slot (VHDL:
+    // mmu_A21_wr_en = '0' when page = xFF; slot then follows the
+    // sram_rom-derived ROM mapping for slots 0/1, or the
+    // 7FFD/DFFD-derived RAM mapping for slots 6/7).
+    //
+    // G46(b) Wave 8 fix: previously this hardcoded slots 0/1 to physical
+    // pages 0/1 (= bank 0 ROM) when v=$FF, regardless of current
+    // sram_rom. That broke the supervisor's $15A0 NEXTREG $51,$10 +
+    // $15B0 NEXTREG $51,$FF pattern: with sram_rom=01 (= bank 1) at
+    // $15B0, the supervisor expected slot 1 to revert to bank 1 hi
+    // (page 03), but jnext set it to bank 0 hi (page 01) — making the
+    // subsequent $1506 CALL $3E80 dispatcher read bank 0's NEXTREG
+    // $8E,$01 instead of bank 1's $8E,$00, flipping to the wrong
+    // bank, RET-ing into bank 1 NOPs at $2668, NOP-sliding through
+    // 7424 bytes into the $5B00 toggle wrapper, RET to $0000, panic
+    // loop. Real Next supervisor never reaches the $5B00 wrapper.
     for (int i = 0; i < 8; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x50 + i),
             [this, i](uint8_t v) -> uint8_t {
-                if (v == 0xFF)
-                    mmu_.map_rom(i, static_cast<uint8_t>(i < 2 ? i : 0));
-                else
+                if (v == 0xFF) {
+                    if (i == 0 || i == 1) {
+                        // Slots 0/1: legacy ROM auto-paging
+                        mmu_.engage_legacy_rom_paging();
+                    } else if (i == 6 || i == 7) {
+                        // Slots 6/7: legacy RAM auto-paging
+                        mmu_.engage_legacy_ram_paging();
+                    } else {
+                        // Slots 2-5: keep prior fallback behavior
+                        // (no legacy auto-paging for these in 128K).
+                        mmu_.map_rom(i, 0);
+                    }
+                } else {
                     mmu_.set_page(i, v);
+                }
                 return v;
             });
         // G46(b) — VHDL zxnext.vhd:6075-6082 — `port_253b_dat <= MMU<i>` for

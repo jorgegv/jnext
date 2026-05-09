@@ -7217,3 +7217,99 @@ to a valid altrom-resident routine.
 `g46b-investigation` HEAD `6689c83`, RING_AT regs extension uncommitted.
 
 End of EOD-22 Wave 7.
+
+## 2026-05-09 08:55 CEST — EOD-22 Wave 8: NR $51,$FF semantic fix LANDED
+
+### The fix
+
+In `Mmu`, added public `engage_legacy_rom_paging()` and
+`engage_legacy_ram_paging()` methods. In `Emulator::set_write_handler`
+for NR 0x50–0x57 (emulator.cpp:1369+), changed the `v == 0xFF` branch:
+
+**BEFORE**:
+```cpp
+if (v == 0xFF)
+    mmu_.map_rom(i, static_cast<uint8_t>(i < 2 ? i : 0));
+```
+This hardcoded slot 0 → page 0 and slot 1 → page 1, regardless of
+current sram_rom.
+
+**AFTER**:
+```cpp
+if (v == 0xFF) {
+    if (i == 0 || i == 1) mmu_.engage_legacy_rom_paging();
+    else if (i == 6 || i == 7) mmu_.engage_legacy_ram_paging();
+    else mmu_.map_rom(i, 0);
+}
+```
+
+This re-derives the slot from current `sram_rom` (slots 0/1) or
+current 7FFD/DFFD (slots 6/7), matching VHDL :4611-4612 semantics.
+
+### DZRP agent confirmed CSpect's $26B9 BP NEVER fires
+
+Side-by-side comparison via DZRP agent:
+| Sysvar | jnext (pre-Wave-8) | CSpect | Verdict |
+|---|---|---|---|
+| ($5B6A) | non-zero ($5BFF) | **$5BFB** | Differs |
+| ($5B54) | **$3E93** ← BUG | **$004B** | Differs significantly |
+| ($5B52) | $0000 | $0044 | Differs |
+| NR $50..$57 | various | `FF FF 0A 11 04 05 00 01` | CSpect has slot 1=$11 explicit |
+
+CSpect's `$26B9 BP fired ZERO times` in 60s — supervisor never reaches
+the wrapper site. So Wave 4-7's wrapper protocol decode was about a
+code path supervisor MAY take in some configurations but NOT in real
+Next post-boot. Either jnext's fix avoids that path, OR the path is
+benign on CSpect because state differs.
+
+### Post-fix behavior
+
+```
+60s wall-clock run:
+- 16× NR $02 soft resets triggered (PC=$3BF5 rom_bank=0x03 each time)
+  This is from the bank-3 reset trampoline at $3BE8 (LD A,$02; OUT C,A;
+  ...) — supervisor is now ACTIVELY invoking soft reset, which it
+  WAS NOT doing before. New behavior.
+
+PC=$0000 events (still happening):
+  Event #3: prev_pc=$FFFF, sp=$5BED, rom_bank=0x02 (= bank 2 mapped)
+            ring shows $FFF0..$FFFF NOP slide
+  Event #4: prev_pc=$0001 (= back into init via $0001 JP $00EF)
+
+  The slide is now from BANK 7 RAM HI ($FFF0+, cleared by cascade)
+  instead of altrom $3E80+. Different cause.
+```
+
+### Interpretation
+
+Wave 8 fix is real progress — supervisor reaches bank-3 NR $02 reset
+trampoline at $3BE8 (= "BASIC handoff" reset, deliberate), which was
+NEVER reached before. Multiple resets every ~3s suggest supervisor is
+in a **different**, more advanced loop now.
+
+But still hitting PC=$0000 via bank-7-RAM-HI NOP slide (different from
+the altrom slide from Waves 1-7).
+
+The Wave 8 fix is **necessary but not sufficient**. There are likely
+more downstream issues (probably in similar NR $50/$51 reset
+semantics, OR in the post-soft-reset bank-7 RAM init).
+
+### Next-session priorities
+
+1. **Commit Wave 8 fix** (done locally, pending push approval).
+2. **Run regression tests**: `bash test/00regression/regression.sh` to
+   verify no regressions from the fix.
+3. **Investigate the new bank-7-RAM-HI NOP slide**: why does
+   supervisor's PC reach $FFF0 in slot 7 = bank 7 RAM HI? Needs another
+   RING_AT probe at $FFF0 or earlier.
+4. **DZRP-side compare**: at supervisor's $3BE8 NR $02 reset trampoline
+   on CSpect, does it execute? In what context?
+5. **Audit NR $50/$51 with $FF when slot is currently in bank-2/3 mode**
+   — fix may need extension for non-standard ROM-bank cases.
+
+### Branch state
+
+`g46b-investigation` HEAD `7f8902d` + Wave 8 fix uncommitted (about to
+commit).
+
+End of EOD-22 Wave 8.

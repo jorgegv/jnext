@@ -802,6 +802,19 @@ public:
     // Map ROM page into slot (read-only)
     void map_rom(int slot, uint8_t rom_page);
 
+    // G46(b) Wave 8 fix: NR 0x50/0x51 with value 0xFF must re-engage
+    // legacy ROM paging (sram_rom * 2 / sram_rom * 2 + 1) — NOT
+    // hardcoded physical pages 0/1. VHDL zxnext.vhd:4611-4612: when
+    // MMU<i>='FF', slot uses legacy auto-paging (sram_rom-derived).
+    // Without this, NEXTREG $51,$FF after a transient slot-1 remap
+    // (e.g. supervisor's $15A0 NEXTREG $51,$10 + $15B0 NEXTREG $51,$FF
+    // pattern) leaves slot 1 = bank 0 hi (page 1) regardless of
+    // sram_rom — causing a wrong-bank wrapper read at $3E93 → $3E93
+    // wrapper executes bank 0's NEXTREG $8E,$01 instead of bank 1's
+    // $8E,$00 → wrong bank flip → NOP slide → PC=$0000 panic.
+    void engage_legacy_rom_paging() { apply_legacy_rom_slots_(); }
+    void engage_legacy_ram_paging() { apply_legacy_ram_slots_(); }
+
     // ---------------------------------------------------------------
     // Layer 2 read/write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------
