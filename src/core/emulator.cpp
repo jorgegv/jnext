@@ -680,6 +680,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x12: Layer 2 active RAM bank
     nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
         layer2_.set_active_bank(v);
+        // Verify4-memory class-(a) fix: VHDL zxnext.vhd:2968 makes
+        // layer2_active_bank combinational from nr_12_layer2_active_bank
+        // when port_123b_layer2_map_shadow=0. The Mmu's CPU L2 read/
+        // write-over path caches the bank in `l2_bank_`, refreshed by
+        // set_l2_port() on every 0x123B write. NR $12 writes between
+        // two 0x123B writes were not propagated, leaving the cached
+        // bank stale. NR $13 has the analogous propagation via
+        // mmu_.set_l2_shadow_bank() — NR $12 was the missing seam.
+        mmu_.set_l2_active_bank(layer2_.active_bank());
         return v;
     });
     // VHDL zxnext.vhd:5930 — port_253b_dat <= '0' & nr_12_layer2_active_bank;

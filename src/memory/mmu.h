@@ -886,6 +886,14 @@ public:
     void set_l2_shadow_bank(uint8_t bank) { l2_shadow_bank_ = bank & 0x7F; }
     uint8_t l2_shadow_bank() const { return l2_shadow_bank_; }
 
+    // Verify4-memory class-(a) fix — NR 0x12 writes must refresh the
+    // active-bank cache used by the CPU L2 read/write-over path. VHDL
+    // zxnext.vhd:2968 makes `layer2_active_bank` combinational from
+    // nr_12_layer2_active_bank when port_123b_layer2_map_shadow='0'.
+    // The set_l2_port() helper also refreshes l2_bank_ on each 0x123B
+    // write, so the two seams (NR $12 + 0x123B) keep the cache in sync.
+    void set_l2_active_bank(uint8_t bank) { l2_bank_ = bank & 0x7F; }
+
     // VHDL zxnext.vhd:3933 — port_123b_dat composition (read-back). Bit
     // 4 (offset-mode select) and bit 5 always read 0; offset register is
     // not exposed on the read side.
