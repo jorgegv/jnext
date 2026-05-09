@@ -132,6 +132,27 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // Data token received — start collecting data
                 break;
             }
+            // Pass-4 verify-audit fix (2026-05-09): per SD Physical Layer
+            // Simplified Spec 6.00 § 7.3.3.2, "Following the command
+            // response (R1) and one (or more) bytes of $FF (host SPI
+            // clock), the data must be sent following a Data Token byte
+            // ($FE for single block, $FC for multi-block)." The card MUST
+            // tolerate any number of 0xFF gap bytes between R1 and the
+            // 0xFE start token. The pre-fix code fell through to
+            // `data_block_[data_idx_++] = tx` for ALL bytes that didn't
+            // match the 0xFE token at the start, so a leading 0xFF gap
+            // (which standard FatFs implementations send before the data
+            // token) would be erroneously absorbed into data_block_[0],
+            // shifting the entire payload by one byte and corrupting the
+            // write. Tbblue's xmit_datablock() at
+            // src/firmware/app/src/ff/diskio.c:179-202 doesn't send a
+            // gap byte (it writes the token immediately after R1), so
+            // tbblue's boot path was unaffected. Other firmware (esxdos
+            // F_WRITE, generic FatFs) follows the spec and sends the
+            // gap. Skip 0xFF bytes pre-token for spec compliance.
+            if (data_idx_ == 0 && data_crc_count_ == 0 && tx == 0xFF) {
+                break;  // gap byte — wait for 0xFE token
+            }
             if (data_idx_ < 512) {
                 data_block_[data_idx_++] = tx;
                 break;
