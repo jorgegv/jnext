@@ -6177,6 +6177,19 @@ void Emulator::load_state(StateReader& r)
     rtc_.load_state(r);
     uart_.load_state(r);
     divmmc_.load_state(r);
+    // Pass-10 verify-audit fix (2026-05-09): re-sync DivMmc::rom3_active_
+    // from the canonical loaded MMU state. The flag is a feeder shadow of
+    // VHDL `sram_pre_rom3` (zxnext.vhd:2981-3008,:3138) and is NOT
+    // persisted by DivMmc::save_state — it is only refreshed at port-write
+    // / NR-commit / machine-type-change sites that fan-out from MMU. Pre-fix
+    // a load_state restoring a snapshot taken with sram_rom=3 selected
+    // (e.g. ROM3 active during a CMD18 boot stream) would leave rom3_active_
+    // at its constructor default `false`, breaking the ROM3-conditional
+    // automap gate (sram_divmmc_automap_rom3_en, divmmc.vhd:130,148) until
+    // the next MMU port write. Mirrors the i2c_.set_pi_i2c1_en /
+    // spi_.set_flash_cs_enable re-sync pattern used elsewhere in
+    // load_state. Class-(a) → resolved.
+    divmmc_.set_rom3_active(mmu_.sram_rom3());
 
     // Audio subsystems.
     beeper_.load_state(r);
