@@ -307,11 +307,21 @@ void Mmu::set_l2_port(uint8_t val, uint8_t active_bank) {
     l2_map_shadow_   = (val & 0x08) != 0;  // bit 3 — VHDL :3919, :2968 (G144)
     uint8_t seg = (val >> 6) & 0x03;
     l2_segment_raw_ = seg;
+    // Verify8-memory class-(a) fix: the read/write hot path now consults
+    // `l2_overlay_active_for(addr)` (in mmu.h) which models the VHDL
+    // sram_pre_override(1) gate exactly: low half always enabled (in
+    // non-MF cases), high half only when seg="11", 0xC000+ never. The
+    // legacy `l2_segment_mask_` bitmask below is retained ONLY for
+    // save_state/load_state schema compatibility — it is no longer
+    // consulted on any access path. (Pre-fix, the mask incorrectly
+    // restricted L2 to a single 16K segment matching the address range,
+    // which diverged from VHDL :3043/:3050/:3057 — those branches all
+    // set sram_pre_override(1)='1' for the low half regardless of seg.)
     switch (seg) {
-        case 0: l2_segment_mask_ = 0x01; break;  // 0x0000-0x3FFF
-        case 1: l2_segment_mask_ = 0x02; break;  // 0x4000-0x7FFF
-        case 2: l2_segment_mask_ = 0x04; break;  // 0x8000-0xBFFF
-        case 3: l2_segment_mask_ = 0x07; break;  // all three (auto-segment)
+        case 0: l2_segment_mask_ = 0x01; break;  // legacy — see note above
+        case 1: l2_segment_mask_ = 0x02; break;
+        case 2: l2_segment_mask_ = 0x04; break;
+        case 3: l2_segment_mask_ = 0x07; break;
     }
     Log::memory()->debug("L2 port: wr={} rd={} en={} shadow={} seg={:#04x} mask={:#04x} bank={}",
                           l2_write_enable_, l2_read_enable_, l2_enable_,

@@ -1551,6 +1551,13 @@ static void test_rw_asymmetric(Emulator& emu) {
         //      write is not re-issuing the unlock strobe (harmless either
         //      way, but clearer without).
         nr_write(emu, 0x08, 0x40);
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `eff_nr_08_contention_disable` (effective), not the immediate
+        // shadow. Per :5822-5823 the effective gate latches from the
+        // shadow only on the bus-idle + hc(8)='1' edge. Without running
+        // any instructions in this harness, poke the commit explicitly
+        // so the read-back observes the committed value.
+        emu.contention().commit_contention_disable_on_hc(300);  // hc(8)=1
         uint8_t cd_on = nr_read(emu, 0x08);
         bool bit6_set = (cd_on & 0x40) != 0;
         bool bit7_still_set = (cd_on & 0x80) != 0;
