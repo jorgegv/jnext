@@ -3,6 +3,33 @@
 
 extern "C" {
 #include "fuse_z80_shim.h"
+
+// Pass-7 — VHDL-faithful "no-MREQ tail cycle" contention for LDIX-family
+// internal idle. These are implemented in z80_cpu.cpp (extern "C") and
+// already used by the FUSE opcode TU via the CORETEST function-override
+// path (see G141 in z80_cpu.cpp). The Z80N path needs the same gate so
+// that LDIX/LDDX/LDIRX/LDDRX/LDPIRX/LDIRSCALE internal idle on contended
+// destination pages stretches identically to FUSE's LDI/LDIR/LDD/LDDR.
+//
+// VHDL oracle: t80n_mcode.vhd MCycle 4 of LDIX-family asserts NoRead=1
+// with TStates="101" (=5T) on Set_Addr_To=aDE, i.e. DE on the address
+// bus while the M-cycle idles. Per zxula.vhd:582-600 the contention gate
+// fires on (hc_adj × vc × contention_en) regardless of MREQ, so each of
+// those tail T-states emits the standard contention stretch when DE is
+// on a contended page during the active raster window.
+//
+// FUSE LDI (z80_ed.c case 0xa0:285) confirms the per-T-state model:
+//     contend_write_no_mreq(DE, 1); contend_write_no_mreq(DE, 1);
+// (i.e. two single-cycle no-MREQ contention calls on DE — one per
+// internal idle T-state). FUSE LDIR (case 0xb0:429-431) adds five more
+// of the same for the BC≠0 re-decode pause, giving the full 7T tail.
+//
+// Pre-fix: jnext used `tstates += 2` (or `+= 7`) raw, bypassing the
+// contention gate entirely. Demos doing LDIRX into Layer-2 / Bank-5
+// during the active raster lost the per-cycle stretch — for a 6 144-byte
+// blit that's ≈ 36 K T-states drift, a full frame.
+extern void contend_read_no_mreq( libspectrum_word address, libspectrum_dword time );
+extern void contend_write_no_mreq( libspectrum_word address, libspectrum_dword time );
 }
 
 // Flag bit positions for TEST_N
@@ -453,6 +480,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // ldi_family_flags() above and t80n.vhd:1277-1285.
             // Pass-6 fix: source read + dest write via fuse_z80_readbyte /
             // fuse_z80_writebyte (contention + 3T per access).
+            // Pass-7 fix: internal idle 2T on DE address via
+            // contend_write_no_mreq, mirroring FUSE LDI (z80_ed.c:285).
             // Spec = 16T = 8 (M1) + 3 (read HL) + 3 (write DE) + 2 (internal).
             //
             // VHDL transparency: the write fires only when temp != A. When the
@@ -474,6 +503,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 // tstates advance so the spec-total of 16 T is preserved.
                 tstates += 3;
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -482,7 +512,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             cpu.set_registers(regs);
-            tstates += 2;
+            // Pass-7: per-cycle no-MREQ contention on DE (pre-increment) for
+            // the 2T internal idle. Mirrors FUSE LDI (z80_ed.c:285).
+            contend_write_no_mreq(de_pre_inc, 1);
+            contend_write_no_mreq(de_pre_inc, 1);
             return 16;
         }
 
@@ -521,6 +554,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // ED AC — single iteration, HL decrements.
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
             // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Pass-7 fix: internal idle 2T on DE address via
+            // contend_write_no_mreq (see LDIX comment).
             // Spec = 16T = 8 (M1) + 3 (read HL) + 3 (write DE) + 2 (internal).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
@@ -530,6 +565,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             } else {
                 tstates += 3;  // suppressed write phase keeps total = 16T
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -538,7 +574,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             cpu.set_registers(regs);
-            tstates += 2;
+            contend_write_no_mreq(de_pre_inc, 1);
+            contend_write_no_mreq(de_pre_inc, 1);
             return 16;
         }
 
@@ -560,6 +597,9 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             //
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
             // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Pass-7 fix: 2T post-write idle + 5T re-decode pause both on DE
+            // address via contend_write_no_mreq, mirroring FUSE LDIR
+            // (z80_ed.c:422 + 429-431).
             // Term spec = 16T = 8 (M1) + 6 (read+write) + 2 (internal).
             // Cont spec = 21T = 8 (M1) + 6 (read+write) + 7 (internal — the
             // standard LDIR 5-extra-cycle re-decode pause).
@@ -571,6 +611,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             } else {
                 tstates += 3;
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -586,7 +627,11 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 internal_idle = 7;
             }
             cpu.set_registers(regs);
-            tstates += static_cast<libspectrum_dword>(internal_idle);
+            // Pass-7: per-cycle no-MREQ contention on DE (pre-increment) for
+            // both the 2T post-write idle and the 5T re-decode pause.
+            for (int i = 0; i < internal_idle; ++i) {
+                contend_write_no_mreq(de_pre_inc, 1);
+            }
             return t;
         }
 
@@ -600,6 +645,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             //
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
             // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Pass-7 fix: internal idle on DE via contend_write_no_mreq
+            // (see LDIRX comment).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = fuse_z80_readbyte(regs.HL);
@@ -608,6 +655,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             } else {
                 tstates += 3;
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -623,7 +671,9 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 internal_idle = 7;
             }
             cpu.set_registers(regs);
-            tstates += static_cast<libspectrum_dword>(internal_idle);
+            for (int i = 0; i < internal_idle; ++i) {
+                contend_write_no_mreq(de_pre_inc, 1);
+            }
             return t;
         }
 
@@ -632,6 +682,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // G89 inter-iteration INT-sample shape. Mirrors VHDL
             // t80n_mcode.vhd:1953-1991 (LDPIRX MCycles="100" with PC rewind).
             // Pass-6 fix: pattern read + dest write via fuse_z80_*byte.
+            // Pass-7 fix: internal idle on DE via contend_write_no_mreq
+            // (see LDIRX comment).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             // Source: upper 13 bits of HL | lower 3 bits of E (HL stays fixed)
@@ -642,6 +694,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             } else {
                 tstates += 3;
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
             // HL does NOT change (pattern base)
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -653,7 +706,9 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 internal_idle = 7;
             }
             cpu.set_registers(regs);
-            tstates += static_cast<libspectrum_dword>(internal_idle);
+            for (int i = 0; i < internal_idle; ++i) {
+                contend_write_no_mreq(de_pre_inc, 1);
+            }
             return t;
         }
 
@@ -668,6 +723,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // mcode (line 2208-2209) explicitly sets Set_BusA_To=A,
             // ALU_Op=ADD, so the flag composition matches LDI/LDIRX.
             // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Pass-7 fix: internal idle on DE via contend_write_no_mreq
+            // (see LDIRX comment).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = fuse_z80_readbyte(regs.HL);
@@ -676,6 +733,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             } else {
                 tstates += 3;
             }
+            const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
@@ -691,7 +749,9 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 internal_idle = 7;
             }
             cpu.set_registers(regs);
-            tstates += static_cast<libspectrum_dword>(internal_idle);
+            for (int i = 0; i < internal_idle; ++i) {
+                contend_write_no_mreq(de_pre_inc, 1);
+            }
             return t;
         }
 
