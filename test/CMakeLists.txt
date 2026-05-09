@@ -24,9 +24,16 @@ add_test(NAME cpu_int_pulse_tests COMMAND cpu_int_pulse_test)
 
 # CPU/Z80N/IM2 regression test (Task 2 verify Pass-1..Pass-10 retroactive
 # coverage). One test per fix landed in commits 65b5918..c526aa4. Pinned
-# against VHDL t80n*.vhd, im2_*.vhd, zxnext.vhd. Standalone, jnext_cpu only.
+# against VHDL t80n*.vhd, im2_*.vhd, zxnext.vhd.
+#
+# REQUEST-CHANGES follow-up (2026-05-10): contention-stretch tests for
+# Pass-5 / Pass-7 / Pass-9 require ContentionModel + a real Mmu fixture
+# so `mem_active_page_for(addr)` resolves to a contended bank; this
+# brings in jnext_memory (Mmu / Ram / Rom / ContentionModel). The CPU-
+# only sibling tests (FUSE, int_pulse) keep the narrower jnext_cpu link.
 add_executable(cpu_z80n_im2_regressions_test cpu/cpu_z80n_im2_regressions_test.cpp)
-target_link_libraries(cpu_z80n_im2_regressions_test PRIVATE jnext_cpu)
+target_link_libraries(cpu_z80n_im2_regressions_test PRIVATE
+    jnext_cpu jnext_memory jnext_peripheral jnext_debug)
 target_include_directories(cpu_z80n_im2_regressions_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME cpu_z80n_im2_regressions_tests COMMAND cpu_z80n_im2_regressions_test)
 
