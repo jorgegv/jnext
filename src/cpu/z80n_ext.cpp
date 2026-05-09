@@ -506,21 +506,24 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // VHDL transparency: the write fires only when temp != A. When the
             // byte matches the transparency value the write IS suppressed in
             // hardware — but the bus cycle for the write phase still consumes
-            // its T-states (NoWrite asserted; idle). For now we do NOT advance
-            // the 3 T write-phase when transparency suppresses the write —
-            // that matches the legacy jnext behaviour (returned 16 always).
-            // The pre-fix tstates -= 3 vs spec is a corner case of demos that
-            // bank on transparency-mode timing; tracking that requires its
-            // own pass.
+            // its T-states. Pass-9 fix: route the suppressed-write 3 T through
+            // the contention gate (contend_write_no_mreq) so demos blitting
+            // into contended pages keep the per-cycle stretch even on
+            // transparency-matching bytes. Per VHDL zxula.vhd:582-600 the
+            // contention window gates only on (hc, vc, contention_en) and
+            // the registered MREQ — wr_n is irrelevant — so the suppressed
+            // cycle hits the same gate as a real write would.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                // Transparency: emulate the suppressed write phase as a raw
-                // tstates advance so the spec-total of 16 T is preserved.
-                tstates += 3;
+                // Transparency-suppressed write: 3 T-states with contention
+                // gate active on DE. Matches actual-write timing exactly.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
@@ -530,6 +533,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                                          static_cast<uint8_t>(regs.AF & 0xFF));
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 — block transfers latch
+            // IncDecZ from the BC dec result. Visible to subsequent LDWS
+            // and other I_BT instructions via the I_BT P override.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             cpu.set_registers(regs);
             // Pass-7: per-cycle no-MREQ contention on DE (pre-increment) for
             // the 2T internal idle. Mirrors FUSE LDI (z80_ed.c:285).
@@ -559,29 +566,23 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             //                          F.P = IncDecZ.
             //
             // IncDecZ for LDWS: VHDL latches IncDecZ from the most recent
-            // 16-bit inc/dec (IncDec_16(2:0)="100" path). LDWS does NOT set
-            // IncDec_16 anywhere, so IncDecZ retains its prior value — i.e.
-            // the P flag carries over from the previous block-transfer / DJNZ
-            // instruction that set it. This is observable but undocumented;
-            // Pass-7 backlog flagged this as a spec-vs-VHDL mismatch
-            // ("LDWS spec-vs-VHDL flag mismatch"). For VHDL faithfulness we
-            // preserve P from the prior F (= regs.AF & FLAG_P) — that is the
-            // closest deterministic shadow of "prior IncDecZ" available without
-            // tracking IncDecZ separately. Test programs that depend on the
-            // exact prior-IncDecZ value would need an IncDecZ shadow added to
-            // Z80Registers; pre-fix jnext computed P from "D==0x80" which is
-            // the spec-INC-D semantic, NOT the VHDL I_BT semantic. The current
-            // approximation is closer to VHDL than the spec-INC-D path was;
-            // class-c tracker added to im2 work for future IncDecZ shadow.
+            // 16-bit inc/dec (IncDec_16(2:0)="100" path) and from DJNZ
+            // (F_Out(Flag_Z) of B-1). LDWS does NOT set IncDec_16 anywhere,
+            // so IncDecZ retains its prior value. Pass-9 fix: jnext now
+            // tracks IncDecZ as a 1-bit shadow in Z80Registers (updated
+            // by Z80Cpu::execute() on DJNZ + ED block transfers, and by
+            // the Z80N block-transfer cases below). LDWS reads it directly
+            // — VHDL-faithful, no longer an approximation.
             //
             // Pre-fix (P6 spec-INC-D path):
             //   F.Y = D[5]            ← bug: VHDL emits ALU_Q[1]
             //   F.H = (D&0x0F)==0     ← bug: VHDL forces H=0 (I_BT override)
             //   F.P = D==0x80         ← bug: VHDL emits IncDecZ (prior latch)
-            // Post-fix (this pass):
+            // P7 fix:
             //   F.Y = D[1]            ← matches VHDL I_BT override
             //   F.H = 0               ← matches VHDL I_BT override
-            //   F.P = prior(F.P)      ← VHDL-faithful approximation
+            //   F.P = prior(F.P)      ← approximation; Pass-9 promotes to
+            //                           the real IncDecZ shadow.
             auto regs = cpu.get_registers();
             uint8_t temp = fuse_z80_readbyte(regs.HL);
             fuse_z80_writebyte(regs.DE, temp);
@@ -601,10 +602,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (D & 0x02)              f |= FLAG_Y;     // Y = ALU_Q[1] (VHDL!)
             // F.H = 0 (forced by I_BT override) — already cleared.
             // F.N = 0 (forced by I_BT override) — already cleared.
-            // P = IncDecZ (latch from prior 16-bit inc/dec). We don't track
-            // IncDecZ separately; the closest deterministic approximation is
-            // F.P from the prior instruction's flag word.
-            f |= (f_in & FLAG_P);
+            // P = IncDecZ (latch from prior 16-bit inc/dec or DJNZ).
+            // Pass-9: read the real shadow from Z80Registers. (Pre-fix:
+            // approximated by `f_in & FLAG_P`.)
+            if (regs.IncDecZ) f |= FLAG_P;
             regs.DE = static_cast<uint16_t>(static_cast<uint16_t>(D) << 8) | (regs.DE & 0xFF);
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q = f;
@@ -625,7 +626,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                tstates += 3;  // suppressed write phase keeps total = 16T
+                // Pass-9 fix: route suppressed write through contention gate.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
@@ -635,6 +639,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                                          static_cast<uint8_t>(regs.AF & 0xFF));
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             cpu.set_registers(regs);
             contend_write_no_mreq(de_pre_inc, 1);
             contend_write_no_mreq(de_pre_inc, 1);
@@ -671,7 +677,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                tstates += 3;
+                // Pass-9 fix: route suppressed write through contention gate.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
@@ -681,6 +690,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                                          static_cast<uint8_t>(regs.AF & 0xFF));
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {
@@ -715,7 +726,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                tstates += 3;
+                // Pass-9 fix: route suppressed write through contention gate.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
@@ -725,6 +739,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                                          static_cast<uint8_t>(regs.AF & 0xFF));
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {
@@ -754,12 +770,17 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                tstates += 3;
+                // Pass-9 fix: route suppressed write through contention gate.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
             // HL does NOT change (pattern base)
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {
@@ -793,7 +814,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp != A) {
                 fuse_z80_writebyte(regs.DE, temp);
             } else {
-                tstates += 3;
+                // Pass-9 fix: route suppressed write through contention gate.
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
+                contend_write_no_mreq(regs.DE, 1);
             }
             const uint16_t de_pre_inc = regs.DE;
             regs.DE = (regs.DE + 1) & 0xFFFF;
@@ -803,6 +827,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                                          static_cast<uint8_t>(regs.AF & 0xFF));
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
+            // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
+            regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {
