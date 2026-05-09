@@ -901,12 +901,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
     //     & nr_0a_divmmc_automap_en [4] & nr_0a_mouse_button_reverse [3]
     //     & '0' [2] & nr_0a_mouse_dpi [1:0]
-    // Bit 2 always reads 0. mf_type [7:6] is unmodelled (G132) — sourced
-    // from cached last-write byte; gating divergence is a separate issue
-    // tracked there, not G56. Other fields use authoritative subsystem
+    // Bit 2 always reads 0. All fields use authoritative subsystem
     // accessors. G56.
+    //
+    // Pass-3 verify-audit (Task 2): bits 7:6 (mf_type) MUST come from
+    // the authoritative Multiface subsystem state, NOT from the cached
+    // last-write byte. VHDL :5191-5198 gates `nr_0a_mf_type` writes on
+    // `nr_03_config_mode='1'`, but the C++ NextReg::write stores the
+    // raw byte in regs_[] regardless. Reading `cached(0x0A) & 0xC0`
+    // would therefore return whatever was last written to NR 0x0A,
+    // ignoring the gate — diverging from VHDL when firmware writes
+    // NR 0x0A bits 7:6 outside config_mode (which the write handler
+    // correctly ignores via `multiface_.set_mode()` being inside the
+    // `if (nr_03_config_mode())` block above).
     nextreg_.set_read_handler(0x0A, [this]() -> uint8_t {
-        uint8_t v = static_cast<uint8_t>(nextreg_.cached(0x0A) & 0xC0); // mf_type
+        // Pass-3 verify-audit fix — mf_type from authoritative state.
+        uint8_t v = static_cast<uint8_t>((multiface_.mf_type() & 0x03) << 6);
         if (spi_.sd_swap())          v = static_cast<uint8_t>(v | 0x20);
         if (divmmc_.nr_0a_4_enable()) v = static_cast<uint8_t>(v | 0x10);
         if (mouse_.button_reverse()) v = static_cast<uint8_t>(v | 0x08);
@@ -1548,6 +1558,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NmiSource::nr_02_write).
         nmi_source_.nr_02_write(v);
 
+        // VHDL zxnext.vhd:5119 — `nr_02_bus_reset <= nr_wr_dat(7)`.
+        // Captured verbatim on every NR 0x02 write. Surfaced on the
+        // NR 0x02 readback bit 7 (VHDL:5891) and routed to
+        // `o_RESET_PERIPHERAL` (VHDL:1579) — peripheral / ESP /
+        // expansion-bus reset pin not modelled in jnext. The signal
+        // has no reset clause anywhere in zxnext.vhd, so the latch
+        // survives both hard and soft reset.
+        // Pass-3 verify-audit (Task 2): pre-fix this bit was hard-
+        // coded zero on readback.
+        nr_02_bus_reset_ = (v & 0x80) != 0;
+
         // VHDL zxnext.vhd:3879-3880 — NR 0xDA `nr_da_iotrap_cause`
         // clears when NR 0x02 is written with bit 4 = 0 (the
         // `nr_02_iotrap` ack/clear path). VHDL:3885 also gates the
@@ -1614,9 +1635,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // NmiSource owns bits 3, 2, 1, 0 (FSM-derived). Bit 4 is composed
         // here from the iotrap-cause shadow (`nr_da_iotrap_cause_`) so a
         // poll-loop watching NR 0x02 can see "any trap pending". Bit 7
-        // (bus_reset) is not yet modelled in jnext.
+        // (bus_reset) is composed from `nr_02_bus_reset_` (the latch
+        // captured on every NR 0x02 write per VHDL:5119) — Pass-3 verify-
+        // audit fix; pre-fix this bit was hard-coded zero.
         uint8_t v = nmi_source_.nr_02_read();
         if ((nr_da_iotrap_cause_ & 0x03) != 0) v |= 0x10;
+        if (nr_02_bus_reset_)                  v |= 0x80;
         return v;
     });
 
@@ -2368,6 +2392,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // The MF NMI path itself remains gated on NR 0x06 bit 3 (handled
     // inside `NmiSource::nmi_assert_mf()`).
     //
+    // Pass-3 verify-audit (Task 2): both NR 0xDA cause and NR 0xD9
+    // captured-write fields update only when `nmi_accept_cause = '1'`
+    // per VHDL :3871 and :3892. `nmi_accept_cause` (VHDL :2164) is
+    // `nmi_state = S_NMI_IDLE OR S_NMI_FETCH`. While the FSM is in
+    // HOLD or END, an iotrap event must NOT update either field —
+    // pre-fix the C++ updated them unconditionally on every trapped
+    // port access.
+    //
     // (G162 closure — MF-G162-02 in nmi_test plan.)
     port_.register_handler(0xF003, 0x2001,
         [this](uint16_t port) -> uint8_t {
@@ -2379,8 +2411,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // surface the floating-bus value via Mmu::floating_bus_read.
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01".
-                nr_da_iotrap_cause_ = 0x01;
+                // VHDL zxnext.vhd:3871-3873 — port_2ffd_rd → cause "01"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x01;
+                }
                 return 0xFF;  // FDC data port — open bus, FDC unmodelled.
             }
             return floating_bus_read();
@@ -2391,8 +2426,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // 0x3FFD READ — trap (VHDL:3835 port_3ffd_rd term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3874-3875 — port_3ffd_rd → cause "10".
-                nr_da_iotrap_cause_ = 0x02;
+                // VHDL zxnext.vhd:3874-3875 — port_3ffd_rd → cause "10"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x02;
+                }
                 return 0xFF;
             }
             return floating_bus_read();
@@ -2401,13 +2439,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // 0x3FFD WRITE — trap (VHDL:3835 port_3ffd_wr term).
             if (nr_d8_io_trap_fdc_en_) {
                 nmi_source_.strobe_iotrap();
-                // VHDL zxnext.vhd:3876-3878 — port_3ffd_wr → cause "11".
-                nr_da_iotrap_cause_ = 0x03;
+                // VHDL zxnext.vhd:3876-3878 — port_3ffd_wr → cause "11"
+                // ONLY when nmi_accept_cause (FSM in IDLE or FETCH).
                 // VHDL zxnext.vhd:3892-3893 — `nr_d9_iotrap_write <= cpu_do`
-                // when port_3ffd_wr AND nmi_accept_cause. The accept gate
-                // is the same condition that drives nr_da set, so we
-                // capture in the same conditional.
-                nr_d9_iotrap_write_ = v;
+                // when port_3ffd_wr AND nmi_accept_cause. Same gate.
+                if (nmi_accept_cause_()) {
+                    nr_da_iotrap_cause_ = 0x03;
+                    nr_d9_iotrap_write_ = v;
+                }
             }
         });
 
@@ -5566,6 +5605,12 @@ void Emulator::save_state(StateWriter& w) const
     // its constructor-init defaults (reset() called from constructor).
     w.write_u8(0x01);
     multiface_.save_state(w);
+
+    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
+    // VHDL zxnext.vhd:1095 has no reset clause for this signal, so the
+    // value persists across resets and must round-trip via save/load.
+    // Appended at the very end for backwards-compat (load tolerates EOF).
+    w.write_bool(nr_02_bus_reset_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -5723,6 +5768,13 @@ void Emulator::load_state(StateReader& r)
         if (sentinel == 0x01) {
             multiface_.load_state(r);
         }
+    }
+
+    // Pass-3 verify-audit (Task 2) — NR 0x02 bit 7 `nr_02_bus_reset` latch.
+    // Saves predating this slot leave the field at its constructor default
+    // of false (matching VHDL power-on signal initializer at :1095).
+    if (!r.eof()) {
+        nr_02_bus_reset_ = r.read_bool();
     }
 }
 
