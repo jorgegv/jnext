@@ -815,6 +815,20 @@ public:
     void engage_legacy_rom_paging() { apply_legacy_rom_slots_(); }
     void engage_legacy_ram_paging() { apply_legacy_ram_slots_(); }
 
+    // Per-slot legacy ROM re-engagement for slot 0 OR slot 1 only —
+    // matches VHDL zxnext.vhd:4686-4696 explicit `nr_mmu_we` semantics:
+    // an NR 0x50/0x51 write touches ONLY MMU<i>, NOT both slots. The
+    // slot's cached read_ptr_ is repointed to the current sram_rom-derived
+    // ROM page so subsequent CPU accesses match VHDL :3052 routing
+    // (`"000000" & sram_rom & cpu_a(13)`); the SRAM arbiter's dynamic
+    // config_mode override at :3044-3050 is honored on the read fast path
+    // (mmu.h ::read), so this initialisation is safe regardless of
+    // config_mode state. Use this for `NR $50,$FF` / `NR $51,$FF`
+    // dispatch instead of `engage_legacy_rom_paging()`, which clobbers
+    // both halves and breaks the case where the *other* slot was
+    // explicitly mapped to RAM via a prior NR 0x50/0x51 write.
+    void engage_legacy_rom_paging_slot(int slot);
+
     // ---------------------------------------------------------------
     // Layer 2 read/write-over control (driven by port 0x123B)
     // ---------------------------------------------------------------
@@ -958,6 +972,38 @@ private:
     // NR 0x8E has its own path in write_nr_8e that calls the halves
     // independently so the bit-3=0 suppression can be honoured.
     void apply_legacy_paging_();
+    // VHDL zxnext.vhd:4623-4632 — when `port_1ffd_special='1'` AND a
+    // paging trigger fires, MMU0..MMU7 are ALL rewritten to the +3
+    // special-paging table (one of four bank configurations selected by
+    // port_1ffd_reg(2:1)). Used by every paging-trigger entry point
+    // (map_128k_bank, map_plus3_bank special branch, write_port_dffd,
+    // write_port_eff7, write_nr_8e, write_nr_8f) so the special-paging
+    // MMU image stays current as long as the special bit is high. The
+    // table layout matches VHDL :4625-4632 (banks {0,1,2,3} / {4,5,6,7}
+    // / {4,5,6,3} / {4,7,6,3} for the four configurations).
+    void apply_plus3_special_paging_();
+    // VHDL zxnext.vhd:4653-4670 — when `port_1ffd_special_old='1'` AND
+    // the new `port_1ffd_special='0'` (i.e. we just exited special
+    // paging mode), MMU2/3 revert to {0x0A, 0x0B} (bank 5) and MMU4/5
+    // revert to {0x04, 0x05} (bank 2). Without this, the special-mode
+    // bank pages stick around and the supervisor sees stale RAM in
+    // those slots. Called by every paging-trigger entry point that
+    // detects the 1→0 transition before falling through to
+    // apply_legacy_paging_().
+    void revert_slots_2_to_5_post_special_();
+    // Apply the appropriate paging update for the current
+    // port_1ffd_special / port_1ffd_special_old_ pair, matching VHDL
+    // zxnext.vhd:4623-4684. Three cases:
+    //   * port_1ffd_special=1 → +3 special table (apply_plus3_special_paging_)
+    //   * port_1ffd_special_old=1 (transition out of special mode) →
+    //     revert slots 2-5 then legacy paging
+    //   * else → legacy paging
+    // After application, port_1ffd_special_old_ is updated to match the
+    // current port_1ffd_special (mirroring VHDL :3729's capture-on-
+    // memory-change-dly-low semantics with our coarser per-write model).
+    // Used by every paging-trigger except write_nr_8e (which has its
+    // own path so it can suppress the MMU6/7 update on bit3=0).
+    void apply_paging_update_();
     // Compose the 7-bit port_7ffd_bank per VHDL zxnext.vhd:3763-3766,
     // branching on pentagon_en() / pentagon_1024_en().
     uint8_t compose_bank_() const;
@@ -994,6 +1040,16 @@ private:
     MachineType    machine_type_ = MachineType::ZXN_ISSUE2;
     uint8_t        port_7ffd_ = 0;         // last 128K paging register value
     uint8_t        port_1ffd_ = 0;         // last +3 paging register value
+    // VHDL zxnext.vhd:882, 3716, 3721, 3729, 3738 — port_1ffd_special_old
+    // captures the PREVIOUS value of port_1ffd_special (= port_1ffd_reg(0))
+    // so the MMU update process at :4623-4684 can detect the
+    // 1→0 transition (exit from +3 special paging) and revert slots 2-5
+    // to defaults (:4655-4658 / :4667-4670). Reset to 0 with the rest of
+    // the paging registers (VHDL :3716). jnext updates this immediately
+    // before each paging-trigger entry point updates port_1ffd_, then
+    // calls apply_paging_update_() which consults BOTH the new
+    // port_1ffd_special and this old-value.
+    bool           port_1ffd_special_old_ = false;
 
     // VHDL port_dffd_reg (zxnext.vhd:3688, 5 bits cpu_do(4:0)). Feeds the
     // port_7ffd_bank composition at VHDL:3764-3766. Bit 4 is the Profi

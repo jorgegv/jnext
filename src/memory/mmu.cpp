@@ -91,6 +91,8 @@ void Mmu::reset(bool hard) {
     port_eff7_reg_3_ = false;
     port_7ffd_ = 0;
     port_1ffd_ = 0;
+    // VHDL zxnext.vhd:3716 — port_1ffd_special_old clears on reset.
+    port_1ffd_special_old_ = false;
 
     // VHDL zxnext.vhd:3787-3794 — nr_8f_mapping_mode has NO reset process;
     // the value persists across hard and soft reset alike. The signal
@@ -353,6 +355,98 @@ void Mmu::apply_legacy_paging_() {
     apply_legacy_rom_slots_();
 }
 
+// VHDL zxnext.vhd:4623-4632 — +3 special paging table. When
+// `port_1ffd_special='1'` (i.e. `port_1ffd_reg(0)=1`), MMU0..MMU7 are
+// all rewritten per the four configurations selected by
+// port_1ffd_reg(2:1). Each bit pair encodes (B, A) = (bit2, bit1):
+//   (0,0): banks 0,1,2,3 → MMU pages 0,1,2,3,4,5,6,7
+//   (0,1): banks 4,5,6,7 → MMU pages 8,9,10,11,12,13,14,15
+//   (1,0): banks 4,5,6,3 → MMU pages 8,9,10,11,12,13,6,7
+//   (1,1): banks 4,7,6,3 → MMU pages 8,9,14,15,12,13,6,7
+// (Verified algebraically from the bit-construction at VHDL :4625-4632.)
+//
+// All eight slots become RAM-mapped (read+write enabled); the SRAM
+// arbiter at :3037 routes them via the MMU page (mmu_A21_A13(8)='0' for
+// these low pages). set_page() handles read_only_=false + rebuild_ptr.
+void Mmu::apply_plus3_special_paging_() {
+    static const uint8_t configs[4][4] = {
+        {0, 1, 2, 3},   // (B=0, A=0): banks 0..3
+        {4, 5, 6, 7},   // (B=0, A=1): banks 4..7
+        {4, 5, 6, 3},   // (B=1, A=0): banks 4,5,6,3
+        {4, 7, 6, 3},   // (B=1, A=1): banks 4,7,6,3
+    };
+    const uint8_t cfg = static_cast<uint8_t>((port_1ffd_ >> 1) & 0x03);
+    for (int seg = 0; seg < 4; ++seg) {
+        const uint8_t bank = configs[cfg][seg];
+        set_page(seg * 2,     static_cast<uint8_t>(bank * 2));
+        set_page(seg * 2 + 1, static_cast<uint8_t>(bank * 2 + 1));
+    }
+}
+
+// VHDL zxnext.vhd:4653-4670 — on the cycle that exits +3 special
+// paging (port_1ffd_special_old='1' AND new port_1ffd_special='0'),
+// MMU2/3 revert to {0x0A, 0x0B} (bank 5) and MMU4/5 to {0x04, 0x05}
+// (bank 2). MMU0/1 and MMU6/7 are handled by the standard legacy
+// paging path immediately afterwards. We model the per-clock-edge
+// "fires once on transition" semantics with a same-write hand-off:
+// caller checks port_1ffd_special_old_ before invoking this helper.
+void Mmu::revert_slots_2_to_5_post_special_() {
+    set_page(2, 0x0A);
+    set_page(3, 0x0B);
+    set_page(4, 0x04);
+    set_page(5, 0x05);
+}
+
+// Apply the paging update matching VHDL zxnext.vhd:4623-4684. Three
+// branches correspond to the VHDL outer if/else:
+//   1. port_1ffd_special=1 → +3 special table fully replaces MMU0..7.
+//   2. port_1ffd_special_old=1 AND port_1ffd_special=0 → revert slots
+//      2-5 (per :4655-4670) then legacy paging.
+//   3. otherwise → legacy paging.
+// After branch resolution, we mirror VHDL :3729's port_1ffd_special_old
+// update — it captures `port_1ffd_special` whenever a paging trigger
+// fires (the VHDL is `if port_memory_change_dly = '0' then ... else
+// '0'`, but with our per-write granularity the equivalent end-state is
+// to set _old to the current _special after each apply_paging_update_).
+void Mmu::apply_paging_update_() {
+    const bool special = (port_1ffd_ & 0x01) != 0;
+    if (special) {
+        apply_plus3_special_paging_();
+    } else if (port_1ffd_special_old_) {
+        revert_slots_2_to_5_post_special_();
+        apply_legacy_paging_();
+    } else {
+        apply_legacy_paging_();
+    }
+    port_1ffd_special_old_ = special;
+}
+
+// Per-slot legacy-ROM re-engage helper — see header comment for full
+// rationale. Mirrors the half of `apply_legacy_rom_slots_` that touches
+// the requested slot only, so explicit NR $50,$FF / NR $51,$FF writes
+// preserve the other slot's NR-driven mapping. Matches VHDL
+// zxnext.vhd:4686-4696 nr_mmu_we semantics for value 0xFF.
+void Mmu::engage_legacy_rom_paging_slot(int slot) {
+    if (slot != 0 && slot != 1) return;
+    if (port_eff7_reg_3_) {
+        // VHDL zxnext.vhd:4636-4644 — RAM-at-0x0000 mode: even though
+        // the eff7 override only fires through port_memory_change_dly
+        // (which an explicit NR 0x50/0x51 write does NOT trigger), we
+        // still need to deliver consistent behaviour for slots driven
+        // by the SAME effective sram_rom-derived view. The eff7 flag's
+        // explicit `set_page` call here matches the VHDL behaviour an
+        // immediately following paging-port write would produce.
+        set_page(slot, static_cast<uint8_t>(slot == 0 ? 0x00 : 0x01));
+        return;
+    }
+    const uint8_t sram_rom = current_sram_rom();
+    map_rom_physical(slot, static_cast<uint8_t>(sram_rom * 2 + slot));
+    // VHDL zxnext.vhd:4611-4612 — MMU<i> holds the 0xFF sentinel after
+    // an explicit `NR 0x50/0x51 = 0xFF` write (`nr_mmu_we` path stores
+    // nr_wr_dat verbatim). Mirror that into the NR-visible register.
+    nr_mmu_[slot] = 0xFF;
+}
+
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
     // VHDL zxnext.vhd:3650 gates the port_7ffd_reg write on
     // `port_7ffd_locked = '0'`. port_7ffd_locked itself (VHDL:3769) is
@@ -370,7 +464,12 @@ void Mmu::map_128k_bank(uint8_t port_7ffd) {
     // sites via effective_paging_locked().
     paging_locked_ = (port_7ffd >> 5) & 1;
     port_7ffd_ = port_7ffd;
-    apply_legacy_paging_();
+    // VHDL :4623 — when `port_1ffd_special='1'` AND a paging trigger
+    // fires (port 7FFD write satisfies port_memory_change_dly), the
+    // MMU is rewritten from the +3 special table, NOT legacy paging.
+    // apply_paging_update_() arbitrates between the special / legacy /
+    // exit-special cases.
+    apply_paging_update_();
 }
 
 void Mmu::write_port_dffd(uint8_t v) {
@@ -395,8 +494,9 @@ void Mmu::write_port_dffd(uint8_t v) {
     port_dffd_reg_6_ = (v & 0x40) != 0;
     // VHDL zxnext.vhd:4619 — port_memory_change_dly rebuilds MMU0..7 on
     // any paging-port write. Bypass the paging_locked gate (we verified
-    // above it was unlocked when this write arrived).
-    apply_legacy_paging_();
+    // above it was unlocked when this write arrived). Honor the
+    // port_1ffd_special arbitration in apply_paging_update_().
+    apply_paging_update_();
 }
 
 void Mmu::write_port_eff7(uint8_t v) {
@@ -408,8 +508,10 @@ void Mmu::write_port_eff7(uint8_t v) {
     // writes too; MMU0/1 pick up the new RAM-at-0x0000 choice immediately.
     // VHDL line 4619 does NOT gate the rebuild on the paging lock, so we
     // rebuild unconditionally (mirrors the hardware behaviour that an
-    // EFF7 write flips 0x0000 even when 7FFD is locked).
-    apply_legacy_paging_();
+    // EFF7 write flips 0x0000 even when 7FFD is locked). Honor the
+    // port_1ffd_special arbitration so the +3 special-paging table sticks
+    // through an EFF7 write.
+    apply_paging_update_();
 }
 
 // NR 0x8F — Mapping Mode (Pentagon / Pentagon-1024).
@@ -423,7 +525,10 @@ void Mmu::write_port_eff7(uint8_t v) {
 void Mmu::write_nr_8f(uint8_t v) {
     Log::memory()->debug("NR 0x8F write: v={:#04x}", v);
     nr_8f_mode_ = static_cast<uint8_t>(v & 0x03);
-    apply_legacy_paging_();
+    // VHDL :3815 nr_8f_we_dly feeds port_memory_change_dly; honor the
+    // port_1ffd_special arbitration so a special-mode-locked MMU image
+    // is preserved through the NR 0x8F write.
+    apply_paging_update_();
 }
 
 // NR 0x8E — Unified paging (write).
@@ -480,10 +585,28 @@ void Mmu::write_nr_8e(uint8_t v) {
     // VHDL:3814 drives port_memory_ram_change_dly = NOT(nr_8e_we AND NOT
     // nr_wr_dat(3)), and the MMU6/7 update at VHDL:4677 is gated on that
     // signal. MMU0/MMU1 are rebuilt unconditionally (VHDL:4619-4644).
-    if (v & 0x08) {
-        apply_legacy_ram_slots_();
+    //
+    // VHDL :4623 — when `port_1ffd_special='1'` after this write, the
+    // special-paging table fully replaces MMU0..7 (no bit-3 suppression
+    // applies — the special table writes ALL eight slots together).
+    // Likewise on the 1→0 transition we must revert slots 2-5 to
+    // defaults per :4655-4670. Run the special-paging arbiter for the
+    // bit-3=1 case (rebuilds MMU6/7 anyway) and for any
+    // port_1ffd_special transition; only fall back to the half-rebuild
+    // path when bit 3 = 0 AND we are not in / leaving special mode.
+    const bool special     = (port_1ffd_ & 0x01) != 0;
+    const bool exit_special = port_1ffd_special_old_ && !special;
+    if (special || exit_special || (v & 0x08)) {
+        apply_paging_update_();
+    } else {
+        // Bit 3 = 0 and no special-mode transition: VHDL :4677 leaves
+        // MMU6/7 untouched; only MMU0/1 update via :4619-4644.
+        apply_legacy_rom_slots_();
+        // Track special-bit history even on the suppressed path so the
+        // next paging trigger sees the up-to-date _old value (matches
+        // VHDL :3729's continuous capture semantics).
+        port_1ffd_special_old_ = special;
     }
-    apply_legacy_rom_slots_();
 }
 
 // NR 0x8E — read-back. VHDL zxnext.vhd:6158-6159:
@@ -520,33 +643,12 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
     }
     Log::memory()->debug("+3 bank switch: port_1ffd={:#04x}", port_1ffd);
     port_1ffd_ = port_1ffd;
-
-    bool special_mode = (port_1ffd & 0x01) != 0;
-
-    if (special_mode) {
-        // Special paging: 4 fixed configurations based on bits 2:1
-        uint8_t config = (port_1ffd >> 1) & 0x03;
-        // Config 0: RAM 0,1,2,3  Config 1: RAM 4,5,6,7
-        // Config 2: RAM 4,5,6,3  Config 3: RAM 4,7,6,3
-        static const uint8_t configs[4][4] = {
-            {0, 1, 2, 3}, {4, 5, 6, 7}, {4, 5, 6, 3}, {4, 7, 6, 3}
-        };
-        for (int seg = 0; seg < 4; ++seg) {
-            uint8_t bank = configs[config][seg];
-            set_page(seg * 2,     bank * 2);
-            set_page(seg * 2 + 1, bank * 2 + 1);
-        }
-    } else {
-        // Normal paging: VHDL zxnext.vhd:2981-3008 selects sram_rom per
-        // machine type. Delegate to the canonical legacy-ROM-slot helper
-        // (which uses current_sram_rom()) so the per-machine-type rules
-        // are honoured consistently with apply_legacy_paging_() callers
-        // (write_nr_8e, write_nr_8f, write_port_dffd, soft reset, etc.).
-        // The previous direct 2-bit formula was the +3-only composition;
-        // applying it unconditionally broke Next-mode bank-flip wrappers
-        // on $1FFD writes (G46(b) Divergence A).
-        apply_legacy_rom_slots_();
-    }
+    // VHDL :4623-4684 — single arbiter handles both special-mode entry
+    // and the exit-special-mode revert (slots 2-5 → bank 5 / bank 2).
+    // Previously the else branch only refreshed slots 0/1 via
+    // apply_legacy_rom_slots_(); the revert was missing, leaving stale
+    // RAM banks in slots 2-5 after a special→normal transition.
+    apply_paging_update_();
 }
 
 // ---------------------------------------------------------------------------
@@ -607,6 +709,11 @@ void Mmu::save_state(StateWriter& w) const
     // 3694, 4314). Single-bit flip-flop, separate from the 5-bit
     // port_dffd_reg vector. (G148)
     w.write_bool(port_dffd_reg_6_);
+    // Task 2 Memory review — port_1ffd_special_old (VHDL :882/3716/3729).
+    // Required so a save state taken inside +3 special paging mode
+    // restores the slot-2-to-5 revert behaviour on the next paging
+    // trigger after load.
+    w.write_bool(port_1ffd_special_old_);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -654,6 +761,8 @@ void Mmu::load_state(StateReader& r)
     l2_shadow_bank_  = r.read_u8();
     // Task 8 Tier 1 Wave 2 — port 0xDFFD bit 6 latch (G148, VHDL :877/3694/4314).
     port_dffd_reg_6_ = r.read_bool();
+    // Task 2 Memory review — port_1ffd_special_old (VHDL :882/3716/3729).
+    port_1ffd_special_old_ = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
     // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
