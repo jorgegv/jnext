@@ -7468,3 +7468,98 @@ Wave 8 is real, measurable progress on G46(b):
 
 End of EOD-22 — Wave 8 is the major fix to cherry-pick. Branch is
 clean and review-ready for the Wave 8 commit (`8242098`).
+
+---
+
+## EOD-23 (2026-05-09) — slide entry isolated to RAM bank 0 empty
+
+**Continuation from EOD-22 Wave 8**. Built a new `JNEXT_G46B_SLIDETRAP=N`
+probe that fires on the first N transitions from PC<$C000 to PC≥$C000
+where mem[PC..PC+2] = $00 (NOP-slide signature). Captures prev_pc,
+slot map, regs, stack, distinct-PC ring, plus dumps physical pages
+$00/$20/$21 to compare ROM-area vs RAM-area.
+
+### Slide entries captured
+
+Two distinct slide-entry events per ~3-second supervisor cycle:
+
+**Event A**: `pc=$C3F3, prev_pc=$3E17` (bank 2 wrapper RET).
+- eff_mmu[6,7]=`00 01`, nr_mmu[6,7]=`00 01` (explicit NR $56,$00 / NR $57,$01).
+- machine_type=ZX_PLUS3, rom_in_sram=1, nr_8c_altrom_en=0.
+- Bytes at $C3F3..$C413 = ALL ZEROS.
+
+**Event B**: `pc=$FCCB, prev_pc=$5B4C` (bank-flip wrapper at $5B48).
+- Same nr_mmu[6,7]=`00 01` mapping.
+- Same all-zeros result.
+
+### Wrapper trampoline decoded
+
+Bank 2 $3E00..$3E17 wrapper:
+```
+$3E00: LD ($5b54),BC
+$3E04: EX (SP),HL          ; HL = post-CALL inline addr
+$3E05-$3E08: LD C,(HL); INC HL; LD B,(HL); INC HL    ; read inline target
+$3E09: EX (SP),HL          ; restore stack with HL+2 = real return
+$3E0A: PUSH $3E13          ; push trampoline-end addr
+$3E0E: PUSH BC             ; push target
+$3E0F: LD BC,($5b54)
+$3E13: NEXTREG $8E,$00     ; flip slot 0/1 to bank 0 ROM
+$3E17: RET                 ; pops target → jumps
+```
+
+### Root cause: VHDL +$20 shift on NR $5x
+
+Mmu::to_sram_page() (mmu.h:921) applies the VHDL :2964 mmu_A21_A13
+shift in Next mode (`rom_in_sram=true`): logical 0..$DF → physical
++$20 (with wrap for $E0..$FF). So NR $56,$00 maps slot 6 to **physical
+SRAM page $20 (RAM bank 0)**, NOT to bank 0 ROM-area page $00.
+
+**Verified via SLIDETRAP probe**:
+- Page $00 (bank 0 ROM-area) at $03F0..$040F = `dd 7e 01 fe 5b 20 11
+  dd 7e 04 fe 53 ...` — matches enNextZX bank 0 file exactly. ROM IS
+  loaded.
+- Page $20 (RAM bank 0) at $03F0..$040F = ALL ZEROS. **Empty in jnext.**
+- Page $21 (RAM bank 0 hi) at $1F50 = `5b 00 03 f3 c3 13 3e 02 ...`
+  — supervisor's stack frames written here (= page $21 IS being used,
+  but only as stack space at high offsets, not for code).
+
+So the supervisor's `CALL $3E00; DW $C3F3` expects valid code at
+$C3F3 — which is logical page 0 / physical $20 / RAM bank 0. RAM
+bank 0 was supposed to be loaded with code (probably during pre-soft-
+reset supervisor or tbblue.fw initialization). In jnext, that load
+never happened or targeted a different page.
+
+### Why this is more advanced than Wave 8
+
+Pre-Wave-8: PC=$0000 panic via bank 1 wrapper $26B0 path with NR
+$51,$FF wrong-page bug.
+
+Post-Wave-8: that path fixed. Supervisor reaches a LATER init phase
+that depends on RAM bank 0 being populated. Hits this slide.
+
+### Next-session priorities
+
+1. **DZRP probe CSpect's page $20 at the equivalent supervisor state**
+   — capture what content SHOULD be there. The diff vs jnext's empty
+   page is the missing load.
+2. **Decode bank 2 supervisor MAIN $27xx context** — ring shows
+   $27BB → $27AB just before wrapper entry. Find the CALL $3E00 site
+   in the disasm.
+3. **Trace pre-soft-reset SD reads / LDIRs targeting physical page
+   $20** — supervisor or tbblue.fw should populate RAM bank 0
+   somewhere before the first soft reset.
+4. **Audit other NR $5x with $FF cases (slots 2-5)** — Wave 8
+   handled 0/1 and 6/7; review middle slots.
+5. **Cleanup probes on G46(b) closure** — `grep -rn JNEXT_G46B_ src/`.
+
+### Probe added
+
+`JNEXT_G46B_SLIDETRAP=N` (z80_cpu.cpp:816+). TEMP, env-gated.
+
+### Deliverable
+
+`doc/issues/g46b-eod23-slide-entry-rambank0-empty.md` — full decode
++ data + hypotheses.
+
+End of EOD-23 — slide entry isolated; the missing-load hypothesis
+is the next-session question.
