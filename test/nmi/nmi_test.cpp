@@ -1624,6 +1624,8 @@ static void g_gate_registers()
     // GATE-08 — power-on gate flags all false.
     //   VHDL zxnext.vhd:1109-1110 — nr_06_button_*_nmi_en power-on '0'.
     //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable power-on '0'.
+    //   VHDL zxnext.vhd:369-371 — expbus_eff_en / expbus_eff_disable_mem
+    //                              power-on '0' (Pass-9 fix).
     //   RST-01 bundles this; here we isolate the gate-flag defaults into
     //   a dedicated row so Wave C owns the gate-register reset contract.
     {
@@ -1632,10 +1634,74 @@ static void g_gate_registers()
         const bool divmmc_off   = !nmi.divmmc_enable();
         const bool expbus_off   = !nmi.expbus_debounce_disable();
         const bool cfg_mode_off = !nmi.config_mode();
+        const bool expbus_eff_en_off          = !nmi.expbus_eff_en();
+        const bool expbus_eff_disable_mem_off = !nmi.expbus_eff_disable_mem();
         check("GATE-08",
-              "power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, config_mode) all false",
-              mf_off && divmmc_off && expbus_off && cfg_mode_off,
-              "zxnext.vhd:1109-1110 / 1222 / NR 0x03 reset-to-config semantics");
+              "power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false",
+              mf_off && divmmc_off && expbus_off && cfg_mode_off &&
+              expbus_eff_en_off && expbus_eff_disable_mem_off,
+              "zxnext.vhd:1109-1110 / 1222 / 369-371 / NR 0x03 reset-to-config semantics");
+    }
+
+    // GATE-09 — NR 0x80 bit 7 (`expbus_eff_en`) gates `nmi_assert_expbus`.
+    //   VHDL zxnext.vhd:2089 — nmi_assert_expbus <= '1' when
+    //     expbus_eff_en = '1' AND expbus_eff_disable_mem = '0' AND
+    //     i_BUS_NMI_n = '0' else '0'. With expbus_eff_en='0', driving the
+    //     pin active must NOT raise the producer (and so the latch stays
+    //     clear). Pass-9 verify-audit row.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        // expbus_eff_en defaults to false.
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_off = !nmi.nmi_assert_expbus();
+        const bool latch_off    = !nmi.nmi_expbus();
+        const bool fsm_idle     = nmi.state() == NmiSource::State::Idle;
+        check("GATE-09",
+              "expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low",
+              producer_off && latch_off && fsm_idle,
+              "zxnext.vhd:2089 expbus_eff_en AND gate on nmi_assert_expbus");
+    }
+
+    // GATE-10 — NR 0x80 bit 4 (`expbus_eff_disable_mem`) blocks
+    //   `nmi_assert_expbus`. With expbus_eff_en=1, expbus_eff_disable_mem=1
+    //   and the pin active, the producer must NOT fire (VHDL gate AND NOT).
+    //   Pass-9 verify-audit row.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(true);
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_off = !nmi.nmi_assert_expbus();
+        const bool latch_off    = !nmi.nmi_expbus();
+        const bool fsm_idle     = nmi.state() == NmiSource::State::Idle;
+        check("GATE-10",
+              "expbus_eff_disable_mem=1 blocks nmi_assert_expbus",
+              producer_off && latch_off && fsm_idle,
+              "zxnext.vhd:2089 NOT expbus_eff_disable_mem AND gate on nmi_assert_expbus");
+    }
+
+    // GATE-11 — full ExpBus path: enable, no disable_mem, pin asserted →
+    //   producer + latch fire. Confirms the Pass-9 gate refactor still
+    //   admits the legitimate path that the previous (under-gated) code
+    //   admitted.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_nmi_n(false);   // assert /BUS_NMI (active-low)
+        nmi.tick(1);
+        const bool producer_on = nmi.nmi_assert_expbus();
+        const bool latch_on    = nmi.nmi_expbus();
+        const bool fsm_fetch   = nmi.state() == NmiSource::State::Fetch;
+        check("GATE-11",
+              "expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch",
+              producer_on && latch_on && fsm_fetch,
+              "zxnext.vhd:2089 ExpBus full-path producer assertion");
     }
 }
 
@@ -1666,6 +1732,12 @@ static void g_dma_group()
         nmi.reset();
 
         const bool before = nmi.is_activated();
+        // Pass-9 verify-audit: `nmi_assert_expbus` is now properly gated
+        // on NR 0x80 bit 7 (`expbus_eff_en`) per VHDL zxnext.vhd:2089.
+        // Power-on default of NR 0x80 is X"00" → expbus_eff_en='0' so the
+        // pin assertion alone no longer latches. Enable expbus first to
+        // model a software-configured expansion bus.
+        nmi.set_expbus_eff_en(true);
         nmi.set_expbus_nmi_n(false);       // assert /BUS_NMI (active-low)
         nmi.tick(1);                       // recompute_: latch expbus, FSM IDLE→FETCH
         const bool after_latch = nmi.nmi_expbus();

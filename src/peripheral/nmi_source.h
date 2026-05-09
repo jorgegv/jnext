@@ -151,20 +151,37 @@ public:
     /// When set, ExpBus assertion is immediate (debounce path bypassed).
     void set_expbus_debounce_disable(bool v);
 
+    /// NR 0x80 bit 7 — `expbus_en` (VHDL zxnext.vhd:2197). Latched into
+    /// `expbus_eff_en` on bus-idle (zxnext.vhd:5804/5811). VHDL:2089
+    /// gates `nmi_assert_expbus` on `expbus_eff_en = '1'`. Pass-9
+    /// verify-audit fix (Task 2 verify9-nmi-mf-port): pre-fix the
+    /// assertion ignored this gate. With no expbus device today
+    /// `i_BUS_NMI_n` stays high so the gate has no observable effect,
+    /// but a future setter call to `set_expbus_nmi_n(false)` MUST
+    /// respect the enable mask per VHDL.
+    void set_expbus_eff_en(bool v);
+
+    /// NR 0x80 bit 4 — `expbus_disable_mem` (VHDL zxnext.vhd:2200).
+    /// Latched into `expbus_eff_disable_mem` (zxnext.vhd:5806/5813).
+    /// VHDL:2089 gates `nmi_assert_expbus` on `expbus_eff_disable_mem
+    /// = '0'`. Pass-9 verify-audit fix: same shape as `set_expbus_eff_en`.
+    void set_expbus_eff_disable_mem(bool v);
+
     /// `nr_03_config_mode` (VHDL:2102-2105). When true, force-clears all
     /// three request latches every cycle and holds the FSM in IDLE.
     void set_config_mode(bool v);
 
     // ---------------------------------------------------------------
-    // Consumer-feedback inputs (Wave B wires DivMMC; MF stubbed).
+    // Consumer-feedback inputs (Wave B wires DivMMC; Task 8 wires MF).
     // ---------------------------------------------------------------
 
-    /// MF consumer hold — VHDL `mf_disable_nmi` (Task 8). Stubbed
-    /// `false` in this plan; Task 8 replaces the stub.
+    /// MF consumer hold — VHDL `mf_disable_nmi` (Task 8). Wired from
+    /// `Multiface::is_nmi_hold()` post-Task 8 (per Emulator::run_frame
+    /// pre-tick fan-out).
     void set_mf_nmi_hold(bool v);
 
-    /// MF currently active — blocks DivMMC latch per VHDL:2099. Stubbed
-    /// `false` in this plan; Task 8 replaces the stub.
+    /// MF currently active — blocks DivMMC latch per VHDL:2099. Wired
+    /// from `Multiface::is_active()` post-Task 8.
     void set_mf_is_active(bool v);
 
     /// DivMMC consumer hold — VHDL `o_disable_nmi` (divmmc.vhd:150) =
@@ -242,6 +259,8 @@ public:
     bool mf_enable()              const { return mf_enable_; }
     bool divmmc_enable()          const { return divmmc_enable_; }
     bool expbus_debounce_disable() const { return expbus_debounce_disable_; }
+    bool expbus_eff_en()          const { return expbus_eff_en_; }
+    bool expbus_eff_disable_mem() const { return expbus_eff_disable_mem_; }
     bool config_mode()            const { return config_mode_; }
 
     bool mf_nmi_hold()      const { return mf_nmi_hold_; }
@@ -295,14 +314,27 @@ private:
     bool nmi_sw_gen_mf_     = false;
     bool nmi_sw_gen_divmmc_ = false;
 
-    // IO-trap stub (VHDL:3830-3872 chain — `nmi_gen_iotrap`). Not
-    // currently routed to a producer; kept for a future wave.
+    // IO-trap one-shot strobe (VHDL:3830-3872 chain — `nmi_gen_iotrap`).
+    // VHDL zxnext.vhd:3837: `nmi_sw_gen_mf <= nmi_gen_nr_mf OR
+    // nmi_gen_iotrap`, so when raised this OR's into the MF assert path
+    // (see nmi_assert_mf()). Cleared after one tick() so the next
+    // strobe edge is observable. Strobed by Emulator port-trap handlers
+    // for 0x2FFD READ / 0x3FFD READ+WRITE when NR 0xD8 bit 0 is on.
+    // Pass-9 doc-clean: the previous comment described this as a "stub
+    // not yet routed", which was stale — the routing has been live since
+    // Wave A.
     bool iotrap_strobe_pending_ = false;
 
     // ---- Gate flags ----
     bool mf_enable_              = false;  // NR 0x06 bit 3
     bool divmmc_enable_          = false;  // NR 0x06 bit 4
     bool expbus_debounce_disable_ = false; // NR 0x81 bit 5
+    // VHDL zxnext.vhd:2197/2200 — bit 7 / bit 4 of NR 0x80 latched into
+    // expbus_eff_en / expbus_eff_disable_mem (zxnext.vhd:5804-5813). Both
+    // power-on default '0' (zxnext.vhd:369-371). Gate `nmi_assert_expbus`
+    // per VHDL:2089. Pass-9 verify-audit fix.
+    bool expbus_eff_en_          = false;  // NR 0x80 bit 7
+    bool expbus_eff_disable_mem_ = false;  // NR 0x80 bit 4
     bool config_mode_            = false;  // nr_03_config_mode
 
     // ---- Consumer-feedback inputs ----
