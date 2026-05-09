@@ -2296,6 +2296,47 @@ void group_ss() {
               m.read_cs() == 0xFF,
               fmt("got=%02x exp=FF", m.read_cs()));
     }
+
+    // SS-12 (PASS-7): SpiMaster::reset() must NOT clear attached device
+    // bindings. The devices_[] array models the physical wires from the
+    // SPI master to its slaves (SD card on CS0). VHDL has no equivalent
+    // notion — the spi_ss_*_n outputs are wired permanently and reset
+    // only clears the port_e7_reg FF state (zxnext.vhd:3308-3322), never
+    // the connectivity itself. Pre-fix `SpiMaster::reset()` did
+    // `devices_.fill(nullptr)`, which silently unhooked the SD card on
+    // every soft/hard reset; production code masked this only because
+    // `Emulator::init()` re-runs `attach_device()` after `reset()` —
+    // a future caller (save-state restore, runtime SD swap, future test
+    // fixture) that called reset() without re-attaching would silently
+    // disconnect the bus.
+    //
+    // This row pins the post-fix behaviour: after reset(), the previously
+    // attached device must still receive an `exchange()` round-trip and
+    // its returned byte must propagate back through the master's MISO
+    // pipeline. Without the fix, write_data() would route to a nullptr
+    // active_device, force rx_data_=0xFF, and the host would never see
+    // the device's response byte (0x42 below).
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);  // physical "wire" attached
+        m.reset();                  // reset must NOT unhook
+
+        // After reset() the device should still be attached. Exercise the
+        // round-trip: select CS0, send/recv one byte, observe the device's
+        // response byte (0x42) on the next read.
+        m.write_cs(0xFE);           // bit 0 low → select device 0
+        m.write_data(0xA5);
+        const uint8_t got = m.read_data();
+        check("SS-12",
+              "SpiMaster::reset() preserves device bindings — wires are "
+              "not in the FPGA reset domain (VHDL zxnext.vhd:3308-3322 "
+              "only resets port_e7_reg FF, not connectivity)",
+              got == 0x42 && dev.exchange_count >= 1,
+              fmt("rx=%02x exp=42 dev_count=%d (must be >=1)",
+                  got, dev.exchange_count));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

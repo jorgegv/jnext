@@ -26,7 +26,17 @@ SpiMaster::SpiMaster() {
 void SpiMaster::reset() {
     cs_ = 0xFF;       // all CS lines deasserted (active-low)
     rx_data_ = 0xFF;  // VHDL resets miso_dat to all ones
-    devices_.fill(nullptr);
+    // PASS-7 verify-audit fix (2026-05-09): do NOT clear devices_ on reset.
+    // The devices_ array models the physical hardware connections between
+    // the SPI master and its slaves (SD card on CS0). Clearing this
+    // unconditionally on reset() unhooks the slave bindings — VHDL has no
+    // such notion (the spi_ss_*_n outputs are wired permanently to the
+    // physical pins). Today the bug is masked because Emulator::init()
+    // calls attach_device() AFTER reset(), but any caller (including future
+    // tests, save-state restore paths, or runtime SD swap) that calls
+    // spi_.reset() without re-attaching would silently leave the bus
+    // unconfigured. Reset clears FF state (cs_, rx_data_), not bindings.
+    //
     // NB: sd_swap_ is NOT cleared on soft reset. It tracks NR 0x0A bit 5,
     // which in VHDL lives in the NextREG register file and is driven by
     // software writes, not by the spi-master/port_e7 reset path
