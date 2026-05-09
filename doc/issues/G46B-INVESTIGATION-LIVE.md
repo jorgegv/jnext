@@ -7563,3 +7563,52 @@ that depends on RAM bank 0 being populated. Hits this slide.
 
 End of EOD-23 — slide entry isolated; the missing-load hypothesis
 is the next-session question.
+
+### EOD-23 second pass — slide is symptom of stack corruption
+
+After EOD-23 first pass concluded "RAM bank 0 missing data", further
+static analysis re-frames the bug as **stack corruption**:
+
+1. Bytes "$F3 $C3" appear in NO bank as inline DW — only at bank 0
+   $0000-$0001 (= boot vector `DI; JP $00EF`).
+2. NO `CALL $3E00; DW $C3F3` exists in any bank.
+3. NR8E_TRACE confirmed LAST firing pre-slide was `v=$02 pre[slots=
+   00,01]` = **bank 0's wrapper** (which does `NEXTREG $8E,$02`,
+   not bank 2's `NEXTREG $8E,$00`).
+4. Stack reconstruction: pre-wrapper SP=$FF57. After EX(SP),HL +
+   double-INC HL + EX(SP),HL, MEM[$FF57]=$0002 means **pre-wrapper
+   TOS = $0000**.
+5. Wrapper `LD C,(HL); INC HL; LD B,(HL)` read MEM[$0000,$0001] in
+   slot 0 = bank 0 → bytes $F3, $C3 → BC=$C3F3.
+6. RET pops $C3F3 → slide.
+
+So $C3F3 is the *boot-vector-as-data* result of HL=$0000. The actual
+bug: caller's stack[0] = $0000 in jnext, valid inline-DW addr in
+CSpect.
+
+### Supervisor INIT pattern at bank 2 $0D3C
+
+```
+$0D3C: LD HL,$3E00; PUSH HL    ; stack: [$3E00, ...]
+$0D40: LD HL,$0676; PUSH HL    ; stack: [$0676, $3E00, ...]
+$0D44: JP $0207
+```
+
+After $0207 RETs, pops $0676. After $0676 (LD D,$C8; SCF; RET, jumps
+into middle of `LD A,$16`), pops $3E00 → wrapper. Wrapper sees TOS =
+what was on stack BEFORE the $0D3C pushes.
+
+In CSpect: that TOS is a valid inline-DW addr (function-call return
+addr from the upstream code that called the routine starting at the
+supervisor INIT path).
+
+In jnext: that TOS is $0000 — uninitialized/cleared.
+
+### Real next-session priority
+
+1. DZRP CSpect at bank 2 $3E04 entry (or bank 0 $3E04). Dump SP,
+   stack[0..7], regs. Compare with jnext at same checkpoint. The
+   stack frame difference is the upstream bug.
+2. Walk back from $0D3C — what code calls the routine starting before
+   $0D2x area? That code's stack handling is where the bug is.
+

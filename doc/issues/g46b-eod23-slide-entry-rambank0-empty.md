@@ -152,6 +152,58 @@ Unknown without DZRP comparison. Hypotheses:
   CALL→$C3F3 pattern only lands in valid code AFTER some specific
   initialization (which jnext skips or does differently).
 
+## Re-framing — actually a stack corruption (added EOD-23 second pass)
+
+Further static analysis flips this from a "RAM bank 0 missing data"
+issue to a **stack corruption** issue:
+
+1. The bytes "$F3 $C3" appear in NO enNextZX bank as inline data
+   (`f3 c3` never appears as 2-byte inline DW). They appear ONLY at
+   bank 0 offset $0000-$0001 = the boot vector `DI; JP $00EF`.
+
+2. Searching all 9 `CALL $3E00` sites in bank 2 (only bank with such
+   calls): NONE have inline DW $C3F3. Inline targets are $2c52,
+   $0576, $053e, $03e5, $27f9, $2751, $0010 (×2), $07d7.
+
+3. Bank 0's wrapper at $3E13 has `NEXTREG $8E,$02` (vs bank 2's
+   `NEXTREG $8E,$00`). NR8E_TRACE confirms the LAST firing before
+   slide was `v=$02 pre[slots=00,01]` → **bank 0's wrapper executed**
+   with slot 1 = bank 0 hi (page 1).
+
+4. Stack reconstruction at SLIDETRAP: pre-wrapper SP = $FF57. After
+   `$3E04 EX (SP),HL` and `$3E09 EX (SP),HL` with two HL increments,
+   `MEM[$FF57] = old_TOS + 2 = $0002`. So **pre-wrapper TOS was $0000**.
+
+5. Wrapper's `EX (SP),HL` swapped HL ↔ $0000. Then `LD C,(HL)` read
+   `MEM[$0000]` from slot 0 = bank 0 (page 0). Bank 0 at $0000 = $F3
+   (= DI byte). `INC HL; LD B,(HL)` read bank 0 at $0001 = $C3 (=
+   high byte of `JP $00EF`). So BC = $C3F3 came directly from the
+   bank 0 boot vector.
+
+6. RET at $3E17 popped $C3F3 → PC=$C3F3 → slide through empty page
+   $20.
+
+### Real bug: caller's stack[0] = $0000
+
+The bank 0 wrapper protocol requires `CALL $3E00; DW <target>` —
+caller pushes return-address (= addr of inline DW). At wrapper's
+`EX (SP),HL`, HL becomes the inline-DW addr.
+
+Per bank 2 $0D3C-$0D44, the supervisor's INIT routine pushes
+[$0676, $3E00] manually onto stack and JPs to $0207. After $0207
+RETs, $0676 RETs, then wrapper runs. Wrapper sees TOS = whatever was
+on stack BEFORE the $0D3C pushes.
+
+In CSpect that pre-stack TOS is a valid inline-DW addr. In jnext
+it's $0000 → wrapper reads bank 0 boot vector → BC=$C3F3 → slide.
+
+**The actual bug is upstream**: something on the supervisor's call
+chain failed to leave a valid stack frame in jnext. Possible causes:
+- An earlier RET popped $0000 from cleared memory
+- The cascade clear at boot wiped a stack region
+- A stack-pointer corruption before $0D3C
+- Soft reset preserved a corrupt stack
+
 ## Hypotheses for next-session investigation
 
 ### H1 — RAM bank 0 was supposed to be a copy of bank 0 ROM
@@ -190,11 +242,22 @@ up bank-2 supervisor MAIN, eventually hits the RAM bank 0 dispatch
 that depends on page $20 being populated. **This is a more advanced
 boot stage than pre-Wave-8.**
 
-## Next-session priorities
+## Next-session priorities (updated post-second-pass)
 
-1. **H1/H2 via DZRP** — set BP at CSpect's bank 2 $3E17 (or any pre-
-   slide checkpoint) → dump physical SRAM page $20 contents. Compare
-   with jnext's empty page $20. The diff is the missing load.
+1. **DZRP probe CSpect at the equivalent point** — BP somewhere on
+   the supervisor INIT path at bank 2 $0D2x area, or at bank 0 wrapper
+   $3E00 entry. Dump SP, MEM[SP..SP+15] (= the stack frame), regs.
+   In CSpect, pre-wrapper TOS should be a valid inline-DW addr, not
+   $0000. The diff vs jnext's $0000-on-stack is the upstream bug.
+
+2. **Trace SP/stack history pre-wrapper** — add a probe that logs
+   SP value and stack[0..3] at every PC change in the bank 2 $0D2x
+   range. Identify when $0000 first appears at the top-of-original-
+   stack location. Walk back to find what put it there.
+
+3. **Audit cascade clear / soft-reset stack-preservation** — the
+   supervisor's $0168 cascade (per memory EOD-18) clears 31 RAM
+   banks. If it touched the stack region, that's the smoking gun.
 
 2. **Decode bank 2 supervisor MAIN at $27xx area** — the ring shows
    $27BB → $27AB before wrapper entry. Disassemble these to find the
