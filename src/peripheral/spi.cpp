@@ -80,9 +80,18 @@ void SpiMaster::write_cs(uint8_t val) {
         decoded = 0xFB;  // RPI0 — not affected by sd_swap
     } else if (val == 0xF7) {
         decoded = 0xF7;  // RPI1 — not affected by sd_swap
-    // 0x7F = Flash select, but gated by config mode (zxnext.vhd:3319).
-    // Config mode is not modelled at this level, so Flash select is not
-    // recognized here. If needed, the caller can set cs_ directly.
+    } else if (val == 0x7F && flash_cs_enable_) {
+        // FPGA-flash select — VHDL zxnext.vhd:3319 gates this decode on
+        //   (nr_03_config_mode='1') OR (nr_02_reset_type(2)='1')
+        // Pass-8 verify-audit fix (2026-05-09): pre-fix dropped X"7F" to
+        // 0xFF unconditionally, blocking the firmware's flash-IPL path
+        // (the only legal time the firmware writes 0x7F to port 0xE7 is
+        // during the boot-time flash-readback / config-mode flow). The
+        // composite gate is fed via `set_flash_cs_enable` from Emulator,
+        // mirroring the VHDL OR of the two signals. When the gate is
+        // closed, X"7F" still falls through to "all deselected" (else
+        // branch below), matching VHDL line 3322. Class-(b) → resolved.
+        decoded = 0x7F;
     } else {
         decoded = 0xFF;  // all deselected
     }
