@@ -15,8 +15,9 @@
 | 4 | 4 fresh blind — sharper methodology | 17 | NMI 80% sweep + CPU duals |
 | 5 | 4 fresh blind — final-convergence angles | 11 | NR $09/$15 cross-fix; LDPIRX confirmed; Z80N M1 contention |
 | 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | 4 | One per subsystem |
-| 7 | 4 fresh blind — convergence-test pass | **7** | NMI same-shape pattern (P6 NR $06) confirmed systemic; class-(b) → class-(a) promotions (rom3_selected, SpiMaster reset detach) |
-| **Total (7 passes)** | | **68 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged**; user clarified stricter criterion: zero class-(a) AND zero class-(b) per pass |
+| 7 | 4 fresh blind — convergence-test pass | 7 | NMI same-shape pattern systemic |
+| 8 | 4 fresh blind — stricter (resolve class-b) | **14 + 11 class-b resolved** | All 4 subsystems resolved class-b backlog; class-c catalogued (now pass-9 targets) |
+| **Total (8 passes)** | | **82 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged**; user clarified strictest criterion: zero pending of any class (a, b, OR c) per pass |
 
 **Pass-by-pass count by subsystem:**
 
