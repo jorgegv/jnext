@@ -603,7 +603,21 @@ public:
     // writes there (the en+rw=1 read still falls through to the live
     // ROM/sram_pre path per VHDL:3078 fourth clause — the canonical
     // "write-over" semantics).
-    void    set_nr_8c(uint8_t v) { nr_8c_reg_ = v; }
+    // VHDL zxnext.vhd:2256-2265 stores nr_8c_altrom verbatim from
+    // nr_wr_dat. The altrom_lock_rom1/rom0 bits feed into sram_rom and
+    // sram_rom3 via the COMBINATIONAL process at zxnext.vhd:2981-3008
+    // — any change is immediately visible to the next CPU memory cycle
+    // through `sram_pre_A21_A13 <= "000000" & sram_rom & cpu_a(13)` at
+    // :3052. jnext caches the slot 0/1 read pointer based on the
+    // current sram_rom value, so a NR 0x8C write that flips lock_rom1
+    // or lock_rom0 must rebuild slots 0/1 even though no
+    // port_memory_change_dly trigger fired in VHDL. Without this
+    // refresh, firmware that toggles altrom locks (e.g. to switch ROM
+    // banks on +3 mode without writing 0x1FFD) would read stale ROM
+    // bytes from `read_ptr_[0..1]` until the next paging port write
+    // reseeds them. See finding 1 in
+    // doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY-MEMORY.md.
+    void    set_nr_8c(uint8_t v);
     uint8_t get_nr_8c() const { return nr_8c_reg_; }
     bool    nr_8c_altrom_en()        const { return (nr_8c_reg_ & 0x80) != 0; }
     bool    nr_8c_altrom_rw()        const { return (nr_8c_reg_ & 0x40) != 0; }
