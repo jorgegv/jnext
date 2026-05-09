@@ -86,13 +86,32 @@ inline HcVc derive_hc_vc(uint32_t tstates) {
     return {static_cast<uint16_t>(hc), static_cast<uint16_t>(line)};
 }
 
-/// VHDL `mem_active_page` — the SRAM page underlying a memory cycle's
-/// 16-bit Z80 address. Mmu::get_effective_page() returns the mapped
-/// page for an 8K slot; 0xFF means no SRAM (ROM/peripheral).
+/// VHDL `mem_active_page` — the MMU<i> register value for the 8K slot
+/// the CPU bus is currently addressing. Per zxnext.vhd:2949-2956,
+///   mem_active_page <= MMU0 when cpu_a(15:13) = "000" else
+///                      MMU1 when cpu_a(15:13) = "001" else
+///                      ... ;
+/// i.e. the SRAM page resolution uses the LIVE MMU<i> register value
+/// (= NR 0x50..0x57 visible value, mirrored into Mmu::nr_mmu_[]). For
+/// slots in legacy-ROM auto-paging (NR $50/$51 = 0xFF sentinel) the
+/// register holds 0xFF, NOT the sram_rom-derived physical ROM page —
+/// this is what the contention gate at zxnext.vhd:4489
+///   mem_contend = '0' when mem_active_page(7:4) /= "0000"
+/// keys on, so a legacy-ROM slot 0/1 access never contends regardless
+/// of which physical ROM page is selected.
+///
+/// Verify6-memory class-(a) fix: previously this used
+/// `Mmu::get_effective_page` which falls through to `slots_[slot]` (the
+/// physical SRAM page) when nr_mmu_[slot]==0xFF. For 128K with
+/// sram_rom=1 (slot 0 → physical ROM page 2) or +3 with sram_rom>=2
+/// (slot 0/1 → pages 4..7), the resulting low nibble carried bit-1
+/// (128K) or bit-3 (+3) set, causing the contention model to falsely
+/// fire on slot-0/1 ROM accesses. VHDL keys mem_active_page on MMU<i>,
+/// so the 0xFF sentinel suppresses contention as expected.
 inline uint8_t mem_active_page_for(uint16_t address) {
     if (!s_contention_mmu) return 0xFF;
     int slot = address >> 13;
-    return s_contention_mmu->get_effective_page(slot);
+    return s_contention_mmu->get_page(slot);
 }
 
 } // anonymous namespace
