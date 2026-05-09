@@ -839,3 +839,48 @@ upstream divergence.
 2. DZRP CSpect at the equivalent point — find what PC in bank 3 hi
    chooses a different target. The diff in JP target is the bug.
 
+
+## EOD-23 cascade origin — corrupt return address $3F00
+
+The multi-POP epilogue at bank 3 $004D-$0052 pops 4 saved registers
++ RET. The RET target is $3F00 — but bank 3 hi at $3F00..$3FFF is
+**font glyph data** (vertical line and smiley face glyphs at $3FE0+).
+
+Stack frame state at line #1521 of the GAP trace (just before the
+multi-POP):
+```
+[$5BE3] = $004D  (= POP-target / address of multi-POP routine)
+[$5BE5] = $0101  (saved DE)
+[$5BE7] = $0000  (saved BC)
+[$5BE9] = $03DD  (saved HL)
+[$5BEB] = $0828  (saved AF)
+[$5BED] = $3F00  ← RET target (CORRUPT in jnext)
+```
+
+So earlier supervisor code did:
+- `PUSH AF` (= $0828) on alt stack
+- `PUSH HL` (= $03DD)
+- `PUSH BC` (= $0000)
+- `PUSH DE` (= $0101)
+- `CALL <function>` (pushes return-after-call)
+- ... or pre-pushed $3F00 manually then `CALL $004D`
+
+The `$3F00` return target is INVALID — bank 3 hi at $3F00 is font
+glyph data, not real code. Executing it leads to the slide.
+
+In CSpect, this same RET should pop a VALID return target (e.g.,
+real bank 3 code or BASIC interpreter address) so execution continues
+productively.
+
+### Identifying the upstream pusher
+
+Some earlier supervisor code pushed `$3F00` onto the alt stack.
+Search in supervisor banks for `LD HL,$3F00; PUSH HL` (= bytes `21
+00 3F E5`) or `LD <reg>,$3F00; PUSH`:
+
+
+```
+Sites with bytes "21 00 3F E5" (LD HL,$3F00; PUSH HL):
+
+Sites with bytes "00 3F" anywhere (potential 16-bit $3F00 references):
+```
