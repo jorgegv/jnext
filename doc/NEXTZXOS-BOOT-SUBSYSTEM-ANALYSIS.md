@@ -3,30 +3,29 @@
 **Branch:** `nextzxos-boot-subsystem-analysis` (off `main`)
 **Date:** 2026-05-09
 **Audit scope:** memory, divmmc + sd_card + spi, nmi + multiface + port + nextreg, cpu (Z80 + Z80N + IM2)
-**Methodology:** parallel analysis agents (one per subsystem, ultrathink mode, VHDL-as-oracle), each followed by an independent reviewer agent on a separate branch (per CLAUDE.md "code review must never be done by the same agent that wrote the code"). The audit was repeated **three times** with a fresh set of four agents each pass — each pass blind to all prior reports. The intent was to drive findings to convergence (zero new bugs).
+**Methodology:** parallel analysis agents (one per subsystem, ultrathink mode, VHDL-as-oracle). The audit is being repeated **iteratively** with a fresh set of four blind agents each pass — each pass blind to all prior reports — until reviews honestly converge to zero class-(a) bugs across all four subsystems. The user's standing instruction: "correctness is the priority, not premature convergence."
 
 ## Executive summary
 
 | Pass | Method | Class-(a) bugs found | Notes |
 |---|---|---|---|
 | 1 | 4 analysis agents + 4 independent reviewers | 11 + 1 follow-up (INT pulse) | All reviewers APPROVE-WITH-NITS |
-| 2 | 4 fresh blind agents (forbidden from reading pass-1 reports) | 6 | Two high-leverage G46(b) candidates surfaced |
-| 3 | 4 fresh blind agents (forbidden from reading pass-1 + pass-2 reports) | **11** | **Audit did NOT converge.** Pattern: pass 3 caught regressions/refinements of pass-2 fixes + previously-class-(b) gate-omissions promoted to class-(a) + new boundary-case + Z80N flag/Q/MEMPTR semantics. |
-| **Total** | | **29 class-(a) bugs** + 1 follow-up | |
+| 2 | 4 fresh blind agents (forbidden from pass-1 reports) | 6 | Two high-leverage G46(b) candidates |
+| 3 | 4 fresh blind agents (forbidden from pass-1+2 reports) | 11 | Refinements of P2 fixes + class-(b) promotions + Z80N Q/MEMPTR |
+| 4 | 4 fresh blind agents (forbidden from pass-1+2+3 reports) — sharper methodology | **17** | **NMI 80% sweep was greenfield** (9 bugs); CPU pass-4 found duals of pass-3 fixes |
+| **Total (4 passes)** | | **45 class-(a) bugs** + 1 follow-up | **Audit NOT converged** |
 
-**Convergence interpretation.** The audit has NOT converged in 3 passes. Each pass found new bugs at a similar count. This is partly because each pass was given a different methodology focus (pass 1: scan-and-fix; pass 2: blind re-audit hunting first-pass misses; pass 3: edge cases / boundary inputs / differential VHDL→C++ direction / multi-state interactions / save-load / R-MEMPTR-Q semantics). Each new methodology angle exposed new bugs.
+**Pass-by-pass count by subsystem:**
 
-The pass-3 NMI agent specifically warned that ~80% of the NR register surface remains unaudited at depth (palette, copper, sprite, line int, audio, DMA int routing) and predicted that the gate-omission bug pattern would repeat there. **A fourth pass is recommended** if exhaustive convergence is desired.
+| Subsystem | P1 | P2 | P3 | P4 | Trend |
+|-----------|----|----|----|----|-------|
+| Memory | 2 | 2 | 3 | 3 | **flat** |
+| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | **converging** |
+| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | **9** | rising (greenfield 80% surface) |
+| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | rising (refinement duals) |
+| **Pass total** | **11+1** | **6** | **11** | **17** | |
 
-| Subsystem | P1 fixes | P2 fixes | P3 fixes | Notable G46(b)-candidate findings |
-|-----------|----------|----------|----------|-----------------------------------|
-| Memory | 2 | 2 | **3** | NR $8C cache staleness (P2 #1, refined by P3 #2 to per-slot-read-only gate) |
-| DivMMC + SD + SPI | 3 | 0 (1 class-b) | **2** | — |
-| NMI + Multiface + Port + NextREG | 5 | 3 | **3** | — |
-| CPU (Z80 + Z80N + IM2) | 1 systematic + 1 follow-up | 1 | **3** | Z80N global tstates not incrementing (P2); Z80N block-transfer flags + Q + MEMPTR save/load (P3) |
-| **Total** | **11+1** | **6** | **11** | |
-
-**Total fixes on integration branch: 29** (12 first-pass + 6 second-pass + 11 third-pass).
+**Total fixes on integration branch: 46** (12 first-pass + 6 P2 + 11 P3 + 17 P4).
 
 **Test status (post all-merge, integration branch):**
 - `ctest`: **37/37 PASS**
@@ -285,29 +284,119 @@ Either or any combination could plausibly contribute to the G46(b) supervisor st
 
 PUSH imm byte order **independently re-confirmed correct** by both pass-2 and pass-3 CPU agents — definitively rules out PUSH imm as a G46(b) cause.
 
-## Open questions / deferred work (post-pass-3)
+---
 
-1. **G46(b) cycle re-run** on integration branch.
-2. **Pass 4 NR surface sweep** — palette $40-$44, copper $60-$63, sprite $34-$3F, line int $22-$23, audio $26-$2E, DMA int $C8-$CF. NMI pass-3 agent's prediction.
-3. **Cross-subsystem class-(a) flagged by DivMMC pass-3**: NR $09 bit 3 incorrectly drives `sprites_.set_over_border()` (should be NR $15 bit 1).
-4. **LDPIRX flag composition** (CPU class-(b)) — VHDL ALU operands commented out, leaves flag composition ambiguous.
-5. **Memory class-(b) #1**: NR $08 readback returns shadow not effective.
-6. **Memory class-(b) #2**: Layer 2 `port_123b` segment-mask asymmetry.
-7. **DivMMC class-(b)**: `rom3_selected()` vs `sram_rom3()` mismatch (bank-1 tape traps).
-8. **CPU class-(b) #1**: M1-fetch contention skipped on Z80N raw-read path.
-9. **CPU class-(b) #2**: `Im2Controller::ack_vector()` early state advance.
-10. **CPU class-(b) #3**: `z80.interrupts_enabled_at` / `z80.iff2_read` not in save/load.
-11. **CPU class-(b) #4**: DD/FD/CB inner-byte delivery to IM2 decoder FSM.
+# Pass-4 verification re-audit (fourth pass, blind, sharper methodology)
+
+After pass-3 merge closed, pass-4 launched with explicit methodology shifts per agent:
+
+- **Memory**: transition-edge stale-cache table, reset-state matrix, save/load full coverage, Pentagon × EFF7 cross-products, differential VHDL signal coverage
+- **DivMMC + SD + SPI**: SD-card lifecycle coherence, CRC paths, soft-reset matrix, boundary block addresses, multi-CMD55 retry
+- **NMI + MF + Port**: **the 80% sweep** — palette $40-$44, copper $60-$63, sprite $34-$3F, line int $22-$23, audio $26-$2E + $84-$89, DMA int $C8-$CF, UART $98-$9C+$E0-$EF, general I/O $A0-$A1, general config $05-$0A
+- **CPU**: Z80N + DD/FD/CB prefix composition, R/MEMPTR/Q semantics, contention-stress, FUSE-internal state inventory, IM2 stress cases, NMI/INT race, HALT corners
+
+Per-subsystem pass-4 reports: `doc/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY4-{MEMORY,DIVMMC-SD-SPI,NMI-MF-PORT,CPU}.md`.
+
+## Memory pass-4 (branch `task2/verify4-memory`)
+
+10. **EFF7(3) RAM-at-$0000 over-applied on NR $50/$51 = $FF writes** — Pass-3 fixed `engage_legacy_rom_paging_slot` under EFF7=1, but pass-4 found EFF7 was still being over-applied via a different path. VHDL `:4636-4644` fires only on `port_memory_change_dly='1'`, NOT on `nr_mmu_we`. Fix: scoped EFF7 application in `engage_legacy_rom_paging_slot()` and `rebuild_ptr()` slot 0/1 high-page branch.
+
+11. **`nr_mmu_[8]` not persisted in save/load** — Pass-2 added the verbatim $E0..$FE storage but the save/load round-trip lost it. Fix: appended `write_bytes(nr_mmu_, 8)` / `read_bytes(nr_mmu_, 8)`.
+
+12. **NR $12 (Layer 2 active bank) write didn't propagate to `Mmu::l2_bank_`** — VHDL `:2968` is combinational; CPU L2 map used stale bank between port $123B writes. NR $13 had correct propagation; NR $12 was the missing seam. **Cross-subsystem catch** (NR $12 lives in video/Layer 2 but the MMU mapping needs it). Fix: added `Mmu::set_l2_active_bank()` and called from NR $12 handler.
+
+## DivMMC + SD + SPI pass-4 (branch `task2/verify4-divmmc-sd-spi`)
+
+13. **CMD24 RECEIVING_DATA mishandles $FF gap bytes** — Per SD Physical Layer Simplified Spec 6.00 § 7.3.3.2, card MUST tolerate any number of $FF "host SPI clock" gap bytes between R1 response and the $FE start-of-data token. Pre-fix absorbed each $FF into `data_block_[data_idx_++]`, shifting 512-byte payload by one byte → corrupted disk write. Boot path unaffected (tbblue.fw doesn't gap-pad), but esxdos F_WRITE / FatFs DO send gap bytes per spec.
+
+**Honesty note from pass-4 DivMMC agent**: two of my pass-4 prompt audit-guidance bullets were factually wrong (SPI clock dividers NR $86/$87/$88 and port $EF mirror don't exist in VHDL). Agent correctly did NOT fabricate findings to satisfy them — exactly the unbiased posture the user requested.
+
+## NMI + Multiface + Port pass-4 (branch `task2/verify4-nmi-mf-port`) — the 80% sweep
+
+This was largely **greenfield surface** (NMI subsystem agent in pass-3 explicitly flagged ~80% unaudited at depth). Found 9 class-(a) bugs:
+
+14. **NR $04** — Issue-2 board mask `v & 0x7F` (zxnext.vhd:5717).
+15. **NR $11** — config_mode gate + Issue-2 bit-0-only capture (zxnext.vhd:5208-5217). **Most boot-relevant** of the pass-4 NMI fixes (gate omission could let mid-flight config bleed timing changes).
+16. **NR $2F** — write mask `v & 0x03` (zxnext.vhd:5331).
+17. **NR $44** — composed `read_9bit()` (zxnext.vhd:6047-6048); required priority storage for ALL palette types (palette_utm + palette_l2s store priority for ULA/L2/sprite/tilemap). PAL-05 unit test was actually FAILING pre-fix on the post-pass-3 main; **no prior pass caught it**.
+18. **NR $8A** — write mask `v & 0x3F` (zxnext.vhd:5525).
+19. **NR $90/$93** — Pi GPIO output enable masks (zxnext.vhd:5537, 5546).
+20. **NR $98-$9B** — Pi GPIO input semantics: return 0 (not write shadow).
+21. **NR $A8** — ESP GPIO0 enable mask `v & 0x01` (zxnext.vhd:5570).
+22. **NR $A9** — ESP GPIO0 input semantics: return 0.
+
+Pass-4 NMI agent reports **~70% deep audit in this pass**; still deferred: Cluster C (sprite mirror $34/$35-$39/$75-$79), UART $D0-$EF, cpu_speed misc $F0-$FF.
+
+Open question worth pass-5: **NR $86/$87/$88 reset-type gating** (VHDL `:5061-5067` honors `nr_89_bus_port_reset_type`; jnext applies unconditionally per `nextreg.cpp:69-71` "approximation"). Same shape as the NR $82-$84 fix landed in earlier waves.
+
+## CPU pass-4 (branch `task2/verify4-cpu-z80n-im2`)
+
+Mostly **duals of pass-3 fixes**:
+
+23. **Z80N `Q = 0` hygiene missing for non-F-writing opcodes** — Pass-3 added Q updates for F-writing opcodes; pass-4 caught the dual. SWAPNIB, MIRROR, MUL, BSLA/BSRA/BSRL/BSRF/BRLC, ADD_*_NN, PUSH_NN, OUTINB, NEXTREG_*, PIXELDN/AD, SETAE, JP_C, LDPIRX, LOOP all bypassed FUSE's "Q=0 at top of every opcode" contract. Subsequent SCF/CCF would read stale Q → wrong undocumented X/Y bits. Fix: `z80.q = 0` at top of Z80N dispatch.
+
+24. **Z80N `iff2_read = 0` hygiene missing** — Z80N between `LD A,I` and INT-acceptance left `iff2_read` set, firing the NMOS quirk on a non-immediate boundary. Fix: `z80.iff2_read = 0` at top of Z80N dispatch.
+
+25. **Save/load gap for FUSE-internal `interrupts_enabled_at` + `iff2_read`** — Pass-3 added MEMPTR + Q to save/load; pass-4 found two more FUSE-internal fields that affect runtime but weren't persisted.
+
+26. **`ADD HL/DE/BC, nn` didn't update MEMPTR** — VHDL `t80n_mcode.vhd:1872-1878` sets LDZ@MCycle2 + LDW@MCycle3 ⇒ end-state `WZ = nn`. Fix: `regs.MEMPTR = nn`. Pre-existing test fixtures with `MEMPTR=0000` were CORRECTED to match VHDL — test was wrong, code was wrong-but-matching-test-bug.
+
+## Convergence assessment after 4 passes
+
+**Audit has NOT converged.** Pass 4 found 17 new class-(a) bugs — actually MORE than pass 3.
+
+Subsystem-specific trends:
+- **DivMMC+SD+SPI**: P1=3 → P2=0 → P3=2 → P4=1. Converging.
+- **Memory**: P1=2 → P2=2 → P3=3 → P4=3. Flat / not converging.
+- **NMI+MF+Port**: P1=5 → P2=3 → P3=3 → P4=9. Rising, due to greenfield 80% sweep.
+- **CPU+Z80N+IM2**: P1=1+1 → P2=1 → P3=3 → P4=4. Rising slightly, due to dual-finding pattern.
+
+**Per the user's standing instruction** — "iterate until reviews honestly converge to no class-(a) bugs" — pass 5 is mandatory. Methodology focus for pass 5:
+
+- **NMI+MF+Port**: cluster C sprite mirror ($34/$35-$39/$75-$79) + UART $D0-$EF + cpu_speed misc $F0-$FF + NR $86/$87/$88 reset-type gating
+- **CPU**: continue dual-finding hunt (any other FUSE-internal state? any other dual-of-existing-fix?), examine LDPIRX flag composition definitively, contention-stress quantification
+- **Memory**: the EFF7 cluster has now seen 3 distinct passes find new aspects; still not converged
+- **DivMMC**: focus on the boot path that's actually exercised — does the FAT32 read path have any subtle bugs
+
+## G46(b) cross-check (aggregate after 4 passes)
+
+Highest-leverage candidates for G46(b) supervisor stack divergence:
+
+- **NR $8C cache + per-slot read-only** (memory P2+P3+P4 cluster). Now extensively audited; bank 0 wrapper at $007B does `NEXTREG $8C, $80; RET`; cache rebuild + RAM mapping preservation.
+- **Z80N global `tstates`** (CPU P2). Path no longer at zero global cycle cost.
+- **Z80N block-transfer flags + Q hygiene + iff2_read hygiene** (CPU P3+P4). LDIX/LDDX/etc. now spec-compliant; Q=0 at top of every Z80N op.
+- **Z80N `ADD HL/DE/BC, nn` MEMPTR** (CPU P4). Supervisor MEMPTR fingerprint now correct.
+- **NR $11 config_mode gate** (NMI P4). Issue-2-board-id gate; could let mid-flight config bleed.
+- **NR $44 priority composition** (palette P4). Mid-pipeline palette state.
+- **INT pulse window machine-aware** (CPU P1 follow-up).
+
+PUSH imm byte order independently re-confirmed correct by pass-2 + pass-3 + (implicitly) pass-4 CPU agents — definitively not the cause.
+
+G46(b) cycle re-run remains deferred to user.
+
+## Open questions / deferred work (post-pass-4)
+
+1. **Pass 5** (mandatory per user's standing instruction).
+2. **G46(b) cycle re-run** on integration branch.
+3. **Cross-subsystem class-(a) flagged by P3 DivMMC**: NR $09 bit 3 incorrectly drives `sprites_.set_over_border()` (should be NR $15 bit 1). Still not fixed.
+4. **NMI 80%-sweep deferred clusters**: sprite mirror $34/$35-$39/$75-$79; UART $D0-$EF; cpu_speed misc $F0-$FF; NR $86/$87/$88 reset-type gating.
+5. **LDPIRX flag composition** (CPU class-b) — VHDL ALU operands commented out.
+6. **Memory class-(b) #1**: NR $08 readback returns shadow not effective.
+7. **Memory class-(b) #2**: Layer 2 `port_123b` segment-mask asymmetry.
+8. **DivMMC class-(b)**: `rom3_selected()` vs `sram_rom3()` mismatch.
+9. **CPU class-(b) #1**: M1-fetch contention skipped on Z80N raw-read path.
+10. **CPU class-(b) #2**: `Im2Controller::ack_vector()` early state advance.
+11. **CPU class-(b) #3**: DD/FD/CB inner-byte delivery to IM2 decoder FSM.
 12. **Test-coverage gaps** — multiple. See per-subsystem reports.
 13. **`port_1ffd_special_old_` decay model** — functionally equivalent approximation.
 14. **`StateReader::read_u8()`** lacks bounds check — pre-existing.
 
-## Test status (final, integration branch, post all 3 passes)
+## Test status (final, integration branch, post all 4 passes)
 
 ```
 ctest                              37/37 PASS
 fuse_z80                       1356/1356 PASS
-z80n_test                          85/85 PASS (was 80/85 — 5 LDI-family updated)
+z80n_test                          85/85 PASS
 test/00regression/regression       33/0/0
 ```
 
@@ -315,23 +404,14 @@ test/00regression/regression       33/0/0
 
 ```
 Branch: nextzxos-boot-subsystem-analysis (off main)
-Total fixes: 29 class-(a) bugs + 1 follow-up
+Total fixes: 45 class-(a) bugs + 1 follow-up = 46
 Pushed: NO
 ```
 
-Sub-branches (preserved, not yet deleted):
+Sub-branches preserved across all 4 passes:
+- P1: `task2/{memory,divmmc-sd-spi,nmi-mf-port,cpu-z80n-im2}-{review,reviewer}` + `task2/cpu-int-pulse-fix`
+- P2: `task2/verify-{memory,divmmc-sd-spi,nmi-mf-port,cpu-z80n-im2}`
+- P3: `task2/verify3-{memory,divmmc-sd-spi,nmi-mf-port,cpu-z80n-im2}`
+- P4: `task2/verify4-{memory,divmmc-sd-spi,nmi-mf-port,cpu-z80n-im2}`
 
-First pass:
-- `task2/memory-review`, `task2/memory-reviewer`
-- `task2/divmmc-sd-spi-review`, `task2/divmmc-sd-spi-reviewer`
-- `task2/nmi-mf-port-review`, `task2/nmi-mf-port-reviewer`
-- `task2/cpu-z80n-im2-review`, `task2/cpu-z80n-im2-reviewer`
-- `task2/cpu-int-pulse-fix`
-
-Pass 2:
-- `task2/verify-memory`, `task2/verify-divmmc-sd-spi`, `task2/verify-nmi-mf-port`, `task2/verify-cpu-z80n-im2`
-
-Pass 3:
-- `task2/verify3-memory`, `task2/verify3-divmmc-sd-spi`, `task2/verify3-nmi-mf-port`, `task2/verify3-cpu-z80n-im2`
-
-Worktrees under `.claude/worktrees/task2-*`, `.claude/worktrees/task2-verify-*`, and `.claude/worktrees/task2-verify3-*` — can be removed once the integration branch is accepted and merged to `main`.
+Worktrees under `.claude/worktrees/task2-*`, `task2-verify-*`, `task2-verify3-*`, `task2-verify4-*` — kept until integration branch lands on main.
