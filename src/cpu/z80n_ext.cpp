@@ -19,6 +19,19 @@ static inline bool parity_even(uint8_t v) {
     return (v & 1) == 0;
 }
 
+// Z80N T-state counts — per Spectrum Next official spec (next.specnext.dev) /
+// VHDL t80n_mcode.vhd MCycles + per-cycle TStates overrides.
+//
+// IMPORTANT (Task 2, 2026-05-09): the C++ Z80N path is invoked from
+// Z80Cpu::execute() AFTER `mem.read(PC)` + `mem.read(PC+1)` raw reads of the
+// ED + ext bytes. Those raw reads do NOT add T-states (they bypass FUSE
+// callbacks). The returned T-state count from execute_z80n() must therefore
+// include the FULL instruction time, which always includes BOTH M1 fetches
+// (ED prefix + ext byte = 4+4 = 8 T-states baseline). Pre-fix returns omitted
+// the ED prefix M1 (4 T-states), under-counting every Z80N opcode and
+// drifting IM2/vsync/contention timing for any code that invokes Z80N
+// extensively (the NextZXOS supervisor invokes NEXTREG, MUL, ADD HL/DE/BC,A
+// constantly).
 int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
     switch (static_cast<Z80NOpcode>(opcode)) {
 
@@ -28,7 +41,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             a = ((a & 0x0F) << 4) | ((a >> 4) & 0x0F);
             regs.AF = ((uint16_t)a << 8) | (regs.AF & 0xFF);
             cpu.set_registers(regs);
-            return 4;
+            return 8;   // M1+M1
         }
 
         case Z80NOpcode::MIRROR_A: {
@@ -41,7 +54,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             }
             regs.AF = ((uint16_t)r << 8) | (regs.AF & 0xFF);
             cpu.set_registers(regs);
-            return 4;
+            return 8;   // M1+M1
         }
 
         case Z80NOpcode::TEST_N: {
@@ -59,7 +72,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // N=0, C=0 (already 0)
             regs.AF = ((uint16_t)a << 8) | f;
             cpu.set_registers(regs);
-            return 7;
+            return 11;  // M1+M1+R(+1 internal) per spec
         }
 
         case Z80NOpcode::BSLA_DE_B: {
@@ -67,7 +80,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t shift = (regs.BC >> 8) & 0x1F;
             regs.DE = (regs.DE << shift) & 0xFFFF;
             cpu.set_registers(regs);
-            return 4;
+            return 8;   // M1+M1
         }
 
         case Z80NOpcode::BSRA_DE_B: {
@@ -76,7 +89,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             int16_t de_signed = static_cast<int16_t>(regs.DE);
             regs.DE = static_cast<uint16_t>(de_signed >> shift);
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::BSRL_DE_B: {
@@ -84,7 +97,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t shift = (regs.BC >> 8) & 0x1F;
             regs.DE = regs.DE >> shift;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::BSRF_DE_B: {
@@ -96,7 +109,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             val >>= shift;
             regs.DE = static_cast<uint16_t>(val & 0xFFFF);
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::BRLC_DE_B: {
@@ -107,7 +120,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
                 regs.DE = ((regs.DE << rot) | (regs.DE >> (16 - rot))) & 0xFFFF;
             }
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::MUL_DE: {
@@ -116,7 +129,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t e = regs.DE & 0xFF;
             regs.DE = (uint16_t)d * (uint16_t)e;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::ADD_HL_A: {
@@ -129,7 +142,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::ADD_DE_A: {
@@ -141,7 +154,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::ADD_BC_A: {
@@ -153,7 +166,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::ADD_HL_NN: {
@@ -164,7 +177,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.PC = (regs.PC + 2) & 0xFFFF;
             regs.HL = (regs.HL + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
             cpu.set_registers(regs);
-            return 12;
+            return 16;  // M1+M1+R+R+(2 internal); spec=16
         }
 
         case Z80NOpcode::ADD_DE_NN: {
@@ -175,7 +188,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.PC = (regs.PC + 2) & 0xFFFF;
             regs.DE = (regs.DE + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
             cpu.set_registers(regs);
-            return 12;
+            return 16;
         }
 
         case Z80NOpcode::ADD_BC_NN: {
@@ -186,7 +199,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.PC = (regs.PC + 2) & 0xFFFF;
             regs.BC = (regs.BC + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
             cpu.set_registers(regs);
-            return 12;
+            return 16;
         }
 
         case Z80NOpcode::PUSH_NN: {
@@ -212,7 +225,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.HL = (regs.HL + 1) & 0xFFFF;
             // B is NOT decremented (unlike OUTI)
             cpu.set_registers(regs);
-            return 10;
+            return 16;  // M1+M1+R+IO ≈ 16 per spec
         }
 
         case Z80NOpcode::NEXTREG_NN: {
@@ -223,7 +236,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             cpu.set_registers(regs);
             cpu.io().out(0x243B, reg);
             cpu.io().out(0x253B, val);
-            return 16;
+            return 20;  // VHDL MCycles=5, M1+M1+R+R+(internal)=20 per spec
         }
 
         case Z80NOpcode::NEXTREG_A: {
@@ -234,7 +247,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             cpu.set_registers(regs);
             cpu.io().out(0x243B, reg);
             cpu.io().out(0x253B, a);
-            return 13;
+            return 17;  // VHDL MCycles=4, M1+M1+R+(internal)=17 per spec
         }
 
         case Z80NOpcode::PIXELDN: {
@@ -256,7 +269,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             }
             regs.HL = ((uint16_t)H << 8) | L;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::PIXELAD: {
@@ -268,7 +281,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t L = ((D & 0x38) << 2) | (E >> 3);
             regs.HL = ((uint16_t)H << 8) | L;
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::SETAE: {
@@ -278,7 +291,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t a = 0x80 >> bit;
             regs.AF = ((uint16_t)a << 8) | (regs.AF & 0xFF);
             cpu.set_registers(regs);
-            return 4;
+            return 8;
         }
 
         case Z80NOpcode::JP_C: {
@@ -288,7 +301,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t val = cpu.io().in(regs.BC);
             regs.PC = (regs.PC & 0xC000) | ((uint16_t)val << 6);
             cpu.set_registers(regs);
-            return 12;
+            return 13;  // M1+M1+IO per spec
         }
 
         case Z80NOpcode::LDIX: {
@@ -303,7 +316,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
             cpu.set_registers(regs);
-            return 13;
+            return 16;  // M1+M1+R+W per spec
         }
 
         case Z80NOpcode::LDWS: {
@@ -346,7 +359,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
             cpu.set_registers(regs);
-            return 13;
+            return 16;
         }
 
         case Z80NOpcode::LDIRX: {
@@ -360,6 +373,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // repetition by rewinding PC. BC=0 on entry => 65536 iterations:
             // post-decrement gives BC=0xFFFF, loop continues, BC underflows
             // back to 0 after exactly 65536 calls.
+            //
+            // T-states: 21 per iteration when BC!=0 after decrement (still
+            // repeating), 16 on the terminal iteration. Spec values per
+            // Spectrum Next reference; matches the standard LDIR shape.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -369,11 +386,13 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
+                t = 21;
             }
             cpu.set_registers(regs);
-            return 13;  // per-iteration timing preserved (LDIR=21/16 split out of scope)
+            return t;
         }
 
         case Z80NOpcode::LDDRX: {
@@ -392,11 +411,13 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
+                t = 21;
             }
             cpu.set_registers(regs);
-            return 13;
+            return t;
         }
 
         case Z80NOpcode::LDPIRX: {
@@ -414,11 +435,13 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             // HL does NOT change (pattern base)
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
+                t = 21;
             }
             cpu.set_registers(regs);
-            return 13;
+            return t;
         }
 
         case Z80NOpcode::LDIRSCALE: {
@@ -436,16 +459,18 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
+                t = 21;
             }
             cpu.set_registers(regs);
-            return 13;
+            return t;
         }
 
         case Z80NOpcode::LOOP: {
-            // Not implemented in FPGA. Treat as NOP.
-            return 4;
+            // Not implemented in FPGA. Treat as NOP-equivalent (M1+M1).
+            return 8;
         }
         default: return -1;
     }

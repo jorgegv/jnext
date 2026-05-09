@@ -14,6 +14,14 @@ endforeach()
 # Register as CTest target
 add_test(NAME fuse_z80_tests COMMAND fuse_z80_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# Z80Cpu /INT pulse-window machine-timing test (Task 2 CPU fix).
+# VHDL zxnext.vhd:2033 — pulse width 32 (48K/+3) vs 36 (128K/Pent/Next).
+# Standalone, no GoogleTest; jnext_cpu only (matches fuse_z80_test linkage).
+add_executable(cpu_int_pulse_test cpu/int_pulse_test.cpp)
+target_link_libraries(cpu_int_pulse_test PRIVATE jnext_cpu)
+target_include_directories(cpu_int_pulse_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME cpu_int_pulse_tests COMMAND cpu_int_pulse_test)
+
 # Rewind / backwards execution tests (standalone, no GoogleTest required)
 add_executable(rewind_test rewind/rewind_test.cpp)
 target_link_libraries(rewind_test PRIVATE

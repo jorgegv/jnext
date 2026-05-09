@@ -279,7 +279,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
-    im2_.set_machine_timing_48_or_p3(cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    // Fan out to BOTH the IM2 fabric (which models the FPGA pulse counter)
+    // AND Z80Cpu (which uses the same width to expire a pending /INT that
+    // was never acknowledged, e.g. inside an ISR with iff1=0). Same VHDL
+    // line, two consumers — must stay in lock-step.
+    const bool is_48_or_p3_at_reset = (cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    im2_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
+    cpu_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
 
     // Wire ContentionModel into the FUSE memory/IO callbacks (Phase-2
     // contention plan, 2026-04-26). After this call, every Z80 memory
@@ -1720,6 +1726,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // timing change.
             const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
             im2_.set_machine_timing_48_or_p3(is_48_or_p3);
+            // Mirror to Z80Cpu's /INT pulse-window gate (zxnext.vhd:2033).
+            // Same logic as im2_, distinct consumer: cpu_ uses the width to
+            // discard a pending interrupt the CPU never acknowledged.
+            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
         }
 
         // dt_lock XOR-toggle (VHDL :5135) — unconditional XOR with bit 3.
@@ -5529,6 +5539,17 @@ void Emulator::load_state(StateReader& r)
     mmu_.load_state(r);
     nextreg_.load_state(r);
     cpu_.load_state(r);
+    // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
+    // (zxnext.vhd:2033). The flag is intentionally not serialised in
+    // Z80Cpu::save_state (would shift all later subsystem blocks and
+    // break older saves); we re-derive it here from the just-loaded
+    // NextReg state. Im2Controller::load_state restores its own copy
+    // from the snapshot, so we don't touch im2_ here.
+    {
+        const uint8_t loaded_timing = nextreg_.nr_03_machine_timing();
+        const bool    is_48_or_p3   = (loaded_timing == 0x01) || (loaded_timing == 0x03);
+        cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+    }
     im2_.load_state(r);
 
     // Video subsystems.

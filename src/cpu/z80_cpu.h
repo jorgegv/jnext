@@ -66,6 +66,19 @@ public:
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
 
+    // Pulse-mode INT-window machine-timing gate, per VHDL zxnext.vhd:2033:
+    //   pulse_count_end <= pulse_count(5) and (machine_timing_48 or
+    //                       machine_timing_p3 or pulse_count(2));
+    // Translated: 48K and +3 release /INT after 32 CPU cycles (bit 5 alone);
+    // 128K, Pentagon and Next-default require bit 5 AND bit 2 → 36 cycles.
+    // Z80Cpu uses this to decide when a pending /INT pulse has elapsed and
+    // must be discarded if the CPU never acknowledged it (e.g. interrupts
+    // disabled inside an ISR). Defaults to true (32-cycle window) to
+    // preserve the legacy behaviour for FUSE Z80 test runs that drive
+    // Z80Cpu directly without an Emulator wiring this in.
+    void set_machine_timing_48_or_p3(bool v) { machine_48_or_p3_ = v; }
+    bool machine_timing_48_or_p3() const { return machine_48_or_p3_; }
+
     // Public memory access for Z80N instruction implementations
     MemoryInterface& memory() { return mem_; }
     IoInterface& io() { return io_; }
@@ -117,4 +130,10 @@ private:
     bool             int_pending_ = false;
     uint8_t          int_vector_  = 0xFF;
     uint32_t         int_requested_at_ = 0;  // FUSE tstates when /INT was asserted
+    // Default true → 32-cycle /INT pulse window. Matches VHDL machine_timing_48 /
+    // machine_timing_p3 branch (zxnext.vhd:2033). Emulator overrides this to
+    // false for 128K / Pentagon / Next-default (36-cycle window). Default-true
+    // preserves byte-identical FUSE Z80 test behaviour (1356/1356) for tests
+    // that instantiate Z80Cpu without an Emulator.
+    bool             machine_48_or_p3_ = true;
 };

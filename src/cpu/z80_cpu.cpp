@@ -415,9 +415,17 @@ int Z80Cpu::execute() {
     // interrupt persists indefinitely and fires the moment EI/RETI re-enables
     // interrupts — even frames later — breaking programs that call
     // waitForScanline() inside their ISR.
-    static constexpr uint32_t INT_PULSE_TSTATES = 32;
+    //
+    // VHDL zxnext.vhd:2033 (pulse_count_end formula):
+    //   pulse_count_end <= pulse_count(5) and (machine_timing_48 or
+    //                       machine_timing_p3 or pulse_count(2));
+    // → 48K/+3 release /INT after 32 cycles (bit 5 alone fires the gate);
+    //   128K/Pentagon/Next-default need bit 5 AND bit 2 → 36 cycles.
+    // machine_48_or_p3_ is set by Emulator from the active MachineType and
+    // is also re-fanned-out from runtime NR 0x03 machine_timing writes.
+    const uint32_t int_pulse_tstates = machine_48_or_p3_ ? 32u : 36u;
     if (int_pending_) {
-        if (tstates - int_requested_at_ > INT_PULSE_TSTATES && !z80.iff1) {
+        if (tstates - int_requested_at_ > int_pulse_tstates && !z80.iff1) {
             // Pulse expired while interrupts were disabled — missed.
             int_pending_ = false;
         } else if (z80.iff1) {
