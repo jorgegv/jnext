@@ -766,3 +766,76 @@ and hit #3, and that drives the slide.
 2. DZRP CSpect at the same range to see what PUSHes happen.
 3. The DIFF in PUSH/POP behavior reveals the exact upstream bug.
 
+
+## EOD-23 RST $08 GAP trace — full path between hits #2 and #3
+
+Probe `JNEXT_G46B_RST08_GAP=N` traces every PC + SP between the
+N-th RST $08 handler entry and the next one.
+
+### jnext path (between hits #2 and #3, ~5000 instructions)
+
+Sequence:
+1. **Lines 0-20**: Post-RST-#2 returns to $0302 (PUSH AF; CALL $0360;
+   RST $18 → JP $3E80). Bank-flip wrappers run.
+2. **Lines 20-50**: Reaches bank 2 supervisor MAIN at $1558 area.
+   Plays through CALL/RET sequences with `PUSH $0000` etc.
+3. **Lines 1521-1527**: Reaches bank 0/3 RST $XX vector area at
+   $004D. With slot 0 mapped to bank 3 lo, executes:
+   ```
+   $004D: POP DE
+   $004E: POP BC
+   $004F: POP HL
+   $0050: POP AF
+   $0051: EI
+   $0052: RET
+   ```
+   Multi-pop epilogue + return. SP unwinds 10 bytes ($5BE5 → $5BEF).
+   RET pops $3F00 → PC=$3F00.
+4. **Lines 1527-4654**: Bank 3 hi code runs at $3F00-$3FBF area
+   (real instructions: NOP, INC E, LD (nnnn),HL, JR NZ, etc.).
+   Supervisor's "function epilogue + dispatch" routines.
+5. **Lines 4654-4910**: PC enters slot 2 area ($4C00-$4CFF). Slot
+   2 = bank 5 lo (unshifted page $0A). Bytes there are mostly $00
+   (cleared screen RAM area). NOP slide.
+6. **Lines 4910-5000**: Slide continues into $4D00-$4D59. Trace cap
+   hit. Next $103B fires somewhere AFTER.
+
+SP histogram across the 5000-line gap: SP stays in $5Bxx range
+throughout (low stack). Most-common SP=$5BEF (3766/5000 lines = the
+NOP slide region).
+
+### Key observation: NOP slide at $4C00-$4D59 in bank 5 lo
+
+The supervisor at line 4654 reaches PC=$4C00 in slot 2. Slot 2 maps
+to physical page $0A (= bank 5 lo, unshifted dual-port). The bytes
+at this address are zeros (cleared screen memory). PC slides
+linearly through 600+ bytes of NOPs.
+
+Eventually the slide hits a non-zero byte that triggers some
+dispatch. By then enough damage is done — the supervisor's stack
+state is corrupted by the time it reaches the next RST $08 (with
+SP=$FF59, reading font glyph data as return address).
+
+### Root cause refinement
+
+The bug isn't a single divergence — it's a CASCADE:
+1. Supervisor reaches bank 3 hi code that JPs into cleared screen RAM
+2. NOP slide corrupts execution
+3. Eventually bank-stack-swap happens with wrong state
+4. RST $08 #3 reads corrupt return address from font glyph memory
+5. Wrapper $3E00 is invoked with bad TOS
+6. Slide #2 at $C3F3 fires
+7. PC=$0000 trap loops
+
+Each step compounds. The ORIGIN of the cascade is somewhere in the
+bank 3 hi code path between lines 1527-4654 in the GAP trace.
+Specifically: what JP/CALL takes PC into $4C00 area? That's the
+upstream divergence.
+
+### Next investigation
+
+1. Find the PC at which the supervisor JPs/CALLs from $3Fxx area
+   into $4C00. Add probe at $4Bxx-$4C00 entry.
+2. DZRP CSpect at the equivalent point — find what PC in bank 3 hi
+   chooses a different target. The diff in JP target is the bug.
+
