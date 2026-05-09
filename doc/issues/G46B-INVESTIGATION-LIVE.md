@@ -6380,3 +6380,319 @@ analysis and instrumentation could not pin down. Future investigations
 should default to "compare with CSpect via DZRP" before committing to
 a hypothesis.
 
+
+---
+
+## 2026-05-08 23:54 CEST — EOD-22 Wave 1: PC=$0000 trap + NR $8E +3-mode hypothesis
+
+### Setup
+- Probe added: `JNEXT_G46B_PC0_TRAP=N` in `src/cpu/z80_cpu.cpp:684+` —
+  logs first N transitions to PC=$0000 (excluding event #1 = legit cold
+  boot landing), with prev_pc, SP, 8-word stack dump, iff1/im/halted,
+  full slot map, rom_bank, and 16-deep distinct-PC ring buffer for
+  recent control flow.
+- Built jnext successfully (ula_test pre-existing build failure
+  unrelated, ignored). Ran 70s headless on `nextzxos-1gb-fat32fix.img`
+  with `JNEXT_G46B_PC0_TRAP=200`.
+- Captured 199 PC=$0000 events in ~14 seconds wall-clock = ~14 events/s,
+  consistent with EOD-21 ~640× per 6 min observation but somewhat
+  faster after long-run stabilization.
+
+### Three parallel agents launched
+1. **DZRP CSpect baseline** (`g46b_eod22_pc0.py`): set BP at PC=$0000
+   on real Next post-boot, ran 90s. **BP did NOT fire.** Real Next at
+   PC=$0C90 (BASIC editor / KEY-INPUT loop), NR $03=$33 (+3 mode),
+   IM=1, slots `[FF FF 0A 11 04 05 00 01]`. **CONFIRMS: jnext's PC=
+   $0000 periodicity is a bug, not normal real-Next behavior.**
+   Deliverable: `doc/issues/g46b-eod22-cspect-pc0-baseline.md`.
+2. **Bank-flip wrapper static decode** (`g46b-eod22-bank-flip-wrapper-decode.md`):
+   wrapper at `$5B00..$5B20` is two-state alternation (XOR $10 on 7FFD
+   shadow, XOR $04 on 1FFD shadow). Wrapper RET pops caller-stacked
+   word — cannot intrinsically pop $0000 unless caller corrupts stack.
+   **Verdict: wrapper is NOT the root cause of PC=$0000.**
+3. **DZRP CSpect NR $8E + 7FFD/1FFD audit** (running) — testing
+   whether CSpect's NR $8E in +3 mode updates 1FFD bit 2 (per VHDL
+   :3727).
+
+### EOD-22 KEY DISCOVERY: jnext rom_bank=3, CSpect rom_bank=1
+
+| Emu | rom_bank | sram_rom (binary) | Interpretation |
+|-----|----------|-------------------|----------------|
+| jnext (post-fix) | 3 | 11 | bank 3 of enNextZX = +3 DOS area / NextZXOS-specific extensions |
+| CSpect (post-boot) | 1 | 01 | bank 1 of enNextZX = 48K BASIC equivalent |
+
+Both are in **+3 mode** (NR $03 = $33, machine_type_p3 = '1'). VHDL :2993
+says `sram_rom = port_1ffd_rom = 1FFD(2):7FFD(4)` (2-bit) in +3 mode.
+- jnext: 7FFD(4)=1 + 1FFD(2)=1 → sram_rom=11 = bank 3
+- CSpect: 7FFD(4)=1 + 1FFD(2)=0 → sram_rom=01 = bank 1
+
+### The supervisor's bank-flip wrapper at `$5B48`
+
+```
+$5B48: ED 91 8E 03   NEXTREG $8E,$03
+$5B4C: C9            RET
+```
+
+Per VHDL :3663-3672 (port_7ffd_reg update on NR $8E write):
+- bit 0 → 7FFD(4) IF bit 2 clear
+- bit 3=1 enables 7FFD(2:0) ← bits 6-4
+
+Per VHDL :3727-3732 (port_1ffd_reg update on NR $8E write):
+- bit 1 → 1FFD(2)
+- bit 0 → 1FFD(1)
+- bit 2 → 1FFD(0)
+
+So `NEXTREG $8E,$03` = `0000 0011`:
+- bit 0=1 → 7FFD(4)=1
+- bit 1=1 → 1FFD(2)=1 ← !!!
+- bit 2=0 → 7FFD(4) write committed (it was)
+- bit 3=0 → 7FFD(2:0) untouched
+
+**In +3 mode**, this composes sram_rom = 1FFD(2):7FFD(4) = 11 = bank 3.
+**In ZXN/128K mode**, sram_rom = '0':7FFD(4) = 01 = bank 1 (1FFD(2)
+ignored).
+
+The supervisor's wrapper code is hardcoded to write `$03`. This works
+correctly in ZXN/128K mode (= bank 1), but in +3 mode goes to bank 3.
+
+### Hypothesis: CSpect deviates from VHDL on NR $8E in +3 mode
+
+**Theory**: CSpect's NR $8E,$03 only updates 7FFD(4), NOT 1FFD(2). That
+would explain CSpect ending up at sram_rom=01 (bank 1) post-+3-mode-
+commit. jnext is VHDL-faithful (per `Mmu::write_nr_8e` lines 482-492
+in `src/memory/mmu.cpp`), so jnext routes to bank 3 — and the
+supervisor firmware breaks because it expects to be in bank 1.
+
+**Ground-truth verification IN PROGRESS** via DZRP agent (write NR $8E,
+$03 to CSpect, re-read 1FFD via NR $8E read-back bit 1; see
+agent's `doc/issues/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md` when
+complete).
+
+### PC=$0000 event analysis (top 16 events)
+
+| # | prev_pc | sp | iff1 | rom_bank | Notes |
+|---|---------|----|----|----------|-------|
+| 2 | $6d2f | $ffff | 0 | 0x00 | LEGIT — supervisor's NR $02 soft reset at $6d31 |
+| 3 | $5b20 | $5c01 | 1 | 0x03 | Wrapper RET pops $0000 from cleared sysvars stack |
+| 4 | $1f3a | $5c05 | 1 | 0x03 | BASIC INPUT $1F3A=CALL $1E99, but PC went to $0000 — disasm misalignment / IM-induced |
+| 5-14 | $00cd-$0092 | $5c0b..$5c35 | 0 | 0x03 | RET-storm popping $0000s, +4-+6 SP advance per event |
+| 15 | $5b20 | $5c3b | 1 | 0x03 | 2nd wrapper RET pop $0000 |
+| 16 | $0100 | $ff51 | 0 | 0x00 | rom_bank flipped to 0; SP at $ff51 = high mem; ring shows $1ea1 → $1ff9 → $0001 → $00ea → $0100 |
+
+The pattern suggests two distinct failure modes:
+- **Mode A**: wrapper's RET into corrupt stack → PC=$0000 (events #3, #15)
+- **Mode B**: RET-storm through cleared $5C00+ region popping $0000s
+  (events #5-#14)
+
+Both lead to a re-entry into the post-reset init at $0001 (`JP $00EF`)
+but **WITHOUT triggering NR $02 reset**, because the path at PC=$0000
+in bank 3 is `DI; XOR A; LD BC,$243B; JP $3BE8` and `$3BE8`+ writes NR
+$02,$01 — only ONE such reset is logged in 70s wall, suggesting the
+NR $02 path isn't actually being reached / triggered (maybe the
+$3BE8 trampoline has overlay/different bytes during these events).
+
+### Next steps
+
+1. **Wait for DZRP NR $8E audit agent** (in progress) to confirm or
+   refute CSpect deviation hypothesis.
+2. **Add port-write probe** — log every 7FFD/1FFD/NR $8E write with PC,
+   value, and resulting sram_rom. Re-run jnext, identify exactly when
+   the +3-mode 2-bit composition catches the supervisor by surprise.
+3. **Decision**: if CSpect deviates from VHDL, we have a tension between
+   "VHDL-faithful only" directive and "CSpect is reference" directive.
+   Likely resolution: NR $8E in +3 mode should perhaps NOT update 1FFD
+   bits (matching CSpect / matching what the firmware expects). This
+   would be a DEVIATION from VHDL and needs explicit user authorization.
+4. **Cross-bank comparison via DZRP**: dump bytes at $0000-$00FF in
+   bank 1 (= 48K BASIC) on CSpect AND bank 3 (= +3 DOS) on jnext,
+   compare what supervisor sees at "the same PC" in each emulator.
+
+### Branch / commits state at this checkpoint
+
+`g46b-investigation` HEAD `9147428` (clean — investigation log appended
+in this commit message). Probe code in working tree, NOT committed yet
+(probe is TEMP per `JNEXT_G46B_*` convention; commit if useful for
+others).
+
+End of EOD-22 Wave 1.
+
+## 2026-05-09 00:10 CEST — EOD-22 Wave 2: deeper trace + DZRP NR $8E audit
+
+### DZRP NR $8E audit agent results (deliverable: doc/issues/g46b-eod22-cspect-nr8e-7ffd-1ffd-audit.md)
+
+**Key findings**:
+1. **CSpect's bank routing IS VHDL-faithful in steady state.** Slot-0 ROM
+   at `$0C90` = canonical 48K BASIC `KEY-INPUT` poll bytes, confirming
+   sram_rom = 01 = bank 1 (= 48K BASIC equivalent in NextZXOS layout).
+2. **Real-Next post-boot supervisor NEVER executes the NR $8E
+   wrappers.** BPs at `$0080, $5B00, $5B20, $5B48, $00EF, $00F3` were
+   silent for 30 s of free-run on CSpect. PC pinned at `$0C90`; bank 1
+   reached ONCE during boot and supervisor stays there.
+3. **Wrapper table at `$5B3D..$5B51`** is identical bytes to jnext.
+   Four NEXTREG $8E,$NN; RET stubs covering all 4 banks exist in RAM
+   but are dormant.
+4. CSpect's NR $8E read returns `$00` — read-back unimplemented or
+   zeroed by the plugin. read_port($7FFD/$1FFD) returns $FF. So we
+   cannot DIRECTLY verify the NR $8E side-effects on 1FFD via DZRP.
+5. NR $03 read = $33 = +3 mode unlocked (bit 7=0 = config_mode=0,
+   bits 0-2=011 = typ_sel=3, bits 4-6=011 = vdiff timing).
+
+**Verdict reframe**: jnext's bug is **not** "NR $8E should not touch
+1FFD" — that would deviate from VHDL and is unlikely to fix it. The
+wrapper at $5B48 SHOULDN'T BE REACHED in steady state. jnext's
+supervisor takes a DIFFERENT CODE PATH from CSpect's during boot.
+
+### Probe runs
+
+| Run | Probes | Wall | Result |
+|---|---|---|---|
+| pc0_trap.log | PC0_TRAP=200 | 70s | 199 events captured (event #1=cold-boot legit) |
+| ring5b00.log | POSTRESET=400 + RING_AT=$5B00 | 28s | RING_AT fired at +25s; entry via NOP-slide from $5AC0..$5AFF |
+| big.log | POSTRESET=50000 + RING_AT=$5B00 | 28s | $5B48 hit twice (#17412, #17690) — works correctly. $5B00 NOT hit in 50K events. |
+| ring5ac0.log (running) | RING_AT=$5AC0 | 28s | Captures path leading to $5AC0 itself |
+
+### KEY DISCOVERIES from probe data
+
+#### Discovery 1: $5B48 absolute wrapper works correctly post-fix (POSTRESET trace #17410-17418)
+
+```
+#17410: pc=$008A    rom_bank=0x00   sp=$5BF9   (bank 0 dispatcher pre-jp)
+#17411: pc=$008E    rom_bank=0x00   sp=$5BF9   (jp $5b48)
+#17412: pc=$5B48    rom_bank=0x00   sp=$5BF9   (NEXTREG $8E,$03)
+#17413: pc=$5B4C    rom_bank=0x03   sp=$5BF9   (RET — slot 0/1 now bank 3)
+#17414: pc=$1661    rom_bank=0x03   sp=$5BFB   (LDDR target in bank 3)
+#17415: pc=$1663    rom_bank=0x03   sp=$5BFB   (RET — LDDR completed, prev_stalled=167)
+#17416: pc=$5B4D    rom_bank=0x03   sp=$5BFD   (NEXTREG $8E,$00)
+#17417: pc=$5B51    rom_bank=0x00   sp=$5BFD   (RET — back to bank 0)
+#17418: pc=$01F0    rom_bank=0x00   sp=$5BFF   (caller continuation)
+```
+
+**All correct**. Cross-bank LDDR-RET pattern works. NR $8E,$03 routes
+to bank 3 in +3 mode (per VHDL). NR $8E,$00 routes back to bank 0.
+
+#### Discovery 2: $5B00 toggle wrapper REACHED VIA NOP-SLIDE, not via CALL/JP
+
+ring5b00.log RING_AT=$5B00 captured 64 distinct PCs leading up to
+first $5B00 entry. **All 64 are `$5AC0..$5AFF`** — sequential-byte
+NOP slide through cleared attribute RAM ($5800-$5AFF, zeroed by
+cascade).
+
+```
+RING reached pc=0x5b00 eff_mmu[0..7]=00 01 0a 0b 04 05 1e 1f rom_bank=0x00
+RING ring (oldest..newest): 5ac0 5ac1 5ac2 ... 5aff
+RING SP=0x5bff stack[0..7]=0x0000 0x0000 0x0000 0x0000 0x0000 0x0000 0x0000 0x0000
+```
+
+**Implication**: supervisor's PC reached `$5AC0` directly somehow,
+then slid through 64 NOPs (cleared attribute bytes) into the wrapper.
+The $5B00 wrapper's RET pops mem[$5BFF..$5C00] = $0000 → PC=$0000.
+
+Real Next would have something at $5AC0 or wouldn't reach there. On
+jnext, `$5AC0..$5AFF` is zeroed attribute memory + uninitialized
+`$5B00..` wrapper stack region. The RET into $0000 is a CONSEQUENCE
+of the NOP-slide entry — supervisor had no return address pushed.
+
+#### Discovery 3: PC0_TRAP histogram shows 153/200 events from prev_pc=$0100
+
+```
+153× prev_pc=$0100 — `NEXTREG $83,A` (post-cyclic-init point)
+ 24× prev_pc=$0092 — bank-3 keyword parser (RET popping zeros)
+  6× prev_pc=$5B20 — toggle wrapper RET (initial crash)
+  5× prev_pc=$FFFF — wraparound
+  3× prev_pc=$1F3A — BASIC INPUT CALL
+  3× prev_pc=$00CD/$00AA — keyword data area (RET popping zeros)
+  2× prev_pc=$21B8
+  1× prev_pc=$6D2F — legit user soft reset
+```
+
+After the initial crash (events #3,#15 from $5B20), supervisor enters
+a **panic loop**: $0000→$00EF→...→$0100→$0000 cycling every ~10ms.
+
+The exit from this panic loop never happens — supervisor is wedged
+forever.
+
+### Detailed analysis: WHY does $5B00 wrapper RET to $0000?
+
+The wrapper at `$5B00..$5B20` does PUSH AF + PUSH BC + ... + POP BC +
+POP AF + RET. Net stack effect: 0. So mem[$5BFF..$5C00] popped by the
+final RET is whatever was there before the wrapper was entered.
+
+**Caller entered via NOP-slide from $5AC0**, so caller did NOT execute
+a CALL or PUSH that would set mem[$5BFF..$5C00] = a valid return.
+Result: stack underflow popping zeroed BASIC sysvars area = $0000.
+
+### Supervisor's intended bank-flip protocols (bank 1 disasm)
+
+bank 1 `$01A6` has explicit `JP $5B00` pattern:
+```
+$0198: PUSH $1B76      ; Z80N PUSH IMM — push target
+$01A1: CALL $5B43      ; NEXTREG $8E,$02 (bank 2)
+$01A4: LDIR            ; block move in bank 2
+$01A6: JP $5B00        ; toggle wrapper (RET pops $1B76 as PC)
+```
+
+This DESIGNED protocol uses `PUSH $1B76` to set up the RET target,
+then `JP $5B00` (not CALL) so the wrapper RET pops the pushed target.
+
+But our probe shows the wrapper RET pops `$0000`, not `$1B76`. So
+either:
+- The supervisor reached $5B00 via a DIFFERENT path (NOP slide,
+  confirmed by RING_AT) without pushing a target first.
+- Or the LDIR at $01A4 overwrites stack contents to zero between
+  push and pop.
+
+The RING_AT data PROVES path #1: NOP-slide entry, no return pushed.
+
+### Strategic question — where does PC=$5AC0 come from?
+
+Capture this with `JNEXT_G46B_RING_AT=0x5AC0` (running in background).
+This will tell us what supervisor code BRANCHED INTO $5AC0 (or $5AB0,
+$5A00, etc., earlier in the slide region). That's the actual root
+cause.
+
+### Open hypotheses
+
+1. **Stack underflow trail**: prior code corrupted stack, RET popped
+   $5AC0 as a "junk return address" → PC slides through zeros to
+   $5B00 → wrapper RETs to $0000 (next zero on stack).
+2. **Bad target computation**: some code computed a target pointer
+   into attribute area (e.g., screen address arithmetic miscalc'd to
+   $5AC0).
+3. **Function pointer table miscall**: dispatch table entry was zero
+   → JP to $0000 (wait but ring shows $5AC0 not $0000), so probably
+   not this.
+
+### Next-session priorities (revised)
+
+1. **Wait for RING_AT=$5AC0 result** (running). Identifies what
+   directly precedes the NOP slide.
+2. **DZRP-side comparison at the equivalent boot moment**: set BP at
+   the supervisor PC just AFTER the cascade exit (~$018E /  $01D0) on
+   CSpect, capture full state. Then capture jnext at same point. Diff
+   identifies the divergence.
+3. **Audit jnext's SD-card response timing** — supervisor reads SD
+   during boot; if jnext's responses are slow/different from CSpect,
+   supervisor's path could diverge.
+4. **Audit jnext's RAM-test second phase** ($018E loop) — does it
+   correctly return all banks after testing? Mismatch in $FFFF read
+   could trigger error path.
+
+### Strategic conclusion
+
+The PC=$0000 trap exposes a SYMPTOM (wrapper RET to zero), not the
+root cause. The root cause is upstream — supervisor's PC reaches
+$5AC0 via some bug-induced bad branch, then the wrapper merely
+amplifies the failure into a self-reinforcing panic loop.
+
+The DZRP comparison is again the most-leveraged tool — comparing
+CSpect-vs-jnext PC trace at concrete supervisor-state moments will
+pinpoint the divergence.
+
+### Branch / commits state
+
+`g46b-investigation` HEAD `9147428` (clean tree before probe).
+Probe added in working tree (z80_cpu.cpp:684+, env-gated zero-overhead
+when off). Build green for jnext binary; pre-existing ula_test build
+failure (fmt namespace ambiguity) unrelated.
+
+End of EOD-22 Wave 2.
