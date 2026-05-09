@@ -884,3 +884,81 @@ Sites with bytes "21 00 3F E5" (LD HL,$3F00; PUSH HL):
 
 Sites with bytes "00 3F" anywhere (potential 16-bit $3F00 references):
 ```
+
+## EOD-23 ROOT CAUSE FOUND — wrong bank at $3F00 wrapper call
+
+**$3F00 is another bank-flip wrapper** (similar to $3E00), present
+ONLY in banks 1 and 2:
+
+| Bank | $3F00..$3F17 contents |
+|------|------|
+| 0 | `77 18 e4 ...` real bank-0 code (LD (HL),A; JR $3EE7; ...) |
+| 1 | wrapper with NEXTREG $8E,$02 (= flip to bank 2) |
+| 2 | wrapper with NEXTREG $8E,$01 (= flip to bank 1) |
+| 3 | `00 1c 22 78 ...` — **font glyph data, NO wrapper** |
+
+7 `CALL $3F00` sites in bank 2 (at $0888, $0ADA, $0AE9, $0FAE,
+$1044, $27F9, $2815). All expect slot 1 = bank 1 or bank 2 to
+provide the wrapper.
+
+### Failure mode in jnext
+
+Supervisor in jnext's slide-cycle does `CALL $3F00` while slot 1 =
+**bank 3 hi**. Bank 3 hi at $3F00..$3FFF is font glyph data (vertical
+line / smiley face glyphs). The CPU executes:
+- $3F00: $00 = NOP
+- $3F01: $1C = INC E
+- $3F02: $22 = LD ($nnnn),HL  (3 bytes — first byte of "real LD instr")
+- ... real Z80 ops continue, but they're interpreting font bitmaps
+  as code
+
+Eventually the byte-stream falls off the end of slot 1 ($3FFF) and
+into slot 2 ($4000) cleared screen RAM — NOP slide.
+
+Then the multi-POP epilogue at bank 3 $004D pops the wrapper's pre-
+pushed [$3F00] return target, returning to $3F00 again — recursive
+slide.
+
+### CSpect's correct behavior
+
+CSpect's supervisor at the same `CALL $3F00` has slot 1 = bank 1
+or bank 2 hi (which has the wrapper). The wrapper does:
+```
+LD ($5B54),BC
+EX (SP),HL          ; HL = post-CALL inline-DW addr
+LD C,(HL); INC HL
+LD B,(HL); INC HL
+EX (SP),HL          ; restore stack with HL+2 = real return
+PUSH $3F13          ; trampoline-end
+PUSH BC             ; target
+LD BC,($5B54)
+NEXTREG $8E,$01    ; flip to bank 1 (or $02 for bank 2 variant)
+RET                 ; pops target → executes in new bank
+```
+
+This is the SAME pattern as $3E00 wrapper. Real Next supervisor
+uses both wrappers: $3E00 for one set of bank flips, $3F00 for
+another set.
+
+### The actual bug
+
+Some PRIOR supervisor code in jnext leaves slot 0/1 mapped to bank 3
+instead of bank 1 or bank 2. When CALL $3F00 fires, the wrong bank
+is read, causing the slide cascade.
+
+This connects to the existing slot 6/7 divergence (= jnext's slot
+mapping state diverges from CSpect's at multiple points). Both
+slot 0/1 and slot 6/7 wind up wrong in jnext, suggesting a SHARED
+upstream cause — likely a NEXTREG $8E or 7FFD write sequence that
+operates differently between the two emulators.
+
+### Concrete fix path
+
+1. DZRP probe CSpect at all `CALL $3F00` sites (bank 2 $0888,
+   $0ADA, $0AE9, $0FAE, $1044, $27F9, $2815). Capture slot 0/1
+   mapping at each.
+2. Add jnext probe at the same sites, log slot 0/1.
+3. Compare. The mismatch shows when jnext's bank state diverges
+   vs CSpect.
+4. Walk back to the NEXTREG/port write that set the wrong bank.
+
