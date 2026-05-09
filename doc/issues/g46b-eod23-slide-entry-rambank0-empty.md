@@ -962,3 +962,83 @@ operates differently between the two emulators.
    vs CSpect.
 4. Walk back to the NEXTREG/port write that set the wrong bank.
 
+
+## EOD-23 toggle-wrapper analysis — ($5B5C), ($5B67) parity divergence
+
+The supervisor's RAM-resident toggle wrapper at $5B00 (copied from
+bank 0 $0091) alternates 7FFD bit 4 AND 1FFD bit 2 each invocation:
+
+```
+$0091: PUSH AF; PUSH BC
+$0093: LD BC,$7FFD
+$0096: LD A,($5B5C)        ; load saved 7FFD
+$0099: XOR $10              ; toggle bit 4
+$009C: LD ($5B5C),A         ; save back
+$009F: OUT (C),A            ; write 7FFD
+$00A1: LD BC,$1FFD
+$00A4: LD A,($5B67)         ; load saved 1FFD
+$00A7: XOR $04              ; toggle bit 2
+$00A9: LD ($5B67),A         ; save back
+$00AC: OUT (C),A            ; write 1FFD
+$00AE: EI; POP BC; POP AF; RET
+```
+
+### Bank 3 init at $1FA8 sets BOTH
+
+```
+$1FA8: PUSH HL
+$1FA9: LD A,$10; LD ($5B5C),A    ; ($5B5C) = $10 (7FFD bit 4 set)
+$1FAE: LD A,$04; LD ($5B67),A    ; ($5B67) = $04 (1FFD bit 2 set)
+$1FB3: EXX; EX AF,AF'; RET
+```
+
+If this init runs, BOTH bits are set initially. The toggle XORs both
+→ alternates between (set/set) and (cleared/cleared):
+- (cleared/cleared) → 7FFD=$00, 1FFD=$00 → **sram_rom=0** (bank 0 ROM)
+- (set/set)         → 7FFD=$10, 1FFD=$04 → **sram_rom=3** (bank 3 ROM)
+
+NEITHER bank 0 nor bank 3 has a wrapper at $3F00. The supervisor's
+`CALL $3F00` lands on:
+- Bank 0 $3F00 = `77 18 e4...` — real bank-0 code (LD (HL),A; JR $3EE7)
+- Bank 3 $3F00 = `00 1c 22 78...` — font glyph data → slide
+
+For `CALL $3F00` to find the wrapper, supervisor must alternate
+between bank 1 and bank 2. That requires ONE bit set + ONE clear:
+
+| Init combo | Toggle 1 | Toggle 2 | Banks alternated |
+|------------|----------|----------|------------------|
+| (set, set) | bank 0   | bank 3   | ❌ no wrappers |
+| (clear, clear) | bank 3 | bank 0 | ❌ no wrappers |
+| (set, clear) | bank 0   | bank 1   | ⚠️ partial — bank 0 has no wrapper |
+| (clear, set) | bank 3   | bank 2   | ⚠️ partial — bank 3 has no wrapper |
+
+NO combination toggles between bank 1 ↔ bank 2 with this XOR-both
+pattern! So the toggle wrapper as decoded MUST work differently than
+my analysis suggests, OR the supervisor avoids `CALL $3F00` after
+this toggle.
+
+### jnext state
+
+Per SLIDETRAP capture: ($5B5C)=$00, ($5B67)=$00. Toggle results in
+($5B5C)=$10, ($5B67)=$04 → sram_rom=3 → bank 3 → CALL $3F00 reads
+font data → slide.
+
+### CSpect state (DZRP capture)
+
+CSpect at HIT #6 ($103B): ($5B5C)=$00, ($5B67)=$00. Same as jnext!
+
+So jnext and CSpect have SAME ($5B5C) and ($5B67) values at the
+RST $08 entry point. The divergence must be elsewhere — perhaps:
+1. CSpect's supervisor doesn't reach the `OUT (7FFD)` path that
+   triggers the bank 3 mapping.
+2. CSpect has different prior 1FFD state (bit 2 already set in some
+   way) such that the toggle ends at bank 1/2.
+3. NR $82 bit gating differs — one or both OUT writes are blocked
+   in CSpect but not in jnext.
+
+### Concrete next step
+
+DZRP CSpect at the $5B0E OUT (7FFD) site (= where jnext's slot 6/7
+revert event fires). Compare port_7ffd / port_1ffd values BEFORE
+and AFTER the OUT. If CSpect's 1FFD is different, that's the bug.
+
