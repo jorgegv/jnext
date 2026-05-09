@@ -448,30 +448,61 @@ int Z80Cpu::execute() {
             // Pulse expired while interrupts were disabled — missed.
             int_pending_ = false;
         } else if (z80.iff1) {
-            // Resolve the vector byte for this IntAck cycle.
+            // Pass-8 fix: gate EI-grace BEFORE invoking on_int_ack().
             //
-            // Opt-in IM2 daisy-chain path: when on_int_ack is installed
-            // (Im2Controller wiring in the emulator), call it at the
-            // IntAck M1 cycle and use its returned byte as the vector.
-            // This mirrors VHDL im2_device.vhd:155 driving o_vec during
-            // S_ACK, OR-reduced by peripherals.vhd:134-144, captured at
-            // the CPU IntAck cycle per zxnext.vhd:1999.
+            // FUSE's fuse_z80_interrupt() rejects the interrupt if
+            //   tstates == interrupts_enabled_at
+            // (the EI-grace one-instruction window). Pre-fix, jnext called
+            // on_int_ack() unconditionally before this check, which advances
+            // the IM2 daisy-chain device from S_REQ to S_ACK in
+            // Im2Controller::ack_vector(). When fuse_z80_interrupt then
+            // rejected the cycle, the device sat in S_ACK without the
+            // CPU ever asserting IORQ_M1 — a state the VHDL never reaches
+            // because im2_device.vhd:111-116 only transitions S_REQ→S_ACK
+            // on (i_m1_n='0' and i_iorq_n='0' and i_iei='1' and
+            // i_im2_mode='1'); EI-grace prevents IORQ_M1 entirely (VHDL
+            // t80n.vhd:1768 — "Prefix='00' and SetEI='0'" gate). Next tick
+            // step_devices() then advanced S_ACK→S_ISR (vhdl:117 on
+            // i_m1_n='1' implicit), leaving the fabric stuck in S_ISR with
+            // no actual ISR ever invoked — phantom interrupt acceptance.
             //
-            // When not installed, fall back to the legacy int_vector_
-            // member (set via request_interrupt()). FUSE Z80 tests never
-            // install this callback, preserving 1356/1356 compliance.
-            uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
-            Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
-            libspectrum_dword before = tstates;
-            int accepted = fuse_z80_interrupt(vector);
-            sync_regs_from_fuse(regs_);
-            if (accepted) {
-                int_pending_ = false;
-                return (int)(tstates - before);
+            // Fix: replicate FUSE's gate locally and skip the on_int_ack()
+            // call when EI-grace would block. int_pending_ stays true so
+            // the next execute() retries; the IM2 fabric correctly observes
+            // no IntAck cycle this tick.
+            const bool ei_grace =
+                static_cast<libspectrum_signed_dword>(tstates)
+                    == z80.interrupts_enabled_at;
+            if (!ei_grace) {
+                // Resolve the vector byte for this IntAck cycle.
+                //
+                // Opt-in IM2 daisy-chain path: when on_int_ack is installed
+                // (Im2Controller wiring in the emulator), call it at the
+                // IntAck M1 cycle and use its returned byte as the vector.
+                // This mirrors VHDL im2_device.vhd:155 driving o_vec during
+                // S_ACK, OR-reduced by peripherals.vhd:134-144, captured at
+                // the CPU IntAck cycle per zxnext.vhd:1999.
+                //
+                // When not installed, fall back to the legacy int_vector_
+                // member (set via request_interrupt()). FUSE Z80 tests never
+                // install this callback, preserving 1356/1356 compliance.
+                uint8_t vector = on_int_ack ? on_int_ack() : int_vector_;
+                Log::cpu()->debug("INT vector={:#04x} at PC={:#06x}", vector, z80.pc.w);
+                libspectrum_dword before = tstates;
+                int accepted = fuse_z80_interrupt(vector);
+                sync_regs_from_fuse(regs_);
+                if (accepted) {
+                    int_pending_ = false;
+                    return (int)(tstates - before);
+                }
+                // Defensive: fuse_z80_interrupt may still return 0 for
+                // reasons other than EI-grace (we've already filtered that
+                // above). Keep int_pending_ true so the interrupt is retried
+                // next cycle. Fall through to execute one instruction first.
             }
-            // If not accepted (e.g. interrupts_enabled_at == tstates), keep
-            // int_pending_ true so the interrupt is retried next cycle.
-            // Fall through to execute one instruction first.
+            // EI-grace branch: do NOT call on_int_ack(). The IM2 fabric
+            // stays in S_REQ; next tick the EI-grace expires and the retry
+            // path above lands the IntAck cycle correctly.
         }
     }
 
@@ -639,7 +670,33 @@ int Z80Cpu::execute() {
     }
 
     // ── Normal Z80 instruction ─────────────────────────────────────────
+    // Pass-8 fix: DD/FD/CB-prefix inner-byte M1 callback delivery to the
+    // IM2 control FSM (im2_control.vhd:158-209). The FSM's S_DDFD_T4 and
+    // S_CB_T4 states transition only on the NEXT ifetch_fe_t3 — pre-fix,
+    // jnext delivered only the prefix byte and the FSM never saw the
+    // inner byte's M1 cycle, leaving the FSM stuck in S_DDFD_T4 / S_CB_T4
+    // until the *following* instruction's M1 fired. That stuck state
+    // breaks RETI/RETN detection for any code where DD/FD/CB-prefix is
+    // followed by ED 4D / ED 45 (real HW: S_DDFD_T4 → S_0 on the inner
+    // byte, then S_0 → S_ED_T4 → S_ED4D_T4 — RETI seen; pre-fix jnext:
+    // S_DDFD_T4 → S_0 on the ED byte, then S_0 (4D doesn't open ED_T4),
+    // RETI never seen). Solution: peek at the inner byte after the
+    // prefix and fire on_m1_cycle for it before FUSE executes the
+    // instruction atomically. We deliver the byte at PC+1 — that is the
+    // inner opcode for DD/FD prefixes (the actual instruction in DD <op>
+    // sequences) and the CB-prefix inner opcode for plain CB. For
+    // DD CB d <op> / FD CB d <op>, the second prefix CB lives at PC+1
+    // and the displacement+inner opcode are fetched *as data* (not M1)
+    // on real hardware (t80n.vhd: only the first two bytes are M1). So
+    // peeking PC+1 covers all three prefix shapes: DD <op>, FD <op>,
+    // CB <op>, DD CB d op, FD CB d op.
     if (on_m1_cycle) on_m1_cycle(pc, opcode);
+    if (opcode == 0xDD || opcode == 0xFD || opcode == 0xCB) {
+        if (on_m1_cycle) {
+            uint8_t inner = mem_.read(static_cast<uint16_t>((pc + 1) & 0xFFFF));
+            on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), inner);
+        }
+    }
 
     int cycles = fuse_z80_execute_one();
 
