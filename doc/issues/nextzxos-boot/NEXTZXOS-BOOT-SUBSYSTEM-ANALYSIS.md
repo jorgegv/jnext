@@ -16,8 +16,18 @@
 | 5 | 4 fresh blind — final-convergence angles | 11 | NR $09/$15 cross-fix; LDPIRX confirmed; Z80N M1 contention |
 | 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | 4 | One per subsystem |
 | 7 | 4 fresh blind — convergence-test pass | 7 | NMI same-shape pattern systemic |
-| 8 | 4 fresh blind — stricter (resolve class-b) | **14 + 11 class-b resolved** | All 4 subsystems resolved class-b backlog; class-c catalogued (now pass-9 targets) |
-| **Total (8 passes)** | | **82 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged**; user clarified strictest criterion: zero pending of any class (a, b, OR c) per pass |
+| 8 | 4 fresh blind — stricter (resolve class-b) | 14 + 11 class-b resolved | All 4 subsystems resolved class-b backlog |
+| 9 | 4 fresh blind — strictest (resolve class-c) | **10 + 11 class-c resolved** | **All 4 subsystems at zero class-a/b/c**. 4 class-(d) architectural items escalated for user authorization |
+| **Total (9 passes)** | | **92 class-(a) bugs** + 1 follow-up | **Strict convergence achieved on class-a/b/c**; 4 class-(d) architectural items pending user authorization |
+
+## Class-(d) architectural escalations pending user authorization
+
+| Subsystem | Item | Effort | Boot impact |
+|---|---|---|---|
+| Memory | port_7ffd_reg vs port_7ffd_dat half-cycle phase | M (CPU half-cycle model required) | None observable above per-instruction granularity |
+| Memory | Generic VHDL `*_q` registered signals | M (CPU half-cycle model required) | None observable |
+| DivMMC + SD + SPI | SPI cycle-precise FSM + DMA `wait_n` throttle | L-H (multi-subsystem refactor) | None — no boot path needs this fidelity |
+| NMI + MF + Port | Stackless NMI (NR $C0 bit 3) | M | Pre-existing Q1 plan cut; not on current boot path |
 
 **Pass-by-pass count by subsystem:**
 
