@@ -313,6 +313,19 @@ public:
     /// Returns 0xFF when outside active display or in Next/Pentagon modes.
     uint8_t floating_bus_read() const;
 
+    /// VHDL-faithful `ula_floating_bus` active-arm helper (zxula.vhd:573).
+    /// Computes the VRAM byte the ULA is fetching at the current raster
+    /// position when `border_active_ula='0' AND floating_bus_en='1'`.
+    /// Returns true and writes the byte into @p out_byte when the active
+    /// arm fires; returns false otherwise (caller picks the fallback —
+    /// `i_p3_floating_bus` for +3, X"FF" for 48K/128K). Verify9-memory
+    /// class-(c) → class-(a) fix (+3 floating-bus active-display path):
+    /// previously the +3 0x0FFD handler unconditionally returned the
+    /// contended-CPU latch (border arm), missing the active-display
+    /// VRAM byte path. This helper exposes the active arm so both port
+    /// 0xFF (48K/128K) and port 0x0FFD (+3) can share the decode.
+    bool ula_floating_bus_active_arm(uint8_t& out_byte) const;
+
     // ══════════════════════════════════════════════════════════════════════
     // === TEST-ONLY ACCESSORS (UI code must NOT call these) ==============
     //

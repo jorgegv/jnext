@@ -7,6 +7,18 @@ enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
 class ContentionModel {
 public:
     void build(MachineType type);
+
+    /// Verify9-memory: hot-rebuild the contention LUT + per-machine
+    /// decode without touching the dynamic gate state
+    /// (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable
+    /// /shadow, contended_slot_[]). Used by the NR 0x03 machine-timing
+    /// commit path so a runtime Next→48K/128K/+3/Pentagon switch
+    /// updates the LUT (the +3 path adds the `hc_adj[3:1]=000` corner
+    /// per VHDL zxula.vhd:582-583) without resetting paging or
+    /// contention-disable state. `build()` (called from Emulator::init)
+    /// remains the full-reset entry point.
+    void rebuild_for_type(MachineType type);
+
     uint8_t delay(uint16_t hc, uint16_t vc) const;
     bool is_contended_address(uint16_t addr) const;
 
@@ -16,12 +28,14 @@ public:
     }
 
     // ── VHDL-faithful combined-gate inputs ────────────────────────────
-    // Model the four signals feeding the VHDL contention enable gate
+    // Model the signals feeding the VHDL contention enable gate
     // (zxnext.vhd:4481) and the memory-side mem_contend decode
-    // (zxnext.vhd:4489-4493). Used by is_contended_access(); they do NOT
-    // alter the existing delay() / is_contended_address() / set_contended_slot()
-    // surface — runtime tick-loop integration is out of scope for this
-    // change.
+    // (zxnext.vhd:4489-4493). Used by is_contended_access() AND by the
+    // per-cycle `contention_tick()` runtime path — Verify9-memory
+    // confirmed the FUSE Z80 callbacks (src/cpu/z80_cpu.cpp) push the
+    // mem_active_page on every memory cycle and the NR 0x82 / NR 0x07
+    // / NR 0x08 / NR 0x03 dispatchers push their gate updates on every
+    // write, so all production paths consume these gate inputs.
 
     /// 8-bit SRAM page index seen at the CPU cycle's active address
     /// (mem_active_page in zxnext.vhd:4489-4493). High bits [7:4] gate
@@ -105,6 +119,17 @@ public:
         }
     }
 
+    /// Verify9-memory: NR 0x82 bit 1 mirror, gates `port_7ffd_active`
+    /// (zxnext.vhd:2594). When set AND machine timing is 128K/+3 AND
+    /// the address is a port_7ffd write, the VHDL OR-term at :4496
+    /// asserts `port_contend='1'`. Pre-fix the bare-class
+    /// `port_contend()` accessor dropped this term ("port_7ffd_active"
+    /// gated by machine-timing-128/-p3 selection) — port 0x7FFD writes
+    /// on 128K/+3 missed contention. Now wired here so the runtime
+    /// caller can push NR 0x82 bit 1 directly.
+    void set_port_7ffd_io_en(bool en) { port_7ffd_io_en_ = en; }
+    bool port_7ffd_io_en() const { return port_7ffd_io_en_; }
+
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
     uint8_t pending_cpu_speed()  const { return pending_cpu_speed_; }
@@ -163,16 +188,16 @@ public:
     ///                     match the high byte, `port_3b_lsb` matches the
     ///                     low byte, AND `port_ulap_io_en`).
     ///
-    /// **Bare-class limitation**: this overload does NOT consume the
-    /// `port_7ffd_active` term (zxnext.vhd:2594) — that signal is gated
-    /// by full machine-timing-128 / -p3 selection AND `port_7ffd_io_en`
-    /// (NR 0x82 bit 1) AND a valid `port_7ffd` address decode, all of
-    /// which only the full `Emulator` can drive truthfully today. Phase B
-    /// rows CT-IO-05/06 will exercise that term once the runtime wiring
-    /// lands. Calling this accessor for `cpu_a == 0x7FFD` therefore
-    /// returns `(not cpu_a(0)) == 0` (i.e. the odd-bit term only) and
-    /// will under-report contention for 128K/+3 — that is expected and
-    /// caller-documented.
+    /// Verify9-memory class-(c) → class-(a) fix: the `port_7ffd_active`
+    /// OR-term (zxnext.vhd:2594) is now consumed by this accessor. The
+    /// gate inputs (`port_7ffd_io_en_` shadow + `type_`) are state on
+    /// the model itself, pushed by the runtime caller (Emulator) on
+    /// every NR 0x82 write. The address decode (`cpu_a(15)='0' AND
+    /// (cpu_a(14)='1' OR NOT p3_timing) AND port_fd AND NOT port_1ffd`)
+    /// is computed inline. Calling this accessor for `cpu_a == 0x7FFD`
+    /// on 128K/+3 with NR 0x82 bit 1 set now returns true (matches VHDL
+    /// :4496 OR-term firing); pre-fix the term was dropped and 128K/+3
+    /// port 0x7FFD writes silently missed contention.
     bool port_contend(uint16_t cpu_a, bool port_ulap_io_en) const;
 
 private:
@@ -200,4 +225,9 @@ private:
     // commit_contention_disable_on_hc()).
     bool    contention_disable_        = false;
     bool    contention_disable_shadow_ = false;
+    // Verify9-memory: NR 0x82 bit 1 mirror (zxnext.vhd:2399). Gates the
+    // `port_7ffd_active` OR-term in `port_contend()`. Power-on default
+    // matches NR 0x82 bit 1 = '0' (zxnext.vhd:1394 — internal_port_enable
+    // resets to "00..."). Pushed by Emulator's NR 0x82 write handler.
+    bool    port_7ffd_io_en_           = false;
 };
