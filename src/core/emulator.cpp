@@ -1688,6 +1688,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             soft_reset();
         }
         // bit 7 alone (RESET_ESPBUS) is intentionally ignored — no ESP.
+
+        // Pass-8 verify-audit fix (2026-05-09): VHDL zxnext.vhd:3319 gates
+        // the X"7F" Flash-CS decode on `(nr_03_config_mode='1') OR
+        // (nr_02_reset_type(2)='1')`. After a soft-reset strobe (bit 0)
+        // the reset_type FSM advances and may transition the bit-2 latch,
+        // changing the gate. Re-fan-out to SpiMaster so a Flash-select
+        // write on port 0xE7 immediately observes the post-strobe gate.
+        spi_.set_flash_cs_enable(
+            nextreg_.nr_03_config_mode()
+            || ((nmi_source_.reset_type() & 0x04) != 0));
         return v;
     });
 
@@ -1897,6 +1907,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // Mirror config_mode into Mmu so the fast-path read/write routing
         // (VHDL zxnext.vhd:3044-3050) tracks the NextReg state.
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
+        // Pass-8 verify-audit fix (2026-05-09): VHDL zxnext.vhd:3319 gates
+        // the X"7F" Flash-CS decode on `nr_03_config_mode='1'` (OR
+        // reset_type(2)='1'). Re-fan-out to SpiMaster so a Flash-select
+        // write on port 0xE7 immediately observes the new gate.
+        spi_.set_flash_cs_enable(
+            nextreg_.nr_03_config_mode()
+            || ((nmi_source_.reset_type() & 0x04) != 0));
         Log::emulator()->info("NextREG 0x03 ← {:#04x}  (config_mode={})",
                               v, nextreg_.nr_03_config_mode() ? 1 : 0);
         return v;
@@ -3945,6 +3962,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
     spi_.attach_device(0, &sd_card_);  // SD card on CS0
+
+    // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
+    // composite Flash-CS gate from the post-power-on / post-init state.
+    // Power-on defaults: nr_03_config_mode='1' (zxnext.vhd:1102) AND
+    // reset_type='100' (zxnext.vhd:1306) — both factors true, so the
+    // Flash-CS decode is enabled at boot. Subsequent NR 0x02 / NR 0x03
+    // writes re-fan-out via the handlers above.
+    spi_.set_flash_cs_enable(
+        nextreg_.nr_03_config_mode()
+        || ((nmi_source_.reset_type() & 0x04) != 0));
 
     // --- ROM loading ---
 
@@ -6117,6 +6144,15 @@ void Emulator::load_state(StateReader& r)
     if (!r.eof()) {
         nr_02_bus_reset_ = r.read_bool();
     }
+
+    // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
+    // composite gate from the canonical loaded state (nr_03_config_mode +
+    // reset_type bit 2). The gate itself is NOT persisted — it's a
+    // derived field — so older snapshots and current snapshots both
+    // recompute it here. Mirrors the i2c_.set_pi_i2c1_en re-sync above.
+    spi_.set_flash_cs_enable(
+        nextreg_.nr_03_config_mode()
+        || ((nmi_source_.reset_type() & 0x04) != 0));
 }
 
 // ---------------------------------------------------------------------------

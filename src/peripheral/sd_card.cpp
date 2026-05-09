@@ -65,10 +65,20 @@ void SdCardDevice::unmount() {
         file_.close();
         sd_log()->info("SD image unmounted");
     }
-    state_ = State::IDLE;
-    initialized_ = false;
+    // Pass-8 verify-audit fix (2026-05-09): symmetric with mount(). Pre-fix
+    // unmount() cleared only state_ / initialized_ / file_size_ /
+    // pending_write_after_r1_, leaving cmd_idx_, resp_buf_, resp_idx_,
+    // data_idx_, data_crc_count_, app_cmd_, multi_block_, multi_block_sector_
+    // and persistent_response_byte_ stale. After-the-fact remount via mount()
+    // does call reset() and is therefore safe — but a bare unmount() (e.g.
+    // user-initiated Eject SD with no follow-up mount) left the card in a
+    // half-cleared state. The early-out in receive()/send() (`if
+    // (!file_.is_open()) return 0xFF`) made it benign for runtime I/O but
+    // surfaced as bugs in tests and cross-tool snapshot inspection. Use the
+    // same canonical full reset() that mount() uses; the only difference
+    // unmount() needs is closing the file (above) and clearing file_size_.
+    reset();
     file_size_ = 0;
-    pending_write_after_r1_ = false;
 }
 
 void SdCardDevice::deselect() {
@@ -336,9 +346,16 @@ void SdCardDevice::process_command() {
             acmd41_sd_send_op_cond();
             return;
         }
-        // Unknown ACMD — treat as illegal, return R1 with illegal command bit
+        // Unknown ACMD — treat as illegal per SD spec § 7.3.2.1 R1 bit 2.
+        // Pass-8 verify-audit fix (2026-05-09): pre-fix hard-coded 0x05 (= idle
+        // + illegal), which mis-asserted the idle bit on a card that has
+        // already completed ACMD41 init. The idle bit (bit 0) must reflect the
+        // card's actual idle state; only bit 2 (illegal command) is set on
+        // unknown ACMD. Boot path doesn't issue unknown ACMDs, so the prior
+        // bug was latent — class-(b) → corrected for spec faithfulness.
         sd_log()->warn("unknown ACMD{} arg={:#010x}", cmd, cmd_arg());
-        queue_r1(0x05);  // idle + illegal command
+        const uint8_t idle_bit = initialized_ ? 0x00 : 0x01;
+        queue_r1(static_cast<uint8_t>(idle_bit | 0x04));  // (idle?) + illegal
         return;
     }
 
@@ -358,8 +375,18 @@ void SdCardDevice::process_command() {
         case 55: cmd55_app_cmd(); break;
         case 58: cmd58_read_ocr(); break;
         default:
-            sd_log()->warn("unhandled CMD{} arg={:#010x}", cmd, cmd_arg());
-            queue_r1(initialized_ ? 0x00 : 0x01);
+            // Pass-8 verify-audit fix (2026-05-09): per SD Physical Layer
+            // Simplified Spec § 7.3.2.1, R1 bit 2 = "Illegal Command" — set
+            // when the card receives a command it does not support. Pre-fix
+            // returned only the idle bit, which let firmware silently ignore
+            // unsupported-command failures (CMD20/40/45/CMD59 etc.) instead
+            // of triggering the firmware's illegal-command error path. Boot
+            // path uses only the supported set above, so the prior behaviour
+            // was latent; class-(b) → corrected for spec faithfulness and to
+            // exercise the firmware's error path on unsupported commands.
+            sd_log()->warn("unhandled CMD{} arg={:#010x} (R1=illegal)",
+                           cmd, cmd_arg());
+            queue_r1(static_cast<uint8_t>((initialized_ ? 0x00 : 0x01) | 0x04));
             break;
     }
 }

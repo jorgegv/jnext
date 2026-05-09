@@ -277,15 +277,23 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     // `elsif automap_held = '1' then button_nmi <= '0'` clause re-clears
     // the latch every cycle while `automap_held` is high (subject to the
     // higher-priority i_reset / i_automap_reset / i_retn_seen clears and
-    // the i_divmmc_button set above them). Functionally this means once
-    // `automap_held` goes high, any lingering `button_nmi` is dropped.
-    // We model this with a rising-edge one-shot clear: on the 0→1
-    // transition of automap_held_, zero button_nmi_. Steady-state
-    // semantics match the VHDL "cleared while held=1" behaviour since
-    // the only re-setter (i_divmmc_button) is not driven in this path.
-    if (!prev_held && automap_held_ && button_nmi_) {
+    // the i_divmmc_button set above them).
+    //
+    // Pass-8 verify-audit fix (2026-05-09): pre-fix used a 0→1 rising-edge
+    // one-shot clear on automap_held_, which diverged from VHDL whenever a
+    // new `i_divmmc_button` strobe arrived AFTER held=1 had been latched
+    // (e.g. user double-presses Drive button while overlay is held). VHDL
+    // would clear it every subsequent clock; pre-fix kept it true until the
+    // next held 0→1 edge or RETN. Practical impact: NmiSource consumes
+    // `is_nmi_hold() = held OR button_nmi`, so the held=true masking
+    // hid the divergence except on the falling edge of held — at which
+    // point jnext kept the NMI hold asserted while VHDL released it.
+    // Class-(b) → resolved by clearing button_nmi every check_automap call
+    // when held remains 1, matching VHDL's continuous-while-held semantics.
+    (void)prev_held;
+    if (automap_held_ && button_nmi_) {
         divmmc_log()->debug(
-            "button_nmi cleared by automap_held rising edge "
+            "button_nmi cleared while automap_held=1 "
             "(VHDL divmmc.vhd:112-113)");
         button_nmi_ = false;
     }
