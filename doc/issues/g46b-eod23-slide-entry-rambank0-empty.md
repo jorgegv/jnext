@@ -384,3 +384,44 @@ different code site (bank 1 $32CC). This EOD-23 confirms the SAME
 mechanism is exercised at bank 0 $27A3 and is symptomatic of the
 underlying upstream stack-state divergence.
 
+
+## EOD-23 NR $5x,$FF audit (slots 2-5)
+
+Per Wave 8 closure priority "Audit other NR $5x with $FF cases (slots
+2-5)". Static scan of all 4 enNextZX banks for `NEXTREG $5x, $FF`
+(bytes `ED 91 5x FF`):
+
+```
+bank 0 $0bf6: NEXTREG $51, $FF
+bank 1 $0ae9, $0c60, $0ec2, $0ef0, $0f23, $0ff7, $1041, $126a, $15b0:
+              NEXTREG $51, $FF
+bank 3 $090c: NEXTREG $51, $FF
+```
+
+**Result: ALL 11 NR $5x,$FF sites are for slot 1 (NR $51,$FF) — already
+covered by Wave 8 fix.** No NR $52, $53, $54, $55 with $FF.
+
+So the fallback `map_rom(i, 0)` for slots 2-5 in [emulator.cpp:1396]
+is not exercised by the supervisor. Audit complete; no further fix
+needed for slots 2-5.
+
+
+## NR $5x usage patterns in supervisor
+
+Full inventory of NEXTREG $5x writes (any value) in supervisor:
+
+| Slot | NR | Sites | Common values |
+|------|-----|-------|---------------|
+| 1 | $51 | 13 | $10 (= bank 8 lo, transient remap) and $FF (restore legacy) |
+| 7 | $57 | 16 | $10 (= bank 8 lo) and $0F (= bank 7 hi, dual-port) |
+| 3 | $53 | 1 | $00 (bank 2 $0971) |
+| 4 | $54 | 1 | $01 (bank 2 $0975) |
+| 6 | $56 | 2 | $0E (= bank 7 lo, dual-port) |
+
+The supervisor's slot manipulation patterns:
+- Slot 1: transient bank 8 swap for LDIR copies
+- Slot 7: bank 7/8 swap for screen RAM dual access (with logical pages
+  $0F/$0E that bypass the +$20 shift per Mmu::to_sram_page())
+- Slot 6: bank 7 lo for dual-port access
+- Slots 3,4: one-time setup writes (1 each)
+
