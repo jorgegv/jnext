@@ -1859,6 +1859,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     static_cast<int>(mmu_.machine_type()),
                     static_cast<int>(new_mt), typ_sel);
                 mmu_.set_machine_type(new_mt);
+                // Verify7-memory class-(a) fix: VHDL `sram_rom3`
+                // (zxnext.vhd:2981-3008) is per-machine-type — switching
+                // to/from 48K (which hardwires sram_rom3='1') or +3 (which
+                // requires both port_1ffd_rom bits) flips the signal even
+                // when ports are unchanged. Repush the new value to
+                // DivMmc so the ROM3-conditional auto-map gate
+                // (zxnext.vhd:3138) tracks the machine-type change.
+                divmmc_.set_rom3_active(mmu_.sram_rom3());
             }
         }
 
@@ -2135,6 +2143,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x8C, [this](uint8_t v) -> uint8_t {
         mmu_.set_nr_8c(v);
         rom_.set_alt_rom_config(v);
+        // Verify7-memory class-(a) fix: VHDL `sram_rom3` (zxnext.vhd:2990,
+        // 3000) factors NR 0x8C altrom lock bits per machine type. An NR
+        // 0x8C write that flips lock_rom1/lock_rom0 must repush sram_rom3
+        // to DivMmc so the ROM3-conditional auto-map gate (zxnext.vhd:3138)
+        // tracks the new lock state — VHDL drives it combinationally; we
+        // need an explicit refresh because DivMmc caches the bit.
+        divmmc_.set_rom3_active(mmu_.sram_rom3());
         return v;
     });
     nextreg_.set_read_handler(0x8C, [this]() -> uint8_t {
@@ -2482,10 +2497,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             renderer_.ula().set_shadow_screen_en(mmu_.shadow_screen_en());
             // Push the new ROM3 state into DivMmc. VHDL zxnext.vhd:3138
             // composites sram_divmmc_automap_rom3_en from sram_pre_rom3
-            // (derived from sram_rom == "11"); Task 7 Branch B exposes the
-            // ROM-selection signal to DivMmc so entry points with NR 0xB9
-            // bit=0 gate correctly on ROM3 (EP1..EP7 path).
-            divmmc_.set_rom3_active(mmu_.rom3_selected());
+            // (derived from VHDL `sram_rom3` at zxnext.vhd:2981-3008). The
+            // VHDL signal is per-machine-type and factors in NR 0x8C altrom
+            // locks: 48K hardwires '1', +3 is `port_1ffd_rom(1) AND port_1ffd_rom(0)`,
+            // ZXN/128K is `port_1ffd_rom(0)` (= port_7ffd(4)).
+            //
+            // Verify7-memory class-(a) fix: the legacy `rom3_selected()`
+            // observer returned `current_rom_bank() == 3` — only correct
+            // for +3 with no altrom lock. On Next mode, VHDL says ROM3 is
+            // active whenever `port_7ffd(4)=1` (1-bit sram_rom), but
+            // `rom3_selected()` required BOTH `port_1ffd(2)` AND
+            // `port_7ffd(4)`, under-reporting ROM3-active in the standard
+            // Next-mode boot path and silently suppressing DivMMC's
+            // ROM3-conditional auto-map. Switch to the VHDL-faithful
+            // `sram_rom3()` accessor.
+            divmmc_.set_rom3_active(mmu_.sram_rom3());
             // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
             //   128K: odd banks (1,3,5,7) are contended
             //   +3:   banks >= 4 (4,5,6,7) are contended
@@ -2589,7 +2615,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((nextreg_.cached(0x82) & 0x08) == 0) return;
             mmu_.map_plus3_bank(v);
             // Push the new ROM3 state to DivMmc (Task 7 Branch B).
-            divmmc_.set_rom3_active(mmu_.rom3_selected());
+            // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
+            // zxnext.vhd:2981-3008 / :3138, NOT the legacy
+            // `rom3_selected()` (== current_rom_bank == 3) observer.
+            divmmc_.set_rom3_active(mmu_.sram_rom3());
             // Update per-slot contention for +3 (VHDL: banks >= 4 are contended).
             bool special_mode = (v & 0x01) != 0;
             if (special_mode) {
@@ -3975,7 +4004,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // MMU resets port_7ffd/port_1ffd to 0, so rom3 is false. On soft reset
     // the port state is also zeroed by mmu_.reset() — subsequent port
     // writes will re-push. Kept here so DivMmc::rom3_active_ starts in sync.
-    divmmc_.set_rom3_active(mmu_.rom3_selected());
+    //
+    // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
+    // zxnext.vhd:2981-3008 / :3138 (the actual signal that feeds
+    // `sram_divmmc_automap_rom3_en`), NOT the simpler `rom3_selected()`
+    // observer that ignores machine-type and altrom-lock state.
+    // 48K mode hardwires sram_rom3='1' at boot — must be reflected.
+    divmmc_.set_rom3_active(mmu_.sram_rom3());
 
     // DivMMC ROM loading.
     //

@@ -1808,6 +1808,98 @@ void test_cat11b_effective_rom_page_post_port_write() {
     }
 }
 
+// ── Cat 11c: machine_type change preserves slot 0/1 RAM mapping ─────
+// Verify7-memory class-(a) regression test. VHDL `sram_rom`
+// (zxnext.vhd:2981-3008) is combinational from machine_type, but the
+// SRAM arbiter consumes it ONLY on the legacy-ROM branch (:3052) — i.e.
+// when MMU<i> is in the ROM-area sentinel range. A machine_type change
+// does NOT trigger port_memory_change_dly (zxnext.vhd:3813), so VHDL
+// leaves MMU0/MMU1 register values alone — slots explicitly mapped to
+// RAM via NR 0x50/0x51 stay at their RAM page.
+//
+// Pre-fix: Mmu::set_machine_type() unconditionally called
+// apply_legacy_rom_slots_(), which forced both slots back to ROM and
+// clobbered nr_mmu_[0]/[1] to 0xFF — even when firmware had explicitly
+// mapped slot 0/1 to a RAM page via NR 0x50/0x51.
+namespace {
+void test_cat11c_machine_type_preserves_ram_slots() {
+    set_group("Cat11c machine_type preserves slot 0/1 RAM (verify7)");
+
+    // MTC-01: Slot 0 RAM-mapped via NR 0x50, then machine_type change
+    // must leave the RAM mapping intact (read_only_=false, nr_mmu_[0]
+    // = original page).
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        // Map slot 0 to RAM page 0x20 (legacy 7FFD bank 0, post-shift).
+        f.mmu.set_page(0, 0x20);
+        const uint8_t pre_page  = f.mmu.get_page(0);
+        const bool    pre_ro    = f.mmu.is_slot_rom(0);
+        // Switch to a different machine type — VHDL would leave MMU0
+        // alone on this transition (no port_memory_change_dly pulse).
+        f.mmu.set_machine_type(MachineType::ZX128K);
+        const uint8_t post_page = f.mmu.get_page(0);
+        const bool    post_ro   = f.mmu.is_slot_rom(0);
+        check("MTC-01",
+              "machine_type change leaves slot 0 NR-mapped to RAM "
+              "(VHDL :3813 — no port_memory_change_dly pulse)",
+              pre_page == 0x20 && !pre_ro &&
+              post_page == 0x20 && !post_ro,
+              fmt("pre: page=%u ro=%d / post: page=%u ro=%d "
+                  "(expected page=32 ro=0 both)",
+                  pre_page, static_cast<int>(pre_ro),
+                  post_page, static_cast<int>(post_ro)));
+    }
+
+    // MTC-02: Slot 1 RAM-mapped, machine_type change preserves it.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        f.mmu.set_page(1, 0x21);
+        f.mmu.set_machine_type(MachineType::ZX_PLUS3);
+        const uint8_t post_page = f.mmu.get_page(1);
+        const bool    post_ro   = f.mmu.is_slot_rom(1);
+        check("MTC-02",
+              "slot 1 RAM mapping preserved across machine_type → +3",
+              post_page == 0x21 && !post_ro,
+              fmt("post: page=%u ro=%d (expected 33/0)",
+                  post_page, static_cast<int>(post_ro)));
+    }
+
+    // MTC-03: Both slots in legacy ROM mode — machine_type change refreshes
+    // the cached read_ptr_ via engage_legacy_rom_paging_slot. Verify both
+    // slots are still in ROM mode AND the cached page tracks new sram_rom.
+    // Switch from ZXN_ISSUE2 with port_7ffd(4)=1 (sram_rom=1, pages 2/3)
+    // to ZX48K (sram_rom hardwired 0, pages 0/1) — discriminative because
+    // the page changes per-machine even with no port write.
+    {
+        Fixture f;
+        f.fresh();
+        f.mmu.map_128k_bank(0x10);           // 7ffd(4)=1; ZXN sram_rom=1
+        // Sanity: pre-switch slots use sram_rom=1 → pages 2/3.
+        const uint8_t pre_e0 = f.mmu.get_effective_page(0);
+        const uint8_t pre_e1 = f.mmu.get_effective_page(1);
+        f.mmu.set_machine_type(MachineType::ZX48K);  // sram_rom hardwired 0
+        const bool ro0 = f.mmu.is_slot_rom(0);
+        const bool ro1 = f.mmu.is_slot_rom(1);
+        // After 48K: sram_rom=0 → physical ROM pages 0/1.
+        const uint8_t e0 = f.mmu.get_effective_page(0);
+        const uint8_t e1 = f.mmu.get_effective_page(1);
+        check("MTC-03",
+              "machine_type change refreshes legacy-ROM slot 0/1 cache "
+              "to new sram_rom-derived pages (ZXN→48K: 2/3 → 0/1)",
+              pre_e0 == 2 && pre_e1 == 3 &&
+              ro0 && ro1 && e0 == 0 && e1 == 1,
+              fmt("pre eff0=%u eff1=%u / post ro0=%d ro1=%d eff0=%u eff1=%u "
+                  "(expected pre 2/3, post 1/1/0/1)",
+                  pre_e0, pre_e1,
+                  static_cast<int>(ro0), static_cast<int>(ro1), e0, e1));
+    }
+}
+}
+
 // ── Cat 21: Nirvana / per-write mux (G12) + Shadow-screen NR (G58) ───
 namespace {
 void test_cat21_nirvana_multiplex() {
@@ -3273,6 +3365,7 @@ int main() {
     test_cat10_port_eff7();
     test_cat11_rom_selection();
     test_cat11b_effective_rom_page_post_port_write();
+    test_cat11c_machine_type_preserves_ram_slots();
     test_cat12_altrom();
     test_cat13_config_mode();
     test_cat14_addr_translation();
