@@ -592,6 +592,360 @@ static void test_boot_sd_01() {
     std::remove(img2.c_str());
 }
 
+// ─── New: SD-15 / mount() does full reset (TASK2-VERIFY5) ───────────────
+
+static void test_sd_15_mount_full_reset() {
+    // SD-15 (TASK2-VERIFY5 commit 24a1bc4): SdCardDevice::mount() does a
+    // full SPI-protocol state reset, identical to reset(). Pre-fix mount()
+    // cleared only state_/initialized_/app_cmd_/cmd_idx_, leaving
+    // resp_buf_/resp_idx_/data_idx_/data_crc_count_/multi_block_/
+    // multi_block_sector_/persistent_response_byte_/data_block_/cmd_buf_
+    // untouched. A runtime mount swap (e.g. user changes --sd-card while
+    // a CMD17 SENDING_DATA is mid-transfer) leaves these fields stale.
+    //
+    // Reviewer finding (NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-DIVMMC-SD-SPI-
+    // REVIEW.md §3 / §4.1): the original SD-15 design called init_card()
+    // between mount(img2) and CMD17. The init_card sequence inevitably
+    // hits receive()'s default-state abort branch (sd_card.cpp:201-218 —
+    // "new CMD start byte while state_!=IDLE") because CMD8's resp_buf_
+    // is left partially-drained after send_cmd_r1's "stop on first non-FF"
+    // poll. That abort branch DOES clear multi_block_/multi_block_sector_/
+    // pending_write_after_r1_, masking the leak — and CMD17 then re-reads
+    // data_block_ from the new file. Net: original test passed both pre-
+    // fix and post-fix.
+    //
+    // Discriminative redesign: the cleanest leaked field that survives
+    // the IDLE-state path through receive()/send() is
+    // persistent_response_byte_. Post-CMD0 on img1, the field is set to
+    // 0x01 (ZEsarUX-style sustained response per cmd0_go_idle at line
+    // 410). After mount(img2), state_=IDLE in both pre/post fix; a bare
+    // send() in IDLE state returns persistent_response_byte_ verbatim
+    // (sd_card.cpp:236-243). No abort branch fires, no command is issued,
+    // no write touches data_block_. The IDLE-branch send() is the
+    // shortest path that still surfaces the leak.
+    //
+    //   - Pre-fix: persistent_response_byte_=0x01 (LEAKED across mount).
+    //   - Post-fix: mount() calls reset() which sets it to 0xFF.
+    //
+    // CRITICAL: do NOT call deselect() or reset() between issuing CMD0
+    // and the post-mount probe — both would clear persistent_response_
+    // byte_=0xFF and mask the leak. The probe is one bare send() call
+    // in IDLE state. We also test multi-block leak indirectly by
+    // confirming subsequent CMD17 returns the correct img2 content
+    // (round-trip integrity preserved across remount).
+    std::string img1 = make_image(8);
+    std::string img2 = make_image(8);
+
+    // Customise img2 sector 2 byte 4 to 0xCC so pre/post is unambiguous.
+    {
+        FILE* f = std::fopen(img2.c_str(), "r+b");
+        std::fseek(f, 2 * 512 + 4, SEEK_SET);
+        std::fputc(0xCC, f);
+        std::fclose(f);
+    }
+
+    SdCardDevice sd;
+
+    // (1) Mount img1 and issue a single CMD0. cmd0_go_idle() sets
+    //     persistent_response_byte_=0x01 (sd_card.cpp:431). state_ ends
+    //     in IDLE (RESPONDING drains eagerly when resp_buf_ is fully
+    //     read by send_cmd_r1).
+    bool m1 = sd.mount(img1);
+    sd.reset();          // start from a known clean state
+    uint8_t r1_cmd0 = send_cmd_r1(sd, 0, 0);  // R1=0x01 expected
+
+    // (2) Critical: mount(img2) WITHOUT deselect()/reset() between.
+    //     Pre-fix: state_=IDLE, but persistent_response_byte_=0x01
+    //     leaks through. Post-fix: full reset() restores it to 0xFF.
+    bool m2 = sd.mount(img2);
+
+    // (3) Probe: a single bare send() in state_=IDLE returns
+    //     persistent_response_byte_ verbatim (sd_card.cpp:243). This
+    //     bypasses the abort branch entirely and is the most direct
+    //     observation of the leaked field.
+    //
+    //     Pre-fix: 0x01.  Post-fix: 0xFF.
+    uint8_t leaked_persistent = spi_read(sd);
+
+    // (4) Round-trip integrity check: with proper init on img2, CMD17
+    //     sector=2 must return img2's content (byte 4 = 0xCC). This
+    //     is the original sanity-check intent of SD-15. Pass-fix and
+    //     post-fix should both succeed here, but it pins the broader
+    //     contract that mount(img2) leaves the card usable.
+    init_card(sd);
+    uint8_t r1_17 = send_cmd_r1(sd, 17, 2);
+    bool tok17 = wait_token(sd);
+    uint8_t got[512] = {}; if (tok17) read_block(sd, got);
+    sd.deselect();
+    sd.unmount();
+
+    // The PRIMARY discriminator is `leaked_persistent==0xFF`. Pre-fix
+    // it equals 0x01 (leaked from CMD0 on img1); post-fix it equals
+    // 0xFF (reset by mount()'s reset() call).
+    bool ok = m1 && m2
+           && r1_cmd0 == 0x01
+           && leaked_persistent == 0xFF
+           && r1_17 == 0x00 && tok17 && got[4] == 0xCC && got[0] == 0x02;
+
+    check("SD-15",
+          "mount() does full reset() — persistent_response_byte_ MUST "
+          "NOT leak across a runtime mount swap. Probe: after CMD0 on "
+          "img1 (which sets persistent_response_byte_=0x01), mount(img2) "
+          "must clear it back to 0xFF. A bare send() in IDLE state then "
+          "returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). "
+          "Round-trip integrity also pinned via subsequent CMD17 on img2. "
+          "Pre-fix mount() cleared only state_/initialized_/app_cmd_/"
+          "cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 "
+          "commit 24a1bc4)",
+          ok,
+          "r1_cmd0=" + std::to_string(r1_cmd0) +
+          " leaked=" + std::to_string(leaked_persistent) +
+          " r1_17=" + std::to_string(r1_17) +
+          " tok17=" + (tok17 ? "1" : "0") +
+          " got4=" + std::to_string(got[4]) +
+          " got0=" + std::to_string(got[0]));
+
+    std::remove(img1.c_str());
+    std::remove(img2.c_str());
+}
+
+// ─── New: SD-16 / cmd16 idle-bit reflects initialized_ (TASK2-VERIFY5) ──
+
+static void test_sd_16_cmd16_idle_bit(SdCardDevice& sd) {
+    // SD-16 (TASK2-VERIFY5 commit 24a1bc4): cmd16_set_blocklen(arg≠512)
+    // R1 idle bit (bit 0) must reflect initialized_ — NOT be hard-coded
+    // to 1. SD spec § 4.9.1 R1 layout: bit 0 = "in idle state" (the card
+    // is in initialization), bit 2 = "illegal command". Pre-fix returned
+    // 0x05 (idle + illegal) unconditionally, mis-reporting a post-init
+    // (ACMD41-completed) card as still in idle.
+    //
+    // Discriminative shape (complements SD-12 above which only checks
+    // bit 2): with the card INITIALIZED via init_card(), CMD16 arg=256
+    // must return R1=0x04 (illegal-only, idle CLEAR). With the card
+    // RESET (uninit), arg=256 returns R1=0x05 (idle + illegal). Both
+    // reflect the same cmd16_set_blocklen() branch but pin both legs
+    // of the idle-bit derivation.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_init = send_cmd_r1(sd, 16, 256);   // bad blocklen, init
+    sd.deselect();
+
+    sd.reset();   // back to uninit (CMD0 not issued -> initialized_=false)
+    uint8_t r1_uninit = send_cmd_r1(sd, 16, 256); // bad blocklen, uninit
+    sd.deselect();
+
+    check("SD-16",
+          "CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 "
+          "(illegal only, idle CLEAR); uninitialized card -> 0x05 "
+          "(idle + illegal). Idle bit must derive from initialized_, "
+          "not be hard-coded (SD spec § 4.9.1)",
+          r1_init == 0x04 && r1_uninit == 0x05,
+          "init=" + std::to_string(r1_init) +
+          " uninit=" + std::to_string(r1_uninit));
+}
+
+// ─── New: SD-17 / CMD24 0xFF gap-byte tolerance (TASK2-VERIFY4) ─────────
+
+static void test_sd_17_cmd24_gap_bytes(SdCardDevice& sd) {
+    // SD-17 (TASK2-VERIFY4 commit c7acf9e): CMD24 RECEIVING_DATA must
+    // tolerate spec-mandated 0xFF gap bytes between R1 and the 0xFE
+    // start-of-data token. SD Physical Layer Simplified Spec 6.00
+    // § 7.3.3.2: "Following the command response (R1) and one (or
+    // more) bytes of $FF (host SPI clock), the data must be sent
+    // following a Data Token byte ($FE for single block)." The card
+    // MUST tolerate any number of 0xFF gap bytes before the data token.
+    // Pre-fix code absorbed each 0xFF into data_block_, shifting the
+    // 512-byte payload and corrupting the write. esxdos / generic
+    // FatFs DO send gap bytes per spec; tbblue's xmit_datablock writes
+    // the token immediately after R1 and missed the bug.
+    //
+    // Test shape: build a deterministic 512-byte payload, write it via
+    // CMD24 with N=4 leading 0xFF gap bytes after R1 (before the 0xFE
+    // token), read back via CMD17, verify identity. Pre-fix the first 4
+    // bytes of the readback would be shifted (bytes 0..3 of the payload
+    // would be lost, replaced by 0xFF); post-fix the readback matches
+    // the payload byte-for-byte.
+    sd.reset();
+    init_card(sd);
+
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i)
+        pattern[i] = static_cast<uint8_t>((i * 7 + 0x33) & 0xFF);
+
+    // Use sector=10 to avoid clobbering fixtures that other tests rely on.
+    uint8_t r1_wr = send_cmd_r1(sd, 24, 10);
+
+    // The fix: emit GAP bytes (0xFF) BEFORE the 0xFE token. Per spec
+    // these are clock-only fillers; pre-fix they leaked into data_block_.
+    constexpr int N_GAP = 4;
+    for (int i = 0; i < N_GAP; ++i) spi_write(sd, 0xFF);
+
+    spi_write(sd, 0xFE);   // start-of-data token
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);   // CRC hi
+    spi_write(sd, 0xFF);   // CRC lo
+
+    bool data_resp_ok = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0x05) { data_resp_ok = true; break; }
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+
+    // Read back via CMD17.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_rd = send_cmd_r1(sd, 17, 10);
+    bool tok = wait_token(sd);
+    uint8_t got[512] = {};
+    if (tok) read_block(sd, got);
+    sd.deselect();
+
+    bool match = std::memcmp(got, pattern, 512) == 0;
+
+    check("SD-17",
+          "CMD24 tolerates leading 0xFF gap bytes between R1 and the "
+          "0xFE start-of-data token; readback equals payload byte-for-"
+          "byte (SD Phys Layer Spec 6.00 § 7.3.3.2)",
+          r1_wr == 0x00 && data_resp_ok && r1_rd == 0x00 && tok && match,
+          "r1_wr=" + std::to_string(r1_wr) +
+          " resp=" + std::string(data_resp_ok ? "1" : "0") +
+          " r1_rd=" + std::to_string(r1_rd) +
+          " tok=" + (tok ? "1" : "0") +
+          " match=" + (match ? "1" : "0") +
+          " got0=" + std::to_string(got[0]) +
+          " exp0=" + std::to_string(pattern[0]));
+
+    // Restore fixture content for sector 10 so subsequent tests are
+    // unaffected: sector S has byte 0..3 = LE(S) and bytes 4..511 =
+    // (S+i) & 0xFF.
+    sd.reset();
+    init_card(sd);
+    uint8_t orig[512];
+    orig[0] = 0x0A; orig[1] = 0x00; orig[2] = 0x00; orig[3] = 0x00;
+    for (int i = 4; i < 512; ++i)
+        orig[i] = static_cast<uint8_t>((10 + i) & 0xFF);
+    (void)send_cmd_r1(sd, 24, 10);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, orig[i]);
+    spi_write(sd, 0xFF); spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0x05) break;
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+}
+
+// ─── New: SD-18 / unhandled CMD R1 illegal-cmd bit (TASK2-VERIFY8) ──────
+
+static void test_sd_18_unhandled_cmd(SdCardDevice& sd) {
+    // SD-18 (TASK2-VERIFY8 commit 6ebfd2b): the default branch of the
+    // CMD switch (unhandled command, e.g. CMD20 / CMD40 / CMD45 /
+    // CMD59) must set R1 bit 2 (illegal command) per SD spec § 7.3.2.1.
+    // Pre-fix returned only the idle bit (R1=0x00 or 0x01), letting
+    // firmware silently ignore unsupported-command failures instead
+    // of triggering its illegal-command error path.
+    //
+    // Use CMD20 — not implemented in jnext (not in the case switch),
+    // unambiguously hits the `default:` branch. With the card
+    // initialized, R1 bit 0 = 0 (not idle) and bit 2 = 1 (illegal).
+    sd.reset();
+    init_card(sd);
+    uint8_t r1 = send_cmd_r1(sd, 20, 0);
+    sd.deselect();
+
+    check("SD-18",
+          "Unhandled CMD20 returns R1 with bit 2 (illegal command) set; "
+          "bit 0 (idle) clear on initialized card "
+          "(SD spec § 7.3.2.1; TASK2-VERIFY8 fix)",
+          (r1 & 0x04) != 0 && (r1 & 0x01) == 0,
+          "r1=" + std::to_string(r1));
+}
+
+// ─── New: SD-19 / unknown ACMD R1 illegal-cmd bit (TASK2-VERIFY8) ──────
+
+static void test_sd_19_unknown_acmd(SdCardDevice& sd) {
+    // SD-19 (TASK2-VERIFY8 commit 6ebfd2b): the unknown-ACMD branch
+    // (e.g. CMD55+ACMD13/22/23/42/51 are recognised; ACMD7 etc. are
+    // not) must set R1 bit 2 (illegal command). The idle bit (bit 0)
+    // must reflect initialized_, NOT be hard-coded to 1. Pre-fix
+    // hard-coded R1=0x05 (idle + illegal), mis-asserting idle on a
+    // post-ACMD41 card.
+    //
+    // NB: pass-9 commit ff84d3e changed CMD55+non-ACMD41 to FALL THROUGH
+    // to the regular CMD switch (per SD spec § 4.3.9.1). So a CMD55
+    // followed by a non-ACMD41 command exercises the regular CMD path,
+    // not the unknown-ACMD branch. To exercise the unknown-ACMD
+    // default we need a CMD that has an ACMD overload that's NOT
+    // explicitly recognized in jnext's process_command (CMD41 is the
+    // only ACMD jnext implements; everything else falls through). After
+    // pass-9 the unknown-ACMD branch is reached only when the regular
+    // CMD switch ALSO doesn't match (i.e. the index is not in
+    // {0,1,8,12,13,16,17,18,23,24,55,58}). CMD42 fits — no regular
+    // entry, no ACMD entry → default ACMD-illegal branch (after
+    // pass-9: still hits unknown-ACMD before fall-through, OR reaches
+    // the regular default unhandled-CMD branch which ALSO sets bit 2
+    // per pass-8). Either way, R1 bit 2 must be set with bit 0 = 0.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_55 = send_cmd_r1(sd, 55, 0);   // APP_CMD prefix
+    uint8_t r1_acmd42 = send_cmd_r1(sd, 42, 0); // unknown ACMD
+    sd.deselect();
+
+    check("SD-19",
+          "CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) "
+          "set; bit 0 (idle) clear on initialized card "
+          "(SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from "
+          "initialized_)",
+          r1_55 == 0x00
+              && (r1_acmd42 & 0x04) != 0
+              && (r1_acmd42 & 0x01) == 0,
+          "r1_55=" + std::to_string(r1_55) +
+          " r1_acmd42=" + std::to_string(r1_acmd42));
+}
+
+// ─── New: SD-20 / CMD55+non-ACMD falls through (TASK2-VERIFY9) ──────────
+
+static void test_sd_20_cmd55_fallthrough(SdCardDevice& sd) {
+    // SD-20 (TASK2-VERIFY9 commit ff84d3e): per SD Physical Layer
+    // Simplified Spec § 4.3.9.1 / § 7.3.2.1 / § 4.3.9.5, "If the next
+    // command following CMD55 is not an application-specific (ACMD)
+    // command, the application-specific flag is cleared and the command
+    // is treated as a regular command." Pre-fix returned R1 illegal for
+    // any non-ACMD41 sequence, violating spec for the regular CMD bridge
+    // case (e.g. CMD55 → CMD17 must return CMD17's R1=0x00 and proceed
+    // with a single-block read).
+    //
+    // Test shape: issue CMD55, then CMD17 sector=2 — expect R1=0x00 and
+    // a successful 512-byte read (token + data) matching sector 2's
+    // identity bytes.
+    sd.reset();
+    init_card(sd);
+
+    // Issue CMD55 — recognized; returns R1=0x00 (init), sets app_cmd_=true.
+    uint8_t r1_55 = send_cmd_r1(sd, 55, 0);
+
+    // Next command is a REGULAR cmd (CMD17), not an ACMD. Per spec the
+    // app-cmd flag must clear and CMD17 runs as normal.
+    uint8_t r1_17 = send_cmd_r1(sd, 17, 2);
+    bool tok = wait_token(sd);
+    uint8_t blk[512] = {}; if (tok) read_block(sd, blk);
+    sd.deselect();
+
+    check("SD-20",
+          "CMD55 followed by non-ACMD (CMD17) falls through to regular "
+          "CMD switch; R1=0x00 + data block matches sector 2 fixture "
+          "(SD spec § 4.3.9.1; TASK2-VERIFY9 fix)",
+          r1_55 == 0x00 && r1_17 == 0x00 && tok
+              && blk[0] == 0x02 && blk[1] == 0x00,
+          "r1_55=" + std::to_string(r1_55) +
+          " r1_17=" + std::to_string(r1_17) +
+          " tok=" + (tok ? "1" : "0") +
+          " b0=" + std::to_string(blk[0]));
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -660,10 +1014,20 @@ int main() {
     test_cmd24_write(sd);
     test_mmc_cmd1_init(sd);
 
-    // BOOT-SD-01 / BOOT-SD-02 use their own local SdCardDevice + images so
-    // they don't disturb the shared `sd` and `img` above.
+    // TASK2-TESTCOV — retroactive regression coverage for DivMMC/SD/SPI
+    // pass-3..pass-10 fixes. Each test cites the specific fix commit and
+    // VHDL/SD-spec reference.
+    test_sd_16_cmd16_idle_bit(sd);   // 24a1bc4 (pass-5)
+    test_sd_17_cmd24_gap_bytes(sd);  // c7acf9e (pass-4)
+    test_sd_18_unhandled_cmd(sd);    // 6ebfd2b (pass-8)
+    test_sd_19_unknown_acmd(sd);     // 6ebfd2b (pass-8)
+    test_sd_20_cmd55_fallthrough(sd); // ff84d3e (pass-9)
+
+    // BOOT-SD-01 / BOOT-SD-02 / SD-15 use their own local SdCardDevice +
+    // images so they don't disturb the shared `sd` and `img` above.
     test_boot_sd_01();
     test_boot_sd_02();
+    test_sd_15_mount_full_reset();   // 24a1bc4 (pass-5)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
