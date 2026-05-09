@@ -582,6 +582,14 @@ void Z80Cpu::save_state(StateWriter& w) const
     w.write_u8(regs_.IFF1); w.write_u8(regs_.IFF2);
     w.write_u8(regs_.IM);
     w.write_bool(regs_.halted);
+    // Pass-3 fix: include the hidden WZ/MEMPTR register and the F-assembly
+    // shadow Q. Without these, save/load loses the undocumented X/Y flag
+    // composition state used by BIT (HL)/(IX+d)/(IY+d) and by SCF/CCF
+    // (FUSE consults `last_Q = z80.q` at the start of every opcode and
+    // BIT_MEMPTR uses `z80.memptr.b.h` for X/Y composition). Both fields
+    // are already present in Z80Registers and synced by sync_*regs.
+    w.write_u16(regs_.MEMPTR);
+    w.write_u8(regs_.Q);
     // Interrupt state
     w.write_bool(nmi_pending_);
     w.write_bool(int_pending_);
@@ -601,6 +609,9 @@ void Z80Cpu::load_state(StateReader& r)
     regs_.IFF1 = r.read_u8(); regs_.IFF2 = r.read_u8();
     regs_.IM  = r.read_u8();
     regs_.halted = r.read_bool();
+    // Pass-3 fix: restore MEMPTR + Q (see save_state comment).
+    regs_.MEMPTR = r.read_u16();
+    regs_.Q      = r.read_u8();
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
     int_vector_  = r.read_u8();

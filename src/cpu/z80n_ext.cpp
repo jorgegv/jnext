@@ -19,6 +19,33 @@ static inline bool parity_even(uint8_t v) {
     return (v & 1) == 0;
 }
 
+// Pass-3 fix: VHDL t80n.vhd:1277-1285 — block-transfer flag update
+// applied when I_BT='1'. LDI/LDIR/LDIX/LDIRX/LDDX/LDDRX/LDIRSCALE all
+// set I_BT=1 at MCycle 3 with ALU_Op=ADD and BusA=A, BusB=(HL), so
+// ALU_Q = A + bytetemp. The VHDL sets:
+//   F.X = ALU_Q[3], F.Y = ALU_Q[1], F.H = 0, F.N = 0
+//   F.P = (BC != 0 after dec)
+// S, Z, C are preserved.
+//
+// Spec reference (https://wiki.specnext.dev/Extended_Z80_instruction_set):
+//   LDIX  flags affected: N, H, P/V, X, Y
+//   LDDX  flags affected: N, H, P/V, X, Y
+//   LDIRX flags affected: N, H, P/V, X, Y
+//   LDDRX flags affected: N, H, P/V, X, Y
+//
+// Mirrors FUSE LDI/LDIR pattern (third_party/fuse-z80/z80_ed.c:280-291),
+// adapted for the LDIX-family bytetemp+A composition.
+static inline uint8_t ldi_family_flags(uint8_t bytetemp, uint8_t A,
+                                       uint16_t BC_post_dec, uint8_t f_in) {
+    const uint8_t lookup = static_cast<uint8_t>(bytetemp + A);
+    uint8_t f = f_in & (FLAG_C | FLAG_Z | FLAG_S);   // preserved
+    if (BC_post_dec) f |= FLAG_P;                     // V/P = (BC != 0)
+    if (lookup & 0x08) f |= FLAG_X;                   // X = ALU_Q[3]
+    if (lookup & 0x02) f |= FLAG_Y;                   // Y = ALU_Q[1]
+    // H = 0, N = 0 (left clear)
+    return f;
+}
+
 // Z80N T-state counts — per Spectrum Next official spec (next.specnext.dev) /
 // VHDL t80n_mcode.vhd MCycles + per-cycle TStates overrides.
 //
@@ -71,6 +98,12 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (temp & 0x20) f |= FLAG_Y;  // undocumented bit 5
             // N=0, C=0 (already 0)
             regs.AF = ((uint16_t)a << 8) | f;
+            // Pass-3 fix: Q tracks last F write (FUSE convention, used by
+            // SCF/CCF for undocumented X/Y flag composition). VHDL t80n
+            // doesn't model Q, but the FUSE Z80 core consults Q on the very
+            // next SCF/CCF; without this update, those instructions read a
+            // stale pre-Z80N Q and emit wrong X/Y flags.
+            regs.Q = f;
             cpu.set_registers(regs);
             return 11;  // M1+M1+R(+1 internal) per spec
         }
@@ -141,6 +174,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t f = regs.AF & 0xFF;
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
+            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
             cpu.set_registers(regs);
             return 8;
         }
@@ -153,6 +187,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t f = regs.AF & 0xFF;
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
+            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
             cpu.set_registers(regs);
             return 8;
         }
@@ -165,6 +200,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t f = regs.AF & 0xFF;
             f = (f & ~FLAG_C) | ((result >> 16) & 1);
             regs.AF = ((uint16_t)a << 8) | f;
+            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
             cpu.set_registers(regs);
             return 8;
         }
@@ -305,7 +341,9 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::LDIX: {
-            // ED A4 — single iteration block transfer with transparency
+            // ED A4 — single iteration block transfer with transparency.
+            // Pass-3 fix: VHDL I_BT block-transfer flag update — see
+            // ldi_family_flags() above and t80n.vhd:1277-1285.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -315,6 +353,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            uint8_t f = ldi_family_flags(temp, A, regs.BC,
+                                         static_cast<uint8_t>(regs.AF & 0xFF));
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q  = f;
             cpu.set_registers(regs);
             return 16;  // M1+M1+R+W per spec
         }
@@ -343,12 +385,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // N=0 (already cleared)
             regs.DE = ((uint16_t)D << 8) | (regs.DE & 0xFF);
             regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
             cpu.set_registers(regs);
             return 14;
         }
 
         case Z80NOpcode::LDDX: {
-            // ED AC — single iteration, HL decrements
+            // ED AC — single iteration, HL decrements.
+            // Pass-3 fix: VHDL I_BT block-transfer flag update.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -358,6 +402,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            uint8_t f = ldi_family_flags(temp, A, regs.BC,
+                                         static_cast<uint8_t>(regs.AF & 0xFF));
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q  = f;
             cpu.set_registers(regs);
             return 16;
         }
@@ -377,6 +425,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // T-states: 21 per iteration when BC!=0 after decrement (still
             // repeating), 16 on the terminal iteration. Spec values per
             // Spectrum Next reference; matches the standard LDIR shape.
+            //
+            // Pass-3 fix: VHDL I_BT block-transfer flag update.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -386,6 +436,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            uint8_t f = ldi_family_flags(temp, A, regs.BC,
+                                         static_cast<uint8_t>(regs.AF & 0xFF));
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q  = f;
             int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
@@ -402,6 +456,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // MCycles="100" decoder block; per VHDL DE INCREMENTS while HL
             // DECREMENTS — confirmed by IncDec_16 codes "0101" (inc DE) and
             // "1110" (dec HL) at lines 2240+2244).
+            //
+            // Pass-3 fix: VHDL I_BT block-transfer flag update.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -411,6 +467,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            uint8_t f = ldi_family_flags(temp, A, regs.BC,
+                                         static_cast<uint8_t>(regs.AF & 0xFF));
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q  = f;
             int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
@@ -450,6 +510,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // MCycles="100" + PC-rewind repeat shape as LDIRX).
             // VHDL note: the BC'/DE' alternate register additions are commented
             // out in the FPGA source. The mcode uses standard HL++, DE++.
+            //
+            // Pass-3 fix: VHDL I_BT block-transfer flag update — LDIRSCALE's
+            // mcode (line 2208-2209) explicitly sets Set_BusA_To=A,
+            // ALU_Op=ADD, so the flag composition matches LDI/LDIRX.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             uint8_t temp = cpu.memory().read(regs.HL);
@@ -459,6 +523,10 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
             regs.BC = (regs.BC - 1) & 0xFFFF;
+            uint8_t f = ldi_family_flags(temp, A, regs.BC,
+                                         static_cast<uint8_t>(regs.AF & 0xFF));
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q  = f;
             int t = 16;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
