@@ -1805,6 +1805,99 @@ static void g_dma_group()
 }
 
 // =====================================================================
+// Group TestCov — Regression rows for NMI/MF/Port/NextREG verify-pass
+// fixes (commits c1d7998..6051f01) that lack a dedicated unit-tier test.
+// Each row cites VHDL line + fix commit. See report:
+//   doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-NMI-MF-PORT.md
+// =====================================================================
+
+static void g_testcov_nmi_regressions()
+{
+    set_group("TestCov");
+
+    // TC-NMI3-END-IDLE — Subsequent NMIs work after the first
+    //   (Initial NMI-3, c1d7998). Pre-fix the FSM stuck in `End` forever
+    //   because `observe_cpu_wr()` was defined but never called from the
+    //   Emulator. Fix: case End now advances to Idle on the same pass
+    //   that clears the priority latches. This row drives a full IDLE →
+    //   FETCH → HOLD → END cycle, then triggers a second MF NMI and
+    //   confirms the FSM re-enters Fetch (not End-stuck).
+    //   VHDL :2149-2162 (S_NMI_END), :2102-2105 (latch clear).
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+
+        // First NMI cycle.
+        nmi.strobe_mf_button();
+        nmi.tick(1);                      // IDLE → FETCH
+        const bool reached_fetch_1 = nmi.state() == NmiSource::State::Fetch;
+        nmi.observe_m1_fetch(0x0066, true, true);  // FETCH → HOLD (direct)
+        // Tick once with mf_nmi_hold defaulting false: HOLD → END.
+        nmi.tick(1);
+        const bool reached_end = nmi.state() == NmiSource::State::End;
+        // NMI-3 fix: End advances to Idle on the next tick (otherwise
+        // the FSM would stick in End and no second NMI could fire).
+        nmi.tick(1);
+        const bool back_to_idle = nmi.state() == NmiSource::State::Idle;
+
+        // Second NMI cycle — must fire if End→Idle works.
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool reached_fetch_2 = nmi.state() == NmiSource::State::Fetch;
+
+        check("TC-NMI3-END-IDLE",
+              "FSM advances End → Idle so subsequent NMIs fire "
+              "[zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998]",
+              reached_fetch_1 && reached_end && back_to_idle &&
+              reached_fetch_2,
+              std::string{"f1="} + std::to_string(reached_fetch_1) +
+              " end=" + std::to_string(reached_end) +
+              " idle=" + std::to_string(back_to_idle) +
+              " f2=" + std::to_string(reached_fetch_2));
+    }
+
+    // TC-NMI-HOLD-LINE-HIGH — /NMI line is HIGH (deasserted) during HOLD
+    //   (Verify1, 78f5f1c). VHDL :2168 — /NMI is asserted only in
+    //   IDLE+activated, FETCH, or expbus debounce. NOT in HOLD.
+    //   Pre-fix `nmi_generate_n` was '0' through HOLD (functionally
+    //   invisible because Z80 latches on falling edge, but spec violation).
+    //
+    //   We use the MF producer for clarity and rely on `mf_nmi_hold_`
+    //   sticky-set so the FSM stays in HOLD long enough to observe.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.set_mf_nmi_hold(true);        // hold sticky: HOLD stays in HOLD
+
+        // Drive FSM IDLE → FETCH via MF producer.
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool fetch = nmi.state() == NmiSource::State::Fetch;
+        // /NMI must be LOW (asserted) in FETCH per VHDL :2168.
+        const bool nmi_low_in_fetch = !nmi.nmi_generate_n();
+
+        // FETCH → HOLD on M1 fetch at 0x0066.
+        nmi.observe_m1_fetch(0x0066, true, true);
+        const bool hold = nmi.state() == NmiSource::State::Hold;
+        // /NMI must be HIGH (deasserted) in HOLD per VHDL :2168.
+        // (The FSM is in HOLD now even before the next tick, since
+        // observe_m1_fetch sets state directly.)
+        const bool nmi_high_in_hold = nmi.nmi_generate_n();
+
+        check("TC-NMI-HOLD-LINE-HIGH",
+              "/NMI deasserted (HIGH) during HOLD state "
+              "[zxnext.vhd:2168 / Verify1 78f5f1c]",
+              fetch && nmi_low_in_fetch && hold && nmi_high_in_hold,
+              std::string{"fetch="} + std::to_string(fetch) +
+              " low_fetch=" + std::to_string(nmi_low_in_fetch) +
+              " hold=" + std::to_string(hold) +
+              " high_hold=" + std::to_string(nmi_high_in_hold));
+    }
+}
+
+// =====================================================================
 // Main
 // =====================================================================
 
@@ -1820,6 +1913,7 @@ int main() {
     g_divmmc_clears();     std::printf("  CLR  DivMMC clears    -- done\n");
     g_gate_registers();    std::printf("  GATE gate registers   -- done\n");
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
+    g_testcov_nmi_regressions(); std::printf("  TC   verify-pass regressions -- done\n");
     g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- RE-HOMED to CTC plan (G88)\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
     g_mf_int_wiring();     std::printf("  MF-INT F-gate live wiring -- done\n");
