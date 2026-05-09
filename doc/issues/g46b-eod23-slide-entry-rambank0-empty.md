@@ -1106,3 +1106,79 @@ branch where one path takes the toggle and another doesn't.
 Probe candidate: trace PC sequence around $5B00 entry in jnext.
 The CALLER's PC tells us the upstream decision point.
 
+
+## EOD-23 FULL CASCADE PATH RECONSTRUCTED
+
+`JNEXT_G46B_RING_AT=$4000` captured the complete slide cascade:
+
+```
+Step 1: Bank 0 supervisor at $0322 → $0324 → $02DB
+Step 2: $02DB RET pops $004D → PC=$004D (= bank 3 multi-POP epilogue)
+Step 3: $004D-$0052 unwinds 4 saved registers + RET pops $3F00
+Step 4: PC=$3F00 in slot 1 = bank 3 hi (= FONT GLYPH DATA, no wrapper!)
+Step 5: CPU executes font bytes as Z80 ops:
+        - $3F00: $00 (NOP)
+        - $3F01: $1C (INC E)
+        - $3F02: $22 (LD ($nnnn),HL — 3 bytes)
+        - $3F05: $20 $7E (JR NZ,$7E — taken to $3F85)
+        - $3F85+: continues through bank 3 hi font data
+Step 6: PC reaches $3FFF (last byte of slot 1)
+Step 7: PC = $4000 → enters slot 2 (= screen pixel area, all $00s)
+Step 8: NOP slide through screen pixels $4000-$57FF (6144 bytes)
+Step 9: PC enters attribute area $5800-$5AFF (all $38 = `JR C,e`)
+Step 10: $38 = JR C with offset $XX. Carry=0, so JR not taken.
+         PC advances by 2 each step.
+Step 11: PC reaches $5B00 = TOGGLE WRAPPER ENTRY
+Step 12: Toggle wrapper executes:
+         OUT (7FFD), $10  → 7FFD bit 4 set
+         OUT (1FFD), $04  → 1FFD bit 2 set
+         RET
+Step 13: New sram_rom = 3 → bank 3 ROM at slot 0/1
+Step 14: Supervisor's next CALL $3F00 lands in bank 3 hi font (slide repeat)
+```
+
+### Divergence point with CSpect
+
+At Step 4, jnext has slot 1 = bank 3 hi. In CSpect, slot 1 must be
+bank 1 or bank 2 hi (= wrapper at $3F00 present). The RET pop of
+$3F00 lands in real wrapper code, executes correctly, no cascade.
+
+### Why does jnext have bank 3 in slot 1 at Step 4?
+
+Per the multi-POP epilogue at bank 3 $004D-$0052: this code RUNS in
+bank 3 (slot 0 = bank 3 lo, sram_rom=3). For PC to reach $004D
+executing `D1 C1 E1 F1 FB C9` (= POP DE; POP BC; POP HL; POP AF;
+EI; RET), slot 0 must be bank 3 lo. So sram_rom=3 there.
+
+After RET to $3F00, slot 1 is STILL bank 3 hi (no NEXTREG between
+$0052 RET and $3F00). So slot 1 = bank 3 hi at $3F00 = font data.
+
+### The actual divergence: what set sram_rom=3 BEFORE $004D?
+
+Some prior NEXTREG $8E or 7FFD/1FFD write set sram_rom=3 in jnext.
+That write must NOT have happened in CSpect (or fired with different
+value). The toggle wrapper at $5B00 is ONE source — but per Step 12,
+the toggle was REACHED via the cascade itself (= chicken-and-egg).
+
+There must be an EARLIER bank-3 set that triggers the cascade. Each
+cycle:
+- Supervisor sets bank 3 (somewhere)
+- Reaches $004D multi-POP via stack
+- RET pops $3F00 → font slide → attr slide → $5B00 toggle
+- Toggle clears bank 3 → bank 0
+- ... but next cycle reaches bank 3 again
+
+The supervisor has a STATE MACHINE that cycles: bank-3 → bank-0 via
+toggle. CSpect's state machine cycles bank-1 ↔ bank-2 instead.
+
+### Concrete fix path (final)
+
+Find the FIRST NEXTREG/port write that sets sram_rom=3 in jnext per
+boot cycle. That's the original divergence. CSpect's equivalent
+write sets sram_rom=1 or sram_rom=2.
+
+Probable origin: NEXTREG $8E with bit 1 set + bit 0 cleared (= 1FFD(2)
+set), making sram_rom=2. If jnext's path also sets bit 0 (= 7FFD(4)
+set), sram_rom=3. The differing bit might come from a stale 7FFD(4)
+that CSpect cleared but jnext didn't.
+
