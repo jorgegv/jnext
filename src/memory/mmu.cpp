@@ -164,19 +164,68 @@ void Mmu::rebuild_ptr(int slot) {
             write_ptr_[slot] = nullptr;
         }
     } else {
-        // RAM slot: apply the VHDL floating-bus gate (zxnext.vhd:3060-3061).
-        // For slots 2..7 (cpu_a(15:14) ≠ "00"), the early-decode process
-        // drives `sram_pre_active <= (not mmu_A21_A13(8)) and …`. The VHDL
-        // formula at zxnext.vhd:2964 sets mmu_A21_A13(8)='1' whenever
-        // mem_active_page(7 downto 5) = "111", i.e. page >= 0xE0. When
-        // sram_pre_active is '0' the SRAM is inactive: CPU reads return
-        // the floating bus (0xFF in practice, nothing drives the bus) and
-        // writes are dropped. Slots 0/1 take a different VHDL branch at
-        // line 3029 (mf_mem_en / config_mode / sram_rom) and must not be
-        // gated here — they keep their ROM/config-mode routing.
-        if (slot >= 2 && page >= 0xE0) {
-            read_ptr_[slot]  = nullptr;
-            write_ptr_[slot] = nullptr;
+        // VHDL floating-bus / inactive-slot gate (zxnext.vhd:2964 +
+        // 3029-3066). The early-decode process derives
+        //   mmu_A21_A13(8) = '1'  iff  mem_active_page(7:5) = "111"
+        // i.e. logical page >= 0xE0.
+        //
+        // For slots 2..7 (cpu_a(15:14) ≠ "00") the SRAM arbiter at
+        // line 3060-3061 drives `sram_pre_active <= (not mmu_A21_A13(8))
+        // and …`. When inactive, CPU reads return the floating bus
+        // (0xFF in practice) and writes are dropped.
+        //
+        // For slots 0/1 (cpu_a(15:14) = "00") VHDL takes a different
+        // branch at lines 3029-3057. With mmu_A21_A13(8) = '1' and no
+        // MF override, the access falls through to the legacy ROM path
+        // at line 3052 (`sram_pre_A21_A13 <= "000000" & sram_rom &
+        // cpu_a(13)`) — i.e. the slot is served from the
+        // sram_rom-derived ROM page, NOT from the MMU page. This is
+        // the same effect as a NR $50/$51 = $FF write per
+        // zxnext.vhd:4611-4612 + :3052.
+        //
+        // Without this gate, an NR $50/$51 write with v ∈ [$E0..$FE]
+        // would store the page verbatim in slots_[slot] (matching VHDL
+        // MMU<i>), but rebuild_ptr would then resolve it as a RAM page
+        // via `to_sram_page(v) = (v + 0x20) mod 256` — pointing to a
+        // wrong wrap-aliased SRAM region (e.g. page $E5 → $05) instead
+        // of the legacy ROM. Re-route through the same map_rom_physical
+        // path used by engage_legacy_rom_paging_slot() so the cached
+        // pointer matches sram_rom — but leave nr_mmu_[slot] alone so
+        // the NR 0x50/0x51 read-back returns the verbatim VHDL MMU<i>
+        // value, not the 0xFF sentinel.
+        if (page >= 0xE0) {
+            if (slot >= 2) {
+                // Inactive slot — SRAM does not respond.
+                read_ptr_[slot]  = nullptr;
+                write_ptr_[slot] = nullptr;
+            } else {
+                // Slot 0/1: legacy ROM (sram_rom-derived). Mirror
+                // engage_legacy_rom_paging_slot() but without touching
+                // nr_mmu_[slot] (the caller — typically the NR $50/$51
+                // dispatcher — has already written the verbatim VHDL
+                // page value into nr_mmu_).
+                if (port_eff7_reg_3_) {
+                    // VHDL zxnext.vhd:4636-4644 — RAM-at-0x0000 mode
+                    // forces MMU0/1 to fixed RAM pages on the next
+                    // paging trigger, but on a same-cycle NR $50/$51
+                    // write the static MMU<i> value still wins until
+                    // that trigger fires. Mirror the immediate-effect
+                    // path used by engage_legacy_rom_paging_slot():
+                    // serve from RAM page 0 / 1.
+                    uint8_t ram_page = static_cast<uint8_t>(slot);  // 0 or 1
+                    uint8_t* p = ram_.page_ptr(to_sram_page(ram_page));
+                    read_ptr_[slot]  = p;
+                    write_ptr_[slot] = p;
+                    read_only_[slot] = false;
+                } else {
+                    const uint8_t sram_rom = current_sram_rom();
+                    const uint8_t rom_page = static_cast<uint8_t>(sram_rom * 2 + slot);
+                    read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(rom_page)
+                                                   : rom_.page_ptr(rom_page);
+                    write_ptr_[slot] = nullptr;
+                    read_only_[slot] = true;
+                }
+            }
             return;
         }
         // RAM slot: apply VHDL mmu_A21_A13 shift (Next mode) via to_sram_page.
@@ -445,6 +494,33 @@ void Mmu::engage_legacy_rom_paging_slot(int slot) {
     // an explicit `NR 0x50/0x51 = 0xFF` write (`nr_mmu_we` path stores
     // nr_wr_dat verbatim). Mirror that into the NR-visible register.
     nr_mmu_[slot] = 0xFF;
+}
+
+// VHDL zxnext.vhd:2256-2265 stores nr_8c_altrom verbatim. The lock bits
+// feed `sram_rom` / `sram_rom3` combinationally at zxnext.vhd:2981-3008,
+// so any change is immediately visible to the SRAM arbiter without a
+// port_memory_change_dly pulse. jnext caches slot 0/1 read pointers
+// based on `current_sram_rom()`, so on every NR 0x8C write that flips
+// lock_rom1/rom0 we must rebuild slots 0/1 (only when slot 0/1 is in
+// legacy ROM mode — i.e. the cached pointer would otherwise stay stale).
+//
+// We rebuild unconditionally because:
+//   * apply_legacy_rom_slots_() is idempotent and cheap (two pointer
+//     updates).
+//   * Restricting the call to "lock changed" requires comparing previous
+//     vs new lock bits and only the lock change is observable — bits 7:6
+//     (en/rw) flip the read-routing through the altrom path, which is
+//     evaluated per-access via altrom_sram_page_(), not via the cache.
+//   * port_eff7_reg_3=1 (RAM-at-0x0000) makes apply_legacy_rom_slots_
+//     drop into the `set_page(0,0x00); set_page(1,0x01)` branch which is
+//     also a no-op when the page values match — safe.
+void Mmu::set_nr_8c(uint8_t v) {
+    nr_8c_reg_ = v;
+    // sram_rom is a function of port_1ffd_rom and the altrom locks
+    // (zxnext.vhd:2998-3001 ZXN/128K branch and :2987-2995 +3 branch).
+    // Refresh the cached slot 0/1 ROM pointers so the next CPU read
+    // observes the new sram_rom value.
+    apply_legacy_rom_slots_();
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {
