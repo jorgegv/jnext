@@ -533,6 +533,17 @@ private:
     // Power-on default '0' per VHDL:5107.
     bool nr_d8_io_trap_fdc_en_ = false;
 
+    // VHDL zxnext.vhd:2164 — `nmi_accept_cause = '1' when nmi_state =
+    // S_NMI_IDLE OR nmi_state = S_NMI_FETCH else '0'`.
+    // Pass-3 verify-audit (Task 2) helper: gates iotrap event capture
+    // into `nr_da_iotrap_cause_` (VHDL:3871) and `nr_d9_iotrap_write_`
+    // (VHDL:3892). While the FSM is in HOLD or END, an iotrap event
+    // must NOT update either field.
+    bool nmi_accept_cause_() const {
+        const auto s = nmi_source_.state();
+        return s == NmiSource::State::Idle || s == NmiSource::State::Fetch;
+    }
+
     // NR 0xD9 — `nr_d9_iotrap_write` (VHDL zxnext.vhd:1264, 3887-3898).
     // Captures the CPU write byte that triggered an IO trap on
     // port_3ffd_wr (the VHDL clause `nr_d9_iotrap_write <= cpu_do`
@@ -551,6 +562,19 @@ private:
     // Cleared by NR 0x02 write with bit 4 = 0 (VHDL:3879-3880).
     // Reset value '0' (VHDL:3870).
     uint8_t nr_da_iotrap_cause_ = 0;
+
+    // NR 0x02 bit 7 — `nr_02_bus_reset` (VHDL zxnext.vhd:1095, :5119, :1579).
+    // Captured from NR 0x02 writes verbatim (`nr_02_bus_reset <= nr_wr_dat(7)`)
+    // and surfaced verbatim on NR 0x02 readback bit 7. Drives the FPGA's
+    // `o_RESET_PERIPHERAL` output (line 1579) — peripheral / ESP / expansion-
+    // bus reset signal not modelled in jnext. The signal has NO reset clause
+    // anywhere in zxnext.vhd, so the latch survives both hard and soft reset
+    // — only the signal initializer at line 1095 (FPGA power-on) sets it
+    // to '0'. The C++ member initializer here handles power-on; reset()
+    // intentionally does NOT clear it (mirrors VHDL).
+    // Pass-3 verify-audit (Task 2): added so NR 0x02 readback bit 7 reflects
+    // the last firmware write, not a hard-coded zero.
+    bool    nr_02_bus_reset_ = false;
     SdCardDevice    sd_card_;
     Renderer        renderer_;
     Keyboard        keyboard_;
