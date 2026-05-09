@@ -245,41 +245,52 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::ADD_HL_A: {
+            // Pass-10 fix: VHDL t80n.vhd:778-783 — F.C is FORCED TO 0 by the
+            // hardware, NOT the actual carry. The VHDL writes
+            //     reg_temp_t(15 downto 0) := std_logic_vector(unsigned(HL) + unsigned(ACC));
+            // (16-bit truncated addition; numeric_std `+` returns MAX(L,R) bits
+            // = 16 bits when L=16 and R=8). Then reads
+            //     F(Flag_C) <= reg_temp_t(16);
+            // Bit 16 was never written by the addition (truncated) and is
+            // pre-zeroed at TState=3 (line 698: `reg_temp_t := (others=>'0');`).
+            // Net effect: F.C is unconditionally cleared after every ADD HL,A.
+            // The Z80N spec wiki says "no flags affected" but the VHDL oracle
+            // overrides — real Spectrum Next FPGA hardware clears F.C here.
+            // S, Z, X, Y, H, P, N are all preserved (no other F write fires).
+            // Pass-3..Pass-9 incorrectly computed the actual carry.
             auto regs = cpu.get_registers();
             uint8_t a = regs.AF >> 8;
-            uint32_t result = (uint32_t)regs.HL + (uint32_t)a;
-            regs.HL = result & 0xFFFF;
-            // Only C flag changes; preserve all other flags
-            uint8_t f = regs.AF & 0xFF;
-            f = (f & ~FLAG_C) | ((result >> 16) & 1);
-            regs.AF = ((uint16_t)a << 8) | f;
-            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
+            regs.HL = (regs.HL + a) & 0xFFFF;
+            uint8_t f = static_cast<uint8_t>(regs.AF & 0xFF);
+            f &= ~FLAG_C;   // VHDL: F.C <= reg_temp_t(16) = 0
+            regs.AF = (static_cast<uint16_t>(a) << 8) | f;
+            regs.Q = f;  // Q tracks last F write (FUSE convention for SCF/CCF)
             cpu.set_registers(regs);
             return 8;
         }
 
         case Z80NOpcode::ADD_DE_A: {
+            // Pass-10 fix: see ADD_HL_A — VHDL clears F.C unconditionally.
             auto regs = cpu.get_registers();
             uint8_t a = regs.AF >> 8;
-            uint32_t result = (uint32_t)regs.DE + (uint32_t)a;
-            regs.DE = result & 0xFFFF;
-            uint8_t f = regs.AF & 0xFF;
-            f = (f & ~FLAG_C) | ((result >> 16) & 1);
-            regs.AF = ((uint16_t)a << 8) | f;
-            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
+            regs.DE = (regs.DE + a) & 0xFFFF;
+            uint8_t f = static_cast<uint8_t>(regs.AF & 0xFF);
+            f &= ~FLAG_C;   // VHDL: F.C <= reg_temp_t(16) = 0
+            regs.AF = (static_cast<uint16_t>(a) << 8) | f;
+            regs.Q = f;
             cpu.set_registers(regs);
             return 8;
         }
 
         case Z80NOpcode::ADD_BC_A: {
+            // Pass-10 fix: see ADD_HL_A — VHDL clears F.C unconditionally.
             auto regs = cpu.get_registers();
             uint8_t a = regs.AF >> 8;
-            uint32_t result = (uint32_t)regs.BC + (uint32_t)a;
-            regs.BC = result & 0xFFFF;
-            uint8_t f = regs.AF & 0xFF;
-            f = (f & ~FLAG_C) | ((result >> 16) & 1);
-            regs.AF = ((uint16_t)a << 8) | f;
-            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
+            regs.BC = (regs.BC + a) & 0xFFFF;
+            uint8_t f = static_cast<uint8_t>(regs.AF & 0xFF);
+            f &= ~FLAG_C;   // VHDL: F.C <= reg_temp_t(16) = 0
+            regs.AF = (static_cast<uint16_t>(a) << 8) | f;
+            regs.Q = f;
             cpu.set_registers(regs);
             return 8;
         }
@@ -762,6 +773,30 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // Pass-6 fix: pattern read + dest write via fuse_z80_*byte.
             // Pass-7 fix: internal idle on DE via contend_write_no_mreq
             // (see LDIRX comment).
+            // Pass-10 fix: VHDL I_BT block-transfer flag composition. The
+            // LDPIRX mcode (t80n_mcode.vhd:1962-1991) sets I_BT='1' at MCycle 3
+            // — same as LDIX/LDDX/LDIRX/LDDRX/LDIRSCALE — but does NOT override
+            // Set_BusA_To/ALU_Op. So defaults at MCycle 2 carry over via the
+            // registered BusA/BusB/ALU_Op_r at MCycle 3 TState=1:
+            //   BusA = RegBusA(15:8) of {Alternate, "00"} = B (post-dec)
+            //   BusB = DI_Reg = bytetemp (data byte read at MCycle 2)
+            //   ALU_Op_r = "0" & IR(5:3) = "0" & "110" = "0110" (OR)
+            // → ALU_Q = B | bytetemp (where B is the POST-DECREMENT high byte
+            //   of BC, since IncDec_16="1100" at MCycle 1 decremented BC).
+            //
+            // Per t80n.vhd:1277-1289 with I_BT='1':
+            //   F.X = ALU_Q[3] = (B | bytetemp)[3]
+            //   F.Y = ALU_Q[1] = (B | bytetemp)[1]
+            //   F.H = 0 (forced)
+            //   F.N = 0 (forced)
+            //   F.P = IncDecZ
+            //   S, Z, C: preserved (no Save_ALU at MCycle 3, so F-update from
+            //   ALU at line 1224 doesn't fire; the I_BT block at 1277 only
+            //   touches X/Y/H/N).
+            //
+            // Pass-9 and earlier: F was completely UNTOUCHED, leaving stale
+            // F.H/N/P/X/Y from the prior instruction — observable when LDPIRX
+            // followed by JP M / JR PE / etc. takes wrong branch. Class-(a).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             // Source: upper 13 bits of HL | lower 3 bits of E (HL stays fixed)
@@ -781,6 +816,18 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.BC = (regs.BC - 1) & 0xFFFF;
             // Pass-9 fix: VHDL t80n.vhd:1361-1367 IncDecZ latch on BC dec.
             regs.IncDecZ = (regs.BC != 0) ? 1u : 0u;
+            // Pass-10 fix: I_BT flag composition (see comment block above).
+            // ALU_Q = B (post-dec high byte) OR bytetemp.
+            const uint8_t b_post_dec = static_cast<uint8_t>(regs.BC >> 8);
+            const uint8_t alu_q = static_cast<uint8_t>(b_post_dec | temp);
+            uint8_t f = static_cast<uint8_t>(regs.AF & 0xFF);
+            f &= (FLAG_S | FLAG_Z | FLAG_C);   // preserve S, Z, C
+            if (alu_q & 0x08)   f |= FLAG_X;   // X = ALU_Q[3]
+            if (alu_q & 0x02)   f |= FLAG_Y;   // Y = ALU_Q[1]
+            // H = 0, N = 0 (left clear)
+            if (regs.IncDecZ)   f |= FLAG_P;   // P = IncDecZ (I_BC/I_BT override)
+            regs.AF = (regs.AF & 0xFF00) | f;
+            regs.Q = f;                        // track last F write
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {

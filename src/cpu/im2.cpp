@@ -186,10 +186,29 @@ void Im2Controller::on_reti() {
     // im2_.on_reti() directly — keeping both paths converges on the same
     // end state.
     if (!im2_mode_) return;   // device SM is reset-held in pulse mode
+    // Pass-10 fix: VHDL im2_control.vhd:233-234 — `o_reti_decode = (state ==
+    // S_ED_T4)` AND `o_reti_seen = (state_next == S_ED4D_T4)`. At the T4
+    // event of the 0x4D fetch, state IS S_ED_T4 (clock edge hasn't fired
+    // yet) AND state_next IS S_ED4D_T4 — both signals are simultaneously
+    // high.  The IEI chain in upstream S_REQ devices uses
+    //     o_ieo = i_iei AND i_reti_decode
+    // (im2_device.vhd:142). If i_reti_decode were 0 at the moment reti_seen
+    // pulses (as our model would have, since dec_state_ has just advanced
+    // past S_ED_T4 by the time on_reti() is called), every upstream S_REQ
+    // would force IEO=0 and prevent any lower-priority S_ISR clear — a
+    // correctness bug for nested IM2 handlers where a higher-priority
+    // request comes in while running a lower-priority ISR.
+    //
+    // Fix: when reti_seen_pulse_ is true, treat reti_decode as logically
+    // true for the IEI snapshot — that's the VHDL combinational state at
+    // T4 of the 4D fetch.  reti_decode_ alone (which reflects post-edge
+    // state) is preserved for external observability.
+    //
     // Snapshot IEI across all devices BEFORE any transition so that clearing
     // a higher-priority S_ISR device does NOT cascade into the next device
     // in the same RETI (matches VHDL simultaneous-update semantic; only one
     // device clears per RETI).
+    const bool iei_reti_decode = reti_decode_ || reti_seen_pulse_;
     bool iei_snap[N];
     {
         bool iei = true;  // device 0's hard-wired IEI
@@ -198,9 +217,9 @@ void Im2Controller::on_reti() {
             const Device& d = dev_[k];
             bool ieo;
             switch (d.state) {
-                case DevState::S_0:   ieo = iei;                  break;
-                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
-                default:              ieo = false;                break;
+                case DevState::S_0:   ieo = iei;                       break;
+                case DevState::S_REQ: ieo = iei && iei_reti_decode;    break;
+                default:              ieo = false;                     break;
             }
             iei = ieo;
         }
@@ -554,6 +573,18 @@ void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t opcode) {
     advance_decoder(opcode);
 
     // Latch the flat signals off the *new* dec_state_ — see VHDL 233/238.
+    //
+    // Pass-10 note: VHDL has both `o_reti_decode = (state==S_ED_T4)` and
+    // `o_reti_seen = (state_next==S_ED4D_T4)` simultaneously high at the T4
+    // event where ED is followed by 0x4D — they are combinational signals
+    // derived from the same pre-edge view of the FSM. Our model collapses
+    // T4-event-state with post-edge-state into the single dec_state_ update,
+    // so reti_decode_ flips to false when we transition to S_ED4D_T4 even
+    // though VHDL shows reti_decode='1' at the very tick reti_seen pulses.
+    // The downstream effect — IEI chain in on_reti() and the device state
+    // machine — must compensate by treating "reti_seen pulse present" as
+    // implying "reti_decode='1' for IEI propagation". See the IEI
+    // computation lambda used by on_reti() and step_state_machine_with_iei().
     reti_decode_    = (dec_state_ == DecState::S_ED_T4);
     dma_delay_ctrl_ = (dec_state_ == DecState::S_ED_T4)
                    || (dec_state_ == DecState::S_ED4D_T4)
@@ -742,6 +773,15 @@ void Im2Controller::step_devices() {
     // — preserves VHDL synchronous-update semantic: clearing a higher-
     // priority S_ISR device must NOT cascade into the next device in the
     // same tick.
+    //
+    // Pass-10 fix: at the same tick where reti_seen_pulse_ is high, VHDL has
+    // i_reti_decode='1' too (im2_control.vhd:233-234 simultaneity — see
+    // on_reti() comment for full derivation). The IEI snapshot must reflect
+    // that combined state so that S_REQ devices propagate IEI through during
+    // the RETI decode window — necessary for the S_ISR→S_0 transition gate
+    // (im2_device.vhd:124) to fire on a lower-priority device when a
+    // higher-priority S_REQ is pending.
+    const bool iei_reti_decode = reti_decode_ || reti_seen_pulse_;
     bool iei_snap[N];
     {
         bool iei = true;  // device 0's hard-wired IEI (zxnext.vhd:1984)
@@ -750,9 +790,9 @@ void Im2Controller::step_devices() {
             const Device& d = dev_[k];
             bool ieo;
             switch (d.state) {
-                case DevState::S_0:   ieo = iei;                  break;
-                case DevState::S_REQ: ieo = iei && reti_decode_;  break;
-                default:              ieo = false;                break;  // S_ACK / S_ISR
+                case DevState::S_0:   ieo = iei;                       break;
+                case DevState::S_REQ: ieo = iei && iei_reti_decode;    break;
+                default:              ieo = false;                     break;  // S_ACK / S_ISR
             }
             iei = ieo;
         }
