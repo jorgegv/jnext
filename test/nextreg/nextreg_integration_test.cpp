@@ -1682,6 +1682,17 @@ static void test_cat27_emu_handler_integration() {
     //    which would NOT update nr_mmu_ but would change the read pointer.
     //    Combined check: NR readback = 0xFF AND a CPU read from 0x4000
     //    returns 0xFF (= floating-bus / inactive slot per VHDL :3061).
+    //
+    //    Discriminative seed (fix-reviewer NIT, 2026-05-10): pre-fix
+    //    `map_rom(2, 0)` would point slot 2 at `ram_.page_ptr(0)` (because
+    //    Next mode has `rom_in_sram_=true` and Emulator::init copies
+    //    rom→ram pages 0..7). Without seeding, `ram[0][0]` happens to be
+    //    0xFF (because `Rom::Rom()` fills with 0xFF and that gets copied
+    //    into ram[0][0]) — so pre-fix `cpu_rd` would coincidentally also
+    //    read 0xFF and the row would pass regardless of fix presence.
+    //    Seed ram[0][0] = 0x42 BEFORE the NR write to force a discriminative
+    //    pre-fix read: post-fix slot is inactive → cpu_rd=0xFF; pre-fix
+    //    map_rom(2,0) → cpu_rd=0x42.
     {
         Emulator emu;
         if (!build_next_emulator(emu)) {
@@ -1690,6 +1701,10 @@ static void test_cat27_emu_handler_integration() {
                   false, "build_next_emulator returned false");
         } else {
             emu.mmu().reset(true);
+            // Seed page 0 byte 0 with a non-0xFF sentinel so a pre-fix
+            // map_rom(2, 0) would yield 0x42 (RAM-backed in Next mode),
+            // not the post-fix-required 0xFF (inactive slot).
+            emu.ram().page_ptr(0)[0] = 0x42;
             nr_write(emu, 0x52, 0xFF);
             const uint8_t nr_rb = nr_read(emu, 0x52);
             const uint8_t cpu_rd = emu.mmu().read(0x4000);
@@ -1699,7 +1714,7 @@ static void test_cat27_emu_handler_integration() {
                   "commit f832f38)",
                   nr_rb == 0xFF && cpu_rd == 0xFF,
                   "nr_rb=" + hex2(nr_rb) + " cpu_rd=" + hex2(cpu_rd) +
-                  " (exp 0xFF/0xFF)");
+                  " (exp 0xFF/0xFF; ram[0][0]=0x42 seed)");
         }
     }
 
