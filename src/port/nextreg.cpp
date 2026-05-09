@@ -2,18 +2,83 @@
 #include "core/log.h"
 #include "core/saveable.h"
 
-NextReg::NextReg() { reset(); }
+NextReg::NextReg() {
+    // PASS-5: install FPGA-power-on defaults BEFORE the first reset().
+    // The reset() function gates 0x82-0x85 / 0x86-0x89 on the reset_type
+    // bits stored in 0x85 / 0x89, and preserves 0x7F/0x80/0x8C across
+    // resets. With `regs_{}` value-initialised to all zeros, those
+    // gating reads would all see 0 and take the wrong path on the first
+    // reset. Mirror the VHDL signal initialisers verbatim:
+    //   nr_82-84_internal_port_enable        := (others=>'1')   (:1226-1228)
+    //   nr_85_internal_port_enable           := (others=>'1')   (:1229)
+    //   nr_85_internal_port_reset_type       := '1'             (:1230)
+    //   nr_86-88_bus_port_enable             := (others=>'1')   (:1231-1233)
+    //   nr_89_bus_port_enable                := (others=>'1')   (:1234)
+    //   nr_89_bus_port_reset_type            := '1'             (:1235)
+    //   nr_7f_user_register_0                := X"FF"           (:1216)
+    regs_[0x82] = 0xFF;
+    regs_[0x83] = 0xFF;
+    regs_[0x84] = 0xFF;
+    regs_[0x85] = 0x8F;
+    regs_[0x86] = 0xFF;
+    regs_[0x87] = 0xFF;
+    regs_[0x88] = 0xFF;
+    regs_[0x89] = 0x8F;
+    regs_[0x7F] = 0xFF;
+    reset();
+}
 
 void NextReg::reset() {
-    // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 reload to
+    // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x85 reload to
     // 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
     // the previous values are preserved across the reset.
     const bool reset_type_1 = (regs_[0x85] & 0x80) != 0;
     const uint8_t saved_82 = regs_[0x82];
     const uint8_t saved_83 = regs_[0x83];
     const uint8_t saved_84 = regs_[0x84];
+    const uint8_t saved_85 = regs_[0x85];
+    // VHDL zxnext.vhd:5061-5067: the bus-port enable group nr_86/87/88/89
+    // is reset to 0xFF (and 0x8F for 0x89) ONLY when nr_89_bus_port_reset_type
+    // (NR 0x89 bit 7) is 0. With bit 7 = 1 (the FPGA power-on default per
+    // :1234-1235), the bytes survive the reset. PASS-5 fix — pre-pass-5 the
+    // emulator unconditionally reset 0x86/0x87/0x88/0x89, an approximation
+    // that breaks software which sets bit 7 of NR 0x89 to lock its bus-port
+    // enable mask across resets. Note the polarity is INVERTED versus the
+    // 0x82-0x84/0x85 group above: bit 7 = 1 here keeps the value (no reset).
+    const bool bus_reset_type_0 = (regs_[0x89] & 0x80) == 0;
+    const uint8_t saved_86 = regs_[0x86];
+    const uint8_t saved_87 = regs_[0x87];
+    const uint8_t saved_88 = regs_[0x88];
+    const uint8_t saved_89 = regs_[0x89];
+
+    // VHDL zxnext.vhd:2185-2186 — on reset, NR 0x80 expbus byte folds the
+    // low nibble into the high nibble: `nr_80_expbus(7:4) <= nr_80_expbus(3:0)`.
+    // Bits 3:0 (FDC enable, expbus-clken, NMI-debounce-disable bit, ULA
+    // override) survive across reset; bits 7:4 (expbus-en, romcs replace,
+    // disable IO/MEM) are reloaded from bits 3:0. PASS-5 fix — pre-pass-5
+    // the entire byte was zeroed by `regs_.fill(0)` below.
+    const uint8_t saved_80_lo = static_cast<uint8_t>(regs_[0x80] & 0x0F);
+    const uint8_t computed_80 = static_cast<uint8_t>((saved_80_lo << 4) | saved_80_lo);
+
+    // VHDL zxnext.vhd:1216 — NR 0x7F (`nr_7f_user_register_0`) has no
+    // reset entry; the value survives both hard and soft reset. The
+    // power-on default X"FF" is installed in the constructor after
+    // reset() returns; subsequent resets preserve whatever value was
+    // last written.
+    const uint8_t saved_7f = regs_[0x7F];
+
+    // VHDL zxnext.vhd:2255 — NR 0x8C altrom byte does the same lo→hi
+    // nibble fold on reset as NR 0x80. The MMU-side path
+    // (Mmu::set_nr_8c / Mmu::reset) already handles this for the MMU's
+    // own `nr_8c_reg_` mirror; preserve `regs_[0x8C]` here too so the
+    // NextReg cache stays consistent with the MMU mirror.
+    const uint8_t saved_8c_lo = static_cast<uint8_t>(regs_[0x8C] & 0x0F);
+    const uint8_t computed_8c = static_cast<uint8_t>((saved_8c_lo << 4) | saved_8c_lo);
 
     regs_.fill(0);
+    regs_[0x80] = computed_80;
+    regs_[0x7F] = saved_7f;
+    regs_[0x8C] = computed_8c;
     // Reset defaults from VHDL / ZX Next documentation
     // Machine ID: JNEXT DEVIATES from VHDL here on purpose.
     //   VHDL: g_machine_id = X"0A" (ZX Spectrum Next Issue 2/4/5 top-level
@@ -53,31 +118,55 @@ void NextReg::reset() {
     // zxnext.vhd:5917-5918 returns g_sub_version verbatim.
     regs_[0x0E] = 0x03;
     // Port-enable registers: VHDL zxnext.vhd:1226-1230, 5052-5057.
+    // When reset_type='1' (the power-on default), nr_82-85 enable[3:0]
+    // bits reload to ones. The reset_type bit (NR 0x85 bit 7) itself is
+    // never touched by the reset block (only by power-on init :1230 and
+    // explicit writes :5509), so it always survives across reset_type_1
+    // and reset_type_0 paths alike. 0x85 read mux composes
+    //   reset_type & "000" & enable[3:0]
+    // (zxnext.vhd:6138). When reset_type='0', the enables survive too.
     if (reset_type_1) {
         regs_[0x82] = 0xFF;
         regs_[0x83] = 0xFF;
         regs_[0x84] = 0xFF;
+        regs_[0x85] = static_cast<uint8_t>((saved_85 & 0x80) | 0x0F);
     } else {
         regs_[0x82] = saved_82;
         regs_[0x83] = saved_83;
         regs_[0x84] = saved_84;
+        // VHDL zxnext.vhd:6138 read mux composes 0x85 as
+        //   reset_type & "000" & enable[3:0]
+        // (bits 6:4 always read 0). Apply the same pack mask to the
+        // stored byte so the cached value never leaks the dropped bits.
+        regs_[0x85] = static_cast<uint8_t>(saved_85 & 0x8F);
     }
-    regs_[0x85] = 0x8F;  // bit7=reset_type(1), bits6:4=0, bits3:0=0xF (enables)
-    // NR 0x86 / NR 0x87 / NR 0x88 bus port enables: VHDL zxnext.vhd:1231-1233
-    // — nr_8{6,7,8}_bus_port_enable power-on default = (others => '1') = 0xFF.
-    // Read mux at zxnext.vhd:6140-6147 returns the byte directly. All three
-    // are reset together at zxnext.vhd:5061-5067 gated on
-    // nr_89_bus_port_reset_type='0' (jnext applies unconditionally — same
-    // approximation as NR 0x82-0x84). G154 + NR 0x87 follow-on.
-    regs_[0x86] = 0xFF;
-    regs_[0x87] = 0xFF;
-    regs_[0x88] = 0xFF;
-    // NR 0x89 bus port enables: VHDL zxnext.vhd:1234-1235 —
-    // nr_89_bus_port_reset_type='1' and nr_89_bus_port_enable=(others=>'1').
-    // Read mux at zxnext.vhd:6147-6150 composes
-    //   nr_89_bus_port_reset_type & "000" & nr_89_bus_port_enable
-    // → 0x8F (bit7=1, bits6:4=0, bits3:0=0xF).
-    regs_[0x89] = 0x8F;
+    // NR 0x86 / NR 0x87 / NR 0x88 / NR 0x89 bus port enables: VHDL
+    // zxnext.vhd:1231-1235 — power-on defaults are (others=>'1') for the
+    // enable bytes and reset_type='1' (bit 7 of 0x89). Read mux at
+    // zxnext.vhd:6140-6150 returns each byte directly (0x89 composes
+    // bit7=reset_type | "000" | enable[3:0]).
+    //
+    // PASS-5 FIX: VHDL zxnext.vhd:5061-5067 gates the reset on
+    // `nr_89_bus_port_reset_type='0'` — the INVERSE polarity of the
+    // 0x82-0x85 group. With bit 7 = 1 (the power-on default) the values
+    // survive the reset; with bit 7 = 0 they reload to the power-on
+    // defaults. The reset_type bit itself is never reset (only set at
+    // power-on or by an explicit write at :5522), so it survives both
+    // paths. Pre-pass-5 the emulator applied unconditional 0xFF/0x8F
+    // here, clobbering software-locked bus-port masks on every reset.
+    if (bus_reset_type_0) {
+        regs_[0x86] = 0xFF;
+        regs_[0x87] = 0xFF;
+        regs_[0x88] = 0xFF;
+        regs_[0x89] = static_cast<uint8_t>((saved_89 & 0x80) | 0x0F);
+    } else {
+        regs_[0x86] = saved_86;
+        regs_[0x87] = saved_87;
+        regs_[0x88] = saved_88;
+        // VHDL zxnext.vhd:6150 read mux composes 0x89 the same way as 0x85:
+        //   reset_type & "000" & enable[3:0]. Mask to 0x8F.
+        regs_[0x89] = static_cast<uint8_t>(saved_89 & 0x8F);
+    }
     // VHDL zxnext.vhd:4594-4596 — nr_register resets to 0x24.
     selected_   = 0x24;
 
