@@ -7120,3 +7120,100 @@ state. Specifically, **HL value at $26B9 (post-$32CC) is $3E93 in
 jnext** (= altrom zero-padded region), causing the NOP slide.
 
 End of EOD-22 Wave 6.
+
+## 2026-05-09 08:50 CEST — EOD-22 Wave 7: HL at $26B9 first hit = $0000
+
+### Probe extension: log all registers at RING_AT firing
+
+Extended `JNEXT_G46B_RING_AT` (z80_cpu.cpp:579+) to also log AF, BC,
+DE, HL, IX, IY at the trigger PC.
+
+### RING_AT=$26B9 first-hit capture
+
+```
+G46B RING reached pc=0x26b9 eff_mmu[0..7]=02 03 0a 0b 04 05 1e 1f rom_bank=0x01
+G46B RING regs A=0x1f F=0x08 BC=0x253b DE=0xffbf HL=0x0000 IX=0xe01b IY=0x5c3a
+G46B RING SP=0x5bff stack[0..7]=0x0000 0x0000 0x0000 0x0000 0x0000 0x0000 0x0000 0x0000
+G46B RING memdump pc..pc+63 = e5 2a 54 5b e3 ed 8a 00 7b c3 93 3e ...
+G46B RING memdump nr_8c_altrom_en=0 nr_8c_altrom_rw=0 rom_in_sram=1
+                  machine_type=3 current_sram_rom=0x01
+```
+
+**Key**: HL=$0000 post-$32CC (NOT $3E93 as I assumed in Wave 4-6).
+altrom NOT yet enabled.
+
+### Decoding the $26B0-$26C2 wrapper protocol
+
+```
+$26B0: 33      inc sp
+$26B1: e3      ex (sp),hl    ← extracts (caller_TOS_low << 8) | caller_return_high into HL
+$26B2: 22 54 5b ld ($5B54),hl   ← saves extracted value
+$26B5: e1      pop hl
+$26B6: cd cc 32 call $32CC
+$26B9: e5      push hl       ← pushes post-$32CC HL (= $0000 in jnext first-hit)
+$26BA: 2a 54 5b ld hl,($5B54)
+$26BD: e3      ex (sp),hl    ← stack top = ($5B54), HL = post-$32CC value
+$26BE: ed 8a 00 7b push $007B
+$26C2: c3 93 3e jp $3E93
+```
+
+After this:
+- $3E93 wrapper RET → PC=$007B in bank 0
+- $007B enables altrom, $007F RET → PC = ($5B54) value
+- Per Wave 4 trace: ($5B54) = $3E93 in jnext
+
+So jnext's bug: ($5B54) ends up = $3E93 (= altrom's zero-padded
+region). Per the wrapper protocol:
+
+**`($5B54) = (caller_TOS_low << 8) | caller_return_high`**
+
+For ($5B54) = $3E93:
+- HL_high = $3E (= caller_TOS_low)
+- HL_low  = $93 (= caller_return_high)
+
+So **caller's return high byte = $93**, meaning caller is at PC=$93xx
+(in slot 4 = bank 2 RAM). And **caller's TOS before CALL had low byte
+= $3E**.
+
+Per earlier investigation memos (EOD-19 trace), bank 2 supervisor MAIN
+runs at PCs $9300-$9800. So the caller is supervisor MAIN.
+
+### Refined hypothesis
+
+The supervisor's wrapper protocol uses the bytes at `(caller_SP+1,
+caller_SP+2)` to encode the wrapper's eventual RET target. The byte
+sequence `$93 $3E` (little-endian: $3E93) is what jnext finds on the
+stack at the caller's CALL site.
+
+In CSpect, presumably this byte sequence would be DIFFERENT — pointing
+to a valid altrom-resident routine.
+
+### Two possible bugs
+
+1. **Caller pushes wrong value**: supervisor's MAIN code at $93xx pushed
+   `$93 $3E` (LO=$93 → which becomes target's HI=$93, HI=$3E → target's
+   LO=$3E... wait, this gets confusing). The point is, the byte
+   sequence on stack is supervisor-controlled, not jnext-emulator-
+   controlled. So the CALLER'S code is doing something different
+   between jnext and CSpect.
+
+2. **State difference at caller's CALL site**: maybe supervisor MAIN's
+   logic depends on RAM content / sysvars that differ between jnext
+   and CSpect. E.g., if supervisor MAIN reads a config byte to decide
+   what to push, and that config byte differs.
+
+### Next-session priority
+
+1. **DZRP-side: BP at CSpect's $26B9, capture HL register.** Compare
+   to jnext's HL=$0000.
+2. **DZRP-side: read mem at $5B54 on CSpect** at any point (BP at
+   $26C2 or just live state). If non-$3E93, that's the divergence
+   target value.
+3. **Trace bank 2 supervisor MAIN code at $93xx** to find what gets
+   pushed before CALL $26B0. Compare CSpect-vs-jnext.
+
+### Branch state
+
+`g46b-investigation` HEAD `6689c83`, RING_AT regs extension uncommitted.
+
+End of EOD-22 Wave 7.
