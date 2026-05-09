@@ -2790,8 +2790,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if (config_.type != MachineType::ZX_PLUS3) return 0x00;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
             if ((nextreg_.cached(0x82) & 0x10) == 0) return 0x00;
-            // VHDL zxnext.vhd:4517 — port_7ffd_locked='1' forces 0xFF.
-            if (mmu_.paging_locked()) return 0xFF;
+            // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
+            // EFFECTIVE lock signal at VHDL :3769), not the raw
+            // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11
+            // AND EFF7(2)=0) drops port_7ffd_locked to '0' even when
+            // bit 5 is set; jnext's `paging_locked()` accessor exposes
+            // only the raw bit-5 mirror. Verify8-memory class-(a) fix:
+            // use `effective_paging_locked()` which composes the full
+            // VHDL :3769 expression.
+            if (mmu_.effective_paging_locked()) return 0xFF;
             // VHDL zxula.vhd:573 — bit 0 OR i_timing_p3 (always 1 on +3).
             return static_cast<uint8_t>(mmu_.p3_floating_bus_dat() | 0x01);
         },
@@ -3388,8 +3395,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 5..0 are served from the last-write mirror nr_08_stored_low_.
     nextreg_.set_read_handler(0x08, [this]() -> uint8_t {
         uint8_t v = 0;
-        if (!mmu_.paging_locked())        v |= 0x80;
-        if (mmu_.contention_disabled())   v |= 0x40;
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `(not port_7ffd_locked)` — the EFFECTIVE lock signal from
+        // VHDL :3769, NOT the raw port_7ffd_reg(5) mirror. Pentagon-1024
+        // mode (NR 0x8F=11 AND EFF7(2)=0) drops port_7ffd_locked to '0'
+        // even when bit 5 is set; jnext's `paging_locked()` accessor
+        // exposes only the raw bit-5 mirror. Use `effective_paging_locked()`
+        // which composes the full VHDL :3769 expression so bit 7 reflects
+        // the same gate the SRAM arbiter / 128K bank-write path consults.
+        if (!mmu_.effective_paging_locked())             v |= 0x80;
+        // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+        // `eff_nr_08_contention_disable` (the EFFECTIVE/committed gate),
+        // NOT the immediate shadow `nr_08_contention_disable`. The shadow
+        // is updated synchronously on the NR 0x08 write, but the effective
+        // gate only commits on the bus-idle / hc(8)='1' edge per
+        // zxnext.vhd:5800-5823. Mid-line readbacks therefore return the
+        // last committed value, not the freshly-written shadow. mmu_'s
+        // `contention_disabled_` mirrors the shadow (immediate write) —
+        // contention_'s `contention_disable_` is the effective field
+        // (gated commit). Read the effective one to match VHDL :5906.
+        if (contention_.contention_disable())            v |= 0x40;
         v |= nr_08_stored_low_ & 0x3F;
         return v;
     });

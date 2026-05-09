@@ -240,33 +240,44 @@ public:
         // Layer 2 read-over: redirect reads to L2 RAM banks. VHDL arbiter
         // at zxnext.vhd:3100 puts Layer 2 above config_mode, altrom, MMU,
         // and ROMCS (and below DivMMC ROM/RAM). Mirrors the write-side
-        // block below: same segment check, same (l2_bank_+segment)*2
-        // page computation, same to_sram_page() shift, same offset
-        // arithmetic — both come from the shared layer2_active_page
-        // formula at zxnext.vhd:2969.
-        if (l2_read_enable_ && addr < 0xC000) {
-            int segment = addr / 0x4000;  // 0, 1, or 2
-            if (l2_segment_mask_ & (1 << segment)) {
-                // VHDL zxnext.vhd:2966-2969:
-                //   bank        = nr_13 if map_shadow else nr_12     (G144)
-                //   offset_pre  = cpu_a(15:14) when seg=11 else seg
-                //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
-                //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
-                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
-                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
-                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
-                uint16_t offset = addr % 0x4000;
-                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
-                const uint8_t* p = ram_.page_ptr(phys_page);
-                uint8_t val = p ? p[offset & 0x1FFF] : 0xFF;
-                if (debug_state_ && debug_state_->active() &&
-                    debug_state_->breakpoints().has_any_watchpoints() &&
-                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
-                    debug_state_->set_data_bp_hit(true);
-                    debug_state_->set_data_bp_addr(addr);
-                }
-                return val;
+        // block below: same per-half override gate (VHDL :3043,:3050,
+        // :3057,:3065), same offset_pre computation (:2966), same shared
+        // layer2_active_page formula (:2969).
+        //
+        // Verify8-memory class-(a) fix: the per-half gate matches VHDL
+        // exactly — for 0x0000-0x3FFF (low half), Layer 2 is enabled in
+        // the non-MF cases (override(1)='1' at lines 3043, 3050, 3057);
+        // for 0x4000-0xBFFF (high half), Layer 2 is enabled only when
+        // seg='11' (line 3065 — `((not cpu_a(15)) or (not cpu_a(14)))
+        // and seg(1) and seg(0)`); for 0xC000+, Layer 2 is disabled. The
+        // pre-fix C++ used a bitmask seg=00→0x01, seg=01→0x02, seg=10→0x04,
+        // seg=11→0x07 — which routed L2 to seg-only-segment in the high
+        // half (e.g. seg=01 enabled L2 only at 0x4000-0x7FFF) but did NOT
+        // enable L2 in the low half for seg!="00". VHDL routes L2 to the
+        // low half regardless of seg (in non-MF cases) and the seg field
+        // shifts the bank-offset (offset_pre = seg when seg != "11"); the
+        // C++ pre-fix also conflated offset_pre with the cpu_a(15:14)
+        // segment, breaking the bank-offset arithmetic for seg != "11".
+        if (l2_read_enable_ && l2_overlay_active_for(addr)) {
+            // VHDL zxnext.vhd:2966-2969:
+            //   bank        = nr_13 if map_shadow else nr_12     (G144)
+            //   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
+            //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+            //   page_idx    = ((bank + bank_offset) << 1) | cpu_a(13)
+            const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+            const uint8_t off_pre = l2_offset_pre_for(addr);
+            const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+            uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
+            const uint8_t* p = ram_.page_ptr(phys_page);
+            uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
+            if (debug_state_ && debug_state_->active() &&
+                debug_state_->breakpoints().has_any_watchpoints() &&
+                debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                debug_state_->set_data_bp_hit(true);
+                debug_state_->set_data_bp_addr(addr);
             }
+            return val;
         }
         int slot = addr >> 13;
         // Alt-ROM read override (VHDL zxnext.vhd:3021, 3078, 3116-3123).
@@ -353,25 +364,25 @@ public:
         }
         // Layer 2 write-over: redirect writes to L2 RAM banks. Arbiter line
         // 3100 places Layer 2 above the config_mode path too.
-        if (l2_write_enable_ && addr < 0xC000) {
-            int segment = addr / 0x4000;  // 0, 1, or 2
-            if (l2_segment_mask_ & (1 << segment)) {
-                // Write to L2 RAM: each segment is 16K = 2 pages.
-                // VHDL zxnext.vhd:2966-2969 (mirrors the read path above):
-                //   bank        = nr_13 if map_shadow else nr_12     (G144)
-                //   bank_offset = segment + port_123b_layer2_offset  (G92)
-                // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
-                // L2 write-over lands on the same SRAM region Layer 2's
-                // compute_ram_addr fetches from (both shift +0x20 in Next).
-                const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
-                const uint8_t bofs   = static_cast<uint8_t>(segment + l2_offset_);
-                uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
-                uint16_t offset = addr % 0x4000;
-                uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page + (offset >> 13)));
-                uint8_t* p = ram_.page_ptr(phys_page);
-                if (p) p[offset & 0x1FFF] = val;
-                return;
-            }
+        //
+        // Verify8-memory class-(a) fix: see read() above for the
+        // per-half override gate rationale. Same logic mirrored here.
+        if (l2_write_enable_ && l2_overlay_active_for(addr)) {
+            // VHDL zxnext.vhd:2966-2969 (mirrors the read path above):
+            //   bank        = nr_13 if map_shadow else nr_12     (G144)
+            //   offset_pre  = cpu_a(15:14) when seg=11 else seg  (:2966)
+            //   bank_offset = offset_pre + port_123b_layer2_offset (G92)
+            // Next mode: apply VHDL mmu_A21_A13 shift via to_sram_page so
+            // L2 write-over lands on the same SRAM region Layer 2's
+            // compute_ram_addr fetches from (both shift +0x20 in Next).
+            const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
+            const uint8_t off_pre = l2_offset_pre_for(addr);
+            const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
+            uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
+            uint8_t* p = ram_.page_ptr(phys_page);
+            if (p) p[addr & 0x1FFF] = val;
+            return;
         }
         int slot = addr >> 13;
         // Alt-ROM write override (VHDL zxnext.vhd:3056, 3078, 3116-3123).
@@ -797,16 +808,29 @@ public:
         switch (machine_type_) {
             case MachineType::ZX48K:
                 return 0;
-            case MachineType::ZX128K:
-                return static_cast<uint8_t>((port_7ffd_ >> 4) & 1);
             case MachineType::ZX_PLUS3:
                 if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
                     return static_cast<uint8_t>((nr_8c_altrom_lock_rom1() ? 2 : 0) |
                                                 (nr_8c_altrom_lock_rom0() ? 1 : 0));
                 }
                 return current_rom_bank();
+            case MachineType::ZX128K:
             case MachineType::ZXN_ISSUE2:
             default:
+                // VHDL zxnext.vhd:2997-3007 — the else branch covers BOTH
+                // 128K AND Next/Pentagon (everything that isn't 48K and
+                // isn't +3). Both share altrom-lock semantics from
+                // VHDL :2998-3001:
+                //     sram_rom <= '0' & nr_8c_altrom_lock_rom1
+                //                 (when any lock bit set)
+                //                 else '0' & port_1ffd_rom(0)
+                // Verify8-memory class-(a) fix: pre-fix the ZX128K case
+                // had its own branch that returned `(port_7ffd_ >> 4) & 1`
+                // unconditionally — bypassing the altrom-lock override.
+                // VHDL routes 128K through the same else branch as Next,
+                // so altrom-lock applies symmetrically. Mirrors the
+                // sram_rom3() composition above which already handles
+                // ZX128K + ZXN_ISSUE2 together.
                 if (nr_8c_altrom_lock_rom1() || nr_8c_altrom_lock_rom0()) {
                     return static_cast<uint8_t>(nr_8c_altrom_lock_rom1() ? 1 : 0);
                 }
@@ -892,7 +916,19 @@ public:
     /// Configure Layer 2 read + write mapping from port 0x123B value.
     ///   bit 0: write-map enable (l2_write_enable_)
     ///   bit 2: read-map  enable (l2_read_enable_)
-    ///   bits 7:6: segment select (00=0x0000, 01=0x4000, 10=0x8000, 11=all — SHARED)
+    ///   bit 3: map_shadow (CPU map uses NR 0x13 shadow bank)
+    ///   bits 7:6: segment select (raw 2-bit field, drives both the
+    ///             enable gate AND the bank-offset arithmetic per VHDL
+    ///             zxnext.vhd:2966 / :3037-3066). See l2_overlay_active_for()
+    ///             and l2_offset_pre_for() in this header for the gate
+    ///             and offset semantics — the seg field does NOT mean
+    ///             "which 16K window to map L2 into" (the legacy C++
+    ///             interpretation pre-Verify8-memory); for the low half
+    ///             (0x0000-0x3FFF) L2 is enabled regardless of seg, and
+    ///             for the high half (0x4000-0xBFFF) L2 is enabled only
+    ///             when seg="11". 0xC000+ is never L2-mapped. The seg
+    ///             field also drives the bank-offset (offset_pre = seg
+    ///             when seg!="11", else cpu_a(15:14) per VHDL :2966).
     /// VHDL zxnext.vhd:905-912 (signals), 3904-3928 (handler), 3077 (arbiter gate).
     /// Read and write share a single segment register (port_123b_layer2_map_segment
     /// is one 2-bit signal, not two).
@@ -969,6 +1005,54 @@ public:
     }
 
 private:
+    // ───────── Layer 2 overlay gate / offset helpers (Verify8 fix) ─────────
+    //
+    // VHDL zxnext.vhd:3037-3066 sram_pre_override(1) — Layer 2 priority
+    // bit. Asserted (and thus eligible for `sram_layer2_map_en` at :3077)
+    // in two cases per address half:
+    //
+    //   * Low half (cpu_a(15:14) = "00"):
+    //       — MF active        → "000" → L2 disabled (line 3036)
+    //       — RAM-mapped slot  → "110" → L2 enabled  (line 3043)
+    //       — config_mode      → "110" → L2 enabled  (line 3050)
+    //       — normal ROM       → "111" → L2 enabled  (line 3057)
+    //     Net: L2 enabled iff NOT mf_overlay_active. Independent of the
+    //     port_123b segment field.
+    //
+    //   * High half (cpu_a(15:14) ≠ "00"), line 3065:
+    //       sram_pre_override(1) = ((not cpu_a(15)) or (not cpu_a(14)))
+    //                              AND seg(1) AND seg(0)
+    //     i.e. enabled iff addr ∈ [0x4000, 0xBFFF] AND seg = "11".
+    //     0xC000+ is always disabled.
+    //
+    // The returned boolean does NOT factor in `l2_read_enable_` /
+    // `l2_write_enable_` (caller checks those at the call site to match
+    // the VHDL `(rd_en AND NOT cpu_rd_n) OR (wr_en AND cpu_rd_n)` mux at
+    // line 3077).
+    inline bool l2_overlay_active_for(uint16_t addr) const {
+        if (addr < 0x4000) {
+            // Low half: L2 enabled in non-MF cases. mf_overlay_active_()
+            // is checked above the L2 block in read()/write(), so by the
+            // time we reach the L2 block any MF overlay would already have
+            // returned. Tolerate a redundant check here for robustness.
+            if (multiface_ && mf_overlay_active_()) return false;
+            return true;
+        }
+        if (addr >= 0xC000) return false;       // VHDL :3065 cpu_a(15:14)="11" gate
+        return l2_segment_raw_ == 0x03;         // seg = "11"
+    }
+
+    // VHDL zxnext.vhd:2966 — `layer2_active_bank_offset_pre`:
+    //   = cpu_a(15:14) when seg = "11" else seg
+    // Returns 0..3 (the 2-bit pre-offset value before adding
+    // `port_123b_layer2_offset`).
+    inline uint8_t l2_offset_pre_for(uint16_t addr) const {
+        if (l2_segment_raw_ == 0x03) {
+            return static_cast<uint8_t>((addr >> 14) & 0x03);
+        }
+        return l2_segment_raw_;
+    }
+
     // Compute the 8K SRAM page index for an alt-ROM access at `addr`
     // (addr in [0x0000, 0x3FFF]). VHDL zxnext.vhd:3117:
     //   sram_A21_A13 = "0000011" & sram_pre_alt_128_n & sram_pre_A21_A13(0)

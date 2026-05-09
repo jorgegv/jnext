@@ -1052,6 +1052,15 @@ static void test_pent_turbo() {
             // NR 0x08 bit 7 is write-strobe (paging unlock); writing
             // 0x40 sets only bit 6.
             emu.nextreg().write(0x08, 0x40);
+            // Verify8-memory class-(a) fix: VHDL zxnext.vhd:5906 reads
+            // `eff_nr_08_contention_disable` (effective), not the
+            // immediate shadow. The effective gate commits only on the
+            // bus-idle + hc(8)='1' edge per zxnext.vhd:5822-5823. Without
+            // running any instructions in this bare-Emulator harness,
+            // poke the commit explicitly so the read-back observes the
+            // committed value (matching what the run_frame() per-
+            // instruction commit-poll would do at runtime).
+            emu.contention().commit_contention_disable_on_hc(300);  // hc(8)=1
             const uint8_t nr08 = emu.nextreg().read(0x08);
             const bool bit6_set = (nr08 & 0x40) != 0;
             // Parallel bare-class.
