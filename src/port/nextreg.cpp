@@ -3,12 +3,23 @@
 #include "core/saveable.h"
 
 NextReg::NextReg() {
-    // PASS-5: install FPGA-power-on defaults BEFORE the first reset().
-    // The reset() function gates 0x82-0x85 / 0x86-0x89 on the reset_type
-    // bits stored in 0x85 / 0x89, and preserves 0x7F/0x80/0x8C across
-    // resets. With `regs_{}` value-initialised to all zeros, those
-    // gating reads would all see 0 and take the wrong path on the first
-    // reset. Mirror the VHDL signal initialisers verbatim:
+    // PASS-5/PASS-8: install FPGA-power-on defaults BEFORE the first
+    // reset(). The reset() function gates 0x82-0x85 / 0x86-0x89 on the
+    // reset_type bits stored in 0x85 / 0x89, and PRESERVES across reset
+    // every byte that has no reset clause in VHDL (initial-value-only
+    // signals).  With `regs_{}` value-initialised to all zeros those
+    // preservation paths would lock the cache at 0 forever, diverging
+    // from the VHDL post-power-on read.  Seed the cache here with the
+    // VHDL signal initialisers so that the first reset() preserves those
+    // bytes and subsequent resets preserve whatever was last written.
+    //
+    // PASS-8: discriminate first-boot from "user wrote 0x00" by seeding
+    // the power-on defaults explicitly here, NOT inferring from
+    // `regs_[reg] == 0`.  A user writing NR 0x05 ← 0x00 (joy0 = joy1 =
+    // Sinclair2) must have that value preserved across reset; a
+    // post-power-on first reset must observe the FPGA defaults.
+    //
+    // VHDL signal initialisers:
     //   nr_82-84_internal_port_enable        := (others=>'1')   (:1226-1228)
     //   nr_85_internal_port_enable           := (others=>'1')   (:1229)
     //   nr_85_internal_port_reset_type       := '1'             (:1230)
@@ -16,6 +27,16 @@ NextReg::NextReg() {
     //   nr_89_bus_port_enable                := (others=>'1')   (:1234)
     //   nr_89_bus_port_reset_type            := '1'             (:1235)
     //   nr_7f_user_register_0                := X"FF"           (:1216)
+    //   nr_05_joy0/joy1/5060/scandouble_en (:1105-1106, :1302-1303)
+    //                                        composite read = 0x41
+    //   nr_06_hotkey_*_en (:1107-1108) bits 7,5 = '1'
+    //                                        composite power-on = 0xA0
+    //                                        (also reasserted on reset)
+    //   nr_0a_*                              (:1124-1128)
+    //                                        composite read = 0x01
+    //                                        (mouse_dpi="01")
+    //   nr_10_coreid="00001" (:1133)         read mux = 0_00001_00 = 0x04
+    //   nr_11_video_timing := g_video_def    (:1134), typically 0x03 ("011")
     regs_[0x82] = 0xFF;
     regs_[0x83] = 0xFF;
     regs_[0x84] = 0xFF;
@@ -25,6 +46,12 @@ NextReg::NextReg() {
     regs_[0x88] = 0xFF;
     regs_[0x89] = 0x8F;
     regs_[0x7F] = 0xFF;
+    regs_[0x05] = 0x41;
+    regs_[0x06] = 0xA0;
+    regs_[0x09] = 0x00;  // explicit — matches `0 & 0xEF` from reset()
+    regs_[0x0A] = 0x01;
+    regs_[0x10] = 0x04;
+    regs_[0x11] = 0x03;
     reset();
 }
 
@@ -94,7 +121,7 @@ void NextReg::reset() {
     // bits are inherited verbatim from the pre-reset value.
     const uint8_t computed_06 = static_cast<uint8_t>((saved_06 & ~0xA0) | 0xA0);
 
-    // PASS-7 NR 0x05 reset preservation. Same shape as NR 0x06.
+    // PASS-7/PASS-8 NR 0x05 reset preservation. Same shape as NR 0x06.
     // VHDL zxnext.vhd:1105-1106, 1302-1303 declare the four NR 0x05 sub-
     // signals — `nr_05_joy0` ("001"), `nr_05_joy1` ("000"), `nr_05_5060`
     // ('0'), `nr_05_scandouble_en` ('1') — as initial-value-only.  No
@@ -106,12 +133,10 @@ void NextReg::reset() {
     // joystick_.mode_left/right); the cached byte is consumed for bits 2
     // (5060) and 0 (scandouble).  Pre-pass-7 jnext unconditionally re-
     // applied 0x41 here on every soft reset, wiping any user-toggled F2/F3
-    // state.  Preserve the whole stored byte; on power-on the constructor's
-    // `regs_{}` value-init means saved_05 == 0, so we OR in the power-on
-    // 5060=0/scandouble=1 (bit 0 = 1) default for first boot.
-    const bool first_boot_05 = (regs_[0x05] == 0x00);
-    const uint8_t saved_05 = first_boot_05 ? static_cast<uint8_t>(0x41)
-                                           : regs_[0x05];
+    // state.  PASS-8 — power-on default 0x41 is now seeded in the
+    // constructor (NextReg::NextReg, see comment block there); reset()
+    // unconditionally preserves the byte.
+    const uint8_t saved_05 = regs_[0x05];
 
     // PASS-7 NR 0x09 reset preservation. Same shape as NR 0x06.
     // VHDL zxnext.vhd:1121-1123, 1304 declare four NR 0x09 sub-signals:
@@ -128,6 +153,59 @@ void NextReg::reset() {
     // 2 / 1:0; force bit 4 = 0 to mirror the VHDL reset clause.
     const uint8_t saved_09 = regs_[0x09];
     const uint8_t computed_09 = static_cast<uint8_t>(saved_09 & 0xEF);
+
+    // PASS-8 NR 0x0A reset preservation. VHDL zxnext.vhd:1124-1128 declare
+    // five NR 0x0A sub-signals:
+    //   nr_0a_mf_type             [7:6] = "00"  (initial-only)
+    //   nr_0a_sd_swap             [5]   = '0'   (initial-only)
+    //   nr_0a_divmmc_automap_en   [4]   = '0'   (initial-only)
+    //   nr_0a_mouse_button_reverse[3]   = '0'   (initial-only)
+    //   nr_0a_mouse_dpi           [1:0] = "01"  (initial-only)
+    // None of these appear in the master reset block at zxnext.vhd:4930+;
+    // the only mutator is the NR 0x0A write handler at :5191-5198 (gated
+    // on config_mode for bits 7:5). The values therefore SURVIVE both hard
+    // and soft reset. NB: bit 2 reads back as '0' (VHDL :5912 — `'0'` in
+    // the read mux). The NR 0x0A read handler sources from authoritative
+    // subsystem state for ALL bits, so the cache exists primarily to
+    // round-trip the last-written byte across reset. PASS-8 — power-on
+    // default 0x01 (mouse_dpi="01" only) is seeded in the constructor
+    // (NextReg::NextReg); reset() unconditionally preserves the byte.
+    const uint8_t saved_0a = regs_[0x0A];
+
+    // PASS-8 NR 0x10 reset preservation. VHDL zxnext.vhd:1132-1133 declare
+    //   nr_10_flashboot [7] = '0'
+    //   nr_10_coreid    [4:0] = "00001"
+    // as initial-value-only signals. No reset clause anywhere in zxnext.vhd
+    // — the only mutators are the NR 0x10 write paths at :5681 / :5683 /
+    // :5699 / :5701. Both fields SURVIVE reset. Read mux at :5924 composes
+    //   '0' & nr_10_coreid & i_SPKEY_BUTTONS(1:0)
+    // → power-on byte = 0_00001_00 = 0x04 (with idle buttons). Power-on
+    // default 0x04 is seeded in the constructor; reset() preserves
+    // whatever value was last written. The buttons (bits 1:0) are a
+    // runtime input; jnext models them as 0 (idle) — so the cached byte
+    // does not need to track them, only the NR 0x10 writable fields.
+    const uint8_t saved_10 = regs_[0x10];
+
+    // PASS-8 NR 0x11 reset preservation. VHDL zxnext.vhd:1134 declares
+    //   nr_11_video_timing := std_logic_vector(g_video_def);
+    // (3 bits, board generic — typically "011" for issue-2 +3 timing).
+    // No reset clause anywhere; the only mutator is the NR 0x11 write
+    // handler at :5208-5217 (gated on config_mode). Value SURVIVES reset.
+    // The write handler in emulator.cpp stores the masked byte (bits 2:0
+    // only) verbatim. Power-on default 0x03 is seeded in the constructor.
+    const uint8_t saved_11 = regs_[0x11];
+
+    // PASS-8 NR 0x8A reset preservation. VHDL zxnext.vhd:1236 declares
+    //   nr_8a_bus_port_propagate : std_logic_vector(5 downto 0) := (others => '0');
+    // No reset clause anywhere; the only mutator is the NR 0x8A write
+    // handler at :5524-5525 (`nr_8a_bus_port_propagate <= nr_wr_dat(5:0)`).
+    // Value SURVIVES reset. The C++ write_handler at emulator.cpp:2100-2102
+    // canonicalises the byte to `(v & 0x3F)` matching the read mux at :6153
+    // (`port_253b_dat <= "00" & nr_8a_bus_port_propagate`). Power-on default
+    // 0x00 — the constructor's `regs_{}` value-init delivers it. Pre-pass-8
+    // `regs_.fill(0)` would zero the cache on every reset, wiping any user-
+    // set bus-port-propagate mask.
+    const uint8_t saved_8a = regs_[0x8A];
 
     regs_.fill(0);
     regs_[0x80] = computed_80;
@@ -168,12 +246,46 @@ void NextReg::reset() {
     // rationale. Power-on read default is 0x00 — `regs_{}` value-init
     // delivers it; subsequent resets preserve bits 7:5/3/2/1:0 verbatim.
     regs_[0x09] = computed_09;
+    // PASS-8 — NR 0x0A preserved across reset. See `saved_0a` capture above.
+    // Power-on first-boot seeds 0x01 (mouse_dpi="01" only); subsequent
+    // resets keep whatever was last written.
+    regs_[0x0A] = saved_0a;
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
-    // NR 0x10 power-on default. VHDL zxnext.vhd:1133:
-    //   nr_10_coreid <= "00001"  (5 bits, lands in NR 0x10 read at bits 6:2)
-    // Read mux at zxnext.vhd:5924: '0' & nr_10_coreid & i_SPKEY_BUTTONS(1:0)
+    // PASS-8 — NR 0x10 preserved across reset. See `saved_10` capture above.
+    // VHDL zxnext.vhd:1133: `nr_10_coreid <= "00001"` (5 bits, bits 6:2 in
+    // the read mux). Read mux at zxnext.vhd:5924 composes
+    //   '0' & nr_10_coreid & i_SPKEY_BUTTONS(1:0)
     // → 0_00001_00 = 0x04 with buttons idle (jnext models them as 0). G56.
-    regs_[0x10] = 0x04;
+    // Power-on first-boot seeds 0x04; subsequent resets preserve whatever
+    // value was last written via NR 0x10 (e.g. flashboot bit toggles).
+    regs_[0x10] = saved_10;
+    // PASS-8 — NR 0x11 preserved across reset. See `saved_11` capture above.
+    // VHDL :1134 default = g_video_def (typically "011" for +3 timing).
+    regs_[0x11] = saved_11;
+    // PASS-8 — NR 0x8A preserved across reset. See `saved_8a` capture above.
+    // VHDL :1236 declares `nr_8a_bus_port_propagate := (others => '0')` as
+    // initial-only; no reset clause. Power-on default 0x00 — `regs_{}`
+    // value-init delivers it.
+    regs_[0x8A] = saved_8a;
+    // PASS-8 — NR 0x14 / 0x4A / 0x4B / 0x4C VHDL master-reset-block defaults.
+    // VHDL zxnext.vhd:4946 / 5014 / 5016 / 5018 reload these bytes on every
+    // reset:
+    //   nr_14_global_transparent_rgb     <= X"E3"
+    //   nr_4a_fallback_rgb               <= X"E3"
+    //   nr_4b_sprite_transparent_index   <= X"E3"
+    //   nr_4c_tm_transparent_index       <= X"F" (4 bits — read mux at
+    //                                             :6056 composes "0000" & idx)
+    // Pre-pass-8 the cache was wiped to 0 by `regs_.fill(0)` and there are
+    // no read handlers for these registers, so reads after reset returned 0
+    // instead of the VHDL post-reset value. The renderer/palette
+    // subsystems already reset their authoritative copies to 0xE3/0xE3/
+    // 0xE3/0x0F (renderer.h:51, palette.cpp:88-90), so installing the
+    // matching cache bytes here keeps NextReg::read aligned with the live
+    // subsystem state on the cycle immediately after reset.
+    regs_[0x14] = 0xE3;
+    regs_[0x4A] = 0xE3;
+    regs_[0x4B] = 0xE3;
+    regs_[0x4C] = 0x0F;
     // Sub-version: VHDL g_sub_version = X"03" generic in
     // zxnext_top_issue2.vhd:38 (also issue4/issue5). Read mux at
     // zxnext.vhd:5917-5918 returns g_sub_version verbatim.
@@ -304,6 +416,31 @@ uint8_t NextReg::read(uint8_t reg) {
 
 void NextReg::write(uint8_t reg, uint8_t val) {
     Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
+    // PASS-8 read-only register guard. VHDL zxnext.vhd:5887, 5917, 5920
+    // — NR 0x01 (g_version), NR 0x0E (g_sub_version), NR 0x0F
+    // (g_board_issue) are RO board-generic constants; their read mux
+    // composes from `g_*` generics, never from a stored register. There
+    // is also no `nr_01_we` / `nr_0e_we` / `nr_0f_we` write-strobe in the
+    // write decoder at :4860+. Software writes therefore have NO effect
+    // in real hardware. Pre-pass-8 the raw byte was stored verbatim
+    // (because no handler was registered), polluting the cache and
+    // causing subsequent reads to return the polluted byte instead of
+    // the static generic. Drop those writes silently — the install-time
+    // values from reset() (regs_[0x01]=0x32, regs_[0x0E]=0x03,
+    // regs_[0x0F]=0x00) become the read-back source of truth.
+    //
+    // Other RO-shaped registers (NR 0x00, NR 0x10, NR 0x14, NR 0x42) are
+    // NOT guarded here:
+    //   - NR 0x00 has its own read_handler that returns the static 0x08
+    //     (HWID_EMULATORS), so the cache pollution is invisible to readers.
+    //   - NR 0x10 IS writable in VHDL (:5681-5701) — bits 7 and 4:0 latch
+    //     into `nr_10_flashboot` / `nr_10_coreid`. The handler's absence
+    //     here means writes go through the cache, which IS correct.
+    //   - NR 0x14 has a write_handler that fans out to subsystems.
+    //   - NR 0x42 has a write_handler.
+    if (reg == 0x01 || reg == 0x0E || reg == 0x0F) {
+        return;
+    }
     // G56 closure (Option C strategy b1): if a handler is registered, it
     // returns the canonical byte to be stored in regs_[reg]. Without a
     // handler, fall through to the raw written byte. Pre-G56 the raw byte

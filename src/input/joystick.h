@@ -69,6 +69,12 @@ public:
     Mode mode_left()  const { return joy0_mode_; }   ///< joy0
     Mode mode_right() const { return joy1_mode_; }   ///< joy1
 
+    /// Raw NR 0x05 last-write byte. Pass-8: used by Emulator::init() to
+    /// detect whether the cached NR 0x05 byte (preserved across reset by
+    /// NextReg) is in sync with the joystick subsystem state, so the
+    /// re-fan-out call can be skipped when both are already coherent.
+    uint8_t nr_05_raw() const { return nr_05_raw_; }
+
     /// Install the raw 12-bit joystick-state vector for the left / right
     /// connector. Layout per zxnext.vhd:3441-3442 (see class comment).
     /// Phase 1 stub just stores the value.

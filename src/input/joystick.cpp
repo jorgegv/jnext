@@ -10,18 +10,46 @@
 
 void Joystick::reset()
 {
-    // VHDL zxnext.vhd:1105-1106 reset values: joy0="001" (Kempston1),
-    // joy1="000" (Sinclair2). The raw NR 0x05 byte that decodes to those
-    // two 3-bit fields via zxnext.vhd:5157-5158 is:
-    //   joy0 = v[3] & v[7] & v[6] = 0 & 0 & 1  → bit 6 set
-    //   joy1 = v[1] & v[5] & v[4] = 0 & 0 & 0  → all clear
-    // Composite raw byte = 0b01000000 = 0x40. Storing this keeps
-    // nr_05_raw_ round-trip-consistent with the decoded Mode fields.
-    nr_05_raw_       = 0x40;
-    joy0_mode_       = Mode::Kempston1;
-    joy1_mode_       = Mode::Sinclair2;
+    // PASS-8 NR 0x05 reset preservation. VHDL zxnext.vhd:1105-1106 declare
+    // `nr_05_joy0` / `nr_05_joy1` as initial-value-only signals (defaults
+    // "001" / "000"). They DO NOT appear in the master reset block at
+    // zxnext.vhd:4930+, nor in the dedicated processes for `nr_05_5060`
+    // (:5832-5843) and `nr_05_scandouble_en` (:5845-5854) — both of which
+    // have NO `if reset='1'` branch either. The four NR 0x05 sub-signals
+    // therefore SURVIVE both hard and soft reset.
+    //
+    // Pass-7 fixed the NextReg byte cache to preserve regs_[0x05] across
+    // reset, but the joystick's authoritative `joy0_mode_` / `joy1_mode_`
+    // shadows were still being clobbered here on every reset, leaking out
+    // through the NR 0x05 read handler (which sources joy bits from the
+    // joystick subsystem, not from regs_[]). The cache and the subsystem
+    // therefore disagreed after any post-write soft reset. PASS-8 fix:
+    // do NOT clobber `nr_05_raw_` / `joy0_mode_` / `joy1_mode_` here.
+    // Member defaults supply the FPGA power-on values on first
+    // construction (`nr_05_raw_ = 0x40`, joy0=Kempston1, joy1=Sinclair2);
+    // every subsequent reset preserves whatever value was last latched
+    // by `set_nr_05()` / `set_mode_direct()`.
+    //
+    // Host-side input state (the raw 12-bit `joy_left_bits_` /
+    // `joy_right_bits_` vectors) is NOT a Next NR register state — it
+    // tracks the host adapter's pin levels, which in real hardware are
+    // not in any reset domain (they're driven by the connected joystick).
+    // Clearing them on reset is harmless and matches the "no joystick
+    // pressed at reset" convention.
     joy_left_bits_   = 0;
     joy_right_bits_  = 0;
+
+    // Re-propagate the (preserved) decoded modes to the membrane-fold
+    // module.  `set_membrane_stick()` is wired AFTER construction, so the
+    // first reset() runs with `membrane_ == nullptr` and the `set_mode()`
+    // forward only happens on subsequent resets — ensuring MembraneStick
+    // tracks the cached joy0/joy1 mode after a soft reset (which would
+    // otherwise leave the membrane fold pinned to its own constructor
+    // default if no NR 0x05 write happened post-reset).
+    if (membrane_) {
+        membrane_->set_mode(0, joy0_mode_);
+        membrane_->set_mode(1, joy1_mode_);
+    }
 }
 
 void Joystick::set_nr_05(uint8_t v)
