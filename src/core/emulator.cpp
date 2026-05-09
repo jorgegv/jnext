@@ -700,6 +700,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return layer2_.active_bank() & 0x7F;
     });
 
+    // Register 0x11: Video timing (frame-rate / line count select).
+    // VHDL zxnext.vhd:5208-5217 — write is gated on `nr_03_config_mode='1'`,
+    // and on Issue-2 boards (`g_video_inc = "10"`, see
+    // zxnext_top_issue2.vhd:40 — jnext defaults to ZXN_ISSUE2) only bit 0
+    // is captured: nr_11_video_timing <= "00" & nr_wr_dat(0). The "111"
+    // shortcut at :5210 normalises to "000". Read at zxnext.vhd:5926-5927:
+    //   port_253b_dat <= "00000" & nr_11_video_timing;
+    // bits 7:3 always read back as zero. VERIFY4 / pass-4 — pre-fix the
+    // bare regs_[0x11] echoed the full 8-bit write and ignored the
+    // config_mode gate, so firmware writes outside config_mode (and any
+    // upper-bit writes) leaked into the read path.
+    nextreg_.set_write_handler(0x11, [this](uint8_t v) -> uint8_t {
+        if (!nextreg_.nr_03_config_mode()) {
+            // Outside config_mode the latch holds — return the canonical
+            // current readback so the regs_[] shadow does not drift.
+            return static_cast<uint8_t>(nextreg_.cached(0x11) & 0x07);
+        }
+        uint8_t stored;
+        if ((v & 0x07) == 0x07) {
+            stored = 0x00;                           // VHDL :5210-5211
+        } else {
+            // Issue 2 board ("g_video_inc = 10"): only bit 0 captured.
+            stored = static_cast<uint8_t>(v & 0x01);
+        }
+        return stored;  // bits 7:3 = 0 implicit (mask 0x07).
+    });
+
     // Register 0x13: Layer 2 shadow RAM bank
     nextreg_.set_write_handler(0x13, [this](uint8_t v) -> uint8_t {
         layer2_.set_shadow_bank(v);
@@ -791,6 +818,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x44, [this](uint8_t v) -> uint8_t {
         palette_.write_9bit(v);
         return v;
+    });
+    // VHDL zxnext.vhd:6047-6048 — NR 0x44 read:
+    //   port_253b_dat <= nr_palette_dat(10:9) & "00000" & nr_palette_dat(0);
+    // i.e. priority [7:6], constants [5:1]=0, blue-LSB [0]. VERIFY4 / pass-4:
+    // bare regs_[0x44] would echo the last-written byte (the second NR 0x44
+    // write byte verbatim), which mismatches the VHDL composition for ULA /
+    // sprite / tilemap targets where priority is forced "00", and for any
+    // target where the read drops the upper-8 colour bits.
+    nextreg_.set_read_handler(0x44, [this]() -> uint8_t {
+        return palette_.read_9bit();
     });
 
     // Register 0xFF: ULA+ palette poke side-channel — VHDL zxnext.vhd:6957-6958.
@@ -1240,7 +1277,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
 
     // Register 0x2F: Tilemap X scroll MSB (bits 1:0)
-    nextreg_.set_write_handler(0x2F, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_msb(v); return v; });
+    // VHDL zxnext.vhd:5330-5331 — `nr_30_tm_scrollx(9:8) <= nr_wr_dat(1:0)`:
+    // only bits 1:0 are stored. Read at zxnext.vhd:6017-6018:
+    //   port_253b_dat <= "000000" & nr_30_tm_scrollx(9:8);
+    // bits 7:2 always read back as zero. VERIFY4 / pass-4 — pre-fix the bare
+    // regs_[0x2F] echoed the full 8-bit write, so reads diverged from VHDL
+    // whenever firmware wrote upper bits.
+    nextreg_.set_write_handler(0x2F, [this](uint8_t v) -> uint8_t {
+        tilemap_.set_scroll_x_msb(v);
+        return static_cast<uint8_t>(v & 0x03);
+    });
 
     // Register 0x30: Tilemap X scroll LSB
     nextreg_.set_write_handler(0x30, [this](uint8_t v) -> uint8_t { tilemap_.set_scroll_x_lsb(v); return v; });
@@ -1842,9 +1888,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:1104,5716-5732 — we take all 8 bits (Issue-5 behaviour);
     // out-of-range banks fall back to 0xFF reads via Ram::page_ptr()==nullptr.
     nextreg_.set_write_handler(0x04, [this](uint8_t v) -> uint8_t {
-        nextreg_.set_nr_04_romram_bank(v);
-        mmu_.set_nr_04_romram_bank(v);
-        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank)", v);
+        // VHDL zxnext.vhd:5709-5722 (gen_romram_234, board issue ≤ 2):
+        //   nr_04_romram_bank <= '0' & nr_wr_dat(6 downto 0);
+        // i.e. bit 7 is forced to zero on Issue 2/3/4 boards (jnext defaults
+        // to ZXN_ISSUE2 — see emulator_config.h:67). Issue 5 stores the full
+        // 8 bits (gen_romram_5, :5724-5736). VERIFY4 / pass-4: prior code
+        // forwarded the raw byte verbatim to the SRAM address compose, so a
+        // firmware write of NR 0x04 with bit 7 set would route slot 0/1
+        // page index `(0xFF << 1) | slot` = page 0x1FE/0x1FF, out of the
+        // emulated 1 MiB SRAM range (256 × 8 KiB pages = pages 0..0xFF).
+        const uint8_t bank = static_cast<uint8_t>(v & 0x7F);
+        nextreg_.set_nr_04_romram_bank(bank);
+        mmu_.set_nr_04_romram_bank(bank);
+        Log::emulator()->debug("NextREG 0x04 ← {:#04x}  (romram_bank, masked to {:#04x})", v, bank);
         // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x04
         // (write-only ROM/RAM bank latch; only consumed by the SRAM
         // address-composition path). Fall-through is (others => '0'); return
@@ -1956,6 +2012,64 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         v |= static_cast<uint8_t>(port_ff_reg_ & 0x3F);
         return v;
     });
+
+    // Register 0x8A: Bus-port propagate (low 6 bits only).
+    // VHDL zxnext.vhd:5524-5525 — `nr_8a_bus_port_propagate <= nr_wr_dat(5:0)`
+    // (bits 7:6 of write are dropped). VHDL zxnext.vhd:6152-6153 read:
+    //   port_253b_dat <= "00" & nr_8a_bus_port_propagate;
+    // VERIFY4 / pass-4 — pre-fix the bare regs_[0x8A] echoed the full byte;
+    // canonicalise on the write side so the readback matches VHDL.
+    nextreg_.set_write_handler(0x8A, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x3F);
+    });
+
+    // Registers 0x90 / 0x93 — Pi GPIO output enable (bit-mask gating).
+    // VHDL zxnext.vhd:5537 — NR 0x90: `nr_90_pi_gpio_o_en <= nr_wr_dat(7:2) & "00"`
+    //   i.e. bits 1:0 are forced 0 (jnext does not enable output on GPIO 1:0).
+    // VHDL zxnext.vhd:5546 — NR 0x93: `nr_93_pi_gpio_o_en <= nr_wr_dat(3:0)`.
+    // Read mux at zxnext.vhd:6164-6174 returns the stored byte verbatim
+    // (with NR 0x93 prefixed by "0000"). VERIFY4 / pass-4 — pre-fix the
+    // bare regs_[0x90 / 0x93] echoed the full write byte. Pi GPIO is not
+    // boot-relevant but the readback contract is part of the VHDL surface.
+    nextreg_.set_write_handler(0x90, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0xFC);
+    });
+    nextreg_.set_write_handler(0x93, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x0F);
+    });
+
+    // Registers 0x98 / 0x99 / 0x9A / 0x9B — Pi GPIO INPUT readback.
+    // VHDL zxnext.vhd:6176-6186 — reads return `i_GPIO(...)` (the live Pi
+    // GPIO INPUT pins), NOT the corresponding nr_9*_pi_gpio_o write shadow.
+    // Reads decode as:
+    //   NR 0x98 → i_GPIO(7:0)
+    //   NR 0x99 → i_GPIO(15:8)
+    //   NR 0x9A → i_GPIO(23:16)
+    //   NR 0x9B → "0000" & i_GPIO(27:24)
+    // jnext does not model the Pi GPIO bus. Returning 0 matches the VHDL
+    // contract for "no Pi attached" better than the default last-written-byte
+    // shadow (which leaks the `nr_9*_pi_gpio_o` output state into the input
+    // read path). VERIFY4 / pass-4.
+    nextreg_.set_read_handler(0x98, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x99, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x9A, []() -> uint8_t { return 0x00; });
+    nextreg_.set_read_handler(0x9B, []() -> uint8_t { return 0x00; });
+
+    // Register 0xA8 — ESP GPIO0 output enable (bit 0 only).
+    // VHDL zxnext.vhd:5570 — `nr_a8_esp_gpio0_en <= nr_wr_dat(0)`.
+    // Read at zxnext.vhd:6197-6198: `"0000000" & nr_a8_esp_gpio0_en` (mask 0x01).
+    nextreg_.set_write_handler(0xA8, [](uint8_t v) -> uint8_t {
+        return static_cast<uint8_t>(v & 0x01);
+    });
+
+    // Register 0xA9 — ESP GPIO0 input value.
+    // VHDL zxnext.vhd:6200-6201:
+    //   port_253b_dat <= "00000" & i_ESP_GPIO_20(2) & '0' & i_ESP_GPIO_20(0);
+    // Read returns ESP-side GPIO INPUT bits 2 and 0 (with bit 1 forced to 0),
+    // NOT the nr_a9_esp_gpio0 output shadow. jnext does not model the ESP
+    // GPIO; return 0 (no ESP attached) instead of the last-written shadow
+    // to avoid leaking the output state into the input read.
+    nextreg_.set_read_handler(0xA9, []() -> uint8_t { return 0x00; });
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
 
