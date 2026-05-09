@@ -560,39 +560,29 @@ int Z80Cpu::execute() {
 
             // VHDL-faithful timekeeping: Z80N opcodes bypass FUSE's
             // fuse_z80_execute_one() entirely (FUSE doesn't decode them).
-            // The mem_.read()/io operations inside execute_z80n() use the
-            // raw MemoryInterface/IoInterface — they do NOT add to FUSE's
-            // global `tstates` counter. Without this fix, a sustained burst
-            // of Z80N opcodes (NEXTREG, MUL, ADD HL/DE/BC,A — used heavily
-            // by the NextZXOS supervisor) leaves `tstates` stuck while
-            // wall-clock time advances. Subsequent fuse_z80_readbyte() and
-            // contend_read() calls then derive (hc, vc) from a stale frame
-            // position, applying contention from the wrong raster window.
-            // The /INT pulse-window check at the top of execute()
-            // (`tstates - int_requested_at_`) is also affected: a pending
-            // ULA INT can outlive its 32/36-cycle pulse without the window
-            // expiring, because Z80N execution time isn't being counted.
             //
             // Pass-5: the two contend_read(pc, 4) / contend_read(pc+1, 4)
-            // calls above already added 8 T-states for the M1 fetches AND
-            // any contention stretch the (hc, vc) window emitted; the `t`
-            // returned by execute_z80n is the FULL instruction time
-            // (including the 8 T baseline), so we add (t - 8) here to avoid
-            // double-counting the M1 baseline. All Z80N opcodes return at
-            // least 8 T (the pure-fetch ones), so (t - 8) >= 0 is always
-            // safe.
+            // calls above add 8 T-states for the M1 fetches AND any
+            // contention stretch the (hc, vc) window emits.
             //
-            // Return value: the FUSE convention (fuse_z80_execute_one()
-            // line 213) is to return (tstates_delta) — the FULL elapsed
-            // T-state count INCLUDING any contention stretch. The Emulator
-            // (run_frame() line 4639) feeds this directly into
-            // video_timing_.advance(), so contention stretches must be
-            // visible in the return value too. We compute the delta from
-            // start_ts (snapshotted before the contend_read pair above) so
-            // the Z80N path returns the same shape as the FUSE path.
-            int post_m1 = t - 8;
-            if (post_m1 < 0) post_m1 = 0;
-            tstates += static_cast<libspectrum_dword>(post_m1);
+            // Pass-6: execute_z80n() now self-manages the FULL post-M1
+            // tstates advance — operand/data reads via fuse_z80_readbyte
+            // and writes via fuse_z80_writebyte (each adds 3 T + contention
+            // stretch); real port I/O (OUTINB, JP_C) via
+            // fuse_z80_writeport / fuse_z80_readport (each 4 T + contention);
+            // and any leftover internal idle cycles via raw `tstates +=`.
+            // The wrapper therefore does NOT add (t - 8) — that would
+            // double-count the post-M1 portion, since execute_z80n() has
+            // already advanced tstates by the data-access + internal time.
+            //
+            // The returned `t` value is now purely informational — it is
+            // the spec-total instruction T-state count (8 M1 + post-M1).
+            // We still snapshot start_ts before the contend_read pair so
+            // the wrapper returns the FULL elapsed delta (8 M1 + M1
+            // contention + data-access T + data-access contention +
+            // internal idle), matching FUSE's fuse_z80_execute_one()
+            // return shape.
+            (void)t;  // value unused after Pass-6 — self-managed inside
 
             sync_fuse_from_regs(regs_);
             return static_cast<int>(tstates - start_ts);

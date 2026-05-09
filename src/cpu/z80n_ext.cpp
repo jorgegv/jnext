@@ -1,6 +1,10 @@
 #include "z80n_ext.h"
 #include "z80_cpu.h"
 
+extern "C" {
+#include "fuse_z80_shim.h"
+}
+
 // Flag bit positions for TEST_N
 static constexpr uint8_t FLAG_C = 0x01;
 static constexpr uint8_t FLAG_N = 0x02;
@@ -59,6 +63,52 @@ static inline uint8_t ldi_family_flags(uint8_t bytetemp, uint8_t A,
 // drifting IM2/vsync/contention timing for any code that invokes Z80N
 // extensively (the NextZXOS supervisor invokes NEXTREG, MUL, ADD HL/DE/BC,A
 // constantly).
+//
+// Pass-6 fix (2026-05-09): Z80N OPERAND READS / DATA WRITES were previously
+// done via `cpu.memory().read()` / `cpu.memory().write()` — the raw
+// MemoryInterface — which:
+//   (a) bypasses ContentionModel::contention_tick() so the per-cycle
+//       contention stretch on contended pages during the active raster
+//       window is NEVER applied;
+//   (b) does NOT advance the FUSE `tstates` counter incrementally during
+//       the operand reads — only the static post-instruction `tstates +=`
+//       in the wrapper compensates, which loses sub-instruction-precision
+//       (hc, vc) for derived contention.
+// Pass-5 promoted M1 contention to class-(a) and fixed it via the wrapper's
+// contend_read pair. Pass-6 quantifies operand-access drift:
+//   - LDIRX over screen RAM (6144 bytes contended, 6 T avg stretch per pair):
+//     ≈ 36 K T-states drift per full-screen blit — a full FRAME's worth of
+//     timing. Demos using LDIRX for fade transitions sit on this.
+//   - NextZXOS supervisor invokes NEXTREG_NN/NEXTREG_A constantly; even
+//     non-contended-page reads still under-count the +3 T per-byte advance
+//     until the static post-instruction add fires. The /INT pulse-window
+//     check in Z80Cpu::execute() (`tstates - int_requested_at_`) sees a
+//     stale tstates during long Z80N bursts, so a pulse can outlive its
+//     32/36-cycle window.
+// → Reclassified to class-(a). Refactor: route operand/data accesses
+// through fuse_z80_readbyte / fuse_z80_writebyte (contention + 3 T per
+// byte), real port I/O through fuse_z80_readport / fuse_z80_writeport
+// (1 T pre-IORQ + contention + 3 T post-IORQ = 4 T per cycle).
+//
+// Each case is responsible for advancing FUSE `tstates` by the FULL
+// post-M1 portion of the instruction (the wrapper's contend_read pair
+// already added the 8 T M1 prefix + ext-byte baseline + their contention
+// stretch). The case adds:
+//   - data-access T-states via fuse_z80_readbyte / fuse_z80_writebyte /
+//     fuse_z80_readport / fuse_z80_writeport (each advances tstates +
+//     contention internally);
+//   - whatever "internal idle" cycles remain to reach the spec total
+//     via raw `tstates += internal_idle;` at the case tail.
+// The wrapper in z80_cpu.cpp no longer adds (t - 8); execute_z80n's
+// returned T-state count is purely informational.
+//
+// NextReg writes via cpu.io().out(0x243B/0x253B, …) STAY on the raw
+// IoInterface path — real hardware bypasses the I/O bus entirely for
+// NEXTREG (the VHDL drives the NextReg fabric directly via Z80N_data_o
+// strobes — see t80n_mcode.vhd:1672-1707). Charging fuse_z80_writeport's
+// 4 T per "port write" would over-count by 8 T per NEXTREG_NN. The 6 T
+// internal idle on NEXTREG_NN (and NEXTREG_A) covers the actual NextReg
+// fabric write timing in hardware.
 int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
     switch (static_cast<Z80NOpcode>(opcode)) {
 
@@ -86,7 +136,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
 
         case Z80NOpcode::TEST_N: {
             auto regs = cpu.get_registers();
-            uint8_t nn = cpu.memory().read(regs.PC);
+            // Pass-6 fix: operand read via fuse_z80_readbyte (contention + 3T).
+            uint8_t nn = fuse_z80_readbyte(regs.PC);
             regs.PC = (regs.PC + 1) & 0xFFFF;
             uint8_t a = regs.AF >> 8;
             uint8_t temp = a & nn;
@@ -105,7 +156,8 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // stale pre-Z80N Q and emit wrong X/Y flags.
             regs.Q = f;
             cpu.set_registers(regs);
-            return 11;  // M1+M1+R(+1 internal) per spec
+            // Spec total = 11T = 8 (M1) + 3 (operand). No internal idle.
+            return 11;
         }
 
         case Z80NOpcode::BSLA_DE_B: {
@@ -212,42 +264,49 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // then high. End-of-instruction WZ = nn. The next BIT (HL) /
             // BIT (IX+d) / IN A,(n) etc. that consults WZ for X/Y flag
             // composition would see stale MEMPTR otherwise.
+            // Pass-6 fix: operand reads via fuse_z80_readbyte (contention + 3T).
             auto regs = cpu.get_registers();
-            uint8_t lo = cpu.memory().read(regs.PC);
-            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            uint8_t lo = fuse_z80_readbyte(regs.PC);
+            uint8_t hi = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
             regs.HL = (regs.HL + nn) & 0xFFFF;
             regs.MEMPTR = nn;
             cpu.set_registers(regs);
-            return 16;  // M1+M1+R+R+(2 internal); spec=16
+            // Spec = 16T = 8 (M1) + 6 (2× operand) + 2 (internal).
+            tstates += 2;
+            return 16;
         }
 
         case Z80NOpcode::ADD_DE_NN: {
             // ED 35 ll hh — ADD DE, nn (no flags affected). See ADD_HL_NN
             // for WZ/MEMPTR rationale (VHDL t80n_mcode.vhd:1872-1878).
+            // Pass-6 fix: operand reads via fuse_z80_readbyte.
             auto regs = cpu.get_registers();
-            uint8_t lo = cpu.memory().read(regs.PC);
-            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            uint8_t lo = fuse_z80_readbyte(regs.PC);
+            uint8_t hi = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
             regs.DE = (regs.DE + nn) & 0xFFFF;
             regs.MEMPTR = nn;
             cpu.set_registers(regs);
+            tstates += 2;
             return 16;
         }
 
         case Z80NOpcode::ADD_BC_NN: {
             // ED 36 ll hh — ADD BC, nn (no flags affected). See ADD_HL_NN
             // for WZ/MEMPTR rationale (VHDL t80n_mcode.vhd:1872-1878).
+            // Pass-6 fix: operand reads via fuse_z80_readbyte.
             auto regs = cpu.get_registers();
-            uint8_t lo = cpu.memory().read(regs.PC);
-            uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            uint8_t lo = fuse_z80_readbyte(regs.PC);
+            uint8_t hi = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
             regs.BC = (regs.BC + nn) & 0xFFFF;
             regs.MEMPTR = nn;
             cpu.set_registers(regs);
+            tstates += 2;
             return 16;
         }
 
@@ -255,48 +314,78 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // ED 8A hh ll — push 16-bit immediate value onto stack.
             // Instruction stream: high byte first, then low byte (big-endian).
             // PC already points past ED 8A; read 2 operand bytes.
+            // Pass-6 fix: operand reads + stack writes via fuse_z80_*byte
+            // (contention + 3T per byte). Spec = 23T = 8 (M1) + 6 (2× operand
+            // read) + 6 (2× stack write) + 3 (internal idle).
             auto regs = cpu.get_registers();
-            uint8_t hh = cpu.memory().read(regs.PC);
-            uint8_t ll = cpu.memory().read(regs.PC + 1);
+            uint8_t hh = fuse_z80_readbyte(regs.PC);
+            uint8_t ll = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             regs.SP = (regs.SP - 2) & 0xFFFF;
-            cpu.memory().write(regs.SP + 1, hh);
-            cpu.memory().write(regs.SP, ll);
+            // Sync FUSE z80 state so that the global s_mem write callback uses
+            // up-to-date register snapshots when contention triggers a side
+            // effect (none of jnext's contention models look at z80 regs, but
+            // sync keeps callback semantics symmetric with the FUSE path).
             cpu.set_registers(regs);
+            fuse_z80_writebyte((regs.SP + 1) & 0xFFFF, hh);
+            fuse_z80_writebyte(regs.SP, ll);
+            tstates += 3;
             return 23;
         }
 
         case Z80NOpcode::OUTINB: {
+            // ED 90 — OUT (BC),(HL); HL++. Real I/O cycle (VHDL line 2552
+            // sets IORQ=1 + Write=1 at MCycle 3). Spec = 16T = 8 (M1) +
+            // 3 (mem read HL) + 4 (port write IORQ) + 1 (internal).
+            // Pass-6 fix: data read via fuse_z80_readbyte, port write via
+            // fuse_z80_writeport — both add contention.
             auto regs = cpu.get_registers();
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             uint16_t port = regs.BC;
-            cpu.io().out(port, temp);
+            fuse_z80_writeport(port, temp);
             regs.HL = (regs.HL + 1) & 0xFFFF;
             // B is NOT decremented (unlike OUTI)
             cpu.set_registers(regs);
-            return 16;  // M1+M1+R+IO ≈ 16 per spec
+            tstates += 1;
+            return 16;
         }
 
         case Z80NOpcode::NEXTREG_NN: {
+            // ED 91 rr vv — NextReg write. NEXTREG bypasses the I/O bus on
+            // real hardware (VHDL t80n_mcode.vhd:1672-1707 — Z80N_data_o
+            // strobes drive the NextReg fabric directly, no IORQ on the
+            // external pin). cpu.io().out() to 0x243B/0x253B is jnext's
+            // internal shortcut: it routes through the IoMux dispatch but
+            // does NOT trigger fuse_z80_writeport's 4 T per port write
+            // (which would over-count by 8 T per NEXTREG_NN).
+            // Spec = 20T = 8 (M1) + 6 (2× operand read) + 6 (internal —
+            // covers the two NextReg fabric mcycles).
+            // Pass-6 fix: operand reads via fuse_z80_readbyte for contention.
             auto regs = cpu.get_registers();
-            uint8_t reg = cpu.memory().read(regs.PC);
-            uint8_t val = cpu.memory().read((regs.PC + 1) & 0xFFFF);
+            uint8_t reg = fuse_z80_readbyte(regs.PC);
+            uint8_t val = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             cpu.set_registers(regs);
             cpu.io().out(0x243B, reg);
             cpu.io().out(0x253B, val);
-            return 20;  // VHDL MCycles=5, M1+M1+R+R+(internal)=20 per spec
+            tstates += 6;
+            return 20;
         }
 
         case Z80NOpcode::NEXTREG_A: {
+            // ED 92 rr — NextReg write from A. See NEXTREG_NN comment for
+            // the I/O-bus bypass rationale.
+            // Spec = 17T = 8 (M1) + 3 (operand read) + 6 (internal).
+            // Pass-6 fix: operand read via fuse_z80_readbyte for contention.
             auto regs = cpu.get_registers();
-            uint8_t reg = cpu.memory().read(regs.PC);
+            uint8_t reg = fuse_z80_readbyte(regs.PC);
             regs.PC = (regs.PC + 1) & 0xFFFF;
             uint8_t a = regs.AF >> 8;
             cpu.set_registers(regs);
             cpu.io().out(0x243B, reg);
             cpu.io().out(0x253B, a);
-            return 17;  // VHDL MCycles=4, M1+M1+R+(internal)=17 per spec
+            tstates += 6;
+            return 17;
         }
 
         case Z80NOpcode::PIXELDN: {
@@ -346,22 +435,44 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         case Z80NOpcode::JP_C: {
             // ED 98 — JP (C): read byte from port BC, set PC[13:6] = byte, PC[5:0] = 0
             // PC[15:14] are preserved (VHDL only writes bits 13:0)
+            // VHDL t80n_mcode.vhd:1837-1848 emits IORQ=1 at MCycle 2 — real
+            // port read. Spec = 13T = 8 (M1) + 4 (port read with IORQ) + 1
+            // (internal idle).
+            // Pass-6 fix: port read via fuse_z80_readport for contention.
             auto regs = cpu.get_registers();
-            uint8_t val = cpu.io().in(regs.BC);
+            uint8_t val = fuse_z80_readport(regs.BC);
             regs.PC = (regs.PC & 0xC000) | ((uint16_t)val << 6);
             cpu.set_registers(regs);
-            return 13;  // M1+M1+IO per spec
+            tstates += 1;
+            return 13;
         }
 
         case Z80NOpcode::LDIX: {
             // ED A4 — single iteration block transfer with transparency.
             // Pass-3 fix: VHDL I_BT block-transfer flag update — see
             // ldi_family_flags() above and t80n.vhd:1277-1285.
+            // Pass-6 fix: source read + dest write via fuse_z80_readbyte /
+            // fuse_z80_writebyte (contention + 3T per access).
+            // Spec = 16T = 8 (M1) + 3 (read HL) + 3 (write DE) + 2 (internal).
+            //
+            // VHDL transparency: the write fires only when temp != A. When the
+            // byte matches the transparency value the write IS suppressed in
+            // hardware — but the bus cycle for the write phase still consumes
+            // its T-states (NoWrite asserted; idle). For now we do NOT advance
+            // the 3 T write-phase when transparency suppresses the write —
+            // that matches the legacy jnext behaviour (returned 16 always).
+            // The pre-fix tstates -= 3 vs spec is a corner case of demos that
+            // bank on transparency-mode timing; tracking that requires its
+            // own pass.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                // Transparency: emulate the suppressed write phase as a raw
+                // tstates advance so the spec-total of 16 T is preserved.
+                tstates += 3;
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
@@ -371,16 +482,19 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             cpu.set_registers(regs);
-            return 16;  // M1+M1+R+W per spec
+            tstates += 2;
+            return 16;
         }
 
         case Z80NOpcode::LDWS: {
             // ED A5 — LDWS: copy (HL) to (DE), then increment only L and D
             // This is a single-byte-at-a-time copy with stride 256 on dest, 1 on source low byte
             // Flags: same as INC D (S, Z, H, P/V, N=0 from the D increment)
+            // Spec = 14T = 8 (M1) + 3 (read HL) + 3 (write DE) + 0 (no internal).
+            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
             auto regs = cpu.get_registers();
-            uint8_t temp = cpu.memory().read(regs.HL);
-            cpu.memory().write(regs.DE, temp);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
+            fuse_z80_writebyte(regs.DE, temp);
             // Increment L only (wrap within low byte)
             uint8_t L = (regs.HL & 0xFF) + 1;
             regs.HL = (regs.HL & 0xFF00) | L;
@@ -406,11 +520,15 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         case Z80NOpcode::LDDX: {
             // ED AC — single iteration, HL decrements.
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
+            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Spec = 16T = 8 (M1) + 3 (read HL) + 3 (write DE) + 2 (internal).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                tstates += 3;  // suppressed write phase keeps total = 16T
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
@@ -420,6 +538,7 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             cpu.set_registers(regs);
+            tstates += 2;
             return 16;
         }
 
@@ -440,11 +559,17 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // Spectrum Next reference; matches the standard LDIR shape.
             //
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
+            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            // Term spec = 16T = 8 (M1) + 6 (read+write) + 2 (internal).
+            // Cont spec = 21T = 8 (M1) + 6 (read+write) + 7 (internal — the
+            // standard LDIR 5-extra-cycle re-decode pause).
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                tstates += 3;
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
@@ -454,11 +579,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             int t = 16;
+            int internal_idle = 2;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
                 t = 21;
+                internal_idle = 7;
             }
             cpu.set_registers(regs);
+            tstates += static_cast<libspectrum_dword>(internal_idle);
             return t;
         }
 
@@ -471,11 +599,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // "1110" (dec HL) at lines 2240+2244).
             //
             // Pass-3 fix: VHDL I_BT block-transfer flag update.
+            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                tstates += 3;
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;  // DE still increments
             regs.HL = (regs.HL - 1) & 0xFFFF;  // HL decrements
@@ -485,11 +616,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             int t = 16;
+            int internal_idle = 2;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
                 t = 21;
+                internal_idle = 7;
             }
             cpu.set_registers(regs);
+            tstates += static_cast<libspectrum_dword>(internal_idle);
             return t;
         }
 
@@ -497,23 +631,29 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // ED B7 — pattern fill with transparency, repeats until BC=0.
             // G89 inter-iteration INT-sample shape. Mirrors VHDL
             // t80n_mcode.vhd:1953-1991 (LDPIRX MCycles="100" with PC rewind).
+            // Pass-6 fix: pattern read + dest write via fuse_z80_*byte.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
             // Source: upper 13 bits of HL | lower 3 bits of E (HL stays fixed)
             uint16_t src_addr = (regs.HL & 0xFFF8) | (regs.DE & 0x0007);
-            uint8_t temp = cpu.memory().read(src_addr);
+            uint8_t temp = fuse_z80_readbyte(src_addr);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                tstates += 3;
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;
             // HL does NOT change (pattern base)
             regs.BC = (regs.BC - 1) & 0xFFFF;
             int t = 16;
+            int internal_idle = 2;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
                 t = 21;
+                internal_idle = 7;
             }
             cpu.set_registers(regs);
+            tstates += static_cast<libspectrum_dword>(internal_idle);
             return t;
         }
 
@@ -527,11 +667,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // Pass-3 fix: VHDL I_BT block-transfer flag update — LDIRSCALE's
             // mcode (line 2208-2209) explicitly sets Set_BusA_To=A,
             // ALU_Op=ADD, so the flag composition matches LDI/LDIRX.
+            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
             auto regs = cpu.get_registers();
             uint8_t A = regs.AF >> 8;
-            uint8_t temp = cpu.memory().read(regs.HL);
+            uint8_t temp = fuse_z80_readbyte(regs.HL);
             if (temp != A) {
-                cpu.memory().write(regs.DE, temp);
+                fuse_z80_writebyte(regs.DE, temp);
+            } else {
+                tstates += 3;
             }
             regs.DE = (regs.DE + 1) & 0xFFFF;
             regs.HL = (regs.HL + 1) & 0xFFFF;
@@ -541,11 +684,14 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q  = f;
             int t = 16;
+            int internal_idle = 2;
             if (regs.BC != 0) {
                 regs.PC = (regs.PC - 2) & 0xFFFF;
                 t = 21;
+                internal_idle = 7;
             }
             cpu.set_registers(regs);
+            tstates += static_cast<libspectrum_dword>(internal_idle);
             return t;
         }
 
