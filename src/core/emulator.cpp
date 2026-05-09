@@ -165,11 +165,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     psg_accum_ = 0;
     sample_accum_ = 0;
     dac_enabled_ = false;
-    // VHDL zxnext.vhd:1115-1120 reset defaults for NR 0x08 stored bits.
-    // nr_08_psg_stereo_mode, nr_08_dac_en, nr_08_port_ff_rd_en,
-    // nr_08_psg_turbosound_en, nr_08_keyboard_issue2 all default '0';
-    // nr_08_internal_speaker_en defaults '1' (bit 4).
-    nr_08_stored_low_ = 0x10;
+    // PASS-7 NR 0x08 reset preservation. Same shape as NR 0x06 / NR 0x05 /
+    // NR 0x09. VHDL zxnext.vhd:1115-1120 declares six NR 0x08 sub-signals:
+    //   nr_08_contention_disable     [b6] init '0'   (RESET to '0' at :4935 —
+    //                                                 NOT held in nr_08_stored_low_;
+    //                                                 owned by mmu_.set_contention_disabled())
+    //   nr_08_psg_stereo_mode        [b5] init '0'
+    //   nr_08_internal_speaker_en    [b4] init '1'
+    //   nr_08_dac_en                 [b3] init '0'
+    //   nr_08_port_ff_rd_en          [b2] init '0'
+    //   nr_08_psg_turbosound_en      [b1] init '0'
+    //   nr_08_keyboard_issue2        [b0] init '0'
+    // ONLY nr_08_contention_disable is in the reset block (line 4935); all
+    // bits in `nr_08_stored_low_` (b5..b0) survive reset.  Pre-pass-7
+    // jnext unconditionally re-applied 0x10 here on every soft reset,
+    // wiping any user-set NR 0x08 b5/b4/b3/b2/b1/b0 (e.g. internal-speaker,
+    // DAC enable, TurboSound enable).  Preserve the byte across soft reset
+    // (preserve_memory=true == NR 0x02 ← 0x01); on hard reset / first boot
+    // restore the power-on default 0x10 (b4=1 = internal_speaker_en).
+    if (!preserve_memory) {
+        nr_08_stored_low_ = 0x10;
+    }
+    // Note: `dac_enabled_` was unconditionally set false above. That is also
+    // a same-shape divergence (nr_08_dac_en survives reset). Restore it from
+    // the preserved nr_08_stored_low_ shadow so the DAC stays enabled across
+    // soft reset if the user previously set b3.
+    dac_enabled_ = (nr_08_stored_low_ & 0x08) != 0;
 
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
@@ -3254,7 +3275,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // KEEP the read_handler — bit 7 is a runtime hardware-input signal
     // (not a static mask of the cached byte) and the cold-init read must
     // return 0x80 even with no prior write (regs_[0x81] starts at 0).
-    nr_81_ = 0;
+    // PASS-7 NR 0x81 reset preservation. Same shape as NR 0x06 / NR 0x05 /
+    // NR 0x09. VHDL zxnext.vhd:1221-1225 declare nr_81_expbus_ula_override,
+    // nr_81_expbus_nmi_debounce_disable, nr_81_expbus_clken,
+    // nr_81_expbus_fdc, nr_81_expbus_speed all as initial-value-only
+    // signals.  None of them appear in any reset block — confirm by
+    // scanning zxnext.vhd for `nr_81_` writes outside the NR 0x81 write
+    // handler at :5491-5496.  The bits survive both hard and soft reset.
+    // Pre-pass-7 jnext unconditionally re-applied 0x00 here on every reset,
+    // wiping the user-set ExpBus NMI-debounce-disable bit on every NR 0x02
+    // ← 0x01 soft reset.  Preserve across soft reset; on hard reset /
+    // first boot restore the power-on default 0x00.  Re-propagate to
+    // NmiSource so the ExpBus NMI gate reflects the live VHDL state
+    // immediately after reset, before any subsequent NR 0x81 write would
+    // otherwise re-arm it.
+    if (!preserve_memory) {
+        nr_81_ = 0;
+    }
+    nmi_source_.set_expbus_debounce_disable((nr_81_ & 0x20) != 0);
     nextreg_.set_write_handler(0x81, [this](uint8_t v) -> uint8_t {
         nr_81_ = v;
         nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
@@ -3282,6 +3320,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bit 7 is the write-strobe only; it is not stored (read-back at
     // zxnext.vhd:5906 shows bit 7 = NOT port_7ffd_locked, not the bit
     // just written). Bit 6 IS stored (read back via eff_nr_08_contention_disable).
+    //
+    // PASS-7 NR 0x08 reset propagation. After init() resets each subsystem
+    // (turbosound_, dac_, mixer_, ...) to their power-on defaults, fan out
+    // the *preserved* `nr_08_stored_low_` shadow so the NMI/MF/Port-adjacent
+    // subsystems whose state mirrors NR 0x08 b5/b3/b1 stay in sync with the
+    // VHDL signals that survived reset.  Bit 4 (internal_speaker_en) is read
+    // direct from `nr_08_stored_low_` by `beep_spkr_excl()` so no extra
+    // propagation is needed for it.  Mirrors the analogous NR 0x06 fan-out
+    // block earlier in init().  Bit 6 / bit 7 are dynamic (per-instruction
+    // contention shadow / paging lock) — both correctly reset by their own
+    // subsystems and not part of `nr_08_stored_low_`.
+    turbosound_.set_stereo_mode((nr_08_stored_low_ >> 5) & 1);
+    turbosound_.set_enabled((nr_08_stored_low_ >> 1) & 1);
+    mixer_.set_exc_i(beep_spkr_excl());
     nextreg_.set_write_handler(0x08, [this](uint8_t v) -> uint8_t {
         if (v & 0x80) mmu_.unlock_paging();
         mmu_.set_contention_disabled((v >> 6) & 1);
@@ -3357,6 +3409,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // wiring restores VHDL faithfulness; software that writes bit 3 to
     // clear DivMMC mapram no longer collaterally toggles sprite drawing
     // over the border.
+    //
+    // PASS-7 NR 0x09 reset propagation. After init() resets each subsystem,
+    // fan out the *preserved* `regs_[0x09]` (NextReg::reset() now keeps
+    // bits 7:5 / 3 / 2 / 1:0 across reset; only bit 4 sprite_tie is forced
+    // to 0 per VHDL :4937) so subsystem state stays in sync with the VHDL
+    // signals that survived reset.
+    //   bits 7:5 = psg_mono → turbosound_.set_mono_mode (VHDL :5186, :6398)
+    //   bit  4   = sprite_tie reset to 0 → sprites_.set_mirror_tie(false)
+    {
+        const uint8_t cached_09 = nextreg_.cached(0x09);
+        sprites_.set_mirror_tie((cached_09 & 0x10) != 0);
+        uint8_t mono = 0;
+        if (cached_09 & 0x20) mono |= 0x01;  // AY#0
+        if (cached_09 & 0x40) mono |= 0x02;  // AY#1
+        if (cached_09 & 0x80) mono |= 0x04;  // AY#2
+        turbosound_.set_mono_mode(mono);
+    }
     nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
         // G95: bit 4 wires nr_09_sprite_tie into the sprite mirror unit
         // (VHDL zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612).

@@ -94,6 +94,41 @@ void NextReg::reset() {
     // bits are inherited verbatim from the pre-reset value.
     const uint8_t computed_06 = static_cast<uint8_t>((saved_06 & ~0xA0) | 0xA0);
 
+    // PASS-7 NR 0x05 reset preservation. Same shape as NR 0x06.
+    // VHDL zxnext.vhd:1105-1106, 1302-1303 declare the four NR 0x05 sub-
+    // signals — `nr_05_joy0` ("001"), `nr_05_joy1` ("000"), `nr_05_5060`
+    // ('0'), `nr_05_scandouble_en` ('1') — as initial-value-only.  No
+    // `nr_05_*` field appears in the reset block at zxnext.vhd:4930+; the
+    // dedicated processes for `nr_05_5060` (:5832-5843) and
+    // `nr_05_scandouble_en` (:5845-5854) have NO `if reset='1'` branch
+    // either, so the values survive both hard and soft reset.  The Joystick
+    // subsystem owns joy0 / joy1 (read handler pulls them from
+    // joystick_.mode_left/right); the cached byte is consumed for bits 2
+    // (5060) and 0 (scandouble).  Pre-pass-7 jnext unconditionally re-
+    // applied 0x41 here on every soft reset, wiping any user-toggled F2/F3
+    // state.  Preserve the whole stored byte; on power-on the constructor's
+    // `regs_{}` value-init means saved_05 == 0, so we OR in the power-on
+    // 5060=0/scandouble=1 (bit 0 = 1) default for first boot.
+    const bool first_boot_05 = (regs_[0x05] == 0x00);
+    const uint8_t saved_05 = first_boot_05 ? static_cast<uint8_t>(0x41)
+                                           : regs_[0x05];
+
+    // PASS-7 NR 0x09 reset preservation. Same shape as NR 0x06.
+    // VHDL zxnext.vhd:1121-1123, 1304 declare four NR 0x09 sub-signals:
+    //   nr_09_psg_mono [7:5]   = "000"  (initial-only)
+    //   nr_09_sprite_tie [4]   = '0'    (RESET to '0' at :4937)
+    //   nr_09_hdmi_audio_en[2] = '1'    (initial-only; stored as NOT
+    //                                    nr_wr_dat(2), reads back inverted)
+    //   nr_09_scanlines [1:0]  = "00"   (initial-only; written from
+    //                                    nr_wr_dat(1:0) at :5859-5860)
+    // ONLY `nr_09_sprite_tie` is in the reset block (line 4937).  The other
+    // bits survive reset.  The cache `regs_[0x09]` round-trips bit 2
+    // unchanged (write stores `v`, read returns `not nr_09_hdmi_audio_en`
+    // which equals nr_wr_dat(2) → same as cached).  Preserve bits 7:5 / 3 /
+    // 2 / 1:0; force bit 4 = 0 to mirror the VHDL reset clause.
+    const uint8_t saved_09 = regs_[0x09];
+    const uint8_t computed_09 = static_cast<uint8_t>(saved_09 & 0xEF);
+
     regs_.fill(0);
     regs_[0x80] = computed_80;
     regs_[0x7F] = saved_7f;
@@ -117,9 +152,10 @@ void NextReg::reset() {
     // nr_05_scandouble_en = '1' (:1303). Read formula composes these as
     //   joy0[1:0]<<6 | joy1[1:0]<<4 | joy0[2]<<3 | eff_5060<<2 |
     //   joy1[2]<<1  | eff_scandouble = 0x40 | 0x01 = 0x41.
-    // NR 0x05 is not cleared on soft reset (no entry in the reset block).
-    // G56 cluster A: prior 0x40 missed the scandouble_en default bit.
-    regs_[0x05] = 0x41;
+    // PASS-7: preserved across reset — no `nr_05_*` reset clause anywhere
+    // in zxnext.vhd. `saved_05` holds the pre-fill byte (or 0x41 on first
+    // boot when value-init left it at 0).
+    regs_[0x05] = saved_05;
     // NR 0x06 — write the preserved-with-bits-7,5-forced-to-'1' value. See
     // PASS-6 comment above for the VHDL rationale. On power-on the
     // constructor-time `regs_{}` value-init means saved_06 == 0, so
@@ -127,6 +163,11 @@ void NextReg::reset() {
     // Subsequent resets preserve bits 6/4/3/2/1/0 of NR 0x06 verbatim.
     regs_[0x06] = computed_06;
     regs_[0x07] = 0x00;  // CPU speed: 3.5 MHz
+    // NR 0x09 — PASS-7 preserved-with-bit-4-forced-to-'0' value. See the
+    // PASS-7 comment block above (where saved_09 is captured) for the VHDL
+    // rationale. Power-on read default is 0x00 — `regs_{}` value-init
+    // delivers it; subsequent resets preserve bits 7:5/3/2/1:0 verbatim.
+    regs_[0x09] = computed_09;
     regs_[0x0B] = 0x01;  // IO mode: VHDL zxnext.vhd:4939-4941 (iomode_0=1 on reset)
     // NR 0x10 power-on default. VHDL zxnext.vhd:1133:
     //   nr_10_coreid <= "00001"  (5 bits, lands in NR 0x10 read at bits 6:2)
