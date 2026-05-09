@@ -101,10 +101,19 @@ void SpiMaster::write_data(uint8_t val) {
     // exchange — MOSI sends val, MISO is sampled, and miso_dat is updated
     // at state_last_d. Capture the device's MISO byte in rx_data_ so that
     // a subsequent read_data() returns it (pipeline delay).
+    //
+    // Verify3-Audit fix (2026-05-09): when no slave is selected, VHDL
+    // zxnext.vhd:3278-3280 forces `spi_miso <= '1'` (default-else). The
+    // spi_master is always fed `i_spi_wr=1` regardless of CS state, so a
+    // transfer still happens and miso_dat captures all-ones (0xFF). Mirror
+    // that here: a write with no active device still updates rx_data_ to
+    // 0xFF instead of leaving the previous slave's stale byte hanging.
     SpiDevice* dev = active_device();
     if (dev) {
         rx_data_ = dev->receive(val);
         spi_log()->debug("write tx={:#04x}, rx={:#04x}", val, rx_data_);
+    } else {
+        rx_data_ = 0xFF;
     }
 }
 
@@ -114,15 +123,21 @@ uint8_t SpiMaster::read_data() {
     // This means a read returns the result of the PREVIOUS transfer, not
     // the one just started. The new transfer's result is stored for the
     // next read.
+    //
+    // Verify3-Audit fix (2026-05-09): same VHDL `spi_miso <= '1'` when no
+    // SS line is asserted (zxnext.vhd:3278-3280). With no active device,
+    // the new transfer still occurs in VHDL and miso_dat captures 0xFF.
+    // The C++ pre-fix left rx_data_ unchanged → the next read would
+    // surface a stale byte from the prior slave. Force 0xFF to match.
     uint8_t prev = rx_data_;
     SpiDevice* dev = active_device();
     if (dev) {
         rx_data_ = dev->send();
         spi_log()->debug("read → returning prev={:#04x}, new rx={:#04x}",
                          prev, rx_data_);
+    } else {
+        rx_data_ = 0xFF;
     }
-    // No device → rx_data_ unchanged (VHDL: miso_dat only updates on
-    // state_last_d, which requires an active transfer).
     return prev;
 }
 
