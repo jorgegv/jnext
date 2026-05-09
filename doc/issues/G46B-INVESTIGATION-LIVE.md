@@ -7612,3 +7612,180 @@ In jnext: that TOS is $0000 — uninitialized/cleared.
 2. Walk back from $0D3C — what code calls the routine starting before
    $0D2x area? That code's stack handling is where the bug is.
 
+## EOD-24 (2026-05-09) — slide trigger is NEXTREG $8E, $03 at $5B48
+
+EOD-23 closed asking: find FIRST NEXTREG/port write per cycle that
+sets sram_rom=3 in jnext. EOD-24 answers it.
+
+### Probe: JNEXT_G46B_SRAM_ROM_TRACE
+
+Added at `mmu.cpp:374+` inside `apply_legacy_rom_slots_()`. Logs every
+sram_rom transition with caller PC, instruction bytes, SP, top 4
+stack frames, and bytes at the first stack-frame return PC (via new
+`g46b_current_sp` global stamped from `z80_cpu` step).
+
+### Finding 1: slide trigger is NEXTREG $8E, $03 at $5B48
+
+First sram_rom=3 transition per cycle:
+
+```
+pc=0x5b48 0->3 7FFD=0x10 1FFD=0x06 bytes=ED 91 8E 03 C9 ED
+```
+
+Bytes `ED 91 8E 03 C9` = `NEXTREG $8E, $03; RET`. v=$03 sets BOTH
+7FFD(4) AND 1FFD(2) atomically per VHDL :3662-3734 → sram_rom=3 in
+ONE step. There's NO intermediate `0→1` because the NEXTREG flips
+both bits, not separate OUT (7FFD)/(1FFD) writes.
+
+This is **not** the OUT-based toggle wrapper at $5B0E/$5B1B — it's a
+**separate NEXTREG-based bank-3 entry/exit pair** at $5B48/$5B4D,
+both in RAM. Adjacent bytes `ED 91 8E 03 C9 ED 91 8E 00 C9` at
+$5B48-$5B51 = "set bank 3 + RET" then "set bank 0 + RET".
+
+### Bank-flip wrapper sites jnext fires every cycle
+
+| PC      | Bytes                | Decode                    |
+|---------|----------------------|---------------------------|
+| $3E13   | ED 91 8E 02 C9       | NEXTREG $8E,$02; RET      |
+| $3E13   | ED 91 8E 00 C9       | NEXTREG $8E,$00; RET (revert) |
+| $3E93   | ED 91 8E 01 C9       | NEXTREG $8E,$01; RET      |
+| $3E93   | ED 91 8E 00 C9       | NEXTREG $8E,$00; RET (revert) |
+| $5B48   | ED 91 8E 03 C9       | NEXTREG $8E,$03; RET      |
+| $5B4D   | ED 91 8E 00 C9       | NEXTREG $8E,$00; RET (revert) |
+| $5B0E   | ED 79 (= OUT (C),A)  | OUT (7FFD), A             |
+| $5B1B   | ED 79                | OUT (1FFD), A             |
+| $3CFC   | ED 91 8E 03 (slot 1) | NEXTREG $8E,$03 (in bank 2/3) |
+
+### Finding 2: trampoline pattern is legitimate
+
+Caller stack at first $5B48 hit:
+
+```
+sp=0x5bf9 stk=0x1661, 0x5b4d, 0x01f0, 0x0000
+```
+
+This is the standard **bank-3 trampoline**:
+
+1. Bank 0 caller at `$01F0` pushes `$01F0` (return), `$5B4D`
+   (revert-bank), `$1661` (target in bank 3) onto stack.
+2. JP `$5B48` → `NEXTREG $8E,$03; RET` → sram_rom=3, PC=`$1661` in
+   bank 3 (= LDDR per EOD-21).
+3. After bank-3 work, RET pops `$5B4D` → `NEXTREG $8E,$00; RET` →
+   sram_rom=0, revert.
+4. After RET, PC=`$01F0` in bank 0.
+
+The supervisor uses this for ALL cross-bank API calls. Not a misroute.
+
+### Finding 3: alt-stack chain causes PC=$0000 trap
+
+At `$3E93 1→0` with SP=$FF53, stack contains:
+
+```
+SP+0: $025D (real caller in bank 0)
+SP+2: $3E00 (bank-2-flip wrapper)
+SP+4: $0000 (BOOT VECTOR sentinel!)
+SP+6: $423C (font glyph 'A' bytes — page $21 offset $1F59)
+```
+
+Unwinding:
+- Bank 1 wrapper RETs → PC=$025D, SP=$FF55. Code at $025D RETs.
+- Pops $3E00 → PC=$3E00 (bank-flip wrapper) → NEXTREG $8E,$00; RET.
+- Pops $0000 → PC=$0000 = boot vector → soft re-init.
+
+**This IS the "PC=$0000 trap" of EOD-21.**
+
+The `[<caller>, $006F, $3E00, $0000]` chain appears consistently
+across many cycles in the trace (callers $0277, $02AA, $02F8, $0300,
+$0309, $032D, …) — all at SP=$FF4D-$FF53.
+
+### Finding 4: bank 0 wrapper at $0066-$007F decoded
+
+`G46B B0DUMP` one-shot dump (mmu.cpp) on first sram_rom transition
+gave bank 0 bytes:
+
+```
+$0066 ED 45              RETN
+$0068 ED 43 54 5B        LD ($5B54), BC      ; sysvar slot
+$006C E3                 EX (SP), HL         ; HL <-> caller TOS
+$006D 4E                 LD C, (HL)          ; read inline DW lo
+$006E 23                 INC HL
+$006F 46                 LD B, (HL)          ; read inline DW hi
+$0070 23                 INC HL
+$0071 E3                 EX (SP), HL         ; restore caller TOS
+$0072 ED 8A 00 7B        PUSH $007B          ; Z80N PUSH IMMEDIATE
+$0076 C5                 PUSH BC             ; the inline target
+$0077 ED 4B 54 5B        LD BC, ($5B54)
+$007B ED 91 8C 80        NEXTREG $8C, $80    ; ALTROM enable
+$007F C9                 RET
+```
+
+This is the **inline-DW bank-call wrapper**. Caller protocol:
+`CALL $0066; DW $TARGET; <continuation>`. Wrapper calls target in
+current bank, then NEXTREG $8C,$80 (ALTROM enable), then returns to
+caller's continuation.
+
+The `$006F` on the alt-stack is the wrapper's mid-routine PC (LD
+B,(HL)) pushed during `EX (SP),HL` — caller saw it as the new TOS
+during the swap.
+
+### Finding 5: CSpect DZRP — ZERO hits at all wrapper sites
+
+Two new DZRP scripts:
+
+- `tools/cspect_dzrp/g46b_eod24_nr8e03_compare.py` — BPs at
+  $5B48/$5B4D/$5B0E/$5B1B/$3CFC/$3E13/$3E93
+- `tools/cspect_dzrp/g46b_eod24_01f0_compare.py` — BPs at
+  $01F0/$01F3/$01F6/$1661/$5B48
+
+Both report **0 hits in 8s** of CSpect execution. CSpect's
+supervisor never re-enters bank-flip wrappers post-boot; jnext cycles
+through them constantly.
+
+This confirms the divergence: **jnext is stuck in supervisor INIT
+loop**, CSpect's INIT completed and supervisor is in BASIC interpreter
+at $0C90.
+
+### Reconnection to EOD-22 Wave 7
+
+Per EOD-22 Wave 7: jnext's supervisor stack between RST $08 hits #2
+and #3 ascends from SP=$FF53 to SP=$FF59 = **3 missing PUSHes / 3
+extra POPs vs CSpect**.
+
+EOD-24's alt-stack chain confirms: the chain `[<caller>, $006F,
+$3E00, $0000]` is reached because supervisor unwinds 4 frames deeper
+than expected. The 3-byte SP mismatch between RST $08 hits #2 and #3
+is the upstream root cause.
+
+### Real next-session priority
+
+Use existing `JNEXT_G46B_RST08_GAP` probe (z80_cpu.cpp) to log every
+PC + SP between RST $08 hits #2 and #3 in jnext. DZRP CSpect at
+same window. Diff. The first PUSH/POP/CALL/RET that differs IS the
+upstream bug.
+
+Likely candidates: post-RST-$08 user code at $423C (in jnext's
+trace, $3C/$42 is font 'A' from $1F59 in slot 7 page $21 offset
+$1F59) executes garbage instructions that mismatch CSpect's
+$5CCB/$0D7B/$5CFB BASIC interpreter PC.
+
+### Probes added EOD-24
+
+- `JNEXT_G46B_SRAM_ROM_TRACE=N` — sram_rom transitions with full
+  context (mmu.cpp:374+)
+- `G46B B0DUMP` — one-shot bank 0 layout dump on first sram_rom
+  transition (mmu.cpp)
+- `g46b_current_sp` global — z80 SP stamped each step (mmu.h,
+  z80_cpu.cpp:496+)
+
+### Tests
+
+mmu_test 202 / 180 PASS / 0 FAIL / 22 SKIP. No semantic emulator
+changes — diagnostic probes only.
+
+### Branch state
+
+HEAD `ac0a696`. 41 commits ahead of main, working tree clean.
+Commits this session:
+- `24ec29e` — SRAM_ROM trace probe + DZRP scripts
+- `ac0a696` — bank 0 dump probe + wrapper decoding
+
