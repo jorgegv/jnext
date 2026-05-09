@@ -2232,21 +2232,38 @@ static void test_nr_05_composed_read(Emulator& emu) {
 static void test_nr_06_composed_read(Emulator& emu) {
     set_group("G56-CR-NR06");
 
-    // Re-init to clear state; reset default for NR 0x06 = 0xA0 (VHDL
-    // :1107-1108 — hotkey_cpu_speed_en + hotkey_5060_en both '1', all
-    // other fields '0'). ps2_mode default '0' (VHDL :1111).
+    // Re-init to clear state; PASS-6 — VHDL zxnext.vhd:4932-4933 only resets
+    // NR 0x06 bits 7 and 5 (hotkey_cpu_speed_en, hotkey_5060_en) to '1'.
+    // Bits 6, 4, 3, 2, 1, 0 are NOT in the reset block: they have only
+    // initial-value declarations (zxnext.vhd:1109-1113) and survive both
+    // hard and soft reset. To deterministically test the "reset default"
+    // shape (= power-on read of 0xA0) regardless of what earlier groups
+    // wrote, write NR 0x06 ← 0x00 first then re-init: post-init bits 7,5
+    // re-assert to '1' and the user-cleared bits stay '0', yielding 0xA0.
     {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
     }
-
     // G62: nr_03_config_mode has NO reset clause in VHDL (zxnext.vhd:1102 +
     // :5147-5151), so NextReg::reset() preserves whatever state earlier
     // groups left it in. Explicitly re-enter config_mode here (NR 0x03 =
     // 0x07 → bits[2:0]=111) so the gated NR 0x06 bit-2 writes below latch
     // deterministically. Same pattern as CFG-09-INT and CFG-08-INT.
+    nr_write(emu, 0x03, 0x07);
+    // PASS-6 explicitly clear the preserved-on-reset bits before testing
+    // the post-reset readback, so this test does not depend on the order
+    // of earlier groups in the run. After the second init(), bits 7 and 5
+    // re-assert to '1' (VHDL zxnext.vhd:4932-4933), bit 2 (ps2_mode) was
+    // just cleared above, and the remaining preserved-on-reset bits are '0'.
+    nr_write(emu, 0x06, 0x00);
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+    }
     nr_write(emu, 0x03, 0x07);
 
     // Reset default read formula (VHDL :5900):
@@ -2313,6 +2330,52 @@ static void test_nr_06_composed_read(Emulator& emu) {
         check("G56-CR-NR06-05",
               "config_mode=0: write 0xFB still has ps2_mode=1 (sticky); "
               "other bits track write [VHDL :5162-5166, :5170 ungated]",
+              got == 0xFF, detail_eq(got, uint8_t{0xFF}));
+    }
+
+    // PASS-6 — NR 0x06 reset preservation. VHDL zxnext.vhd:1109-1113 are
+    // initial-value-only signals; the reset block at zxnext.vhd:4932-4933
+    // touches ONLY bits 7 and 5 (hotkey_cpu_speed_en + hotkey_5060_en),
+    // re-asserting them to '1'. Bits 6, 4, 3, 2, 1, 0 (internal_speaker_beep,
+    // button_drive_nmi_en, button_m1_nmi_en, ps2_mode, psg_mode[1:0]) survive
+    // both hard and soft reset. Concretely:
+    //   * Bits 4 and 3 (the DivMMC and Multiface NMI button enables, VHDL
+    //     :2090-2091) MUST survive — software that arms NMI dispatch then
+    //     issues NR 0x02 ← 0x01 (soft reset) expects the gate to remain
+    //     armed across the reset boundary, exactly as on real hardware.
+    //   * Bit 2 (ps2_mode) is config-mode-gated on write (VHDL :5167-5169)
+    //     but otherwise sticky — already covered by G56-CR-NR06-04.
+    //   * Bits 7 and 5 are forced back to '1' on every reset.
+    //
+    // Pre-pass-6 jnext re-applied 0xA0 verbatim on every NextReg::reset(),
+    // clobbering bits 4/3/2/1/0 — observable as the NMI gate going dead
+    // immediately after a deliberate soft reset.
+    {
+        // Re-init to reach a known starting state, then drive config_mode=1
+        // so the gated bit-2 path is open.
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        nr_write(emu, 0x03, 0x07);
+        // Set every preserved-on-reset bit + clear bits 7,5 (which the
+        // reset block re-asserts). The post-write byte is 0x5F:
+        //   bits 7,5 = 0 (cleared, will be re-set by reset)
+        //   bit 6    = 1 (internal_speaker_beep, preserved)
+        //   bit 4    = 1 (button_drive_nmi_en, preserved)
+        //   bit 3    = 1 (button_m1_nmi_en, preserved)
+        //   bit 2    = 1 (ps2_mode, preserved — config_mode=1 lets it commit)
+        //   bits 1:0 = 11 (psg_mode "11" = AY+reset, preserved)
+        nr_write(emu, 0x06, 0x5F);
+        // Trigger an emulator reset (= calls init() → NextReg::reset()).
+        emu.init(cfg);
+        // Per VHDL: bits 7 and 5 are now '1'; bits 6,4,3,2,1,0 survive at '1'.
+        // Expected readback: 0xA0 | 0x5F = 0xFF.
+        const uint8_t got = nr_read(emu, 0x06);
+        check("G56-CR-NR06-RESET-PRESERVE",
+              "PASS-6: NR 0x06 bits 6,4,3,2,1,0 survive reset; bits 7,5 re-assert "
+              "to '1' [VHDL zxnext.vhd:4932-4933 reset clause covers ONLY "
+              "hotkey_cpu_speed_en/hotkey_5060_en]",
               got == 0xFF, detail_eq(got, uint8_t{0xFF}));
     }
 
