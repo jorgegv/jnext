@@ -298,3 +298,89 @@ Currently active probes (from EOD-22 + EOD-23):
 - `JNEXT_G46B_SLIDETRAP` (z80_cpu.cpp:816+) ← NEW THIS EOD
 
 ## End of EOD-23 — slide entry isolated, RAM bank 0 empty proven
+
+## EOD-23 third pass — bank 0 $27A3 stack-swap routine identified
+
+Further investigation found the actual mechanism: bank 0 has a
+stack-swap routine at $27A0-$27AB:
+
+```
+$27A0: CP $5C            ; check A
+$27A2: RET C             ; return early if A < $5C
+$27A3: LD HL,($5B6A)     ; HL = saved alternate SP
+$27A6: LD ($5B6A),SP     ; save current SP
+$27AA: LD SP,HL          ; SP = HL (= switch to alternate stack)
+$27AB: RET               ; pop new TOS into PC
+```
+
+This is bank-stack-swapping via `($5B6A)` sysvar — same mechanism as
+the bank 1 $32CC routine identified in EOD-22 Wave 4 (per memory:
+"$32CC at bank 1 does `LD HL,($5B6A); LD ($5B6A),SP; LD SP,HL`").
+
+### Slide-causing wrapper invocation path (from RING_AT=$3E00 + ring data)
+
+Pre-wrapper, PC went through bank 0 $27A3-$27AB stack swap:
+- `LD HL,($5B6A)` → HL = saved alternate SP value
+- `LD SP,HL` → SP = HL
+- `RET` → pops new TOS = $3E00 → PC = wrapper
+
+After RET to $3E00, wrapper sees pre-wrapper SP = (old $5B6A
+contents) + 2. **TOS at that position was $0000** in jnext (per
+SLIDETRAP capture: page$21 at $1F57 = $02 post-wrapper, meaning
+pre-wrapper $0000).
+
+### Key sysvars dump at SLIDETRAP
+
+```
+($5B6A) = $5BEB   ← saved SP from this current swap
+($5B68) = $6F00
+($5B58) = $FF55   ← supervisor's primary stack SP save
+($5B54) = $0000   ← BC save (cleared by wrapper's LD ($5B54),BC + restore)
+($5B6C) = $0000
+```
+
+Note: ($5B6A) is NON-zero ($5BEB), so the original Wave-4 hypothesis
+"($5B6A) = $0000 → SP = $0000" is REFUTED for this exact invocation.
+
+### What's actually happening
+
+The supervisor uses bank-stack-swap (`($5B6A)` swap routine) to
+transition between bank-context-A's stack and bank-context-B's
+stack. Each invocation:
+1. Saves current SP to ($5B6A)
+2. Loads alternate SP from ($5B6A)
+3. RETs on the new stack
+
+If the alternate stack has $3E00 on top followed by a valid inline-DW
+pointer, the wrapper-via-RET pattern works. If the alternate stack's
+TOS-1 (= what wrapper reads as inline-DW-pointer) is $0000, wrapper
+reads bank 0 boot vector → slide.
+
+In the slide-causing invocation, the alternate stack's content was:
+- TOS = $3E00 (= wrapper entry, will be popped first)
+- TOS+2 = $0000 (= pre-wrapper-from-wrapper's-perspective)
+
+**The bug is somewhere in the supervisor's bank-stack-swap state
+machine**: a stack should have been set up with [$3E00, <valid-DW-
+ptr>, ...] but instead only [$3E00, $0000, ...] is present.
+
+### Comparison points needed via DZRP
+
+1. CSpect's value at MEM[$FF57,$FF58] (or wherever the equivalent
+   pre-wrapper TOS lives) at the equivalent boot phase. Should be
+   non-$0000.
+2. CSpect's ($5B6A) and stack history during these swaps.
+3. CSpect's bank 0 $27A3 invocation count vs jnext's — does CSpect
+   reach this routine the same number of times?
+
+### Why this is downstream of Wave 8
+
+Wave 8 fixed NR $51,$FF legacy paging. Post-Wave-8, supervisor
+progresses through bank-stack-swaps further, eventually hitting this
+new corruption point.
+
+Wave 4 (EOD-22) hypothesized the same `$5B6A` mechanism but at a
+different code site (bank 1 $32CC). This EOD-23 confirms the SAME
+mechanism is exercised at bank 0 $27A3 and is symptomatic of the
+underlying upstream stack-state divergence.
+
