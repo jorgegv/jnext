@@ -351,32 +351,54 @@ void DivMmc::check_automap(uint16_t pc, bool is_m1,
     }
 
     // Non-RST entry points from NR 0xBB (entry_points_1_). VHDL timing is
-    // documented in zxnext.vhd around :2892-2905. NMI@0x0066 uses
-    // automap_nmi_instant_on (Task 8 scope, main path). Tape traps at
-    // 0x04C6/0x0562/0x04D7/0x056A use rom3_delayed_on (ROM3 only).
-    if ((entry_points_1_ & 0x02) && pc == 0x0066 && button_nmi_ && main_path_eligible) {
-        // NMI instant-on. VHDL divmmc.vhd:120 gates automap_nmi_instant_on
-        // on the latched `button_nmi` signal — the automap only fires on
-        // a PC=0x0066 fetch when the NMI-button has actually been pressed.
-        // We track this via button_nmi_, which stays false until a future
-        // Multiface / NMI-button source sets it via set_button_nmi(). With
-        // no button consumer wired yet, this branch is effectively off —
-        // matching VHDL behaviour on a quiescent core and preventing a
-        // spurious automap activation on any ordinary control-flow path
-        // that happens to reach 0x0066 (e.g. enNextZX.rom subroutines).
+    // documented in zxnext.vhd around :2892-2908. NMI@0x0066 uses
+    // automap_nmi_instant_on (bit 1) AND automap_nmi_delayed_on (bit 0) —
+    // BOTH bits fire on the same M1 in VHDL when both are set (default NR
+    // 0xBB=$CD includes bit 0). Tape traps at 0x04C6/0x0562/0x04D7/0x056A
+    // use rom3_delayed_on (ROM3-only). $3Dxx wildcard (bit 7) is rom3
+    // instant_on. The clauses below are independent (not else-if) so
+    // multiple bit-paths can fire on the same fetch — VHDL's `_on` signals
+    // are independently OR'd into `automap_hold` (line 129) and `automap`
+    // (line 148), so jnext mirrors that by accumulating into instant_match
+    // / delayed_match.
+    if (pc == 0x0066 && button_nmi_ && main_path_eligible) {
+        // NMI@$0066 — VHDL divmmc.vhd:120-121 + zxnext.vhd:2907-2908.
+        // Both nmi_instant_on (bit 1) and nmi_delayed_on (bit 0) gate on
+        // button_nmi. They feed automap_hold (line 129) independently.
+        // `automap` (combinational, line 148) only includes
+        // automap_nmi_instant_on (via i_automap_active gate); the delayed
+        // bit produces automap=1 only on the NEXT M1 via held promotion.
+        if (entry_points_1_ & 0x02) instant_match = true;
+        if (entry_points_1_ & 0x01) delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_path_eligible) {
+        // ROM3-only tape trap — VHDL zxnext.vhd:2902-2905 gates on the
+        // full sram_divmmc_automap_rom3_en composite (pre_override(2)+(0)
+        // + !layer2_map + ROM3 selector).
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_path_eligible) {
+        delayed_match = true;
+    }
+    // $3Dxx wildcard (NR 0xBB bit 7) — VHDL zxnext.vhd:2898-2899:
+    //   divmmc_automap_rom3_instant_on <= ... or (port_3dxx_msb and
+    //                                              nr_bb_divmmc_ep_1(7));
+    // port_3dxx_msb decodes cpu_a(15:8) = $3D, so any PC with high byte
+    // $3D fires when bit 7 of NR $BB is set AND the ROM3 path is eligible.
+    // This is the +3DOS RAM-disk trap entry. Default NR $BB = $CD has
+    // bit 7 set, so this is on by default in ROM3 mode. Pre-fix jnext
+    // missed this entirely. Fires `instant_match` (NOT delayed) per VHDL
+    // line 2898, so it activates `automap` same-cycle when rom3_active=1.
+    if ((entry_points_1_ & 0x80) && (pc & 0xFF00) == 0x3D00 && rom3_path_eligible) {
         instant_match = true;
-    } else if ((entry_points_1_ & 0x04) && pc == 0x04C6 && rom3_path_eligible) {
-        // ROM3-only tape trap — VHDL zxnext.vhd:3138 gates on the full
-        // sram_divmmc_automap_rom3_en composite (pre_override(2)+(0) +
-        // !layer2_map + ROM3 selector).
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x08) && pc == 0x0562 && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x10) && pc == 0x04D7 && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x20) && pc == 0x056A && rom3_path_eligible) {
-        delayed_match = true;
-    } else if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
+    }
+    if ((entry_points_1_ & 0x40) && pc >= 0x1FF8 && pc <= 0x1FFF
                && main_path_eligible) {
         // Auto-unmap range (divmmc.vhd:131, automap_delayed_off factor).
         // VHDL line 131:

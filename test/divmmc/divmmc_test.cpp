@@ -827,41 +827,122 @@ void group_nr() {
     }
 
     // NR-06: BB[7]=1 (default): M1 at any 0x3Dxx -> rom3_instant_on.
-    // VHDL: zxnext.vhd:2908. C++ DivMmc does not implement 0x3Dxx at all
-    // — leave failing. Expected (VHDL): NOT activated without ROM3.
-    // Since C++ does nothing at 0x3Dxx, this passes vacuously.
+    // VHDL zxnext.vhd:2898-2899. Without rom3_active=1 the
+    // sram_divmmc_automap_rom3_en gate at zxnext.vhd:3138 is low and the
+    // trap path is suppressed — so this stays NOT activated.
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x3D00, true);
         check("NR-06",
               "M1 at 0x3D00 with BB[7]=1 and no ROM3: automap must NOT "
-              "activate (VHDL zxnext.vhd:2908)",
+              "activate (VHDL zxnext.vhd:2898-2899,3138)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
 
     // NR-07: M1 at 0x3DFF with BB[7]=1 and no ROM3: no activation.
-    // VHDL: zxnext.vhd:2908 — range any 0x3Dxx.
+    // VHDL: zxnext.vhd:2898-2899 — port_3dxx_msb decodes any cpu_a(15:8)=$3D.
     {
         DivMmc d = make_divmmc();
         d.check_automap(0x3DFF, true);
         check("NR-07",
               "M1 at 0x3DFF with BB[7]=1 and no ROM3: no automap "
-              "(VHDL zxnext.vhd:2908)",
+              "(VHDL zxnext.vhd:2898-2899)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }
 
-    // NR-08: Disable BB[7]=0, M1 at 0x3D00: no trigger.
-    // VHDL: zxnext.vhd:2908. C++ DivMmc does not handle 0x3Dxx, so this
-    // passes vacuously — but the observable contract still holds.
+    // NR-08: Disable BB[7]=0, M1 at 0x3D00: no trigger even with ROM3.
     {
         DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
         d.set_entry_points_1(0xCD & ~0x80);  // clear bit 7
         d.check_automap(0x3D00, true);
         check("NR-08",
               "M1 at 0x3D00 with BB[7]=0: no automap "
-              "(VHDL zxnext.vhd:2908)",
+              "(VHDL zxnext.vhd:2898-2899)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-09: BB[7]=1 with rom3_active=1: M1 at 0x3D00 fires
+    // rom3_instant_on (= same-cycle automap=1). VHDL zxnext.vhd:2898-2899.
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.check_automap(0x3D00, true);
+        check("NR-09",
+              "M1 at 0x3D00 with BB[7]=1 + rom3_active=1: rom3_instant_on "
+              "fires automap (VHDL zxnext.vhd:2898-2899)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-10: BB[7]=1 with rom3_active=1: M1 at any address $3Dxx
+    // (e.g. $3D7F mid-range) fires rom3_instant_on. Confirms wildcard.
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.check_automap(0x3D7F, true);
+        check("NR-10",
+              "M1 at 0x3D7F (mid wildcard) with BB[7]=1 + rom3_active=1: "
+              "rom3_instant_on fires (VHDL zxnext.vhd:2898-2899)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-11: BB[7]=1 with rom3_active=1 AND layer2_map_read=1: rom3 path
+    // is suppressed (sram_divmmc_automap_rom3_en factor `NOT
+    // sram_layer2_map_en` at zxnext.vhd:3138).
+    {
+        DivMmc d = make_divmmc();
+        d.set_rom3_active(true);
+        d.set_layer2_map_read(true);
+        d.check_automap(0x3D00, true);
+        check("NR-11",
+              "M1 at 0x3D00 with BB[7]=1 + rom3=1 + L2_read=1: rom3 path "
+              "suppressed (VHDL zxnext.vhd:3138)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-12: 0x0066 NMI delayed (BB[0]=1) — VHDL zxnext.vhd:2908 +
+    // divmmc.vhd:121,131. With button_nmi=1 the delayed bit feeds
+    // automap_hold but NOT same-cycle automap (line 148 only includes
+    // nmi_instant_on). Held promotes on next M1 → automap=1 there.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0x01);          // ONLY bit 0 (delayed) set
+        d.set_button_nmi(true);
+        d.check_automap(0x0066, true);
+        // Same-cycle: delayed alone shouldn't fire combinational automap.
+        // (VHDL: automap = held OR (active AND nmi_instant_on); with only
+        // bit 0, nmi_instant_on=0 and held=0 → automap=0.)
+        check("NR-12a",
+              "M1 at 0x0066 + BB[0]=1 + button_nmi=1 (delayed alone): "
+              "automap NOT fired same-cycle (VHDL divmmc.vhd:148)",
+              !d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+        // Next M1: held promotes from hold (which had delayed bit set).
+        d.check_automap(0x0070, true);  // arbitrary non-trigger PC
+        check("NR-12b",
+              "M1 after 0x0066 + BB[0]=1 + button_nmi=1: held promotes "
+              "(VHDL divmmc.vhd:128-141)",
+              d.automap_active(),
+              fmt("automap=%d", d.automap_active()));
+    }
+
+    // NR-13: 0x0066 NMI delayed (BB[0]=1) WITHOUT button_nmi: no trigger.
+    // VHDL divmmc.vhd:121 gates nmi_delayed_on on button_nmi.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_1(0x01);    // BB[0]=1, BB[1]=0
+        // button_nmi defaults to false
+        d.check_automap(0x0066, true);
+        d.check_automap(0x0070, true);
+        check("NR-13",
+              "M1 at 0x0066 + BB[0]=1 + button_nmi=0: no trigger "
+              "(VHDL divmmc.vhd:121)",
               !d.automap_active(),
               fmt("automap=%d", d.automap_active()));
     }

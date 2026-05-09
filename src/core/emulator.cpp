@@ -3273,12 +3273,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         });
 
     // SPI chip select (0xE7) and data (0xEB)
+    // VHDL zxnext.vhd:2419: port_spi_io_en <= internal_port_enable(11) =
+    // NR 0x83 bit 3. zxnext.vhd:2620-2621 gates BOTH port_e7 and port_eb on
+    // port_spi_io_en. When NR 0x83 bit 3 is cleared, port reads return the
+    // floating-bus value (0xFF in jnext) and writes are silently dropped —
+    // mirroring the same pattern jnext applies to port 0xE3 above (DivMMC
+    // bit 0) and the 0x103B/0x113B I2C / 0x133B-163B UART ports below.
     port_.register_handler(0x00FF, 0x00E7,
-        [this](uint16_t) -> uint8_t { return spi_.read_cs(); },
-        [this](uint16_t, uint8_t val) { spi_.write_cs(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x08) == 0) return 0xFF;
+            return spi_.read_cs();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x08) == 0) return;
+            spi_.write_cs(val);
+        });
     port_.register_handler(0x00FF, 0x00EB,
-        [this](uint16_t) -> uint8_t { return spi_.read_data(); },
-        [this](uint16_t, uint8_t val) { spi_.write_data(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((nextreg_.cached(0x83) & 0x08) == 0) return 0xFF;
+            return spi_.read_data();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((nextreg_.cached(0x83) & 0x08) == 0) return;
+            spi_.write_data(val);
+        });
 
     // I2C SCL (0x103B) and SDA (0x113B)
     // VHDL zxnext.vhd:2418: port_i2c_io_en <= internal_port_enable(10).
