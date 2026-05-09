@@ -204,6 +204,15 @@ public:
     /// this latch. Until a button source is wired (Task 8, Multiface),
     /// this stays false — which keeps the 0x0066 instant-on path gated
     /// off in the emulator, matching VHDL behaviour on a quiescent core.
+    ///
+    /// Note: this is a low-level setter that mirrors the VHDL FF state
+    /// directly. It does NOT model the `i_automap_reset` gate (= when
+    /// `port_divmmc_io_en=0 OR nr_0a_divmmc_automap_en=0`, the FF at
+    /// divmmc.vhd:107-114 is held at '0'). Production callers
+    /// (Emulator's NmiSource consumer) must gate on the equivalent
+    /// `enabled_` flag before invoking. The Verify3-Audit added that
+    /// gate at the Emulator call site (see emulator.cpp set_button_nmi
+    /// strobe forwarding).
     void set_button_nmi(bool v) { button_nmi_ = v; }
     bool button_nmi() const { return button_nmi_; }
 

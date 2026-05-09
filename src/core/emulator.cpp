@@ -4647,7 +4647,17 @@ void Emulator::run_frame()
         // turn re-feeds into `divmmc_nmi_hold` next tick (plus gates
         // automap_nmi_instant_on at divmmc.vhd:120). The strobe is
         // one-tick, cleared by NmiSource on its next `tick()` entry.
-        if (nmi_source_.divmmc_button_strobe()) {
+        //
+        // Verify3-Audit fix (2026-05-09): VHDL divmmc.vhd:107-114 gates
+        // the FF set on `i_reset='0' AND i_automap_reset='0' AND
+        // i_retn_seen='0'`. NmiSource doesn't gate on
+        // `nr_0a_divmmc_automap_en` (= the second factor of
+        // divmmc_automap_reset, zxnext.vhd:4112), so the strobe can fire
+        // even when the divmmc module would suppress the latch. Mirror
+        // the VHDL gate here by checking `divmmc_.is_enabled()` (the
+        // composite of port_io AND nr_0a_4 — exactly what VHDL's
+        // `divmmc_automap_reset='0'` requires).
+        if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
             divmmc_.set_button_nmi(true);
         }
 
@@ -4863,7 +4873,11 @@ int Emulator::execute_single_instruction()
     nmi_source_.set_mf_is_active(multiface_.is_active());
     nmi_source_.set_mf_nmi_hold(multiface_.is_nmi_hold());
     nmi_source_.tick(static_cast<uint32_t>(master_cycles));
-    if (nmi_source_.divmmc_button_strobe()) {
+    // Verify3-Audit fix (2026-05-09): mirror the primary cluster's
+    // VHDL divmmc_automap_reset gate (zxnext.vhd:4112 + divmmc.vhd:107-114).
+    // NmiSource doesn't observe nr_0a_divmmc_automap_en; the divmmc.vhd
+    // FF holds button_nmi at '0' while i_automap_reset='1'.
+    if (nmi_source_.divmmc_button_strobe() && divmmc_.is_enabled()) {
         divmmc_.set_button_nmi(true);
     }
     // Verify-audit fix — VHDL:2169 `nmi_mf_button` consumer; mirrors the
