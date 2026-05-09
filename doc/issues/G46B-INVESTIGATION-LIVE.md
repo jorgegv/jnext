@@ -6884,3 +6884,100 @@ Likely: $32CC manipulates SP via $5B6A which is uninitialized in jnext.
 jnext. That's the highest-leverage next move.
 
 End of EOD-22 Wave 4.
+
+## 2026-05-09 08:30 CEST — EOD-22 Wave 5: NEXTREG $8E,$00 not clearing rom_bank
+
+### New finding via deep POSTRESET trace analysis
+
+Examining big.log POSTRESET=50000 events #49080-#49105 line by line:
+
+```
+#49080-#49083: PC=$158a..$1506 (BASIC interpreter, rom_bank=0x01)
+#49084: PC=$3E80 (RST $20-style dispatcher entry)
+#49084-#49091: $3E80..$3E89 (read inline DW from caller, manipulate stack)
+#49092: $3E8E (PUSH BC)
+#49093: $3E8F (LD BC,($5B54))
+#49094: $3E93, eff_mmu[0,1]=02,01, rom_bank=0x01 (= NEXTREG $8E,$00 about to execute)
+#49095: $3E97, eff_mmu[0,1]=02,03, rom_bank=0x01 (= NEXTREG $8E,$00 has executed)
+#49096: $2668, eff_mmu[0,1]=02,03, rom_bank=0x01 (= RET popped target $2668)
+```
+
+**Critical observation**: NEXTREG $8E,$00 executed at $3E93 should clear
+both 7FFD(4) and 1FFD(2), making `current_sram_rom = 00 = bank 0` in
++3 mode. `apply_legacy_rom_slots_` should then map slots [0,1] to
+[00,01].
+
+**But actual post-NEXTREG state**: `eff_mmu[0,1] = 02,03 = bank 1`
+(`rom_bank = 0x01`). The NEXTREG $8E,$00 did NOT switch to bank 0.
+
+### Hypothesis: jnext's NEXTREG $8E,$00 has a bug clearing 7FFD(4)
+
+Looking at `Mmu::write_nr_8e` (mmu.cpp:453-503):
+
+```cpp
+if ((v & 0x04) == 0) {           // For v=$00, bit 2=0, branch fires
+    if (v & 0x01) port_7ffd_ |= 0x10;
+    else          port_7ffd_ &= ~0x10;   // Should clear 7FFD bit 4
+}
+```
+
+For `v=$00`: bit 2 = 0 → enters branch, bit 0 = 0 → `port_7ffd_ &= ~0x10`.
+Should clear bit 4 of port_7ffd_.
+
+After this, `apply_legacy_rom_slots_()` calls `current_sram_rom()` which
+calls `current_rom_bank()`:
+```cpp
+return static_cast<uint8_t>(((port_1ffd_ >> 2) & 1) << 1 |
+                            ((port_7ffd_ >> 4) & 1));
+```
+
+If 7FFD(4) was successfully cleared, `current_rom_bank` = 0 + 0 = 00.
+But trace shows post-NEXTREG `eff_mmu = 02,03` ← `slots_[0,1] = 2,3`
+= `sram_rom * 2` for `sram_rom = 1`.
+
+So either:
+1. **`port_7ffd_` bit 4 is NOT being cleared** (regression in
+   `write_nr_8e`?). Possible cause: the `if (v & 0x01) port_7ffd_ |=
+   0x10; else port_7ffd_ &= ~0x10;` block ALWAYS RUNS when bit 2=0,
+   which should clear bit 4 for $00. But maybe `port_7ffd_` is being
+   re-set elsewhere mid-instruction (interrupt? layered handler?).
+2. **`current_sram_rom()` returns wrong value** for some reason
+   (machine_type mismatch? altrom lock?).
+3. **Some other code path runs between `write_nr_8e` and the next
+   probe sample** that re-sets 7FFD(4) to 1.
+
+### Path through wrapper continued
+
+After RET at $3E97 pops $2668 (= caller-supplied inline DW target):
+- #49096+: PC=$2668 in slot 1 = bank 1 ROM (per ineffective NEXTREG)
+- bank 1 $2668..$26AC = NOPs (real NOPs in static disasm!)
+- NOP slide from $2668 → $26AD (where 4× INC SP + EX (SP),HL begins)
+- At $26B6, CALL $32CC works on stack manipulation
+- At $26C2 JP $3E93 → second NEXTREG $8E,$00 → similarly fails to clear
+- Eventually altrom enabled, slide into $5B00, PC=$0000 panic.
+
+The supervisor's ORIGINAL DW target was `$2668`, which in **bank 0** has
+real code (CALL $26AA at $26AC region with proper alignment). But because
+NEXTREG $8E,$00 didn't switch to bank 0, slot 1 still serves bank 1
+(NOP slide).
+
+### Most-leveraged next-session move
+
+**Add a probe `JNEXT_G46B_NR8E_TRACE=1`** that logs every NR $8E write
+with: pre-write port_7ffd_, port_1ffd_, post-write port_7ffd_,
+port_1ffd_, current_sram_rom, slots[0,1]. Tracks whether the bits are
+actually being updated correctly.
+
+If port_7ffd_ bit 4 is NOT being cleared by NEXTREG $8E,$00, that's
+the bug. Audit the write_nr_8e function for missed paths.
+
+If it IS being cleared, then look for IM 1 INTs or other writes between
+write_nr_8e and the next probe sample. iff1=0 in trace so INTs
+shouldn't fire, but maybe RST $38 handlers run or something else.
+
+### Branch state
+
+`g46b-investigation` HEAD `40cd231`, working tree clean. Probe
+modifications committed. No new code changes yet.
+
+End of EOD-22 Wave 5.
