@@ -344,11 +344,23 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // Pass-6 fix: operand reads + stack writes via fuse_z80_*byte
             // (contention + 3T per byte). Spec = 23T = 8 (M1) + 6 (2× operand
             // read) + 6 (2× stack write) + 3 (internal idle).
+            // Pass-8 fix: WZ end-state. VHDL t80n_mcode.vhd:1928 sets
+            // LDZ='1' at MCycle 1 (capturing hh into TmpAddr(7..0) per
+            // t80n.vhd:1181-1182), and t80n_mcode.vhd:1938 sets LDZ='1'
+            // again at MCycle 3 (capturing ll, overwriting). LDW is
+            // never asserted, so TmpAddr(15..8) (= WZ-hi) is unchanged.
+            // End-of-instruction: WZ-lo = ll, WZ-hi = (prior WZ-hi).
+            // The next IN A,(n) / BIT (HL) / IN r,(C) etc. that consults
+            // WZ for X/Y composition would otherwise see stale WZ-lo.
             auto regs = cpu.get_registers();
             uint8_t hh = fuse_z80_readbyte(regs.PC);
             uint8_t ll = fuse_z80_readbyte((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
             regs.SP = (regs.SP - 2) & 0xFFFF;
+            // VHDL-faithful WZ update: only the low byte is written
+            // (LDZ-only path). WZ-hi is preserved from the prior MEMPTR.
+            regs.MEMPTR = static_cast<uint16_t>(
+                (regs.MEMPTR & 0xFF00) | static_cast<uint16_t>(ll));
             // Sync FUSE z80 state so that the global s_mem write callback uses
             // up-to-date register snapshots when contention triggers a side
             // effect (none of jnext's contention models look at z80 regs, but
@@ -462,16 +474,23 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         case Z80NOpcode::JP_C: {
             // ED 98 — JP (C): read byte from port BC, set PC[13:6] = byte, PC[5:0] = 0
             // PC[15:14] are preserved (VHDL only writes bits 13:0)
-            // VHDL t80n_mcode.vhd:1837-1848 emits IORQ=1 at MCycle 2 — real
-            // port read. Spec = 13T = 8 (M1) + 4 (port read with IORQ) + 1
-            // (internal idle).
+            // VHDL t80n_mcode.vhd:1837-1848: MCycles="010" (2 M-cycles total),
+            // TStates="100" (=4T per MCycle). MCycle 1 = inner-M1 of 0x98
+            // (4T), MCycle 2 emits IORQ=1 + Set_Addr_To<=aBC = port read (4T).
+            // The ED prefix M1 itself adds 4T BEFORE this case fires.
+            // Total = 4 (ED M1) + 4 (98 M1) + 4 (port read) = 12T.
             // Pass-6 fix: port read via fuse_z80_readport for contention.
+            // Pass-8 fix: corrected total from 13T to 12T per VHDL — the +1
+            // idle assumed in pass-6's comment was a Z80N spec-wiki figure
+            // that the VHDL does NOT emit. CLAUDE.md mandates VHDL as the
+            // authoritative oracle. tests.expected for ed98_* already lists
+            // 12T (z80n_test.cpp doesn't compare tstates today, but the
+            // expected column is now consistent with both VHDL and emulator).
             auto regs = cpu.get_registers();
             uint8_t val = fuse_z80_readport(regs.BC);
             regs.PC = (regs.PC & 0xC000) | ((uint16_t)val << 6);
             cpu.set_registers(regs);
-            tstates += 1;
-            return 13;
+            return 12;
         }
 
         case Z80NOpcode::LDIX: {
@@ -520,11 +539,49 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::LDWS: {
-            // ED A5 — LDWS: copy (HL) to (DE), then increment only L and D
-            // This is a single-byte-at-a-time copy with stride 256 on dest, 1 on source low byte
-            // Flags: same as INC D (S, Z, H, P/V, N=0 from the D increment)
+            // ED A5 — LDWS: copy (HL) to (DE), then increment L and increment D.
             // Spec = 14T = 8 (M1) + 3 (read HL) + 3 (write DE) + 0 (no internal).
-            // Pass-6 fix: source read + dest write via fuse_z80_*byte.
+            //
+            // Pass-8 fix: flag composition follows VHDL I_BT block-transfer
+            // pattern (t80n_mcode.vhd:2169-2181 sets I_BT='1' at MCycle 3 with
+            // ALU_Op="0000" ADD on D + 1; t80n.vhd:1255-1289 then runs the ALU
+            // ADD-flag block AND the I_BT post-override block on the same cycle).
+            //
+            // ALU result ALU_Q = D + 1 (post-increment). Flag composition:
+            //   - ALU ADD path:        S = ALU_Q[7], Z = (ALU_Q==0),
+            //                          P = (overflow: D==0x7F → set),
+            //                          H = (carry from bit 3: (D&0x0F)==0x0F),
+            //                          N = 0 (ADD doesn't set N), C unchanged.
+            //   - I_BT post-override (t80n.vhd:1281-1285):
+            //                          F.X = ALU_Q[3], F.Y = ALU_Q[1],
+            //                          F.H = 0, F.N = 0.
+            //   - I_BT/I_BC P override (t80n.vhd:1286-1289):
+            //                          F.P = IncDecZ.
+            //
+            // IncDecZ for LDWS: VHDL latches IncDecZ from the most recent
+            // 16-bit inc/dec (IncDec_16(2:0)="100" path). LDWS does NOT set
+            // IncDec_16 anywhere, so IncDecZ retains its prior value — i.e.
+            // the P flag carries over from the previous block-transfer / DJNZ
+            // instruction that set it. This is observable but undocumented;
+            // Pass-7 backlog flagged this as a spec-vs-VHDL mismatch
+            // ("LDWS spec-vs-VHDL flag mismatch"). For VHDL faithfulness we
+            // preserve P from the prior F (= regs.AF & FLAG_P) — that is the
+            // closest deterministic shadow of "prior IncDecZ" available without
+            // tracking IncDecZ separately. Test programs that depend on the
+            // exact prior-IncDecZ value would need an IncDecZ shadow added to
+            // Z80Registers; pre-fix jnext computed P from "D==0x80" which is
+            // the spec-INC-D semantic, NOT the VHDL I_BT semantic. The current
+            // approximation is closer to VHDL than the spec-INC-D path was;
+            // class-c tracker added to im2 work for future IncDecZ shadow.
+            //
+            // Pre-fix (P6 spec-INC-D path):
+            //   F.Y = D[5]            ← bug: VHDL emits ALU_Q[1]
+            //   F.H = (D&0x0F)==0     ← bug: VHDL forces H=0 (I_BT override)
+            //   F.P = D==0x80         ← bug: VHDL emits IncDecZ (prior latch)
+            // Post-fix (this pass):
+            //   F.Y = D[1]            ← matches VHDL I_BT override
+            //   F.H = 0               ← matches VHDL I_BT override
+            //   F.P = prior(F.P)      ← VHDL-faithful approximation
             auto regs = cpu.get_registers();
             uint8_t temp = fuse_z80_readbyte(regs.HL);
             fuse_z80_writebyte(regs.DE, temp);
@@ -532,20 +589,25 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             uint8_t L = (regs.HL & 0xFF) + 1;
             regs.HL = (regs.HL & 0xFF00) | L;
             // Increment D only (wrap within high byte of DE)
-            uint8_t D = (regs.DE >> 8) + 1;
-            // Set flags from D increment (same as INC r)
-            uint8_t f = regs.AF & 0xFF;
-            f &= FLAG_C;  // preserve carry only
-            if (D == 0)    f |= FLAG_Z;
-            if (D & 0x80)  f |= FLAG_S;
-            if (D & 0x08)  f |= FLAG_X;  // undoc bit 3
-            if (D & 0x20)  f |= FLAG_Y;  // undoc bit 5
-            if (D == 0x80) f |= FLAG_P;  // overflow: 0x7F+1=0x80
-            if ((D & 0x0F) == 0) f |= FLAG_H;  // half carry
-            // N=0 (already cleared)
-            regs.DE = ((uint16_t)D << 8) | (regs.DE & 0xFF);
+            const uint8_t D_pre = static_cast<uint8_t>(regs.DE >> 8);
+            const uint8_t D = static_cast<uint8_t>(D_pre + 1);  // ALU_Q
+            const uint8_t f_in = static_cast<uint8_t>(regs.AF & 0xFF);
+            uint8_t f = f_in & FLAG_C;        // preserve carry only
+            // ALU ADD-flag block (t80n.vhd:1163-1198 via Save_ALU_r):
+            if (D & 0x80)              f |= FLAG_S;     // S = ALU_Q[7]
+            if (D == 0)                f |= FLAG_Z;     // Z
+            // I_BT block (t80n.vhd:1281-1285) overrides X/Y/H/N:
+            if (D & 0x08)              f |= FLAG_X;     // X = ALU_Q[3]
+            if (D & 0x02)              f |= FLAG_Y;     // Y = ALU_Q[1] (VHDL!)
+            // F.H = 0 (forced by I_BT override) — already cleared.
+            // F.N = 0 (forced by I_BT override) — already cleared.
+            // P = IncDecZ (latch from prior 16-bit inc/dec). We don't track
+            // IncDecZ separately; the closest deterministic approximation is
+            // F.P from the prior instruction's flag word.
+            f |= (f_in & FLAG_P);
+            regs.DE = static_cast<uint16_t>(static_cast<uint16_t>(D) << 8) | (regs.DE & 0xFF);
             regs.AF = (regs.AF & 0xFF00) | f;
-            regs.Q = f;  // Pass-3 fix: track last F write (see TEST_N comment)
+            regs.Q = f;
             cpu.set_registers(regs);
             return 14;
         }
