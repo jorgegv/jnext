@@ -6981,3 +6981,142 @@ shouldn't fire, but maybe RST $38 handlers run or something else.
 modifications committed. No new code changes yet.
 
 End of EOD-22 Wave 5.
+
+## 2026-05-09 08:40 CEST — EOD-22 Wave 6: Wave 5 REFUTED — actual bug is MIXED slot mapping
+
+### NR $8E trace probe added (z80_cpu.cpp ↔ mmu.cpp:453+)
+
+Added `JNEXT_G46B_NR8E_TRACE=1` probe in `Mmu::write_nr_8e` that logs
+every NR $8E write with pre/post `port_7ffd_`, `port_1ffd_`,
+`current_sram_rom`, `slots[0,1]`, `machine_type`.
+
+### Trace results: NR $8E behavior is CORRECT
+
+Captured 2604 NR $8E writes during a 30-second jnext run. Sample:
+
+```
+NR8E v=0x00 pre[7ffd=0x07 1ffd=0x04 sram=0x02 slots=0x04,0x05]
+            post[7ffd=0x07 1ffd=0x00 sram=0x00 slots=0x00,0x01]
+NR8E v=0x03 pre[7ffd=0x00 1ffd=0x00 sram=0x00 slots=0x00,0x01]
+            post[7ffd=0x10 1ffd=0x06 sram=0x03 slots=0x06,0x07]
+NR8E v=0x00 pre[7ffd=0x10 1ffd=0x06 sram=0x03 slots=0x06,0x07]
+            post[7ffd=0x00 1ffd=0x00 sram=0x00 slots=0x00,0x01]
+```
+
+NEXTREG $8E with v=$00 correctly clears 7FFD(4) and 1FFD(2). Result
+sram_rom=0, slots=00,01 (bank 0). Same with $03 → sram_rom=3,
+slots=06,07. Behavior is VHDL-faithful.
+
+### The actual bug: MIXED slot mapping at $3E93 entry
+
+Re-examining Wave-5 trace #49094 with corrected understanding:
+
+```
+#49094: PC=$3E93, eff_mmu[0,1] = 02,01 (MIXED: slot 0=bank 1 lo, slot 1=bank 0 hi)
+                  rom_bank=0x01
+```
+
+**Critical insight**: PC=$3E93 is in slot 1 ($2000-$3FFF). With slot 1
+= page 01 (= bank 0 hi), the CPU reads from BANK 0 ROM at offset
+$3E93, NOT bank 1.
+
+- bank 0 disasm $3E93: `ed 91 8e 01` = `NEXTREG $8E,$01` (= switch to bank 1)
+- bank 1 disasm $3E93: `ed 91 8e 00` = `NEXTREG $8E,$00` (= switch to bank 0)
+
+These wrappers are SYMMETRIC — same address in both banks executes
+NEXTREG with OPPOSITE values, switching to the OTHER bank.
+
+**Supervisor's intent**: wrapper toggles to the "other" bank, then RET
+to caller-pushed target ($2668). If supervisor is in BANK 1 when
+invoking the wrapper, it switches to BANK 0 → executes bank 0's $2668
+(real code). ✓
+
+**In jnext (Wave 6 finding)**: supervisor's MIXED state means slot 1
+was bank 0 hi (NOT bank 1 hi). PC=$3E93 reads bank 0's NEXTREG $8E,$01
+→ switches to BANK 1 → RET to $2668 in bank 1 = NOPs! ✗
+
+### Bank 1 vs Bank 0 at $2668
+
+```
+bank 0 $2660-$2680: real BASIC code
+  $2660: djnz $25EA   $2662: rrca   $2663: ld hl,$C607
+  $2666: ld bc,$CDEE  $2669: inc l  $266A: daa
+  $266B: call $2671   $266E: jp $27BB
+  $2671: ld hl,$230A  ...
+
+bank 1 $2660-$26AC: ALL NOPS (real NOPs in static disasm)
+  $26AD: 33   inc sp     ← (4 INC SP entries here)
+  ...
+  $26B1: e3   ex (sp),hl
+  $26B6: cd cc 32   call $32CC
+  $26C2: c3 93 3e   jp $3E93   (= bank 1 wrapper, switches to bank 0)
+```
+
+So the supervisor's protocol for `RST 20-style; DW $2668` works only
+if supervisor is in BANK 1 when invoking the dispatcher. In bank 1,
+RET lands at $2668 = NOPs (= NOP slide → INC SP block → CALL $32CC →
+JP $3E93 wrapper that switches BACK to bank 0 for code at $2668-+
+real code in bank 0).
+
+**Wait, this is actually the design!** The NOP slide may be
+intentional. Let me re-examine.
+
+### Re-examination: maybe the NOP slide IS the design
+
+Looking at bank 1 $26AD-$26B0: `33 33 33 33` (INC SP × 4). Caller can
+JP to any of these to consume different stack-byte counts. Then $26B1
+EX (SP),HL. Then $26B6 CALL $32CC. Then $26BE PUSH $007B; $26C2 JP
+$3E93 (= bank 1 wrapper).
+
+Bank 1 $3E93 = NEXTREG $8E,$00 → switch to bank 0. Then RET pops
+post-$32CC HL → execution at HL in BANK 0 (with altrom enabled).
+
+So the design IS: enter bank 1 NOP slide → INC SP block → wrapper
+chain → enter bank 0 with altrom → execute target in altrom.
+
+**The bug is: altrom $3E80-$3FFF is zero-padded** (per Wave 3). So
+when the wrapper RETs to a target in altrom $3E80+ region, it falls
+into NOPs. THAT's where the slide originates.
+
+So the supervisor's intent: invoke a wrapper that ends up in altrom
+mode, RET to $XXXX (some altrom-resident routine). If the target is
+in altrom's zero-padded region, slide.
+
+Per the Wave-4 trace, the post-$32CC HL value (= the eventual RET
+target in altrom) was $3E93 in jnext. Altrom $3E93 is zero. So slide.
+
+### What should HL be at $26B9 in CSpect?
+
+If altrom has actual code at SOME OTHER address $XYYY (not $3E93),
+CSpect's HL after $32CC = $XYYY → RET there → real altrom code runs.
+
+Per altrom file content ($0000-$1FFF and $4000-$5FFF have actual
+code; $2000-$3FFF and $6000-$7FFF are zero-padded), the supervisor
+expects HL = some address in $0000-$1FFF or $4000-$5FFF (where altrom
+has code). But jnext's HL = $3E93 (in zero region).
+
+The DIVERGENCE is in **what HL is after $32CC returns**. $32CC does
+stack manipulation involving $5B52, $5B6A. These sysvars or the
+caller's stack contents determine HL.
+
+### Refined next-session priority
+
+1. **DZRP-side capture HL register at CSpect's $26B9** (post-$32CC):
+   This tells us the EXPECTED HL value. Compare to jnext's $3E93.
+
+2. **Trace path from the call to $32CC and stack values**: figure out
+   where HL gets set to $3E93 in jnext (instead of an altrom-code
+   address).
+
+3. **Compare $5B52/$5B6A initial values**: these BASIC sysvars
+   participate in $32CC's stack manipulation. If they differ between
+   jnext and CSpect at the $26B6 entry point, that's the bug.
+
+### Conclusion
+
+Wave 5's NEXTREG $8E hypothesis was REFUTED — NEXTREG behavior is
+correct. The actual bug is upstream in the supervisor's wrapper-chain
+state. Specifically, **HL value at $26B9 (post-$32CC) is $3E93 in
+jnext** (= altrom zero-padded region), causing the NOP slide.
+
+End of EOD-22 Wave 6.
