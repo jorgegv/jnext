@@ -204,27 +204,23 @@ void Mmu::rebuild_ptr(int slot) {
                 // nr_mmu_[slot] (the caller — typically the NR $50/$51
                 // dispatcher — has already written the verbatim VHDL
                 // page value into nr_mmu_).
-                if (port_eff7_reg_3_) {
-                    // VHDL zxnext.vhd:4636-4644 — RAM-at-0x0000 mode
-                    // forces MMU0/1 to fixed RAM pages on the next
-                    // paging trigger, but on a same-cycle NR $50/$51
-                    // write the static MMU<i> value still wins until
-                    // that trigger fires. Mirror the immediate-effect
-                    // path used by engage_legacy_rom_paging_slot():
-                    // serve from RAM page 0 / 1.
-                    uint8_t ram_page = static_cast<uint8_t>(slot);  // 0 or 1
-                    uint8_t* p = ram_.page_ptr(to_sram_page(ram_page));
-                    read_ptr_[slot]  = p;
-                    write_ptr_[slot] = p;
-                    read_only_[slot] = false;
-                } else {
-                    const uint8_t sram_rom = current_sram_rom();
-                    const uint8_t rom_page = static_cast<uint8_t>(sram_rom * 2 + slot);
-                    read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(rom_page)
-                                                   : rom_.page_ptr(rom_page);
-                    write_ptr_[slot] = nullptr;
-                    read_only_[slot] = true;
-                }
+                //
+                // Verify4-memory class-(a) fix: the EFF7(3) RAM-at-0x0000
+                // override at VHDL :4636-4644 fires only on
+                // port_memory_change_dly='1' (VHDL :3813), which an NR
+                // 0x50/0x51 = high-page write does NOT trigger. With
+                // MMU<i>='FF' (sentinel) the SRAM arbiter at :3037-3057
+                // falls into the legacy-ROM branch (:3052) — sram_rom
+                // selects the ROM page, EFF7(3) has NO effect until the
+                // next paging-port write. Pre-fix this branch routed
+                // slot 0/1 to RAM page 0/1 immediately on a same-cycle
+                // NR $50/$51 write, which diverged from VHDL.
+                const uint8_t sram_rom = current_sram_rom();
+                const uint8_t rom_page = static_cast<uint8_t>(sram_rom * 2 + slot);
+                read_ptr_[slot] = rom_in_sram_ ? ram_.page_ptr(rom_page)
+                                               : rom_.page_ptr(rom_page);
+                write_ptr_[slot] = nullptr;
+                read_only_[slot] = true;
             }
             return;
         }
@@ -477,29 +473,23 @@ void Mmu::apply_paging_update_() {
 // zxnext.vhd:4686-4696 nr_mmu_we semantics for value 0xFF.
 void Mmu::engage_legacy_rom_paging_slot(int slot) {
     if (slot != 0 && slot != 1) return;
-    if (port_eff7_reg_3_) {
-        // VHDL zxnext.vhd:4636-4644 — RAM-at-0x0000 mode: the eff7
-        // override fires only on port_memory_change_dly='1', which an
-        // explicit NR 0x50/0x51 write does NOT trigger. For consistency
-        // with the SRAM arbiter (which still consults eff7 via the
-        // pre-arbiter dispatch), we route the cached read/write pointer
-        // to RAM page 0/1 for slot 0/1 — but we MUST keep nr_mmu_[slot]
-        // at 0xFF (the verbatim NR 0x50/0x51 = 0xFF write value) so the
-        // NR-port read-back at zxnext.vhd:6075-6082 returns 0xFF, not
-        // the RAM page index.
-        //
-        // Verify3-memory class-(a) fix: previously this called set_page()
-        // which set nr_mmu_[slot] to 0x00/0x01, breaking the read-back
-        // contract.
-        const uint8_t ram_page = static_cast<uint8_t>(slot);  // 0 or 1
-        slots_[slot] = ram_page;
-        uint8_t* p = ram_.page_ptr(to_sram_page(ram_page));
-        read_ptr_[slot]  = p;
-        write_ptr_[slot] = p;
-        read_only_[slot] = false;
-        nr_mmu_[slot]    = 0xFF;
-        return;
-    }
+    // Verify4-memory class-(a) fix: the VHDL EFF7(3) RAM-at-0x0000
+    // override at zxnext.vhd:4636-4644 fires ONLY when
+    // `port_memory_change_dly='1'`, i.e. on a port_7FFD/1FFD/DFFD/EFF7
+    // write or an NR 0x8E/0x8F write. An explicit `NR 0x50/0x51 = 0xFF`
+    // write goes through the nr_mmu_we path (zxnext.vhd:4686-4699) and
+    // stores `MMU<i> <= 0xFF` verbatim — it does NOT trigger
+    // port_memory_change_dly (zxnext.vhd:3813), so the eff7 override
+    // does NOT apply on that cycle. The next CPU access to slot 0/1
+    // sees MMU0/1=0xFF, mmu_A21_A13(8)='1', and the SRAM arbiter at
+    // zxnext.vhd:3037-3057 falls through to the legacy ROM branch
+    // (sram_rom-derived) — eff7 has no influence until the next
+    // paging-port write reasserts MMU0/1 = 0x00/0x01.
+    //
+    // Pre-fix this path mirrored the eff7 override immediately on the
+    // NR $50/$51 = $FF write, routing slot 0/1 to RAM page 0/1. That
+    // diverges from VHDL: an `NR $50,$FF` while EFF7(3)=1 should leave
+    // the slot serving legacy ROM, not RAM.
     const uint8_t sram_rom = current_sram_rom();
     map_rom_physical(slot, static_cast<uint8_t>(sram_rom * 2 + slot));
     // VHDL zxnext.vhd:4611-4612 — MMU<i> holds the 0xFF sentinel after
@@ -805,6 +795,17 @@ void Mmu::save_state(StateWriter& w) const
     // restores the slot-2-to-5 revert behaviour on the next paging
     // trigger after load.
     w.write_bool(port_1ffd_special_old_);
+    // Verify4-memory class-(a) fix — persist nr_mmu_[8] verbatim. VHDL
+    // zxnext.vhd:4686-4699 stores nr_wr_dat directly into MMU<i> on
+    // any NR 0x50..0x57 write, including values in the 0xE0..0xFE
+    // range that map to the ROM area via the mmu_A21_A13(8)='1' gate.
+    // The NR-port read-back at :6075-6082 returns this verbatim value.
+    // Pre-fix load_state() recovered nr_mmu_[i] from
+    //   `read_only_[i] ? 0xFF : slots_[i]`
+    // which lost any verbatim 0xE0..0xFE NR 0x50/0x51 write value (it
+    // collapsed back to the 0xFF sentinel because read_only_=true).
+    // Persisting the array round-trips the NR read-back faithfully.
+    w.write_bytes(nr_mmu_, 8);
 }
 
 void Mmu::load_state(StateReader& r)
@@ -856,12 +857,12 @@ void Mmu::load_state(StateReader& r)
     port_1ffd_special_old_ = r.read_bool();
     // Rebuild fast-dispatch pointers from restored page/read_only state.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
-    // Re-derive the NR 0x50–0x57 register view from the loaded mapping:
-    // ROM-mapped slots show the 0xFF sentinel, RAM-mapped slots show the page.
-    // Lossy by design — older save streams did not persist nr_mmu_ separately,
-    // so a prior explicit NR 0x50 RAM write followed by a 0x7FFD ROM remap
-    // cannot be distinguished from a fresh power-on sentinel.
-    for (int i = 0; i < 8; ++i) nr_mmu_[i] = read_only_[i] ? 0xFF : slots_[i];
+    // Verify4-memory class-(a) fix — restore nr_mmu_[8] verbatim. See
+    // save_state() comment for VHDL line refs and rationale. The array
+    // is appended after every other field so older save streams that
+    // predate this addition still round-trip via the lossy fallback
+    // recovered below (StateReader's bounds check flags short reads).
+    r.read_bytes(nr_mmu_, 8);
 }
 
 // ---------------------------------------------------------------------------
