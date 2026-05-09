@@ -207,33 +207,46 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
 
         case Z80NOpcode::ADD_HL_NN: {
             // ED 34 ll hh — ADD HL, nn (no flags affected)
+            // Pass-4 fix: VHDL t80n_mcode.vhd:1872-1878 sets LDZ at MCycle 2
+            // and LDW at MCycle 3, loading the operand into WZ/MEMPTR low
+            // then high. End-of-instruction WZ = nn. The next BIT (HL) /
+            // BIT (IX+d) / IN A,(n) etc. that consults WZ for X/Y flag
+            // composition would see stale MEMPTR otherwise.
             auto regs = cpu.get_registers();
             uint8_t lo = cpu.memory().read(regs.PC);
             uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
-            regs.HL = (regs.HL + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
+            regs.HL = (regs.HL + nn) & 0xFFFF;
+            regs.MEMPTR = nn;
             cpu.set_registers(regs);
             return 16;  // M1+M1+R+R+(2 internal); spec=16
         }
 
         case Z80NOpcode::ADD_DE_NN: {
-            // ED 35 ll hh — ADD DE, nn (no flags affected)
+            // ED 35 ll hh — ADD DE, nn (no flags affected). See ADD_HL_NN
+            // for WZ/MEMPTR rationale (VHDL t80n_mcode.vhd:1872-1878).
             auto regs = cpu.get_registers();
             uint8_t lo = cpu.memory().read(regs.PC);
             uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
-            regs.DE = (regs.DE + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
+            regs.DE = (regs.DE + nn) & 0xFFFF;
+            regs.MEMPTR = nn;
             cpu.set_registers(regs);
             return 16;
         }
 
         case Z80NOpcode::ADD_BC_NN: {
-            // ED 36 ll hh — ADD BC, nn (no flags affected)
+            // ED 36 ll hh — ADD BC, nn (no flags affected). See ADD_HL_NN
+            // for WZ/MEMPTR rationale (VHDL t80n_mcode.vhd:1872-1878).
             auto regs = cpu.get_registers();
             uint8_t lo = cpu.memory().read(regs.PC);
             uint8_t hi = cpu.memory().read((regs.PC + 1) & 0xFFFF);
             regs.PC = (regs.PC + 2) & 0xFFFF;
-            regs.BC = (regs.BC + ((uint16_t)hi << 8 | lo)) & 0xFFFF;
+            uint16_t nn = (static_cast<uint16_t>(hi) << 8) | lo;
+            regs.BC = (regs.BC + nn) & 0xFFFF;
+            regs.MEMPTR = nn;
             cpu.set_registers(regs);
             return 16;
         }
