@@ -6696,3 +6696,191 @@ when off). Build green for jnext binary; pre-existing ula_test build
 failure (fmt namespace ambiguity) unrelated.
 
 End of EOD-22 Wave 2.
+
+## 2026-05-09 07:50 CEST — EOD-22 Wave 3: ALTROM HYPOTHESIS CONFIRMED
+
+### Probe added: RING_AT mem dump
+
+Extended `JNEXT_G46B_RING_AT` probe (z80_cpu.cpp:592+) to also dump
+64 bytes at PC, plus 64 bytes at $3FC0 + 64 bytes at $5AC0 + 32 bytes
+at $5B00 + altrom/rom_in_sram/machine_type/sram_rom state when the
+target PC fires.
+
+### KEY FINDING: altrom is enabled in read-only mode + zero padding
+
+```
+G46B RING memdump pc..pc+63 = f5 c5 01 fd 7f 3a 5c 5b ee 10 f3 32 5c 5b ed 79
+                              01 fd 1f 3a 67 5b ee 04 32 67 5b ed 79 fb c1 f1
+                              c9 cd 00 5b e5 2a 5a 5b e3 c9 ...
+                              (= wrapper bytes at $5B00)
+
+G46B RING memdump $3FC0..$3FFF  = 00 00 00 00 ... 00 00  (ALL ZEROS)
+G46B RING memdump $5AC0..$5AFF  = 00 00 00 00 ... 00 00  (ALL ZEROS)
+G46B RING memdump $5B00..$5B1F  = f5 c5 01 fd 7f 3a 5c 5b ee 10 f3 32 5c 5b ed 79
+                                   01 fd 1f 3a 67 5b ee 04 32 67 5b ed 79 fb c1 f1
+                                   (wrapper code intact)
+
+G46B RING memdump nr_8c_altrom_en=1 nr_8c_altrom_rw=0
+                  rom_in_sram=1 machine_type=3 current_sram_rom=0x00
+```
+
+**Interpretation**:
+- `altrom_en=1, altrom_rw=0` → slot 0/1 reads route through `Mmu::altrom_sram_page_(addr)` (mmu.h:935+).
+- For ZX_PLUS3 + 7FFD(4)=0 (= sram_rom=00 = current_sram_rom): altrom maps to physical page 0x0C (slot 0) and page 0x0D (slot 1).
+- enAltZX.rom file content at offset $3FC0..$3FFF is **all zeros** (verified via `mtools` extract):
+
+```
+$ xxd -s 0x3FC0 -l 64 enAltZX.rom
+00003fc0: 0000 0000 ... 0000 0000  (all zero padding)
+```
+
+So when supervisor's PC reaches $3FC0+ in slot 1 with altrom enabled, the bytes are all zero (NOPs). PC slides forward through the zero-padding region of altrom page 0x0D, into slot 2 ($4000+) which reads bank 5 RAM (also zeroed except at specific LDIR'd addresses), eventually reaching the wrapper at $5B00 in slot 2.
+
+The wrapper at $5B00 is intact (LDIR copy from bank 0 $0091 ran during pre-soft-reset boot). But its RET pops `$0000` from uninitialized stack at `$5BFF` → PC=$0000.
+
+### Why this leads to a panic loop
+
+In altrom mode, PC=$0000:
+- altrom byte $0000 = `00` NOP
+- altrom byte $0001-2 = `18 08` JR $000B
+- altrom byte $000B-D = `c3 ea 00` JP $00EA
+- altrom byte $00EA-... = `LD HL,($5B52); PUSH AF; EX AF,AF'; RET`
+
+So PC=$0000 in altrom path goes: NOP → JR $000B → JP $00EA → load/push/ex/RET.
+RET pops uninitialized stack → $0000 again → REPEAT.
+
+**This is the panic loop**. The supervisor's altrom-resident wrapper at
+$00EA is the key — its RET expects a valid caller-pushed return, but
+the stack has $0000 instead.
+
+### Why supervisor's PC reaches $3FC0 in altrom mode (open question)
+
+Bank 1 init at `$01BD: NEXTREG $8C,$80` enables altrom. Then `$01C1: JP
+$00EA` — supervisor jumps to $00EA in altrom mode. Altrom $00EA-$00EF
+runs (LD HL,($5B52); PUSH AF; EX AF,AF'; RET). The RET pops a return
+address from stack. **If stack is set up correctly, supervisor returns
+to a valid PC**. **If stack is corrupt, RET pops zero.**
+
+But our probe shows the slide enters via $3FC0 in slot 1 — which means
+PC reaches $3FC0 BEFORE reaching $5B00. The path between $00EA and
+$3FC0 is what we don't know.
+
+Possibilities:
+1. RET at altrom $00EF pops a value pointing into $3FC0+ region.
+   E.g., if the caller pushed `$3FXX`, RET goes there → slide.
+2. EX AF,AF' at $00EE corrupts something and the wrapper protocol breaks.
+3. PUSH AF at $00ED + RET pop pushes/pops mismatched bytes leading to
+   a stack-walking error.
+
+### Next-session priorities (REVISED again)
+
+1. **Capture supervisor's PC trace WITHIN altrom mode.** Add a probe
+   that fires when altrom is enabled AND captures every PC change for
+   N events. Currently POSTRESET captures all PCs but doesn't distinguish
+   altrom-mode vs not.
+2. **DZRP-side comparison at altrom-enable point**: BP at PC=$01BD
+   on CSpect, capture state. Then BP at $01C1 (after altrom enable) and
+   $00EA (in altrom). Compare with jnext.
+3. **Audit altrom_sram_page_ for slot 1 in +3 mode**: confirm alt_128_n
+   is correctly computed from port_7ffd_(4) when no locks. With
+   sram_rom=00 (= 7FFD(4)=0), alt_128_n=0, slot 1 → page 0x0D. Verified.
+4. **Cleanup**: remove all `JNEXT_G46B_*` probes when G46(b) closes.
+
+### Branch state
+
+`g46b-investigation` HEAD `a2633dc`, working tree has memdump probe
+extension to RING_AT (uncommitted). Will commit at end of session.
+
+## 2026-05-09 08:10 CEST — EOD-22 Wave 4: ALTROM bank-flip wrapper bug isolated
+
+### Probe additions (committed `a2633dc`)
+
+- `JNEXT_G46B_PC0_TRAP=N` — log PC=$0000 transitions
+- Extended `JNEXT_G46B_RING_AT` to also dump 64 bytes at PC + $3FC0 + $5AC0 + $5B00 + altrom/rom_in_sram state
+
+### CSpect checkpoint trace (DZRP agent — `tools/cspect_dzrp/g46b_eod22_checkpoint_trace.py`)
+
+Captured supervisor state at 7 init checkpoints on CSpect. **All 7 checkpoints match jnext byte-for-byte.** $5B00 toggle wrapper NEVER fired on CSpect (15s silence). At $5B48: NR $8C=$00 (altrom NOT yet enabled). **Verdict: divergence is downstream of $5B48.**
+
+Deliverable: `doc/issues/g46b-eod22-cspect-checkpoint-trace.md`.
+
+### Big POSTRESET=50000 trace analysis
+
+Reconstructed the exact instruction-by-instruction path to the slide:
+
+```
+event #49250: pc=$26C2 (bank 1 BASIC) — JP $3E93
+event #49251: pc=$3E93 — NEXTREG $8E,$00 (4-byte ED prefix)
+event #49252: pc=$3E97 — RET (in bank 1 mode after sram_rom=0 commit)
+event #49253: pc=$007B — NEXTREG $8C,$80 (ENABLE ALTROM!)
+event #49254: pc=$007F — RET (4 bytes after NEXTREG $8C,$80)
+event #49255: pc=$3E93 (NOW IN ALTROM MODE — slide starts!)
+event #49256-#49649: pc=$3E94..$4019 — NOP slide through altrom zero-padding
+                     and slot 2 RAM (cleared bank 5).
+```
+
+### The exact divergent wrapper at bank 1 $26B9-$26C2
+
+```
+$26B0: 33            inc sp
+$26B1: e3            ex (sp),hl
+$26B2: 22 54 5b      ld ($5B54),hl
+$26B5: e1            pop hl
+$26B6: cd cc 32      call $32CC      ; <-- HL value after this CALL determines target
+$26B9: e5            push hl         ; push HL (= post-$32CC value) onto stack
+$26BA: 2a 54 5b      ld hl,($5B54)
+$26BD: e3            ex (sp),hl      ; stack now has post-$32CC HL on top, $5B54-saved-HL in HL
+$26BE: ed 8a 00 7b   push $007B       ; Z80N PUSH IMM — caller-style return
+$26C2: c3 93 3e      jp $3E93         ; bank-flip wrapper
+
+$3E93: ed 91 8e 00   nextreg $8e,$00  ; switch to bank 0 (sram_rom=00)
+$3E97: c9            ret              ; pops $007B → execution at $007B in bank 0
+
+$007B: ed 91 8c 80   nextreg $8c,$80  ; ENABLE ALTROM (read-only)
+$007F: c9            ret              ; pops post-$32CC HL → execution at HL in altrom
+
+```
+
+### The bug
+
+**Supervisor's intent**: pass execution target via HL → wrapper enables
+altrom + RETs to that target → altrom code at HL executes.
+
+**In jnext**: post-$32CC HL = `$3E93`. RET at $007F pops `$3E93`. With
+altrom enabled, slot 1 $3E93 reads from altrom file offset $3E93 (or
+$7E93 if alt_128_n=1) — **both regions are zero-padded** in
+enAltZX.rom. PC slides through 7424 bytes of NOPs, eventually reaching
+$5B00 toggle wrapper in slot 2 RAM, whose RET pops $0000 from
+uninitialized BASIC sysvars area at $5BFF → PC=$0000 → panic loop.
+
+**In CSpect** (per DZRP agent): supervisor reaches BASIC main at $0C90
+without ever hitting $5B00 wrapper. So either:
+- CSpect's post-$32CC HL value is NOT $3E93 (= valid altrom target)
+- OR CSpect's supervisor doesn't reach this code block at all in normal boot
+
+### What to investigate next session
+
+1. **DZRP-side BP at bank 1 $26C2 on CSpect**: capture HL value at that
+   point. Compare with jnext. If different, identify what state difference
+   in $32CC produces the divergent HL.
+2. **Probe what $32CC reads at $5B52, $5B6A** (sysvar pointers — RAM-
+   resident, may be uninitialized in jnext if cascade cleared without
+   re-init).
+3. **Audit CALL chain leading to $26B6**: who calls bank 1 $26B9-$26C2?
+   What context (which BASIC state) drives this?
+4. **Hypothesis**: $5B6A and $5B52 are sysvar pointers that supervisor
+   sets up earlier in boot. Cascade clear zeros them. If supervisor
+   doesn't re-initialize them before reaching $26B6, $32CC operates on
+   garbage stack/HL → returns invalid HL = $3E93.
+
+### Strategic conclusion
+
+**The bug is upstream of the slide**: the bank 1 wrapper at $26B9-$26C2
+is supervisor's normal code path, but jnext's HL value after CALL $32CC
+is $3E93 (the wrapper's own JP target!) — a stack-corruption pattern.
+Likely: $32CC manipulates SP via $5B6A which is uninitialized in jnext.
+
+**Next step is DZRP-side**: capture HL at CSpect's $26C2 and diff with
+jnext. That's the highest-leverage next move.
+
+End of EOD-22 Wave 4.
