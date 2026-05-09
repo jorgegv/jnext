@@ -1267,12 +1267,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // fires per write (zxnext.vhd:4916). sprites.vhd:603-605 increments
     // mirror_sprite_q's lower 7 bits and reloads bit 7 from
     // pattern_index(7).
+    //
+    // PASS-5 FIX: write-only — VHDL zxnext.vhd:5878-6289 read mux has no
+    // entry for NR 0x75-0x79 (fall-through `(others => '0')`). Previously
+    // the handler returned `v`, leaking the just-written byte through the
+    // cached `regs_[]` read path. Match VHDL by returning 0 and aligning
+    // with the NR 0x35-0x39 no-inc handler convention above.
     for (int i = 0; i < 5; ++i) {
         nextreg_.set_write_handler(static_cast<uint8_t>(0x75 + i),
             [this, i](uint8_t v) -> uint8_t {
                 sprites_.write_attr_byte_nr_per_byte_inc(
                     static_cast<uint8_t>(i), v);
-                    return v;
+                return 0;
             });
     }
 
@@ -3291,13 +3297,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
 
-    // Register 0x09: Peripheral 4
-    //   bits 7:5 = per-chip mono mode (bit 7=AY#2, 6=AY#1, 5=AY#0)
-    //   bit 3 = sprites over border + DivMMC mapram-latch clear
-    //           (VHDL zxnext.vhd:4184-4185 — writes bit 3=1 force
-    //            port_e3_reg(6) := '0')
+    // Register 0x09: Peripheral 4 (VHDL zxnext.vhd:5186-5189, 5909)
+    //   bits 7:5 = nr_09_psg_mono (bit 7=AY#2, 6=AY#1, 5=AY#0)
+    //   bit 4    = nr_09_sprite_tie (VHDL :5187)
+    //   bit 3    = write-only DivMMC mapram-latch clear (VHDL :4184-4186 —
+    //              `nr_09_we='1' and nr_wr_dat(3)='1'` forces
+    //              port_e3_reg(6) := '0'). Read-back returns '0' for this
+    //              bit (VHDL :5909). NOT sprites-over-border.
+    //   bit 2    = nr_09_hdmi_audio_en (inverted on write, VHDL :5188)
+    //   bits 1:0 = nr_09_scanlines (handled in $F7 increment helper)
+    // PASS-5 FIX: previously this handler called sprites_.set_over_border
+    // here too. That is wrong — sprite-over-border lives in NR $15 bit 1
+    // (handled in the NR 0x15 write handler above). Removing the spurious
+    // wiring restores VHDL faithfulness; software that writes bit 3 to
+    // clear DivMMC mapram no longer collaterally toggles sprite drawing
+    // over the border.
     nextreg_.set_write_handler(0x09, [this](uint8_t v) -> uint8_t {
-        sprites_.set_over_border((v & 0x08) != 0);
         // G95: bit 4 wires nr_09_sprite_tie into the sprite mirror unit
         // (VHDL zxnext.vhd:5187 / 4352, sprites.vhd:60,594-612).
         sprites_.set_mirror_tie((v & 0x10) != 0);
@@ -5085,6 +5100,15 @@ void Emulator::reset()
     const uint8_t save_82 = nextreg_.cached(0x82);
     const uint8_t save_83 = nextreg_.cached(0x83);
     const uint8_t save_84 = nextreg_.cached(0x84);
+    // PASS-5: VHDL zxnext.vhd:5061-5067 — NR 0x86/0x87/0x88/0x89 reload to
+    // power-on defaults only when nr_89_bus_port_reset_type='0' (the
+    // INVERSE polarity vs nr_85). Mirror the same save/restore pattern
+    // used for 0x82-0x84.
+    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
+    const uint8_t save_86 = nextreg_.cached(0x86);
+    const uint8_t save_87 = nextreg_.cached(0x87);
+    const uint8_t save_88 = nextreg_.cached(0x88);
+    const uint8_t save_89 = nextreg_.cached(0x89);
 
     clock_.reset();
     scheduler_.reset();
@@ -5120,6 +5144,14 @@ void Emulator::reset()
         nextreg_.write(0x83, save_83);
         nextreg_.write(0x84, save_84);
     }
+    // PASS-5: bus-port enable group survives reset when nr_89 bit 7 = 1
+    // (bus_reset_type_0 = false). The default nr_89 power-on bit 7 = 1.
+    if (!bus_reset_type_0) {
+        nextreg_.write(0x86, save_86);
+        nextreg_.write(0x87, save_87);
+        nextreg_.write(0x88, save_88);
+        nextreg_.write(0x89, save_89);
+    }
 }
 
 void Emulator::soft_reset()
@@ -5141,6 +5173,14 @@ void Emulator::soft_reset()
     const uint8_t save_82 = nextreg_.cached(0x82);
     const uint8_t save_83 = nextreg_.cached(0x83);
     const uint8_t save_84 = nextreg_.cached(0x84);
+    // PASS-5: NR 0x86/0x87/0x88/0x89 (bus-port enable group). VHDL
+    // zxnext.vhd:5061-5067 gates reset on nr_89 bit 7 = '0' (inverse
+    // polarity vs nr_85). Save/restore parallels the 0x82-0x84 path.
+    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
+    const uint8_t save_86 = nextreg_.cached(0x86);
+    const uint8_t save_87 = nextreg_.cached(0x87);
+    const uint8_t save_88 = nextreg_.cached(0x88);
+    const uint8_t save_89 = nextreg_.cached(0x89);
 
     // VHDL bootrom_en (zxnext.vhd:1101, reset logic at :5109-5111, cleared
     // by NR 0x03 write at :5122). The reset block for bootrom_en runs on
@@ -5174,6 +5214,13 @@ void Emulator::soft_reset()
         nextreg_.write(0x82, save_82);
         nextreg_.write(0x83, save_83);
         nextreg_.write(0x84, save_84);
+    }
+    // PASS-5: bus-port group (0x86-0x89) survives reset when nr_89 bit 7 = 1.
+    if (!bus_reset_type_0) {
+        nextreg_.write(0x86, save_86);
+        nextreg_.write(0x87, save_87);
+        nextreg_.write(0x88, save_88);
+        nextreg_.write(0x89, save_89);
     }
 }
 
