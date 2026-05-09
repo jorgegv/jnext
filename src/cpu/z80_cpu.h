@@ -11,6 +11,15 @@ struct Z80Registers {
     uint8_t  IFF1, IFF2, IM;
     uint8_t  Q;                // internal F-assembly register
     bool halted;
+    // Pass-9 fix: VHDL t80n.vhd:1358-1367 — IncDecZ is a 1-bit shadow
+    // latch updated from BC dec/inc in block-transfer instructions
+    // (LDI/LDD/LDIR/LDDR/CPI/CPD/CPIR/CPDR + Z80N LDIX/LDIRX/LDDX/LDDRX/
+    // LDPIRX/LDIRSCALE) and from F_Out(Flag_Z) of DJNZ. The I_BT block
+    // (t80n.vhd:1283-1284) overrides F.P with IncDecZ for I_BT/I_BC
+    // instructions — observable in LDWS (Z80N ED A5), where the spec
+    // says "preserve P" but the VHDL emits IncDecZ from the most recent
+    // 16-bit inc/dec. Stored as 0 or 1; reset = 0.
+    uint8_t  IncDecZ;
 };
 
 class MemoryInterface {
