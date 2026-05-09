@@ -947,6 +947,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:3308-3322 (port_e7 decode uses nr_0a_sd_swap).
     // VHDL zxnext.vhd:5191-5198: bits 7:6 (mf_type) and bit 5 (sd_swap) only
     // commit when nr_03_config_mode='1'. Bits 4/3/1:0 commit unconditionally.
+    // PASS-8 NR 0x0A reset propagation. NextReg::reset() preserves
+    // `regs_[0x0A]` across reset (VHDL :1124-1128 initial-value-only
+    // signals — no `reset` clause); KempstonMouse::reset() preserves the
+    // mouse subsystem state. The Multiface / DivMMC / SpiMaster owners
+    // already preserved their NR 0x0A-derived bits on their own reset
+    // paths (mf_type_, nr_0a_4_enable_, sd_swap_ are not reset). The
+    // mouse used to clobber `button_reverse_` / `dpi_` in pre-pass-8 —
+    // even with that fix, fan out the preserved cached NR 0x0A byte here
+    // to all four owners so they pick up any pre-write-to-init() state
+    // change (e.g. snapshot reload, soft-reset code path that clears
+    // mouse). Mirrors the NR 0x05 / NR 0x06 / NR 0x09 fan-out pattern.
+    {
+        const uint8_t cached_0a = nextreg_.cached(0x0A);
+        // Bits 7:6 (mf_type) only commit while config_mode='1' in VHDL —
+        // but here we are fanning out the *preserved* cached byte, which
+        // only contains values that were committed under config_mode at
+        // their original write time. Re-applying them is therefore safe
+        // regardless of the current config_mode flag.
+        spi_.set_sd_swap((cached_0a & 0x20) != 0);
+        multiface_.set_mode(static_cast<uint8_t>((cached_0a >> 6) & 0x03));
+        divmmc_.set_nr_0a_4_enable((cached_0a & 0x10) != 0);
+        mouse_.set_button_reverse((cached_0a & 0x08) != 0);
+        mouse_.set_dpi(static_cast<uint8_t>(cached_0a & 0x03));
+    }
+
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) -> uint8_t {
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
         if (nextreg_.nr_03_config_mode()) {
@@ -991,6 +1016,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         v = static_cast<uint8_t>(v | (mouse_.dpi() & 0x03));
         return v;
     });
+
+    // PASS-8 NR 0x05 reset propagation. Pass-7 fixed NextReg::reset() to
+    // preserve `regs_[0x05]` across reset (VHDL :1105-1106, :1302-1303
+    // initial-value-only signals — no `reset` clause). Pass-8 fixed
+    // Joystick::reset() to also preserve `joy0_mode_` / `joy1_mode_`
+    // (the authoritative owner of the bits surfaced by the NR 0x05 read
+    // handler). Re-fan-out the preserved cached byte to the joystick
+    // subsystem here so that any path which calls Joystick::reset() at
+    // the top of init() (pre-pass-8 it cleared the modes) is restored
+    // from the cache. With both fixes in place this is now a no-op
+    // round-trip; the explicit fan-out documents intent and shields
+    // against future joystick-reset regressions.
+    {
+        const uint8_t cached_05 = nextreg_.cached(0x05);
+        if (cached_05 != joystick_.nr_05_raw()) {
+            joystick_.set_nr_05(cached_05);
+        }
+    }
 
     // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
     // Phase 1 scaffold: Joystick::set_nr_05() is a stub that records the
