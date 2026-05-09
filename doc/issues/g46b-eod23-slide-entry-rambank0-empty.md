@@ -518,3 +518,76 @@ the supervisor stabilizes):
 5. Whatever's at alt_stk[1] in CSpect — that's the missing value.
 6. Walk back to find what code wrote it.
 
+
+## EOD-23 DZRP CSpect comparison — slot mapping divergence found
+
+Launched CSpect via `mono ../CSpect3_1_0_0/CSpect.exe -mmc roms/nextzxos-1gb-fat32fix.img -debug`,
+ran `tools/cspect_dzrp/g46b_eod23_swap_capture.py --hits 6` twice
+(first run captures hits 1-6 from cold-boot $0000; CSpect then
+continued running between runs).
+
+### CSpect first 6 hits (cold-boot $0000 → first stabilization)
+
+```
+HIT #1: SP=$5BFF ($5B6A)=$FF4F slots[6,7]=$00,$01
+        alt_stk=[$23AA, $0274, $006F, $3E00, $0000, $423C, $7E42, $4242]
+HIT #2: SP=$5BFF ($5B6A)=$FF51 slots[6,7]=$00,$01
+        alt_stk=[$0274, $006F, $3E00, $0000, $423C, $7E42, $4242, $0000]
+HIT #3: SP=$5BFF ($5B6A)=$FF4B slots[6,7]=$00,$01
+        alt_stk=[$3E93, $150B, $3E93, $0277, $006F, $3E00, $0000, $423C]
+HIT #4: SP=$5BED ($5B6A)=$FF55 slots[6,7]=$0E,$0F  ← DIVERGENCE
+        alt_stk=[$0000, $0000, $0000, $0000, $0000, $0000, $0000, $0000]
+HIT #5: SP=$5BEB ($5B6A)=$FF55 slots[6,7]=$0E,$0F
+        alt_stk=[$0000, $0000, ...]
+```
+
+### CSpect after stabilization (fewer cycles, productive boot)
+
+```
+HIT #4 (later): SP=$5BFB ($5B6A)=$FF2C slots[6,7]=$00,$01
+                alt_stk=[$0388, $F700, $22FF, $2043, $5B3E, $13EC, $36C0, $FB6D]
+                ← ALL VALID return addresses
+```
+
+### Key divergences vs jnext
+
+**1. At the slide-trigger swap (($5B6A)=$FF55, SP near $5BED):**
+- jnext: slots[6,7]=$00,$01 (= legacy paging RAM bank 0, +$20 shift → physical $20,$21)
+- **CSpect: slots[6,7]=$0E,$0F (= bank 7 dual-port unshifted, physical $0E,$0F)**
+
+**2. What's at MEM[$FF55]:**
+- jnext (slot 6,7 = page $20,$21 with shift): MEM[$FF55] reads page $21 offset $1F55 = $3E00
+  (= what supervisor pushed via bank 2 $0D3F path)
+- CSpect (slot 6,7 = page $0E,$0F unshifted): MEM[$FF55] reads page $0F offset $1F55 = $0000
+  (= bank 7 ULA dual-port memory which is empty in the supervisor's stack region)
+
+**3. What RET pops at $27AB:**
+- jnext: pops $3E00 → enters wrapper → reads MEM[$0000,$0001] = bank 0 boot vector ($F3,$C3) → BC=$C3F3 → SLIDE
+- CSpect: pops $0000 → bank 0 boot vector → re-init at $00EF (productive cycle)
+
+### Root cause re-frame
+
+The slide isn't a stack-content corruption per se — it's a **slot 6/7 mapping divergence**. In CSpect at the equivalent slide-point swap, slots 6,7 are mapped to bank 7 (dual-port ULA), where MEM[$FF55] reads from bank 7 page $0F (= $0000 / unused).
+
+In jnext, slots 6,7 are mapped to RAM bank 0 (= page $20,$21 with +$20 shift), where MEM[$FF55] reads supervisor's earlier-written stack frame ($3E00).
+
+So jnext's apparent "stack at $FF55" is really a STALE stack frame in physical page $21 (RAM bank 0) that the supervisor wrote earlier and didn't expect to re-read. The supervisor probably expects slot 6/7 to be mapped to bank 7 (= empty space) at this point, but jnext keeps the legacy 7FFD bank 0 mapping.
+
+### Why does jnext have slot 6,7 = bank 0 vs CSpect bank 7?
+
+The supervisor must have written `NEXTREG $56,$0E + NEXTREG $57,$0F` in CSpect before this swap. In jnext, either those writes didn't happen, OR they were overwritten by a subsequent 7FFD write that triggered `apply_legacy_ram_slots_` reverting slots 6,7 to legacy bank-0 mapping.
+
+Per VHDL :4677-4680, port_memory_ram_change_dly DOES update MMU6/MMU7 from 7FFD-derived bank. So a 7FFD write between NR $56,$0E and the swap could revert.
+
+### Next investigation steps
+
+1. **Add SLOTCTX-like probe at PC=$0A61 (NEXTREG $56,$0E site)** — confirm whether jnext executes this in the slide cycle. If yes, capture pre/post slot state.
+2. **Trace 7FFD writes between NR $56,$0E and the swap** — find what 7FFD write reverts slot 6,7 to bank 0 in jnext.
+3. **DZRP CSpect: BP at bank 2 $0A61** — confirm CSpect executes NEXTREG $56,$0E in the equivalent cycle and the value sticks.
+
+### File: tools/cspect_dzrp/g46b_eod23_swap_capture.py
+
+Captures SP, ($5B6A), regs, slot map, current stack, alternate stack
+(8 words at ($5B6A)), and sysvars at every BP hit at $27A3. Reusable
+for future DZRP comparison work.
+

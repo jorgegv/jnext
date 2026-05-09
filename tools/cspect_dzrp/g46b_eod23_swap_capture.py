@@ -89,8 +89,8 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=11000)
     ap.add_argument("--hits", type=int, default=HITS_TO_CAPTURE)
-    ap.add_argument("--bp-bank", type=int, default=None,
-                    help="Optional bank number for BP (DZRP default if omitted)")
+    ap.add_argument("--bp-bank", type=int, default=0,
+                    help="Bank number for BP (0 = 64K address, default)")
     args = ap.parse_args()
 
     print(f"# Connecting to CSpect DZRP at {args.host}:{args.port}")
