@@ -1597,7 +1597,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // scope we surface them as zero rather than inventing state that
     // wouldn't match the VHDL shift-register / latch semantics.
     nextreg_.set_read_handler(0x02, [this]() -> uint8_t {
-        return nmi_source_.nr_02_read();
+        // VHDL zxnext.vhd:5891 layout:
+        //   bit 7   = nr_02_bus_reset
+        //   bits 6:5 = "00"
+        //   bit 4   = nr_02_iotrap = nr_da_iotrap_cause(1) OR (0)  (VHDL:3885)
+        //   bit 3   = nr_02_generate_mf_nmi
+        //   bit 2   = nr_02_generate_divmmc_nmi
+        //   bits 1:0 = nr_02_reset_type(1:0)
+        //
+        // NmiSource owns bits 3, 2, 1, 0 (FSM-derived). Bit 4 is composed
+        // here from the iotrap-cause shadow (`nr_da_iotrap_cause_`) so a
+        // poll-loop watching NR 0x02 can see "any trap pending". Bit 7
+        // (bus_reset) is not yet modelled in jnext.
+        uint8_t v = nmi_source_.nr_02_read();
+        if ((nr_da_iotrap_cause_ & 0x03) != 0) v |= 0x10;
+        return v;
     });
 
     // NR 0xD8 — IO trap enable (VHDL zxnext.vhd:1263, 5640, 6266).

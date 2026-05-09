@@ -248,38 +248,47 @@ static void g_nr02_sw_nmi()
     }
 
     // ------------------------------------------------------------------
-    // NR02-05 — Readback bits 3/2 auto-clear when the FSM reaches
-    // `S_NMI_END`. VHDL zxnext.vhd:5891 (readback term), :2149-2162
-    // (FSM End-state latch clear). Walk the FSM Idle → Fetch → Hold →
-    // End via the Phase-1 scaffold's observer API: observe_m1_fetch at
-    // PC 0x0066 advances Fetch→Hold, then `mf_nmi_hold` defaulting to
-    // false advances Hold→End on the next tick. End-state clears the
-    // latch AND `nr_02_pending_mf`, so the next read returns 0.
+    // NR02-05 — Readback bits 3/2 are NOT auto-cleared by the FSM.
+    // They follow the VHDL clear path at zxnext.vhd:3847-3848,3860-3861:
+    // a write to NR 0x02 with the corresponding bit explicitly low
+    // clears the readback latch. Walking the FSM through S_NMI_END
+    // (which DOES clear the priority latches per VHDL:2102-2105) leaves
+    // the readback bits untouched — they survive until either reset or
+    // an explicit write-back with the bit cleared.
     // ------------------------------------------------------------------
     {
         NmiSource nmi;
         nmi.set_mf_enable(true);
         nmi.nr_02_write(0x08);
         nmi.tick(1);   // Idle → Fetch (is_activated == true)
-        // Pre-END sanity: readback should still show bit 3 set while
-        // the FSM holds the request in Fetch/Hold.
+        // Pre-END sanity: readback shows bit 3 set while the FSM holds
+        // the request.
         const uint8_t pre = nmi.nr_02_read();
 
         // Fetch → Hold on M1 fetch at 0x0066 (VHDL:2135-2138).
         nmi.observe_m1_fetch(0x0066, /*m1=*/true, /*mreq=*/true);
         nmi.tick(1);
 
-        // Hold → End — mf_nmi_hold defaults false, so `!hold` is true
-        // and the next recompute_ advances to End, which clears the
-        // latches + readback-pending bits (VHDL:2149-2162 + 5891).
+        // Hold → End: mf_nmi_hold defaults false, so the FSM reaches END,
+        // which clears the priority latch (`nmi_mf`) but NOT the readback
+        // bit (`nr_02_generate_mf_nmi`).
         nmi.tick(1);
+        const uint8_t after_end = nmi.nr_02_read();
 
-        const uint8_t post = nmi.nr_02_read();
+        // Now write NR 0x02 with bit 3 = 0 — the VHDL clear path.
+        nmi.nr_02_write(0x00);
+        const uint8_t after_clear_write = nmi.nr_02_read();
+
         check("NR02-05",
-              "NR 0x02 readback bits 3/2 auto-clear at FSM S_NMI_END "
-              "[zxnext.vhd:5891, 2149-2162]",
-              (pre & 0x08) != 0 && (post & 0x0C) == 0,
-              "pre=" + std::to_string(pre) + " post=" + std::to_string(post));
+              "NR 0x02 readback bit 3 survives FSM END; clears on a "
+              "subsequent NR 0x02 write with bit 3 = 0 "
+              "[zxnext.vhd:3847-3848, 3860-3861]",
+              (pre & 0x08) != 0
+                  && (after_end & 0x08) != 0
+                  && (after_clear_write & 0x0C) == 0,
+              "pre=" + std::to_string(pre)
+                  + " after_end=" + std::to_string(after_end)
+                  + " after_clear=" + std::to_string(after_clear_write));
     }
 
     // ------------------------------------------------------------------
