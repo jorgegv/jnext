@@ -1080,17 +1080,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // through `nextreg_.write(0x05, ...)`, and `eff_nr_*` are simply
     // frame-sync-latched copies (irrelevant at unit-test scope, where
     // there is no video-frame edge between writes and reads).
+    //
+    // PASS-10 verify-audit fix (Task 2 verify10-nmi-mf-port): VHDL
+    // zxnext.vhd:5832-5841 forces `nr_05_5060 <= '0'` continuously
+    // every cycle when `nr_03_machine_timing(2) = '1'` (Pentagon mode).
+    // This is the IF branch (highest priority), not an ELSIF, so even
+    // explicit NR 0x05 writes with bit 2 = 1 get overwritten on the
+    // very next clock edge. The frame-sync latch at :6701 then
+    // propagates that '0' into `eff_nr_05_5060`, and the NR 0x05 read
+    // mux at :5897 surfaces it. Pre-fix the C++ surfaced `cached & 0x04`
+    // unconditionally, leaking the user's pre-Pentagon write through.
+    // The F3 callback at line 3355-3361 already gates the toggle on
+    // Pentagon, but it's not the only writer (firmware can write NR
+    // 0x05 directly). Mask bit 2 to '0' at read time when Pentagon is
+    // active. Same shape as the existing `nr_06_ps2_mode_` config_mode
+    // handling — read composes from gated state when the gate is
+    // active.
     nextreg_.set_read_handler(0x05, [this]() -> uint8_t {
         const auto m0 = static_cast<uint8_t>(joystick_.mode_left());   // 3 bits
         const auto m1 = static_cast<uint8_t>(joystick_.mode_right());  // 3 bits
         const uint8_t cached = nextreg_.cached(0x05);
+        const bool pentagon =
+            (nextreg_.nr_03_machine_timing() & 0x04) != 0;
         uint8_t v = 0;
         v |= static_cast<uint8_t>(((m0 >> 1) & 1u) << 7);  // joy0[1] → bit 7
         v |= static_cast<uint8_t>(((m0 >> 0) & 1u) << 6);  // joy0[0] → bit 6
         v |= static_cast<uint8_t>(((m1 >> 1) & 1u) << 5);  // joy1[1] → bit 5
         v |= static_cast<uint8_t>(((m1 >> 0) & 1u) << 4);  // joy1[0] → bit 4
         v |= static_cast<uint8_t>(((m0 >> 2) & 1u) << 3);  // joy0[2] → bit 3
-        v |= static_cast<uint8_t>(cached & 0x04);          // eff_5060 (bit 2)
+        // bit 2 = eff_nr_05_5060. Pentagon (machine_timing(2)='1') forces
+        // the underlying `nr_05_5060` FF to '0' every clock per VHDL
+        // :5835-5836; otherwise mirror the cached byte's bit 2.
+        if (!pentagon) v |= static_cast<uint8_t>(cached & 0x04);
         v |= static_cast<uint8_t>(((m1 >> 2) & 1u) << 1);  // joy1[2] → bit 1
         v |= static_cast<uint8_t>(cached & 0x01);          // eff_scandouble (bit 0)
         return v;
