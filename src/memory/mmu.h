@@ -740,6 +740,27 @@ public:
             return;
         }
         machine_type_ = t;
+        // VHDL zxnext.vhd:2981-3008 derives sram_rom combinationally from
+        // machine_type_48/p3 + port_1ffd_rom + altrom locks. The SRAM
+        // arbiter consumes sram_rom only on the legacy-ROM branch
+        // (zxnext.vhd:3052 sram_pre_A21_A13 = ... sram_rom ...) — i.e.
+        // when port_1ffd_special='0'. While in +3 special paging mode
+        // the special-paging table at VHDL:4625-4632 fully replaces
+        // MMU0..7 from port_1ffd_reg(2:1) alone, INDEPENDENT of
+        // sram_rom; rebuilding slots 0/1 from sram_rom in that case
+        // would clobber the special-mode mapping.
+        //
+        // Verify5-memory class-(a) fix: pre-pass-5 this unconditionally
+        // called apply_legacy_rom_slots_(), which during +3 special
+        // paging would force slots 0/1 to the legacy-ROM mapping
+        // derived from the (now stale) sram_rom — diverging from
+        // VHDL where the special-paging table holds.
+        if ((port_1ffd_ & 0x01) != 0) {
+            // In +3 special paging: machine_type change does not affect
+            // the special-mode MMU image. Cache stays in sync because
+            // the special-paging table is independent of sram_rom.
+            return;
+        }
         apply_legacy_rom_slots_();
     }
     MachineType machine_type() const { return machine_type_; }

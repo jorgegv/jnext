@@ -5145,17 +5145,19 @@ void Emulator::soft_reset()
     // VHDL bootrom_en (zxnext.vhd:1101, reset logic at :5109-5111, cleared
     // by NR 0x03 write at :5122). The reset block for bootrom_en runs on
     // BOTH hard and soft reset (the `reset` signal is `reset_hard OR
-    // reset_soft`) but is guarded by `if nr_03_config_mode = '1'`. Since
-    // nr_03_config_mode has no reset branch itself, it holds across reset.
-    // Net effect: once firmware has written NR 0x03 with bits[2:0]
-    // ∈ {001..110} to clear config_mode, a subsequent soft reset leaves
-    // bootrom_en at its cleared value. Our Mmu::reset() unconditionally
-    // re-enables when a boot_rom_ pointer is present, so we capture and
-    // restore the pre-reset value explicitly.
-    const bool prev_boot_rom_en = mmu_.boot_rom_enabled();
+    // reset_soft`) and is guarded by `if nr_03_config_mode = '1'`:
+    //   * config_mode=1 → bootrom_en <= '1' (re-enabled)
+    //   * config_mode=0 → bootrom_en preserved (current FF value held)
+    // nr_03_config_mode has no reset branch itself, so it holds across
+    // reset. Verify5-memory pass-5 fix: this VHDL gate is now modelled
+    // inside Mmu::reset() itself (mmu.cpp:131-150 reads its preserved
+    // config_mode_ mirror). The earlier capture-and-restore workaround
+    // here was only correct for the config_mode=0 case — for the
+    // config_mode=1 case it incorrectly preserved a previously cleared
+    // bootrom_en where VHDL would have re-enabled it. With Mmu::reset()
+    // VHDL-faithful, no host-side capture is required.
 
-    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM + boot_rom_en={}",
-                          prev_boot_rom_en);
+    Log::emulator()->info("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
     // Clear framebuffer to black (not part of emulated state).
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
@@ -5166,9 +5168,6 @@ void Emulator::soft_reset()
     // is reset via init()'s subsystem-reset loop — no separate pre-init
     // reset dance needed.
     init(config_, /*preserve_memory=*/true);
-
-    // Restore bootrom_en (see comment above for VHDL mechanism).
-    mmu_.set_boot_rom_enabled(prev_boot_rom_en);
 
     // Restore port-enable registers per reset_type semantics.
     if (!reset_type_1) {
