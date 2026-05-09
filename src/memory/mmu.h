@@ -761,7 +761,20 @@ public:
             // the special-paging table is independent of sram_rom.
             return;
         }
-        apply_legacy_rom_slots_();
+        // Verify7-memory class-(a) fix: only refresh slots that are
+        // currently in legacy ROM mode (read_only_=true). Slots
+        // explicitly mapped to RAM via NR 0x50/0x51 with v < 0xE0 must
+        // stay routed to that RAM page — VHDL leaves MMU<i> alone on a
+        // machine_type change (no port_memory_change_dly pulse, per
+        // :3813). The previous unconditional apply_legacy_rom_slots_()
+        // clobbered nr_mmu_[0]/[1] to 0xFF and forced both slots back
+        // to ROM, contradicting VHDL where sram_rom only feeds the
+        // SRAM arbiter combinationally — it does NOT trigger an MMU<i>
+        // register rewrite. Slots in legacy ROM mode (read_only_=true)
+        // do consume sram_rom for the read-pointer cache, so they need
+        // a refresh to track machine-type-driven sram_rom changes.
+        if (read_only_[0]) engage_legacy_rom_paging_slot(0);
+        if (read_only_[1]) engage_legacy_rom_paging_slot(1);
     }
     MachineType machine_type() const { return machine_type_; }
 
