@@ -670,3 +670,99 @@ Compare jnext's vs CSpect's RST $08 user-code site:
 2. In jnext, do the same — capture user code post-RST.
 3. Compare: do they call different APIs / take different paths?
 
+
+## EOD-23 RST $08 caller comparison — POST-RST PC divergence isolated
+
+Probe `JNEXT_G46B_RST08_TRACE` captures every RST $08 handler entry
+with the post-RST PC (= what `POP AF` will read at $103C).
+
+### jnext post-RST-$08 PCs (per cycle, 3 RST $08 calls):
+
+```
+HIT #1: sp=$FF53 post_rst_pc=$0302  (= bank 0 'PUSH AF; CALL $0360; RST $18')
+HIT #2: sp=$FF53 post_rst_pc=$0302  (= same call site again)
+HIT #3: sp=$FF59 post_rst_pc=$423C  ← CORRUPT (= font glyph data!)
+```
+
+Bank 0 $0301 = `CF` (RST $08), $0302 = `F5 CD 60 03 DF` (PUSH AF;
+CALL $0360; RST $18). That's the supervisor's "switch to bank 7,
+push AF, dispatch" pattern.
+
+But hit #3's post_rst_pc=$423C is NOT a real Z80 address pushed by
+RST $08. SP=$FF59 reads from slot 7 = page $21 (with +$20 shift) at
+offset $1F59. Per the SLIDETRAP page$21 dump: $1F59=$3C, $1F5A=$42 =
+**font glyph 'A' bytes** (the 8x8 'A' bitmap stored in page $21 by
+supervisor's font copy LDIR).
+
+So jnext's RST $08 hit #3 reads **font glyph data as a return address**
+because the supervisor's stack at $FF59 OVERLAPS the font glyph
+memory.
+
+### CSpect post-RST-$08 PCs (DZRP comparison via g46b_eod23_rst08_compare.py):
+
+```
+HIT #1: sp=$FF53 post_rst_pc=$0302   ← MATCHES jnext hit #1!
+HIT #2: sp=$FF42 post_rst_pc=$5CCB   ← BASIC PROG sysvar (interpreter)
+HIT #3: sp=$FF48 post_rst_pc=$0D7B
+HIT #4-6: sp=$FF3E/4A/27 post_rst_pc=$5CCB (BASIC interpreter loop)
+HIT #7: sp=$FF1A post_rst_pc=$5CFB   ← still BASIC area
+```
+
+CSpect's post-RST PCs are ALL valid code addresses. The supervisor
+reaches the BASIC interpreter at $5CCB (= PROG sysvar) and runs in
+that loop. NO corrupt addresses.
+
+### The actual divergence
+
+jnext's slide-causing path:
+1. First 2 RST $08 calls: same as CSpect (post=$0302 ✓)
+2. Third RST $08 call: SP grew to $FF59 — now reads font glyph data
+   as post-RST PC ($423C)
+3. Handler pushes $423C, RETs to $423C
+4. $423C is in slot 2 = bank 5 lo at offset $023C = screen memory
+   area (likely zeros from cleared screen)
+5. PC=$423C executes whatever's there → likely NOP slide → eventually
+   reaches the bank-stack-swap that triggers the wrapper slide
+
+CSpect's productive path:
+1. RST $08 calls progress through different supervisor states
+2. SP stays in a region that DOESN'T overlap font glyph data
+3. Post-RST PCs are all valid (e.g., $5CCB = BASIC PROG)
+4. Supervisor reaches the BASIC interpreter and processes
+   autoexec.1st productively
+
+### Why does jnext's SP reach $FF59 (font area)?
+
+The first 2 RST $08 calls in jnext have SP=$FF53. The third has SP=$FF59
+— SP INCREASED by 6 bytes between hit #2 and hit #3. That's 3 POPs (3
+words = 6 bytes) without matching pushes.
+
+Some code between hit #2 and hit #3 in jnext does extra POPs that
+unwind the stack into font glyph memory.
+
+In CSpect, between hits the SP changes are different (e.g., HIT #1 SP=
+$FF53, HIT #2 SP=$FF42 = went DOWN by $11 = 17 bytes = 8.5 PUSHes).
+
+So CSpect's supervisor PUSHes more stuff, jnext's POPs (or doesn't
+PUSH) and stack ascends into font glyph memory.
+
+### Root cause hypothesis
+
+jnext is missing a sequence of PUSHes between RST $08 hit #2 and hit
+#3 that CSpect performs. The missing PUSHes correspond to supervisor
+state setup that doesn't happen in jnext.
+
+Or: jnext does the same PUSHes but then does extra POPs that unwind
+back out of safe stack territory.
+
+Either way, the supervisor's stack-management diverges between hit #2
+and hit #3, and that drives the slide.
+
+### Next investigation
+
+1. Add probe between jnext's RST $08 hit #2 and hit #3: trace every
+   PUSH/POP/CALL/RET to see where the divergent stack manipulation
+   happens.
+2. DZRP CSpect at the same range to see what PUSHes happen.
+3. The DIFF in PUSH/POP behavior reveals the exact upstream bug.
+
