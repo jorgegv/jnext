@@ -42,10 +42,18 @@ bool SdCardDevice::mount(const std::string& path) {
     file_size_ = static_cast<uint64_t>(file_.tellg());
     file_.seekg(0, std::ios::beg);
 
-    state_ = State::IDLE;
-    initialized_ = false;
-    app_cmd_ = false;
-    cmd_idx_ = 0;
+    // Pass-5 verify-audit fix (2026-05-09): full SPI-protocol state reset
+    // on mount. The pre-fix code cleared only state_/initialized_/app_cmd_/
+    // cmd_idx_, leaving resp_buf_, resp_idx_, data_idx_, data_crc_count_,
+    // multi_block_, multi_block_sector_, persistent_response_byte_,
+    // data_block_, cmd_buf_ untouched. A runtime mount swap (e.g. user
+    // changes --sd-card while a CMD18 stream is in flight, or a CMD17
+    // SENDING_DATA is mid-transfer) would let send() continue emitting
+    // stale data from the previous image's data_block_ or re-prime
+    // multi_block_sector_ as if streaming the old card. Use the same
+    // canonical full reset() the soft-reset path uses to avoid drift —
+    // mount() is conceptually a hard cycle of the card.
+    reset();
 
     sd_log()->info("mounted SD image: {} ({} bytes, {} MB)",
                    path, file_size_, file_size_ / (1024 * 1024));
@@ -438,8 +446,16 @@ void SdCardDevice::cmd16_set_blocklen() {
     if (arg == 512) {
         queue_r1(initialized_ ? 0x00 : 0x01);
     } else {
-        // R1: idle (if not initialized) + illegal-command (bit 2).
-        queue_r1(0x05);
+        // Pass-5 verify-audit fix (2026-05-09): R1 idle bit (bit 0) reflects
+        // the card's idle state and must NOT be hard-coded to 1 when the
+        // card has completed ACMD41 init. SD spec § 4.9.1 R1 layout:
+        //   bit 0 = in idle state, bit 2 = illegal command.
+        // Pre-fix returned 0x05 (= idle + illegal) unconditionally, which
+        // misreports a post-init card as "still in idle" to the host.
+        // Boot path uses arg=512 only, so the prior bug was latent —
+        // class-(b/c) — but the corrected response is spec-faithful.
+        const uint8_t idle_bit = initialized_ ? 0x00 : 0x01;
+        queue_r1(static_cast<uint8_t>(idle_bit | 0x04));  // illegal command bit
     }
 }
 
