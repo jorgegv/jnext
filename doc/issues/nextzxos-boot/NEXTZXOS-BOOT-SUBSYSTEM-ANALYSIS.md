@@ -9,23 +9,24 @@
 
 | Pass | Method | Class-(a) bugs found | Notes |
 |---|---|---|---|
-| 1 | 4 analysis agents + 4 independent reviewers | 11 + 1 follow-up (INT pulse) | All reviewers APPROVE-WITH-NITS |
-| 2 | 4 fresh blind agents (forbidden from pass-1 reports) | 6 | Two high-leverage G46(b) candidates |
-| 3 | 4 fresh blind agents (forbidden from pass-1+2 reports) | 11 | Refinements of P2 fixes + class-(b) promotions + Z80N Q/MEMPTR |
-| 4 | 4 fresh blind agents (forbidden from pass-1+2+3 reports) — sharper methodology | **17** | **NMI 80% sweep was greenfield** (9 bugs); CPU pass-4 found duals of pass-3 fixes |
-| **Total (4 passes)** | | **45 class-(a) bugs** + 1 follow-up | **Audit NOT converged** |
+| 1 | 4 analysis + 4 independent reviewers | 11 + 1 follow-up | All reviewers APPROVE-WITH-NITS |
+| 2 | 4 fresh blind (forbidden from P1) | 6 | Two high-leverage G46(b) candidates |
+| 3 | 4 fresh blind (forbidden from P1+2) | 11 | Refinements of P2 + class-(b) promotions |
+| 4 | 4 fresh blind (forbidden from P1+2+3) — sharper methodology | 17 | NMI 80% sweep + CPU duals |
+| 5 | 4 fresh blind (forbidden from P1+2+3+4) — final-convergence angles | **11** | NR $09/$15 cross-fix landed; LDPIRX confirmed-correct; Z80N M1 contention promoted |
+| **Total (5 passes)** | | **57 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged** |
 
 **Pass-by-pass count by subsystem:**
 
-| Subsystem | P1 | P2 | P3 | P4 | Trend |
-|-----------|----|----|----|----|-------|
-| Memory | 2 | 2 | 3 | 3 | **flat** |
-| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | **converging** |
-| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | **9** | rising (greenfield 80% surface) |
-| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | rising (refinement duals) |
-| **Pass total** | **11+1** | **6** | **11** | **17** | |
+| Subsystem | P1 | P2 | P3 | P4 | P5 | Trend |
+|-----------|----|----|----|----|----|-------|
+| Memory | 2 | 2 | 3 | 3 | 2 | descending |
+| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | 2 | bouncing low |
+| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | 9 | 6 | greenfield-driven |
+| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | 1 | **descending** |
+| **Pass total** | **11+1** | **6** | **11** | **17** | **11** | |
 
-**Total fixes on integration branch: 46** (12 first-pass + 6 P2 + 11 P3 + 17 P4).
+**Total fixes on integration branch: 58** (12 P1 + 6 P2 + 11 P3 + 17 P4 + 11 P5).
 
 **Test status (post all-merge, integration branch):**
 - `ctest`: **37/37 PASS**
