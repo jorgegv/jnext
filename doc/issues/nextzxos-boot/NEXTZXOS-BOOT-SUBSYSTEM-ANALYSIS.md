@@ -17,8 +17,17 @@
 | 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | 4 | One per subsystem |
 | 7 | 4 fresh blind — convergence-test pass | 7 | NMI same-shape pattern systemic |
 | 8 | 4 fresh blind — stricter (resolve class-b) | 14 + 11 class-b resolved | All 4 subsystems resolved class-b backlog |
-| 9 | 4 fresh blind — strictest (resolve class-c) | **10 + 11 class-c resolved** | **All 4 subsystems at zero class-a/b/c**. 4 class-(d) architectural items escalated for user authorization |
-| **Total (9 passes)** | | **92 class-(a) bugs** + 1 follow-up | **Strict convergence achieved on class-a/b/c**; 4 class-(d) architectural items pending user authorization |
+| 9 | 4 fresh blind — strictest (resolve class-c) | 10 + 11 class-c resolved | All 4 subsystems at zero class-a/b/c. 4 class-(d) architectural items escalated |
+| 10 | 4 fresh blind — convergence test | **5 + 1 class-c fixed; 5 class-c catalogued** | NOT converged; 1 more class-(d) (CPU IM2 controller bridge) |
+| **Total (10 passes)** | | **97 class-(a) bugs** + 1 follow-up | NOT converged; 5 class-(d) architectural items pending user authorization |
+
+**Test-coverage retroactive wave (post-pass-10)**: 4 subsystems audited, **105 new regression tests added** (29 memory + 14 divmmc + 45 NMI/MF/Port + 17 CPU). Reviewers found defects/gaps:
+- DivMMC: 1 defective (SD-15) + 4 nits → all fixed + reviewed
+- NMI/MF/Port: 3 non-discriminative → all made discriminative + reviewed
+- CPU: REQUEST-CHANGES (2 non-disc + 6 coverage gaps + 2 misattrib + 1 brittle + 3 disputed subsumes) → 14 findings fixed (17→22 tests) + reviewed (all 8 src/ fixes physically reverted to confirm discriminativeness)
+- Memory: 2 non-disc + 5 partial + 4 coverage gaps + 1 weak → 9 findings fixed + reviewed + 1 NIT on FIX-NR5xFF-INT-02 → fixed + re-reviewed
+
+Final state: **all 4 testcov chains fully APPROVED with independent revert-check verification.**
 
 ## Class-(d) architectural escalations pending user authorization
 
