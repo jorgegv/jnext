@@ -3579,31 +3579,55 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
         emu.reset();
     }
 
-    // ── TC-NR06-CFGMODE-NO-CLEAR — NR 0x02 bits 3/2 NOT cleared on
+    // ── TC-NR02-CFGMODE-NO-CLEAR — NR 0x02 bits 3/2 NOT cleared on
     //   config_mode (Verify1, 78f5f1c). VHDL :3840-3864 — readback latches
     //   live in independent processes whose clear cascade is reset OR
     //   explicit-bit write only. config_mode is NOT in either cascade.
+    //
+    //   Discriminative-fix (review follow-up): the original test called
+    //   `emu.nmi_source().tick(1)` directly, bypassing the per-tick
+    //   `tick_peripheral_subsystems` wiring that propagates
+    //   `nextreg_.nr_03_config_mode()` to `NmiSource::set_config_mode()`.
+    //   That left `NmiSource::config_mode_` at false through the test,
+    //   so the `if (config_mode_) { nmi_mf_=false; ... }` clear branch in
+    //   `recompute_()` (nmi_source.cpp:352) was never entered — pre-fix
+    //   or post-fix. We now mirror the per-tick fan-out by driving
+    //   `set_config_mode(true)` directly before `tick(1)`. This makes
+    //   the test discriminative against the actual fix at
+    //   nmi_source.cpp:352-358 where the pre-fix code wrongly cleared
+    //   `nr_02_pending_{mf,divmmc}_` alongside the FSM latches.
     {
         emu.reset();
         // Set NR 0x02 bit 3 (mf NMI pending) via NR 0x02 write.
         // This goes through NmiSource::nr_02_write() which sets the
         // readback latches per VHDL :3840-3864.
         nr_write(emu, 0x02, 0x08);          // bit 3 = 1 (generate MF NMI)
-        // Now toggle config_mode by writing NR 0x03 with bits[2:0] != 000.
-        nr_write(emu, 0x03, 0x00);          // ensure config off
-        nr_write(emu, 0x03, 0x07);          // any non-canon value engages
-                                            //   config_mode? No — bit 3 must
-                                            //   be 1. Use Wave 4 protocol:
-        // Force config_mode by writing NR 0x03 bit 3 set
-        nr_write(emu, 0x03, 0x07);  // bits[2:0]=111 → config_mode=1
-        // Tick the FSM/clear path
+        // Engage NR 0x03 config_mode (bits[2:0]=111 with bit 3 set is
+        // not the canonical entry; per VHDL :2102-2105 + NextReg::
+        // apply_nr_03_config_mode_transition the encoding "111" is the
+        // recognized config_mode trigger).
+        nr_write(emu, 0x03, 0x07);
+        // Sanity: NextReg side accepted the config_mode change.
+        const bool nr_cfg = emu.nextreg().nr_03_config_mode();
+        // Mirror the per-tick `tick_peripheral_subsystems` fan-out
+        // (emulator.cpp:5163) that propagates config_mode to NmiSource.
+        // Without this call, NmiSource::config_mode_ stays false and the
+        // recompute_() clear-branch never runs, so the test passes
+        // regardless of whether the fix is in place.
+        emu.nmi_source().set_config_mode(true);
+        // Tick the FSM/clear path. Pre-fix the clear branch wrongly
+        // cleared `nr_02_pending_mf_`; post-fix the readback bit
+        // survives.
         emu.nmi_source().tick(1);
         const uint8_t got = nr_read(emu, 0x02) & 0x08;  // readback bit 3
         check("TC-NR02-CFGMODE-NO-CLEAR",
               "NR 0x02 readback bit 3 NOT cleared by config_mode "
-              "[zxnext.vhd:3840-3864]",
-              got == 0x08,
-              "NR02b3=" + hex2(got));
+              "[zxnext.vhd:3840-3864 / nmi_source.cpp:352-358]",
+              nr_cfg && got == 0x08,
+              "nr_cfg=" + std::to_string(nr_cfg) +
+              " NR02b3=" + hex2(got));
+        // Restore: drop config_mode on NmiSource and NextReg.
+        emu.nmi_source().set_config_mode(false);
         nr_write(emu, 0x03, 0x01);  // bits[2:0]=001 → config_mode=0
         emu.reset();
     }
@@ -3814,15 +3838,41 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     //   trigger, NOT sprite over_border (Verify5, d92c6ec). VHDL
     //   :4184-4186 / :5909 — bit 3 is sw-write-strobe; reads back as '0'.
     //   Sprite over-border is NR 0x15 bit 1 (separate signal).
+    //
+    //   Discriminative-fix (review follow-up): the original test only
+    //   asserted `nr_read(0x09) & 0x08 == 0`. But the read-handler mask
+    //   `& 0xE7` (emulator.cpp:959) was already in place pre-fix and
+    //   stripped bit 3 unconditionally — so the assertion passed even
+    //   with the actual write-side bug present. The Pass-5 fix removed
+    //   `sprites_.set_over_border((v & 0x08) != 0);` from the NR 0x09
+    //   write handler (emulator.cpp:3616-3632). To exercise the wiring
+    //   fix we now verify (a) writing NR 0x09 bit 3 does NOT set
+    //   `sprites_.over_border()`, and (b) NR 0x15 bit 1 — the correct
+    //   VHDL signal `nr_15_sprite_over_border_en` — DOES set it
+    //   (emulator.cpp:1209). This catches a regression where bit 3 of
+    //   NR 0x09 is wrongly re-wired to over_border.
     {
         emu.reset();
+        // Pre-condition: over_border defaults to false at reset.
+        const bool ob_initial = emu.sprites().over_border();
+        // (a) NR 0x09 bit 3 must NOT set over_border (Pass-5 fix).
         nr_write(emu, 0x09, 0x08);          // bit 3 = 1
+        const bool ob_after_nr09 = emu.sprites().over_border();
+        // Read-side: bit 3 of NR 0x09 still reads back as 0 (read mask
+        // 0xE7) — preserved as a documented invariant.
         const uint8_t got09 = nr_read(emu, 0x09) & 0x08;
+        // (b) NR 0x15 bit 1 (sprite_over_border_en) DOES set over_border.
+        nr_write(emu, 0x15, 0x02);
+        const bool ob_after_nr15 = emu.sprites().over_border();
         check("TC-NR09-BIT3-READS-ZERO",
-              "NR 0x09 bit 3 reads back as 0 (sw-write-strobe only) "
-              "[zxnext.vhd:4184-4186 / :5909]",
-              got09 == 0,
-              "NR09b3=" + hex2(got09));
+              "NR 0x09 bit 3 does not affect sprites.over_border; "
+              "NR 0x15 bit 1 is the authoritative wiring "
+              "[zxnext.vhd:4184-4186 / :5909 / emulator.cpp:3616-3632 / :1209]",
+              !ob_initial && !ob_after_nr09 && got09 == 0 && ob_after_nr15,
+              "ob0=" + std::to_string(ob_initial) +
+              " ob_nr09=" + std::to_string(ob_after_nr09) +
+              " NR09b3=" + hex2(got09) +
+              " ob_nr15=" + std::to_string(ob_after_nr15));
         emu.reset();
     }
 
@@ -4207,24 +4257,69 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     // ── TC-IOTRAP-IDLE-GATE — NR 0xDA / NR 0xD9 captured when FSM in IDLE
     //   (Verify3, d841887). VHDL :3871, :3892 gate both captures on
     //   `nmi_accept_cause`='1' (FSM in IDLE or FETCH). Companion to
-    //   FT-INT-DA-01a/b/c (which all run in IDLE) — this row makes the
-    //   gate-precondition explicit so the regression coverage is honest.
+    //   FT-INT-DA-01a/b/c (which all run in IDLE).
+    //
+    //   Discriminative-fix (review follow-up): the original test ran
+    //   entirely in IDLE (post-reset), where the gate
+    //   `nmi_accept_cause` is true. It verified that capture WORKS in
+    //   IDLE — but the bug was that capture happened in HOLD/END (where
+    //   it shouldn't). To exercise the Pass-3 gate fix at
+    //   emulator.cpp:2710 / :2725 / :2740 we now also drive the FSM
+    //   into HOLD via the MF producer path, trigger an iotrap-eligible
+    //   port event, and verify NR 0xDA / NR 0xD9 are NOT updated. The
+    //   positive-axis IDLE check (kept) plus the negative-axis HOLD
+    //   check make the row discriminative against either gate clause
+    //   being reverted.
     {
         emu.reset();
         nr_write(emu, 0xD8, 0x01);
-        // Pre-condition: FSM is in IDLE (post-reset).
+        // ── Positive axis: capture WORKS in IDLE.
         const bool pre_idle =
             (emu.nmi_source().state() == NmiSource::State::Idle);
         emu.port().out(0x3FFD, 0xCC);
-        const uint8_t cause = nr_read(emu, 0xDA);
-        const uint8_t write_byte = nr_read(emu, 0xD9);
+        const uint8_t cause_idle = nr_read(emu, 0xDA);
+        const uint8_t write_byte_idle = nr_read(emu, 0xD9);
+
+        // ── Negative axis: capture BLOCKED while FSM is in HOLD.
+        // Drive the FSM through the MF producer:
+        //   IDLE -> FETCH (tick after MF strobe with MF enabled and
+        //                  CONMEM=0 / divmmc_nmi_hold=0)
+        //   FETCH -> HOLD (observe_m1_fetch at $0066 with mreq+m1)
+        emu.reset();
+        nr_write(emu, 0xD8, 0x01);
+        // Re-acquire NmiSource ref each step in case the integration test
+        // shares state with other groups; emu.reset() above re-inits.
+        emu.nmi_source().set_mf_enable(true);
+        emu.nmi_source().strobe_mf_button();
+        emu.nmi_source().tick(1);
+        const bool reached_fetch =
+            (emu.nmi_source().state() == NmiSource::State::Fetch);
+        emu.nmi_source().observe_m1_fetch(0x0066, /*m1=*/true, /*mreq=*/true);
+        const bool reached_hold =
+            (emu.nmi_source().state() == NmiSource::State::Hold);
+        // Now strobe a port-3FFD WRITE iotrap — the gate must reject
+        // both NR 0xDA and NR 0xD9 captures because nmi_accept_cause is
+        // false in HOLD per VHDL :2164 / emulator.h:555.
+        emu.port().out(0x3FFD, 0x55);
+        const uint8_t cause_hold = nr_read(emu, 0xDA);
+        const uint8_t write_byte_hold = nr_read(emu, 0xD9);
+
         check("TC-IOTRAP-IDLE-GATE",
-              "NR 0xDA/D9 captured when FSM in IDLE "
-              "(nmi_accept_cause='1') "
-              "[zxnext.vhd:3871 / :3892]",
-              pre_idle && cause == 0x03 && write_byte == 0xCC,
-              "pre_idle=" + std::to_string(pre_idle) +
-              " cause=" + hex2(cause) + " write=" + hex2(write_byte));
+              "NR 0xDA/D9 captured ONLY when nmi_accept_cause='1' "
+              "(IDLE/FETCH); blocked in HOLD "
+              "[zxnext.vhd:3871 / :3892 / emulator.cpp:2710,2725,2740]",
+              pre_idle && cause_idle == 0x03 && write_byte_idle == 0xCC &&
+              reached_fetch && reached_hold &&
+              cause_hold == 0x00 && write_byte_hold == 0x00,
+              "idle=" + std::to_string(pre_idle) +
+              " c_idle=" + hex2(cause_idle) +
+              " w_idle=" + hex2(write_byte_idle) +
+              " fetch=" + std::to_string(reached_fetch) +
+              " hold=" + std::to_string(reached_hold) +
+              " c_hold=" + hex2(cause_hold) +
+              " w_hold=" + hex2(write_byte_hold));
+        // Restore: drop MF enable so subsequent tests start clean.
+        emu.nmi_source().set_mf_enable(false);
         emu.reset();
     }
 
