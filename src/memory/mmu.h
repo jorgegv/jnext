@@ -1017,6 +1017,11 @@ public:
     // The set_l2_port() helper also refreshes l2_bank_ on each 0x123B
     // write, so the two seams (NR $12 + 0x123B) keep the cache in sync.
     void set_l2_active_bank(uint8_t bank) { l2_bank_ = bank & 0x7F; }
+    // Read-only observable for the active-bank cache. Used by integration
+    // tests to verify that the NR 0x12 / port 0x123B dispatchers
+    // propagated the new bank through `set_l2_active_bank` (regression
+    // guard for testcov-memory finding FIX-NR12-PROP-INT-01).
+    uint8_t l2_bank() const { return l2_bank_; }
 
     // VHDL zxnext.vhd:3933 — port_123b_dat composition (read-back). Bit
     // 4 (offset-mode select) and bit 5 always read 0; offset register is

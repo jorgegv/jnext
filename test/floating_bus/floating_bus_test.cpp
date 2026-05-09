@@ -591,6 +591,61 @@ static void test_section3_p3_paths(void) {
               v == 0x00, fmt("v=0x%02X", v));
     }
 
+    // FIX-FB-EFFLOCK-01 — testcov-memory follow-up coverage gap (#4 in the
+    // reviewer report): Verify8 A4 (+3 floating-bus port read uses
+    // `effective_paging_locked` instead of raw `paging_locked`). The +3
+    // 0x0FFD handler at emulator.cpp returns 0xFF when paging is
+    // EFFECTIVELY locked. Pre-fix it called `paging_locked()` (raw
+    // 7FFD(5) mirror); post-fix calls `effective_paging_locked()` which
+    // composes the full VHDL :3769 expression (raw lock AND NOT
+    // pentagon_1024_en).
+    //
+    // `pentagon_1024_en()` depends on `nr_8f_mode_=11` AND `EFF7(2)=0`,
+    // independent of machine_type. Even on a +3 emulator, firmware can
+    // configure those bits — making the path observable. Sequence:
+    //   1. +3 emulator at reset.
+    //   2. Lock paging via 7FFD(5) (raw lock asserted).
+    //   3. Confirm: read NR readback / direct accessor — paging_locked=true.
+    //   4. Enable Pentagon-1024: NR 0x8F = 0x03; EFF7(2)=0 (default).
+    //   5. effective_paging_locked() should be FALSE now.
+    //   6. NR 0x82 bit 4 must be set (default 0xFF) so port_p3_floating_bus_io_en=1.
+    //   7. Read port 0x0FFD — pre-fix returns 0xFF (raw lock asserted),
+    //      post-fix returns the floating-bus byte (with bit 0 forced
+    //      high per VHDL :573 +3 timing). The pre-fix vs post-fix split
+    //      hinges on `effective_paging_locked()` — observable via the
+    //      port-read result not being 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        // Seed the contended-CPU latch (Mmu::p3_floating_bus_dat_) with a
+        // distinctive non-0xFF byte. The latch updates on contended
+        // memory writes — emu.mmu().write(0x4000, 0x42) lands on bank 5
+        // (contended on +3 → latch updates) per the verify9 wiring.
+        emu.mmu().write(0x4000, 0x42);
+        // Lock paging via 7FFD(5).
+        emu.mmu().map_128k_bank(0x20);
+        const bool raw_locked = emu.mmu().paging_locked();
+        // Enable Pentagon-1024: NR 0x8F=0x03 (mode "11"), EFF7(2)=0.
+        emu.mmu().write_nr_8f(0x03);
+        emu.mmu().write_port_eff7(0x00);  // clear EFF7(2) explicitly
+        const bool eff_locked = emu.mmu().effective_paging_locked();
+        // Read port 0x0FFD. NR 0x82 reset default 0xFF (bit 4 set →
+        // port_p3_floating_bus_io_en=1 — decode active).
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+        // Pre-fix: gate uses raw paging_locked → returns 0xFF.
+        // Post-fix: gate uses effective_paging_locked → returns
+        //          (latch | 0x01) = 0x42 | 0x01 = 0x43 via the border-arm
+        //          fallback (set_raster_position not called → border arm).
+        check("FIX-FB-EFFLOCK-01",
+              "+3 port 0x0FFD with paging-locked but Pentagon-1024 "
+              "override drops effective_paging_locked → returns latch | 0x01 "
+              "(NOT 0xFF) — VHDL :3769/:4517; verify8 A4",
+              raw_locked && !eff_locked && v == 0x43,
+              fmt("raw_locked=%d eff_locked=%d v=0x%02X "
+                  "(exp 1/0/0x43; pre-fix would yield 0xFF)",
+                  raw_locked, eff_locked, v));
+    }
+
     // FB-3X — Branch B reviewer note 2: pin that port 0x0FFD reads on +3
     // dispatch to the dedicated 0x0FFD handler and do NOT accidentally
     // fall through to the 0x7FFD bank-switching surface.
