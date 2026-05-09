@@ -267,6 +267,35 @@ public:
             const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
             const uint8_t off_pre = l2_offset_pre_for(addr);
             const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            // VHDL zxnext.vhd:2971 + :3101-3102 — the L2 mmu_A21_A13(8) gate
+            // fires when layer2_active_page(7:5) = "111" (i.e. sum[6:4]=111
+            // when sum = bank + bofs). The arbiter sets sram_active = NOT
+            // layer2_A21_A13(8), so when the gate fires the SRAM is INACTIVE
+            // (read returns floating bus, write dropped). Verify10-memory
+            // class-(c) fix: previously jnext computed `phys_page = to_sram_page(...)`
+            // unconditionally, which for high sums (≥0x70) wrapped through
+            // `+0x20` arithmetic into the ROM-in-SRAM region (pages 0..7) —
+            // a read/write would alias bytes in the ROM area instead of
+            // returning floating-bus / dropping. Real software never sets
+            // L2 banks high enough to reach this corner, but the gate is
+            // VHDL-faithful so we honour it.
+            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
+            if ((sum & 0x70) == 0x70) {
+                // L2 inactive — read returns floating bus (0xFF). Mirror the
+                // floating-bus latch pattern below: contended-cycle latch is
+                // not updated for inactive L2 (VHDL :4498-4509 keys on
+                // mem_contend AND cpu_mreq_n='0', which still applies, but
+                // since the ULA wouldn't have driven valid data on this
+                // cycle, the latched byte is the prior CPU-bus value — not
+                // currently modelled at this granularity).
+                if (debug_state_ && debug_state_->active() &&
+                    debug_state_->breakpoints().has_any_watchpoints() &&
+                    debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
+                    debug_state_->set_data_bp_hit(true);
+                    debug_state_->set_data_bp_addr(addr);
+                }
+                return 0xFF;
+            }
             uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             const uint8_t* p = ram_.page_ptr(phys_page);
@@ -387,6 +416,19 @@ public:
             const uint8_t bank   = l2_map_shadow_ ? l2_shadow_bank_ : l2_bank_;
             const uint8_t off_pre = l2_offset_pre_for(addr);
             const uint8_t bofs   = static_cast<uint8_t>(off_pre + l2_offset_);
+            // Verify10-memory class-(c) fix: mirror the read path's
+            // layer2_A21_A13(8) gate (VHDL :2971 + :3101-3102 sram_active
+            // = NOT layer2_A21_A13(8)). When (bank + bofs) bits[6:4]=111,
+            // layer2_A21_A13(8)='1' and SRAM is INACTIVE — the write must
+            // be silently dropped. Pre-fix the C++ wrote to the wrap-around
+            // SRAM page (e.g. sum=0x70 → phys_page = to_sram_page(0xE0) =
+            // 0x00, corrupting ROM-in-SRAM bank 0). Real firmware never
+            // sets L2 banks high enough to hit this corner, but the gate
+            // is VHDL-faithful and cheap.
+            const uint8_t sum = static_cast<uint8_t>(bank + bofs);
+            if ((sum & 0x70) == 0x70) {
+                return;  // SRAM inactive — write dropped per VHDL :3102
+            }
             uint16_t l2_page = static_cast<uint16_t>((bank + bofs) * 2);
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             uint8_t* p = ram_.page_ptr(phys_page);
