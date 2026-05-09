@@ -90,6 +90,20 @@ public:
     void write_9bit(uint8_t val);
 
     // -----------------------------------------------------------------
+    // NextREG 0x44 — Palette Value (9-bit read)
+    // -----------------------------------------------------------------
+    // VHDL zxnext.vhd:6047-6048:
+    //   port_253b_dat <= nr_palette_dat(10 downto 9) & "00000" & nr_palette_dat(0);
+    // i.e. bits 7:6 = stored 2-bit priority (only set for Layer 2 by NR 0x44
+    // 2nd write per :4920; "00" elsewhere), bits 5:1 = constant zero, bit 0 =
+    // stored blue LSB (the 9th colour bit at the currently selected target +
+    // index). Pure read — does NOT mutate index, sub_idx, or priority state.
+    // VERIFY4 / pass-4 — added because VHDL composes a non-trivial readback
+    // (priority bits in bits 7:6, blue-LSB in bit 0) that the bare regs_[] echo
+    // could not reproduce.
+    uint8_t read_9bit() const;
+
+    // -----------------------------------------------------------------
     // NR 0xFF — ULA+ palette poke side-channel (zxnext.vhd:6957-6958)
     // -----------------------------------------------------------------
     //
@@ -342,9 +356,19 @@ private:
     std::array<uint16_t, FULL_SIZE> tilemap_rgb333_[2];
 
     // 2-bit palette priority slots (VHDL zxnext.vhd:4920, 7025, 7050).
-    // L2 palette only — sprite/tilemap rgb333 storage doesn't expose a
-    // priority slot in the dpram word the renderer reads.
+    // L2 palette is the only one whose priority bits are CONSUMED by the
+    // renderer (zxnext.vhd:7039 routes l2s_prgb(15) into layer2_priority_2),
+    // but per VHDL the dpram word stores priority in bits 15:14 for ALL
+    // palette types (palette_utm at :6972, palette_l2s at :7025), so a
+    // read of NR 0x44 (zxnext.vhd:6048 returns nr_palette_dat(10:9)) sees
+    // the priority field on every target — including ULA / sprite / tilemap
+    // entries whose priority is otherwise unused. VERIFY4 / pass-4 added
+    // ula_priority_ / sprite_priority_ / tilemap_priority_ to surface the
+    // stored priority field on read_9bit().
+    std::array<uint8_t,  FULL_SIZE> ula_priority_[2]{};
     std::array<uint8_t,  FULL_SIZE> layer2_priority_[2]{};
+    std::array<uint8_t,  FULL_SIZE> sprite_priority_[2]{};
+    std::array<uint8_t,  FULL_SIZE> tilemap_priority_[2]{};
 
     // NR 0xFF / ULA+ palette poke storage — VHDL zxnext.vhd:6957-6958.
     // 64 entries × 2 banks; each entry is the 9-bit RGB333 value latched

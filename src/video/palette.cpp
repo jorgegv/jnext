@@ -136,7 +136,13 @@ void PaletteManager::reset()
         // else-branch yields 00 for any non-NR-0x44 write; the dpram
         // initial state is undefined in HW but the firmware writes it
         // before use, and 00 is the "not promoted" expectation).
+        // VERIFY4 / pass-4 — extended priority storage for all four palette
+        // types so NR 0x44 readback returns the stored bits 15:14 of the
+        // dpram word for every palette target.
+        ula_priority_[p].fill(0);
         layer2_priority_[p].fill(0);
+        sprite_priority_[p].fill(0);
+        tilemap_priority_[p].fill(0);
 
         // NR 0xFF / ULA+ palette poke storage — VHDL palette_utm dpram
         // initial state is undefined in hardware; we zero it so tests
@@ -270,6 +276,52 @@ uint8_t PaletteManager::read_8bit() const
 }
 
 // ---------------------------------------------------------------------------
+// NextREG 0x44 — 9-bit palette read (RRR.GGG.BBB.priority).
+// VHDL zxnext.vhd:6047-6048:
+//     port_253b_dat <= nr_palette_dat(10:9) & "00000" & nr_palette_dat(0);
+// bits 7:6 = priority (2 bits, stored only for Layer 2 entries via NR 0x44
+//            second write; ULA/sprite/tilemap entries have priority "00"),
+// bits 5:1 = constant zero, bit 0 = blue LSB at (target, index).
+//
+// VERIFY4 / pass-4 — pre-fix the NR 0x44 readback fell through to the bare
+// regs_[0x44] last-write-wins shadow, which leaks the SECOND-byte raw value
+// instead of the priority/blue-LSB composition. Pure read — never mutates
+// index, sub_idx, or priority state.
+// ---------------------------------------------------------------------------
+uint8_t PaletteManager::read_9bit() const
+{
+    int bank = (static_cast<int>(target_palette_) >= 4) ? 1 : 0;
+    uint16_t rgb333 = 0;
+    uint8_t  priority = 0;
+
+    switch (target_palette_) {
+        case PaletteId::ULA_FIRST:
+        case PaletteId::ULA_SECOND:
+            rgb333   = ula_rgb333_[bank][index_];
+            priority = ula_priority_[bank][index_] & 0x03;
+            break;
+        case PaletteId::LAYER2_FIRST:
+        case PaletteId::LAYER2_SECOND:
+            rgb333   = layer2_rgb333_[bank][index_];
+            priority = layer2_priority_[bank][index_] & 0x03;
+            break;
+        case PaletteId::SPRITE_FIRST:
+        case PaletteId::SPRITE_SECOND:
+            rgb333   = sprite_rgb333_[bank][index_];
+            priority = sprite_priority_[bank][index_] & 0x03;
+            break;
+        case PaletteId::TILEMAP_FIRST:
+        case PaletteId::TILEMAP_SECOND:
+            rgb333   = tilemap_rgb333_[bank][index_];
+            priority = tilemap_priority_[bank][index_] & 0x03;
+            break;
+    }
+
+    // bits 7:6 = priority, bits 5:1 = 0, bit 0 = blue LSB (rgb333 bit 0).
+    return static_cast<uint8_t>(((priority & 0x03) << 6) | (rgb333 & 0x01));
+}
+
+// ---------------------------------------------------------------------------
 // NextREG 0x44 — 9-bit palette write (two consecutive writes)
 // ---------------------------------------------------------------------------
 
@@ -351,6 +403,10 @@ void PaletteManager::apply_change(const PaletteChange& c)
             // nr_palette_idx[7:0]` (zxnext.vhd:6952, 6957).
             ula_rgb333_[bank][c.index] = c.rgb333;
             ula_argb_[bank][c.index]   = argb;
+            // VERIFY4 / pass-4 — priority is written to bits 15:14 of the
+            // palette_utm dpram word for ULA writes too (zxnext.vhd:6972).
+            // Renderer ignores the bit, but NR 0x44 readback exposes it.
+            ula_priority_[bank][c.index] = c.priority & 0x03;
             break;
         case PaletteId::LAYER2_FIRST:
         case PaletteId::LAYER2_SECOND:
@@ -366,11 +422,21 @@ void PaletteManager::apply_change(const PaletteChange& c)
         case PaletteId::SPRITE_SECOND:
             sprite_rgb333_[bank][c.index] = c.rgb333;
             sprite_argb_[bank][c.index] = argb;
+            // VERIFY4 / pass-4 — priority bits stored in palette_l2s dpram
+            // for sprite writes (zxnext.vhd:7025) but NOT consumed by
+            // renderer (l2s_prgb(15) only routes for layer2 at :7039).
+            // Surface them for NR 0x44 readback.
+            sprite_priority_[bank][c.index] = c.priority & 0x03;
             break;
         case PaletteId::TILEMAP_FIRST:
         case PaletteId::TILEMAP_SECOND:
             tilemap_rgb333_[bank][c.index] = c.rgb333;
             tilemap_argb_[bank][c.index] = argb;
+            // VERIFY4 / pass-4 — tilemap entries land in palette_utm dpram
+            // alongside ULA entries (zxnext.vhd:6972), which captures the
+            // full 11-bit nr_palette_priority & nr_palette_value word.
+            // Renderer ignores priority for tilemap; NR 0x44 readback needs it.
+            tilemap_priority_[bank][c.index] = c.priority & 0x03;
             break;
     }
 }
