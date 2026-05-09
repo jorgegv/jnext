@@ -4102,6 +4102,33 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         }
     }
 
+    // Pass-6 verify-audit fix (Task 2 verify6-divmmc-sd-spi, 2026-05-09):
+    // sync NR 0x83 bits 0:1 into DivMmc / Multiface after the NextReg reset
+    // and handler-registration sequence. NextReg::reset() reloads regs_[0x83]
+    // to 0xFF when reset_type_1=true (NR 0x85 bit 7 = 1, the FPGA power-on
+    // default per VHDL zxnext.vhd:1230) or preserves the prior value when
+    // reset_type_1=false (zxnext.vhd:5052-5057). Either way, the registered
+    // NR 0x83 write_handler at line 2099 is NOT fired by the reset path —
+    // so DivMmc::port_io_enable_ and Multiface::enabled_ keep their stale
+    // pre-reset values until the next explicit `nextreg_.write(0x83, ...)`.
+    //
+    // VHDL zxnext.vhd:2412 defines `port_divmmc_io_en <= internal_port_enable(8)`
+    // (= NR 0x83 bit 0) combinationally, and divmmc.vhd:107-114 latches
+    // `button_nmi`, automap_hold/held against `i_automap_reset` derived from
+    // `port_divmmc_io_en` (zxnext.vhd:4112). Without the post-reset sync, a
+    // soft reset that follows a firmware sequence like "NR 0x83 ← 0xFE"
+    // would leave jnext's DivMMC disabled where the VHDL would re-enable it
+    // (reset_type_1=true reloads 0xFF). Symmetric for Multiface bit 1.
+    //
+    // Soft-reset path matters most: the explicit `divmmc_.set_enabled(true)`
+    // call inside the SD-ROM-extract block above is gated on `!preserve_memory`
+    // (= hard reset only), so it doesn't run on soft reset. Hard reset still
+    // works correctly here since NextReg::reset() with reset_type_1=true
+    // reloads regs_[0x83]=0xFF and our sync sees bit 0/1 = 1/1 → both gates
+    // open, matching the explicit set_enabled(true) above.
+    divmmc_.set_port_io_enable((nextreg_.cached(0x83) & 0x01) != 0);
+    multiface_.set_enabled((nextreg_.cached(0x83) & 0x02) != 0);
+
     // Wire palette manager and RAM into ULA for enhanced palette and
     // hardware-accurate VRAM access (ULA reads directly from physical bank 5,
     // bypassing the MMU, matching the VHDL dual-port RAM architecture).

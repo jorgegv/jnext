@@ -584,7 +584,14 @@ static void g_hotkey()
         Emulator emu;
         build_next_emulator(emu);
         emu.nmi_source().set_divmmc_enable(true);
-        // port_io_enable defaults to false post-reset (NR 0x83 bit 0=0).
+        // Pass-6 verify-audit fix (Task 2 verify6-divmmc-sd-spi): post-reset
+        // VHDL default is `port_divmmc_io_en=1` (NR 0x83 bit 0 = 1, regs_[0x83]
+        // reloads to 0xFF when reset_type_1=true per zxnext.vhd:5052-5057), so
+        // we must EXPLICITLY clear it to exercise the gate-off path. Pre-fix
+        // the test relied on a stale "default-false" invariant that diverged
+        // from the VHDL — corrected here as part of the same pass-6 sweep
+        // that introduced the post-reset DivMmc/Multiface NR 0x83 sync.
+        emu.divmmc().set_port_io_enable(false);
         emu.on_hotkey_f10_divmmc_nmi();
         emu.nmi_source().tick(1);
         check("HK-07b",
