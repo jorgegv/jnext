@@ -4066,7 +4066,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
-    spi_.attach_device(0, &sd_card_);  // SD card on CS0
+    // Pass-9 verify-audit fix (2026-05-09): wire the single physical SD
+    // card to BOTH CS0 and CS1. Per VHDL zxnext.vhd:3280:
+    //     i_SPI_SD_MISO when spi_ss_sd1_n = '0' or spi_ss_sd0_n = '0'
+    // the same `i_SPI_SD_MISO` net is the MISO source for both SD0 and SD1
+    // selects. The TBBlue board has a single SD slot wired to both CS lines,
+    // and the firmware uses NR 0x0A bit 5 (`sd_swap`) to flip which CS the
+    // host writes to reach the same card. Pre-fix: only CS0 was hooked, so
+    // any `sd_swap=1` write_cs("10") that decoded to 0xFD (CS1 low / CS0
+    // high) found `devices_[1] == nullptr` and the card became unreachable.
+    // Boot path uses the default sd_swap=0 (cleared at NR 0x0A reset, see
+    // VHDL :1125), so the prior bug was latent — class-(a) → corrected for
+    // VHDL fidelity. The SpiMaster's `active_device()` finds the first CS-
+    // low slot and returns its device; routing both to the same backend
+    // mirrors the wiring rather than running two SD cards.
+    spi_.attach_device(0, &sd_card_);  // SD card on CS0 (sd_swap=0)
+    spi_.attach_device(1, &sd_card_);  // SD card on CS1 (sd_swap=1)
 
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
