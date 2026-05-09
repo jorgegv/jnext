@@ -425,3 +425,96 @@ The supervisor's slot manipulation patterns:
 - Slot 6: bank 7 lo for dual-port access
 - Slots 3,4: one-time setup writes (1 each)
 
+
+## EOD-23 SWAPTRAP probe — captured the exact slide-causing swap
+
+Added `JNEXT_G46B_SWAPTRAP=N` probe at bank 0 $27A3 entry (= start of
+the stack-swap routine). Captured 20 swap events showing the
+supervisor's bank-stack-swap pattern.
+
+### Per-cycle pattern (5 swaps, repeating every ~3s)
+
+```
+#1: pc=$27a3 sp=$5BFF ($5B6A)=$FF4F alt_stk=[$23AA, $0274, $006F, $3E00]
+#2: pc=$27a3 sp=$5BFF ($5B6A)=$FF51 alt_stk=[$0274, $006F, $3E00, $0000]
+#3: pc=$27a3 sp=$5BFF ($5B6A)=$FF4B alt_stk=[$3E93, $150B, $3E93, $0277]
+#4: pc=$27a3 sp=$5BEB ($5B6A)=$FF55 alt_stk=[$3E00, $0000, $423C, $7E42]   ← SLIDE
+#5: pc=$27a3 sp=$ff3b ($5B6A)=$5BEB alt_stk=[$01D6, $3E93, $0040, $5C3A]   ← swap-back
+```
+
+Cycle then repeats: SWAP #6-#10 same pattern, etc.
+
+### SWAP #4 decoded — the slide trigger
+
+Pre-swap: SP=$5BEB, ($5B6A)=$FF55.
+
+After swap routine ($27A3-$27AB):
+- HL = ($5B6A) = $FF55
+- ($5B6A) = SP = $5BEB (saved)
+- SP = HL = $FF55
+- RET → pops MEM[$FF55,$FF56] = $3E00 (alt_stk[0]) → PC = $3E00
+
+Wrapper at $3E00:
+- $3E04 EX (SP),HL: HL ↔ MEM[$FF57,$FF58] = **$0000** (= alt_stk[1])
+- $3E05-$3E08: read bytes at $0000,$0001 (slot 0 = bank 0) → $F3, $C3
+- BC = $C3F3
+- $3E13 NEXTREG $8E,$02: flip slot 0/1 to bank 2
+- $3E17 RET: pops $C3F3 → slide
+
+### The actual missing piece
+
+Pre-SWAP-#4, alt stack at $FF55 had:
+```
+$FF55: $3E00     ← wrapper entry (legitimate, pushed by supervisor)
+$FF57: $0000     ← BUG: should be a valid inline-DW pointer (= return address)
+$FF59+: font glyph data ('A' = 3C 42 42 7E 42 42 00, 'B', 'C', ...)
+```
+
+The supervisor pushed $3E00 at $FF55, but $FF57-$FF58 was never
+populated with the expected return address.
+
+### Comparison with SWAP #1, #2, #3 (valid)
+
+These had ($5B6A) = $FF4F, $FF51, $FF4B (4-6 bytes apart). Their
+alt_stk content showed real return-addr-like values ($23AA, $0274,
+$3E93, $150B). Even SWAP #2 had alt_stk = [$0274, $006F, $3E00, $0000]
+— note **the $3E00 at index [2]**, not [0]. So SWAP #2 isn't going
+to trigger the slide because its TOS is $0274 (some return addr),
+not $3E00.
+
+Only SWAP #4 has $3E00 at index [0] WITH $0000 at index [1]. That's
+the unique condition that triggers the wrapper into reading bank 0
+boot vector.
+
+### Why is alt_stk[1] $0000 at SWAP #4?
+
+Looking at $FF55+ memory layout in jnext:
+- $FF55: $3E00 (= pushed by some prior supervisor code)
+- $FF57-$FF58: $0000 (= UNINITIALIZED — never written by supervisor)
+- $FF59+: font glyph data (= written by supervisor at boot when
+  copying system font to RAM)
+
+The font-data is at $FF59+, which suggests the supervisor wrote
+glyphs to $E000+something. The bytes BEFORE the font area
+($FF55-$FF58) were partially used (by the $3E00 push) but $FF57-$FF58
+was never touched.
+
+In CSpect, $FF57-$FF58 must contain a valid 16-bit value. It's likely
+that:
+- Supervisor's font-copy LDIR runs differently in CSpect, leaving
+  different content in the gap
+- OR the supervisor uses a different stack layout altogether
+- OR a prior PUSH on jnext had its target value clobbered
+
+### Concrete next-session DZRP query
+
+In CSpect at the equivalent boot phase (after first soft reset, before
+the supervisor stabilizes):
+
+1. Set BP at bank 0 $27A3.
+2. Hit it, capture: SP, ($5B6A), MEM[($5B6A)..+15].
+3. Find the equivalent of jnext's SWAP #4 (= ($5B6A)=$FF55, alt_stk[0]=$3E00).
+4. Compare alt_stk[1] in CSpect vs jnext.
+5. Whatever's at alt_stk[1] in CSpect — that's the missing value.
+6. Walk back to find what code wrote it.
+
