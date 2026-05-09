@@ -591,3 +591,82 @@ Captures SP, ($5B6A), regs, slot map, current stack, alternate stack
 (8 words at ($5B6A)), and sysvars at every BP hit at $27A3. Reusable
 for future DZRP comparison work.
 
+
+## EOD-23 final analysis — 3 next-session tasks completed
+
+### Task #1: Probe at NEXTREG $56,$0E sites (RING_AT=$0A61)
+
+jnext supervisor DOES execute NEXTREG $56,$0E at bank 2 $0A61. At
+that moment, slots 6,7 = $0E,$0F (already bank 7 from earlier $1F01
+NEXTREG $8E,$7A). So slots 6,7 ARE briefly mapped to bank 7 in
+jnext, matching CSpect.
+
+### Task #2: Trace 7FFD writes that revert slots 6,7 (RAM_REBUILD probe)
+
+Per jnext RAM_REBUILD trace, slot 6,7 changes per cycle:
+```
+pc=$1F01 old=$DE,$DF new=$0E,$0F bank=7  ← NEXTREG $8E,$7A sets bank 7
+pc=$01D7 old=$0E,$0F new=$00,$01 bank=0  ← NEXTREG $8E,$08 reverts to bank 0
+pc=$104D old=$00,$01 new=$0E,$0F bank=7  ← RST $08 handler NEXTREG $8E,$78
+pc=$5B0E old=$0E,$0F new=$00,$01 bank=0  ← RAM toggle wrapper OUT (7FFD),$10
+```
+
+Cycle then repeats. After the slide (which fires when slot 6,7 = bank
+0), supervisor triggers another soft reset and the cycle starts over.
+
+### Task #3: DZRP CSpect at NEXTREG $56,$0E (script: g46b_eod23_slot67_trace.py)
+
+CSpect HIT sequence per cycle (BPs at $0A61, $0A65, $01D7, $1F01,
+$103B, $5B0E, $27A3):
+```
+HIT #1 $1F01: slots[6,7]=DE,DF, after NEXTREG $8E,$7A → bank 7
+HIT #2 $01D7: slots[6,7]=0E,0F, after NEXTREG $8E,$08 → bank 0
+HIT #3-5 $27A3: slots[6,7]=00,01 (bank 0, multiple swaps)
+HIT #6 $103B: slots[6,7]=00,01 (RST $08 entry)
+HIT #7 $0A61: slots[6,7]=0E,0F (= already bank 7 — RST $08 handler at
+              $104D NEXTREG $8E,$78 already restored)
+HIT #8-12 $0A65: slots[6,7]=0E,0F (productive LDIR loop)
+```
+
+**KEY DIFFERENCE: $5B0E does NOT fire in CSpect's path** (no BP hit
+captured in 12-event window). CSpect supervisor goes from RST $08
+handler directly to $0A61 NEXTREG $56,$0E (= confirms bank 7) and
+into a productive LDIR loop at $0A65. jnext supervisor instead routes
+through $5B0E (toggle wrapper) which reverts slot 6,7 back to bank 0
+and triggers the slide.
+
+### Why the divergence?
+
+After RST $08 handler at $104D, control RETs to user code (= popped
+PC from alternate stack). The alternate-stack content at the post-
+handler RET differs between jnext and CSpect.
+
+In CSpect, post-handler RET goes to a path that calls $0A61.
+In jnext, post-handler RET goes to a path that calls $5B0E.
+
+The supervisor's API-dispatch / state-machine state must differ
+between the two implementations. This is upstream of the slide and
+requires more investigation to pinpoint.
+
+### Hypothesis for the upstream divergence
+
+The RST $08 handler reads the post-RST return address (= byte after
+RST $08 = api_id from caller) and uses it as the user-code resume PC.
+If jnext's caller has different bytes after RST $08 than CSpect's,
+the post-handler PC differs.
+
+Or: the api_id system uses a dispatch table loaded at boot. If
+jnext's dispatch table is in a different state, the same api_id maps
+to different code.
+
+Or: the alternate stack's state ($5B6A target) differs in jnext vs
+CSpect, causing the swap-and-RET mechanism to land at different code.
+
+### Next-session priority (after EOD-23 closure)
+
+Compare jnext's vs CSpect's RST $08 user-code site:
+1. In CSpect, find the RST $08 caller PC (= the byte BEFORE the RST
+   $08 instruction that fires HIT #6). Capture user code post-RST.
+2. In jnext, do the same — capture user code post-RST.
+3. Compare: do they call different APIs / take different paths?
+
