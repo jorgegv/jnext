@@ -2092,6 +2092,178 @@ static void test_fuse_inopcode_contention() {
     // path itself: there is no longer a "second path" to toggle.
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Cat 27: Memory-subsystem fix-regression rows for ContentionModel.
+// 1-to-1 regression coverage for verify9-memory class-(a) fixes that
+// touched ContentionModel (commit f5ec6d8). VHDL citations are
+// reproduced from the original commit message.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_cat27_verify9_regressions() {
+    set_group("CT-CAT27");
+
+    // FIX-CONTEND-NR03-01 — commit f5ec6d8 (verify9) A3:
+    // ContentionModel::rebuild_for_type() refreshes type + LUT without
+    // touching dynamic gate state on a runtime NR 0x03 machine-timing
+    // commit. VHDL :5137-5145 + :4481 + :4489-4493 — the contention
+    // gate / mem_contend decode follows the new machine_timing.
+    //
+    // Discriminative test: build the model for ZX48K (where bank 5 is
+    // contended via low pages), set port_7ffd_io_en=true, then call
+    // rebuild_for_type(ZX_PLUS3). After the rebuild:
+    //   (a) type_ is updated (port_contend gate changes — see CT-IO-05
+    //       below: 128K returns true on port 0x7FFD, +3 also true via
+    //       the +3 timing branch).
+    //   (b) port_7ffd_io_en_ is preserved (caller-state, NOT cleared).
+    //   (c) per-machine bank decode for `is_contended_access()` (the
+    //       LUT) updates: 48K only flags pages 10/11 (bank 5 lo/hi);
+    //       +3 flags pages from banks 4..7 (8..15).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_port_7ffd_io_en(true);
+        // is_contended_access() reads the model's state (mem_active_page)
+        // and decides per machine type. Probe by setting the page and
+        // querying. 48K only flags bank-5 pages (10,11). Page 8 (= bank
+        // 4 on +3) must NOT be contended on 48K. Page 10 MUST be.
+        cm.set_mem_active_page(8);
+        const bool pre_p8  = cm.is_contended_access();
+        cm.set_mem_active_page(10);
+        const bool pre_p10 = cm.is_contended_access();
+        // Rebuild for +3.
+        cm.rebuild_for_type(MachineType::ZX_PLUS3);
+        cm.set_mem_active_page(8);
+        const bool post_p8  = cm.is_contended_access();
+        cm.set_mem_active_page(10);
+        const bool post_p10 = cm.is_contended_access();
+        const bool io_en_preserved = cm.port_7ffd_io_en();
+        check("FIX-CONTEND-NR03-01",
+              "ContentionModel::rebuild_for_type updates type/LUT "
+              "without resetting port_7ffd_io_en — VHDL :5137-5145 + "
+              ":4489-4493; commit f5ec6d8",
+              !pre_p8 && pre_p10 && post_p8 && post_p10 && io_en_preserved,
+              std::string("pre 48K p8=") + std::to_string(pre_p8) +
+              " p10=" + std::to_string(pre_p10) +
+              " / post +3 p8=" + std::to_string(post_p8) +
+              " p10=" + std::to_string(post_p10) +
+              " / io_en=" + std::to_string(io_en_preserved));
+    }
+
+    // FIX-CONTEND-7FFD-01 — commit f5ec6d8 (verify9) A4: port_7ffd_active
+    // OR-term in port_contend. VHDL zxnext.vhd:4496 + :2594 + :2593:
+    //   port_contend <= (not cpu_a(0)) or port_7ffd_active or ...
+    //   port_7ffd_active <= '1' when port_7ffd='1' and (s128_timing_hw_en
+    //                       OR p3_timing_hw_en) else '0';
+    // Pre-fix the bare port_contend() dropped this term; port 0x7FFD
+    // writes on 128K/+3 missed contention. Discriminative: 128K +
+    // port=0x7FFD with port_7ffd_io_en=1 → contended. With io_en=0 →
+    // not contended (gate disabled).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        // port_7ffd_io_en defaults to false until set; explicitly assert
+        // baseline.
+        cm.set_port_7ffd_io_en(false);
+        const bool pre_io_dis = cm.port_contend(0x7FFD, /*ulap=*/false);
+        cm.set_port_7ffd_io_en(true);
+        const bool post_io_en = cm.port_contend(0x7FFD, /*ulap=*/false);
+        check("FIX-CONTEND-7FFD-01",
+              "128K + port 0x7FFD: port_contend gated on port_7ffd_io_en "
+              "(NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8",
+              !pre_io_dis && post_io_en,
+              std::string("io_en=0: ") + std::to_string(pre_io_dis) +
+              " (exp 0) / io_en=1: " + std::to_string(post_io_en) +
+              " (exp 1)");
+    }
+
+    // FIX-CONTEND-7FFD-02 — discriminative on machine type. 48K does NOT
+    // engage the port_7ffd_active OR-term (s128_timing_hw_en=0,
+    // p3_timing_hw_en=0). With port_7ffd_io_en=true, port 0x7FFD is
+    // still odd → not contended on 48K.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_port_7ffd_io_en(true);
+        const bool got = cm.port_contend(0x7FFD, /*ulap=*/false);
+        check("FIX-CONTEND-7FFD-02",
+              "48K + port 0x7FFD + io_en=1: port_contend=0 "
+              "(s128/p3 timing gates off) — VHDL :2594; commit f5ec6d8",
+              !got,
+              std::string("got=") + std::to_string(got) + " (exp 0)");
+    }
+
+    // FIX-CONTEND-7FFD-03 — +3 also engages port_7ffd_active per VHDL
+    // :2594, but the address decode at :2593 for +3 timing additionally
+    // requires cpu_a(14)='1' (since p3_timing forces the AND with
+    // cpu_a(14) AND NOT (cpu_a(13:12)="01")). 0x7FFD has bit14=1, bit13=1,
+    // bit12=1 → port_7ffd condition holds. So +3 + 0x7FFD + io_en=1
+    // contends.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX_PLUS3);
+        cm.set_port_7ffd_io_en(true);
+        const bool got = cm.port_contend(0x7FFD, /*ulap=*/false);
+        check("FIX-CONTEND-7FFD-03",
+              "+3 + port 0x7FFD + io_en=1: port_contend=1 — "
+              "VHDL :2593-2594; commit f5ec6d8",
+              got,
+              std::string("got=") + std::to_string(got) + " (exp 1)");
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// FIX-MEMACTIVE-PAGE-01 — commit a9cbf79 (verify6). z80_cpu.cpp's
+// mem_active_page_for() previously called Mmu::get_effective_page (which
+// resolves the 0xFF sentinel into the physical ROM page). VHDL :2949-2956
+// keys mem_active_page on the LIVE MMU<i> register (= Mmu::get_page(),
+// = nr_mmu_[slot]). For sram_rom>=1 the physical page's low nibble had
+// bit-1 / bit-3 set, falsely firing the mem_contend decode at :4489 for
+// slot-0/1 ROM accesses on 128K (sram_rom=1) / +3 (sram_rom>=2). The
+// VHDL :4489 mem_contend gate is `'0' when mem_active_page(7:4) /=
+// "0000"` — i.e. the 0xFF sentinel high nibble suppresses contention.
+// The regression here exercises the Mmu accessor contract directly: a
+// reset Mmu (slots 0/1 = ROM, nr_mmu_=0xFF) must report 0xFF via
+// get_page(slot) regardless of the underlying physical ROM page.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_cat27_memactive_page_sentinel() {
+    set_group("CT-CAT27-MEMPG");
+
+    // FIX-MEMACTIVE-PAGE-01: Mmu::get_page() for slot 0/1 at reset must
+    // return 0xFF (= MMU<i> register value), not the resolved physical
+    // ROM page. This is the contract z80_cpu's mem_active_page_for()
+    // depends on.
+    {
+        Emulator emu;
+        const bool ok = make_emu(emu, MachineType::ZX128K);
+        if (!ok) {
+            check("FIX-MEMACTIVE-PAGE-01",
+                  "Emulator::init failed — would verify Mmu::get_page "
+                  "returns 0xFF sentinel for ROM slots 0/1 on 128K "
+                  "[zxnext.vhd:2949-2956,4489]",
+                  false, "Emulator::init returned false");
+        } else {
+            // 128K reset puts slots 0/1 in ROM mode. Pick port_7ffd(4)=1
+            // to make sram_rom=1 — the pre-fix path would have resolved
+            // slot 0 to physical page 2 (sram_rom*2+0=2). VHDL+post-fix:
+            // get_page(0) = 0xFF (verbatim MMU<0> register).
+            emu.mmu().map_128k_bank(0x10);
+            const uint8_t g0 = emu.mmu().get_page(0);
+            const uint8_t g1 = emu.mmu().get_page(1);
+            check("FIX-MEMACTIVE-PAGE-01",
+                  "Mmu::get_page returns 0xFF MMU<i> sentinel for "
+                  "legacy-ROM slot 0/1 (NOT resolved physical page) — "
+                  "VHDL :2949-2956 mem_active_page <= MMU<i>; commit a9cbf79",
+                  g0 == 0xFF && g1 == 0xFF,
+                  std::string("get_page(0)=0x") +
+                  (g0 < 0x10 ? "0" : "") + std::to_string(g0) +
+                  " get_page(1)=0x" +
+                  (g1 < 0x10 ? "0" : "") + std::to_string(g1) +
+                  " (exp 0xFF/0xFF)");
+        }
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2139,6 +2311,16 @@ int main() {
 
     test_fuse_inopcode_contention();
     std::printf("  Group: CT-FUSE        — done\n");
+
+    // Cat 27: testcov-memory regression rows for verify6/verify9
+    // memory-subsystem fixes that touched ContentionModel / Mmu page
+    // accessor. See doc/issues/nextzxos-boot/
+    // NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-MEMORY.md.
+    test_cat27_verify9_regressions();
+    std::printf("  Group: CT-CAT27       — done\n");
+
+    test_cat27_memactive_page_sentinel();
+    std::printf("  Group: CT-CAT27-MEMPG — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

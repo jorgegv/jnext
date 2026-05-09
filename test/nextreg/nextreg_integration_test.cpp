@@ -1574,6 +1574,59 @@ static void test_rw_asymmetric(Emulator& emu) {
     }
 }
 
+// ── Cat27 testcov-memory regression rows ─────────────────────────────
+//
+// Per-fix regression coverage for memory-subsystem fixes that depend on
+// the full Emulator integration (NR-write path / port-dispatch / cross-
+// subsystem state). See doc/issues/nextzxos-boot/
+// NEXTZXOS-BOOT-SUBSYSTEM-TESTCOV-MEMORY.md.
+
+static void test_cat27_verify8_nr08_effective(Emulator& emu) {
+    set_group("Cat27-NR08-Effective");
+
+    // FIX-NR08-EFFLOCK-01 — commit b6b42dd verify8 A3: NR 0x08 bit 7
+    // readback uses effective_paging_locked (VHDL :3769), not the raw
+    // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11 AND EFF7(2)=0)
+    // drops port_7ffd_locked to '0' even when bit 5 is set; pre-fix the
+    // readback returned NOT raw_bit_5 = 0, post-fix returns NOT eff = 1.
+    //
+    // This row is on a Next emulator (ZXN_ISSUE2 default). Sequence:
+    //   1. Lock paging via port_7FFD bit 5 (raw lock asserted).
+    //   2. Read NR 0x08 — bit 7 = 0 (raw lock; both pre- and post-fix).
+    //   3. Enable Pentagon-1024: NR 0x8F = 0b11 (mapping_mode = "11").
+    //   4. Make sure EFF7(2)=0 (default at reset).
+    //   5. Read NR 0x08 — bit 7 should be 1 (effective_paging_locked=0
+    //      because Pentagon-1024 override). Pre-fix: 0.
+    {
+        // Make sure Mmu is at reset for this test (fresh paging state).
+        emu.mmu().reset(true);
+        emu.contention().rebuild_for_type(MachineType::ZXN_ISSUE2);
+        // Ensure EFF7(2) is cleared (Pentagon-1024 enable not disabled).
+        emu.mmu().write_port_eff7(0x00);
+        // 1. Lock paging via direct Mmu (the port-dispatch handler is the
+        //    integration path; we already exercised that in RW-02).
+        emu.mmu().map_128k_bank(0x20);  // bit 5 → raw lock asserted
+        const uint8_t nr08_raw_lock = nr_read(emu, 0x08);
+        const bool bit7_raw = (nr08_raw_lock & 0x80) != 0;
+        // 2. Enable Pentagon-1024 mode via NR 0x8F.
+        emu.mmu().write_nr_8f(0x03);
+        // 3. Sanity: effective_paging_locked() should now be false.
+        const bool eff_locked = emu.mmu().effective_paging_locked();
+        // 4. Read NR 0x08 — bit 7 should be 1 (=NOT effective_paging_locked).
+        const uint8_t nr08_pent = nr_read(emu, 0x08);
+        const bool bit7_pent = (nr08_pent & 0x80) != 0;
+        check("FIX-NR08-EFFLOCK-01",
+              "NR 0x08 bit 7 read returns NOT effective_paging_locked "
+              "(Pentagon-1024 overrides the raw lock) — VHDL :5906/:3769; "
+              "commit b6b42dd",
+              !bit7_raw && !eff_locked && bit7_pent,
+              "raw_lock_b7=" + std::to_string(bit7_raw) +
+              " eff_locked=" + std::to_string(eff_locked) +
+              " pent_b7=" + std::to_string(bit7_pent) +
+              " (exp 0/0/1)");
+    }
+}
+
 // ── CFG-01, CFG-02, CFG-05: machine-config state ─────────────────────
 //
 // Plan row group 7 in NEXTREG-TEST-PLAN-DESIGN.md. NR 0x03 bits 6:4 set
@@ -3554,6 +3607,9 @@ int main() {
 
     test_rw_asymmetric(emu);
     std::printf("  Group: RW-Asymmetric — done\n");
+
+    test_cat27_verify8_nr08_effective(emu);
+    std::printf("  Group: Cat27-NR08-Effective — done\n");
 
     test_cfg_integration(emu);
     std::printf("  Group: Machine-Cfg — done\n");
