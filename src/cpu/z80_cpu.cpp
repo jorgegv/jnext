@@ -492,6 +492,30 @@ int Z80Cpu::execute() {
             z80.pc.w = (pc + 2) & 0xFFFF;
             // Increment R by 2: one for ED prefix M1, one for ext byte M1
             z80.r = (z80.r + 2) & 0x7F;
+            // Pass-4 fix: mirror fuse_z80_execute_one() pre-dispatch state
+            // hygiene — Q=0 and iff2_read=0 at the start of every opcode.
+            //
+            // Q semantics (FUSE convention, used by SCF/CCF X/Y composition):
+            // every opcode begins with Q=0; F-writing opcodes set Q=F at end.
+            // The very next SCF/CCF reads `last_Q = Q` from this trail and
+            // computes X/Y as (last_Q ^ F) | A. Z80N opcodes that DO NOT
+            // write F (SWAPNIB, MIRROR_A, MUL_DE, BSLA/BSRA/BSRL/BSRF/BRLC,
+            // ADD_*_NN, PUSH_NN, OUTINB, NEXTREG_NN/A, PIXELDN/AD, SETAE,
+            // JP_C, LDPIRX) MUST leave Q=0 so the next SCF/CCF behaves like
+            // it's coming after a non-F-writing standard opcode (LD r,r' /
+            // JP / etc.). Pre-fix: Q persisted from the prior FUSE opcode,
+            // poisoning SCF/CCF X/Y bits across any Z80N → SCF sequence.
+            //
+            // iff2_read semantics (NMOS LD A,I / LD A,R quirk): if INT is
+            // accepted on the very next instruction boundary after LD A,I/R
+            // and IFF2 was 1, the P flag (which the LD just stored) gets
+            // cleared to model the well-known race condition. FUSE clears
+            // iff2_read=0 at the top of every opcode. A Z80N opcode in
+            // between LD A,I and an INT acceptance is a non-immediate
+            // boundary, so iff2_read MUST be cleared too — otherwise jnext
+            // fires the NMOS quirk wrongly.
+            z80.q = 0;
+            z80.iff2_read = 0;
             sync_regs_from_fuse(regs_);
 
             int t = execute_z80n(ext, *this);
@@ -590,6 +614,22 @@ void Z80Cpu::save_state(StateWriter& w) const
     // are already present in Z80Registers and synced by sync_*regs.
     w.write_u16(regs_.MEMPTR);
     w.write_u8(regs_.Q);
+    // Pass-4 fix: persist FUSE-internal interrupt-related state that lives
+    // ONLY in the global `z80` struct and is not mirrored into Z80Registers.
+    //   - interrupts_enabled_at: signed_dword tstate stamp set by EI; gates
+    //     fuse_z80_interrupt() on the immediately-following instruction
+    //     (VHDL t80n.vhd EI semantics — IFF1 takes effect AFTER the next
+    //     opcode boundary, mirroring real-hardware NMI/INT acceptance
+    //     window). Without persisting this across save/load, a snapshot
+    //     taken on the cycle immediately after EI would let an INT fire
+    //     one instruction earlier than spec when restored.
+    //   - iff2_read: NMOS LD A,I / LD A,R quirk flag — if INT is accepted
+    //     on the next instruction boundary, the P flag (which holds IFF2
+    //     stored by the LD) gets cleared. Without persistence, a snapshot
+    //     taken between LD A,I and an immediately-pending INT would skip
+    //     the quirk on restore.
+    w.write_i32(z80.interrupts_enabled_at);
+    w.write_u8(static_cast<uint8_t>(z80.iff2_read ? 1 : 0));
     // Interrupt state
     w.write_bool(nmi_pending_);
     w.write_bool(int_pending_);
@@ -612,6 +652,11 @@ void Z80Cpu::load_state(StateReader& r)
     // Pass-3 fix: restore MEMPTR + Q (see save_state comment).
     regs_.MEMPTR = r.read_u16();
     regs_.Q      = r.read_u8();
+    // Pass-4 fix: restore FUSE-internal interrupts_enabled_at + iff2_read.
+    // Push directly into the global z80 struct; sync_fuse_from_regs() does
+    // NOT touch these fields (they have no Z80Registers mirror).
+    z80.interrupts_enabled_at = static_cast<libspectrum_signed_dword>(r.read_i32());
+    z80.iff2_read = (r.read_u8() != 0) ? 1 : 0;
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
     int_vector_  = r.read_u8();
