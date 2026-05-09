@@ -14,22 +14,23 @@
 | 3 | 4 fresh blind | 11 | Refinements + class-(b) promotions |
 | 4 | 4 fresh blind — sharper methodology | 17 | NMI 80% sweep + CPU duals |
 | 5 | 4 fresh blind — final-convergence angles | 11 | NR $09/$15 cross-fix; LDPIRX confirmed; Z80N M1 contention |
-| 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | **4** | One per subsystem; agents recommend declaring converged after a clean P7 |
-| **Total (6 passes)** | | **61 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged** |
+| 6 | 4 fresh blind — cycle-precise + final-NR-coverage + operand contention | 4 | One per subsystem |
+| 7 | 4 fresh blind — convergence-test pass | **7** | NMI same-shape pattern (P6 NR $06) confirmed systemic; class-(b) → class-(a) promotions (rom3_selected, SpiMaster reset detach) |
+| **Total (7 passes)** | | **68 class-(a) bugs** + 1 follow-up | **Audit NOT yet converged**; user clarified stricter criterion: zero class-(a) AND zero class-(b) per pass |
 
 **Pass-by-pass count by subsystem:**
 
-| Subsystem | P1 | P2 | P3 | P4 | P5 | P6 | Trend |
-|-----------|----|----|----|----|----|----|-------|
-| Memory | 2 | 2 | 3 | 3 | 2 | **1** | descending |
-| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | 2 | **1** | bouncing low |
-| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | 9 | 6 | **1** | **major descent** |
-| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | 1 | **1** | **descending** |
-| **Pass total** | **11+1** | **6** | **11** | **17** | **11** | **4** | |
+| Subsystem | P1 | P2 | P3 | P4 | P5 | P6 | P7 | Trend |
+|-----------|----|----|----|----|----|----|----|-------|
+| Memory | 2 | 2 | 3 | 3 | 2 | 1 | **2** | bumped (integration bugs) |
+| DivMMC + SD + SPI | 3 | 0 | 2 | 1 | 2 | 1 | **1** | flat-low |
+| NMI + Multiface + Port + NextREG | 5 | 3 | 3 | 9 | 6 | 1 | **3** | bouncing (NR-reset same-shape) |
+| CPU (Z80 + Z80N + IM2) | 1+1 | 1 | 3 | 4 | 1 | 1 | **1** | flat-low |
+| **Pass total** | **11+1** | **6** | **11** | **17** | **11** | **4** | **7** | |
 
-**Total fixes on integration branch: 62** (12 P1 + 6 P2 + 11 P3 + 17 P4 + 11 P5 + 4 P6).
+**Total fixes on integration branch: 69** (12 P1 + 6 P2 + 11 P3 + 17 P4 + 11 P5 + 4 P6 + 7 P7).
 
-**Strong convergence signal**: pass 6 found exactly 1 bug per subsystem, all in their final-edge areas. Three subsystem agents recommended declaring their subsystem converged conditional on a clean pass 7.
+**Pattern observation**: pass-7 confirmed the audit is finding **systemic patterns** (e.g., NR-reset preservation; integration-layer wrong-signal wiring; multi-aspect contention paths). Each pass exhausts one pattern only to expose another. Pass-8 will explicitly target the class-(b) backlog under user's stricter convergence criterion.
 
 **Test status (post all-merge, integration branch):**
 - `ctest`: **37/37 PASS**
