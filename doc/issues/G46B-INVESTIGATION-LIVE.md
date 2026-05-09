@@ -7313,3 +7313,158 @@ semantics, OR in the post-soft-reset bank-7 RAM init).
 commit).
 
 End of EOD-22 Wave 8.
+
+## 2026-05-09 09:00 CEST — EOD-22 Wave 8 follow-up: regression clean + new slide identified
+
+### Tests post-Wave-8-fix
+
+- mmu_test: **202/180 PASS / 0 FAIL / 22 SKIP** — no regressions.
+- Full regression suite: **33 PASS / 0 FAIL / 0 SKIP** — all clean.
+
+### New slide source: $FFB0..$FFEF in bank 7 RAM HI
+
+RING_AT=$FFF0 captured the new slide entry:
+```
+G46B RING reached pc=0xfff0 eff_mmu[0..7]=04 05 0a 0b 04 05 0e 0f rom_bank=0x02
+G46B RING ring (oldest..newest): ffb0 ffb1 ffb2 ... ffef
+G46B RING regs A=0x16 F=0x01 BC=0x0000 DE=0xfe60 HL=0x01d6 IX=0x2e8e IY=0x5c3a
+G46B RING SP=0x5bed stack[0..7]=0x3e93 0x0040 0x5c3a 0x0144 0x006c 0x3e13 0x0a8c 0x0339
+G46B RING memdump pc..pc+63 = 00 00 00 00 ... 00 00 18 fd 00 ... c3 18 3f 2e 62 61 6b ff
+G46B RING memdump $5AC0..$5AFF = 38 38 38 38 38 38 38 38 ... (= attribute paint!)
+G46B RING memdump nr_8c_altrom_en=0 nr_8c_altrom_rw=0 rom_in_sram=1
+                  machine_type=3 current_sram_rom=0x02
+```
+
+**Major progress markers**:
+- `$5AC0..$5AFF = $38 $38 $38 ...` — attribute area NOW painted (not zeros!).
+  Supervisor wrote attributes ($38 = bright on white-ink? typical
+  attr) to the screen.
+- Stack has `$3E93 0x0040 $5C3A $0144 $006C $3E13 $0A8C $0339` at top
+  — RICHER call-stack than before (was all zeros pre-fix).
+- HL=$01D6, IX=$2E8E, IY=$5C3A — supervisor has REAL register state.
+
+### The new slide:
+
+PC enters at $FFB0 (= bank 7 RAM HI offset $1FB0), slides through 64
+bytes of zeros, wraps $FFFF → $0000.
+
+In bank 2 ROM mode (rom_bank=0x02, slots 0/1 = bank 2 ROM):
+- $0000 in bank 2 = `00` NOP
+- $0001-$0002 in bank 2 = `18 fd` JR $0000 — **infinite-loop trap!**
+
+So PC=$0000 → NOP → PC=$0001 → JR $0000 → PC=$0000 → ... LOOP.
+
+This is the canonical "supervisor fault" trap referenced in EOD-9 ("NOP;
+JR $0000 infinite-loop trap" at bank 2 $0000-$0007). PC reaching this
+trap means supervisor encountered an UNHANDLED FAULT and is parked.
+
+### Hypothesis
+
+Supervisor's PC reached $FFB0+ via some control flow that wasn't
+intended. Possibilities:
+- Stack underflow / mis-pop pushing PC into uninitialized bank 7 RAM.
+- Bad function pointer dispatched JP (HL) where HL was in bank 7 RAM
+  HI region.
+- INT or RST handler ended up at this address.
+
+Stack contents `$3E93` at top still suggests the same wrapper-protocol
+issue from Wave 4-7 may be lingering, just shifted to a different
+manifestation.
+
+### Refined next-session priorities
+
+1. **Add `JNEXT_G46B_RING_AT=0xFF00`** to find the slide entry source
+   (currently slide starts somewhere in $FF00 area).
+2. **Trace bank-3 $3BF5 RST $38 path** — what code follows after the
+   $3BE8 NR $02 reset trampoline that triggers the post-fix soft
+   resets?
+3. **DZRP-side: BP at bank-3 $3BE8 on CSpect** — does CSpect ever
+   reach this trampoline? If yes, when and what state?
+4. **Investigate other NR $50/$51 with $FF cases** — the Wave 8 fix
+   handles the slot-0/1 case correctly, but maybe there are more
+   subtle paging issues.
+
+### Branch state after Wave 8
+
+`g46b-investigation` HEAD `8242098`, **20 commits ahead of main**,
+working tree clean. Tests pass. Wave 8 fix committed.
+
+End of EOD-22 Wave 8 follow-up.
+
+## 2026-05-09 09:05 CEST — EOD-22 Wave 8 closure: regression clean, slide spans most of slot 6/7
+
+### Slide tracing via successive RING_AT probes
+
+| RING_AT | Ring shows entries | rom_bank context |
+|---|---|---|
+| $FFF0 | $FFB0..$FFEF | 0x02 (bank 2 ROM) |
+| $FF00 | $FEC0..$FEFF | 0x02 |
+| $E000 | $DFC0..$DFFF | 0x02 |
+| $C000 | $BF80..$BFFE (step=2!) | **0x03** (bank 3 ROM) |
+
+Most runs show 1-byte NOP slide (PC advances by 1 each step), but
+$C000 RING_AT captured a different state with PC advancing by 2 (=
+2-byte instructions, possibly `06 nn` LD B,n × 32 patterns). At
+that capture, rom_bank=$03 (bank 3 ROM mapped); previous runs had
+rom_bank=$02. Supervisor's path varies across runs — possibly
+non-deterministic depending on timing.
+
+In ALL cases the slide ends at $FFFF → wraps to $0000 → bank N's
+$0001 (which in bank 2 is `JR $0000` trap; in bank 3 is `JP $00EF`).
+
+### Major progress markers from Wave 8
+
+1. **Bank 5 RAM at $5800-$5AFF now contains attribute byte $38
+   $38 ...** (was zero pre-fix). Screen attribute paint executed.
+2. **Stack at SP=$5BED has $3E93 0x0040 $5C3A 0x0144 0x006C $3E13
+   0x0A8C 0x0339** — RICH call-stack (was zeros pre-fix).
+3. **Real register state**: HL/IX/IY/AF non-zero, supervisor doing
+   actual work.
+4. **Supervisor reaches bank-3 NR $02 soft-reset trampoline** at
+   $3BE8 — fires 16 times in 60s. This is a CANONICAL "BASIC
+   handoff" reset path used by real Next firmware. PRE-FIX never
+   reached.
+5. **mmu_test 202/180 PASS / 0 FAIL / 22 SKIP** — no regressions.
+6. **Full regression: 33 PASS / 0 FAIL / 0 SKIP** — clean.
+
+### Open question: why does supervisor still hit PC=$0000?
+
+Despite Wave 8 fix, supervisor still:
+- Triggers NR $02 every ~3 seconds (looping through "boot" → "BASIC
+  handoff reset")
+- PC=$0000 events still firing via NOP slide through slot 6/7 RAM
+
+The NOP slide source (= where PC first jumps INTO slot 6/7 RAM region
+of zeros) is somewhere upstream. The slide is so long ($BF80 →
+$FFFF) that finding the exact entry point requires more probes
+or POSTRESET trace beyond 50000 events.
+
+### Hypothesis: more NR $50/$51/$56/$57 with $FF cases
+
+The Wave 8 fix correctly handles slot 0/1 (ROM) and slot 6/7 (RAM)
+when v=$FF. But the supervisor may issue similar transient-remap
+patterns on OTHER slots (2-5) that need similar treatment. Or there
+may be other "page=$FF reset" paths that need fixing.
+
+Also possible: `set_page` (called for non-$FF values) may have
+related issues with how it handles transitions between explicit
+and legacy modes.
+
+### Branch state
+
+`g46b-investigation` HEAD `8242098`, **20 commits ahead of main**,
+working tree has only the investigation log and `.prompts/` typo
+fix uncommitted. Wave 8 fix landed cleanly with no test regressions.
+
+### Major session conclusion
+
+Wave 8 is real, measurable progress on G46(b):
+- Fix: VHDL-faithful (NR $5x with $FF re-engages legacy paging).
+- Tests: clean (33/33 regression, 202/180 mmu_test).
+- Boot trajectory: supervisor reaches MUCH further (attribute paint,
+  bank-3 reset trampoline, rich register/stack state).
+- Still doesn't render the welcome screen — additional downstream
+  blockers exist.
+
+End of EOD-22 — Wave 8 is the major fix to cherry-pick. Branch is
+clean and review-ready for the Wave 8 commit (`8242098`).
