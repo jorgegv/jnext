@@ -121,7 +121,18 @@ uint8_t cw(bool int_en, bool counter, bool prescale256,
 }
 
 void fresh(Ctc& ctc) { ctc.reset(); }
-void fresh(Im2Controller& im2) { im2.reset(); }
+void fresh(Im2Controller& im2) {
+    im2.reset();
+    // V21-IM2-01 — drive the IM2 controller's `im_mode_` shadow to 2
+    // (= VHDL i_im2_mode='1'), the precondition for `o_int_n` to drive
+    // low and for the device state machine to transition S_REQ→S_ACK
+    // (im2_device.vhd:112, :150). Real boot achieves this by executing
+    // an `ED 5E` (IM 2) instruction before any IM2 fabric activity; we
+    // feed those bytes to the on_m1_cycle decoder directly so unit
+    // tests don't need a full FUSE Z80 fixture just for this gate.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
+}
 
 // Shortcut alias to avoid repeating the enum tag everywhere in IM2-related
 // sections. Kept inside the anonymous namespace so it doesn't leak into
@@ -1561,9 +1572,16 @@ void section10_pulse_mode() {
     //
     // BUG FLAG NOTE: im2.cpp step_pulse() gates ULA exception with
     // "!im2_mode_ || (im_mode_ != 2)" — i.e. always fires unless CPU is
-    // in IM=2. We honour that gate here (leave im_mode as 0 = IM 0).
+    // in IM=2. The shared fresh() helper drives im_mode_=2 by default
+    // (V21-IM2-01 precondition for the daisy-chain tests); here we
+    // OVERRIDE that by feeding ED 46 (IM 0) so the exception-pulse
+    // gate's "im_mode_ != 2" arm is exercised.
     {
         fresh(im2);
+        // Override fresh()'s IM 2 with IM 0 — PULSE-03 specifically
+        // tests the "CPU not in IM=2" branch of the EXCEPTION gate.
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);          // IM2 mode (for non-exception path)
         im2.set_int_en(Dev::ULA, true);
@@ -2088,8 +2106,13 @@ void section12_ula_line_int() {
     // only for ULA. EXCEPTION devices fire a pulse even in IM2 mode
     // (provided CPU is not in IM=2). Non-EXCEPTION devices do not. Compare
     // ULA vs CTC0 in IM2 mode with CPU in IM 0 (default after reset).
+    //
+    // V21-IM2-01 — fresh() drives im_mode_=2 by default; this test
+    // needs IM 0, so override with ED 46.
     {
         fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);   // IM 0
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);  // IM2 fabric mode
         // Case 1: ULA (EXCEPTION=1) fires a pulse.
@@ -2099,6 +2122,8 @@ void section12_ula_line_int() {
         bool ula_pulsed = !im2.pulse_int_n();
         // Reset and test non-EXCEPTION device.
         fresh(im2);
+        im2.on_m1_cycle(0x0000, 0xED);
+        im2.on_m1_cycle(0x0001, 0x46);   // IM 0
         im2.set_machine_timing_48_or_p3(true);
         im2.set_mode(true);
         im2.set_int_en(Dev::CTC0, true);

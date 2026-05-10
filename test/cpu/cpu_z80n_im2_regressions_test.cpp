@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <tuple>
 #include <vector>
 
 // FUSE-internal interrupt-related state (Pass-3/4 fixes touched these).
@@ -1370,6 +1371,11 @@ void test_pass10_im2_reti_decode_simultaneity(Result& res) {
 
     im2.reset();
     im2.set_mode(true);
+    // V21-IM2-01 — feed ED 5E (IM 2) so im_mode_=2 (= VHDL
+    // i_im2_mode='1'), required for S_REQ→S_ACK (ack_vector) and the
+    // S_ISR→S_0 RETI gate (im2_device.vhd:112, :124).
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
 
     im2.set_int_en(Dev::CTC0, true);
     im2.raise_req(Dev::CTC0);
@@ -1423,6 +1429,10 @@ void test_v11_cpu_01_im2_ddfd_ed_no_reti(Result& res) {
 
     im2.reset();
     im2.set_mode(true);
+    // V21-IM2-01 — feed ED 5E (IM 2) so im_mode_=2 (= VHDL
+    // i_im2_mode='1'), required for S_REQ→S_ACK + S_ISR→S_0 gates.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
 
     // Set up CTC0 in S_ISR (full lifecycle: req → ack → ISR).
     im2.set_int_en(Dev::CTC0, true);
@@ -2690,6 +2700,14 @@ void test_v19_im2_03_int_unq_one_shot_after_isr(Result& res) {
     using DevState = Im2Controller::DevState;
     im2.reset();
     im2.set_mode(true);   // IM2 mode
+    // V21-IM2-01 — feed ED 5E (IM 2) so the IM2-control decoder sets
+    // im_mode_=2 (= VHDL i_im2_mode='1'), required for the device
+    // state machine S_REQ→S_ACK transition (im2_device.vhd:112) and
+    // S_ISR→S_0 transition (:124). Without this the device cannot
+    // reach S_REQ→S_ACK via ack_vector and the test's invariants
+    // collapse.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
     im2.set_int_en(Dev::LINE, true);
 
     // Step 1: raise_unq(LINE).
@@ -2787,6 +2805,11 @@ void test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(Result& res) {
     using DevState = Im2Controller::DevState;
     im2.reset();
     im2.set_mode(true);                       // IM2 mode
+    // V21-IM2-01 — feed ED 5E (IM 2) so im_mode_=2 (= VHDL
+    // i_im2_mode='1'), required for the int_line_asserted gate and
+    // the S_REQ→S_ACK / S_ISR→S_0 transitions.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x5E);
     im2.set_int_en(Dev::LINE, true);          // enable LINE int_en
 
     // ── Frame 1 ───────────────────────────────────────────────────────────
@@ -2850,6 +2873,96 @@ void test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(Result& res) {
               && s_f2_after_raise == DevState::S_REQ
               && int_line_f2,
           detail);
+}
+
+// ─── V21-IM2-01 (pass-21) — int_line_asserted / ack_vector must gate on
+// im_mode_ == 2 (= VHDL i_im2_mode = z80_im_mode(1)) ────────────────────
+//
+// VHDL: zxnext.vhd:1974 wires `i_im2_mode => z80_im_mode(1)` to the
+// im2_peripheral / im2_device fabric. Per im2_device.vhd:150
+//   o_int_n <= '0' when state = S_REQ AND i_iei = '1' AND i_im2_mode = '1'
+// and the S_REQ→S_ACK transition at :112 also gates on i_im2_mode='1'.
+// `z80_im_mode(1)='1'` corresponds to jnext's `im_mode_ == 2` (set only
+// by the IM2-control decoder when an ED 5E or ED 7E has been seen on
+// the M1 bus).
+//
+// Pre-fix: jnext's `Im2Controller::int_line_asserted()` and
+// `Im2Controller::ack_vector()` gated only on `im2_mode_` (= NR 0xC0 b0
+// `nr_c0_int_mode_pulse_0_im2_1`). In IM2-fabric mode with the Z80
+// still in IM=0 or IM=1 (boot-realistic window, or supervisor
+// transient IM-mode flips before/after RETI), jnext would assert the
+// CPU /INT pin and let `cpu_.request_interrupt(0xFE)` fire — the CPU
+// then services via its current IM mode (IM=0/1 → RST $38), which
+// real hardware never reaches because the VHDL aggregate
+// `im2_int_n` stays HIGH while `z80_im_mode(1)='0'`.
+//
+// Discriminative test: place LINE in S_REQ with IM2-fabric mode on
+// (NR 0xC0 b0 = 1) but DO NOT execute an ED 5E (im_mode_ stays 0).
+// int_line_asserted must return false. Pre-fix it returned true.
+// Verify the same gate on ack_vector — pre-fix it returned a composed
+// vector and advanced the device to S_ACK; post-fix it returns 0xFF
+// and leaves the device in S_REQ.
+//
+// Sibling sub-tests:
+//   a) im_mode_=0 → int_line_asserted=false; ack_vector=0xFF; state stays S_REQ.
+//   b) im_mode_=1 (ED 56 IM 1) → same.
+//   c) im_mode_=2 (ED 5E IM 2) → int_line_asserted=true; ack_vector
+//      returns composed vector; state advances to S_ACK. (Positive
+//      control — verifies the gate doesn't over-mask.)
+void test_v21_im2_01_int_line_gated_on_im_mode(Result& res) {
+    detach_contention();
+
+    using Dev = Im2Controller::DevIdx;
+    using DevState = Im2Controller::DevState;
+
+    auto run_one = [](uint8_t im_decoder_byte) {
+        // Returns {int_line_asserted, ack_vector_byte, state_after_ack}.
+        Im2Controller im2;
+        im2.reset();
+        im2.set_mode(true);                       // NR 0xC0 b0 = 1
+        // Drive the IM2-control decoder.
+        // im_decoder_byte ∈ {0x46, 0x56, 0x5E} → IM 0 / IM 1 / IM 2.
+        // 0xFF means "do not feed any IM instruction" → im_mode_ stays 0.
+        if (im_decoder_byte != 0xFF) {
+            im2.on_m1_cycle(0x0000, 0xED);
+            im2.on_m1_cycle(0x0001, im_decoder_byte);
+        }
+        im2.set_int_en(Dev::LINE, true);
+        im2.raise_req(Dev::LINE);
+        im2.tick(1);                              // S_0 → S_REQ
+        const bool int_line = im2.int_line_asserted();
+        const uint8_t vec   = im2.ack_vector();   // may advance S_REQ→S_ACK
+        const DevState st   = im2.state(Dev::LINE);
+        return std::make_tuple(int_line, vec, st);
+    };
+
+    // Sub-test (a): no IM instruction → im_mode_=0.
+    auto [il_a, vec_a, st_a] = run_one(0xFF);
+
+    // Sub-test (b): ED 56 → im_mode_=1.
+    auto [il_b, vec_b, st_b] = run_one(0x56);
+
+    // Sub-test (c): ED 5E → im_mode_=2. Positive control.
+    auto [il_c, vec_c, st_c] = run_one(0x5E);
+
+    const bool a_ok = !il_a && vec_a == 0xFF && st_a == DevState::S_REQ;
+    const bool b_ok = !il_b && vec_b == 0xFF && st_b == DevState::S_REQ;
+    // For positive control: vector is composed with base=0 → idx=0 (LINE) → vec=0.
+    const bool c_ok =  il_c && vec_c == 0x00 && st_c == DevState::S_ACK;
+
+    char detail[480];
+    std::snprintf(detail, sizeof(detail),
+                  "im_mode_=0: int_line=%d (post-fix:0; pre-fix:1) vec=%#04x "
+                  "(post-fix:0xFF; pre-fix:0x00) state=%d (post-fix:S_REQ=1; "
+                  "pre-fix:S_ACK=2); "
+                  "im_mode_=1: int_line=%d vec=%#04x state=%d; "
+                  "im_mode_=2 (positive control): int_line=%d (1) vec=%#04x "
+                  "(0x00 = base0,idx0) state=%d (S_ACK=2)",
+                  il_a ? 1 : 0, vec_a, static_cast<int>(st_a),
+                  il_b ? 1 : 0, vec_b, static_cast<int>(st_b),
+                  il_c ? 1 : 0, vec_c, static_cast<int>(st_c));
+    check(res, "V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974",
+          a_ok && b_ok && c_ok, detail);
 }
 
 }  // namespace
@@ -2931,6 +3044,9 @@ int main() {
     // fired only ONCE per emulator lifetime in IM2 mode because int_req_d
     // never settled back to 0. Fix: auto-clear int_req at end of tick().
     test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(res);
+    // V21-IM2-01 (pass-21) — int_line_asserted / ack_vector must gate on
+    // im_mode_ == 2 (= VHDL i_im2_mode = z80_im_mode(1) at zxnext.vhd:1974).
+    test_v21_im2_01_int_line_gated_on_im_mode(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

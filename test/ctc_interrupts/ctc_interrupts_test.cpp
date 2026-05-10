@@ -366,6 +366,13 @@ static void test_ula_int_integration(Emulator& emu) {
     {
         fresh(emu);
         emu.im2().set_mode(true);   // IM2 mode (NR 0xC0 bit 0)
+        // V21-IM2-01 — feed ED 5E (IM 2) to the IM2-control decoder so
+        // `im_mode_` becomes 2 (= VHDL `i_im2_mode='1'`). Pre-V21 the
+        // int_line_asserted gate only checked `im2_mode_` (NR 0xC0 b0);
+        // post-V21 the gate also requires `im_mode_ == 2` per VHDL
+        // im2_device.vhd:150 (`o_int_n` gates on `i_im2_mode`).
+        emu.im2().on_m1_cycle(0x0000, 0xED);
+        emu.im2().on_m1_cycle(0x0001, 0x5E);
         // Write NR 0x22 with bit 1 = 1. This is the ONLY path enabling
         // LINE int_en in this scenario; NR 0xC4 is left at reset default.
         nr_write(emu, 0x22, 0x02);
@@ -742,6 +749,16 @@ static void test_ula_int_integration(Emulator& emu) {
         fresh(emu);
         // Set IM2 mode via NR 0xC0 bit 0.
         nr_write(emu, 0xC0, 0x01);
+        // V21-IM2-01 — pre-feed the IM2-control decoder with an ED 5E
+        // (IM 2) so its `im_mode_` shadow becomes 2 (= VHDL
+        // `i_im2_mode='1'`). The Z80 register `regs.IM=2` below is the
+        // FUSE-side bit; the IM2 controller's separate decoder is
+        // driven by on_m1_cycle from the CPU's M1 callback. In a real
+        // boot the supervisor executes ED 5E itself which updates both
+        // sides; this test bypasses the FUSE Z80 to keep the setup
+        // minimal, so feed the decoder directly.
+        emu.im2().on_m1_cycle(0x0000, 0xED);
+        emu.im2().on_m1_cycle(0x0001, 0x5E);
         // Set IFF1=1 + IM=2 so the CPU will accept interrupts in IM2.
         // (Z80Cpu reset clears IFF1; this is the minimal setup to make
         // the test exercise the IntAck path without requiring EI/IM2

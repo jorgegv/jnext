@@ -279,6 +279,14 @@ void Im2Controller::on_reti() {
     // im2_.on_reti() directly — keeping both paths converges on the same
     // end state.
     if (!im2_mode_) return;   // device SM is reset-held in pulse mode
+    // V21-IM2-01 fix: VHDL im2_device.vhd:123-128 S_ISR→S_0 transition
+    // gates on `i_im2_mode='1'` (= `z80_im_mode(1)`). The legacy
+    // on_reti() entry point must apply the same gate; pre-fix it cleared
+    // S_ISR on any RETI regardless of Z80 IM mode, dropping a device
+    // that VHDL would keep latched when the Z80 had transiently dropped
+    // out of IM=2. See step_state_machine_with_iei S_ISR branch for the
+    // parallel fix on the modern path.
+    if (im_mode_ != 2) return;
     // Pass-10 fix: VHDL im2_control.vhd:233-234 — `o_reti_decode = (state ==
     // S_ED_T4)` AND `o_reti_seen = (state_next == S_ED4D_T4)`. At the T4
     // event of the 0x4D fetch, state IS S_ED_T4 (clock edge hasn't fired
@@ -602,7 +610,28 @@ bool Im2Controller::int_line_asserted() const {
     //     o_int_n <= int_n(1) and int_n(2) ... and int_n(14)
     // Equivalent: the aggregate line is low (asserted) iff ANY device drives
     // its local o_int_n low — i.e., is in S_REQ with IEI high in IM2 mode.
-    if (!im2_mode_) return false;
+    //
+    // V21-IM2-01 fix: VHDL `i_im2_mode` is wired to `z80_im_mode(1)` at
+    // zxnext.vhd:1974 — i.e. it is HIGH only when the Z80 is itself in
+    // IM=2 (the im2_control decoder sets `im_mode = "10"` only on
+    // execution of ED 5E / ED 7E). Pre-fix the gate read only
+    // `im2_mode_` (= `nr_c0_int_mode_pulse_0_im2_1`, the NR 0xC0 mode
+    // selector). When NR 0xC0 b0 = 1 but the Z80 is still in IM=0 or
+    // IM=1 (boot-realistic window before the first ED 5E/7E executes,
+    // or any transitional path where the supervisor flips NR 0xC0 b0
+    // before IM=2 instructions run), pre-fix jnext could falsely assert
+    // the Z80 /INT line and let request_interrupt fire with vector
+    // 0xFE on the next iff1=1 boundary — the CPU then services via its
+    // CURRENT IM mode (IM=0 / IM=1 → RST $38) which real hardware
+    // never reaches because the VHDL `im2_int_n` stays HIGH while
+    // `z80_im_mode(1)='0'`.
+    //
+    // Note that the device state machine is held in S_0 (via
+    // `im2_reset_n='0'` per :105) ONLY in pulse mode; the FSM does run
+    // in IM2-fabric mode regardless of `z80_im_mode`, but `o_int_n`
+    // stays high until `i_im2_mode` rises.
+    if (!im2_mode_)      return false;   // device SM held reset in pulse mode
+    if (im_mode_ != 2)   return false;   // VHDL :150 i_im2_mode gate
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state != DevState::S_REQ) continue;
         bool iei = (i == 0) ? true : device_ieo(i - 1);
@@ -629,7 +658,18 @@ uint8_t Im2Controller::ack_vector() {
     // Vector: im2_device.vhd:155 drives o_vec = i_vec while state = S_ACK or
     // state_next = S_ACK. We compose at read time; the caller (CPU) latches
     // the byte immediately.
-    if (!im2_mode_) return 0xFF;  // pulse mode: legacy int_vector_ drives
+    //
+    // V21-IM2-01 fix: VHDL S_REQ→S_ACK at :112 gates on `i_im2_mode='1'`
+    // (= `z80_im_mode(1)`). In jnext that maps to `im_mode_ == 2`. The
+    // pre-fix gate only checked `im2_mode_` (= NR 0xC0 mode select);
+    // in IM2-fabric mode with the Z80 in IM=0/1, ack_vector would
+    // advance a device to S_ACK and return a composed vector that real
+    // hardware would never deliver (because `o_int_n` stays HIGH per
+    // the V21-IM2-01 `int_line_asserted` fix above, and even if /INT
+    // were somehow asserted the S_REQ→S_ACK transition itself gates on
+    // `i_im2_mode`).
+    if (!im2_mode_)    return 0xFF;  // pulse mode: legacy int_vector_ drives
+    if (im_mode_ != 2) return 0xFF;  // VHDL :112 i_im2_mode gate
     for (int i = 0; i < N; ++i) {
         if (dev_[i].state != DevState::S_REQ) continue;
         bool iei = (i == 0) ? true : device_ieo(i - 1);
@@ -1002,7 +1042,20 @@ void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
             // Agent A owns reti_seen_pulse_; we consume it here.
             // (The legacy on_reti() entry point also triggers the same
             //  walk, so both RETI propagation paths converge.)
-            if (reti_seen_pulse_ && iei) {
+            //
+            // V21-IM2-01 fix: gate also on `i_im2_mode` (= im_mode_==2).
+            // The S_REQ→S_ACK→S_ISR pipeline only reaches S_ISR when
+            // i_im2_mode was high at the ACK boundary, but a subsequent
+            // IM 0 / IM 1 instruction could drop im_mode_ before RETI
+            // executes — VHDL would then HOLD the device in S_ISR until
+            // either (a) reset, or (b) the Z80 returns to IM=2 and a
+            // RETI fires. Pre-fix jnext cleared S_ISR unconditionally
+            // on `reti_seen && iei`, dropping a device that VHDL would
+            // keep latched. Concretely: NEXTREG-controlled ISR that
+            // briefly switches IM modes mid-handler and RETIs from
+            // IM=1 territory would observe the daisy chain clear in
+            // jnext but stay latched on real hardware.
+            if (reti_seen_pulse_ && iei && im_mode_ == 2) {
                 d.state = DevState::S_0;
                 // Clear the im2_int_req latch inline — VHDL
                 // im2_peripheral.vhd:175 (clear via im2_isr_serviced).
