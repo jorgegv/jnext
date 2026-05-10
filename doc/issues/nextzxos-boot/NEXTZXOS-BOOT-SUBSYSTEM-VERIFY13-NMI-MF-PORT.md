@@ -119,7 +119,7 @@ canonicalisation seams:
      byte to '0' so `regs_[0x05]` matches the VHDL FF state.
 
   2. **Gating-state-change edge** — NR 0x03 write_handler at
-     `src/core/emulator.cpp` (post-fix lines ~1976-1992): on the
+     `src/core/emulator.cpp` (post-fix lines 1974-1997): on the
      timing→Pentagon transition, clear cached(0x05) bit 2 so a
      pre-Pentagon write that legitimately latched bit 2 = 1 in the FF
      gets cleared in lock-step with the VHDL FF.
