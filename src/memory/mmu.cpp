@@ -238,6 +238,28 @@ void Mmu::rebuild_ptr(int slot) {
                                                : rom_.page_ptr(rom_page);
                 write_ptr_[slot] = nullptr;
                 read_only_[slot] = true;
+                // Verify11-memory class-(c) fix: keep `slots_[]` semantics
+                // consistent with `read_only_[slot]=true` (= "physical SRAM
+                // page currently being served"). Without this update, after
+                // an NR $50/$51 write of v ∈ [$E0..$FE] the array carries
+                // the verbatim NR-write value (e.g. 0xE5) while
+                // `read_only_=true` says "interpret slots_[] as physical
+                // page". The first-branch (`read_only_=true`) reload path
+                // in rebuild_ptr (the load_state and any other rebuild
+                // entry) would consume `slots_[slot]` as the physical
+                // page and dispatch reads to the wrong SRAM region (e.g.
+                // ram.page_ptr(0xE5) instead of the legacy-ROM
+                // sram_rom-derived page). VHDL keeps MMU<i> verbatim in
+                // the NR register (mirrored by `nr_mmu_[slot]`), but the
+                // SRAM arbiter at zxnext.vhd:3037-3057 always falls into
+                // the legacy ROM branch (`sram_pre_A21_A13 <= "000000" &
+                // sram_rom & cpu_a(13)`) for `mmu_A21_A13(8)='1'` slot
+                // 0/1 access. Mirroring that here means `slots_[slot]`
+                // holds `sram_rom*2+slot`, the page the SRAM arbiter
+                // would actually drive. `nr_mmu_[slot]` keeps the
+                // verbatim NR-write value (e.g. 0xE5) for read-back
+                // (zxnext.vhd:6075-6082).
+                slots_[slot] = rom_page;
             }
             return;
         }

@@ -4111,6 +4111,85 @@ void test_cat27_l2_rom_area_gate() {
 // The fix uses Mmu::get_page (= nr_mmu_[slot]). This is a CPU-side fix;
 // the regression test is in contention_test.cpp at the integration level.
 
+// V11-MEM-01 — Verify11-memory class-(c) finding: NR $50/$51 with v ∈
+// [$E0..$FE] left `slots_[slot]` carrying the verbatim NR-write value
+// (e.g. 0xE5) while `read_only_[slot]=true`. This dual-semantics state
+// (= "MMU register value" when read_only_=false; = "physical SRAM page"
+// when read_only_=true) was inconsistent for the NR-driven slot 0/1
+// high-page case. After save_state + load_state the rebuild_ptr first
+// branch (`if (read_only_[slot])`) consumes `slots_[slot]` as the
+// physical page and dispatches reads to the wrong SRAM region (e.g.
+// `ram_.page_ptr(0xE5)` instead of the legacy-ROM page
+// `ram_.page_ptr(sram_rom*2+slot)`). VHDL zxnext.vhd:3037-3057 always
+// falls into the legacy ROM branch (`sram_pre_A21_A13 <= "000000" &
+// sram_rom & cpu_a(13)`) for `mmu_A21_A13(8)='1'` slot 0/1 access; the
+// physical SRAM page driven on the bus is `sram_rom*2+slot`. Fix:
+// rebuild_ptr's `page >= 0xE0` slot 0/1 branch now stores `rom_page`
+// (the actual physical page) into `slots_[slot]` so the array semantics
+// stay consistent. `nr_mmu_[slot]` keeps the verbatim NR-write value
+// for the read-back at zxnext.vhd:6075-6082.
+void test_cat27_v11_mem_01_save_load_high_page() {
+    set_group("Cat27 V11-MEM-01 NR $50/$51 high-page slots_[] consistency");
+
+    // V11-MEM-01-A: discriminative — after `set_page(0, 0xE5)` followed by
+    // save_state + load_state, the loaded Mmu must read from the legacy
+    // ROM page (sram_rom*2+slot=0 for fresh ZXN_ISSUE2 with port_7ffd=0,
+    // port_1ffd=0), NOT from RAM page 0xE5.
+    //
+    // Sentinel layout (Next mode, rom_in_sram_=true):
+    //   - RAM page 0x00 (the legacy-ROM-derived target after the fix) ← 0x33
+    //   - RAM page 0xE5 (the pre-fix wrong target) ← 0x77
+    // Pre-fix: load_state's rebuild_ptr first branch reads
+    //          ram.page_ptr(slots_[0]=0xE5)[0] = 0x77.
+    // Post-fix: slots_[0] was rewritten to rom_page=0 inside rebuild_ptr's
+    //           >=0xE0 branch at set_page time, so save+load round-trips
+    //           slots_[0]=0; rebuild_ptr's first branch reads
+    //           ram.page_ptr(0)[0] = 0x33.
+    {
+        Fixture src;
+        src.fresh();
+        src.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        src.mmu.set_rom_in_sram(true);  // Next mode (rom served from SRAM)
+        // Seed the two distinguishing pages.
+        if (src.ram.page_ptr(0x00)) src.ram.page_ptr(0x00)[0] = 0x33;  // legacy-ROM target
+        if (src.ram.page_ptr(0xE5)) src.ram.page_ptr(0xE5)[0] = 0x77;  // pre-fix wrong target
+        src.mmu.set_page(0, 0xE5);
+        // Sanity (runtime path is already correct per FIX-SLOT01-HIPAGE-01).
+        const uint8_t pre = src.mmu.read(0x0000);
+
+        // Save.
+        StateWriter measure;
+        src.mmu.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter writer(buf.data(), buf.size());
+        src.mmu.save_state(writer);
+
+        // Load into a fresh Mmu, with the same RAM seed AND machine state
+        // (rom_in_sram_ comes through save/load).
+        Fixture dst;
+        dst.fresh();
+        dst.mmu.set_machine_type(MachineType::ZXN_ISSUE2);
+        if (dst.ram.page_ptr(0x00)) dst.ram.page_ptr(0x00)[0] = 0x33;
+        if (dst.ram.page_ptr(0xE5)) dst.ram.page_ptr(0xE5)[0] = 0x77;
+        StateReader reader(buf.data(), buf.size());
+        dst.mmu.load_state(reader);
+
+        const uint8_t post = dst.mmu.read(0x0000);
+        const uint8_t nr_rb = dst.mmu.get_page(0);
+
+        check("V11-MEM-01-A",
+              "NR $50=0xE5 + save_state + load_state: rebuild_ptr serves "
+              "legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — "
+              "VHDL zxnext.vhd:3037-3057 :3052; verify11-memory",
+              pre == 0x33 && post == 0x33 && nr_rb == 0xE5,
+              fmt("pre-save read=0x%02X (exp 0x33), "
+                  "post-load read=0x%02X (exp 0x33; pre-fix=0x77 from "
+                  "wrong RAM page 0xE5), "
+                  "nr_mmu_[0]=0x%02X (exp 0xE5 verbatim)",
+                  pre, post, nr_rb));
+    }
+}
+
 } // namespace (Cat27 testcov-memory)
 } // namespace (top-level anon)
 
@@ -4164,6 +4243,7 @@ int main() {
     test_cat27_currentsramrom_128k_altrom_lock();
     test_cat27_l2_overlay_lowhalf();
     test_cat27_l2_rom_area_gate();
+    test_cat27_v11_mem_01_save_load_high_page();
 
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
