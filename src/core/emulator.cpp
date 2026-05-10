@@ -2901,12 +2901,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Read returns port_123b_dat (VHDL :3933): segment | "00" | shadow | rd_en
     // | enable | wr_en (bit 4 always reads 0; offset register not exposed) —
     // G145.
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2635 gates port_123b on
+    // `port_layer2_io_en = '1'`, where
+    // `port_layer2_io_en <= internal_port_enable(15)` = NR 0x83 bit 7
+    // (VHDL :2424). When cleared, the port is silenced.
     port_.register_handler(0xFFFF, 0x123B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x83) & 0x80) == 0) return 0xFF;
             // VHDL zxnext.vhd:3933 read-back composition (G145).
             return mmu_.l2_port_readback();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x80) == 0) return;  // NR 0x83 b7 gate
             // The bit-4 / non-bit-4 dispatch lives inside Mmu::set_l2_port;
             // here we just forward the byte plus the current NR 0x12/NR 0x13
             // bank values (the shadow bank is plumbed through the NR 0x13
@@ -3305,19 +3311,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr);
 
     // Sprite slot select and status — port 0x303B (full 16-bit match).
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2679-2681 gates port_303b /
+    // port_57 / port_5b on `port_sprite_io_en = '1'`, where
+    // `port_sprite_io_en <= internal_port_enable(14)` = NR 0x83 bit 6
+    // (VHDL :2423). When the gate is cleared the ports are silenced
+    // (read returns the floating-bus default, writes are dropped).
+    // Default at reset is 1 so all current boot paths leave the gate
+    // open; software-controlled silencing was broken pre-fix.
     port_.register_handler(0xFFFF, 0x303B,
-        [this](uint16_t) -> uint8_t { return sprites_.read_status(); },
-        [this](uint16_t, uint8_t val) { sprites_.write_slot_select(val); });
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return 0xFF;
+            return sprites_.read_status();
+        },
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;
+            sprites_.write_slot_select(val);
+        });
 
     // Sprite attributes — port 0x57 (low byte match).
     port_.register_handler(0x00FF, 0x0057,
         nullptr,
-        [this](uint16_t, uint8_t val) { sprites_.write_attribute(val); });
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;  // NR 0x83 b6 gate
+            sprites_.write_attribute(val);
+        });
 
     // Sprite pattern data — port 0x5B (low byte match).
     port_.register_handler(0x00FF, 0x005B,
         nullptr,
-        [this](uint16_t, uint8_t val) { sprites_.write_pattern(val); });
+        [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x83) & 0x40) == 0) return;  // NR 0x83 b6 gate
+            sprites_.write_pattern(val);
+        });
 
     // Port 0xDFFD — Profi/Next extended paging. VHDL zxnext.vhd:2596.
     // Decode: A15:12="1101", port_fd (A1:0="01") → mask 0xF003/0xD001.
@@ -3467,13 +3492,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // wiring on that concern).
     //
     // 0x3F: Profi-only (b3). 0x5F: SD1 ch D (b1) OR Profi ch D (b3).
-    port_.register_handler(0xFFFF, 0x003F, nullptr,
+    // V18-NMP-02 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661, :2664 decode
+    // the Profi-Covox channel A (0x3F) / channel D (0x5F) writes using ONLY
+    // the LSB — they OR-fold with `port_3f_lsb` / `port_5f_lsb` which the
+    // LSB decoder at :2549, :2553 sets when `cpu_a(7:0) = X"3F"` / `X"5F"`
+    // (A15..A8 are DON'T-CARE). Pre-fix the handlers used mask 0xFFFF / val
+    // 0x003F (etc.) requiring the full 16-bit address to match exactly —
+    // software using e.g. OUT (0x123F), A would write the Profi DAC ch A on
+    // real hardware but not in jnext. Fix: change masks to 0x00FF / val 0x003F
+    // (etc.). This makes them equally-specific (8 bits) to the MF+3 readback
+    // handler at LSB 0x3F (read-only, registered earlier), so the dispatcher
+    // routes reads to the MF readback and writes to the DAC — both as VHDL
+    // intends since both decodes are parallel in hardware.
+    port_.register_handler(0x00FF, 0x003F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x08) == 0) return;   // Profi b3 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x005F, nullptr,
+    port_.register_handler(0x00FF, 0x005F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
@@ -3487,25 +3524,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // when port_dac_mono_AD_fb_io_en is effective, so the 0xFB handler
     // below honours the VHDL gate composition instead of unconditionally
     // routing to ch D.
-    port_.register_handler(0xFFFF, 0x00F1, nullptr,
+    //
+    // V18-NMP-03 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661-2664 fold
+    // these into `port_dac_A/B/C/D` via `port_f1_lsb / port_f3_lsb / port_f9_lsb
+    // / port_fb_lsb` — LSB-only decode (A15..A8 don't-care). Pre-fix the
+    // handlers used mask 0xFFFF, requiring full 16-bit match; software writing
+    // to e.g. 0x12F1 would update DAC ch A on real hardware but not in jnext.
+    // Fix: change all four to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x00F3, nullptr,
+    port_.register_handler(0x00FF, 0x00F3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(1, val);
         });
-    port_.register_handler(0xFFFF, 0x00F9, nullptr,
+    port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(2, val);
         });
-    port_.register_handler(0xFFFF, 0x00FB, nullptr,
+    port_.register_handler(0x00FF, 0x00FB, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // VHDL zxnext.vhd:2664 — port_dac_D fires on 0xFB when either
@@ -3526,7 +3570,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and port_dac_mono_BC_b3_io_en='1' else '0'`, routed to channels B
     // and C via the port_dac_B/port_dac_C fan-in at :2662-2663. NR 0x84
     // bit 6 (G114) gates this fan-out.
-    port_.register_handler(0xFFFF, 0x00B3, nullptr,
+    //
+    // V18-NMP-04 (Pass-18 verify-audit fix): VHDL `port_b3_lsb` is LSB-only
+    // (A15..A8 don't-care, per the LSB decoder at zxnext.vhd:2559). Pre-fix
+    // mask 0xFFFF required full 16-bit match — software writing to e.g.
+    // 0x12B3 would update GS Covox B/C on real hardware but not in jnext.
+    // Fix: change to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00B3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x40) == 0) return;   // GS Covox b6
@@ -4129,11 +4179,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // CTC channels 0-3: VHDL zxnext.vhd:2690 — cpu_a(15:11)="00011"
     // plus LSB = 0x3B. Covers 0x183B..0x1F3B; channel from bits 9:8.
+    // V18-NMP-NIT-01: VHDL :2690 gates port_ctc on
+    // `port_ctc_io_en = '1'`, where
+    // `port_ctc_io_en <= internal_port_enable(27)` = NR 0x85 bit 3
+    // (VHDL :2442). When cleared, the port is silenced.
     port_.register_handler(0xF8FF, 0x183B,
         [this](uint16_t p) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
             return ctc_.read((p >> 8) & 3);
         },
         [this](uint16_t p, uint8_t val) {
+            if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
             ctc_.write((p >> 8) & 3, val);
         });
 
@@ -4141,18 +4197,30 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd: port_dma_rd/wr <= port_dma_rd_raw/wr_raw AND NOT
     // dma_holds_bus — the DMA port is gated at the dispatcher layer while
     // the DMA controller holds the bus.  Matches DMA plan row 15.8.
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2643 also gates each port on the
+    // matching `port_dma_*_io_en` enable:
+    //   * port 0x6B → port_dma_6b_io_en = internal_port_enable(5)
+    //                = NR 0x82 bit 5 (VHDL :2405).
+    //   * port 0x0B → port_dma_0b_io_en = internal_port_enable(25)
+    //                = NR 0x85 bit 1 (VHDL :2440).
+    // When the enable bit is cleared, the port is silenced; this is
+    // independent of (and ANDed alongside) the dma_holds_bus check.
     port_.register_handler(0x00FF, 0x006B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x82) & 0x20) == 0) return 0xFF;
             return dma_.dma_holds_bus() ? 0xFF : dma_.read();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x82) & 0x20) == 0) return;  // NR 0x82 b5 gate
             if (!dma_.dma_holds_bus()) dma_.write(val, false);
         });
     port_.register_handler(0x00FF, 0x000B,
         [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x02) == 0) return 0xFF;
             return dma_.dma_holds_bus() ? 0xFF : dma_.read();
         },
         [this](uint16_t, uint8_t val) {
+            if ((effective_internal_port_enable(0x85) & 0x02) == 0) return;  // NR 0x85 b1 gate
             if (!dma_.dma_holds_bus()) dma_.write(val, true);
         });
 
@@ -4341,19 +4409,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // power-on. When firmware clears bit 5 (OUT NR 0x83, 0xDF), the ports
     // decode as unhandled and the floating-bus default (0xFF) is returned.
     // Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
-    port_.register_handler(0xFFFF, 0xFADF,
+    // V18-NMP-01 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2668-2670 decode
+    // the Kempston mouse ports using ONLY 12 address-line bits — A11..A8 must
+    // be 0xA / 0xB / 0xF (port_fadf / port_fbdf / port_ffdf respectively) AND
+    // A7..A0 must equal 0xDF (port_df_lsb). A15..A12 are DON'T-CARE. Pre-fix
+    // the handlers used mask 0xFFFF / val 0xFADF (etc.), requiring the FULL
+    // 16-bit address to match exactly — software using e.g. OUT (0x2ADF), A
+    // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
+    // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
+    // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fadf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFBDF,
+    port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fbdf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFFDF,
+    port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_ffdf();
@@ -4382,9 +4459,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 0xFF3B read remains a stub (the VHDL read path at zxnext.vhd:4556-4569
     // is write-only-latch plus palette-readback; no current consumer needs
     // read semantics).
+    // V18-NMP-NIT-01: VHDL zxnext.vhd:2685-2686 gates port_bf3b /
+    // port_ff3b on `port_ulap_io_en = '1'`, where
+    // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
+    // (VHDL :2439). When cleared, the ports are silenced.
     port_.register_handler(0xFFFF, 0xBF3B,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
+            return 0x00;
+        },
         [this](uint16_t, uint8_t v) {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
             // is unconditional on every bf3b write.
             renderer_.ula().set_ulap_mode(static_cast<uint8_t>((v >> 6) & 0x03));
@@ -4397,8 +4482,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
         });
     port_.register_handler(0xFFFF, 0xFF3B,
-        [](uint16_t) -> uint8_t { return 0x00; },
+        [this](uint16_t) -> uint8_t {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
+            return 0x00;
+        },
         [this](uint16_t, uint8_t v) {
+            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // Gate on ulap_mode = "01" per VHDL zxnext.vhd:4548.
             if (renderer_.ula().get_ulap_mode() == 0x01) {
                 renderer_.ula().set_ulap_en((v & 0x01) != 0);
