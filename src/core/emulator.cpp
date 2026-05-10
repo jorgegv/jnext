@@ -107,6 +107,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     copper_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
     joystick_.reset();
@@ -5492,9 +5494,17 @@ void Emulator::run_frame()
         scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
                 im2_.raise_req(Im2Controller::DevIdx::ULA);
-                if (!im2_.is_im2_mode()) {
-                    cpu_.request_interrupt(0xFF);
-                }
+                // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+                // by the post-im2_.tick() falling-edge poll at line ~5791.
+                // The legacy `cpu_.request_interrupt(0xFF)` here was a
+                // redundant second stamp for the same logical pulse and
+                // a latent double-INT trap if the ISR did `EI` within
+                // the 32/36-cycle re-stamp window. The V20 poll captures
+                // the same edge VHDL-faithfully one tick later (via
+                // im2_peripheral.vhd:186-194 `o_pulse_en` → pulse_int_n
+                // FSM → poll at zxnext.vhd:1840 z80_int_n composition).
+                // Symmetric with the LINE-INT scheduler in
+                // `reschedule_line_interrupt()` (also dropped).
                 im2_int_status_[0] |= 0x01;  // ULA interrupt status
             });
     }
@@ -5779,6 +5789,77 @@ void Emulator::run_frame()
             if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
                 cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
             }
+
+            // V20-IM2-01 fix: pulse-mode CPU /INT polling.
+            //
+            // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+            // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
+            // default scenario (expbus_disable_int='1', the power-on
+            // value with no expansion bus), this simplifies to
+            // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
+            // pulse_int_n drops low (any device's pulse_en fires via
+            // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
+            // and the CPU should accept on the next instruction
+            // boundary (subject to iff1).
+            //
+            // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
+            // from the ULA frame-INT scheduler callback (line 5443) and
+            // the LINE-INT scheduler callback (line 6655) — and only in
+            // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
+            // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
+            // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
+            // routed solely through `im2_.raise_req(DevIdx)`, which
+            // drives the fabric's pulse_int_n latch correctly via
+            // step_pulse() but never notified the CPU. Result: in pulse
+            // mode (the power-on default for NextZXOS / 48K / 128K boot
+            // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
+            // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
+            // cycles per VHDL, but the Z80 /INT pin was never wired.
+            //
+            // Fix: poll pulse_int_n() in pulse mode and request the CPU
+            // INT each tick the line is asserted. The 32/36-cycle
+            // window self-expires via Im2Controller::step_pulse()'s
+            // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
+            //
+            // Symmetric with the IM2-mode poll above. After
+            // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
+            // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
+            // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
+            // (`reschedule_line_interrupt()` at line ~6716) have been
+            // removed; this poll is now the SOLE driver of pulse-mode
+            // /INT — symmetric with the V19 IM2-mode poll above. That
+            // eliminates the latent double-INT trap where the legacy
+            // callback stamped `int_requested_at_=T0` at end of instr
+            // N, and this poll re-stamped `=T1` at end of instr N+1
+            // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
+            // within the re-stamped window could accept a second INT
+            // that real hardware would not.
+            //
+            // The vector 0xFF is the standard pulse-mode bus-floating
+            // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
+            // mode vector) to the data bus during IntAck; for pulse-
+            // mode the bus is floating and the CPU reads 0xFF
+            // canonically. Real hardware behavior may differ (TBD per
+            // observed silicon), but 0xFF matches the existing
+            // ULA/LINE callback convention and is what real 48K boot
+            // ROMs expect.
+            //
+            // Edge detection on pulse_int_n: assert CPU /INT exactly
+            // ONCE per pulse, on the falling edge. Calling
+            // `request_interrupt` every tick during the pulse window
+            // would re-stamp `int_requested_at_` to the current
+            // tstates each tick, extending the effective 32/36-cycle
+            // window indefinitely and producing extra INT acceptances
+            // (observable by the contention regression test which
+            // depends on precise interrupt timing). The 32/36-cycle
+            // expiry in `Z80Cpu::execute()` then naturally drops the
+            // pending request — matching VHDL's pulse_count_end gate.
+            const bool cur_pulse_int_n = im2_.pulse_int_n();
+            if (!im2_.is_im2_mode()
+                && !cur_pulse_int_n && prev_pulse_int_n_) {
+                cpu_.request_interrupt(0xFF);
+            }
+            prev_pulse_int_n_ = cur_pulse_int_n;
 
             // Count instructions for RZX recording.
             if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
@@ -6215,6 +6296,8 @@ void Emulator::reset()
     nextreg_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow.
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3).
     joystick_.reset();
@@ -6702,9 +6785,11 @@ void Emulator::reschedule_line_interrupt()
         [this, my_gen]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
             im2_.raise_req(Im2Controller::DevIdx::LINE);
-            if (!im2_.is_im2_mode()) {
-                cpu_.request_interrupt(0xFF);
-            }
+            // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+            // by the post-im2_.tick() falling-edge poll at line ~5791.
+            // Symmetric with the FRAME-INT scheduler at line ~5443
+            // (also dropped). See the V20R-CPU-NIT-02 comment there
+            // for the full rationale.
             im2_int_status_[0] |= 0x02;  // Line interrupt status
             ++line_int_fire_count_;       // G163 test-observable
         });
@@ -6979,6 +7064,20 @@ void Emulator::save_state(StateWriter& w) const
     // value persists across resets and must round-trip via save/load.
     // Appended at the very end for backwards-compat (load tolerates EOF).
     w.write_bool(nr_02_bus_reset_);
+
+    // V20R-CPU-NIT-01 — persist `prev_pulse_int_n_` (the falling-edge
+    // shadow used by the pulse-mode CPU /INT poll at line 5791+). The
+    // shadow is net-new Pass-20 state. Im2Controller::save_state()
+    // already persists `pulse_int_n_`; without this companion slot a
+    // load_state taken mid-pulse (cur=0) would restore the shadow to
+    // its construction default `true`, so the next tick would see
+    // `!cur && prev` = falling edge and fire a spurious
+    // request_interrupt(0xFF). The 32/36-cycle drop arm in
+    // Z80Cpu::execute() would clean up the phantom INT within one
+    // pulse window — but the V20 fix's "exactly ONCE per pulse"
+    // invariant is locally violated. End-of-stream append + eof()
+    // tolerance so prior snapshots load with the reset default.
+    w.write_bool(prev_pulse_int_n_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -7211,6 +7310,21 @@ void Emulator::load_state(StateReader& r)
     // of false (matching VHDL power-on signal initializer at :1095).
     if (!r.eof()) {
         nr_02_bus_reset_ = r.read_bool();
+    }
+
+    // V20R-CPU-NIT-01 — `prev_pulse_int_n_` (Pass-20 falling-edge shadow
+    // for the pulse-mode CPU /INT poll at line 5791+). Pairs with the
+    // matching save_state append above. Saves predating Pass-20 leave
+    // the shadow at its reset default `true` (matches
+    // Im2Controller::reset() default pulse_int_n_=true; if the loaded
+    // im2_ state actually has pulse_int_n_=false the next-tick poll
+    // would fire a spurious request_interrupt(0xFF) — harmless since
+    // Z80Cpu::execute()'s 32/36T drop arm cleans it up, but the V20
+    // "exactly ONCE per pulse" invariant is locally violated. New
+    // saves persist the shadow exactly so a save-during-pulse +
+    // load round-trips faithfully.
+    if (!r.eof()) {
+        prev_pulse_int_n_ = r.read_bool();
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS

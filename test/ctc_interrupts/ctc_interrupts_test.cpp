@@ -20,9 +20,11 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -483,6 +485,236 @@ static void test_ula_int_integration(Emulator& emu) {
               st_dis == Im2Controller::DevState::S_0
                   && st_en == Im2Controller::DevState::S_REQ,
               detail);
+    }
+
+    // CTC-INT-V20-IM2-01 — Pulse-mode CTC INT must drive CPU /INT.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. In the default scenario
+    // (expbus_disable_int='1'), this reduces to `pulse_int_n AND
+    // im2_int_n`. When CTC ZC/TO fires in pulse mode (NR 0xC0 bit 0=0,
+    // the power-on default), the IM2 fabric drops pulse_int_n via
+    // im2_peripheral.vhd:186-194's o_pulse_en for non-exception
+    // devices. The Z80 /INT pin should be asserted.
+    //
+    // Pre-V20-IM2-01 jnext only called `cpu_.request_interrupt(0xFF)`
+    // from the ULA frame-INT and LINE-INT scheduler callbacks
+    // (emulator.cpp:5445, 6655). CTC's `on_interrupt` (line 4668) and
+    // UART's TX/RX hooks (4717/4722) ONLY routed through
+    // `im2_.raise_req(DevIdx)` — the fabric's pulse_int_n correctly
+    // dropped, but NO code notified the CPU. Result: in pulse mode
+    // (the default!), CTC ZC/TO and UART interrupts were SILENTLY
+    // DROPPED — the daisy chain advanced in the fabric, but the Z80
+    // /INT pin was never asserted, so the CPU never serviced the ISR.
+    //
+    // Discriminative test: pulse mode (don't write NR 0xC0; default
+    // is im2_mode=0), enable CTC0 int_en via NR 0xC5 bit 0, IFF1=1 +
+    // IM=1, fire CTC0 via emu.im2().raise_req(CTC0) bypassing the
+    // CTC peripheral timing (simulates a ZC/TO at frame start). Run a
+    // few instructions. Pre-fix: PC stays at the parked address.
+    // Post-fix: pulse_int_n drops → poll fires request_interrupt →
+    // CPU accepts → IM1 vector → PC=0x0038.
+    {
+        fresh(emu);
+        // Pulse mode is the default (NR 0xC0 bit 0 = 0).
+        // DISABLE ULA frame INT so it doesn't trigger /INT independently
+        // of our CTC fixture — that's the existing legacy path and would
+        // mask the discriminative observation. NR 0x22 bit 2 = 1 sets
+        // port_ff_reg(6) = 1 (port_ff_interrupt_disable=1), suppressing
+        // the ULA INT scheduler arm (emulator.cpp:5439 `ula_int_disabled_`
+        // gate). LINE int is OFF by default.
+        nr_write(emu, 0x22, 0x04);
+        // Enable CTC0 int_en via NR 0xC5 bit 0.
+        nr_write(emu, 0xC5, 0x01);
+        // Configure CPU: IFF1=1, IM=1 (accept INT, jump to 0x0038).
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Snapshot pulse_int_n state BEFORE the raise — it must be high
+        // (idle), otherwise the test setup is wrong.
+        const bool pulse_before = emu.im2().pulse_int_n();
+        // Fire CTC0 via the fabric (simulates CTC peripheral on_interrupt
+        // callback). This is the SAME entry point ctc_.on_interrupt
+        // would use; the fix is whether subsequent run_frame notifies
+        // the CPU.
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        emu.run_frame();
+        // Post-fix: at some point during the frame, the pulse_int_n
+        // poll fires request_interrupt(0xFF); the CPU accepts in IM=1
+        // and jumps to 0x0038. PC ends up in low-mem ROM territory.
+        // Pre-fix: PC stays in the 0x8000..0xFFFE range executing NOPs,
+        // never reaching 0x0038 — because no code wires CTC's
+        // raise_req → cpu_.request_interrupt in pulse mode.
+        const auto post_regs = emu.cpu().get_registers();
+        // Strict discriminative threshold: post-fix PC must be in ROM
+        // (< 0x4000). Pre-fix PC stays at 0x8000+ (RAM NOP territory).
+        const bool int_was_accepted = (post_regs.PC < 0x4000);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "pulse_before_raise=%d (must be 1); "
+                      "post-run_frame PC=0x%04X (post-fix: PC < 0x4000 "
+                      "after IM1 vector at 0x0038; pre-fix: PC stays "
+                      "in 0x8000+ RAM, CTC INT never reached CPU "
+                      "in pulse mode)",
+                      pulse_before ? 1 : 0, post_regs.PC);
+        check("CTC-INT-V20-IM2-01",
+              "Pulse-mode CTC INT drives CPU /INT via pulse_int_n poll "
+              "[zxnext.vhd:1840 z80_int_n composition; "
+              "im2_peripheral.vhd:186 o_pulse_en for non-exception devices]",
+              pulse_before && int_was_accepted, detail);
+    }
+
+    // V20R-CPU-NIT-01-PREV-PULSE-PERSIST — `prev_pulse_int_n_` (the
+    // Pass-20 falling-edge shadow at `emulator.cpp` line ~5791) must
+    // round-trip through `Emulator::save_state()` / `load_state()`.
+    //
+    // Reviewer's class-(c) diagnosis: pre-fix the shadow was net-new
+    // Pass-20 state and was not added to the save/load schema.
+    // Im2Controller::save_state() already persists `pulse_int_n_`;
+    // without the matching companion slot for the Emulator-level
+    // shadow, a snapshot taken mid-pulse (cur=0) restored fresh would
+    // leave the shadow at its `init()` / `reset()` default `true`.
+    // The next-tick V20 poll would then see `!cur && prev` = falling
+    // edge and fire a SPURIOUS `cpu_.request_interrupt(0xFF)` —
+    // harmless in practice (the 32/36T drop arm in Z80Cpu::execute()
+    // cleans up the phantom INT within one pulse window) but a
+    // class-(c) divergence of the V20 fix's "exactly ONCE per pulse"
+    // invariant. Filed as V20R-CPU-NIT-01.
+    //
+    // Discriminative test:
+    //   1) Build emulator A. Drive `prev_pulse_int_n_` to FALSE via
+    //      the test-only setter (so we don't depend on the precise
+    //      tick window where the V20 poll happens to fire mid-frame).
+    //   2) Save_state. The append-only V20R-CPU-NIT-01 slot writes the
+    //      shadow (false) at the end of the stream.
+    //   3) Build emulator B (fresh init → `prev_pulse_int_n_=true`,
+    //      matching the reset default).
+    //   4) Load_state into B.
+    //   5) Sandwich-verify: B's accessor must return FALSE — meaning
+    //      the slot round-tripped. Pre-fix (no slot in save/load):
+    //      B's accessor stays TRUE (the reset default), and the test
+    //      FAILs (we never wrote the slot so we never read it back).
+    {
+        Emulator emu_save;
+        if (!build_next_emulator(emu_save)) {
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "emu_save construction failed",
+                  false, "");
+        } else {
+            // Drive the shadow to a non-default value.
+            emu_save.set_prev_pulse_int_n_for_test(false);
+            // Sanity: the setter took effect.
+            const bool pre_save_shadow = emu_save.prev_pulse_int_n_for_test();
+
+            // Measure snapshot size and serialise.
+            StateWriter measure;
+            emu_save.save_state(measure);
+            const size_t snap_size = measure.position();
+            std::vector<uint8_t> buf(snap_size, 0);
+            StateWriter w(buf.data(), snap_size);
+            emu_save.save_state(w);
+
+            // Fresh emulator → shadow is the reset default (true).
+            Emulator emu_load;
+            (void)build_next_emulator(emu_load);
+            const bool pre_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            // Load. The append-only V20R-CPU-NIT-01 slot (after
+            // `nr_02_bus_reset_`) restores the shadow.
+            StateReader r(buf.data(), snap_size);
+            emu_load.load_state(r);
+            const bool post_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            char detail[240];
+            std::snprintf(detail, sizeof(detail),
+                          "emu_save pre-save shadow=%d (must be 0 after setter); "
+                          "emu_load pre-load shadow=%d (must be 1 = reset default); "
+                          "emu_load post-load shadow=%d "
+                          "(post-fix: 0 — slot round-trips; "
+                          "pre-fix: 1 — slot absent, accessor still reset default)",
+                          pre_save_shadow ? 1 : 0,
+                          pre_load_shadow ? 1 : 0,
+                          post_load_shadow ? 1 : 0);
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "Emulator::prev_pulse_int_n_ round-trips through save_state/load_state "
+                  "[reviewer V20R-CPU-NIT-01; pre-fix slot absent → load restores "
+                  "to reset default `true` and the next-tick V20 poll spuriously fires]",
+                  pre_save_shadow == false
+                      && pre_load_shadow == true
+                      && post_load_shadow == false,
+                  detail);
+        }
+    }
+
+    // V20R-CPU-NIT-02-NO-DOUBLE-STAMP — exactly ONE
+    // `cpu_.request_interrupt(0xFF)` per ULA frame-INT pulse.
+    //
+    // Reviewer's class-(c) finding: the legacy scheduler-callback
+    // `cpu_.request_interrupt(0xFF)` (at the FRAME-INT scheduler
+    // emulator.cpp:5443+ and the LINE-INT scheduler
+    // `reschedule_line_interrupt()` ~:6716) AND the V20 falling-edge
+    // poll (~:5791) BOTH stamped the same pulse → `int_requested_at_`
+    // was re-stamped at a LATER tstate than the original callback fire.
+    // Harmless for boot-realistic ISRs (32/36-cycle window expires
+    // before any EI), but a latent double-INT trap if an ISR did fast
+    // EI within the re-stamped window. Filed as V20R-CPU-NIT-02.
+    //
+    // Option A fix (reviewer recommended): drop the legacy
+    // scheduler-callback `cpu_.request_interrupt(0xFF)` and let the
+    // V20 falling-edge poll be the sole driver of pulse-mode /INT —
+    // VHDL-faithful and symmetric with the V19 IM2-mode poll.
+    //
+    // Discriminative test: fresh emulator + pulse mode (NR 0xC0 b0=0
+    // default) + ULA INT enabled (port_ff_reg(6)=0 default) + IFF1=1 +
+    // IM=1 + PC parked in RAM. Reset request_interrupt counter.
+    // Run one frame. The FRAME-INT scheduler fires once → raise_req(ULA)
+    // → next instruction's im2_.tick step_pulse drops pulse_int_n=false
+    // → V20 poll fires falling-edge → exactly ONE
+    // request_interrupt(0xFF). The pulse window expires at +32/+36T
+    // and prev_pulse_int_n_ tracks back to true; no re-fire until next
+    // frame. So `request_interrupt_count()` MUST be exactly 1.
+    //
+    // Post-fix: count == 1.
+    // Pre-fix Option A (callback re-added): count == 2 (callback + poll).
+    {
+        fresh(emu);
+        // Configure CPU: IFF1=1, IM=1, PC in NOP RAM.
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Disable LINE INT so only the ULA FRAME-INT fires (otherwise
+        // both raise + their respective poll would each contribute,
+        // muddying the count). Default NR 0x22 has line_interrupt_en=0,
+        // so this is implicit — we explicitly write 0x00 for clarity.
+        nr_write(emu, 0x22, 0x00);
+        // Reset the request_interrupt counter AFTER setting up the
+        // emulator (init may have called request_interrupt during
+        // boot-state setup; we only care about the frame we're about
+        // to run).
+        emu.cpu().reset_request_interrupt_count();
+        emu.run_frame();
+        const uint32_t cnt = emu.cpu().request_interrupt_count();
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "request_interrupt_count after 1 frame "
+                      "(pulse mode + ULA INT enabled) = %u "
+                      "(post-fix: 1 — V20 poll is sole driver; "
+                      "pre-fix: 2 — legacy callback + V20 poll BOTH "
+                      "stamp the same pulse)",
+                      cnt);
+        check("V20R-CPU-NIT-02-NO-DOUBLE-STAMP",
+              "Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse "
+              "[reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback "
+              "+ V20 falling-edge poll both stamped → latent fast-EI double-INT]",
+              cnt == 1, detail);
     }
 
     // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the

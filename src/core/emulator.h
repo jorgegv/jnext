@@ -362,6 +362,18 @@ public:
     uint64_t line_int_fire_count() const { return line_int_fire_count_; }
     void reset_line_int_fire_count() { line_int_fire_count_ = 0; }
 
+    /// V20R-CPU-NIT-01 — Test accessors for the Pass-20 falling-edge
+    /// shadow used by the pulse-mode CPU /INT poll (emulator.cpp line
+    /// ~5791). Saved/loaded by `Emulator::{save,load}_state` so a
+    /// snapshot taken mid-pulse round-trips faithfully. Used by the
+    /// V20R-CPU-NIT-01-PREV-PULSE-PERSIST regression to assert the
+    /// shadow survives save/load. The setter is test-only: it is the
+    /// minimum interface required to drive `prev_pulse_int_n_` to a
+    /// non-default value without depending on the precise tick window
+    /// where the V20 poll's falling-edge happens to fire mid-frame.
+    bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
+    void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
+
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
     // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,
@@ -784,6 +796,21 @@ private:
     // Im2Controller. VHDL: nr_c4_int_en_0_expbus defaults '1' at reset
     // (zxnext.vhd:5096). Stored here for NR 0xC4 readback.
     bool     im2_c4_expbus_      = true;
+
+    // V20-IM2-01 — pulse-mode INT-line edge tracking. Per VHDL
+    // zxnext.vhd:2017-2031 the `pulse_int_n` line drops to '0' for
+    // 32/36 cycles when any peripheral's `o_pulse_en` fires, then
+    // returns to '1' via `pulse_count_end`. The Z80 /INT pin is the
+    // AND of `pulse_int_n AND im2_int_n` (line :1840, default expbus
+    // disabled scenario). To assert CPU INT exactly ONCE per pulse,
+    // we track the previous-tick `pulse_int_n` and call
+    // `cpu_.request_interrupt(0xFF)` only on the falling edge — NOT
+    // on every tick while pulse_int_n stays low (which would re-stamp
+    // `int_requested_at_` each tick, EXTENDING the effective 32/36-
+    // cycle window indefinitely and causing extra INT acceptances
+    // when the CPU exits an ISR via EI within the window). Initial
+    // value true matches `Im2Controller::reset()` default.
+    bool     prev_pulse_int_n_   = true;
 
     // NR 0xC6 raw readback shadow — VHDL read (zxnext.vhd:6245):
     //   port_253b_dat <= '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210

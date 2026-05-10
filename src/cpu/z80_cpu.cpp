@@ -926,6 +926,9 @@ void Z80Cpu::request_interrupt(uint8_t vector) {
     int_pending_ = true;
     int_vector_  = vector;
     int_requested_at_ = *fuse_z80_tstates_ptr();
+    // V20R-CPU-NIT-02 test observable — monotonic counter; not
+    // persisted in save/load (would shift schema layout).
+    ++request_interrupt_count_;
 }
 
 void Z80Cpu::request_nmi() {
