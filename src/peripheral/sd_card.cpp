@@ -881,8 +881,9 @@ void SdCardDevice::cmd10_send_cid() {
 }
 
 void SdCardDevice::cmd58_read_ocr() {
-    sd_log()->debug("CMD58 READ_OCR → initialized={} SDHC=1", initialized_);
-    // OCR: bit 31=power up complete (if initialized), bit 30=SDHC.
+    sd_log()->debug("CMD58 READ_OCR → initialized={} HCS={}",
+                    initialized_, host_supports_sdhc_ ? 1 : 0);
+    // OCR: bit 31=power up complete (if initialized), bit 30=SDHC (CCS).
     //
     // 2026-05-07: reverted from earlier ZEsarUX-style {$FF, $05, $00*4}
     // experiment. TBBLUE.FW's MMC_Init at SD_SEND_CMD_2_ARGS_TEST_BUSY
@@ -890,10 +891,24 @@ void SdCardDevice::cmd58_read_ocr() {
     // it as an error). $05 has bit 2 set → init aborts → "Error
     // initializing SD card!" displayed.
     //
-    // Standard SDHC R3 response: NCR + R1=$00 (ready) + 4 OCR bytes with
-    // CCS=1 (bit 30 of OCR = bit 6 of byte 0). TBBLUE.FW MMC_Init line
-    // 113 (mmc.s): `and #0x40` selects CCS bit. If set → SDHC, skip CMD16.
-    uint8_t ocr0 = initialized_ ? 0xC0 : 0x00;  // bit 31 = power-up done, bit 30 = CCS
+    // Standard SDHC R3 response: NCR + R1=$00 (ready) + 4 OCR bytes.
+    // TBBLUE.FW MMC_Init line 113 (mmc.s): `and #0x40` selects CCS bit.
+    // If set → SDHC, skip CMD16.
+    //
+    // V17-DIVMMC-01 (Pass-17 verify-audit, 2026-05-10): per SD Phys
+    // Layer Simplified Spec § 4.2.3 / § 5.1, CCS=1 only when ACMD41 was
+    // issued with HCS=1 (host capacity support = SDHC). Pre-fix the
+    // emulator unconditionally set CCS=1 — diverging from spec for any
+    // host that issued ACMD41 with HCS=0 (SDSC compatibility mode).
+    // The fix sources the CCS bit from `host_supports_sdhc_`, latched
+    // by acmd41_sd_send_op_cond() from the most-recent ACMD41 arg bit
+    // 30. TBBlue / NextZXOS / FatFs always set HCS=1, so the divergence
+    // is class-(c) latent on the boot path.
+    uint8_t ocr0 = 0x00;
+    if (initialized_) {
+        ocr0 = 0x80;  // bit 31 = power-up done
+        if (host_supports_sdhc_) ocr0 |= 0x40;  // bit 30 = CCS (SDHC)
+    }
     resp_buf_ = { 0xFF, static_cast<uint8_t>(initialized_ ? 0x00 : 0x01),
                   ocr0, 0xFF, 0x80, 0x00 };  // NCR + R3
     resp_idx_ = 0;
@@ -901,7 +916,18 @@ void SdCardDevice::cmd58_read_ocr() {
 }
 
 void SdCardDevice::acmd41_sd_send_op_cond() {
-    sd_log()->debug("ACMD41 SD_SEND_OP_COND → card initialized, ready");
+    // V17-DIVMMC-01 (Pass-17 verify-audit, 2026-05-10): SD Phys Layer
+    // Simplified Spec § 4.2.3 / § 5.1: capture the Host Capacity Support
+    // bit (arg bit 30). The next CMD58 (READ_OCR) must reflect this in
+    // the CCS bit of OCR — when HCS=0 the host only supports SDSC and the
+    // card MUST report CCS=0 even if it is internally SDHC. Pre-fix the
+    // emulator unconditionally set CCS=1 — diverging from spec for any
+    // host that requests SDSC compatibility mode. Class-(c) latent on
+    // boot path (TBBlue / NextZXOS / FatFs always set HCS=1).
+    const uint32_t arg = cmd_arg();
+    host_supports_sdhc_ = (arg & 0x40000000u) != 0;  // bit 30 = HCS
+    sd_log()->debug("ACMD41 SD_SEND_OP_COND arg={:#010x} HCS={} → card initialized, ready",
+                    arg, host_supports_sdhc_ ? 1 : 0);
     initialized_ = true;  // Card is now initialized
     queue_r1(0x00);  // R1: ready (not idle)
 }
