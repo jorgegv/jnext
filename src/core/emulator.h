@@ -415,6 +415,47 @@ public:
         return (test_hotkey_drive_ || test_sw_nmi_dmmc_) && nr_06_button_drive_nmi_en_;
     }
 
+    /// V16-NMP-02 (Pass-16 verify-audit fix): effective `internal_port_enable`
+    /// byte for one of the NR 0x82..0x85 enable registers, AND-masked with
+    /// the corresponding NR 0x86..0x89 bus-port enable when
+    /// `expbus_eff_en = 1` (NR 0x80 bit 7). Mirrors the VHDL formula at
+    /// `zxnext.vhd:2392-2393`:
+    ///   internal_port_enable <= (nr_85 & nr_84 & nr_83 & nr_82) when
+    ///                           expbus_eff_en='0' else
+    ///                           ((nr_89 AND nr_85) & (nr_88 AND nr_84) &
+    ///                            (nr_87 AND nr_83) & (nr_86 AND nr_82));
+    /// `reg` must be one of 0x82, 0x83, 0x84, 0x85; any other value
+    /// returns the raw cached byte unchanged. Pre-fix (and historically),
+    /// every port-decode gate consulted `nextreg_.cached(0x82..0x85)`
+    /// directly, ignoring the bus-port enable AND-mask.
+    uint8_t effective_internal_port_enable(uint8_t reg) const;
+
+    /// V16-NMP-02: re-push the persistent shadow of every effective
+    /// port-decode gate that downstream subsystems hold a copy of
+    /// (Contention's port_7ffd_io_en + port_ulap_io_en, DivMmc's
+    /// port_io_enable, Multiface's enable). Called from NR 0x80,
+    /// NR 0x82-0x85, and NR 0x86-0x89 write handlers so any change to
+    /// the AND-formula's inputs immediately re-propagates.
+    ///
+    /// `override_reg` / `override_val`: when an NR 0x82-0x85 / 0x86-0x89
+    /// write handler runs, the byte being written is NOT yet in
+    /// `nextreg_.cached(reg)` — NextReg::write writes the cache from
+    /// the handler's return value AFTER the handler returns. To let
+    /// the helper see the in-flight write, pass `(reg, val)`; the
+    /// helper substitutes `val` for the cached byte at `reg`. Pass
+    /// `override_reg = 0xFF` (any non-NR-byte) to use the cache verbatim.
+    void propagate_effective_port_enables(uint8_t override_reg = 0xFF,
+                                          uint8_t override_val = 0);
+
+    /// V16-NMP-02: same as `effective_internal_port_enable(reg)` but with
+    /// an in-flight override for the cache at `override_reg`. The
+    /// override applies only when `reg == override_reg` (the
+    /// internal-port byte being written) or `reg+4 == override_reg`
+    /// (the bus-port byte being written).
+    uint8_t effective_internal_port_enable(uint8_t reg,
+                                           uint8_t override_reg,
+                                           uint8_t override_val) const;
+
     // Read-back of NR 0x06 bits 3/4 for tests that want to assert the
     // store-side of the NextReg write path independently of the gate.
     bool nr_06_button_m1_nmi_en()    const { return nr_06_button_m1_nmi_en_; }

@@ -2948,14 +2948,22 @@ static void test_g56_cluster_b(Emulator& emu) {
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
     {
-        // SPKEY_BUTTONS [1:0] dynamic path: jnext models them as 0
-        // (no front-panel button input wired). Verify read returns 0
-        // for the bottom 2 bits regardless of write.
-        nr_write(emu, 0x10, 0x03);  // tries to set buttons in cache
+        // V16-NMP-01: SPKEY_BUTTONS [1:0] live held-state path. Per
+        // VHDL zxnext.vhd:5924 + zxnext_top_issue2.vhd:2281,
+        //   bit 0 = NOT btn_m1_multiface_n        (F9 held = 1)
+        //   bit 1 = NOT btn_drive_divmmc_n        (F10 held = 1)
+        // Bits 1:0 are sampled COMBINATIONALLY on every NR 0x10 read —
+        // they are NOT cache-write-driven. Pre-fix: write bits 1:0 leaked
+        // into the cache and the read returned 0 (because the write
+        // handler hardcoded them to 0). Post-fix: write of 0x03 still
+        // does NOT propagate to bits 1:0 (idle buttons → 0); the read
+        // now consults the live held-state. Idle baseline:
+        nr_write(emu, 0x10, 0x03);  // tries to set buttons via write
         uint8_t got = nr_read(emu, 0x10);
         check("G56-10-04",
               "NR 0x10 write=0x03 → read bits 1:0 = 0 "
-              "(SPKEY_BUTTONS unmodelled, idle) [zxnext.vhd:5924]",
+              "(buttons idle; bits 1:0 only respond to live SPKEY_BUTTONS) "
+              "[zxnext.vhd:5924]",
               (got & 0x03) == 0, detail_eq(got, uint8_t{0x00}));
     }
     // Restore reset coreid so downstream tests see VHDL default.
@@ -5033,6 +5041,312 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     emu.reset();
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// V16-NMP-01 — NR 0x10 readback bits 1:0 reflect F9/F10 (M1/Drive)
+// button held-state per VHDL zxnext.vhd:5924 + zxnext_top_issue2.vhd:2281.
+//
+// Pre-fix: the NR 0x10 write_handler at emulator.cpp:1255-1261 hardcoded
+// bits 1:0 to 0 (regs_[0x10] = (coreid<<2) on write, no read_handler).
+// Reads always returned 0 in those bits regardless of front-panel
+// button state.
+//
+// Post-fix: a read_handler at emulator.cpp:1278-1287 recomposes
+//   ((coreid & 0x1F) << 2) | (test_hotkey_m1_ ? 1 : 0) |
+//                            (test_hotkey_drive_ ? 2 : 0)
+// on every read. Bits 1:0 are sourced live from the same active-high
+// SPKEY_BUTTONS shadow already consumed by `nmi_assert_mf` /
+// `nmi_assert_divmmc` (emulator.h:411-416), settable via
+// `inject_hotkey_m1` / `inject_hotkey_drive`.
+//
+// Discriminative: pre-fix any combination of the test_hotkey_* setters
+// returns 0 in NR 0x10 bits 1:0; post-fix bit 0 echoes M1 and bit 1
+// echoes Drive. Reverting the read_handler installation in
+// emulator.cpp restores pre-fix behaviour and these rows FAIL.
+// ─────────────────────────────────────────────────────────────────────
+
+static void test_v16_nmp_01_nr10_spkey_buttons(Emulator& emu) {
+    set_group("V16-NMP-01-NR10-SPKEY");
+
+    // Baseline: at construction both held-state flags are false. Bits 1:0
+    // must read 0. (Mirrors the existing G56-10-04 row; included here so
+    // the V16 group is self-contained and discriminative even if older
+    // rows are reordered.)
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-IDLE",
+              "NR 0x10 bits 1:0 = 0 when both F9/F10 buttons released "
+              "[zxnext.vhd:5924]",
+              (got & 0x03) == 0x00,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x00}));
+    }
+
+    // M1 held only: bit 0 = 1, bit 1 = 0. coreid bits unchanged.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-M1",
+              "NR 0x10 bit 0 = 1 when F9 (M1 button) held; bit 1 = 0 "
+              "[zxnext.vhd:5924 / top_issue2.vhd:2281]",
+              (got & 0x03) == 0x01,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x01}));
+        emu.inject_hotkey_m1(false);
+    }
+
+    // Drive held only: bit 1 = 1, bit 0 = 0.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-DRIVE",
+              "NR 0x10 bit 1 = 1 when F10 (Drive button) held; bit 0 = 0 "
+              "[zxnext.vhd:5924 / top_issue2.vhd:2281]",
+              (got & 0x03) == 0x02,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x02}));
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Both held: bits 1:0 = 11.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        check("V16-NMP-01-BOTH",
+              "NR 0x10 bits 1:0 = 11 when both F9 + F10 held "
+              "[zxnext.vhd:5924]",
+              (got & 0x03) == 0x03,
+              detail_eq(static_cast<uint8_t>(got & 0x03), uint8_t{0x03}));
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Coreid composability: coreid bits 6:2 must remain coreid-driven
+    // while buttons are held — discriminative against a regression that
+    // accidentally stomps the upper bits with the held-state value.
+    {
+        emu.reset();
+        nr_write(emu, 0x03, 0x07);   // config_mode=1
+        nr_write(emu, 0x10, 0x0A);   // coreid = 0x0A → bits 6:2 = 01010
+        nr_write(emu, 0x03, 0x00);
+        emu.inject_hotkey_m1(true);
+        emu.inject_hotkey_drive(true);
+        const uint8_t got = nr_read(emu, 0x10);
+        // Expected: (0x0A << 2) | 0x03 = 0x28 | 0x03 = 0x2B.
+        check("V16-NMP-01-COMPOSE",
+              "NR 0x10 = (coreid<<2) | spkey_buttons composed; coreid "
+              "bits 6:2 not stomped by held-state path "
+              "[zxnext.vhd:5924]",
+              got == 0x2B,
+              detail_eq(got, uint8_t{0x2B}));
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+    }
+
+    // Live combinational read: change held-state without re-writing the
+    // register and verify a subsequent read picks up the new state.
+    // VHDL signal is purely combinational — no flop, no commit.
+    {
+        emu.reset();
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(false);
+        const uint8_t got_idle = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(true);
+        const uint8_t got_press = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(false);
+        const uint8_t got_release = nr_read(emu, 0x10);
+        check("V16-NMP-01-LIVE",
+              "NR 0x10 bit 0 tracks F9 hold transitions live "
+              "(combinational; no NR 0x10 write needed) "
+              "[zxnext.vhd:5924]",
+              (got_idle    & 0x01) == 0 &&
+              (got_press   & 0x01) == 1 &&
+              (got_release & 0x01) == 0,
+              "idle="    + hex2(static_cast<uint8_t>(got_idle    & 0x03)) +
+              " press="   + hex2(static_cast<uint8_t>(got_press   & 0x03)) +
+              " release=" + hex2(static_cast<uint8_t>(got_release & 0x03)));
+    }
+
+    emu.reset();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V16-NMP-02 — `internal_port_enable` AND-mask: NR 0x86-0x89 must
+// gate NR 0x82-0x85 when expbus_eff_en=1, per VHDL zxnext.vhd:2392-2393.
+//
+// Pre-fix: every port-decode handler consulted `nextreg_.cached(0x82..0x85)`
+// directly, ignoring NR 0x86-0x89 entirely. Setting expbus_eff_en=1
+// (NR 0x80 b7) then clearing a bit of NR 0x86-0x89 had no effect on
+// port decoding.
+//
+// Post-fix: `Emulator::effective_internal_port_enable(reg)` AND-masks
+// the cached NR 0x82-0x85 byte with the corresponding NR 0x86-0x89
+// byte when `expbus_eff_en=1`. All port-decode gates and the persistent
+// shadows held by ContentionModel / DivMmc / Multiface route through
+// the helper. Write handlers for NR 0x80, 0x82, 0x83, 0x85, 0x86,
+// 0x87, 0x88, 0x89 call `propagate_effective_port_enables()` so any
+// change to a formula input refreshes the shadows.
+//
+// Discriminative observable: NR 0x82 b1 → port_7ffd_io_en (VHDL :2399).
+// When expbus_eff_en=1 and NR 0x86 b1=0, OUT 0x7FFD must be silenced
+// even with NR 0x82 b1=1. Reverting the helper restores pre-fix
+// behaviour and these rows FAIL.
+// ─────────────────────────────────────────────────────────────────────
+
+static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
+    set_group("V16-NMP-02-Expbus-AND-Mask");
+
+    // Sanity baseline: with expbus_eff_en=0 (default), NR 0x86 has no
+    // effect — clearing NR 0x86 b1 must NOT silence port 0x7FFD.
+    // Mirrors the BUS-86-01 row in port_test (which is now upgraded
+    // from "does not corrupt NR 0x82" to "does not gate the port").
+    {
+        emu.reset();
+        // NR 0x80 b7 = 0 → expbus_eff_en = 0 (power-on default).
+        nr_write(emu, 0x80, 0x00);
+        // NR 0x82 b1 = 1 (default 0xFF), NR 0x86 b1 = 0.
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // clear bit 1
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-OFF",
+              "NR 0x86 b1=0 has NO effect on port 0x7FFD when "
+              "expbus_eff_en=0 (default; NR 0x86-0x89 inert) "
+              "[zxnext.vhd:2392-2393]",
+              before != after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Discriminative core: expbus_eff_en=1, NR 0x82 b1 = 1, NR 0x86 b1 = 0
+    // → effective port_7ffd_io_en = 0 → OUT 0x7FFD silenced.
+    // Pre-fix this row FAILED (NR 0x86 ignored). Post-fix it PASSES.
+    {
+        emu.reset();
+        // 1. Engage expbus_eff_en (NR 0x80 b7 = 1).
+        nr_write(emu, 0x80, 0x80);
+        // 2. NR 0x82 b1 = 1 (default), but mask NR 0x86 b1 = 0.
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // clear bit 1
+        // 3. OUT 0x7FFD must be silenced. Observable: Mmu's port_7ffd()
+        //    register stays unchanged after the OUT.
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-ON-MASK",
+              "NR 0x86 b1=0 silences OUT 0x7FFD when expbus_eff_en=1 "
+              "(effective port_7ffd_io_en = NR 0x82 b1 AND NR 0x86 b1 = 0) "
+              "[zxnext.vhd:2392-2393 / :2399]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Symmetric: expbus_eff_en=1, NR 0x86 b1 = 1 → AND term is 1 and the
+    // port still decodes. Confirms the AND is bit-AND (not always-zero).
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFF);          // bit 1 = 1
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-ON-PASS",
+              "NR 0x86 b1=1 leaves port 0x7FFD live with expbus_eff_en=1 "
+              "[zxnext.vhd:2392-2393 / :2399]",
+              before != after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // NR 0x80 toggle propagation: with NR 0x86 b1=0 throughout, the gate
+    // must transition LIVE on the NR 0x80 b7 write — not require a
+    // subsequent NR 0x82 / NR 0x86 write to refresh.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x00);          // expbus_eff_en = 0
+        nr_write(emu, 0x82, 0xFF);
+        nr_write(emu, 0x86, 0xFD);          // bit 1 = 0
+        // Engage expbus.
+        nr_write(emu, 0x80, 0x80);
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const uint8_t after = emu.mmu().port_7ffd();
+        check("V16-NMP-02-EXPBUS-TOGGLE",
+              "NR 0x80 b7 toggle live-refreshes port_7ffd_io_en shadow "
+              "(propagate_effective_port_enables on NR 0x80 write) "
+              "[zxnext.vhd:2392-2393]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // NR 0x83 b0 / DivMMC port_io_enable propagation — exercises the
+    // `multiface_/divmmc_` shadow refresh path. With expbus_eff_en=1
+    // and NR 0x83 b0=1 but NR 0x87 b0=0, divmmc_.port_io_enable() must
+    // be false. The Emulator::effective_internal_port_enable propagation
+    // happens on NR 0x87 write.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x83, 0xFF);          // NR 0x83 all enables on
+        nr_write(emu, 0x87, 0xFE);          // NR 0x87 b0 = 0 (mask off DivMMC)
+        check("V16-NMP-02-DIVMMC-MASK",
+              "DivMmc::port_io_enable=false when expbus_eff_en=1 + "
+              "NR 0x83 b0=1 + NR 0x87 b0=0 (effective AND = 0) "
+              "[zxnext.vhd:2392-2393 / :2412]",
+              !emu.divmmc().port_io_enable(),
+              "port_io_enable=" + std::to_string(emu.divmmc().port_io_enable()));
+    }
+
+    // Multiface enable: NR 0x83 b1 AND NR 0x87 b1 when expbus_eff_en=1.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x83, 0xFF);
+        nr_write(emu, 0x87, 0xFD);          // NR 0x87 b1 = 0
+        check("V16-NMP-02-MF-MASK",
+              "Multiface::is_enabled=false when expbus_eff_en=1 + NR 0x83 "
+              "b1=1 + NR 0x87 b1=0 (effective AND = 0) "
+              "[zxnext.vhd:2392-2393 / :2415]",
+              !emu.multiface().is_enabled(),
+              "is_enabled=" + std::to_string(emu.multiface().is_enabled()));
+    }
+
+    // NR 0x85 / NR 0x89 low-nibble pair: ULA+ port (NR 0x85 b0). Bits
+    // 6:4 of NR 0x89 are read-zero per VHDL :6149-6150 + write semantics
+    // :5521 (only bits 3:0 + bit 7 stored). Test the b0 case.
+    {
+        emu.reset();
+        nr_write(emu, 0x80, 0x80);          // expbus_eff_en = 1
+        nr_write(emu, 0x85, 0x0F);          // NR 0x85 enable nibble = 1111
+        nr_write(emu, 0x89, 0x0E);          // NR 0x89 enable nibble = 1110 → b0=0
+        // Effective NR 0x85 b0 = 1 AND 0 = 0 → port_ulap_io_en = false.
+        // Observable: ContentionModel's port_ulap_io_en shadow.
+        check("V16-NMP-02-NR85-NR89-B0",
+              "NR 0x89 b0=0 masks NR 0x85 b0 (port_ulap_io_en) when "
+              "expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2439]",
+              !emu.contention().port_ulap_io_en(),
+              "port_ulap_io_en=" +
+                  std::to_string(emu.contention().port_ulap_io_en()));
+    }
+
+    // Restore baseline: NR 0x80=0, NR 0x82-0x89 = power-on defaults.
+    nr_write(emu, 0x80, 0x00);
+    nr_write(emu, 0x82, 0xFF);
+    nr_write(emu, 0x83, 0xFF);
+    nr_write(emu, 0x84, 0xFF);
+    nr_write(emu, 0x85, 0x0F);
+    nr_write(emu, 0x86, 0xFF);
+    nr_write(emu, 0x87, 0xFF);
+    nr_write(emu, 0x88, 0xFF);
+    nr_write(emu, 0x89, 0x0F);
+    emu.reset();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5135,6 +5449,12 @@ int main() {
 
     test_testcov_nmi_mf_port(emu);
     std::printf("  Group: TestCov-NMI-MF-Port — done\n");
+
+    test_v16_nmp_01_nr10_spkey_buttons(emu);
+    std::printf("  Group: V16-NMP-01-NR10-SPKEY — done\n");
+
+    test_v16_nmp_02_expbus_and_mask(emu);
+    std::printf("  Group: V16-NMP-02-Expbus-AND-Mask — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

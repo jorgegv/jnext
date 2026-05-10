@@ -26,7 +26,23 @@ passes already addressed.
 
 ---
 
-## V16-NMP-01 — NR 0x10 readback bits 1:0 ignore live `i_SPKEY_BUTTONS` state (class-b)
+## V16-NMP-01 — NR 0x10 readback bits 1:0 ignore live `i_SPKEY_BUTTONS` state (class-b) — **FIX LANDED**
+
+**Status (2026-05-10)**: FIXED + 6 discriminative regression tests added.
+NR 0x10 read_handler now recomposes bits 1:0 from `test_hotkey_m1_` /
+`test_hotkey_drive_` (the active-high held-state booleans already used
+by `nmi_assert_mf` / `nmi_assert_divmmc`); the existing
+`inject_hotkey_m1` / `inject_hotkey_drive` setters become the
+production-and-test seam for the SPKEY_BUTTONS line. Discriminative
+revert (read_handler removed): 5/6 V16-NMP-01 rows FAIL pre-fix; all
+6 PASS post-fix. Inadvertently exposed: prior `nr_10_coreid_ = 0x01`
+in `Emulator::reset()` was clobbering coreid on every reset, contrary
+to VHDL `nr_10_coreid` initial-only semantics (zxnext.vhd:1133, no
+reset clause). Removed for VHDL fidelity. Test row TC-NR10-PRESERVE
+now passes on the live-coreid path. Tests: ctest 38/38 + FUSE
+1356/1356.
+
+
 
 VHDL zxnext.vhd:5924 read mux for NR 0x10:
 
@@ -79,7 +95,25 @@ not classify it as a finding.
 
 ---
 
-## V16-NMP-02 — `internal_port_enable` formula ignores NR 0x86–0x89 when `expbus_eff_en=1` (class-b)
+## V16-NMP-02 — `internal_port_enable` formula ignores NR 0x86–0x89 when `expbus_eff_en=1` (class-b) — **FIX LANDED**
+
+**Status (2026-05-10)**: FIXED + 7 discriminative regression tests added.
+Added `Emulator::effective_internal_port_enable(reg [, override_reg,
+override_val])` helper that AND-masks NR 0x82-0x85 with NR 0x86-0x89
+when `expbus_eff_en=1` per VHDL :2392-2393. All 33 port-decode gate
+sites in `emulator.cpp` (the original 47 cited in this audit minus
+8 save/restore + 6 read-mux/comment lines) now route through the
+helper; install handlers for NR 0x86/0x87/0x88/0x89 + NR 0x80
+re-push every downstream shadow via `propagate_effective_port_enables`
+on every formula-input change. Override-pair pattern handles the
+NextReg cache-after-handler ordering (regs_[reg] is committed AFTER
+the handler returns). NR 0x85↔NR 0x89 pair AND'ed only on the
+enable nibble (bits 3:0); reset_type bit 7 is preserved out-of-band.
+Discriminative revert (helper short-circuited to raw cache): 5/7
+V16-NMP-02 rows FAIL pre-fix; all 7 PASS post-fix. Tests: ctest
+38/38 + FUSE 1356/1356.
+
+
 
 VHDL zxnext.vhd:2392-2393 specifies the 32-bit `internal_port_enable`
 vector that controls every internal-port decode (port_7ffd_io_en,
@@ -326,17 +360,20 @@ Build mode: Release (`-DCMAKE_BUILD_TYPE=Release`).
 
 ## Findings summary
 
-| ID            | Class | Component                  | Description (one-line)                                                       |
-| ------------- | ----- | -------------------------- | ---------------------------------------------------------------------------- |
-| V16-NMP-01    | b     | NextREG NR 0x10 readback   | Bits 1:0 always 0; should reflect F9/F10 button-held state per i_SPKEY_BUTTONS |
-| V16-NMP-02    | b     | Port-decode enable formula | NR 0x86-0x89 mask not AND'd with NR 0x82-0x85 when expbus_eff_en=1            |
+| ID            | Class | Component                  | Description (one-line)                                                       | Status        |
+| ------------- | ----- | -------------------------- | ---------------------------------------------------------------------------- | ------------- |
+| V16-NMP-01    | b     | NextREG NR 0x10 readback   | Bits 1:0 always 0; should reflect F9/F10 button-held state per i_SPKEY_BUTTONS | **FIX LANDED** |
+| V16-NMP-02    | b     | Port-decode enable formula | NR 0x86-0x89 mask not AND'd with NR 0x82-0x85 when expbus_eff_en=1            | **FIX LANDED** |
 
 Class breakdown:
 - (a) behavior-breaking: 0
-- (b) functional divergence: 2
+- (b) functional divergence: 2 (both fixed in same chain as the audit)
 - (c) leak / cache divergence: 0
 - (d) architectural: 0
 
-Recommended action: pass-17 should triage V16-NMP-01 / V16-NMP-02
-against the prompt's "honestly converged" bar and decide whether to
-fix or accept-and-document.
+Both findings fixed in commits on `task2/verify16-nmi-mf-port` after
+the audit landed. 13 new discriminative regression tests added
+(6 V16-NMP-01 + 7 V16-NMP-02) in
+`test/nextreg/nextreg_integration_test.cpp`. Discriminative revert
+verification confirmed both fixes' tests FAIL pre-fix and PASS
+post-fix. Tests: ctest 38/38 + FUSE 1356/1356, no regressions.
