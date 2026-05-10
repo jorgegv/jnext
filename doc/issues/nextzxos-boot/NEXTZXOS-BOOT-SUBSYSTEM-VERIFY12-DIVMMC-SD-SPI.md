@@ -100,6 +100,60 @@ preserved). Pre-fix this would return 0xFF (clobbered).
 **Class**: (c) — VHDL-faithfulness divergence, latent, no boot impact.
 Resolved.
 
+#### V12-DIVMMC-01-NIT — first-boot default value drift vs VHDL signal-init (Pass-12 fix-of-reviewer, 2026-05-10)
+
+The reviewer (HEAD `c663b3d`, APPROVE-WITH-NITS) flagged a related NIT
+on the same VHDL anchor as V12-DIVMMC-01: the constructor's member-init
+for `SpiMaster::rx_data_` was `0xFF`, but VHDL `spi_master.vhd:74`
+declares the signal-init as
+
+```vhdl
+signal miso_dat : std_logic_vector(7 downto 0) := (others => '0');
+```
+
+i.e. the FPGA-bitstream initial value is **0x00**. With `i_reset`
+hardwired to `'0'` at `zxnext.vhd:3285` (V12-DIVMMC-01 anchor), the
+synchronous-reset clause at `spi_master.vhd:159-168`
+(`miso_dat <= (others => '1')` on `i_reset='1'`) NEVER fires, so the
+actual VHDL behaviour on first power-up is governed by the signal-
+declaration init at line 74 — `0x00`. Real hardware therefore surfaces
+0x00 on the first port-0xEB read before any SPI transfer has completed.
+Pre-fix C++ surfaced 0xFF.
+
+**Practical impact**: nil. Every known firmware (TBBlue, NextZXOS,
+esxdos) issues a CMD before the first port-0xEB read, so the first
+sampled value is always overwritten by the CMD's R1 (or whatever else
+the slave drives). VHDL-faithfulness was the only thing wrong.
+
+**Fix**: `src/peripheral/spi.h:110` — change member-init from `0xFF` to
+`0x00` to match VHDL `miso_dat` signal-init at `spi_master.vhd:74`. Per
+the "0 pending of any class" honest-convergence rule the NIT is now
+resolved (not deferred).
+
+**Disc test SS-17** in `test/divmmc/divmmc_test.cpp` — instantiate a
+fresh `SpiMaster` with NO attached device and NO prior write_data().
+Read port 0xEB. With no active device, `read_data()` returns the
+pre-existing `rx_data_` (the member-init value) and refreshes
+`rx_data_` to 0xFF for the next read. Post-fix the first read returns
+0x00; pre-fix returned 0xFF. Pre-revert SS-17 FAILs (got=0xFF expected
+0x00). Discriminative confirmed.
+
+**Existing-row alignments**: three pre-existing rows
+(SX-03, SX-04, ML-05) and one MX-04 had been written against the wrong
+"miso_dat reset = 0xFF" claim. They happened to pass because the pre-
+fix member-init was also 0xFF. Updated to assert 0x00 (the VHDL signal-
+init), matching the same VHDL root cause. MX-04 additionally now primes
+the pipeline before reading, so the "no device → MISO=0xFF" claim is
+observed through the proper state_last_d latch path rather than the
+C++ short-circuit. Same VHDL root cause as V12-DIVMMC-01: `i_reset`
+hardwired '0' means the synchronous-reset clauses for both `miso_dat`
+and `ishift_r` never fire. Pre-revert: 4 FAILs (SS-17 + SX-03 + SX-04 +
+ML-05). Post-fix: all 136 divmmc rows pass.
+
+**Class**: (c) — VHDL-faithfulness divergence at first-boot default;
+no boot impact, no save-state impact, no firmware-visible impact.
+Resolved.
+
 ---
 
 ### V12-DIVMMC-02 — `CMD24` past-EOF returns "data accepted" (0x05) when VHDL/SD-spec mandates "write error" (0x0D) (class-(b))
@@ -269,15 +323,21 @@ $ ./build/test/fuse_z80_test build/test/fuse
 Total: 1356  Passed: 1356  Failed:    0  Skipped:    0
 
 $ ./build/test/divmmc_test
-Total:  135  Passed:  135  Failed:    0  Skipped:    0
+Total:  136  Passed:  136  Failed:    0  Skipped:    0   # post fix-of-reviewer (SS-17 added)
 
 $ ./build/test/sdcard_test
 Total:   22  Passed:   22  Failed:    0  Skipped:    0
 ```
 
-Two new regression tests added:
+Three new regression tests added across the audit + reviewer + fix-of-
+reviewer chain:
 - `test/divmmc/divmmc_test.cpp` — SS-16 (rx_data_ preservation across reset)
+- `test/divmmc/divmmc_test.cpp` — SS-17 (rx_data_ first-boot default = 0x00 per VHDL signal-init; Pass-12 fix-of-reviewer V12-DIVMMC-01-NIT)
 - `test/sdcard/sdcard_test.cpp` — SD-21 (CMD24 past-EOF write-error response)
+
+(Reviewer also promoted V12-DIVMMC-03/04/06 to class-(c) fixes with
+SD-22/23/24 regressions — see `NEXTZXOS-BOOT-SUBSYSTEM-VERIFY12-
+DIVMMC-SD-SPI-REVIEW.md` for those.)
 
 ## Summary
 
@@ -285,11 +345,16 @@ Two new regression tests added:
 |-------|-------|----------|
 | (a)   | 0     | n/a      |
 | (b)   | 1     | resolved (V12-DIVMMC-02 + SD-21 regression) |
-| (c)   | 1     | resolved (V12-DIVMMC-01 + SS-16 regression) |
-| (d)   | 6 catalogued (V12-DIVMMC-03..08); no action — class-(d) architectural / class-(c) latent. |
+| (c)   | 1+1 NIT | resolved (V12-DIVMMC-01 + SS-16 regression; V12-DIVMMC-01-NIT + SS-17 regression — Pass-12 fix-of-reviewer 2026-05-10) |
+| (d)   | 6 catalogued (V12-DIVMMC-03..08); 3 promoted+resolved by reviewer (V12-DIVMMC-03/04/06 + SD-22/23/24); 3 remain class-(d) architectural / class-(c) latent. |
 
 **Overall**: Pass-12 audit found 2 actionable findings (1 class-(b),
-1 class-(c)) and 6 latent / architectural notes. The two actionable
-findings are fixed VHDL-faithfully with discriminative regression tests
-in the same commit. All test suites pass (1356/1356 FUSE; 135/135
-divmmc; 22/22 sdcard; 38/38 ctest).
+1 class-(c)) and 6 latent / architectural notes. The reviewer raised
+1 NIT (V12-DIVMMC-01-NIT, first-boot default value drift vs VHDL
+signal-init) and promoted 3 catalogued items to class-(c) fixes
+(V12-DIVMMC-03/04/06 + SD-22/23/24). Fix-of-reviewer (2026-05-10)
+resolves the NIT VHDL-faithfully with disc test SS-17 + alignment of
+SX-03 / SX-04 / ML-05 / MX-04 to the same VHDL root cause (i_reset
+hardwired '0' at zxnext.vhd:3285 → synchronous-reset clauses never
+fire). All test suites pass (1356/1356 FUSE; 136/136 divmmc; 22/22
+sdcard; 38/38 ctest).
