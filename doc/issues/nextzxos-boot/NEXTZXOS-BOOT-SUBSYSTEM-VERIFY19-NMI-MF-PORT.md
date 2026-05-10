@@ -29,7 +29,7 @@ in §"Cross-cutting families".
 
 The table is partitioned into four panels:
 1. **Port-decode handlers** (`register_handler` calls) — 52 rows.
-2. **`port_*_io_en` gates** — 22 rows verified within port handlers.
+2. **`port_*_io_en` gates** — 28 rows verified within port handlers (V19R-NMP-NIT-01 corrected from 22 → 28; the 4 NR 0x84 b4-b7 gates were correctly implemented but absent from the table).
 3. **NR register handlers** (read + write surfaces) — ~170 rows.
 4. **NMI / Multiface / save-state surfaces** — ~30 rows.
 
@@ -130,6 +130,10 @@ The table is partitioned into four panels:
 | port_dac_sd1_ABCD_io_en (idx 17) | NR 0x84 b1 | ports 0x1F/0F/4F/5F (3468, 3475, 3482, 3517) | ✓ | gate present |
 | port_dac_sd2_ABCD_io_en (idx 18) | NR 0x84 b2 | ports 0xF1/F3/F9/FB (3537, 3543, 3549, 3563) | ✓ | gate present |
 | port_dac_stereo_AD_io_en (idx 19) | NR 0x84 b3 | port 0x3F/5F (3510, 3517) | ✓ | gate present |
+| port_dac_stereo_BC_0f4f_io_en (idx 20) | NR 0x84 b4 | port 0x0F/4F (3474, 3481) | ✓ | V19R-NMP-NIT-01 — added in fix-of-reviewer pass |
+| port_dac_mono_AD_fb_io_en (idx 21) | NR 0x84 b5 (AND NOT b2) | port 0xFB mono fan-out (3552-3565) | ✓ | V19R-NMP-NIT-01 — `mono_AD = nr84 & 0x20 && !(nr84 & 0x04)` |
+| port_dac_mono_BC_b3_io_en (idx 22) | NR 0x84 b6 | port 0xB3 GS Covox (3582) | ✓ | V19R-NMP-NIT-01 — `nr84 & 0x40` gate |
+| port_dac_mono_AD_df_io_en (idx 23) | NR 0x84 b7 | port 0xDF Specdrum (3615, 3631) | ✓ | V19R-NMP-NIT-01 — `nr84 & 0x80` gate (part of full G130 decode) |
 | port_ulap_io_en (idx 24) | NR 0x85 b0 | ports 0xBF3B / 0xFF3B (4468, 4472, 4486, 4490) | ✓ | V18-NMP-NIT-01 |
 | port_dma_0b_io_en (idx 25) | NR 0x85 b1 | port 0x0B rd/wr (4219, 4223) | ✓ | V18-NMP-NIT-01 |
 | port_eff7_io_en (idx 26) | NR 0x85 b2 | port 0xEFF7 (3382) | ✓ | G143 closure |
@@ -137,7 +141,9 @@ The table is partitioned into four panels:
 
 ### Panel 3 — NextREG handler surfaces (read + write)
 
-To bound the row count: NR 0x00..0xFF = 256 candidates; jnext registers 103 distinct addresses with read or write handlers (74 read, 97 write). The remaining 153 addresses fall through to the bare cache (`regs_[reg]`), which **IS** correct for VHDL when the register is either (a) in the master reset block at zxnext.vhd:4925-5111 with no special read formula, OR (b) absent from both the read mux at zxnext.vhd:5878-6289 (read returns 0 per the `when others` default) and absent from the write decoder at zxnext.vhd:4860-5870 (write is no-op).
+To bound the row count: NR 0x00..0xFF = 256 candidates; jnext registers **126 distinct addresses** with read or write handlers (**82 read, 115 write**). The remaining **130 addresses** fall through to the bare cache (`regs_[reg]`), which **IS** correct for VHDL when the register is either (a) in the master reset block at zxnext.vhd:4925-5111 with no special read formula, OR (b) absent from both the read mux at zxnext.vhd:5878-6289 (read returns 0 per the `when others` default) and absent from the write decoder at zxnext.vhd:4860-5870 (write is no-op).
+
+> **V19R-NMP-NIT-02 correction (2026-05-10).** Previous text said "103 distinct (74 R + 97 W)" / "153 fall-through". That count omitted the loop-generated handlers in `emulator.cpp`: NR 0x35-0x39 W (line 2295), NR 0x50-0x57 R+W (lines 1750-1805), NR 0x75-0x79 W (line 1566). Reviewer recount including those loops yields 126 distinct / 130 fall-through. The substantive correctness claim (the 130 fall-through NRs are VHDL-correct except for the 2 inert XADC NIT-03/NIT-04 cases, since fixed) is unchanged.
 
 Selected high-leverage rows:
 
@@ -271,7 +277,7 @@ specifically called out. Each is covered.
 | Expansion bus port aliasing | ✓ | port-decode masks honour A15..A12 don't-cares per VHDL (V18-NMP-01..04, V17-NMP-02..03). |
 | I/O contention vs uncontended | ✓ | ContentionModel consumes effective port_7ffd_io_en + port_ulap_io_en via propagate_effective_port_enables (emulator.cpp:6278-6281). |
 | Port-decode masks | ✓ | All 52 register_handler calls validated against VHDL `port_*` decode equations (Panels 1, 1b above). Panel-1 ✓ rows include: 0x7FFD (8003:0001), 0x1FFD (F003:1001), 0x2FFD/3FFD (F003:2001/3001), 0xDFFD (F003:D001), 0xEFF7 (F0FF:E0F7), 0xFE (0001:0000 — V17-NMP-02 LSB-only), 0xFF (00FF:00FF — V17-NMP-03 LSB-only), AY (C007/C00F masks), DAC LSBs (V18-NMP-02/03/04 LSB-only), mouse (0FFF — V18-NMP-01 12-bit), CTC (F8FF — A15:11=00011), and the uniform 16-bit FFFF masks for the genuinely full-decode peripherals (Layer 2 0x123B, NR 0x243B/0x253B, sprite 0x303B, I2C/UART 0x?03B, ULA+ 0xBF3B/0xFF3B). |
-| Port-io-en gates | ✓ | All 22 internal_port_enable bits in scope verified via Panel 2; the Pass-18 NIT-01 cluster of 10 missing gates was closed in Pass-18, no remaining gaps. |
+| Port-io-en gates | ✓ | All 28 internal_port_enable bits in scope verified via Panel 2 (V19R-NMP-NIT-01 corrected 22 → 28; idx 20-23 / NR 0x84 b4-b7 gates were correctly applied at the call sites and have been added to the Panel 2 table). The Pass-18 NIT-01 cluster of 10 missing gates was closed in Pass-18, no remaining gaps. |
 
 ## Findings
 
