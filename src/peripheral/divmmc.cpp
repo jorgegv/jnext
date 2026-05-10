@@ -106,7 +106,20 @@ void DivMmc::write_control(uint8_t val) {
     conmem_ = (val & 0x80) != 0;
     mapram_ = mapram_ || ((val & 0x40) != 0);  // OR-latch per VHDL zxnext.vhd:4182-4183
     bank_   = val & 0x0F;
-    control_reg_ = (val & ~0x40) | (mapram_ ? 0x40 : 0x00);  // reflect latched bit 6
+    // F19-DIVMMC-NIT-01 (Pass-19 verify-audit fix, 2026-05-10): VHDL
+    // `zxnext.vhd:4180-4183` only assigns bits 7, 6, and 3:0 of port_e3_reg
+    // from cpu_do during a port-E3 write. Bits 5:4 are reset to 0 at hardware
+    // reset (`zxnext.vhd:4177`) and never touched again, so they are
+    // INVARIANTLY '00' on real hardware. Pre-fix `control_reg_` stored input
+    // bits 5:4 verbatim; the divergence was hidden by `read_control()`'s
+    // `& 0xCF` mask (which mirrored the VHDL `port_e3_dat` zero-substitution
+    // at `:4190`), but a save-state round-trip — which serialises
+    // `control_reg_` raw at `save_state` line 543 — would faithfully
+    // round-trip non-zero bits 5:4, diverging from VHDL's "always 0"
+    // invariant on snapshot inspection. Mask `val & 0x8F` (drop bits 6 and
+    // 5:4 from raw input) before re-folding the OR-latched bit 6, so the
+    // stored byte always reflects the VHDL contract. Class-(c) latent.
+    control_reg_ = (val & 0x8F) | (mapram_ ? 0x40 : 0x00);  // reflect latched bit 6
 
     divmmc_log()->debug("write control={:#04x} conmem={} mapram={} bank={}",
                         val, conmem_, mapram_, bank_);

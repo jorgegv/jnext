@@ -176,6 +176,14 @@ public:
     bool mapram() const { return mapram_; }
     uint8_t bank() const { return bank_; }
     bool automap_active() const { return automap_active_; }
+    // F19-DIVMMC-NIT-01 (Pass-19): raw stored control register byte. Exists
+    // for the discriminative regression test that pins the VHDL invariant
+    // `port_e3_reg(5:4) = "00"` always — the public `read_control()` already
+    // masks bits 5:4 via `& 0xCF`, so it cannot distinguish a stored 0x30
+    // from a stored 0x00. This accessor exposes the underlying storage so
+    // tests can verify that `write_control` itself preserves the invariant,
+    // not just the read path.
+    uint8_t control_reg_raw() const { return control_reg_; }
 
     // Two-stage automap latch accessors (VHDL divmmc.vhd:123-148).
     // automap_hold_ is set on M1+MREQ-low at an entry-point PC (line 128);

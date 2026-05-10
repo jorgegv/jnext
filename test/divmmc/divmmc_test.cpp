@@ -307,6 +307,48 @@ void group_e3() {
               got == 0x00,
               fmt("got=%02x exp=00", got));
     }
+
+    // E3-V19-NIT-01: F19-DIVMMC-NIT-01 (Pass-19 verify-audit).
+    // VHDL `zxnext.vhd:4180-4183` only assigns bits 7, 6, and 3:0 of
+    // port_e3_reg from cpu_do during a port-E3 write. Bits 5:4 are reset to
+    // '00' at hardware reset (`zxnext.vhd:4177`) and NEVER touched again, so
+    // they are invariantly '00' on real hardware. The masked read at
+    // `zxnext.vhd:4190` (port_e3_dat <= reg(7:6) & "00" & reg(3:0)) hides
+    // any divergence from external observers, but the underlying STORAGE
+    // INVARIANT itself ("port_e3_reg(5:4) is always 00") is what real VHDL
+    // upholds — and what `control_reg_` should mirror so save_state /
+    // load_state round-trips don't smuggle in non-zero bits 5:4.
+    //
+    // Pre-fix: `write_control(val)` stored `(val & ~0x40) | (mapram_ ? ...)`,
+    // which preserved input bits 5:4 verbatim in `control_reg_`. The masked
+    // public read hid this from the surface. The fix tightens the mask to
+    // `val & 0x8F` so the stored byte itself enforces the VHDL invariant.
+    //
+    // Discriminative shape: write 0xFF and inspect the RAW `control_reg_`
+    // byte (via the new `control_reg_raw()` accessor exposed for this test).
+    // Pre-fix the raw byte = 0xBF (mapram bit 6 latched + bits 5:4 from
+    // input + bits 3:0 from input → 1011_1111). Post-fix the raw byte =
+    // 0x8F (1000_1111) — bits 5:4 forced to 0 at write time per VHDL
+    // contract. The public read_control() (E3-08 above) already covers the
+    // observable mask; this test pins the underlying storage invariant so
+    // a future refactor that replaces the public mask with a direct
+    // `control_reg_` access can't silently resurrect the divergence.
+    {
+        DivMmc d = make_divmmc();
+        d.write_control(0xFF);   // all bits set in input
+        uint8_t raw = d.control_reg_raw();
+        // VHDL contract: stored byte has bits 5:4 = 00 always. With all
+        // input bits set (incl. bit 6 OR-latch and bit 7 conmem and bits
+        // 3:0 = bank 15), the stored byte is 0x8F = 1000_1111. After the
+        // V18 / V12 / etc. fan-out the OR-latched bit 6 is reflected by
+        // `mapram_=true`, so the post-fold byte is 0x8F | 0x40 = 0xCF.
+        check("E3-V19-NIT-01",
+              "Stored control_reg_ raw byte preserves VHDL invariant "
+              "port_e3_reg(5:4) = '00' even when input bits 5:4 are set "
+              "(F19-DIVMMC-NIT-01, VHDL zxnext.vhd:4177-4183)",
+              raw == 0xCF,
+              fmt("raw=%02x exp=CF", raw));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
