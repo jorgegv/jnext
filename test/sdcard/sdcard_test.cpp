@@ -897,10 +897,11 @@ static void test_sd_19_unknown_acmd(SdCardDevice& sd) {
 
     check("SD-19",
           "CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) "
-          "set; bit 0 (idle) clear on initialized card "
+          "set; bit 0 (idle) clear on initialized card; CMD55's R1 has "
+          "bit 5 (APP_CMD) set per V20-DIVMMC-01 "
           "(SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from "
           "initialized_)",
-          r1_55 == 0x00
+          r1_55 == 0x20
               && (r1_acmd42 & 0x04) != 0
               && (r1_acmd42 & 0x01) == 0,
           "r1_55=" + std::to_string(r1_55) +
@@ -938,8 +939,9 @@ static void test_sd_20_cmd55_fallthrough(SdCardDevice& sd) {
     check("SD-20",
           "CMD55 followed by non-ACMD (CMD17) falls through to regular "
           "CMD switch; R1=0x00 + data block matches sector 2 fixture "
-          "(SD spec § 4.3.9.1; TASK2-VERIFY9 fix)",
-          r1_55 == 0x00 && r1_17 == 0x00 && tok
+          "(SD spec § 4.3.9.1; TASK2-VERIFY9 fix; V20-DIVMMC-01 — CMD55 "
+          "R1 now has bit 5 = APP_CMD set)",
+          r1_55 == 0x20 && r1_17 == 0x00 && tok
               && blk[0] == 0x02 && blk[1] == 0x00,
           "r1_55=" + std::to_string(r1_55) +
           " r1_17=" + std::to_string(r1_17) +
@@ -1766,6 +1768,74 @@ static void test_boot_sd_02() {
     std::remove(img.c_str());
 }
 
+// ─── New: SD-32 / CMD55 + ACMD41 R1 APP_CMD bit (V20-DIVMMC-01) ────────
+
+static void test_sd_32_cmd55_acmd41_app_cmd_bit() {
+    // SD-32 (V20-DIVMMC-01, Pass-20 verify-audit, 2026-05-11): per SD
+    // Physical Layer Simplified Spec § 7.3.2.1 Table 7-9, R1 bit 5 =
+    // APP_CMD: "A '1' indicates that the card will (or has) interpret(ed)
+    // the command as an ACMD." CMD55's R1 MUST have bit 5 set (the card
+    // is signalling that the NEXT command will be interpreted as ACMD).
+    // The subsequent ACMD's R1 MUST also have bit 5 set (the card IS
+    // interpreting it as an ACMD).
+    //
+    // Pre-fix CMD55 returned R1=0x00/0x01 (idle bit only) and ACMD41
+    // returned R1=0x00 — neither asserted bit 5, diverging from spec.
+    // Class-(c) latent — TBBlue/FatFs's MMC_Init loop only checks bit 0
+    // (idle) and the response validity (bit 7) — but a strict spec-
+    // compliant host that verifies the APP_CMD signature (forensic /
+    // test rig firmware) would observe the divergence.
+    //
+    // Test shape: (a) pre-init CMD55 → R1 = idle (bit 0) + APP_CMD (bit 5)
+    // = 0x21; (b) post-init CMD55 → R1 = APP_CMD only (bit 5) = 0x20;
+    // (c) ACMD41 → R1 = APP_CMD (bit 5) = 0x20 (no idle, since ACMD41
+    // unconditionally promotes initialized_=true in our fast-init model).
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+
+    // Step (a): pre-init CMD55 → R1 bit 0 (idle) AND bit 5 (APP_CMD)
+    sd.reset();
+    uint8_t r1_cmd55_pre = send_cmd_r1(sd, 55, 0);
+
+    // Step (b): post-init CMD55 → R1 bit 0 clear, bit 5 set
+    sd.reset();
+    (void)send_cmd_r1(sd, 0, 0);            // CMD0 GO_IDLE
+    (void)send_cmd_r1(sd, 8, 0x1AA);        // CMD8
+    (void)send_cmd_r1(sd, 55, 0);           // first CMD55 (sets app_cmd_)
+    (void)send_cmd_r1(sd, 41, 0x40000000);  // ACMD41 → initialized_=true
+    uint8_t r1_cmd55_post = send_cmd_r1(sd, 55, 0);
+
+    // Step (c): ACMD41 after CMD55 → R1 bit 5 set (APP_CMD)
+    sd.reset();
+    (void)send_cmd_r1(sd, 0, 0);
+    (void)send_cmd_r1(sd, 8, 0x1AA);
+    (void)send_cmd_r1(sd, 55, 0);
+    uint8_t r1_acmd41 = send_cmd_r1(sd, 41, 0x40000000);
+
+    sd.deselect();
+    sd.unmount();
+    std::remove(img.c_str());
+
+    // Expected post-fix values per spec:
+    //   r1_cmd55_pre  = 0x21 = idle(0x01) + APP_CMD(0x20)
+    //   r1_cmd55_post = 0x20 = APP_CMD only (init complete, no idle)
+    //   r1_acmd41     = 0x20 = APP_CMD only (initialized_ set, no idle)
+    const bool ok = mounted
+                 && r1_cmd55_pre  == 0x21
+                 && r1_cmd55_post == 0x20
+                 && r1_acmd41     == 0x20;
+
+    check("SD-32",
+          "CMD55 R1 and ACMD41 R1 set APP_CMD bit (bit 5) per SD Physical "
+          "Layer Simplified Spec § 7.3.2.1 Table 7-9. Pre-fix both returned "
+          "R1 with bit 5 = 0, diverging from spec.",
+          ok,
+          "r1_cmd55_pre=" + std::to_string(r1_cmd55_pre) +
+          " r1_cmd55_post=" + std::to_string(r1_cmd55_post) +
+          " r1_acmd41=" + std::to_string(r1_acmd41));
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -1815,6 +1885,7 @@ int main() {
     test_sd_29_acmd41_hcs_reflected_in_ocr();    // V17-DIVMMC-01 (pass-17 verify-audit)
     test_sd_30_full_duplex_stream_advance();     // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
     test_sd_31_full_duplex_responding_state();   // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
+    test_sd_32_cmd55_acmd41_app_cmd_bit();       // V20-DIVMMC-01 (pass-20 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
