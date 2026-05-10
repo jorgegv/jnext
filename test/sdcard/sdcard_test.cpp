@@ -949,27 +949,44 @@ static void test_sd_20_cmd55_fallthrough(SdCardDevice& sd) {
 // ─── New: SD-21 / CMD24 past-EOF write-error response (TASK2-VERIFY12) ──
 
 static void test_sd_21_cmd24_past_eof() {
-    // SD-21 (V12-DIVMMC-02): CMD24 with a sector index past end-of-image
-    // must return the write-error data-response token (0x0D = 0b00001101)
-    // instead of the data-accepted token (0x05 = 0b00000101).
+    // SD-21 (V12-DIVMMC-02 + V13-DIVMMC-01 supersede): CMD24 with a sector
+    // index past end-of-image must reject IMMEDIATELY at R1 with bit 6
+    // (PARAMETER_ERROR) set, and MUST NOT enter the data-write phase.
     //
-    // SD Physical Layer Simplified Spec § 7.3.3.3 Data Response Token
-    // format is `0bxxx0_sss1` where status `sss` is:
-    //   010 = data accepted                → 0x05
-    //   110 = data rejected (write error)  → 0x0D
+    // SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 — R1 layout:
+    //   bit 7 = 0 (start bit)
+    //   bit 6 = PARAMETER_ERROR (= "argument was out of the allowed range")
+    //   bit 5 = ADDRESS_ERROR
+    //   bit 4 = ERASE_SEQUENCE_ERROR
+    //   bit 3 = COM_CRC_ERROR
+    //   bit 2 = ILLEGAL_COMMAND
+    //   bit 1 = ERASE_RESET
+    //   bit 0 = IN_IDLE_STATE
     //
-    // Pre-fix CMD24's `process_command` flow always queued 0x05 even when
-    // the write was silently skipped because byte_addr + 512 > file_size_.
-    // The host therefore believed every past-EOF write succeeded.
+    // SD Physical Layer Simplified Spec § 4.3.4 (Data Write Sequence) /
+    // § 7.3.3.2: the data phase is conditional on R1=0x00. When the card
+    // detects an error at R1, the host MUST NOT proceed to the data phase.
+    //
+    // Evolution of this row:
+    //   * Pre-V12-DIVMMC-02: CMD24 unconditionally queued 0x05 (data accepted)
+    //     even when the sector was past end-of-image. R1 was 0x00. Host
+    //     believed every past-EOF write succeeded.
+    //   * V12-DIVMMC-02 (Pass-12 verify-audit): kept R1=0x00 but flipped the
+    //     end-of-data-phase response token from 0x05 to 0x0D (write error).
+    //     Spec-permissible BUT the WEAKER variant of two valid behaviours.
+    //   * V13-DIVMMC-01 (Pass-13 verify-audit, this fix): align with the
+    //     V12-DIVMMC-04 fix that gave CMD17/CMD18 the EARLIER R1-bit-6
+    //     rejection. Past-EOF CMD24 now sets R1 bit 6 immediately and the
+    //     data phase never starts. Symmetric with CMD17/CMD18 past-EOF.
     //
     // Discriminative shape: build a small 8-sector image (4 KB), CMD24 to
-    // sector 100 (= 51200 bytes, well past the 4096-byte boundary). After
-    // the data + CRC, poll for the response token. Post-fix we see 0x0D
-    // (write error). Pre-fix we'd see 0x05 (data accepted).
+    // sector 100 (= 51200 bytes, well past the 4096-byte boundary).
+    // Post-V13: R1=0x40 (bit 6 set). Pre-V13: R1=0x00 (the V12-DIVMMC-02
+    // shape — only the data response token reflected the error).
     //
     // Safety: also verify the existing in-bounds CMD24 path still emits
-    // 0x05 (regression guard for SD-14 → ensure the fix didn't flip the
-    // sense of the in-bounds case).
+    // R1=0x00 + data-response token 0x05 (regression guard so the V13 fix
+    // doesn't flip the sense of in-bounds CMD24).
     const uint32_t n_sectors = 8;
     std::string img = make_image(n_sectors);
     SdCardDevice sd;
@@ -978,26 +995,20 @@ static void test_sd_21_cmd24_past_eof() {
     init_card(sd);
 
     // CMD24 sector=100 (past EOF for an 8-sector image).
+    // V13-DIVMMC-01: R1 must come back with bit 6 set (PARAMETER_ERROR).
     uint8_t r1_wr = send_cmd_r1(sd, 24, 100);
 
-    // Send 0xFE start token + 512 dummy bytes + 2 CRC bytes.
-    spi_write(sd, 0xFE);
-    for (int i = 0; i < 512; ++i) spi_write(sd, 0x55);
-    spi_write(sd, 0xFF);  // CRC hi
-    spi_write(sd, 0xFF);  // CRC lo
-
-    // Poll for the data response token. Cap the poll.
-    uint8_t resp = 0xFF;
-    bool got_resp = false;
-    for (int i = 0; i < 32; ++i) {
-        uint8_t b = spi_read(sd);
-        // Per SD spec, response token has bit 4 always 0, bit 0 always 1,
-        // status in bits 3:1. Easier here to just wait for any non-FF byte.
-        if (b != 0xFF) { resp = b; got_resp = true; break; }
-    }
+    // V13-DIVMMC-01: card MUST NOT have entered the data phase. The next
+    // bytes the host clocks must be the IDLE 0xFF tail (no data response
+    // token). Pre-V13 the card was in RECEIVING_DATA waiting for 0xFE +
+    // 512 + CRC; reading would surface 0xFF until the host obediently sent
+    // the (wasted) data + CRC, then a 0x0D token. Post-V13 the FSM is back
+    // to IDLE the moment R1=0x40 has been emitted on MISO, so reads return
+    // 0xFF immediately and stay 0xFF.
     sd.deselect();
 
-    // In-bounds regression guard: CMD24 to sector 0 must still emit 0x05.
+    // In-bounds regression guard: CMD24 to sector 0 must still emit
+    // R1=0x00 + data-response 0x05.
     sd.reset();
     init_card(sd);
     uint8_t r1_ok = send_cmd_r1(sd, 24, 0);
@@ -1015,20 +1026,106 @@ static void test_sd_21_cmd24_past_eof() {
     sd.unmount();
 
     bool ok = mounted
-           && r1_wr == 0x00 && got_resp && resp == 0x0D     // past-EOF
-           && r1_ok == 0x00 && got_resp_ok && resp_ok == 0x05; // in-bounds
+           && r1_wr == 0x40                                     // V13-DIVMMC-01: R1 bit 6 PARAMETER_ERROR
+           && r1_ok == 0x00 && got_resp_ok && resp_ok == 0x05;  // in-bounds regression
 
     check("SD-21",
-          "CMD24 past EOF returns write-error data response (0x0D); "
-          "in-bounds case still returns data-accepted (0x05) "
-          "(SD Physical Layer Simplified Spec § 7.3.3.3)",
+          "CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and "
+          "skips the data phase; in-bounds case still returns R1=0x00 + "
+          "data-accepted (0x05) "
+          "(SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4)",
           ok,
           "r1_wr=" + std::to_string(r1_wr) +
-          " resp=" + std::to_string(resp) +
           " r1_ok=" + std::to_string(r1_ok) +
           " resp_ok=" + std::to_string(resp_ok));
 
     std::remove(img.c_str());
+}
+
+// ─── New: SD-25 / CMD24 past-EOF: data phase fully suppressed (V13-DIVMMC-01) ──
+//
+// Companion to SD-21 above — discriminative test that the data phase is
+// FULLY suppressed after R1=0x40, not merely shortened. SD-21 covers the
+// R1 byte itself; SD-25 covers the FSM-state contract: after the R1=0x40
+// byte has been emitted the card must be back in IDLE (resp_idx_ exhausted,
+// state_=IDLE), not in RECEIVING_DATA waiting for 0xFE + 512 + CRC like
+// the pre-fix path.
+//
+// Pre-V13 the FSM was in RECEIVING_DATA after R1, so even though the
+// R1 byte said "0x40 = error", the card would still consume the host's
+// (mis-issued) 0xFE + 512 + CRC stream, then emit a 0x0D token. The
+// discriminative shape:
+//
+//   1. Issue CMD24 sector=100 (past-EOF for 8-sector image).
+//   2. After draining R1, send another command (CMD13 SEND_STATUS).
+//   3. Pre-V13: the card is in RECEIVING_DATA — the CMD13 first byte
+//      0x4D would be absorbed as data_block_[0] (no command match),
+//      and CMD13 never executes. Reads continue to return 0xFF.
+//   4. Post-V13: the card is in IDLE — receive() of 0x4D matches the
+//      command-start pattern, RECEIVING_CMD begins, after 5 more bytes
+//      process_command() runs CMD13_SEND_STATUS. Reads then return
+//      NCR + R1 + status_byte.
+static void test_sd_25_cmd24_past_eof_no_data_phase() {
+    const uint32_t n_sectors = 8;
+    std::string img = make_image(n_sectors);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    // CMD24 sector=100 (past EOF). Drain the R1 response.
+    uint8_t r1 = send_cmd_r1(sd, 24, 100);
+
+    // Now issue CMD13 (SEND_STATUS) immediately. Post-V13 this works
+    // because the FSM is back in IDLE. Pre-V13 the bytes get absorbed
+    // as the (mis-issued) data block.
+    spi_write(sd, 0x40 | 13);  // command byte
+    spi_write(sd, 0x00);       // arg [3]
+    spi_write(sd, 0x00);       // arg [2]
+    spi_write(sd, 0x00);       // arg [1]
+    spi_write(sd, 0x00);       // arg [0]
+    spi_write(sd, 0xFF);       // CRC
+
+    // Poll for the CMD13 R2 response. Post-V13: NCR + R1 + status.
+    // Pre-V13: nothing — the bytes were eaten as data, CMD13 never ran.
+    uint8_t r1_cmd13 = 0xFF;
+    uint8_t status_cmd13 = 0xFF;
+    bool got_cmd13 = false;
+    for (int i = 0; i < 16; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) {
+            r1_cmd13 = b;
+            // Next byte after R1 is the status byte (R2 specific).
+            status_cmd13 = spi_read(sd);
+            got_cmd13 = true;
+            break;
+        }
+    }
+
+    sd.deselect();
+    sd.unmount();
+    std::remove(img.c_str());
+
+    // Discriminative shape:
+    //   r1            == 0x40  (V13-DIVMMC-01: PARAMETER_ERROR)
+    //   got_cmd13     == true  (FSM returned to IDLE after R1)
+    //   r1_cmd13      == 0x00  (CMD13 R1: card initialized, no errors)
+    //   status_cmd13  == 0x00  (CMD13 R2: no card-status errors)
+    bool ok = mounted
+           && r1 == 0x40
+           && got_cmd13
+           && r1_cmd13 == 0x00
+           && status_cmd13 == 0x00;
+
+    check("SD-25",
+          "CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches "
+          "cleanly (proves data phase fully suppressed) "
+          "(SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3)",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " got_cmd13=" + std::to_string(got_cmd13) +
+          " r1_cmd13=" + std::to_string(r1_cmd13) +
+          " status_cmd13=" + std::to_string(status_cmd13));
 }
 
 // ─── New: SD-22 / CMD8 R7 byte 0 command-version nibble (V12-DIVMMC-03) ──
@@ -1276,10 +1373,11 @@ int main() {
     test_boot_sd_01();
     test_boot_sd_02();
     test_sd_15_mount_full_reset();   // 24a1bc4 (pass-5)
-    test_sd_21_cmd24_past_eof();     // V12-DIVMMC-02 (pass-12 verify-audit)
+    test_sd_21_cmd24_past_eof();     // V12-DIVMMC-02 + V13-DIVMMC-01 (pass-13 verify-audit)
     test_sd_22_cmd8_r7_cmdver(sd);   // V12-DIVMMC-03 (pass-12 reviewer-promoted)
     test_sd_23_cmd17_past_eof_r1_paramerror();  // V12-DIVMMC-04 (pass-12 reviewer-promoted)
     test_sd_24_cmd24_pre_token_ignored();        // V12-DIVMMC-06 (pass-12 reviewer-promoted)
+    test_sd_25_cmd24_past_eof_no_data_phase();   // V13-DIVMMC-01 (pass-13 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
