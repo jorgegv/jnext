@@ -29,6 +29,7 @@
 #include <cstring>
 #include <string>
 #include <unistd.h>   // write, close, mkstemp
+#include <sys/stat.h> // chmod (V15-DIVMMC-01: SD-28 RO image test)
 #include <vector>
 
 // ─── Test infrastructure ─────────────────────────────────────────────
@@ -1420,6 +1421,111 @@ static void test_sd_27_cmd8_r7_r1_post_init() {
     std::remove(img.c_str());
 }
 
+// ─── New: SD-28 / CMD24 write to RO image emits 0x0D (V15-DIVMMC-01) ────
+//
+// V15-DIVMMC-01 (Pass-15 verify-audit, 2026-05-10): SD Physical Layer
+// Simplified Spec § 7.3.3.3 (Data Response Token) — `sss=110` (= 0x0D)
+// signals "data rejected due to write error". When the SD-image file is
+// opened in fall-back read-only mode (mount() line 33, e.g. user file with
+// no write permission, or RO mount of a system image) OR when the
+// underlying disk fails the host-side write (disk full, I/O error, etc.),
+// `file_.write()` silently sets the fstream `failbit`. Pre-fix the card
+// unconditionally emitted 0x05 (data accepted) regardless of the stream
+// state — diverging from every real SD card with a mechanical write-
+// protect tab (which would emit 0x0D for any in-bounds write attempt).
+//
+// Discriminative shape:
+//   1. Build an 8-sector temp image, then chmod 0444 (read-only).
+//   2. Mount — falls through to RO path, mount() returns true (mounted).
+//   3. CMD24 sector=0 (in-bounds, R1 path is OK so data phase starts).
+//   4. Send 0xFE + 512 data + 2 CRC. Pre-fix: 0x05 (data accepted, lying).
+//      Post-fix: 0x0D (write error — fstream rejected the write).
+//   5. Symmetric guard: re-mount the same image with 0644 perms (RW),
+//      same CMD24 succeeds with 0x05.
+//
+// Class-(c) latent — the canonical NextZXOS fixture is opened RW and
+// writes succeed; but a forensic / user-supplied RO mount silently
+// corrupts the host's expectations of write success. Symmetric with
+// SD-21 / SD-25 / SD-26 past-EOF rejections and V12-DIVMMC-02 family.
+static void test_sd_28_cmd24_ro_image_write_error() {
+    const uint32_t n_sectors = 8;
+    std::string img = make_image(n_sectors);
+
+    // Make the image read-only on the host filesystem.
+    if (chmod(img.c_str(), 0444) != 0) {
+        // Permission change failed — skip rather than spuriously fail.
+        skip("SD-28", "host chmod(0444) failed; cannot construct RO image");
+        std::remove(img.c_str());
+        return;
+    }
+
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);  // expected to fall through to RO mode
+    sd.reset();
+    init_card(sd);
+
+    // CMD24 sector=0 (in-bounds) → R1 should be 0x00 (no error in command).
+    uint8_t r1 = send_cmd_r1(sd, 24, 0);
+    spi_write(sd, 0xFE);                            // data token
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0xAA);  // 512 data bytes
+    spi_write(sd, 0xFF);                            // CRC hi
+    spi_write(sd, 0xFF);                            // CRC lo
+
+    // Poll for the data response token.
+    uint8_t resp = 0xFF;
+    bool got_resp = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) { resp = b; got_resp = true; break; }
+    }
+    sd.deselect();
+    sd.unmount();
+
+    // Restore RW perms so the cleanup `std::remove` works on systems where
+    // the file's parent dir requires write access (and to be tidy).
+    chmod(img.c_str(), 0644);
+
+    // Symmetric regression guard: re-mount the same image RW, same CMD24
+    // must now succeed with 0x05 (proves the test isn't accidentally
+    // detecting a different failure mode — e.g. the image being malformed).
+    SdCardDevice sd_rw;
+    bool mounted_rw = sd_rw.mount(img);
+    sd_rw.reset();
+    init_card(sd_rw);
+    uint8_t r1_rw = send_cmd_r1(sd_rw, 24, 0);
+    spi_write(sd_rw, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd_rw, 0xAA);
+    spi_write(sd_rw, 0xFF);
+    spi_write(sd_rw, 0xFF);
+    uint8_t resp_rw = 0xFF;
+    bool got_resp_rw = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd_rw);
+        if (b != 0xFF) { resp_rw = b; got_resp_rw = true; break; }
+    }
+    sd_rw.deselect();
+    sd_rw.unmount();
+
+    bool ok = mounted                       // RO fall-through still mounts
+           && mounted_rw                    // RW remount works
+           && r1 == 0x00                    // R1 says command OK (in-bounds)
+           && got_resp && resp == 0x0D      // V15-DIVMMC-01: write-error token
+           && r1_rw == 0x00 && got_resp_rw && resp_rw == 0x05;  // RW guard
+
+    check("SD-28",
+          "CMD24 to RO-mounted image emits data-response 0x0D (write error) "
+          "per SD Phys Layer Spec § 7.3.3.3; same image mounted RW emits "
+          "0x05 (data accepted) — discriminates the silent-write-loss "
+          "(pre-fix) bug.",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " resp=" + std::to_string(resp) +
+          " r1_rw=" + std::to_string(r1_rw) +
+          " resp_rw=" + std::to_string(resp_rw));
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1509,6 +1615,7 @@ int main() {
     test_sd_25_cmd24_past_eof_no_data_phase();   // V13-DIVMMC-01 (pass-13 verify-audit)
     test_sd_26_cmd18_midstream_past_eof_error_token();  // V14-DIVMMC-01 (pass-14 verify-audit)
     test_sd_27_cmd8_r7_r1_post_init();           // V14-DIVMMC-02 (pass-14 verify-audit)
+    test_sd_28_cmd24_ro_image_write_error();     // V15-DIVMMC-01 (pass-15 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //

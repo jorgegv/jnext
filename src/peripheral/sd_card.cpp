@@ -203,7 +203,48 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                     file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
                     file_.write(reinterpret_cast<const char*>(data_block_), 512);
                     file_.flush();
-                    sd_log()->debug("CMD24 wrote 512 bytes at sector {} (byte={:#010x})", sector, byte_addr);
+                    // V15-DIVMMC-01 (Pass-15 verify-audit fix, 2026-05-10):
+                    // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
+                    // Response Token format) — `sss=110` (= 0x0D) signals
+                    // "data rejected due to write error". The host-side
+                    // fstream `write()` silently sets `failbit` when the
+                    // image was opened in fall-back read-only mode (mount()
+                    // line 33) or when the underlying disk is full / I/O
+                    // errors. Pre-fix the card unconditionally emitted 0x05
+                    // (data accepted) even when the host fstream rejected
+                    // the write — diverging from every real SD card with
+                    // a mechanical write-protect tab (or backed by a host
+                    // file with no write permission) which would emit
+                    // 0x0D for any write attempt that didn't physically
+                    // commit. Symmetric with the V12-DIVMMC-02 past-EOF
+                    // fix and the V14-DIVMMC-01 mid-stream past-EOF fix.
+                    // Class-(c) latent — the canonical NextZXOS fixture
+                    // is opened RW and writes succeed; but a forensic /
+                    // user-supplied RO image silently corrupts the host's
+                    // expectations of a successful write, and a real
+                    // hardware-stress test rig can swap in a RO mount to
+                    // exercise the firmware's write-error path. After
+                    // the fix the path is exercised faithfully.
+                    if (!file_.good()) {
+                        sd_log()->warn(
+                            "CMD24 host-side write failed at sector={} "
+                            "(byte={:#010x}) — emitting write-error token "
+                            "0x0D (file was opened RO or I/O error)",
+                            sector, byte_addr);
+                        write_ok = false;
+                        // Clear the failbit so subsequent CMDs that also
+                        // attempt writes get a fresh attempt (and fail
+                        // again, symmetrically) — without this the stream
+                        // would stay sticky-failed forever and even reads
+                        // (file_.seekg/read) would short-circuit on the
+                        // bad bit. seekg/read paths use seekg+read which
+                        // also touch the same stream state.
+                        file_.clear();
+                    } else {
+                        sd_log()->debug(
+                            "CMD24 wrote 512 bytes at sector {} (byte={:#010x})",
+                            sector, byte_addr);
+                    }
                 } else {
                     sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} → write-error response token",
                                    sector, byte_addr, file_size_);
