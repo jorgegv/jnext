@@ -4720,6 +4720,61 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
         emu.reset();
     }
 
+    // ── V12-NMP-01 — NR 0xC4 b0 ULA-INT-disable shadow fan-out (Pass-12)
+    //   VHDL zxnext.vhd:3621-3622 — `nr_c4_we` writes `port_ff_reg(6) <=
+    //   not nr_wr_dat(0)`. VHDL :3635 then ties `port_ff_interrupt_disable
+    //   <= port_ff_reg(6)` combinationally; VHDL :6711 feeds that into the
+    //   ULA-INT enable signal `ula_int_en`. Pre-fix the C++ NR 0xC4 write
+    //   updated `port_ff_reg_` bit 6 but NOT the `ula_int_disabled_`
+    //   shadow nor `video_timing_.interrupt_enable()`. Symptom: software
+    //   that writes NR 0xC4 ← 0x01 (enable ULA INT) saw the read-back at
+    //   line 2417 (`!ula_int_disabled_ → bit 0`) keep returning '0'
+    //   because the shadow stayed stuck at the prior state. The
+    //   discriminative shape: write NR 0xC4 = 0x00 first to set both
+    //   shadows to "disabled"; then write NR 0xC4 = 0x01 and observe the
+    //   readback flip to bit 0 = '1'. Pre-fix the readback would NOT
+    //   flip because `ula_int_disabled_` would still be false (set by
+    //   the NR 0xC4=0x00 path which did update port_ff_reg_(6)=1, but
+    //   reading bit 0 = !ula_int_disabled_ would have stayed at the
+    //   default-init false → bit 0 = '1' even after writing 0x00). To
+    //   force a real divergence, we ALSO write NR 0x22 = 0x04 first to
+    //   set ula_int_disabled_=true (via the NR 0x22 path that DOES
+    //   update both shadows). Then write NR 0xC4 = 0x01 — pre-fix this
+    //   leaves ula_int_disabled_=true (NR 0x22 path set it; NR 0xC4
+    //   path didn't clear it), so NR 0xC4 readback bit 0 = '0'. Post-fix
+    //   NR 0xC4 = 0x01 syncs ula_int_disabled_=false from
+    //   port_ff_reg_(6)=0, so readback bit 0 = '1'.
+    {
+        emu.reset();
+        // Step 1: write NR 0x22 = 0x04 → bit 2 of NR 0x22 fans into
+        // port_ff_reg_(6)=1 AND sets ula_int_disabled_=true via the
+        // existing fan-out at emulator.cpp:1657-1658. Confirm via NR
+        // 0xC4 read bit 0: should be 0 (disabled).
+        nr_write(emu, 0x22, 0x04);
+        const uint8_t after_22 = nr_read(emu, 0xC4);
+        // Step 2: write NR 0xC4 = 0x01 → port_ff_reg_(6)=0; the V12-NMP-01
+        // fix MUST also sync ula_int_disabled_=false. NR 0xC4 read bit 0
+        // should now be 1 (enabled).
+        nr_write(emu, 0xC4, 0x01);
+        const uint8_t after_c4_enable = nr_read(emu, 0xC4);
+        // Step 3: write NR 0xC4 = 0x00 → port_ff_reg_(6)=1; the V12-NMP-01
+        // fix MUST also sync ula_int_disabled_=true. NR 0xC4 read bit 0
+        // should be 0 again.
+        nr_write(emu, 0xC4, 0x00);
+        const uint8_t after_c4_disable = nr_read(emu, 0xC4);
+        check("V12-NMP-01",
+              "NR 0xC4 b0 write fans into ula_int_disabled_ shadow + "
+              "video_timing_ INT-enable gate (mirroring NR 0x22 b2 path) "
+              "[zxnext.vhd:3621-3622 / :3635 / :6711]",
+              (after_22 & 0x01) == 0x00 &&
+              (after_c4_enable & 0x01) == 0x01 &&
+              (after_c4_disable & 0x01) == 0x00,
+              "after_22=" + hex2(after_22) +
+              " after_c4_enable=" + hex2(after_c4_enable) +
+              " after_c4_disable=" + hex2(after_c4_disable));
+        emu.reset();
+    }
+
     emu.reset();
 }
 

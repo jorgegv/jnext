@@ -154,13 +154,13 @@ static void test_ula_int_integration(Emulator& emu) {
     // BEFORE run_frame must prevent the scheduler from arming the ULA
     // interrupt (emulator.cpp:1989 gate), so NR 0xC8 bit 0 stays clear.
     //
-    // DIRECT `OUT 0xFF` TO DISABLE: jnext wires port 0xFF only to the
-    // Timex screen-mode write (emulator.cpp:1103-1108); port_ff_reg bit 6
-    // is NOT fed back through the port path, so an `OUT 0xFF,0x40`
-    // cannot currently set port_ff_interrupt_disable. This is a latent
-    // subsystem gap — VHDL drives bit 6 from port 0xFF writes too. Out
-    // of scope for Phase 3c; this row exercises the NR-22 mirror, which
-    // is the VHDL-equivalent observable.
+    // V12-NMP-02 closure: the previous "DIRECT `OUT 0xFF` TO DISABLE
+    // is a latent gap" note here is now stale — Pass-12 fix-of-reviewer
+    // wired port-0xFF write fan-out into `ula_int_disabled_` +
+    // `video_timing_.set_interrupt_enable(...)` so all three writers to
+    // `port_ff_reg(6)` (port-FF, NR 0x22, NR 0xC4) keep parity with the
+    // VHDL-canonical store. The new row ULA-INT-V12-NMP-02 below
+    // exercises the direct port-0xFF path end-to-end.
     {
         fresh(emu);
         // Set NR 0x22 bit 2 → ula_int_disabled_ = true.
@@ -275,6 +275,71 @@ static void test_ula_int_integration(Emulator& emu) {
               (c8 & 0x02) != 0,
               "NR 0xC8=" + hex2(c8) + " (expected bit 1 LINE set)");
     }
+
+    // ULA-INT-V12-NMP-02 — direct OUT (0xFF),A bit 6 must fan out into
+    // ula_int_disabled_ shadow + video_timing scheduler gate.
+    //
+    // VHDL: zxnext.vhd:3614-3616 (port_ff_wr branch latches the entire
+    // CPU byte into port_ff_reg, INCLUDING bit 6); :3635
+    // (port_ff_interrupt_disable <= port_ff_reg(6)); :6711 (ula_int_en
+    // bit 0 = NOT port_ff_interrupt_disable). VHDL has THREE writers
+    // feeding port_ff_reg(6): port-FF (full byte), NR 0x22 b2, NR 0xC4
+    // b0 NOT. NR 0x22 + NR 0xC4 paths already mirrored the new value
+    // into ula_int_disabled_ + video_timing_.set_interrupt_enable(); the
+    // direct port-0xFF write was the missing third writer. Pre-V12-NMP-02
+    // an `OUT (0xFF),0x40` set port_ff_reg_(6)=1 but left
+    // ula_int_disabled_=false — NR 0xC4 read bit 0 was the stale shadow
+    // (1, "enabled") instead of the live store (0, "disabled").
+    //
+    // Discriminative scenario:
+    //   1. fresh(emu): ula_int_disabled_=false, port_ff_reg_(6)=0,
+    //      NR 0xC4 read bit 0 = 1 (enabled).
+    //   2. OUT (0xFF),0x40: port_ff_reg_(6)<=1, ula_int_disabled_<=true.
+    //      NR 0xC4 read bit 0 must now be 0 (disabled).
+    //   3. OUT (0xFF),0x00: port_ff_reg_(6)<=0, ula_int_disabled_<=false.
+    //      NR 0xC4 read bit 0 must be 1 (re-enabled).
+    //
+    // Pre-fix step 2 returns bit 0 = 1 (stale shadow); step 3 returns
+    // bit 0 = 1 also (shadow never moved). Post-fix the readback follows
+    // the VHDL contract.
+    {
+        fresh(emu);
+        const uint8_t c4_initial = nr_read(emu, 0xC4);
+        emu.port().out(0x00FF, 0x40);            // disable via direct port write
+        const uint8_t c4_after_dis = nr_read(emu, 0xC4);
+        emu.port().out(0x00FF, 0x00);            // re-enable via direct port write
+        const uint8_t c4_after_en  = nr_read(emu, 0xC4);
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "initial=0x%02X after_OUT_FF_40=0x%02X after_OUT_FF_00=0x%02X "
+                      "(bit 0 should follow 1,0,1)",
+                      c4_initial, c4_after_dis, c4_after_en);
+        check("ULA-INT-V12-NMP-02",
+              "OUT (0xFF) bit 6 fans into ula_int_disabled_ shadow / scheduler — "
+              "NR 0xC4 read bit 0 follows live port_ff_reg(6) for direct port-0xFF "
+              "writes [zxnext.vhd:3614-3616, :3635, :6711, :6239]",
+              (c4_initial & 0x01) != 0
+                && (c4_after_dis & 0x01) == 0
+                && (c4_after_en & 0x01) != 0,
+              detail);
+    }
+
+    // ULA-INT-V12-NMP-02b — direct OUT (0xFF),A bit 6 must suppress the
+    // scheduled ULA interrupt for the upcoming frame (the ula_int_disabled_
+    // shadow is consumed by run_frame()'s ULA-INT scheduling gate at
+    // emulator.cpp:1989 — same observable as ULA-INT-02 but exercising the
+    // direct port-0xFF write path rather than the NR-22 mirror).
+    {
+        fresh(emu);
+        emu.port().out(0x00FF, 0x40);            // bit 6 set → disable ULA INT
+        emu.run_frame();
+        const uint8_t c8 = nr_read(emu, 0xC8);
+        check("ULA-INT-V12-NMP-02b",
+              "OUT (0xFF),0x40 suppresses scheduled ULA INT — NR 0xC8 bit 0 stays clear "
+              "[zxnext.vhd:3614-3616, :6711; emulator.cpp:1989 gate]",
+              (c8 & 0x01) == 0,
+              "NR 0xC8=" + hex2(c8) + " (expected bit 0 clear after OUT FF,40)");
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -343,17 +408,32 @@ static void test_nr_c0_c4_c6(Emulator& emu) {
     // VHDL: zxnext.vhd:6239 — port_253b_dat <= nr_c4_int_en_0_expbus & "00000"
     //                         & nr_22_line_interrupt_en & (NOT port_ff_interrupt_disable).
     //
-    // Exercise: write expbus=1 (bit 7) + line=1 (bit 1). ULA-INT bit 0 is
-    // driven by !ula_int_disabled_ (=true at reset). Ensure bits 6:2 read 0.
+    // Pass-12 V12-NMP-01 update (2026-05-10): pre-fix the C++ NR 0xC4 write
+    // updated `port_ff_reg_(6)` but NOT the `ula_int_disabled_` shadow that
+    // the read handler (emulator.cpp:2417) consults for bit 0. The VHDL
+    // chain is: NR 0xC4 b0 → port_ff_reg(6) <= NOT b0 → port_ff_interrupt_disable
+    // <= port_ff_reg(6) → ula_int_en(0) <= NOT port_ff_interrupt_disable. So
+    // a write of NR 0xC4 = 0x82 (b0=0) puts port_ff_reg(6)=1 →
+    // port_ff_interrupt_disable=1 → ula_int_en(0)=0. The readback bit 0
+    // MUST be 0, giving 0x82 — NOT 0x83. The pre-fix test expected 0x83
+    // because the buggy C++ left `ula_int_disabled_` at its default false
+    // (set during reset_machine), making readback bit 0 = !false = 1.
+    // V12-NMP-01 syncs the shadow on every NR 0xC4 write and the readback
+    // now correctly returns 0x82.
+    //
+    // Exercise: write expbus=1 (bit 7) + line=1 (bit 1) + ULA disable
+    // (bit 0=0). Ensure readback returns the VHDL-faithful 0x82.
     {
         fresh(emu);
-        nr_write(emu, 0xC4, 0x82);              // expbus=1 + line=1
+        nr_write(emu, 0xC4, 0x82);              // expbus=1 + line=1 + ula b0=0
         const uint8_t got = nr_read(emu, 0xC4);
-        // Expected: E_00000_UU with E=1, UU={line,ula}={1,1}=11 → 0x83.
+        // VHDL-faithful expected: E_00000_UU = 1_00000_10 = 0x82.
+        // (line=1 bit 1, ula=0 bit 0 because b0=0 → port_ff_reg(6)=1
+        //  → port_ff_interrupt_disable=1 → ula_int_en(0)=0.)
         check("NR-C4-03",
               "NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) "
-              "[zxnext.vhd:6239; emulator.cpp:796-804]",
-              got == 0x83, detail_eq(got, 0x83));
+              "[zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804]",
+              got == 0x82, detail_eq(got, 0x82));
     }
 
     // NR-C6-02 — NR 0xC6 readback format 0_654_0_210.
