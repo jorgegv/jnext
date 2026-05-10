@@ -1595,6 +1595,133 @@ static void test_sd_29_acmd41_hcs_reflected_in_ocr() {
     std::remove(img.c_str());
 }
 
+// V18-DIVMMC-NIT-01: full-duplex stream advance in receive() default branch.
+// Per VHDL `serial/spi_master.vhd:104-117` (oshift_r) + `:148-168` (ishift_r /
+// miso_dat) + `zxnext.vhd:3270-3298`, every clocked SPI byte exchange captures
+// whatever the slave drives on MISO regardless of MOSI content.  While
+// state_=RESPONDING/SENDING_DATA/WRITE_RESP, the SD card is actively shifting
+// out its response stream — a host write_data() with a non-CMD-start byte
+// must (a) return the next response byte on MISO and (b) advance the response
+// stream, exactly as if read_data() had been called.  Pre-fix, the default
+// branch unconditionally returned 0xFF and left resp_idx_/data_idx_ frozen.
+static void test_sd_30_full_duplex_stream_advance() {
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+
+    sd.reset();
+    init_card(sd);
+    // CMD17 sector=1: card emits R1=0x00, then 0xFE token, then 512 data
+    // bytes (= pattern (1+i)&0xFF for i>=4 per make_image), then 2 CRC bytes.
+    uint8_t r1 = send_cmd_r1(sd, 17, 1);
+
+    // Drain through the 0xFE data token using receive() — these are 0xFF
+    // MOSI bytes interleaved with the card's RESPONDING/SENDING-token bytes.
+    // We poll receive(0xFF) (write-side) directly to confirm the host sees
+    // the response stream on MISO via the full-duplex semantics.
+    uint8_t b_token = 0xFF;
+    for (int i = 0; i < 16; ++i) {
+        b_token = sd.receive(0xFF);
+        if (b_token == 0xFE) break;
+    }
+
+    // Now in SENDING_DATA state, mid-block.  Read first data byte via send()
+    // to anchor a baseline (sector 1, offset 0: byte = 0x01).
+    uint8_t data0 = sd.send();
+
+    // Now exercise the fix: call receive(0xFF) — a non-CMD-start byte — while
+    // in SENDING_DATA.  Pre-fix returns 0xFF and leaves data_idx_ at 1.  Post-
+    // fix delegates to send(), returning the byte at data_idx_=1 (sector 1
+    // offset 1 = 0x00 per make_image's 4-byte sector-id header).
+    uint8_t rx_during_send = sd.receive(0xFF);
+
+    // Next send() should return the byte at data_idx_=2 (post-fix) — proving
+    // the stream advanced.  Pre-fix it returns the byte at data_idx_=1 (= 0x00
+    // for sector 1, indistinguishable from rx_during_send's pre-fix 0xFF
+    // value via this byte alone), so we ALSO assert rx_during_send != 0xFF
+    // and equals 0x00 (the expected post-fix MISO value).
+    uint8_t after = sd.send();
+
+    sd.deselect();
+    sd.unmount();
+
+    // Per make_image: sector 1 bytes are [0x01, 0x00, 0x00, 0x00, (1+4)&FF=0x05,
+    // (1+5)&FF=0x06, ...].
+    bool ok = mounted
+           && r1 == 0x00
+           && b_token == 0xFE          // token captured via full-duplex receive
+           && data0 == 0x01            // anchor: sector 1 offset 0
+           && rx_during_send == 0x00   // post-fix: MISO carries data_block_[1]
+           && after == 0x00;           // post-fix: stream advanced to data_block_[2]
+
+    check("SD-30",
+          "receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP "
+          "returns the next MISO byte and advances the response stream "
+          "(full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned "
+          "0xFF and left resp_idx_/data_idx_ un-advanced.",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " b_token=" + std::to_string(b_token) +
+          " data0=" + std::to_string(data0) +
+          " rx_during_send=" + std::to_string(rx_during_send) +
+          " after=" + std::to_string(after));
+
+    std::remove(img.c_str());
+}
+
+// V18-DIVMMC-NIT-01 (b): same fix exercised via RESPONDING state (R1 stream
+// for a CMD13 status read).  CMD13 returns a 2-byte R2 response.  After
+// CMD13 we read R2[0] via send(), then call receive(0x00) (non-CMD byte) to
+// snap the next byte and advance, then read again to confirm advance.
+static void test_sd_31_full_duplex_responding_state() {
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+
+    sd.reset();
+    init_card(sd);
+    // Issue CMD13 — card emits R2 (2 bytes, R1 + status) in RESPONDING state.
+    // send_cmd_r1 returns the first non-0xFF byte and leaves the second
+    // (status) byte queued.  We then have RESPONDING state with 1 byte left.
+    sd.receive(0x40 | 13);                // CMD13 start byte
+    sd.receive(0x00); sd.receive(0x00);   // 4 arg bytes
+    sd.receive(0x00); sd.receive(0x00);
+    sd.receive(0x01);                     // CRC stop bit
+
+    // Poll for R1 via full-duplex receive().  This is the boot-path-relevant
+    // sub-case where receive() is the only channel the host uses.  Pre-fix:
+    // RESPONDING state's default branch in receive() returns 0xFF without
+    // advancing resp_idx_.  Post-fix: send() is delegated to, returning the
+    // R1 byte (0x00) and advancing resp_idx_ to point at R2[1] (status byte).
+    uint8_t r1_via_receive = 0xFF;
+    for (int i = 0; i < 16; ++i) {
+        uint8_t b = sd.receive(0xFF);
+        if (b != 0xFF) { r1_via_receive = b; break; }
+    }
+    // Now the R2 status byte should be next on MISO.  Read via send().
+    // Per CMD13 handler the status byte is typically 0x00 for a healthy card.
+    uint8_t r2_status = sd.send();
+
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1_via_receive == 0x00   // post-fix: receive() observed R1 on MISO
+           && r2_status     == 0x00;   // and stream advanced to next byte
+
+    check("SD-31",
+          "receive(non-CMD-byte) in RESPONDING state observes the next "
+          "response byte on MISO and advances resp_idx_ per VHDL full-duplex "
+          "semantics (spi_master.vhd:104-168). Pre-fix the receive() default "
+          "branch returned 0xFF and the R1 byte would never be observable "
+          "via the write-side channel.",
+          ok,
+          "r1_via_receive=" + std::to_string(r1_via_receive) +
+          " r2_status=" + std::to_string(r2_status));
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1686,6 +1813,8 @@ int main() {
     test_sd_27_cmd8_r7_r1_post_init();           // V14-DIVMMC-02 (pass-14 verify-audit)
     test_sd_28_cmd24_ro_image_write_error();     // V15-DIVMMC-01 (pass-15 verify-audit)
     test_sd_29_acmd41_hcs_reflected_in_ocr();    // V17-DIVMMC-01 (pass-17 verify-audit)
+    test_sd_30_full_duplex_stream_advance();     // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
+    test_sd_31_full_duplex_responding_state();   // V18-DIVMMC-NIT-01 (pass-18 reviewer fix)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
