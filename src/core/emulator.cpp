@@ -3322,7 +3322,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // while config_mode is asserted. Outside config_mode the previous
         // ps2_mode is sticky. G56 cluster A — required so the NR 0x06
         // read handler returns the VHDL-faithful value at line 5900.
-        if (nextreg_.nr_03_config_mode()) {
+        const bool cfg = nextreg_.nr_03_config_mode();
+        if (cfg) {
             nr_06_ps2_mode_ = ((v >> 2) & 1) != 0;
         }
 
@@ -3346,7 +3347,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // inputs to beep_spkr_excl (VHDL zxnext.vhd:6504); audio_mixer.vhd:
         // 80-81 silences EAR/MIC when exc_i='1'.
         mixer_.set_exc_i(beep_spkr_excl());
+        // V11-NMP-03 (Pass-11 fix-of-reviewer): VHDL zxnext.vhd:5167-5169
+        // gates the `nr_06_ps2_mode` latch (bit 2) behind `nr_03_config_mode
+        // = '1'`. When the gate is closed the underlying signal retains its
+        // previous value. Pre-fix the C++ stored the raw `v` byte in
+        // `regs_[0x06]`, so the cache could leak bit 2 written outside
+        // config_mode. The observable consequence is the init/reset
+        // fan-out at lines 3272-3276 which seeds `nr_06_ps2_mode_` from
+        // `cached(0x06) & 0x04` — a hard reset after a "cache-poisoning"
+        // out-of-config_mode write to bit 2 would clobber the live
+        // `nr_06_ps2_mode_` shadow even though the VHDL latch was never
+        // updated. Canonicalise the stored byte: bit 2 inherits the
+        // pre-write cached value when config_mode is closed; bits 7:3 and
+        // 1:0 are always written (those signals have no config_mode gate
+        // per VHDL :5162-5166 and :5170). Mirrors the V11-NMP-02 pattern
+        // applied to NR 0x0A bits 7:5.
+        if (cfg) {
             return v;
+        }
+        const uint8_t prev = nextreg_.cached(0x06);
+        return static_cast<uint8_t>((v & 0xFB) | (prev & 0x04));
     });
 
     // VHDL zxnext.vhd:5900 — read formula:

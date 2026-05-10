@@ -2803,6 +2803,72 @@ static void test_g56_cluster_b(Emulator& emu) {
         nr_write(emu, 0x0A, 0x01);              // mouse_dpi power-on default
     }
 
+    // V11-NMP-03 discriminative — VHDL zxnext.vhd:5167-5169 gates the
+    // latch `nr_06_ps2_mode` (bit 2) behind `nr_03_config_mode = '1'`.
+    // When the gate is closed, the underlying signal retains its previous
+    // value. Pre-fix the C++ wrote the raw byte `v` into `regs_[0x06]`
+    // regardless of the gate (the read handler masked bit 2 from the live
+    // `nr_06_ps2_mode_` shadow, but the cache itself absorbed the rejected
+    // bit). The observable consequence flows through the init/reset
+    // fan-out at emulator.cpp:3272-3276, which seeds `nr_06_ps2_mode_`
+    // from `cached(0x06) & 0x04` after every reset. The discriminative
+    // chain mirrors V11-NMP-02 exactly: (a) commit ps2_mode = 1 in
+    // config_mode, (b) exit config_mode, (c) attempt to clear bit 2 via
+    // NR 0x06 write — VHDL ignores that, jnext pre-fix corrupted the
+    // cache, (d) trigger RESET_HARD via NR 0x02 = 0x02 — the cache is
+    // re-applied via the init fan-out and the post-reset NR 0x06 read
+    // should still surface bit 2 = 1. Pre-fix this read is 0xA0 (= bug
+    // present, cache leaked the rejected write; only bits 7,5 from the
+    // VHDL reset clause remain set); post-fix it is 0xA4 (ps2_mode
+    // preserved per VHDL).
+    {
+        // (a) Ensure config_mode = 1 and commit ps2_mode = 1. Clear all
+        //     other preserved-on-reset bits so post-reset readback is
+        //     unambiguous (only the reset-asserted bits 7,5 + the gated
+        //     bit 2 will be set).
+        nr_write(emu, 0x03, 0x07);              // bits[2:0]=111 → cfg_mode=1
+        nr_write(emu, 0x06, 0x04);              // bit 2 = 1, all else = 0
+        const uint8_t after_commit = nr_read(emu, 0x06);
+        // (b) Exit config_mode.
+        nr_write(emu, 0x03, 0x01);              // bits[2:0]=001 → cfg_mode=0
+        // (c) Try to clear bit 2 outside config_mode — VHDL latch should
+        //     retain the previous value (ps2_mode = 1).
+        nr_write(emu, 0x06, 0x00);
+        const uint8_t after_reject = nr_read(emu, 0x06);
+        // (d) Hard reset — re-enters cache-driven fan-out at init().
+        //     NextReg::reset() preserves the lower bits of regs_[0x06]
+        //     (no reset clause for them in VHDL :1109-1113); only bits
+        //     7 and 5 are re-asserted. The init fan-out at lines 3272-
+        //     3276 then seeds `nr_06_ps2_mode_` from `cached(0x06) & 0x04`.
+        //     Pre-fix the cached byte had bit 2 = 0 (cache leaked the
+        //     rejected write), so post-reset ps2_mode_ became false and
+        //     the read returned 0xA0 (bits 7,5 only). Post-fix the cache
+        //     was canonicalised so bit 2 = 1 in both cache and shadow,
+        //     and the read returns 0xA4.
+        nr_write(emu, 0x02, 0x02);              // RESET_HARD
+        const uint8_t after_reset = nr_read(emu, 0x06);
+        char d[160];
+        std::snprintf(d, sizeof(d),
+                      "after_commit=0x%02X after_reject=0x%02X "
+                      "after_reset=0x%02X (want bit 2 set in each)",
+                      after_commit, after_reject, after_reset);
+        const bool committed_ok  = ((after_commit  & 0x04) == 0x04);
+        const bool rejected_ok   = ((after_reject  & 0x04) == 0x04);
+        const bool post_reset_ok = ((after_reset   & 0x04) == 0x04);
+        check("V11-NMP-03",
+              "NR 0x06 bit 2 (ps2_mode) survives an out-of-config_mode "
+              "attempted clear AND a subsequent hard reset — VHDL :5167-"
+              "5169 gates the latch on config_mode='1'; pre-fix the C++ "
+              "cache leaked the rejected write into the post-reset "
+              "init/reset fan-out at emulator.cpp:3272-3276",
+              committed_ok && rejected_ok && post_reset_ok, d);
+        // Restore config_mode = 1 and clean baseline so downstream tests
+        // see consistent state (NR 0x06 cache still has bit 2 = 1 from
+        // the preserved-on-reset path; clear it explicitly).
+        nr_write(emu, 0x03, 0x07);              // re-enter config_mode
+        nr_write(emu, 0x06, 0xA0);              // back to power-on default
+    }
+
     // ── NR 0x0B — Joystick I/O mode ──────────────────────────────────
     // VHDL zxnext.vhd:5915:
     //   port_253b_dat <= nr_0b_joy_iomode_en [7] & '0' [6]
