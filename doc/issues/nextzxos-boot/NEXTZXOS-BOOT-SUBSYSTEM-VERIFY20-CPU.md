@@ -26,6 +26,14 @@ Coverage scope per Pass-19 plus full re-verification of Pass-19 fixes. Granulari
 - one row per FUSE Z80 integration hook;
 - one row per save_state schema field touching CPU/IM2 state.
 
+**Row-count note (V20R-DOC-NIT-01 correction).** The commit message for
+this audit (`ca8cbc5`) originally claimed "~150 rows". The reviewer
+re-count yields ~125–130 surface rows (z80n_ext.cpp 31, z80_cpu.cpp 22,
+im2.cpp+im2.h 45, emulator.cpp 32 = 130 total). The "~150" figure was
+~15–20 % overstated. Coverage breadth (all Z80N opcodes, every IM2
+state-machine method, every relevant NR handler, every CPU↔IM2 wiring
+site) is unchanged — only the headline figure was inflated.
+
 | Surface (file:line) | C++ behaviour summary | VHDL oracle (file:line) | Match | Notes |
 |---|---|---|---|---|
 | z80n_ext.cpp:142 SWAPNIB | nibble swap of A; no F; T=8 | t80n.vhd:702-704 + t80n_mcode.vhd:1761 | ✓ | Q stays 0 (pre-dispatch) |
@@ -152,7 +160,7 @@ Coverage scope per Pass-19 plus full re-verification of Pass-19 fixes. Granulari
 | emulator.cpp:5693 im2_.tick | per-tick fabric advance | clk_cpu rising | ✓ |  |
 | emulator.cpp:5728 IM2-mode INT poll | int_line_asserted → request_interrupt(0xFE) | zxnext.vhd:1840 im2_int_n | ✓ | V19-IM2-04 |
 | emulator.cpp:5762 pulse-mode INT poll (V20-IM2-01) | falling-edge pulse_int_n → request_interrupt(0xFF) | zxnext.vhd:1840 pulse_int_n | ✓ | **V20-IM2-01 fix this pass** |
-| emulator.cpp:6653 LINE-INT scheduler | raise_req(LINE) + (pulse mode) request_interrupt(0xFF) | scheduler + legacy CPU notify | ✓ |  |
+| emulator.cpp:6716-6727 LINE-INT scheduler (`reschedule_line_interrupt()`) | raise_req(LINE) + (pulse mode) request_interrupt(0xFF) | scheduler + legacy CPU notify | ✓ | V20R-DOC-NIT-02: corrected from `:6653` (which is `enqueue_cpu_nr_write`) |
 | emulator.cpp:6807 save_state | im2_.save_state | persistence | ✓ |  |
 
 ## Findings
@@ -168,7 +176,7 @@ z80_int_n <= ((pulse_int_n and im2_int_n) or not expbus_disable_int)
 
 In the default scenario (`expbus_disable_int='1'`, no expansion bus), this reduces to `z80_int_n <= pulse_int_n AND im2_int_n`. Any drop of `pulse_int_n` must assert the Z80 /INT pin.
 
-**Pre-fix.** jnext only wired `cpu_.request_interrupt(0xFF)` from the ULA frame-INT scheduler callback (`emulator.cpp:5445`) and the LINE-INT scheduler callback (`emulator.cpp:6655`). CTC ZC/TO (`ctc_.on_interrupt` at `:4668`), UART TX-empty (`uart_.on_tx_interrupt` at `:4717`), and UART RX-avail/near-full (`uart_.on_rx_interrupt` at `:4722`) all routed solely through `im2_.raise_req(DevIdx)`. The IM2 fabric's `pulse_int_n` correctly dropped via `im2_peripheral.vhd:186` (`o_pulse_en` for non-exception devices), but no code consulted `im2_.pulse_int_n()` to notify the CPU. Result: **in pulse mode (NR 0xC0 b0=0, the power-on default), CTC ZC/TO and UART RX/TX interrupts were silently dropped** — the daisy-chain saw the request but the Z80 /INT pin was never asserted.
+**Pre-fix.** jnext only wired `cpu_.request_interrupt(0xFF)` from the ULA frame-INT scheduler callback (`emulator.cpp:5447`) and the LINE-INT scheduler callback (`emulator.cpp:6716-6727`, the `reschedule_line_interrupt()` lambda — V20R-DOC-NIT-02: was previously cited as `:6655`). CTC ZC/TO (`ctc_.on_interrupt` at `:4668`), UART TX-empty (`uart_.on_tx_interrupt` at `:4717`), and UART RX-avail/near-full (`uart_.on_rx_interrupt` at `:4722`) all routed solely through `im2_.raise_req(DevIdx)`. The IM2 fabric's `pulse_int_n` correctly dropped via `im2_peripheral.vhd:186` (`o_pulse_en` for non-exception devices), but no code consulted `im2_.pulse_int_n()` to notify the CPU. Result: **in pulse mode (NR 0xC0 b0=0, the power-on default), CTC ZC/TO and UART RX/TX interrupts were silently dropped** — the daisy-chain saw the request but the Z80 /INT pin was never asserted.
 
 Pre-V19, IM2 mode had the same gap (no `int_line_asserted()` poll); V19-IM2-04 fixed that. V20-IM2-01 is the symmetric pulse-mode fix.
 
