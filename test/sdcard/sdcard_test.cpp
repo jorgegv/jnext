@@ -1298,7 +1298,9 @@ static void test_sd_26_cmd18_midstream_past_eof_error_token() {
     // Simplified Spec § 7.3.3.3 (Data Error Token format), when the card
     // cannot deliver the requested data block (out-of-range, ECC failure,
     // CC error, generic error), it sends a 1-byte error token in place of
-    // the 0xFE start-of-block token. Bit layout 0bxxx0_xxxE_CCO_R; the
+    // the 0xFE start-of-block token. Bit layout (MSB to LSB) 0b0000_OECR
+    // where bit 3 = O (OUT_OF_RANGE → mask 0x08), bit 2 = E (card ECC
+    // failed), bit 1 = C (CC error), bit 0 = R (geneRic error); the
     // OUT_OF_RANGE-only token is 0x08.
     //
     // Pre-fix CMD18 mid-stream past-EOF silently aborted by emitting 0xFF
