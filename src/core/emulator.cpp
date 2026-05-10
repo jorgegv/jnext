@@ -1079,8 +1079,42 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x05: Joystick mode decoder — VHDL zxnext.vhd:5157-5158.
     // Phase 1 scaffold: Joystick::set_nr_05() is a stub that records the
     // raw byte; Agent A (Phase 2) implements the real bit-extraction.
+    //
+    // V13-NMP-01 (Pass-13 verify-audit fix): VHDL zxnext.vhd:5832-5841
+    // forces `nr_05_5060 <= '0'` continuously every clock when
+    // `nr_03_machine_timing(2) = '1'` (Pentagon mode). The IF branch is
+    // priority-1, so even an explicit NR 0x05 write with bit 2 = 1 gets
+    // overwritten on the very next clock edge — the FF never latches a
+    // '1' value while Pentagon is active.
+    //
+    // Pre-fix the C++ stored the raw `v` byte in `regs_[0x05]`, so bit 2
+    // could leak through the cache when Pentagon is on. The NR 0x05
+    // read_handler at line ~1117 already masks bit 2 to 0 while
+    // Pentagon is active (Pass-10 fix TC-NR05-PENTAGON), but if the
+    // sequence is "write bit 2 = 1 while Pentagon ON" then "exit
+    // Pentagon mode" then "read NR 0x05", VHDL would return bit 2 = 0
+    // (the underlying FF is still 0 — only a fresh NR 0x05 write or F3
+    // can flip it post-Pentagon-exit), but jnext returns bit 2 = 1
+    // because the read mask only triggers while Pentagon is active —
+    // post-exit the cached bit 2 = 1 surfaces verbatim.
+    //
+    // Same shape as V11-NMP-02 (NR 0x0A bits 7:5 config_mode gate) and
+    // V11-NMP-03 (NR 0x06 bit 2 ps2_mode config_mode gate): canonicalise
+    // the stored byte at write time so the cache never leaks a value
+    // the VHDL latch could not have stored. Mask bit 2 to 0 in the
+    // returned canonical byte when Pentagon timing is active; bits
+    // 7:3 and 1:0 are always written verbatim (those signals have no
+    // Pentagon gate per VHDL :5157-5158, :5848-5852).
     nextreg_.set_write_handler(0x05, [this](uint8_t v) -> uint8_t {
         joystick_.set_nr_05(v);
+        const bool pentagon =
+            (nextreg_.nr_03_machine_timing() & 0x04) != 0;
+        if (pentagon) {
+            // VHDL :5836 forces `nr_05_5060 <= '0'` while Pentagon is
+            // active; the bit-2 write is silently dropped. Force the
+            // stored byte's bit 2 to 0 to mirror the FF state.
+            return static_cast<uint8_t>(v & ~0x04);
+        }
         return v;
     });
     // VHDL zxnext.vhd:5897 — read formula:
@@ -1936,6 +1970,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 default:   new_timing = 0x03; break;  // VHDL :5131 others
             }
             nextreg_.set_nr_03_machine_timing(new_timing);
+
+            // V13-NMP-01 (Pass-13 verify-audit fix): VHDL zxnext.vhd:5832-
+            // 5841 forces `nr_05_5060 <= '0'` continuously every clock
+            // when `nr_03_machine_timing(2) = '1'` (Pentagon). The IF
+            // branch fires on EVERY clock edge — so the moment a NR 0x03
+            // write commits a Pentagon timing, the FF is cleared on the
+            // very next clock. The C++ `regs_[0x05]` cache tracks the
+            // last write through NextReg; without an explicit clear here,
+            // a pre-Pentagon NR 0x05 write with bit 2 = 1 would leak
+            // through the cache once Pentagon is later exited (the read
+            // mask at line 1166 only fires while Pentagon is live).
+            // Mirror the FF behaviour by clearing cached bit 2 on the
+            // timing→Pentagon transition. Same shape as the V11-NMP-02 /
+            // V11-NMP-03 cache-canonicalisation pattern, applied here on
+            // the gating-state-change edge instead of the gated-write
+            // edge. Bits 7:3 / 1:0 are unaffected.
+            if ((new_timing & 0x04) != 0) {
+                const uint8_t cached_05 =
+                    static_cast<uint8_t>(nextreg_.cached(0x05) & ~0x04);
+                // Direct write into the cache — bypassing the NR 0x05
+                // write_handler so we don't fan out to Joystick (whose
+                // joy0/joy1 fields aren't affected by bit 2; this is a
+                // pure cache-canonicalisation step).
+                nextreg_.write(0x05, cached_05);
+            }
 
             // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
             // `machine_timing_48 OR machine_timing_p3`, both decoded from
