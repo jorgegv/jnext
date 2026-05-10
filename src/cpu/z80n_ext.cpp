@@ -389,14 +389,36 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             // 3 (mem read HL) + 4 (port write IORQ) + 1 (internal).
             // Pass-6 fix: data read via fuse_z80_readbyte, port write via
             // fuse_z80_writeport — both add contention.
+            //
+            // V12-CPU-NIT-02 (Pass-12 reviewer NIT) — VHDL fidelity for the
+            // 1T extended-M1 tail: per t80n_mcode.vhd:2528-2530, OUTINB's
+            // MCycle 1 sets `TStates <= "101"` (=5T), i.e. the inner-M1 of
+            // the 0x90 byte is extended by 1T. This matches the standard
+            // OUTI extended-M1 cycle: per FUSE z80_ed.c:334
+            //     contend_read_no_mreq(IR, 1);
+            // is emitted BEFORE the readbyte(HL) — IR is on the address bus
+            // during the M1 refresh + extended T-state. Per zxula.vhd:582-600
+            // the contention gate fires on (hc_adj × vc × contention_en)
+            // regardless of MREQ, so the 1T extended-M1 must traverse the
+            // gate to emit the per-cycle stretch on contended IR addresses.
+            //
+            // Pre-fix: raw `tstates += 1` advanced the FUSE clock but
+            // bypassed the contention gate entirely. Functionally equivalent
+            // when contention is OFF (ZX48K static fixture), but at runtime
+            // on real ZX Next hardware the gate's stretch contribution is
+            // missed when IR sits in a contended bank.
             auto regs = cpu.get_registers();
+            // Emit the 1T extended-M1 BEFORE the operand read, mirroring
+            // FUSE OUTI / VHDL MCycle 1. Address bus = IR (refresh pair).
+            uint16_t ir = (static_cast<uint16_t>(regs.I) << 8)
+                        | static_cast<uint16_t>(regs.R);
+            contend_read_no_mreq(ir, 1);
             uint8_t temp = fuse_z80_readbyte(regs.HL);
             uint16_t port = regs.BC;
             fuse_z80_writeport(port, temp);
             regs.HL = (regs.HL + 1) & 0xFFFF;
             // B is NOT decremented (unlike OUTI)
             cpu.set_registers(regs);
-            tstates += 1;
             return 16;
         }
 

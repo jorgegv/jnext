@@ -590,13 +590,23 @@ int Z80Cpu::execute() {
             // Q semantics (FUSE convention, used by SCF/CCF X/Y composition):
             // every opcode begins with Q=0; F-writing opcodes set Q=F at end.
             // The very next SCF/CCF reads `last_Q = Q` from this trail and
-            // computes X/Y as (last_Q ^ F) | A. Z80N opcodes that DO NOT
-            // write F (SWAPNIB, MIRROR_A, MUL_DE, BSLA/BSRA/BSRL/BSRF/BRLC,
-            // ADD_*_NN, PUSH_NN, OUTINB, NEXTREG_NN/A, PIXELDN/AD, SETAE,
-            // JP_C, LDPIRX) MUST leave Q=0 so the next SCF/CCF behaves like
-            // it's coming after a non-F-writing standard opcode (LD r,r' /
-            // JP / etc.). Pre-fix: Q persisted from the prior FUSE opcode,
-            // poisoning SCF/CCF X/Y bits across any Z80N → SCF sequence.
+            // computes X/Y as (last_Q ^ F) | A.
+            //
+            // F-writing Z80N opcodes (set Q=F at end via execute_z80n):
+            //   TEST_N, ADD_HL_A, ADD_DE_A, ADD_BC_A,
+            //   LDIX, LDWS, LDDX, LDIRX, LDDRX, LDPIRX, LDIRSCALE
+            //   (LDPIRX joined this group at Pass-10 — VHDL I_BT block-transfer
+            //    flag composition at t80n.vhd:1277-1289 fires for LDPIRX too.)
+            //
+            // Non-F-writing Z80N opcodes (MUST leave Q=0 so the next SCF/CCF
+            // behaves like it's coming after a non-F-writing standard opcode
+            // — LD r,r' / JP / etc.):
+            //   SWAPNIB, MIRROR_A, MUL_DE, BSLA/BSRA/BSRL/BSRF/BRLC_DE_B,
+            //   ADD_HL_NN, ADD_DE_NN, ADD_BC_NN, PUSH_NN, OUTINB,
+            //   NEXTREG_NN, NEXTREG_A, PIXELDN, PIXELAD, SETAE, JP_C, LOOP.
+            //
+            // Pre-fix: Q persisted from the prior FUSE opcode, poisoning
+            // SCF/CCF X/Y bits across any Z80N → SCF sequence.
             //
             // iff2_read semantics (NMOS LD A,I / LD A,R quirk): if INT is
             // accepted on the very next instruction boundary after LD A,I/R
