@@ -63,7 +63,7 @@ Final state: **all 4 testcov chains fully APPROVED with independent revert-check
 **Test status (post all-merge, integration branch — Pass-18):**
 - `ctest`: **38/38 PASS**
 - FUSE Z80 opcode suite: **1356/1356 PASS**
-- Full regression suite: **32 PASS / 1 FAIL / 0 SKIP** (`parallax-demo` 44636 pixel diff — pre-existing at Pass-16 head `f718876` with identical pixel count; bug predates current audit waves)
+- Full regression suite: **33/0/0** (parallax-demo reference regenerated at commit `67f6218` after user-authorized visual verification — prior 44636-pixel diff was stale reference from micro-timing drift across V14..V18 CPU/IM2/contention fixes, not a functional regression)
 
 **G46(b) crosscheck deferred** (will be run later by the user). High-leverage candidates (across all 3 passes):
 - NR $8C cache staleness (memory P2, refined by P3) — bank 0 supervisor wrapper at $007B does `NEXTREG $8C, $80; RET`; fix ensures the next M1 fetch sees the new ROM mapping immediately, with per-slot RAM-mapping preservation.
