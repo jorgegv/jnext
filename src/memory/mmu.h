@@ -838,8 +838,13 @@ public:
         // register rewrite. Slots in legacy ROM mode (read_only_=true)
         // do consume sram_rom for the read-pointer cache, so they need
         // a refresh to track machine-type-driven sram_rom changes.
-        if (read_only_[0]) engage_legacy_rom_paging_slot(0);
-        if (read_only_[1]) engage_legacy_rom_paging_slot(1);
+        // Verify12-memory class-(b) fix: VHDL leaves MMU<i> untouched on
+        // a machine_type change (no nr_mmu_we, no port_memory_change_dly
+        // — see VHDL :3813 / :4607). Pass `set_nr_sentinel=false` so any
+        // verbatim 0xE0..0xFE NR 0x50/0x51 value (or the 0x00/0x01
+        // EFF7(3)=1-derived value) is preserved for the NR read-back.
+        if (read_only_[0]) engage_legacy_rom_paging_slot(0, /*set_nr_sentinel=*/false);
+        if (read_only_[1]) engage_legacy_rom_paging_slot(1, /*set_nr_sentinel=*/false);
     }
     MachineType machine_type() const { return machine_type_; }
 
@@ -961,7 +966,19 @@ public:
     // dispatch instead of `engage_legacy_rom_paging()`, which clobbers
     // both halves and breaks the case where the *other* slot was
     // explicitly mapped to RAM via a prior NR 0x50/0x51 write.
-    void engage_legacy_rom_paging_slot(int slot);
+    //
+    // Verify12-memory class-(b) fix: the helper now takes a
+    // `set_nr_sentinel` flag to decide whether to overwrite `nr_mmu_[slot]`
+    // with the 0xFF sentinel. The NR $50/$51=$FF dispatcher passes
+    // `true` (matching VHDL nr_mmu_we storing 0xFF verbatim). The
+    // NR 0x8C and machine-type-change refresh paths pass `false`:
+    // VHDL leaves MMU<i> untouched on those triggers (no nr_mmu_we
+    // pulse, no port_memory_change_dly pulse — see VHDL :3813 / :4607),
+    // so any previously-stored verbatim NR 0x50/0x51 value in
+    // 0xE0..0xFE — and the EFF7(3)=1 verbatim 0x00/0x01 value applied
+    // by an earlier paging trigger — must be preserved for the NR-port
+    // read-back at VHDL :6075-6082.
+    void engage_legacy_rom_paging_slot(int slot, bool set_nr_sentinel = true);
 
     // ---------------------------------------------------------------
     // Layer 2 read/write-over control (driven by port 0x123B)

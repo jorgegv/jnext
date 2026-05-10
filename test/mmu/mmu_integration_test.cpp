@@ -14,6 +14,8 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
+#include "memory/contention.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -194,6 +196,303 @@ static void test_eff7_io_en_gate(Emulator& emu) {
     }
 }
 
+// ── V12-MEM-01: NR 0x8C / set_machine_type must NOT clobber nr_mmu_[] ─
+//
+// VHDL oracle:
+//   * zxnext.vhd:4607-4700 — MMU<i> register process. The register is
+//     written ONLY on three triggers:
+//       - reset (line 4610)
+//       - port_memory_change_dly='1' (line 4619)
+//       - nr_mmu_we='1' (line 4686)
+//   * zxnext.vhd:3813 — port_memory_change_dly composition. NR 0x8C is
+//     NOT in the OR list, so an NR 0x8C write does NOT pulse the rebuild.
+//   * zxnext.vhd:4880-4881 — nr_mmu_we fires ONLY on NR 0x50..0x57.
+//   * zxnext.vhd:6075-6082 — NR 0x50..0x57 read-back returns the live
+//     MMU<i> register byte verbatim.
+//
+// Pre-fix: jnext's `set_nr_8c()` / `set_machine_type()` called
+// `engage_legacy_rom_paging_slot()` which unconditionally clobbered
+// `nr_mmu_[slot]` to the 0xFF sentinel. This caused NR 0x50/0x51
+// read-back to drop a previously-stored verbatim 0xE0..0xFE value (or
+// the EFF7(3)=1-derived 0x00/0x01 value) on any NR 0x8C / NR 0x03
+// machine-type-change write — diverging from the VHDL register surface.
+//
+// Discriminative test below: write NR 0x50 = 0xE5 (high-page legacy-ROM
+// trigger), read back 0xE5; THEN write NR 0x8C with lock bits set;
+// read NR 0x50 again — must STILL return 0xE5 (not 0xFF).
+
+static void test_nr_8c_preserves_nr_mmu(Emulator& emu) {
+    set_group("V12-MEM-01-NR8C");
+
+    // Baseline: write NR 0x50 = 0xE5 (high-page mapping, mmu_A21_A13(8)=1
+    // routes slot 0 to legacy ROM via sram_rom; nr_mmu_ stores 0xE5
+    // verbatim per VHDL :4686-4699).
+    nr_write(emu, 0x50, 0xE5);
+    const uint8_t pre = nr_read(emu, 0x50);
+    check("V12-MEM-01-A",
+          "NR 0x50 read-back returns verbatim 0xE5 after high-page write "
+          "[zxnext.vhd:4686-4699,6075-6082]",
+          pre == 0xE5,
+          fmt("expected 0xE5, got 0x%02X", pre));
+
+    // NR 0x8C write: flip lock bits. VHDL leaves MMU0 alone (no
+    // nr_mmu_we, no port_memory_change_dly). NR 0x50 read-back must
+    // still return 0xE5.
+    const uint8_t prev_8c = nr_read(emu, 0x8C);
+    nr_write(emu, 0x8C, static_cast<uint8_t>(prev_8c | 0x10)); // set lock_rom0
+    const uint8_t post_8c = nr_read(emu, 0x50);
+    check("V12-MEM-01-B",
+          "NR 0x8C write does NOT clobber NR 0x50 verbatim value "
+          "[zxnext.vhd:3813 NR 0x8C absent from port_memory_change_dly, "
+          ":4607-4700 MMU<i> only updates on listed triggers]",
+          post_8c == 0xE5,
+          fmt("expected 0xE5, got 0x%02X (NR 0x8C clobbered the verbatim NR-write)", post_8c));
+
+    // Restore NR 0x8C to its prior value (avoids leaking lock bits to
+    // subsequent tests).
+    nr_write(emu, 0x8C, prev_8c);
+
+    // V12-MEM fix-of-reviewer NIT-2: V12-MEM-01-A wrote NR 0x50=0xE5
+    // (high-page legacy-ROM trigger). Restore slot 0 to its constructor
+    // default so subsequent V12-MEM-02 / V12-MEM-03 tests start from a
+    // clean MMU register surface. Writing the 0xFF "engage legacy ROM
+    // paging" sentinel mirrors the boot-time default (per VHDL :4686-4699,
+    // NR 0x50/0x51 with 0xFF re-engages the legacy auto-paging path) and
+    // discards the verbatim 0xE5 written above.
+    nr_write(emu, 0x50, 0xFF);
+}
+
+// ── V12-MEM-02: ContentionModel state survives save/load round-trip ──
+//
+// VHDL oracle:
+//   * zxnext.vhd:5786-5828 — NR 0x07 cpu_speed shadow (line 5789, latched
+//     immediately on write) and effective (line 5817, committed on
+//     bus-idle CLK_CPU edge). Both flip-flops persist across any
+//     non-reset edge.
+//   * zxnext.vhd:5800-5823 — NR 0x08 bit 6 nr_08_contention_disable
+//     shadow (line 5805) and eff_nr_08_contention_disable effective
+//     (line 5823, committed on bus-idle hc(8)='1' edge).
+//   * zxnext.vhd:1099-1103 / :2399 — NR 0x82 bit 1 port_7ffd_io_en gate.
+//   * zxnext.vhd:5906 — NR 0x08 read returns
+//       (NOT port_7ffd_locked) & eff_nr_08_contention_disable & ...
+//
+// jnext's ContentionModel is intentionally NOT in the save_state
+// stream — it owns derived-from-NextReg state (cpu_speed, contention_
+// disable shadow/effective, port_7ffd_io_en, mem_active_page latch).
+// Pre-Verify12 these gates revert to constructor defaults on
+// load_state, so the post-load NR 0x08 read returned bit 6 = 0 even
+// when the saved snapshot had bit 6 = 1. The fix re-pushes the gates
+// from canonical loaded NextReg / Mmu state in load_state(), mirroring
+// the divmmc_.set_rom3_active / spi_.set_flash_cs_enable re-sync
+// pattern used elsewhere in load_state.
+
+static void test_contention_state_round_trip(Emulator& emu) {
+    set_group("V12-MEM-02-CONT");
+
+    // Set NR 0x08 bit 6 = 1 (contention disable). The write puts bit 6
+    // into the SHADOW; per VHDL :5822-5823 the EFFECTIVE field commits
+    // on bus-idle hc(8)='1'. Drive that commit explicitly so the
+    // NR 0x08 read (which observes the effective field per :5906)
+    // sees the bit.
+    const uint8_t initial_08 = nr_read(emu, 0x08);
+    nr_write(emu, 0x08, 0x40);                     // bit 6 only (no other writes)
+    emu.contention().commit_contention_disable_on_hc(0x100);
+    const uint8_t pre_save = nr_read(emu, 0x08);
+    check("V12-MEM-02-A",
+          "NR 0x08 bit 6 (contention_disable) reads back 1 after write+commit "
+          "[zxnext.vhd:5176,5800-5823,5906]",
+          (pre_save & 0x40) != 0,
+          fmt("expected bit 6 set, got 0x%02X", pre_save));
+
+    // Sanity check: the underlying ContentionModel field on the live
+    // emulator is true post-commit.
+    check("V12-MEM-02-B",
+          "ContentionModel.contention_disable() is true post-commit on live emu "
+          "[zxnext.vhd:5822-5823 commit on hc(8)='1' propagates shadow→effective]",
+          emu.contention().contention_disable(),
+          fmt("expected effective contention_disable=1, got %d",
+              static_cast<int>(emu.contention().contention_disable())));
+
+    // Measure save size, then save into a sized buffer.
+    size_t need = 0;
+    {
+        StateWriter measure(nullptr, 0);
+        emu.save_state(measure);
+        need = measure.position();
+    }
+    std::vector<uint8_t> blob(need, 0);
+    {
+        StateWriter w(blob.data(), blob.size());
+        emu.save_state(w);
+    }
+
+    // Construct a NEW Emulator + load the saved state. Use a fresh
+    // EmulatorConfig so the ContentionModel is built from defaults
+    // (cpu_speed=0, contention_disable=false, port_7ffd_io_en=false).
+    Emulator fresh;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    fresh.init(cfg);
+    {
+        StateReader r(blob.data(), blob.size());
+        fresh.load_state(r);
+    }
+
+    // Pre-fix: ContentionModel.contention_disable_ stays false (default)
+    // → NR 0x08 read returns bit 6 = 0. Post-fix: re-pushed during
+    // load_state via contention_.set_contention_disable(mmu_.contention_disabled()).
+    const uint8_t post_load = nr_read(fresh, 0x08);
+    check("V12-MEM-02-C",
+          "NR 0x08 bit 6 survives save/load round-trip "
+          "[ContentionModel re-sync from Mmu.contention_disabled() in load_state]",
+          (post_load & 0x40) != 0,
+          fmt("expected bit 6 set post-load, got 0x%02X "
+              "(ContentionModel reverted to default; load_state re-sync missing)",
+              post_load));
+
+    // Direct assertion on the model: effective field must match what
+    // VHDL would have committed on a `hc(8)='1'` edge with the shadow set.
+    check("V12-MEM-02-D",
+          "ContentionModel.contention_disable() (effective) is true post-load "
+          "[zxnext.vhd:5823 effective committed value persists across non-reset edges]",
+          fresh.contention().contention_disable(),
+          fmt("contention_disable=%d (expected 1)",
+              static_cast<int>(fresh.contention().contention_disable())));
+
+    // Restore NR 0x08 to original on the live emu so other tests aren't
+    // perturbed by the disabled-contention bit.
+    nr_write(emu, 0x08, initial_08);
+}
+
+// ── V12-MEM-03: ContentionModel rebuild_for_type on machine_type save/load ──
+//
+// VHDL oracle:
+//   * zxnext.vhd:5741-5757 — `machine_type_48 / machine_type_128 /
+//     machine_type_p3` derived from `nr_03_machine_type`.
+//   * zxnext.vhd:4489-4493 — mem_contend per-machine bank decode:
+//       48K  → page(3:1)="101"
+//       128K → page(1)='1'
+//       +3   → page(3)='1'
+//
+// Pre-Verify12: a snapshot taken with machine_type=ZX48K (committed via
+// NR 0x03 typ_sel=$01) and loaded onto a fresh emulator initialised
+// with cfg.type=ZXN_ISSUE2 left ContentionModel pinned to ZXN_ISSUE2
+// because ContentionModel is rebuilt by `build()` only at init() time.
+// Mmu's machine_type_ field WAS round-tripped (saved/loaded), but the
+// derived ContentionModel.type_ was not. The fix re-runs
+// `rebuild_for_type(mmu_.machine_type())` in load_state.
+//
+// V12-MEM fix-of-reviewer NIT-1: the original V12-MEM-03-B was
+// non-discriminative. The live emu is ZXN_ISSUE2, so the saved
+// `machine_type` is `ZXN_ISSUE2`, and `is_contended_access()` short-
+// circuits to `false` at `contention.cpp:31` (`if (type == ZXN_ISSUE2)
+// return;`) regardless of whether the V12-MEM-03 fix is present —
+// the test passed even with the fix reverted.
+//
+// The discriminative form below switches the live emu's machine_type to
+// ZX48K via `Mmu.set_machine_type(ZX48K)` BEFORE saving, then loads onto
+// a fresh ZXN_ISSUE2-initialised emu, sets `mem_active_page=0x0A`
+// (bits[3:1]=101 = bank 5, contended on 48K per VHDL :4490), and asserts
+// `is_contended_access()==true`. Pre-Verify12 ContentionModel.type_ stays
+// ZXN_ISSUE2 (init-time value) — `is_contended_access()` returns false.
+// Post-fix `rebuild_for_type(ZX48K)` is called from `load_state`,
+// flipping type_ to ZX48K — `is_contended_access()` correctly returns
+// true.
+
+static void test_machine_type_round_trip(Emulator& emu) {
+    set_group("V12-MEM-03-MT");
+
+    // Stash the live emu's original machine_type so we can restore it
+    // after the test; switching it here would otherwise leak into any
+    // subsequent test rows running on the same `emu`.
+    const MachineType original_mt = emu.mmu().machine_type();
+
+    // Switch the live emu to ZX48K. The `set_machine_type` call path is
+    // the same one NR 0x03 typ_sel commits use (per Mmu.h:803), so this
+    // exercises the V12-MEM-03 round-trip exactly as a runtime NR 0x03
+    // commit would.
+    emu.mmu().set_machine_type(MachineType::ZX48K);
+
+    // Sanity check: live ContentionModel still pinned to ZXN_ISSUE2 at
+    // this point because nothing has called rebuild_for_type on the live
+    // emu (Mmu.set_machine_type does NOT touch ContentionModel — that
+    // wiring lives in NR 0x03 commit at emulator.cpp:2019). The live
+    // emu's contention type is irrelevant to this test; we exercise the
+    // load_state path on a fresh emu.
+
+    size_t need = 0;
+    {
+        StateWriter measure(nullptr, 0);
+        emu.save_state(measure);
+        need = measure.position();
+    }
+    std::vector<uint8_t> blob(need, 0);
+    {
+        StateWriter w(blob.data(), blob.size());
+        emu.save_state(w);
+    }
+
+    // Fresh emulator, initialised at ZXN_ISSUE2 (so its ContentionModel
+    // .type_ starts as ZXN_ISSUE2). Loading the ZX48K snapshot must
+    // re-run rebuild_for_type(ZX48K) on the fresh ContentionModel —
+    // that is exactly what the V12-MEM-03 fix wires up at
+    // emulator.cpp:6292.
+    Emulator fresh;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    fresh.init(cfg);
+    {
+        StateReader r(blob.data(), blob.size());
+        fresh.load_state(r);
+    }
+
+    // V12-MEM-03-A — Mmu's machine_type_ field round-trip (sanity, was
+    // already plumbed pre-Verify12; this row guards against a future
+    // regression of the underlying Mmu serialisation).
+    check("V12-MEM-03-A",
+          "Mmu.machine_type() round-trips ZX48K through save/load",
+          fresh.mmu().machine_type() == MachineType::ZX48K,
+          fmt("Mmu.machine_type=%d (expected ZX48K=%d)",
+              static_cast<int>(fresh.mmu().machine_type()),
+              static_cast<int>(MachineType::ZX48K)));
+
+    // V12-MEM-03-B — discriminative behavioural assertion on the
+    // ContentionModel.type_ recovery. We pick mem_active_page = 0x0A:
+    //   bits[7:4] = 0  (mem_contend gate at VHDL :4489 open)
+    //   bits[3:1] = 101 (= 5)
+    // VHDL :4490 — 48K contend iff page(3:1) = "101" → contended.
+    // VHDL :4491 — 128K contend iff page(1) = '1' → 0x0A bit 1 = 1 →
+    //              would also contend on 128K, but bank-decode pattern
+    //              "101" is the canonical 48K bank-5 contention case.
+    // ZXN_ISSUE2 short-circuits to `false` at contention.cpp:31 — so
+    // this is what the post-load decode would return WITHOUT the fix.
+    //
+    // Pre-fix (rebuild_for_type not called from load_state): fresh
+    // ContentionModel keeps init-time type_ = ZXN_ISSUE2 → returns
+    // FALSE → assertion FAILS.
+    //
+    // Post-fix (rebuild_for_type wired into load_state): fresh
+    // ContentionModel.type_ flips to ZX48K → returns TRUE → assertion
+    // PASSES.
+    fresh.contention().set_mem_active_page(0x0A);
+    check("V12-MEM-03-B",
+          "ContentionModel.type_ tracks Mmu.machine_type() across load_state — "
+          "ZX48K + page=0x0A (bank 5) contends "
+          "[zxnext.vhd:4490 mem_contend 48K bank-decode; "
+          "rebuild_for_type wired into Emulator::load_state]",
+          fresh.contention().is_contended_access() == true,
+          fmt("expected ZX48K bank-5 → contended; got is_contended=%d "
+              "(ContentionModel.type_ likely still ZXN_ISSUE2 — "
+              "rebuild_for_type missing from load_state)",
+              static_cast<int>(fresh.contention().is_contended_access())));
+
+    // Restore the live emu's original machine_type so we don't leak
+    // into any subsequent tests that share `emu`.
+    emu.mmu().set_machine_type(original_mt);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 int main() {
@@ -209,6 +508,15 @@ int main() {
 
     test_eff7_io_en_gate(emu);
     std::printf("  Group: EF7-IO-EN — done\n");
+
+    test_nr_8c_preserves_nr_mmu(emu);
+    std::printf("  Group: V12-MEM-01-NR8C — done\n");
+
+    test_contention_state_round_trip(emu);
+    std::printf("  Group: V12-MEM-02-CONT — done\n");
+
+    test_machine_type_round_trip(emu);
+    std::printf("  Group: V12-MEM-03-MT — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
