@@ -2822,6 +2822,51 @@ void group_ss() {
               fmt("primed=%02x after_reset=%02x",
                   primed, after_reset));
     }
+
+    // SS-17 (TASK2-VERIFY12 V12-DIVMMC-01-NIT, Pass-12 fix-of-reviewer):
+    // first-boot default of `rx_data_` must match the VHDL miso_dat signal-
+    // declaration initial value (0x00), not 0xFF.
+    //
+    // VHDL anchor: spi_master.vhd:74 declares
+    //     signal miso_dat : std_logic_vector(7 downto 0) := (others => '0');
+    // — i.e., the FPGA-bitstream initial value is **0x00**. With
+    // zxnext.vhd:3285 hardwiring `i_reset => '0'` (V12-DIVMMC-01 anchor),
+    // the synchronous-reset clause at spi_master.vhd:159-168 (which would
+    // force `miso_dat <= (others => '1')`) NEVER fires. Real hardware
+    // therefore surfaces 0x00 on the first port-0xEB read before any SPI
+    // transfer has completed. Pre-fix C++ member-init was 0xFF — diverged
+    // from VHDL whenever a caller read port 0xEB before issuing any SPI
+    // write. Practical impact on the boot path is nil (firmware always
+    // issues a CMD before reading), but VHDL-faithfulness was the wrong
+    // way around. Reviewer raised this as a NIT; per the "0 pending of
+    // any class" honest-convergence rule, fix it for real.
+    //
+    // Discriminative shape: instantiate a fresh `SpiMaster` with NO
+    // attached device and NO prior write_data(). Read port 0xEB. With
+    // no active device, `read_data()` returns the pre-existing rx_data_
+    // (= the member-init value) and then refreshes rx_data_ to 0xFF for
+    // the next read. Post-fix the first read returns 0x00; pre-fix it
+    // returned 0xFF.
+    //
+    // Note: this exercises the constructor-default path explicitly. The
+    // SpiMaster constructor calls reset(), and reset() does NOT touch
+    // rx_data_ (V12-DIVMMC-01 fix), so member-init is the only source of
+    // the post-construction value.
+    {
+        SpiMaster m;             // no devices attached, no transfers
+        // No reset() needed beyond ctor's; no write_data(); read directly.
+        const uint8_t first_read = m.read_data();
+        check("SS-17",
+              "Fresh SpiMaster surfaces VHDL miso_dat power-on default "
+              "0x00 on first port-0xEB read (VHDL spi_master.vhd:74 "
+              "signal-init `(others => '0')` — i_reset hardwired '0' at "
+              "zxnext.vhd:3285 means the synchronous-reset clause never "
+              "fires). Pre-fix the C++ member-init was 0xFF, diverging "
+              "from the FPGA bitstream-load default whenever a caller "
+              "read port 0xEB before any SPI transfer.",
+              first_read == 0x00,
+              fmt("first_read=%02x exp=00", first_read));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -2880,35 +2925,56 @@ void group_sx() {
     // transfer, one-cycle state_last_d delay. The C++ SpiMaster has no
     // pipeline delay: read_data() returns the freshly-exchanged byte.
     // Expected (VHDL): the byte returned by a read is the result of the
-    // PREVIOUS exchange (or the reset value for the very first read).
+    // PREVIOUS exchange (or the signal-init value 0x00 for the very
+    // first read with no transfer yet — see V12-DIVMMC-01-NIT).
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row asserted `first == 0xFF` claiming miso_dat reset = all-ones
+    // per spi_master.vhd:162. That synchronous-reset clause never
+    // fires (zxnext.vhd:3285 hardwires `i_reset => '0'` — same root
+    // cause as V12-DIVMMC-01). The actual VHDL first-boot value is
+    // 0x00 from the signal-init at spi_master.vhd:74.
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
         dev.next_response = 0x11;
         m.attach_device(0, &dev);
         m.write_cs(0xFE);
-        // First read: pipeline says "result of previous" — i.e. reset
-        // value 0xFF — NOT 0x11.
+        // First read: pipeline says "result of previous" — i.e. the
+        // signal-init value 0x00 — NOT 0x11.
         uint8_t first = m.read_data();
         check("SX-03",
               "First read after select returns previous-cycle result "
-              "(VHDL spi_master.vhd:162-166)",
-              first == 0xFF,
-              fmt("got=%02x exp=FF (pipeline delay not modelled)",
+              "(VHDL spi_master.vhd:162-166); with no prior transfer "
+              "the value is the miso_dat signal-init 0x00 "
+              "(spi_master.vhd:74)",
+              first == 0x00,
+              fmt("got=%02x exp=00 (pipeline delay; first read = "
+                  "signal-init)",
                   first));
     }
 
-    // SX-04: First read after reset returns 0xFF.
-    // VHDL: spi_master.vhd:162-163 — miso_dat reset to all 1s.
-    // With no device attached this is trivially satisfied.
+    // SX-04: First read after reset returns the miso_dat signal-init
+    // value 0x00.
+    // VHDL: spi_master.vhd:74 declares `miso_dat ... := (others => '0')`
+    // — the FPGA-bitstream initial value. zxnext.vhd:3285 hardwires
+    // `i_reset => '0'` so the synchronous-reset clause at
+    // spi_master.vhd:162-163 (which would force `miso_dat <= (others
+    // => '1')` on `i_reset='1'`) never fires.
+    //
+    // Pre-V12-DIVMMC-01-NIT this row claimed `v == 0xFF`. That was the
+    // synchronous-reset clause's value — but that clause never fires.
+    // Updated to 0x00 to match VHDL signal-init (same root cause as
+    // V12-DIVMMC-01 + V12-DIVMMC-01-NIT).
     {
         SpiMaster m; m.reset();
         uint8_t v = m.read_data();
         check("SX-04",
-              "First read after reset (no device) returns 0xFF "
-              "(VHDL spi_master.vhd:162)",
-              v == 0xFF,
-              fmt("got=%02x", v));
+              "First read after reset (no device) returns miso_dat "
+              "signal-init 0x00 (VHDL spi_master.vhd:74; i_reset "
+              "hardwired '0' at zxnext.vhd:3285)",
+              v == 0x00,
+              fmt("got=%02x exp=00", v));
     }
 
     // SX-05: Write 0xAA then read: read returns MISO from the write
@@ -3125,9 +3191,24 @@ void group_ml() {
     // vs :119-157) is not observable at the byte-level C++ API — both
     // paths collapse to synchronous byte exchanges in `SpiMaster`.
 
-    // ML-05: Reset sets ishift_r to all 1s.
-    // VHDL: spi_master.vhd:151-152. The observable proxy is that the
-    // first read after reset (before any exchange) returns 0xFF.
+    // ML-05: First read after construction reflects miso_dat power-on
+    // initial value 0x00 (VHDL spi_master.vhd:74 signal-init).
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row claimed `ishift_r reset to 0xFF` per spi_master.vhd:151-152
+    // (the synchronous-reset clause `if i_reset='1' then ishift_r <=
+    // (others => '1')`). That claim was WRONG because zxnext.vhd:3285
+    // hardwires `i_reset => '0'` — the synchronous-reset clauses never
+    // fire (same root cause as V12-DIVMMC-01). The actual VHDL
+    // first-boot behaviour is governed by the signal-declaration init
+    // at spi_master.vhd:74 (`miso_dat ... := (others => '0')`),
+    // which surfaces as 0x00 on the first port-0xEB read before any
+    // SPI transfer.
+    //
+    // Discriminative shape: fresh SpiMaster with NO transfer should
+    // surface 0x00. (With the V12-DIVMMC-01 fix, reset() does not
+    // touch rx_data_, so the read returns the member-init value
+    // directly.)
     {
         SpiMaster m; m.reset();
         MockSpiDevice dev;
@@ -3135,12 +3216,14 @@ void group_ml() {
         m.attach_device(0, &dev);
         m.write_cs(0xFE);
         uint8_t v = m.read_data();
-        // VHDL: pipeline delay means first read returns reset value 0xFF.
         check("ML-05",
-              "First read after reset reflects ishift_r reset to 0xFF "
-              "(VHDL spi_master.vhd:151-152)",
-              v == 0xFF,
-              fmt("got=%02x exp=FF", v));
+              "First read after reset reflects miso_dat power-on "
+              "initial value 0x00 (VHDL spi_master.vhd:74 signal-init "
+              "`(others => '0')`; i_reset hardwired '0' at "
+              "zxnext.vhd:3285 means the synchronous-reset clause "
+              "spi_master.vhd:151-152 never fires)",
+              v == 0x00,
+              fmt("got=%02x exp=00", v));
     }
 
     // ML-06 — category B (VHDL-internal pipeline signal).
@@ -3188,14 +3271,30 @@ void group_mx() {
     }
 
     // MX-04: No device selected -> MISO = 1 (pull-up).
-    // VHDL: zxnext.vhd:3280 default branch.
+    // VHDL: zxnext.vhd:3280 default branch (`spi_miso <= '1'` when no
+    // SS asserted) propagates through ishift_r and miso_dat at the next
+    // state_last_d.
+    //
+    // Pre-V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10) this
+    // row read `read_data()` ONCE without priming the pipeline, and
+    // relied on the C++ short-circuit (no-active-device branch in
+    // `read_data()` returns the prior `rx_data_` and refreshes to
+    // 0xFF). It happened to pass because the constructor's `rx_data_`
+    // member-init was 0xFF — but with the NIT fix that init is 0x00 to
+    // match VHDL's miso_dat signal-declaration initial value at
+    // spi_master.vhd:74. The proper VHDL-faithful shape is to prime the
+    // pipeline (first read triggers a "transfer" that latches 0xFF into
+    // miso_dat per zxnext.vhd:3280), then read again to observe the
+    // post-state_last_d latched value.
     {
         SpiMaster m; m.reset();
         // All CS bits high (reset default) = no selection.
+        (void)m.read_data();            // prime — latches 0xFF into miso_dat
         uint8_t v = m.read_data();
         check("MX-04",
-              "No device selected: MISO reads as 0xFF "
-              "(VHDL zxnext.vhd:3280)",
+              "No device selected: MISO reads as 0xFF after pipeline "
+              "prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= "
+              "'1'` propagates to miso_dat at next state_last_d)",
               v == 0xFF,
               fmt("got=%02x", v));
     }

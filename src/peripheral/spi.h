@@ -107,7 +107,22 @@ public:
 
 private:
     uint8_t cs_ = 0xFF;          // CS register — all lines deasserted (active-low)
-    uint8_t rx_data_ = 0xFF;     // last byte received from device
+    // V12-DIVMMC-01-NIT (Pass-12 fix-of-reviewer, 2026-05-10): align first-
+    // boot default with VHDL signal-declaration initial value. VHDL
+    // serial/spi_master.vhd:74 declares
+    //   signal miso_dat : std_logic_vector(7 downto 0) := (others => '0');
+    // which is the FPGA-bitstream-load initial value (0x00) — what real
+    // hardware surfaces on the first port-0xEB read before any SPI transfer
+    // has completed. The synchronous-reset clause at spi_master.vhd:159-168
+    // would set miso_dat to all-ones on `i_reset='1'`, but zxnext.vhd:3285
+    // hardwires `i_reset => '0'` so that clause never fires (see V12-
+    // DIVMMC-01 fix in spi.cpp). Pre-fix member-init was 0xFF — diverged
+    // from VHDL's bitstream-load default whenever a caller read port 0xEB
+    // before issuing any SPI write. Practical impact on the boot path is
+    // nil (firmware always issues a CMD before reading), but VHDL-
+    // faithfulness was the wrong way around. Per the "0 pending of any
+    // class" honest-convergence rule the NIT is now resolved.
+    uint8_t rx_data_ = 0x00;     // last byte received from device (VHDL miso_dat init = 0x00)
     bool    sd_swap_ = false;    // NR 0x0A bit 5 — invert SD0/SD1 mapping
     bool    flash_cs_enable_ = false;  // VHDL zxnext.vhd:3319 composite gate
 
