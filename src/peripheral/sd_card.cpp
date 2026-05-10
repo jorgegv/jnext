@@ -801,7 +801,18 @@ void SdCardDevice::cmd24_write_single_block() {
 void SdCardDevice::cmd55_app_cmd() {
     sd_log()->debug("CMD55 APP_CMD (next command is ACMD)");
     app_cmd_ = true;
-    queue_r1(initialized_ ? 0x00 : 0x01);
+    // V20-DIVMMC-01 (Pass-20 verify-audit fix, 2026-05-11): SD Physical
+    // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout — bit 5 =
+    // APP_CMD: "A '1' indicates that the card will (or has) interpret(ed)
+    // the command as an ACMD." Per § 4.3.9.1, CMD55's R1 response MUST
+    // have bit 5 set because the card has interpreted the command as a
+    // CMD55 (signalling that the next command will be treated as an
+    // ACMD). Pre-fix returned R1 with bit 5 = 0, diverging from spec.
+    // Class-(c) latent — TBBlue/FatFs's send_cmd loop checks bit 0 (idle)
+    // and bit 7 (validity) only, never bit 5 — but a strict host that
+    // verifies the APP_CMD signature (e.g. test rig / forensic firmware)
+    // would observe the divergence. Symmetric with the ACMD41 fix below.
+    queue_r1(static_cast<uint8_t>((initialized_ ? 0x00 : 0x01) | 0x20));
 }
 
 // CMD9 SEND_CSD — return 16-byte CSD register inside a data block.
@@ -950,7 +961,17 @@ void SdCardDevice::acmd41_sd_send_op_cond() {
     sd_log()->debug("ACMD41 SD_SEND_OP_COND arg={:#010x} HCS={} → card initialized, ready",
                     arg, host_supports_sdhc_ ? 1 : 0);
     initialized_ = true;  // Card is now initialized
-    queue_r1(0x00);  // R1: ready (not idle)
+    // V20-DIVMMC-01 (Pass-20 verify-audit fix, 2026-05-11): per SD Physical
+    // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout, bit 5 =
+    // APP_CMD = "the card has interpreted the command as an ACMD." Since
+    // ACMD41 IS an application-specific command (it follows CMD55), its
+    // R1 response MUST have bit 5 set. Pre-fix returned 0x00 (no bit set),
+    // diverging from spec. Class-(c) latent — TBBlue/FatFs's MMC_Init
+    // loop checks R1's bit 0 (idle) and the response validity (bit 7) only,
+    // never bit 5. Symmetric with the CMD55 fix above. Companion bit on the
+    // CMD58 OCR signals SDHC support; the R1 bit 5 signals "this response
+    // is for an ACMD" — both needed for a spec-strict host.
+    queue_r1(0x20);  // R1: ready (not idle) + APP_CMD (bit 5 set)
 }
 
 uint32_t SdCardDevice::cmd_arg() const {
