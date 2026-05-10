@@ -1040,6 +1040,22 @@ public:
     // guard for testcov-memory finding FIX-NR12-PROP-INT-01).
     uint8_t l2_bank() const { return l2_bank_; }
 
+    // V13-MEM-01 fix — NR 0x69 bit 7 fans out into VHDL
+    // `port_123b_layer2_en` per zxnext.vhd:3924-3925, which is the SAME
+    // FF that port 0x123B bit 1 latches at :3916. The port-0x123B
+    // read-back at :3933 surfaces this FF as bit 1 of port_123b_dat.
+    // Pre-fix the NR 0x69 write handler updated only Layer2's `enabled_`
+    // shadow but NOT Mmu's `l2_enable_` mirror, so a subsequent IN A,(123B)
+    // returned bit 1 = 0 even after `NEXTREG $69,$80` set
+    // port_123b_layer2_en to 1. Add an explicit setter so the NR 0x69
+    // handler can keep the two mirrors in sync without depending on
+    // Layer2's accessor (matches the existing `set_l2_active_bank` /
+    // `set_l2_shadow_bank` cross-subsystem-mirror pattern).
+    void set_l2_enable(bool en) { l2_enable_ = en; }
+    // Observable on the latched display-enable bit (used by tests +
+    // V13-MEM-01 regression guard to assert the NR 0x69 fan-out lands).
+    bool l2_enable() const { return l2_enable_; }
+
     // VHDL zxnext.vhd:3933 — port_123b_dat composition (read-back). Bit
     // 4 (offset-mode select) and bit 5 always read 0; offset register is
     // not exposed on the read side.
