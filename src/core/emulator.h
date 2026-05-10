@@ -362,6 +362,18 @@ public:
     uint64_t line_int_fire_count() const { return line_int_fire_count_; }
     void reset_line_int_fire_count() { line_int_fire_count_ = 0; }
 
+    /// V20R-CPU-NIT-01 — Test accessors for the Pass-20 falling-edge
+    /// shadow used by the pulse-mode CPU /INT poll (emulator.cpp line
+    /// ~5791). Saved/loaded by `Emulator::{save,load}_state` so a
+    /// snapshot taken mid-pulse round-trips faithfully. Used by the
+    /// V20R-CPU-NIT-01-PREV-PULSE-PERSIST regression to assert the
+    /// shadow survives save/load. The setter is test-only: it is the
+    /// minimum interface required to drive `prev_pulse_int_n_` to a
+    /// non-default value without depending on the precise tick window
+    /// where the V20 poll's falling-edge happens to fire mid-frame.
+    bool prev_pulse_int_n_for_test() const { return prev_pulse_int_n_; }
+    void set_prev_pulse_int_n_for_test(bool v) { prev_pulse_int_n_ = v; }
+
     // ══════════════════════════════════════════════════════════════════════
     // Host hotkey dispatchers — VHDL `hotkey_m1` / `hotkey_drive` /
     // `hotkey_soft_reset` / `hotkey_hard_reset` (zxnext.vhd:6340-6371,

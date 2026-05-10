@@ -20,9 +20,11 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -564,6 +566,88 @@ static void test_ula_int_integration(Emulator& emu) {
               "[zxnext.vhd:1840 z80_int_n composition; "
               "im2_peripheral.vhd:186 o_pulse_en for non-exception devices]",
               pulse_before && int_was_accepted, detail);
+    }
+
+    // V20R-CPU-NIT-01-PREV-PULSE-PERSIST — `prev_pulse_int_n_` (the
+    // Pass-20 falling-edge shadow at `emulator.cpp` line ~5791) must
+    // round-trip through `Emulator::save_state()` / `load_state()`.
+    //
+    // Reviewer's class-(c) diagnosis: pre-fix the shadow was net-new
+    // Pass-20 state and was not added to the save/load schema.
+    // Im2Controller::save_state() already persists `pulse_int_n_`;
+    // without the matching companion slot for the Emulator-level
+    // shadow, a snapshot taken mid-pulse (cur=0) restored fresh would
+    // leave the shadow at its `init()` / `reset()` default `true`.
+    // The next-tick V20 poll would then see `!cur && prev` = falling
+    // edge and fire a SPURIOUS `cpu_.request_interrupt(0xFF)` —
+    // harmless in practice (the 32/36T drop arm in Z80Cpu::execute()
+    // cleans up the phantom INT within one pulse window) but a
+    // class-(c) divergence of the V20 fix's "exactly ONCE per pulse"
+    // invariant. Filed as V20R-CPU-NIT-01.
+    //
+    // Discriminative test:
+    //   1) Build emulator A. Drive `prev_pulse_int_n_` to FALSE via
+    //      the test-only setter (so we don't depend on the precise
+    //      tick window where the V20 poll happens to fire mid-frame).
+    //   2) Save_state. The append-only V20R-CPU-NIT-01 slot writes the
+    //      shadow (false) at the end of the stream.
+    //   3) Build emulator B (fresh init → `prev_pulse_int_n_=true`,
+    //      matching the reset default).
+    //   4) Load_state into B.
+    //   5) Sandwich-verify: B's accessor must return FALSE — meaning
+    //      the slot round-tripped. Pre-fix (no slot in save/load):
+    //      B's accessor stays TRUE (the reset default), and the test
+    //      FAILs (we never wrote the slot so we never read it back).
+    {
+        Emulator emu_save;
+        if (!build_next_emulator(emu_save)) {
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "emu_save construction failed",
+                  false, "");
+        } else {
+            // Drive the shadow to a non-default value.
+            emu_save.set_prev_pulse_int_n_for_test(false);
+            // Sanity: the setter took effect.
+            const bool pre_save_shadow = emu_save.prev_pulse_int_n_for_test();
+
+            // Measure snapshot size and serialise.
+            StateWriter measure;
+            emu_save.save_state(measure);
+            const size_t snap_size = measure.position();
+            std::vector<uint8_t> buf(snap_size, 0);
+            StateWriter w(buf.data(), snap_size);
+            emu_save.save_state(w);
+
+            // Fresh emulator → shadow is the reset default (true).
+            Emulator emu_load;
+            (void)build_next_emulator(emu_load);
+            const bool pre_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            // Load. The append-only V20R-CPU-NIT-01 slot (after
+            // `nr_02_bus_reset_`) restores the shadow.
+            StateReader r(buf.data(), snap_size);
+            emu_load.load_state(r);
+            const bool post_load_shadow = emu_load.prev_pulse_int_n_for_test();
+
+            char detail[240];
+            std::snprintf(detail, sizeof(detail),
+                          "emu_save pre-save shadow=%d (must be 0 after setter); "
+                          "emu_load pre-load shadow=%d (must be 1 = reset default); "
+                          "emu_load post-load shadow=%d "
+                          "(post-fix: 0 — slot round-trips; "
+                          "pre-fix: 1 — slot absent, accessor still reset default)",
+                          pre_save_shadow ? 1 : 0,
+                          pre_load_shadow ? 1 : 0,
+                          post_load_shadow ? 1 : 0);
+            check("V20R-CPU-NIT-01-PREV-PULSE-PERSIST",
+                  "Emulator::prev_pulse_int_n_ round-trips through save_state/load_state "
+                  "[reviewer V20R-CPU-NIT-01; pre-fix slot absent → load restores "
+                  "to reset default `true` and the next-tick V20 poll spuriously fires]",
+                  pre_save_shadow == false
+                      && pre_load_shadow == true
+                      && post_load_shadow == false,
+                  detail);
+        }
     }
 
     // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the

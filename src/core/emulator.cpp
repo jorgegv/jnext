@@ -6996,6 +6996,20 @@ void Emulator::save_state(StateWriter& w) const
     // value persists across resets and must round-trip via save/load.
     // Appended at the very end for backwards-compat (load tolerates EOF).
     w.write_bool(nr_02_bus_reset_);
+
+    // V20R-CPU-NIT-01 — persist `prev_pulse_int_n_` (the falling-edge
+    // shadow used by the pulse-mode CPU /INT poll at line 5791+). The
+    // shadow is net-new Pass-20 state. Im2Controller::save_state()
+    // already persists `pulse_int_n_`; without this companion slot a
+    // load_state taken mid-pulse (cur=0) would restore the shadow to
+    // its construction default `true`, so the next tick would see
+    // `!cur && prev` = falling edge and fire a spurious
+    // request_interrupt(0xFF). The 32/36-cycle drop arm in
+    // Z80Cpu::execute() would clean up the phantom INT within one
+    // pulse window — but the V20 fix's "exactly ONCE per pulse"
+    // invariant is locally violated. End-of-stream append + eof()
+    // tolerance so prior snapshots load with the reset default.
+    w.write_bool(prev_pulse_int_n_);
 }
 
 void Emulator::load_state(StateReader& r)
@@ -7228,6 +7242,21 @@ void Emulator::load_state(StateReader& r)
     // of false (matching VHDL power-on signal initializer at :1095).
     if (!r.eof()) {
         nr_02_bus_reset_ = r.read_bool();
+    }
+
+    // V20R-CPU-NIT-01 — `prev_pulse_int_n_` (Pass-20 falling-edge shadow
+    // for the pulse-mode CPU /INT poll at line 5791+). Pairs with the
+    // matching save_state append above. Saves predating Pass-20 leave
+    // the shadow at its reset default `true` (matches
+    // Im2Controller::reset() default pulse_int_n_=true; if the loaded
+    // im2_ state actually has pulse_int_n_=false the next-tick poll
+    // would fire a spurious request_interrupt(0xFF) — harmless since
+    // Z80Cpu::execute()'s 32/36T drop arm cleans it up, but the V20
+    // "exactly ONCE per pulse" invariant is locally violated. New
+    // saves persist the shadow exactly so a save-during-pulse +
+    // load round-trips faithfully.
+    if (!r.eof()) {
+        prev_pulse_int_n_ = r.read_bool();
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
