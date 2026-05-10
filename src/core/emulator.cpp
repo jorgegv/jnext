@@ -997,7 +997,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     nextreg_.set_write_handler(0x0A, [this](uint8_t v) -> uint8_t {
         // G131: gate bits 7:6 and bit 5 on nr_03_config_mode.
-        if (nextreg_.nr_03_config_mode()) {
+        const bool cfg = nextreg_.nr_03_config_mode();
+        if (cfg) {
             spi_.set_sd_swap((v & 0x20) != 0);
             // Wave 1 B1 — bits 7:6 forward as `mf_mode_i` to the Multiface
             // (multiface.vhd:67-68, zxnext.vhd:5191). Set inside the
@@ -1010,7 +1011,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         divmmc_.set_nr_0a_4_enable((v & 0x10) != 0);
         mouse_.set_button_reverse((v & 0x08) != 0);
         mouse_.set_dpi(v & 0x03);
-        return v;
+        // V11-NMP-02 (Pass-11 verify-audit fix): VHDL zxnext.vhd:5191-5198
+        // gates the latches `nr_0a_mf_type` (bits 7:6) and `nr_0a_sd_swap`
+        // (bit 5) behind `nr_03_config_mode = '1'`. When the gate is closed
+        // the underlying signals retain their previous values. Pre-fix the
+        // C++ stored the raw `v` byte verbatim in `regs_[0x0A]`, so the
+        // cache could leak bits 7:5 written outside config_mode. The
+        // observable consequence was the init/reset fan-out at lines 985-996
+        // which reads `cached(0x0A)` and forwards bits 7:6 to
+        // `multiface_.set_mode()` — a soft reset after a "cache-poisoning"
+        // out-of-config_mode write would commit a Multiface mode the VHDL
+        // never latched. Canonicalise the stored byte: bits 7:5 inherit the
+        // pre-write cached value when config_mode is closed; bits 4:0 are
+        // always written (those signals have no config_mode gate).
+        if (cfg) {
+            return v;
+        }
+        const uint8_t prev = nextreg_.cached(0x0A);
+        return static_cast<uint8_t>((v & 0x1F) | (prev & 0xE0));
     });
     // VHDL zxnext.vhd:5912 — NR 0x0A read composes:
     //   nr_0a_mf_type [7:6] & nr_0a_sd_swap [5]
@@ -3448,8 +3466,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nmi_source_.set_expbus_debounce_disable((v & 0x20) != 0);
         return v;
     });
+    // V11-NMP-01 (Pass-11 verify-audit fix): VHDL zxnext.vhd:5496 hardwires
+    // `nr_81_expbus_speed <= "00"` on every NR 0x81 write — the original
+    // `nr_wr_dat(1 downto 0)` source is explicitly commented out. The read
+    // mux at zxnext.vhd:6126 places `nr_81_expbus_speed` in bits 1:0, so
+    // those bits ALWAYS read back as "00" regardless of what was written.
+    // Pre-fix the read mask was `0x7B = 0b01111011` which preserved bits
+    // 1:0 from the last write (e.g. write 0xFF would read 0xFB instead of
+    // the VHDL-correct 0xF8). Mask 0x78 keeps only bits 6, 5, 4, 3 (the
+    // four `nr_81_expbus_*` storage signals); bit 7 is forced to '1' as
+    // before to model `i_BUS_ROMCS_n` idle (no expbus device wired).
     nextreg_.set_read_handler(0x81, [this]() -> uint8_t {
-        return static_cast<uint8_t>(0x80 | (nr_81_ & 0x7B));
+        return static_cast<uint8_t>(0x80 | (nr_81_ & 0x78));
     });
 
     // Register 0x80: Expansion bus configuration — VHDL zxnext.vhd:6122
