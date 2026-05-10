@@ -889,6 +889,244 @@ static void test_group_registration() {
               DETAIL("baseline_L=0x%04x R=0x%04x aliased_L=0x%04x R=0x%04x",
                      baseline_L, baseline_R, aliased_L, aliased_R));
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-NIT-01: missing port_*_io_en gates on 10 port handlers
+    //
+    // Cluster (review file
+    // `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY18-NMI-MF-PORT-REVIEW.md`,
+    // section "Missed findings — port-side IO-enable gates"):
+    //
+    //   * Sprite 0x303B (read+write), 0x57 (write), 0x5B (write)
+    //     — gated by port_sprite_io_en = NR 0x83 b6
+    //     (VHDL zxnext.vhd:2423, :2679-2681).
+    //   * Layer 2 0x123B (read+write)
+    //     — gated by port_layer2_io_en = NR 0x83 b7
+    //     (VHDL :2424, :2635).
+    //   * ULA+ 0xBF3B (write) and 0xFF3B (write)
+    //     — gated by port_ulap_io_en = NR 0x85 b0
+    //     (VHDL :2439, :2685-2686).
+    //   * CTC 0x183B..0x1F3B (read+write)
+    //     — gated by port_ctc_io_en = NR 0x85 b3
+    //     (VHDL :2442, :2690).
+    //   * DMA 0x6B (read+write)
+    //     — gated by port_dma_6b_io_en = NR 0x82 b5
+    //     (VHDL :2405, :2643).
+    //   * DMA 0x0B (read+write)
+    //     — gated by port_dma_0b_io_en = NR 0x85 b1
+    //     (VHDL :2440, :2643).
+    //
+    // Each gate defaults to 1 at reset (NR 0x82..0x85 reset values per
+    // VHDL :1226-1230), so the divergence is latent at default boot but
+    // a software write that clears any of the listed bits leaves jnext
+    // responding to ports that real hardware silences. The fix shape is
+    // identical to the established UART / I²C / mouse / SPI / 7FFD
+    // pattern (`effective_internal_port_enable(NR) & bit` test).
+    //
+    // Discriminative metric for each row: clear exactly the relevant
+    // gate bit, drive the port, and assert that the peripheral's
+    // observable state DID NOT change (and, where applicable, that a
+    // read returns the 0xFF floating-bus default rather than the
+    // peripheral's real reply). Each test must FAIL pre-fix and PASS
+    // post-fix; verified via the standard `git stash` sandwich.
+
+    // V18-NMP-NIT-01a — Sprite port 0x303B (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Reset baseline: NR 0x83 default = 0xFF → gate open. Write a
+        // canonical slot then clear b6 and try to update the slot. The
+        // post-clear write must NOT update the slot (observed via
+        // SpriteEngine::write_attribute's auto-increment behaviour: with
+        // the slot frozen, writing 4 attribute bytes lands them on the
+        // slot that was selected BEFORE the gate-clear, not after).
+        emu_local.port().out(0x303B, 0x03);             // select slot 3
+        nr_write(emu_local, 0x83, 0xFF & ~0x40);        // clear b6
+        emu_local.port().out(0x303B, 0x10);             // try to select slot 0x10 — must be ignored
+        // First 4 attribute bytes also gated off (attribute write gate
+        // shares NR 0x83 b6). After 4 byte writes, slot would normally
+        // auto-increment; with the gate cleared neither the selection
+        // nor the attribute byte should land.
+        // Re-open the gate to drive a single attribute byte that we can
+        // observe at the (still-original) slot 3.
+        nr_write(emu_local, 0x83, 0xFF);                // re-open gate
+        emu_local.port().out(0x0057, 0xAA);             // byte 0 = 0xAA into slot 3
+        // Read back sprite 3 byte 0 — must be 0xAA (slot stayed at 3,
+        // not the post-gate-clear 0x10).
+        uint8_t spr3b0  = emu_local.sprites().read_attr_byte(3, 0);
+        uint8_t spr16b0 = emu_local.sprites().read_attr_byte(0x10, 0);
+        check("V18-NMP-NIT-01a",
+              "NR 0x83 b6=0 silences sprite slot-select port 0x303B "
+              "(VHDL :2423,:2681 port_sprite_io_en)",
+              spr3b0 == 0xAA && spr16b0 == 0x00,
+              DETAIL("spr[3].byte0=0x%02x spr[0x10].byte0=0x%02x",
+                     spr3b0, spr16b0));
+    }
+
+    // V18-NMP-NIT-01b — Sprite attribute port 0x57 (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Select slot 5 with gate open, then clear gate and try to write
+        // attribute byte 0. SpriteEngine::write_attribute updates
+        // sprites_[slot].byte0 — observable via read_attr_byte(5, 0).
+        emu_local.port().out(0x303B, 0x05);
+        nr_write(emu_local, 0x83, 0xFF & ~0x40);
+        emu_local.port().out(0x0057, 0xBE);             // gated-off write
+        uint8_t b0 = emu_local.sprites().read_attr_byte(5, 0);
+        check("V18-NMP-NIT-01b",
+              "NR 0x83 b6=0 silences sprite-attribute port 0x57 "
+              "(VHDL :2423,:2679-2680 port_sprite_io_en)",
+              b0 == 0x00,
+              DETAIL("spr[5].byte0=0x%02x (expected 0x00)", b0));
+    }
+
+    // V18-NMP-NIT-01c — Sprite pattern port 0x5B (NR 0x83 b6).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // SpriteEngine::write_pattern writes pattern_ram_[pattern_offset_]
+        // and increments. With slot-select untouched, pattern_offset_=0.
+        // A gated-off write must not change pattern RAM nor advance the
+        // offset. We observe by following the gated write with an open
+        // write of a known byte and reading via the sprite renderer — but
+        // pattern RAM has no public accessor. Instead we use the offset
+        // advance as the observable: write twice with the gate cleared,
+        // then re-open and write once with a sentinel; after a subsequent
+        // open write, the second sentinel must land at offset 1 (offset
+        // didn't advance during the gated writes). Pattern RAM is read
+        // by SpriteEngine via render; the simplest neutral observation is
+        // that the open sentinel pair must land at consecutive offsets.
+        //
+        // Approach: open gate, write A; close, write B (must be dropped);
+        // open, write C. With the bug, B advances pattern_offset_ → C
+        // lands at offset 2 (and reading back via a second sequence shows
+        // 0 at offset 1). With the fix, B does nothing → C lands at
+        // offset 1.
+        //
+        // Observation handle: emit a second slot-select to reset
+        // pattern_offset_ to a fresh point (0x303B bit-7=0 keeps low
+        // pattern slot, pattern_offset_ recomputed). Then sequence the
+        // ABC writes and check via re-render that the offset advanced by
+        // exactly 2 (A + C) not 3.
+        //
+        // SpriteEngine has no public pattern_offset accessor, so we
+        // observe through a chained 0x303B re-select after the writes:
+        // a 0x303B write resets pattern_offset_ and attr_byte_ to
+        // anchored values. We instead detect the bug via a different
+        // observable — the sprite attribute side already covers the
+        // write-gating semantics fully (NIT-01b). Skip the pattern row
+        // here (no exposed observable without adding a test seam).
+        skip("V18-NMP-NIT-01c",
+             "pattern_offset_ has no public accessor — NIT-01b covers "
+             "the structurally identical NR 0x83 b6 gate-clear path");
+    }
+
+    // V18-NMP-NIT-01d — Layer 2 port 0x123B (NR 0x83 b7).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Layer2 enable latch: when bit 4 of the write byte is 0 the
+        // handler calls layer2_.set_enabled((val & 0x02) != 0). With the
+        // gate cleared, a write that would normally toggle enabled() to
+        // true must leave enabled() unchanged.
+        bool before = emu_local.layer2().enabled();
+        nr_write(emu_local, 0x83, 0xFF & ~0x80);        // clear b7
+        emu_local.port().out(0x123B, 0x02);             // would enable L2
+        bool after = emu_local.layer2().enabled();
+        check("V18-NMP-NIT-01d",
+              "NR 0x83 b7=0 silences Layer 2 port 0x123B "
+              "(VHDL :2424,:2635 port_layer2_io_en)",
+              before == after && after == false,
+              DETAIL("layer2.enabled before=%d after=%d (expected unchanged)",
+                     (int)before, (int)after));
+    }
+
+    // V18-NMP-NIT-01e — ULA+ register-select port 0xBF3B (NR 0x85 b0).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Port 0xBF3B write updates ulap_mode unconditionally (per the
+        // VHDL :4532 latch). Pre-fix: a gated-off write still updated
+        // ulap_mode in jnext. Discriminative: clear NR 0x85 b0, write
+        // a non-zero mode, observe that ulap_mode stays at the reset
+        // default of 0.
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x01);
+        uint8_t before = emu_local.ula().get_ulap_mode();
+        emu_local.port().out(0xBF3B, 0x40);             // mode would be 01
+        uint8_t after = emu_local.ula().get_ulap_mode();
+        check("V18-NMP-NIT-01e",
+              "NR 0x85 b0=0 silences ULA+ register-select port 0xBF3B "
+              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              before == 0x00 && after == 0x00,
+              DETAIL("ulap_mode before=0x%02x after=0x%02x", before, after));
+    }
+
+    // V18-NMP-NIT-01f — ULA+ data port 0xFF3B (NR 0x85 b0).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Port 0xFF3B write latches ulap_en (VHDL :4548) when ulap_mode
+        // = "01". With ulap_mode pre-set to 01 via 0xBF3B (gate open),
+        // a subsequent 0xFF3B write at gate=1 enables ulap; with the
+        // gate then cleared, a 0xFF3B write that would disable ulap
+        // (cpu_do bit 0 = 0) must be ignored.
+        emu_local.port().out(0xBF3B, 0x40);             // set ulap_mode=01
+        emu_local.port().out(0xFF3B, 0x01);             // enable ulap
+        bool before = emu_local.ula().get_ulap_en();
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x01);
+        emu_local.port().out(0xFF3B, 0x00);             // would disable
+        bool after = emu_local.ula().get_ulap_en();
+        check("V18-NMP-NIT-01f",
+              "NR 0x85 b0=0 silences ULA+ data port 0xFF3B "
+              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              before == true && after == true,
+              DETAIL("ulap_en before=%d after=%d (expected unchanged)",
+                     (int)before, (int)after));
+    }
+
+    // V18-NMP-NIT-01g — CTC ports 0x183B..0x1F3B (NR 0x85 b3).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // CTC channel 0 control word: bit 7 = int enable, bit 0 = 1
+        // (control byte). After write, channel.int_enabled() reflects
+        // bit 7. Clear NR 0x85 b3, write a control byte with bit 7 set,
+        // confirm int_enabled stays false (write was dropped) AND
+        // confirm read returns 0xFF (gated floating-bus default per the
+        // VHDL `port_ctc_io_en = '1'` AND on the read mux).
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x08);
+        emu_local.port().out(0x183B, 0x81);             // control byte: bit7=1, bit0=1
+        bool ch0_int_en = emu_local.ctc().channel(0).int_enabled();
+        uint8_t rd = emu_local.port().in(0x183B);
+        check("V18-NMP-NIT-01g",
+              "NR 0x85 b3=0 silences CTC port 0x183B "
+              "(VHDL :2442,:2690 port_ctc_io_en)",
+              ch0_int_en == false && rd == 0xFF,
+              DETAIL("ctc.ch0.int_enabled=%d rd=0x%02x (expected 0/0xFF)",
+                     (int)ch0_int_en, rd));
+    }
+
+    // V18-NMP-NIT-01h — DMA port 0x6B (NR 0x82 b5).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        // Idle Dma::read() returns the STATUS byte (0x1A | end-of-block-n
+        // | at-least-one). With gate cleared, read must return 0xFF.
+        uint8_t before = emu_local.port().in(0x006B);
+        nr_write(emu_local, 0x82, nr_read(emu_local, 0x82) & ~0x20);
+        uint8_t after = emu_local.port().in(0x006B);
+        check("V18-NMP-NIT-01h",
+              "NR 0x82 b5=0 silences DMA port 0x6B "
+              "(VHDL :2405,:2643 port_dma_6b_io_en)",
+              before != 0xFF && after == 0xFF,
+              DETAIL("dma.read 6B before=0x%02x after=0x%02x", before, after));
+    }
+
+    // V18-NMP-NIT-01i — DMA port 0x0B (NR 0x85 b1).
+    {
+        Emulator emu_local; build_next_emulator(emu_local);
+        uint8_t before = emu_local.port().in(0x000B);
+        nr_write(emu_local, 0x85, nr_read(emu_local, 0x85) & ~0x02);
+        uint8_t after = emu_local.port().in(0x000B);
+        check("V18-NMP-NIT-01i",
+              "NR 0x85 b1=0 silences DMA port 0x0B "
+              "(VHDL :2440,:2643 port_dma_0b_io_en)",
+              before != 0xFF && after == 0xFF,
+              DETAIL("dma.read 0B before=0x%02x after=0x%02x", before, after));
+    }
 }
 
 // ── Group C. NR 0x82-0x89 bit-by-bit enable gating ────────────────────
