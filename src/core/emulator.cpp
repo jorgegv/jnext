@@ -195,8 +195,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Reset clip window write indices.
     clip_l2_idx_ = clip_spr_idx_ = clip_ula_idx_ = clip_tm_idx_ = 0;
 
-    // G56: NR 0x10 coreid reset to VHDL default "00001" (zxnext.vhd:1133).
-    nr_10_coreid_ = 0x01;
+    // G56: NR 0x10 coreid — VHDL zxnext.vhd:1133 declares
+    //   `signal nr_10_coreid : std_logic_vector(4 downto 0) := "00001";`
+    // The `:= "00001"` is a power-on (initial-value) assignment; the
+    // process at zxnext.vhd:5677-5687 has NO reset clause, so coreid
+    // SURVIVES both hard and soft reset. Pre-V16-NMP-01 this code
+    // unconditionally re-applied 0x01 here, which differed from VHDL but
+    // was masked because the readback came from the canonical write-time
+    // cache byte (regs_[0x10]) — and NextReg::reset preserves regs_[0x10]
+    // (PASS-8 path at nextreg.cpp:187 + 261). With V16-NMP-01 the read
+    // mux now recomposes from the live `nr_10_coreid_` field, so this
+    // line would clobber the user-set coreid on every reset. Removed to
+    // honour VHDL initial-only semantics; the constructor's
+    // `nr_10_coreid_{0x01}` default delivers the power-on byte once.
 
     // G112: NR 0x2D I2S sample latch (VHDL signal nr_2d_i2s_sample,
     // zxnext.vhd:1176). Stored pre-shifted into bits [7:6]; bits [5:0]
@@ -757,7 +768,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // calling the handler, so other consumers reading via
     // `nextreg_.cached(0x82)` are unaffected.
     nextreg_.set_write_handler(0x82, [this](uint8_t v) -> uint8_t {
-        contention_.set_port_7ffd_io_en((v & 0x02) != 0);
+        // V16-NMP-02: when expbus_eff_en=1, port_7ffd_io_en must AND in
+        // NR 0x86 b1 (zxnext.vhd:2392-2393). NextReg::write commits the
+        // returned byte into regs_[0x82] AFTER this handler returns, so
+        // we pass `v` to the propagate helper as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x82, v);
         return v;
     });
     nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
@@ -1240,24 +1255,46 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   end if;
     // Read mux at zxnext.vhd:5924:
     //   '0' [7] & nr_10_coreid [6:2] & i_SPKEY_BUTTONS(1:0) [1:0]
-    // jnext does not model SPKEY_BUTTONS (the M1+Drive front-panel buttons)
-    // — they read as 0 (idle). nr_10_flashboot is not exposed on the read
-    // path. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
+    // Per VHDL entity port at zxnext.vhd:70 and `zxnext_top_issue2.vhd:2281`,
+    //   `i_SPKEY_BUTTONS = (NOT btn_drive_divmmc_n) & (NOT btn_m1_multiface_n);`
+    // i.e. ACTIVE-HIGH combinational held-state of the F9 (M1, bit 0) and
+    // F10 (Drive, bit 1) front-panel buttons, sampled live on every NR 0x10
+    // read. coreid is tracked in nr_10_coreid_ (5 bits), config_mode-gated
     // on writes per VHDL Issue 2/3 path. Reset default 0x01 ("00001"),
     // VHDL zxnext.vhd:1133. G56.
-    // G56 Phase 2 (option b): write_handler returns the canonical readback
-    // byte (bit 7 = 0, bits 6:2 = coreid, bits 1:0 = SPKEY_BUTTONS = 0
-    // unmodelled). config_mode-gated coreid update applied first; the
-    // returned canonical byte stored in regs_[0x10] always matches what a
-    // synthesised read_handler would have returned. nr_10_flashboot
-    // (write bit 7) is not exposed on the read path. No separate
-    // read_handler is needed.
+    //
+    // V16-NMP-01 (Pass-16 verify-audit fix): pre-fix the write_handler
+    // hardcoded bits 1:0 to 0 because jnext had no live SPKEY_BUTTONS
+    // input. Fix wires the read mux through `test_hotkey_m1_` /
+    // `test_hotkey_drive_` (the same active-high held-state booleans
+    // already consumed by `nmi_assert_mf()` / `nmi_assert_divmmc()` at
+    // emulator.h:411-416). Production sets these via the same
+    // inject_hotkey_m1/drive setters the test harness uses; the GUI
+    // F9/F10 path strobes them on press and clears them on release in a
+    // follow-up wire-up patch (the strobe semantics for one-shot NMI
+    // dispatch via `on_hotkey_f9_mf_nmi`/`on_hotkey_f10_divmmc_nmi` are
+    // unchanged). The write_handler keeps its config_mode-gated coreid
+    // update; the returned cache byte stores the static portion only —
+    // bits 1:0 are recomposed on every read by the read_handler.
     nextreg_.set_write_handler(0x10, [this](uint8_t v) -> uint8_t {
         if (nextreg_.nr_03_config_mode()) {
             nr_10_coreid_ = static_cast<uint8_t>(v & 0x1F);
         }
-        // Canonical NR 0x10 readback — VHDL zxnext.vhd:5924.
+        // Cache stores the static (button-less) portion. Read-handler
+        // recomposes bits 1:0 live from i_SPKEY_BUTTONS at read time
+        // (VHDL is purely combinational on those bits).
         return static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
+    });
+    nextreg_.set_read_handler(0x10, [this]() -> uint8_t {
+        // VHDL zxnext.vhd:5924 — bits 7:2 are static (bit 7 = '0', bits
+        // 6:2 = nr_10_coreid). Bits 1:0 are i_SPKEY_BUTTONS combinational
+        // from the live host F9/F10 held-state.
+        const uint8_t coreid_bits =
+            static_cast<uint8_t>((nr_10_coreid_ & 0x1F) << 2);
+        const uint8_t spkey_bits =
+            static_cast<uint8_t>((test_hotkey_m1_    ? 0x01 : 0x00) |
+                                 (test_hotkey_drive_ ? 0x02 : 0x00));
+        return static_cast<uint8_t>(coreid_bits | spkey_bits);
     });
 
     // Registers 0x28 / 0x29 / 0x2B — PS/2 keymap + joystick keymap (UDK)
@@ -2439,11 +2476,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // here we only need to forward bit 0 to DivMmc as a state setter.
     // G124.
     nextreg_.set_write_handler(0x83, [this](uint8_t v) -> uint8_t {
-        divmmc_.set_port_io_enable((v & 0x01) != 0);
-        // Wave 1 B1 — bit 1 = port_multiface_io_en (VHDL zxnext.vhd:2415-2416,
-        // `internal_port_enable(9)`), gating the Multiface (multiface.vhd:64
-        // `enable_i`). When low, all four FFs are held in reset.
-        multiface_.set_enabled((v & 0x02) != 0);
+        // V16-NMP-02: route both DivMMC (b0) and Multiface (b1, VHDL
+        // zxnext.vhd:2415-2416 `internal_port_enable(9)`, gates
+        // multiface.vhd:64 `enable_i`) gates through
+        // propagate_effective_port_enables so expbus_eff_en=1 correctly
+        // ANDs in NR 0x87. The cache for NR 0x83 is committed AFTER
+        // this handler returns, so pass `v` as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x83, v);
         return v;
     });
 
@@ -2463,7 +2502,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // ContentionModel::contention_tick() OR-folds the shadow with
     // its parameter so the bit is consulted regardless of caller.
     nextreg_.set_write_handler(0x85, [this](uint8_t v) -> uint8_t {
-        contention_.set_port_ulap_io_en((v & 0x01) != 0);
+        // V16-NMP-02: route through propagate_effective_port_enables so
+        // expbus_eff_en=1 ANDs in NR 0x89 b0 per VHDL :2392-2393. Cache
+        // for NR 0x85 is committed AFTER this handler returns, so pass
+        // `v` as an in-flight override.
+        propagate_effective_port_enables(/*override_reg=*/0x85, v);
         return v;
     });
 
@@ -2475,6 +2518,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 6:4 always read back as zero. Same pack-mask shape as NR 0x85.
     nextreg_.set_read_handler(0x89, [this]() -> uint8_t {
         return nextreg_.cached(0x89) & 0x8F;
+    });
+
+    // V16-NMP-02 (Pass-16 verify-audit fix): NR 0x86-0x89 are the
+    // `nr_8X_bus_port_enable` AND-mask group. Per VHDL zxnext.vhd:2392-2393,
+    // when `expbus_eff_en=1` the effective `internal_port_enable` formula
+    // ANDs each NR 0x86-0x89 byte with the corresponding NR 0x82-0x85.
+    // Pre-fix, jnext stored writes in regs_[0x86..0x89] but never
+    // recomputed the downstream port-decode shadows on a NR 0x86-0x89
+    // change — so a write that should have gated a port off (with
+    // expbus_eff_en=1) was inert. Wire each write through
+    // propagate_effective_port_enables(). The bare NextReg::write stores
+    // `v` in regs_[reg] before the handler runs, so the helper sees the
+    // fresh byte.
+    nextreg_.set_write_handler(0x86, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x86, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x87, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x87, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x88, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x88, v);
+        return v;
+    });
+    nextreg_.set_write_handler(0x89, [this](uint8_t v) -> uint8_t {
+        propagate_effective_port_enables(/*override_reg=*/0x89, v);
+        return v;
     });
 
     // Register 0x8C: Alternate ROM control
@@ -2851,7 +2922,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // VHDL 2593: on +3 timing, require A14=1
             if (config_.type == MachineType::ZX_PLUS3 && (port & 0x4000) == 0) return;
             // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
-            if ((nextreg_.cached(0x82) & 0x02) == 0) return;
+            // V16-NMP-02: route through effective_internal_port_enable so
+            // expbus_eff_en=1 ANDs in NR 0x86 b1 per VHDL :2392-2393.
+            if ((effective_internal_port_enable(0x82) & 0x02) == 0) return;
 
             mmu_.map_128k_bank(v);
             // VHDL zxnext.vhd:4453 — port_7ffd_reg(3) drives i_ula_shadow_en
@@ -2977,7 +3050,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         nullptr,
         [this](uint16_t, uint8_t v) {
             // VHDL zxnext.vhd:2599: gated by port_1ffd_io_en (NR 0x82 bit 3).
-            if ((nextreg_.cached(0x82) & 0x08) == 0) return;
+            if ((effective_internal_port_enable(0x82) & 0x08) == 0) return;
             mmu_.map_plus3_bank(v);
             // Push the new ROM3 state to DivMmc (Task 7 Branch B).
             // Verify7-memory class-(a) fix: use `sram_rom3()` per VHDL
@@ -3097,7 +3170,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x00FF,
         nullptr,
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x82) & 0x01) == 0) return;
+            if ((effective_internal_port_enable(0x82) & 0x01) == 0) return;
             // VHDL zxnext.vhd:3615-3616 — port_ff_wr branch latches
             // the entire byte into port_ff_reg, beating any NR-side
             // partial fan-out from NR 0x69 / 0x22 / 0xC4 (G108).
@@ -3167,7 +3240,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // VHDL zxnext.vhd:2589 — p3_timing_hw_en gate.
             if (config_.type != MachineType::ZX_PLUS3) return 0x00;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
-            if ((nextreg_.cached(0x82) & 0x10) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0x00;
             // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
             // EFFECTIVE lock signal at VHDL :3769), not the raw
             // port_7ffd_reg(5) mirror. Pentagon-1024 mode (NR 0x8F=11
@@ -3217,7 +3290,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF003, 0xD001,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((nextreg_.cached(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
+            if ((effective_internal_port_enable(0x82) & 0x04) == 0) return;  // NR 0x82 b2 gate
             mmu_.write_port_dffd(v);
         });
 
@@ -3240,7 +3313,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF0FF, 0xE0F7,
         nullptr,
         [this](uint16_t, uint8_t v) {
-            if ((nextreg_.cached(0x85) & 0x04) == 0) return;  // NR 0x85 b2 gate
+            if ((effective_internal_port_enable(0x85) & 0x04) == 0) return;  // NR 0x85 b2 gate
             mmu_.write_port_eff7(v);
         });
 
@@ -3257,11 +3330,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // falls through to the floating bus default.
     port_.register_handler(0xC007, 0xC005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(false);
         },
         [this](uint16_t port, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             // VHDL 2772: NOT port_dffd gate is handled by exclusive dispatch —
             // Pentagon handler (mask 0xF003, 6 bits) is more specific than
             // this AY handler (mask 0xC007, 5 bits), so Pentagon wins for
@@ -3279,12 +3352,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // reads are not decoded and return the floating-bus default.
     port_.register_handler(0xC007, 0x8005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             if (config_.type != MachineType::ZX_PLUS3) return 0xFF;  // +3 alias only
             return turbosound_.reg_read(false);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             turbosound_.reg_write(val);
         });
 
@@ -3303,11 +3376,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Decode: A15:14="10", A3=0, A2=1, A1:0="01" → mask 0xC00F / val 0x8005.
     port_.register_handler(0xC00F, 0x8005,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return 0xFF;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
             return turbosound_.reg_read(true);   // reg_mode = true
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x84) & 0x01) == 0) return;  // gated off
+            if ((effective_internal_port_enable(0x84) & 0x01) == 0) return;  // gated off
             turbosound_.reg_write(val);
         });
 
@@ -3326,21 +3399,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x001F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x02) == 0) return;   // SD1 b1 gate
+            if ((effective_internal_port_enable(0x84) & 0x02) == 0) return;   // SD1 b1 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0x00FF, 0x000F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x0F: SD1 ch B (b1) OR Covox ch B (b4).
-            if ((nextreg_.cached(0x84) & 0x12) == 0) return;   // b1 | b4
+            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
             dac_.write_channel(1, val);
         });
     port_.register_handler(0x00FF, 0x004F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x4F: SD1 ch C (b1) OR Covox ch C (b4).
-            if ((nextreg_.cached(0x84) & 0x12) == 0) return;   // b1 | b4
+            if ((effective_internal_port_enable(0x84) & 0x12) == 0) return;   // b1 | b4
             dac_.write_channel(2, val);
         });
 
@@ -3356,14 +3429,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x003F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x08) == 0) return;   // Profi b3 gate
+            if ((effective_internal_port_enable(0x84) & 0x08) == 0) return;   // Profi b3 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0xFFFF, 0x005F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
-            if ((nextreg_.cached(0x84) & 0x0A) == 0) return;   // b1 | b3
+            if ((effective_internal_port_enable(0x84) & 0x0A) == 0) return;   // b1 | b3
             dac_.write_channel(3, val);
         });
 
@@ -3376,19 +3449,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(0, val);
         });
     port_.register_handler(0xFFFF, 0x00F3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(1, val);
         });
     port_.register_handler(0xFFFF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x04) == 0) return;   // SD2 b2 gate
+            if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(2, val);
         });
     port_.register_handler(0xFFFF, 0x00FB, nullptr,
@@ -3398,7 +3471,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // SD2 mode (NR 0x84 bit 2) OR mono_AD_fb effective is set;
             // :2661 — port_dac_A fires on 0xFB only via mono_AD fan-out.
             // mono_AD_fb_eff = NR 0x84 bit 5 AND NOT bit 2 (vhd:2433).
-            const uint8_t nr84 = nextreg_.cached(0x84);
+            // V16-NMP-02: route through the effective gate so expbus_eff_en=1
+            // ANDs in NR 0x88 per VHDL :2392-2393.
+            const uint8_t nr84 = effective_internal_port_enable(0x84);
             const bool sd2_en  = (nr84 & 0x04) != 0;         // bit 2
             const bool mono_ad = (nr84 & 0x20) && !sd2_en;   // bit 5 AND NOT bit 2
             if (sd2_en || mono_ad) dac_.write_channel(3, val);
@@ -3413,7 +3488,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x00B3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x40) == 0) return;   // GS Covox b6
+            if ((effective_internal_port_enable(0x84) & 0x40) == 0) return;   // GS Covox b6
             dac_.write_channel(1, val);
             dac_.write_channel(2, val);
         });
@@ -3446,11 +3521,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x00FF, 0x00DF,
         [this](uint16_t) -> uint8_t {
             // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
-            if ((nextreg_.cached(0x84) & 0x80) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0x00;
             // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
-            if ((nextreg_.cached(0x83) & 0x20) != 0) return 0x00;
+            if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0x00;
             // NR 0x82 bit 6 — port_1f_io_en gate.
-            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0x00;
+            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0x00;
             // port_1f_hw_en: at least one connector in Kempston1 or
             // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
             if (!joystick_.port_1f_hw_en()) return 0x00;
@@ -3462,7 +3537,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // gate is clear the SpecDrum DAC port is not decoded and the
             // write is silently dropped.
             if (!dac_enabled_) return;
-            if ((nextreg_.cached(0x84) & 0x80) == 0) return;
+            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return;
             dac_.write_channel(0, val);
             dac_.write_channel(3, val);
         });
@@ -3748,6 +3823,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x80, [this](uint8_t v) -> uint8_t {
         nmi_source_.set_expbus_eff_en((v & 0x80) != 0);
         nmi_source_.set_expbus_eff_disable_mem((v & 0x10) != 0);
+        // V16-NMP-02: bit 7 (`expbus_eff_en`) is one of the inputs to the
+        // VHDL `internal_port_enable` formula at zxnext.vhd:2392-2393.
+        // Toggling it changes whether NR 0x86-0x89 AND in. NR 0x80's
+        // post-write state lives in `nmi_source_.expbus_eff_en()` (set
+        // above), so the helper sees the fresh state when consulted —
+        // no override needed for NR 0x80 itself.
+        propagate_effective_port_enables();
         return v;
     });
 
@@ -4042,20 +4124,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // bit 0) and the 0x103B/0x113B I2C / 0x133B-163B UART ports below.
     port_.register_handler(0x00FF, 0x00E7,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x08) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return 0xFF;
             return spi_.read_cs();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x08) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return;
             spi_.write_cs(val);
         });
     port_.register_handler(0x00FF, 0x00EB,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x08) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return 0xFF;
             return spi_.read_data();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x08) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x08) == 0) return;
             spi_.write_data(val);
         });
 
@@ -4067,20 +4149,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and writes are silently dropped.
     port_.register_handler(0xFFFF, 0x103B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return 0xFF;
             return i2c_.read_scl();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return;
             i2c_.write_scl(val);
         });
     port_.register_handler(0xFFFF, 0x113B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return 0xFF;
             return i2c_.read_sda();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x04) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x04) == 0) return;
             i2c_.write_sda(val);
         });
 
@@ -4090,38 +4172,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // concat at zxnext.vhd:2392. Same gate pattern as I2C/DivMMC.
     port_.register_handler(0xFFFF, 0x133B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(3);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(3, val);
         });
     port_.register_handler(0xFFFF, 0x143B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(0);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(0, val);
         });
     port_.register_handler(0xFFFF, 0x153B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(1);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(1, val);
         });
     port_.register_handler(0xFFFF, 0x163B,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
             return uart_.read(2);
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x10) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
             uart_.write(2, val);
         });
 
@@ -4129,11 +4211,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:2412: port_divmmc_io_en <= internal_port_enable(8) = NR 0x83 bit 0.
     port_.register_handler(0x00FF, 0x00E3,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x01) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x01) == 0) return 0xFF;
             return divmmc_.read_control();
         },
         [this](uint16_t, uint8_t val) {
-            if ((nextreg_.cached(0x83) & 0x01) == 0) return;
+            if ((effective_internal_port_enable(0x83) & 0x01) == 0) return;
             divmmc_.write_control(val);
         });
 
@@ -4159,7 +4241,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // floating-bus 0xFF even if NR 0x82 b6 is set.
     port_.register_handler(0x00FF, 0x001F,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x82) & 0x40) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0xFF;
             if (!joystick_.port_1f_hw_en())            return 0xFF;
             return joystick_.read_port_1f();
         },
@@ -4177,7 +4259,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     floating-bus 0xFF.
     port_.register_handler(0x00FF, 0x0037,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x82) & 0x80) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x82) & 0x80) == 0) return 0xFF;
             if (!joystick_.port_37_hw_en())            return 0xFF;
             return joystick_.read_port_37();
         },
@@ -4197,19 +4279,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
     port_.register_handler(0xFFFF, 0xFADF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fadf();
         },
         nullptr);
     port_.register_handler(0xFFFF, 0xFBDF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fbdf();
         },
         nullptr);
     port_.register_handler(0xFFFF, 0xFFDF,
         [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_ffdf();
         },
         nullptr);
@@ -4731,8 +4813,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // works correctly here since NextReg::reset() with reset_type_1=true
     // reloads regs_[0x83]=0xFF and our sync sees bit 0/1 = 1/1 → both gates
     // open, matching the explicit set_enabled(true) above.
-    divmmc_.set_port_io_enable((nextreg_.cached(0x83) & 0x01) != 0);
-    multiface_.set_enabled((nextreg_.cached(0x83) & 0x02) != 0);
+    // V16-NMP-02: route NR 0x83 b0/b1 (port_divmmc_io_en /
+    // port_multiface_io_en, VHDL :2412 + :2415) through
+    // effective_internal_port_enable so expbus_eff_en=1 ANDs in NR 0x87
+    // (VHDL :2392-2393).
+    divmmc_.set_port_io_enable(
+        (effective_internal_port_enable(0x83) & 0x01) != 0);
+    multiface_.set_enabled(
+        (effective_internal_port_enable(0x83) & 0x02) != 0);
 
     // Wire palette manager and RAM into ULA for enhanced palette and
     // hardware-accurate VRAM access (ULA reads directly from physical bank 5,
@@ -5949,6 +6037,91 @@ void Emulator::schedule_frame_events()
         [this]() { on_vsync(); });
 }
 
+uint8_t Emulator::effective_internal_port_enable(uint8_t reg) const
+{
+    return effective_internal_port_enable(reg, /*override_reg=*/0xFF, 0);
+}
+
+uint8_t Emulator::effective_internal_port_enable(uint8_t reg,
+                                                 uint8_t override_reg,
+                                                 uint8_t override_val) const
+{
+    // VHDL zxnext.vhd:2392-2393:
+    //   internal_port_enable <= (nr_85 & nr_84 & nr_83 & nr_82) when
+    //                           expbus_eff_en='0' else
+    //                           ((nr_89 AND nr_85) & (nr_88 AND nr_84) &
+    //                            (nr_87 AND nr_83) & (nr_86 AND nr_82));
+    // The four NR 0x82-0x85 bytes form the low 32 bits of the
+    // `internal_port_enable` vector. When `expbus_eff_en` (NR 0x80 b7)
+    // is '1', each bit is the AND of the corresponding NR 0x82-0x85
+    // and NR 0x86-0x89 bit. We expose the per-byte effective gate so
+    // every port-decode site can read it the same way it reads the
+    // raw cache today.
+    if (reg < 0x82 || reg > 0x85) {
+        return (reg == override_reg) ? override_val : nextreg_.cached(reg);
+    }
+    auto cache_or_override = [&](uint8_t r) -> uint8_t {
+        return (r == override_reg) ? override_val : nextreg_.cached(r);
+    };
+    const uint8_t base = cache_or_override(reg);
+    // nmi_source_ owns the `expbus_eff_en` shadow; mirrors NR 0x80 b7
+    // (zxnext.vhd:2197 + 5800-5813). When expbus is disabled the bus-
+    // port enable group has no effect. NB: NR 0x80's effect on the
+    // shadow is committed in the NR 0x80 write handler BEFORE the
+    // propagate helper is invoked, so the `expbus_eff_en()` accessor
+    // here always reflects the post-write state.
+    if (!nmi_source_.expbus_eff_en()) {
+        return base;
+    }
+    // Pair-up: 0x82↔0x86, 0x83↔0x87, 0x84↔0x88, 0x85↔0x89.
+    // VHDL widths (zxnext.vhd:1226-1234): NR 0x82/0x83/0x84/0x86/0x87/0x88
+    // are 8 bits; NR 0x85 / 0x89 are 4 bits each (`bus_port_enable` /
+    // `internal_port_enable` low nibble) plus bit 7 = reset_type. The
+    // formula at :2392-2393 only uses the enable nibble for the 0x85↔0x89
+    // pair, so mask the high nibble out of the bus-port mask to avoid
+    // ANDing reset_type into bit 7 of the effective gate (no current
+    // consumer reads bit 7 of NR 0x85 as a port-enable, but be precise).
+    const uint8_t paired_reg = static_cast<uint8_t>(reg + 4);
+    uint8_t mask = cache_or_override(paired_reg);
+    if (paired_reg == 0x89) {
+        mask = static_cast<uint8_t>(mask & 0x0F);
+        // Preserve high nibble of `base` (reset_type at bit 7) so callers
+        // that read NR 0x85 bit 7 outside the port-enable formula are
+        // unaffected. Only the enable nibble (bits 3:0) participates in
+        // the AND.
+        const uint8_t high_nibble = static_cast<uint8_t>(base & 0xF0);
+        const uint8_t and_low     = static_cast<uint8_t>((base & 0x0F) & mask);
+        return static_cast<uint8_t>(high_nibble | and_low);
+    }
+    return static_cast<uint8_t>(base & mask);
+}
+
+void Emulator::propagate_effective_port_enables(uint8_t override_reg,
+                                                uint8_t override_val)
+{
+    // V16-NMP-02 (Pass-16): re-push every shadow held outside NextReg
+    // that mirrors a bit of the effective `internal_port_enable` vector
+    // (zxnext.vhd:2392-2393). When any of NR 0x80 b7 (`expbus_eff_en`),
+    // NR 0x82-0x85 (`internal_port_enable` low 32 bits), or NR 0x86-0x89
+    // (`bus_port_enable` AND-mask) changes, every consumer gets the
+    // freshly-computed effective gate.
+    //
+    // ContentionModel holds two such shadows:
+    //   - port_7ffd_io_en  ← effective NR 0x82 bit 1  (VHDL :2399).
+    //   - port_ulap_io_en  ← effective NR 0x85 bit 0  (VHDL :2439).
+    contention_.set_port_7ffd_io_en(
+        (effective_internal_port_enable(0x82, override_reg, override_val) & 0x02) != 0);
+    contention_.set_port_ulap_io_en(
+        (effective_internal_port_enable(0x85, override_reg, override_val) & 0x01) != 0);
+    // DivMmc and Multiface gate themselves on NR 0x83 bit 0 / bit 1
+    // (VHDL :2412 / :2415). When their gate falls low the FSM goes
+    // inert (port-decode no longer reaches them).
+    divmmc_.set_port_io_enable(
+        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
+    multiface_.set_enabled(
+        (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
+}
+
 uint8_t Emulator::floating_bus_read() const
 {
     // Port 0xFF read mux per VHDL zxnext.vhd:2813:
@@ -5987,7 +6160,10 @@ uint8_t Emulator::floating_bus_read() const
     // `port_ff_reg` (bits 5:0 / bit 6); we don't propagate those into
     // `screen_mode_reg_` yet. Port-0xFF writes are the dominant source.
     const uint8_t nr_08 = nr_08_stored_low_;
-    const uint8_t nr_82 = nextreg_.cached(0x82);
+    // V16-NMP-02: port_ff_io_en is internal_port_enable(0); when
+    // expbus_eff_en=1 NR 0x82 b0 must be AND'd with NR 0x86 b0 per
+    // VHDL :2392-2393.
+    const uint8_t nr_82 = effective_internal_port_enable(0x82);
     const bool port_ff_rd_en = (nr_08 & 0x04) != 0;   // NR 0x08 b2
     const bool port_ff_io_en = (nr_82 & 0x01) != 0;   // NR 0x82 b0
     if (port_ff_rd_en && port_ff_io_en) {
@@ -6520,7 +6696,10 @@ void Emulator::load_state(StateReader& r)
         contention_.set_cpu_speed(cs07);
         contention_.set_pending_cpu_speed(cs07);
         contention_.set_contention_disable(mmu_.contention_disabled());
-        contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
+        // V16-NMP-02: re-seed shadows through the effective gate so
+        // restored snapshots with expbus_eff_en=1 honour the AND-mask.
+        contention_.set_port_7ffd_io_en(
+            (effective_internal_port_enable(0x82) & 0x02) != 0);
     }
 
     // Audio subsystems.
