@@ -774,6 +774,32 @@ int Z80Cpu::execute() {
     // through a DD/FD prefix chain. Walk the prefix chain to find the
     // first non-prefix byte and check if it's an ED-block-transfer ext.
     const bool is_djnz = (opcode == 0x10);
+    // V14-CPU-01: VHDL t80n.vhd:1361-1367 latches IncDecZ on every BC
+    // 16-bit inc/dec — i.e. ALSO on plain INC BC (0x03) and DEC BC (0x0B),
+    // not only on the BC-decrementing block transfers (LDI/LDD/CPI/CPD/
+    // …) and DJNZ. The mcode (t80n_mcode.vhd:927-936) sets
+    //   INC ss : IncDec_16 <= "01" & DPair
+    //   DEC ss : IncDec_16 <= "11" & DPair
+    // and the latch fires on `IncDec_16(2 downto 0) = "100"` — i.e. only
+    // when DPair = "00" (= BC). For DE/HL/SP DPair the low three bits
+    // become "101"/"110"/"111" and the latch is silent. Result of the
+    // 16-bit ALU on inc/dec is on the `ID16` bus; `IncDecZ <= '0'` when
+    // `ID16 = 0`, `'1'` otherwise. So:
+    //   INC BC: post-inc BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //   DEC BC: post-dec BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //
+    // Pre-fix: jnext only updated IncDecZ on DJNZ + ED block transfers.
+    // A program doing `INC BC; ED A5` (LDWS) or `DEC BC; ED A5` would
+    // observe a STALE IncDecZ from a much earlier instruction (or the
+    // reset-init 0). LDWS reads IncDecZ for its F.P override per VHDL
+    // t80n.vhd:1284. Equally LDIRSCALE / LDIRX / LDPIRX inside a loop
+    // that uses INC BC for re-arming would compose wrong F.P at re-entry.
+    //
+    // Class-(a) discriminative: write a test that does `INC BC` (or
+    // `DEC BC`) followed by `LDWS` and check F.P composes from the new
+    // IncDecZ value, not from the prior latch. See test_v14_cpu_01_*.
+    const bool is_inc_bc = (opcode == 0x03);
+    const bool is_dec_bc = (opcode == 0x0B);
     bool ed_block_xfer = false;
     if (opcode == 0xDD || opcode == 0xFD) {
         uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
@@ -832,6 +858,18 @@ int Z80Cpu::execute() {
         // is discarded by FUSE's z80_ddfd.c default re-dispatch path,
         // and the ED block transfer runs normally — BC has been
         // decremented. IncDecZ = (BC != 0).
+        regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
+    }
+    if (is_inc_bc || is_dec_bc) {
+        // V14-CPU-01 fix — see large comment block above the
+        // pre-execute classification. After fuse_z80_execute_one(),
+        // regs_.BC holds the post-inc/dec value (= ID16 in VHDL). VHDL
+        // emits IncDecZ='0' when ID16=0 and '1' otherwise (line 1362-
+        // 1366). Note this polarity is the SAME as the BC-block-transfer
+        // latch (line 1361-1366 covers both — the I_BT block transfers
+        // assert their own IncDec_16="1100" and reach this same gate),
+        // and OPPOSITE to the DJNZ latch (line 1359, F_Out(Flag_Z) which
+        // is set when result==0).
         regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
     }
     return (cycles > 0) ? cycles : 4;
