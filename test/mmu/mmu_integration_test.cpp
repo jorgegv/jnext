@@ -251,6 +251,15 @@ static void test_nr_8c_preserves_nr_mmu(Emulator& emu) {
     // Restore NR 0x8C to its prior value (avoids leaking lock bits to
     // subsequent tests).
     nr_write(emu, 0x8C, prev_8c);
+
+    // V12-MEM fix-of-reviewer NIT-2: V12-MEM-01-A wrote NR 0x50=0xE5
+    // (high-page legacy-ROM trigger). Restore slot 0 to its constructor
+    // default so subsequent V12-MEM-02 / V12-MEM-03 tests start from a
+    // clean MMU register surface. Writing the 0xFF "engage legacy ROM
+    // paging" sentinel mirrors the boot-time default (per VHDL :4686-4699,
+    // NR 0x50/0x51 with 0xFF re-engages the legacy auto-paging path) and
+    // discards the verbatim 0xE5 written above.
+    nr_write(emu, 0x50, 0xFF);
 }
 
 // ── V12-MEM-02: ContentionModel state survives save/load round-trip ──
@@ -374,29 +383,43 @@ static void test_contention_state_round_trip(Emulator& emu) {
 // derived ContentionModel.type_ was not. The fix re-runs
 // `rebuild_for_type(mmu_.machine_type())` in load_state.
 //
-// Discriminative test: ZX48K snapshot → fresh ZXN init → load_state →
-// contention_.is_contended_access() with mem_active_page=0x05 (bank 2
-// hi). On 48K, page(3:1)=010 ≠ 101 → not contended. On ZXN, no
-// contention at all. Distinguishing 48K from ZXN is harder via this
-// path; the surface marker is `machine_type` saved/restored on Mmu.
-// Use Mmu's machine_type accessor for the assertion (the rebuild_for_type
-// call sites it on ContentionModel; we only need to verify Mmu's
-// saved value round-trips and that the rebuild_for_type post-load was
-// indeed called).
+// V12-MEM fix-of-reviewer NIT-1: the original V12-MEM-03-B was
+// non-discriminative. The live emu is ZXN_ISSUE2, so the saved
+// `machine_type` is `ZXN_ISSUE2`, and `is_contended_access()` short-
+// circuits to `false` at `contention.cpp:31` (`if (type == ZXN_ISSUE2)
+// return;`) regardless of whether the V12-MEM-03 fix is present —
+// the test passed even with the fix reverted.
+//
+// The discriminative form below switches the live emu's machine_type to
+// ZX48K via `Mmu.set_machine_type(ZX48K)` BEFORE saving, then loads onto
+// a fresh ZXN_ISSUE2-initialised emu, sets `mem_active_page=0x0A`
+// (bits[3:1]=101 = bank 5, contended on 48K per VHDL :4490), and asserts
+// `is_contended_access()==true`. Pre-Verify12 ContentionModel.type_ stays
+// ZXN_ISSUE2 (init-time value) — `is_contended_access()` returns false.
+// Post-fix `rebuild_for_type(ZX48K)` is called from `load_state`,
+// flipping type_ to ZX48K — `is_contended_access()` correctly returns
+// true.
 
 static void test_machine_type_round_trip(Emulator& emu) {
     set_group("V12-MEM-03-MT");
 
-    // Note: the live `emu` is ZXN_ISSUE2. The save_state / load_state
-    // round-trip assertion is purely on machine_type field plumbing —
-    // verifies that Mmu's machine_type_ AND ContentionModel's type_
-    // both restore from a save taken at the current type. Pre-Verify12
-    // ContentionModel.type_ would silently revert to whatever
-    // EmulatorConfig.type the fresh emu was initialised with — a
-    // load_state + Mmu.machine_type() ≠ Contention.type_ divergence
-    // that could only be observed via behavioural tests (port_contend,
-    // contention_tick decode tables).
-    const MachineType saved_mt = emu.mmu().machine_type();
+    // Stash the live emu's original machine_type so we can restore it
+    // after the test; switching it here would otherwise leak into any
+    // subsequent test rows running on the same `emu`.
+    const MachineType original_mt = emu.mmu().machine_type();
+
+    // Switch the live emu to ZX48K. The `set_machine_type` call path is
+    // the same one NR 0x03 typ_sel commits use (per Mmu.h:803), so this
+    // exercises the V12-MEM-03 round-trip exactly as a runtime NR 0x03
+    // commit would.
+    emu.mmu().set_machine_type(MachineType::ZX48K);
+
+    // Sanity check: live ContentionModel still pinned to ZXN_ISSUE2 at
+    // this point because nothing has called rebuild_for_type on the live
+    // emu (Mmu.set_machine_type does NOT touch ContentionModel — that
+    // wiring lives in NR 0x03 commit at emulator.cpp:2019). The live
+    // emu's contention type is irrelevant to this test; we exercise the
+    // load_state path on a fresh emu.
 
     size_t need = 0;
     {
@@ -410,7 +433,11 @@ static void test_machine_type_round_trip(Emulator& emu) {
         emu.save_state(w);
     }
 
-    // Fresh emulator, load saved snapshot.
+    // Fresh emulator, initialised at ZXN_ISSUE2 (so its ContentionModel
+    // .type_ starts as ZXN_ISSUE2). Loading the ZX48K snapshot must
+    // re-run rebuild_for_type(ZX48K) on the fresh ContentionModel —
+    // that is exactly what the V12-MEM-03 fix wires up at
+    // emulator.cpp:6292.
     Emulator fresh;
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
@@ -421,32 +448,49 @@ static void test_machine_type_round_trip(Emulator& emu) {
         fresh.load_state(r);
     }
 
-    // Mmu's machine_type_ was already saved/loaded pre-Verify12; this
-    // is the existing round-trip baseline (sanity).
+    // V12-MEM-03-A — Mmu's machine_type_ field round-trip (sanity, was
+    // already plumbed pre-Verify12; this row guards against a future
+    // regression of the underlying Mmu serialisation).
     check("V12-MEM-03-A",
-          "Mmu.machine_type() round-trips through save/load",
-          fresh.mmu().machine_type() == saved_mt,
-          fmt("Mmu.machine_type=%d (expected %d)",
+          "Mmu.machine_type() round-trips ZX48K through save/load",
+          fresh.mmu().machine_type() == MachineType::ZX48K,
+          fmt("Mmu.machine_type=%d (expected ZX48K=%d)",
               static_cast<int>(fresh.mmu().machine_type()),
-              static_cast<int>(saved_mt)));
+              static_cast<int>(MachineType::ZX48K)));
 
-    // The Verify12 fix wires `contention_.rebuild_for_type(...)` into
-    // load_state. We can't directly accessor the internal type_ field,
-    // but the per-machine `is_contended_access()` decode uses it. For
-    // ZXN_ISSUE2 it always returns false; the round-trip preserves the
-    // type so the post-load decode still returns false at every page.
-    // (A behavioural test that distinguishes ZXN from 48K/128K/+3
-    // would require setting mem_active_page to a contending value
-    // for those types and observing is_contended_access() return true
-    // on those types only — out of scope for this round-trip test
-    // because the live emu starts at ZXN.)
-    fresh.contention().set_mem_active_page(0x05);
+    // V12-MEM-03-B — discriminative behavioural assertion on the
+    // ContentionModel.type_ recovery. We pick mem_active_page = 0x0A:
+    //   bits[7:4] = 0  (mem_contend gate at VHDL :4489 open)
+    //   bits[3:1] = 101 (= 5)
+    // VHDL :4490 — 48K contend iff page(3:1) = "101" → contended.
+    // VHDL :4491 — 128K contend iff page(1) = '1' → 0x0A bit 1 = 1 →
+    //              would also contend on 128K, but bank-decode pattern
+    //              "101" is the canonical 48K bank-5 contention case.
+    // ZXN_ISSUE2 short-circuits to `false` at contention.cpp:31 — so
+    // this is what the post-load decode would return WITHOUT the fix.
+    //
+    // Pre-fix (rebuild_for_type not called from load_state): fresh
+    // ContentionModel keeps init-time type_ = ZXN_ISSUE2 → returns
+    // FALSE → assertion FAILS.
+    //
+    // Post-fix (rebuild_for_type wired into load_state): fresh
+    // ContentionModel.type_ flips to ZX48K → returns TRUE → assertion
+    // PASSES.
+    fresh.contention().set_mem_active_page(0x0A);
     check("V12-MEM-03-B",
-          "ContentionModel decode matches saved type post-load "
-          "[zxnext.vhd:4489-4493 per-machine bank gate]",
-          fresh.contention().is_contended_access() == false,
-          fmt("expected ZXN_ISSUE2 → no contention; got is_contended=%d",
+          "ContentionModel.type_ tracks Mmu.machine_type() across load_state — "
+          "ZX48K + page=0x0A (bank 5) contends "
+          "[zxnext.vhd:4490 mem_contend 48K bank-decode; "
+          "rebuild_for_type wired into Emulator::load_state]",
+          fresh.contention().is_contended_access() == true,
+          fmt("expected ZX48K bank-5 → contended; got is_contended=%d "
+              "(ContentionModel.type_ likely still ZXN_ISSUE2 — "
+              "rebuild_for_type missing from load_state)",
               static_cast<int>(fresh.contention().is_contended_access())));
+
+    // Restore the live emu's original machine_type so we don't leak
+    // into any subsequent tests that share `emu`.
+    emu.mmu().set_machine_type(original_mt);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
