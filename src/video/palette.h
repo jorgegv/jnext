@@ -104,6 +104,20 @@ public:
     uint8_t read_9bit() const;
 
     // -----------------------------------------------------------------
+    // VHDL `nr_stored_palette_value` accessor — exposed via NR 0x28 read.
+    // -----------------------------------------------------------------
+    // VHDL zxnext.vhd:1190 declares the FF, :5398-5399 latches it from
+    // `nr_wr_dat` on the FIRST half of an NR 0x44 9-bit write
+    // (`nr_palette_sub_idx = '0'`), and :6004 surfaces it on the NR 0x28
+    // read mux: `port_253b_dat <= nr_stored_palette_value;`. The
+    // `nine_bit_first_byte_` shadow inside PaletteManager mirrors the
+    // same FF (write_9bit at palette.cpp:332). Read-only; does not mutate
+    // any palette state. V14-NMP-02 (Pass-14 verify-audit) — added so the
+    // NR 0x28 read handler in Emulator can return the live VHDL signal
+    // instead of the stale cached NR 0x28 last-write byte.
+    uint8_t nine_bit_first_byte() const { return nine_bit_first_byte_; }
+
+    // -----------------------------------------------------------------
     // NR 0xFF — ULA+ palette poke side-channel (zxnext.vhd:6957-6958)
     // -----------------------------------------------------------------
     //
