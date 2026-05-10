@@ -203,3 +203,79 @@ fuse_z80_test build/test/fuse
 
 CMake Release (`-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON`). All tests
 pass under Release optimisation.
+
+## Fix-of-reviewer follow-ups (post-`635ddbc`)
+
+Reviewer (`task2/verify12-memory-reviewer` HEAD `635ddbc`) returned
+APPROVE-WITH-NITS. Two NITs addressed on this branch:
+
+### NIT-1 — V12-MEM-03-B is now discriminative
+
+The published V12-MEM-03-B was non-discriminative: the live emu was
+`ZXN_ISSUE2`, so the saved `machine_type` was `ZXN_ISSUE2`, and
+`is_contended_access()` short-circuits to `false` at
+`contention.cpp:31` (`if (type == ZXN_ISSUE2) return;`) regardless of
+whether `rebuild_for_type` was called from `load_state`. The test
+passed even with the V12-MEM-03 fix reverted, masking the bug.
+
+V12-MEM-03-B has been replaced with the reviewer's discriminative form:
+
+1. Switch the live emu's `Mmu.machine_type` to `ZX48K` via
+   `Mmu::set_machine_type` (the same code path NR 0x03 typ_sel commits
+   use).
+2. Save state.
+3. Load onto a fresh emu initialised at `ZXN_ISSUE2`.
+4. Set `mem_active_page=0x0A` (bits[3:1]=101 = bank 5, contended on 48K
+   per VHDL :4490).
+5. Assert `fresh.contention().is_contended_access() == true`.
+
+Pre-Verify12 behaviour: fresh ContentionModel.type_ stays at
+`ZXN_ISSUE2` (init-time value) → `is_contended_access()` returns
+`false` → V12-MEM-03-B FAILS. Post-fix:
+`rebuild_for_type(mmu_.machine_type())` flips type_ to `ZX48K` →
+`is_contended_access()` returns `true` → V12-MEM-03-B PASSES.
+
+V12-MEM-03-A is also strengthened: it now asserts
+`Mmu.machine_type() == ZX48K` post-load (was `== saved_mt` from a live
+emu still at `ZXN_ISSUE2`), guarding against any future regression of
+the underlying Mmu serialisation when the saved type differs from the
+fresh emu's init type.
+
+The live emu's original machine_type is restored at the end of the
+test to keep it isolated from anything that runs after.
+
+**Discriminative verification done in this branch**: with the V12-MEM-03
+fix line at `emulator.cpp:6292` commented out, the rebuild produces:
+
+```
+FAIL V12-MEM-03-B: ContentionModel.type_ tracks Mmu.machine_type()
+  across load_state — ZX48K + page=0x0A (bank 5) contends [...] [
+  expected ZX48K bank-5 → contended; got is_contended=0
+  (ContentionModel.type_ likely still ZXN_ISSUE2 — rebuild_for_type
+  missing from load_state)]
+Total: 11 Passed: 10 Failed: 1
+```
+
+With the fix restored, all 11/11 pass.
+
+### NIT-2 — V12-MEM-01-A test isolation
+
+V12-MEM-01-A wrote `NR 0x50 = 0xE5` (high-page legacy-ROM trigger) and
+left it. Subsequent tests didn't depend on NR 0x50, so this was benign,
+but it violated test-isolation hygiene. Fixed by writing `NR 0x50 = 0xFF`
+at the end of the test — the legacy "engage auto-paging" sentinel
+(VHDL :4611-4612) — restoring slot 0 to its boot-time mapping and
+discarding the verbatim 0xE5.
+
+### Tests after fix-of-reviewer
+
+```
+ctest --test-dir build --output-on-failure
+  100% tests passed, 0 tests failed out of 38
+mmu_integration_test
+  Total: 11 Passed: 11 Failed: 0 Skipped: 0
+  Per-group: EF7-IO-EN 3/3, V12-MEM-01-NR8C 2/2,
+             V12-MEM-02-CONT 4/4, V12-MEM-03-MT 2/2
+fuse_z80_test build/test/fuse
+  Total: 1356  Passed: 1356  Failed: 0  Skipped: 0
+```
