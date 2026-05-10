@@ -264,6 +264,29 @@ static void test_group_registration() {
               DETAIL("borders=%u,%u,%u expected 2,5,3", b1, b2, b3));
     }
 
+    // REG-01b / V17-NMP-02 — ULA 0xFE matches ANY even address (bit 0 = 0),
+    // not just LSB == 0xFE. VHDL zxnext.vhd:2582 — `port_fe <= '1' when
+    // cpu_a(0) = '0'`. Pre-Pass-17, jnext's handler used mask 0x00FF / val
+    // 0x00FE which required the LSB to equal exactly 0xFE — software using
+    // OUT (0xFC), A or any other even-but-not-FE port would update border
+    // on real hardware (and CSpect / Fuse) but not in jnext. Discriminative
+    // test for the V17-NMP-02 fix; covers the well-known "OUT (0xFC), A"
+    // border trick as well as 0xF8.
+    {
+        emu.port().out(0x00FE, 0x00);           // border = black (baseline)
+        emu.port().out(0x00FC, 0x02);           // border ← green (bit 0 = 0)
+        uint8_t b1 = emu.renderer().ula().get_border();
+        emu.port().out(0x00F8, 0x07);           // border ← white (bit 0 = 0)
+        uint8_t b2 = emu.renderer().ula().get_border();
+        emu.port().out(0x4242, 0x05);           // border ← cyan (any even port)
+        uint8_t b3 = emu.renderer().ula().get_border();
+        check("REG-01b",
+              "0xFE decode covers ANY even port (0xFC / 0xF8 / 0x4242) "
+              "[VHDL :2582 cpu_a(0)='0']",
+              b1 == 2 && b2 == 7 && b3 == 5,
+              DETAIL("borders=%u,%u,%u expected 2,7,5", b1, b2, b3));
+    }
+
     // REG-02: 0xFE does NOT match an odd address. VHDL zxnext.vhd:2582-2583.
     {
         emu.port().out(0x00FE, 0x00);           // border = black
@@ -273,6 +296,26 @@ static void test_group_registration() {
               "Odd port 0x00FF does NOT write ULA border",
               b == 0,
               DETAIL("border=%u expected 0", b));
+    }
+
+    // REG-02b / V17-NMP-03 — Timex screen-mode port 0xFF matches any port
+    // with LSB == 0xFF (high byte irrelevant). VHDL zxnext.vhd:2540-2571 +
+    // 2583 — `port_ff_lsb` from `cpu_a(7:0) = X"FF"`. Pre-Pass-17 the
+    // handler used mask 0xFFFF / val 0x00FF — requiring the FULL 16-bit
+    // address to equal exactly 0x00FF. Software using OUT (0x12FF), A would
+    // update Timex screen-mode register on real hardware but not in jnext.
+    // Discriminative test for the V17-NMP-03 fix.
+    {
+        // Write known byte via low-byte-only address, verify it lands.
+        emu.port().out(0x00FF, 0x00);           // baseline screen_mode = 0
+        const uint8_t baseline = emu.renderer().ula().get_screen_mode_reg();
+        emu.port().out(0x12FF, 0x06);           // bits 2:0 = 6 (hi-res)
+        const uint8_t after_high = emu.renderer().ula().get_screen_mode_reg();
+        check("REG-02b",
+              "Timex 0xFF decode covers ANY port LSB == 0xFF (e.g. 0x12FF) "
+              "[VHDL :2540-2571,:2583 port_ff_lsb LSB-only decode]",
+              baseline == 0 && (after_high & 0x07) == 0x06,
+              DETAIL("baseline=%u after=%u", baseline, after_high));
     }
 
     // REG-03 / REG-04: NextReg select 0x243B + data 0x253B round-trip.

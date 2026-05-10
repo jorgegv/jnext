@@ -2457,11 +2457,31 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_read_handler(0xA9, []() -> uint8_t { return 0x00; });
 
     // --- DivMMC automap config (NextREG 0xB8-0xBB) ---
-
+    //
+    // V17-NMP-01 (Pass-17 verify-audit fix): VHDL zxnext.vhd:5087-5090 reset
+    // these registers to 0x83/0x01/0x00/0xCD respectively (the master reset
+    // block at :4928-5100 fires unconditionally on `i_reset`). The DivMmc
+    // subsystem stores the same values in `entry_points_0_`/`entry_valid_0_`/
+    // `entry_timing_0_`/`entry_points_1_` (divmmc.h:342-345 + divmmc.cpp:43-46).
+    // Pre-fix the NR 0xB8-0xBB readback path fell through to `regs_[reg]`
+    // (NextReg::read at :408-414), which `regs_.fill(0)` in NextReg::reset()
+    // had cleared to 0x00 — so a Z80 IN A,(0x253B) at NR 0xB8/0xB9/0xBA/0xBB
+    // returned 0x00/0x00/0x00/0x00 instead of the VHDL-spec 0x83/0x01/0x00/0xCD.
+    // Software that polls these registers (e.g. firmware verifying the
+    // automap entry-point configuration after reset) sees stale defaults.
+    //
+    // Fix: register read_handlers that pull live from the DivMmc subsystem,
+    // mirroring the same accessor pattern used for NR 0x12/NR 0x13 (which
+    // also have authoritative subsystem state — Layer2). Read mux per
+    // VHDL zxnext.vhd:6217-6227 returns each storage byte verbatim.
     nextreg_.set_write_handler(0xB8, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_0(v); return v; });
     nextreg_.set_write_handler(0xB9, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_valid_0(v); return v; });
     nextreg_.set_write_handler(0xBA, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_timing_0(v); return v; });
     nextreg_.set_write_handler(0xBB, [this](uint8_t v) -> uint8_t { divmmc_.set_entry_points_1(v); return v; });
+    nextreg_.set_read_handler(0xB8, [this]() -> uint8_t { return divmmc_.entry_points_0(); });
+    nextreg_.set_read_handler(0xB9, [this]() -> uint8_t { return divmmc_.entry_valid_0(); });
+    nextreg_.set_read_handler(0xBA, [this]() -> uint8_t { return divmmc_.entry_timing_0(); });
+    nextreg_.set_read_handler(0xBB, [this]() -> uint8_t { return divmmc_.entry_points_1(); });
 
     // Register 0x83: Internal port-enable register 2.
     // VHDL zxnext.vhd:1227, 2392, 2412 — bit 0 of NR 0x83 drives
@@ -3125,7 +3145,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                                                 approximated at steady
     //                                                 state).
     // Write: bits 2-0 = border colour; bit 4 = EAR; bit 3 = MIC.
-    port_.register_handler(0x00FF, 0x00FE,
+    //
+    // V17-NMP-02 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2582 decodes
+    // `port_fe <= '1' when cpu_a(0) = '0'` — the ULA matches ANY port with
+    // bit 0 = 0 (the standard Spectrum 48K decode). The TBBlue real hardware
+    // and every real Spectrum follow this rule. Pre-fix the handler mask
+    // was 0x00FF/0x00FE, requiring the LSB to be exactly 0xFE. Software
+    // using the well-known "OUT (0xFC), A" border trick (or any other even
+    // port) would update border/ear/mic on real hardware but not in jnext.
+    // Mask 0x0001/0x0000 = "any port with bit 0 = 0", matching VHDL :2582.
+    // Most-specific-wins dispatch keeps the more-specific 0x00FE handler
+    // (none exist — REG-01 in port_test simply tests several even-LSB
+    // addresses) from being shadowed by this one. The other "even-LSB"
+    // handlers (e.g. NMI/MF dispatch observer) fire via a separate
+    // io_observer path that is independent of this handler.
+    port_.register_handler(0x0001, 0x0000,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
@@ -3167,7 +3201,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                   border_clr_tmx <= "01" & ~port_ff(5:3) & port_ff(5:3)).
     // Read is not implemented on real hardware; omit read handler.
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
-    port_.register_handler(0xFFFF, 0x00FF,
+    //
+    // V17-NMP-03 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2540-2571 +
+    // 2583 decode `port_ff_lsb` from `cpu_a(7:0) = X"FF"` (LSB-only). Pre-fix
+    // the handler used mask 0xFFFF / val 0x00FF — which required the FULL
+    // 16-bit address to equal exactly 0x00FF. Software using OUT (0x12FF), A
+    // would update Timex screen-mode register on real hardware but not in
+    // jnext. Fix: change mask to 0x00FF / val 0x00FF (LSB-only match).
+    port_.register_handler(0x00FF, 0x00FF,
         nullptr,
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x82) & 0x01) == 0) return;
