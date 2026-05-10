@@ -520,7 +520,7 @@ void Mmu::apply_paging_update_() {
 // the requested slot only, so explicit NR $50,$FF / NR $51,$FF writes
 // preserve the other slot's NR-driven mapping. Matches VHDL
 // zxnext.vhd:4686-4696 nr_mmu_we semantics for value 0xFF.
-void Mmu::engage_legacy_rom_paging_slot(int slot) {
+void Mmu::engage_legacy_rom_paging_slot(int slot, bool set_nr_sentinel) {
     if (slot != 0 && slot != 1) return;
     // Verify4-memory class-(a) fix: the VHDL EFF7(3) RAM-at-0x0000
     // override at zxnext.vhd:4636-4644 fires ONLY when
@@ -541,10 +541,21 @@ void Mmu::engage_legacy_rom_paging_slot(int slot) {
     // the slot serving legacy ROM, not RAM.
     const uint8_t sram_rom = current_sram_rom();
     map_rom_physical(slot, static_cast<uint8_t>(sram_rom * 2 + slot));
-    // VHDL zxnext.vhd:4611-4612 — MMU<i> holds the 0xFF sentinel after
-    // an explicit `NR 0x50/0x51 = 0xFF` write (`nr_mmu_we` path stores
-    // nr_wr_dat verbatim). Mirror that into the NR-visible register.
-    nr_mmu_[slot] = 0xFF;
+    // Verify12-memory class-(b) fix: gate the nr_mmu_ sentinel update on
+    // the caller's path. VHDL only writes MMU<i> on three triggers:
+    //   * reset (zxnext.vhd:4610)
+    //   * port_memory_change_dly=1 (zxnext.vhd:4619), set on port
+    //     7FFD/1FFD/DFFD/EFF7 / NR 8E / NR 8F writes
+    //   * nr_mmu_we=1 (zxnext.vhd:4686), set ONLY on NR 0x50..0x57 writes
+    // NR 0x8C and machine-type-change touch NEITHER trigger, so MMU<i>
+    // must keep its current value. The NR $50/$51 dispatcher passes
+    // `set_nr_sentinel=true` to mirror the nr_mmu_we-stores-0xFF path;
+    // the NR 0x8C and set_machine_type refresh callers pass `false` so
+    // a verbatim 0xE0..0xFE value (or the 0x00/0x01 EFF7(3)=1-derived
+    // value) is preserved for the NR-port read-back at :6075-6082.
+    if (set_nr_sentinel) {
+        nr_mmu_[slot] = 0xFF;
+    }
 }
 
 // VHDL zxnext.vhd:2256-2265 stores nr_8c_altrom verbatim. The lock bits
@@ -573,8 +584,20 @@ void Mmu::set_nr_8c(uint8_t v) {
     // NR 0x50/0x51 stay routed to that RAM page — VHDL leaves MMU<i>
     // alone on an NR 0x8C write (zxnext.vhd:4619-4644 fires only on
     // port_memory_change_dly='1', which excludes NR 0x8C).
-    if (read_only_[0]) engage_legacy_rom_paging_slot(0);
-    if (read_only_[1]) engage_legacy_rom_paging_slot(1);
+    //
+    // Verify12-memory class-(b) fix: pass `set_nr_sentinel=false` so the
+    // NR-visible MMU<i> register is preserved across the NR 0x8C
+    // refresh. VHDL nr_mmu_we does NOT fire on NR 0x8C (only on
+    // NR 0x50..0x57), and port_memory_change_dly does NOT fire either
+    // (VHDL :3813), so MMU<i> stays at whatever value the last legitimate
+    // trigger wrote. Pre-fix the helper unconditionally clobbered
+    // nr_mmu_[slot] to 0xFF — wrong whenever a previous NR 0x50/0x51
+    // wrote a verbatim value in 0xE0..0xFE (legal high-page mapping
+    // that resolves to legacy ROM via the SRAM arbiter at :3037-3057
+    // but reads back the verbatim NR-write byte) or the EFF7(3)=1 path
+    // applied the verbatim 0x00/0x01 mapping (:4636-4644).
+    if (read_only_[0]) engage_legacy_rom_paging_slot(0, /*set_nr_sentinel=*/false);
+    if (read_only_[1]) engage_legacy_rom_paging_slot(1, /*set_nr_sentinel=*/false);
 }
 
 void Mmu::map_128k_bank(uint8_t port_7ffd) {

@@ -6260,6 +6260,44 @@ void Emulator::load_state(StateReader& r)
     // load_state. Class-(a) → resolved.
     divmmc_.set_rom3_active(mmu_.sram_rom3());
 
+    // Verify12-memory class-(b) fix: re-push ContentionModel gate inputs
+    // from canonical loaded state. ContentionModel itself is intentionally
+    // NOT serialised — it owns derived-from-NextReg state (cpu_speed
+    // shadow/effective, contention_disable shadow/effective, port_7ffd_io_en
+    // gate, mem_active_page latch). Pre-fix a load_state restored snapshot
+    // would leave these gates at their constructor defaults (cpu_speed=0
+    // / contention_disable=false / port_7ffd_io_en=false) until the next
+    // NR 0x07 / NR 0x08 / NR 0x82 write — diverging from VHDL
+    // zxnext.vhd:5800-5828 where the eff_nr_08_contention_disable and
+    // cpu_speed flip-flops persist across any non-reset edge. Mirrors
+    // the divmmc_.set_rom3_active / spi_.set_flash_cs_enable re-sync
+    // pattern used elsewhere in load_state.
+    //
+    // VHDL line refs:
+    //   NR 0x07 cpu_speed (zxnext.vhd:5786-5828): bits[1:0] feed both
+    //     pending shadow (line 5789) and effective (line 5817 commit on
+    //     bus-idle). Saved in NextReg.regs_[0x07]; re-push both fields.
+    //   NR 0x08 bit 6 nr_08_contention_disable (zxnext.vhd:5176, 5800-5823):
+    //     Mmu's contention_disabled_ mirrors the shadow (immediate write).
+    //     Re-push it as both shadow and effective for the post-load read
+    //     surface (NR 0x08 read at zxnext.vhd:5906) to match VHDL.
+    //   NR 0x82 bit 1 port_7ffd_io_en (zxnext.vhd:2399): Saved in
+    //     NextReg.regs_[0x82]; re-push the bit-1 gate.
+    {
+        // Rebuild ContentionModel's LUT + per-machine bank decode if the
+        // saved machine_type differs from what build() set up (the snapshot
+        // may have been taken after an NR 0x03 commit changed the type).
+        // rebuild_for_type preserves dynamic gate state, so the subsequent
+        // gate re-push isn't clobbered.
+        contention_.rebuild_for_type(mmu_.machine_type());
+
+        const uint8_t cs07 = static_cast<uint8_t>(nextreg_.cached(0x07) & 0x03);
+        contention_.set_cpu_speed(cs07);
+        contention_.set_pending_cpu_speed(cs07);
+        contention_.set_contention_disable(mmu_.contention_disabled());
+        contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
+    }
+
     // Audio subsystems.
     beeper_.load_state(r);
     turbosound_.load_state(r);
