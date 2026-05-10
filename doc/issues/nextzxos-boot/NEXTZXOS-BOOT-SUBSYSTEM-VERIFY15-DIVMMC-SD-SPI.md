@@ -271,7 +271,7 @@ SPI subsystem on the audit angles enumerated above.
   "class_c": 1,
   "class_d": 0,
   "tests_passed": true,
-  "head_sha": "<filled-after-commit>",
+  "head_sha": "d0b2cb26e2bde517b2e1dd3e8ecddbc733e3bba9",
   "report_path": "doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY15-DIVMMC-SD-SPI.md"
 }
 ```
