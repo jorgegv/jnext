@@ -1291,6 +1291,133 @@ static void test_sd_24_cmd24_pre_token_ignored() {
     std::remove(img.c_str());
 }
 
+// ─── New: SD-26 / CMD18 mid-stream past-EOF data error token (V14-DIVMMC-01) ─
+
+static void test_sd_26_cmd18_midstream_past_eof_error_token() {
+    // SD-26 (V14-DIVMMC-01 verify-audit fix): per SD Physical Layer
+    // Simplified Spec § 7.3.3.3 (Data Error Token format), when the card
+    // cannot deliver the requested data block (out-of-range, ECC failure,
+    // CC error, generic error), it sends a 1-byte error token in place of
+    // the 0xFE start-of-block token. Bit layout 0bxxx0_xxxE_CCO_R; the
+    // OUT_OF_RANGE-only token is 0x08.
+    //
+    // Pre-fix CMD18 mid-stream past-EOF silently aborted by emitting 0xFF
+    // and transitioning to IDLE — diverging from spec-compliant SD cards
+    // that emit 0x08 as a discriminative error token. Symmetric with the
+    // V12-DIVMMC-04 + V13-DIVMMC-01 CMD17 / CMD18-initial-block past-EOF
+    // fixes which already emit 0x08 in the start-of-stream case.
+    //
+    // Discriminative shape: 4-sector image; CMD18 starts at sector 3
+    // (last valid sector). Stream block 3 OK; the AT-END inter-block
+    // boundary is where the past-EOF check fires (sector 4 would be past
+    // EOF). Pre-fix: byte after CRC is 0xFF (== generic line-idle).
+    // Post-fix: byte after CRC is 0x08 (data error token, OUT_OF_RANGE).
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    uint8_t r1 = send_cmd_r1(sd, 18, 3);  // start at LAST valid sector
+    bool tok3 = wait_token(sd);
+    uint8_t b3[512] = {};
+    if (tok3) read_block(sd, b3);
+
+    // After block 3's CRC, the next byte the card emits is the inter-block
+    // filler in the SUCCESS path (next sector loaded, 0xFF returned, then
+    // 0xFE in resp_buf_ for the next read). In the past-EOF path (sector
+    // 4 > 3 last valid), the post-fix card returns 0x08 instead.
+    //
+    // Sample up to 16 post-CRC bytes; the FIRST non-0xFF byte is what the
+    // card has chosen to signal — must be 0x08 (post-fix), not 0xFE
+    // (would mean another block was being prepared) and not just 0xFF
+    // forever (pre-fix silent abort).
+    uint8_t signal_byte = 0xFF;
+    bool saw_data_token = false;
+    for (int i = 0; i < 16; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0xFE) { saw_data_token = true; break; }
+        if (b != 0xFF) { signal_byte = b; break; }
+    }
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1 == 0x00
+           && tok3 && b3[0] == 0x03    // sector 3 streamed correctly
+           && !saw_data_token          // no spurious 0xFE for sector 4
+           && signal_byte == 0x08;     // V14-DIVMMC-01 fix: error token
+
+    check("SD-26",
+          "CMD18 mid-stream past-EOF emits data error token 0x08 per "
+          "SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix "
+          "silently aborted with 0xFF.",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " tok3=" + (tok3 ? "1" : "0") +
+          " b3_0=" + std::to_string(b3[0]) +
+          " saw_data_token=" + (saw_data_token ? "1" : "0") +
+          " signal=" + std::to_string(signal_byte));
+
+    std::remove(img.c_str());
+}
+
+// ─── New: SD-27 / CMD8 R7 R1-byte reflects initialized_ (V14-DIVMMC-02) ─
+
+static void test_sd_27_cmd8_r7_r1_post_init() {
+    // SD-27 (V14-DIVMMC-02 verify-audit fix): per SD Physical Layer
+    // Simplified Spec § 7.3.2.6, the R7 4-byte register is preceded by
+    // an R1-format byte. R1 reflects the live card state (bit 0 = "in
+    // idle state"). Pre-fix hard-coded R1=0x01 in CMD8 regardless of
+    // `initialized_`, so a CMD8 issued AFTER successful ACMD41 init
+    // would still report idle — diverging from spec-compliant cards.
+    //
+    // Discriminative shape: full init via CMD0 → CMD8 → CMD55 + ACMD41
+    // → CMD58 (this proves `initialized_=true` by virtue of subsequent
+    // CMD17 returning R1=0x00). Then re-issue CMD8 and read its R1
+    // byte. Pre-fix: R1 = 0x01 (idle, wrong). Post-fix: R1 = 0x00
+    // (ready, spec-compliant).
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);  // CMD0, CMD8, CMD55+ACMD41, CMD58
+
+    // Confirm init done: CMD17 R1 should be 0x00 (ready).
+    uint8_t r1_pre = send_cmd_r1(sd, 17, 0);
+    // Drain block 0 data so state machine cleans up.
+    (void)wait_token(sd);
+    uint8_t scratch[512];
+    read_block(sd, scratch);
+    sd.deselect();
+
+    // Now re-issue CMD8 in initialized state.
+    uint8_t r1_post_init = send_cmd_r1(sd, 8, 0x000001AA);
+    // Drain the 4 R7 bytes after R1.
+    (void)spi_read(sd);
+    (void)spi_read(sd);
+    (void)spi_read(sd);
+    uint8_t r7_check = spi_read(sd);
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1_pre == 0x00            // init done sanity
+           && r1_post_init == 0x00      // V14-DIVMMC-02 fix: post-init R1=0
+           && r7_check == 0xAA;         // check pattern still echoes
+
+    check("SD-27",
+          "CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys "
+          "Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns "
+          "R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle).",
+          ok,
+          "r1_pre=" + std::to_string(r1_pre) +
+          " r1_post_init=" + std::to_string(r1_post_init) +
+          " r7_check=" + std::to_string(r7_check));
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1378,6 +1505,8 @@ int main() {
     test_sd_23_cmd17_past_eof_r1_paramerror();  // V12-DIVMMC-04 (pass-12 reviewer-promoted)
     test_sd_24_cmd24_pre_token_ignored();        // V12-DIVMMC-06 (pass-12 reviewer-promoted)
     test_sd_25_cmd24_past_eof_no_data_phase();   // V13-DIVMMC-01 (pass-13 verify-audit)
+    test_sd_26_cmd18_midstream_past_eof_error_token();  // V14-DIVMMC-01 (pass-14 verify-audit)
+    test_sd_27_cmd8_r7_r1_post_init();           // V14-DIVMMC-02 (pass-14 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //

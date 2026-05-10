@@ -322,14 +322,40 @@ uint8_t SdCardDevice::send() {
                 uint64_t byte_addr =
                     static_cast<uint64_t>(multi_block_sector_) * 512;
                 if (byte_addr + 512 > file_size_) {
-                    // Past end of image — abort the stream cleanly.
+                    // V14-DIVMMC-01 (Pass-14 verify-audit fix, 2026-05-10):
+                    // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
+                    // Error Token format): when the card cannot deliver
+                    // the requested data block (out-of-range, ECC failure,
+                    // CC error, generic error), it sends a 1-byte error
+                    // token in place of the 0xFE start-of-block token.
+                    // Bit layout: 0bxxx0_xxxE_CCO_R where O = OUT_OF_RANGE,
+                    // C = CC error, E = ERROR, R = card_ECC_failed. The
+                    // OUT_OF_RANGE-only token is 0x08.
+                    //
+                    // Pre-fix CMD18 mid-stream past-EOF silently aborted
+                    // by emitting 0xFF and transitioning to IDLE. The
+                    // host's "skip until non-0xFF then expect 0xFE"
+                    // token-poll loop (e.g. rcvr_datablock in TBBlue
+                    // diskio.c:156-164) would never see either 0xFE or
+                    // 0x08 and time out — diverging from spec-compliant
+                    // SD cards that emit 0x08 as a discriminative error
+                    // token. Symmetric with the V12-DIVMMC-04 + V13-
+                    // DIVMMC-01 CMD17/CMD18-initial-block past-EOF fix
+                    // which already emits 0x08 in the start-of-stream
+                    // case (cmd17_read_single_block, cmd18_read_multiple
+                    // _block). Class-(c) latent for the boot path
+                    // (TBBlue + FatFs never read past EOF mid-stream),
+                    // but real-spec divergence — the pre-fix path
+                    // produced an indistinguishable timeout instead of
+                    // the documented error signal.
                     sd_log()->warn(
                         "CMD18 read past end of image at sector={}; "
-                        "ending multi-block stream", multi_block_sector_);
+                        "emitting data error token 0x08 and ending stream",
+                        multi_block_sector_);
                     multi_block_        = false;
                     multi_block_sector_ = 0;
                     state_              = State::IDLE;
-                    return 0xFF;
+                    return 0x08;  // data error token: out of range
                 }
                 file_.seekg(static_cast<std::streamoff>(byte_addr),
                             std::ios::beg);
@@ -477,7 +503,19 @@ void SdCardDevice::cmd8_send_if_cond() {
     // pattern echo (byte 3). Reviewer-promoted from audit catalogue to a
     // direct fix because the change is a single byte and trivially
     // spec-faithful.
-    resp_buf_ = { 0xFF, 0x01, 0x10, 0x00, 0x01, check };  // NCR + R1 + R7 (cmd ver=1)
+    //
+    // V14-DIVMMC-02 (Pass-14 verify-audit fix, 2026-05-10): SD Physical
+    // Layer Simplified Spec § 7.3.2.6 explicitly states R7 byte 0 has
+    // the same format as R1 (Table 7-9). Pre-fix hard-coded R1 = 0x01
+    // (in idle state) regardless of `initialized_`, so a CMD8 issued
+    // AFTER successful ACMD41 init would still report idle — diverging
+    // from spec-compliant cards that reflect the live state in R1.
+    // Practical impact on the boot path is nil (TBBlue/NextZXOS / FatFs
+    // only issue CMD8 once during init, before ACMD41), but a strict
+    // host that re-probes CMD8 after init would see misleading idle
+    // status. Class-(c) latent → corrected for spec faithfulness.
+    const uint8_t r1 = initialized_ ? 0x00 : 0x01;
+    resp_buf_ = { 0xFF, r1, 0x10, 0x00, 0x01, check };  // NCR + R1 + R7 (cmd ver=1)
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
