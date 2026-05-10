@@ -5374,6 +5374,66 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
     emu.reset();
 }
 
+// ── V19R-NMP-NIT-03/04 — XADC composed-read stubs ────────────────────
+//
+// Pass-19 reviewer NITs 03 and 04 documented Class-(c) inert divergences
+// in NR 0xF0 / NR 0xF8 (XADC composed reads). The fix installed minimal
+// VHDL-faithful stubs in emulator.cpp:
+//   • NR 0xF0 read = 0x00 always (g_board_issue=0 path,
+//     zxnext.vhd:7423: nr_f0_xdev_cmd <= (others => '0')).
+//   • NR 0xF8 read masks bit 7 (zxnext.vhd:6278: '0' & nr_f8_xadc_daddr).
+//
+// Discriminative: write a non-zero byte (with bit 7 set for 0xF8) and
+// verify the read returns the VHDL-faithful value, not the raw cache.
+
+static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
+    set_group("V19R-NMP-XADC-Read-Stubs");
+
+    // V19R-NMP-NIT-03 — NR 0xF0 XADC stub returns 0x00 regardless of write.
+    //
+    // VHDL zxnext.vhd:6273-6274: when X"F0" => port_253b_dat <= nr_f0_xdev_cmd;
+    // For Issue 2/3 (g_board_issue<=1, zxnext.vhd:7423), `nr_f0_xdev_cmd`
+    // is hard-wired to (others=>'0'). jnext seeds NR 0x0F = 0x00 (Issue 2),
+    // so the VHDL-faithful readback is 0x00 always.
+    //
+    // Pre-V19R the bare cache returned the raw last-written byte.
+    // Discriminative: write 0xAA, then read; raw cache would return 0xAA,
+    // stub returns 0x00.
+    {
+        emu.reset();
+        nr_write(emu, 0xF0, 0xAA);
+        const uint8_t got = nr_read(emu, 0xF0);
+        check("V19R-NMP-NIT-03",
+              "NR 0xF0 XADC composed-read stub returns 0x00 even after "
+              "0xAA write (Issue 2 path: nr_f0_xdev_cmd hard-wired to 0) "
+              "[zxnext.vhd:6273-6274, :7423]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+
+    // V19R-NMP-NIT-04 — NR 0xF8 read masks bit 7.
+    //
+    // VHDL zxnext.vhd:6277-6278: when X"F8" => port_253b_dat <= '0' & nr_f8_xadc_daddr;
+    // Bit 7 is always '0' on read, irrespective of board issue. The write
+    // path at :7553-7558 (Issue 4/5) splits bit 7 to nr_f8_xadc_dwe and
+    // bits 6:0 to nr_f8_xadc_daddr — bit 7 never makes it back through
+    // the read mux. For Issue 2/3 (:7425) nr_f8_xadc_daddr is constant 0,
+    // so the strict Issue-2 read would be 0x00; the conservative stub
+    // `cached & 0x7F` accommodates both paths.
+    //
+    // Pre-V19R the bare cache stored the full byte verbatim, leaking bit 7
+    // on readback. Discriminative: write 0xC5 (bit 7 = 1, bits 6:0 = 0x45)
+    // and verify the read returns 0x45 (bit 7 cleared), not 0xC5.
+    {
+        emu.reset();
+        nr_write(emu, 0xF8, 0xC5);
+        const uint8_t got = nr_read(emu, 0xF8);
+        check("V19R-NMP-NIT-04",
+              "NR 0xF8 read masks bit 7: write 0xC5 reads back 0x45 "
+              "(VHDL '0' & nr_f8_xadc_daddr) [zxnext.vhd:6277-6278, :7555]",
+              got == 0x45, detail_eq(got, uint8_t{0x45}));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5482,6 +5542,9 @@ int main() {
 
     test_v16_nmp_02_expbus_and_mask(emu);
     std::printf("  Group: V16-NMP-02-Expbus-AND-Mask — done\n");
+
+    test_v19r_nmp_xadc_read_stubs(emu);
+    std::printf("  Group: V19R-NMP-XADC-Read-Stubs — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
