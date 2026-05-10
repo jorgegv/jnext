@@ -311,6 +311,33 @@ static void test_reset_defaults(Emulator& emu) {
               "[zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults]",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
+
+    // RST-13 / V17-NMP-01 — NR 0xB8/0xB9/0xBA/0xBB DivMMC automap entry-point
+    // configuration registers. VHDL zxnext.vhd:5087-5090 reset these to
+    // 0x83/0x01/0x00/0xCD respectively (master reset block; unconditional
+    // on `i_reset`). Read mux at zxnext.vhd:6217-6227 returns each storage
+    // byte verbatim. Pre-Pass-17, jnext only registered write_handlers
+    // (emulator.cpp:2461-2464) — readback fell through to `regs_[reg]`
+    // (zeroed by `regs_.fill(0)` in NextReg::reset) and returned 0x00 for
+    // all four. Discriminative test for the V17-NMP-01 fix.
+    {
+        const uint8_t expected[4] = {0x83, 0x01, 0x00, 0xCD};
+        bool all_ok = true;
+        std::string worst;
+        for (int i = 0; i < 4; ++i) {
+            uint8_t reg = static_cast<uint8_t>(0xB8 + i);
+            uint8_t got = nr_read(emu, reg);
+            if (got != expected[i]) {
+                all_ok = false;
+                worst = "NR " + hex2(reg) + " " +
+                        detail_eq(got, expected[i]);
+            }
+        }
+        check("RST-13",
+              "NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset "
+              "= 0x83/0x01/0x00/0xCD [zxnext.vhd:5087-5090]",
+              all_ok, worst);
+    }
 }
 
 // ── DMA IM2 delay integration (DMA plan rows 20.3, 20.4) ──────────────
