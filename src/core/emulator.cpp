@@ -5443,9 +5443,17 @@ void Emulator::run_frame()
         scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
             [this]() {
                 im2_.raise_req(Im2Controller::DevIdx::ULA);
-                if (!im2_.is_im2_mode()) {
-                    cpu_.request_interrupt(0xFF);
-                }
+                // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+                // by the post-im2_.tick() falling-edge poll at line ~5791.
+                // The legacy `cpu_.request_interrupt(0xFF)` here was a
+                // redundant second stamp for the same logical pulse and
+                // a latent double-INT trap if the ISR did `EI` within
+                // the 32/36-cycle re-stamp window. The V20 poll captures
+                // the same edge VHDL-faithfully one tick later (via
+                // im2_peripheral.vhd:186-194 `o_pulse_en` → pulse_int_n
+                // FSM → poll at zxnext.vhd:1840 z80_int_n composition).
+                // Symmetric with the LINE-INT scheduler in
+                // `reschedule_line_interrupt()` (also dropped).
                 im2_int_status_[0] |= 0x01;  // ULA interrupt status
             });
     }
@@ -5762,12 +5770,19 @@ void Emulator::run_frame()
             // window self-expires via Im2Controller::step_pulse()'s
             // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
             //
-            // Symmetric with the IM2-mode poll above. The existing
-            // ULA/LINE scheduler `cpu_.request_interrupt(0xFF)` calls
-            // remain — they're now redundant for one-tick assertion
-            // but harmless (idempotent: request_interrupt re-stamps
-            // int_requested_at_ to the current tstates, which the
-            // pulse poll would do anyway).
+            // Symmetric with the IM2-mode poll above. After
+            // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
+            // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
+            // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
+            // (`reschedule_line_interrupt()` at line ~6716) have been
+            // removed; this poll is now the SOLE driver of pulse-mode
+            // /INT — symmetric with the V19 IM2-mode poll above. That
+            // eliminates the latent double-INT trap where the legacy
+            // callback stamped `int_requested_at_=T0` at end of instr
+            // N, and this poll re-stamped `=T1` at end of instr N+1
+            // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
+            // within the re-stamped window could accept a second INT
+            // that real hardware would not.
             //
             // The vector 0xFF is the standard pulse-mode bus-floating
             // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
@@ -6719,9 +6734,11 @@ void Emulator::reschedule_line_interrupt()
         [this, my_gen]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
             im2_.raise_req(Im2Controller::DevIdx::LINE);
-            if (!im2_.is_im2_mode()) {
-                cpu_.request_interrupt(0xFF);
-            }
+            // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
+            // by the post-im2_.tick() falling-edge poll at line ~5791.
+            // Symmetric with the FRAME-INT scheduler at line ~5443
+            // (also dropped). See the V20R-CPU-NIT-02 comment there
+            // for the full rationale.
             im2_int_status_[0] |= 0x02;  // Line interrupt status
             ++line_int_fire_count_;       // G163 test-observable
         });

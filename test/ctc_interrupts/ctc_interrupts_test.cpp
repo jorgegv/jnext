@@ -650,6 +650,73 @@ static void test_ula_int_integration(Emulator& emu) {
         }
     }
 
+    // V20R-CPU-NIT-02-NO-DOUBLE-STAMP — exactly ONE
+    // `cpu_.request_interrupt(0xFF)` per ULA frame-INT pulse.
+    //
+    // Reviewer's class-(c) finding: the legacy scheduler-callback
+    // `cpu_.request_interrupt(0xFF)` (at the FRAME-INT scheduler
+    // emulator.cpp:5443+ and the LINE-INT scheduler
+    // `reschedule_line_interrupt()` ~:6716) AND the V20 falling-edge
+    // poll (~:5791) BOTH stamped the same pulse → `int_requested_at_`
+    // was re-stamped at a LATER tstate than the original callback fire.
+    // Harmless for boot-realistic ISRs (32/36-cycle window expires
+    // before any EI), but a latent double-INT trap if an ISR did fast
+    // EI within the re-stamped window. Filed as V20R-CPU-NIT-02.
+    //
+    // Option A fix (reviewer recommended): drop the legacy
+    // scheduler-callback `cpu_.request_interrupt(0xFF)` and let the
+    // V20 falling-edge poll be the sole driver of pulse-mode /INT —
+    // VHDL-faithful and symmetric with the V19 IM2-mode poll.
+    //
+    // Discriminative test: fresh emulator + pulse mode (NR 0xC0 b0=0
+    // default) + ULA INT enabled (port_ff_reg(6)=0 default) + IFF1=1 +
+    // IM=1 + PC parked in RAM. Reset request_interrupt counter.
+    // Run one frame. The FRAME-INT scheduler fires once → raise_req(ULA)
+    // → next instruction's im2_.tick step_pulse drops pulse_int_n=false
+    // → V20 poll fires falling-edge → exactly ONE
+    // request_interrupt(0xFF). The pulse window expires at +32/+36T
+    // and prev_pulse_int_n_ tracks back to true; no re-fire until next
+    // frame. So `request_interrupt_count()` MUST be exactly 1.
+    //
+    // Post-fix: count == 1.
+    // Pre-fix Option A (callback re-added): count == 2 (callback + poll).
+    {
+        fresh(emu);
+        // Configure CPU: IFF1=1, IM=1, PC in NOP RAM.
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Disable LINE INT so only the ULA FRAME-INT fires (otherwise
+        // both raise + their respective poll would each contribute,
+        // muddying the count). Default NR 0x22 has line_interrupt_en=0,
+        // so this is implicit — we explicitly write 0x00 for clarity.
+        nr_write(emu, 0x22, 0x00);
+        // Reset the request_interrupt counter AFTER setting up the
+        // emulator (init may have called request_interrupt during
+        // boot-state setup; we only care about the frame we're about
+        // to run).
+        emu.cpu().reset_request_interrupt_count();
+        emu.run_frame();
+        const uint32_t cnt = emu.cpu().request_interrupt_count();
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "request_interrupt_count after 1 frame "
+                      "(pulse mode + ULA INT enabled) = %u "
+                      "(post-fix: 1 — V20 poll is sole driver; "
+                      "pre-fix: 2 — legacy callback + V20 poll BOTH "
+                      "stamp the same pulse)",
+                      cnt);
+        check("V20R-CPU-NIT-02-NO-DOUBLE-STAMP",
+              "Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse "
+              "[reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback "
+              "+ V20 falling-edge poll both stamped → latent fast-EI double-INT]",
+              cnt == 1, detail);
+    }
+
     // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the
     // CPU /INT pin in IM2 mode.
     //

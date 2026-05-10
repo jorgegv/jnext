@@ -131,6 +131,15 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// V20R-CPU-NIT-02 — Test observable: count of `request_interrupt()`
+    /// invocations since the last `reset_request_interrupt_count()`. Used
+    /// by the V20R-CPU-NIT-02-NO-DOUBLE-STAMP regression to assert that a
+    /// single ULA/LINE pulse produces exactly ONE CPU /INT stamp post-fix
+    /// (pre-fix the legacy scheduler callback and the V20 falling-edge
+    /// poll BOTH stamped the same pulse → 2 calls).
+    uint32_t request_interrupt_count() const { return request_interrupt_count_; }
+    void reset_request_interrupt_count() { request_interrupt_count_ = 0; }
+
 private:
     MemoryInterface& mem_;
     IoInterface&     io_;
@@ -139,6 +148,10 @@ private:
     bool             int_pending_ = false;
     uint8_t          int_vector_  = 0xFF;
     uint32_t         int_requested_at_ = 0;  // FUSE tstates when /INT was asserted
+    /// V20R-CPU-NIT-02 — Test-observable monotonic counter of
+    /// `request_interrupt()` invocations. Reset via the public
+    /// `reset_request_interrupt_count()`. Not persisted in save/load.
+    uint32_t         request_interrupt_count_ = 0;
     // Default true → 32-cycle /INT pulse window. Matches VHDL machine_timing_48 /
     // machine_timing_p3 branch (zxnext.vhd:2033). Emulator overrides this to
     // false for 128K / Pentagon / Next-default (36-cycle window). Default-true
