@@ -1526,6 +1526,75 @@ static void test_sd_28_cmd24_ro_image_write_error() {
     std::remove(img.c_str());
 }
 
+// ─── New: SD-29 / ACMD41 HCS bit reflected in CMD58 OCR CCS (V17-DIVMMC-01) ─
+//
+// V17-DIVMMC-01 (Pass-17 verify-audit, 2026-05-10): SD Phys Layer Simplified
+// Spec § 4.2.3 / § 5.1: ACMD41's argument bit 30 is the Host Capacity Support
+// (HCS) flag. When HCS=0 the host requests SDSC-only mode; the card MUST
+// respond with CCS=0 (bit 30 of OCR byte 0) in the subsequent CMD58 R3
+// response. Pre-fix the emulator IGNORED the HCS bit and unconditionally
+// reported CCS=1 — diverging from spec for any host that requests SDSC
+// compatibility mode (e.g. legacy MMC/SDSC-only firmware, strict spec
+// validators). TBBlue / NextZXOS / FatFs always set HCS=1 so the
+// divergence is class-(c) latent on the boot path.
+//
+// Discriminative shape:
+//   1. Init via CMD0 → CMD8 → CMD55 → ACMD41 with HCS=0 (arg=0x00100000).
+//   2. CMD58 — read R1 + 4 OCR bytes. Pre-fix: ocr0=0xC0 (bit 30 set,
+//      lying about SDHC). Post-fix: ocr0=0x80 (bit 30 clear, SDSC
+//      reported).
+//   3. Re-init: CMD0 → CMD8 → CMD55 → ACMD41 with HCS=1 (arg=0x40000000).
+//   4. CMD58 — read R1 + 4 OCR bytes. Both pre and post-fix: ocr0=0xC0
+//      (bit 30 set). This second leg is the symmetric "happy path"
+//      guard, ensuring the fix doesn't accidentally regress HCS=1.
+static void test_sd_29_acmd41_hcs_reflected_in_ocr() {
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+
+    // Leg 1: HCS=0 → expect CCS=0 in OCR byte 0.
+    sd.reset();
+    (void)send_cmd_r1(sd, 0, 0);          // CMD0 GO_IDLE
+    (void)send_cmd_r1(sd, 8, 0x1AA);      // CMD8 SEND_IF_COND
+    (void)send_cmd_r1(sd, 55, 0);         // CMD55 APP_CMD
+    (void)send_cmd_r1(sd, 41, 0x00100000); // ACMD41 with HCS=0 (bit 30 clear)
+    uint8_t r1_hcs0  = send_cmd_r1(sd, 58, 0);
+    uint8_t ocr0_hcs0 = spi_read(sd);
+    (void)spi_read(sd); (void)spi_read(sd); (void)spi_read(sd);  // drain rest of OCR
+    sd.deselect();
+
+    // Leg 2: HCS=1 → expect CCS=1 in OCR byte 0.
+    sd.reset();
+    (void)send_cmd_r1(sd, 0, 0);
+    (void)send_cmd_r1(sd, 8, 0x1AA);
+    (void)send_cmd_r1(sd, 55, 0);
+    (void)send_cmd_r1(sd, 41, 0x40000000); // ACMD41 with HCS=1 (bit 30 set)
+    uint8_t r1_hcs1  = send_cmd_r1(sd, 58, 0);
+    uint8_t ocr0_hcs1 = spi_read(sd);
+    (void)spi_read(sd); (void)spi_read(sd); (void)spi_read(sd);
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1_hcs0 == 0x00                 // init succeeded
+           && (ocr0_hcs0 & 0xC0) == 0x80      // HCS=0 → bit 31 set, bit 30 clear
+           && r1_hcs1 == 0x00                 // init succeeded again
+           && (ocr0_hcs1 & 0xC0) == 0xC0;     // HCS=1 → both bits set
+
+    check("SD-29",
+          "ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit "
+          "(byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 "
+          "→ CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix "
+          "unconditionally reported CCS=1.",
+          ok,
+          "r1_hcs0=" + std::to_string(r1_hcs0) +
+          " ocr0_hcs0=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%02X",ocr0_hcs0); return std::string(b); }() +
+          " r1_hcs1=" + std::to_string(r1_hcs1) +
+          " ocr0_hcs1=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%02X",ocr0_hcs1); return std::string(b); }());
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1616,6 +1685,7 @@ int main() {
     test_sd_26_cmd18_midstream_past_eof_error_token();  // V14-DIVMMC-01 (pass-14 verify-audit)
     test_sd_27_cmd8_r7_r1_post_init();           // V14-DIVMMC-02 (pass-14 verify-audit)
     test_sd_28_cmd24_ro_image_write_error();     // V15-DIVMMC-01 (pass-15 verify-audit)
+    test_sd_29_acmd41_hcs_reflected_in_ocr();    // V17-DIVMMC-01 (pass-17 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
