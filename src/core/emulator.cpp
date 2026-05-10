@@ -2474,9 +2474,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // `port_ff3b_ulap_en` rather than from a stored copy. Port 0xFF3B writes
     // mutate ulap_en_ without touching regs_[0x68], so the cached snapshot
     // diverges. Compose bit 3 from the live state at read time.
+    //
+    // V20-NMP-02 (Pass-20 verify-audit fix): VHDL zxnext.vhd:6093 read mux
+    // composes NR 0x68 as
+    //   (not nr_68_ula_en) & nr_68_blend_mode & nr_68_cancel_extended_keys
+    //                      & port_ff3b_ulap_en & nr_68_ula_fine_scroll_x
+    //                      & '0' & nr_68_ula_stencil_mode
+    // — bit 1 is a LITERAL '0', irrespective of writes. The NR 0x68 write
+    // decoder at :5444-5450 has NO `nr_68_*(1)` storage (the entire bit-1
+    // field is absent from the write case). Pre-fix the C++ stored the
+    // raw written byte in `regs_[0x68]` and the read mask `cached & 0xF7`
+    // preserved bit 1 verbatim, leaking the last-written bit-1 value on
+    // readback. Add bit 1 to the read mask: `cached & 0xF5` (= 1111 0101)
+    // clears bit 1 AND bit 3 (bit 3 is recomposed from live ulap_en
+    // immediately below). Class-(c) inert divergence.
     nextreg_.set_read_handler(0x68, [this]() -> uint8_t {
         uint8_t v = nextreg_.cached(0x68);
-        v = (v & 0xF7) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
+        v = (v & 0xF5) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
         return v;
     });
 

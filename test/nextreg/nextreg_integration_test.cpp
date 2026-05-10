@@ -5468,6 +5468,29 @@ static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
               "[zxnext.vhd:6283-6284, :7429]",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
+
+    // V20-NMP-02 — NR 0x68 read mask: bit 1 must read back as '0'.
+    //
+    // VHDL zxnext.vhd:6092-6093 read mux composes NR 0x68 as
+    //   (not nr_68_ula_en) & nr_68_blend_mode & nr_68_cancel_extended_keys
+    //                      & port_ff3b_ulap_en & nr_68_ula_fine_scroll_x
+    //                      & '0' & nr_68_ula_stencil_mode
+    // — bit 1 is a literal '0'. The write decoder at zxnext.vhd:5444-5450
+    // has NO bit-1 storage signal: the field is silently dropped on every
+    // write. Discriminative: write 0xFF (all bits set), then read; bit 1
+    // must be 0. Pre-fix the cache stored bit 1 verbatim and the read
+    // mask `& 0xF7` preserved it, leaking bit 1 on readback.
+    {
+        emu.reset();
+        nr_write(emu, 0x68, 0xFF);
+        const uint8_t got = nr_read(emu, 0x68);
+        check("V20-NMP-02",
+              "NR 0x68 read bit 1 reads back as '0' regardless of writes "
+              "(VHDL :6093 literal '0' bit; :5444-5450 has no bit-1 store) "
+              "[zxnext.vhd:6092-6093, :5444-5450]",
+              (got & 0x02) == 0,
+              detail_eq(static_cast<uint8_t>(got & 0x02), uint8_t{0x00}));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
