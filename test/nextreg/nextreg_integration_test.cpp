@@ -3781,6 +3781,29 @@ static void test_write_only_read_zero(Emulator& emu) {
               "[zxnext.vhd:5878-6289 others=>'0', :6306-6307 nr_2b_we]",
               got == 0x00, d);
     }
+
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is dead in VHDL. Write strobe at zxnext.vhd:4850 is
+    // commented out (`-- when X"2A" => nr_2a_we <= '1';`), the write-side
+    // process at :6312-6319 is commented out, and there is NO read-mux
+    // entry in the case statement at :5878-6289. Reads must fall through
+    // to `when others => (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix C++ NR 0x2A had no write_handler and no read_handler, so
+    // a write went raw to regs_[0x2A] and a subsequent read echoed it.
+    // Reviewer-promoted: this is functionally identical in shape to
+    // NR 0x2B (V14-NMP-03), so the canonical fix is also identical —
+    // install a write_handler that returns 0.
+    {
+        nr_write(emu, 0x2A, 0xCC);
+        const uint8_t got = nr_read(emu, 0x2A);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xCC got=0x%02X want=0x00", got);
+        check("WO-INT-2A",
+              "NR 0x2A dead-register — read returns 0 (no leak of cached "
+              "write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
 }
 
 // ── NR 0x28 ↔ nr_stored_palette_value read-mux (V14-NMP-02) ───────────

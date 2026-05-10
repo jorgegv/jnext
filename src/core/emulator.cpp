@@ -1291,6 +1291,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         membrane_stick_.write_nr_2b(v);
         return 0;
     });
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is a fully dead register in VHDL — the write strobe is
+    // commented out at zxnext.vhd:4850 (`-- when X"2A" => nr_2a_we ...`),
+    // the write-side process at :6312-6319 is also commented out, and
+    // there is NO read-mux entry in the case statement at :5878-6289.
+    // Therefore real hardware:
+    //   * Writes to NR 0x2A: ignored, no flip-flop state changes.
+    //   * Reads of NR 0x2A: return 0x00 via the `when others =>
+    //     (others => '0')` fall-through at :6286-6287.
+    // Pre-fix the C++ NR 0x2A had NO write_handler and NO read_handler:
+    // a write went raw to `regs_[0x2A]` (NextReg::write at nextreg.cpp:454)
+    // and a read returned that cached byte (NextReg::read :411). Same
+    // cache-leak shape as V14-NMP-03 (NR 0x2B), so the same canonicalisation
+    // pattern applies — install a write_handler that drops the byte and
+    // canonicalises the cache to 0. No subsystem dispatch, since real
+    // hardware does nothing with the byte either.
+    nextreg_.set_write_handler(0x2A, [](uint8_t /*v*/) -> uint8_t {
+        return 0;
+    });
 
     // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.
     // VHDL zxnext.vhd:6206-6215 read compositions. Phase 1 scaffold: the
