@@ -188,9 +188,20 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::BSLA_DE_B: {
+            // V17-Z80N-01: shift count is B[4:0] = 0..31. VHDL t80n.vhd:987-993
+            // uses `shift_left(unsigned(16-bit), shift)` on a 16-bit value;
+            // for shift >= 16 the result is 0 (numeric_std-defined). Pre-fix
+            // jnext used `(uint16_t)x << shift` which promotes to int (signed)
+            // — this is C++ undefined behaviour for shift >= 16 (signed overflow
+            // on platforms where int is 32-bit; technically also UB if the
+            // shift count >= width_of_promoted_type). On x86 GCC this happens
+            // to give the right truncated answer after `& 0xFFFF`, but it's
+            // strictly UB and other compilers/optimisations could break it.
+            // Use 32-bit unsigned arithmetic, no shift past width.
             auto regs = cpu.get_registers();
             uint8_t shift = (regs.BC >> 8) & 0x1F;
-            regs.DE = (regs.DE << shift) & 0xFFFF;
+            uint32_t v = static_cast<uint32_t>(regs.DE) << shift;
+            regs.DE = static_cast<uint16_t>(v & 0xFFFF);
             cpu.set_registers(regs);
             return 8;   // M1+M1
         }
@@ -213,13 +224,28 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::BSRF_DE_B: {
-            // VHDL: 17-bit signed right shift, bit 16 = IR[0] = 1 (fills with 1s)
+            // V17-Z80N-01: VHDL t80n.vhd:1006-1014 — 17-bit signed right shift,
+            // bit 16 = IR[0] = 1 (fills with 1s). For shift >= 16 the result
+            // is all 1s (= 0xFFFF). Pre-fix jnext used a 32-bit construction
+            // that's strictly UB (signed left shift of a value with high bit
+            // potentially set) but happened to produce correct results on x86.
+            // We rewrite using explicit branching for clarity + portability.
             auto regs = cpu.get_registers();
             uint8_t shift = (regs.BC >> 8) & 0x1F;
-            int32_t val = (1 << 16) | regs.DE;  // bit 16 = 1
-            val = static_cast<int32_t>(val << 15) >> 15;  // sign-extend bit 16
-            val >>= shift;
-            regs.DE = static_cast<uint16_t>(val & 0xFFFF);
+            uint16_t result;
+            if (shift == 0) {
+                result = regs.DE;
+            } else if (shift >= 16) {
+                result = 0xFFFF;
+            } else {
+                // Build 17-bit value: bit 16 = 1, bits 15:0 = DE.
+                // Shift right, then take bits 15:0 — equivalent to ORing
+                // a mask of 1-bits into the high `shift` bits.
+                const uint16_t mask_hi = static_cast<uint16_t>(
+                    (0xFFFFu << (16 - shift)) & 0xFFFFu);
+                result = static_cast<uint16_t>((regs.DE >> shift) | mask_hi);
+            }
+            regs.DE = result;
             cpu.set_registers(regs);
             return 8;
         }
