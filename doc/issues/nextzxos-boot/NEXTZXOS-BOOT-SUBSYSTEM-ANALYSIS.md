@@ -20,7 +20,8 @@
 | 9 | 4 fresh blind — strictest (resolve class-c) | 10 + 11 class-c resolved | All 4 subsystems at zero class-a/b/c. 4 class-(d) architectural items escalated |
 | 10 | 4 fresh blind — convergence test | **5 + 1 class-c fixed; 5 class-c catalogued** | NOT converged; 1 more class-(d) (CPU IM2 controller bridge) |
 | 11 | 4 fresh blind — combined fix+test+commit mandate; reviewer + fix-of-reviewer + fix-reviewer | **0 class-a, 2 class-b, 6 class-c (incl. NIT)** | All 8 findings fixed with discriminative regression tests; reviewer found 1 missed NIT (NR $06 cache leak) which was fixed and re-verified; sibling audit confirmed cache-leak family closed. No class-(d) escalations introduced. NOT converged honestly (8 new bugs → must continue). Plus cross-cutting Release-build CMake fix |
-| **Total (11 passes)** | | **97 class-(a) + 2 class-(b) + 6 class-(c) + 1 follow-up** | NOT converged; 5 class-(d) architectural items pending user authorization |
+| 12 | 4 fresh blind; pipelined audit→reviewer→fix-of-reviewer→fix-reviewer | **1 class-a, 4 class-b, 7 class-c (incl. NITs)** | Memory 3b+2 NITs; DivMMC 1b+1c audit + 3 reviewer-promoted class-c + 1 NIT (8 fixes total) + 3 class-d confirmed (architectural); NMI-MF-Port 1a + 1 NIT; CPU 0 audit findings (defensible-zero) + 2 reviewer NITs. ALL 12 fixes have discriminative regression tests + independent fix-reviewer APPROVE. NOT converged (12 new bugs). Subsystem-skip rule introduced 2026-05-10: subsystems with audit=0 + reviewer APPROVE-no-missed are skipped in subsequent passes — none qualified yet (CPU was closest: audit=0 but reviewer found NITs) |
+| **Total (12 passes)** | | **98 class-(a) + 6 class-(b) + 13 class-(c) + 1 follow-up** | NOT converged; 5 class-(d) architectural items pending user authorization |
 
 **Test-coverage retroactive wave (post-pass-10)**: 4 subsystems audited, **105 new regression tests added** (29 memory + 14 divmmc + 45 NMI/MF/Port + 17 CPU). Reviewers found defects/gaps:
 - DivMMC: 1 defective (SD-15) + 4 nits → all fixed + reviewed
@@ -417,24 +418,71 @@ G46(b) cycle re-run remains deferred to user.
 13. **`port_1ffd_special_old_` decay model** — functionally equivalent approximation.
 14. **`StateReader::read_u8()`** lacks bounds check — pre-existing.
 
-## Test status (final, integration branch, post Pass-11 + Release-build fix)
+## Test status (final, integration branch, post Pass-12)
 
 ```
 ctest                              38/38 PASS  (Release build)
 fuse_z80                       1356/1356 PASS
 test/00regression/regression       32/1/0   (parallax-demo 44636-px diff is pre-existing
                                               baseline issue — present at d385d5e before
-                                              Pass-11 merges; not introduced by Pass-11)
+                                              Pass-11 merges; not introduced by Pass-11/12)
 ```
 
 ## Branch state
 
 ```
 Branch: nextzxos-boot-subsystem-analysis (off main)
-Total fixes through Pass-11: ~96 class-(a) + 2 class-(b) + 6 class-(c) + 1 follow-up + 1 build fix
+Total fixes through Pass-12: ~98 class-(a) + 6 class-(b) + 13 class-(c) + 1 follow-up + 1 build fix
 Pushed: NO
-Integration HEAD (Pass-11): 594b2c9
+Integration HEAD (Pass-12): c67d074
 ```
+
+## Pass-12 details
+
+**12 fixes total, all merged with discriminative regression tests + independent fix-reviewer APPROVE:**
+
+### Findings table
+
+| ID | Subsystem | Class | Summary | Origin | Commit (in-chain) |
+|----|-----------|-------|---------|--------|-------------------|
+| V12-MEM-01 | Memory | b | NR $8C and `set_machine_type` clobbered `nr_mmu_[]` to 0xFF, dropping verbatim NR $50/$51 values in 0xE0..0xFE; VHDL :3813, :4607 leaves MMU<i> untouched | audit | ce1d3be |
+| V12-MEM-02 | Memory | b | ContentionModel state (cpu_speed, contention_disable, port_7ffd_io_en) reverted to constructor defaults on load_state — broke NR $08 read surface (VHDL :5906) | audit | ce1d3be |
+| V12-MEM-03 | Memory | b | ContentionModel.type_ not refreshed from saved Mmu.machine_type_ on load | audit | ce1d3be |
+| V12-MEM-NIT-1 | Memory | (test) | V12-MEM-03's published test was non-discriminative (ZXN_ISSUE2 short-circuits is_contended_access); replaced with reviewer's stronger version | fix-of-reviewer | 64b9858 |
+| V12-MEM-NIT-2 | Memory | (test) | V12-MEM-01-A leaked NR $50=0xE5 into subsequent tests; isolated via `nr_write(0x50, 0xFF)` | fix-of-reviewer | 64b9858 |
+| V12-DIVMMC-01 | DivMMC | c | `SpiMaster::reset()` clobbered `rx_data_=0xFF` despite VHDL `i_reset='0'` hardwiring (zxnext.vhd:3285); spi_master.vhd:159-168 reset clause never fires | audit | (audit) |
+| V12-DIVMMC-02 | DivMMC | b | CMD24 past-EOF returned 0x05 (data accepted) but should return 0x0D (write error) per SD spec § 7.3.3.3 | audit | (audit) |
+| V12-DIVMMC-03 | DivMMC | c | R7 byte 0 missing cmd-version nibble (was 0x00, should be 0x10 per SD spec § 7.3.2.6) | reviewer-promoted | ce6a6ab |
+| V12-DIVMMC-04 | DivMMC | c | CMD17/18 past-EOF R1 missing PARAMETER_ERROR bit 6 per SD spec § 7.3.2.1 | reviewer-promoted | ce6a6ab |
+| V12-DIVMMC-06 | DivMMC | c | Pre-data-token byte handling missing — added `data_token_received_` flag | reviewer-promoted | ce6a6ab |
+| V12-DIVMMC-01-NIT | DivMMC | c | `SpiMaster::rx_data_` member-init `0xFF` → `0x00` per VHDL `spi_master.vhd:74` `(others => '0')`; corrects 4 pre-existing tests that enshrined the wrong claim | fix-of-reviewer | 93af708 |
+| V12-NMP-01 | NMI-MF-Port | a | NR $C4 b0 write updated `port_ff_reg(6)` correctly but did NOT mirror fan-out into `ula_int_disabled_` shadow nor call `video_timing_.set_interrupt_enable()`; NR $22 b2 already had it; corrected ctc_interrupts_test NR-C4-03 expectation 0x83 → 0x82 (VHDL-canonical) | audit | df0e4c2 |
+| V12-NMP-02 | NMI-MF-Port | (NIT-promoted) | Port-0xFF write was the third writer to `port_ff_reg(6)` per VHDL :3614-3616 lacking the same fan-out as V12-NMP-01; multi-writer family closed | fix-of-reviewer | fdd21ca |
+| V12-CPU-NIT-01 | CPU | c | Stale comment at z80_cpu.cpp:594-596 listed LDPIRX as non-F-writing; Pass-10 made LDPIRX F-writing per VHDL t80n.vhd:1277-1289 | reviewer-promoted | 2cc8453 |
+| V12-CPU-NIT-02 | CPU | c | OUTINB extended-M1 emitted as raw `tstates += 1`; replaced with `contend_read_no_mreq(IR, 1)` BEFORE operand read per FUSE OUTI pattern + VHDL t80n_mcode.vhd:2516-2530 | reviewer-promoted | a57282c |
+
+### Class-(d) confirmed architectural (DivMMC, all NEW catalogued)
+
+- **V12-DIVMMC-05**: SPI 16-cycle FSM cycle-precise rewrite — multi-subsystem
+- **V12-DIVMMC-07**: `divmmc_automap_*_q` falling-edge sub-cycle pipeline registers
+- **V12-DIVMMC-08**: VHDL-impossible same-cycle Z80 OUT-OUT — spec doesn't expose this case
+
+### Reviewer outcomes
+
+| Subsystem | Audit verdict | Reviewer verdict | Fix-reviewer verdict |
+|-----------|---------------|------------------|----------------------|
+| Memory | 3 fixes | APPROVE-WITH-NITS (2 NITs) | APPROVE |
+| DivMMC | 2 fixes | APPROVE-WITH-NITS (3 promoted+fixed by reviewer + 1 NIT) | APPROVE |
+| NMI-MF-Port | 1 fix | APPROVE-WITH-NITS (1 missed → V12-NMP-02) | APPROVE |
+| CPU | ZERO findings | APPROVE-WITH-NITS (2 reviewer-promoted NITs) | APPROVE |
+
+### Convergence assessment (post-Pass-12)
+
+**No subsystem qualified for converged-skip yet.** CPU was closest (audit ZERO) but reviewer found 2 NITs that count as findings under the convergence rule. Pass-13 will still need all 4 subsystems, but with the cumulative pattern of declining findings (Pass-11: 8, Pass-12: 12 — though 5 of those came from a single reviewer's ultrathink scrutiny on DivMMC), and CPU already at audit-zero, the trajectory points toward CPU first to converge.
+
+### Subsystem-skip rule (introduced 2026-05-10 mid-Pass-12)
+
+Once a subsystem returns audit=0 findings AND its independent reviewer returns APPROVE with no missed findings, it is converged and SKIPPED in subsequent passes. Memory/feedback rule documented at `feedback_task2_converged_subsystem_skip.md`.
 
 ## Pass-11 details
 
