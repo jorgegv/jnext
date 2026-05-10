@@ -107,6 +107,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     copper_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
     joystick_.reset();
@@ -5729,6 +5731,70 @@ void Emulator::run_frame()
                 cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
             }
 
+            // V20-IM2-01 fix: pulse-mode CPU /INT polling.
+            //
+            // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+            // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
+            // default scenario (expbus_disable_int='1', the power-on
+            // value with no expansion bus), this simplifies to
+            // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
+            // pulse_int_n drops low (any device's pulse_en fires via
+            // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
+            // and the CPU should accept on the next instruction
+            // boundary (subject to iff1).
+            //
+            // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
+            // from the ULA frame-INT scheduler callback (line 5443) and
+            // the LINE-INT scheduler callback (line 6655) — and only in
+            // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
+            // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
+            // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
+            // routed solely through `im2_.raise_req(DevIdx)`, which
+            // drives the fabric's pulse_int_n latch correctly via
+            // step_pulse() but never notified the CPU. Result: in pulse
+            // mode (the power-on default for NextZXOS / 48K / 128K boot
+            // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
+            // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
+            // cycles per VHDL, but the Z80 /INT pin was never wired.
+            //
+            // Fix: poll pulse_int_n() in pulse mode and request the CPU
+            // INT each tick the line is asserted. The 32/36-cycle
+            // window self-expires via Im2Controller::step_pulse()'s
+            // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
+            //
+            // Symmetric with the IM2-mode poll above. The existing
+            // ULA/LINE scheduler `cpu_.request_interrupt(0xFF)` calls
+            // remain — they're now redundant for one-tick assertion
+            // but harmless (idempotent: request_interrupt re-stamps
+            // int_requested_at_ to the current tstates, which the
+            // pulse poll would do anyway).
+            //
+            // The vector 0xFF is the standard pulse-mode bus-floating
+            // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
+            // mode vector) to the data bus during IntAck; for pulse-
+            // mode the bus is floating and the CPU reads 0xFF
+            // canonically. Real hardware behavior may differ (TBD per
+            // observed silicon), but 0xFF matches the existing
+            // ULA/LINE callback convention and is what real 48K boot
+            // ROMs expect.
+            //
+            // Edge detection on pulse_int_n: assert CPU /INT exactly
+            // ONCE per pulse, on the falling edge. Calling
+            // `request_interrupt` every tick during the pulse window
+            // would re-stamp `int_requested_at_` to the current
+            // tstates each tick, extending the effective 32/36-cycle
+            // window indefinitely and producing extra INT acceptances
+            // (observable by the contention regression test which
+            // depends on precise interrupt timing). The 32/36-cycle
+            // expiry in `Z80Cpu::execute()` then naturally drops the
+            // pending request — matching VHDL's pulse_count_end gate.
+            const bool cur_pulse_int_n = im2_.pulse_int_n();
+            if (!im2_.is_im2_mode()
+                && !cur_pulse_int_n && prev_pulse_int_n_) {
+                cpu_.request_interrupt(0xFF);
+            }
+            prev_pulse_int_n_ = cur_pulse_int_n;
+
             // Count instructions for RZX recording.
             if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
 
@@ -6164,6 +6230,8 @@ void Emulator::reset()
     nextreg_.reset();
     cpu_.reset();
     im2_.reset();
+    // V20-IM2-01 — reset pulse-mode edge-detect shadow.
+    prev_pulse_int_n_ = true;
     keyboard_.reset();
     // Input subsystem Phase 1 scaffold (Task 3).
     joystick_.reset();

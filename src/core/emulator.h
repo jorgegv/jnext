@@ -785,6 +785,21 @@ private:
     // (zxnext.vhd:5096). Stored here for NR 0xC4 readback.
     bool     im2_c4_expbus_      = true;
 
+    // V20-IM2-01 — pulse-mode INT-line edge tracking. Per VHDL
+    // zxnext.vhd:2017-2031 the `pulse_int_n` line drops to '0' for
+    // 32/36 cycles when any peripheral's `o_pulse_en` fires, then
+    // returns to '1' via `pulse_count_end`. The Z80 /INT pin is the
+    // AND of `pulse_int_n AND im2_int_n` (line :1840, default expbus
+    // disabled scenario). To assert CPU INT exactly ONCE per pulse,
+    // we track the previous-tick `pulse_int_n` and call
+    // `cpu_.request_interrupt(0xFF)` only on the falling edge — NOT
+    // on every tick while pulse_int_n stays low (which would re-stamp
+    // `int_requested_at_` each tick, EXTENDING the effective 32/36-
+    // cycle window indefinitely and causing extra INT acceptances
+    // when the CPU exits an ISR via EI within the window). Initial
+    // value true matches `Im2Controller::reset()` default.
+    bool     prev_pulse_int_n_   = true;
+
     // NR 0xC6 raw readback shadow — VHDL read (zxnext.vhd:6245):
     //   port_253b_dat <= '0' & nr_c6_int_en_2_654 & '0' & nr_c6_int_en_2_210
     // Bits 7 and 3 always read as 0. We store the 6 meaningful bits verbatim

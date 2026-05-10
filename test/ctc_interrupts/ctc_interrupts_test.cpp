@@ -485,6 +485,87 @@ static void test_ula_int_integration(Emulator& emu) {
               detail);
     }
 
+    // CTC-INT-V20-IM2-01 — Pulse-mode CTC INT must drive CPU /INT.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. In the default scenario
+    // (expbus_disable_int='1'), this reduces to `pulse_int_n AND
+    // im2_int_n`. When CTC ZC/TO fires in pulse mode (NR 0xC0 bit 0=0,
+    // the power-on default), the IM2 fabric drops pulse_int_n via
+    // im2_peripheral.vhd:186-194's o_pulse_en for non-exception
+    // devices. The Z80 /INT pin should be asserted.
+    //
+    // Pre-V20-IM2-01 jnext only called `cpu_.request_interrupt(0xFF)`
+    // from the ULA frame-INT and LINE-INT scheduler callbacks
+    // (emulator.cpp:5445, 6655). CTC's `on_interrupt` (line 4668) and
+    // UART's TX/RX hooks (4717/4722) ONLY routed through
+    // `im2_.raise_req(DevIdx)` — the fabric's pulse_int_n correctly
+    // dropped, but NO code notified the CPU. Result: in pulse mode
+    // (the default!), CTC ZC/TO and UART interrupts were SILENTLY
+    // DROPPED — the daisy chain advanced in the fabric, but the Z80
+    // /INT pin was never asserted, so the CPU never serviced the ISR.
+    //
+    // Discriminative test: pulse mode (don't write NR 0xC0; default
+    // is im2_mode=0), enable CTC0 int_en via NR 0xC5 bit 0, IFF1=1 +
+    // IM=1, fire CTC0 via emu.im2().raise_req(CTC0) bypassing the
+    // CTC peripheral timing (simulates a ZC/TO at frame start). Run a
+    // few instructions. Pre-fix: PC stays at the parked address.
+    // Post-fix: pulse_int_n drops → poll fires request_interrupt →
+    // CPU accepts → IM1 vector → PC=0x0038.
+    {
+        fresh(emu);
+        // Pulse mode is the default (NR 0xC0 bit 0 = 0).
+        // DISABLE ULA frame INT so it doesn't trigger /INT independently
+        // of our CTC fixture — that's the existing legacy path and would
+        // mask the discriminative observation. NR 0x22 bit 2 = 1 sets
+        // port_ff_reg(6) = 1 (port_ff_interrupt_disable=1), suppressing
+        // the ULA INT scheduler arm (emulator.cpp:5439 `ula_int_disabled_`
+        // gate). LINE int is OFF by default.
+        nr_write(emu, 0x22, 0x04);
+        // Enable CTC0 int_en via NR 0xC5 bit 0.
+        nr_write(emu, 0xC5, 0x01);
+        // Configure CPU: IFF1=1, IM=1 (accept INT, jump to 0x0038).
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 1;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        regs.SP = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        // Snapshot pulse_int_n state BEFORE the raise — it must be high
+        // (idle), otherwise the test setup is wrong.
+        const bool pulse_before = emu.im2().pulse_int_n();
+        // Fire CTC0 via the fabric (simulates CTC peripheral on_interrupt
+        // callback). This is the SAME entry point ctc_.on_interrupt
+        // would use; the fix is whether subsequent run_frame notifies
+        // the CPU.
+        emu.im2().raise_req(Im2Controller::DevIdx::CTC0);
+        emu.run_frame();
+        // Post-fix: at some point during the frame, the pulse_int_n
+        // poll fires request_interrupt(0xFF); the CPU accepts in IM=1
+        // and jumps to 0x0038. PC ends up in low-mem ROM territory.
+        // Pre-fix: PC stays in the 0x8000..0xFFFE range executing NOPs,
+        // never reaching 0x0038 — because no code wires CTC's
+        // raise_req → cpu_.request_interrupt in pulse mode.
+        const auto post_regs = emu.cpu().get_registers();
+        // Strict discriminative threshold: post-fix PC must be in ROM
+        // (< 0x4000). Pre-fix PC stays at 0x8000+ (RAM NOP territory).
+        const bool int_was_accepted = (post_regs.PC < 0x4000);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "pulse_before_raise=%d (must be 1); "
+                      "post-run_frame PC=0x%04X (post-fix: PC < 0x4000 "
+                      "after IM1 vector at 0x0038; pre-fix: PC stays "
+                      "in 0x8000+ RAM, CTC INT never reached CPU "
+                      "in pulse mode)",
+                      pulse_before ? 1 : 0, post_regs.PC);
+        check("CTC-INT-V20-IM2-01",
+              "Pulse-mode CTC INT drives CPU /INT via pulse_int_n poll "
+              "[zxnext.vhd:1840 z80_int_n composition; "
+              "im2_peripheral.vhd:186 o_pulse_en for non-exception devices]",
+              pulse_before && int_was_accepted, detail);
+    }
+
     // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the
     // CPU /INT pin in IM2 mode.
     //
