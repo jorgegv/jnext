@@ -445,8 +445,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
             const uint8_t a_high = static_cast<uint8_t>((cpu_a >> 12) & 0x0F);
             switch (a_high) {
-                case 0x1:  // 0x1xxx — port_1ffd readback (motor + reg(2:0))
-                    return static_cast<uint8_t>(mmu_.port_1ffd() & 0x0F);
+                case 0x1: {
+                    // 0x1xxx — port_1ffd readback (motor + reg(2:0)).
+                    // VHDL zxnext.vhd:4312:
+                    //   when "0001" => mf_port_dat <=
+                    //     "0000" & (NOT port_1ffd_mtr_n) & port_1ffd_reg;
+                    // VHDL zxnext.vhd:3744-3761 — the motor-N flip-flop is
+                    // forced to '1' (motor off) on every clock while
+                    // `nr_81_expbus_fdc = '0'` (the priority-2 elsif at
+                    // :3751-3753), regardless of the most recent port 0x1FFD
+                    // bit-3 write. Only when `nr_81_expbus_fdc = '1'` is the
+                    // motor latch updated to `NOT cpu_do(3)` on the port
+                    // 0x1FFD write at :3755-3757. Therefore:
+                    //   nr_81_expbus_fdc = '1' (NR 0x81 bit 3 = 1):
+                    //     readback bit 3 = NOT motor_n = cpu_do(3)
+                    //   nr_81_expbus_fdc = '0' (default; FDC disabled):
+                    //     readback bit 3 = NOT '1' = '0'
+                    // V14-NMP-01 (Pass-14 verify-audit fix): pre-fix returned
+                    // `port_1ffd_ & 0x0F` unconditionally, leaking the user's
+                    // last cpu_do(3) write through bit 3 even when FDC was
+                    // disabled (the jnext default — NR 0x81 power-on = 0x00).
+                    // jnext doesn't model the FDC pin per se, but the motor
+                    // latch is observable through this MF+3 readback path.
+                    const uint8_t reg_lo3 = static_cast<uint8_t>(mmu_.port_1ffd() & 0x07);
+                    const bool fdc_en = (nr_81_ & 0x08) != 0;
+                    const uint8_t mtr_bit = fdc_en ? static_cast<uint8_t>(mmu_.port_1ffd() & 0x08)
+                                                   : static_cast<uint8_t>(0x00);
+                    return static_cast<uint8_t>(mtr_bit | reg_lo3);
+                }
                 case 0x7:  // 0x7xxx — port_7ffd readback (full 8-bit reg)
                     return mmu_.port_7ffd();
                 case 0xD: { // 0xDxxx — port_dffd readback (with bit 6)
@@ -1227,6 +1253,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         membrane_stick_.write_nr_28(v);
         return v;
     });
+    // V14-NMP-02 (Pass-14 verify-audit fix): VHDL zxnext.vhd:6003-6004 —
+    //   when X"28" =>  port_253b_dat <= nr_stored_palette_value;
+    // The NR 0x28 read mux returns the VHDL signal `nr_stored_palette_value`
+    // (zxnext.vhd:1190), which is latched on the FIRST half of every NR 0x44
+    // 9-bit palette write (zxnext.vhd:5398-5399), NOT the byte last written
+    // to NR 0x28. NR 0x28 writes only update `nr_keymap_sel` /
+    // `nr_keymap_addr(8)` per VHDL :6301-6303 — the stored byte is NOT
+    // surfaced on any read mux entry.
+    //
+    // Pre-fix the C++ NR 0x28 write_handler stored the raw byte in
+    // `regs_[0x28]` and there was no read_handler, so a NR 0x28 read echoed
+    // the last NR 0x28 write byte. PaletteManager's `nine_bit_first_byte_`
+    // shadow already mirrors `nr_stored_palette_value`; route the read
+    // through it.
+    nextreg_.set_read_handler(0x28, [this]() -> uint8_t {
+        return palette_.nine_bit_first_byte();
+    });
     nextreg_.set_write_handler(0x29, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_29(v);
         // G149: VHDL zxnext.vhd:5878-6289 read-mux has no entry for NR 0x29
@@ -1235,9 +1278,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // canonical regs_[0x29] stores 0 and reads return 0.
         return 0;
     });
+    // V14-NMP-03 (Pass-14 verify-audit fix): VHDL zxnext.vhd:5878-6289 has
+    // NO read mux entry for NR 0x2B (write-only keymap data — see VHDL
+    // :6306-6307 where the only effect of `nr_2b_we` is the auto-increment
+    // of `nr_keymap_addr`). Unmapped reads fall through the case statement
+    // to the `when others => port_253b_dat <= (others => '0')` default at
+    // VHDL :6286-6287, returning 0x00. Pre-fix the write_handler returned
+    // `v`, leaving the cache holding the last-write byte — a subsequent
+    // NR 0x2B read returned that byte instead of 0x00. Same shape as the
+    // existing NR 0x29 canonicalisation directly above.
     nextreg_.set_write_handler(0x2B, [this](uint8_t v) -> uint8_t {
         membrane_stick_.write_nr_2b(v);
-        return v;
+        return 0;
+    });
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is a fully dead register in VHDL — the write strobe is
+    // commented out at zxnext.vhd:4850 (`-- when X"2A" => nr_2a_we ...`),
+    // the write-side process at :6312-6319 is also commented out, and
+    // there is NO read-mux entry in the case statement at :5878-6289.
+    // Therefore real hardware:
+    //   * Writes to NR 0x2A: ignored, no flip-flop state changes.
+    //   * Reads of NR 0x2A: return 0x00 via the `when others =>
+    //     (others => '0')` fall-through at :6286-6287.
+    // Pre-fix the C++ NR 0x2A had NO write_handler and NO read_handler:
+    // a write went raw to `regs_[0x2A]` (NextReg::write at nextreg.cpp:454)
+    // and a read returned that cached byte (NextReg::read :411). Same
+    // cache-leak shape as V14-NMP-03 (NR 0x2B), so the same canonicalisation
+    // pattern applies — install a write_handler that drops the byte and
+    // canonicalises the cache to 0. No subsystem dispatch, since real
+    // hardware does nothing with the byte either.
+    nextreg_.set_write_handler(0x2A, [](uint8_t /*v*/) -> uint8_t {
+        return 0;
     });
 
     // Registers 0xB0 / 0xB1 / 0xB2 — extended keyboard matrix + MD6 extras.

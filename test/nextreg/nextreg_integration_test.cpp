@@ -3758,6 +3758,130 @@ static void test_write_only_read_zero(Emulator& emu) {
               "[zxnext.vhd:5878-6289 others=>'0']",
               got == 0x00, d);
     }
+
+    // V14-NMP-03 (Pass-14 verify-audit fix): NR 0x2B keymap data write.
+    // VHDL zxnext.vhd:6306-6307 — `nr_2b_we = '1'` triggers the auto-increment
+    // of `nr_keymap_addr`; the byte is also routed to the keymap dpram via
+    // `nr_keymap_dat` (:6324) gated by `nr_keymap_we`/`nr_joymap_we` (:6321-
+    // 6322). NO read-mux entry exists for NR 0x2B in the case statement at
+    // :5878-6289, so reads fall through to `when others => (others => '0')`
+    // at :6286-6287 and return 0x00.
+    //
+    // Pre-fix the C++ NR 0x2B write_handler returned `v` raw, so the cache
+    // held the last-write byte and a subsequent NR 0x2B read echoed it
+    // verbatim — leaking the keymap data byte through a register that real
+    // hardware never reads back.
+    {
+        nr_write(emu, 0x2B, 0xAA);
+        const uint8_t got = nr_read(emu, 0x2B);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xAA got=0x%02X want=0x00", got);
+        check("WO-INT-2B",
+              "NR 0x2B write-only — read returns 0 (no leak of keymap data) "
+              "[zxnext.vhd:5878-6289 others=>'0', :6306-6307 nr_2b_we]",
+              got == 0x00, d);
+    }
+
+    // V14-NMP-04 (Pass-14 reviewer-promoted from deferred class-c):
+    // NR 0x2A is dead in VHDL. Write strobe at zxnext.vhd:4850 is
+    // commented out (`-- when X"2A" => nr_2a_we <= '1';`), the write-side
+    // process at :6312-6319 is commented out, and there is NO read-mux
+    // entry in the case statement at :5878-6289. Reads must fall through
+    // to `when others => (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix C++ NR 0x2A had no write_handler and no read_handler, so
+    // a write went raw to regs_[0x2A] and a subsequent read echoed it.
+    // Reviewer-promoted: this is functionally identical in shape to
+    // NR 0x2B (V14-NMP-03), so the canonical fix is also identical —
+    // install a write_handler that returns 0.
+    {
+        nr_write(emu, 0x2A, 0xCC);
+        const uint8_t got = nr_read(emu, 0x2A);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xCC got=0x%02X want=0x00", got);
+        check("WO-INT-2A",
+              "NR 0x2A dead-register — read returns 0 (no leak of cached "
+              "write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+}
+
+// ── NR 0x28 ↔ nr_stored_palette_value read-mux (V14-NMP-02) ───────────
+//
+// VHDL zxnext.vhd:
+//   :1190 — `signal nr_stored_palette_value : std_logic_vector(7 downto 0);`
+//   :5398-5399 — first half of NR 0x44 9-bit palette write latches
+//                `nr_stored_palette_value <= nr_wr_dat;` when
+//                `nr_palette_sub_idx = '0'`.
+//   :6003-6004 — NR 0x28 read mux:
+//                `when X"28" => port_253b_dat <= nr_stored_palette_value;`
+//
+// I.e. NR 0x28 is a *read-only* surface for the upper byte of a 9-bit
+// palette write currently in progress. NR 0x28 *writes* mutate
+// `nr_keymap_sel` / `nr_keymap_addr(8)` (VHDL :6301-6303) — they do NOT
+// touch the palette signal. Pre-fix the C++ NR 0x28 write_handler stored
+// the raw written byte in the regs_[] cache, and the absence of a
+// read_handler made NR 0x28 reads echo that byte instead of the live
+// palette signal.
+static void test_v14_nmp_02_nr_28_read(Emulator& emu) {
+    set_group("V14-NMP-02-NR28");
+
+    // Setup: select NR 0x44 target and prime the 9-bit FSM.
+    // The PaletteManager's `nine_bit_first_byte_` shadow is reset to 0
+    // on construction (palette.cpp:87), so a fresh emulator should read
+    // NR 0x28 = 0x00.
+    emu.reset();
+    {
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[64]; std::snprintf(d, sizeof(d), "got=0x%02X want=0x00", got);
+        check("V14-NMP-02-NR28-01",
+              "NR 0x28 read at reset — `nr_stored_palette_value` default 0x00 "
+              "[zxnext.vhd:1190, :5011, :6004]",
+              got == 0x00, d);
+    }
+
+    // Write a sentinel byte to NR 0x28 — this should NOT influence the
+    // NR 0x28 read mux, which reads `nr_stored_palette_value` (the
+    // PaletteManager shadow), NOT the cached NR 0x28 last-write byte.
+    {
+        nr_write(emu, 0x28, 0xA5);
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x28<-0xA5: got=0x%02X want=0x00", got);
+        check("V14-NMP-02-NR28-02",
+              "NR 0x28 write does NOT affect NR 0x28 read (palette signal, "
+              "not regs_[] cache) [zxnext.vhd:6004, :6301-6303]",
+              got == 0x00, d);
+    }
+
+    // First half of an NR 0x44 9-bit palette write — VHDL :5398-5399
+    // latches `nr_stored_palette_value <= nr_wr_dat` when sub_idx = 0.
+    // NR 0x28 read should then surface the just-stored byte.
+    {
+        nr_write(emu, 0x44, 0xC3);  // first half: stores 0xC3 in nr_stored_palette_value
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x44<-0xC3 (first half): got=0x%02X want=0xC3", got);
+        check("V14-NMP-02-NR28-03",
+              "NR 0x28 read returns nr_stored_palette_value latched on the "
+              "first half of NR 0x44 9-bit write [zxnext.vhd:5398-5399, :6004]",
+              got == 0xC3, d);
+    }
+
+    // Second half of the NR 0x44 9-bit write does NOT update
+    // nr_stored_palette_value (VHDL :5400 ELSIF branch only auto-increments
+    // the palette index). NR 0x28 read should still return the previously
+    // latched first byte.
+    {
+        nr_write(emu, 0x44, 0x01);  // second half: blue LSB latched
+        const uint8_t got = nr_read(emu, 0x28);
+        char d[80]; std::snprintf(d, sizeof(d),
+            "after NR 0x44<-0x01 (second half): got=0x%02X want=0xC3", got);
+        check("V14-NMP-02-NR28-04",
+              "NR 0x28 read unchanged across NR 0x44 second-half write "
+              "[zxnext.vhd:5400 ELSIF, :6004]",
+              got == 0xC3, d);
+    }
 }
 
 // ── FT-Integration — FDC IO-trap registers (NR 0xD8/0xD9/0xDA, G55) ───
@@ -4945,6 +5069,9 @@ int main() {
 
     test_write_only_read_zero(emu);
     std::printf("  Group: WO-Integration — done\n");
+
+    test_v14_nmp_02_nr_28_read(emu);
+    std::printf("  Group: V14-NMP-02-NR28 — done\n");
 
     test_ft_iotrap_integration(emu);
     std::printf("  Group: FT-Integration — done\n");
