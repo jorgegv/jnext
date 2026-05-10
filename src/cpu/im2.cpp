@@ -705,14 +705,30 @@ void Im2Controller::advance_decoder(uint8_t opcode) {
             break;
 
         // vhdl:199-206 — DD/FD prefix chain: DD/FD keeps us in S_DDFD_T4
-        // (so DD FD DD ... stays here), an ED starts the RETI/RETN
-        // lookahead, anything else returns to S_0.
+        // (so DD FD DD ... stays here), anything else (including ED!)
+        // returns to S_0.
+        //
+        // V11-CPU-01 fix: VHDL line 200-203 falls through to S_0 on any
+        // non-DDFD opcode (the elsif at :202 is `ifetch_fe_t3='1'`, no
+        // ED special-case). This means a `DD ED 4D` byte sequence on the
+        // bus does NOT register as RETI in the IM2 fabric — even though
+        // FUSE's z80_ddfd.c default re-dispatches it as ED 4D = RETI
+        // semantically. The IM2 control block keys on the *physical bus
+        // pattern*, not the CPU's internal re-dispatch behaviour.
+        //
+        // Pre-fix: jnext routed ED after DDFD into S_ED_T4, which would
+        // emit a spurious reti_seen pulse on `DD ED 4D` and clear
+        // S_ISR daisy-chain devices that VHDL would leave standing. No
+        // sane software writes DD ED 4D as RETI (the assembler uses bare
+        // ED 4D), but the VHDL-faithful posture is to mirror the FPGA
+        // exactly so the fabric matches real hardware byte-for-byte.
         case DecState::S_DDFD_T4:
             if      (opcode == 0xDD || opcode == 0xFD) {
                 // stay
-            } else if (opcode == 0xED) {
-                dec_state_ = DecState::S_ED_T4;
             } else {
+                // Per VHDL: ED, CB, or any other opcode after DDFD all
+                // return to S_0. RETI/RETN decoding requires a fresh ED
+                // from S_0, not via the DDFD chain.
                 dec_state_ = DecState::S_0;
             }
             break;
