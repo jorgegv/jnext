@@ -180,14 +180,36 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
             if (data_crc_count_ >= 2) {
                 uint32_t sector = cmd_arg();
                 uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
-                if (byte_addr + 512 <= file_size_) {
+                // V12-DIVMMC-02 (Pass-12 verify-audit fix, 2026-05-10): SD
+                // Physical Layer Simplified Spec § 7.3.3.3 Data Response
+                // Token format is `0bxxx0_sss1` where the status code `sss`
+                // is one of:
+                //   010 = data accepted              → 0x05
+                //   101 = data rejected (CRC error)  → 0x0B
+                //   110 = data rejected (write error)→ 0x0D
+                // Pre-fix CMD24 unconditionally emitted 0x05 (data accepted)
+                // even when the write was silently SKIPPED because the
+                // sector was past end-of-image. That misled the host into
+                // believing a successful write happened — diverging from
+                // every real SD card which sets the write-error status
+                // (0x0D) when the address is out of range. The boot path
+                // never writes past the image, so the prior bug was
+                // latent; class-(b) → corrected for spec faithfulness and
+                // to surface the firmware's write-error path on past-EOF
+                // attempts.
+                bool write_ok = (byte_addr + 512 <= file_size_);
+                if (write_ok) {
                     file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
                     file_.write(reinterpret_cast<const char*>(data_block_), 512);
                     file_.flush();
                     sd_log()->debug("CMD24 wrote 512 bytes at sector {} (byte={:#010x})", sector, byte_addr);
+                } else {
+                    sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} → write-error response token",
+                                   sector, byte_addr, file_size_);
                 }
                 state_ = State::WRITE_RESP;
-                resp_buf_ = { 0x05 };
+                // 0x05 = data accepted; 0x0D = write error.
+                resp_buf_ = { static_cast<uint8_t>(write_ok ? 0x05 : 0x0D) };
                 resp_idx_ = 0;
             }
             break;

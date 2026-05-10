@@ -2766,6 +2766,62 @@ void group_ss() {
                   selected_before, desel_before, desel_after,
                   cs_after));
     }
+
+    // SS-16 (TASK2-VERIFY12 V12-DIVMMC-01): SpiMaster::reset() must NOT
+    // clobber `rx_data_` (the previous-transfer MISO byte).
+    //
+    // VHDL anchor: zxnext.vhd:3282-3298 instantiates `spi_master_mod` with
+    //   `i_reset => '0'`     (line 3285, comment "hard reset done through
+    //                         core load")
+    // The internal `miso_dat` register at spi_master.vhd:159-168 has a
+    //   `if i_reset = '1' then miso_dat <= (others => '1')`
+    // clause, but with `i_reset` HARDWIRED to '0' that clause never fires.
+    // miso_dat therefore retains its last latched value across every
+    // system reset (only FPGA bitstream load can reset it). Pre-fix
+    // SpiMaster::reset() set `rx_data_=0xFF` unconditionally — diverging
+    // from VHDL whenever firmware reads port 0xEB after a soft reset
+    // (NR 0x02 ← 0x01) before issuing a new SPI write.
+    //
+    // Discriminative shape: prime `rx_data_` to a non-FF byte via a
+    // write_data() with an attached MockSpiDevice that returns 0x42, then
+    // reset() and observe that the FIRST read_data() returns 0x42 (post-
+    // fix: rx_data_ preserved). Pre-fix this would return 0xFF (rx_data_
+    // clobbered). MX-04 / ML-05 still pass with this fix because their
+    // reset → first-read sequences observe 0xFF either way (member-init
+    // 0xFF + no prior priming = 0xFF whether reset() touches rx_data_ or
+    // not).
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        dev.next_response = 0x42;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);                  // select SD0
+        m.write_data(0xA5);                // exchange → rx_data_=0x42
+        // Prove the priming worked: first read sees 0x42.
+        // (This is the standard pipeline behaviour; SX-01 covers it.)
+        const uint8_t primed = m.read_data();   // returns prev=0x42
+        // After read_data(), rx_data_ is now refreshed from dev->send()
+        // (also 0x42 since MockSpiDevice keeps next_response). Reset.
+        m.reset();
+        // After reset(), `rx_data_` must still be 0x42 (VHDL miso_dat is
+        // never reset). Read once: returns prev=0x42. Pre-fix would
+        // return 0xFF here.
+        // Note: read_data() with no active device (cs_=0xFF post-reset)
+        // sets new rx_data_=0xFF, but the RETURNED value is the
+        // pre-read snapshot.
+        const uint8_t after_reset = m.read_data();
+
+        check("SS-16",
+              "SpiMaster::reset() preserves rx_data_ across system reset "
+              "(VHDL spi_master.vhd:159-168 miso_dat register has no "
+              "effective reset because zxnext.vhd:3285 hardwires "
+              "i_reset='0'). Pre-fix forced rx_data_=0xFF on every reset, "
+              "diverging from VHDL whenever firmware reads port 0xEB "
+              "after a soft reset before issuing a new SPI write.",
+              primed == 0x42 && after_reset == 0x42,
+              fmt("primed=%02x after_reset=%02x",
+                  primed, after_reset));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

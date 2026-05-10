@@ -946,6 +946,91 @@ static void test_sd_20_cmd55_fallthrough(SdCardDevice& sd) {
           " b0=" + std::to_string(blk[0]));
 }
 
+// ─── New: SD-21 / CMD24 past-EOF write-error response (TASK2-VERIFY12) ──
+
+static void test_sd_21_cmd24_past_eof() {
+    // SD-21 (V12-DIVMMC-02): CMD24 with a sector index past end-of-image
+    // must return the write-error data-response token (0x0D = 0b00001101)
+    // instead of the data-accepted token (0x05 = 0b00000101).
+    //
+    // SD Physical Layer Simplified Spec § 7.3.3.3 Data Response Token
+    // format is `0bxxx0_sss1` where status `sss` is:
+    //   010 = data accepted                → 0x05
+    //   110 = data rejected (write error)  → 0x0D
+    //
+    // Pre-fix CMD24's `process_command` flow always queued 0x05 even when
+    // the write was silently skipped because byte_addr + 512 > file_size_.
+    // The host therefore believed every past-EOF write succeeded.
+    //
+    // Discriminative shape: build a small 8-sector image (4 KB), CMD24 to
+    // sector 100 (= 51200 bytes, well past the 4096-byte boundary). After
+    // the data + CRC, poll for the response token. Post-fix we see 0x0D
+    // (write error). Pre-fix we'd see 0x05 (data accepted).
+    //
+    // Safety: also verify the existing in-bounds CMD24 path still emits
+    // 0x05 (regression guard for SD-14 → ensure the fix didn't flip the
+    // sense of the in-bounds case).
+    const uint32_t n_sectors = 8;
+    std::string img = make_image(n_sectors);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    // CMD24 sector=100 (past EOF for an 8-sector image).
+    uint8_t r1_wr = send_cmd_r1(sd, 24, 100);
+
+    // Send 0xFE start token + 512 dummy bytes + 2 CRC bytes.
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0x55);
+    spi_write(sd, 0xFF);  // CRC hi
+    spi_write(sd, 0xFF);  // CRC lo
+
+    // Poll for the data response token. Cap the poll.
+    uint8_t resp = 0xFF;
+    bool got_resp = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        // Per SD spec, response token has bit 4 always 0, bit 0 always 1,
+        // status in bits 3:1. Easier here to just wait for any non-FF byte.
+        if (b != 0xFF) { resp = b; got_resp = true; break; }
+    }
+    sd.deselect();
+
+    // In-bounds regression guard: CMD24 to sector 0 must still emit 0x05.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_ok = send_cmd_r1(sd, 24, 0);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0xAA);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    uint8_t resp_ok = 0xFF;
+    bool got_resp_ok = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) { resp_ok = b; got_resp_ok = true; break; }
+    }
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1_wr == 0x00 && got_resp && resp == 0x0D     // past-EOF
+           && r1_ok == 0x00 && got_resp_ok && resp_ok == 0x05; // in-bounds
+
+    check("SD-21",
+          "CMD24 past EOF returns write-error data response (0x0D); "
+          "in-bounds case still returns data-accepted (0x05) "
+          "(SD Physical Layer Simplified Spec § 7.3.3.3)",
+          ok,
+          "r1_wr=" + std::to_string(r1_wr) +
+          " resp=" + std::to_string(resp) +
+          " r1_ok=" + std::to_string(r1_ok) +
+          " resp_ok=" + std::to_string(resp_ok));
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1028,6 +1113,7 @@ int main() {
     test_boot_sd_01();
     test_boot_sd_02();
     test_sd_15_mount_full_reset();   // 24a1bc4 (pass-5)
+    test_sd_21_cmd24_past_eof();     // V12-DIVMMC-02 (pass-12 verify-audit)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //
