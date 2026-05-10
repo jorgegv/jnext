@@ -2383,17 +2383,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Register 0x03 read: composed per VHDL zxnext.vhd:5894 —
     //   port_253b_dat <= nr_palette_sub_idx & nr_03_machine_timing(2:0) &
     //                    nr_03_user_dt_lock & nr_03_machine_type(2:0)
-    // JNEXT does not model nr_palette_sub_idx (palette-aux selector used
-    // only by the NR 0x44 / NR 0x41 sub-index toggle), so bit 7 reads 0
-    // until that FSM lands. All other bits come from the state fields on
-    // NextReg, which track the VHDL signals faithfully.
+    //
+    // V21-NMP-01 (Pass-21 verify-audit fix): bit 7 surfaces VHDL
+    // `nr_palette_sub_idx` (zxnext.vhd:1182), the same FF the NR 0x44
+    // 9-bit-palette-write toggle drives (:5403) and the NR 0x40 / 0x41 /
+    // 0x43 / 0x28 writes reset to '0' (:5376 / :5382 / :5395 / :5000).
+    // PaletteManager owns the identical `nine_bit_first_written_` shadow
+    // (palette.cpp:330-351 toggles; palette.cpp:220, palette.cpp:209,
+    // palette.cpp:86 / etc. reset paths). Pre-fix bit 7 was hard-wired
+    // to 0, so a poll-loop checking "second 9-bit write phase armed?"
+    // via NR 0x03 read would observe a stuck-low bit while VHDL would
+    // toggle it. Class-(c) inert divergence (no jnext boot path polls
+    // NR 0x03 bit 7 today, but the readback contract is part of the
+    // VHDL surface and a NR 0x44 + NR 0x03 sequence in any future
+    // firmware would observe the bug).
     nextreg_.set_read_handler(0x03, [this]() -> uint8_t {
         const uint8_t timing = static_cast<uint8_t>(nextreg_.nr_03_machine_timing() & 0x07);
         const uint8_t mtype  = static_cast<uint8_t>(nextreg_.nr_03_machine_type()   & 0x07);
         const uint8_t dtlock = nextreg_.nr_03_user_dt_lock() ? 1 : 0;
-        // palette_sub_idx not modeled → 0. bits[7]=0, [6:4]=timing, [3]=dtlock,
-        // [2:0]=machine_type.
-        return static_cast<uint8_t>((0u << 7) | (timing << 4) | (dtlock << 3) | mtype);
+        const uint8_t sub_idx = palette_.nine_bit_first_written() ? 1 : 0;
+        return static_cast<uint8_t>((sub_idx << 7) | (timing << 4) | (dtlock << 3) | mtype);
     });
 
     // Register 0x04: ROM/RAM bank select used by tbblue.fw's load_roms() to

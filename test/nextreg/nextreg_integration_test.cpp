@@ -5493,6 +5493,115 @@ static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
     }
 }
 
+// ── V21-NMP-01 — NR 0x03 b7 palette_sub_idx readback ──────────────────
+//
+// VHDL zxnext.vhd:5894 read mux composes NR 0x03 as
+//   nr_palette_sub_idx & nr_03_machine_timing(2:0) & nr_03_user_dt_lock
+//                      & nr_03_machine_type(2:0)
+// — bit 7 surfaces VHDL `nr_palette_sub_idx` (zxnext.vhd:1182). The FF
+// is driven to '0' by reset / NR 0x40 / NR 0x41 / NR 0x43 / NR 0x28
+// writes (:5000 / :5376 / :5382 / :5395) and TOGGLED on every NR 0x44
+// write (:5403 `nr_palette_sub_idx <= not nr_palette_sub_idx`).
+//
+// PaletteManager's `nine_bit_first_written_` (palette.cpp:330-351)
+// follows the identical lifecycle: set true on the FIRST NR 0x44 write,
+// cleared on the SECOND, and reset to false by set_index() (NR 0x40
+// write path).
+//
+// Pre-fix the NR 0x03 read handler hard-wired bit 7 = 0; a NR 0x44
+// write followed by a NR 0x03 read returned bit 7 = 0 instead of the
+// VHDL-toggle '1'. Class-(c) inert divergence (no jnext boot path
+// polls bit 7), but the readback contract is part of the VHDL surface.
+
+static void test_v21_nmp_01_nr_03_palette_sub_idx(Emulator& emu) {
+    set_group("V21-NMP-01-NR03-PaletteSubIdx");
+
+    auto bit7 = [](uint8_t v) { return static_cast<uint8_t>((v >> 7) & 0x01); };
+
+    // Discriminative #1: power-on / post-reset → bit 7 = 0.
+    {
+        emu.reset();
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-A",
+              "NR 0x03 bit 7 = 0 at reset (nr_palette_sub_idx default '0', "
+              "VHDL :1182, :5000) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #2: single NR 0x44 write toggles bit 7 to '1'.
+    // VHDL :5403 `nr_palette_sub_idx <= not nr_palette_sub_idx` after
+    // every NR 0x44 write. Starting from '0', one write yields '1'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-B",
+              "NR 0x03 bit 7 = 1 after a single NR 0x44 write "
+              "(VHDL :5403 toggle: 0 -> 1) [zxnext.vhd:5894]",
+              bit7(got) == 1, detail_eq(bit7(got), uint8_t{0x01}));
+    }
+
+    // Discriminative #3: second NR 0x44 write toggles bit 7 back to '0'.
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);
+        nr_write(emu, 0x44, 0xAA);
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-C",
+              "NR 0x03 bit 7 = 0 after two NR 0x44 writes "
+              "(VHDL :5403 toggle: 0 -> 1 -> 0) [zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #4: NR 0x40 write resets sub_idx to '0' even after
+    // a NR 0x44 toggle. VHDL :5376 `nr_palette_sub_idx <= '0'` on every
+    // NR 0x40 write (palette-index reset).
+    {
+        emu.reset();
+        nr_write(emu, 0x44, 0x55);          // sub_idx = '1'
+        nr_write(emu, 0x40, 0x00);          // sub_idx -> '0'
+        const uint8_t got = nr_read(emu, 0x03);
+        check("V21-NMP-01-D",
+              "NR 0x03 bit 7 = 0 after NR 0x44 + NR 0x40 sequence "
+              "(VHDL :5376 NR 0x40 write resets nr_palette_sub_idx) "
+              "[zxnext.vhd:5894]",
+              bit7(got) == 0, detail_eq(bit7(got), uint8_t{0x00}));
+    }
+
+    // Discriminative #5: bit 7 is independent of bits 6:0. Write NR 0x03
+    // to set machine_timing + dt_lock + machine_type, then verify a
+    // subsequent NR 0x44 toggle flips bit 7 without disturbing the
+    // lower fields. NR 0x03 writes do NOT touch nr_palette_sub_idx
+    // (VHDL :5121-5151 does not assign to it).
+    {
+        emu.reset();
+        // Enter config_mode so NR 0x03 bits 2:0 latch (VHDL :5137-5145).
+        nr_write(emu, 0x03, 0x07);          // config_mode = 1 (bits[2:0]=111)
+        // machine_timing = "011" (bit 7 = 1, bits 6:4 = "011"), dt_lock toggle off,
+        // machine_type = "010". `nr_wr_dat = 1011 0010 = 0xB2`. config_mode
+        // exit (bits 2:0 = "010" ≠ "000" and ≠ "111").
+        nr_write(emu, 0x03, 0xB2);
+        const uint8_t pre_44 = nr_read(emu, 0x03);
+        nr_write(emu, 0x44, 0x55);          // toggle sub_idx
+        const uint8_t post_44 = nr_read(emu, 0x03);
+        // The lower 7 bits should be identical pre/post NR 0x44 write.
+        const uint8_t lower_pre  = static_cast<uint8_t>(pre_44  & 0x7F);
+        const uint8_t lower_post = static_cast<uint8_t>(post_44 & 0x7F);
+        check("V21-NMP-01-E",
+              "NR 0x03 bits 6:0 unchanged by NR 0x44 toggle "
+              "(only bit 7 / sub_idx flips) [zxnext.vhd:5894]",
+              lower_pre == lower_post,
+              detail_eq(lower_post, lower_pre));
+        // And bit 7 must have toggled. Expected post-toggle value = NOT pre.
+        const uint8_t expected_post7 =
+            static_cast<uint8_t>(bit7(pre_44) ^ 0x01);
+        check("V21-NMP-01-F",
+              "NR 0x03 bit 7 toggles independently from lower fields",
+              bit7(post_44) == expected_post7,
+              detail_eq(bit7(post_44), expected_post7));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5604,6 +5713,9 @@ int main() {
 
     test_v19r_nmp_xadc_read_stubs(emu);
     std::printf("  Group: V19R-NMP-XADC-Read-Stubs — done\n");
+
+    test_v21_nmp_01_nr_03_palette_sub_idx(emu);
+    std::printf("  Group: V21-NMP-01-NR03-PaletteSubIdx — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
