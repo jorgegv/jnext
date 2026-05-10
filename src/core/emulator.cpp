@@ -258,6 +258,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // resets the gate to false; we re-seed it here to match the VHDL
     // power-on default after build().
     contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
+    // V15-CPU-NIT-03 (reviewer-promoted): seed
+    // ContentionModel's port_ulap_io_en gate from NR 0x85 bit 0
+    // (VHDL zxnext.vhd:2439 — port_ulap_io_en <= internal_port_enable(24);
+    // bit 24 = first bit of nr_85). Power-on default is 0x0F (low 4 bits
+    // set per VHDL :1229 — `nr_85_internal_port_enable` resets to all-1
+    // and the register is 4 bits wide, so reset value = 0x0F). The
+    // NR 0x85 write handler installed at install_port_handlers()
+    // refreshes the shadow on every subsequent write. The CPU-side
+    // bus callbacks (fuse_z80_readport / fuse_z80_writeport) consult
+    // the shadow internally via contention_tick() — no parameter
+    // needed (matches the port_7ffd_io_en_ pattern).
+    contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
 
     // VideoTiming — production-wired raster counter used by the
     // contention tick path (Phase-2 wiring 2026-04-26). Mirrors VHDL
@@ -2440,6 +2452,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Bits 6:4 always read back as zero.
     nextreg_.set_read_handler(0x85, [this]() -> uint8_t {
         return nextreg_.cached(0x85) & 0x8F;
+    });
+    // V15-CPU-NIT-03 (reviewer-promoted): NR 0x85 bit 0 ("port_ulap_io_en")
+    // gates the `port_bf3b`/`port_ff3b` ULA+ contention OR-terms
+    // (VHDL zxnext.vhd:2439 + 2685-2686 + 4496). The CPU-side
+    // I/O bus callbacks (fuse_z80_readport / fuse_z80_writeport in
+    // src/cpu/z80_cpu.cpp) don't have access to NextReg state, so
+    // we mirror the bit into ContentionModel via a shadow setter
+    // (mirroring the Verify9-memory `port_7ffd_io_en_` pattern).
+    // ContentionModel::contention_tick() OR-folds the shadow with
+    // its parameter so the bit is consulted regardless of caller.
+    nextreg_.set_write_handler(0x85, [this](uint8_t v) -> uint8_t {
+        contention_.set_port_ulap_io_en((v & 0x01) != 0);
+        return v;
     });
 
     // Register 0x89: Bus port-enable register 4 — read packing. (G154)
