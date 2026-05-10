@@ -116,6 +116,15 @@ static uint8_t nr_read(Emulator& emu, uint8_t reg) {
     return emu.port().in(0x253B);
 }
 
+// V18-NMP-02/03/04 helper. Enable the DAC via NR 0x08 bit 3 — the bit
+// `nr_08_dac_en` per VHDL zxnext.vhd:5179. Without this gate, every DAC
+// write handler short-circuits (`if (!dac_enabled_) return;`) so the
+// LSB-only mask fix is observable only with DAC enabled.
+static void enable_dac(Emulator& emu) {
+    emu.port().out(0x243B, 0x08);
+    emu.port().out(0x253B, 0x08);
+}
+
 // Count how many distinct handlers in the current dispatcher will claim
 // a given port. Exposed by walking through write() and counting side
 // effects is awkward — instead we use the public in() once and cross-check
@@ -736,6 +745,149 @@ static void test_group_registration() {
               "0xFFDF routes to mouse Y (not Specdrum)",
               rd != 0xFF,
               DETAIL("ffdf=0x%02x", rd));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-01: Kempston mouse ports decoded by 12 bits only (A11..A0)
+    //
+    // VHDL zxnext.vhd:2668-2670:
+    //   port_fadf <= '1' when cpu_a(11 downto 8) = X"A" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    //   port_fbdf <= '1' when cpu_a(11 downto 8) = X"B" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    //   port_ffdf <= '1' when cpu_a(11 downto 8) = X"F" and port_df_lsb = '1'
+    //                                        and port_mouse_io_en = '1'
+    // A15..A12 are DON'T-CARE. Pre-fix the handlers used mask 0xFFFF so
+    // CPU IN A,(0x2ADF) missed the mouse decode in jnext; on real hardware
+    // it returns the mouse buttons byte (= 0x0F idle when mouse enabled,
+    // NOT the default 0x00 returned by the 0x00DF Specdrum/joystick fall-
+    // through with mouse_io_en gating those off). Same shape as Pass-17
+    // V17-NMP-02 / V17-NMP-03 LSB / even-port fixes.
+    //
+    // Discriminative metric: probe at three differently-aliased MSBs
+    // (0x2ADF, 0x5BDF, 0x9FDF) and at the canonical addresses. Each
+    // pair must return the SAME byte AND the buttons-port pair must be
+    // non-zero (0x0F idle wheel + bit3 + ~buttons[2:0]). Pre-fix the
+    // aliased read at the same LSB but wrong MSB routes via the
+    // `0x00FF / 0x00DF` Specdrum-alias handler whose mouse-enabled gate
+    // forces a 0x00 return — distinct from the mouse handler's 0x0F.
+    {
+        nr_write(emu, 0x83, 0xFF);              // mouse enabled (default)
+        const uint8_t b_canonical = emu.port().in(0xFADF);
+        const uint8_t b_aliased_0 = emu.port().in(0x2ADF);
+        const uint8_t b_aliased_1 = emu.port().in(0x5ADF);
+        const uint8_t b_aliased_2 = emu.port().in(0x9ADF);
+        check("V18-NMP-01",
+              "Mouse buttons 0xFADF == 0x2ADF == 0x5ADF == 0x9ADF "
+              "(VHDL port_fadf — A11..A8=A; A15..A12 don't-care)",
+              b_canonical != 0x00
+                && b_canonical == b_aliased_0
+                && b_canonical == b_aliased_1
+                && b_canonical == b_aliased_2,
+              DETAIL("canon=0x%02x 2ADF=0x%02x 5ADF=0x%02x 9ADF=0x%02x",
+                     b_canonical, b_aliased_0, b_aliased_1, b_aliased_2));
+        // X / Y ports (0xFBDF / 0xFFDF) use the same decode template as
+        // the buttons port (A11..A8 = B / F, port_df_lsb LSB-only). The
+        // identical mask fix (0xFFFF → 0x0FFF) is applied to all three —
+        // V18-NMP-01 covers the discriminative case via the buttons port
+        // because the mouse X / Y default-idle values happen to coincide
+        // with the DF-alias handler's 0x00 return, masking the routing
+        // change at default idle. The fix is structurally identical;
+        // no additional discriminative test is reachable without a
+        // KempstonMouse::set_x / set_y test seam (not in scope).
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-02: Profi-Covox DAC ports 0x003F / 0x005F decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2661 / :2664:
+    //   port_dac_A <= ... or (port_3f_lsb = '1' and
+    //                         port_dac_stereo_AD_3f5f_io_en = '1');
+    //   port_dac_D <= ... or (port_5f_lsb = '1' and
+    //                         port_dac_stereo_AD_3f5f_io_en = '1');
+    // port_3f_lsb / port_5f_lsb decode is LSB-only (zxnext.vhd:2549,:2553);
+    // A15..A8 are DON'T-CARE. Pre-fix the handlers used mask 0xFFFF so
+    // OUT (0x123F), A missed the DAC ch A write; on real hardware it
+    // updates ch A (observable via Dac::pcm_left()).
+    {
+        // Reset DAC channels by a known write through canonical addresses.
+        enable_dac(emu);
+        // NR 0x84 bit 3 = port_dac_stereo_AD_3f5f_io_en (Profi enable).
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Establish baseline via canonical 0x003F write.
+        emu.port().out(0x003F, 0x40);           // ch A = 0x40 → pcm_left contributes 0x40 + 0x80 = 0xC0
+        const uint16_t baseline_L = emu.dac().pcm_left();
+        // Write via aliased 0x123F (high byte should be IGNORED per VHDL).
+        emu.port().out(0x123F, 0x60);           // ch A = 0x60 expected → pcm_left = 0x60 + 0x80 = 0xE0
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        check("V18-NMP-02a",
+              "Profi DAC ch A write via OUT (0x123F),A reaches Dac (VHDL "
+              ":2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L && aliased_L == (0x60 + 0x80),
+              DETAIL("baseline_L=0x%04x aliased_L=0x%04x expected=0x%04x",
+                     baseline_L, aliased_L, 0x60 + 0x80));
+        // Same for ch D (0x5F).
+        emu.port().out(0x005F, 0x40);
+        const uint16_t baseline_R = emu.dac().pcm_right();
+        emu.port().out(0x125F, 0x60);
+        const uint16_t aliased_R = emu.dac().pcm_right();
+        check("V18-NMP-02b",
+              "Profi DAC ch D write via OUT (0x125F),A reaches Dac (VHDL "
+              ":2664 port_5f_lsb LSB-only)",
+              aliased_R != baseline_R && aliased_R == (0x80 + 0x60),
+              DETAIL("baseline_R=0x%04x aliased_R=0x%04x expected=0x%04x",
+                     baseline_R, aliased_R, 0x80 + 0x60));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-03: Soundrive Mode 2 DAC ports 0x00F1/F3/F9/FB decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2661-2664 — same pattern as V18-NMP-02. Pre-fix mask
+    // 0xFFFF for all four; fixed to 0x00FF.
+    {
+        enable_dac(emu);
+        // NR 0x84 bit 2 = port_dac_sd2_ABCD_f1f3f9fb_io_en.
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Baseline via canonical 0x00F1 (ch A).
+        emu.port().out(0x00F1, 0x40);
+        const uint16_t baseline_L = emu.dac().pcm_left();
+        // Aliased via 0x12F1 — high byte ignored per VHDL.
+        emu.port().out(0x12F1, 0x60);
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        check("V18-NMP-03",
+              "SD2 DAC ch A write via OUT (0x12F1),A reaches Dac (VHDL "
+              ":2661 port_f1_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L,
+              DETAIL("baseline_L=0x%04x aliased_L=0x%04x", baseline_L, aliased_L));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V18-NMP-04: GS Covox port 0xB3 decoded by LSB only
+    //
+    // VHDL zxnext.vhd:2659:
+    //   port_dac_mono_BC <= '1' when port_b3_lsb = '1'
+    //                                and port_dac_mono_BC_b3_io_en = '1';
+    // port_b3_lsb is LSB-only (zxnext.vhd:2559). Pre-fix mask 0xFFFF; fixed
+    // to 0x00FF. Writing 0xB3 mono-fans to channels B and C
+    // (VHDL :2662-2663).
+    {
+        enable_dac(emu);
+        // NR 0x84 bit 6 = port_dac_mono_BC_b3_io_en.
+        nr_write(emu, 0x84, 0xFF);              // all DAC enables ON
+        // Baseline via canonical 0x00B3.
+        emu.port().out(0x00B3, 0x40);
+        const uint16_t baseline_L = emu.dac().pcm_left();   // ch A+B
+        const uint16_t baseline_R = emu.dac().pcm_right();  // ch C+D
+        // Aliased via 0x12B3 — high byte ignored per VHDL.
+        emu.port().out(0x12B3, 0x60);
+        const uint16_t aliased_L = emu.dac().pcm_left();
+        const uint16_t aliased_R = emu.dac().pcm_right();
+        check("V18-NMP-04",
+              "GS Covox B/C write via OUT (0x12B3),A reaches Dac (VHDL "
+              ":2659 port_b3_lsb LSB-only, A15..A8 don't-care)",
+              aliased_L != baseline_L && aliased_R != baseline_R,
+              DETAIL("baseline_L=0x%04x R=0x%04x aliased_L=0x%04x R=0x%04x",
+                     baseline_L, baseline_R, aliased_L, aliased_R));
     }
 }
 

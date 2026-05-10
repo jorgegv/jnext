@@ -3467,13 +3467,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // wiring on that concern).
     //
     // 0x3F: Profi-only (b3). 0x5F: SD1 ch D (b1) OR Profi ch D (b3).
-    port_.register_handler(0xFFFF, 0x003F, nullptr,
+    // V18-NMP-02 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661, :2664 decode
+    // the Profi-Covox channel A (0x3F) / channel D (0x5F) writes using ONLY
+    // the LSB — they OR-fold with `port_3f_lsb` / `port_5f_lsb` which the
+    // LSB decoder at :2549, :2553 sets when `cpu_a(7:0) = X"3F"` / `X"5F"`
+    // (A15..A8 are DON'T-CARE). Pre-fix the handlers used mask 0xFFFF / val
+    // 0x003F (etc.) requiring the full 16-bit address to match exactly —
+    // software using e.g. OUT (0x123F), A would write the Profi DAC ch A on
+    // real hardware but not in jnext. Fix: change masks to 0x00FF / val 0x003F
+    // (etc.). This makes them equally-specific (8 bits) to the MF+3 readback
+    // handler at LSB 0x3F (read-only, registered earlier), so the dispatcher
+    // routes reads to the MF readback and writes to the DAC — both as VHDL
+    // intends since both decodes are parallel in hardware.
+    port_.register_handler(0x00FF, 0x003F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x08) == 0) return;   // Profi b3 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x005F, nullptr,
+    port_.register_handler(0x00FF, 0x005F, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // 0x5F reachable via SD1 (b1) OR Profi (b3).
@@ -3487,25 +3499,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // when port_dac_mono_AD_fb_io_en is effective, so the 0xFB handler
     // below honours the VHDL gate composition instead of unconditionally
     // routing to ch D.
-    port_.register_handler(0xFFFF, 0x00F1, nullptr,
+    //
+    // V18-NMP-03 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2661-2664 fold
+    // these into `port_dac_A/B/C/D` via `port_f1_lsb / port_f3_lsb / port_f9_lsb
+    // / port_fb_lsb` — LSB-only decode (A15..A8 don't-care). Pre-fix the
+    // handlers used mask 0xFFFF, requiring full 16-bit match; software writing
+    // to e.g. 0x12F1 would update DAC ch A on real hardware but not in jnext.
+    // Fix: change all four to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00F1, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(0, val);
         });
-    port_.register_handler(0xFFFF, 0x00F3, nullptr,
+    port_.register_handler(0x00FF, 0x00F3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(1, val);
         });
-    port_.register_handler(0xFFFF, 0x00F9, nullptr,
+    port_.register_handler(0x00FF, 0x00F9, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x04) == 0) return;   // SD2 b2 gate
             dac_.write_channel(2, val);
         });
-    port_.register_handler(0xFFFF, 0x00FB, nullptr,
+    port_.register_handler(0x00FF, 0x00FB, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             // VHDL zxnext.vhd:2664 — port_dac_D fires on 0xFB when either
@@ -3526,7 +3545,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // and port_dac_mono_BC_b3_io_en='1' else '0'`, routed to channels B
     // and C via the port_dac_B/port_dac_C fan-in at :2662-2663. NR 0x84
     // bit 6 (G114) gates this fan-out.
-    port_.register_handler(0xFFFF, 0x00B3, nullptr,
+    //
+    // V18-NMP-04 (Pass-18 verify-audit fix): VHDL `port_b3_lsb` is LSB-only
+    // (A15..A8 don't-care, per the LSB decoder at zxnext.vhd:2559). Pre-fix
+    // mask 0xFFFF required full 16-bit match — software writing to e.g.
+    // 0x12B3 would update GS Covox B/C on real hardware but not in jnext.
+    // Fix: change to mask 0x00FF.
+    port_.register_handler(0x00FF, 0x00B3, nullptr,
         [this](uint16_t, uint8_t val) {
             if (!dac_enabled_) return;
             if ((effective_internal_port_enable(0x84) & 0x40) == 0) return;   // GS Covox b6
@@ -4341,19 +4366,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // power-on. When firmware clears bit 5 (OUT NR 0x83, 0xDF), the ports
     // decode as unhandled and the floating-bus default (0xFF) is returned.
     // Mirror of the NR 0x82 bit-6 / port-0x001F gate above.
-    port_.register_handler(0xFFFF, 0xFADF,
+    // V18-NMP-01 (Pass-18 verify-audit fix): VHDL zxnext.vhd:2668-2670 decode
+    // the Kempston mouse ports using ONLY 12 address-line bits — A11..A8 must
+    // be 0xA / 0xB / 0xF (port_fadf / port_fbdf / port_ffdf respectively) AND
+    // A7..A0 must equal 0xDF (port_df_lsb). A15..A12 are DON'T-CARE. Pre-fix
+    // the handlers used mask 0xFFFF / val 0xFADF (etc.), requiring the FULL
+    // 16-bit address to match exactly — software using e.g. OUT (0x2ADF), A
+    // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
+    // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
+    // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fadf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFBDF,
+    port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_fbdf();
         },
         nullptr);
-    port_.register_handler(0xFFFF, 0xFFDF,
+    port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
             return mouse_.read_port_ffdf();
