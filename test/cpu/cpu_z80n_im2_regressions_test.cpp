@@ -2521,6 +2521,56 @@ void test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(Result& res) {
               && neg_1 == 0xFFFF, detail);
 }
 
+// ─── V18R-CPU-NIT-01 (Pass-18 reviewer NIT) — LDPIRX MEMPTR-lo strobe ─────
+//
+// VHDL t80n_mcode.vhd:1967 sets LDZ <= '1' at MCycle 1 of LDPIRX. Per
+// t80n.vhd:1181-1182 this writes DI_Reg (the byte fetched on the inner
+// M1) into TmpAddr(7:0) = MEMPTR_lo. At MCycle 1 the inner-M1's DI_Reg
+// is the LDPIRX opcode byte 0xB7. WZ-hi is unchanged.
+//
+// Pre-fix LDPIRX did not touch MEMPTR — divergence from VHDL though with
+// observably zero software impact (no public test/program reads MEMPTR
+// after LDPIRX). Post-fix: MEMPTR_lo = 0xB7 after LDPIRX.
+//
+// Discriminative check protocol:
+//   Pre-set MEMPTR = 0xAB34 (distinctive non-zero high byte, distinctive
+//   non-zero low byte). Execute LDPIRX (ED B7) with HL pointing at a
+//   pattern byte that mismatches A (so the write fires; matches go
+//   through the contention-only path). Read MEMPTR after.
+//   Expected post-fix: 0xAB B7 (hi preserved, lo = 0xB7).
+//   Pre-fix:           0xAB 34 (untouched).
+void test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0000;        // A=0, F=0
+    regs.HL = 0x9000;        // pattern base
+    regs.DE = 0xA000;        // dest
+    regs.BC = 0x0001;        // single iteration
+    regs.MEMPTR = 0xAB34;    // distinctive prior MEMPTR
+    cpu.set_registers(regs);
+
+    mem.ram[0x9000] = 0x55;  // pattern != A (so write fires)
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0xB7;  // LDPIRX
+
+    cpu.execute();
+
+    auto out = cpu.get_registers();
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "MEMPTR post-LDPIRX = 0x%04X (expect 0xABB7: hi=0xAB "
+                  "preserved, lo=0xB7 per LDZ strobe of opcode byte). "
+                  "Pre-fix value would be 0xAB34 (untouched).",
+                  out.MEMPTR);
+    check(res, "V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE",
+          out.MEMPTR == 0xABB7, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 // Note: V18R-CPU-01 (Pass-18 reviewer) discriminative tests live there too.
@@ -2671,6 +2721,8 @@ int main() {
     // collision) nor accidentally promote to ULA via to_devidx().
     test_v18r_cpu_02_dma_raise_no_pollute_ctc7(res);
     test_v18r_cpu_02_dma_raise_no_pollute_ula(res);
+    // V18R-CPU-NIT-01 (pass-18 reviewer NIT) — LDPIRX MEMPTR-lo strobe.
+    test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
