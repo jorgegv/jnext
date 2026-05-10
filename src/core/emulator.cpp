@@ -2404,6 +2404,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // per-scanline change-log stays symmetric with port-FF / NR 0x22
         // by routing every fan-out through Ula::set_screen_mode).
         renderer_.ula().set_screen_mode(port_ff_reg_);
+        // V12-NMP-01 (Pass-12 verify-audit fix): VHDL zxnext.vhd:3635 ties
+        // `port_ff_interrupt_disable <= port_ff_reg(6)` combinationally —
+        // both the NR 0x22 b2 fan-out (:3620) AND the NR 0xC4 b0 (NOT)
+        // fan-out (:3622) feed the same flip-flop. VHDL :6711 then drives
+        // `ula_int_en <= ... & (not port_ff_interrupt_disable)` into the
+        // ULA-INT comparator. jnext maintains a separate `ula_int_disabled_`
+        // shadow which the NR 0x22 write_handler at emulator.cpp:1657 sets
+        // from `(v & 0x04) != 0`, but the NR 0xC4 write_handler did NOT
+        // mirror that fan-out. Symptom: software writing NR 0xC4 ← 0x01 to
+        // ENABLE the ULA INT correctly clears `port_ff_reg_(6)`, but the
+        // C++ `ula_int_disabled_` shadow + `video_timing_.interrupt_enable()`
+        // gate stay stuck at the previous state — the scheduler keeps the
+        // ULA INT off, AND the NR 0xC4 read at line 2417 returns the stale
+        // shadow instead of the live `port_ff_reg(6)` state. Both NR 0x22
+        // and NR 0xC4 must update the same shadows; mirror the NR 0x22
+        // pattern (write_handler + video_timing_ fan-out).
+        ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
+        video_timing_.set_interrupt_enable(!ula_int_disabled_);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
         return v;
