@@ -1490,6 +1490,133 @@ void test_v11_cpu_02_pixeldn_row191_wrap_unchanged(Result& res) {
           out.HL == 0x5800, detail);
 }
 
+// ─── V12 (Pass-12 reviewer NIT) ──────────────────────────────────────────
+
+// V12-CPU-NIT-02 — OUTINB extended-M1 emits per-T-state contend-no-MREQ
+// on IR (refresh pair) instead of raw `tstates += 1`.
+//
+// VHDL/FUSE oracle:
+//   t80n_mcode.vhd:2519-2530 OUTINB MCycle 1 sets `TStates <= "101"` (=5T),
+//   i.e. the inner-M1 of the 0x90 byte is extended by 1T over the standard
+//   4T M1. Address bus during M1 refresh + extended T-state is IR (the
+//   refresh pair). Per zxula.vhd:582-600 the contention gate fires on
+//   (hc_adj × vc × contention_en) regardless of MREQ, so the 1T extended-M1
+//   must traverse the gate.
+//
+//   FUSE z80_ed.c:334 OUTI emits `contend_read_no_mreq(IR, 1)` BEFORE the
+//   `readbyte(HL)` for exactly this purpose. OUTINB shares the same MCycle
+//   shape as OUTI (per the unified VHDL when-clause at line 2516-2519:
+//   "10100011" | "10101011" | "10110011" | "10111011" | x"90") so it
+//   emits the same per-T-state contention.
+//
+// Pre-fix: raw `tstates += 1` advanced the FUSE clock but bypassed the
+// contention gate entirely. On contended IR addresses during the active
+// raster window, the per-cycle stretch was missed.
+// Post-fix: `contend_read_no_mreq(IR, 1)` traverses
+// ContentionModel::contention_tick → emits per-cycle stretch when IR is
+// on a contended bank.
+//
+// Discriminative check protocol:
+//   Two contended fixtures, identical except for I (and therefore IR).
+//   Fixture A: I=0x40 → IR=0x40NN ∈ slot 2 (set contended → page 0x0A).
+//   Fixture B: I=0x80 → IR=0x80NN ∈ slot 4 (page 0x10, non-contended).
+//   With fix: A emits contend_read_no_mreq stretch; B does not. delta_A > delta_B.
+//   Without fix: both emit raw tstates+=1 → delta_A == delta_B (no
+//   contention-stretch contribution from the extended M1 in either).
+//
+// Revert protocol: restore `tstates += 1;` and remove the
+// `contend_read_no_mreq(ir, 1);` call → A stretch == B stretch → assertion
+// FAILS.
+//
+// Note: the wrapper's contend_read pair (z80_cpu.cpp:580-581) already adds
+// M1 contention against PC (slot 4 = page 0x10, non-contended in this
+// fixture) — that contribution is identical for A and B and cancels out
+// in the delta.
+void test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(Result& res) {
+    auto run_outinb_with_I = [](uint8_t i_reg, uint8_t slot2_page) -> uint32_t {
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+
+        ContentionModel cm;
+        cm.build(MachineType::ZX48K);
+        cm.set_cpu_speed(0);
+        cm.set_contention_disable(false);
+
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.reset(true);
+        // Slot 2 covers 0x4000-0x5FFF — IR=0x40NN lands here when I=0x40.
+        mmu.set_page(2, slot2_page);
+        // Slot 4 (PC=0x8000): non-contended (page 0x10) so PC M1 stretch
+        // is identical between fixtures.
+        mmu.set_page(4, 0x10);
+        // Slot 5 (HL=0xA000): non-contended.
+        mmu.set_page(5, 0x10);
+        // Slot 6 (= 0xC000-0xDFFF, where IR=0x80NN lands when I=0x80):
+        // non-contended page so fixture B IR sits on non-contended bank.
+        mmu.set_page(6, 0x10);
+
+        z80_set_contention_runtime(&cm, &mmu, MachineType::ZX48K);
+
+        prep_cpu(cpu, mem);
+        auto regs = cpu.get_registers();
+        regs.PC = 0x8000;
+        regs.HL = 0xA000;        // slot 5 (non-contended) — read does not stretch
+        regs.BC = 0x00FE;        // ULA port (bit 0=0 → port-contended on ZX48K),
+                                 // identical for both fixtures so cancels in delta
+        regs.I  = i_reg;         // controls IR upper byte → slot routed
+        regs.R  = 0x00;          // R increments via wrapper (+2) → low byte ≈ 0x02
+        cpu.set_registers(regs);
+
+        mem.ram[0xA000] = 0x42;  // source byte for HL read
+        mem.ram[0x8000] = 0xED;
+        mem.ram[0x8001] = 0x90;  // OUTINB
+
+        // tstates=2 → hc=4 at start, hc_adj=5 → wait_s=1 → emits stretch
+        // when an MREQ-or-IORQ (or no-MREQ) cycle fires on a contended page.
+        *fuse_z80_tstates_ptr() = 2;
+        cpu.execute();
+        uint32_t total = *fuse_z80_tstates_ptr() - 2u;
+
+        detach_contention();
+        return total;
+    };
+
+    // Fixture A: I=0x40 → IR=0x40NN ∈ slot 2 (page 0x0A — ZX48K-contended).
+    uint32_t total_A = run_outinb_with_I(0x40, 0x0A);
+    // Fixture B: I=0x80 → IR=0x80NN ∈ slot 4 (page 0x10 — non-contended).
+    // (Slot 4 in fixture A is also page 0x10, but I=0x80 routes IR to slot 4
+    // 0x80NN, so the IR T-state hits a non-contended page for B.)
+    // Wait — the path actually takes us to slot 4 0x80NN if slot 4 is 0x8000-0x9FFF.
+    // Slot 4 = 0x8000-0x9FFF, slot 5 = 0xA000-0xBFFF. 0x80NN → slot 4.
+    // We already set slot 4 = 0x10 (non-contended). Good.
+    uint32_t total_B = run_outinb_with_I(0x80, 0x0A);
+
+    // Without the V12-CPU-NIT-02 fix (raw `tstates += 1`):
+    //   Fixture A and B differ only in IR routing. The raw +1 does not
+    //   traverse the contention gate, so total_A == total_B.
+    // With the fix (`contend_read_no_mreq(IR, 1)`):
+    //   Fixture A's IR T-state traverses the contention gate on a contended
+    //   bank → emits per-cycle stretch. Fixture B's IR T-state traverses
+    //   the gate on a non-contended bank → no stretch contribution.
+    //   total_A > total_B.
+    bool extended_m1_stretch_observed = (total_A > total_B);
+
+    char detail[260];
+    std::snprintf(detail, sizeof(detail),
+                  "OUTINB total: A (IR=0x40NN, slot 2 contended)=%u, "
+                  "B (IR=0x80NN, slot 4 non-contended)=%u, delta=%d "
+                  "(expect > 0 = IR no-MREQ stretch contributes only "
+                  "when IR is on a contended bank — Pre-fix raw "
+                  "`tstates += 1` cannot distinguish A from B).",
+                  total_A, total_B,
+                  static_cast<int>(total_A) - static_cast<int>(total_B));
+    check(res, "V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ",
+          extended_m1_stretch_observed, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 
@@ -1533,6 +1660,8 @@ int main() {
     test_v11_cpu_01_im2_ddfd_ed_no_reti(res);
     test_v11_cpu_02_pixeldn_band3_wrap_preserves_h_high(res);
     test_v11_cpu_02_pixeldn_row191_wrap_unchanged(res);
+    // V12 (pass-12 reviewer NIT)
+    test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
