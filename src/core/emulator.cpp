@@ -4365,7 +4365,41 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // `port_ctc_io_en = '1'`, where
     // `port_ctc_io_en <= internal_port_enable(27)` = NR 0x85 bit 3
     // (VHDL :2442). When cleared, the port is silenced.
-    port_.register_handler(0xF8FF, 0x183B,
+    //
+    // V21-NMP-02 (Pass-21 verify-audit fix): the CTC entity at
+    // device/ctc.vhd:101-146 instantiates NUM_CTC=4 channels selected
+    // by `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076 — the
+    // ZXN entity instance overrides NUM_CTC_LOG2 to 3). The select
+    // process at ctc.vhd:128-137 matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only, so addresses with A10=1 (= 0x1C3B..0x1F3B)
+    // produce sel(0..3) = "0000" — no channel selected. The output
+    // mux at ctc.vhd:164-176 zeroes o_cpu_d when no sel bit is set
+    // (each dout(I) AND sel(I), then OR-fold across I in 0..3); the
+    // iowr fan-out at :141-146 stays 0 too, so writes are dropped.
+    //
+    // Pre-fix the C++ port handler used mask 0xF8FF, leaving A10 a
+    // don't-care bit. `(p >> 8) & 3` then aliased 0x1C3B..0x1F3B to
+    // channels 0..3 (because the high-nibble 0x1C/0x1D/0x1E/0x1F give
+    // (0xC/0xD/0xE/0xF) & 0x03 = 0/1/2/3). Reads returned channel 0..3
+    // data instead of VHDL's 0x00 (no decode); writes hit channels
+    // instead of being silently dropped.
+    //
+    // Fix: tighten the mask to 0xFCFF — A10:8 now mask in too. The
+    // value 0x183B already has A10:8 = "000", so the matched range is
+    // 0x183B (channel 0), 0x193B (channel 1), 0x1A3B (channel 2),
+    // 0x1B3B (channel 3) only. Addresses 0x1C3B..0x1F3B no longer match
+    // this handler and fall through to the floating-bus default
+    // (mirroring VHDL's no-decode behaviour).
+    //
+    // Note: VHDL port_ctc='1' for the full 0x183B..0x1F3B range (the
+    // decode is wider than the actual channel count), but the CTC
+    // entity zeroes its output when A10:8 ≥ 4. The functional behaviour
+    // observed on the CPU bus is identical to "no decode + floating
+    // bus 0xFF" for the A10=1 range when no other handler matches.
+    // Class-(c) inert divergence in practice (no software writes
+    // 0x1C3B-0x1F3B), but the readback / write-drop contract is part
+    // of the VHDL surface.
+    port_.register_handler(0xFCFF, 0x183B,
         [this](uint16_t p) -> uint8_t {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
             return ctc_.read((p >> 8) & 3);

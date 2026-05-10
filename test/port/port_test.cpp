@@ -1349,18 +1349,25 @@ static void test_group_nr_gating() {
               DETAIL("NR85=0x%02x after clearing bit %u", rb, r.bit));
     }
 
-    // NR85-03b: CTC top-of-range 0x1F3B. VHDL 2690: cpu_a(15:11)="00011".
-    // 0x1F3B = 0001_1111_0011_1011 → bits 15:11 = 00011 ✓. Handler must
-    // decode. Current C++ only registers 0x183B..0x1B3B (emulator.cpp:715),
-    // so 0x1F3B will hit the 0x00FF/0x003B stub and return 0xFF. FAIL
-    // expected until CTC range is extended.
+    // NR85-03b: CTC alias-of-range 0x1F3B. VHDL 2690 sets port_ctc='1'
+    // for cpu_a(15:11)="00011" (full 0x183B..0x1F3B). But the CTC entity
+    // device/ctc.vhd has NUM_CTC=4 channels and the select process at
+    // :128-137 matches `if I = unsigned(i_port_ctc_sel)` for I in 0..3.
+    // With i_port_ctc_sel = cpu_a(10:8) (zxnext.vhd:4076, 3 bits), an
+    // alias address with A10=1 (= 0x1C3B..0x1F3B) produces sel(0..3)="0000"
+    // — no channel selected — so the output mux at :164-176 returns 0x00
+    // and the iowr fan-out at :141-146 is 0 (writes dropped). On the CPU
+    // bus this is observationally identical to no-decode: the read
+    // returns the floating-bus default. (V21-NMP-02 fix — previous test
+    // wrongly expected 0x1F3B to decode to a CTC channel.)
     {
         Emulator emu; build_next_emulator(emu);
         uint8_t rd = emu.port().in(0x1F3B);
         check("NR85-03b",
-              "CTC 0x1F3B (top of decoded range) has a real handler",
-              rd != 0xFF,
-              DETAIL("ctc_top=0x%02x", rd));
+              "CTC alias 0x1F3B (A10=1) returns floating-bus 0xFF — "
+              "ctc.vhd:128-137 sel does not match for I in 0..3 [V21-NMP-02]",
+              rd == 0xFF,
+              DETAIL("ctc_top=0x%02x expected 0xFF", rd));
     }
 
     // NR85-03c: CTC near-miss 0x203B (bits 15:11=00100). VHDL 2690.
@@ -1764,6 +1771,65 @@ static void test_group_wired_or() {
               "Gated AY 0xFFFD read returns floating byte (not 0x77)",
               rd != 0x77,
               DETAIL("read=0x%02x expected != 0x77", rd));
+    }
+
+    // V21-NMP-02 — CTC port mask excludes A10=1 alias range.
+    //
+    // VHDL zxnext.vhd:2690: `port_ctc <= '1' when cpu_a(15:11) = "00011"
+    //                                  and port_3b_lsb = '1' and
+    //                                  port_ctc_io_en = '1' else '0';`
+    // The CTC entity at device/ctc.vhd has NUM_CTC=4 channels selected by
+    // `i_port_ctc_sel = cpu_a(10 downto 8)` (zxnext.vhd:4076). The select
+    // process (ctc.vhd:128-137) matches `if I = unsigned(i_port_ctc_sel)`
+    // for I in 0..3 only; A10:8 = "100"..."111" (= 4..7) produce
+    // sel(0..3) = "0000" — no channel decoded. The output mux at
+    // ctc.vhd:164-176 zeros o_cpu_d (each dout(I) AND sel(I) OR-folded),
+    // and the iowr fan-out at :141-146 stays 0 too.
+    //
+    // Pre-V21-NMP-02 the jnext handler used mask 0xF8FF, leaving A10 a
+    // don't-care, and `(p >> 8) & 3` aliased 0x1C3B..0x1F3B onto
+    // channels 0..3 (0x1C/0x1D/0x1E/0x1F & 0x03 = 0/1/2/3). The fix
+    // tightens the mask to 0xFCFF; addresses with A10=1 fall through to
+    // floating-bus, matching VHDL's no-decode behaviour.
+    //
+    // Discriminative: write a sentinel control byte to 0x1C3B (would-be
+    // channel 0 alias) and confirm a subsequent read at 0x183B (real
+    // channel 0) does NOT observe the alias write. Pre-fix the alias
+    // hit channel 0 and the read returned the corresponding state;
+    // post-fix the alias is dropped and channel 0 stays at its
+    // power-on / pre-write state.
+    {
+        Emulator emu; build_next_emulator(emu);
+        // Power-on: NR 0x85 bit 3 = 1 by default, so the CTC port is
+        // open. NR 0xC5 bit 0 needs to be set for int_en path; not
+        // required here (we're testing the address-decode gate).
+
+        // Probe sequence: read real channel 0 at 0x183B before any
+        // alias-port write, then write to alias 0x1C3B, then read
+        // channel 0 again. If the alias hits channel 0 (pre-fix),
+        // the two reads will likely differ (channel 0 mutated by
+        // the alias write). Post-fix, the alias is dropped and the
+        // two reads observe the same channel-0 state.
+        emu.port().in(0x183B);   // settle / read once
+        const uint8_t pre  = emu.port().in(0x183B);
+        emu.port().out(0x1C3B, 0x87);  // alias to ch0 pre-fix; dropped post-fix
+        const uint8_t post = emu.port().in(0x183B);
+        check("V21-NMP-02-A",
+              "CTC alias address 0x1C3B (A10=1) does NOT reach channel 0 "
+              "— VHDL ctc.vhd:128-137 only decodes sel for I in 0..3 "
+              "[zxnext.vhd:2690, ctc.vhd:128-137, :164-176]",
+              pre == post,
+              DETAIL("pre=0x%02x post=0x%02x (must be equal)", pre, post));
+
+        // Companion read-side check: an IN at 0x1F3B (the highest alias)
+        // must return the floating-bus default (0xFF), NOT channel-3
+        // contents. Pre-fix the handler aliased it to channel 3.
+        const uint8_t rd_alias = emu.port().in(0x1F3B);
+        check("V21-NMP-02-B",
+              "IN at CTC alias 0x1F3B returns floating-bus 0xFF "
+              "(VHDL no-decode for A10=1)",
+              rd_alias == 0xFF,
+              DETAIL("rd_alias=0x%02x expected 0xFF", rd_alias));
     }
 
     // BUS-03: SCLD read gated by nr_08_port_ff_rd_en (NR 0x08 bit 2) AND
