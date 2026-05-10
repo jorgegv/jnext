@@ -4775,6 +4775,80 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
         emu.reset();
     }
 
+    // ── V13-NMP-01 — NR 0x05 bit 2 Pentagon-mode cache canonicalisation
+    //   (Pass-13). VHDL zxnext.vhd:5832-5841 forces `nr_05_5060 <= '0'`
+    //   continuously every clock when `nr_03_machine_timing(2) = '1'`
+    //   (Pentagon mode) — the IF branch is priority-1 over the
+    //   `nr_05_we`/hotkey branches, so even an explicit NR 0x05 write
+    //   with bit 2 = 1 gets overwritten on the very next clock edge.
+    //   Pass-10 added the READ-side mask (TC-NR05-PENTAGON) but the
+    //   underlying cache still leaked bit 2 = 1: when Pentagon is later
+    //   exited, the read mask stops firing and the leaked bit surfaces
+    //   verbatim — diverging from the VHDL FF (which stays '0' until a
+    //   fresh write or F3 toggle).
+    //
+    //   Two discriminators in a single check:
+    //     A. Write-while-Pentagon: Activate Pentagon, write NR 0x05 with
+    //        bit 2 = 1, exit Pentagon, read. Expect bit 2 = 0 (VHDL FF
+    //        held at 0 throughout the write attempt). Pre-fix: cached
+    //        bit 2 = 1 from the write; read returns 1.
+    //     B. Pentagon-edge-clear: Non-Pentagon, write NR 0x05 with bit
+    //        2 = 1 (FF latches 1), activate Pentagon (FF forced to 0
+    //        next clock; the NR 0x03 fan-out must clear cached bit 2),
+    //        exit Pentagon, read. Expect bit 2 = 0 (FF held at 0 once
+    //        Pentagon engaged; no fresh write to set it). Pre-fix the
+    //        NR 0x03 timing→Pentagon edge does not clear cached(0x05)
+    //        bit 2; read returns 1.
+    //
+    //   Same shape as V11-NMP-02 (NR 0x0A bits 7:5 config_mode gate)
+    //   and V11-NMP-03 (NR 0x06 bit 2 ps2_mode config_mode gate),
+    //   applied here on the Pentagon-timing gate.
+    {
+        emu.reset();
+        // Discriminator A — write while Pentagon is active.
+        // Activate Pentagon via NR 0x03 (bit 7 = 1, dt_lock = 0,
+        // bit 3 = 0, tim_sel = "100" → Pentagon timing 0x04).
+        nr_write(emu, 0x03, 0x80 | (0x04 << 4));     // 0xC0
+        // Confirm Pentagon engaged.
+        const uint8_t timing_a = emu.nextreg().nr_03_machine_timing();
+        // Write bit 2 = 1 (5060) — VHDL silently drops; FF held at 0.
+        nr_write(emu, 0x05, 0x04);
+        // Exit Pentagon (timing → 0x03 +3).
+        nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        const uint8_t got_a = nr_read(emu, 0x05);
+
+        emu.reset();
+        // Discriminator B — Pentagon edge clears prior bit-2 latch.
+        // Non-Pentagon (default boot timing = 0x03 +3). Write bit 2 = 1
+        // (FF latches 1; cached bit 2 = 1).
+        nr_write(emu, 0x05, 0x04);
+        const uint8_t got_b_pre = nr_read(emu, 0x05);
+        // Activate Pentagon (FF forced to 0 next clock — NR 0x03 fan-out
+        // must clear cached bit 2 to mirror the FF state).
+        nr_write(emu, 0x03, 0x80 | (0x04 << 4));     // 0xC0
+        const uint8_t timing_b = emu.nextreg().nr_03_machine_timing();
+        // Exit Pentagon (FF stays at 0 — no fresh NR 0x05 write or F3).
+        nr_write(emu, 0x03, 0x80 | (0x03 << 4));     // 0xB0
+        const uint8_t got_b = nr_read(emu, 0x05);
+
+        check("V13-NMP-01",
+              "NR 0x05 bit 2 Pentagon-mode cache canonicalisation: "
+              "(a) write-while-Pentagon does not leak; "
+              "(b) Pentagon-engagement clears prior bit-2 latch "
+              "[zxnext.vhd:5832-5841 / :5897 / :6701]",
+              (timing_a == 0x04) &&
+              (got_a == 0x00) &&
+              ((got_b_pre & 0x04) == 0x04) &&
+              (timing_b == 0x04) &&
+              (got_b == 0x00),
+              "timing_a=" + hex2(timing_a) +
+              " got_a=" + hex2(got_a) +
+              " got_b_pre=" + hex2(got_b_pre) +
+              " timing_b=" + hex2(timing_b) +
+              " got_b=" + hex2(got_b));
+        emu.reset();
+    }
+
     emu.reset();
 }
 
