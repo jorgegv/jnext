@@ -174,8 +174,12 @@ public:
     /// are consulted via the existing accessors — caller must update
     /// `mem_active_page` BEFORE calling for memory cycles.
     ///
-    /// `port_ulap_io_en` mirrors NR 0x82 bit 4; pass false if not
-    /// modelled.
+    /// `port_ulap_io_en` mirrors NR 0x85 bit 0 (zxnext.vhd:2439 —
+    /// `port_ulap_io_en <= internal_port_enable(24)`; bit 24 is the
+    /// first bit of nr_85). Pass false if not modelled — the model's
+    /// internal `port_ulap_io_en_` shadow is OR-folded with the
+    /// parameter so CPU-side seams that don't have NR access still
+    /// see the correct gate.
     ///
     /// Returns 0 for non-contending cycles, or the per-phase delay
     /// pattern entry (`{6,5,4,3,2,1,0,0}[hc & 7]`) for contending ones.

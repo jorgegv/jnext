@@ -6531,6 +6531,16 @@ void Emulator::load_state(StateReader& r)
     //     surface (NR 0x08 read at zxnext.vhd:5906) to match VHDL.
     //   NR 0x82 bit 1 port_7ffd_io_en (zxnext.vhd:2399): Saved in
     //     NextReg.regs_[0x82]; re-push the bit-1 gate.
+    //   NR 0x85 bit 0 port_ulap_io_en (zxnext.vhd:2439): Saved in
+    //     NextReg.regs_[0x85]; re-push the bit-0 gate. (V16-CPU-01 — the
+    //     V15-CPU-NIT-03 reviewer-promoted fix added the shadow + setter
+    //     + NR 0x85 write handler + init() re-push, but missed the
+    //     load_state re-push. After load, the shadow stays at whatever
+    //     prior value the model held until the next NR 0x85 write —
+    //     so a snapshot with NR 0x85 b0=1 restored on top of a runtime
+    //     where the shadow was previously pulled to 0 leaves ULA+ port
+    //     contention silent at $BF3B/$FF3B until the next NR 0x85 write.
+    //     Same Verify12-memory class-(b) gap pattern; one-line completion.)
     {
         // Rebuild ContentionModel's LUT + per-machine bank decode if the
         // saved machine_type differs from what build() set up (the snapshot
@@ -6544,6 +6554,7 @@ void Emulator::load_state(StateReader& r)
         contention_.set_pending_cpu_speed(cs07);
         contention_.set_contention_disable(mmu_.contention_disabled());
         contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
+        contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
     }
 
     // Audio subsystems.
