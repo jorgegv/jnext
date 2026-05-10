@@ -1,18 +1,20 @@
 // Z80Cpu /INT pulse-window test (machine-aware INT_PULSE_TSTATES).
 //
-// Oracle: VHDL zxnext.vhd:2033 — pulse_count_end formula
+// Oracle: VHDL zxnext.vhd:2017-2033 — pulse_count_end formula
 //   pulse_count_end <= pulse_count(5) and (machine_timing_48 or
 //                       machine_timing_p3 or pulse_count(2));
 // → 48K and +3 release /INT after 32 cycles (bit 5 alone).
 // → 128K, Pentagon and Next-default need bit 5 AND bit 2 → 36 cycles.
 //
-// Z80Cpu uses the same width (with `>` strict comparator at z80_cpu.cpp:421)
-// to expire a pending /INT that the CPU never acknowledged because IFF1=0
-// (e.g. inside an ISR). This test validates both branches.
+// V18R-CPU-01 (post-fix): the drop arm is now UNCONDITIONAL on IFF1, as
+// per VHDL — `pulse_int_n` returns to '1' as soon as `pulse_count_end=1`,
+// regardless of IFF1 state. The Z80's M1 sample sees /INT high once the
+// pulse window has closed, so the INT is not accepted — even if IFF1
+// became '1' between the request and the sample (e.g. via EI/RETI).
 //
-// Execute() flow we exercise:
+// Execute() flow exercised here (post-V18R-CPU-01):
 //   if (int_pending_) {
-//       if (tstates - int_requested_at_ > pulse_width && !iff1) {
+//       if (tstates - int_requested_at_ > pulse_width) {
 //           int_pending_ = false;          // pulse expired, INT discarded
 //       } else if (iff1) {
 //           // service IM1 → push PC, jump 0x0038
@@ -25,11 +27,21 @@
 //   2) Set FUSE tstates=0, request_interrupt() — latches int_requested_at_=0.
 //   3) Set FUSE tstates=delta directly. (No instruction has executed yet.)
 //   4) Call execute() — IFF1 still 0; the pulse-window arm decides whether
-//      int_pending_ stays set or is cleared. The NOP at PC=0 runs; PC→1.
+//      int_pending_ stays set or is cleared. The NOP at PC=0 runs; PC→1
+//      and tstates advances by 4.
 //   5) Re-enable IFF1, call execute() again at PC=1.
-//      - If int_pending_ was cleared, NOP runs again and PC→2.
+//      - At the second execute(), the pulse-window arm checks again
+//        (with the +4-from-NOP T-state advance). If the pulse has expired
+//        across either boundary, int_pending_ is cleared → NOP runs again
+//        (PC=2).
 //      - If int_pending_ persists, IM1 fires: PC=1 is pushed, jump 0x0038.
 //   6) Final PC distinguishes the two outcomes (0x0002 vs 0x0038).
+//
+// Note (V18R-CPU-01): the relevant boundary therefore lies at
+//     delta + 4(NOP) > pulse_width
+// → discarded if delta > pulse_width - 4.
+// 48K/+3 (width=32): discarded for delta>=29.
+// 128K/Pent/Next (width=36): discarded for delta>=33.
 
 #include "cpu/z80_cpu.h"
 #include <cstdint>
@@ -119,42 +131,65 @@ static void check(Result& res, const char* name, bool ok, const char* detail = "
 int main() {
     Result res;
 
-    // 48K / +3 timing — pulse width 32, expires at delta > 32 → first
-    // discard at delta = 33.
+    // 48K / +3 timing — pulse width 32. Discard boundary at the SECOND
+    // execute() lies at (delta_initial + 4_NOP) > 32, i.e. delta>=29.
     {
-        const bool d32 = int_was_discarded(true, 32);  // 32 ≤ 32 → live
-        const bool d33 = int_was_discarded(true, 33);  // 33 > 32  → discarded
-        check(res, "INT-PULSE-48K-edge-32",
-              !d32, "48K/+3 (width=32): delta=32 must NOT discard /INT");
-        check(res, "INT-PULSE-48K-past-33",
-              d33,  "48K/+3 (width=32): delta=33 must discard /INT");
+        const bool d28 = int_was_discarded(true, 28);  // 28+4=32, not >32 → live
+        const bool d29 = int_was_discarded(true, 29);  // 29+4=33, >32      → discarded
+        check(res, "INT-PULSE-48K-edge-28",
+              !d28, "48K/+3 (width=32): delta=28 must NOT discard /INT");
+        check(res, "INT-PULSE-48K-past-29",
+              d29,  "48K/+3 (width=32): delta=29 must discard /INT");
     }
 
-    // 128K / Pentagon / Next-default — pulse width 36, expires at delta > 36
-    // → first discard at delta = 37.
+    // 128K / Pentagon / Next-default — pulse width 36. Discard boundary
+    // at second execute lies at (delta_initial + 4_NOP) > 36, i.e. delta>=33.
     {
+        const bool d32 = int_was_discarded(false, 32);
         const bool d33 = int_was_discarded(false, 33);
-        const bool d36 = int_was_discarded(false, 36);
-        const bool d37 = int_was_discarded(false, 37);
-        check(res, "INT-PULSE-128K-inside-33",
-              !d33, "128K/Pent/Next (width=36): delta=33 must NOT discard");
-        check(res, "INT-PULSE-128K-edge-36",
-              !d36, "128K/Pent/Next (width=36): delta=36 must NOT discard");
-        check(res, "INT-PULSE-128K-past-37",
-              d37,  "128K/Pent/Next (width=36): delta=37 must discard");
+        check(res, "INT-PULSE-128K-edge-32",
+              !d32, "128K/Pent/Next (width=36): delta=32 must NOT discard");
+        check(res, "INT-PULSE-128K-past-33",
+              d33,  "128K/Pent/Next (width=36): delta=33 must discard");
     }
 
-    // The 4-T-state divergence band that this fix addresses: at delta=33
-    // through delta=36 the 48K/+3 pulse is gone but the 128K/Pent/Next
-    // pulse is still live. This is exactly the window where the previous
-    // hardcoded 32 was wrong for non-48K/+3 machines.
+    // The 4-T-state divergence band that the original Pass-1 fix addressed:
+    // at delta=29 through delta=32 the 48K/+3 pulse is gone (post-NOP) but
+    // the 128K/Pent/Next pulse is still live. This is exactly the window
+    // where the previous hardcoded 32 was wrong for non-48K/+3 machines.
     {
-        const bool short_expired = int_was_discarded(true,  33);
-        const bool long_live     = !int_was_discarded(false, 33);
-        check(res, "INT-PULSE-DELTA33-48K-expires",
-              short_expired, "48K/+3 pulse must expire at delta=33");
-        check(res, "INT-PULSE-DELTA33-128K-live",
-              long_live,     "128K/Pent/Next pulse must still be live at delta=33");
+        const bool short_expired = int_was_discarded(true,  29);
+        const bool long_live     = !int_was_discarded(false, 32);
+        check(res, "INT-PULSE-DELTA-DIVERGENCE-48K-expires",
+              short_expired, "48K/+3 pulse must expire across delta=29 boundary");
+        check(res, "INT-PULSE-DELTA-DIVERGENCE-128K-live",
+              long_live,     "128K/Pent/Next pulse must still be live at delta=32");
+    }
+
+    // V18R-CPU-01 discriminative regression — pulse-expired drop must be
+    // UNCONDITIONAL on IFF1. We pick delta such that the FIRST execute()
+    // runs the NOP (IFF1=0 → no accept, no expiry yet) but the SECOND
+    // execute()'s entry tstates exceed the pulse window AND IFF1=1.
+    //
+    // 48K/+3, width=32: delta=30 → after first NOP tstates=34 > 32.
+    //   - With V18R-CPU-01 fix: drop fires unconditionally → NOP runs at
+    //     second exec → PC=2 → discarded=true.
+    //   - Pre-fix (drop gated on !IFF1): IFF1=1 at second exec → drop arm
+    //     skipped → accept arm runs → INT serviced → PC=0x0038.
+    //
+    // Same model for 128K/Pent/Next (width=36): delta=34 → after first NOP
+    // tstates=38 > 36.
+    {
+        const bool d_48K_30 = int_was_discarded(true,  30);
+        const bool d_128_34 = int_was_discarded(false, 34);
+        check(res, "INT-PULSE-V18R-CPU-01-48K-pulse-expired-iff1-up",
+              d_48K_30,
+              "V18R-CPU-01: 48K/+3 delta=30 must DROP at 2nd execute() "
+              "even though IFF1=1 (VHDL /INT line went high at T=32)");
+        check(res, "INT-PULSE-V18R-CPU-01-128K-pulse-expired-iff1-up",
+              d_128_34,
+              "V18R-CPU-01: 128K/Pent/Next delta=34 must DROP at 2nd "
+              "execute() even though IFF1=1 (VHDL /INT line went high at T=36)");
     }
 
     // Setter / getter round-trip + default value (preserves byte-identical
