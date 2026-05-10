@@ -642,11 +642,44 @@ void SdCardDevice::cmd18_read_multiple_block() {
 
 void SdCardDevice::cmd24_write_single_block() {
     uint32_t sector = cmd_arg();
+    uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
     sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK sector={} (byte={:#010x})",
-                    sector, static_cast<uint64_t>(sector) * 512);
+                    sector, byte_addr);
 
     if (!initialized_) {
         queue_r1(0x01);
+        return;
+    }
+
+    // V13-DIVMMC-01 (Pass-13 verify-audit fix, 2026-05-10): SD Physical
+    // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout — bit 6 =
+    // PARAMETER_ERROR = "argument was out of the allowed range". When
+    // the host issues CMD24 with a sector index past end-of-image the
+    // card MUST set R1 bit 6 in the IMMEDIATE response and reject the
+    // command BEFORE entering the data-write phase. Per § 4.3.4 (Data
+    // Write Sequence): "If the card detects an error in the command
+    // (R1 ≠ 0x00), it does not proceed to the data phase" — the data
+    // phase is conditional on R1=0x00.
+    //
+    // Pass-12 V12-DIVMMC-02 already detected the past-EOF condition at
+    // the END of the data phase (after receiving 512+CRC bytes) and
+    // emitted the 0x0D (write error) data response token. That is also
+    // spec-allowed when R1 was OK and the card later detected an error,
+    // but it is the WEAKER variant and is asymmetric with the Pass-12
+    // V12-DIVMMC-04 fix that gave CMD17/CMD18 the EARLIER R1-bit-6
+    // rejection. This fix harmonises CMD24 with CMD17/18 by short-
+    // circuiting on the past-EOF check before the bridge to data phase.
+    //
+    // Class-(c) latent for the boot path (TBBlue/FatFs/esxdos never
+    // write past EOF), but real-spec divergence — the pre-fix path
+    // accepted 514 wasted bytes from a misbehaving host instead of
+    // rejecting at R1.
+    if (byte_addr + 512 > file_size_) {
+        sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} → R1 PARAMETER_ERROR (no data phase)",
+                       sector, byte_addr, file_size_);
+        queue_r1(0x40);  // R1 bit 6 = PARAMETER_ERROR
+        // Do NOT set pending_write_after_r1_ — there is no data phase
+        // for an out-of-range argument per SD spec § 4.3.4.
         return;
     }
 
