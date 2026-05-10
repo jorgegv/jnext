@@ -5432,6 +5432,42 @@ static void test_v19r_nmp_xadc_read_stubs(Emulator& emu) {
               "(VHDL '0' & nr_f8_xadc_daddr) [zxnext.vhd:6277-6278, :7555]",
               got == 0x45, detail_eq(got, uint8_t{0x45}));
     }
+
+    // V20-NMP-XADC — NR 0xF9 / NR 0xFA XADC d0/d1 composed-read stubs.
+    //
+    // VHDL zxnext.vhd:6280-6284 read mux:
+    //   when X"F9" => port_253b_dat <= nr_f9_xadc_d0;
+    //   when X"FA" => port_253b_dat <= nr_fa_xadc_d1;
+    //
+    // For Issue 2/3 (g_board_issue<=1, zxnext.vhd:7428-7429),
+    // `nr_f9_xadc_d0` and `nr_fa_xadc_d1` are hard-wired to
+    // (others=>'0'). jnext seeds NR 0x0F = 0x00 (Issue 2), so the
+    // VHDL-faithful readback is 0x00 always for BOTH registers.
+    //
+    // Pre-V20 the bare cache stored the full written byte verbatim,
+    // making the readback leak the last-written value (Class-(c) inert
+    // divergence). Discriminative: write a non-zero byte and verify the
+    // read returns 0x00, not the raw cache. Same shape as V19R-NMP-NIT-03.
+    {
+        emu.reset();
+        nr_write(emu, 0xF9, 0x5A);
+        const uint8_t got = nr_read(emu, 0xF9);
+        check("V20-NMP-XADC-F9",
+              "NR 0xF9 XADC d0 composed-read stub returns 0x00 even after "
+              "0x5A write (Issue 2 path: nr_f9_xadc_d0 hard-wired to 0) "
+              "[zxnext.vhd:6280-6281, :7428]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
+    {
+        emu.reset();
+        nr_write(emu, 0xFA, 0xA5);
+        const uint8_t got = nr_read(emu, 0xFA);
+        check("V20-NMP-XADC-FA",
+              "NR 0xFA XADC d1 composed-read stub returns 0x00 even after "
+              "0xA5 write (Issue 2 path: nr_fa_xadc_d1 hard-wired to 0) "
+              "[zxnext.vhd:6283-6284, :7429]",
+              got == 0x00, detail_eq(got, uint8_t{0x00}));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
