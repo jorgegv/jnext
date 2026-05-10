@@ -2653,6 +2653,95 @@ void test_v18r_cpu_02_dma_raise_no_pollute_ula(Result& res) {
           !pre_ula && !post_ula && pre_c8 == post_c8, detail);
 }
 
+// ─── V19-IM2-03 (pass-19) — int_unq one-shot semantic ───────────────────────
+//
+// VHDL: zxnext.vhd:1946-1947 — `im2_int_unq[i] <= nr_20_we and nr_wr_dat(N)`,
+// where `nr_20_we` is a one-cycle pulse on every NR 0x20 write. So the
+// per-device `i_int_unq` input to the im2_peripheral wrapper is high for
+// EXACTLY ONE clock cycle. After that cycle, im2_int_req stays latched
+// until isr_serviced (per im2_peripheral.vhd:167-178) — but it does NOT
+// re-set on subsequent ticks because i_int_unq has gone back to 0.
+//
+// Pre-V19 jnext set dev_[i].int_unq=true in raise_unq() and the only
+// place that cleared it was step_pulse() when a pulse-mode pulse
+// terminated. In IM2 mode the pulse fabric never fires for non-exception
+// devices, so int_unq stayed forever. Cycle pattern:
+//   1. raise_unq(LINE)  → int_unq=1, im2_int_req=1, int_status=1.
+//   2. tick(): step_devices Phase 1 latches im2_int_req from int_unq.
+//      Phase 2 advances S_0→S_REQ.
+//   3. ack_vector(): S_REQ→S_ACK.
+//   4. tick(): S_ACK→S_ISR.
+//   5. RETI seen: tick() Phase 2 clears im2_int_req at S_ISR→S_0.
+//   6. NEXT tick: int_unq STILL=1 → re-set im2_int_req → S_0→S_REQ →
+//      ANOTHER spurious interrupt for the same NR 0x20 write.
+// VHDL never re-triggers because i_int_unq=0 by tick #6.
+//
+// Fix: clear int_unq one-shot at end of tick() so it's "consumed" within
+// one tick's view, matching VHDL one-cycle semantic.
+//
+// Discriminative check: raise_unq(LINE) in IM2 mode, drive through
+// S_0→S_REQ→S_ACK→S_ISR→S_0 cycle, then tick once more. Pre-fix: device
+// re-enters S_REQ. Post-fix: device stays at S_0.
+void test_v19_im2_03_int_unq_one_shot_after_isr(Result& res) {
+    detach_contention();
+
+    Im2Controller im2;
+    using Dev = Im2Controller::DevIdx;
+    using DevState = Im2Controller::DevState;
+    im2.reset();
+    im2.set_mode(true);   // IM2 mode
+    im2.set_int_en(Dev::LINE, true);
+
+    // Step 1: raise_unq(LINE).
+    im2.raise_unq(Dev::LINE);
+    im2.tick(1);   // device should now be S_REQ
+    DevState s_after_raise = im2.state(Dev::LINE);
+
+    // Step 2: simulate IntAck — call ack_vector to advance S_REQ → S_ACK.
+    (void)im2.ack_vector();
+    DevState s_after_ack = im2.state(Dev::LINE);
+
+    // Step 3: next tick advances S_ACK → S_ISR.
+    im2.tick(1);
+    DevState s_after_acktick = im2.state(Dev::LINE);
+
+    // Step 4: simulate RETI — call on_m1_cycle(0xED) then on_m1_cycle(0x4D)
+    // to fire the reti_seen pulse. The on_m1_cycle for 4D pulses
+    // reti_seen_pulse_; the next tick's step_devices() will clear S_ISR
+    // because the IEI snapshot includes the pulse.
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x4D);
+    im2.tick(1);
+    DevState s_after_reti = im2.state(Dev::LINE);
+
+    // Step 5: ONE MORE tick. Pre-fix: int_unq still true → device re-enters
+    // S_REQ (phantom re-trigger). Post-fix: int_unq cleared at end of
+    // previous tick → no re-trigger, stays at S_0.
+    im2.tick(1);
+    DevState s_after_extra_tick = im2.state(Dev::LINE);
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "after raise_unq+tick: state=%d (expect S_REQ=1); "
+                  "after ack: state=%d (expect S_ACK=2); "
+                  "after ack_tick: state=%d (expect S_ISR=3); "
+                  "after RETI tick: state=%d (expect S_0=0); "
+                  "after extra tick: state=%d "
+                  "(post-fix: S_0=0; pre-fix: S_REQ=1 phantom re-trigger)",
+                  static_cast<int>(s_after_raise),
+                  static_cast<int>(s_after_ack),
+                  static_cast<int>(s_after_acktick),
+                  static_cast<int>(s_after_reti),
+                  static_cast<int>(s_after_extra_tick));
+    check(res, "V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR",
+          s_after_raise == DevState::S_REQ
+              && s_after_ack == DevState::S_ACK
+              && s_after_acktick == DevState::S_ISR
+              && s_after_reti == DevState::S_0
+              && s_after_extra_tick == DevState::S_0,
+          detail);
+}
+
 }  // namespace
 
 int main() {
@@ -2723,6 +2812,10 @@ int main() {
     test_v18r_cpu_02_dma_raise_no_pollute_ula(res);
     // V18R-CPU-NIT-01 (pass-18 reviewer NIT) — LDPIRX MEMPTR-lo strobe.
     test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(res);
+    // V19-IM2-03 (pass-19) — int_unq one-shot semantic per VHDL
+    // zxnext.vhd:1946-1947 (nr_20_we one-cycle pulse). Pre-fix in IM2 mode
+    // a NR 0x20 unq raised sticky int_unq → phantom re-trigger after RETI.
+    test_v19_im2_03_int_unq_one_shot_after_isr(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

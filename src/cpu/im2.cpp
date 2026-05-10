@@ -76,6 +76,18 @@ void Im2Controller::tick(uint32_t /*master_cycles*/) {
     // step_devices() so it observes this tick's device states + this tick's
     // decoder-sourced dma_delay_ctrl_ pulse.
     step_dma_delay();
+    // V19-IM2-03 fix: int_unq is a ONE-CYCLE pulse from nr_20_we per VHDL
+    // zxnext.vhd:1946-1947 — `im2_int_unq[i] <= nr_20_we and nr_wr_dat(N)`
+    // and `nr_20_we` is a one-cycle write pulse. Pre-fix step_pulse() only
+    // cleared dev_[].int_unq when a pulse-mode pulse terminated; in IM2
+    // mode the pulse fabric never fires for non-exception devices, so a
+    // raise_unq() left int_unq=true permanently. After isr_serviced cleared
+    // im2_int_req at S_ISR→S_0 (Phase 2 of step_devices), the NEXT tick
+    // would re-set im2_int_req from the still-true int_unq → S_0→S_REQ →
+    // phantom re-trigger of the same interrupt forever. VHDL has no such
+    // re-trigger because i_int_unq returns to 0 after one cycle. Clear all
+    // int_unq one-shots at end of tick — matches VHDL semantic.
+    for (int k = 0; k < N; ++k) dev_[k].int_unq = false;
 }
 
 // -----------------------------------------------------------------------------
