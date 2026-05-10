@@ -113,6 +113,86 @@ on the production side AND aligns the test with the spec.
 
 **Class:** (a) — fixable, with same-commit regression test.
 
+#### V12-NMP-02 — port-0xFF write missing ULA-INT-disable shadow fan-out (fix-of-reviewer)
+
+**Location:** `src/core/emulator.cpp` port-0xFF write handler (line ~2914)
+
+**Reviewer NIT:** the independent reviewer at
+`task2/verify12-nmi-mf-port-reviewer` returned APPROVE-WITH-NITS noting
+that port-0xFF is the *third* writer to `port_ff_reg(6)` per VHDL
+`:3614-3616`. V12-NMP-01 closed the NR 0xC4 b0 fan-out and NR 0x22 b2
+already had it, but the direct port-0xFF write at emulator.cpp:2914
+still wrote `port_ff_reg_` without mirroring the change into
+`ula_int_disabled_` / `video_timing_.set_interrupt_enable(...)`.
+
+**VHDL oracle (zxnext.vhd):**
+- :3614-3616 — `port_ff_wr` branch latches the entire CPU byte
+  (including bit 6) into `port_ff_reg`.
+- :3619-3620 — `nr_22_we` partial fan-out into `port_ff_reg(6)`.
+- :3621-3622 — `nr_c4_we` partial fan-out into `port_ff_reg(6)` (NOT
+  bit 0).
+- :3635 — `port_ff_interrupt_disable <= port_ff_reg(6)` (combinational).
+- :6711 — `ula_int_en <= ... & (NOT port_ff_interrupt_disable)`.
+
+All three writers feed the same flip-flop; jnext's `ula_int_disabled_`
++ `video_timing_` shadow must be updated by all three.
+
+**Bug shape (pre-V12-NMP-02):**
+
+`OUT (0xFF),0x40` correctly stored `port_ff_reg_(6)=1`, but the C++
+scheduler's `ula_int_disabled_` shadow stayed at its previous state and
+`video_timing_.set_interrupt_enable(...)` was never called. As a
+result:
+
+- NR 0xC4 read bit 0 returned the stale shadow instead of the live
+  `port_ff_reg(6)` state (read handler at emulator.cpp:2429-2437
+  consults `ula_int_disabled_`).
+- The ULA-INT scheduler gate at `Emulator::run_frame()` line ~1989
+  consulted the stale shadow, so software disabling the ULA interrupt
+  via direct port-0xFF write had no effect on interrupt scheduling.
+
+This was a previously documented "latent gap" in
+`test/ctc_interrupts/ctc_interrupts_test.cpp` ULA-INT-02; the gap is now
+closed.
+
+**Fix applied:**
+
+In the port-0xFF write handler at `src/core/emulator.cpp:2914+`, mirror
+the NR 0x22 / NR 0xC4 pattern after the existing `port_ff_reg_ = val`
+update:
+
+```cpp
+ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
+video_timing_.set_interrupt_enable(!ula_int_disabled_);
+```
+
+**Tests added:** `test/ctc_interrupts/ctc_interrupts_test.cpp` —
+`ULA-INT-V12-NMP-02` and `ULA-INT-V12-NMP-02b` rows in the
+`ULA-Integration` group:
+
+- `ULA-INT-V12-NMP-02` exercises the readback path: fresh state ⇒ NR
+  0xC4 bit 0 = 1; `OUT (0xFF),0x40` ⇒ NR 0xC4 bit 0 = 0; `OUT (0xFF),0x00`
+  ⇒ NR 0xC4 bit 0 = 1.
+- `ULA-INT-V12-NMP-02b` exercises the scheduler path:
+  `OUT (0xFF),0x40` then `run_frame()` must leave NR 0xC8 bit 0 (ULA
+  status) clear — same observable shape as ULA-INT-02 but driven via
+  the direct port-0xFF write rather than the NR-22 mirror.
+
+**Discriminative pre-revert verification:** with the V12-NMP-02 fix
+reverted, both `ULA-INT-V12-NMP-02` and `ULA-INT-V12-NMP-02b` FAIL
+(stale shadow returns bit 0 = 1 in all three steps; NR 0xC8 bit 0 still
+fires). With the fix restored, both PASS.
+
+**Stale-comment cleanup:** the ULA-INT-02 commentary documenting the
+"DIRECT `OUT 0xFF` TO DISABLE ... latent subsystem gap" was rewritten
+into a V12-NMP-02 closure note pointing at the new rows. The
+`emulator.cpp:1690-1692` historical note is a fix-rationale comment for
+the G56-cluster-C cache-leak fix (NR 0x22 read), not a known-limitation
+marker, so it remains as-is.
+
+**Class:** (a) — fixable, with same-commit regression test (reviewer
+NIT closure).
+
 ### Class (b) — none.
 
 ### Class (c) — none.
@@ -205,16 +285,35 @@ additional architectural-scope issues surfaced this pass.
 
 | Class | Count |
 |-------|-------|
-| (a)   | 1     |
+| (a)   | 2     |
 | (b)   | 0     |
 | (c)   | 0     |
 | (d)   | 0     |
-| **Total** | **1** |
+| **Total** | **2** |
+
+V12-NMP-01 was found by the audit; V12-NMP-02 was found by the
+independent reviewer (APPROVE-WITH-NITS) and resolved as a
+fix-of-reviewer cycle. Both findings extend the same "shadow-store
+fan-out" family — port_ff_reg(6) has three writers in VHDL and all
+three must mirror into ula_int_disabled_ + video_timing_.
 
 ## Convergence note
 
-Pass-12 found one additional class-(a) finding extending the
-"shadow-store fan-out" family (NR 0xC4 writing `port_ff_reg(6)` but not
-the dependent `ula_int_disabled_` / `video_timing_.set_interrupt_enable()`
-shadows that the NR 0x22 path keeps in sync). The fix is symmetric with
-the existing NR 0x22 path. No architectural-scope issues surfaced.
+Pass-12 found two class-(a) findings in the "shadow-store fan-out"
+family. V12-NMP-01 closed the NR 0xC4 b0 fan-out (audit). V12-NMP-02
+closed the direct port-0xFF write fan-out (reviewer NIT). All three
+writers to `port_ff_reg(6)` now keep `ula_int_disabled_` /
+`video_timing_.set_interrupt_enable(...)` in sync, matching the
+combinational `port_ff_interrupt_disable <= port_ff_reg(6)` tie at
+VHDL :3635. Symmetric pattern across NR 0x22 / NR 0xC4 / port-0xFF.
+No architectural-scope issues surfaced.
+
+## Build & test results (post V12-NMP-02)
+
+- **CMake configure:** OK (Release, ENABLE_QT_UI=ON).
+- **Build:** clean.
+- **ctest:** 38/38 passed.
+- **FUSE Z80 opcode tests:** 1356/1356 passed.
+- **ctc_interrupts_test:** 23/23 passed (was 21; 2 new V12-NMP-02 rows).
+- **Discriminative revert verification:** both new rows FAIL with
+  the V12-NMP-02 fix reverted; both PASS with it restored.
