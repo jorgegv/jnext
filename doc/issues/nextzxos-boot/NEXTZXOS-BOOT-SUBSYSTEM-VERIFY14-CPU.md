@@ -9,11 +9,12 @@
 
 ## Findings summary
 
-| ID            | Class | Status        | Subsystem | One-line |
-|---------------|-------|---------------|-----------|----------|
-| V14-CPU-01    | (a)   | FIX + TEST    | CPU base  | `INC BC` (0x03) and `DEC BC` (0x0B) must update the `IncDecZ` shadow latch (VHDL `t80n.vhd:1361-1367`) |
+| ID              | Class | Status          | Subsystem | One-line |
+|-----------------|-------|-----------------|-----------|----------|
+| V14-CPU-01      | (a)   | FIX + TEST      | CPU base  | `INC BC` (0x03) and `DEC BC` (0x0B) must update the `IncDecZ` shadow latch (VHDL `t80n.vhd:1361-1367`) |
+| V14-CPU-NIT-01  | (a)   | FIX-OF-REVIEWER | CPU base  | DD/FD-prefixed `INC BC` / `DEC BC` / `DJNZ` skip the IncDecZ latch update (reviewer-promoted; sibling of V13-CPU-01 prefix gap) |
 
-Counts: **1 finding (1 class-(a), 0 class-(b), 0 class-(c), 0 class-(d))**.
+Counts: **1 finding + 1 reviewer-promoted NIT (2 class-(a), 0 class-(b), 0 class-(c), 0 class-(d))**.
 
 ---
 
@@ -169,6 +170,156 @@ result). Together with (3) they pin down the BC-pair-only gate.
   update for INC BC / DEC BC.
 * `test/cpu/cpu_z80n_im2_regressions_test.cpp` — three new tests + main()
   wire-up.
+
+---
+
+## V14-CPU-NIT-01 — DD/FD-prefixed `INC BC` / `DEC BC` / `DJNZ` skip the IncDecZ latch update
+
+### Class
+
+(a) — class-(a) discriminative bug, surfaced by the independent reviewer
+on top of V14-CPU-01 (and the pre-existing V13-CPU-01 family). The
+prior V14-CPU-01 fix keyed its post-execute IncDecZ classification on
+the **entry M1 byte** (`opcode == 0x03 / 0x0B`). DD/FD-prefixed forms
+(DD 03, FD 03, DD 0B, FD 0B) and the V13-CPU-01 sibling DD/FD-prefixed
+DJNZ (DD 10, FD 10) executed the SAME mcode path per VHDL but slipped
+the gate.
+
+### VHDL oracle
+
+`t80n.vhd:513-531` — after a DD/FD prefix, ISet stays at "00" (only
+XY_State updates to "01"/"10"); the parametric mcode dispatch keys on
+`IRB` (= the inner opcode), and `DPair := IR(5 downto 4)` (line 228).
+
+For inner opcode 0x03 / 0x0B (INC BC / DEC BC), DPair="00" →
+IncDec_16="0100"/"1100" → low-3="100" → latch fires per
+`t80n.vhd:1361-1367` (the V14-CPU-01 site).
+
+For inner opcode 0x10 (DJNZ), the DJNZ latch at `t80n.vhd:1358-1360`
+fires unconditionally (no XY_State gating); polarity is V13-CPU-01's
+inverted form (`F_Out(Flag_Z)`).
+
+### jnext bug (post-V14-CPU-01)
+
+`src/cpu/z80_cpu.cpp::execute()` originally set:
+
+```cpp
+const bool is_djnz   = (opcode == 0x10);
+const bool is_inc_bc = (opcode == 0x03);
+const bool is_dec_bc = (opcode == 0x0B);
+```
+
+`opcode` is the M1 byte at PC. For DD-prefixed forms, that's 0xDD, so
+the gates skipped; the same for 0xFD. The reviewer's scratch tests
+confirmed concretely:
+
+```
+SCRATCH-DD-INC-BC-INCDECZ-VHDL-1361  FAIL  IncDecZ stayed 1 (should 0)
+SCRATCH-DD-DEC-BC-INCDECZ-VHDL-1361  FAIL  IncDecZ stayed 0 (should 1)
+```
+
+### Fix
+
+Walk the DD/FD prefix chain (same shape as the existing ED-block-xfer
+walk) **once**, capturing the first non-prefix byte as `inner_opcode`,
+and rebase ALL four classifications on it:
+
+```cpp
+uint8_t inner_opcode = opcode;
+bool ed_block_xfer = false;
+if (opcode == 0xDD || opcode == 0xFD) {
+    uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
+    for (int hop = 0; hop < 64; ++hop) {
+        uint8_t b = mem_.read(walk_pc);
+        if (b == 0xDD || b == 0xFD) {
+            walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
+            continue;
+        }
+        inner_opcode = b;
+        if (b == 0xED) {
+            uint8_t ext = mem_.read(
+                static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
+            if (/* LDI/LDD/LDIR/LDDR/CPI/CPD/CPIR/CPDR */) {
+                ed_block_xfer = true;
+            }
+        }
+        break;
+    }
+}
+const bool is_djnz   = (inner_opcode == 0x10);
+const bool is_inc_bc = (inner_opcode == 0x03);
+const bool is_dec_bc = (inner_opcode == 0x0B);
+```
+
+FUSE Z80's `z80_ddfd.c:556-565` default branch backs PC up and re-enters
+the main switch on any non-IX/IY opcode — so DD 03 mutates BC just like
+plain 0x03, DD 10 mutates B (and PC, when taken) just like plain 0x10.
+We can therefore observe the post-state identically and apply the same
+IncDecZ polarity for both prefix and plain forms.
+
+The fix also closes the V13-CPU-01 DD/FD-prefix gap (DD DJNZ, FD DJNZ)
+as a side effect; its scratch reproduction was carried over into
+explicit V14-CPU-NIT-01-E/F regression tests.
+
+### Discriminative regression tests
+
+`test/cpu/cpu_z80n_im2_regressions_test.cpp`:
+
+1. **`V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361`** — primes
+   IncDecZ=1 via DJNZ-not-taken, then `LD BC,$FFFF; DD INC BC` (BC:
+   $FFFF → $0000). Asserts IncDecZ flipped to 0 and LDWS F.P=0. Pre-fix:
+   IncDecZ stays 1, LDWS F.P=1.
+2. **`V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361`** — same
+   shape with FD prefix.
+3. **`V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361`** — reset
+   baseline (IncDecZ=0), then `DD DEC BC` with BC=$0002 (post-dec
+   $0001 nonzero). Asserts IncDecZ=1, LDWS F.P=1. Pre-fix: stale 0.
+4. **`V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361`** — FD form
+   of (3).
+5. **`V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359`** —
+   sibling-of-V13-CPU-01 closure: B=1 → DD DJNZ not-taken → V13
+   polarity sets IncDecZ=1 → LDWS F.P=1. Pre-fix: stale 0.
+6. **`V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359`** — FD form
+   of (5).
+
+All 6 verified by stash-revert + rebuild + re-run protocol: pre-fix
+[FAIL] x6, post-fix [PASS] x6.
+
+### Tests / regressions
+
+* `cmake --build build -j$(nproc)`: clean.
+* `ctest --test-dir build`: 38/38 PASS.
+* `./build/test/fuse_z80_test build/test/fuse`: 1356/1356 PASS (FUSE
+  invariant held — DD/FD-prefixed inner-opcode regressions did not
+  touch any pre-existing FUSE expectations).
+* `./build/test/cpu_z80n_im2_regressions_test`: 36/36 PASS (was 30
+  pre-NIT; +6 new V14-CPU-NIT-01 tests).
+
+### Files touched
+
+* `src/cpu/z80_cpu.cpp` — replaced opcode-keyed `is_djnz / is_inc_bc /
+  is_dec_bc` classification with `inner_opcode`-keyed classification
+  fed by the unified DD/FD prefix-chain walk; updated the surrounding
+  comment block. Polarity per-branch unchanged.
+* `test/cpu/cpu_z80n_im2_regressions_test.cpp` — six new tests + main()
+  wire-up.
+* `doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY14-CPU.md` —
+  this entry.
+
+### Cross-finding linkage
+
+* **V13-CPU-01** (Pass-13): closed the DJNZ polarity bug for plain DJNZ
+  (0x10). The same fix's classification was also opcode-keyed, so DD/FD
+  DJNZ remained broken. V14-CPU-NIT-01 closes that gap.
+* **V14-CPU-01** (Pass-14): closed the latch-coverage gap for plain
+  INC/DEC BC. Same opcode-keyed pattern carried the prefix gap forward;
+  V14-CPU-NIT-01 closes it.
+
+The post-NIT-01 invariant: any opcode that fires the IncDecZ latch in
+VHDL (per `t80n.vhd:1358-1366`) — DJNZ, INC BC, DEC BC, BC-block-
+transfers (Z80 + Z80N variants) — updates the jnext IncDecZ shadow with
+the correct polarity, regardless of DD / FD / DD-DD-… prefix-chain
+length.
 
 ---
 
