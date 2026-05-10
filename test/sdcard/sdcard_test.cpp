@@ -946,6 +946,254 @@ static void test_sd_20_cmd55_fallthrough(SdCardDevice& sd) {
           " b0=" + std::to_string(blk[0]));
 }
 
+// ─── New: SD-21 / CMD24 past-EOF write-error response (TASK2-VERIFY12) ──
+
+static void test_sd_21_cmd24_past_eof() {
+    // SD-21 (V12-DIVMMC-02): CMD24 with a sector index past end-of-image
+    // must return the write-error data-response token (0x0D = 0b00001101)
+    // instead of the data-accepted token (0x05 = 0b00000101).
+    //
+    // SD Physical Layer Simplified Spec § 7.3.3.3 Data Response Token
+    // format is `0bxxx0_sss1` where status `sss` is:
+    //   010 = data accepted                → 0x05
+    //   110 = data rejected (write error)  → 0x0D
+    //
+    // Pre-fix CMD24's `process_command` flow always queued 0x05 even when
+    // the write was silently skipped because byte_addr + 512 > file_size_.
+    // The host therefore believed every past-EOF write succeeded.
+    //
+    // Discriminative shape: build a small 8-sector image (4 KB), CMD24 to
+    // sector 100 (= 51200 bytes, well past the 4096-byte boundary). After
+    // the data + CRC, poll for the response token. Post-fix we see 0x0D
+    // (write error). Pre-fix we'd see 0x05 (data accepted).
+    //
+    // Safety: also verify the existing in-bounds CMD24 path still emits
+    // 0x05 (regression guard for SD-14 → ensure the fix didn't flip the
+    // sense of the in-bounds case).
+    const uint32_t n_sectors = 8;
+    std::string img = make_image(n_sectors);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    // CMD24 sector=100 (past EOF for an 8-sector image).
+    uint8_t r1_wr = send_cmd_r1(sd, 24, 100);
+
+    // Send 0xFE start token + 512 dummy bytes + 2 CRC bytes.
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0x55);
+    spi_write(sd, 0xFF);  // CRC hi
+    spi_write(sd, 0xFF);  // CRC lo
+
+    // Poll for the data response token. Cap the poll.
+    uint8_t resp = 0xFF;
+    bool got_resp = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        // Per SD spec, response token has bit 4 always 0, bit 0 always 1,
+        // status in bits 3:1. Easier here to just wait for any non-FF byte.
+        if (b != 0xFF) { resp = b; got_resp = true; break; }
+    }
+    sd.deselect();
+
+    // In-bounds regression guard: CMD24 to sector 0 must still emit 0x05.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_ok = send_cmd_r1(sd, 24, 0);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0xAA);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    uint8_t resp_ok = 0xFF;
+    bool got_resp_ok = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF) { resp_ok = b; got_resp_ok = true; break; }
+    }
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && r1_wr == 0x00 && got_resp && resp == 0x0D     // past-EOF
+           && r1_ok == 0x00 && got_resp_ok && resp_ok == 0x05; // in-bounds
+
+    check("SD-21",
+          "CMD24 past EOF returns write-error data response (0x0D); "
+          "in-bounds case still returns data-accepted (0x05) "
+          "(SD Physical Layer Simplified Spec § 7.3.3.3)",
+          ok,
+          "r1_wr=" + std::to_string(r1_wr) +
+          " resp=" + std::to_string(resp) +
+          " r1_ok=" + std::to_string(r1_ok) +
+          " resp_ok=" + std::to_string(resp_ok));
+
+    std::remove(img.c_str());
+}
+
+// ─── New: SD-22 / CMD8 R7 byte 0 command-version nibble (V12-DIVMMC-03) ──
+
+static void test_sd_22_cmd8_r7_cmdver(SdCardDevice& sd) {
+    // SD-22 (V12-DIVMMC-03 reviewer-promoted fix): SD Physical Layer
+    // Simplified Spec § 7.3.2.6 R7 4-byte register layout:
+    //   bits 31:28 = command version (`0001` = R7 v1)  → byte 0 = 0x10
+    //   bits 27:12 = reserved (zero)
+    //   bits 11:8  = voltage accepted nibble           → byte 2 low nibble
+    //   bits  7:0  = check pattern echo                → byte 3
+    //
+    // Pre-fix the high byte of the 4-byte register was hardcoded to 0x00
+    // (no command-version field). Discriminative shape: issue CMD0 then
+    // CMD8 with check pattern 0xAA, drain the NCR / R1, then read 4 bytes
+    // of R7 register and verify byte 0 = 0x10.
+    sd.reset();
+    (void)send_cmd_r1(sd, 0, 0);  // CMD0 GO_IDLE
+    // CMD8 SEND_IF_COND, voltage = 0x1, check = 0xAA → arg = 0x000001AA.
+    uint8_t r1 = send_cmd_r1(sd, 8, 0x000001AA);
+    // After R1, four R7 bytes follow — read them.
+    uint8_t r7_byte0 = spi_read(sd);
+    uint8_t r7_byte1 = spi_read(sd);
+    uint8_t r7_byte2 = spi_read(sd);
+    uint8_t r7_byte3 = spi_read(sd);
+    sd.deselect();
+
+    bool ok = (r1 == 0x01)
+           && (r7_byte0 == 0x10)        // V12-DIVMMC-03 fix: cmd version
+           && (r7_byte1 == 0x00)
+           && ((r7_byte2 & 0x0F) == 0x01)  // voltage accepted: 0x1
+           && (r7_byte3 == 0xAA);           // check pattern echo
+
+    check("SD-22",
+          "CMD8 R7 register byte 0 = 0x10 (cmd version 1, "
+          "SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix "
+          "hardcoded 0x00 in the cmd-version field.",
+          ok,
+          "r1=" + std::to_string(r1) +
+          " b0=" + std::to_string(r7_byte0) +
+          " b1=" + std::to_string(r7_byte1) +
+          " b2=" + std::to_string(r7_byte2) +
+          " b3=" + std::to_string(r7_byte3));
+}
+
+// ─── New: SD-23 / CMD17 past-EOF R1 PARAMETER_ERROR (V12-DIVMMC-04) ────
+
+static void test_sd_23_cmd17_past_eof_r1_paramerror() {
+    // SD-23 (V12-DIVMMC-04 reviewer-promoted fix): SD Physical Layer
+    // Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout. Bit 6 is
+    // PARAMETER_ERROR — "argument was out of the allowed range". When
+    // CMD17/CMD18 is issued with a sector beyond end-of-image, the card
+    // MUST set R1 bit 6 (in addition to emitting the data error token
+    // 0x08). Pre-fix R1=0x00 ("no errors") was the weaker spec-permissible
+    // form; the fix sets R1 = 0x40 (PARAMETER_ERROR) for spec strictness.
+    //
+    // Discriminative shape: small 4-sector image, CMD17 sector=100. R1
+    // must have bit 6 set (= 0x40 with no other status flags). Same
+    // for CMD18.
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    uint8_t r1_cmd17 = send_cmd_r1(sd, 17, 100);
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_cmd18 = send_cmd_r1(sd, 18, 100);
+    sd.deselect();
+
+    // Regression guard: in-bounds CMD17 sector=0 must still return R1=0x00.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_ok = send_cmd_r1(sd, 17, 0);
+    sd.deselect();
+    sd.unmount();
+
+    bool ok = mounted
+           && (r1_cmd17 & 0x40) != 0    // PARAMETER_ERROR set
+           && (r1_cmd18 & 0x40) != 0    // PARAMETER_ERROR set
+           && r1_ok == 0x00;             // in-bounds: no errors
+
+    check("SD-23",
+          "CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per "
+          "SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00.",
+          ok,
+          "r1_cmd17=" + std::to_string(r1_cmd17) +
+          " r1_cmd18=" + std::to_string(r1_cmd18) +
+          " r1_ok=" + std::to_string(r1_ok));
+
+    std::remove(img.c_str());
+}
+
+// ─── New: SD-24 / CMD24 stray pre-token bytes ignored (V12-DIVMMC-06) ──
+
+static void test_sd_24_cmd24_pre_token_ignored() {
+    // SD-24 (V12-DIVMMC-06 reviewer-promoted fix): per SD Physical Layer
+    // Simplified Spec § 7.3.3.2, after R1 the card waits for the 0xFE
+    // start-of-block token. ANY pre-token byte (including but not
+    // limited to 0xFF gap bytes) must be IGNORED. The pre-fix only
+    // skipped 0xFF gap bytes and absorbed any other pre-token byte as
+    // data_block_[0], silently shifting the entire payload by 1+.
+    //
+    // Discriminative shape: CMD24 sector=0; send a stray byte (0x55)
+    // BEFORE the 0xFE token, then 0xFE, then a deterministic payload.
+    // Read back via CMD17. Pre-fix: data_block_[0]=0x55, payload[0]
+    // becomes data_block_[1], …, last byte lost. Readback would NOT
+    // match the original payload. Post-fix: stray byte is ignored, the
+    // payload is captured cleanly, readback matches.
+    std::string img = make_image(4);
+    SdCardDevice sd;
+    bool mounted = sd.mount(img);
+    sd.reset();
+    init_card(sd);
+
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; ++i)
+        pattern[i] = static_cast<uint8_t>(i ^ 0x5A);
+
+    uint8_t r1_wr = send_cmd_r1(sd, 24, 0);
+    spi_write(sd, 0x55);   // STRAY pre-token byte (NOT 0xFF, NOT 0xFE)
+    spi_write(sd, 0xFE);   // start token
+    for (int i = 0; i < 512; ++i) spi_write(sd, pattern[i]);
+    spi_write(sd, 0xFF);   // CRC hi
+    spi_write(sd, 0xFF);   // CRC lo
+
+    // Drain data response.
+    bool data_resp_ok = false;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b == 0x05) { data_resp_ok = true; break; }
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+
+    // Readback via CMD17.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_rd = send_cmd_r1(sd, 17, 0);
+    bool tok = wait_token(sd);
+    uint8_t got[512] = {};
+    if (tok) read_block(sd, got);
+    sd.deselect();
+    sd.unmount();
+
+    bool match = std::memcmp(got, pattern, 512) == 0;
+    bool ok = mounted && r1_wr == 0x00 && data_resp_ok
+           && r1_rd == 0x00 && tok && match;
+
+    check("SD-24",
+          "CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — "
+          "data block boundary preserved per SD Phys Layer Spec "
+          "§ 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], "
+          "shifting payload.",
+          ok,
+          "r1_wr=" + std::to_string(r1_wr) +
+          " resp=" + std::string(data_resp_ok ? "1" : "0") +
+          " match=" + (match ? "1" : "0"));
+
+    std::remove(img.c_str());
+}
+
 // ─── New: unmount mid-CMD18 stream cleanup (BOOT-SD-02) ─────────────────
 
 static void test_boot_sd_02() {
@@ -1028,6 +1276,10 @@ int main() {
     test_boot_sd_01();
     test_boot_sd_02();
     test_sd_15_mount_full_reset();   // 24a1bc4 (pass-5)
+    test_sd_21_cmd24_past_eof();     // V12-DIVMMC-02 (pass-12 verify-audit)
+    test_sd_22_cmd8_r7_cmdver(sd);   // V12-DIVMMC-03 (pass-12 reviewer-promoted)
+    test_sd_23_cmd17_past_eof_r1_paramerror();  // V12-DIVMMC-04 (pass-12 reviewer-promoted)
+    test_sd_24_cmd24_pre_token_ignored();        // V12-DIVMMC-06 (pass-12 reviewer-promoted)
 
     // ─── WONT rows (no skip()) ────────────────────────────────────────
     //

@@ -66,7 +66,24 @@ void SpiMaster::reset() {
     }
 
     cs_ = 0xFF;       // all CS lines deasserted (active-low)
-    rx_data_ = 0xFF;  // VHDL resets miso_dat to all ones
+    // V12-DIVMMC-01 (Pass-12 verify-audit fix, 2026-05-10): do NOT clobber
+    // `rx_data_` on system reset. VHDL zxnext.vhd:3282-3298 instantiates
+    // `spi_master_mod` with `i_reset => '0'` HARDWIRED (line 3285, comment
+    // "hard reset done through core load"). The internal `miso_dat`
+    // register at spi_master.vhd:159-168 has a `if i_reset = '1' then
+    // miso_dat <= (others => '1')` clause, but with `i_reset` fixed at '0'
+    // that clause NEVER fires. miso_dat therefore retains its last latched
+    // value across every system reset (only FPGA bitstream load can affect
+    // it). Pre-fix `rx_data_ = 0xFF` here clobbered the previous-transfer
+    // byte on every Emulator::reset() — diverging from VHDL whenever
+    // firmware reads port 0xEB after a soft reset (`NR 0x02 ← 0x01`)
+    // before issuing any new SPI write. Practical impact on the boot path
+    // is nil (firmware always issues a CMD before reading), but
+    // VHDL-faithfulness was the wrong way around. The pre-fix comment
+    // ("VHDL resets miso_dat to all ones") was technically correct only
+    // for a hypothetical core where `i_reset` was wired to the system
+    // reset — not the actual zxnext core. Class-(c) → corrected.
+    //
     // PASS-7 verify-audit fix (2026-05-09): do NOT clear devices_ on reset.
     // The devices_ array models the physical hardware connections between
     // the SPI master and its slaves (SD card on CS0). Clearing this

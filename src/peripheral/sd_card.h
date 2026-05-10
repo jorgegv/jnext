@@ -45,6 +45,7 @@ public:
         resp_idx_ = 0;
         data_idx_ = 0;
         data_crc_count_ = 0;
+        data_token_received_ = false;
         initialized_ = false;
         app_cmd_ = false;
         multi_block_ = false;
@@ -95,6 +96,16 @@ private:
     uint8_t data_block_[512] = {};
     int data_idx_ = 0;
     int data_crc_count_ = 0;  // CRC bytes remaining for CMD24
+    // V12-DIVMMC-06 (Pass-12 reviewer fix, 2026-05-10): explicit
+    // "data token already seen" flag for the CMD24 RECEIVING_DATA
+    // state. Per SD Phys Layer Spec § 7.3.3.2 the card waits for the
+    // 0xFE start-of-block token; pre-token bytes (incl. but not
+    // limited to 0xFF gap bytes) must be ignored. The previous
+    // (Pass-4) implementation reused `data_idx_==0 && data_crc_count_==0`
+    // to detect "before token", which mishandled non-0xFF pre-token
+    // bytes. This explicit flag is reset on every CMD24 dispatch
+    // (process_command), reset(), and deselect().
+    bool data_token_received_ = false;
 
     // SD card state
     bool initialized_ = false;   // After ACMD41 completes
