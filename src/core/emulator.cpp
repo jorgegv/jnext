@@ -2070,6 +2070,59 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>(nr_da_iotrap_cause_ & 0x03);
     });
 
+    // V19R-NMP-NIT-03 — NR 0xF0 XADC composed-read stub.
+    //
+    // VHDL zxnext.vhd:6273-6274 read mux:
+    //   when X"F0" => port_253b_dat <= nr_f0_xdev_cmd;
+    //
+    // The driver of `nr_f0_xdev_cmd` is board-issue dependent:
+    //   • Issue 2/3 (g_board_issue <= 1, zxnext.vhd:7420-7436):
+    //     nr_f0_xdev_cmd is hard-wired to (others => '0') — always 0x00,
+    //     irrespective of writes to NR 0xF0.
+    //   • Issue 4/5 (g_board_issue >= 2, zxnext.vhd:7438-7484):
+    //     `nr_f0_xdev_cmd` composes from XADC live state (`i_XADC_BUSY`,
+    //     `nr_f0_xadc_eoc`, `nr_f0_xadc_eos`) when xadc/xdna are enabled.
+    //
+    // jnext seeds NR 0x0F (= g_board_issue) to 0x00 (Issue 2; see
+    // src/port/nextreg.cpp). The Issue 2 VHDL path therefore applies,
+    // and the VHDL-faithful readback is a constant 0x00. The XADC and
+    // XDNA blocks are not modeled in jnext — there is no boot path nor
+    // any NextZXOS code that depends on the XADC temperature/voltage
+    // monitor, so this stub is conservative.
+    //
+    // Pre-V19R the read fell through to `regs_[0xF0]` which leaked the
+    // raw last-written byte (Class-(c) inert divergence). The stub
+    // returns the VHDL-correct constant regardless of writes.
+    nextreg_.set_read_handler(0xF0, []() -> uint8_t {
+        return 0x00;
+    });
+
+    // V19R-NMP-NIT-04 — NR 0xF8 XADC-daddr readback bit-7 mask.
+    //
+    // VHDL zxnext.vhd:6277-6278 read mux:
+    //   when X"F8" => port_253b_dat <= '0' & nr_f8_xadc_daddr;
+    // Bit 7 is hard-wired to '0' on read regardless of board issue.
+    //
+    // VHDL write path zxnext.vhd:7553-7558 (Issue 4/5):
+    //   nr_f8_xadc_dwe   <= nr_wr_dat(7);     -- bit 7 stored elsewhere
+    //   nr_f8_xadc_daddr <= nr_wr_dat(6:0);   -- only 7 bits land in daddr
+    // For Issue 2/3 path zxnext.vhd:7425, nr_f8_xadc_daddr is (others=>'0')
+    // — writes don't update it at all; the readback is therefore always 0.
+    //
+    // jnext is Issue 2 per NR 0x0F = 0x00, so the strictest VHDL-faithful
+    // stub would return 0x00 always. The conservative-but-Issue-4/5-aware
+    // stub is `regs_[0xF8] & 0x7F` — that drops the bit-7 leak and matches
+    // VHDL for any board issue (jnext could conceivably be retargeted to
+    // Issue 4/5 in the future).
+    //
+    // Pre-V19R the bare cache stored the full byte, leaking bit 7 on
+    // readback (Class-(c) inert divergence). The XADC is not modeled and
+    // never exercised by NextZXOS boot, so this is non-functional, but the
+    // strict VHDL-faithfulness rule requires the mask.
+    nextreg_.set_read_handler(0xF8, [this]() -> uint8_t {
+        return static_cast<uint8_t>(nextreg_.cached(0xF8) & 0x7F);
+    });
+
     // Register 0x03: Machine type + config_mode transitions.
     // - Writing to this register disables the boot ROM overlay
     //   (VHDL: bootrom_en <= '0' on any write to nr_03).
