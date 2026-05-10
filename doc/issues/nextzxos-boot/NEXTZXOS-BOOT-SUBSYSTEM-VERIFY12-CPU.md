@@ -12,11 +12,103 @@ instruction semantics. No probes added. Read-only audit.
 **Baseline tests**: ctest 38/38 PASS, FUSE 1356/1356 PASS, on integration
 HEAD `df247c8` worktree.
 
-## Result: ZERO new findings
+## Result: ZERO findings audit + 2 reviewer-promoted NITs fixed
 
 After ~3 hours of detailed review against the VHDL oracle and FUSE Z80
-reference, this pass identified **zero new issues** in the CPU subsystem
-that meet the class-(a/b/c) criteria.
+reference, this audit pass identified **zero new issues** in the CPU
+subsystem that meet the class-(a/b/c) criteria.
+
+The independent reviewer of the audit (`task2/verify12-cpu-z80n-im2-reviewer`
+HEAD `93a80d0`) returned APPROVE-WITH-NITS, promoting two cosmetic /
+VHDL-fidelity items to actionable fixes. Both have been addressed in
+the fix-of-reviewer pass below.
+
+### V12-CPU-NIT-01 — z80_cpu.cpp comment incorrectly groups LDPIRX
+
+**Location**: `src/cpu/z80_cpu.cpp:594-596` (Z80N dispatch comment block).
+
+**Issue**: The pre-fix comment listed LDPIRX in the non-F-writing group:
+> "Z80N opcodes that DO NOT write F (..., LDPIRX) MUST leave Q=0..."
+
+But Pass-10 made LDPIRX F-writing per VHDL `t80n.vhd:1277-1289`
+(I_BT block-transfer flag composition with `ALU_Q = B | bytetemp` per
+its OR-default ALU_Op). Functional code at `z80n_ext.cpp:858-859`
+correctly writes `regs.AF` and `regs.Q = f`; only the comment was
+stale.
+
+**Fix**: Replace the inline list with explicit F-writing /
+non-F-writing groupings:
+
+- F-writing: TEST_N, ADD_HL_A, ADD_DE_A, ADD_BC_A, LDIX, LDWS, LDDX,
+  LDIRX, LDDRX, LDPIRX, LDIRSCALE
+- Non-F-writing: SWAPNIB, MIRROR_A, MUL_DE, BSLA/BSRA/BSRL/BSRF/BRLC_DE_B,
+  ADD_HL_NN, ADD_DE_NN, ADD_BC_NN, PUSH_NN, OUTINB, NEXTREG_NN/A,
+  PIXELDN, PIXELAD, SETAE, JP_C, LOOP
+
+**Test**: comment-only change; covered by existing Z80N flag fixtures
+(z80n/tests.expected) plus `Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT (c526aa4)`.
+
+**Commit**: `2cc8453`.
+
+### V12-CPU-NIT-02 — OUTINB extended-M1 raw `tstates += 1` → `contend_read_no_mreq(IR, 1)`
+
+**Location**: `src/cpu/z80n_ext.cpp:386-401` (OUTINB case).
+
+**Issue**: The 1T extended-M1 of OUTINB was emitted as raw
+`tstates += 1` at the case tail. Per VHDL `t80n_mcode.vhd:2519-2530`
+OUTINB MCycle 1 sets `TStates <= "101"` (=5T), i.e. the inner-M1 of the
+0x90 byte is extended by 1T over the standard 4T M1. Per
+`zxula.vhd:582-600` the contention gate fires on
+`(hc_adj × vc × contention_en)` regardless of MREQ. The raw `+1`
+bypassed the gate entirely — functionally equivalent on non-contended
+addresses but missed the per-cycle stretch on contended IR addresses
+during the active raster window.
+
+**FUSE oracle**: `z80_ed.c:334` OUTI emits
+`contend_read_no_mreq(IR, 1)` BEFORE the `readbyte(HL)`. OUTINB shares
+the unified VHDL when-clause with OUTI/OUTD/OTIR/OTDR (line 2516-2519:
+`"10100011" | "10101011" | "10110011" | "10111011" | x"90"`) so it
+emits the same per-T-state contention shape.
+
+**Fix**: Replace the trailing `tstates += 1;` with
+`contend_read_no_mreq(IR, 1);` BEFORE the operand read:
+
+```cpp
+auto regs = cpu.get_registers();
+uint16_t ir = (regs.I << 8) | regs.R;
+contend_read_no_mreq(ir, 1);    // NEW: VHDL extended-M1 with no-MREQ contention
+uint8_t temp = fuse_z80_readbyte(regs.HL);
+fuse_z80_writeport(regs.BC, temp);
+regs.HL = (regs.HL + 1) & 0xFFFF;
+cpu.set_registers(regs);
+return 16;
+```
+
+**Discriminative test**:
+`V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ` in
+`test/cpu/cpu_z80n_im2_regressions_test.cpp`. Two ZX48K-contended
+fixtures, identical except for I (and therefore IR):
+
+- Fixture A: I=0x40 → IR ∈ slot 2 (page 0x0A — ZX48K-contended)
+- Fixture B: I=0x80 → IR ∈ slot 4 (page 0x10 — non-contended)
+
+Pre-fix: `total_A == total_B` (raw `+1` doesn't traverse the gate).
+Post-fix: `total_A > total_B` (delta = IR no-MREQ stretch contribution
+from the contended bank only).
+
+**Verified discriminative**: temporarily reverted the
+`contend_read_no_mreq` call → assertion FAILED with delta=0; restoring
+the fix → PASSES with delta>0.
+
+**Commit**: `a57282c`.
+
+## Test results post-fix
+
+```
+ctest --test-dir build --output-on-failure  # 38/38 PASS
+./build/test/fuse_z80_test build/test/fuse  # 1356/1356 PASS
+./build/test/cpu_z80n_im2_regressions_test  # 26/26 PASS (1 new test)
+```
 
 ## Audit angles exercised
 
