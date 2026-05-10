@@ -439,23 +439,52 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::PIXELDN: {
+            // ULA screen layout: H = pPbbCCC, L = RRRrrrrr  (where p = H[7],
+            // P = H[6], b = H[4:3] = band, C = H[2:0] = cell-row, R = L[7:5]
+            // = row-in-band, r = L[4:0] = column).  Per VHDL t80n.vhd:900-921,
+            // PIXELDN performs ONE 8-bit add `(b & R & C) + 1` and assigns
+            // the result back to those positions:
+            //   new_H = H[7:5] (preserved) | new_b (= bits 7:6 of result)
+            //                              | new_C (= bits 2:0 of result)
+            //   new_L = new_R (= bits 5:3 of result) | L[4:0] (preserved)
+            //
+            // V11-CPU-01 fix (Pass-11): the prior algorithm did
+            //     if (mid == 0) H = H + 0x08;
+            // which propagated the carry from b[1] (bit 4 of H) into b[2]
+            // (bit 5 of H) when b was already 11 — corrupting the preserved
+            // H[7:5] field.  VHDL truncates the 8-bit add at bit 7, so a
+            // full overflow (b=11, R=111, C=111) wraps to b=00, R=000,
+            // C=000 with H[7:5] untouched.  The new code does the
+            // composite increment in one 8-bit add and re-extracts the
+            // fields, exactly matching the VHDL.
+            //
+            // Discriminative case: HL=0x5FE0 (b=11, R=111, C=111).
+            //   Pre-fix:  HL → 0x6000   (jnext propagated +0x08 into H[5])
+            //   Post-fix: HL → 0x4000   (VHDL: H[7:5]=010 preserved)
             auto regs = cpu.get_registers();
-            uint8_t H = regs.HL >> 8;
-            uint8_t L = regs.HL & 0xFF;
-            // ULA screen layout: H = 010BBLLL, L = CCCCCRRR
-            // PIXELDN increments the row counter encoded across H and L
-            uint8_t inner = ((H & 0x07) + 1);
-            if ((inner & 0x08) == 0) {
-                H = (H & 0xF8) | (inner & 0x07);
-            } else {
-                H = H & 0xF8;
-                uint8_t mid = ((L >> 5) + 1) & 0x07;
-                L = (L & 0x1F) | (mid << 5);
-                if (mid == 0) {
-                    H = H + 0x08;
-                }
-            }
-            regs.HL = ((uint16_t)H << 8) | L;
+            const uint8_t H = static_cast<uint8_t>(regs.HL >> 8);
+            const uint8_t L = static_cast<uint8_t>(regs.HL & 0xFF);
+            // Compose the 8-bit value `b & R & C` per VHDL line 904-908.
+            const uint8_t composite = static_cast<uint8_t>(
+                ((H & 0x18) << 3)        // b   → bits 7:6 of composite
+                | ((L & 0xE0) >> 2)      // R   → bits 5:3 of composite
+                | (H & 0x07));           // C   → bits 2:0 of composite
+            // 8-bit add with truncation (carry from bit 7 is lost — VHDL
+            // assigns to reg_temp_t(7:0), so the high carry never reaches
+            // H[7:5]).
+            const uint8_t inc = static_cast<uint8_t>(composite + 1);
+            const uint8_t new_b = static_cast<uint8_t>((inc >> 6) & 0x03);
+            const uint8_t new_R = static_cast<uint8_t>((inc >> 3) & 0x07);
+            const uint8_t new_C = static_cast<uint8_t>(inc & 0x07);
+            const uint8_t new_H = static_cast<uint8_t>(
+                (H & 0xE0)              // H[7:5] preserved
+                | (new_b << 3)          // b → H[4:3]
+                | new_C);               // C → H[2:0]
+            const uint8_t new_L = static_cast<uint8_t>(
+                (L & 0x1F)              // L[4:0] preserved
+                | (new_R << 5));        // R → L[7:5]
+            regs.HL = static_cast<uint16_t>(
+                (static_cast<uint16_t>(new_H) << 8) | new_L);
             cpu.set_registers(regs);
             return 8;
         }

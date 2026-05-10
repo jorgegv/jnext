@@ -1329,6 +1329,167 @@ void test_pass10_im2_reti_decode_simultaneity(Result& res) {
           ctc0_in_isr && line_in_req && ctc0_cleared, detail);
 }
 
+// V11-CPU-01 — IM2 RETI decoder DDFD→ED transition VHDL parity.
+//
+// VHDL im2_control.vhd:199-206 — when state = S_DDFD_T4 and the next
+// fetched byte is anything other than DD/FD, state_next <= S_0
+// (regardless of opcode). This means a `DD ED 4D` byte sequence on the
+// physical bus does NOT trigger reti_seen — even though FUSE's
+// z80_ddfd.c default re-dispatches the inner ED 4D as RETI semantically.
+//
+// Pre-fix (V11-CPU-01): jnext routed ED after DDFD into S_ED_T4,
+// emitting a spurious reti_seen pulse on `DD ED 4D` and clearing
+// S_ISR daisy-chain devices that VHDL would leave standing.
+//
+// Discriminative check: the test sets up a device in S_ISR, then drives
+// the decoder with DD, ED, 4D in sequence. Post-fix, the device must
+// remain in S_ISR. Pre-fix, it would have transitioned to S_0.
+void test_v11_cpu_01_im2_ddfd_ed_no_reti(Result& res) {
+    Im2Controller im2;
+    using Dev = Im2Controller::DevIdx;
+    using DevState = Im2Controller::DevState;
+
+    im2.reset();
+    im2.set_mode(true);
+
+    // Set up CTC0 in S_ISR (full lifecycle: req → ack → ISR).
+    im2.set_int_en(Dev::CTC0, true);
+    im2.raise_req(Dev::CTC0);
+    im2.tick(1);                       // S_0 → S_REQ
+    (void)im2.ack_vector();            // S_REQ → S_ACK
+    im2.clear_req(Dev::CTC0);
+    im2.tick(1);                       // S_ACK → S_ISR
+    bool ctc0_in_isr = im2.state(Dev::CTC0) == DevState::S_ISR;
+
+    // Simulate `DD ED 4D` opcode fetch sequence on the IM2 RETI decoder.
+    // VHDL: S_0 → S_DDFD_T4 → S_0 → S_0 (no reti_seen).
+    // Pre-fix: S_0 → S_DDFD_T4 → S_ED_T4 → S_ED4D_T4 (reti_seen=true,
+    // CTC0's S_ISR cleared by on_reti walk).
+    im2.on_m1_cycle(0x0000, 0xDD);
+    im2.on_m1_cycle(0x0001, 0xED);
+    im2.on_m1_cycle(0x0002, 0x4D);
+
+    // After the sequence: NO reti_seen should have fired on the 4D
+    // (because the DDFD→ED transition lands in S_0, and the subsequent
+    // 4D from S_0 is also a no-op — RETI requires fresh ED from S_0).
+    bool no_reti_seen_at_4d = !im2.reti_seen_this_cycle();
+
+    // Run a tick to let any latent S_ISR clears propagate.
+    im2.tick(1);
+
+    DevState ctc0_now = im2.state(Dev::CTC0);
+    bool ctc0_still_in_isr = ctc0_now == DevState::S_ISR;
+
+    char detail[260];
+    std::snprintf(detail, sizeof(detail),
+                  "Setup: CTC0 in S_ISR=%d. After DD ED 4D: "
+                  "reti_seen at 4D pulse high?%s "
+                  "CTC0 state=%d (expect 3=S_ISR per VHDL "
+                  "im2_control.vhd:199-206 — DD ED 4D does NOT trigger "
+                  "reti_seen; pre-V11-CPU-01-fix would be 0=S_0 because "
+                  "ED after DDFD wrongly entered S_ED_T4)",
+                  ctc0_in_isr,
+                  no_reti_seen_at_4d ? "no" : "YES (pre-fix)",
+                  static_cast<int>(ctc0_now));
+    check(res, "V11-CPU-01-IM2-DDFD-ED-NO-RETI",
+          ctc0_in_isr && no_reti_seen_at_4d && ctc0_still_in_isr, detail);
+}
+
+// ─── Pass-11 (V11-CPU-02) — PIXELDN H[7:5] preservation on band-3 wrap ─────
+//
+// Class-(c) finding from the Pass-11 blind audit. VHDL t80n.vhd:900-921
+// performs PIXELDN as a single 8-bit add `(H[4:3] & L[7:5] & H[2:0]) + 1`
+// with truncation at bit 7, then re-distributes the result into H[4:3],
+// L[7:5], H[2:0]. H[7:5] is preserved verbatim (line 914:
+//   reg_direct_val_H_b <= reg_temp_t(31 downto 29) & ...
+// where reg_temp_t(31:29) holds the pre-add H[7:5]).
+//
+// Pre-fix algorithm (4-stage carry chain) ended with `H = H + 0x08;` when
+// the band-counter (H[4:3]) wrapped — but that 8-bit add propagated the
+// carry from H[4] into H[5], corrupting the preserved screen-prefix bits.
+// The bug only fires when STARTING at H[4:3]=11 (= band 3, off-screen)
+// with the inner counters at full (L[7:5]=111, H[2:0]=111), so end-users
+// rarely hit it; ZX BASIC uses bands 0..2 only.  A Z80N program manually
+// pointing into band 3 would observe the divergence.
+//
+// Discriminative input: HL = 0x5FE0
+//   H = 0x5F = 010 11 111  →  H[7:5]=010, b=11, C=111
+//   L = 0xE0 = 111 00000   →  R=111, L[4:0]=00000
+// Composite "11 111 111" + 1 = "00 000 000" (8-bit overflow).
+// VHDL result: H[7:5]=010 preserved, b=00, R=000, C=000, L[4:0]=00000.
+//   New HL = 0x4000.
+// Pre-fix result: jnext applied the +1 carry chain → mid wrapped → did
+//   `H = H + 0x08`, which on H=0x58 (= 010 11 000) yields 0x60
+//   (= 011 00 000) — the H[5] bit flipped, so the screen prefix changed
+//   from 010 to 011.  HL = 0x6000.
+//
+// Mentally reverting src/cpu/z80n_ext.cpp PIXELDN to the carry-chain
+// implementation makes this test FAIL (HL=0x6000 != 0x4000).
+void test_v11_cpu_02_pixeldn_band3_wrap_preserves_h_high(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.HL = 0x5FE0;          // band 3, last row in band, last cell row
+    cpu.set_registers(regs);
+
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x93;    // PIXELDN
+    int t = cpu.execute();
+
+    auto out = cpu.get_registers();
+    bool hl_ok      = (out.HL == 0x4000);
+    bool h_high_ok  = ((out.HL & 0xE000) == 0x4000); // H[7:5]=010 preserved
+    bool tstates_ok = (t == 8);
+
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "PIXELDN HL=0x5FE0 → 0x%04x (expect 0x4000); "
+                  "H[7:5] = %d%d%d (expect 010); t=%d (expect 8). "
+                  "Pre-fix would yield 0x6000 (H[7:5]=011 — bug).",
+                  out.HL,
+                  (out.HL >> 15) & 1,
+                  (out.HL >> 14) & 1,
+                  (out.HL >> 13) & 1,
+                  t);
+    check(res, "V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH",
+          hl_ok && h_high_ok && tstates_ok, detail);
+}
+
+// V11-CPU-02 sanity sub-case: row-191 wrap (H[4:3]=10, L[7:5]=111,
+// H[2:0]=111).  HL = 0x57E0 → expected 0x5800 per existing
+// ed93_last_line_wrap fixture in test/z80n/tests.expected.  The Pass-11
+// fix MUST keep this case working (it does, per the algebra — band 10 +
+// carry = band 11, no overflow into H[5]).  This is a non-discriminative
+// regression guard; pre-fix and post-fix both pass.
+void test_v11_cpu_02_pixeldn_row191_wrap_unchanged(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.HL = 0x57E0;          // row 191 (last on-screen row, band 2)
+    cpu.set_registers(regs);
+
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x93;
+    cpu.execute();
+
+    auto out = cpu.get_registers();
+    char detail[160];
+    std::snprintf(detail, sizeof(detail),
+                  "PIXELDN HL=0x57E0 → 0x%04x (expect 0x5800; "
+                  "regression guard, both pre-fix and post-fix pass)",
+                  out.HL);
+    check(res, "V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED (guard)",
+          out.HL == 0x5800, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 
@@ -1368,6 +1529,10 @@ int main() {
     test_pass10_ldpirx_flags_present(res);
     test_pass10_add_hl_a_force_carry_zero(res);
     test_pass10_im2_reti_decode_simultaneity(res);
+    // V11 (pass-11)
+    test_v11_cpu_01_im2_ddfd_ed_no_reti(res);
+    test_v11_cpu_02_pixeldn_band3_wrap_preserves_h_high(res);
+    test_v11_cpu_02_pixeldn_row191_wrap_unchanged(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
