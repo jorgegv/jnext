@@ -1204,6 +1204,18 @@ void test_pass8_push_nn_wz_lo_only(Result& res) {
 // Discriminates Pass-9's IncDecZ shadow by exercising LDWS after a DJNZ
 // with B:2→1 (IncDecZ should latch to 1).
 void test_pass9_ldws_incdecz_after_djnz(Result& res) {
+    // V13-CPU-01 (Pass-13): the prior Pass-9 expectation (IncDecZ=1, P=1
+    // after DJNZ-taken with B=2→1) ENCODED THE BUG. VHDL t80n.vhd:1358-
+    // 1360 latches IncDecZ from F_Out(Flag_Z) of the SUB-1 ALU result on
+    // B — i.e. zero-meaning, not nonzero-meaning. With B=2 entering DJNZ
+    // and branch taken (B → 1), the ALU result is 1 → F.Z=0 → IncDecZ=0.
+    // LDWS then composes F.P=IncDecZ=0 (NOT 1).
+    //
+    // Pre-V13 jnext: `regs_.IncDecZ = (B != 0) ? 1 : 0` (in z80_cpu.cpp).
+    // → IncDecZ=1 → LDWS F.P=1. DIVERGES from VHDL.
+    //
+    // Post-V13 fix: `regs_.IncDecZ = (B == 0) ? 1 : 0` — matches VHDL.
+    // → IncDecZ=0 → LDWS F.P=0. Discriminative.
     detach_contention();
     RamMemory mem;
     RecordingIo io;
@@ -1230,22 +1242,82 @@ void test_pass9_ldws_incdecz_after_djnz(Result& res) {
     cpu.execute();  // DJNZ
     auto after_djnz = cpu.get_registers();
     bool branch_taken = after_djnz.PC == 0x8005;
+    bool b_after_one  = ((after_djnz.BC >> 8) & 0xFF) == 1;
+    // V13-CPU-01: post-fix expectation — IncDecZ=0 (B-1=1 nonzero, F.Z=0).
+    bool incdecz_clear = after_djnz.IncDecZ == 0;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool p_clear = (f & 0x04) == 0;
+
+    char detail[320];
+    std::snprintf(detail, sizeof(detail),
+                  "OR A → F.P=%d (need 0); DJNZ branch_taken=%d, B_after=1?%d "
+                  "IncDecZ=%d (V13 expect 0 — VHDL F.Z(B-1)=F.Z(1)=0); "
+                  "LDWS F=0x%02x F.P=%d (V13 expect 0; pre-fix would be 1)",
+                  p_after_or_zero ? 0 : 1, branch_taken,
+                  b_after_one, after_djnz.IncDecZ, f, p_clear ? 0 : 1);
+    check(res, "V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN (was Pass-9 b40af13)",
+          p_after_or_zero && branch_taken && b_after_one && incdecz_clear && p_clear,
+          detail);
+}
+
+// V13-CPU-01 — second discriminative test: DJNZ with B=1 (no branch,
+// B→0). Per VHDL F.Z(B-1)=F.Z(0)=1 → IncDecZ=1. Pre-fix C++ would set
+// IncDecZ=0 (since B == 0 → !=0 false → ternary picks 0). LDWS F.P
+// would diverge correspondingly: post-fix=1, pre-fix=0.
+//
+// Together with the first test (DJNZ-taken with B=2→1: IncDecZ should
+// be 0), the two tests pin BOTH polarity sides of the inverted shadow:
+//   B=2→1 (taken):     post-fix IncDecZ=0, pre-fix IncDecZ=1
+//   B=1→0 (not taken): post-fix IncDecZ=1, pre-fix IncDecZ=0
+// Either fix direction (correct/wrong) commits in BOTH tests; reverting
+// the production code fails BOTH tests simultaneously.
+void test_v13_cpu_01_ldws_incdecz_after_djnz_not_taken(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;        // B=1 — DJNZ will not take branch
+    cpu.set_registers(regs);
+
+    mem.ram[0x8000] = 0xB7;      // OR A — clears F so we observe F.P from LDWS
+    mem.ram[0x8001] = 0x10;      // DJNZ
+    mem.ram[0x8002] = 0x02;      // +2 (target = 0x8005, but won't branch)
+    mem.ram[0x8003] = 0xED;
+    mem.ram[0x8004] = 0xA5;      // LDWS at fall-through
+
+    cpu.execute();  // OR A
+    auto after_or = cpu.get_registers();
+    bool p_after_or_zero = (after_or.AF & 0x04) == 0;
+
+    cpu.execute();  // DJNZ
+    auto after_djnz = cpu.get_registers();
+    bool branch_not_taken = after_djnz.PC == 0x8003;
+    bool b_after_zero     = ((after_djnz.BC >> 8) & 0xFF) == 0;
+    // V13-CPU-01 post-fix: IncDecZ=1 (B-1=0 → F.Z=1).
     bool incdecz_set = after_djnz.IncDecZ == 1;
-    bool b_after_one = ((after_djnz.BC >> 8) & 0xFF) == 1;
 
     cpu.execute();  // LDWS
     auto out = cpu.get_registers();
     uint8_t f = out.AF & 0xFF;
     bool p_set = (f & 0x04) != 0;
 
-    char detail[280];
+    char detail[320];
     std::snprintf(detail, sizeof(detail),
-                  "OR A → F.P=%d (need 0); DJNZ branch_taken=%d, B_after=1?%d "
-                  "IncDecZ=%d (want 1); LDWS F=0x%02x F.P=%d (expect 1)",
-                  p_after_or_zero ? 0 : 1, branch_taken,
-                  b_after_one, after_djnz.IncDecZ, f, p_set ? 1 : 0);
-    check(res, "Z80N-LDWS-INCDECZ-FROM-DJNZ (b40af13)",
-          p_after_or_zero && branch_taken && b_after_one && incdecz_set && p_set,
+                  "OR A → F.P=%d (need 0); DJNZ branch_not_taken=%d, B_after=0?%d "
+                  "IncDecZ=%d (V13 expect 1 — VHDL F.Z(B-1)=F.Z(0)=1); "
+                  "LDWS F=0x%02x F.P=%d (V13 expect 1; pre-fix would be 0)",
+                  p_after_or_zero ? 0 : 1, branch_not_taken,
+                  b_after_zero, after_djnz.IncDecZ, f, p_set ? 1 : 0);
+    check(res, "V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN",
+          p_after_or_zero && branch_not_taken && b_after_zero
+              && incdecz_set && p_set,
           detail);
 }
 
@@ -1662,6 +1734,8 @@ int main() {
     test_v11_cpu_02_pixeldn_row191_wrap_unchanged(res);
     // V12 (pass-12 reviewer NIT)
     test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(res);
+    // V13 (pass-13)
+    test_v13_cpu_01_ldws_incdecz_after_djnz_not_taken(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

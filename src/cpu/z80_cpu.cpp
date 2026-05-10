@@ -801,9 +801,31 @@ int Z80Cpu::execute() {
     sync_regs_from_fuse(regs_);
 
     if (is_djnz) {
-        // DJNZ: F_Out(Flag_Z) of B-1. After exec, regs_.BC high byte = B
-        // post-decrement. IncDecZ = (B != 0).
-        regs_.IncDecZ = ((regs_.BC >> 8) & 0xFF) ? 1u : 0u;
+        // V13-CPU-01 fix: VHDL t80n.vhd:1358-1360 latches IncDecZ from
+        // F_Out(Flag_Z) of the SUB-1 ALU result on B (DJNZ ALU_Op="0010"
+        // SUB at MCycle 1, BusA=B(000), BusB="00000001"; t80n_mcode.vhd:
+        // 1140-1144). F_Out(Flag_Z) is set when result is zero — i.e.
+        // when (B-1) == 0 i.e. B was 1 entering DJNZ.
+        //
+        // After exec, regs_.BC high byte = post-decrement B. The mapping is:
+        //   B == 0 (post-dec)  →  ALU result was zero  →  F.Z=1  →  IncDecZ=1
+        //   B != 0 (post-dec)  →  ALU result nonzero   →  F.Z=0  →  IncDecZ=0
+        //
+        // PRE-FIX (Pass-9..Pass-12) wrote `(B != 0) ? 1 : 0` — the OPPOSITE
+        // polarity! The comment ("F_Out(Flag_Z) of B-1") was right but the
+        // code matched the BC-block-transfer convention (where IncDecZ=1
+        // means "BC nonzero, P/V set" per spec). VHDL has the two latch
+        // sites with INVERTED meanings:
+        //   t80n.vhd:1359 (DJNZ)         : IncDecZ <= F_Out(Flag_Z)  (zero)
+        //   t80n.vhd:1361-1366 (BC dec)  : IncDecZ <= '1' if ID16/=0 (nonzero)
+        // Both feed F.P via t80n.vhd:1284 `F(Flag_P) <= IncDecZ` for I_BC
+        // or I_BT instructions (LDI/LDIR/LDIX/LDIRX/.../LDWS).
+        //
+        // Discriminative impact: an LDWS following DJNZ-taken-branch
+        // composed F.P from the wrong polarity. With B=2 entering DJNZ:
+        //   pre-fix:  IncDecZ=1 (B=1 != 0) → LDWS F.P=1
+        //   post-fix: IncDecZ=0 (B=1 ≠ 0 → F.Z=0) → LDWS F.P=0  (matches VHDL)
+        regs_.IncDecZ = (((regs_.BC >> 8) & 0xFF) == 0) ? 1u : 0u;
     }
     if (ed_block_xfer) {
         // DD-prefixed ED block transfer (DD ED A0 etc.). The DD prefix
