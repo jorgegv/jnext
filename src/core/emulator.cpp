@@ -766,14 +766,32 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:5902-5903:
     //   port_253b_dat <= "00" & cpu_speed & "00" & nr_07_cpu_speed;
     // i.e. bits[5:4] = actual cpu_speed, bits[1:0] = requested nr_07_cpu_speed.
-    // JNEXT does not model the expbus speed override (VHDL zxnext.vhd:5816-5820
-    // assigns cpu_speed <= nr_07_cpu_speed when expbus_en = '0'), so the
-    // effective actual speed tracks the requested value directly (the
-    // write handler above drives both clock_ and contention_ from the
-    // low 2 bits of the last write, which live in regs_[0x07]).
+    // VHDL zxnext.vhd:5816-5820 sets the actual cpu_speed via:
+    //   if expbus_en = '0' then cpu_speed <= nr_07_cpu_speed;
+    //   else                    cpu_speed <= expbus_speed;
+    // (latched on bus-idle, :5809). VHDL zxnext.vhd:5496 hard-wires
+    // `nr_81_expbus_speed <= "00"` (the writable arm is commented out),
+    // so the expbus-active path always reports actual speed = "00".
+    //
+    // V21-NMP-03 (Pass-21 verify-audit fix): pre-fix `act = req` was
+    // unconditional, ignoring expbus_en. When NR 0x80 bit 7 = 1
+    // (expbus_eff_en after the bus-idle latch) AND nr_07_cpu_speed != 0,
+    // VHDL would surface act = 0 (= expbus_speed hard-wired) while jnext
+    // surfaced act = req. Class-(c) inert divergence (jnext has no expbus
+    // device wired, so the steady-state observable is unchanged for any
+    // boot path that respects the default NR 0x80 = 0x00), but the
+    // readback contract is part of the VHDL surface.
+    //
+    // The bus-idle latch (VHDL :5809) is collapsed into NR 0x80 write
+    // and NmiSource::expbus_eff_en()/expbus_eff_disable_mem() as the
+    // commit point — same approximation used at Pass-9 verify-audit for
+    // `expbus_eff_en` propagation into the NMI gates. Re-use that here
+    // so we don't introduce yet another latch shadow.
     nextreg_.set_read_handler(0x07, [this]() -> uint8_t {
         const uint8_t req = nextreg_.cached(0x07) & 0x03;
-        const uint8_t act = req;  // expbus not modelled — actual follows requested
+        // VHDL :5816-5820: actual cpu_speed = nr_07_cpu_speed when
+        // expbus_en = '0', else expbus_speed (hard-wired "00").
+        const uint8_t act = nmi_source_.expbus_eff_en() ? 0x00 : req;
         return static_cast<uint8_t>((act << 4) | req);
     });
 
