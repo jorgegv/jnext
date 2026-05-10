@@ -2265,6 +2265,262 @@ void test_v14_cpu_nit_01_fd_djnz_updates_incdecz(Result& res) {
           detail);
 }
 
+// ─── V17-CPU-01 (pass-17) — im2_int_req held at 0 in pulse mode ───────────
+//
+// VHDL im2_peripheral.vhd:105 + :167-178 — `im2_reset_n = i_mode_pulse_0_im2_1
+// AND NOT i_reset`, and the `im2_int_req` register process holds the latch at
+// '0' whenever `im2_reset_n='0'` (i.e. in pulse mode). Pre-fix jnext set the
+// per-device `im2_int_req` latch on any qualifying edge regardless of the
+// current pulse/IM2 mode. After firing in pulse mode, the latch was carried
+// across the NR 0xC0 mode-bit transition pulse → IM2 — phantom IM2 interrupt
+// on the next tick.
+//
+// Discriminative case: enable LINE in pulse mode, raise it (latch lit pre-fix
+// via tick), switch to IM2 mode WITHOUT raising again, tick once. Pre-fix
+// the device immediately enters S_REQ from the stale `im2_int_req=true`
+// latch. Post-fix the latch was forced to false in pulse mode, so the device
+// stays in S_0.
+void test_v17_cpu_01_im2_int_req_held_in_pulse_mode(Result& res) {
+    detach_contention();
+
+    Im2Controller im2;
+    using Dev = Im2Controller::DevIdx;
+    using DevState = Im2Controller::DevState;
+    im2.reset();
+
+    // Pulse mode (NR 0xC0 bit 0 = 0).
+    im2.set_mode(false);
+    im2.set_int_en(Dev::LINE, true);
+
+    // Fire an int_req in pulse mode. step_devices() will detect the rising
+    // edge and (pre-fix) set im2_int_req=true. Post-fix, the latch is held
+    // at false because im2_reset_n=0 in pulse mode.
+    im2.raise_req(Dev::LINE);
+    im2.tick(1);
+
+    // Sample state after the pulse-mode tick. State must be S_0 (forced by
+    // step_state_machine_with_iei in pulse mode anyway).
+    DevState state_after_pulse_tick = im2.state(Dev::LINE);
+
+    // Now clear int_req (peripheral deassert). The latch (if it was set) is
+    // sticky per VHDL — only `im2_isr_serviced` (or im2_reset_n=0) clears it.
+    im2.clear_req(Dev::LINE);
+    im2.tick(1);
+
+    // Switch to IM2 mode. NO new int_req is raised. step_devices() will run
+    // Phase 1 (no edge → latch unchanged) then Phase 2.
+    //   Pre-fix: latch was lit during the pulse-mode tick → device enters
+    //            S_REQ in this IM2-mode tick → int_line asserted.
+    //   Post-fix: latch was held at 0 during pulse-mode → device stays at
+    //            S_0 → int_line NOT asserted.
+    im2.set_mode(true);
+    im2.tick(1);
+
+    DevState state_after_im2_tick = im2.state(Dev::LINE);
+    bool int_line = im2.int_line_asserted();
+
+    char detail[320];
+    std::snprintf(detail, sizeof(detail),
+                  "after pulse-mode tick state=%d (S_0=0); after IM2-mode tick "
+                  "state=%d (post-fix: 0=S_0; pre-fix: 1=S_REQ); "
+                  "int_line=%d (post-fix: 0; pre-fix: 1)",
+                  static_cast<int>(state_after_pulse_tick),
+                  static_cast<int>(state_after_im2_tick),
+                  int_line ? 1 : 0);
+    check(res, "V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170",
+          state_after_pulse_tick == DevState::S_0
+              && state_after_im2_tick == DevState::S_0
+              && !int_line,
+          detail);
+}
+
+// ─── V17-Z80N-01 (pass-17) — BSLA / BSRF strict-UB-free shift handling ────
+//
+// V17-Z80N-01a — BSRF with shift>=16 fills with 1s. VHDL t80n.vhd:1006-1014:
+// bit 16 = IR[0] = 1 for BSRF, 17-bit signed shift. For shift >= 16 result
+// is 0xFFFF. The pre-fix code used a 32-bit construction with strict UB
+// (signed left shift of high-bit-set values). On x86 the result was correct
+// by accident; this test pins the spec'd behaviour for any shift >= 16
+// regardless of input.
+void test_v17_z80n_01_bsrf_shift_ge_16_fills_ones(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    // shift=16, DE=0x0000 → result must be 0xFFFF.
+    auto regs = cpu.get_registers();
+    regs.DE = 0x0000;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x2B;     // BSRF DE,B
+    cpu.execute();
+    uint16_t result_16 = cpu.get_registers().DE;
+
+    // shift=31, DE=0x1234 → result must be 0xFFFF (max shift).
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x1234;
+    regs.BC = 0x1F00;     // shift=31
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x2B;     // BSRF DE,B
+    cpu.execute();
+    uint16_t result_31 = cpu.get_registers().DE;
+
+    // shift=8, DE=0x00FF → result must be 0xFF00 | 0x0000 = 0xFF00.
+    // (DE=0x00FF, shift=8: DE>>8=0x0000, top 8 bits filled with 1s = 0xFF00.)
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x00FF;
+    regs.BC = 0x0800;     // shift=8
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x2B;     // BSRF DE,B
+    cpu.execute();
+    uint16_t result_8 = cpu.get_registers().DE;
+
+    char detail[320];
+    std::snprintf(detail, sizeof(detail),
+                  "shift=16 DE=0x0000 → 0x%04x (exp 0xFFFF); "
+                  "shift=31 DE=0x1234 → 0x%04x (exp 0xFFFF); "
+                  "shift=8 DE=0x00FF → 0x%04x (exp 0xFF00)",
+                  result_16, result_31, result_8);
+    check(res, "V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014",
+          result_16 == 0xFFFF && result_31 == 0xFFFF
+              && result_8 == 0xFF00, detail);
+}
+
+// V17-Z80N-01b — BSLA with shift>=16 returns 0 (no bits left). VHDL line 992:
+// `shift_left(unsigned(16-bit), shift)`. For shift >= 16 the result is 0.
+// Pre-fix `(uint16_t)x << shift` for shift >= 16 is C++ UB (signed shift
+// overflow). Test pins the post-fix safe path.
+void test_v17_z80n_01_bsla_shift_ge_16_zero(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.DE = 0x4321;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x28;     // BSLA DE,B
+    cpu.execute();
+    uint16_t result_16 = cpu.get_registers().DE;
+
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0xFFFF;
+    regs.BC = 0x1F00;     // shift=31
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x28;     // BSLA DE,B
+    cpu.execute();
+    uint16_t result_31 = cpu.get_registers().DE;
+
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "DE=0x4321 shift=16 → 0x%04x (exp 0x0000); "
+                  "DE=0xFFFF shift=31 → 0x%04x (exp 0x0000)",
+                  result_16, result_31);
+    check(res, "V17-Z80N-01b-BSLA-UB-FREE-VHDL-992",
+          result_16 == 0x0000 && result_31 == 0x0000, detail);
+}
+
+// ─── V17-CPU-NIT-04 (reviewer NIT) — BSRA strict-UB-free shift handling ───
+//
+// VHDL t80n.vhd:1006-1014 — for BSRA the 17-bit pre-shift value has bit 16
+// = bit 15 (sign-extended), then signed(17-bit) >> shift_count with
+// shift_count = B[4:0] = 0..31. For shift >= 16 the result is sign-fill
+// (0xFFFF if DE bit 15 set; 0x0000 else).
+//
+// Pre-fix (`int16_t >> shift`): on a negative value with shift up to 31 is
+// C++17 implementation-defined. Same UB family as V17-Z80N-01a/b. Test pins
+// the spec'd VHDL behaviour:
+//   - DE=0x8000 (negative), shift=16 → 0xFFFF (sign fill)
+//   - DE=0x4000 (positive), shift=16 → 0x0000
+//   - DE=0xC000 (negative), shift=15 → 0xFFFF | DE>>15 = 0xFFFF
+//   - DE=0x4000 (positive), shift=14 → 0x0001
+void test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    // Negative DE, shift=16: result must be all ones (0xFFFF).
+    auto regs = cpu.get_registers();
+    regs.DE = 0x8000;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_16 = cpu.get_registers().DE;
+
+    // Positive DE, shift=16: result must be 0x0000.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x4000;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t pos_16 = cpu.get_registers().DE;
+
+    // Negative DE, shift=31: still sign-fill = 0xFFFF.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0xC000;
+    regs.BC = 0x1F00;     // shift=31
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_31 = cpu.get_registers().DE;
+
+    // Positive DE=0x4000, shift=14: arithmetic shift right by 14 = 0x0001.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x4000;
+    regs.BC = 0x0E00;     // shift=14
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t pos_14 = cpu.get_registers().DE;
+
+    // Negative DE=0xFFFE, shift=1: arithmetic shift right by 1 = 0xFFFF.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0xFFFE;
+    regs.BC = 0x0100;     // shift=1
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_1 = cpu.get_registers().DE;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "neg DE=0x8000 shift=16 → 0x%04x (exp 0xFFFF); "
+                  "pos DE=0x4000 shift=16 → 0x%04x (exp 0x0000); "
+                  "neg DE=0xC000 shift=31 → 0x%04x (exp 0xFFFF); "
+                  "pos DE=0x4000 shift=14 → 0x%04x (exp 0x0001); "
+                  "neg DE=0xFFFE shift=1 → 0x%04x (exp 0xFFFF)",
+                  neg_16, pos_16, neg_31, pos_14, neg_1);
+    check(res, "V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014",
+          neg_16 == 0xFFFF && pos_16 == 0x0000
+              && neg_31 == 0xFFFF && pos_14 == 0x0001
+              && neg_1 == 0xFFFF, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 
@@ -2325,6 +2581,12 @@ int main() {
     test_v14_cpu_nit_01_fd_dec_bc_updates_incdecz(res);
     test_v14_cpu_nit_01_dd_djnz_updates_incdecz(res);
     test_v14_cpu_nit_01_fd_djnz_updates_incdecz(res);
+    // V17 (pass-17)
+    test_v17_cpu_01_im2_int_req_held_in_pulse_mode(res);
+    test_v17_z80n_01_bsrf_shift_ge_16_fills_ones(res);
+    test_v17_z80n_01_bsla_shift_ge_16_zero(res);
+    // V17-CPU-NIT-04 (pass-17 reviewer NIT) — BSRA UB-free shift
+    test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

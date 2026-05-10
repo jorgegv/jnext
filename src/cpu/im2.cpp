@@ -756,24 +756,47 @@ void Im2Controller::step_devices() {
     // int_unq bypasses i_int_en in both the status register (UNQ-05) and the
     // im2 latch (UNQ-04). raise_unq() also sets these fields directly so
     // combinational collapse is observationally equivalent.
+    //
+    // V17-CPU-01: VHDL im2_peripheral.vhd:105 +:170-171 — `im2_reset_n` is
+    // gated on `i_mode_pulse_0_im2_1 AND NOT i_reset`, and the `im2_int_req`
+    // latch process at :167-178 holds the latch at '0' whenever
+    // `im2_reset_n = '0'` (i.e. in pulse mode). Pre-fix jnext set
+    // `im2_int_req=true` on any qualifying edge or `int_unq` regardless of
+    // `im2_mode_`, so a device that fired in pulse mode left a stale latch.
+    // On a subsequent NR 0xC0 mode transition pulse → IM2, that stale latch
+    // would push the device straight from S_0 to S_REQ in the next tick
+    // even though VHDL's latch was held at 0 the whole time — phantom
+    // IM2 interrupt. Fix: enforce `im2_int_req=false` when in pulse mode,
+    // matching the VHDL `im2_reset_n='0'` reset path.
+    const bool im2_reset_n = im2_mode_;   // not gated on a host-side reset
+                                          // pulse — controller reset() runs
+                                          // separately and clears all state.
     for (int i = 0; i < N; ++i) {
         Device& d = dev_[i];
         const bool edge = d.int_req && !d.int_req_d;
 
         // Set int_status on any edge (vhdl:160 — gated by neither int_en
         // nor int_unq; the edge pulse itself is what the VHDL equation
-        // uses).
+        // uses). int_status is NOT held by im2_reset_n (vhdl:154-162) — it
+        // persists across mode switches.
         if (edge) {
             d.int_status = true;
         }
 
         // Set im2_int_req latch: edge qualified by int_en, OR unqualified
-        // (int_unq, which bypasses int_en per vhdl:172).
-        if (edge && d.int_en) {
-            d.im2_int_req = true;
+        // (int_unq, which bypasses int_en per vhdl:172). Held at 0 in
+        // pulse mode (V17-CPU-01).
+        if (!im2_reset_n) {
+            d.im2_int_req = false;
+        } else {
+            if (edge && d.int_en) {
+                d.im2_int_req = true;
+            }
+            if (d.int_unq) {
+                d.im2_int_req = true;      // bypass int_en
+            }
         }
         if (d.int_unq) {
-            d.im2_int_req = true;      // bypass int_en
             d.int_status  = true;      // vhdl:160 — unq also feeds int_status
             // int_unq is one-shot; cleared by the pulse fabric (Agent C,
             // Wave 2) after the pulse fires. Do NOT clear here.

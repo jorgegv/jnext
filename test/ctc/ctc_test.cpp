@@ -1919,6 +1919,18 @@ void section11_im2_peripheral() {
     // AND NOT i_reset. In pulse mode (i_mode_pulse_0_im2_1='0') the state
     // machine is held at S_0 regardless of int_req. Flipping into IM2 mode
     // allows transitions again.
+    //
+    // V17-CPU-01 update: pre-fix this test raised int_req in pulse mode,
+    // ticked, switched to IM2, ticked, and asserted state=S_REQ. That
+    // exposed an emulator bug — the `im2_int_req` latch was incorrectly
+    // set during the pulse-mode tick (per VHDL :170-171 it should have
+    // been held at 0 by `im2_reset_n='0'`). The latch carried into IM2
+    // mode and pushed the device to S_REQ in the next tick. Per VHDL,
+    // the int_req EDGE was consumed during the pulse-mode tick (int_req_d
+    // captured the level), so without a fresh edge in IM2 mode the
+    // device stays at S_0. To verify the "released" semantic we now
+    // drop+re-raise int_req across the mode switch — that fresh edge
+    // produces the S_REQ transition that the test name implies.
     {
         fresh(im2);
         im2.set_mode(false);  // pulse mode → reset held
@@ -1926,7 +1938,11 @@ void section11_im2_peripheral() {
         im2.raise_req(Dev::CTC0);
         im2.tick(1);
         bool held = (im2.state(Dev::CTC0) == DevState::S_0);
+        // Drop the int_req level so a fresh edge can fire in IM2 mode.
+        im2.clear_req(Dev::CTC0);
+        im2.tick(1);  // settles int_req_d=0 across the wrapper edge detect
         im2.set_mode(true);  // IM2 mode → reset released
+        im2.raise_req(Dev::CTC0);
         im2.tick(1);
         bool released = (im2.state(Dev::CTC0) == DevState::S_REQ);
         check("IM2W-07", held && released,
