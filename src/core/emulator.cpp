@@ -240,6 +240,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[2] = 0;
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
+    // V19-IM2-02 init: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+    // NOT port_ff_interrupt_disable` = NOT port_ff_reg(6). With
+    // port_ff_reg=0 at reset, ULA int_en=1. Fan this initial value
+    // into the IM2 fabric so dev_[ULA].int_en starts at true. Pre-fix
+    // im2_.reset() left dev_[ULA].int_en=false (default), and no
+    // subsequent code wrote it — meaning every FRAME-INT raise_req(ULA)
+    // in IM2 mode silently dropped because the wrapper's edge-detect
+    // would not latch im2_int_req without int_en. The runtime writers
+    // (port-FF / NR 0x22 b2 / NR 0xC4 b0) now also fan into IM2 fabric
+    // (V19-IM2-02 fix), so this init brings them into a coherent state
+    // before the first software access.
+    im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                    (port_ff_reg_ & 0x40) == 0);
+    // V19-IM2-01 init: NR 0x22 bit 1 + NR 0xC4 bit 1 share the
+    // nr_22_line_interrupt_en flip-flop (VHDL :5297, :5610), which feeds
+    // dev_[LINE].int_en (line :1950). The flip-flop default is 0 (line
+    // :4983). Honour that explicitly so the IM2 fabric's LINE int_en
+    // matches both the line-int generation gate and the VHDL boot state.
+    im2_.set_int_en(Im2Controller::DevIdx::LINE, false);
     // G135 — NR 0xA0 Pi peripheral enable byte resets to 0x00 per VHDL
     // zxnext.vhd:5080 (nr_a0_pi_peripheral_en <= (others => '0')).
     nr_a0_pi_peripheral_en_ = 0;
@@ -1832,6 +1851,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         ula_int_disabled_ = (v & 0x04) != 0;
         video_timing_.set_interrupt_enable(!ula_int_disabled_);
         video_timing_.set_line_interrupt_enable((v & 0x02) != 0);
+        // V19-IM2-01 fix: VHDL zxnext.vhd:5297 — NR 0x22 bit 1 also writes
+        // the `nr_22_line_interrupt_en` flip-flop, which feeds
+        // `im2_int_en[0]` (= LINE device int_en) per :1950 + :6711. Pre-fix
+        // jnext only updated `video_timing_.set_line_interrupt_enable()`
+        // (the line-int generation gate), but the IM2 fabric's
+        // `dev_[DevIdx::LINE].int_en` was NOT updated. Result: in IM2 mode,
+        // a NR 0x22 ← bit1=1 enabled line-int generation, but the IM2
+        // wrapper edge-detect would NOT latch im2_int_req (because int_en
+        // stayed 0), so the daisy-chain S_REQ never asserted — the CPU
+        // never received the interrupt. NR 0xC4 bit 1 is a hardware mirror
+        // (writes the SAME flip-flop, VHDL :5610) and DOES update IM2's
+        // LINE int_en — so jnext was already self-inconsistent.
+        // Discriminative: write NR 0x22 ← 0x02; verify
+        // im2_.dev_[LINE].int_en == true via raise_req+tick observability.
+        im2_.set_int_en(Im2Controller::DevIdx::LINE, (v & 0x02) != 0);
         const uint16_t cur = video_timing_.line_interrupt_target();
         video_timing_.set_line_interrupt_target(
             static_cast<uint16_t>((cur & 0xFF) | ((v & 0x01) << 8)));
@@ -1839,6 +1873,19 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // value into `port_ff_reg(6)` (the ULA-int-disable bit).
         port_ff_reg_ = static_cast<uint8_t>((port_ff_reg_ & 0xBF)
                                           | ((v & 0x04) << 4));
+        // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+        // NOT port_ff_interrupt_disable` (= NOT port_ff_reg(6)). That bit
+        // feeds `im2_int_en[11]` (= ULA device int_en) per :1949. Pre-fix
+        // jnext maintained `ula_int_disabled_` + `video_timing_.set_interrupt_enable`
+        // shadows but the IM2 fabric's `dev_[DevIdx::ULA].int_en` was
+        // NEVER updated — meaning every FRAME-INT raised via raise_req(ULA)
+        // in IM2 mode would set int_status but NOT im2_int_req (int_en=0),
+        // so the daisy-chain stayed in S_0 and no INT line was ever
+        // asserted to the Z80 in IM2 mode. Mirror the port_ff_reg(6) →
+        // ULA int_en propagation here so all three writers (port-FF,
+        // NR 0x22 b2, NR 0xC4 b0-NOT) keep IM2 fabric in sync.
+        im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                        (port_ff_reg_ & 0x40) == 0);
         // G108 — propagate the updated port_ff_reg into Ula::screen_mode_reg_
         // so the renderer sees the change. Bits 2:0 (mode) + 5:3 (paper
         // colour) are preserved from the previous port_ff_reg state; only
@@ -2703,6 +2750,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // pattern (write_handler + video_timing_ fan-out).
         ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
         video_timing_.set_interrupt_enable(!ula_int_disabled_);
+        // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+        // NOT port_ff_interrupt_disable` feeds `dev_[ULA].int_en` of the
+        // IM2 fabric (line :1949 bit 11). NR 0xC4 bit 0 (NOT) writes
+        // port_ff_reg(6); update the IM2 fabric's ULA int_en too so that
+        // a "ULA INT enable" via NR 0xC4 ← 0x01 actually allows the IM2
+        // wrapper to latch im2_int_req on raise_req(ULA) for IM2-mode
+        // FRAME interrupts. See V19-IM2-02 in NR 0x22 + port-FF for the
+        // mirror writers.
+        im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                        (port_ff_reg_ & 0x40) == 0);
         // Bit 7 (expbus int enable) is stored for readback via im2_c4_expbus_.
         im2_c4_expbus_ = (v & 0x80) != 0;
         return v;
@@ -3240,6 +3297,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // writers keep the shadow + scheduler gate in sync.
             ula_int_disabled_ = (port_ff_reg_ & 0x40) != 0;
             video_timing_.set_interrupt_enable(!ula_int_disabled_);
+            // V19-IM2-02 fix: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
+            // NOT port_ff_interrupt_disable` (= NOT port_ff_reg(6)).
+            // That bit feeds `dev_[ULA].int_en` of the IM2 fabric
+            // (line :1949 bit 11). port-FF writes the entire byte, so
+            // bit 6 here is the port_ff_interrupt_disable polarity.
+            // Update the IM2 fabric ULA int_en in lockstep so a direct
+            // OUT (0xFF),A propagates correctly to the daisy chain in
+            // IM2 mode (consistent with NR 0x22 / NR 0xC4 mirrors).
+            im2_.set_int_en(Im2Controller::DevIdx::ULA,
+                            (port_ff_reg_ & 0x40) == 0);
         });
 
     // +3 floating-bus surface — port 0x0FFD.
