@@ -4482,14 +4482,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // a priority-chain source. Wave 3 Agent F: NR 0xCC/CD/CE now drive
     // Im2Controller::set_dma_int_en_mask (see the NR handlers above), and
     // dma_int_pending()/dma_delay() feed the per-frame hook in run_frame()
-    // below. The legacy raise(Im2Level::DMA) is left in place as a vestigial
-    // save/load-schema artifact — Im2Level::DMA maps to DevIdx::ULA via
-    // to_devidx() (harmless because the legacy API path uses its own pending
-    // view keyed by Im2Level index) and the legacy mask bit is unused by any
-    // live code path. Candidate for removal in a future cleanup once every
-    // save-state reader is rebuilt.
+    // below.
+    //
+    // V18R-CPU-02 (Pass-18 reviewer): the on_interrupt hook is a no-op.
+    // Previously this called `im2_.raise(Im2Level::DMA)` as a "vestigial
+    // save/load-schema artifact", but that was buggy: raise() indexes
+    // dev_[] directly by the Im2Level value (im2.cpp:135). Im2Level::DMA=10
+    // collides with DevIdx::CTC7=10, so the call set dev_[10].int_req=true
+    // which is CTC7's int_req in the DevIdx mapping. Phase-1 of
+    // step_devices() then promoted CTC7's int_status — observable as bit 7
+    // of NR 0xC9 returning 1 after every DMA completion even though the
+    // VHDL hardwires CTC7's i_int_req to '0' (zxnext.vhd:4092). Worst case,
+    // if software enabled CTC7 via NR 0xC5 bit 7 the spurious int_status
+    // would chain into S_REQ → pulse_int_n_/im2_int_req → a phantom CTC7
+    // interrupt dispatch. Net VHDL truth: CTC7 cannot light up from any
+    // peripheral activity. Fix: drop the raise() call entirely.
     dma_.on_interrupt = [this]() {
-        im2_.raise(Im2Level::DMA);
+        // No-op (V18R-CPU-02). DMA's INT path runs through the dedicated
+        // im2_dma_delay latch (vhdl:2003-2010) which Emulator drives via
+        // dma_int_pending() / dma_delay() in run_frame(); the daisy-chain
+        // dev_[] slots have no place for DMA.
+        (void)this;
     };
 
     uart_.on_tx_interrupt = [this](int channel) {
