@@ -1142,7 +1142,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // propagates that '0' into `eff_nr_05_5060`, and the NR 0x05 read
     // mux at :5897 surfaces it. Pre-fix the C++ surfaced `cached & 0x04`
     // unconditionally, leaking the user's pre-Pentagon write through.
-    // The F3 callback at line 3355-3361 already gates the toggle on
+    // The F3 callback at line 3508-3514 already gates the toggle on
     // Pentagon, but it's not the only writer (firmware can write NR
     // 0x05 directly). Mask bit 2 to '0' at read time when Pentagon is
     // active. Same shape as the existing `nr_06_ps2_mode_` config_mode
@@ -1989,10 +1989,13 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             if ((new_timing & 0x04) != 0) {
                 const uint8_t cached_05 =
                     static_cast<uint8_t>(nextreg_.cached(0x05) & ~0x04);
-                // Direct write into the cache — bypassing the NR 0x05
-                // write_handler so we don't fan out to Joystick (whose
-                // joy0/joy1 fields aren't affected by bit 2; this is a
-                // pure cache-canonicalisation step).
+                // Re-write the canonicalised value through NextReg::write,
+                // which routes through the NR 0x05 write_handler (see
+                // `nextreg.cpp:451-452`) and hence fans out to Joystick.
+                // That is benign here — joy0/joy1 are encoded in bits 7:5
+                // and 4:3 respectively; only bit 2 is being cleared, so
+                // Joystick's mode selectors are unaffected and the call is
+                // idempotent for the cache-canonicalisation purpose.
                 nextreg_.write(0x05, cached_05);
             }
 
