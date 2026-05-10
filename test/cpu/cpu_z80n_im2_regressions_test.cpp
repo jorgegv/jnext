@@ -2742,6 +2742,116 @@ void test_v19_im2_03_int_unq_one_shot_after_isr(Result& res) {
           detail);
 }
 
+// ─── V19R-CPU-01 (pass-19 reviewer NIT) — int_req 1-cycle pulse synthesis ─
+//
+// VHDL im2_peripheral.vhd:90-101 — the edge detector for `i_int_req` is
+//   process(i_CLK_28): int_req_d <= i_int_req
+//   int_req <= i_int_req AND NOT int_req_d
+// The upstream sources feeding i_int_req (zxnext.vhd:1941: ula_int_pulse,
+// line_int_pulse, ctc_zc_to, uart{0,1}_{rx,tx}_*_int) are ALL ONE-CYCLE
+// PULSES — they go high for exactly one CLK_28 cycle then return to '0'.
+// The edge detector therefore fires every pulse and the latched
+// im2_int_req is held in S_REQ until isr_serviced clears it.
+//
+// jnext models i_int_req as a LEVEL via raise_req() (im2.cpp:307). NO
+// production caller pairs raise_req() with a deferred clear_req(); all
+// peripherals (ULA scheduler at emulator.cpp:5390, LINE at :6600, CTC
+// `on_interrupt` at :4620, UART at :4665/:4683) call raise_req() at the
+// per-event boundary and leave int_req=true permanently.
+//
+// Pre-fix consequence: after frame 1's raise_req()+tick edge fires,
+// `int_req_d` settles to true; subsequent raise_req() calls produce no
+// new edge (true && !true = false). ULA/LINE/CTC INT effectively fires
+// **once per emulator lifetime** in IM2 mode.
+//
+// Fix: at end of tick(), clear int_req across all devices after
+// step_devices() Phase 1 has captured the edge into int_req_d. This
+// synthesizes VHDL's 1-cycle-pulse semantic from jnext's level-modeled
+// API.
+//
+// Discriminative test: enable IM2 + LINE int_en. Frame 1: raise_req(LINE)
+// + tick → state=S_REQ, int_line=true. Drive through full ISR
+// (ack_vector → S_ACK; tick → S_ISR; on_m1_cycle(ED)+on_m1_cycle(4D)
+// + tick → S_0). Settle int_req_d via an extra no-raise tick. Frame 2:
+// raise_req(LINE) + tick → must reach S_REQ again with int_line=true.
+//
+//   Pre-fix:  frame-2 state stays S_0; int_line=false (no edge → no
+//             latch → device never wakes).
+//   Post-fix: frame-2 state=S_REQ; int_line=true (edge fires, latch
+//             sets, device wakes).
+void test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(Result& res) {
+    detach_contention();
+
+    Im2Controller im2;
+    using Dev = Im2Controller::DevIdx;
+    using DevState = Im2Controller::DevState;
+    im2.reset();
+    im2.set_mode(true);                       // IM2 mode
+    im2.set_int_en(Dev::LINE, true);          // enable LINE int_en
+
+    // ── Frame 1 ───────────────────────────────────────────────────────────
+    // Raise + tick → device must reach S_REQ.
+    im2.raise_req(Dev::LINE);
+    im2.tick(1);
+    const DevState s_f1_after_raise = im2.state(Dev::LINE);
+    const bool int_line_f1 = im2.int_line_asserted();
+
+    // Drive through ISR: ack_vector advances S_REQ → S_ACK; next tick
+    // advances S_ACK → S_ISR.
+    (void)im2.ack_vector();
+    const DevState s_f1_after_ack = im2.state(Dev::LINE);
+    im2.tick(1);
+    const DevState s_f1_after_acktick = im2.state(Dev::LINE);
+
+    // RETI: ED 4D pulses reti_seen; next tick clears S_ISR → S_0 and
+    // clears the im2_int_req latch (im2_peripheral.vhd:175 via
+    // im2_isr_serviced).
+    im2.on_m1_cycle(0x0000, 0xED);
+    im2.on_m1_cycle(0x0001, 0x4D);
+    im2.tick(1);
+    const DevState s_f1_after_reti = im2.state(Dev::LINE);
+
+    // Extra tick with no new raise — lets int_req_d settle to false
+    // (post-fix: int_req cleared at end of frame-1's first tick → tick
+    // here sees int_req=false, sets int_req_d=false). This is the
+    // critical settle that must happen before a fresh edge can fire.
+    im2.tick(1);
+    const DevState s_f1_after_settle = im2.state(Dev::LINE);
+
+    // ── Frame 2 ───────────────────────────────────────────────────────────
+    // Raise again + tick — must produce a NEW rising edge → S_REQ.
+    im2.raise_req(Dev::LINE);
+    im2.tick(1);
+    const DevState s_f2_after_raise = im2.state(Dev::LINE);
+    const bool int_line_f2 = im2.int_line_asserted();
+
+    char detail[480];
+    std::snprintf(detail, sizeof(detail),
+                  "Frame-1: raise+tick state=%d (S_REQ=1) int_line=%d; "
+                  "after ack state=%d (S_ACK=2); after ack_tick state=%d "
+                  "(S_ISR=3); after RETI tick state=%d (S_0=0); "
+                  "after settle tick state=%d (S_0=0). "
+                  "Frame-2: raise+tick state=%d "
+                  "(post-fix: S_REQ=1; pre-fix: S_0=0 stuck) int_line=%d "
+                  "(post-fix: 1; pre-fix: 0)",
+                  static_cast<int>(s_f1_after_raise),    int_line_f1 ? 1 : 0,
+                  static_cast<int>(s_f1_after_ack),
+                  static_cast<int>(s_f1_after_acktick),
+                  static_cast<int>(s_f1_after_reti),
+                  static_cast<int>(s_f1_after_settle),
+                  static_cast<int>(s_f2_after_raise),    int_line_f2 ? 1 : 0);
+    check(res, "V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101",
+          s_f1_after_raise == DevState::S_REQ
+              && int_line_f1
+              && s_f1_after_ack == DevState::S_ACK
+              && s_f1_after_acktick == DevState::S_ISR
+              && s_f1_after_reti == DevState::S_0
+              && s_f1_after_settle == DevState::S_0
+              && s_f2_after_raise == DevState::S_REQ
+              && int_line_f2,
+          detail);
+}
+
 }  // namespace
 
 int main() {
@@ -2816,6 +2926,11 @@ int main() {
     // zxnext.vhd:1946-1947 (nr_20_we one-cycle pulse). Pre-fix in IM2 mode
     // a NR 0x20 unq raised sticky int_unq → phantom re-trigger after RETI.
     test_v19_im2_03_int_unq_one_shot_after_isr(res);
+    // V19R-CPU-01 (pass-19 reviewer NIT) — int_req 1-cycle pulse synthesis
+    // per VHDL im2_peripheral.vhd:90-101. Pre-fix raise_req level model
+    // fired only ONCE per emulator lifetime in IM2 mode because int_req_d
+    // never settled back to 0. Fix: auto-clear int_req at end of tick().
+    test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
