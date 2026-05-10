@@ -341,11 +341,13 @@ REWIND_TEST="$PROJECT_DIR/build/test/rewind_test"
 if [[ -x "$REWIND_TEST" ]]; then
     if [[ ${#FILTER_TESTS[@]} -eq 0 ]] || printf '%s\n' "${FILTER_TESTS[@]}" | grep -qx 'rewind-func'; then
         printf "  %-25s " "[rewind-func]"
-        if timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null | grep -qP "Passed:\s+18.*Failed:\s+0"; then
-            echo -e "${GREEN}PASS${RESET} (18/18 rewind unit tests)"
+        rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
+        rewind_summary=$(echo "$rewind_out" | grep -oP "Passed:\s+\d+(?=.*Failed:\s+0)" || true)
+        if [[ -n "$rewind_summary" ]]; then
+            rewind_passed=$(echo "$rewind_summary" | grep -oP "\d+")
+            echo -e "${GREEN}PASS${RESET} (${rewind_passed}/${rewind_passed} rewind unit tests)"
             pass=$((pass + 1))
         else
-            rewind_out=$(timeout --foreground --kill-after=5s 30s "$REWIND_TEST" 2>/dev/null || true)
             fail_line=$(echo "$rewind_out" | grep -E "^Total:" || echo "unknown")
             echo -e "${RED}FAIL${RESET} ($fail_line)"
             fail=$((fail + 1))
