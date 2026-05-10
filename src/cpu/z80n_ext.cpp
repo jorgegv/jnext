@@ -207,10 +207,36 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
         }
 
         case Z80NOpcode::BSRA_DE_B: {
+            // V17-CPU-NIT-04 (reviewer NIT) — BSRA strict-UB-free shift handling.
+            // VHDL t80n.vhd:1006-1014 — for BSRA the 17-bit pre-shift value has
+            // bit 16 = bit 15 (sign-extended), then signed(17-bit) >> shift_count
+            // with shift_count = B[4:0] = 0..31. For shift >= 16 the result is
+            // sign-fill (0xFFFF if DE bit 15 set; 0x0000 else).
+            //
+            // Pre-fix: `int16_t >> shift` with shift up to 31 on a negative
+            // value is C++17 implementation-defined (signed >> negative is
+            // arithmetic on x86 GCC by accident, but strictly impl-defined
+            // pre-C++20). Same family as V17-Z80N-01a/b (BSLA/BSRF). Rewrite
+            // with explicit branching + unsigned arithmetic, no UB possible.
             auto regs = cpu.get_registers();
             uint8_t shift = (regs.BC >> 8) & 0x1F;
-            int16_t de_signed = static_cast<int16_t>(regs.DE);
-            regs.DE = static_cast<uint16_t>(de_signed >> shift);
+            uint16_t result;
+            const bool sign_bit = (regs.DE & 0x8000) != 0;
+            if (shift == 0) {
+                result = regs.DE;
+            } else if (shift >= 16) {
+                result = sign_bit ? 0xFFFFu : 0x0000u;
+            } else if (sign_bit) {
+                // Arithmetic right shift via unsigned: shift right + OR in
+                // a mask of 1-bits in the top `shift` positions.
+                const uint16_t mask_hi = static_cast<uint16_t>(
+                    (0xFFFFu << (16 - shift)) & 0xFFFFu);
+                result = static_cast<uint16_t>((regs.DE >> shift) | mask_hi);
+            } else {
+                // Non-negative: simple unsigned shift right.
+                result = static_cast<uint16_t>(regs.DE >> shift);
+            }
+            regs.DE = result;
             cpu.set_registers(regs);
             return 8;
         }

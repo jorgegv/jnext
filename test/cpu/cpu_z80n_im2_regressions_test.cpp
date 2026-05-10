@@ -2432,6 +2432,95 @@ void test_v17_z80n_01_bsla_shift_ge_16_zero(Result& res) {
           result_16 == 0x0000 && result_31 == 0x0000, detail);
 }
 
+// ─── V17-CPU-NIT-04 (reviewer NIT) — BSRA strict-UB-free shift handling ───
+//
+// VHDL t80n.vhd:1006-1014 — for BSRA the 17-bit pre-shift value has bit 16
+// = bit 15 (sign-extended), then signed(17-bit) >> shift_count with
+// shift_count = B[4:0] = 0..31. For shift >= 16 the result is sign-fill
+// (0xFFFF if DE bit 15 set; 0x0000 else).
+//
+// Pre-fix (`int16_t >> shift`): on a negative value with shift up to 31 is
+// C++17 implementation-defined. Same UB family as V17-Z80N-01a/b. Test pins
+// the spec'd VHDL behaviour:
+//   - DE=0x8000 (negative), shift=16 → 0xFFFF (sign fill)
+//   - DE=0x4000 (positive), shift=16 → 0x0000
+//   - DE=0xC000 (negative), shift=15 → 0xFFFF | DE>>15 = 0xFFFF
+//   - DE=0x4000 (positive), shift=14 → 0x0001
+void test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    // Negative DE, shift=16: result must be all ones (0xFFFF).
+    auto regs = cpu.get_registers();
+    regs.DE = 0x8000;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_16 = cpu.get_registers().DE;
+
+    // Positive DE, shift=16: result must be 0x0000.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x4000;
+    regs.BC = 0x1000;     // shift=16
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t pos_16 = cpu.get_registers().DE;
+
+    // Negative DE, shift=31: still sign-fill = 0xFFFF.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0xC000;
+    regs.BC = 0x1F00;     // shift=31
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_31 = cpu.get_registers().DE;
+
+    // Positive DE=0x4000, shift=14: arithmetic shift right by 14 = 0x0001.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0x4000;
+    regs.BC = 0x0E00;     // shift=14
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t pos_14 = cpu.get_registers().DE;
+
+    // Negative DE=0xFFFE, shift=1: arithmetic shift right by 1 = 0xFFFF.
+    prep_cpu(cpu, mem);
+    regs = cpu.get_registers();
+    regs.DE = 0xFFFE;
+    regs.BC = 0x0100;     // shift=1
+    cpu.set_registers(regs);
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0x29;     // BSRA DE,B
+    cpu.execute();
+    uint16_t neg_1 = cpu.get_registers().DE;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "neg DE=0x8000 shift=16 → 0x%04x (exp 0xFFFF); "
+                  "pos DE=0x4000 shift=16 → 0x%04x (exp 0x0000); "
+                  "neg DE=0xC000 shift=31 → 0x%04x (exp 0xFFFF); "
+                  "pos DE=0x4000 shift=14 → 0x%04x (exp 0x0001); "
+                  "neg DE=0xFFFE shift=1 → 0x%04x (exp 0xFFFF)",
+                  neg_16, pos_16, neg_31, pos_14, neg_1);
+    check(res, "V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014",
+          neg_16 == 0xFFFF && pos_16 == 0x0000
+              && neg_31 == 0xFFFF && pos_14 == 0x0001
+              && neg_1 == 0xFFFF, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 
@@ -2496,6 +2585,8 @@ int main() {
     test_v17_cpu_01_im2_int_req_held_in_pulse_mode(res);
     test_v17_z80n_01_bsrf_shift_ge_16_fills_ones(res);
     test_v17_z80n_01_bsla_shift_ge_16_zero(res);
+    // V17-CPU-NIT-04 (pass-17 reviewer NIT) — BSRA UB-free shift
+    test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
