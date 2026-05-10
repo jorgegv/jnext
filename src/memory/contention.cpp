@@ -140,7 +140,7 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     //     port_bf3b <= port_bfxx_msb and port_3b_lsb and port_ulap_io_en;
     //     port_ff3b <= port_ffxx_msb and port_3b_lsb and port_ulap_io_en;
     // i.e. asserted iff the full 16-bit address is exactly 0xBF3B / 0xFF3B
-    // AND `port_ulap_io_en` (NR 0x82 bit 8 → internal_port_enable(24),
+    // AND `port_ulap_io_en` (NR 0x85 bit 0 → internal_port_enable(24),
     // zxnext.vhd:2439) is set. The ULA+ ports are odd (low byte 0x3B),
     // so without this OR-term the even-port test above would already
     // have rejected them.
