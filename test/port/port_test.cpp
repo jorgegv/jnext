@@ -298,6 +298,26 @@ static void test_group_registration() {
               DETAIL("border=%u expected 0", b));
     }
 
+    // REG-02b / V17-NMP-03 — Timex screen-mode port 0xFF matches any port
+    // with LSB == 0xFF (high byte irrelevant). VHDL zxnext.vhd:2540-2571 +
+    // 2583 — `port_ff_lsb` from `cpu_a(7:0) = X"FF"`. Pre-Pass-17 the
+    // handler used mask 0xFFFF / val 0x00FF — requiring the FULL 16-bit
+    // address to equal exactly 0x00FF. Software using OUT (0x12FF), A would
+    // update Timex screen-mode register on real hardware but not in jnext.
+    // Discriminative test for the V17-NMP-03 fix.
+    {
+        // Write known byte via low-byte-only address, verify it lands.
+        emu.port().out(0x00FF, 0x00);           // baseline screen_mode = 0
+        const uint8_t baseline = emu.renderer().ula().get_screen_mode_reg();
+        emu.port().out(0x12FF, 0x06);           // bits 2:0 = 6 (hi-res)
+        const uint8_t after_high = emu.renderer().ula().get_screen_mode_reg();
+        check("REG-02b",
+              "Timex 0xFF decode covers ANY port LSB == 0xFF (e.g. 0x12FF) "
+              "[VHDL :2540-2571,:2583 port_ff_lsb LSB-only decode]",
+              baseline == 0 && (after_high & 0x07) == 0x06,
+              DETAIL("baseline=%u after=%u", baseline, after_high));
+    }
+
     // REG-03 / REG-04: NextReg select 0x243B + data 0x253B round-trip.
     // VHDL zxnext.vhd:2625-2626.
     {

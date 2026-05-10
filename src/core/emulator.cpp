@@ -3201,7 +3201,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                   border_clr_tmx <= "01" & ~port_ff(5:3) & port_ff(5:3)).
     // Read is not implemented on real hardware; omit read handler.
     // VHDL zxnext.vhd:2397: port_ff_io_en <= internal_port_enable(0) = NR 0x82 bit 0.
-    port_.register_handler(0xFFFF, 0x00FF,
+    //
+    // V17-NMP-03 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2540-2571 +
+    // 2583 decode `port_ff_lsb` from `cpu_a(7:0) = X"FF"` (LSB-only). Pre-fix
+    // the handler used mask 0xFFFF / val 0x00FF — which required the FULL
+    // 16-bit address to equal exactly 0x00FF. Software using OUT (0x12FF), A
+    // would update Timex screen-mode register on real hardware but not in
+    // jnext. Fix: change mask to 0x00FF / val 0x00FF (LSB-only match).
+    port_.register_handler(0x00FF, 0x00FF,
         nullptr,
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x82) & 0x01) == 0) return;
