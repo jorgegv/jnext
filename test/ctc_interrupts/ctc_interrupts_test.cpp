@@ -484,6 +484,63 @@ static void test_ula_int_integration(Emulator& emu) {
                   && st_en == Im2Controller::DevState::S_REQ,
               detail);
     }
+
+    // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the
+    // CPU /INT pin in IM2 mode.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. Either pulse_int_n OR im2_int_n
+    // pulled low asserts /INT. Pre-V19 jnext only called
+    // cpu_.request_interrupt(0xFF) for the legacy pulse-mode path; in
+    // IM2 mode the comment at the FRAME-INT scheduler said the fabric's
+    // int_line_asserted() would drive the Z80 INT, but no code ever READ
+    // it. Result in IM2 mode: the daisy chain reached S_REQ but the CPU
+    // never saw the request — int_pending_ stayed false, on_int_ack was
+    // never invoked, the IM2 priority chain remained latched forever.
+    //
+    // Discriminative test: configure IM2 mode + IFF1=1 + IM=2; run_frame.
+    // The frame-int scheduler raises ULA. With the V19-IM2-04 polling
+    // hook (after im2_.tick), int_pending_ is set; on the next CPU
+    // instruction the interrupt is accepted via on_int_ack →
+    // ack_vector(), advancing ULA from S_REQ → S_ACK. The next tick
+    // advances S_ACK → S_ISR. So ULA's state should be >= 2 (S_ACK or
+    // S_ISR) after run_frame. Pre-fix: ULA stays at S_REQ (state=1)
+    // forever because the CPU never sees /INT.
+    {
+        fresh(emu);
+        // Set IM2 mode via NR 0xC0 bit 0.
+        nr_write(emu, 0xC0, 0x01);
+        // Set IFF1=1 + IM=2 so the CPU will accept interrupts in IM2.
+        // (Z80Cpu reset clears IFF1; this is the minimal setup to make
+        // the test exercise the IntAck path without requiring EI/IM2
+        // instructions in RAM.)
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 2;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        // After run_frame, the ULA device should have progressed past
+        // S_REQ (state=1) — at minimum to S_ACK (state=2) or S_ISR
+        // (state=3). The frame-INT scheduler raises ULA early in the
+        // frame, the polling fires request_interrupt, and the next
+        // instruction does the IntAck.
+        // Pre-fix: ULA stuck at S_REQ (state=1).
+        // Post-fix: state >= 2.
+        const Im2Controller::DevState ula_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "ULA state after run_frame in IM2 mode + IFF1=1+IM=2: %d "
+                      "(post-fix: >= 2 [S_ACK=2 or S_ISR=3]; "
+                      "pre-fix: 1 [S_REQ stuck])",
+                      static_cast<int>(ula_st));
+        check("ULA-INT-V19-IM2-04",
+              "IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode "
+              "[zxnext.vhd:1840 z80_int_n composition]",
+              static_cast<int>(ula_st) >= 2, detail);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

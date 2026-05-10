@@ -5639,6 +5639,43 @@ void Emulator::run_frame()
             im2_.set_nmi_activated(nmi_source_.is_activated());
             im2_.tick(master_cycles);
 
+            // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
+            // /INT request when an IM2 daisy-chain device has reached
+            // S_REQ with IEI=1.
+            //
+            // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
+            // im2_int_n) OR NOT expbus_disable_int) AND ...` — the Z80
+            // /INT pin is the AND of pulse_int_n (legacy pulse mode) and
+            // im2_int_n (IM2 hardware-priority mode). Either pulled low
+            // asserts the interrupt.
+            //
+            // Pre-fix jnext only called cpu_.request_interrupt(0xFF) for
+            // the legacy pulse-mode path (see FRAME / LINE / CTC scheduler
+            // callbacks). In IM2 mode (NR 0xC0 bit 0 = 1) the comment said
+            // the fabric's `int_line_asserted()` would drive the Z80 INT,
+            // but no code ever READ it. Result: in IM2 mode raise_req()
+            // entered the daisy chain correctly (im2_int_req latched →
+            // S_0 → S_REQ → int_line_asserted=true), but the CPU never
+            // saw the request — int_pending_ stayed false, on_int_ack was
+            // never called, and the IM2 priority chain remained latched
+            // forever (no RETI ever cleared S_REQ).
+            //
+            // Poll AFTER im2_.tick() so the wrapper edge-detect + state
+            // machine has had a chance to advance from S_0 → S_REQ since
+            // the most recent raise_req(). Idempotent: when int_pending_
+            // is already set, request_interrupt() simply re-stamps the
+            // pulse start time + vector — no double-fire.
+            //
+            // The vector returned at IntAck time is computed by
+            // im2_.ack_vector() via the on_int_ack callback (Emulator::init
+            // line 716), so the placeholder 0xFE here is a don't-care:
+            // ack_vector walks the priority chain, advances winning device
+            // S_REQ → S_ACK, and returns the composed VHDL vector
+            // `nr_c0_im2_vector & im2_vec & '0'` (zxnext.vhd:1999).
+            if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
+                cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
+            }
+
             // Count instructions for RZX recording.
             if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
 
