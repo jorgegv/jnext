@@ -23,7 +23,8 @@
 | 12 | 4 fresh blind; pipelined audit→reviewer→fix-of-reviewer→fix-reviewer | **1 class-a, 4 class-b, 7 class-c (incl. NITs)** | Memory 3b+2 NITs; DivMMC 1b+1c audit + 3 reviewer-promoted class-c + 1 NIT (8 fixes total) + 3 class-d confirmed (architectural); NMI-MF-Port 1a + 1 NIT; CPU 0 audit findings (defensible-zero) + 2 reviewer NITs. ALL 12 fixes have discriminative regression tests + independent fix-reviewer APPROVE. NOT converged (12 new bugs). Subsystem-skip rule introduced 2026-05-10: subsystems with audit=0 + reviewer APPROVE-no-missed are skipped in subsequent passes — none qualified yet (CPU was closest: audit=0 but reviewer found NITs) |
 | 13 | 4 fresh blind; pipelined; comment-only-skip rule introduced | **2 class-a, 1 class-b, 1 class-c + 1 class-d listed + 3 comment NITs** | Memory 1a (V13-MEM-01 NR $69 bit 7 cross-subsystem mirror gap) APPROVE; DivMMC 1c (V13-DIVMMC-01 CMD24 past-EOF early R1) APPROVE; NMI-MF-Port 1b (V13-NMP-01 NR $05 Pentagon cache-leak — same family as V11-NMP-02/03) APPROVE-WITH-NITS (3 comment NITs fixed without fix-reviewer per new skip rule); CPU 1a (V13-CPU-01 DJNZ IncDecZ polarity inverted; rewrote pass9_ldws test that enshrined the bug) + 1 class-d (V13-CPU-D1 IM2 controller bridge — confirmed architectural) APPROVE. NOT converged. Trend: Pass-11 = 8, Pass-12 = 17 effective, Pass-13 = 7 effective — descending |
 | 14 | 4 fresh blind; pipelined | **4 class-a, 0 class-b, 5 class-c (incl. NITs) + 1 comment NIT — Memory CONVERGED** | **Memory ZERO findings + reviewer APPROVE-no-missed → CONVERGED** (skipped from Pass-15 onward); DivMMC 2c (V14-DIVMMC-01 CMD18 mid-stream past-EOF, V14-DIVMMC-02 CMD8 R7 R1-prefix) APPROVE-WITH-NITS + 1 comment NIT; NMI-MF-Port 3a (V14-NMP-01 MF+3 FDC-gated readback rewriting MF-MUX-01 enshrined-bug test, V14-NMP-02 NR $28 nr_stored_palette_value, V14-NMP-03 NR $2B WO returns 0) + reviewer-promoted V14-NMP-04 (NR $2A WO returns 0) APPROVE; CPU 1a (V14-CPU-01 INC/DEC BC IncDecZ update missing) + reviewer NIT V14-CPU-NIT-01 (DD/FD-prefix walk — closes V13-CPU-01 DJNZ-prefix sibling as side effect) APPROVE-WITH-NITS → fix-reviewer APPROVE. IncDecZ shadow family closed; past-EOF SD token family closed; multi-writer fan-out family closed. Trend: Pass-14 = 9 effective findings — comparable to Pass-13 |
-| **Total (14 passes)** | | **104 class-(a) + 7 class-(b) + 19 class-(c) + 1 follow-up; 1 subsystem CONVERGED** | NOT fully converged; 6 class-(d) architectural items pending user authorization. Memory subsystem audit-fixable surface exhausted |
+| 15 | 3 fresh blind (memory skipped); pipelined | **2 class-a, 0 class-b, 2 class-c + reviewer-promoted NIT-3 = 5 effective findings + 2 class-d architectural** | DivMMC 1c (V15-DIVMMC-01 SD CMD24 silent write-success on RO/failbit; closes write-success false-positive family) APPROVE; NMI-MF-Port 2a (V15-NMP-01 NR $63, V15-NMP-02 NR $FF write-only readback cache leaks) APPROVE — closes WO-NR set per VHDL :6286-6287 fall-through; CPU ZERO audit findings (defensible-zero across 16 angles) + reviewer APPROVE-WITH-NITS — NIT-3 (ULA+ port contention not propagated CPU-side) **rejected as deflection, fixed inline by reviewer with 5 disc tests on contention path**, NIT-1+2 properly re-classified class-(d) ARCHITECTURAL (DD-ED-Z80N: Z80N uses Alternate not XY_State; M1-strobe per-byte: FUSE boundary). **CPU NOT yet converged per strict rule** (reviewer found missed finding even though it fixed it; Pass-16 must re-test) |
+| **Total (15 passes)** | | **106 class-(a) + 7 class-(b) + 22 class-(c) + 1 follow-up; 1 subsystem CONVERGED** | NOT fully converged; 8 class-(d) items now (6 prior + V15-CPU-NIT-01 + V15-CPU-NIT-02). Memory subsystem audit-fixable surface exhausted (Pass-14 confirmation) |
 
 **Test-coverage retroactive wave (post-pass-10)**: 4 subsystems audited, **105 new regression tests added** (29 memory + 14 divmmc + 45 NMI/MF/Port + 17 CPU). Reviewers found defects/gaps:
 - DivMMC: 1 defective (SD-15) + 4 nits → all fixed + reviewed
@@ -420,7 +421,7 @@ G46(b) cycle re-run remains deferred to user.
 13. **`port_1ffd_special_old_` decay model** — functionally equivalent approximation.
 14. **`StateReader::read_u8()`** lacks bounds check — pre-existing.
 
-## Test status (final, integration branch, post Pass-14)
+## Test status (final, integration branch, post Pass-15)
 
 ```
 ctest                              38/38 PASS  (Release build)
@@ -433,19 +434,19 @@ test/00regression/regression       32/1/0   (parallax-demo 44636-px diff is pre-
 
 ```
 Branch: nextzxos-boot-subsystem-analysis (off main)
-Total fixes through Pass-14: ~104 class-(a) + 7 class-(b) + 19 class-(c) + 1 follow-up + 1 build fix
+Total fixes through Pass-15: ~106 class-(a) + 7 class-(b) + 22 class-(c) + 1 follow-up + 1 build fix
 Pushed: NO
-Integration HEAD (Pass-14): 5d36a54
+Integration HEAD (Pass-15): 4d9efb2
 ```
 
-## Convergence status (per Pass-14)
+## Convergence status (per Pass-15)
 
 | Subsystem | Status | Last finding |
 |-----------|--------|--------------|
 | **Memory** | **CONVERGED** (skipped Pass-15+) | V13-MEM-01 (Pass-13); Pass-14 audit ZERO + reviewer APPROVE |
-| DivMMC + SD + SPI | NOT converged | V14-DIVMMC-01/02 + V12-DIVMMC-* family ongoing |
-| NMI + MF + Port + NextREG | NOT converged | V14-NMP-01..04 (multi-writer fan-out + cache leak families) |
-| CPU + Z80N + IM2 | NOT converged | V14-CPU-01 + V14-CPU-NIT-01 (DD/FD prefix closes V13-CPU-01 sibling); 1 class-d outstanding (IM2 bridge) |
+| DivMMC + SD + SPI | NOT converged | V15-DIVMMC-01 (write-success false-positive family closed in Pass-15) |
+| NMI + MF + Port + NextREG | NOT converged | V15-NMP-01/02 (WO-NR set closed in Pass-15) |
+| CPU + Z80N + IM2 | **Audit-zero achieved, NOT yet converged** (reviewer fixed missed finding NIT-3) | V15-CPU-NIT-03 ULA+ port contention; Pass-16 will re-test convergence |
 
 ## Pass-12 details
 
