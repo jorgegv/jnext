@@ -2147,6 +2147,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = reserved
     nextreg_.set_write_handler(0x69, [this](uint8_t v) -> uint8_t {
         layer2_.set_enabled((v & 0x80) != 0);
+        // V13-MEM-01 fix — VHDL zxnext.vhd:3924-3925 fans NR 0x69 bit 7
+        // (`nr_wr_dat(7)`) into `port_123b_layer2_en` (the SAME FF that
+        // port 0x123B bit 1 latches at :3916). The port 0x123B readback
+        // at :3933 surfaces this FF as bit 1 of port_123b_dat, so a
+        // subsequent IN A,(123B) after a `NEXTREG $69,$80` write must
+        // see bit 1 = 1. Pre-fix Layer2's enabled_ shadow was updated
+        // (used by the NR 0x69 read handler) but Mmu's l2_enable_
+        // mirror was NOT — port 0x123B readback lagged Layer2 until the
+        // next port 0x123B write. Mirror the same bit into Mmu so both
+        // surfaces stay in sync.
+        mmu_.set_l2_enable((v & 0x80) != 0);
         // VHDL zxnext.vhd:3658-3660 — `nr_69_we` drives
         // `port_7ffd_reg(3) <= nr_wr_dat(6)` regardless of port_7ffd_locked
         // (the lock gates only the full-byte branch at :3650). Bit 3 is

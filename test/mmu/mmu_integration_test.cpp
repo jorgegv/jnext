@@ -493,6 +493,125 @@ static void test_machine_type_round_trip(Emulator& emu) {
     emu.mmu().set_machine_type(original_mt);
 }
 
+// ── V13-MEM-01: NR 0x69 bit 7 must fan out into port 0x123B bit 1 ─────
+//
+// VHDL oracle:
+//   * zxnext.vhd:3924-3925 — NR 0x69 write fans `nr_wr_dat(7)` into the
+//     SAME `port_123b_layer2_en` flip-flop that port 0x123B bit 1 latches
+//     at :3916. There is one and only one FF for "Layer2 display enable";
+//     both writers feed it.
+//   * zxnext.vhd:3933 — port_123b_dat read-back composition surfaces this
+//     FF as bit 1 of the port 0x123B read byte (port_123b_dat layout:
+//     {seg(7:6), "00", shadow(3), rd_en(2), enable(1), wr_en(0)}).
+//
+// Pre-fix: jnext mirrored the FF in TWO places:
+//   * `Layer2::enabled_` (used by NR 0x69 read handler at :2179-2185)
+//   * `Mmu::l2_enable_` (used by `Mmu::l2_port_readback()` at :1046-1054,
+//     in turn used by the port 0x123B read handler at :2634-2638)
+//
+// The port 0x123B WRITE handler updated BOTH (Mmu via `set_l2_port`,
+// Layer2 via `layer2_.set_enabled` at :2651-2653). The NR 0x69 write
+// handler updated ONLY Layer2 — leaving `Mmu::l2_enable_` stale until
+// the next port 0x123B write. So a `NEXTREG $69,$80` followed by
+// `IN A,(0x123B)` returned bit 1 = 0 even though VHDL would return 1.
+//
+// V13-MEM-01 fix (mmu.h `set_l2_enable` + emulator.cpp NR 0x69 handler):
+// the NR 0x69 write handler now mirrors bit 7 into both shadows.
+//
+// Discriminative test:
+//   1. Reset state — NR 0x69 = 0x00 → port 0x123B bit 1 = 0 (Mmu
+//      mirror) AND NR 0x69 read bit 7 = 0 (Layer2 mirror).
+//   2. Write NR 0x69 = 0x80 (bit 7 = 1).
+//   3. Read port 0x123B bit 1 → must be 1 (the bug surface).
+//   4. Read NR 0x69 bit 7 → must be 1 (parallel verification — has
+//      always worked).
+//   5. Write NR 0x69 = 0x00 (bit 7 = 0, sweep back).
+//   6. Re-read port 0x123B bit 1 → must be 0 (sweep verification —
+//      confirms the fix isn't a one-shot raise).
+
+static void test_nr_69_b7_to_port_123b_b1(Emulator& emu) {
+    set_group("V13-MEM-01-L2EN");
+
+    // Baseline: clear NR 0x69 and any prior port-0x123B latches.
+    nr_write(emu, 0x69, 0x00);
+    emu.port().out(0x123B, 0x00);
+
+    const uint8_t base_123b = emu.port().in(0x123B);
+    check("V13-MEM-01-A",
+          "Baseline port 0x123B bit 1 = 0 after clearing both NR 0x69 "
+          "and port 0x123B [zxnext.vhd:3933 read-back]",
+          (base_123b & 0x02) == 0,
+          fmt("expected bit 1 = 0, got 0x%02X", base_123b));
+
+    // Bug surface: write NR 0x69 bit 7 = 1 (display-enable on).
+    // VHDL :3924-3925 sets port_123b_layer2_en <= 1.
+    nr_write(emu, 0x69, 0x80);
+
+    const uint8_t after_set_123b = emu.port().in(0x123B);
+    check("V13-MEM-01-B",
+          "NR 0x69 bit 7 = 1 fans out into port 0x123B bit 1 = 1 "
+          "[zxnext.vhd:3924-3925 nr_69_we drives port_123b_layer2_en]",
+          (after_set_123b & 0x02) != 0,
+          fmt("expected bit 1 = 1, got 0x%02X (Mmu::l2_enable_ stale "
+              "after NR 0x69 fan-out)", after_set_123b));
+
+    // Parallel verification: NR 0x69 read uses Layer2's mirror, which
+    // has always tracked NR 0x69 writes. This row guards that the
+    // V13-MEM-01 fix did not regress the existing path.
+    const uint8_t nr69_after_set = nr_read(emu, 0x69);
+    check("V13-MEM-01-C",
+          "NR 0x69 bit 7 read-back = 1 after NR 0x69 = 0x80 write "
+          "(Layer2 mirror — pre-fix path, regression guard) "
+          "[zxnext.vhd:6095-6096]",
+          (nr69_after_set & 0x80) != 0,
+          fmt("expected bit 7 = 1, got 0x%02X", nr69_after_set));
+
+    // Sweep back: clear bit 7. Both mirrors must follow.
+    nr_write(emu, 0x69, 0x00);
+
+    const uint8_t after_clear_123b = emu.port().in(0x123B);
+    check("V13-MEM-01-D",
+          "NR 0x69 bit 7 = 0 clears port 0x123B bit 1 (sweep guard — "
+          "fix must not be a one-shot raise) [zxnext.vhd:3924-3925]",
+          (after_clear_123b & 0x02) == 0,
+          fmt("expected bit 1 = 0, got 0x%02X", after_clear_123b));
+
+    // Discriminative independence guard: the OTHER bits in port 0x123B
+    // (seg, shadow, rd_en, wr_en) must NOT be perturbed by NR 0x69
+    // writes — VHDL :3924-3925 touches only port_123b_layer2_en. We
+    // pre-load segment=11 + shadow + rd_en + wr_en via a non-offset-mode
+    // port 0x123B write, then write NR 0x69 = 0x80 and verify the other
+    // bits round-trip unchanged.
+    //
+    // Pre-load: bit 0 (wr_en) | bit 2 (rd_en) | bit 3 (shadow) | seg "11"
+    //   = 0xC0 | 0x08 | 0x04 | 0x01 = 0xCD
+    emu.port().out(0x123B, 0xCD);
+    const uint8_t pre_other = emu.port().in(0x123B);
+    // Clear NR 0x69 bit 7 first so the test of "NR 0x69 toggles only
+    // bit 1" sees a 0→1 transition, not a 1→1 idempotent write.
+    nr_write(emu, 0x69, 0x00);
+    // The above 0x123B port write (without bit 4) just set bit 1 = 0
+    // (display-enable cleared) and re-set the segment/shadow/rd/wr bits.
+    // Re-read to capture the canonical pre-state.
+    (void)pre_other;
+    const uint8_t pre_69 = emu.port().in(0x123B);
+    nr_write(emu, 0x69, 0x80);
+    const uint8_t post_69 = emu.port().in(0x123B);
+    // Mask bits except bit 1 — they must be identical.
+    const uint8_t other_mask = static_cast<uint8_t>(~0x02u);
+    check("V13-MEM-01-E",
+          "NR 0x69 fan-out only touches port 0x123B bit 1 (other bits "
+          "unchanged) [zxnext.vhd:3924-3925 port_123b_layer2_en is the "
+          "ONLY field nr_69_we writes]",
+          (pre_69 & other_mask) == (post_69 & other_mask),
+          fmt("expected (pre & ~0x02)=0x%02X == (post & ~0x02)=0x%02X",
+              pre_69 & other_mask, post_69 & other_mask));
+
+    // Restore reset defaults so downstream tests start clean.
+    nr_write(emu, 0x69, 0x00);
+    emu.port().out(0x123B, 0x00);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 int main() {
@@ -517,6 +636,9 @@ int main() {
 
     test_machine_type_round_trip(emu);
     std::printf("  Group: V12-MEM-03-MT — done\n");
+
+    test_nr_69_b7_to_port_123b_b1(emu);
+    std::printf("  Group: V13-MEM-01-L2EN — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
