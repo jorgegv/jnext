@@ -92,6 +92,7 @@ void SdCardDevice::deselect() {
     resp_idx_ = 0;
     data_idx_ = 0;
     data_crc_count_ = 0;
+    data_token_received_ = false;  // V12-DIVMMC-06 (Pass-12 reviewer fix)
     app_cmd_ = false;
     // CMD18 multi-block mode is aborted by CS deassert (real cards terminate
     // the stream on CS high without needing CMD12 in SPI mode).
@@ -146,30 +147,30 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
             break;
 
         case State::RECEIVING_DATA:
-            if (tx == 0xFE && data_idx_ == 0 && data_crc_count_ == 0) {
-                // Data token received — start collecting data
+            if (!data_token_received_ && tx == 0xFE) {
+                // Data token received — start collecting data on the
+                // NEXT incoming byte.
+                data_token_received_ = true;
                 break;
             }
-            // Pass-4 verify-audit fix (2026-05-09): per SD Physical Layer
+            // Pass-4 verify-audit fix (2026-05-09) + V12-DIVMMC-06
+            // (Pass-12 reviewer fix, 2026-05-10): per SD Physical Layer
             // Simplified Spec 6.00 § 7.3.3.2, "Following the command
             // response (R1) and one (or more) bytes of $FF (host SPI
             // clock), the data must be sent following a Data Token byte
-            // ($FE for single block, $FC for multi-block)." The card MUST
-            // tolerate any number of 0xFF gap bytes between R1 and the
-            // 0xFE start token. The pre-fix code fell through to
-            // `data_block_[data_idx_++] = tx` for ALL bytes that didn't
-            // match the 0xFE token at the start, so a leading 0xFF gap
-            // (which standard FatFs implementations send before the data
-            // token) would be erroneously absorbed into data_block_[0],
-            // shifting the entire payload by one byte and corrupting the
-            // write. Tbblue's xmit_datablock() at
-            // src/firmware/app/src/ff/diskio.c:179-202 doesn't send a
-            // gap byte (it writes the token immediately after R1), so
-            // tbblue's boot path was unaffected. Other firmware (esxdos
-            // F_WRITE, generic FatFs) follows the spec and sends the
-            // gap. Skip 0xFF bytes pre-token for spec compliance.
-            if (data_idx_ == 0 && data_crc_count_ == 0 && tx == 0xFF) {
-                break;  // gap byte — wait for 0xFE token
+            // ($FE for single block, $FC for multi-block)." The card
+            // must wait indefinitely for the 0xFE token; any pre-token
+            // byte is ignored. Pass-4 fix only skipped 0xFF gap bytes
+            // and absorbed any other pre-token byte as data_block_[0],
+            // silently shifting an out-of-spec host's payload by 1+.
+            // V12-DIVMMC-06 (reviewer-promoted from audit catalogue)
+            // tracks token-receipt explicitly via data_token_received_,
+            // so EVERY pre-token byte is now ignored — VHDL/spec-
+            // faithful for misbehaving hosts. Class-(c) latent for real
+            // firmware (TBBlue/FatFs/esxdos all send only 0xFF gaps
+            // then 0xFE).
+            if (!data_token_received_) {
+                break;  // pre-token byte (incl. 0xFF) — keep waiting
             }
             if (data_idx_ < 512) {
                 data_block_[data_idx_++] = tx;
@@ -228,6 +229,7 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 resp_idx_ = 0;
                 data_idx_ = 0;
                 data_crc_count_ = 0;
+                data_token_received_ = false;  // V12-DIVMMC-06 (Pass-12 reviewer fix)
                 persistent_response_byte_ = 0xFF;
                 // Defensive: any new command in-flight during a CMD18
                 // stream also terminates the multi-block state, even
@@ -466,7 +468,16 @@ void SdCardDevice::cmd8_send_if_cond() {
     // for booting to the NextZXOS welcome menu. So keep proper R7 here.
     uint8_t check = cmd_buf_[4];  // echo back check pattern
     sd_log()->debug("CMD8 SEND_IF_COND check={:#04x} → voltage accepted", check);
-    resp_buf_ = { 0xFF, 0x01, 0x00, 0x00, 0x01, check };  // NCR + R7
+    // V12-DIVMMC-03 (Pass-12 reviewer fix, 2026-05-10): R7 4-byte register
+    // bits 31:28 are the command version field (`0001` per SD Physical Layer
+    // Simplified Spec § 7.3.2.6 "Format R7 (Card Interface Condition)").
+    // That maps to byte 0 of the register = 0x10. Pre-fix used 0x00 which
+    // is reserved/illegal; class-(c) latent because TBBlue + FatFs only
+    // validate the voltage-accepted nibble (byte 2 low nibble) and check-
+    // pattern echo (byte 3). Reviewer-promoted from audit catalogue to a
+    // direct fix because the change is a single byte and trivially
+    // spec-faithful.
+    resp_buf_ = { 0xFF, 0x01, 0x10, 0x00, 0x01, check };  // NCR + R1 + R7 (cmd ver=1)
     resp_idx_ = 0;
     state_ = State::RESPONDING;
 }
@@ -554,7 +565,18 @@ void SdCardDevice::cmd17_read_single_block() {
 
     if (byte_addr + 512 > file_size_) {
         sd_log()->warn("CMD17 read past end of image: sector={} byte={:#010x} size={}", sector, byte_addr, file_size_);
-        queue_r1(0x00);
+        // V12-DIVMMC-04 (Pass-12 reviewer fix, 2026-05-10): SD Physical
+        // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout — bit 6 =
+        // PARAMETER_ERROR = "argument was out of the allowed range". When
+        // the host issues CMD17 with a sector index past end-of-image the
+        // card MUST set R1 bit 6 (in addition to the data error token).
+        // Pre-fix returned R1=0x00 ("no errors") + data-error-token 0x08,
+        // which is the weaker spec-permissible "card accepted but couldn't
+        // do the transfer" path. Class-(c) latent since boot-path firmware
+        // never reads past EOF; reviewer-promoted to a real fix because
+        // the change is one byte (0x00 → 0x40) and surfaces the
+        // parameter-error path that real cards expose.
+        queue_r1(0x40);
         // Send error token instead of data
         resp_buf_.push_back(0x08);  // out of range error
         state_ = State::RESPONDING;
@@ -593,7 +615,10 @@ void SdCardDevice::cmd18_read_multiple_block() {
         sd_log()->warn(
             "CMD18 read past end of image: sector={} byte={:#010x} size={}",
             sector, byte_addr, file_size_);
-        queue_r1(0x00);
+        // V12-DIVMMC-04 (Pass-12 reviewer fix, 2026-05-10): same as CMD17 —
+        // R1 bit 6 PARAMETER_ERROR per SD Physical Layer Simplified Spec
+        // § 7.3.2.1 (Table 7-9) when the argument is out of allowed range.
+        queue_r1(0x40);
         resp_buf_.push_back(0x08);  // data error token: out of range
         state_ = State::RESPONDING;
         return;
@@ -635,6 +660,7 @@ void SdCardDevice::cmd24_write_single_block() {
     queue_r1(0x00);
     data_idx_ = 0;
     data_crc_count_ = 0;
+    data_token_received_ = false;  // V12-DIVMMC-06 (Pass-12 reviewer fix)
     pending_write_after_r1_ = true;
 }
 
