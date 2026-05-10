@@ -286,8 +286,29 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // phase) must not leave the bridge armed and silently
                 // promote the next response into a write-data phase.
                 pending_write_after_r1_ = false;
+                return 0xFF;
             }
-            break;
+            // V18-DIVMMC-NIT-01 (Pass-18 reviewer fix, 2026-05-10): full-
+            // duplex SPI byte exchange.  Per VHDL `serial/spi_master.vhd:
+            // 104-117` (oshift_r) + `:148-168` (ishift_r / miso_dat) +
+            // `zxnext.vhd:3270-3298` (master instantiation), every clocked
+            // 8-bit transfer captures whatever the slave is driving on
+            // MISO regardless of the MOSI byte being shifted out.  When
+            // state_ is RESPONDING / SENDING_DATA / WRITE_RESP and the
+            // incoming `tx` is not a new-CMD start byte, the card is
+            // actively shifting its response stream on MISO — the host
+            // should observe the next response byte AND the response
+            // stream should advance.  Pre-fix this default branch dropped
+            // both effects: it returned 0xFF and left `resp_idx_` /
+            // `data_idx_` un-advanced, so a `write_data(0xFF)` mid-response
+            // saw 0xFF on MISO and the next `read_data()` re-emitted the
+            // byte that VHDL would have already clocked out.  Boot-path
+            // impact is zero — TBBlue + FatFs + esxdos poll responses via
+            // `IN A,($EB)` (read-only port read → `send()`), never via
+            // write-then-read — but a future host that does interleave
+            // would diverge.  Delegate to `send()` which advances the
+            // stream and returns the byte VHDL would have clocked.
+            return send();
     }
     return 0xFF;
 }
