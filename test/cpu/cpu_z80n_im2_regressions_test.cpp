@@ -1689,6 +1689,582 @@ void test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(Result& res) {
           extended_m1_stretch_observed, detail);
 }
 
+// ─── V14-CPU-01 (Pass-14) — INC BC / DEC BC must update IncDecZ ────────────
+//
+// VHDL t80n.vhd:1361-1367 — the IncDecZ latch fires on every BC 16-bit
+// inc/dec, NOT only on BC-decrementing block transfers (LDI/LDD/CPI/CPD/
+// LDIR/LDDR/CPIR/CPDR) and DJNZ. Plain `INC BC` (opcode 0x03) and
+// `DEC BC` (opcode 0x0B) drive `IncDec_16 = "0100"` (INC, t80n_mcode.vhd
+// :927-931, DPair="00") and `IncDec_16 = "1100"` (DEC, :932-936) which
+// satisfy the latch's `IncDec_16(2 downto 0) = "100"` gate. INC/DEC of
+// DE/HL/SP do NOT trigger the latch (DPair = "01"/"10"/"11" → low 3
+// bits = "101"/"110"/"111").
+//
+// Pre-fix: jnext's z80_cpu.cpp post-execute IncDecZ-update only fired
+// for DJNZ and ED-block-transfer paths. A code sequence
+//      INC BC          ; should set IncDecZ from new BC
+//      ED A5           ; LDWS — F.P override = IncDecZ (per VHDL :1284)
+// observed F.P from a STALE prior IncDecZ (whatever DJNZ / block-xfer /
+// reset-init last wrote). Class-(a): a single `INC BC` between two
+// LDWS calls would not refresh the IncDecZ shadow; the second LDWS
+// would see the first one's IncDecZ.
+//
+// Discriminative scenario:
+//   1. Reset → IncDecZ=0.
+//   2. Run a DEC BC block transfer that lands BC at zero → IncDecZ=0
+//      AS WELL (per BC-dec polarity). Skip — wouldn't change observable.
+//   Better: prime IncDecZ=1 via DJNZ-not-taken (B=1→0 → F.Z=1 →
+//   IncDecZ=1; per V13-CPU-01 fix). Then run INC BC with BC at 0xFFFF
+//   so post-inc BC=0 → IncDecZ should flip to 0. Then run LDWS and
+//   read F.P — should be 0 (post-fix) or 1 (pre-fix, stale latch).
+//
+// Pre-fix (V14): IncDecZ=1 from DJNZ persists; LDWS F.P=1.
+// Post-fix:      INC BC drops IncDecZ to 0; LDWS F.P=0.
+void test_v14_cpu_01_inc_bc_updates_incdecz_for_ldws(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;       // B=1 — DJNZ will not branch (B→0, F.Z(B-1)=1)
+    cpu.set_registers(regs);
+
+    // OR A → flags=0 ; DJNZ (no branch, B→0 → IncDecZ=1 per V13-CPU-01) ;
+    // LD BC,$FFFF ; INC BC (BC=$0000) ; LD D,$00 ; LDWS at PC=...
+    // Layout:
+    //   $8000  B7        OR A
+    //   $8001  10 02     DJNZ +2 (target $8005, but B=1 → not taken)
+    //   $8003  01 FF FF  LD BC,$FFFF
+    //   $8006  03        INC BC      ; post-inc BC=$0000 → IncDecZ MUST flip to 0
+    //   $8007  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0x10;
+    mem.ram[0x8002] = 0x02;
+    mem.ram[0x8003] = 0x01;
+    mem.ram[0x8004] = 0xFF;
+    mem.ram[0x8005] = 0xFF;
+    mem.ram[0x8006] = 0x03;
+    mem.ram[0x8007] = 0xED;
+    mem.ram[0x8008] = 0xA5;       // LDWS
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DJNZ → B=0, IncDecZ=1
+    auto after_djnz = cpu.get_registers();
+    bool djnz_primed_incdecz = after_djnz.IncDecZ == 1;
+    bool djnz_not_taken      = after_djnz.PC == 0x8003;
+
+    cpu.execute();  // LD BC,$FFFF
+    cpu.execute();  // INC BC → BC=0
+    auto after_inc = cpu.get_registers();
+    // Post-fix: INC BC should have flipped IncDecZ from 1 → 0 (BC==0 case).
+    bool inc_bc_zero          = after_inc.BC == 0x0000;
+    bool incdecz_cleared_post = after_inc.IncDecZ == 0;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    // V14-CPU-01: post-fix LDWS reads IncDecZ=0 → F.P=0.
+    // Pre-fix:    INC BC didn't update IncDecZ; stale 1 from DJNZ →
+    //             LDWS F.P=1.
+    bool ldws_p_clear = (f & 0x04) == 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "DJNZ B=1→0 not_taken=%d IncDecZ=%d (V13: 1); "
+                  "INC BC ($FFFF→$%04x) IncDecZ=%d (V14 post-fix: 0; "
+                  "pre-fix would be stale 1); "
+                  "LDWS F=0x%02x F.P=%d (V14 post-fix: 0; pre-fix: 1)",
+                  djnz_not_taken, after_djnz.IncDecZ,
+                  after_inc.BC, after_inc.IncDecZ,
+                  f, (f & 0x04) ? 1 : 0);
+    check(res, "V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          djnz_primed_incdecz && djnz_not_taken && inc_bc_zero
+              && incdecz_cleared_post && ldws_p_clear,
+          detail);
+}
+
+// V14-CPU-01 — DEC BC variant. With BC=$0001 entering DEC BC, post-dec
+// BC=0 → ID16=0 → IncDecZ MUST be 0 (matches BC-block-transfer / Z80N-
+// block-transfer convention: IncDecZ='1' when result nonzero). LDWS F.P
+// = 0. Pre-fix: stale prior IncDecZ.
+//
+// Two-sided: prime IncDecZ=0 first via reset, then DEC BC with BC=$0002
+// which lands at $0001 (nonzero) → IncDecZ should flip to 1. LDWS reads
+// F.P=1. Pre-fix: LDWS would read F.P=0 (stale reset value).
+void test_v14_cpu_01_dec_bc_updates_incdecz_for_ldws(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    // Reset puts IncDecZ=0. Without any DJNZ / block-xfer in front, that's
+    // our prior baseline.
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;       // F=0; A=1
+    regs.BC = 0x0002;       // DEC BC will leave BC=$0001 (nonzero)
+    cpu.set_registers(regs);
+    // sanity: IncDecZ should already be 0 from prep_cpu's reset path
+    // (Z80Cpu::reset sets regs_.IncDecZ = 0).
+    bool incdecz_initial_zero = cpu.get_registers().IncDecZ == 0;
+
+    // $8000  B7        OR A         ; clear flags so LDWS shows F.P from IncDecZ
+    // $8001  0B        DEC BC       ; BC: 0002→0001 → nonzero → IncDecZ should be 1
+    // $8002  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0x0B;
+    mem.ram[0x8002] = 0xED;
+    mem.ram[0x8003] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DEC BC → BC=$0001
+    auto after_dec = cpu.get_registers();
+    bool dec_bc_one_correct  = after_dec.BC == 0x0001;
+    bool incdecz_set_post    = after_dec.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "Initial IncDecZ=%d (reset sets 0); DEC BC ($0002→$%04x) "
+                  "IncDecZ=%d (V14 post-fix: 1; pre-fix: stale 0); "
+                  "LDWS F=0x%02x F.P=%d (V14 post-fix: 1; pre-fix: 0)",
+                  incdecz_initial_zero ? 0 : 1,
+                  after_dec.BC, after_dec.IncDecZ,
+                  f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          incdecz_initial_zero && dec_bc_one_correct
+              && incdecz_set_post && ldws_p_set,
+          detail);
+}
+
+// V14-CPU-01 — negative case: INC DE / INC HL / INC SP (and the DEC
+// equivalents) MUST NOT update IncDecZ. VHDL t80n.vhd:1361 gates on
+// IncDec_16(2..0) = "100" — only BC pair (DPair = "00"). DE/HL/SP map
+// to DPair "01"/"10"/"11" → low 3 bits "101"/"110"/"111" — silent.
+//
+// Discriminative: prime IncDecZ=1 via DJNZ-not-taken, then run INC HL
+// (which would lands HL at $0000 — same condition that flips IncDecZ
+// to 0 if HL were on the latch), then run LDWS. F.P should remain 1
+// (proving INC HL did NOT touch IncDecZ). A buggy fix that fired the
+// latch on ANY 16-bit inc/dec would flip IncDecZ to 0 here.
+void test_v14_cpu_01_inc_hl_does_not_update_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;       // B=1 — DJNZ not taken → IncDecZ=1
+    cpu.set_registers(regs);
+
+    // $8000  B7        OR A
+    // $8001  10 02     DJNZ +2 (not taken; primes IncDecZ=1)
+    // $8003  21 FF FF  LD HL,$FFFF
+    // $8006  23        INC HL       ; HL: $FFFF→$0000 — must NOT touch IncDecZ
+    // $8007  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0x10;
+    mem.ram[0x8002] = 0x02;
+    mem.ram[0x8003] = 0x21;
+    mem.ram[0x8004] = 0xFF;
+    mem.ram[0x8005] = 0xFF;
+    mem.ram[0x8006] = 0x23;
+    mem.ram[0x8007] = 0xED;
+    mem.ram[0x8008] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DJNZ → IncDecZ=1
+    auto after_djnz = cpu.get_registers();
+    bool djnz_primed_incdecz = after_djnz.IncDecZ == 1;
+
+    cpu.execute();  // LD HL,$FFFF
+    cpu.execute();  // INC HL → HL=$0000 (would be ID16=0 if HL were latched)
+    auto after_inc_hl = cpu.get_registers();
+    bool hl_zero          = after_inc_hl.HL == 0x0000;
+    // V14-CPU-01 negative invariant: INC HL must NOT touch IncDecZ.
+    bool incdecz_unchanged = after_inc_hl.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[300];
+    std::snprintf(detail, sizeof(detail),
+                  "DJNZ → IncDecZ=%d (need 1); INC HL ($FFFF→$%04x) "
+                  "IncDecZ=%d (must remain 1); LDWS F=0x%02x F.P=%d "
+                  "(must be 1 — proves INC HL silent on the latch)",
+                  after_djnz.IncDecZ,
+                  after_inc_hl.HL, after_inc_hl.IncDecZ,
+                  f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ",
+          djnz_primed_incdecz && hl_zero
+              && incdecz_unchanged && ldws_p_set,
+          detail);
+}
+
+// ─── V14-CPU-NIT-01 (Pass-14 fix-of-reviewer) — DD/FD-prefix walk ──────────
+//
+// Reviewer-promoted NIT on the V14-CPU-01 fix: DD/FD-prefixed INC BC /
+// DEC BC (DD 03, FD 03, DD 0B, FD 0B) execute the SAME mcode path as the
+// plain variants (per VHDL `t80n.vhd:513-531`, after a DD/FD prefix the
+// ISet stays at "00" — only XY_State updates to "01"/"10"; the parametric
+// mcode dispatch keys on `IRB` (the inner opcode), and `DPair := IR(5
+// downto 4)` (line 228)). For inner opcode 0x03 (INC BC) / 0x0B (DEC BC),
+// DPair="00" → IncDec_16="0100"/"1100" → low-3="100" → latch fires per
+// `t80n.vhd:1361-1367`.
+//
+// V14-CPU-01's original classification was keyed on the entry M1 byte
+// (`opcode == 0x03 / 0x0B`), so DD/FD-prefixed forms slipped through and
+// the IncDecZ shadow stayed stale. Same family pattern as the
+// pre-existing V13-CPU-01 DD/FD-prefix gap on DJNZ (DD 10 / FD 10).
+//
+// The fix-of-reviewer extends the DD/FD prefix-chain walk used for ED
+// block transfers to ALL three latch-firing inner opcodes (DJNZ, INC BC,
+// DEC BC). FUSE Z80's `z80_ddfd.c:556-565` default branch backs PC up
+// and re-dispatches the inner opcode through the main switch, so the
+// mutated register state observable post-`fuse_z80_execute_one()` is
+// identical to the plain forms — same polarity used.
+//
+// Each test below runs an UNDOCUMENTED encoding (DD-prefix on a
+// non-IX/IY-using opcode). FUSE handles them via the backtrack path,
+// matching real Z80 hardware.
+
+// V14-CPU-NIT-01-A — DD INC BC must update IncDecZ.
+// Mirror of V14-CPU-01-INC-BC: prime IncDecZ=1 via DJNZ-not-taken, then
+// LD BC,$FFFF + DD INC BC (BC=$0000) + LDWS. F.P should be 0 post-fix.
+void test_v14_cpu_nit_01_dd_inc_bc_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;       // B=1 — DJNZ won't branch → IncDecZ=1 (V13)
+    cpu.set_registers(regs);
+
+    // $8000  B7        OR A
+    // $8001  10 02     DJNZ +2 (B=1 → not taken; primes IncDecZ=1)
+    // $8003  01 FF FF  LD BC,$FFFF
+    // $8006  DD 03     DD INC BC (BC=$FFFF → $0000 — V14-NIT-01 must latch IncDecZ=0)
+    // $8008  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0x10;
+    mem.ram[0x8002] = 0x02;
+    mem.ram[0x8003] = 0x01;
+    mem.ram[0x8004] = 0xFF;
+    mem.ram[0x8005] = 0xFF;
+    mem.ram[0x8006] = 0xDD;
+    mem.ram[0x8007] = 0x03;
+    mem.ram[0x8008] = 0xED;
+    mem.ram[0x8009] = 0xA5;       // LDWS
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DJNZ → IncDecZ=1
+    auto after_djnz = cpu.get_registers();
+    bool djnz_primed_incdecz = after_djnz.IncDecZ == 1;
+
+    cpu.execute();  // LD BC,$FFFF
+    cpu.execute();  // DD INC BC → BC=0
+    auto after_inc = cpu.get_registers();
+    bool inc_bc_zero          = after_inc.BC == 0x0000;
+    bool incdecz_cleared_post = after_inc.IncDecZ == 0;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_clear = (f & 0x04) == 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "DJNZ → IncDecZ=%d (need 1); DD INC BC ($FFFF→$%04x) "
+                  "IncDecZ=%d (V14-NIT-01 post-fix: 0; pre-fix: stale 1); "
+                  "LDWS F=0x%02x F.P=%d (post-fix: 0; pre-fix: 1)",
+                  after_djnz.IncDecZ, after_inc.BC, after_inc.IncDecZ,
+                  f, (f & 0x04) ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          djnz_primed_incdecz && inc_bc_zero
+              && incdecz_cleared_post && ldws_p_clear,
+          detail);
+}
+
+// V14-CPU-NIT-01-B — FD INC BC must update IncDecZ. Same shape as -A
+// with FD instead of DD; FUSE backtracks identically through the FD
+// dispatch table.
+void test_v14_cpu_nit_01_fd_inc_bc_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;
+    cpu.set_registers(regs);
+
+    // $8000  B7        OR A
+    // $8001  10 02     DJNZ +2 (not taken; primes IncDecZ=1)
+    // $8003  01 FF FF  LD BC,$FFFF
+    // $8006  FD 03     FD INC BC (BC=$0000)
+    // $8008  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0x10;
+    mem.ram[0x8002] = 0x02;
+    mem.ram[0x8003] = 0x01;
+    mem.ram[0x8004] = 0xFF;
+    mem.ram[0x8005] = 0xFF;
+    mem.ram[0x8006] = 0xFD;
+    mem.ram[0x8007] = 0x03;
+    mem.ram[0x8008] = 0xED;
+    mem.ram[0x8009] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DJNZ
+    auto after_djnz = cpu.get_registers();
+    bool djnz_primed = after_djnz.IncDecZ == 1;
+
+    cpu.execute();  // LD BC,$FFFF
+    cpu.execute();  // FD INC BC
+    auto after_inc = cpu.get_registers();
+    bool bc_zero         = after_inc.BC == 0x0000;
+    bool incdecz_cleared = after_inc.IncDecZ == 0;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_clear = (f & 0x04) == 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "DJNZ → IncDecZ=%d (need 1); FD INC BC ($FFFF→$%04x) "
+                  "IncDecZ=%d (post-fix: 0); LDWS F=0x%02x F.P=%d "
+                  "(post-fix: 0)",
+                  after_djnz.IncDecZ, after_inc.BC, after_inc.IncDecZ,
+                  f, (f & 0x04) ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          djnz_primed && bc_zero && incdecz_cleared && ldws_p_clear,
+          detail);
+}
+
+// V14-CPU-NIT-01-C — DD DEC BC must update IncDecZ. Reset baseline
+// (IncDecZ=0), then DEC BC at BC=$0002 → $0001 (nonzero) → IncDecZ=1.
+// Mirror of V14-CPU-01-DEC-BC.
+void test_v14_cpu_nit_01_dd_dec_bc_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0002;
+    cpu.set_registers(regs);
+    bool incdecz_initial_zero = cpu.get_registers().IncDecZ == 0;
+
+    // $8000  B7        OR A
+    // $8001  DD 0B     DD DEC BC (BC: 0002 → 0001 nonzero → IncDecZ=1)
+    // $8003  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0xDD;
+    mem.ram[0x8002] = 0x0B;
+    mem.ram[0x8003] = 0xED;
+    mem.ram[0x8004] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DD DEC BC
+    auto after_dec = cpu.get_registers();
+    bool bc_one          = after_dec.BC == 0x0001;
+    bool incdecz_set     = after_dec.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "Initial IncDecZ=%d (reset 0); DD DEC BC ($0002→$%04x) "
+                  "IncDecZ=%d (post-fix: 1; pre-fix: stale 0); "
+                  "LDWS F=0x%02x F.P=%d (post-fix: 1; pre-fix: 0)",
+                  incdecz_initial_zero ? 0 : 1, after_dec.BC,
+                  after_dec.IncDecZ, f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          incdecz_initial_zero && bc_one && incdecz_set && ldws_p_set,
+          detail);
+}
+
+// V14-CPU-NIT-01-D — FD DEC BC must update IncDecZ. Mirror of -C.
+void test_v14_cpu_nit_01_fd_dec_bc_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0002;
+    cpu.set_registers(regs);
+    bool incdecz_initial_zero = cpu.get_registers().IncDecZ == 0;
+
+    // $8000  B7        OR A
+    // $8001  FD 0B     FD DEC BC (BC: 0002 → 0001)
+    // $8003  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0xFD;
+    mem.ram[0x8002] = 0x0B;
+    mem.ram[0x8003] = 0xED;
+    mem.ram[0x8004] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // FD DEC BC
+    auto after_dec = cpu.get_registers();
+    bool bc_one      = after_dec.BC == 0x0001;
+    bool incdecz_set = after_dec.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "Initial IncDecZ=%d (reset 0); FD DEC BC ($0002→$%04x) "
+                  "IncDecZ=%d (post-fix: 1); LDWS F=0x%02x F.P=%d "
+                  "(post-fix: 1)",
+                  incdecz_initial_zero ? 0 : 1, after_dec.BC,
+                  after_dec.IncDecZ, f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          incdecz_initial_zero && bc_one && incdecz_set && ldws_p_set,
+          detail);
+}
+
+// V14-CPU-NIT-01-E — DD DJNZ must update IncDecZ via the V13-CPU-01
+// polarity (F.Z(B-1)). Sibling of V13-CPU-01 DD/FD-prefix gap.
+//
+// Setup: B=1 entering DJNZ → DJNZ not-taken, ALU result (B-1)=0 →
+// F.Z(B-1)=1 → IncDecZ=1 (V13 polarity).
+// LDWS then composes F.P=1.
+//
+// FUSE Z80 routes DD 10 through the z80_ddfd.c default branch (since
+// 0x10 doesn't reference IX/IY) which backs PC up and re-enters main
+// switch case 0x10 — DJNZ runs normally.
+//
+// Pre-V14-NIT-01: DD-prefixed DJNZ skipped the V13 latch update; LDWS
+// would read whatever stale IncDecZ was last set (here: reset baseline 0
+// from prep_cpu) → LDWS F.P=0.
+// Post-V14-NIT-01: V13 latch fires for DD-prefixed DJNZ → IncDecZ=1 →
+// LDWS F.P=1.
+void test_v14_cpu_nit_01_dd_djnz_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;       // B=1 — DJNZ won't branch
+    cpu.set_registers(regs);
+    bool incdecz_initial_zero = cpu.get_registers().IncDecZ == 0;
+
+    // $8000  B7        OR A
+    // $8001  DD 10 02  DD DJNZ +2 (not taken — B=1→0 → IncDecZ=1)
+    // $8004  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0xDD;
+    mem.ram[0x8002] = 0x10;
+    mem.ram[0x8003] = 0x02;
+    mem.ram[0x8004] = 0xED;
+    mem.ram[0x8005] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // DD DJNZ → B=0
+    auto after_djnz = cpu.get_registers();
+    uint8_t b_after = (after_djnz.BC >> 8) & 0xFF;
+    bool b_post_zero = b_after == 0;
+    // V13 polarity: B-1==0 → IncDecZ=1
+    bool incdecz_set = after_djnz.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "Initial IncDecZ=%d; DD DJNZ B=1→%d IncDecZ=%d "
+                  "(post-fix: 1; pre-fix: stale 0); "
+                  "LDWS F=0x%02x F.P=%d (post-fix: 1; pre-fix: 0)",
+                  incdecz_initial_zero ? 0 : 1, b_after,
+                  after_djnz.IncDecZ, f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359",
+          incdecz_initial_zero && b_post_zero
+              && incdecz_set && ldws_p_set,
+          detail);
+}
+
+// V14-CPU-NIT-01-F — FD DJNZ must update IncDecZ. Mirror of -E.
+void test_v14_cpu_nit_01_fd_djnz_updates_incdecz(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0100;
+    regs.BC = 0x0100;
+    cpu.set_registers(regs);
+    bool incdecz_initial_zero = cpu.get_registers().IncDecZ == 0;
+
+    // $8000  B7        OR A
+    // $8001  FD 10 02  FD DJNZ +2 (not taken — B=1→0 → IncDecZ=1)
+    // $8004  ED A5     LDWS
+    mem.ram[0x8000] = 0xB7;
+    mem.ram[0x8001] = 0xFD;
+    mem.ram[0x8002] = 0x10;
+    mem.ram[0x8003] = 0x02;
+    mem.ram[0x8004] = 0xED;
+    mem.ram[0x8005] = 0xA5;
+
+    cpu.execute();  // OR A
+    cpu.execute();  // FD DJNZ
+    auto after_djnz = cpu.get_registers();
+    uint8_t b_after = (after_djnz.BC >> 8) & 0xFF;
+    bool b_post_zero = b_after == 0;
+    bool incdecz_set = after_djnz.IncDecZ == 1;
+
+    cpu.execute();  // LDWS
+    auto out = cpu.get_registers();
+    uint8_t f = out.AF & 0xFF;
+    bool ldws_p_set = (f & 0x04) != 0;
+
+    char detail[400];
+    std::snprintf(detail, sizeof(detail),
+                  "Initial IncDecZ=%d; FD DJNZ B=1→%d IncDecZ=%d "
+                  "(post-fix: 1); LDWS F=0x%02x F.P=%d (post-fix: 1)",
+                  incdecz_initial_zero ? 0 : 1, b_after,
+                  after_djnz.IncDecZ, f, ldws_p_set ? 1 : 0);
+    check(res, "V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359",
+          incdecz_initial_zero && b_post_zero
+              && incdecz_set && ldws_p_set,
+          detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
 
@@ -1736,6 +2312,19 @@ int main() {
     test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(res);
     // V13 (pass-13)
     test_v13_cpu_01_ldws_incdecz_after_djnz_not_taken(res);
+    // V14 (pass-14) — INC BC / DEC BC IncDecZ-latch updates
+    test_v14_cpu_01_inc_bc_updates_incdecz_for_ldws(res);
+    test_v14_cpu_01_dec_bc_updates_incdecz_for_ldws(res);
+    test_v14_cpu_01_inc_hl_does_not_update_incdecz(res);
+    // V14-CPU-NIT-01 (fix-of-reviewer) — DD/FD-prefix IncDecZ-latch
+    // walk: prefix-walk classification covers DD/FD-prefixed INC BC,
+    // DEC BC, and DJNZ (sibling of V13-CPU-01 prefix gap).
+    test_v14_cpu_nit_01_dd_inc_bc_updates_incdecz(res);
+    test_v14_cpu_nit_01_fd_inc_bc_updates_incdecz(res);
+    test_v14_cpu_nit_01_dd_dec_bc_updates_incdecz(res);
+    test_v14_cpu_nit_01_fd_dec_bc_updates_incdecz(res);
+    test_v14_cpu_nit_01_dd_djnz_updates_incdecz(res);
+    test_v14_cpu_nit_01_fd_djnz_updates_incdecz(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

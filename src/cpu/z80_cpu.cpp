@@ -773,7 +773,50 @@ int Z80Cpu::execute() {
     // inner ED. We must catch the ED-block-transfer when it's reached
     // through a DD/FD prefix chain. Walk the prefix chain to find the
     // first non-prefix byte and check if it's an ED-block-transfer ext.
-    const bool is_djnz = (opcode == 0x10);
+    //
+    // V14-CPU-01: VHDL t80n.vhd:1361-1367 latches IncDecZ on every BC
+    // 16-bit inc/dec — i.e. ALSO on plain INC BC (0x03) and DEC BC (0x0B),
+    // not only on the BC-decrementing block transfers (LDI/LDD/CPI/CPD/
+    // …) and DJNZ. The mcode (t80n_mcode.vhd:927-936) sets
+    //   INC ss : IncDec_16 <= "01" & DPair
+    //   DEC ss : IncDec_16 <= "11" & DPair
+    // and the latch fires on `IncDec_16(2 downto 0) = "100"` — i.e. only
+    // when DPair = "00" (= BC). For DE/HL/SP DPair the low three bits
+    // become "101"/"110"/"111" and the latch is silent. Result of the
+    // 16-bit ALU on inc/dec is on the `ID16` bus; `IncDecZ <= '0'` when
+    // `ID16 = 0`, `'1'` otherwise. So:
+    //   INC BC: post-inc BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //   DEC BC: post-dec BC == 0 → IncDecZ=0; nonzero → IncDecZ=1.
+    //
+    // V14-CPU-NIT-01: DD/FD-prefixed INC BC / DEC BC / DJNZ execute the
+    // SAME mcode path. Per VHDL `t80n.vhd:513-531`, after a DD/FD prefix
+    // the ISet stays at "00" (only XY_State is updated to "01"/"10");
+    // the parametric mcode dispatch keys on `IRB` (= the inner opcode),
+    // and `DPair := IR(5 downto 4)` (line 228). For inner opcode 0x03
+    // (INC BC) / 0x0B (DEC BC), DPair="00" → IncDec_16="0100"/"1100" →
+    // low-3="100" → latch fires. For inner opcode 0x10 (DJNZ), the
+    // DJNZ latch at line 1358-1360 also fires (no XY_State gating
+    // there). Same family pattern as Pass-13's V13-CPU-01 DD/FD-prefix
+    // gap on DJNZ. Solution: walk the DD/FD/DD-DD-… prefix chain to
+    // discover the inner opcode and use it for ALL three classifications
+    // (DJNZ, INC BC, DEC BC) plus the existing ED-block-transfer
+    // detection.
+    //
+    // FUSE Z80 (`z80_ddfd.c:556-565` default branch) backs up PC and
+    // re-enters the main switch on any non-IX/IY opcode — so DD 03
+    // mutates BC just like plain 0x03, DD 10 mutates B and (when taken)
+    // PC just like plain 0x10. We can therefore observe the post-state
+    // identically and apply the same IncDecZ polarity.
+    //
+    // Pre-fix: jnext only updated IncDecZ on plain DJNZ + plain INC BC /
+    // DEC BC + plain ED-block-xfers + DD/FD-prefixed ED-block-xfers. A
+    // program with `DD INC BC; ED A5` (LDWS) or `FD DEC BC; ED A5`
+    // observed a STALE IncDecZ.
+    //
+    // Class-(a) discriminative: write tests that do `DD INC BC` (or
+    // `FD DEC BC`, etc.) followed by `LDWS` and check F.P composes from
+    // the new IncDecZ value. See test_v14_cpu_nit_01_*.
+    uint8_t inner_opcode = opcode;
     bool ed_block_xfer = false;
     if (opcode == 0xDD || opcode == 0xFD) {
         uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
@@ -783,6 +826,8 @@ int Z80Cpu::execute() {
                 walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
                 continue;
             }
+            // Found the inner (non-prefix) opcode.
+            inner_opcode = b;
             if (b == 0xED) {
                 uint8_t ext = mem_.read(
                     static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
@@ -795,17 +840,26 @@ int Z80Cpu::execute() {
             break;
         }
     }
+    const bool is_djnz   = (inner_opcode == 0x10);
+    const bool is_inc_bc = (inner_opcode == 0x03);
+    const bool is_dec_bc = (inner_opcode == 0x0B);
 
     int cycles = fuse_z80_execute_one();
 
     sync_regs_from_fuse(regs_);
 
     if (is_djnz) {
-        // V13-CPU-01 fix: VHDL t80n.vhd:1358-1360 latches IncDecZ from
-        // F_Out(Flag_Z) of the SUB-1 ALU result on B (DJNZ ALU_Op="0010"
-        // SUB at MCycle 1, BusA=B(000), BusB="00000001"; t80n_mcode.vhd:
-        // 1140-1144). F_Out(Flag_Z) is set when result is zero — i.e.
-        // when (B-1) == 0 i.e. B was 1 entering DJNZ.
+        // V13-CPU-01 fix (+ V14-CPU-NIT-01 prefix-walk): VHDL t80n.vhd:
+        // 1358-1360 latches IncDecZ from F_Out(Flag_Z) of the SUB-1 ALU
+        // result on B (DJNZ ALU_Op="0010" SUB at MCycle 1, BusA=B(000),
+        // BusB="00000001"; t80n_mcode.vhd:1140-1144). F_Out(Flag_Z) is
+        // set when result is zero — i.e. when (B-1) == 0 i.e. B was 1
+        // entering DJNZ. `is_djnz` is keyed on the inner opcode of any
+        // DD/FD-prefix chain (V14-CPU-NIT-01) so DD 10 / FD 10 / DD DD
+        // 10 also latch correctly. FUSE backs DD/FD-prefixed DJNZ
+        // through the z80_ddfd.c default branch (PC--; goto end_opcode),
+        // so B has been decremented and PC may have been jumped exactly
+        // as for plain DJNZ.
         //
         // After exec, regs_.BC high byte = post-decrement B. The mapping is:
         //   B == 0 (post-dec)  →  ALU result was zero  →  F.Z=1  →  IncDecZ=1
@@ -832,6 +886,22 @@ int Z80Cpu::execute() {
         // is discarded by FUSE's z80_ddfd.c default re-dispatch path,
         // and the ED block transfer runs normally — BC has been
         // decremented. IncDecZ = (BC != 0).
+        regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
+    }
+    if (is_inc_bc || is_dec_bc) {
+        // V14-CPU-01 fix (+ V14-CPU-NIT-01 prefix-walk) — see large
+        // comment block above the pre-execute classification. After
+        // fuse_z80_execute_one(), regs_.BC holds the post-inc/dec value
+        // (= ID16 in VHDL). VHDL emits IncDecZ='0' when ID16=0 and '1'
+        // otherwise (line 1362-1366). DD/FD-prefixed variants (DD 03,
+        // FD 03, DD 0B, FD 0B) reach this branch via the inner-opcode
+        // walk (NIT-01); FUSE backs them through the z80_ddfd.c default
+        // path, so plain BC++/BC-- happens normally. Note this polarity
+        // is the SAME as the BC-block-transfer latch (line 1361-1366
+        // covers both — the I_BT block transfers
+        // assert their own IncDec_16="1100" and reach this same gate),
+        // and OPPOSITE to the DJNZ latch (line 1359, F_Out(Flag_Z) which
+        // is set when result==0).
         regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
     }
     return (cycles > 0) ? cycles : 4;
