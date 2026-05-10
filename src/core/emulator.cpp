@@ -2170,6 +2170,43 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return static_cast<uint8_t>(nextreg_.cached(0xF8) & 0x7F);
     });
 
+    // V20-NMP-XADC — NR 0xF9 / NR 0xFA XADC d0/d1 composed-read stubs.
+    //
+    // VHDL zxnext.vhd:6280-6284 read mux:
+    //   when X"F9" => port_253b_dat <= nr_f9_xadc_d0;
+    //   when X"FA" => port_253b_dat <= nr_fa_xadc_d1;
+    //
+    // The drivers of these signals are board-issue dependent:
+    //   • Issue 2/3 (g_board_issue <= 1, zxnext.vhd:7420-7436):
+    //     `nr_f9_xadc_d0` and `nr_fa_xadc_d1` are hard-wired to
+    //     (others => '0') (lines 7428-7429), irrespective of writes to
+    //     NR 0xF9/0xFA. The NR-write decoder still strobes `nr_f9_we` /
+    //     `nr_fa_we` (lines 4823-4824, 4904-4905), but the register
+    //     signals themselves are never updated on the Issue 2/3 path.
+    //   • Issue 4/5 (g_board_issue >= 2, zxnext.vhd:7438+):
+    //     The clocked processes around line 7570+ latch `nr_wr_dat` into
+    //     `nr_f9_xadc_d0` / `nr_fa_xadc_d1` on `nr_f9_we` / `nr_fa_we`.
+    //     The 16-bit XADC `o_XADC_DI` output (line 1719) concatenates
+    //     them as `nr_fa_xadc_d1 & nr_f9_xadc_d0`.
+    //
+    // jnext seeds NR 0x0F (= g_board_issue) to 0x00 (Issue 2; see
+    // src/port/nextreg.cpp). The Issue 2 VHDL path therefore applies,
+    // and the VHDL-faithful readback is a constant 0x00 for both NR 0xF9
+    // and NR 0xFA. The XADC block is not modeled in jnext — no NextZXOS
+    // boot path nor any application is known to depend on the XADC
+    // temperature/voltage monitor, so this stub is conservative.
+    //
+    // Pre-V20 the reads fell through to `regs_[0xF9]` / `regs_[0xFA]`
+    // which leaked the raw last-written byte (Class-(c) inert
+    // divergence). The stubs return the VHDL-correct constant
+    // regardless of writes. Same shape as V19R-NMP-NIT-03 for NR 0xF0.
+    nextreg_.set_read_handler(0xF9, []() -> uint8_t {
+        return 0x00;
+    });
+    nextreg_.set_read_handler(0xFA, []() -> uint8_t {
+        return 0x00;
+    });
+
     // Register 0x03: Machine type + config_mode transitions.
     // - Writing to this register disables the boot ROM overlay
     //   (VHDL: bootrom_en <= '0' on any write to nr_03).
@@ -2437,9 +2474,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // `port_ff3b_ulap_en` rather than from a stored copy. Port 0xFF3B writes
     // mutate ulap_en_ without touching regs_[0x68], so the cached snapshot
     // diverges. Compose bit 3 from the live state at read time.
+    //
+    // V20-NMP-02 (Pass-20 verify-audit fix): VHDL zxnext.vhd:6093 read mux
+    // composes NR 0x68 as
+    //   (not nr_68_ula_en) & nr_68_blend_mode & nr_68_cancel_extended_keys
+    //                      & port_ff3b_ulap_en & nr_68_ula_fine_scroll_x
+    //                      & '0' & nr_68_ula_stencil_mode
+    // — bit 1 is a LITERAL '0', irrespective of writes. The NR 0x68 write
+    // decoder at :5444-5450 has NO `nr_68_*(1)` storage (the entire bit-1
+    // field is absent from the write case). Pre-fix the C++ stored the
+    // raw written byte in `regs_[0x68]` and the read mask `cached & 0xF7`
+    // preserved bit 1 verbatim, leaking the last-written bit-1 value on
+    // readback. Add bit 1 to the read mask: `cached & 0xF5` (= 1111 0101)
+    // clears bit 1 AND bit 3 (bit 3 is recomposed from live ulap_en
+    // immediately below). Class-(c) inert divergence.
     nextreg_.set_read_handler(0x68, [this]() -> uint8_t {
         uint8_t v = nextreg_.cached(0x68);
-        v = (v & 0xF7) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
+        v = (v & 0xF5) | (renderer_.ula().get_ulap_en() ? 0x08 : 0x00);
         return v;
     });
 
