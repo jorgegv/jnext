@@ -450,8 +450,23 @@ int Z80Cpu::execute() {
     // is also re-fanned-out from runtime NR 0x03 machine_timing writes.
     const uint32_t int_pulse_tstates = machine_48_or_p3_ ? 32u : 36u;
     if (int_pending_) {
-        if (tstates - int_requested_at_ > int_pulse_tstates && !z80.iff1) {
-            // Pulse expired while interrupts were disabled — missed.
+        // V18R-CPU-01 fix: the drop arm must be UNCONDITIONAL on IFF1.
+        // VHDL zxnext.vhd:2017-2033 — `pulse_int_n` returns to '1' as soon
+        // as `pulse_count_end='1'` (the count gate), independent of IFF1
+        // and of any CPU-side signal. Once the pulse line has gone high,
+        // the Z80 /INT pin sampled at the rising edge of the last clock of
+        // M1 sees a HIGH level and the INT is not accepted.
+        //
+        // Pre-fix the gate read `> int_pulse_tstates && !z80.iff1` — this
+        // missed the EI/RETI window edge: ISR runs with DI (IFF1=0), the
+        // pulse expires at T=32 (or 36), then EI re-enables IFF1=1 at
+        // T=33+; the drop arm short-circuits because IFF1=1 now and the
+        // accept arm fires, dispatching a spurious INT that real hardware
+        // would have already dropped. Boot-realistic in NextZXOS supervisor
+        // paths that bracket bank-flip sections with DI/EI.
+        if (tstates - int_requested_at_ > int_pulse_tstates) {
+            // Pulse expired — /INT line went high in hardware; drop the
+            // pending request regardless of IFF1.
             int_pending_ = false;
         } else if (z80.iff1) {
             // Pass-8 fix: gate EI-grace BEFORE invoking on_int_ack().

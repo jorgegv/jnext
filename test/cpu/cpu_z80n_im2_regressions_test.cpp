@@ -2521,8 +2521,137 @@ void test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(Result& res) {
               && neg_1 == 0xFFFF, detail);
 }
 
+// ─── V18R-CPU-NIT-01 (Pass-18 reviewer NIT) — LDPIRX MEMPTR-lo strobe ─────
+//
+// VHDL t80n_mcode.vhd:1967 sets LDZ <= '1' at MCycle 1 of LDPIRX. Per
+// t80n.vhd:1181-1182 this writes DI_Reg (the byte fetched on the inner
+// M1) into TmpAddr(7:0) = MEMPTR_lo. At MCycle 1 the inner-M1's DI_Reg
+// is the LDPIRX opcode byte 0xB7. WZ-hi is unchanged.
+//
+// Pre-fix LDPIRX did not touch MEMPTR — divergence from VHDL though with
+// observably zero software impact (no public test/program reads MEMPTR
+// after LDPIRX). Post-fix: MEMPTR_lo = 0xB7 after LDPIRX.
+//
+// Discriminative check protocol:
+//   Pre-set MEMPTR = 0xAB34 (distinctive non-zero high byte, distinctive
+//   non-zero low byte). Execute LDPIRX (ED B7) with HL pointing at a
+//   pattern byte that mismatches A (so the write fires; matches go
+//   through the contention-only path). Read MEMPTR after.
+//   Expected post-fix: 0xAB B7 (hi preserved, lo = 0xB7).
+//   Pre-fix:           0xAB 34 (untouched).
+void test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0000;        // A=0, F=0
+    regs.HL = 0x9000;        // pattern base
+    regs.DE = 0xA000;        // dest
+    regs.BC = 0x0001;        // single iteration
+    regs.MEMPTR = 0xAB34;    // distinctive prior MEMPTR
+    cpu.set_registers(regs);
+
+    mem.ram[0x9000] = 0x55;  // pattern != A (so write fires)
+    mem.ram[0x8000] = 0xED;
+    mem.ram[0x8001] = 0xB7;  // LDPIRX
+
+    cpu.execute();
+
+    auto out = cpu.get_registers();
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "MEMPTR post-LDPIRX = 0x%04X (expect 0xABB7: hi=0xAB "
+                  "preserved, lo=0xB7 per LDZ strobe of opcode byte). "
+                  "Pre-fix value would be 0xAB34 (untouched).",
+                  out.MEMPTR);
+    check(res, "V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE",
+          out.MEMPTR == 0xABB7, detail);
+}
+
 // ─── INT-pulse-window tests already live in test/cpu/int_pulse_test.cpp ────
 // (Pass-1 fix 3c89104 — not duplicated here.)
+// Note: V18R-CPU-01 (Pass-18 reviewer) discriminative tests live there too.
+
+// ─── V18R-CPU-02 (Pass-18 reviewer) — raise(Im2Level::DMA) MUST NOT pollute
+//     CTC7's int_status via the legacy-API DevIdx-collision bug.
+//
+// Bug: Im2Level::DMA=10 (enum value 10 counting from FRAME_IRQ=0) collided
+// with DevIdx::CTC7=10 in the dev_[] array. raise(Im2Level::DMA) used to
+// index dev_[] directly by the raw Im2Level int — so dev_[10].int_req=true
+// which is CTC7's int_req. Phase-1 of step_devices() then set CTC7's
+// int_status=true on the edge, and int_status_mask_c9() returned bit 7=1.
+// Per VHDL zxnext.vhd:4092, CTC4..CTC7's i_int_req is hardwired to '0' so
+// CTC7's int_status MUST remain 0 — no peripheral path can light it up.
+//
+// Fix: raise(Im2Level::DMA/DIVMMC/MULTIFACE) is now a no-op in im2.cpp
+// (those legacy aliases have no daisy-chain slot per VHDL). The emulator
+// DMA on_interrupt lambda is also a no-op (belt + suspenders, since DMA
+// is a "victim" of INT not a priority-chain source, vhdl:2003-2008).
+//
+// Discriminative check protocol:
+//   Revert the raise()/clear() switch-on-DMA changes in
+//   src/cpu/im2.cpp → raise(Im2Level::DMA) re-pollutes dev_[10]=CTC7 →
+//   int_status_mask_c9() bit 7 becomes 1 after tick() → assertion FAILS.
+void test_v18r_cpu_02_dma_raise_no_pollute_ctc7(Result& res) {
+    Im2Controller im2;
+    im2.reset();
+    im2.set_mode(true);  // IM2 mode; ensure step_devices() runs full path
+
+    // Sanity: CTC7's int_status is 0 at reset.
+    const bool pre_ctc7 = im2.int_status(Im2Controller::DevIdx::CTC7);
+    const uint8_t pre_c9 = im2.int_status_mask_c9();
+
+    // Reproduce the pre-fix emulator wiring: fire DMA's legacy raise.
+    im2.raise(Im2Level::DMA);
+    // Phase-1 of step_devices() runs the edge-detect → int_status latch.
+    im2.tick(1);
+
+    const bool post_ctc7 = im2.int_status(Im2Controller::DevIdx::CTC7);
+    const uint8_t post_c9 = im2.int_status_mask_c9();
+
+    char detail[280];
+    std::snprintf(detail, sizeof(detail),
+                  "CTC7 int_status pre=%d post=%d (must be 0,0 per "
+                  "VHDL zxnext.vhd:4092 CTC4..CTC7 hardwired to 0); "
+                  "NR 0xC9 pre=0x%02X post=0x%02X "
+                  "(bit 7 must stay 0 after raise(Im2Level::DMA)+tick)",
+                  pre_ctc7, post_ctc7, pre_c9, post_c9);
+    check(res, "V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7",
+          !pre_ctc7 && !post_ctc7 && (pre_c9 & 0x80) == 0
+              && (post_c9 & 0x80) == 0, detail);
+}
+
+// V18R-CPU-02 — confirm the DMA → ULA aliasing path also does NOT pollute
+// ULA's int_status (since raise/clear now no-op those Im2Level entries
+// rather than routing to ULA via to_devidx()). This locks in the chosen
+// fix shape — no-op rather than redirect — so that DMA can't accidentally
+// fire a spurious "framebuffer" INT either.
+void test_v18r_cpu_02_dma_raise_no_pollute_ula(Result& res) {
+    Im2Controller im2;
+    im2.reset();
+    im2.set_mode(true);
+
+    const bool pre_ula = im2.int_status(Im2Controller::DevIdx::ULA);
+    const uint8_t pre_c8 = im2.int_status_mask_c8();
+
+    im2.raise(Im2Level::DMA);
+    im2.tick(1);
+
+    const bool post_ula = im2.int_status(Im2Controller::DevIdx::ULA);
+    const uint8_t post_c8 = im2.int_status_mask_c8();
+
+    char detail[280];
+    std::snprintf(detail, sizeof(detail),
+                  "ULA int_status pre=%d post=%d "
+                  "(raise(Im2Level::DMA) must be a no-op, NOT a redirect "
+                  "to ULA); NR 0xC8 pre=0x%02X post=0x%02X",
+                  pre_ula, post_ula, pre_c8, post_c8);
+    check(res, "V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA",
+          !pre_ula && !post_ula && pre_c8 == post_c8, detail);
+}
 
 }  // namespace
 
@@ -2587,6 +2716,13 @@ int main() {
     test_v17_z80n_01_bsla_shift_ge_16_zero(res);
     // V17-CPU-NIT-04 (pass-17 reviewer NIT) — BSRA UB-free shift
     test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(res);
+    // V18R-CPU-02 (pass-18 reviewer) — raise(Im2Level::DMA) must not
+    // pollute CTC7's int_status (Im2Level::DMA=10 == DevIdx::CTC7=10
+    // collision) nor accidentally promote to ULA via to_devidx().
+    test_v18r_cpu_02_dma_raise_no_pollute_ctc7(res);
+    test_v18r_cpu_02_dma_raise_no_pollute_ula(res);
+    // V18R-CPU-NIT-01 (pass-18 reviewer NIT) — LDPIRX MEMPTR-lo strobe.
+    test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

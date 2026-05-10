@@ -931,6 +931,18 @@ int execute_z80n(uint8_t opcode, Z80Cpu& cpu) {
             if (regs.IncDecZ)   f |= FLAG_P;   // P = IncDecZ (I_BC/I_BT override)
             regs.AF = (regs.AF & 0xFF00) | f;
             regs.Q = f;                        // track last F write
+            // V18R-CPU-NIT-01 fix (Pass-18 reviewer NIT). VHDL
+            // t80n_mcode.vhd:1967 sets `LDZ <= '1'` at MCycle 1 of LDPIRX.
+            // Per t80n.vhd:1181-1182, LDZ='1' writes `DI_Reg` (the byte
+            // just fetched on the inner M1) into `TmpAddr(7 downto 0)` =
+            // MEMPTR_lo. At MCycle 1 the inner-M1 fetch's DI_Reg is the
+            // LDPIRX opcode byte 0xB7. WZ-hi is unchanged (LDW is never
+            // asserted in this mcode). Software-visible impact is zero
+            // (no public test/program reads MEMPTR after LDPIRX), but
+            // this brings the C++ emulator into 1:1 alignment with the
+            // VHDL oracle for completeness.
+            regs.MEMPTR = static_cast<uint16_t>(
+                (regs.MEMPTR & 0xFF00) | 0x00B7u);
             int t = 16;
             int internal_idle = 2;
             if (regs.BC != 0) {

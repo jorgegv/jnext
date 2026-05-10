@@ -126,20 +126,50 @@ Im2Controller::DevIdx Im2Controller::to_devidx(Im2Level lvl) const {
 // the ORIGINAL Im2Level index, then mask via legacy_mask_ / vector = 2*i.
 // -----------------------------------------------------------------------------
 void Im2Controller::raise(Im2Level level) {
-    // Record on both sides:
-    //   - legacy view: dev_ at the Im2Level index for has_pending/get_vector
-    //   - new view:    raise_req on the mapped DevIdx for int_req propagation
+    // V18R-CPU-02 (Pass-18 reviewer): the legacy raise() must NOT pollute
+    // daisy-chain devices via raw-int collision. Im2Level::DMA=10 collides
+    // with DevIdx::CTC7=10; Im2Level::DIVMMC=11 with DevIdx::ULA=11;
+    // Im2Level::MULTIFACE=13 with DevIdx::UART1_TX=13. Pre-fix this
+    // function set `dev_[static_cast<int>(level)].int_req=true` which (a)
+    // raised CTC7's int_req on every DMA call (CTC7's i_int_req is
+    // hardwired to '0' in VHDL zxnext.vhd:4092, so this is observably
+    // wrong) and (b) would falsely raise ULA/UART1_TX for the other
+    // aliases.
     //
-    // NOTE: dev_[] is sized N = DevIdx::COUNT == Im2Level::COUNT == 14, so we
-    // can index it with either enum's raw int safely for the legacy side.
-    int i = static_cast<int>(level);
+    // None of the priority-chain peripherals routes through this legacy
+    // API any more — the modern path is raise_req(DevIdx). The non-IM2
+    // "victim" sources (DMA/DIVMMC/MULTIFACE) have no daisy-chain slot at
+    // all, so they MUST be no-ops here. The remaining Im2Level entries
+    // (FRAME_IRQ, LINE_IRQ, CTC_*, UART_*, ULA_EXTRA) route via to_devidx()
+    // to their proper DevIdx slot.
+    switch (level) {
+        case Im2Level::DMA:
+        case Im2Level::DIVMMC:
+        case Im2Level::MULTIFACE:
+            // Non-IM2 sources — no daisy-chain slot per VHDL.
+            return;
+        default:
+            break;
+    }
+    const DevIdx dev = to_devidx(level);
+    const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = true;
     }
 }
 
 void Im2Controller::clear(Im2Level level) {
-    int i = static_cast<int>(level);
+    // V18R-CPU-02: same routing fix as raise(); see the comment there.
+    switch (level) {
+        case Im2Level::DMA:
+        case Im2Level::DIVMMC:
+        case Im2Level::MULTIFACE:
+            return;
+        default:
+            break;
+    }
+    const DevIdx dev = to_devidx(level);
+    const int i = static_cast<int>(dev);
     if (i >= 0 && i < N) {
         dev_[i].int_req = false;
     }
