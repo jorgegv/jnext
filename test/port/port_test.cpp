@@ -264,6 +264,29 @@ static void test_group_registration() {
               DETAIL("borders=%u,%u,%u expected 2,5,3", b1, b2, b3));
     }
 
+    // REG-01b / V17-NMP-02 — ULA 0xFE matches ANY even address (bit 0 = 0),
+    // not just LSB == 0xFE. VHDL zxnext.vhd:2582 — `port_fe <= '1' when
+    // cpu_a(0) = '0'`. Pre-Pass-17, jnext's handler used mask 0x00FF / val
+    // 0x00FE which required the LSB to equal exactly 0xFE — software using
+    // OUT (0xFC), A or any other even-but-not-FE port would update border
+    // on real hardware (and CSpect / Fuse) but not in jnext. Discriminative
+    // test for the V17-NMP-02 fix; covers the well-known "OUT (0xFC), A"
+    // border trick as well as 0xF8.
+    {
+        emu.port().out(0x00FE, 0x00);           // border = black (baseline)
+        emu.port().out(0x00FC, 0x02);           // border ← green (bit 0 = 0)
+        uint8_t b1 = emu.renderer().ula().get_border();
+        emu.port().out(0x00F8, 0x07);           // border ← white (bit 0 = 0)
+        uint8_t b2 = emu.renderer().ula().get_border();
+        emu.port().out(0x4242, 0x05);           // border ← cyan (any even port)
+        uint8_t b3 = emu.renderer().ula().get_border();
+        check("REG-01b",
+              "0xFE decode covers ANY even port (0xFC / 0xF8 / 0x4242) "
+              "[VHDL :2582 cpu_a(0)='0']",
+              b1 == 2 && b2 == 7 && b3 == 5,
+              DETAIL("borders=%u,%u,%u expected 2,7,5", b1, b2, b3));
+    }
+
     // REG-02: 0xFE does NOT match an odd address. VHDL zxnext.vhd:2582-2583.
     {
         emu.port().out(0x00FE, 0x00);           // border = black

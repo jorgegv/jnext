@@ -3145,7 +3145,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //                                                 approximated at steady
     //                                                 state).
     // Write: bits 2-0 = border colour; bit 4 = EAR; bit 3 = MIC.
-    port_.register_handler(0x00FF, 0x00FE,
+    //
+    // V17-NMP-02 (Pass-17 verify-audit fix): VHDL zxnext.vhd:2582 decodes
+    // `port_fe <= '1' when cpu_a(0) = '0'` — the ULA matches ANY port with
+    // bit 0 = 0 (the standard Spectrum 48K decode). The TBBlue real hardware
+    // and every real Spectrum follow this rule. Pre-fix the handler mask
+    // was 0x00FF/0x00FE, requiring the LSB to be exactly 0xFE. Software
+    // using the well-known "OUT (0xFC), A" border trick (or any other even
+    // port) would update border/ear/mic on real hardware but not in jnext.
+    // Mask 0x0001/0x0000 = "any port with bit 0 = 0", matching VHDL :2582.
+    // Most-specific-wins dispatch keeps the more-specific 0x00FE handler
+    // (none exist — REG-01 in port_test simply tests several even-LSB
+    // addresses) from being shadowed by this one. The other "even-LSB"
+    // handlers (e.g. NMI/MF dispatch observer) fire via a separate
+    // io_observer path that is independent of this handler.
+    port_.register_handler(0x0001, 0x0000,
         [this](uint16_t port) -> uint8_t {
             uint8_t addr_high = static_cast<uint8_t>(port >> 8);
             uint8_t result = 0xE0 | (keyboard_.read_rows(addr_high) & 0x1F);
