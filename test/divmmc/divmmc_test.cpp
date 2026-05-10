@@ -1645,9 +1645,14 @@ void group_nm() {
                   held_steady, btn_set, btn_cleared_after, held_still));
     }
 
-    // NM-08 — o_disable_nmi = automap_held OR button_nmi
-    // (VHDL divmmc.vhd:150). Exercise the truth table via
-    // `DivMmc::is_nmi_hold()`:  {00, 01, 10, 11}.
+    // NM-08 — o_disable_nmi = automap OR button_nmi  (VHDL divmmc.vhd:148+150)
+    // Exercise the steady-state truth table via `DivMmc::is_nmi_hold()`:
+    // {00, 01, 10, 11}. Two `check_automap` calls drive the (held=1)
+    // legs so the pipeline reaches steady state — i.e. `automap_held_`
+    // has caught up to `automap_hold_` and the combinational `automap`
+    // (= held OR instant_match this cycle) collapses to `held` after the
+    // entry-point M1 has gone by. NM-10 covers the discriminative
+    // first-M1-instant-on case where active != held.
     {
         DivMmc d1;                                      // (0, 0)
         const bool s00 = !d1.is_nmi_hold();
@@ -1676,10 +1681,63 @@ void group_nm() {
                          && d4.button_nmi();
 
         check("NM-08",
-              "is_nmi_hold() = automap_held OR button_nmi across all 4 "
-              "input combinations (VHDL divmmc.vhd:150 o_disable_nmi)",
+              "is_nmi_hold() steady-state = automap OR button_nmi across "
+              "all 4 input combinations after held has caught up to hold "
+              "(VHDL divmmc.vhd:148,150 o_disable_nmi). Discriminative "
+              "first-M1 active-vs-held case is in NM-10.",
               s00 && s01 && s10 && s11,
               fmt("s00=%d s01=%d s10=%d s11=%d", s00, s01, s10, s11));
+    }
+
+    // NM-10 (TASK2-VERIFY11 V11-DIVMMC-02): is_nmi_hold() must follow
+    // VHDL divmmc.vhd:148+150 — `o_disable_nmi <= automap or button_nmi`
+    // where `automap` (line 148) is the COMBINATIONAL signal:
+    //
+    //   automap <= (NOT i_automap_reset) AND
+    //              (held OR (active AND instant_on this cycle) OR ...);
+    //
+    // Pre-fix `is_nmi_hold` used the registered `automap_held_` directly,
+    // so on the very first M1 fetch where an instant-on entry-point
+    // matched, `is_nmi_hold` returned false even though VHDL would assert
+    // `o_disable_nmi` immediately. The divergence drops back to zero on
+    // the next M1 (when held catches up to hold), so NM-08's two-fetch
+    // setup misses it — NM-10 pins the first-fetch case directly.
+    //
+    // Discriminative stimulus: configure RST 0x00 as instant-on, main
+    // path. Issue ONE `check_automap(0x0000, true)`. Post-fix, the M1
+    // call leaves held=0 (just promoted from prior 0) and active=1
+    // (held(0) || instant_match(1)). Pre-fix returned false; post-fix
+    // returns true. NM-08's `s10`/`s11` legs DO call check_automap
+    // twice, so the steady-state held-OR-button reading still passes
+    // unchanged — both implementations agree once held has caught up.
+    {
+        DivMmc d = make_divmmc();
+        d.set_entry_points_0(0x01);    // RST 0x00 enabled
+        d.set_entry_valid_0(0x01);     // main path valid (NR 0xB9 bit 0)
+        d.set_entry_timing_0(0x01);    // instant timing (NR 0xBA bit 0)
+
+        // Single M1 fetch at the entry point — held is still 0 right
+        // after this call (it only catches up on the NEXT M1 cycle's
+        // step-1 promotion), but the combinational automap is 1 because
+        // instant_match this cycle is 1.
+        d.check_automap(0x0000, true);
+
+        const bool held_zero    = !d.automap_held();
+        const bool active_one   = d.automap_active();
+        const bool nmi_hold_one = d.is_nmi_hold();
+
+        check("NM-10",
+              "First-M1 instant-on entry-point: is_nmi_hold() reflects "
+              "the COMBINATIONAL automap (held(0) OR instant_match(1) = "
+              "1) immediately, not the registered held bit (still 0 "
+              "until the next M1 promotes hold→held). VHDL "
+              "divmmc.vhd:148+150 — `o_disable_nmi <= automap or "
+              "button_nmi`, where `automap` is line 148 combinational.",
+              held_zero && active_one && nmi_hold_one,
+              fmt("held=%d (exp 0) active=%d (exp 1) is_nmi_hold=%d "
+                  "(exp 1)",
+                  d.automap_held(), d.automap_active(),
+                  d.is_nmi_hold()));
     }
 
     // DM-RETN-PROPER-01 — G46(a): canonical ED 45 RETN clears
@@ -2655,6 +2713,58 @@ void group_ss() {
                   && rx_swap1 == 0x99 && cnt_swap1 >= 1,
               fmt("swap0 rx=%02x cnt=%d  swap1 rx=%02x cnt=%d",
                   rx_swap0, cnt_swap0, rx_swap1, cnt_swap1));
+    }
+
+    // SS-15 (TASK2-VERIFY11 V11-DIVMMC-01): SpiMaster::reset() must pulse
+    // `deselect()` on every currently-selected device before clearing the
+    // CS register, mirroring VHDL zxnext.vhd:3308-3309 (`port_e7_reg <=
+    // (others => '1')` on `reset='1'`). The CS rising edge from any
+    // already-asserted slot is what prompts a connected SD card to abort
+    // an in-flight transaction (CMD17 SENDING_DATA, CMD18 multi-block,
+    // CMD24 RECEIVING_DATA, etc.) and return its protocol-state FFs to
+    // IDLE.
+    //
+    // Pre-fix, `reset()` set `cs_=0xFF` directly without the deselect()
+    // callback, so a slave selected at the moment of reset retained its
+    // pre-reset state until the next firmware-driven CS write. The SD
+    // backend's `receive()` default branch papers over this on the write
+    // path (any 0x40-0x7F byte starts a new command) but `send()` keeps
+    // streaming the prior block until the firmware writes — divergence
+    // becomes observable for any caller that reads first (test
+    // fixtures, save-state replay, host bug).
+    //
+    // Discriminative shape: attach a MockSpiDevice on CS0, select it via
+    // write_cs(0xFE), then call reset(). The mock's `was_deselected`
+    // flag must be true after reset (post-fix) and `cs_` must be 0xFF.
+    // Pre-fix the flag stays false. SS-12 (the device-bindings-survive
+    // test) is unaffected because it never selects the device before
+    // calling reset() — `cs_` was already 0xFF when reset() ran, so no
+    // deselect() was ever needed in either direction.
+    {
+        SpiMaster m;
+        MockSpiDevice dev;
+        m.attach_device(0, &dev);
+        m.write_cs(0xFE);                 // select SD0 (CS0 active-low)
+        const bool selected_before = (m.read_cs() == 0xFE);
+        const bool desel_before    = dev.was_deselected;
+        m.reset();
+        const bool desel_after  = dev.was_deselected;
+        const uint8_t cs_after  = m.read_cs();
+
+        check("SS-15",
+              "SpiMaster::reset() pulses deselect() on every currently-"
+              "selected device before clearing cs_=0xFF (VHDL "
+              "zxnext.vhd:3308-3309 — port_e7_reg → all-ones on reset, "
+              "physical CS rising edge resets connected SPI slaves' "
+              "protocol state). Pre-fix dropped this notification; SD "
+              "card protocol-state FFs survived reset until the next "
+              "firmware-driven CS write.",
+              selected_before && !desel_before
+                  && desel_after && cs_after == 0xFF,
+              fmt("sel_before=%d desel_before=%d desel_after=%d "
+                  "cs_after=%02x",
+                  selected_before, desel_before, desel_after,
+                  cs_after));
     }
 }
 

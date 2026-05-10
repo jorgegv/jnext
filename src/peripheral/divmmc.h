@@ -219,9 +219,40 @@ public:
     // NmiSource consumer-feedback accessors — const-only hooks consumed
     // by `NmiSource` when arbitrating the `divmmc_nmi_hold` gate at
     // VHDL:2118 / 2107 and the MF-vs-DivMMC priority mask at VHDL:2098.
-    // VHDL `o_disable_nmi = automap_held OR button_nmi` at
-    // divmmc.vhd:150 — true while the DivMMC is still claiming the NMI.
-    bool is_nmi_hold() const { return automap_held_ || button_nmi_; }
+    //
+    // VHDL `o_disable_nmi <= automap or button_nmi` at divmmc.vhd:150,
+    // where `automap` is the **combinational** signal at line 148:
+    //
+    //   automap <= (NOT i_automap_reset) AND
+    //              (automap_held OR
+    //               (i_automap_active AND (i_automap_instant_on OR
+    //                                       automap_nmi_instant_on)) OR
+    //               (i_automap_rom3_active AND i_automap_rom3_instant_on));
+    //
+    // i.e. `automap` includes the "instant_on this cycle" term in addition
+    // to the registered `automap_held` value.
+    //
+    // Pass-11 verify-audit fix (2026-05-10): pre-fix used `automap_held_ ||
+    // button_nmi_`, which dropped the same-cycle instant_on contribution.
+    // On the M1 fetch where an instant-on entry-point matched (e.g. PC =
+    // 0x0066 with button_nmi_=1 and NR 0xBB bit 1 set, or any RST entry
+    // configured instant-on via NR 0xBA), VHDL would assert `o_disable_nmi`
+    // immediately — gating the MF latch (zxnext.vhd:2107) and feeding the
+    // DivMMC NMI-hold path (zxnext.vhd:2118) on the same M1. Pre-fix
+    // `is_nmi_hold` waited until the NEXT M1 (when held caught up to hold)
+    // before reflecting the assertion, so the MF latch could spuriously
+    // arm during that one-M1 window.
+    //
+    // Post-fix uses `automap_active_`, which `check_automap` computes per
+    // step 4 as `automap_held_ || instant_match` — precisely VHDL line 148.
+    // The boot path doesn't exercise this exact race (the MF integration
+    // gates fire later in the priority arbiter), but the divergence is a
+    // real VHDL-faithfulness gap and the corrected accessor lets the
+    // discriminative regression test (NM-10 in divmmc_test.cpp) pin the
+    // post-fix shape without disturbing existing NM-08 (which uses two
+    // M1 fetches before sampling, so held has already caught up to active
+    // in the steady state).
+    bool is_nmi_hold() const { return automap_active_ || button_nmi_; }
     // VHDL port 0xE3 bit 7 is the CONMEM force-map flag; exposed here
     // for `NmiSource::set_divmmc_conmem()` arbitration at VHDL:2098.
     bool is_conmem() const { return conmem_; }
