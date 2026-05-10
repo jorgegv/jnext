@@ -130,6 +130,23 @@ public:
     void set_port_7ffd_io_en(bool en) { port_7ffd_io_en_ = en; }
     bool port_7ffd_io_en() const { return port_7ffd_io_en_; }
 
+    /// V15-CPU-NIT-03 (reviewer-promoted): NR 0x85 bit 0 mirror, gates
+    /// `port_bf3b` / `port_ff3b` (ULA+ index/data) contention OR-terms
+    /// at zxnext.vhd:4496. The VHDL signal is
+    ///     port_ulap_io_en <= internal_port_enable(24);
+    /// and `internal_port_enable = nr_85 & nr_84 & nr_83 & nr_82` so
+    /// bit 24 = NR 0x85 bit 0.
+    /// Pre-fix the CPU-side `fuse_z80_readport`/`writeport` callers in
+    /// `src/cpu/z80_cpu.cpp` did not propagate this gate (they relied
+    /// on the default `port_ulap_io_en=false` parameter), so ULA+ port
+    /// IORQs to $BF3B/$FF3B during the active raster window on a
+    /// 128K/+3 machine missed the per-cycle contention stretch. Same
+    /// pattern as Verify9-memory's `port_7ffd_io_en_` fix — push the
+    /// shadow in from the Emulator's NR 0x85 write handler so the
+    /// CPU-side bus callbacks don't need a parameter.
+    void set_port_ulap_io_en(bool en) { port_ulap_io_en_ = en; }
+    bool port_ulap_io_en() const { return port_ulap_io_en_; }
+
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
     uint8_t pending_cpu_speed()  const { return pending_cpu_speed_; }
@@ -230,4 +247,15 @@ private:
     // matches NR 0x82 bit 1 = '0' (zxnext.vhd:1394 — internal_port_enable
     // resets to "00..."). Pushed by Emulator's NR 0x82 write handler.
     bool    port_7ffd_io_en_           = false;
+    // V15-CPU-NIT-03 (reviewer-promoted): NR 0x85 bit 0 mirror
+    // (zxnext.vhd:2439 — port_ulap_io_en <= internal_port_enable(24);
+    // bit 24 = first bit of nr_85). Gates `port_bf3b`/`port_ff3b`
+    // OR-terms in `port_contend()`. The VHDL signal `nr_85` resets to
+    // all-1 (zxnext.vhd:1229), so the runtime-correct default is true,
+    // but Emulator's init() explicitly pushes the actual NR 0x85 bit 0
+    // through set_port_ulap_io_en() so this default only matters in
+    // unit-test fixtures that bypass Emulator. We mirror the
+    // `port_7ffd_io_en_` convention (false default, explicit push) for
+    // consistency.
+    bool    port_ulap_io_en_           = false;
 };

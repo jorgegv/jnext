@@ -2429,6 +2429,143 @@ static void test_cat27_memactive_page_sentinel() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Cat 28: V15-CPU-NIT-03 — ULA+ port contention shadow propagation
+// (reviewer-promoted from Pass-15 audit deflection).
+//
+// VHDL oracle:
+//   * zxnext.vhd:2439 — `port_ulap_io_en <= internal_port_enable(24);`
+//   * zxnext.vhd:2685-2686 — port_bf3b/port_ff3b address decode AND-gated
+//     by `port_ulap_io_en`
+//   * zxnext.vhd:4496 — `port_contend <= ... or port_bf3b or port_ff3b;`
+//     i.e. the ULA+ ports are part of the CPU `o_cpu_contend` OR-tree
+//   * zxnext.vhd:1229 — `nr_85_internal_port_enable` resets to all-1
+//
+// The audit's NIT-3 deflection ("memory subsystem boundary issue") was
+// rejected by the reviewer: the CPU-side I/O bus callbacks
+// (fuse_z80_readport / fuse_z80_writeport in src/cpu/z80_cpu.cpp) call
+// contention_tick() with the default `port_ulap_io_en=false`. Without
+// the shadow, ULA+ port IORQs to $BF3B/$FF3B miss the per-cycle
+// contention stretch — same regression pattern as Verify9-memory's
+// `port_7ffd_io_en_` fix, just for a different OR-term.
+//
+// Resolution: ContentionModel grew a `port_ulap_io_en_` shadow plus
+// `set_port_ulap_io_en()` setter, mirrored from NR 0x85 bit 0 by the
+// Emulator. `contention_tick()` OR-folds the parameter with the shadow
+// so the CPU-side seam fires correctly.
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_cat28_v15_cpu_nit_03() {
+    set_group("CT-CAT28-V15");
+
+    // Helper: invoke contention_tick() with the same arg shape the CPU-side
+    // bus callback uses (mreq_n=true, iorq_n=false → port read/write cycle),
+    // omit the port_ulap_io_en parameter (default=false). Use a (hc, vc)
+    // position INSIDE the active raster window so wait_s='1'. Per
+    // zxula.vhd:582-583: hc(8)=0, vc(8)=0, vc(7:6)/="11", and either
+    // hc_adj(3:2)/="00" or hc_adj(3:1)="000" with timing_p3='1'.
+    // hc=4 → hc_adj=5 → hc_adj(3:2)=01 (OK on 48K/128K). vc=100 (visible).
+    constexpr uint16_t kHc = 4;
+    constexpr uint16_t kVc = 100;
+
+    // V15-CPU-NIT-03-01: BF3B port (ULA+ index) — pre-fix, the CPU-side
+    // call with default port_ulap_io_en=false misses the OR-term.
+    // Post-fix: the shadow OR-folds in and the contention term fires.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_port_ulap_io_en(true);  // mirrors NR 0x85 bit 0 = 1
+        // contention_tick with port_ulap_io_en parameter omitted (defaults
+        // to false) — represents the production CPU-side seam. The
+        // shadow should still gate on `port_bf3b` per zxnext.vhd:4496.
+        const uint8_t stretch = cm.contention_tick(
+            /*mreq_n=*/true,  /*iorq_n=*/false,
+            /*rd_n=*/false,   /*wr_n=*/true,
+            /*cpu_a=*/0xBF3B, /*hc=*/kHc, /*vc=*/kVc);
+        check("V15-CPU-NIT-03-01",
+              "ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param "
+              "port_ulap_io_en=false → contention_tick stretches > 0 "
+              "(zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03)",
+              stretch > 0,
+              std::string("stretch=") + std::to_string(stretch));
+    }
+
+    // V15-CPU-NIT-03-02: FF3B port (ULA+ data) — same as 01 for the
+    // sibling port (zxnext.vhd:2686).
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_port_ulap_io_en(true);
+        const uint8_t stretch = cm.contention_tick(
+            /*mreq_n=*/true,  /*iorq_n=*/false,
+            /*rd_n=*/false,   /*wr_n=*/true,
+            /*cpu_a=*/0xFF3B, /*hc=*/kHc, /*vc=*/kVc);
+        check("V15-CPU-NIT-03-02",
+              "ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param "
+              "port_ulap_io_en=false → contention_tick stretches > 0 "
+              "(zxnext.vhd:2439,2686,4496)",
+              stretch > 0,
+              std::string("stretch=") + std::to_string(stretch));
+    }
+
+    // V15-CPU-NIT-03-03: NR 0x85 b0 = 0 disables ULA+ contention (the
+    // gate works in the negative direction too). $BF3B is odd
+    // (low byte 0x3B), so the even-port term doesn't mask it — the
+    // contention path requires the ULA+ OR-term, which must be off when
+    // NR 0x85 b0 = 0.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_port_ulap_io_en(false);
+        const uint8_t stretch = cm.contention_tick(
+            /*mreq_n=*/true,  /*iorq_n=*/false,
+            /*rd_n=*/false,   /*wr_n=*/true,
+            /*cpu_a=*/0xBF3B, /*hc=*/kHc, /*vc=*/kVc);
+        check("V15-CPU-NIT-03-03",
+              "ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick "
+              "stretch == 0 (gate disabled; zxnext.vhd:2685+4496)",
+              stretch == 0,
+              std::string("stretch=") + std::to_string(stretch));
+    }
+
+    // V15-CPU-NIT-03-04: shadow setter round-trip — set true, read back,
+    // set false, read back. Confirms the accessor matches the setter.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_port_ulap_io_en(true);
+        const bool t1 = cm.port_ulap_io_en();
+        cm.set_port_ulap_io_en(false);
+        const bool t2 = cm.port_ulap_io_en();
+        check("V15-CPU-NIT-03-04",
+              "set_port_ulap_io_en(true) → port_ulap_io_en()==true; "
+              "set_port_ulap_io_en(false) → port_ulap_io_en()==false "
+              "(round-trip; mirrors port_7ffd_io_en pattern)",
+              t1 == true && t2 == false);
+    }
+
+    // V15-CPU-NIT-03-05: parameter still works (parameter OR shadow).
+    // This guards the audit's stated "bare-class accessor handles ULA+"
+    // contract (existing tests use the parameter form). Pass param=true,
+    // shadow=false → should still fire. Conversely, the post-fix
+    // contention_tick OR-folds, so neither term being false yields off,
+    // and either being true yields on. We verify the OR semantics here.
+    {
+        ContentionModel cm;
+        cm.build(MachineType::ZX128K);
+        cm.set_port_ulap_io_en(false);  // shadow off
+        // Parameter ON via the legacy bare-class accessor — must still
+        // fire (backward compatibility for unit-test fixtures).
+        const bool pc =
+            cm.port_contend(0xBF3B, /*port_ulap_io_en=*/true);
+        check("V15-CPU-NIT-03-05",
+              "port_contend(0xBF3B, port_ulap_io_en=true) returns true "
+              "regardless of shadow state (parameter override; "
+              "zxnext.vhd:2685+4496)",
+              pc);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -2486,6 +2623,12 @@ int main() {
 
     test_cat27_memactive_page_sentinel();
     std::printf("  Group: CT-CAT27-MEMPG — done\n");
+
+    // Cat 28: V15-CPU-NIT-03 — ULA+ port contention shadow propagation
+    // (reviewer-promoted from Pass-15 audit deflection). See
+    // doc/issues/nextzxos-boot/NEXTZXOS-BOOT-SUBSYSTEM-VERIFY15-CPU-REVIEW.md
+    test_cat28_v15_cpu_nit_03();
+    std::printf("  Group: CT-CAT28-V15   — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

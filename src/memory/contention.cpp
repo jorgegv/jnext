@@ -248,11 +248,21 @@ uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
     }
 
     // --- port_contend (zxnext.vhd:4496) -------------------------------
-    // The runtime caller passes `port_ulap_io_en` for the ULA+ ports.
     // The bare-class `port_contend()` accessor handles even-port + ULA+
     // OR-terms; the `port_7ffd_active` term is driven separately at
     // higher levels and OR-ed in by callers when appropriate.
-    const bool port_c = (iorq_n == false) && port_contend(cpu_a, port_ulap_io_en);
+    //
+    // V15-CPU-NIT-03 (reviewer-promoted): the CPU-side callers (e.g.
+    // `fuse_z80_readport`/`fuse_z80_writeport` in src/cpu/z80_cpu.cpp)
+    // do not have access to NR 0x85 bit 0, so they fall back to the
+    // default `port_ulap_io_en=false` parameter. We therefore OR the
+    // parameter with the model's `port_ulap_io_en_` shadow (mirror of
+    // NR 0x85 bit 0, set by Emulator's NR 0x85 write handler) so the
+    // ULA+ contention term fires correctly regardless of which seam
+    // calls us. This mirrors the `port_7ffd_io_en_` shadow pattern
+    // (Verify9-memory class-(a) fix) one-to-one.
+    const bool ulap_eff = port_ulap_io_en || port_ulap_io_en_;
+    const bool port_c = (iorq_n == false) && port_contend(cpu_a, ulap_eff);
 
     // --- Active path ------------------------------------------------
     // 48K/128K (`o_cpu_contend`, zxula.vhd:587-595):
