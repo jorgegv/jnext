@@ -76,6 +76,69 @@ void Im2Controller::tick(uint32_t /*master_cycles*/) {
     // step_devices() so it observes this tick's device states + this tick's
     // decoder-sourced dma_delay_ctrl_ pulse.
     step_dma_delay();
+    // V19-IM2-03 fix: int_unq is a ONE-CYCLE pulse from nr_20_we per VHDL
+    // zxnext.vhd:1946-1947 — `im2_int_unq[i] <= nr_20_we and nr_wr_dat(N)`
+    // and `nr_20_we` is a one-cycle write pulse. Pre-fix step_pulse() only
+    // cleared dev_[].int_unq when a pulse-mode pulse terminated; in IM2
+    // mode the pulse fabric never fires for non-exception devices, so a
+    // raise_unq() left int_unq=true permanently. After isr_serviced cleared
+    // im2_int_req at S_ISR→S_0 (Phase 2 of step_devices), the NEXT tick
+    // would re-set im2_int_req from the still-true int_unq → S_0→S_REQ →
+    // phantom re-trigger of the same interrupt forever. VHDL has no such
+    // re-trigger because i_int_unq returns to 0 after one cycle. Clear all
+    // int_unq one-shots at end of tick — matches VHDL semantic.
+    for (int k = 0; k < N; ++k) dev_[k].int_unq = false;
+
+    // V19R-CPU-01 fix (Pass-19 reviewer): synthesize VHDL's 1-cycle-pulse
+    // semantic for `i_int_req`.
+    //
+    // VHDL im2_peripheral.vhd:90-101 — `int_req` (local edge) is
+    //   `i_int_req AND NOT int_req_d`
+    // where `int_req_d <= i_int_req` registered on rising CLK_28. The
+    // upstream sources feeding `i_int_req` (zxnext.vhd:1941: ula_int_pulse,
+    // line_int_pulse, ctc_zc_to, uart{0,1}_{rx,tx}_*_int) are all
+    // ONE-CYCLE PULSES that return to '0' after one cycle. The edge
+    // detector therefore fires once per pulse and the latched im2_int_req
+    // is held in S_REQ until isr_serviced clears it.
+    //
+    // jnext models `i_int_req` as a LEVEL via `raise_req()` (im2.cpp:307).
+    // NO production caller (ULA scheduler at emulator.cpp:5390, LINE at
+    // :6600, CTC `on_interrupt` at :4620, UART at :4665/:4683) pairs the
+    // raise with a deferred `clear_req()`. Pre-fix consequence: after
+    // frame 1's edge fires, `int_req_d` settles to `true`; subsequent
+    // `raise_req()` calls (frame 2 onwards) produce no new edge because
+    // `edge = int_req && !int_req_d = true && !true = false` —
+    // ULA/LINE/CTC INT effectively fires **once per emulator session in
+    // IM2 mode**. VHDL fires every frame.
+    //
+    // Fix: at end of tick(), after step_devices() Phase 1 has captured
+    // any edge into `int_req_d` (line :849 `d.int_req_d = d.int_req`)
+    // AND step_pulse() has already consumed `int_req_edge` for the
+    // pulse-mode path (line :1002), clear `int_req` across all devices.
+    // This makes the level signal set by `raise_req()` behave as a
+    // 1-cycle pulse from `tick()`'s perspective:
+    //   - Tick N:    raise_req() before tick → int_req=true, int_req_d=false.
+    //                step_pulse + step_devices fire on edge.
+    //                End of tick: int_req=false (clear), int_req_d=true.
+    //   - Tick N+1:  no raise → no edge. int_req_d settles to false.
+    //   - Tick N+2:  raise_req() → int_req=true, int_req_d=false →
+    //                edge fires again.
+    // Multi-tick gap between consecutive raises is the norm in production
+    // (frame-rate raises versus per-instruction ticks), so this matches
+    // the VHDL fire-every-cycle-pulse semantic exactly.
+    //
+    // Pulse-mode (im2_mode_=false) is preserved: step_pulse() consumes
+    // the edge before this clear, and dev_[].im2_int_req is held at 0
+    // by V17-CPU-01's `im2_reset_n` gate regardless.
+    //
+    // V18R-CPU-02 raise(Im2Level::DMA/DIVMMC/MULTIFACE) early-return
+    // path: those calls don't touch int_req at all, so the clear is a
+    // harmless no-op for those slots.
+    //
+    // Save/load: int_req is per-tick and re-derived from peripheral
+    // behaviour on each tick — auto-clear at end of tick does not
+    // perturb persisted state any more than the existing int_unq clear.
+    for (int k = 0; k < N; ++k) dev_[k].int_req = false;
 }
 
 // -----------------------------------------------------------------------------

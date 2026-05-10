@@ -340,6 +340,207 @@ static void test_ula_int_integration(Emulator& emu) {
               (c8 & 0x01) == 0,
               "NR 0xC8=" + hex2(c8) + " (expected bit 0 clear after OUT FF,40)");
     }
+
+    // ULA-INT-V19-IM2-01 — NR 0x22 bit 1 must propagate to IM2 fabric LINE
+    // int_en, not just to the line-int generation gate.
+    //
+    // VHDL: zxnext.vhd:5297 — `nr_22_we and nr_22 bit 1 → nr_22_line_interrupt_en`.
+    // Same flip-flop is also written by NR 0xC4 bit 1 (line :5610). The
+    // flip-flop feeds `im2_int_en[0]` (= LINE i_int_en, line :1949-1950 +
+    // :6711 ula_int_en(1)). Pre-V19 jnext only updated
+    // `video_timing_.set_line_interrupt_enable()` (the line-int generation
+    // gate), but the IM2 fabric's `dev_[DevIdx::LINE].int_en` stayed false
+    // — so in IM2 mode a LINE raise_req() set int_status but NOT
+    // im2_int_req (required edge AND int_en); state stayed S_0; the IM2
+    // daisy chain never asserted /INT to the Z80.
+    //
+    // Discriminative check: enter IM2 mode, write NR 0x22 bit 1 = 1 (the
+    // ONLY enabler — do NOT touch NR 0xC4), raise_req(LINE), tick. The
+    // device must reach S_REQ. Pre-fix: stays at S_0; int_line_asserted=false.
+    //
+    // Note: do NOT call emu.im2().reset() — fresh(emu) → init() already
+    // initialises the fabric (V19-IM2-01/02 init sets ULA int_en=1, LINE
+    // int_en=0). A bare im2().reset() would wipe that.
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);   // IM2 mode (NR 0xC0 bit 0)
+        // Write NR 0x22 with bit 1 = 1. This is the ONLY path enabling
+        // LINE int_en in this scenario; NR 0xC4 is left at reset default.
+        nr_write(emu, 0x22, 0x02);
+        emu.im2().raise_req(Im2Controller::DevIdx::LINE);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st = emu.im2().state(Im2Controller::DevIdx::LINE);
+        const bool int_line = emu.im2().int_line_asserted();
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "after NR 0x22<-0x02 + raise_req(LINE) + tick: state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0); int_line=%d "
+                      "(post-fix 1; pre-fix 0)",
+                      static_cast<int>(st), int_line ? 1 : 0);
+        check("ULA-INT-V19-IM2-01",
+              "NR 0x22 bit 1 propagates to IM2 fabric dev_[LINE].int_en "
+              "[zxnext.vhd:5297, :1950, :6711]",
+              st == Im2Controller::DevState::S_REQ && int_line, detail);
+    }
+
+    // ULA-INT-V19-IM2-02 — port_ff_reg(6) must propagate to IM2 fabric ULA
+    // int_en across all THREE writers (port-FF, NR 0x22 b2, NR 0xC4 b0-NOT).
+    //
+    // VHDL: zxnext.vhd:6711 — `ula_int_en(0) = NOT port_ff_interrupt_disable`,
+    // = NOT port_ff_reg(6) (line :3635). That bit feeds `im2_int_en[11]`
+    // (= ULA i_int_en, line :1949). At reset port_ff_reg(6)=0 so ULA
+    // int_en should be 1. Pre-V19 jnext NEVER updated dev_[ULA].int_en
+    // anywhere — every FRAME-INT raise_req(ULA) in IM2 mode set int_status
+    // but NOT im2_int_req → daisy chain stayed in S_0 → /INT never asserted.
+    //
+    // Three sub-checks: a) reset state ULA int_en should be true via
+    // raise_req+tick reaching S_REQ; b) NR 0x22 bit 2 = 1 disables ULA
+    // int_en, raise_req+tick stays at S_0 (or drops back); c) NR 0xC4
+    // bit 0 = 1 (NOT polarity) re-enables, raise_req+tick reaches S_REQ.
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);   // IM2 mode
+        // (a) Reset default: port_ff_reg(6)=0, so ULA int_en=1. Verify
+        // by raising ULA req and ticking — must reach S_REQ. Pre-fix:
+        // dev_[ULA].int_en was never initialised to true (always false),
+        // so the device stays S_0.
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState a_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        // (b) Disable via NR 0x22 bit 2.
+        fresh(emu);
+        emu.im2().set_mode(true);
+        nr_write(emu, 0x22, 0x04);  // port_ff_reg(6) ← 1, ULA int_en = 0
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState b_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        // (c) Re-enable via NR 0xC4 bit 0 (NOT polarity: 1=enable).
+        // Note: in this scenario start with NR 0x22 bit 2 = 1 (disabled),
+        // then NR 0xC4 bit 0 = 1 to clear port_ff_reg(6) back to 0
+        // (re-enable). Verify ULA reaches S_REQ.
+        fresh(emu);
+        emu.im2().set_mode(true);
+        nr_write(emu, 0x22, 0x04);  // disable
+        nr_write(emu, 0xC4, 0x01);  // bit 0 = 1 → port_ff_reg(6) = NOT 1 = 0 → enable
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState c_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        char detail[280];
+        std::snprintf(detail, sizeof(detail),
+                      "(a) reset+raise+tick: state=%d (post-fix S_REQ=1; pre-fix S_0=0); "
+                      "(b) NR0x22<-0x04+raise+tick: state=%d (must be S_0=0); "
+                      "(c) NR0x22<-0x04;NR0xC4<-0x01+raise+tick: state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0)",
+                      static_cast<int>(a_st), static_cast<int>(b_st),
+                      static_cast<int>(c_st));
+        check("ULA-INT-V19-IM2-02",
+              "port_ff_reg(6) propagates to IM2 fabric dev_[ULA].int_en across "
+              "all 3 writers (port-FF, NR 0x22 b2, NR 0xC4 b0 NOT) "
+              "[zxnext.vhd:3614-3622, :3635, :6711, :1949]",
+              a_st == Im2Controller::DevState::S_REQ
+                  && b_st == Im2Controller::DevState::S_0
+                  && c_st == Im2Controller::DevState::S_REQ,
+              detail);
+    }
+
+    // ULA-INT-V19-IM2-02-PORTFF — direct OUT (0xFF),A path also fans into
+    // IM2 fabric ULA int_en. Same VHDL writer set (zxnext.vhd:3614-3616
+    // port_ff_wr branch latches the entire byte, so bit 6 maps directly).
+    {
+        fresh(emu);
+        emu.im2().set_mode(true);
+        // Verify reset state: ULA int_en is enabled (bit 6 = 0).
+        emu.port().out(0x00FF, 0x40);  // disable ULA INT via direct port-FF
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st_dis =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        fresh(emu);
+        emu.im2().set_mode(true);
+        emu.port().out(0x00FF, 0x40);  // disable
+        emu.port().out(0x00FF, 0x00);  // re-enable
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA);
+        emu.im2().tick(1);
+        const Im2Controller::DevState st_en =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+
+        char detail[180];
+        std::snprintf(detail, sizeof(detail),
+                      "after OUT 0xFF,0x40 (disable): state=%d (must be S_0=0); "
+                      "after OUT 0xFF,0x40 then 0xFF,0x00 (re-enable): state=%d "
+                      "(post-fix S_REQ=1; pre-fix S_0=0)",
+                      static_cast<int>(st_dis), static_cast<int>(st_en));
+        check("ULA-INT-V19-IM2-02-PORTFF",
+              "Direct OUT (0xFF),A bit 6 fans into IM2 fabric dev_[ULA].int_en "
+              "[zxnext.vhd:3614-3616, :3635, :6711, :1949]",
+              st_dis == Im2Controller::DevState::S_0
+                  && st_en == Im2Controller::DevState::S_REQ,
+              detail);
+    }
+
+    // ULA-INT-V19-IM2-04 — IM2 fabric int_line_asserted() must drive the
+    // CPU /INT pin in IM2 mode.
+    //
+    // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND im2_int_n)
+    // OR NOT expbus_disable_int) AND ...`. Either pulse_int_n OR im2_int_n
+    // pulled low asserts /INT. Pre-V19 jnext only called
+    // cpu_.request_interrupt(0xFF) for the legacy pulse-mode path; in
+    // IM2 mode the comment at the FRAME-INT scheduler said the fabric's
+    // int_line_asserted() would drive the Z80 INT, but no code ever READ
+    // it. Result in IM2 mode: the daisy chain reached S_REQ but the CPU
+    // never saw the request — int_pending_ stayed false, on_int_ack was
+    // never invoked, the IM2 priority chain remained latched forever.
+    //
+    // Discriminative test: configure IM2 mode + IFF1=1 + IM=2; run_frame.
+    // The frame-int scheduler raises ULA. With the V19-IM2-04 polling
+    // hook (after im2_.tick), int_pending_ is set; on the next CPU
+    // instruction the interrupt is accepted via on_int_ack →
+    // ack_vector(), advancing ULA from S_REQ → S_ACK. The next tick
+    // advances S_ACK → S_ISR. So ULA's state should be >= 2 (S_ACK or
+    // S_ISR) after run_frame. Pre-fix: ULA stays at S_REQ (state=1)
+    // forever because the CPU never sees /INT.
+    {
+        fresh(emu);
+        // Set IM2 mode via NR 0xC0 bit 0.
+        nr_write(emu, 0xC0, 0x01);
+        // Set IFF1=1 + IM=2 so the CPU will accept interrupts in IM2.
+        // (Z80Cpu reset clears IFF1; this is the minimal setup to make
+        // the test exercise the IntAck path without requiring EI/IM2
+        // instructions in RAM.)
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM = 2;
+        regs.PC = 0x8000;  // park PC in user RAM (NOPs)
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        // After run_frame, the ULA device should have progressed past
+        // S_REQ (state=1) — at minimum to S_ACK (state=2) or S_ISR
+        // (state=3). The frame-INT scheduler raises ULA early in the
+        // frame, the polling fires request_interrupt, and the next
+        // instruction does the IntAck.
+        // Pre-fix: ULA stuck at S_REQ (state=1).
+        // Post-fix: state >= 2.
+        const Im2Controller::DevState ula_st =
+            emu.im2().state(Im2Controller::DevIdx::ULA);
+        char detail[200];
+        std::snprintf(detail, sizeof(detail),
+                      "ULA state after run_frame in IM2 mode + IFF1=1+IM=2: %d "
+                      "(post-fix: >= 2 [S_ACK=2 or S_ISR=3]; "
+                      "pre-fix: 1 [S_REQ stuck])",
+                      static_cast<int>(ula_st));
+        check("ULA-INT-V19-IM2-04",
+              "IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode "
+              "[zxnext.vhd:1840 z80_int_n composition]",
+              static_cast<int>(ula_st) >= 2, detail);
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
