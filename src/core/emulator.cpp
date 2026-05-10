@@ -913,7 +913,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const bool bank_second = (palette_.read_control() & 0x40) != 0;
         const uint8_t bf3b_index = renderer_.ula().get_ulap_index();
         palette_.nr_ff_poke(bank_second, bf3b_index, v);
-        return v;
+        // V15-NMP-02 (Pass-15 verify-audit fix): VHDL zxnext.vhd:5878-6289
+        // has NO read mux entry for NR 0xFF (write-only ULA+ palette poke,
+        // routed via `nr_ff_we` at :4906 / :4919 / :6957-6958 to the palette
+        // dpram). Unmapped reads fall through the case statement to the
+        // `when others => port_253b_dat <= (others => '0')` default at
+        // :6286-6287, returning 0x00. Pre-fix the write_handler returned
+        // `v`, leaving the cache holding the last-write byte — a subsequent
+        // NR 0xFF read returned that byte instead of 0x00. Same shape as
+        // the existing G149 (NR 0x60), V14-NMP-03 (NR 0x2B), V14-NMP-04
+        // (NR 0x2A), and V15-NMP-01 (NR 0x63) canonicalisations.
+        return 0;
     });
 
     // Register 0x4B: Sprite transparency index
@@ -1631,7 +1641,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_write_handler(0x60, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x60(v); return 0; });
     nextreg_.set_write_handler(0x61, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x61(v); return v; });
     nextreg_.set_write_handler(0x62, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x62(v); return v; });
-    nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return v; });
+    // V15-NMP-01 (Pass-15 verify-audit fix): VHDL zxnext.vhd:5878-6289 has
+    // NO read mux entry for NR 0x63 (write-only Copper data byte; the only
+    // observable effect is the auto-increment of `nr_copper_addr` and the
+    // optional latch into `nr_copper_data_stored` when `nr_copper_addr(0)='0'`
+    // per zxnext.vhd:5433-5439). Unmapped reads fall through the case
+    // statement to the `when others => port_253b_dat <= (others => '0')`
+    // default at :6286-6287, returning 0x00. Pre-fix the C++ write_handler
+    // returned `v`, leaving the cache holding the last-write byte — a
+    // subsequent NR 0x63 read returned that byte instead of 0x00. Same
+    // shape as the existing G149 (NR 0x60), V14-NMP-03 (NR 0x2B), and
+    // V14-NMP-04 (NR 0x2A) canonicalisations.
+    nextreg_.set_write_handler(0x63, [this](uint8_t v) -> uint8_t { copper_.write_reg_0x63(v); return 0; });
 
     // NR 0x61 / 0x62 read-back. VHDL zxnext.vhd:6083-6087 returns
     //   0x61 -> nr_copper_addr(7..0)

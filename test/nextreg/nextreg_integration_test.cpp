@@ -3804,6 +3804,63 @@ static void test_write_only_read_zero(Emulator& emu) {
               "write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0']",
               got == 0x00, d);
     }
+
+    // V15-NMP-01 (Pass-15 verify-audit fix): NR 0x63 Copper data byte is
+    // write-only. VHDL zxnext.vhd:4887 strobes `nr_copper_we <= '1'`; the
+    // write side at :5433-5439 latches `nr_copper_data_stored` when
+    // `nr_copper_addr(0)='0'` and unconditionally advances `nr_copper_addr`.
+    // There is NO read-mux entry in the case statement at :5878-6289 — NR
+    // 0x61 (low addr byte) and NR 0x62 (mode + high addr) ARE readable
+    // but NR 0x63 is not. Reads must therefore fall through to `when others
+    // => (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix the C++ write_handler returned `v` (line 1634), so the cache
+    // held the last-write byte and a subsequent NR 0x63 read returned it
+    // instead of 0x00. Same shape as G149 (NR 0x60), V14-NMP-03 (NR 0x2B),
+    // V14-NMP-04 (NR 0x2A) — install a write_handler that returns 0.
+    //
+    // Discriminative: the read MUST be 0x00 regardless of the byte we wrote
+    // (this row tries 0x55, an arbitrary non-zero pattern). Pre-fix would
+    // return 0x55. Crucially, the WRITE side-effect (`copper_.write_reg_0x63`)
+    // still fires — only the cache-leak read is fixed.
+    {
+        nr_write(emu, 0x63, 0x55);
+        const uint8_t got = nr_read(emu, 0x63);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0x55 got=0x%02X want=0x00", got);
+        check("WO-INT-63",
+              "NR 0x63 write-only Copper data — read returns 0 (no leak of "
+              "cached write byte) [zxnext.vhd:4887 nr_copper_we, "
+              ":5433-5439 write side, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
+
+    // V15-NMP-02 (Pass-15 verify-audit fix): NR 0xFF ULA+ palette poke is
+    // write-only. VHDL zxnext.vhd:4906 strobes `nr_ff_we <= '1'`; the byte
+    // is composed into `nr_palette_value` at :4919 (with the ulap palette
+    // index from port 0xBF3B per :6958) and routed to the ULA-TM palette
+    // dpram via :6957. There is NO read-mux entry in the case statement
+    // at :5878-6289. Reads must fall through to `when others =>
+    // (others => '0')` at :6286-6287, returning 0x00.
+    //
+    // Pre-fix the C++ write_handler returned `v` (line 916), so the cache
+    // held the last-write byte and a subsequent NR 0xFF read returned it
+    // instead of 0x00. Same shape as V15-NMP-01.
+    //
+    // Discriminative: the read MUST be 0x00 regardless of the byte we
+    // wrote. The write side-effect (`palette_.nr_ff_poke`) still fires —
+    // only the cache-leak read is fixed.
+    {
+        nr_write(emu, 0xFF, 0xA5);
+        const uint8_t got = nr_read(emu, 0xFF);
+        char d[64]; std::snprintf(d, sizeof(d),
+            "wrote=0xA5 got=0x%02X want=0x00", got);
+        check("WO-INT-FF",
+              "NR 0xFF write-only ULA+ palette poke — read returns 0 (no "
+              "leak of cached write byte) [zxnext.vhd:4906 nr_ff_we, "
+              ":4919 nr_palette_value, :5878-6289 others=>'0']",
+              got == 0x00, d);
+    }
 }
 
 // ── NR 0x28 ↔ nr_stored_palette_value read-mux (V14-NMP-02) ───────────
