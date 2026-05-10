@@ -25,7 +25,8 @@
 | 14 | 4 fresh blind; pipelined | **4 class-a, 0 class-b, 5 class-c (incl. NITs) + 1 comment NIT — Memory CONVERGED** | **Memory ZERO findings + reviewer APPROVE-no-missed → CONVERGED** (skipped from Pass-15 onward); DivMMC 2c (V14-DIVMMC-01 CMD18 mid-stream past-EOF, V14-DIVMMC-02 CMD8 R7 R1-prefix) APPROVE-WITH-NITS + 1 comment NIT; NMI-MF-Port 3a (V14-NMP-01 MF+3 FDC-gated readback rewriting MF-MUX-01 enshrined-bug test, V14-NMP-02 NR $28 nr_stored_palette_value, V14-NMP-03 NR $2B WO returns 0) + reviewer-promoted V14-NMP-04 (NR $2A WO returns 0) APPROVE; CPU 1a (V14-CPU-01 INC/DEC BC IncDecZ update missing) + reviewer NIT V14-CPU-NIT-01 (DD/FD-prefix walk — closes V13-CPU-01 DJNZ-prefix sibling as side effect) APPROVE-WITH-NITS → fix-reviewer APPROVE. IncDecZ shadow family closed; past-EOF SD token family closed; multi-writer fan-out family closed. Trend: Pass-14 = 9 effective findings — comparable to Pass-13 |
 | 15 | 3 fresh blind (memory skipped); pipelined | **2 class-a, 0 class-b, 2 class-c + reviewer-promoted NIT-3 = 5 effective findings + 2 class-d architectural** | DivMMC 1c (V15-DIVMMC-01 SD CMD24 silent write-success on RO/failbit; closes write-success false-positive family) APPROVE; NMI-MF-Port 2a (V15-NMP-01 NR $63, V15-NMP-02 NR $FF write-only readback cache leaks) APPROVE — closes WO-NR set per VHDL :6286-6287 fall-through; CPU ZERO audit findings (defensible-zero across 16 angles) + reviewer APPROVE-WITH-NITS — NIT-3 (ULA+ port contention not propagated CPU-side) **rejected as deflection, fixed inline by reviewer with 5 disc tests on contention path**, NIT-1+2 properly re-classified class-(d) ARCHITECTURAL (DD-ED-Z80N: Z80N uses Alternate not XY_State; M1-strobe per-byte: FUSE boundary). **CPU NOT yet converged per strict rule** (reviewer found missed finding even though it fixed it; Pass-16 must re-test) |
 | 16 | 3 fresh blind (memory skipped); pipelined; 1 audit-was-doc-only requiring fix-of-audit | **3 class-a, 2 class-b, 2 class-c = 7 effective findings** | DivMMC 2c (V16-DIVMMC-01 port $E7 write-only nullptr read handler per VHDL :2803-2806; V16-DIVMMC-02 FAT32 directory cycle DOS hardening) APPROVE; CPU 1a (V16-CPU-01 load_state shadow re-push of port_ulap_io_en_; same family as V12-MEM-02) APPROVE; **NMI-MF-Port 2b** (V16-NMP-01 NR $10 SPKEY_BUTTONS readback per VHDL :5924; V16-NMP-02 expbus AND-mask NR $86-$89 with NR $82-$85 per VHDL :2392-2393) — **audit was doc-only**, fix-of-audit applied (33 port-decode sites routed through new `effective_internal_port_enable` helper + 13 disc tests) + fix-reviewer APPROVE. Merge conflict in emulator.cpp resolved cleanly (V16-DIVMMC + V16-CPU + V16-NMP all touch same file). NOT converged — all 3 active subsystems still find class-(a/b/c) bugs |
-| **Total (16 passes)** | | **109 class-(a) + 9 class-(b) + 24 class-(c) + 1 follow-up; 1 subsystem CONVERGED** | NOT fully converged; 8 class-(d) items pending user authorization (no new this pass). Memory subsystem still converged (skipped Pass-15 + Pass-16) |
+| 17 | 3 fresh blind (memory skipped); pipelined; user added "find as many bugs as possible per pass" mandate | **0 class-a, 4 class-b, 4 class-c + 1 class-d listed = 8 effective findings** | DivMMC 1c (V17-DIVMMC-01 ACMD41 HCS bit not reflected in CMD58 OCR CCS bit per `sdcard` VHDL — pre-fix CMD58 unconditionally reported CCS=1 even with HCS=0) APPROVE-no-missed + 1 class-d listed (V17-DIVMMC-02 cycle-accurate SPI master FSM, G137 scope); NMI-MF-Port 3b (V17-NMP-01 NR $B8-$BB readback returns 0x00 instead of VHDL reset defaults 0x83/0x01/0x00/0xCD per zxnext.vhd :5087-5090; V17-NMP-02 port_FE port-decode matches any even port per VHDL :2582; V17-NMP-03 port_FF port-decode matches any LSB==$FF port per VHDL :2540-2571,:2583) APPROVE-no-missed; CPU 1b + 2c (V17-CPU-01 IM2 `im2_int_req` latch held at 0 in pulse mode per im2_peripheral.vhd:170-171 — phantom IM2 interrupt assertion on pulse→IM2 mode transition; V17-Z80N-01a/b BSRF/BSLA strict-UB-free shifts per t80n.vhd:992,:1006-1014) APPROVE-WITH-NITS, reviewer added V17-CPU-NIT-04 (BSRA strict-UB-free shift, sibling of V17-Z80N-01a/b — same UB family on signed `int16_t >> n`), fix-reviewer APPROVE. ctc_test::IM2W-07 also updated (pre-fix relied on V17-CPU-01 bug) — reviewer verified update is VHDL-faithful (drop+re-raise across mode switch is the only S_REQ-entry path per VHDL). NOT converged — 3 active subsystems still find class-(b/c) bugs, but trend is descending (Pass-16 = 7, Pass-17 = 8 effective) and DivMMC dropped to 1 finding. Cross-cutting Pass-16 follow-up: regression.sh rewind-func regex made resilient to test-count growth |
+| **Total (17 passes)** | | **109 class-(a) + 13 class-(b) + 28 class-(c) + 1 follow-up; 1 subsystem CONVERGED** | NOT fully converged; 9 class-(d) items pending user authorization (V17-DIVMMC-02 cycle-accurate SPI FSM is new). Memory subsystem still converged (skipped Pass-15..17) |
 
 **Test-coverage retroactive wave (post-pass-10)**: 4 subsystems audited, **105 new regression tests added** (29 memory + 14 divmmc + 45 NMI/MF/Port + 17 CPU). Reviewers found defects/gaps:
 - DivMMC: 1 defective (SD-15) + 4 nits → all fixed + reviewed
@@ -422,34 +423,32 @@ G46(b) cycle re-run remains deferred to user.
 13. **`port_1ffd_special_old_` decay model** — functionally equivalent approximation.
 14. **`StateReader::read_u8()`** lacks bounds check — pre-existing.
 
-## Test status (final, integration branch, post Pass-16)
+## Test status (final, integration branch, post Pass-17)
 
 ```
 ctest                              38/38 PASS  (Release build)
 fuse_z80                       1356/1356 PASS
-rewind_test (unit)                 22/0/10s  (PASS — was 18, now 22 after V12-MEM-02 + V16-CPU-01 added new tests)
-test/00regression/regression       31/2/0   (2 FAIL: parallax-demo pre-existing baseline + rewind-func
-                                              regex-stale harness bug — script hardcodes "Passed: 18"
-                                              but unit-test count grew to 22; not a real failure)
+rewind_test (unit)                 22/0/10s  (PASS)
+test/00regression/regression       (rewind-func regex now resilient to test-count growth — Pass-16 follow-up #1 closed at integration HEAD via commit e846645)
 ```
 
 ## Branch state
 
 ```
 Branch: nextzxos-boot-subsystem-analysis (off main)
-Total fixes through Pass-16: ~109 class-(a) + 9 class-(b) + 24 class-(c) + 1 follow-up + 1 build fix
+Total fixes through Pass-17: ~109 class-(a) + 13 class-(b) + 28 class-(c) + 1 follow-up + 1 build fix
 Pushed: NO
-Integration HEAD (Pass-16): f4befc0
+Integration HEAD (Pass-17): 1d16964
 ```
 
-## Convergence status (per Pass-16)
+## Convergence status (per Pass-17)
 
 | Subsystem | Status | Last finding |
 |-----------|--------|--------------|
-| **Memory** | **CONVERGED** (skipped Pass-15 + Pass-16) | V13-MEM-01 (Pass-13); Pass-14 audit ZERO + reviewer APPROVE |
-| DivMMC + SD + SPI | NOT converged | V16-DIVMMC-01 (port $E7 write-only) + V16-DIVMMC-02 (FAT32 cycle DOS) |
-| NMI + MF + Port + NextREG | NOT converged | V16-NMP-01 (NR $10 SPKEY_BUTTONS) + V16-NMP-02 (expbus AND-mask) |
-| CPU + Z80N + IM2 | NOT converged | V16-CPU-01 (load_state shadow re-push) — same family as V12-MEM-02 / V15-CPU-NIT-03 |
+| **Memory** | **CONVERGED** (skipped Pass-15..17) | V13-MEM-01 (Pass-13); Pass-14 audit ZERO + reviewer APPROVE |
+| DivMMC + SD + SPI | NOT converged | V17-DIVMMC-01 (ACMD41 HCS not reflected in CMD58 OCR CCS) — close to convergence: 1 class-c only |
+| NMI + MF + Port + NextREG | NOT converged | V17-NMP-01 (NR $B8-$BB readback defaults), V17-NMP-02 (port $FE decode), V17-NMP-03 (port $FF decode) |
+| CPU + Z80N + IM2 | NOT converged | V17-CPU-01 (IM2 pulse-mode latch — high-impact class-b); V17-Z80N-01a/b + V17-CPU-NIT-04 (Z80N strict-UB-free shifts — full BSLA/BSRF/BSRA family closed) |
 
 ## Pass-12 details
 
