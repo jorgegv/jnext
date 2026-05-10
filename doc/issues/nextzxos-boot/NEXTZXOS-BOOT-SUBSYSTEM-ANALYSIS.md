@@ -19,7 +19,8 @@
 | 8 | 4 fresh blind — stricter (resolve class-b) | 14 + 11 class-b resolved | All 4 subsystems resolved class-b backlog |
 | 9 | 4 fresh blind — strictest (resolve class-c) | 10 + 11 class-c resolved | All 4 subsystems at zero class-a/b/c. 4 class-(d) architectural items escalated |
 | 10 | 4 fresh blind — convergence test | **5 + 1 class-c fixed; 5 class-c catalogued** | NOT converged; 1 more class-(d) (CPU IM2 controller bridge) |
-| **Total (10 passes)** | | **97 class-(a) bugs** + 1 follow-up | NOT converged; 5 class-(d) architectural items pending user authorization |
+| 11 | 4 fresh blind — combined fix+test+commit mandate; reviewer + fix-of-reviewer + fix-reviewer | **0 class-a, 2 class-b, 6 class-c (incl. NIT)** | All 8 findings fixed with discriminative regression tests; reviewer found 1 missed NIT (NR $06 cache leak) which was fixed and re-verified; sibling audit confirmed cache-leak family closed. No class-(d) escalations introduced. NOT converged honestly (8 new bugs → must continue). Plus cross-cutting Release-build CMake fix |
+| **Total (11 passes)** | | **97 class-(a) + 2 class-(b) + 6 class-(c) + 1 follow-up** | NOT converged; 5 class-(d) architectural items pending user authorization |
 
 **Test-coverage retroactive wave (post-pass-10)**: 4 subsystems audited, **105 new regression tests added** (29 memory + 14 divmmc + 45 NMI/MF/Port + 17 CPU). Reviewers found defects/gaps:
 - DivMMC: 1 defective (SD-15) + 4 nits → all fixed + reviewed
@@ -416,22 +417,68 @@ G46(b) cycle re-run remains deferred to user.
 13. **`port_1ffd_special_old_` decay model** — functionally equivalent approximation.
 14. **`StateReader::read_u8()`** lacks bounds check — pre-existing.
 
-## Test status (final, integration branch, post all 4 passes)
+## Test status (final, integration branch, post Pass-11 + Release-build fix)
 
 ```
-ctest                              37/37 PASS
+ctest                              38/38 PASS  (Release build)
 fuse_z80                       1356/1356 PASS
-z80n_test                          85/85 PASS
-test/00regression/regression       33/0/0
+test/00regression/regression       32/1/0   (parallax-demo 44636-px diff is pre-existing
+                                              baseline issue — present at d385d5e before
+                                              Pass-11 merges; not introduced by Pass-11)
 ```
 
 ## Branch state
 
 ```
 Branch: nextzxos-boot-subsystem-analysis (off main)
-Total fixes: 45 class-(a) bugs + 1 follow-up = 46
+Total fixes through Pass-11: ~96 class-(a) + 2 class-(b) + 6 class-(c) + 1 follow-up + 1 build fix
 Pushed: NO
+Integration HEAD (Pass-11): 594b2c9
 ```
+
+## Pass-11 details
+
+Pass-11 introduced a **unified fix+test+commit mandate** per finding (each bug must commit
+its fix and a discriminative regression test together; reviewer must independently revert
+the fix and confirm the test FAILs on the buggy code, then restore and confirm PASS).
+
+### Findings (8 total, all fixed and merged)
+
+| ID | Subsystem | Class | Summary | VHDL ref | Commit |
+|----|-----------|-------|---------|----------|--------|
+| V11-MEM-01 | Memory | c | `Mmu::rebuild_ptr` left `slots_[]` carrying verbatim NR-write value (e.g. 0xE5) after NR $50/$51 high-page write; reads via direct `read_ptr_` were correct, but save_state + load_state took the inconsistent path | zxnext.vhd:3052, :4686-4699, :6075-6082 | a8f8ecd |
+| V11-DIVMMC-01 | DivMMC + SPI | b | `SpiMaster::reset()` did not pulse `deselect()` on selected slaves before clearing `cs_=0xFF`; CS rising edge resets each slave's protocol state on real hardware | zxnext.vhd:3308-3309 | d340bdd |
+| V11-DIVMMC-02 | DivMMC | b | `is_nmi_hold()` returned registered `automap_held_` instead of combinational `automap` term, dropping same-cycle `instant_match` | divmmc.vhd:147-150 | d340bdd |
+| V11-NMP-01 | NextREG | c | NR $81 read mask `0x7B` preserved bits 1:0 from user-written byte, but VHDL hardwires `nr_81_expbus_speed <= "00"`; bits should always read 0 | zxnext.vhd:5496, :6126 | 2aa35ac (audit) |
+| V11-NMP-02 | NextREG | c | NR $0A write_handler stored raw `v` byte regardless of `nr_03_config_mode`; bits 7:5 leaked into cache when written outside config mode and surfaced via reset-fan-out | zxnext.vhd:5191-5198 | 2aa35ac (audit) |
+| V11-NMP-03 | NextREG | c (NIT) | Reviewer-found: NR $06 had same cache-leak pattern (bit 2 `nr_06_ps2_mode`); fix mirrors V11-NMP-02 with mask 0xFB | zxnext.vhd:5161-5170 | 816dce9 (fix-of-reviewer) |
+| V11-CPU-01 | IM2 | c | IM2 RETI decoder treated `DD ED 4D` as RETI; VHDL says S_DDFD_T4 → S_0 on any non-DDFD opcode; spurious reti_seen cleared legitimate ISR daisy-chain devices | im2_control.vhd:199-206 | d31e753 |
+| V11-CPU-02 | Z80N PIXELDN | c | PIXELDN corrupted H[7:5] when band counter wrapped from 11; VHDL does composite `(b & R & C) + 1` truncated at bit 7; pre-fix's 4-step carry chain propagated band[1] carry into H[5] | t80n.vhd:900-921 | d31e753 |
+
+### Cross-cutting
+
+- **Release-build CMake fix** (commit `998db5a`): `jnext_memory` PUBLIC-links `jnext_peripheral` and `jnext_debug`. `mmu.cpp` dispatches the DivMMC overlay (DivMmc::read/write) and `mmu.h` inline read/write paths reference BreakpointSet::has_watchpoint. Without these PUBLIC link deps, Release builds (and the production end-user binary) failed to link the small CPU-only test executables (`fuse_z80_test`, `cpu_int_pulse_test`, `z80n_test`) and `jnext` itself with "undefined reference" errors. Debug builds happened to work via different inlining behaviour, masking the gap. Independently verified by reproducing the failure in another worktree.
+
+### Reviewer outcomes
+
+| Subsystem | Verdict | Notes |
+|-----------|---------|-------|
+| Memory | APPROVE | V11-MEM-01-A discriminative; no missed findings |
+| DivMMC | APPROVE | SS-15 + NM-10 discriminative; 6 class-c observations recorded for context (none promotion-worthy) |
+| NMI-MF-Port | APPROVE-WITH-NITS | 6 disc tests verified; 1 missed NIT → V11-NMP-03 cycle |
+| NMI-MF-Port (fix-reviewer) | APPROVE | V11-NMP-03 disc verified; sibling audit of NRs 0x03, 0x10, 0x11 found cache-leak family closed |
+| CPU | APPROVE | V11-CPU-01 + V11-CPU-02 disc; full IM2 FSM walked, 7 PIXELDN boundary inputs hand-checked vs VHDL |
+
+### Convergence assessment
+
+Pass-11 found 8 NEW class-(a/b/c) bugs across 4 subsystems plus 1 cross-cutting build bug.
+**NOT converged.** Pass-12 required to test convergence claim. Encouraging signal:
+- Pass-11 finding count (8) is the lowest of any pass except Pass-6 (4 — but that was an
+  intentionally-narrow methodology pass).
+- ZERO class-(a) findings (the most severe bucket) for the first time across an entire pass.
+- ZERO class-(d) escalations introduced.
+- The cache-leak-pattern family is now demonstrably closed (sibling audit of NRs 0x03,
+  0x06, 0x0A, 0x10, 0x11 in fix-reviewer).
 
 Sub-branches preserved across all 4 passes:
 - P1: `task2/{memory,divmmc-sd-spi,nmi-mf-port,cpu-z80n-im2}-{review,reviewer}` + `task2/cpu-int-pulse-fix`
