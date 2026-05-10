@@ -26,14 +26,18 @@ itself.
 |-------|-------|
 | (a) Definite VHDL divergence — must fix | 0 |
 | (b) Behavioural ambiguity / missing test | 0 |
-| (c) Read-back / cache leak — observable, non-fatal | 2 |
+| (c) Read-back / cache leak — observable, non-fatal | 3 |
 | (d) Architectural — out-of-scope | 0 |
-| **Total** | **2** |
+| **Total** | **3** |
 
-Both findings were fixed in this branch with discriminative regression
-tests appended to `test/nextreg/nextreg_integration_test.cpp`. All
-fixes cite VHDL line numbers verbatim. No prior-pass reports were
-consulted at any point.
+All three findings were fixed in this branch with discriminative
+regression tests appended to `test/nextreg/nextreg_integration_test.cpp`.
+All fixes cite VHDL line numbers verbatim. The third finding
+(V11-NMP-03) was raised by the independent reviewer
+(`task2/verify11-nmi-mf-port-reviewer`, APPROVE-WITH-NITS) — it is
+the NR 0x06 mirror of V11-NMP-02 (same cache-leak pattern, applied
+to a different config_mode-gated bit) and was fixed in the
+fix-of-reviewer pass.
 
 ## Findings
 
@@ -169,6 +173,93 @@ AND the post-reset fan-out, since both paths converge on
 
 ---
 
+### V11-NMP-03 — NR 0x06 cache poisoning when bit 2 written outside `nr_03_config_mode`
+
+**Class**: (c) — *raised by independent reviewer
+(`task2/verify11-nmi-mf-port-reviewer`, APPROVE-WITH-NITS) as the NR 0x06
+mirror of V11-NMP-02. Fixed in the fix-of-reviewer pass.*
+**VHDL**: `zxnext.vhd:5167-5169` (write decoder), `zxnext.vhd:5161-5170`
+(broader latch-gating context).
+
+**Root cause**. The NR 0x06 write decoder gates ONLY the `nr_06_ps2_mode`
+latch (bit 2) behind `nr_03_config_mode = '1'`:
+
+```
+when X"06" =>
+   nr_06_hotkey_cpu_speed_en   <= nr_wr_dat(7);
+   nr_06_internal_speaker_beep <= nr_wr_dat(6);
+   nr_06_hotkey_5060_en        <= nr_wr_dat(5);
+   nr_06_button_drive_nmi_en   <= nr_wr_dat(4);
+   nr_06_button_m1_nmi_en      <= nr_wr_dat(3);
+   if nr_03_config_mode = '1' then
+      nr_06_ps2_mode <= nr_wr_dat(2);
+   end if;
+   nr_06_psg_mode <= nr_wr_dat(1 downto 0);
+```
+
+Bits 7, 6, 5, 4, 3, 1, 0 are unconditionally writable. Only bit 2
+(`nr_06_ps2_mode`) requires config_mode='1' to commit. Outside
+config_mode the underlying latch retains its previous value.
+
+Pre-fix the C++ NR 0x06 write_handler did the right thing for the
+**shadow** (`nr_06_ps2_mode_` was correctly gated on `nr_03_config_mode()`
+at emulator.cpp:3325-3327), AND the read handler correctly returned
+bit 2 from the live `nr_06_ps2_mode_` shadow rather than the cache —
+so a direct read after an out-of-config_mode write returned the right
+value. **However**, the cached byte stored in `regs_[0x06]` was the
+raw `v`. The cache therefore absorbed the rejected bit-2 write.
+
+**Observable consequence**. The init / reset fan-out at
+`emulator.cpp:3272-3276` reads `nextreg_.cached(0x06)` and re-seeds
+`nr_06_ps2_mode_` from bit 2:
+
+```cpp
+const uint8_t cached_06 = nextreg_.cached(0x06);
+...
+nr_06_ps2_mode_ = (cached_06 & 0x04) != 0;
+```
+
+After `Emulator::reset()` the cached byte's lower bits survive
+(NextReg::reset() preserves regs_[0x06] except bits 7,5 which are
+re-asserted to '1' per VHDL :4932-4933 — see nextreg.cpp:105-122).
+A "cache-poisoning" write (out-of-config_mode NR 0x06 write with bit 2
+cleared) would therefore clobber the live `nr_06_ps2_mode_` shadow on
+the next hard reset, even though the VHDL latch was untouched.
+
+**Fix**. `src/core/emulator.cpp` NR 0x06 write_handler — canonicalise
+the stored byte. Inside config_mode, return the raw `v` (full latch
+update). Outside config_mode, OR in the previous cached value's bit 2
+to mirror the VHDL latch's "no change" behaviour:
+
+```cpp
+if (cfg) {
+    return v;
+}
+const uint8_t prev = nextreg_.cached(0x06);
+return static_cast<uint8_t>((v & 0xFB) | (prev & 0x04));
+```
+
+Bits 7:3 and 1:0 always come from the new write (those signals have
+no config_mode gate per VHDL :5162-5166 and :5170). The `cfg` boolean
+is hoisted from the existing `if (nextreg_.nr_03_config_mode())`
+block earlier in the handler so both paths share one gate query.
+
+**Discriminative test** (`test/nextreg/nextreg_integration_test.cpp`):
+
+- `V11-NMP-03`: in config_mode, write 0x04 (bit 2 set, all hotkey
+  enables off). Exit config_mode (NR 0x03 = 0x01). Write 0x00 (would
+  clear bit 2 if buggy). Hard reset via NR 0x02 = 0x02. Read NR 0x06
+  — bit 2 must still be set (preserved per VHDL). Pre-fix this read
+  was 0xA0 (cache leaked the rejected write; only the reset-asserted
+  bits 7,5 remained); post-fix it is 0xA4. Discriminative pre-revert
+  FAIL verified by stash + rebuild + re-run.
+
+The discriminative chain mirrors V11-NMP-02 exactly, and exercises
+both the in-write canonicalisation AND the post-reset init fan-out,
+since both paths converge on `cached(0x06)`.
+
+---
+
 ## Defence — what was checked and found correct
 
 The audit walked every register in the in-scope NR set and every FF in
@@ -253,6 +344,13 @@ required no change:
   of the failures involve NMI / Multiface / NR-port code, and none
   are present after my fix that weren't present before.
 
-## Commit
+## Commits
 
-`cf818bb` — `doc(task2-verify11-nmi-mf-port): pass-11 audit report — 2 findings`
+- `cf818bb` — `doc(task2-verify11-nmi-mf-port): pass-11 audit report — 2 findings`
+- `2aa35ac` — `doc(task2-verify11-nmi-mf-port): record final commit SHA in audit report`
+- `816dce9` — `fix(task2-verify11-nmi-mf-port): V11-NMP-03 — NR $06 config-mode-gated cache leak (reviewer NIT)`
+  - Fix-of-reviewer pass: addresses the reviewer's NIT (NR 0x06 mirror
+    of V11-NMP-02). Includes both the emulator fix and the
+    discriminative regression test V11-NMP-03. Pre-revert FAIL
+    verified (stash → rebuild → re-run shows the test fails on the
+    pre-fix codebase with `after_reset=0xA0` instead of `0xA4`).
