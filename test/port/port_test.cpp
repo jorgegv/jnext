@@ -416,6 +416,41 @@ static void test_group_registration() {
               DETAIL("cs=0x%02x expected 0xFE", cs));
     }
 
+    // V16-DIVMMC-01 (Pass-16 verify-audit, 2026-05-10): port 0xE7 is
+    // **write-only** in VHDL. zxnext.vhd:614-622 declares
+    //   signal port_e3_rd, port_e3_wr;        -- 0xE3 readable
+    //   signal port_e7_wr;                    -- only WR for 0xE7
+    //   signal port_eb_rd, port_eb_wr;        -- 0xEB readable
+    // No `port_e7_rd` exists. Therefore the `port_internal_rd_response`
+    // OR-tree at zxnext.vhd:2803-2806 does NOT include port 0xE7 — a host
+    // read of 0xE7 falls through to `cpu_di <= X"FF"` at :1877 (no
+    // internal response). Pre-fix `read_cs()` returned the internal CS
+    // latch — leaking host-side SPI master state to firmware that has no
+    // architectural access. Post-fix the read handler is `nullptr`,
+    // falling through to floating bus 0xFF.
+    //
+    // Discriminative shape: write a non-0xFF CS pattern (0xFE — SD0
+    // selected), then read 0xE7. Pre-fix returns 0xFE (the latch).
+    // Post-fix returns 0xFF (no internal response).
+    {
+        // First make sure port_spi_io_en (NR 0x83 bit 3) is enabled.
+        // Reset default: nr_83_internal_port_enable = 0xFF (zxnext.vhd:5055,
+        // 1227), so bit 3 is set. We don't toggle it here.
+        emu.port().out(0x00E7, 0xFE);           // CS: SD0 selected (latched in spi_)
+        // Sanity: latch DID update (REG-12 already proves this; we just
+        // re-confirm via the public accessor).
+        uint8_t latched = emu.spi().read_cs();
+        bool latch_ok = (latched == 0xFE);
+        // The actual read of the port — this is what diverges.
+        uint8_t r = emu.port().in(0x00E7);
+        check("V16-DIVMMC-01",
+              "IN 0xE7 returns 0xFF (port is write-only in VHDL — no "
+              "port_e7_rd signal); pre-fix returned the internal CS latch.",
+              latch_ok && r == 0xFF,
+              DETAIL("latched_cs=0x%02x in_0xE7=0x%02x expected_in=0xFF",
+                     latched, r));
+    }
+
     // REG-13: Sprite 0x303B slot-select write + status read. VHDL
     // zxnext.vhd:2681.
     {

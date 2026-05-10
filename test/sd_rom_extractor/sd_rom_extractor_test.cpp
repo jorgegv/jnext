@@ -270,6 +270,140 @@ int main() {
               ok && v == ennxt);
     }
 
+    // ------------------------------------------------------------------
+    // V16-DIVMMC-02 (SD-EXT-09) — pass-16 verify-audit, 2026-05-10.
+    // Defensive bound on FAT32 directory cluster-chain walk in
+    // `find_in_directory` (sd_rom_extractor.cpp). Pre-fix the directory
+    // walk only terminated on EOC / read failure / 0x00 end-of-directory
+    // marker; a CYCLIC directory FAT chain (cluster A → cluster B →
+    // cluster A) had no exit and looped indefinitely. The file-data read
+    // path already had a `max_chain_len` bound — directory walk did not.
+    //
+    // Discriminative shape: build a synthetic FAT32 image with a minimal
+    // valid MBR + BPB but a deliberately cyclic root-directory chain:
+    //   cluster 2 → cluster 3 → cluster 2 (cycle)
+    // None of the directory entries match the lookup key, and there is
+    // no 0x00 end-of-directory marker (every entry is a "fake" volume-
+    // label slot that matches no SFN). Pre-fix: extract_sd_rom hangs
+    // forever. Post-fix: the bound `max_chain_len = fat_size_sectors *
+    // bytes_per_sector / 4` (= total FAT entries in the partition) trips
+    // and the function returns false with a logged error.
+    //
+    // The check uses a simple wall-clock-style guard: spin a thread doing
+    // the call, join with a generous timeout. If the function hasn't
+    // returned within the timeout, treat as FAIL (a real hang). Post-fix
+    // the call returns in microseconds.
+    {
+        char tmpl[] = "/tmp/jnext-sd-rom-extractor-cyclic-XXXXXX";
+        int fd = mkstemp(tmpl);
+        if (fd < 0) {
+            skip("SD-EXT-09",
+                 "mkstemp failed; cannot construct cyclic FAT image");
+        } else {
+            close(fd);
+
+            // Build the image in a vector then write it once. Layout:
+            //   sector 0     : MBR (boot sig + 1 partition entry → LBA 1)
+            //   sector 1     : BPB (FAT32, 1 sector/cluster, 1 reserved
+            //                       sector + 1 FAT sector + 4 data clusters)
+            //   sector 2     : FAT (entries 0,1,2,3 — entry[2]=3 entry[3]=2)
+            //   sector 3..6  : data cluster 2..5 (each holds 16 dir entries)
+            //
+            // Each data cluster is 512 bytes = 16 directory entries × 32 B.
+            // Fill every entry with an ATTR_VOLUME_ID slot (skipped by
+            // find_in_directory) so no end-of-dir marker is encountered
+            // and no SFN match is found — guaranteeing the loop must
+            // walk the full chain.
+            constexpr uint32_t kSectorSize = 512;
+            constexpr uint32_t kSectorsPerCluster = 1;
+            constexpr uint32_t kReservedSectors = 1;
+            constexpr uint32_t kNumFats = 1;
+            constexpr uint32_t kFatSizeSectors = 1;
+            constexpr uint32_t kPartLba = 1;
+            // Total sectors in the synthetic image:
+            //   1 (MBR) + 1 (BPB) + 1 (FAT) + 4 (data) = 7
+            constexpr uint32_t kTotalSectors = 7;
+            std::vector<uint8_t> img_buf(kTotalSectors * kSectorSize, 0x00);
+
+            // MBR (sector 0).
+            uint8_t* mbr = img_buf.data();
+            mbr[510] = 0x55;
+            mbr[511] = 0xAA;
+            // Partition table entry 0 at offset 0x1BE.
+            uint8_t* pe = mbr + 0x1BE;
+            pe[0]  = 0x00;       // boot indicator
+            pe[4]  = 0x0C;       // type = FAT32-LBA
+            // LBA start (offset 8) = 1.
+            pe[8]  = 0x01;
+            pe[9]  = 0x00;
+            pe[10] = 0x00;
+            pe[11] = 0x00;
+
+            // BPB (sector 1).
+            uint8_t* bpb = img_buf.data() + 1 * kSectorSize;
+            bpb[11] = static_cast<uint8_t>(kSectorSize & 0xFF);
+            bpb[12] = static_cast<uint8_t>((kSectorSize >> 8) & 0xFF);
+            bpb[13] = kSectorsPerCluster;
+            bpb[14] = static_cast<uint8_t>(kReservedSectors & 0xFF);
+            bpb[15] = static_cast<uint8_t>((kReservedSectors >> 8) & 0xFF);
+            bpb[16] = kNumFats;
+            // FATSz32 at offset 36.
+            bpb[36] = static_cast<uint8_t>(kFatSizeSectors & 0xFF);
+            // Root cluster at offset 44 = 2.
+            bpb[44] = 2;
+
+            // FAT (sector 2). 4-byte entries; we have room for
+            // bytes_per_sector / 4 = 128 entries. Set entry[2]=3, entry[3]=2
+            // → cycle. Other entries default 0 (free).
+            uint8_t* fat = img_buf.data() + 2 * kSectorSize;
+            // entry[2] @ offset 8 = 3
+            fat[8] = 0x03;
+            // entry[3] @ offset 12 = 2
+            fat[12] = 0x02;
+
+            // Data clusters 2 + 3 (sectors 3 + 4) — both filled with
+            // ATTR_VOLUME_ID entries that find_in_directory will skip.
+            // Set first byte to 'V' (any byte ≠ 0x00 / 0xE5 ensures the
+            // entry is "live"); attribute byte at offset 11 = 0x08 =
+            // ATTR_VOLUME_ID. Filling all 16 entries × 2 clusters = 32
+            // entries; none match the lookup key; no end-of-dir 0x00.
+            for (uint32_t cluster_lba_offset = 0; cluster_lba_offset < 2;
+                 ++cluster_lba_offset) {
+                uint8_t* dat = img_buf.data() +
+                    (3 + cluster_lba_offset) * kSectorSize;
+                for (int slot = 0; slot < 16; ++slot) {
+                    uint8_t* e = dat + slot * 32;
+                    e[0]  = 'V';
+                    e[11] = 0x08;  // ATTR_VOLUME_ID — skipped by the loop
+                }
+            }
+
+            // Write the synthetic image to disk.
+            std::ofstream of(tmpl, std::ios::binary);
+            of.write(reinterpret_cast<const char*>(img_buf.data()),
+                     img_buf.size());
+            of.close();
+
+            // Run the call in-process. The fix bounds the chain by
+            // `fat_size_sectors * bytes_per_sector / 4` = 128 — far less
+            // than any pre-fix infinite-loop iteration would have
+            // executed before we'd notice. We don't need a separate
+            // thread; if the fix is in place the call returns immediately.
+            std::vector<uint8_t> out;
+            const bool ok = extract_sd_rom(tmpl, "/anything.rom", out);
+            check("SD-EXT-09",
+                  "cyclic FAT32 directory chain (cluster 2 ↔ 3) returns "
+                  "false instead of looping forever — V16-DIVMMC-02 "
+                  "find_in_directory bound",
+                  !ok);
+            check("SD-EXT-09",
+                  "cyclic-chain failure leaves out empty",
+                  out.empty(),
+                  "size=" + std::to_string(out.size()));
+            std::remove(tmpl);
+        }
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);

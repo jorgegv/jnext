@@ -4040,11 +4040,34 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // floating-bus value (0xFF in jnext) and writes are silently dropped —
     // mirroring the same pattern jnext applies to port 0xE3 above (DivMMC
     // bit 0) and the 0x103B/0x113B I2C / 0x133B-163B UART ports below.
+    //
+    // V16-DIVMMC-01 (Pass-16 verify-audit, 2026-05-10): port 0xE7 is
+    // **write-only** in VHDL. Compare zxnext.vhd:614-622:
+    //   signal port_e3_rd : std_logic;     -- (0xE3 readable)
+    //   signal port_e3_wr : std_logic;
+    //   signal port_e7_wr : std_logic;     -- only WR exists for 0xE7
+    //   signal port_eb_rd : std_logic;     -- (0xEB readable)
+    //   signal port_eb_wr : std_logic;
+    // There is NO `port_e7_rd` signal anywhere in the core. Confirming:
+    // zxnext.vhd:2803-2806 (`port_internal_rd_response` OR-tree) lists
+    // `port_e3_rd`, `port_eb_rd`, `port_103b_rd`, `port_113b_rd`, ... but
+    // NOT `port_e7_rd`. zxnext.vhd:2837-2840 (`port_rd_dat` OR-tree) lists
+    // `port_e3_rd_dat`, `port_eb_rd_dat`, ... but NOT `port_e7_rd_dat`.
+    // Pre-fix `read_cs()` returned the internal CS register state — info
+    // the firmware has no architectural way to access on real hardware.
+    // A read of 0xE7 on real Next falls through to `cpu_di <= X"FF"` at
+    // zxnext.vhd:1877 (no internal response, expansion bus disabled) or
+    // to `i_BUS_DI` at :1875 (expansion bus path). Class-(c) latent —
+    // TBBlue/NextZXOS firmware never reads port 0xE7 on the boot path
+    // (the CS register is purely host-side state, not firmware-visible),
+    // but the divergence leaks an internal SPI-master register state to
+    // any caller that reads the port, breaking the strict write-only
+    // contract. Fix: pass `nullptr` for the read callback, mirroring the
+    // pattern used for port 0x001F / 0x0037 (Kempston joystick — read-only,
+    // unused-write nullptr) but inverted (write-only, unused-read nullptr).
+    // Falls through to `default_read_` (floating bus 0xFF in jnext).
     port_.register_handler(0x00FF, 0x00E7,
-        [this](uint16_t) -> uint8_t {
-            if ((nextreg_.cached(0x83) & 0x08) == 0) return 0xFF;
-            return spi_.read_cs();
-        },
+        nullptr,
         [this](uint16_t, uint8_t val) {
             if ((nextreg_.cached(0x83) & 0x08) == 0) return;
             spi_.write_cs(val);
