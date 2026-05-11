@@ -2405,7 +2405,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // V21-NMP-01 (Pass-21 verify-audit fix): bit 7 surfaces VHDL
     // `nr_palette_sub_idx` (zxnext.vhd:1182), the same FF the NR 0x44
     // 9-bit-palette-write toggle drives (:5403) and the NR 0x40 / 0x41 /
-    // 0x43 / 0x28 writes reset to '0' (:5376 / :5382 / :5395 / :5000).
+    // 0x43 writes reset to '0' (:5376 / :5382 / :5395); the global
+    // reset block (:5000) also clears it. NR 0x28 was previously
+    // mis-cited as a resetter — it is the keymap-select write
+    // (:6301-6303, drives nr_keymap_sel / nr_keymap_addr), unrelated
+    // to nr_palette_sub_idx [V21R-NMP-NIT-01 doc fix].
     // PaletteManager owns the identical `nine_bit_first_written_` shadow
     // (palette.cpp:330-351 toggles; palette.cpp:220, palette.cpp:209,
     // palette.cpp:86 / etc. reset paths). Pre-fix bit 7 was hard-wired
