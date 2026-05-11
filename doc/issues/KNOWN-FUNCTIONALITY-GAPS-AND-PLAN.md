@@ -215,8 +215,15 @@ where possible.
 | G160| SD CMD13 (SEND_STATUS) returns generic R1 fall-through, not R2 | SD                           | D   |         | Hosts probing card status hang on missing 2nd byte         | L      | Low      |
 | G161| RTC 12h-mode hours register snapshot overwrites bit 6 / AM-PM | RTC                           | B   |         | host snapshot silently flips RTC back to 24h mode          | L      | Low      |
 | G162| NMI iotrap strobe consumed but never propagated to MF assert | NMI Source, NextREG, Port, FDC | C   |         | port_2FFD/3FFD trap path silently silent (FDC NMI dead)    | L      | Low      |
+| G168| port_7ffd_reg vs port_7ffd_dat half-cycle phase            | MMU, NextREG, CPU                | C   |         | Sub-instruction phase divergence; invisible per-instr      | M      | Low      |
+| G169| Generic VHDL `*_q` registered signals — half-cycle phase   | MMU, CPU, NextREG                | C   |         | Same family as G168; multi-site                            | M      | Low      |
+| G170| DivMMC automap `*_q` falling-edge sub-cycle pipeline       | DivMMC, MMU, CPU                 | C   |         | Overlay drop ~3 i_CLK_28 later vs 1-clk in VHDL            | M      | Low      |
+| G171| VHDL-impossible same-cycle Z80 OUT-OUT to DivMMC port pair | DivMMC, Port, CPU                | C   |         | Theoretical edge: back-to-back OUT clobber mid-handler     | M      | Low      |
+| G172| SDHC vs SDSC dual-mode address translation (HCS gate)       | DivMMC, SD                       | C   |         | CMD17/18/24 always block-addressed; SDSC byte-mode absent  | H      | Low      |
+| G173| DD/FD-prefixed Z80N opcode dispatch via XY_State           | CPU, Z80N                        | C   |         | `DD ED <Z80N>` routes via Alternate (EXX) not XY_State     | M      | Low      |
+| G174| `on_m1_prefetch` exposes first-byte only (FUSE Z80 boundary) | CPU, Contention                  | C,D |         | Sub-instruction prefetch hooks dropped for multi-byte ops  | H      | Low      |
 
-162 entries. Display-affecting rows: 53 (top of table). Non-display: 109.
+169 entries. Display-affecting rows: 53 (top of table). Non-display: 116.
 
 ---
 
@@ -1651,6 +1658,62 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Closure (Task 8 t1)**: (a) `iotrap_strobe_pending_` OR'd into `NmiSource::nmi_assert_mf()` with NR 0x06 bit 3 gate honoured. (b) NR 0xD8 bit 0 (`nr_d8_io_trap_fdc_en`) storage + handlers in Emulator. (c) port 0x2FFD/0x3FFD trap-decode handlers (mask `0xF003`) strobe `NmiSource::strobe_iotrap()` only when NR 0xD8 bit 0 is on; `port_2ffd_rd / port_3ffd_rd / port_3ffd_wr` follow VHDL:3835. NR 0xDA `nr_da_iotrap_cause` latch + NR 0x02 bit 4 readback remain unmodelled (see G55 expansion).
 - **Dependencies**: pair with G55 broadening.
 - **Effort**: L.
+
+### G168. port_7ffd_reg vs port_7ffd_dat half-cycle phase
+- **What**: VHDL splits 7FFD into two flip-flops — `port_7ffd_reg` latched at the write edge, `port_7ffd_dat` re-latched on the next clock for downstream consumers. jnext models a single synchronous value.
+- **User impact**: Observable only at sub-instruction granularity (mid-instruction bus reads). Zero impact on per-instruction-correct boot trajectories. Latent on every test path that asserts at instruction boundaries.
+- **Source ref**: Task 2 boot-critical audit Pass-14 catalogue (class-d), re-confirmed Pass-24/25.
+- **Coverage today**: none — no test asserts mid-instruction phase.
+- **Dependencies**: requires a CPU half-cycle execution model; same model unlocks G169 + G170 + G174.
+- **Effort**: M (architectural — CPU clock model rework).
+
+### G169. Generic VHDL `*_q` registered signals — half-cycle phase
+- **What**: Many VHDL signals have a one-cycle delayed `_q` shadow used for edge detection. jnext computes most edges combinationally at instruction boundaries; the per-cycle `_q` register is collapsed.
+- **User impact**: Same family as G168 — invisible at instruction granularity, observable only in cycle-precise stimulus.
+- **Source ref**: Task 2 audit Pass-14 catalogue (class-d), re-confirmed Pass-24/25.
+- **Coverage today**: none.
+- **Dependencies**: same half-cycle CPU model as G168 + G170 + G174.
+- **Effort**: M (multi-site once half-cycle model exists).
+
+### G170. DivMMC automap `*_q` falling-edge sub-cycle pipeline (V12-DIVMMC-07)
+- **What**: VHDL has falling-edge `divmmc_automap_*_q` shadows that gate the one-cycle automap overlay enable. jnext drops the overlay at the next M1 fetch (~3 i_CLK_28 later) vs the 1-clk VHDL behaviour.
+- **User impact**: Functionally equivalent — overlay drops before the returned-to instruction in both jnext and VHDL. No observable divergence at instruction granularity.
+- **Source ref**: Task 2 audit Pass-12 DivMMC (V12-DIVMMC-07), re-confirmed every subsequent pass.
+- **Coverage today**: divmmc_test rows cover the instruction-granularity outcome; no sub-cycle row.
+- **Dependencies**: half-cycle CPU model (shared with G168/G169/G174).
+- **Effort**: M.
+
+### G171. VHDL-impossible same-cycle Z80 OUT-OUT to DivMMC port pair (V12-DIVMMC-08)
+- **What**: Two `OUT (port),A` instructions on consecutive ticks targeting the DivMMC port pair would require the port handler to accept back-to-back writes within a single cycle. jnext and VHDL both serialize via CPU edges; theoretical edge case where the second OUT could clobber mid-handler state if the model collapsed the gap.
+- **User impact**: NextZXOS boot never issues OUT-OUT to the same DivMMC port pair within a single tick window. Theoretical only.
+- **Source ref**: Task 2 audit Pass-12 DivMMC (V12-DIVMMC-08), re-confirmed every subsequent pass.
+- **Coverage today**: none.
+- **Dependencies**: same half-cycle CPU model.
+- **Effort**: M.
+
+### G172. SDHC vs SDSC dual-mode address translation (HCS gate) — V24-DIVMMC-02
+- **What**: CMD17/18/24 in `sd_card.cpp:659/706/746` unconditionally multiply `cmd_arg()` by 512. SD spec § 4.7.4 says SDSC mode (HCS=0 in OCR per V17-DIVMMC-01) uses byte addresses, SDHC mode (HCS=1) uses block addresses.
+- **User impact**: TBBlue / NextZXOS / FatFs always set HCS=1 → zero boot-path impact. Loading from a legacy SDSC card image would silently misaddress.
+- **Source ref**: Task 2 audit Pass-24 DivMMC (V24-DIVMMC-02), Pass-25 re-verified.
+- **Coverage today**: V17-DIVMMC-01 OCR CCS bit reflects HCS correctly; no end-to-end SDSC integration test.
+- **Dependencies**: 5 architectural surfaces — CMD17/18/24 address gate + CMD16 length-reject + CMD9 CSD v1.0/v2.0 switch + CMD18 multi-block past-EOF byte math + new SDSC test fixtures.
+- **Effort**: H.
+
+### G173. DD/FD-prefixed Z80N opcode dispatch via XY_State (V15-CPU-NIT-01)
+- **What**: jnext routes Z80N opcodes through the Alternate (EXX) decoder path; VHDL's t80n uses XY_State dispatch for DD/FD-prefixed Z80N. The dispatch shape differs structurally.
+- **User impact**: Zero — no software in the wild uses `DD ED <Z80N>` or `FD ED <Z80N>` sequences.
+- **Source ref**: Task 2 audit Pass-15 CPU (V15-CPU-NIT-01), Pass-19/20/21/22/23/24/25 re-confirmed.
+- **Coverage today**: none — defended as VHDL-faithful in spirit but not in dispatch path.
+- **Dependencies**: Z80N decoder rework — multi-file refactor.
+- **Effort**: M.
+
+### G174. `on_m1_prefetch` exposes first-byte only — FUSE Z80 boundary (V15-CPU-NIT-02)
+- **What**: VHDL exposes per-T-state prefetch hooks; FUSE Z80 (jnext's base Z80 core) only exposes a first-byte M1 hook. Multi-byte instructions (ED/DD/FD-prefixed) don't trigger the hook on subsequent bytes.
+- **User impact**: Affects contention modeling at sub-instruction granularity; not observable per-instruction. Same family as G168/G169/G170.
+- **Source ref**: Task 2 audit Pass-15 CPU (V15-CPU-NIT-02), Pass-19+ re-confirmed.
+- **Coverage today**: none.
+- **Dependencies**: would require modifying upstream FUSE (CLAUDE.md forbids) OR a per-T-state shim layer.
+- **Effort**: H (FUSE boundary).
 
 ---
 
