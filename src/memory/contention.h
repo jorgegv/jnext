@@ -12,11 +12,32 @@ enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
 // `MachineType` above.
 //
 // VHDL surfaces that consume `machine_timing_*` (not `machine_type_*`):
-//   * :4490-4492 — `mem_contend` per-machine memory-page decode.
-//   * :4481      — `i_contention_en` (Pentagon disables contention).
-//   * :2594      — `port_7ffd_active` (128K/+3 only).
-//   * :4513      — `port_ff_dat_ula` (48K/128K: float; +3/Pentagon: $FF).
-//   * :2033      — pulse_count_end (48K/+3 32-cycle width; otherwise 36).
+//
+//   Wired in jnext via this `machine_timing_` axis (V24-MEM-01 fix):
+//     * :4490-4492 — `mem_contend` per-machine memory-page decode
+//                    (ContentionModel::is_contended_access /
+//                    contention_tick + Mmu::mem_contend_for_).
+//     * :4481      — `i_contention_en` Pentagon-disable AND-term
+//                    (ContentionModel::is_contended_access /
+//                    contention_tick).
+//     * :2594      — `port_7ffd_active` 128K/+3-only port-contend
+//                    (ContentionModel::port_contend).
+//
+//   VHDL keys on `machine_timing_*` but jnext currently still keys on
+//   `MachineType` (typ_sel) — pre-existing inconsistencies flagged by
+//   the V24-MEM-01 reviewer; out-of-scope for D3 (separate follow-ups):
+//     * :2033      — pulse_count_end (48K/+3 32-cycle width; otherwise
+//                    36) — IM2/CPU pulse mode (emulator NR 0x03 handler
+//                    still drives `is_48_or_p3` via MachineType).
+//     * :2589      — `port_p3_float` floating-bus gate at port 0x0FFD
+//                    (emulator.cpp port 0x0FFD handler gates on
+//                    `config_.type == MachineType::ZX_PLUS3`).
+//     * :2771      — `port_fffd_rd` AY-read alias at port 0xBFFD on +3
+//                    (emulator.cpp port 0xBFFD handler gates on
+//                    `config_.type == MachineType::ZX_PLUS3`).
+//     * :4513      — `port_ff_dat_ula` floating-bus / $FF default at
+//                    port 0xFF (emulator.cpp port 0xFF handler gates
+//                    on `config_.type ∈ {ZX48K, ZX128K}`).
 //
 // Surfaces that consume `machine_type_*` (not `machine_timing_*`):
 //   * :2981-3008 — `sram_rom` derivation (per-machine ROM bank decode).
@@ -27,7 +48,9 @@ enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
 // which silently aligned on the canonical boot path (NextZXOS always
 // writes NR 0x03 with matching tim_sel == typ_sel) but diverged when a
 // user wrote NR 0x03 with `tim_sel != typ_sel`. Splitting this axis here
-// matches the VHDL one-to-one.
+// matches the VHDL one-to-one. The port-decode + pulse_count_end
+// surfaces listed above were explicitly out-of-scope for D3 and remain
+// on the typ_sel axis pending separate follow-ups.
 enum class MachineTimingMode {
     Timing48 = 0,        // VHDL machine_timing_48     (nr_03_machine_timing = "000"/"001")
     Timing128 = 1,       // VHDL machine_timing_128    (nr_03_machine_timing(1:0) = "10")
