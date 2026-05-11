@@ -578,17 +578,29 @@ static void test_section3_p3_paths(void) {
 
     // FB-3E RETIRED 2026-05-04: standalone Pentagon machine type dropped
     // (Wave 0.3 follow-up). FB-3D / FB-3F still cover the same gate path
-    // (port 0x0FFD → 0x00 on non-+3 timings) for 128K and Next-base.
+    // for 128K and Next-base.
 
-    // FB-3F — Next-base port 0x0FFD → 0x00.
+    // FB-3F — Next-base port 0x0FFD → DECODED (post-D3F-01 fix).
+    //
+    // Updated for D3F-01 (port_p3_float gate keys on machine_timing_,
+    // not config_.type). Next-base init seeds tim_sel=0x03 (+3 timing,
+    // VHDL :1099 default) — so port_p3_float IS decoded on a fresh
+    // Next emulator. This closes the pre-existing "FOLLOW-UP" note
+    // (see Section 3 prologue). The latch defaults to 0x00 →
+    // border-fallback path returns `latch | 0x01 = 0x01`.
+    //
+    // Pre-fix the gate keyed on `config_.type` and returned 0x00 here,
+    // which the original FB-3F asserted; this was a documented drift
+    // from VHDL.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZXN_ISSUE2);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-3F",
-              "Next port 0x0FFD → 0x00 (p3_timing_hw_en gate) "
-              "(zxnext.vhd:2589, 2814)",
-              v == 0x00, fmt("v=0x%02X", v));
+              "Next port 0x0FFD decoded post-D3F-01 (machine_timing_ keyed) "
+              "→ p3_floating_bus_dat | 0x01 = 0x01 at default "
+              "(zxnext.vhd:2589 + :1099 default tim_sel=011)",
+              v == 0x01, fmt("v=0x%02X (want 0x01)", v));
     }
 
     // FIX-FB-EFFLOCK-01 — testcov-memory follow-up coverage gap (#4 in the
@@ -873,6 +885,194 @@ static void test_section6_nr08_override(void) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// Section 7 — D3F follow-up: port-handler machine_timing gates
+// (Task 2 D3 V24-MEM-01 reviewer follow-ups; commit b9ea1c1e)
+//
+// Three port handlers were flagged as still keying on `config_.type`
+// (typ_sel axis) when the VHDL gate keys on `machine_timing_*`
+// (tim_sel axis). Same family as V24-MEM-01. Pre-fix a user-written
+// NR 0x03 with `tim_sel != typ_sel` would silently mis-decode the
+// port; post-fix the two axes are independent.
+//
+// VHDL anchors:
+//   * zxnext.vhd:2589 — port_p3_float gate `p3_timing_hw_en = '1'`
+//     (= one-hot machine_timing_p3 mirror per :1283).
+//   * zxnext.vhd:2771 — port_fffd_rd alias `port_bffd AND machine_timing_p3`.
+//   * zxnext.vhd:4513 — port_ff_dat_ula gate `machine_timing_48 OR
+//     machine_timing_128`.
+//
+// Discrimination idiom (lifted from contention_test.cpp Cat 29):
+//   1. init at one CLI machine type
+//   2. write NR 0x03 with bit 7 set + tim_sel != typ_sel
+//   3. emu.run_frame() to commit the video-frame latch
+//   4. issue the port operation
+//   5. verify the behaviour tracks tim_sel, not typ_sel
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_section7_d3f_followup(void) {
+    set_group("FB-7-D3F");
+
+    // FB-D3F-01 — port 0x0FFD gate via machine_timing_p3 (VHDL :2589).
+    //
+    // Pre-fix gate keyed on `config_.type == ZX_PLUS3`. Discriminator:
+    // init as 48K, then write NR 0x03 = 0xB1 to commit tim_sel=+3 with
+    // typ_sel=48K. After run_frame() commits the latch, port 0x0FFD
+    // should NOT short-circuit to 0x00 just because config_.type is
+    // still ZX48K; it should read the floating-bus content because
+    // machine_timing_ == TimingPlus3.
+    //
+    // To make the assertion observable: seed the +3 floating-bus latch
+    // via `mmu_.set_p3_floating_bus_dat(0xA4)` and position the raster
+    // in the V-border so the active-display arm is silent and the
+    // handler falls through to `mmu_.p3_floating_bus_dat() | 0x01`.
+    // Pre-fix returns 0x00 (gate fails); post-fix returns 0xA5.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+
+        // NR 0x03 = 0xB1: bit7=1 (commit gate), tim_sel=3 (+3 timing,
+        // bits 6:4 = 011), bit3=0 (don't toggle dt_lock), typ_sel=1
+        // (48K type, bits 2:0 = 001). Different tim_sel vs typ_sel.
+        emu.nextreg().write(0x03, 0xB1);
+        // Frame edge promotes pending -> effective machine_timing.
+        emu.run_frame();
+
+        // Confirm tim_sel == TimingPlus3 actually committed (V24-MEM-01
+        // axis independence).
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+
+        // Seed p3 floating-bus latch with 0xA4. The border-fallback
+        // path returns `latch | 0x01` = 0xA5.
+        emu.mmu().set_p3_floating_bus_dat(0xA4);
+
+        // Place raster at V-border (line < 64) so active-display arm
+        // returns false and the handler falls through to the latch.
+        set_raster_position(emu, 32, 64);
+
+        // NR 0x82 default 0xFF — bit 4 (port_p3_floating_bus_io_en) is
+        // set. effective_paging_locked() is false (no 7FFD(5) write).
+        const uint8_t v = read_port_default(emu, 0x0FFD);
+
+        check("FB-D3F-01",
+              "Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL "
+              ":2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → "
+              "after run_frame() port 0x0FFD returns latch|0x01 = 0xA5 "
+              "(post-fix); pre-fix returned 0x00 (config_.type != ZX_PLUS3)",
+              tim_after == MachineTimingMode::TimingPlus3 && v == 0xA5,
+              fmt("v=0x%02X (want 0xA5); tim_after=%d (want %d=TimingPlus3)",
+                  v, static_cast<int>(tim_after),
+                  static_cast<int>(MachineTimingMode::TimingPlus3)));
+    }
+
+    // FB-D3F-02 — port 0xBFFD AY-read alias gate via machine_timing_p3
+    // (VHDL :2771 — `port_fffd_rd <= iord and (port_fffd or (port_bffd
+    // and machine_timing_p3) or port_bff5)`).
+    //
+    // Pre-fix gate keyed on `config_.type == ZX_PLUS3`. Discriminator:
+    // init as 128K, then write NR 0x03 = 0xB3 to commit tim_sel=+3
+    // with typ_sel=128K. After run_frame(), reading port 0xBFFD on a
+    // 128K typ_sel machine with +3 tim_sel must alias to AY reg read
+    // (= 0x5A sentinel), not return 0xFF (pre-fix path).
+    //
+    // The AY-data write side is unchanged (still always-decoded on all
+    // machines per VHDL :2773 `port_bffd_wr <= iowr and port_bffd`).
+    // We use the data write to seed AY reg 0 with a sentinel, then
+    // the BFFD read alias retrieves it.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX128K);
+
+        // NR 0x03 = 0xB3: bit7=1, tim_sel=3 (+3), bit3=0, typ_sel=3
+        // (PLUS3 — but the machine was inited as 128K, so the typ_sel
+        // commit also flips type to +3; we only care about the tim_sel
+        // axis for this test). To isolate tim_sel, use typ_sel=2
+        // (128K, unchanged). NR 0x03 = 0xB2.
+        emu.nextreg().write(0x03, 0xB2);
+        emu.run_frame();
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        // Select AY reg 0 (tone period lo — readable unmasked, see
+        // IO-05 in audio_port_dispatch_test.cpp).
+        emu.port().out(0xFFFD, 0x00);
+        // Seed reg 0 with sentinel via BFFD write (always decoded).
+        emu.port().out(0xBFFD, 0x5A);
+
+        // BFFD read: pre-fix returns 0xFF (config_.type != PLUS3);
+        // post-fix returns 0x5A (machine_timing_ == TimingPlus3).
+        const uint8_t v = read_port_default(emu, 0xBFFD);
+
+        check("FB-D3F-02",
+              "Port 0xBFFD AY-read alias gate keys on machine_timing_ "
+              "(tim_sel) per VHDL :2771 — init 128K + NR 0x03 = 0xB2 "
+              "(tim_sel=+3, typ_sel=128) → after run_frame() BFFD read "
+              "aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned "
+              "0xFF (config_.type != ZX_PLUS3)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX128K
+                  && v == 0x5A,
+              fmt("v=0x%02X (want 0x5A); tim_after=%d (want %d=TimingPlus3); "
+                  "typ_after=%d (want %d=ZX128K)",
+                  v, static_cast<int>(tim_after),
+                  static_cast<int>(MachineTimingMode::TimingPlus3),
+                  static_cast<int>(typ_after),
+                  static_cast<int>(MachineType::ZX128K)));
+    }
+
+    // FB-D3F-03 — port 0xFF ULA-floating-bus gate via machine_timing_48
+    // | machine_timing_128 (VHDL :4513).
+    //
+    // Pre-fix gate keyed on `config_.type == ZX48K || == ZX128K`.
+    // Discriminator: init as 48K, then write NR 0x03 = 0xB1 to commit
+    // tim_sel=+3 with typ_sel=48K. After run_frame() the gate must
+    // collapse (machine_timing_ == TimingPlus3 is neither 48 nor 128)
+    // → port 0xFF returns 0xFF even though config_.type is still ZX48K.
+    //
+    // Seed bank-5 VRAM with a sentinel byte that would be returned at
+    // active capture if the gate hadn't collapsed. Pre-fix returns the
+    // sentinel | 0x00 (48 timing path → ULA active arm); post-fix
+    // returns 0xFF (machine_timing_ check fails).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+
+        // Seed bank-5 VRAM at the position the ULA would fetch at
+        // active capture phase. Same coords as FB-03 / FB-03a.
+        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
+        const int pixel_line = LINE - 64;
+        const int char_col   = TSTATE / 8;
+        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
+
+        // NR 0x03 = 0xB1: tim_sel=+3, typ_sel=48 (unchanged).
+        emu.nextreg().write(0x03, 0xB1);
+        emu.run_frame();
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        set_raster_position(emu, LINE, TSTATE);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+
+        check("FB-D3F-03",
+              "Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) "
+              "per VHDL :4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, "
+              "typ_sel=48) → after run_frame() port 0xFF returns 0xFF "
+              "(machine_timing_ neither 48 nor 128); pre-fix returned "
+              "the VRAM byte 0x42 (config_.type == ZX48K)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX48K
+                  && v == 0xFF,
+              fmt("v=0x%02X (want 0xFF); tim_after=%d (want %d=TimingPlus3); "
+                  "typ_after=%d (want %d=ZX48K)",
+                  v, static_cast<int>(tim_after),
+                  static_cast<int>(MachineTimingMode::TimingPlus3),
+                  static_cast<int>(typ_after),
+                  static_cast<int>(MachineType::ZX48K)));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Section HARNESS — Phase 3 fixture-helper smoke rows (Branch C)
 // These rows do NOT belong to the 26 plan rows. They exist to keep the
 // helpers compile-tested independently of the FB-NN rows.
@@ -1012,6 +1212,9 @@ int main() {
 
     test_section6_nr08_override();
     std::printf("  Section 6 (NR 0x08 + io_en)    — %2d rows\n", 3);
+
+    test_section7_d3f_followup();
+    std::printf("  Section 7 (D3F-followup gates) — %2d rows\n", 3);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);

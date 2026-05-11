@@ -493,13 +493,15 @@ static void test_ay_port_dispatch(Emulator& emu) {
 
     // IO-05 — BFFD readable as FFFD on +3 timing.
     // VHDL zxnext.vhd:2771 gates port_fffd_rd on `port_fffd OR (port_bffd
-    // AND machine_timing_p3) OR port_bff5`. Wave F (2026-04-24) adds a
-    // read callback to the existing 0xC007/0x8005 handler that returns
-    // reg_read(false) when `config_.type == ZX_PLUS3` and 0xFF otherwise.
+    // AND machine_timing_p3) OR port_bff5`. Updated for D3F-02 fix
+    // (commit on `task2/d3-followup-port-handler-machine-timing`): the
+    // gate now keys on `machine_timing_` (tim_sel axis, VHDL-faithful)
+    // rather than the prior `config_.type` (typ_sel-derived) proxy.
     //
-    // This row uses a fresh +3 emulator for the positive assertion and
-    // a fresh Next emulator for the negative assertion (same machine
-    // construction idiom as uart_integration_test.cpp).
+    // Note: Next-base init seeds tim_sel = 0x03 (+3 timing per VHDL
+    // :1099), so a fresh ZXN_ISSUE2 emulator now correctly DOES alias
+    // BFFD to FFFD. To exercise the negative case (gate blocked), use
+    // a 128K machine (tim_sel = 0x02 → machine_timing_128).
     {
         // Use AY reg 0 (tone period low byte) — read unmasked so the
         // sentinel round-trips verbatim. Avoids the nibble-mask on
@@ -515,18 +517,26 @@ static void test_ay_port_dispatch(Emulator& emu) {
         p3.port().out(0xBFFD, 0x5A);    // write sentinel
         const uint8_t p3_read = p3.port().in(0xBFFD);
 
-        // Negative: Next (not +3) — BFFD reads must NOT alias FFFD.
-        fresh(emu);
-        emu.port().out(0xFFFD, 0x00);
-        emu.port().out(0xBFFD, 0xA5);   // different sentinel
-        const uint8_t nx_read = emu.port().in(0xBFFD);
+        // Negative: 128K (machine_timing_128, not +3) — BFFD reads
+        // must NOT alias FFFD. Pre-D3F-02 this used Next-base, but
+        // Next-base now correctly defaults to machine_timing_p3 and
+        // therefore aliases — switching to 128K isolates the gate.
+        Emulator k128;
+        EmulatorConfig k128_cfg;
+        k128_cfg.type = MachineType::ZX128K;
+        k128_cfg.rewind_buffer_frames = 0;
+        k128.init(k128_cfg);
+        k128.port().out(0xFFFD, 0x00);
+        k128.port().out(0xBFFD, 0xA5);  // different sentinel
+        const uint8_t k128_read = k128.port().in(0xBFFD);
 
         check("IO-05",
-              "BFFD read aliases FFFD on +3; not on Next/128K "
+              "BFFD read aliases FFFD on +3 timing (post-D3F-02 gate keys "
+              "on machine_timing_p3); not on 128K timing "
               "[zxnext.vhd:2771; emulator.cpp 0xC007/0x8005 read]",
-              p3_read == 0x5A && nx_read == 0xFF,
-              fmt("+3 BFFD read=0x%02x (want 0x5A); Next BFFD read=0x%02x "
-                  "(want 0xFF floating)", p3_read, nx_read));
+              p3_read == 0x5A && k128_read == 0xFF,
+              fmt("+3 BFFD read=0x%02x (want 0x5A); 128K BFFD read=0x%02x "
+                  "(want 0xFF floating)", p3_read, k128_read));
     }
 
     // IO-11 — port→channel alias fan-in.
