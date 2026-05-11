@@ -221,9 +221,8 @@ where possible.
 | G171| VHDL-impossible same-cycle Z80 OUT-OUT to DivMMC port pair | DivMMC, Port, CPU                | C   |         | Theoretical edge: back-to-back OUT clobber mid-handler     | M      | Low      |
 | G172| SDHC vs SDSC dual-mode address translation (HCS gate)       | DivMMC, SD                       | C   |         | CMD17/18/24 always block-addressed; SDSC byte-mode absent  | H      | Low      |
 | G173| DD/FD-prefixed Z80N opcode dispatch via XY_State           | CPU, Z80N                        | C   |         | `DD ED <Z80N>` routes via Alternate (EXX) not XY_State     | M      | Low      |
-| G174| `on_m1_prefetch` exposes first-byte only (FUSE Z80 boundary) | CPU, Contention                  | C,D |         | Sub-instruction prefetch hooks dropped for multi-byte ops  | H      | Low      |
 
-169 entries. Display-affecting rows: 53 (top of table). Non-display: 116.
+168 entries. Display-affecting rows: 53 (top of table). Non-display: 115.
 
 ---
 
@@ -1444,7 +1443,7 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Dependencies**: per-byte M1 hook from FUSE core OR pre-decode ED 4D / ED 45 in `z80_cpu.cpp`.
 - **Effort**: M.
 - **Status (2026-05-03d)**: ED-prefix path closed. `Z80Cpu::execute()` now fires `on_m1_cycle` on BOTH bytes of the ED-prefix sequence (`z80_cpu.cpp:480-481, 507-508`), the im2 decoder FSM advances S_ED_T4 → S_ED4D_T4 / S_ED45_T4 correctly, and the legacy `prev_ed`+RETN-alias band-aid in `emulator.cpp` was retired.
-- **Follow-up — DD/FD/CB prefix per-byte M1 delivery**: still missing for the non-ED prefix paths in `z80_cpu.cpp:514-525, 527-528`. The im2 decoder FSM has `S_DDFD_T4` and `S_CB_T4` states (`im2_control.vhd:158-209`) that would benefit from per-byte delivery the same way the ED path now does. The SKIP rows targeted by G87 were RETI/RETN only, so these prefixes were left alone — but any future SKIP/audit rows that depend on FSM advancement through DD/FD/CB will need this same per-byte fix. Effort: S (mirror the ED-path two-byte `on_m1_cycle` calls into the DD/FD/CB branches, then verify against `im2_control.vhd:158-209`).
+- **Follow-up — DD/FD/CB prefix per-byte M1 delivery** (also tracked as Task 2 audit V15-CPU-NIT-02 / class-(d) D10): still missing for the non-ED prefix paths in `z80_cpu.cpp:514-525, 527-528`. The im2 decoder FSM has `S_DDFD_T4` and `S_CB_T4` states (`im2_control.vhd:158-209`) that would benefit from per-byte delivery the same way the ED path now does. The SKIP rows targeted by G87 were RETI/RETN only, so these prefixes were left alone — but any future SKIP/audit rows that depend on FSM advancement through DD/FD/CB will need this same per-byte fix. VHDL exposes per-T-state prefetch hooks; FUSE Z80 (jnext's base Z80 core) only exposes a first-byte M1 hook, so the fix requires either modifying upstream FUSE (CLAUDE.md forbids) OR a per-T-state shim layer. Effort: S for ED-path-style mirror; H if the full FUSE-boundary per-T-state hook is needed.
 
 ### G88. NMI does not capture PC into NR 0xC2 / NR 0xC3
 - **What**: VHDL `zxnext.vhd:2050-2085` latches `nr_c2/c3_retn_address_lsb/msb` on `Z80N_command_s = NMIACK_LSB/MSB AND cpu_wr_n='0'` regardless of stackless mode. Read at `:6232-6236`. jnext: no NR 0xC2/0xC3 handlers; `fuse_z80_nmi()` pushes PC but does not propagate. Cross-bucket dup: NEW-CPU-2 = NEW-IM2-1 — kept once.
@@ -1700,20 +1699,12 @@ The contract bug at `src/port/nextreg.cpp:117-123` is unchanged: `NextReg::write
 - **Effort**: H.
 
 ### G173. DD/FD-prefixed Z80N opcode dispatch via XY_State (V15-CPU-NIT-01)
-- **What**: jnext routes Z80N opcodes through the Alternate (EXX) decoder path; VHDL's t80n uses XY_State dispatch for DD/FD-prefixed Z80N. The dispatch shape differs structurally.
+- **What**: jnext routes Z80N opcodes through the Alternate (EXX) decoder path; VHDL's t80n uses XY_State dispatch for DD/FD-prefixed Z80N. The dispatch shape differs structurally. Related but distinct from the G87 follow-up (which is about per-byte `on_m1_cycle` delivery during DD/FD/CB prefix advancement, not the Z80N opcode dispatch path itself).
 - **User impact**: Zero — no software in the wild uses `DD ED <Z80N>` or `FD ED <Z80N>` sequences.
 - **Source ref**: Task 2 audit Pass-15 CPU (V15-CPU-NIT-01), Pass-19/20/21/22/23/24/25 re-confirmed.
 - **Coverage today**: none — defended as VHDL-faithful in spirit but not in dispatch path.
-- **Dependencies**: Z80N decoder rework — multi-file refactor.
+- **Dependencies**: Z80N decoder rework — multi-file refactor. Share half-cycle infrastructure with G87 DD/FD follow-up.
 - **Effort**: M.
-
-### G174. `on_m1_prefetch` exposes first-byte only — FUSE Z80 boundary (V15-CPU-NIT-02)
-- **What**: VHDL exposes per-T-state prefetch hooks; FUSE Z80 (jnext's base Z80 core) only exposes a first-byte M1 hook. Multi-byte instructions (ED/DD/FD-prefixed) don't trigger the hook on subsequent bytes.
-- **User impact**: Affects contention modeling at sub-instruction granularity; not observable per-instruction. Same family as G168/G169/G170.
-- **Source ref**: Task 2 audit Pass-15 CPU (V15-CPU-NIT-02), Pass-19+ re-confirmed.
-- **Coverage today**: none.
-- **Dependencies**: would require modifying upstream FUSE (CLAUDE.md forbids) OR a per-T-state shim layer.
-- **Effort**: H (FUSE boundary).
 
 ---
 
