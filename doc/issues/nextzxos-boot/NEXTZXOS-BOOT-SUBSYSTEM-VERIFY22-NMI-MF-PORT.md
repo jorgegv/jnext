@@ -2,7 +2,8 @@
 
 **Branch:** `task2/verify22-nmi-mf-port`
 **Integration HEAD (pre-audit):** `4cffca6`
-**Audit HEAD (post-fixes, pre-report):** `666a8ff` (V22-NMP-01 fix + tests)
+**Audit HEAD (post-fixes, pre-report):** `666a8ff` (V22-NMP-01 fix + tests — SUBSEQUENTLY REJECTED by reviewer)
+**Fix-of-reviewer HEAD:** (this commit) — V22-NMP-01 reverted; tests flipped to VHDL-correct contract
 **Date:** 2026-05-11
 **Reviewer-blindness:** This pass was conducted without reading prior
 `doc/issues/nextzxos-boot/` reports until after the table + findings
@@ -10,23 +11,27 @@ were complete (per Pass-22 prompt).
 
 ## Findings summary
 
-| ID | Class | Surface | Description |
-|---|---|---|---|
-| V22-NMP-01 | (c) | NR 0xC2 / NR 0xC3 RO-guard | NextReg-port writes accepted into `regs_[0xC2/0xC3]` but VHDL `nr_c2_we` / `nr_c3_we` write strobes are commented out at zxnext.vhd:5601-5605 — registers are RO from the NextReg port (only the Z80N NMIACK_LSB/MSB stack-push pathway writes the latches per VHDL :2060-2063, exposed in jnext via `NextReg::set_nmi_return_address`) |
+**0 findings (final).** Pass-22 NMP is a **CONVERGENCE PASS** for the
+NMI + Multiface + Port + NextREG subsystem.
 
-**1 finding** — class-(c) inert divergence. No class-(a)/(b) found this pass.
+| ID | Class | Surface | Status | Description |
+|---|---|---|---|---|
+| V22-NMP-01 | (c) | NR 0xC2 / NR 0xC3 RO-guard | **DISMISSED — false positive per reviewer** | The Pass-22 audit misread VHDL: the commented-out `nr_c2_we`/`nr_c3_we` at zxnext.vhd:5601-5605 are vestigial duplicates inside a SECOND (clocked) decoder process; the ACTIVE strobe assignments are in the FIRST (combinatorial) decoder process at :4894-4895 and are NOT commented out. The elsif arms at :2064-2067 ARE reachable from NextReg-port writes. Pre-fix jnext was VHDL-faithful; the proposed RO-guard would have introduced a NEW divergence. Reverted in fix-of-reviewer commit; 4 of 6 V22-NMP-01 tests flipped to assert the spec-correct contract (writes DO latch). |
+
+**0 effective findings** — class-(c) "finding" was investigated and
+withdrawn. No class-(a)/(b)/(c) bugs found this pass.
 
 ## Test results (Release build)
 
-| Suite | Pre-fix | Post-fix |
-|---|---|---|
-| ctest | 38/38 PASS | 38/38 PASS |
-| FUSE Z80 | 1356/1356 PASS | 1356/1356 PASS |
-| regression.sh | 33/0/0 | 33/0/0 |
-| nextreg_integration | 272/272 PASS | 278/278 PASS (+6 new V22-NMP-01 rows) |
-| port_test | 102/0/1 PASS/Fail/Skip | 102/0/1 PASS/Fail/Skip |
-| multiface_test | 49/49 PASS | 49/49 PASS |
-| nmi_test | (clean) | (clean) |
+| Suite | Pre-fix | Post-fix (initial bad fix) | Post-revert (final) |
+|---|---|---|---|
+| ctest | 38/38 PASS | 38/38 PASS | 38/38 PASS |
+| FUSE Z80 | 1356/1356 PASS | 1356/1356 PASS | 1356/1356 PASS |
+| regression.sh | 33/0/0 | 33/0/0 | 33/0/0 |
+| nextreg_integration | 272/272 PASS | 278/278 PASS (but 4 enshrined wrong contract) | 278/278 PASS (6 V22-NMP-01 tests assert spec-correct writable contract) |
+| port_test | 102/0/1 PASS/Fail/Skip | 102/0/1 | 102/0/1 |
+| multiface_test | 49/49 PASS | 49/49 PASS | 49/49 PASS |
+| nmi_test | (clean) | (clean) | (clean) |
 
 ## Enumeration table
 
@@ -226,8 +231,8 @@ Some addresses are read-only (RO); some are write-only (WO). Indicated below.
 | B105 | 0xBA | handler | =divmmc.entry_timing_0 | :5590-5591 | :6224 | ✓ | reset default 0x00 |
 | B106 | 0xBB | handler | =divmmc.entry_points_1 | :5593-5594 | :6227 | ✓ | reset default 0xCD |
 | B107 | 0xC0 | handler | composed | :5596-5599 | :6230 | ✓ | bit 4 literal 0; im_mode RO |
-| B108 | 0xC2 | RO-guard+latch | (cached) | :5601-5602 commented + :2050-2085 | :6233 | ✗ **V22-NMP-01** | NextReg-port writes were stored; nr_c2_we commented out in VHDL — RO from NextReg; only Z80N NMIACK_LSB pathway writes the latch (G88) |
-| B109 | 0xC3 | RO-guard+latch | (cached) | :5604-5605 commented + :2050-2085 | :6236 | ✗ **V22-NMP-01** | NextReg-port writes were stored; nr_c3_we commented out in VHDL — RO from NextReg; only Z80N NMIACK_MSB pathway writes the latch (G88) |
+| B108 | 0xC2 | latch (RW) | (cached) | :4894 (we asserted) + :2054-2070 + :1080 | :6232-6233 | ✓ | Writable via NextReg port AND via NMIACK_LSB pathway; both pathways latch into nr_c2_retn_address_lsb (G88 set_nmi_return_address bypasses NextReg::write for the NMIACK path) — V22-NMP-01 dismissed per reviewer |
+| B109 | 0xC3 | latch (RW) | (cached) | :4895 (we asserted) + :2054-2070 + :1081 | :6235-6236 | ✓ | Writable via NextReg port AND via NMIACK_MSB pathway; both pathways latch into nr_c3_retn_address_msb — V22-NMP-01 dismissed per reviewer |
 | B110 | 0xC4 | handler | composed | :5607-5610 + :3621 | :6239 | ✓ | NR 0xC4 b0 NOT → port_ff(6); V12-NMP-01 + V19-IM2-02; bits 6:2 literal "00000" |
 | B111 | 0xC5 | handler | =ctc.get_int_enable | :4897 (we) + :4078 | :6242 | ✓ | CTC int_en |
 | B112 | 0xC6 | handler (& 0x77) | (cached) | :5615-5617 | :6245 | ✓ | UART int_en 0_654_0_210; bits 7 + 3 literal 0 |
@@ -389,7 +394,7 @@ Some addresses are read-only (RO); some are write-only (WO). Indicated below.
 | G25 | Multiface.mode_p3_ / mode_128_ / mode_48_ | save_state | ✓ |
 | G26 | Multiface.mf_type_ (reconstructed from booleans; lossy 01 vs 10) | load_state | ✓ Wave 1 B2 documented limitation |
 | G27 | Multiface.ram_ (8 KB) | save_state | ✓ |
-| G28 | NextReg.regs_ (256 bytes incl. RO NR 0xC2/0xC3 latches) | save_state | ✓ V22-NMP-01 doesn't change persistence — only port-write path |
+| G28 | NextReg.regs_ (256 bytes incl. NR 0xC2/0xC3 RW latches) | save_state | ✓ V22-NMP-01 dismissed — both NextReg-port and NMIACK pathways latch into same regs_[] slot |
 | G29 | NextReg.selected_ | save_state | ✓ |
 | G30 | NextReg.nr_03_config_mode_ / machine_timing_ / user_dt_lock_ / machine_type_ | save_state | ✓ |
 | G31 | NextReg.nr_04_romram_bank_ | save_state | ✓ |
@@ -404,9 +409,10 @@ current code; each was found CLEAN and is listed for traceability:
   0x71 / 0x8A / 0x90 / 0x93 / 0xA8 / 0xC6 / 0xD8 / 0xF8 — all canonicalised
   via write_handler return value (G56 strategy) or composed read handler.
 - **RO-from-NextReg-port** registers (no `nr_*_we` strobe in VHDL): NR 0x01
-  / 0x0E / 0x0F (PASS-8 guard), **NR 0xC2 / NR 0xC3** (V22-NMP-01 this
-  pass). These have no NextReg-port write path; only in-FPGA pathways
-  update the latch (NMIACK_LSB/MSB for 0xC2/0xC3 per VHDL :2060-2063).
+  / 0x0E / 0x0F (PASS-8 guard). NR 0xC2 / NR 0xC3 are **NOT** in this
+  family — they have ACTIVE `nr_c2_we`/`nr_c3_we` strobes at zxnext.vhd
+  :4894-4895 (process A combinatorial decoder) and ARE writable via the
+  NextReg port (V22-NMP-01 dismissed per reviewer).
 - **Multi-writer fan-out** to port_ff_reg(6) (port-FF, NR 0x22 b2, NR 0xC4
   b0 NOT) — V12-NMP-01 / V12-NMP-02 closures, re-verified.
 - **WO-NR readback** (= unmapped read returns "(others=>'0')" per VHDL
@@ -438,12 +444,17 @@ current code; each was found CLEAN and is listed for traceability:
   entries inspected; previously-closed cases (NR 0x68 b1 / NR 0x03 b7 /
   NR 0x07 act gate) confirmed; remaining bits all correctly masked or
   composed. No new literal-zero leak this pass.
-- **NMIACK latch path**: VHDL :2050-2063 latches NR 0xC2/0xC3 from the
-  Z80 NMI-service stack-push on NMIACK_LSB/NMIACK_MSB Z80N commands.
-  jnext exposes this via `NextReg::set_nmi_return_address(pc)` called
-  from `cpu_.on_nmi_servicing` (emulator.cpp:708-710). The setter
-  bypasses `NextReg::write` and writes `regs_[0xC2/0xC3]` directly, so
-  the V22-NMP-01 RO-guard does NOT block this pathway.
+- **NMIACK latch path**: VHDL :2050-2070 latches NR 0xC2/0xC3 from the
+  Z80 NMI-service stack-push on NMIACK_LSB/NMIACK_MSB Z80N commands
+  (priority elsif arms at :2060-2063), AND from the NextReg-port write
+  path (lower-priority elsif arms at :2064-2067, fired by `nr_c2_we`/
+  `nr_c3_we` asserted at :4894-4895). jnext exposes the NMIACK path via
+  `NextReg::set_nmi_return_address(pc)` called from
+  `cpu_.on_nmi_servicing` (emulator.cpp:708-710), which bypasses
+  `NextReg::write` and writes `regs_[0xC2/0xC3]` directly. The NextReg-
+  port write path goes through `NextReg::write` and falls through to the
+  bare `regs_[reg]=val` assignment (no special handler needed — pre-fix
+  jnext was already VHDL-faithful here).
 
 ## Convergence trajectory
 
@@ -460,21 +471,28 @@ current code; each was found CLEAN and is listed for traceability:
 | 19 | 4 | (c)+NIT |
 | 20 | 1 (V20-NMP-02) | (c) |
 | 21 | 3 (V21-NMP-01/02/03) | all (c) |
-| **22** | **1 (V22-NMP-01)** | **(c)** |
+| **22** | **0 (V22-NMP-01 dismissed)** | **n/a** |
 
-The NMI/MF/Port subsystem is **further approaching convergence**: only
-1 finding this pass, class-(c) inert (NR 0xC2/0xC3 cache-pollution-only
-divergence with no boot-path consumer at present — the only reader of
-those registers is the read mux, which now returns the NMIACK-written
-byte verbatim regardless of any NextReg-port write attempts). No class-
-(a)/(b) was found.
+The NMI/MF/Port subsystem has **CONVERGED** at Pass-22: the single
+class-(c) candidate (V22-NMP-01 — NR 0xC2/0xC3 RO-guard) was
+investigated and dismissed by the independent reviewer as a false
+positive (the audit misread vestigial commented-out duplicates in
+process B at :5601-5605 as the only strobe location, missing the ACTIVE
+strobe assignments in process A at :4894-4895). Pre-audit jnext was
+VHDL-faithful for NR 0xC2/0xC3; the proposed fix would have INTRODUCED
+a divergence. Pass-22 therefore yields **0 effective findings** and
+qualifies for convergence-skip in subsequent passes per
+`feedback_task2_converged_subsystem_skip.md` (subject to fix-reviewer
+APPROVE of this remediation).
 
 ## Test enumeration
 
-- nextreg_integration_test: V22-NMP-01-A/B (NR 0xC2/0xC3 RO from NextReg
-  port), V22-NMP-01-C-LSB/C-MSB (NMIACK pathway still latches), V22-NMP-01-
-  D-LSB/D-MSB (post-NMIACK NextReg-port writes silently dropped) = **6 new
-  rows**.
+- nextreg_integration_test: V22-NMP-01-A/B (NR 0xC2/0xC3 NextReg-port
+  writes DO latch — VHDL :4894-4895 + :2064-2067 spec-correct contract,
+  flipped from initial wrong direction per reviewer), V22-NMP-01-C-LSB/
+  C-MSB (NMIACK pathway also latches), V22-NMP-01-D-LSB/D-MSB (post-
+  NMIACK NextReg-port writes OVERWRITE the latch — latest writer wins)
+  = **6 new rows** (group renamed `V22-NMP-01-NRC2-C3-Writable`).
 
 Total new test rows: **6** (all nextreg_integration_test).
 
