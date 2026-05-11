@@ -892,13 +892,29 @@ void SdCardDevice::cmd10_send_cid() {
     //   [3-7]  Product Name = "JNEXT"
     //   [8]    Product Revision = 0x10 (1.0)
     //   [9-12] Product Serial Number = 0x12345678
-    //   [13-14] Reserved + Manufacturing Date (year=2026, month=05) = 0x01 0x65
+    //   [13-14] Reserved + Manufacturing Date (year=2026, month=05) = 0x01 0xA5
     //   [15]   CRC7<<1 | 1 = 0x01
+    //
+    // V24-DIVMMC-01 (Pass-24 convergence pressure-test fix, 2026-05-11): per
+    // SD Physical Layer Simplified Spec v6.00 § 5.2 Table 5-1, the
+    // Manufacturing Date (MDT) field is 12 bits at CID bits [19:8] in format
+    // `year_offset[11:4] | month[3:0]`. Year offset is from 2000. For year
+    // 2026 / month 5: year_offset = 26 = 0x1A, MDT = (0x1A << 4) | 0x5 =
+    // 0x1A5 = `0001 1010 0101`. Maps to:
+    //   CID[13] = `reserved[3:0] | MDT[11:8]` = 0x00 | 0x1 = 0x01
+    //   CID[14] = MDT[7:0] = 0xA5
+    // Pre-fix CID[14] was 0x65 (= MDT[7:0] = `0110 0101`), which decoded to
+    // year_offset = (CID[13][3:0] << 4) | MDT[7:4] = (0x1 << 4) | 0x6 = 0x16
+    // = 22 -> year 2022. The block comment claimed 2026 but the bytes
+    // encoded 2022 -- off by 4 years. Class-(c) cosmetic latent: TBBlue /
+    // NextZXOS / FatFs do not inspect the CID's MDT, but a forensic firmware
+    // / test rig / mmls-style tool that decodes the CID would report the
+    // wrong manufacturing date. Fix: CID[14] -> 0xA5.
     const uint8_t cid[16] = {
         0x03, 'S', 'D', 'J',
         'N', 'E', 'X', 'T',
         0x10, 0x12, 0x34, 0x56,
-        0x78, 0x01, 0x65, 0x01
+        0x78, 0x01, 0xA5, 0x01
     };
 
     resp_buf_.clear();
