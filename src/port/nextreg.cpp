@@ -429,6 +429,21 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     // values from reset() (regs_[0x01]=0x32, regs_[0x0E]=0x03,
     // regs_[0x0F]=0x00) become the read-back source of truth.
     //
+    // V22-NMP-01 (Pass-22 verify-audit fix): NR 0xC2 / NR 0xC3 are also
+    // read-only via the NextReg port path. VHDL zxnext.vhd:5601-5605 has
+    // the `nr_c2_we` / `nr_c3_we` write strobes commented out, so the
+    // write decoder at :4860+ NEVER fires the elsif arms at :2064-2067
+    // that would latch the byte. The ONLY two writers in real hardware
+    // are the Z80N NMIACK_LSB/MSB stack-push pathway (VHDL :2060-2063 —
+    // exposed in jnext via `set_nmi_return_address` called from the CPU
+    // `on_nmi_servicing` callback). Software OUT-via-NextReg writes must
+    // be silently dropped. Pre-fix the raw byte was stored in
+    // regs_[0xC2/0xC3], polluting the read-back contract — read mux at
+    // VHDL :6232-6236 surfaces `nr_c2_retn_address_lsb` /
+    // `nr_c3_retn_address_msb`, both of which are RO from the NextReg
+    // surface. Class-(c) inert in steady state (the only observable
+    // consumer is the read mux itself), but a contract divergence.
+    //
     // Other RO-shaped registers (NR 0x00, NR 0x10, NR 0x14, NR 0x42) are
     // NOT guarded here:
     //   - NR 0x00 has its own read_handler that returns the static 0x08
@@ -438,7 +453,8 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     //     here means writes go through the cache, which IS correct.
     //   - NR 0x14 has a write_handler that fans out to subsystems.
     //   - NR 0x42 has a write_handler.
-    if (reg == 0x01 || reg == 0x0E || reg == 0x0F) {
+    if (reg == 0x01 || reg == 0x0E || reg == 0x0F ||
+        reg == 0xC2 || reg == 0xC3) {
         return;
     }
     // G56 closure (Option C strategy b1): if a handler is registered, it

@@ -5675,6 +5675,110 @@ static void test_v21_nmp_03_nr_07_expbus_speed(Emulator& emu) {
     }
 }
 
+// ── V22-NMP-01 — NR 0xC2 / NR 0xC3 are read-only via the NextReg port ─
+//
+// VHDL zxnext.vhd:5601-5605 has the `nr_c2_we` / `nr_c3_we` write
+// strobes commented out — the write decoder at :4860+ NEVER fires the
+// elsif arms at :2064-2067 that would latch the byte. The only two
+// writers in real hardware are the Z80N NMIACK_LSB/MSB stack-push
+// pathway (VHDL :2060-2063), exposed in jnext via
+// `set_nmi_return_address` called from the CPU `on_nmi_servicing`
+// callback. Software OUT-via-NextReg writes must be silently dropped.
+//
+// Pre-V22-NMP-01 the raw byte was stored in regs_[0xC2/0xC3] (no
+// write_handler registered, NextReg::write fell through to a bare
+// `regs_[reg] = val` assignment), polluting the read-back contract.
+// Read mux at VHDL :6232-6236 surfaces `nr_c2_retn_address_lsb` /
+// `nr_c3_retn_address_msb`, both of which are RO from the NextReg
+// surface.
+//
+// Discriminative: a fresh emulator post-reset has regs_[0xC2]=0 and
+// regs_[0xC3]=0 (no NMI has fired). Writing 0xAA / 0x55 via OUT
+// (0x253B) must NOT change the read-back; the cached value stays at
+// the previous one (the NMI-pathway-written byte, or the
+// power-on/reset default).
+static void test_v22_nmp_01_nr_c2_c3_readonly(Emulator& emu) {
+    set_group("V22-NMP-01-NRC2-C3-ReadOnly");
+
+    // Discriminative #1: NR 0xC2 read-only — write must not change
+    // the read-back. Same shape as TC-NR01-RO / TC-NR0E-RO / TC-NR0F-RO.
+    {
+        emu.reset();
+        const uint8_t before = nr_read(emu, 0xC2);
+        nr_write(emu, 0xC2, 0xAA);          // attempt to overwrite
+        const uint8_t after = nr_read(emu, 0xC2);
+        check("V22-NMP-01-A",
+              "NR 0xC2 RO — write must not change cached value "
+              "[zxnext.vhd:5601-5605 nr_c2_we commented out — no "
+              "NextReg-side write strobe; only NMIACK_LSB pathway "
+              "writes the latch per :2060-2061]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Discriminative #2: NR 0xC3 read-only — symmetric to NR 0xC2.
+    {
+        emu.reset();
+        const uint8_t before = nr_read(emu, 0xC3);
+        nr_write(emu, 0xC3, 0x55);          // attempt to overwrite
+        const uint8_t after = nr_read(emu, 0xC3);
+        check("V22-NMP-01-B",
+              "NR 0xC3 RO — write must not change cached value "
+              "[zxnext.vhd:5601-5605 nr_c3_we commented out — no "
+              "NextReg-side write strobe; only NMIACK_MSB pathway "
+              "writes the latch per :2062-2063]",
+              before == after,
+              "before=" + hex2(before) + " after=" + hex2(after));
+    }
+
+    // Discriminative #3: the NMI servicing pathway IS still allowed to
+    // write the regs (via `set_nmi_return_address`). Verify that the
+    // RO guard only blocks the NextReg port path, not the in-FPGA
+    // NMIACK pathway. We can't easily trigger an actual NMI servicing
+    // event in a unit-style test, but we can directly invoke the
+    // public setter that the CPU callback uses (it goes through
+    // `regs_[]` directly, bypassing `NextReg::write`).
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0xABCD);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-C-LSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC2 latch (NMIACK_LSB path per VHDL :2060-2061)",
+              lsb == 0xCD,
+              "lsb=" + hex2(lsb) + " expected=0xCD");
+        check("V22-NMP-01-C-MSB",
+              "NMIACK pathway via set_nmi_return_address() writes NR "
+              "0xC3 latch (NMIACK_MSB path per VHDL :2062-2063)",
+              msb == 0xAB,
+              "msb=" + hex2(msb) + " expected=0xAB");
+    }
+
+    // Discriminative #4: after NMIACK writes the latches, a NextReg
+    // port-path write must STILL be silently dropped — the read-back
+    // continues to reflect the NMIACK-written value.
+    {
+        emu.reset();
+        emu.nextreg().set_nmi_return_address(0x1234);
+        // Cached: NR 0xC2 = 0x34, NR 0xC3 = 0x12.
+        nr_write(emu, 0xC2, 0xFF);
+        nr_write(emu, 0xC3, 0xFF);
+        const uint8_t lsb = nr_read(emu, 0xC2);
+        const uint8_t msb = nr_read(emu, 0xC3);
+        check("V22-NMP-01-D-LSB",
+              "Post-NMIACK NextReg port write to NR 0xC2 is silently "
+              "dropped — read-back remains the NMIACK-written byte",
+              lsb == 0x34,
+              "lsb=" + hex2(lsb) + " expected=0x34");
+        check("V22-NMP-01-D-MSB",
+              "Post-NMIACK NextReg port write to NR 0xC3 is silently "
+              "dropped — read-back remains the NMIACK-written byte",
+              msb == 0x12,
+              "msb=" + hex2(msb) + " expected=0x12");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -5792,6 +5896,9 @@ int main() {
 
     test_v21_nmp_03_nr_07_expbus_speed(emu);
     std::printf("  Group: V21-NMP-03-NR07-ExpbusSpeed — done\n");
+
+    test_v22_nmp_01_nr_c2_c3_readonly(emu);
+    std::printf("  Group: V22-NMP-01-NRC2-C3-ReadOnly — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
