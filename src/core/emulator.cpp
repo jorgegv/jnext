@@ -349,7 +349,46 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             case MachineType::ZXN_ISSUE2: typ_sel = 0x04; break;
         }
         nextreg_.set_nr_03_machine_type(typ_sel);
+
+        // V24-MEM-01 / V25-MEM-01 fix — also seed nr_03_machine_timing
+        // (tim_sel axis) coherently with the CLI machine type. The
+        // canonical NextZXOS boot path always writes NR 0x03 with
+        // matching tim_sel == typ_sel, so init aligns both axes from a
+        // single CLI choice. Without this, NextReg's
+        // nr_03_machine_timing stays at the VHDL :1099 default 0x03
+        // (+3 timing) regardless of cfg.type — a divergence that
+        // pre-V24-MEM-01 was silently masked because the contention
+        // surfaces consumed typ_sel-derived MachineType. Now that
+        // contention consumes the tim_sel axis, this push keeps the
+        // two axes coherent at boot.
+        uint8_t tim_sel = 0x03;  // ZXN_ISSUE2 default → +3 (VHDL :1099)
+        switch (cfg.type) {
+            case MachineType::ZX48K:      tim_sel = 0x01; break;
+            case MachineType::ZX128K:     tim_sel = 0x02; break;
+            case MachineType::ZX_PLUS3:   tim_sel = 0x03; break;
+            case MachineType::ZXN_ISSUE2: tim_sel = 0x03; break;  // Next → +3 timing (VHDL default)
+        }
+        nextreg_.set_nr_03_machine_timing(tim_sel);
     }
+
+    // V24-MEM-01 / V25-MEM-01 fix — seed both ContentionModel and Mmu
+    // machine_timing fields from the canonical NextReg cached value.
+    // Re-derive from `nr_03_machine_timing` (just-set above) rather
+    // than from cfg.type so the typ_sel/tim_sel pairing stays
+    // single-sourced through NextReg even on soft reset
+    // (preserve_memory=true), where the NR 0x03 fields are
+    // intentionally NOT re-derived from cfg.type (matching the
+    // machine_type preservation semantics at :333-352 above).
+    //
+    // After init, the two axes evolve independently via NR 0x03's two
+    // gated commit paths (zxnext.vhd:5124-5135 for tim_sel vs
+    // :5137-5145 for typ_sel). A user that writes NR 0x03 with
+    // bits 6:4 != bits 2:0 will see them diverge at the next
+    // video-frame edge — observably faithful to VHDL.
+    const MachineTimingMode init_tim_mode =
+        decode_nr_03_machine_timing(nextreg_.nr_03_machine_timing());
+    contention_.set_machine_timing(init_tim_mode);
+    mmu_.set_machine_timing(init_tim_mode);
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
@@ -2311,6 +2350,29 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Same logic as im2_, distinct consumer: cpu_ uses the width to
             // discard a pending interrupt the CPU never acknowledged.
             cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+
+            // V24-MEM-01 / V25-MEM-01 fix — push the decoded
+            // MachineTimingMode (tim_sel axis) into the SHADOW field of
+            // ContentionModel and Mmu. VHDL :5121-5135 writes
+            // `nr_03_machine_timing` immediately on the gated NR 0x03
+            // write; the latch `eff_nr_03_machine_timing` then commits
+            // on the next video-frame edge (:6694-6703 —
+            // `video_frame_sync='1'`). jnext models the same two-step
+            // commit via set_pending_machine_timing() (immediate
+            // shadow) + commit_pending_machine_timing() (frame-edge
+            // promotion, called from run_frame()).
+            //
+            // Note: this is the SOLE consumer of the new
+            // MachineTimingMode axis at the NR 0x03 write seam — IM2 /
+            // CPU pulse-width above (the is_48_or_p3 fan-out) is the
+            // VHDL `pulse_count_end` term at :2033, which keys on
+            // `eff_nr_03_machine_timing` directly (no video-frame
+            // latch), so it commits combinationally. Our `is_48_or_p3`
+            // therefore stays immediate; the new contention/MMU axis
+            // is deferred.
+            const MachineTimingMode tim_mode = decode_nr_03_machine_timing(new_timing);
+            contention_.set_pending_machine_timing(tim_mode);
+            mmu_.set_pending_machine_timing(tim_mode);
         }
 
         // dt_lock XOR-toggle (VHDL :5135) — unconditional XOR with bit 3.
@@ -5568,6 +5630,21 @@ void Emulator::run_frame()
 
     const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
 
+    // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
+    // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
+    //   if video_frame_sync = '1' then
+    //     eff_nr_03_machine_timing <= nr_03_machine_timing;
+    //   end if;
+    // jnext's per-frame seam is the top of run_frame() (one commit per
+    // logical video frame). Pre-fix the contention surfaces keyed on
+    // `MachineType` (typ_sel axis), which silently aligned on the
+    // canonical NextZXOS boot path (tim_sel == typ_sel) but diverged
+    // when a user wrote NR 0x03 with bits 6:4 != bits 2:0. The
+    // shadow→effective commit happens here so contention sees the new
+    // tim_sel value starting at the next frame, matching VHDL.
+    contention_.commit_pending_machine_timing();
+    mmu_.commit_pending_machine_timing();
+
     // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
     // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
     // so the FUSE counter must be frame-relative for ContentionModel::
@@ -7295,6 +7372,26 @@ void Emulator::load_state(StateReader& r)
             (effective_internal_port_enable(0x82) & 0x02) != 0);
         contention_.set_port_ulap_io_en(
             (effective_internal_port_enable(0x85) & 0x01) != 0);
+
+        // V24-MEM-01 / V25-MEM-01 fix — re-sync the machine_timing
+        // axis from the canonical NR 0x03 bits 6:4 cached value.
+        // Mmu::load_state already restored both fields from the
+        // appended schema slot, but for forward compatibility with
+        // older snapshots that predate the slot (or whose load fell
+        // through the !r.eof() guard), we additionally re-derive
+        // from the now-canonical NextReg state. This mirrors the
+        // `set_cpu_speed` / `set_contention_disable` /
+        // `set_port_7ffd_io_en` re-push pattern above.
+        //
+        // Both shadow and effective fields are re-seeded to the
+        // tim_sel-derived MachineTimingMode (mirroring the VHDL
+        // power-on state where both `nr_03_machine_timing` and
+        // `eff_nr_03_machine_timing` are equal until the first
+        // gated NR 0x03 bits-6:4 write hits between save points).
+        const uint8_t nr_03_tim = nextreg_.nr_03_machine_timing();
+        const MachineTimingMode tim_mode = decode_nr_03_machine_timing(nr_03_tim);
+        contention_.set_machine_timing(tim_mode);
+        mmu_.set_machine_timing(tim_mode);
     }
 
     // Audio subsystems.

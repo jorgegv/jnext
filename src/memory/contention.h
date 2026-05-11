@@ -4,6 +4,64 @@
 
 enum class MachineType { ZXN_ISSUE2, ZX48K, ZX128K, ZX_PLUS3 };
 
+// VHDL `machine_timing_48 / _128 / _p3 / _pentagon` (zxnext.vhd:1282-1285)
+// — one-hot per-frame-latched signals derived combinationally from
+// `eff_nr_03_machine_timing` (zxnext.vhd:5761-5777). This is the
+// **tim_sel** axis (NR 0x03 bits 6:4), distinct from the **typ_sel**
+// axis (NR 0x03 bits 2:0) which drives `nr_03_machine_type` →
+// `MachineType` above.
+//
+// VHDL surfaces that consume `machine_timing_*` (not `machine_type_*`):
+//   * :4490-4492 — `mem_contend` per-machine memory-page decode.
+//   * :4481      — `i_contention_en` (Pentagon disables contention).
+//   * :2594      — `port_7ffd_active` (128K/+3 only).
+//   * :4513      — `port_ff_dat_ula` (48K/128K: float; +3/Pentagon: $FF).
+//   * :2033      — pulse_count_end (48K/+3 32-cycle width; otherwise 36).
+//
+// Surfaces that consume `machine_type_*` (not `machine_timing_*`):
+//   * :2981-3008 — `sram_rom` derivation (per-machine ROM bank decode).
+//   * :2986-3005 — altrom override per machine.
+//
+// V24-MEM-01 / V25-MEM-01 fix (Task 2 Pass-24/25 audit): the contention
+// surfaces in jnext previously keyed on `MachineType` (typ_sel-derived),
+// which silently aligned on the canonical boot path (NextZXOS always
+// writes NR 0x03 with matching tim_sel == typ_sel) but diverged when a
+// user wrote NR 0x03 with `tim_sel != typ_sel`. Splitting this axis here
+// matches the VHDL one-to-one.
+enum class MachineTimingMode {
+    Timing48 = 0,        // VHDL machine_timing_48     (nr_03_machine_timing = "000"/"001")
+    Timing128 = 1,       // VHDL machine_timing_128    (nr_03_machine_timing(1:0) = "10")
+    TimingPlus3 = 2,     // VHDL machine_timing_p3     (nr_03_machine_timing(1:0) = "11")
+    TimingPentagon = 3,  // VHDL machine_timing_pentagon (nr_03_machine_timing(2)='1')
+};
+
+// Map a `MachineType` (typ_sel axis) to its canonical `MachineTimingMode`
+// (tim_sel axis). Used at Emulator::init and at hard/soft reset, where the
+// canonical NextZXOS boot path aligns both axes from a single CLI
+// machine-type choice (real Next firmware writes NR 0x03 with bits 6:4 ==
+// bits 2:0). After init, the two axes evolve independently via NR 0x03's
+// two write-gated commit paths (zxnext.vhd:5124-5135 vs :5137-5145).
+inline constexpr MachineTimingMode default_machine_timing_for(MachineType t) {
+    switch (t) {
+        case MachineType::ZX48K:      return MachineTimingMode::Timing48;
+        case MachineType::ZX128K:     return MachineTimingMode::Timing128;
+        case MachineType::ZX_PLUS3:   return MachineTimingMode::TimingPlus3;
+        case MachineType::ZXN_ISSUE2: return MachineTimingMode::Timing128;
+    }
+    return MachineTimingMode::Timing128;
+}
+
+// Decode the 3-bit `nr_03_machine_timing` field (post-:5126-5131
+// normalisation) into one of the four one-hot `machine_timing_*`
+// modes per VHDL zxnext.vhd:5761-5777. Bit 2 (=Pentagon) takes
+// priority; otherwise bits[1:0]=2 → 128, =3 → +3, anything else → 48.
+inline constexpr MachineTimingMode decode_nr_03_machine_timing(uint8_t v) {
+    if ((v & 0x04) != 0) return MachineTimingMode::TimingPentagon;
+    if ((v & 0x03) == 0x02) return MachineTimingMode::Timing128;
+    if ((v & 0x03) == 0x03) return MachineTimingMode::TimingPlus3;
+    return MachineTimingMode::Timing48;
+}
+
 class ContentionModel {
 public:
     void build(MachineType type);
@@ -147,6 +205,58 @@ public:
     void set_port_ulap_io_en(bool en) { port_ulap_io_en_ = en; }
     bool port_ulap_io_en() const { return port_ulap_io_en_; }
 
+    // ── V24-MEM-01 / V25-MEM-01 fix — machine_timing_ axis split ──────
+    // VHDL anchor: zxnext.vhd:5761-5777 (combinational decode of
+    // `eff_nr_03_machine_timing` into one-hot `machine_timing_48 / _128 /
+    // _p3 / _pentagon`); :6694-6703 (latch `eff_nr_03_machine_timing <=
+    // nr_03_machine_timing` on `video_frame_sync='1'`). The contention
+    // surfaces (`mem_contend` at :4489-4493, `i_contention_en` at :4481,
+    // `port_7ffd_active` at :2594) consume the one-hot
+    // `machine_timing_*`, NOT the `machine_type_*` set fed by NR 0x03
+    // bits 2:0 (typ_sel).
+    //
+    // The pair (`pending_machine_timing_`, `machine_timing_`) mirrors the
+    // (`nr_03_machine_timing`, `eff_nr_03_machine_timing`) latch pair in
+    // VHDL. NR 0x03 writes the shadow immediately (`set_pending`); the
+    // emulator's per-frame seam calls `commit_pending_machine_timing()`
+    // at the video-frame edge to promote it.
+    //
+    // Power-on default: VHDL :1099 `nr_03_machine_timing := "011"` (+3
+    // timing) AND :1377 `eff_nr_03_machine_timing := "011"`. We follow
+    // the same default but Emulator::init explicitly pushes the
+    // tim_sel matching the CLI MachineType, so this default only
+    // matters for unit-test fixtures that bypass Emulator.
+
+    /// Immediate-commit: set BOTH the shadow and effective fields. Used
+    /// by tests that need a known timing mode without modelling the
+    /// video-frame commit edge. Production NR 0x03 dispatch should
+    /// instead call set_pending_machine_timing() and let
+    /// commit_pending_machine_timing() promote on the next frame edge.
+    void set_machine_timing(MachineTimingMode m) {
+        machine_timing_         = m;
+        pending_machine_timing_ = m;
+    }
+
+    /// Update the **shadow** value (mirror of `nr_03_machine_timing`)
+    /// only — the next commit_pending_machine_timing() call will
+    /// promote it to the effective field. Models VHDL :5121-5135's
+    /// gated write to nr_03_machine_timing (immediate on the gated
+    /// NR 0x03 write).
+    void set_pending_machine_timing(MachineTimingMode m) {
+        pending_machine_timing_ = m;
+    }
+
+    /// Commit shadow → effective per VHDL :6694-6703 (`video_frame_sync
+    /// = '1'`). Idempotent — re-running on the same frame edge is a
+    /// no-op. Production callers invoke this from Emulator::run_frame()
+    /// at the per-frame seam (one commit per video frame).
+    void commit_pending_machine_timing() {
+        machine_timing_ = pending_machine_timing_;
+    }
+
+    MachineTimingMode machine_timing() const { return machine_timing_; }
+    MachineTimingMode pending_machine_timing() const { return pending_machine_timing_; }
+
     uint8_t mem_active_page()    const { return mem_active_page_; }
     uint8_t cpu_speed()          const { return cpu_speed_; }
     uint8_t pending_cpu_speed()  const { return pending_cpu_speed_; }
@@ -262,4 +372,12 @@ private:
     // `port_7ffd_io_en_` convention (false default, explicit push) for
     // consistency.
     bool    port_ulap_io_en_           = false;
+    // V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split.
+    //   pending_machine_timing_  ← shadow (NR 0x03 bits 6:4 immediate)
+    //   machine_timing_          ← effective (video-frame-latched)
+    // VHDL :1099/:1377 power-on default = "011" (+3 timing); kept here.
+    // Emulator::init pushes the tim_sel matching the CLI MachineType so
+    // this default only matters for unit-test fixtures.
+    MachineTimingMode machine_timing_         = MachineTimingMode::TimingPlus3;
+    MachineTimingMode pending_machine_timing_ = MachineTimingMode::TimingPlus3;
 };
