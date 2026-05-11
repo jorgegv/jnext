@@ -3201,8 +3201,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0x8003, 0x0001,
         nullptr,
         [this](uint16_t port, uint8_t v) {
-            // VHDL 2593: on +3 timing, require A14=1
-            if (config_.type == MachineType::ZX_PLUS3 && (port & 0x4000) == 0) return;
+            // VHDL :2593 (port_7ffd):
+            //   cpu_a(15)='0' AND (cpu_a(14)='1' OR p3_timing_hw_en='0') AND ...
+            // p3_timing_hw_en (VHDL :2457) one-hot mirrors `machine_timing_p3`
+            // — tim_sel axis, NOT typ_sel. D3F-NIT-01 (follow-up to D3F-01):
+            // route through `mmu_.machine_timing()` so a user-written
+            // NR 0x03 with `tim_sel != typ_sel` toggles the A14 gate via
+            // the same tim_sel axis the VHDL keys on.
+            if (mmu_.machine_timing() == MachineTimingMode::TimingPlus3
+                && (port & 0x4000) == 0) return;
             // VHDL 2399: port_7ffd_io_en <= internal_port_enable(1) = NR 0x82 bit 1
             // V16-NMP-02: route through effective_internal_port_enable so
             // expbus_eff_en=1 ANDs in NR 0x86 b1 per VHDL :2392-2393.
@@ -3232,15 +3239,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // ROM3-conditional auto-map. Switch to the VHDL-faithful
             // `sram_rom3()` accessor.
             divmmc_.set_rom3_active(mmu_.sram_rom3());
-            // Update 0xC000 contention based on machine type (VHDL zxnext.vhd:4489-4493):
-            //   128K: odd banks (1,3,5,7) are contended
-            //   +3:   banks >= 4 (4,5,6,7) are contended
+            // Update 0xC000 contention based on machine timing (VHDL zxnext.vhd:4489-4493):
+            //   mem_contend <= ... when machine_timing_128='1' and mem_active_page(1)='1' else  -- odd
+            //                  ... when machine_timing_p3 ='1' and mem_active_page(3)='1' else  -- >=4
+            // The pattern selector keys on `machine_timing_*` (tim_sel axis),
+            // NOT `machine_type_` (typ_sel axis). Same family as
+            // V24-MEM-01 (canonical `Mmu::mem_contend_for_` consumer) and
+            // D3F-01/02/03 (port-handler gates). D3F-NIT-02 (follow-up):
+            // route through `mmu_.machine_timing()` so a user-written
+            // NR 0x03 with `tim_sel != typ_sel` selects the correct
+            // pattern via the same tim_sel axis the VHDL keys on.
             uint8_t bank = v & 0x07;
             bool slot3_contended;
-            if (config_.type == MachineType::ZX_PLUS3)
+            const MachineTimingMode tim = mmu_.machine_timing();
+            if (tim == MachineTimingMode::TimingPlus3)
                 slot3_contended = (bank >= 4);
-            else
+            else if (tim == MachineTimingMode::Timing128)
                 slot3_contended = (bank & 1) != 0;
+            else
+                slot3_contended = false;  // 48K / Pentagon: bank-switched slot 3 not contended
             contention_.set_contended_slot(3, slot3_contended);
             // Mirror per-16K-slot contention into Mmu so the
             // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509)
@@ -3551,7 +3568,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xF003, 0x0001,
         [this](uint16_t) -> uint8_t {
             // VHDL zxnext.vhd:2589 — p3_timing_hw_en gate.
-            if (config_.type != MachineType::ZX_PLUS3) return 0x00;
+            // D3F-01 fix: gate on `machine_timing_` (tim_sel axis) per VHDL
+            // :2589 `p3_timing_hw_en = '1'`. `p3_timing_hw_en` is the
+            // one-hot mirror of `machine_timing_p3` (VHDL :1283); using
+            // `config_.type` would silently mis-decode when NR 0x03 is
+            // written with `tim_sel != typ_sel`.
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0x00;
             // VHDL zxnext.vhd:2403 — port_p3_floating_bus_io_en = NR 0x82 bit 4.
             if ((effective_internal_port_enable(0x82) & 0x10) == 0) return 0x00;
             // VHDL zxnext.vhd:4517 — gates on `port_7ffd_locked` (the
@@ -3685,7 +3707,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xC007, 0x8005,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x84) & 0x01) == 0) return 0xFF;  // gated off
-            if (config_.type != MachineType::ZX_PLUS3) return 0xFF;  // +3 alias only
+            // D3F-02 fix: gate on `machine_timing_` (tim_sel axis) per VHDL
+            // :2771 `port_bffd and machine_timing_p3`; previously keyed on
+            // `config_.type` and silently mis-decoded when NR 0x03 was
+            // written with `tim_sel != typ_sel`.
+            if (mmu_.machine_timing() != MachineTimingMode::TimingPlus3) return 0xFF;  // +3 alias only
             return turbosound_.reg_read(false);
         },
         [this](uint16_t, uint8_t val) {
@@ -6822,12 +6848,19 @@ uint8_t Emulator::floating_bus_read() const
     // Only 48K and 128K timings deliver the ULA floating bus. +3 keeps
     // 0xFF on this path (its floating-bus surface is port 0x0FFD, which
     // Branch B handles separately). Pentagon and the Next default also
-    // collapse to 0xFF here — for Next the runtime `nr_03_machine_timing`
-    // could in principle re-enable 48K/128K timing, but Branch A follows
-    // the prompt's simplification (Next → 0xFF) and leaves the runtime
-    // re-classification to a follow-up if the test plan demands it.
-    if (config_.type != MachineType::ZX48K && config_.type != MachineType::ZX128K) {
-        return 0xFF;
+    // collapse to 0xFF here.
+    //
+    // D3F-03 fix: gate on `machine_timing_` (tim_sel axis) per VHDL :4513
+    // `machine_timing_48 = '1' or machine_timing_128 = '1'`. The earlier
+    // version keyed on `config_.type`, which silently mis-decoded when NR
+    // 0x03 was written with `tim_sel != typ_sel` (the Next runtime path
+    // flagged as the prior follow-up note). With the V24-MEM-01 split,
+    // `mmu_.machine_timing()` is the authoritative tim_sel mirror.
+    {
+        const MachineTimingMode tim = mmu_.machine_timing();
+        if (tim != MachineTimingMode::Timing48 && tim != MachineTimingMode::Timing128) {
+            return 0xFF;
+        }
     }
 
     // ---- 3. ULA floating-bus content (48K/128K only) ----

@@ -1915,6 +1915,161 @@ static void test_group_wired_or() {
     }
 }
 
+// ── Group I. D3 follow-up NITs — tim_sel axis (machine_timing_) ───────
+//
+// D3 / D3F-01/02/03 / V24-MEM-01 split the typ_sel (config_.type) and
+// tim_sel (mmu_.machine_timing()) axes wherever the VHDL gates key on
+// `machine_timing_*`. The reviewer of D3F-01/02/03 (HEAD 11d5f537)
+// surfaced two additional adjacent sites in `Emulator`'s 0x7FFD write
+// handler that still keyed on `config_.type` where the VHDL keys on
+// `machine_timing_*`:
+//
+//   1. emulator.cpp:3205 — port 0x7FFD A14 gate, VHDL :2593:
+//      `port_7ffd <= '1' when cpu_a(15)='0' AND (cpu_a(14)='1' OR
+//                    p3_timing_hw_en='0') AND ...`
+//      `p3_timing_hw_en` (:2457) mirrors `machine_timing_p3`.
+//
+//   2. emulator.cpp:3240 — slot-3 contention pattern selector, VHDL :4489-4493:
+//      `mem_contend <= ... when machine_timing_128='1' AND mem_active_page(1)='1' else  -- odd
+//                       ... when machine_timing_p3 ='1' AND mem_active_page(3)='1' else  -- >=4 ...`
+//      Pattern keys on `machine_timing_*` (tim_sel), NOT machine_type
+//      (typ_sel). V24-MEM-01 fixed the canonical `Mmu::mem_contend_for_`
+//      consumer; this is the secondary update in the 0x7FFD write handler.
+//
+// Discriminator pattern (same as FB-D3F-01/02/03 + FIX-CONTEND-NR03-INT-01):
+// init 48K (typ_sel=48K, tim_sel=Timing48), then write
+// `NR 0x03 = 0xB1` (bit7=1 commit, tim_sel=3=+3 timing, typ_sel=1=48K).
+// After `run_frame()` the per-frame `commit_pending_machine_timing()`
+// promotes shadow → effective: machine_timing()==TimingPlus3 while
+// config_.type stays at ZX48K. The two-axis-split path is now hot;
+// observe each handler's gate via the divergent decision.
+static void test_group_d3f_nits() {
+    set_group("Group I — D3 follow-up NITs (tim_sel axis)");
+
+    // D3F-NIT-01-PORT-7FFD-A14 — port 0x7FFD A14 gate keys on
+    // machine_timing_, not config_.type. VHDL zxnext.vhd:2593 / :2457.
+    //
+    // Pre-fix: gate `config_.type == ZX_PLUS3 && A14==0 → reject`.
+    //   With typ_sel=48K (config_.type==ZX48K) and tim_sel=+3, the gate
+    //   is FALSE → port_7ffd write at A14=0 proceeds → port_7ffd latch
+    //   updates with the bank byte.
+    // Post-fix: gate `machine_timing() == TimingPlus3 && A14==0 → reject`.
+    //   With tim_sel=+3 (machine_timing()==TimingPlus3) and A14=0, the
+    //   gate is TRUE → port_7ffd write is rejected → port_7ffd latch
+    //   stays at its initial value.
+    //
+    // Probe port: 0x3FFD (A15=0, A14=0, A13:12=11, A1:0=01). This is in
+    // the `port_xffd` family (A15:14=00) — wait, A15:14 of 0x3FFD is
+    // "00" → that's port_xffd / port_1ffd, NOT port_fd. Need a port with
+    // A15=0, A14=0, A1=0, A0=1 that maps to the 7FFD handler's mask
+    // (0x8003 / 0x0001). The handler's mask only requires A15=0, A1=0,
+    // A0=1; the +3-handler at mask 0xF003 only wins for A15:12=0001
+    // (0x1FFD). So 0x2001 (A15=0, A14=0, A13=1, A12=0, A1=0, A0=1) — or
+    // 0x0001 (all A15:2 zero) — both hit only this handler.
+    // Pick 0x2001: A14=0 to exercise the gate, no collision with
+    // 0x1FFD (+3 handler) or 0x0FFD (port_p3_float).
+    {
+        Emulator emu;
+        build_next_emulator(emu);  // ZXN_ISSUE2: tim_sel default = +3
+
+        // Drive emulator to: tim_sel=+3, typ_sel=48K via NR 0x03 = 0xB1.
+        // We start from Next mode (the only init that admits a free
+        // tim_sel/typ_sel split via post-init NR 0x03 writes without
+        // running through rebuild_for_type at the same time as the
+        // tim_sel commit). Then write NR 0x03 = 0xB1: bit7=1 commit gate,
+        // tim_sel=3 (+3 timing), typ_sel=1 (48K type).
+        emu.nextreg().write(0x03, 0xB1);
+        emu.run_frame();  // commit pending → effective machine_timing.
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        // Latch pre-state.
+        const uint8_t pre_latch = emu.mmu().port_7ffd();
+
+        // Probe write with A14=0 (port 0x2001). VHDL :2593: under +3
+        // timing, the A14=1 alternative of the OR fails AND
+        // p3_timing_hw_en='1' fails too → port_7ffd inactive → write
+        // must be silently dropped.
+        emu.port().out(0x2001, 0x05);
+
+        const uint8_t post_latch = emu.mmu().port_7ffd();
+
+        // Post-fix: latch unchanged. Pre-fix: latch == 0x05 (write
+        // accepted because gate keyed on config_.type==ZX_PLUS3 which
+        // is false for ZX48K). We assert latch == pre_latch.
+        check("D3F-NIT-01-PORT-7FFD-A14",
+              "port 0x7FFD A14 gate keys on machine_timing_ (tim_sel) "
+              "per VHDL :2593 — NR 0x03 = 0xB1 commits tim_sel=+3 + "
+              "typ_sel=48K → OUT 0x2001 (A14=0) rejected post-fix; "
+              "pre-fix accepted (config_.type==ZX48K skipped the gate)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX48K
+                  && post_latch == pre_latch,
+              DETAIL("tim_after=%d (want %d=TimingPlus3) "
+                     "typ_after=%d (want %d=ZX48K) "
+                     "pre=0x%02X post=0x%02X (want equal)",
+                     (int)tim_after, (int)MachineTimingMode::TimingPlus3,
+                     (int)typ_after, (int)MachineType::ZX48K,
+                     pre_latch, post_latch));
+    }
+
+    // D3F-NIT-02-SLOT3-CONTENTION — secondary slot-3 contention update
+    // in the 0x7FFD write handler keys on machine_timing_ (tim_sel),
+    // not config_.type. VHDL zxnext.vhd:4489-4493.
+    //
+    // Pre-fix: `if (config_.type == ZX_PLUS3) slot3 = (bank >= 4); else
+    //           slot3 = (bank & 1) != 0;`
+    //   With typ_sel=48K and tim_sel=+3, bank=4 → pre-fix takes the
+    //   else branch → (4 & 1) = 0 → slot3 NOT contended.
+    // Post-fix: switches on machine_timing(). With tim_sel=+3, bank=4
+    //   → (4 >= 4) → slot3 IS contended.
+    //
+    // Discriminator: bank=4. +3 pattern says contended; 128K odd-only
+    // pattern says not. Use OUT 0x7FFD (A14=1) so the NIT-1 gate above
+    // permits the write under +3 timing.
+    {
+        Emulator emu;
+        build_next_emulator(emu);  // Next mode
+
+        // tim_sel=+3, typ_sel=48K — same as NIT-01 above.
+        emu.nextreg().write(0x03, 0xB1);
+        emu.run_frame();
+
+        const MachineTimingMode tim_after = emu.mmu().machine_timing();
+        const MachineType       typ_after = emu.mmu().machine_type();
+
+        // Clear slot-3 contention to baseline.
+        emu.mmu().set_slot_contended(3, false);
+
+        // Issue port 0x7FFD write with bank=4. A14=1 in port 0x7FFD
+        // satisfies the NIT-1 gate even under +3 timing.
+        emu.port().out(0x7FFD, 0x04);
+
+        const bool slot3_after = emu.mmu().slot_contended(3);
+
+        // Post-fix: slot3_after == true (since machine_timing_p3 + bank≥4).
+        // Pre-fix: slot3_after == false (since config_.type==ZX48K → else
+        // branch → bank & 1 == 0 → false).
+        check("D3F-NIT-02-SLOT3-CONTENTION",
+              "0x7FFD write-handler slot-3 contention pattern keys on "
+              "machine_timing_ (tim_sel) per VHDL :4489-4493 — NR 0x03 "
+              "= 0xB1 commits tim_sel=+3 + typ_sel=48K → OUT 0x7FFD with "
+              "bank=4 sets slot3 contended (+3 pattern: bank>=4) "
+              "post-fix; pre-fix left slot3 uncontended (else-branch "
+              "128K odd pattern bank & 1 == 0)",
+              tim_after == MachineTimingMode::TimingPlus3
+                  && typ_after == MachineType::ZX48K
+                  && slot3_after == true,
+              DETAIL("tim_after=%d (want %d=TimingPlus3) "
+                     "typ_after=%d (want %d=ZX48K) "
+                     "slot3_after=%d (want 1)",
+                     (int)tim_after, (int)MachineTimingMode::TimingPlus3,
+                     (int)typ_after, (int)MachineType::ZX48K,
+                     (int)slot3_after));
+    }
+}
+
 // ── Main driver ───────────────────────────────────────────────────────
 
 static void print_summary() {
@@ -1949,6 +2104,7 @@ int main(int, char**) {
     test_group_iorq();
     test_group_automap();
     test_group_wired_or();
+    test_group_d3f_nits();
 
     print_summary();
     return g_fail ? 1 : 0;
